@@ -1,6 +1,8 @@
-# EchoMusic
+# EchoMusicLegacy
 
 一个基于 Electron + Vue 3 的跨平台桌面音乐播放器。
+
+请移步新仓库 [EchoMusic](https://github.com/hoowhoami/EchoMusic)
 
 ## ✨ 特性
 
