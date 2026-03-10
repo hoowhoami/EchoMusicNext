@@ -335,8 +335,6 @@ async function startServer() {
         platform: 'lite', // 酷狗概念版
         CORS_ALLOW_ORIGIN: '*',
         PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
-        // 如果.env文件存在，设置路径让应用能找到
-        ...(envPath && require('fs').existsSync(envPath) ? { DOTENV_CONFIG_PATH: envPath } : {}),
       },
       cwd: app.isPackaged ? path.dirname(envPath || process.resourcesPath) : currentWorkingDir,
       // Windows 下隐藏命令行窗口
