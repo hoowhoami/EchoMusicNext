@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "axios": "^1.13.6",
+    "electron-log": "^5.4.3",
     "pinia": "^2.3.1",
     "pinia-plugin-persistedstate": "^4.2.0",
     "reka-ui": "^2.9.2",

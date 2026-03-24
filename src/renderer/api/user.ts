@@ -122,10 +122,11 @@ export function getUserHistory(bp?: string) {
 }
 
 /**
- * 获取云盘歌曲
+ * 上传播放历史
+ * @param mixSongId 歌曲 mixSongId
  */
-export function getUserCloud(page = 1, pagesize = 30) {
-  return request.get('/user/cloud', {
-    params: { page, pagesize }
+export function uploadPlayHistory(mxid: number | string) {
+  return request.get('/playhistory/upload', {
+    params: { mxid }
   });
 }

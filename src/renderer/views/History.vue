@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { usePlaylistStore } from '../stores/playlist';
 import { usePlayerStore } from '../stores/player';
+import Cover from '../components/ui/Cover.vue';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
@@ -27,7 +28,7 @@ const playSong = (id: string) => {
         >
           <div class="w-12 text-sm font-bold opacity-40">{{ index + 1 }}</div>
           <div class="flex-1 flex items-center gap-4">
-            <img :src="song.coverUrl" class="w-10 h-10 rounded-lg object-cover" />
+            <Cover :url="song.coverUrl" :size="100" :width="40" :height="40" :borderRadius="8" />
             <span :class="['text-sm font-bold', playerStore.currentTrackId === song.id ? 'text-primary' : 'text-text-main']">
               {{ song.title }}
             </span>

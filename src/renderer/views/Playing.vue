@@ -5,6 +5,8 @@ import { usePlayerStore } from '../stores/player';
 import { usePlaylistStore, type Song } from '../stores/playlist';
 import { useLyricStore } from '../stores/lyric';
 import OverlayHeader from '../layouts/OverlayHeader.vue';
+import Cover from '../components/ui/Cover.vue';
+import { getCoverUrl } from '../utils/music';
 
 const router = useRouter();
 const player = usePlayerStore();
@@ -15,6 +17,8 @@ const currentTrack = computed(() => {
   return playlist.defaultList.find((s: Song) => s.id === player.currentTrackId) || 
          playlist.favorites.find((s: Song) => s.id === player.currentTrackId);
 });
+
+const backgroundUrl = computed(() => getCoverUrl(currentTrack.value?.coverUrl, 400));
 
 // 歌词滚动逻辑
 const lyricListRef = ref<HTMLElement | null>(null);
@@ -53,8 +57,8 @@ onMounted(() => {
     <!-- 1. 背景高斯模糊 -->
     <div class="absolute inset-0 z-0 transition-all duration-1000 overflow-hidden">
        <div 
-        class="absolute inset-0 bg-cover bg-center scale-110 blur-[80px] opacity-20 dark:opacity-40 saturate-150 transition-opacity"
-        :style="{ backgroundImage: `url(${currentTrack?.coverUrl})` }"
+        class="absolute inset-0 bg-cover bg-center scale-110 blur-[80px] opacity-20 dark:opacity-40 saturate-150 transition-all duration-1000"
+        :style="{ backgroundImage: `url(${backgroundUrl})` }"
        ></div>
        <div class="absolute inset-0 bg-bg-main/40 dark:bg-black/40"></div>
     </div>
@@ -74,11 +78,11 @@ onMounted(() => {
       <div class="flex-1 flex flex-col items-center justify-center space-y-8 animate-slide-right">
         <div class="relative group">
           <div class="w-64 h-64 lg:w-96 lg:h-96 rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-all duration-500 group-hover:scale-[1.02]">
-            <img :src="currentTrack?.coverUrl" class="w-full h-full object-cover" />
+            <Cover :url="currentTrack?.coverUrl" :size="800" class="w-full h-full" :borderRadius="24" />
           </div>
           <!-- 封面发光装饰 -->
           <div 
-            class="absolute -inset-4 blur-3xl opacity-20 -z-10 bg-primary/40 rounded-full"
+            class="absolute -inset-4 blur-3xl opacity-20 -z-10 bg-primary/40 rounded-full transition-all duration-1000"
             :style="{ background: `radial-gradient(circle, ${'#0071E3'} 0%, transparent 70%)` }"
           ></div>
         </div>

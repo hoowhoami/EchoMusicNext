@@ -4,6 +4,7 @@ import { computed, ref } from 'vue';
 import { usePlayerStore } from '../stores/player';
 import { usePlaylistStore, type Song } from '../stores/playlist';
 import { SliderRoot, SliderTrack, SliderRange, SliderThumb } from 'reka-ui';
+import Cover from '../components/ui/Cover.vue';
 
 const router = useRouter();
 const player = usePlayerStore();
@@ -61,7 +62,15 @@ const isHoveringProgress = ref(false);
       <!-- 1. 左侧：歌曲信息 (完全复刻 _PlayerSongInfo) -->
       <div class="flex items-center gap-3 w-[260px] shrink-0">
         <div class="relative w-[50px] h-[50px] shrink-0 cursor-pointer group rounded-lg overflow-hidden bg-black/[0.04] dark:bg-white/[0.04]" @click="navigateToPlaying">
-          <img v-if="currentTrack" :src="currentTrack.coverUrl" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+          <Cover 
+            v-if="currentTrack" 
+            :url="currentTrack.coverUrl" 
+            :size="200" 
+            :width="50" 
+            :height="50" 
+            :borderRadius="8"
+            class="transition-transform duration-500 group-hover:scale-110" 
+          />
           <div v-else class="w-full h-full flex items-center justify-center text-text-main/20">
              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
           </div>

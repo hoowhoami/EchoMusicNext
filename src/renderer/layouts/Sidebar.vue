@@ -1,22 +1,41 @@
 <script setup lang="ts">
 import { useRouter, useRoute } from 'vue-router';
-import { computed } from 'vue';
+import { computed, onMounted, watch, ref } from 'vue';
 import { useUserStore } from '../stores/user';
+import { usePlaylistStore } from '../stores/playlist';
 import Avatar from '../components/ui/Avatar.vue';
+import Cover from '../components/ui/Cover.vue';
 
 const router = useRouter();
 const route = useRoute();
 const userStore = useUserStore();
+const playlistStore = usePlaylistStore();
 
 const isMac = computed(() => window.electron.platform === 'darwin');
 const isLoggedIn = computed(() => userStore.isLoggedIn);
 const userInfo = computed(() => userStore.info);
 
+// 歌单页签状态：0 为自建，1 为收藏
+const activePlaylistTab = ref(0);
+
+// 歌单分类逻辑 (复刻 Flutter UserProvider)
+const createdPlaylists = computed(() => 
+  playlistStore.userPlaylists.filter(p => p.list_create_userid === userInfo.value?.userid)
+);
+
+const favoritedPlaylists = computed(() => 
+  playlistStore.userPlaylists.filter(p => p.list_create_userid !== userInfo.value?.userid && p.source !== 2)
+);
+
+const favoritedAlbums = computed(() => 
+  playlistStore.userPlaylists.filter(p => p.source === 2)
+);
+
 const menuGroups = [
   {
     title: '发现音乐',
     items: [
-      { name: '为您推荐', path: '/main/home', icon: 'rocket' },
+      { name: '为您推荐', path: '/main/home', icon: 'sparkles' },
       { name: '探索发现', path: '/main/explore', icon: 'compass' },
       { name: '全网搜索', path: '/main/search', icon: 'search' },
     ]
@@ -32,13 +51,17 @@ const menuGroups = [
 ];
 
 const navigateTo = (path: string) => {
-  console.log('[Sidebar] Navigating to:', path);
   router.push(path);
 };
 
-// 图标渲染映射
+const navigateToPlaylist = (playlist: any) => {
+  const id = playlist.listid || playlist.specialid || playlist.gid;
+  router.push({ path: '/main/playlist-detail', query: { id } });
+};
+
+// 图标渲染映射 (Lucide 风格)
 const getIcon = (name: string) => {
-  if (name === 'rocket') return '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.71-2.13.71-2.13l-4.42-.87zM21 3s-9 0-12 9c-1.2 3.6 0 7 0 7l3-3c0 0-1-1 0-3s3-3 3-3l3-3s1 1 3 0l-3-3z"/>';
+  if (name === 'sparkles') return '<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>';
   if (name === 'compass') return '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>';
   if (name === 'search') return '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>';
   if (name === 'clock') return '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>';
@@ -46,18 +69,37 @@ const getIcon = (name: string) => {
   if (name === 'heart') return '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>';
   return '';
 };
+
+// 初始加载和登录状态监听
+const syncCloudData = () => {
+  if (isLoggedIn.value) {
+    userStore.fetchUserInfo();
+    playlistStore.fetchUserPlaylists();
+  }
+};
+
+onMounted(() => {
+  syncCloudData();
+});
+
+watch(isLoggedIn, (val) => {
+  if (val) {
+    syncCloudData();
+  } else {
+    playlistStore.userPlaylists = [];
+  }
+});
 </script>
 
 <template>
   <aside class="sidebar h-full flex flex-col bg-bg-sidebar border-r border-border-light select-none transition-all duration-300 relative">
     
-    <!-- 1. 顶部拖拽区 (增加高度以适配 macOS 红绿灯) -->
+    <!-- 固定区域 1: 顶部拖拽区 -->
     <div :class="['drag w-full shrink-0', isMac ? 'h-14' : 'h-10']"></div>
     
-    <!-- 2. 用户信息 card (1:1 复刻 EchoMusic style) -->
+    <!-- 固定区域 2: 用户卡片 -->
     <div :class="['px-4 pb-3 shrink-0 no-drag', isMac ? 'mt-2' : 'mt-0']">
       <div class="user-info-card flex items-center bg-bg-info-card border border-black/[0.08] dark:border-white/10 rounded-[20px] p-1 transition-all duration-200">
-        <!-- 2.1 头像 & 昵称 -->
         <div 
           @click="navigateTo(isLoggedIn ? '/main/profile' : '/login')"
           class="flex-1 flex items-center gap-3 p-1.5 rounded-[14px] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] cursor-pointer transition-all active:scale-[0.98]"
@@ -74,24 +116,24 @@ const getIcon = (name: string) => {
             </span>
           </div>
         </div>
-
-        <!-- 2.2 垂直分割线 (Flutter withAlpha(40)) -->
         <div class="w-[1px] h-[22px] bg-black/[0.1] dark:bg-white/[0.1] mx-1.5"></div>
-
         <!-- 2.3 设置按钮 -->
         <button 
           @click="navigateTo('/main/settings')"
           class="p-2 mr-1 rounded-[14px] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] text-text-secondary transition-all active:scale-90"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0-6c-1.1 0-2 .9-2 2v.1c-1 .3-1.9.8-2.6 1.4l-.1-.1c-.8-.8-2.1-.8-2.9 0-.8.8-.8 2.1 0 2.9l.1.1c-.6.7-1.1 1.6-1.4 2.6H3c-1.1 0-2 .9-2 2s.9 2 2 2h.1c.3 1 .8 1.9 1.4 2.6l-.1.1c-.8.8-.8 2.1 0 2.9.8.8 2.1.8 2.9 0l.1-.1c.7.6 1.6 1.1 2.6 1.4v.1c0 1.1.9 2 2 2s2-.9 2-2v-.1c1-.3 1.9-.8 2.6-1.4l.1.1c.8.8 2.1.8 2.9 0 .8-.8.8-2.1 0-2.9l-.1-.1c.6-.7 1.1-1.6 1.4-2.6h.1c1.1 0 2-.9 2-2s-.9-2-2-2h-.1c-.3-1-.8-1.9-1.4-2.6l.1-.1c.8-.8.8-2.1 0-2.9-.8-.8-2.1-.8-2.9 0l-.1.1c-.7-.6-1.6-1.1-2.6-1.4V4c0-1.1-.9-2-2-2z"/></svg>
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
         </button>
       </div>
     </div>
 
-    <!-- 3. 菜单列表 (严格复刻 Padding and Spacing) -->
-    <div class="flex-1 overflow-y-auto px-4 space-y-5.5 no-scrollbar pt-3 no-drag">
-      <div v-for="group in menuGroups" :key="group.title">
-        <h2 class="px-3.5 text-[11px] font-semibold text-text-main/40 uppercase tracking-[0.5px] mb-2.5">
+    <!-- 固定区域 3: 基础菜单 -->
+    <div class="px-4 shrink-0 no-drag">
+      <div v-for="group in menuGroups" :key="group.title" class="mb-4">
+        <h2 class="px-3.5 text-[11px] font-semibold text-text-main/40 uppercase tracking-[0.5px] mb-2">
           {{ group.title }}
         </h2>
         <nav class="space-y-0.5">
@@ -100,14 +142,14 @@ const getIcon = (name: string) => {
             :key="item.path"
             @click="navigateTo(item.path)"
             :class="[
-              'w-full flex items-center gap-3.5 px-3.5 py-3 rounded-[14px] transition-all duration-200 group cursor-pointer active:scale-[0.98]',
+              'w-full flex items-center gap-3.5 px-3.5 py-2 rounded-[14px] transition-all duration-200 group cursor-pointer active:scale-[0.98]',
               route.path === item.path
-                ? 'bg-primary/[0.12] text-primary shadow-none'
+                ? 'bg-primary/[0.12] text-primary'
                 : 'text-text-main/90 hover:bg-black/[0.04] dark:hover:bg-white/[0.04]'
             ]"
           >
             <svg 
-              width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
+              width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
               :class="[route.path === item.path ? 'text-primary' : 'text-text-main opacity-60 group-hover:opacity-100']"
               v-html="getIcon(item.icon)"
             ></svg>
@@ -115,23 +157,90 @@ const getIcon = (name: string) => {
           </button>
         </nav>
       </div>
-      
-      <!-- 歌单标题页签 (完全复刻 buildTabGroupTitle) -->
-      <div>
-        <div class="px-3.5 flex items-center justify-between mb-2.5">
-          <div class="flex items-center gap-2">
-            <span class="text-[11px] font-semibold text-primary uppercase tracking-[0.5px]">自建歌单</span>
-            <span class="text-[11px] text-text-main opacity-10">|</span>
-            <span class="text-[11px] font-normal text-text-main opacity-40">收藏歌单</span>
-          </div>
-          <button class="p-1 hover:bg-black/[0.05] dark:hover:bg-white/[0.05] rounded-md transition-colors text-text-main opacity-40">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    </div>
+
+    <!-- 滚动区域标题: 歌单分类页签 (固定在滚动区上方) -->
+    <div class="pl-7.5 pr-4 h-7 flex items-center justify-between mb-2 shrink-0 no-drag mt-2">
+      <div class="flex items-center gap-2">
+        <button 
+          @click="activePlaylistTab = 0"
+          :class="[
+            'text-[11px] uppercase tracking-[0.3px] transition-all duration-200 whitespace-nowrap',
+            activePlaylistTab === 0 ? 'font-bold text-primary' : 'font-normal text-text-main opacity-40 hover:opacity-60'
+          ]"
+        >自建歌单</button>
+        <div class="w-[1px] h-2.5 bg-black/[0.15] dark:bg-white/[0.15] mx-0.5"></div>
+        <button 
+          @click="activePlaylistTab = 1"
+          :class="[
+            'text-[11px] uppercase tracking-[0.3px] transition-all duration-200 whitespace-nowrap',
+            activePlaylistTab === 1 ? 'font-bold text-primary' : 'font-normal text-text-main opacity-40 hover:opacity-60'
+          ]"
+        >收藏歌单/专辑</button>
+      </div>
+      <button 
+        :class="[
+          'p-1 hover:bg-black/[0.05] dark:hover:bg-white/[0.05] rounded-md transition-all text-text-main opacity-40 shrink-0',
+          activePlaylistTab === 0 ? 'visible opacity-40' : 'invisible opacity-0'
+        ]"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+
+    <!-- 滚动区域: 歌单列表 -->
+    <div class="flex-1 overflow-y-auto px-4 pb-6 no-scrollbar no-drag">
+      <nav v-if="isLoggedIn" class="space-y-0.5">
+        <!-- 渲染自建歌单 -->
+        <template v-if="activePlaylistTab === 0">
+          <button
+            v-for="p in createdPlaylists"
+            :key="p.listid || p.specialid"
+            @click="navigateToPlaylist(p)"
+            class="w-full flex items-center gap-3 px-3.5 py-1.5 rounded-[12px] text-text-main/90 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] group cursor-pointer active:scale-[0.98] transition-all"
+          >
+            <Cover :url="p.pic || p.imgurl" :size="100" :width="28" :height="28" :borderRadius="6" class="shrink-0" />
+            <div class="flex flex-col items-start min-w-0">
+               <span class="text-[13px] truncate w-full font-medium tracking-tight">{{ p.name }}</span>
+            </div>
           </button>
-        </div>
-        <!-- 空状态 -->
-        <div class="px-3.5 py-8 text-center">
-           <span class="text-[12px] font-normal text-text-main opacity-30 italic">登录同步云端歌单</span>
-        </div>
+          <div v-if="createdPlaylists.length === 0" class="py-8 text-center opacity-20 text-[12px] italic">暂无自建歌单</div>
+        </template>
+
+        <!-- 渲染收藏歌单 + 收藏专辑 -->
+        <template v-else>
+          <button
+            v-for="p in favoritedPlaylists"
+            :key="p.listid || p.specialid"
+            @click="navigateToPlaylist(p)"
+            class="w-full flex items-center gap-3 px-3.5 py-1.5 rounded-[12px] text-text-main/90 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] group cursor-pointer active:scale-[0.98] transition-all"
+          >
+            <Cover :url="p.pic || p.imgurl" :size="100" :width="28" :height="28" :borderRadius="6" class="shrink-0" />
+            <div class="flex flex-col items-start min-w-0">
+               <span class="text-[13px] truncate w-full font-medium tracking-tight">{{ p.name }}</span>
+            </div>
+          </button>
+
+          <div v-if="favoritedAlbums.length > 0" class="my-2.5 mx-3.5 h-[1px] bg-black/[0.05] dark:bg-white/[0.05]"></div>
+          
+          <button
+            v-for="a in favoritedAlbums"
+            :key="a.listid || a.specialid"
+            @click="navigateToPlaylist(a)"
+            class="w-full flex items-center gap-3 px-3.5 py-1.5 rounded-[12px] text-text-main/90 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] group cursor-pointer active:scale-[0.98] transition-all"
+          >
+            <Cover :url="a.pic || a.imgurl" :size="100" :width="28" :height="28" :borderRadius="6" class="shrink-0" />
+            <div class="flex flex-col items-start min-w-0">
+               <span class="text-[13px] truncate w-full font-medium tracking-tight">{{ a.name }}</span>
+            </div>
+          </button>
+          <div v-if="favoritedPlaylists.length === 0 && favoritedAlbums.length === 0" class="py-8 text-center opacity-20 text-[12px] italic">暂无收藏内容</div>
+        </template>
+      </nav>
+
+      <!-- 未登录空状态 -->
+      <div v-if="!isLoggedIn" class="px-3.5 py-8 text-center">
+         <span class="text-[12px] font-normal text-text-main opacity-30 italic">登录同步云端歌单</span>
       </div>
     </div>
     
@@ -140,6 +249,15 @@ const getIcon = (name: string) => {
 
 <style scoped>
 .sidebar {
-  width: 220px;
+  width: 230px;
+}
+
+/* 隐藏滚动条但保留功能 */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 </style>

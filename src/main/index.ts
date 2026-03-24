@@ -1,7 +1,13 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron';
 import { release } from 'os';
 import { join } from 'path';
+import log from 'electron-log';
 import { startApiServer, stopApiServer } from './server';
+
+// 配置日志
+log.transports.file.level = 'info';
+log.transports.console.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}';
+Object.assign(console, log.functions);
 
 if (release().startsWith('6.1')) app.disableHardwareAcceleration();
 if (process.platform === 'win32') app.setAppUserModelId(app.getName());

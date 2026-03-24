@@ -69,7 +69,7 @@ export function startApiServer() {
       const output = data.toString();
       console.log(`[Server] API 输出: ${output}`);
       // 匹配关键字判断就绪状态
-      if (output.includes('running') || output.includes('server started') || output.includes('localhost:12306')) {
+      if (output.includes('running') || output.includes('server started') || output.includes('localhost:12306') || output.includes('127.0.0.1:12306')) {
         console.log('[Server] API 服务器已就绪');
         resolve();
       }
@@ -90,8 +90,10 @@ export function startApiServer() {
       reject(error);
     });
 
-    // 10秒超时兜底 (开发环境下编译可能较慢)
-    setTimeout(resolve, 10000);
+    // 15秒超时兜底 (开发环境下编译可能较慢)
+    setTimeout(() => {
+        reject(new Error('API 启动超时，请检查控制台日志'));
+    }, 15000);
   });
 }
 

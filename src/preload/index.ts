@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import log from 'electron-log/renderer';
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
@@ -12,5 +13,6 @@ contextBridge.exposeInMainWorld('electron', {
   apiServer: {
     start: () => ipcRenderer.invoke('api-server:start'),
     stop: () => ipcRenderer.send('api-server:stop'),
-  }
+  },
+  log: log.functions
 });

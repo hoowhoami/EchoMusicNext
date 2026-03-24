@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { usePlaylistStore } from '../stores/playlist';
 import { usePlayerStore } from '../stores/player';
+import Cover from '../components/ui/Cover.vue';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
@@ -41,7 +42,7 @@ const playSong = (id: string) => {
         >
           <!-- 封面容器 -->
           <div class="relative aspect-square rounded-xl overflow-hidden shadow-md bg-bg-card transition-all duration-300 group-hover:shadow-xl group-hover:-translate-y-1">
-            <img :src="song.coverUrl" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+            <Cover :url="song.coverUrl" :size="400" class="transition-transform duration-500 group-hover:scale-110" />
             
             <!-- 播放按钮遮罩 -->
             <div class="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -59,10 +60,9 @@ const playSong = (id: string) => {
             </div>
           </div>
 
-          <!-- 文本信息 -->
-          <div class="mt-3.5 space-y-0.5">
-            <div class="text-[14.5px] font-bold text-text-main truncate group-hover:text-primary transition-colors">{{ song.title }}</div>
-            <div class="text-[12.5px] font-medium text-text-secondary truncate opacity-80">{{ song.artist }}</div>
+          <div class="mt-3 space-y-1">
+            <h4 class="font-bold text-[14px] text-text-main truncate group-hover:text-primary transition-colors">{{ song.title }}</h4>
+            <p class="text-[12px] text-text-main/50 font-medium truncate">{{ song.artist }}</p>
           </div>
         </div>
       </div>
@@ -71,21 +71,11 @@ const playSong = (id: string) => {
 </template>
 
 <style scoped>
-.home-view {
-  animation: fade-in 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-music-bar-1 { height: 60%; animation: music-bar 0.8s ease-in-out infinite; }
-.animate-music-bar-2 { height: 100%; animation: music-bar 1.2s ease-in-out infinite; }
-.animate-music-bar-3 { height: 80%; animation: music-bar 1.0s ease-in-out infinite; }
-
 @keyframes music-bar {
-  0%, 100% { height: 40%; }
-  50% { height: 100%; }
+  0%, 100% { height: 4px; }
+  50% { height: 16px; }
 }
+.animate-music-bar-1 { animation: music-bar 0.8s ease-in-out infinite; }
+.animate-music-bar-2 { animation: music-bar 0.8s ease-in-out infinite 0.2s; }
+.animate-music-bar-3 { animation: music-bar 0.8s ease-in-out infinite 0.4s; }
 </style>

@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, reactive, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '../stores/user';
+import { usePlaylistStore } from '../stores/playlist';
 import { 
   getLoginQrKey, createLoginQr, checkLoginQr, 
   sendSmsCode, loginBySms,

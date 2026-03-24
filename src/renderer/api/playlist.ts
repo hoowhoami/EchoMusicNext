@@ -49,3 +49,25 @@ export function getRankSongs(rankid: number, page = 1, pagesize = 100) {
     params: { rankid, page, pagesize }
   });
 }
+
+/**
+ * 向歌单添加歌曲
+ * @param listid 歌单 ID
+ * @param data 歌曲数据，格式: name|hash|albumid|mixsongid
+ */
+export function addPlaylistTrack(listid: string | number, data: string) {
+  return request.get('/playlist/tracks/add', {
+    params: { listid, data }
+  });
+}
+
+/**
+ * 从歌单删除歌曲
+ * @param listid 歌单 ID
+ * @param fileids 歌曲文件 ID (mixsongid)，多个用逗号隔开
+ */
+export function deletePlaylistTrack(listid: string | number, fileids: string) {
+  return request.get('/playlist/tracks/del', {
+    params: { listid, fileids }
+  });
+}
