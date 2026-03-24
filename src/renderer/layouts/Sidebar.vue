@@ -2,6 +2,7 @@
 import { useRouter, useRoute } from 'vue-router';
 import { computed } from 'vue';
 import { useUserStore } from '../stores/user';
+import Avatar from '../components/ui/Avatar.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -62,7 +63,7 @@ const getIcon = (name: string) => {
           class="flex-1 flex items-center gap-3 p-1.5 rounded-[14px] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] cursor-pointer transition-all active:scale-[0.98]"
         >
           <div class="w-[34px] h-[34px] shrink-0 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
-             <img :src="isLoggedIn ? (userInfo?.pic || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix') : 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix'" class="w-full h-full object-cover" />
+             <Avatar :src="isLoggedIn ? userInfo?.pic : ''" class="w-full h-full" />
           </div>
           <div class="flex flex-col min-w-0">
             <span class="text-[13px] font-semibold text-text-main truncate leading-tight tracking-tight">

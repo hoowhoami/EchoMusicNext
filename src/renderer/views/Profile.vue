@@ -6,7 +6,7 @@ import {
   getUserDetail, getUserVipDetail, 
   claimDayVip, upgradeDayVip, getVipMonthRecord 
 } from '../api/user';
-import CommonImage from '../components/CommonImage.vue';
+import Avatar from '../components/ui/Avatar.vue';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -156,7 +156,7 @@ onMounted(() => loadData());
       <div class="user-card relative overflow-hidden p-8 rounded-[32px] bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 mb-8">
         <div class="flex items-center gap-8 relative z-10">
           <div class="p-1 rounded-full border-2 border-primary/30 shrink-0">
-             <CommonImage :src="userInfo.pic" className="w-[88px] h-[88px] rounded-full" />
+             <Avatar :src="userInfo.pic" class="w-[88px] h-[88px] rounded-full" />
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-3 mb-2">

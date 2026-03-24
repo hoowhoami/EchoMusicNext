@@ -2,7 +2,7 @@
 import { 
   TabsRoot, TabsList, TabsTrigger, TabsContent,
   type TabsRootProps, type TabsRootEmits, useForwardPropsEmits
-} from 'radix-vue';
+} from 'reka-ui';
 import { computed } from 'vue';
 
 const props = defineProps<TabsRootProps & { class?: string }>();

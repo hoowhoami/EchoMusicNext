@@ -36,14 +36,18 @@ export function checkLoginQr(key: string) {
  * 发送手机验证码
  */
 export function sendSmsCode(mobile: string) {
-  return request.post('/captcha/sent', { mobile });
+  return request.get('/captcha/sent', {
+    params: { mobile }
+  });
 }
 
 /**
  * 手机验证码登录
  */
 export function loginBySms(mobile: string, code: string) {
-  return request.post('/login/cellphone', { mobile, code });
+  return request.get('/login/cellphone', {
+    params: { mobile, code }
+  });
 }
 
 /**

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-interface Props {
+import { Primitive, type PrimitiveProps } from 'reka-ui';
+
+interface Props extends PrimitiveProps {
   variant?: 'primary' | 'secondary' | 'ghost' | 'outline';
   size?: 'sm' | 'md' | 'lg';
   loading?: boolean;
@@ -8,6 +10,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  as: 'button',
   variant: 'primary',
   size: 'md',
 });
@@ -27,10 +30,12 @@ const sizes = {
 </script>
 
 <template>
-  <button
+  <Primitive
+    :as="as"
+    :as-child="asChild"
     :disabled="disabled || loading"
     :class="[
-      'inline-flex items-center justify-center font-black transition-all active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100',
+      'inline-flex items-center justify-center font-black transition-all active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 disabled:cursor-not-allowed',
       variants[variant],
       sizes[size],
       props.class
@@ -38,5 +43,5 @@ const sizes = {
   >
     <div v-if="loading" class="mr-2 w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
     <slot />
-  </button>
+  </Primitive>
 </template>

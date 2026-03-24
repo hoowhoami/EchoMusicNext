@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useVModel } from '@vueuse/core';
+import { Primitive, type PrimitiveProps } from 'reka-ui';
 
-interface Props {
+interface Props extends PrimitiveProps {
   modelValue?: string | number;
   type?: string;
   placeholder?: string;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  as: 'input',
   type: 'text',
   showClear: true
 });

@@ -17,7 +17,7 @@ import Input from '../components/ui/Input.vue';
 import Button from '../components/ui/Button.vue';
 
 import OverlayHeader from '../layouts/OverlayHeader.vue';
-import CommonImage from '../components/CommonImage.vue';
+import Image from '../components/ui/Image.vue';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -112,14 +112,17 @@ const startCountdown = () => {
 };
 
 const handleSendCode = async () => {
-  if (!/^1[3-9]\d{9}$/.test(smsData.mobile)) {
+  const mobile = smsData.mobile ? smsData.mobile.toString().trim() : '';
+  console.log('[Login] Attempting to send code to:', `"${mobile}"`, 'Length:', mobile.length);
+  if (!/^1\d{10}$/.test(mobile)) {
+    console.warn('[Login] Mobile validation failed for:', `"${mobile}"`);
     smsData.error = '请输入正确的手机号';
     return;
   }
   smsData.isSending = true;
   smsData.error = '';
   try {
-    const res: any = await sendSmsCode(smsData.mobile);
+    const res: any = await sendSmsCode(mobile);
     if (res.status === 1) startCountdown();
     else smsData.error = res.error || '发送失败';
   } catch (e) {
@@ -130,10 +133,11 @@ const handleSendCode = async () => {
 };
 
 const handleSmsLogin = async () => {
-  if (!smsData.mobile || !smsData.code) return;
+  const mobile = smsData.mobile.trim();
+  if (!mobile || !smsData.code) return;
   smsData.isSending = true;
   try {
-    const res: any = await loginBySms(smsData.mobile, smsData.code);
+    const res: any = await loginBySms(mobile, smsData.code);
     if (res.status === 1 && res.data) {
       userStore.handleLoginSuccess(res.data);
       router.push('/main/home');
@@ -272,7 +276,7 @@ onUnmounted(() => {
                 <p class="text-[13px] opacity-40 font-bold uppercase tracking-[1.5px]">使用酷狗概念版扫码</p>
               </div>
               <div class="relative w-48 h-48 bg-white p-3.5 rounded-[28px] shadow-[0_12px_40px_rgba(0,0,0,0.06)] border border-black/[0.02]">
-                  <CommonImage :src="qrUrl" className="w-full h-full rounded-xl" />
+                  <Image :src="qrUrl" class="w-full h-full rounded-xl" />
                   <div v-if="qrStatus === 0" class="absolute inset-0 bg-white/95 rounded-2xl flex flex-col items-center justify-center space-y-4 z-30">
                       <span class="text-[13px] font-black opacity-60">二维码已过期</span>
                       <button @click="loadQrCode" class="text-[13px] text-primary font-black hover:opacity-80 transition-all active:scale-95">重新加载</button>
@@ -334,7 +338,7 @@ onUnmounted(() => {
                 <p class="text-[13px] opacity-40 font-bold uppercase tracking-[1.5px]">请使用微信扫描二维码</p>
               </div>
               <div class="relative w-48 h-48 bg-white p-3.5 rounded-[28px] shadow-[0_12px_40px_rgba(0,0,0,0.06)] border border-black/[0.02]">
-                  <CommonImage :src="wxQr.url" className="w-full h-full rounded-xl" />
+                  <Image :src="wxQr.url" class="w-full h-full rounded-xl" />
                   <div v-if="wxQr.status === 3" class="absolute inset-0 bg-white/95 rounded-2xl flex flex-col items-center justify-center space-y-4 z-30">
                       <span class="text-[13px] font-black opacity-60">二维码已过期</span>
                       <button @click="loadWxQr" class="text-[13px] text-[#07C160] font-black hover:opacity-80 transition-all active:scale-95">重新加载</button>

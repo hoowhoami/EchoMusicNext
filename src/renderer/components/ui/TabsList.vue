@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { TabsList, type TabsListProps, useForwardProps } from 'radix-vue';
+import { TabsList, type TabsListProps, useForwardProps } from 'reka-ui';
 
 const props = defineProps<TabsListProps & { class?: string }>();
 const forwardedProps = useForwardProps(props);

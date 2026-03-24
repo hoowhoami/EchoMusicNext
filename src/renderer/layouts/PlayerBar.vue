@@ -3,7 +3,7 @@ import { useRouter } from 'vue-router';
 import { computed, ref } from 'vue';
 import { usePlayerStore } from '../stores/player';
 import { usePlaylistStore, type Song } from '../stores/playlist';
-import { SliderRoot, SliderTrack, SliderRange, SliderThumb } from 'radix-vue';
+import { SliderRoot, SliderTrack, SliderRange, SliderThumb } from 'reka-ui';
 
 const router = useRouter();
 const player = usePlayerStore();
