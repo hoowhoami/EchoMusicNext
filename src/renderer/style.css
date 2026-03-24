@@ -23,6 +23,8 @@
 @theme {
   --color-primary: #0071E3;
   --color-primary-hover: #0077ED;
+  --color-primary-light: rgba(0, 113, 227, 0.15);
+  --color-primary-dark: rgba(0, 113, 227, 0.36);
   --color-secondary: #5AC8FA;
   --color-bg-sidebar: var(--bg-sidebar);
   --color-bg-main: var(--bg-main);

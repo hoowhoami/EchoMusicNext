@@ -55,6 +55,30 @@ const routes: RouteRecordRaw[] = [
         name: 'settings',
         component: () => import('../views/Settings.vue'),
       },
+      {
+        path: 'playlist/:id',
+        name: 'playlist-detail',
+        component: () => import('../views/details/PlaylistDetail.vue'),
+        meta: { title: '歌单详情' }
+      },
+      {
+        path: 'artist/:id',
+        name: 'artist-detail',
+        component: () => import('../views/details/ArtistDetail.vue'),
+        meta: { title: '歌手详情' }
+      },
+      {
+        path: 'album/:id',
+        name: 'album-detail',
+        component: () => import('../views/details/AlbumDetail.vue'),
+        meta: { title: '专辑详情' }
+      },
+      {
+        path: 'comment/:id',
+        name: 'comment',
+        component: () => import('../views/details/CommentPage.vue'),
+        meta: { title: '评论' }
+      },
     ],
   },
 ];

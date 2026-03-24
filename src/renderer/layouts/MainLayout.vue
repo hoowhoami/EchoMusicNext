@@ -2,6 +2,7 @@
 import Sidebar from './Sidebar.vue';
 import TitleBar from './TitleBar.vue';
 import PlayerBar from './PlayerBar.vue';
+import BackToTop from '../components/ui/BackToTop.vue';
 </script>
 
 <template>
@@ -22,6 +23,9 @@ import PlayerBar from './PlayerBar.vue';
 
       <!-- 2.2 底部悬浮播放控制栏 (相对于右侧容器居中) -->
       <PlayerBar />
+      
+      <!-- 2.3 返回顶部 -->
+      <BackToTop target-selector=".view-port" />
     </div>
   </div>
 </template>

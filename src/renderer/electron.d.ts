@@ -23,3 +23,6 @@ declare global {
     electron: IElectronAPI;
   }
 }
+
+// 确保这是一个模块
+export {};

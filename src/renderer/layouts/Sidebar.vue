@@ -56,7 +56,18 @@ const navigateTo = (path: string) => {
 
 const navigateToPlaylist = (playlist: any) => {
   const id = playlist.listid || playlist.specialid || playlist.gid;
-  router.push({ path: '/main/playlist-detail', query: { id } });
+  // source === 2 通常代表专辑
+  if (playlist.source === 2) {
+    router.push({ name: 'album-detail', params: { id } });
+  } else {
+    // 如果有 listid 则是用户歌单，使用 new 接口
+    const type = playlist.listid ? 'user' : 'public';
+    router.push({ 
+      name: 'playlist-detail', 
+      params: { id },
+      query: { type }
+    });
+  }
 };
 
 // 图标渲染映射 (Lucide 风格)

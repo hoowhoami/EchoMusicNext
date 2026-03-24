@@ -19,9 +19,18 @@ export function getPlaylistDetail(ids: string) {
 /**
  * 获取歌单所有歌曲
  */
-export function getPlaylistTracks(id: string, page = 1, pagesize = 30) {
+export function getPlaylistTracks(id: string | number, page = 1, pagesize = 30) {
   return request.get('/playlist/track/all', {
     params: { id, page, pagesize }
+  });
+}
+
+/**
+ * 获取歌单所有歌曲 (新版 - 支持用户歌单)
+ */
+export function getPlaylistTracksNew(listid: string | number, page = 1, pagesize = 30) {
+  return request.get('/playlist/track/all/new', {
+    params: { listid, page, pagesize }
   });
 }
 

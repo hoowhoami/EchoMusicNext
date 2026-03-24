@@ -17,7 +17,7 @@ const refresh = () => window.location.reload();
 </script>
 
 <template>
-  <header class="title-bar drag flex items-center px-6 shrink-0 select-none bg-bg-main/70 backdrop-blur-xl border-b border-border-light transition-colors duration-300">
+  <header class="title-bar drag flex items-center px-6 shrink-0 select-none transition-colors duration-300 z-[100] bg-transparent">
     <!-- 1. 左侧：导航按钮 (no-drag) -->
     <div class="flex items-center gap-1 no-drag">
       <button @click="goBack" class="nav-btn group" title="后退">
@@ -33,7 +33,7 @@ const refresh = () => window.location.reload();
       </button>
     </div>
 
-    <!-- 2. 中间：空白区域 (header 本身已是 drag) -->
+    <!-- 2. 中间：空白区域 -->
     <div class="flex-1 h-full"></div>
 
     <!-- 3. 右侧：窗口控制 (no-drag) -->
@@ -54,7 +54,6 @@ const refresh = () => window.location.reload();
 <style scoped>
 .title-bar {
   height: 52px;
-  z-index: 100;
 }
 
 .nav-btn {
