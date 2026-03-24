@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+:root {
+  --bg-sidebar: #FFFFFF; /* 浅色侧栏纯白 */
+  --bg-main: #F5F5F7;    /* 浅色主体浅灰白 */
+  --bg-card: #FFFFFF;
+  --bg-info-card: rgba(0, 0, 0, 0.04);
+  --text-main: #1D1D1F;
+  --text-secondary: #4B5563;
+  --border-light: #E5E5EA;
+}
+
+.dark {
+  --bg-sidebar: #1C1C1E; /* 深色侧栏深灰 */
+  --bg-main: #0C0C0E;    /* 深色主体纯黑 */
+  --bg-card: #1C1C1E;
+  --bg-info-card: rgba(255, 255, 255, 0.06);
+  --text-main: #F5F5F7;
+  --text-secondary: #9CA3AF;
+  --border-light: #2C2C2E;
+}
+
+@theme {
+  --color-primary: #0071E3;
+  --color-primary-hover: #0077ED;
+  --color-secondary: #5AC8FA;
+  --color-bg-sidebar: var(--bg-sidebar);
+  --color-bg-main: var(--bg-main);
+  --color-bg-card: var(--bg-card);
+  --color-bg-info-card: var(--bg-info-card);
+  --color-text-main: var(--text-main);
+  --color-text-secondary: var(--text-secondary);
+  --color-border-light: var(--border-light);
+}
+
+@layer base {
+  .drag { -webkit-app-region: drag; }
+  .no-drag { -webkit-app-region: no-drag; }
+
+  button, [role="button"], .cursor-pointer {
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+
+  body, html, #app {
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    @apply bg-bg-main text-text-main transition-colors duration-300;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { @apply bg-gray-300 dark:bg-white/10 rounded-full hover:bg-gray-400 dark:hover:bg-white/20 transition-colors; }
+::-webkit-scrollbar-track { @apply bg-transparent; }

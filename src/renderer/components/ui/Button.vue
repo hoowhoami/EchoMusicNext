@@ -1,0 +1,42 @@
+<script setup lang="ts">
+interface Props {
+  variant?: 'primary' | 'secondary' | 'ghost' | 'outline';
+  size?: 'sm' | 'md' | 'lg';
+  loading?: boolean;
+  disabled?: boolean;
+  class?: string;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  variant: 'primary',
+  size: 'md',
+});
+
+const variants = {
+  primary: 'bg-primary text-white shadow-lg shadow-primary/20 hover:opacity-90',
+  secondary: 'bg-black/[0.03] dark:bg-white/[0.03] text-text-main hover:bg-black/[0.05] dark:hover:bg-white/[0.05]',
+  ghost: 'bg-transparent text-text-main hover:bg-black/[0.05] dark:hover:bg-white/[0.05]',
+  outline: 'border border-border-light bg-transparent hover:bg-black/[0.02] dark:hover:bg-white/[0.02]',
+};
+
+const sizes = {
+  sm: 'h-10 px-4 text-xs rounded-xl',
+  md: 'h-14 px-6 text-[15px] rounded-2xl',
+  lg: 'h-16 px-8 text-lg rounded-[24px]',
+};
+</script>
+
+<template>
+  <button
+    :disabled="disabled || loading"
+    :class="[
+      'inline-flex items-center justify-center font-black transition-all active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100',
+      variants[variant],
+      sizes[size],
+      props.class
+    ]"
+  >
+    <div v-if="loading" class="mr-2 w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+    <slot />
+  </button>
+</template>
