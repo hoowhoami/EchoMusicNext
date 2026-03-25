@@ -146,7 +146,7 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
           </div>
         </div>
 
-        <div v-if="showAlbum" class="w-48 min-w-0 hidden md:block text-[13px] opacity-60 truncate">
+        <div v-if="showAlbum" class="w-48 min-w-0 hidden md:block text-[13px] opacity-60 truncate pr-4">
           {{ song.album || '未知专辑' }}
         </div>
 

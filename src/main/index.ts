@@ -1,8 +1,9 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import { release } from 'os';
 import { join } from 'path';
 import log from 'electron-log';
-import { startApiServer, stopApiServer } from './server';
+import { stopApiServer } from './server';
+import { registerIpcHandlers } from './ipc';
 
 // 配置日志
 log.transports.file.level = 'info';
@@ -31,6 +32,10 @@ const preload = join(__dirname, '../preload/index.js');
 const url = process.env.VITE_DEV_SERVER_URL;
 const indexHtml = join(__dirname, '../../dist/index.html');
 
+registerIpcHandlers({
+  getMainWindow: () => win,
+});
+
 async function createWindow() {
   win = new BrowserWindow({
     title: 'EchoMusic',
@@ -51,31 +56,6 @@ async function createWindow() {
       allowRunningInsecureContent: true, // 允许混合内容
       zoomFactor: 1.0,
     },
-  });
-
-  // 窗口控制 IPC
-  ipcMain.on('window-control', (event, action: 'minimize' | 'maximize' | 'close') => {
-    const browserWindow = BrowserWindow.fromWebContents(event.sender);
-    if (!browserWindow) return;
-    if (action === 'minimize') browserWindow.minimize();
-    else if (action === 'maximize') {
-      if (browserWindow.isMaximized()) browserWindow.unmaximize();
-      else browserWindow.maximize();
-    } else if (action === 'close') browserWindow.close();
-  });
-
-  // API 服务器控制 (由 Loading.vue 调用)
-  ipcMain.handle('api-server:start', async () => {
-    try {
-      await startApiServer();
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: String(error) };
-    }
-  });
-
-  ipcMain.on('api-server:stop', () => {
-    stopApiServer();
   });
 
   if (url) {

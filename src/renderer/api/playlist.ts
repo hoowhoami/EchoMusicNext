@@ -80,3 +80,48 @@ export function deletePlaylistTrack(listid: string | number, fileids: string) {
     params: { listid, fileids }
   });
 }
+
+/**
+ * 收藏歌单 (拷贝到用户歌单)
+ * @param name 歌单名称
+ * @param list_create_userid 原歌单创建者
+ * @param list_create_listid 原歌单 ID
+ * @param list_create_gid 原歌单 GID
+ * @param source 来源 (1: 歌单, 2: 专辑)
+ */
+export function addPlaylist(
+  name: string,
+  params: {
+    is_pri?: number;
+    type?: number;
+    list_create_userid?: number;
+    list_create_listid?: number;
+    list_create_gid?: string;
+    source?: number;
+  } = {}
+) {
+  return request.get('/playlist/add', {
+    params: {
+      name,
+      is_pri: params.is_pri ?? 0,
+      type: params.type ?? 1,
+      source: params.source ?? 1,
+      ...(params.list_create_userid !== undefined
+        ? { list_create_userid: params.list_create_userid }
+        : {}),
+      ...(params.list_create_listid !== undefined
+        ? { list_create_listid: params.list_create_listid }
+        : {}),
+      ...(params.list_create_gid ? { list_create_gid: params.list_create_gid } : {}),
+    },
+  });
+}
+
+/**
+ * 取消收藏歌单 / 删除歌单
+ */
+export function deletePlaylist(listid: string | number) {
+  return request.get('/playlist/del', {
+    params: { listid },
+  });
+}

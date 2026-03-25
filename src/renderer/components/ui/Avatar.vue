@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, type CSSProperties } from 'vue';
 import { AvatarRoot, AvatarImage, AvatarFallback } from 'reka-ui';
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
   errorClass?: string;
   showSkeleton?: boolean;
   delayMs?: number;
+  size?: number | string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -20,10 +22,26 @@ const props = withDefaults(defineProps<Props>(), {
   showSkeleton: true,
   delayMs: 0,
 });
+
+const sizeStyle = computed<CSSProperties | undefined>(() => {
+  if (props.size === undefined || props.size === null || props.size === '') {
+    return undefined;
+  }
+
+  const sizeValue =
+    typeof props.size === 'number' || /^\d+(\.\d+)?$/.test(props.size)
+      ? `${props.size}px`
+      : props.size;
+
+  return {
+    width: sizeValue,
+    height: sizeValue,
+  };
+});
 </script>
 
 <template>
-  <AvatarRoot :class="['relative flex overflow-hidden shrink-0', props.class]">
+  <AvatarRoot :class="['relative flex overflow-hidden shrink-0', props.class]" :style="sizeStyle">
     <!-- 1. 图片主体 -->
     <AvatarImage
       v-if="src"

@@ -1,5 +1,11 @@
 import { defineStore } from 'pinia';
-import { getUserPlaylists, addPlaylistTrack, deletePlaylistTrack } from '../api/playlist';
+import {
+  getUserPlaylists,
+  addPlaylistTrack,
+  deletePlaylistTrack,
+  addPlaylist,
+  deletePlaylist,
+} from '../api/playlist';
 import { uploadPlayHistory } from '../api/user';
 import logger from '../utils/logger';
 import { mapPlaylistMeta, type PlaylistMeta } from '../utils/mappers';
@@ -159,7 +165,59 @@ export const usePlaylistStore = defineStore('playlist', {
       } catch (e) {
         logger.error('[PlaylistStore] Fetch user playlists error:', e);
       }
-    }
+    },
+
+    async favoritePlaylist(meta: PlaylistMeta) {
+      try {
+        const res = await addPlaylist(meta.name, {
+          type: 1,
+          list_create_userid: meta.listCreateUserid,
+          list_create_listid: meta.listCreateListid ?? meta.id,
+          list_create_gid: meta.listCreateGid ?? meta.globalCollectionId,
+          source: meta.source ?? 1,
+        });
+        if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
+          await this.fetchUserPlaylists();
+          return true;
+        }
+      } catch (e) {
+        logger.error('[PlaylistStore] Favorite playlist error:', e);
+      }
+      return false;
+    },
+
+    async unfavoritePlaylist(meta: PlaylistMeta) {
+      try {
+        const target = this.userPlaylists.find((p) => {
+          const localId = String(p.listid ?? p.id);
+          const originalId = String(p.listCreateGid ?? p.globalCollectionId ?? '');
+          const originalListId = String(p.listCreateListid ?? '');
+          const currentIds = [
+            String(meta.id),
+            String(meta.listid ?? ''),
+            String(meta.listCreateListid ?? ''),
+            String(meta.listCreateGid ?? ''),
+            String(meta.globalCollectionId ?? ''),
+          ];
+          return (
+            currentIds.includes(localId) ||
+            (originalId && currentIds.includes(originalId)) ||
+            (originalListId && currentIds.includes(originalListId))
+          );
+        });
+
+        const listId = target?.listid ?? target?.id;
+        if (!listId) return false;
+        const res = await deletePlaylist(listId);
+        if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
+          await this.fetchUserPlaylists();
+          return true;
+        }
+      } catch (e) {
+        logger.error('[PlaylistStore] Unfavorite playlist error:', e);
+      }
+      return false;
+    },
   },
   persist: true,
 });

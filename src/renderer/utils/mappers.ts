@@ -353,7 +353,7 @@ export const mapPlaylistMeta = (json: unknown): PlaylistMeta => {
       listCreateListid: parseOptionalInt(record.list_create_listid),
       name: readString(pickValue(record.name, record.specialname, '')),
       pic: formatPic(pickValue(record.pic, record.imgurl, record.cover, record.img, '')),
-      intro: readString(record.intro, ''),
+      intro: readString(pickValue(record.intro, record.description, record.desc, ''), ''),
       nickname: readString(pickValue(record.nickname, record.username, record.list_create_username, '')),
       userPic: formatPic(pickValue(record.user_pic, record.avatar, record.create_user_pic, record.pic, '')),
       tags: readString(record.tags, ''),
@@ -380,7 +380,7 @@ export const mapPlaylistMeta = (json: unknown): PlaylistMeta => {
     listCreateListid: parseOptionalInt(pickValue(record.list_create_listid, record.specialid)),
     name: readString(pickValue(record.specialname, record.name, '')),
     pic: formatPic(pickValue(record.flexible_cover, record.pic, record.imgurl, record.img, '')),
-    intro: readString(record.intro, ''),
+    intro: readString(pickValue(record.intro, record.description, record.desc, ''), ''),
     nickname: readString(
       pickValue(record.nickname, record.username, record.author, record.list_create_username, ''),
     ),

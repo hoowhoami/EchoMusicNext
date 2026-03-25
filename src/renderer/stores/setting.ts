@@ -6,6 +6,37 @@ export const useSettingStore = defineStore('setting', {
     language: 'zh-CN',
     shortcutEnabled: true,
     autoPlay: true,
+    rememberWindowSize: true,
+    showPlaylistCount: true,
+    closeBehavior: 'tray' as 'tray' | 'exit',
+    replacePlaylist: false,
+    volumeFade: true,
+    volumeFadeTime: 1000,
+    autoNext: false,
+    preventSleep: true,
+    audioQuality: 'high' as '128' | '320' | 'flac' | 'high',
+    compatibilityMode: true,
+    globalShortcutsEnabled: false,
+    shortcutBindings: {} as Record<string, string>,
+    defaultShortcutLabels: {
+      togglePlayback: '⌘⇧Space',
+      previousTrack: '⌘⇧←',
+      nextTrack: '⌘⇧→',
+      volumeUp: '⌘⇧↑',
+      volumeDown: '⌘⇧↓',
+      toggleMute: '⌘⇧M',
+      toggleFavorite: '⌘⇧L',
+      togglePlayMode: '⌘⇧P',
+      toggleWindow: '⌘⇧W',
+    } as Record<string, string>,
+    outputDevice: '自动',
+    outputDevices: ['自动', '系统默认'] as string[],
+    outputDeviceType: 'default' as 'default' | 'wasapi',
+    pauseOnDeviceChange: false,
+    autoReceiveVip: false,
+    checkPrerelease: false,
+    appVersion: '1.0.0',
+    isPrerelease: true,
   }),
   actions: {
     setTheme(theme: 'light' | 'dark' | 'system') {
@@ -13,6 +44,29 @@ export const useSettingStore = defineStore('setting', {
     },
     toggleShortcuts(enabled: boolean) {
       this.shortcutEnabled = enabled;
+    },
+    openLogDirectory() {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('open-log-directory', null);
+      }
+    },
+    clearAppData() {
+      this.$reset();
+    },
+    checkForUpdates() {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('check-for-updates', null);
+      }
+    },
+    openRepo() {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('open-external', 'https://github.com/hoowhoami/EchoMusic');
+      }
+    },
+    openDisclaimer() {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('open-disclaimer', null);
+      }
     },
   },
   persist: true,
