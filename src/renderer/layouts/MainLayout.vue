@@ -15,8 +15,8 @@ import BackToTop from '../components/ui/BackToTop.vue';
       <!-- 2.1 主体内容区域 -->
       <main class="main-content flex-1 flex flex-col min-h-0">
         <TitleBar />
-        <!-- 增加底部留白 (pb-24) 以免内容被悬浮播放栏遮挡 -->
-        <div class="view-port flex-1 overflow-y-auto overflow-x-hidden pb-24">
+        <!-- 滚动容器，底部留白避免被播放器遮挡 -->
+        <div class="view-port flex-1 overflow-y-auto overflow-x-hidden pb-[100px]">
           <router-view />
         </div>
       </main>

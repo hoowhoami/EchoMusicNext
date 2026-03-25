@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { getUserPlaylists, addPlaylistTrack, deletePlaylistTrack } from '../api/playlist';
 import { uploadPlayHistory } from '../api/user';
 import logger from '../utils/logger';
+import { mapPlaylistMeta, type PlaylistMeta } from '../utils/mappers';
 
 export interface Song {
   id: string;
@@ -58,23 +59,25 @@ export const usePlaylistStore = defineStore('playlist', {
     ] as Song[],
     favorites: [] as Song[],
     history: [] as Song[],
-    userPlaylists: [] as any[],
+    userPlaylists: [] as PlaylistMeta[],
   }),
   getters: {
     /**
      * 获取“我喜欢”歌单
      */
     likedPlaylist(state) {
-      return state.userPlaylists.find(p => 
-        p.name === '我喜欢' || 
-        p.name === '我喜欢的音乐' || 
-        p.is_def === 1 || 
-        p.type === 1
+      return state.userPlaylists.find(
+        (p) =>
+          p.name === '我喜欢' ||
+          p.name === '我喜欢的音乐' ||
+          (p.name?.includes('喜欢') ?? false) ||
+          p.type === 1 ||
+          p.isDefault === true,
       );
     },
     likedPlaylistId(): string | number | null {
       const lp = this.likedPlaylist;
-      return lp ? (lp.listid || lp.specialid || lp.gid) : null;
+      return lp ? lp.listCreateGid || lp.globalCollectionId || lp.listid || lp.id : null;
     }
   },
   actions: {
@@ -92,8 +95,8 @@ export const usePlaylistStore = defineStore('playlist', {
       if (listId) {
         try {
           const songData = `${song.title}|${song.hash}|${song.albumId || 0}|${song.mixSongId}`;
-          const res: any = await addPlaylistTrack(listId, songData);
-          if (res.status === 1) {
+          const res = await addPlaylistTrack(listId, songData);
+          if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
             logger.info(`[PlaylistStore] Song ${song.title} added to favorites on cloud`);
           }
         } catch (e) {
@@ -116,8 +119,8 @@ export const usePlaylistStore = defineStore('playlist', {
       const listId = this.likedPlaylistId;
       if (listId) {
         try {
-          const res: any = await deletePlaylistTrack(listId, String(song.mixSongId));
-          if (res.status === 1) {
+          const res = await deletePlaylistTrack(listId, String(song.mixSongId));
+          if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
             logger.info(`[PlaylistStore] Song ${song.title} removed from favorites on cloud`);
           }
         } catch (e) {
@@ -135,8 +138,8 @@ export const usePlaylistStore = defineStore('playlist', {
 
       // 2. 同步远端
       try {
-        const res: any = await uploadPlayHistory(song.mixSongId);
-        if (res.status === 1) {
+        const res = await uploadPlayHistory(song.mixSongId);
+        if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
           logger.info(`[PlaylistStore] Play history uploaded: ${song.title}`);
         }
       } catch (e) {
@@ -146,9 +149,12 @@ export const usePlaylistStore = defineStore('playlist', {
 
     async fetchUserPlaylists() {
       try {
-        const res: any = await getUserPlaylists();
-        if (res.status === 1) {
-          this.userPlaylists = res.info || res.data?.info || [];
+        const res = await getUserPlaylists();
+        if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
+          const data = 'data' in res ? (res as { data?: { info?: unknown } }).data : undefined;
+          const info = 'info' in res ? (res as { info?: unknown }).info : undefined;
+          const raw = data?.info ?? info ?? [];
+          this.userPlaylists = Array.isArray(raw) ? raw.map((item) => mapPlaylistMeta(item)) : [];
         }
       } catch (e) {
         logger.error('[PlaylistStore] Fetch user playlists error:', e);

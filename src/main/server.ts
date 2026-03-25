@@ -11,6 +11,20 @@ const isDev = !app.isPackaged;
  */
 export function startApiServer() {
   return new Promise<void>((resolve, reject) => {
+    const port = 12306;
+
+    // 启动前先尝试清理端口占用
+    try {
+        console.log(`[Server] 正在清理端口 ${port} 的占用...`);
+        if (process.platform === 'win32') {
+            execSync(`for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /f /pid %a`, { stdio: 'ignore' });
+        } else {
+            execSync(`lsof -ti :${port} | xargs kill -9`, { stdio: 'ignore' });
+        }
+    } catch (e) {
+        // 如果没有进程占用端口，execSync 会报错，这里忽略即可
+    }
+
     let apiPath = '';
     let cwd = '';
     let args: string[] = [];
@@ -31,7 +45,7 @@ export function startApiServer() {
 
       console.log(`[Server] 开发环境：启动 npm 进程...`);
       apiPath = npmCmd;
-      args = ['run', 'dev', '--', '--port=12306', '--platform=lite'];
+      args = ['run', 'dev', '--', `--port=${port}`, '--platform=lite'];
     } else {
       // 生产环境：运行二进制文件
       cwd = path.join(process.resourcesPath, 'server');
@@ -48,7 +62,7 @@ export function startApiServer() {
         default:
           return reject(new Error(`不支持的平台: ${process.platform}`));
       }
-      args = ['--port=12306', '--platform=lite', '--host=127.0.0.1'];
+      args = [`--port=${port}`, '--platform=lite', '--host=127.0.0.1'];
     }
 
     console.log(`[Server] API 路径: ${apiPath}, CWD: ${cwd}`);

@@ -114,10 +114,10 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
       class="song-list-content absolute top-0 left-0 right-0 flex flex-col"
       :style="{ transform: `translateY(${offsetY}px)` }"
     >
-      <div 
-        v-for="song in visibleSongs" 
+      <div
+        v-for="song in visibleSongs"
         :key="song.id"
-        class="group flex items-center px-4 py-0 rounded-xl transition-all duration-200 hover:bg-black/[0.03] dark:hover:bg-white/[0.03] cursor-pointer"
+        class="group flex items-center py-0 rounded-lg transition-all duration-200 hover:bg-black/[0.03] dark:hover:bg-white/[0.03] cursor-pointer"
         :style="{ height: `${itemHeight}px` }"
         :class="{ 'bg-primary/5 dark:bg-primary/10 text-primary': activeId === song.id }"
         @dblclick="emit('play', song)"
@@ -146,18 +146,12 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
           </div>
         </div>
 
-        <div v-if="showAlbum" class="w-1/4 min-w-0 ml-4 hidden md:block text-[13px] opacity-60 truncate">
+        <div v-if="showAlbum" class="w-48 min-w-0 hidden md:block text-[13px] opacity-60 truncate">
           {{ song.album || '未知专辑' }}
         </div>
 
-        <div class="w-20 shrink-0 text-right text-[12px] opacity-40">
+        <div class="w-16 shrink-0 text-[12px] opacity-40">
           {{ formatDuration(song.duration) }}
-        </div>
-
-        <div class="w-10 shrink-0 flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-          <button @click.stop="emit('more', song)" class="p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-          </button>
         </div>
       </div>
     </div>

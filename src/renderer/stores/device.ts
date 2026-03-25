@@ -4,6 +4,9 @@ export interface DeviceInfo {
   dfid?: string;
   mid?: string;
   uuid?: string;
+  guid?: string;
+  serverDev?: string;
+  mac?: string;
   appid?: string;
   clientver?: string;
 }

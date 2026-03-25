@@ -5,6 +5,7 @@ import { getArtistDetail, getArtistSongs, getArtistAlbums } from '../../api/arti
 import SliverHeader from '../../components/music/DetailPageSliverHeader.vue';
 import ActionRow from '../../components/music/DetailPageActionRow.vue';
 import SongList from '../../components/music/SongList.vue';
+import SongListHeader from '../../components/music/SongListHeader.vue';
 import AlbumCard from '../../components/music/AlbumCard.vue';
 import Tabs from '../../components/ui/Tabs.vue';
 import TabsList from '../../components/ui/TabsList.vue';
@@ -12,51 +13,82 @@ import TabsTrigger from '../../components/ui/TabsTrigger.vue';
 import TabsContent from '../../components/ui/TabsContent.vue';
 import Badge from '../../components/ui/Badge.vue';
 import { Song } from '../../stores/playlist';
+import { mapAlbumMeta, mapArtistDetailMeta, mapArtistSong } from '../../utils/mappers';
+import type { SortField, SortOrder } from '../../components/music/SongListHeader.vue';
 
 const route = useRoute();
 const router = useRouter();
 const artistId = route.params.id as string;
 
 const loading = ref(true);
-const artist = ref<any>(null);
+const artist = ref<ReturnType<typeof mapArtistDetailMeta> | null>(null);
 const songs = ref<Song[]>([]);
-const albums = ref<any[]>([]);
+const albums = ref<ReturnType<typeof mapAlbumMeta>[]>([]);
 const activeTab = ref('songs');
 
 // 搜索和定位逻辑
 const showSearch = ref(false);
 const searchQuery = ref('');
-const songListRef = ref<any>(null);
+const songListRef = ref<{ scrollToActive?: () => void } | null>(null);
+const sliverHeaderRef = ref<{ currentHeight?: number } | null>(null);
+
+// 计算 Tabs 的 sticky top 位置
+const tabsTop = computed(() => {
+  const headerHeight = sliverHeaderRef.value?.currentHeight || 52;
+  return headerHeight;
+});
+
+// 排序逻辑
+const sortField = ref<SortField | null>(null);
+const sortOrder = ref<SortOrder>(null);
+
+const handleSort = (field: SortField) => {
+  if (sortField.value === field) {
+    if (sortOrder.value === 'asc') {
+      sortOrder.value = 'desc';
+    } else if (sortOrder.value === 'desc') {
+      sortField.value = null;
+      sortOrder.value = null;
+    }
+  } else {
+    sortField.value = field;
+    sortOrder.value = 'asc';
+  }
+};
 
 const fetchData = async () => {
   loading.value = true;
   try {
-    const [detailRes, songsRes, albumsRes]: any = await Promise.all([
+    const [detailRes, songsRes, albumsRes] = await Promise.all([
       getArtistDetail(artistId),
-      getArtistSongs(artistId),
-      getArtistAlbums(artistId)
+      getArtistSongs(artistId, 1, 200, 'hot'),
+      getArtistAlbums(artistId, 1, 30, 'hot')
     ]);
 
-    if (detailRes.status === 1) {
-      artist.value = detailRes.data || detailRes.info;
+    if (detailRes && typeof detailRes === 'object' && 'status' in detailRes && detailRes.status === 1) {
+      const data = 'data' in detailRes ? (detailRes as { data?: unknown }).data : undefined;
+      const info = 'info' in detailRes ? (detailRes as { info?: unknown }).info : undefined;
+      const raw = data ?? info;
+      if (raw) {
+        artist.value = mapArtistDetailMeta(raw);
+      }
     }
     
-    if (songsRes.status === 1) {
-      const list = songsRes.data?.info || songsRes.info || [];
-      songs.value = list.map((item: any) => ({
-        id: item.hash || item.mixsongid,
-        title: item.songname || item.filename,
-        artist: item.singername,
-        album: item.album_name,
-        duration: item.duration,
-        coverUrl: item.img || item.cover,
-        hash: item.hash,
-        mixSongId: item.mixsongid
-      }));
+    if (songsRes && typeof songsRes === 'object' && 'status' in songsRes && songsRes.status === 1) {
+      const data = 'data' in songsRes ? (songsRes as { data?: unknown }).data : undefined;
+      const payload = data ?? songsRes;
+      const list = (payload as { info?: unknown; list?: unknown; songs?: unknown }).info
+        || (payload as { list?: unknown }).list
+        || (payload as { songs?: unknown }).songs
+        || [];
+      songs.value = Array.isArray(list) ? list.map((item) => mapArtistSong(artistId, item)) : [];
     }
 
-    if (albumsRes.status === 1) {
-      albums.value = albumsRes.data?.info || albumsRes.info || [];
+    if (albumsRes && typeof albumsRes === 'object' && 'status' in albumsRes && albumsRes.status === 1) {
+      const data = 'data' in albumsRes ? (albumsRes as { data?: { info?: unknown } }).data : undefined;
+      const info = 'info' in albumsRes ? (albumsRes as { info?: unknown }).info : undefined;
+      const list = data?.info ?? info ?? [];
+      albums.value = Array.isArray(list) ? list.map((item) => mapAlbumMeta(item)) : [];
     }
   } catch (e) {
     console.error('Fetch artist detail error:', e);
@@ -87,16 +119,16 @@ const handleLocate = () => songListRef.value?.scrollToActive();
 
     <template v-else-if="artist">
       <!-- 1. Sliver Header -->
-      <SliverHeader 
+      <SliverHeader
         typeLabel="ARTIST"
-        :title="artist.author_name || artist.singername"
-        :coverUrl="artist.avatar || artist.imgurl"
-        :expandedHeight="260"
+        :title="artist.name"
+        :coverUrl="artist.pic"
+        :hasDetails="!!artist.intro"
       >
         <template #details>
           <div class="flex flex-col gap-1 text-text-main/60">
             <div class="text-[13px] font-semibold text-primary">
-              {{ artist.song_count || songs.length }} 歌曲 • {{ artist.album_count || albums.length }} 专辑
+              {{ artist.songCount || songs.length }} 歌曲 • {{ artist.albumCount || albums.length }} 专辑
             </div>
             <div v-if="artist.intro" class="text-[11px] line-clamp-1 opacity-70">
               {{ artist.intro }}
@@ -118,11 +150,11 @@ const handleLocate = () => songListRef.value?.scrollToActive();
         </template>
       </SliverHeader>
 
-      <!-- 2. 内容主体 -->
-      <div class="relative z-10 pb-12">
+      <!-- 2. Sticky Tabs + 表头 -->
+      <div class="sticky z-[90] bg-bg-main" style="top: 104px;">
         <Tabs v-model="activeTab" class="w-full">
-          <!-- Sticky Tabs (Removed border-b) -->
-          <div class="sticky top-[52px] z-50 bg-bg-main/95 backdrop-blur-md -mx-8 px-8 mb-4">
+          <!-- Tab 切换栏 -->
+          <div class="px-8 border-b border-border-light/10">
             <div class="flex items-center justify-between h-14">
               <TabsList class="bg-transparent border-none">
                 <TabsTrigger value="songs">
@@ -140,10 +172,10 @@ const handleLocate = () => songListRef.value?.scrollToActive();
               <div v-if="activeTab === 'songs'" class="flex items-center gap-2">
                 <Transition name="search-expand">
                   <div v-if="showSearch" class="relative">
-                    <input 
+                    <input
                       v-model="searchQuery"
-                      type="text" 
-                      placeholder="搜索歌曲..." 
+                      type="text"
+                      placeholder="搜索歌曲..."
                       class="w-48 h-9 pl-8 pr-3 rounded-lg bg-black/[0.05] dark:bg-white/[0.08] outline-none text-[12px] focus:ring-1 focus:ring-primary/30 transition-all"
                       @blur="!searchQuery && (showSearch = false)"
                       autofocus
@@ -161,32 +193,38 @@ const handleLocate = () => songListRef.value?.scrollToActive();
             </div>
           </div>
 
+          <!-- 表头 (仅在歌曲 tab 显示) -->
+          <SongListHeader
+            v-if="activeTab === 'songs'"
+            :sortField="sortField"
+            :sortOrder="sortOrder"
+            @sort="handleSort"
+          />
+        </Tabs>
+      </div>
+
+      <!-- 3. 内容区域 -->
+      <div class="pb-12">
+        <Tabs v-model="activeTab" class="w-full">
           <TabsContent value="songs" class="px-8">
-            <!-- 表头 (Sticky) -->
-            <div class="sticky top-[108px] z-40 bg-bg-main/95 backdrop-blur-md flex items-center px-4 py-2 text-[12px] text-text-secondary opacity-40 font-bold border-b border-border-light/30 -mx-4 mb-2">
-              <div class="w-10 shrink-0 text-center">#</div>
-              <div class="flex-1 min-w-0 ml-4">标题</div>
-              <div class="w-1/4 min-w-0 ml-4 hidden md:block">专辑</div>
-              <div class="w-20 shrink-0 text-right">时长</div>
-              <div class="w-10 shrink-0"></div>
-            </div>
             <SongList ref="songListRef" :songs="songs" :searchQuery="searchQuery" />
           </TabsContent>
 
-          <TabsContent value="albums" class="px-8 mt-4">
+          <TabsContent value="albums" class="mt-4 px-8">
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 px-2">
-              <AlbumCard 
-                v-for="album in albums" 
-                :key="album.album_id"
-                :id="album.album_id"
-                :name="album.album_name"
-                :coverUrl="album.imgurl"
-                :publishTime="album.publish_date"
+              <AlbumCard
+                v-for="album in albums"
+                :key="album.id"
+                :id="album.id"
+                :name="album.name"
+                :coverUrl="album.pic"
+                :artist="album.singerName"
+                :publishTime="album.publishTime"
               />
             </div>
           </TabsContent>
 
-          <TabsContent value="intro" class="px-8 mt-4">
+          <TabsContent value="intro" class="mt-4 px-8">
             <div class="max-w-3xl text-[14px] leading-relaxed text-text-secondary whitespace-pre-wrap py-4 px-2 opacity-80">
               {{ artist.intro || '暂无简介' }}
             </div>
@@ -199,10 +237,6 @@ const handleLocate = () => songListRef.value?.scrollToActive();
 
 <style scoped>
 @reference "../../style.css";
-
-.artist-detail-container {
-  margin-top: -52px;
-}
 
 .search-expand-enter-active, .search-expand-leave-active {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);

@@ -23,14 +23,18 @@ request.interceptors.request.use(
     if (userStore.info) {
       if (userStore.info.token) authParts.push(`token=${userStore.info.token}`);
       if (userStore.info.userid) authParts.push(`userid=${userStore.info.userid}`);
+      if (userStore.info.t1) authParts.push(`t1=${userStore.info.t1}`);
     }
 
     // 2. 注入设备信息
     if (deviceStore.info) {
       const device = deviceStore.info;
       if (device.dfid) authParts.push(`dfid=${device.dfid}`);
-      if (device.mid) authParts.push(`mid=${device.mid}`);
+      if (device.mid) authParts.push(`KUGOU_API_MID=${device.mid}`);
       if (device.uuid) authParts.push(`uuid=${device.uuid}`);
+      if (device.guid) authParts.push(`KUGOU_API_GUID=${device.guid}`);
+      if (device.serverDev) authParts.push(`KUGOU_API_DEV=${device.serverDev}`);
+      if (device.mac) authParts.push(`KUGOU_API_MAC=${device.mac}`);
     }
     
     if (authParts.length > 0) {
