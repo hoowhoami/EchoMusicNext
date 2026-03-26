@@ -210,29 +210,28 @@ const buildSongPayload = (): Song => ({
 });
 
 const handlePlayNow = () => {
+  if (!isPlayable.value) return;
   const payload = buildSongPayload();
-  const exists = playlistStore.defaultList.find((item) => item.id === payload.id);
+  const list = playlistStore.defaultList;
+  const exists = list.find((item) => String(item.id) === String(payload.id));
   if (!exists) {
-    playlistStore.defaultList.unshift(payload);
+    playlistStore.defaultList = [payload, ...list];
   }
   void playerStore.playTrack(String(payload.id));
   router.push({ name: 'playing' });
 };
 
 const handlePlayNext = () => {
+  if (!isPlayable.value) return;
   const payload = buildSongPayload();
-  const existingIndex = playlistStore.defaultList.findIndex(
-    (item) => String(item.id) === String(payload.id),
-  );
-  const currentIndex = playlistStore.defaultList.findIndex(
-    (item) => String(item.id) === String(playerStore.currentTrackId ?? ''),
-  );
+  const list = playlistStore.defaultList.slice();
+  const existingIndex = list.findIndex((item) => String(item.id) === String(payload.id));
+  const currentIndex = list.findIndex((item) => String(item.id) === String(playerStore.currentTrackId ?? ''));
 
-  const item = existingIndex >= 0
-    ? playlistStore.defaultList.splice(existingIndex, 1)[0]
-    : payload;
-  const insertIndex = currentIndex >= 0 ? currentIndex + 1 : playlistStore.defaultList.length;
-  playlistStore.defaultList.splice(insertIndex, 0, item);
+  const item = existingIndex >= 0 ? list.splice(existingIndex, 1)[0] : payload;
+  const insertIndex = currentIndex >= 0 ? currentIndex + 1 : list.length;
+  list.splice(insertIndex, 0, item);
+  playlistStore.defaultList = list;
 };
 
 const handleAddToPlaylist = async () => {

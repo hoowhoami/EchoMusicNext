@@ -1,31 +1,31 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 :root {
-  --bg-sidebar: #FFFFFF; /* 浅色侧栏纯白 */
-  --bg-main: #F5F5F7;    /* 浅色主体浅灰白 */
-  --bg-card: #FFFFFF;
+  --bg-sidebar: #ffffff; /* 浅色侧栏纯白 */
+  --bg-main: #f5f5f7; /* 浅色主体浅灰白 */
+  --bg-card: #ffffff;
   --bg-info-card: rgba(0, 0, 0, 0.04);
-  --text-main: #1D1D1F;
-  --text-secondary: #4B5563;
-  --border-light: #E5E5EA;
+  --text-main: #1d1d1f;
+  --text-secondary: #4b5563;
+  --border-light: #e5e5ea;
 }
 
 .dark {
-  --bg-sidebar: #1C1C1E; /* 深色侧栏深灰 */
-  --bg-main: #0C0C0E;    /* 深色主体纯黑 */
-  --bg-card: #1C1C1E;
+  --bg-sidebar: #1c1c1e; /* 深色侧栏深灰 */
+  --bg-main: #0c0c0e; /* 深色主体纯黑 */
+  --bg-card: #1c1c1e;
   --bg-info-card: rgba(255, 255, 255, 0.06);
-  --text-main: #F5F5F7;
-  --text-secondary: #9CA3AF;
-  --border-light: #2C2C2E;
+  --text-main: #f5f5f7;
+  --text-secondary: #9ca3af;
+  --border-light: #2c2c2e;
 }
 
 @theme {
-  --color-primary: #0071E3;
-  --color-primary-hover: #0077ED;
+  --color-primary: #0071e3;
+  --color-primary-hover: #0077ed;
   --color-primary-light: rgba(0, 113, 227, 0.15);
   --color-primary-dark: rgba(0, 113, 227, 0.36);
-  --color-secondary: #5AC8FA;
+  --color-secondary: #5ac8fa;
   --color-bg-sidebar: var(--bg-sidebar);
   --color-bg-main: var(--bg-main);
   --color-bg-card: var(--bg-card);
@@ -36,55 +36,77 @@
 }
 
 @layer base {
-  .drag { -webkit-app-region: drag; }
-  .no-drag { -webkit-app-region: no-drag; }
+  .drag {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
 
-  button, [role="button"], .cursor-pointer {
+  button,
+  [role='button'],
+  .cursor-pointer {
     cursor: pointer;
     -webkit-app-region: no-drag;
   }
 
-  body, html, #app {
+  body,
+  html,
+  #app {
     margin: 0;
     padding: 0;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* 开启平滑滚动 */
+    scroll-behavior: smooth;
+    /* 可选：让滚动更细腻不卡顿 */
+    -webkit-overflow-scrolling: touch;
     @apply bg-bg-main text-text-main transition-colors duration-300;
   }
 }
 
 @layer utilities {
-  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
+/* 优化后的滚动条：加宽以便拖动，增加透明边距，并实现自动显示/隐藏 */
+::-webkit-scrollbar {
+  width: 10px; /* 增加宽度 */
+  height: 10px;
+}
+
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.16);
-  border-radius: 999px;
-  transition: opacity 0.2s ease, background-color 0.2s ease;
+  background-color: transparent; /* 默认隐藏 */
+  border-radius: 10px;
+  border: 2px solid transparent; /* 制造留白，解决“贴壁”感 */
+  background-clip: padding-box;
+  transition: background-color 0.3s ease; /* 添加平滑过度的动画 */
+  min-height: 40px; /* 确保内容极长时，滚动条依然足够长，方便拖动 */
 }
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.22);
+
+/* 当鼠标悬浮在容器上时显示滚动条 */
+*:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.16);
 }
+
+.dark *:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+/* 鼠标直接悬浮在滚动条上时加深颜色 */
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.28);
+  background-color: rgba(0, 0, 0, 0.3) !important;
 }
+
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.36);
+  background-color: rgba(255, 255, 255, 0.4) !important;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
-}
-
-/* 仅对可滚动区域显示滚动条悬浮态（避免常驻突兀） */
-.view-port::-webkit-scrollbar-thumb {
-  opacity: 0;
-}
-
-.view-port:hover::-webkit-scrollbar-thumb,
-.view-port:focus-within::-webkit-scrollbar-thumb {
-  opacity: 1;
 }

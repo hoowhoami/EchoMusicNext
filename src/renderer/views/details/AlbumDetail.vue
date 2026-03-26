@@ -11,6 +11,7 @@ import TabsList from '@/components/ui/TabsList.vue';
 import TabsTrigger from '@/components/ui/TabsTrigger.vue';
 import TabsContent from '@/components/ui/TabsContent.vue';
 import Badge from '@/components/ui/Badge.vue';
+import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
 import { Song } from '@/stores/playlist';
 import { mapAlbumDetailMeta, mapAlbumSong } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
@@ -24,6 +25,7 @@ const album = ref<ReturnType<typeof mapAlbumDetailMeta> | null>(null);
 const songs = ref<Song[]>([]);
 const activeTab = ref('songs');
 const loadedSongCount = computed(() => songs.value.length);
+const showBatchDrawer = ref(false);
 
 // 搜索和定位逻辑
 const showSearch = ref(false);
@@ -126,6 +128,10 @@ const secondaryActions = computed(() => [
 ]);
 
 const handlePlayAll = () => {};
+const openBatchDrawer = () => {
+  if (songs.value.length === 0) return;
+  showBatchDrawer.value = true;
+};
 const handleLocate = () => songListRef.value?.scrollToActive();
 </script>
 
@@ -160,6 +166,7 @@ const handleLocate = () => songListRef.value?.scrollToActive();
           <ActionRow 
             :secondaryActions="secondaryActions"
             @play="handlePlayAll"
+            @batch="openBatchDrawer"
           />
         </template>
 
@@ -167,11 +174,16 @@ const handleLocate = () => songListRef.value?.scrollToActive();
            <button @click="handlePlayAll" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-primary">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
            </button>
+           <button @click="openBatchDrawer" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-main opacity-60">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>
+           </button>
            <button @click="router.push({ name: 'comment', params: { id: albumId }, query: { type: 'album' } })" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-main opacity-60">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
            </button>
         </template>
       </SliverHeader>
+
+      <BatchActionDrawer v-model:open="showBatchDrawer" :songs="songs" />
 
       <!-- 2. Sticky Tabs + 表头 -->
       <div class="sticky z-[90] bg-bg-main" :style="{ top: `${tabsTop}px` }">
@@ -241,6 +253,7 @@ const handleLocate = () => songListRef.value?.scrollToActive();
     </template>
   </div>
 </template>
+
 
 <style scoped>
 @reference "@/style.css";

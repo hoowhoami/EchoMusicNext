@@ -10,6 +10,17 @@ log.transports.file.level = 'info';
 log.transports.console.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}';
 Object.assign(console, log.functions);
 
+// 开启平滑滚动
+app.commandLine.appendSwitch('enable-smooth-scrolling');
+// 修复滚动卡顿
+app.commandLine.appendSwitch('disable-threaded-scrolling');
+// 提升渲染性能
+app.commandLine.appendSwitch('disable-frame-rate-limit');
+// 修复白屏/闪烁
+app.commandLine.appendSwitch('disable-gpu-compositing');
+// 加速UI响应
+app.commandLine.appendSwitch('enable-experimental-web-platform-features');
+
 if (release().startsWith('6.1')) app.disableHardwareAcceleration();
 if (process.platform === 'win32') app.setAppUserModelId(app.getName());
 
@@ -57,6 +68,8 @@ async function createWindow() {
       zoomFactor: 1.0,
     },
   });
+
+  win.webContents.setFrameRate(60); // 锁定60帧，滚动更稳
 
   if (url) {
     win.loadURL(url);

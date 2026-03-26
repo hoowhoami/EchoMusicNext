@@ -2,13 +2,23 @@
 import { useRouter } from 'vue-router';
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { usePlayerStore } from '@/stores/player';
+import { useSettingStore } from '@/stores/setting';
 import { usePlaylistStore, type Song, type SongArtist } from '@/stores/playlist';
 import { SliderRoot, SliderTrack, SliderRange, SliderThumb } from 'reka-ui';
 import Cover from '@/components/ui/Cover.vue';
+import {
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+} from 'reka-ui';
+import PlayerQueueDrawer from '@/components/music/PlayerQueueDrawer.vue';
 
 const router = useRouter();
 const player = usePlayerStore();
 const playlist = usePlaylistStore();
+const settingStore = useSettingStore();
 
 const currentTrack = computed(() => {
   return (
@@ -21,6 +31,8 @@ const currentTrack = computed(() => {
 const isFavorite = computed(() => {
   return currentTrack.value ? playlist.favorites.some((s) => s.id === currentTrack.value?.id) : false;
 });
+
+const playbackRates = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
 const artistList = computed(() => {
   if (!currentTrack.value) return [];
@@ -61,6 +73,23 @@ const goToComments = () => {
   });
 };
 
+const setPlaybackRate = (rate: number) => {
+  player.setPlaybackRate(rate);
+};
+
+const setAudioQuality = (quality: '128' | '320' | 'flac' | 'high') => {
+  settingStore.audioQuality = quality;
+};
+
+const setAudioEffect = (effect: 'none' | 'piano' | 'acappella' | 'subwoofer' | 'ancient' | 'surnay' | 'dj' | 'viper_tape' | 'viper_atmos' | 'viper_clear') => {
+  settingStore.audioEffect = effect;
+};
+
+const openQueue = () => {
+  isQueueDrawerOpen.value = true;
+};
+
+
 const handleSeek = (value: number[] | undefined) => {
   if (value && value.length > 0) {
     player.seek(value[0]);
@@ -71,6 +100,7 @@ const lastVolume = ref(0.8);
 const isHoveringProgress = ref(false);
 const isVolumeVisible = ref(false);
 const volumeContainerRef = ref<HTMLElement | null>(null);
+const isQueueDrawerOpen = ref(false);
 
 const toggleVolume = (e: Event) => {
   e.stopPropagation();
@@ -109,6 +139,21 @@ const toggleFavorite = (e: Event) => {
   }
 };
 
+const updateDrawerWidth = () => {
+  const content = document.querySelector('.main-content') as HTMLElement | null;
+  if (content) {
+    const width = Math.floor(content.clientWidth);
+    const left = Math.floor(content.getBoundingClientRect().left);
+    document.documentElement.style.setProperty('--drawer-content-width', `${width}px`);
+    document.documentElement.style.setProperty('--drawer-content-left', `${left}px`);
+  }
+  const playerBar = document.querySelector('.player-bar-container') as HTMLElement | null;
+  if (playerBar) {
+    const offset = Math.floor(playerBar.offsetHeight + 8);
+    document.documentElement.style.setProperty('--drawer-bottom-offset', `${offset}px`);
+  }
+};
+
 // Marquee logic
 const songInfoRef = ref<HTMLElement | null>(null);
 const isMarqueeActive = ref(false);
@@ -125,12 +170,15 @@ const checkMarquee = () => {
 onMounted(() => {
   window.addEventListener('resize', checkMarquee);
   window.addEventListener('click', handleClickOutside);
+  window.addEventListener('resize', updateDrawerWidth);
   checkMarquee();
+  updateDrawerWidth();
 });
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkMarquee);
   window.removeEventListener('click', handleClickOutside);
+  window.removeEventListener('resize', updateDrawerWidth);
 });
 </script>
 
@@ -352,16 +400,121 @@ onUnmounted(() => {
       </div>
 
       <!-- 3. 右侧：功能选项 - 弹性增长 -->
-      <div class="flex-1 flex justify-end items-center gap-1 min-w-[120px] max-w-[320px]">
-        <button class="p-2 text-text-main/30 hover:text-primary transition-all" title="音质">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20v-8m0-4V4m-5 12v-2m0-4v-2m10 10v-6m0-4V8" /></svg>
-        </button>
-        <button class="p-2 text-text-main/30 hover:text-primary transition-all" title="播放队列">
+      <div class="player-actions flex-1 flex justify-end items-center gap-1 min-w-[120px] max-w-[320px]">
+        <DropdownMenuRoot>
+          <DropdownMenuTrigger as-child>
+            <button class="p-2 text-text-main/30 hover:text-primary transition-all hover:scale-110 active:scale-90" title="播放倍速">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuContent class="player-dropdown" align="end" side="top" :side-offset="10">
+              <div class="player-dropdown-title">播放倍速</div>
+              <DropdownMenuItem
+                v-for="rate in playbackRates"
+                :key="rate"
+                class="player-dropdown-item"
+                @select="setPlaybackRate(rate)"
+              >
+                <span>{{ rate.toFixed(2).replace(/\.00$/, '') }}x</span>
+                <span v-if="player.playbackRate === rate" class="player-dropdown-check">✓</span>
+              </DropdownMenuItem>
+              <div class="player-dropdown-arrow"></div>
+            </DropdownMenuContent>
+          </DropdownMenuPortal>
+        </DropdownMenuRoot>
+
+        <DropdownMenuRoot>
+          <DropdownMenuTrigger as-child>
+            <button class="p-2 text-text-main/30 hover:text-primary transition-all hover:scale-110 active:scale-90" title="音质">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 20v-8m0-4V4m-5 12v-2m0-4v-2m10 10v-6m0-4V8" />
+              </svg>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuContent class="player-dropdown" align="end" side="top" :side-offset="10">
+              <div class="player-dropdown-title">音质</div>
+              <DropdownMenuItem class="player-dropdown-item" @select="setAudioQuality('high')">
+                <span>Hi-Res</span>
+                <span v-if="settingStore.audioQuality === 'high'" class="player-dropdown-check">✓</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem class="player-dropdown-item" @select="setAudioQuality('flac')">
+                <span>SQ 无损</span>
+                <span v-if="settingStore.audioQuality === 'flac'" class="player-dropdown-check">✓</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem class="player-dropdown-item" @select="setAudioQuality('320')">
+                <span>HQ 高品质</span>
+                <span v-if="settingStore.audioQuality === '320'" class="player-dropdown-check">✓</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem class="player-dropdown-item" @select="setAudioQuality('128')">
+                <span>标准</span>
+                <span v-if="settingStore.audioQuality === '128'" class="player-dropdown-check">✓</span>
+              </DropdownMenuItem>
+              <div class="player-dropdown-divider"></div>
+              <div class="player-dropdown-title">音效</div>
+              <div class="player-dropdown-scroll">
+                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('none')">
+                  <span>无音效</span>
+                  <span v-if="settingStore.audioEffect === 'none'" class="player-dropdown-check">✓</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('piano')">
+                  <span>钢琴</span>
+                  <span v-if="settingStore.audioEffect === 'piano'" class="player-dropdown-check">✓</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('acappella')">
+                  <span>清唱</span>
+                  <span v-if="settingStore.audioEffect === 'acappella'" class="player-dropdown-check">✓</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('subwoofer')">
+                  <span>重低音</span>
+                  <span v-if="settingStore.audioEffect === 'subwoofer'" class="player-dropdown-check">✓</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('ancient')">
+                  <span>古风</span>
+                  <span v-if="settingStore.audioEffect === 'ancient'" class="player-dropdown-check">✓</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('surnay')">
+                  <span>唢呐</span>
+                  <span v-if="settingStore.audioEffect === 'surnay'" class="player-dropdown-check">✓</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('dj')">
+                  <span>DJ</span>
+                  <span v-if="settingStore.audioEffect === 'dj'" class="player-dropdown-check">✓</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('viper_tape')">
+                  <span>蝰蛇母带</span>
+                  <span v-if="settingStore.audioEffect === 'viper_tape'" class="player-dropdown-check">✓</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('viper_atmos')">
+                  <span>蝰蛇全景声</span>
+                  <span v-if="settingStore.audioEffect === 'viper_atmos'" class="player-dropdown-check">✓</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('viper_clear')">
+                  <span>蝰蛇超清</span>
+                  <span v-if="settingStore.audioEffect === 'viper_clear'" class="player-dropdown-check">✓</span>
+                </DropdownMenuItem>
+              </div>
+              <div class="player-dropdown-arrow"></div>
+            </DropdownMenuContent>
+          </DropdownMenuPortal>
+        </DropdownMenuRoot>
+
+        <button
+          class="p-2 text-text-main/30 hover:text-primary transition-all hover:scale-110 active:scale-90"
+          title="播放队列"
+          @click="openQueue"
+        >
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>
         </button>
       </div>
     </footer>
   </div>
+
+  <PlayerQueueDrawer v-model:open="isQueueDrawerOpen" />
 </template>
 
 <style scoped>
@@ -392,6 +545,10 @@ onUnmounted(() => {
   transition: background-color 0.3s ease;
 }
 
+.player-actions {
+  padding-right: 6px;
+}
+
 .player-toggle {
   background-color: rgba(0, 0, 0, 0.04);
   border-color: transparent;
@@ -406,4 +563,86 @@ onUnmounted(() => {
 .dark .player-progress-track {
   background-color: rgba(245, 245, 247, 0.4);
 }
+
+:deep(.player-dropdown) {
+  min-width: 168px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-light);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 1200;
+  position: relative;
+}
+
+:deep(.player-dropdown-title) {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  padding: 2px 6px 6px;
+}
+
+:deep(.player-dropdown-item) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-main);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+:deep(.player-dropdown-item:hover) {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: var(--color-primary);
+}
+
+:deep(.dark .player-dropdown-item:hover) {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+:deep(.player-dropdown-check) {
+  font-size: 12px;
+  color: var(--color-primary);
+}
+
+:deep(.player-dropdown-divider) {
+  height: 1px;
+  margin: 4px 6px;
+  background-color: var(--color-border-light);
+}
+
+:deep(.player-dropdown-scroll) {
+  max-height: 168px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+:deep(.player-dropdown-scroll::-webkit-scrollbar) {
+  width: 4px;
+}
+
+:deep(.player-dropdown-scroll::-webkit-scrollbar-thumb) {
+  background: var(--color-border-light);
+  border-radius: 999px;
+}
+
+:deep(.player-dropdown-arrow) {
+  position: absolute;
+  bottom: -6px;
+  right: 26px;
+  width: 12px;
+  height: 12px;
+  background: var(--color-bg-card);
+  border-right: 1px solid var(--color-border-light);
+  border-bottom: 1px solid var(--color-border-light);
+  transform: rotate(45deg);
+}
+
 </style>

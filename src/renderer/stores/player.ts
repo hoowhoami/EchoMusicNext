@@ -13,6 +13,7 @@ export const usePlayerStore = defineStore('player', {
     volume: 0.8,
     currentTime: 0,
     duration: 0,
+    playbackRate: 1,
     playMode: 'list' as PlayMode,
     currentTrackId: null as string | null,
   }),
@@ -21,6 +22,7 @@ export const usePlayerStore = defineStore('player', {
       const lyricStore = useLyricStore();
       // 恢复持久化的音量
       audio.volume = this.volume;
+      audio.playbackRate = this.playbackRate;
 
       // 监听音频事件
       audio.ontimeupdate = () => {
@@ -76,6 +78,12 @@ export const usePlayerStore = defineStore('player', {
       audio.volume = this.volume;
     },
 
+    setPlaybackRate(rate: number) {
+      const next = Math.max(0.5, Math.min(2, rate));
+      this.playbackRate = next;
+      audio.playbackRate = next;
+    },
+
     seek(time: number) {
       const targetTime = Math.max(0, Math.min(this.duration, time));
       audio.currentTime = targetTime;
@@ -114,6 +122,16 @@ export const usePlayerStore = defineStore('player', {
       }
     },
 
+    stop() {
+      audio.pause();
+      audio.currentTime = 0;
+      this.currentTime = 0;
+      this.duration = 0;
+      this.isPlaying = false;
+      this.currentTrackId = null;
+      useLyricStore().setLyric('');
+    },
+
     next() {
       const playlistStore = usePlaylistStore();
       const list = playlistStore.defaultList;
@@ -145,6 +163,6 @@ export const usePlayerStore = defineStore('player', {
     },
   },
   persist: {
-    pick: ['volume', 'playMode', 'currentTrackId'],
+    pick: ['volume', 'playMode', 'currentTrackId', 'playbackRate'],
   },
 });
