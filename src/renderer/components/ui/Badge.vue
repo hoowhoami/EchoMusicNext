@@ -8,10 +8,10 @@ const props = defineProps<Props>();
 </script>
 
 <template>
-  <span 
+  <span
     v-if="count !== undefined"
     :class="[
-      'badge absolute -top-1.5 -right-5 text-[9px] font-black opacity-40 scale-90 select-none pointer-events-none',
+      'badge absolute -top-1.5 -right-5 min-w-[16px] h-4 px-1 rounded-full text-[9px] leading-4 font-bold bg-primary text-white shadow-sm select-none pointer-events-none',
       props.class
     ]"
   >

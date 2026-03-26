@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { getMusicComments, getPlaylistComments, getAlbumComments } from '../../api/comment';
-import CommentList from '../../components/music/CommentList.vue';
+import { getMusicComments, getPlaylistComments, getAlbumComments } from '@/api/comment';
+import CommentList from '@/components/music/CommentList.vue';
 
 const route = useRoute();
 const id = route.params.id as string;

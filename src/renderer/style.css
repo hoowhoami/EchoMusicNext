@@ -60,6 +60,31 @@
   .no-scrollbar::-webkit-scrollbar { display: none; }
 }
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-thumb { @apply bg-gray-300 dark:bg-white/10 rounded-full hover:bg-gray-400 dark:hover:bg-white/20 transition-colors; }
-::-webkit-scrollbar-track { @apply bg-transparent; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 999px;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.36);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 仅对可滚动区域显示滚动条悬浮态（避免常驻突兀） */
+.view-port::-webkit-scrollbar-thumb {
+  opacity: 0;
+}
+
+.view-port:hover::-webkit-scrollbar-thumb,
+.view-port:focus-within::-webkit-scrollbar-thumb {
+  opacity: 1;
+}

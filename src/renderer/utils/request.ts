@@ -1,6 +1,6 @@
 import axios from 'axios';
-import { useUserStore } from '../stores/user';
-import { useDeviceStore } from '../stores/device';
+import { useUserStore } from '@/stores/user';
+import { useDeviceStore } from '@/stores/device';
 
 const isDev = process.env.NODE_ENV === 'development';
 const API_BASE_URL = isDev ? '/api' : 'http://127.0.0.1:12306';

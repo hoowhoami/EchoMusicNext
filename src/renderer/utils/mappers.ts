@@ -1,4 +1,4 @@
-import { Song } from '../stores/playlist';
+import { Song, SongRelateGood, SongArtist } from '@/stores/playlist';
 import { getCoverUrl } from './music';
 
 export interface PlaylistTrackQueryContext {
@@ -109,6 +109,86 @@ const pickValue = (...values: unknown[]): unknown => {
     return value;
   }
   return undefined;
+};
+
+const toRelateGood = (item: unknown): SongRelateGood | null => {
+  if (!isRecord(item)) return null;
+  const hash = readString(pickValue(item.hash, item.Hash, item.file_hash, item.fileHash), '');
+  const quality = readString(pickValue(item.quality, item.Quality, item.q), '');
+  const level = parseOptionalInt(
+    pickValue(item.level, item.quality_level, item.qualityLevel, item.quality),
+  );
+
+  const good: SongRelateGood = {};
+  if (hash) good.hash = hash;
+  if (quality) good.quality = quality;
+  if (level !== undefined) good.level = level;
+
+  if (!good.hash && !good.quality && good.level === undefined) return null;
+  return good;
+};
+
+const buildArtists = (record: UnknownRecord, audioInfo: UnknownRecord): SongArtist[] => {
+  const artists: SongArtist[] = [];
+  const singerInfo = getArray(pickValue(record.singerinfo, audioInfo.singerinfo, record.authors));
+
+  if (singerInfo) {
+    for (const raw of singerInfo) {
+      if (!isRecord(raw)) continue;
+      const name = readString(pickValue(raw.name, raw.author_name, raw.singername, raw.singer), '').trim();
+      if (!name) continue;
+      const id = pickValue(raw.id, raw.author_id, raw.singerid, raw.singer_id);
+      artists.push({
+        id: id !== undefined && id !== null ? readString(id) : undefined,
+        name,
+      });
+    }
+  }
+
+  if (artists.length === 0) {
+    const fallbackName = readString(
+      pickValue(record.author_name, record.singername, record.singer, audioInfo.author_name, audioInfo.singername),
+      '',
+    ).trim();
+
+    if (fallbackName) {
+      artists.push({ name: fallbackName });
+    }
+  }
+
+  return artists;
+};
+
+const buildRelateGoods = (record: UnknownRecord, audioInfo: UnknownRecord): SongRelateGood[] => {
+  const goods: SongRelateGood[] = [];
+  const rawGoods = getArray(
+    pickValue(record.relate_goods, record.relateGoods, audioInfo.relate_goods, audioInfo.relateGoods),
+  );
+
+  if (rawGoods) {
+    for (const item of rawGoods) {
+      const good = toRelateGood(item);
+      if (good) goods.push(good);
+    }
+  }
+
+  const pushQualityHash = (hashValue: unknown, quality: string) => {
+    const hash = readString(hashValue, '');
+    if (hash) goods.push({ hash, quality });
+  };
+
+  pushQualityHash(pickValue(record.hash_320, audioInfo.hash_320), '320');
+  pushQualityHash(pickValue(record.hash_flac, audioInfo.hash_flac), 'flac');
+  pushQualityHash(pickValue(record.hash_high, audioInfo.hash_high), 'high');
+
+  const hq = getRecord(record, 'HQ');
+  const sq = getRecord(record, 'SQ');
+  const res = getRecord(record, 'Res');
+  if (hq) pushQualityHash(pickValue(hq.Hash, hq.hash), '320');
+  if (sq) pushQualityHash(pickValue(sq.Hash, sq.hash), 'flac');
+  if (res) pushQualityHash(pickValue(res.Hash, res.hash), 'high');
+
+  return goods;
 };
 
 const formatPic = (value: unknown): string => {
@@ -271,10 +351,34 @@ export const mapPlaylistSong = (json: unknown): Song => {
     pickValue(record.timelen, audioInfo.duration_128, audioInfo.duration, 0),
   );
 
+  const relateGoods = buildRelateGoods(record, audioInfo);
+  const artists = buildArtists(record, audioInfo);
+
+  const privilegeDownload =
+    getRecord(record, 'privilege_download') ?? getRecord(record, 'privilegeDownload') ?? EMPTY_RECORD;
+
+  const privilege = parseOptionalInt(
+    pickValue(record.privilege, audioInfo.privilege, privilegeDownload.privilege, undefined),
+  );
+
+  let payType = parseOptionalInt(pickValue(record.pay_type, record.PayType, record.payType));
+  if (payType === undefined) {
+    const downloadList = getArray(record.download);
+    const firstDownload = downloadList?.[0];
+    if (isRecord(firstDownload)) {
+      payType = parseOptionalInt(firstDownload.pay_type ?? firstDownload.PayType);
+    }
+  }
+
+  const oldCpy = parseOptionalInt(
+    pickValue(record.old_cpy, record.media_old_cpy, record.mediaOldCpy),
+  );
+
   return {
     id: readString(pickValue(record.mixsongid, record.audio_id, audioInfo.audio_id, hash)),
     title: title || '未知歌曲',
     artist: normalizeText(singerName || '未知歌手'),
+    artists,
     album: normalizeText(
       readString(
         pickValue(record.albumname, record.album_name, albumInfo.name, albumInfo.album_name, ''),
@@ -288,6 +392,10 @@ export const mapPlaylistSong = (json: unknown): Song => {
     audioUrl: '',
     hash,
     mixSongId: parseIntSafe(pickValue(record.mixsongid, record.audio_id, audioInfo.audio_id, 0)),
+    relateGoods,
+    privilege,
+    payType,
+    oldCpy,
   };
 };
 
@@ -295,11 +403,16 @@ export const mapArtistSong = (_artistId: string | number, json: unknown): Song =
   const record = toRecord(json);
   const transParam = getRecord(record, 'trans_param') ?? EMPTY_RECORD;
   const hash = readString(record.hash, '');
+  const audioInfo = getRecord(record, 'audio_info') ?? EMPTY_RECORD;
+  const artists = buildArtists(record, audioInfo);
+  const privilegeDownload =
+    getRecord(record, 'privilege_download') ?? getRecord(record, 'privilegeDownload') ?? EMPTY_RECORD;
 
   return {
     id: readString(pickValue(record.mixsongid, record.album_audio_id, hash)),
     title: readString(record.audio_name, '未知歌曲'),
     artist: normalizeText(readString(record.author_name, '未知歌手')),
+    artists,
     album: normalizeText(readString(record.album_name, '')),
     albumId: readString(record.album_id, ''),
     duration: Math.floor(parseIntSafe(pickValue(record.timelength, 0)) / 1000),
@@ -307,6 +420,12 @@ export const mapArtistSong = (_artistId: string | number, json: unknown): Song =
     audioUrl: '',
     hash,
     mixSongId: parseIntSafe(pickValue(record.mixsongid, record.album_audio_id, 0)),
+    relateGoods: buildRelateGoods(record, audioInfo),
+    privilege: parseOptionalInt(
+      pickValue(record.privilege, privilegeDownload.privilege, undefined),
+    ),
+    payType: parseOptionalInt(pickValue(record.pay_type, record.PayType, record.payType)),
+    oldCpy: parseOptionalInt(pickValue(record.old_cpy, record.media_old_cpy)),
   };
 };
 
@@ -316,6 +435,8 @@ export const mapAlbumSong = (json: unknown): Song => {
   const audioInfo = getRecord(record, 'audio_info') ?? EMPTY_RECORD;
   const albumInfo = getRecord(record, 'album_info') ?? EMPTY_RECORD;
   const transParam = getRecord(record, 'trans_param') ?? EMPTY_RECORD;
+  const copyright = getRecord(record, 'copyright') ?? EMPTY_RECORD;
+  const artists = buildArtists(record, audioInfo);
 
   const cover = readString(
     pickValue(record.pic, record.img, audioInfo.img, albumInfo.cover, transParam.union_cover, ''),
@@ -325,6 +446,7 @@ export const mapAlbumSong = (json: unknown): Song => {
     id: readString(pickValue(base.audio_id, record.audio_id, audioInfo.audio_id, '')),
     title: processSongTitle(readString(pickValue(base.audio_name, record.songname, '未知歌曲'))),
     artist: normalizeText(readString(pickValue(base.author_name, record.author_name, '未知歌手'))),
+    artists,
     album: normalizeText(readString(pickValue(albumInfo.album_name, record.album_name, ''))),
     albumId: readString(pickValue(base.album_id, record.album_id, '')),
     duration: Math.floor(parseIntSafe(pickValue(audioInfo.duration, record.timelength, 0)) / 1000),
@@ -332,6 +454,10 @@ export const mapAlbumSong = (json: unknown): Song => {
     audioUrl: '',
     hash: readString(pickValue(audioInfo.hash, record.hash, '')),
     mixSongId: parseIntSafe(pickValue(base.audio_id, record.audio_id, 0)),
+    relateGoods: buildRelateGoods(record, audioInfo),
+    privilege: parseOptionalInt(pickValue(record.privilege, copyright.privilege, undefined)),
+    payType: parseOptionalInt(pickValue(record.pay_type, record.PayType, record.payType)),
+    oldCpy: parseOptionalInt(pickValue(record.old_cpy, record.media_old_cpy)),
   };
 };
 

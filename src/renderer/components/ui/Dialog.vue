@@ -40,17 +40,6 @@ const hasBody = computed(() => Boolean(slots.default));
 
 const overlayClass = computed(() => ['dialog-overlay', props.overlayClass]);
 const contentClass = computed(() => ['dialog-content', props.contentClass]);
-const overlayStyles = computed(() => ({
-  position: 'fixed',
-  inset: '0',
-  zIndex: '200',
-}));
-const contentStyles = computed(() => ({
-  position: 'fixed',
-  left: '50%',
-  top: '50%',
-  zIndex: '210',
-}));
 const bodyClass = computed(() => [
   'dialog-body',
   hasHeader.value ? 'mt-4' : null,
@@ -62,11 +51,11 @@ const bodyClass = computed(() => [
   <DialogRoot v-model:open="open">
     <DialogPortal>
       <DialogOverlay as-child>
-        <div :class="overlayClass" :style="overlayStyles" />
+        <div :class="overlayClass" />
       </DialogOverlay>
 
       <DialogContent as-child>
-        <div :class="contentClass" :style="contentStyles">
+        <div :class="contentClass">
           <DialogClose v-if="props.showClose" as-child>
             <button class="dialog-close" type="button" aria-label="关闭">
               <svg
@@ -112,7 +101,7 @@ const bodyClass = computed(() => [
 </template>
 
 <style scoped>
-@reference "../../style.css";
+@reference "@/style.css";
 
 :global(.dialog-overlay) {
   @apply fixed inset-0 bg-black/30 backdrop-blur-[1px] z-[200];
@@ -129,7 +118,7 @@ const bodyClass = computed(() => [
 }
 
 :global(.dialog-content) {
-  @apply fixed left-1/2 top-1/2 z-[210] w-[420px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-bg-main border border-border-light/40 p-6 shadow-2xl;
+  @apply fixed left-1/2 top-1/2 z-[210] w-[420px] max-w-[92vw] rounded-2xl bg-bg-main border border-border-light/40 p-6 shadow-2xl;
   opacity: 0;
   transform: translate(-50%, -50%) scale(0.98);
   transition:

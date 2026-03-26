@@ -73,7 +73,7 @@ const thumbClass = computed(() => ['slider-thumb', props.thumbClass]);
 </template>
 
 <style scoped>
-@reference "../../style.css";
+@reference "@/style.css";
 
 .slider-root {
   @apply relative select-none touch-none cursor-pointer;

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
-import { getUserDetail, getUserVipDetail } from '../api/user';
-import logger from '../utils/logger';
+import { getUserDetail, getUserVipDetail } from '@/api/user';
+import logger from '@/utils/logger';
 
 export interface UserInfo {
   userid?: number;

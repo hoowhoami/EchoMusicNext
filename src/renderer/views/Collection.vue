@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { usePlaylistStore } from '../stores/playlist';
-import { usePlayerStore } from '../stores/player';
-import Cover from '../components/ui/Cover.vue';
+import { usePlaylistStore } from '@/stores/playlist';
+import { usePlayerStore } from '@/stores/player';
+import Cover from '@/components/ui/Cover.vue';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();

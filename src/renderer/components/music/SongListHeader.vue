@@ -5,6 +5,7 @@ export type SortOrder = 'asc' | 'desc' | null;
 interface Props {
   showIndex?: boolean;
   showAlbum?: boolean;
+  showCover?: boolean;
   sortField?: SortField | null;
   sortOrder?: SortOrder;
 }
@@ -12,6 +13,7 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   showIndex: true,
   showAlbum: true,
+  showCover: true,
   sortField: null,
   sortOrder: null,
 });
@@ -26,11 +28,12 @@ const handleSort = (field: SortField) => {
 </script>
 
 <template>
-  <div class="flex items-center px-8 py-2 text-[12px] text-text-secondary opacity-40 font-bold border-b border-border-light/30">
-    <div v-if="showIndex" class="w-10 shrink-0 text-center">#</div>
+  <div class="flex items-center px-6 py-2 text-[12px] text-text-secondary opacity-40 font-bold border-b border-border-light/30">
+    <div v-if="showIndex" class="w-10 shrink-0 text-left pl-2">#</div>
 
     <div
-      class="flex-1 min-w-0 ml-4 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
+      class="flex-1 min-w-0 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
+      :class="props.showCover ? 'ml-4' : ''"
       @click="handleSort('title')"
     >
       <span>标题</span>
@@ -63,5 +66,5 @@ const handleSort = (field: SortField) => {
 </template>
 
 <style scoped>
-@reference "../../style.css";
+@reference "@/style.css";
 </style>

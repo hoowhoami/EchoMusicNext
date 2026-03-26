@@ -15,5 +15,5 @@ const forwardedProps = useForwardProps(props);
 </template>
 
 <style scoped>
-@reference "../../style.css";
+@reference "@/style.css";
 </style>

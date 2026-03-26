@@ -43,7 +43,7 @@ const props = withDefaults(defineProps<Props>(), {
 </template>
 
 <style scoped>
-@reference "../../style.css";
+@reference "@/style.css";
 
 .action-btn {
   @apply flex items-center gap-2 px-3 h-9 rounded-lg text-[12px] font-semibold transition-all active:scale-95 select-none;

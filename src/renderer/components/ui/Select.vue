@@ -89,7 +89,7 @@ const selectedLabel = computed(() => {
 </template>
 
 <style scoped>
-@reference "../../style.css";
+@reference "@/style.css";
 
 .select-trigger {
   @apply inline-flex w-auto min-w-[140px] h-9 px-3 rounded-xl border border-border-light bg-black/[0.06] dark:bg-white/[0.06] text-text-main text-[13px] font-semibold items-center justify-between gap-2 transition-all;

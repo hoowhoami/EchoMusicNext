@@ -19,7 +19,7 @@ const forwardedProps = useForwardProps(props);
 </template>
 
 <style scoped>
-@reference "../../style.css";
+@reference "@/style.css";
 
 .active-line {
   @apply absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0.5 bg-primary rounded-full transition-all duration-300;

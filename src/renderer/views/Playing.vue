@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { usePlayerStore } from '../stores/player';
-import { usePlaylistStore, type Song } from '../stores/playlist';
-import { useLyricStore } from '../stores/lyric';
-import OverlayHeader from '../layouts/OverlayHeader.vue';
-import Cover from '../components/ui/Cover.vue';
-import { getCoverUrl } from '../utils/music';
+import { usePlayerStore } from '@/stores/player';
+import { usePlaylistStore, type Song } from '@/stores/playlist';
+import { useLyricStore } from '@/stores/lyric';
+import OverlayHeader from '@/layouts/OverlayHeader.vue';
+import Cover from '@/components/ui/Cover.vue';
+import { getCoverUrl } from '@/utils/music';
 
 const router = useRouter();
 const player = usePlayerStore();

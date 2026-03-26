@@ -44,7 +44,7 @@ onUnmounted(() => {
     <button
       v-if="visible"
       @click="scrollToTop"
-      class="fixed right-8 bottom-32 z-50 p-3 rounded-full bg-white dark:bg-bg-card shadow-lg hover:shadow-xl border border-border-light text-text-main transition-all duration-300 active:scale-95 group"
+      class="fixed right-8 bottom-32 z-50 p-3 rounded-full back-to-top-btn shadow-lg hover:shadow-xl transition-all duration-300 active:scale-95 group"
       aria-label="Back to top"
     >
       <svg 
@@ -66,6 +66,28 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+@reference "@/style.css";
+
+.back-to-top-btn {
+  background: #FFFFFF;
+  color: #1D1D1F;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.dark .back-to-top-btn {
+  background: #2C2C2E;
+  color: #F5F5F7;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.back-to-top-btn:hover {
+  color: var(--color-primary);
+}
+
+.dark .back-to-top-btn:hover {
+  color: var(--color-primary);
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease, transform 0.3s ease;

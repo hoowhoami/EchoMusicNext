@@ -2,7 +2,7 @@
 import Sidebar from './Sidebar.vue';
 import TitleBar from './TitleBar.vue';
 import PlayerBar from './PlayerBar.vue';
-import BackToTop from '../components/ui/BackToTop.vue';
+import BackToTop from '@/components/ui/BackToTop.vue';
 </script>
 
 <template>
@@ -15,8 +15,8 @@ import BackToTop from '../components/ui/BackToTop.vue';
       <!-- 2.1 主体内容区域 -->
       <main class="main-content flex-1 flex flex-col min-h-0">
         <TitleBar />
-        <!-- 滚动容器，底部留白避免被播放器遮挡 -->
-        <div class="view-port flex-1 overflow-y-auto overflow-x-hidden pb-[100px]">
+        <!-- 滚动容器 -->
+        <div class="view-port flex-1 overflow-y-auto overflow-x-hidden">
           <router-view />
         </div>
       </main>

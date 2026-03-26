@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-import Cover from '../ui/Cover.vue';
+import Cover from '@/components/ui/Cover.vue';
 
 interface Props {
   id: string | number;
@@ -35,7 +35,7 @@ const handleClick = () => {
 </template>
 
 <style scoped>
-@reference "../../style.css";
+@reference "@/style.css";
 
 .artist-card {
   @apply transition-all duration-300 ease-out;

@@ -5,15 +5,27 @@ import {
   deletePlaylistTrack,
   addPlaylist,
   deletePlaylist,
-} from '../api/playlist';
-import { uploadPlayHistory } from '../api/user';
-import logger from '../utils/logger';
-import { mapPlaylistMeta, type PlaylistMeta } from '../utils/mappers';
+} from '@/api/playlist';
+import { uploadPlayHistory } from '@/api/user';
+import logger from '@/utils/logger';
+import { mapPlaylistMeta, type PlaylistMeta } from '@/utils/mappers';
+
+export interface SongRelateGood {
+  hash?: string;
+  quality?: string;
+  level?: number;
+}
+
+export interface SongArtist {
+  id?: string | number;
+  name: string;
+}
 
 export interface Song {
   id: string;
   title: string;
   artist: string;
+  artists?: SongArtist[];
   album?: string;
   albumId?: string | number;
   duration: number;
@@ -22,6 +34,10 @@ export interface Song {
   hash: string;
   mixSongId: string | number;
   lyric?: string;
+  privilege?: number;
+  payType?: number;
+  oldCpy?: number;
+  relateGoods?: SongRelateGood[];
 }
 
 export interface PlaylistInfo {
@@ -55,12 +71,17 @@ export const usePlaylistStore = defineStore('playlist', {
         id: '1',
         title: '梦中的婚礼',
         artist: 'Richard Clayderman',
+        artists: [{ id: '0', name: 'Richard Clayderman' }],
         duration: 167,
         coverUrl: 'https://p2.music.126.net/6y-U_9D-x7Pz1B6T0o2_oA==/109951165034938827.jpg',
         audioUrl: 'https://music.163.com/song/media/outer/url?id=431795921.mp3',
         hash: 'A1B2C3D4E5F6G7H8I9J0',
         mixSongId: '123456',
         lyric: sampleLrc,
+        privilege: 10,
+        payType: 3,
+        oldCpy: 1,
+        relateGoods: [{ quality: 'high', hash: 'A1B2C3D4E5F6G7H8I9J0' }],
       },
     ] as Song[],
     favorites: [] as Song[],
@@ -87,6 +108,37 @@ export const usePlaylistStore = defineStore('playlist', {
     }
   },
   actions: {
+    async addToPlaylist(listId: string | number, song: Song) {
+      const targetId = String(listId ?? '');
+      if (!targetId) return false;
+
+      try {
+        const songData = `${song.title}|${song.hash}|${song.albumId || 0}|${song.mixSongId}`;
+        const res = await addPlaylistTrack(targetId, songData);
+        if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
+          logger.info(`[PlaylistStore] Song ${song.title} added to playlist ${targetId}`);
+          return true;
+        }
+      } catch (e) {
+        logger.error('[PlaylistStore] Add to playlist error:', e);
+      }
+      return false;
+    },
+    async removeFromPlaylist(listId: string | number, song: Song) {
+      const targetId = String(listId ?? '');
+      if (!targetId) return false;
+
+      try {
+        const res = await deletePlaylistTrack(targetId, String(song.mixSongId));
+        if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
+          logger.info(`[PlaylistStore] Song ${song.title} removed from playlist ${targetId}`);
+          return true;
+        }
+      } catch (e) {
+        logger.error('[PlaylistStore] Remove from playlist error:', e);
+      }
+      return false;
+    },
     /**
      * 添加到收藏 (同步远端)
      */

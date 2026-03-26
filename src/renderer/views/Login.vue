@@ -1,24 +1,24 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, reactive, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { useUserStore } from '../stores/user';
-import { usePlaylistStore } from '../stores/playlist';
+import { useUserStore } from '@/stores/user';
+import { usePlaylistStore } from '@/stores/playlist';
 import { 
   getLoginQrKey, createLoginQr, checkLoginQr, 
   sendSmsCode, loginBySms,
   createWxLogin, checkWxLogin, loginByOpenPlat 
-} from '../api/user';
+} from '@/api/user';
 
 // 引入封装后的 UI 组件
-import Tabs from '../components/ui/Tabs.vue';
-import TabsList from '../components/ui/TabsList.vue';
-import TabsTrigger from '../components/ui/TabsTrigger.vue';
-import TabsContent from '../components/ui/TabsContent.vue';
-import Input from '../components/ui/Input.vue';
-import Button from '../components/ui/Button.vue';
+import Tabs from '@/components/ui/Tabs.vue';
+import TabsList from '@/components/ui/TabsList.vue';
+import TabsTrigger from '@/components/ui/TabsTrigger.vue';
+import TabsContent from '@/components/ui/TabsContent.vue';
+import Input from '@/components/ui/Input.vue';
+import Button from '@/components/ui/Button.vue';
 
-import OverlayHeader from '../layouts/OverlayHeader.vue';
-import Image from '../components/ui/Image.vue';
+import OverlayHeader from '@/layouts/OverlayHeader.vue';
+import Image from '@/components/ui/Image.vue';
 
 const router = useRouter();
 const userStore = useUserStore();

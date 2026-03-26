@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { useRouter, useRoute } from 'vue-router';
 import { computed, onMounted, watch, ref } from 'vue';
-import { useUserStore } from '../stores/user';
-import { usePlaylistStore } from '../stores/playlist';
-import Avatar from '../components/ui/Avatar.vue';
-import Cover from '../components/ui/Cover.vue';
-import type { PlaylistMeta } from '../utils/mappers';
+import { useUserStore } from '@/stores/user';
+import { usePlaylistStore } from '@/stores/playlist';
+import Avatar from '@/components/ui/Avatar.vue';
+import Cover from '@/components/ui/Cover.vue';
+import type { PlaylistMeta } from '@/utils/mappers';
 
 const router = useRouter();
 const route = useRoute();

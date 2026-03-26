@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { getRanks } from '../api/playlist';
-import Cover from '../components/ui/Cover.vue';
+import { getRanks } from '@/api/playlist';
+import Cover from '@/components/ui/Cover.vue';
 
 const router = useRouter();
 const loading = ref(true);

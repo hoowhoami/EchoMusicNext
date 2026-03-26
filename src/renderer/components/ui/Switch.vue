@@ -36,7 +36,7 @@ const handleUpdate = (next: unknown) => {
 </template>
 
 <style scoped>
-@reference "../../style.css";
+@reference "@/style.css";
 
 .switch-root {
   @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors outline-none;

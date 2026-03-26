@@ -1,32 +1,32 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getPlaylistDetail, getPlaylistTracks, getPlaylistTracksNew } from '../../api/playlist';
-import { getPlaylistComments } from '../../api/comment';
-import SliverHeader from '../../components/music/DetailPageSliverHeader.vue';
-import ActionRow from '../../components/music/DetailPageActionRow.vue';
-import SongList from '../../components/music/SongList.vue';
-import SongListHeader from '../../components/music/SongListHeader.vue';
-import Avatar from '../../components/ui/Avatar.vue';
-import Tabs from '../../components/ui/Tabs.vue';
-import TabsList from '../../components/ui/TabsList.vue';
-import TabsTrigger from '../../components/ui/TabsTrigger.vue';
-import TabsContent from '../../components/ui/TabsContent.vue';
-import Badge from '../../components/ui/Badge.vue';
-import CommentList from '../../components/music/CommentList.vue';
-import Dialog from '../../components/ui/Dialog.vue';
-import { Song } from '../../stores/playlist';
-import { formatDate } from '../../utils/format';
-import { useUserStore } from '../../stores/user';
+import { getPlaylistDetail, getPlaylistTracks, getPlaylistTracksNew } from '@/api/playlist';
+import { getPlaylistComments } from '@/api/comment';
+import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
+import ActionRow from '@/components/music/DetailPageActionRow.vue';
+import SongList from '@/components/music/SongList.vue';
+import SongListHeader from '@/components/music/SongListHeader.vue';
+import Avatar from '@/components/ui/Avatar.vue';
+import Tabs from '@/components/ui/Tabs.vue';
+import TabsList from '@/components/ui/TabsList.vue';
+import TabsTrigger from '@/components/ui/TabsTrigger.vue';
+import TabsContent from '@/components/ui/TabsContent.vue';
+import Badge from '@/components/ui/Badge.vue';
+import CommentList from '@/components/music/CommentList.vue';
+import Dialog from '@/components/ui/Dialog.vue';
+import { Song } from '@/stores/playlist';
+import { formatDate } from '@/utils/format';
+import { useUserStore } from '@/stores/user';
 import {
   mapPlaylistMeta,
   parsePlaylistTracks,
   resolvePlaylistTrackQueryId,
   type PlaylistMeta,
-} from '../../utils/mappers';
-import type { SortField, SortOrder } from '../../components/music/SongListHeader.vue';
-import { usePlaylistStore } from '../../stores/playlist';
-import { usePlayerStore } from '../../stores/player';
+} from '@/utils/mappers';
+import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
+import { usePlaylistStore } from '@/stores/playlist';
+import { usePlayerStore } from '@/stores/player';
 
 interface PlaylistComment {
   id: string | number;
@@ -122,9 +122,10 @@ const isFavoritePlaylist = computed(() => {
   });
 });
 
+const loadedSongCount = computed(() => songs.value.length);
 const songTotalCount = computed(() => {
   const metaCount = playlist.value?.count ?? 0;
-  return metaCount > 0 ? metaCount : songs.value.length;
+  return metaCount > 0 ? metaCount : loadedSongCount.value;
 });
 
 const playlistTags = computed(() => {
@@ -204,8 +205,8 @@ const fetchComments = async (reset = false) => {
 
 // 计算 Tabs 的 sticky top 位置
 const tabsTop = computed(() => {
-  const headerHeight = sliverHeaderRef.value?.currentHeight || 52;
-  return headerHeight; // header 当前高度
+  const headerHeight = sliverHeaderRef.value?.currentHeight || 56;
+  return headerHeight;
 });
 
 // 排序逻辑
@@ -282,7 +283,10 @@ const fetchData = async () => {
       }
     }
 
-    if (!didFallback && songs.value.length === 0 && playlistMeta?.listid) {
+    const targetTotal = playlistMeta?.count ?? 0;
+    if (songs.value.length > 0 && targetTotal > songs.value.length) {
+      void fetchAllPlaylistTracks(queryId, playlistMeta?.listid, targetTotal);
+    } else if (!didFallback && songs.value.length === 0 && playlistMeta?.listid) {
       const fallbackTracks = await getPlaylistTracksNew(playlistMeta.listid, 1, 200);
       if (fallbackTracks && typeof fallbackTracks === 'object') {
         const payload =
@@ -301,6 +305,45 @@ const fetchData = async () => {
     console.error('Fetch playlist error:', e);
   } finally {
     loading.value = false;
+  }
+};
+
+const fetchAllPlaylistTracks = async (
+  queryId: string,
+  listid: number | undefined,
+  totalCount: number,
+) => {
+  const pageSize = 200;
+  const seenIds = new Set(songs.value.map((song) => song.id));
+  let page = 2;
+
+  while (songs.value.length < totalCount) {
+    let res: unknown;
+    try {
+      res = await getPlaylistTracks(queryId, page, pageSize);
+    } catch (e) {
+      if (!listid) break;
+      res = await getPlaylistTracksNew(listid, page, pageSize);
+    }
+
+    if (!res || typeof res !== 'object') break;
+    const hasStatus = 'status' in res;
+    const statusOk = hasStatus && (res as { status?: number }).status === 1;
+    const hasPayload = 'data' in res || 'info' in res;
+    if (!statusOk && !hasPayload) break;
+
+    const payload =
+      'data' in res ? (res as { data?: unknown }).data : 'info' in res ? (res as { info?: unknown }).info : res;
+    const { songs: parsedSongs } = parsePlaylistTracks(payload ?? res);
+    const nextSongs = parsedSongs.filter((song) => {
+      if (seenIds.has(song.id)) return false;
+      seenIds.add(song.id);
+      return true;
+    });
+
+    if (nextSongs.length === 0) break;
+    songs.value = [...songs.value, ...nextSongs];
+    page += 1;
   }
 };
 
@@ -409,7 +452,7 @@ const handlePlaySong = (song: Song) => {
         :title="playlist.name"
         :coverUrl="playlist.pic"
         :hasDetails="true"
-        :expandedHeight="200"
+        :expandedHeight="176"
         :collapsedHeight="56"
       >
         <template #details>
@@ -489,7 +532,7 @@ const handlePlaySong = (song: Song) => {
         </template>
       </SliverHeader>
 
-      <div v-if="playlist.intro" class="px-6 pt-[10px] pb-[6px]">
+      <div v-if="playlist.intro" class="px-6 pt-[6px] pb-[6px]">
         <div class="text-[15px] font-semibold text-text-main">歌单介绍</div>
         <div class="mt-[6px] text-[12px] leading-relaxed text-text-secondary line-clamp-1">
           {{ playlist.intro }}
@@ -504,14 +547,14 @@ const handlePlaySong = (song: Song) => {
       </div>
 
       <!-- 2. Sticky Tabs + 表头 -->
-      <div class="sticky z-[90] bg-bg-main" :style="{ top: `${tabsTop}px` }">
+      <div class="sticky z-[110] bg-bg-main" :style="{ top: `${tabsTop}px` }">
         <Tabs :model-value="activeTab" class="w-full" @update:model-value="handleTabChange">
           <!-- Tab 切换栏 -->
           <div class="px-6 border-b border-border-light/10">
             <div class="flex items-center justify-between h-14">
               <TabsList class="bg-transparent border-none">
                 <TabsTrigger value="songs">
-                  <span class="relative">歌曲 <Badge :count="songTotalCount" /></span>
+                  <span class="relative">歌曲 <Badge :count="loadedSongCount" /></span>
                 </TabsTrigger>
                 <TabsTrigger value="comments">
                   <span class="relative">
@@ -589,6 +632,7 @@ const handlePlaySong = (song: Song) => {
             v-if="activeTab === 'songs'"
             :sortField="sortField"
             :sortOrder="sortOrder"
+            :showCover="true"
             @sort="handleSort"
           />
         </Tabs>
@@ -598,13 +642,16 @@ const handlePlaySong = (song: Song) => {
       <div class="pb-12">
         <Tabs :model-value="activeTab" class="w-full" @update:model-value="handleTabChange">
           <TabsContent value="songs" class="px-6">
-            <SongList
-              ref="songListRef"
-              :songs="sortedSongs"
-              :searchQuery="searchQuery"
-              :activeId="activeSongId"
-              @play="handlePlaySong"
-            />
+          <SongList
+            ref="songListRef"
+            :songs="sortedSongs"
+            :searchQuery="searchQuery"
+            :activeId="activeSongId"
+            :showCover="true"
+            :parentPlaylistId="playlist.listid || playlist.id"
+            :enableRemoveFromPlaylist="isOwnerPlaylist"
+            @play="handlePlaySong"
+          />
           </TabsContent>
 
           <TabsContent value="comments" class="px-6 py-10">
@@ -658,7 +705,7 @@ const handlePlaySong = (song: Song) => {
 </template>
 
 <style scoped>
-@reference "../../style.css";
+@reference "@/style.css";
 
 .search-expand-enter-active,
 .search-expand-leave-active {

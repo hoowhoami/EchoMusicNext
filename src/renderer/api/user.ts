@@ -1,4 +1,4 @@
-import request from '../utils/request';
+import request from '@/utils/request';
 
 /**
  * 注册设备获取 dfid/mid

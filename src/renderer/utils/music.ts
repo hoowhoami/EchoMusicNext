@@ -1,4 +1,4 @@
-import { Song } from '../stores/playlist';
+import { Song } from '@/stores/playlist';
 import { mapPlaylistSong } from './mappers';
 
 /**

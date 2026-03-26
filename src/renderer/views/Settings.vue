@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useSettingStore } from '../stores/setting';
-import Select from '../components/ui/Select.vue';
-import Slider from '../components/ui/Slider.vue';
-import Switch from '../components/ui/Switch.vue';
-import Dialog from '../components/ui/Dialog.vue';
+import { useSettingStore } from '@/stores/setting';
+import Select from '@/components/ui/Select.vue';
+import Slider from '@/components/ui/Slider.vue';
+import Switch from '@/components/ui/Switch.vue';
+import Dialog from '@/components/ui/Dialog.vue';
 
 const settingStore = useSettingStore();
 
@@ -400,7 +400,7 @@ const releaseChannelLabel = computed(() =>
 </template>
 
 <style scoped>
-@reference "../style.css";
+@reference "@/style.css";
 
 .settings-view {
   animation: fade-in 0.6s cubic-bezier(0.4, 0, 0.2, 1);

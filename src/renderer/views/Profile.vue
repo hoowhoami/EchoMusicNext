@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { useUserStore } from '../stores/user';
+import { useUserStore } from '@/stores/user';
 import { 
   getUserDetail, getUserVipDetail, 
   claimDayVip, upgradeDayVip, getVipMonthRecord 
-} from '../api/user';
-import Avatar from '../components/ui/Avatar.vue';
+} from '@/api/user';
+import Avatar from '@/components/ui/Avatar.vue';
 
 const router = useRouter();
 const userStore = useUserStore();
