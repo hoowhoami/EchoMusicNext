@@ -140,12 +140,19 @@ const toggleFavorite = (e: Event) => {
 };
 
 const updateDrawerWidth = () => {
-  const content = document.querySelector('.main-content') as HTMLElement | null;
-  if (content) {
-    const width = Math.floor(content.clientWidth);
-    const left = Math.floor(content.getBoundingClientRect().left);
+  const content = document.querySelector('.view-port') as HTMLElement | null;
+  const fallback = document.querySelector('.main-content') as HTMLElement | null;
+  const target = content ?? fallback;
+  if (target) {
+    const rect = target.getBoundingClientRect();
+    const width = Math.floor(target.clientWidth);
+    const left = Math.floor(rect.left);
+    const top = Math.floor(rect.top);
+    const height = Math.floor(target.clientHeight);
     document.documentElement.style.setProperty('--drawer-content-width', `${width}px`);
     document.documentElement.style.setProperty('--drawer-content-left', `${left}px`);
+    document.documentElement.style.setProperty('--drawer-content-top', `${top}px`);
+    document.documentElement.style.setProperty('--drawer-content-height', `${height}px`);
   }
   const playerBar = document.querySelector('.player-bar-container') as HTMLElement | null;
   if (playerBar) {
@@ -343,7 +350,7 @@ onUnmounted(() => {
             <Transition name="volume-pop">
               <div 
                 v-show="isVolumeVisible" 
-                class="absolute bottom-[100%] left-1/2 -translate-x-1/2 pb-4"
+                class="absolute bottom-[100%] left-1/2 -translate-x-1/2 pb-2"
                 @click.stop
               >
                 <div class="relative bg-bg-card/95 backdrop-blur-md border border-border-light/40 p-3 rounded-2xl shadow-xl h-40 flex flex-col items-center">
@@ -411,7 +418,7 @@ onUnmounted(() => {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuPortal>
-            <DropdownMenuContent class="player-dropdown" align="end" side="top" :side-offset="10">
+            <DropdownMenuContent class="player-dropdown" align="center" side="top" :side-offset="8" :align-offset="0">
               <div class="player-dropdown-title">播放倍速</div>
               <DropdownMenuItem
                 v-for="rate in playbackRates"
@@ -436,7 +443,7 @@ onUnmounted(() => {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuPortal>
-            <DropdownMenuContent class="player-dropdown" align="end" side="top" :side-offset="10">
+            <DropdownMenuContent class="player-dropdown" align="center" side="top" :side-offset="8" :align-offset="0">
               <div class="player-dropdown-title">音质</div>
               <DropdownMenuItem class="player-dropdown-item" @select="setAudioQuality('high')">
                 <span>Hi-Res</span>
@@ -636,13 +643,13 @@ onUnmounted(() => {
 :deep(.player-dropdown-arrow) {
   position: absolute;
   bottom: -6px;
-  right: 26px;
+  left: 50%;
   width: 12px;
   height: 12px;
   background: var(--color-bg-card);
   border-right: 1px solid var(--color-border-light);
   border-bottom: 1px solid var(--color-border-light);
-  transform: rotate(45deg);
+  transform: translateX(-50%) rotate(45deg);
 }
 
 </style>

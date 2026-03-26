@@ -8,6 +8,7 @@ import {
   sendSmsCode, loginBySms,
   createWxLogin, checkWxLogin, loginByOpenPlat 
 } from '@/api/user';
+import logger from '@/utils/logger';
 
 // 引入封装后的 UI 组件
 import Tabs from '@/components/ui/Tabs.vue';
@@ -56,7 +57,7 @@ const loadQrCode = async () => {
       }
     }
   } catch (e) {
-    console.error('[Login] Load QR Error:', e);
+    logger.error('Login', 'Load QR Error:', e);
   } finally {
     isLoadingQr.value = false;
   }
@@ -65,7 +66,7 @@ const loadQrCode = async () => {
 const startCheckStatus = async () => {
   if (isPollingQr || activeTab.value !== '0') return;
   isPollingQr = true;
-  console.log('[Login] Starting Kugou QR polling...');
+  logger.info('Login', 'Starting Kugou QR polling...');
   
   while (isPollingQr && qrKey.value && activeTab.value === '0') {
     try {
@@ -86,12 +87,12 @@ const startCheckStatus = async () => {
         }
       }
     } catch (e) {
-      console.error('[Login] Check QR Status Error:', e);
+      logger.error('Login', 'Check QR Status Error:', e);
     }
     await new Promise(resolve => setTimeout(resolve, 3000));
   }
   isPollingQr = false;
-  console.log('[Login] Kugou QR polling stopped.');
+  logger.info('Login', 'Kugou QR polling stopped.');
 };
 
 // --- 验证码登录逻辑 ---
@@ -114,9 +115,9 @@ const startCountdown = () => {
 
 const handleSendCode = async () => {
   const mobile = smsData.mobile ? smsData.mobile.toString().trim() : '';
-  console.log('[Login] Attempting to send code to:', `"${mobile}"`, 'Length:', mobile.length);
+  logger.info('Login', 'Attempting to send code to:', `"${mobile}"`, 'Length:', mobile.length);
   if (!/^1\d{10}$/.test(mobile)) {
-    console.warn('[Login] Mobile validation failed for:', `"${mobile}"`);
+    logger.warn('Login', 'Mobile validation failed for:', `"${mobile}"`);
     smsData.error = '请输入正确的手机号';
     return;
   }
@@ -180,7 +181,7 @@ const loadWxQr = async () => {
       startCheckWxStatus();
     }
   } catch (e) {
-    console.error('[Login] Load Wx QR Error:', e);
+    logger.error('Login', 'Load Wx QR Error:', e);
   } finally {
     wxQr.isLoading = false;
   }
@@ -189,7 +190,7 @@ const loadWxQr = async () => {
 const startCheckWxStatus = async () => {
   if (isPollingWx || activeTab.value !== '2') return;
   isPollingWx = true;
-  console.log('[Login] Starting WeChat polling...');
+  logger.info('Login', 'Starting WeChat polling...');
 
   while (isPollingWx && wxQr.uuid && activeTab.value === '2') {
     try {
@@ -220,13 +221,13 @@ const startCheckWxStatus = async () => {
         }
       }
     } catch (e) {
-      console.error('[Login] Check Wx Status Error:', e);
+      logger.error('Login', 'Check Wx Status Error:', e);
     }
     // 如果发生异常或请求结束，等待 3 秒再次尝试
     await new Promise(resolve => setTimeout(resolve, 3000));
   }
   isPollingWx = false;
-  console.log('[Login] WeChat polling stopped.');
+  logger.info('Login', 'WeChat polling stopped.');
 };
 
 const stopCheckStatus = () => { 
@@ -236,7 +237,7 @@ const stopCheckStatus = () => {
 
 // 监听 Tab 切换，触发对应逻辑
 watch(activeTab, (newTab) => {
-  console.log('[Login] Tab changed to:', newTab);
+  logger.info('Login', 'Tab changed to:', newTab);
   stopCheckStatus();
   if (newTab === '0') loadQrCode();
   else if (newTab === '2') loadWxQr();

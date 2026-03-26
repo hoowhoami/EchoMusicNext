@@ -61,12 +61,12 @@ export const useUserStore = defineStore('user', {
         ]);
 
         if (detailRes && detailRes.status === 1) {
-          logger.info('[UserStore] User detail fetched');
+          logger.info('UserStore', 'User detail fetched');
           this.handleLoginSuccess(detailRes.data || detailRes);
         }
 
         if (vipRes && vipRes.status === 1) {
-          logger.info('[UserStore] VIP detail fetched');
+          logger.info('UserStore', 'VIP detail fetched');
           const currentExtends = this.info?.extendsInfo || {};
           this.info = {
             ...this.info!,
@@ -77,7 +77,7 @@ export const useUserStore = defineStore('user', {
           };
         }
       } catch (e) {
-        logger.error('[UserStore] Fetch user info error:', e);
+        logger.error('UserStore', 'Fetch user info error:', e);
       }
     },
     setClaimStatus(tvip: boolean, svip: boolean) {

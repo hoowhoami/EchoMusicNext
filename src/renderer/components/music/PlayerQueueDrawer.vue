@@ -2,11 +2,12 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { useVModel } from '@vueuse/core';
 import Drawer from '@/components/ui/Drawer.vue';
-import Cover from '@/components/ui/Cover.vue';
-import Tag from '@/components/ui/Tag.vue';
 import { usePlaylistStore, type Song } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { formatDuration } from '@/utils/format';
+import SongCard from '@/components/music/SongCard.vue';
+import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
+import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 
 interface Props {
   open?: boolean;
@@ -27,29 +28,19 @@ const playerStore = usePlayerStore();
 const queueTracks = computed(() => playlistStore.defaultList);
 const currentTrackId = computed(() => playerStore.currentTrackId);
 
-const listRef = ref<HTMLElement | null>(null);
-const itemRefs = new Map<string, HTMLElement>();
-
-const setItemRef = (id: string | number) => (el: Element | null) => {
-  const key = String(id);
-  if (el) {
-    itemRefs.set(key, el as HTMLElement);
-    return;
-  }
-  itemRefs.delete(key);
-};
+const itemHeight = 56;
+const scrollerRef = ref<RecycleScrollerInstance | null>(null);
 
 const scrollToTop = () => {
-  listRef.value?.scrollTo({ top: 0, behavior: 'smooth' });
+  scrollerRef.value?.scrollToPosition(0);
 };
 
 const scrollToCurrent = () => {
-  const key = currentTrackId.value ? String(currentTrackId.value) : '';
-  if (!key) return;
-  const target = itemRefs.get(key);
-  if (target) {
-    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }
+  const targetId = currentTrackId.value ? String(currentTrackId.value) : '';
+  if (!targetId || !scrollerRef.value) return;
+  const index = queueTracks.value.findIndex((song) => String(song.id) === targetId);
+  if (index < 0) return;
+  scrollerRef.value.scrollToItem(index);
 };
 
 watch(
@@ -69,34 +60,6 @@ const isSongPlayable = (song: Song) => {
   if (isUnavailable || isPaid) return false;
   if (isNoCopyright) return song.oldCpy === 1;
   return Boolean(song.hash?.trim());
-};
-
-const getQualityTag = (song: Song) => {
-  const goods = song.relateGoods ?? [];
-  const hasQuality = (quality: string, level: number) =>
-    goods.some((item) => item.quality === quality || item.level === level);
-
-  if (hasQuality('high', 6)) return 'Hi-Res';
-  if (hasQuality('flac', 5)) return 'SQ';
-  if (hasQuality('320', 4)) return 'HQ';
-  return '';
-};
-
-const getPrivilegeTags = (song: Song) => {
-  const tags: { label: string; color: string }[] = [];
-  const isVip = song.privilege === 10 && song.payType === 3;
-  const isPaid = song.privilege === 10 && song.payType === 2;
-  const isNoCopyright = song.privilege === 5;
-  const isUnavailable = song.privilege === 40;
-
-  if (isPaid) tags.push({ label: '付费', color: '#EF4444' });
-  if (isVip) tags.push({ label: 'VIP', color: '#F59E0B' });
-  if (!isSongPlayable(song) && isNoCopyright) {
-    tags.push({ label: '版权', color: '#8B5CF6' });
-  }
-  if (isUnavailable) tags.push({ label: '音源', color: '#6B7280' });
-
-  return tags;
 };
 
 const handlePlay = (song: Song) => {
@@ -134,7 +97,12 @@ const handleClear = () => {
 </script>
 
 <template>
-  <Drawer v-model:open="open" side="right" overlayClass="queue-drawer-overlay" panelClass="queue-drawer">
+  <Drawer
+    v-model:open="open"
+    side="right"
+    overlayClass="queue-drawer-overlay"
+    panelClass="queue-drawer"
+  >
     <div class="queue-header">
       <div>
         <div class="queue-title">播放列表</div>
@@ -142,19 +110,45 @@ const handleClear = () => {
       </div>
       <div class="queue-actions">
         <button type="button" class="queue-icon-btn" title="滚动到顶部" @click="scrollToTop">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <path d="M12 19V5" />
             <path d="M5 12l7-7 7 7" />
           </svg>
         </button>
-        <button type="button" class="queue-icon-btn" title="滚动到当前播放" @click="scrollToCurrent">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button
+          type="button"
+          class="queue-icon-btn"
+          title="滚动到当前播放"
+          @click="scrollToCurrent"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <circle cx="12" cy="12" r="3" />
             <path d="M3 12h3m12 0h3M12 3v3m0 12v3" />
           </svg>
         </button>
         <button type="button" class="queue-icon-btn" title="清空列表" @click="handleClear">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <path d="M3 6h18" />
             <path d="M8 6v14" />
             <path d="M16 6v14" />
@@ -162,7 +156,14 @@ const handleClear = () => {
           </svg>
         </button>
         <button type="button" class="queue-icon-btn" title="关闭" @click="open = false">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+          >
             <path d="M18 6 6 18" />
             <path d="M6 6l12 12" />
           </svg>
@@ -172,78 +173,113 @@ const handleClear = () => {
 
     <div class="queue-divider"></div>
 
-    <div v-if="queueTracks.length === 0" class="queue-empty">
-      <div class="queue-empty-icon">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-          <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-        </svg>
-      </div>
-      <div>列表为空，快去发现好音乐吧</div>
-    </div>
+    <RecycleScroller
+      ref="scrollerRef"
+      class="queue-list"
+      :items="queueTracks"
+      :item-size="itemHeight"
+      key-field="id"
+    >
+      <template #default="{ item: track, index }">
+        <div
+          class="queue-row"
+          :class="{
+            'is-current': String(track.id) === String(currentTrackId),
+            'bg-primary/5 dark:bg-primary/10 text-primary':
+              String(track.id) === String(currentTrackId),
+          }"
+          :style="{ height: `${itemHeight}px` }"
+        >
+          <div class="queue-leading">
+            <span class="queue-index">{{ index + 1 }}</span>
+            <button type="button" class="queue-play" @click="handlePlay(track)">
+              <svg
+                v-if="String(track.id) !== String(currentTrackId) || !playerStore.isPlaying"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+              </svg>
+            </button>
+          </div>
 
-    <div v-else ref="listRef" class="queue-list">
-      <div
-        v-for="(track, index) in queueTracks"
-        :key="track.id"
-        :ref="setItemRef(track.id)"
-        class="queue-row"
-        :class="{ 'is-current': String(track.id) === String(currentTrackId) }"
-      >
-        <div class="queue-leading">
-          <span class="queue-index">{{ index + 1 }}</span>
-          <button type="button" class="queue-play" @click="handlePlay(track)">
+          <div class="queue-card" :style="{ opacity: isSongPlayable(track) ? 1 : 0.45 }">
+            <SongCard
+              :id="track.id"
+              :hash="track.hash"
+              :title="track.title"
+              :artist="track.artist"
+              :artists="track.artists"
+              :album="track.album"
+              :albumId="track.albumId"
+              :coverUrl="track.coverUrl"
+              :duration="track.duration"
+              :audioUrl="track.audioUrl"
+              :mixSongId="track.mixSongId"
+              :privilege="track.privilege"
+              :payType="track.payType"
+              :oldCpy="track.oldCpy"
+              :relateGoods="track.relateGoods"
+              :showCover="true"
+              :showAlbum="false"
+              :showDuration="false"
+              :active="String(track.id) === String(currentTrackId)"
+              :showMore="false"
+              variant="list"
+            />
+          </div>
+
+          <div
+            class="queue-duration"
+            :style="{ width: '64px', marginLeft: '6px', textAlign: 'right' }"
+          >
+            {{ formatDuration(track.duration) }}
+          </div>
+
+          <button
+            v-if="String(track.id) !== String(currentTrackId)"
+            type="button"
+            class="queue-remove"
+            @click="handleRemove(track)"
+          >
             <svg
-              v-if="String(track.id) !== String(currentTrackId) || !playerStore.isPlaying"
               width="14"
               height="14"
               viewBox="0 0 24 24"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
             >
-              <path d="M8 5v14l11-7z" />
-            </svg>
-            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+              <path d="M18 6 6 18" />
+              <path d="M6 6l12 12" />
             </svg>
           </button>
         </div>
+      </template>
 
-        <div class="queue-cover" :class="{ 'is-disabled': !isSongPlayable(track) }">
-          <Cover :url="track.coverUrl" :size="120" :width="44" :height="44" :borderRadius="8" />
-        </div>
-
-        <div class="queue-info">
-          <div class="queue-name-row">
-            <span class="queue-name">{{ track.title }}</span>
-            <Tag
-              v-for="tag in getPrivilegeTags(track)"
-              :key="tag.label"
-              class="queue-tag"
-              :color="tag.color"
+      <template #empty v-if="queueTracks?.length === 0">
+        <div class="queue-empty">
+          <div class="queue-empty-icon">
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
             >
-              {{ tag.label }}
-            </Tag>
-            <Tag v-if="getQualityTag(track)" class="queue-tag" color="#06B6D4">
-              {{ getQualityTag(track) }}
-            </Tag>
+              <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+            </svg>
           </div>
-          <div class="queue-artist">{{ track.artist }}</div>
+          <div>列表为空，快去发现好音乐吧</div>
         </div>
-
-        <div class="queue-duration">{{ formatDuration(track.duration) }}</div>
-
-        <button
-          v-if="String(track.id) !== String(currentTrackId)"
-          type="button"
-          class="queue-remove"
-          @click="handleRemove(track)"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6 6 18" />
-            <path d="M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-    </div>
+      </template>
+    </RecycleScroller>
   </Drawer>
 </template>
 
@@ -256,6 +292,7 @@ const handleClear = () => {
 
 :global(.queue-drawer) {
   padding: 0;
+  box-shadow: none;
 }
 
 .queue-header {
@@ -326,42 +363,33 @@ const handleClear = () => {
   flex: 1;
   padding: 10px 12px 14px 14px;
   overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  position: relative;
 }
 
 .queue-row {
-  display: grid;
-  grid-template-columns: 28px 44px minmax(0, 1fr) 52px 24px;
+  display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.02);
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-.dark .queue-row {
-  background: rgba(255, 255, 255, 0.04);
+  align-items: center;
+  padding: 0;
+  border-radius: 8px;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+  cursor: default;
 }
 
 .queue-row:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .dark .queue-row:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.queue-row.is-current {
-  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .queue-leading {
   position: relative;
-  width: 28px;
+  width: 40px;
   height: 24px;
   display: flex;
   align-items: center;
@@ -385,7 +413,9 @@ const handleClear = () => {
   background: transparent;
   color: var(--color-text-main);
   opacity: 0;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 .queue-row:hover .queue-play,
@@ -403,56 +433,23 @@ const handleClear = () => {
   color: var(--color-primary);
 }
 
-.queue-cover {
-  border-radius: 8px;
-  overflow: hidden;
-  position: relative;
-}
-
-.queue-cover.is-disabled::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-}
-
-.queue-info {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.queue-name-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.queue-card {
+  flex: 1;
   min-width: 0;
 }
 
-.queue-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-main);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.queue-artist {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.queue-card :deep(.song-actions) {
+  display: none;
 }
 
 .queue-duration {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
+  width: 64px;
+  flex-shrink: 0;
+  font-size: 12px;
+  opacity: 0.4;
+  margin-left: 8px;
   text-align: right;
+  color: var(--color-text-secondary);
 }
 
 .queue-remove {
@@ -465,6 +462,8 @@ const handleClear = () => {
   color: var(--color-text-secondary);
   opacity: 0;
   transition: all 0.2s ease;
+  position: relative;
+  left: -8px;
 }
 
 .queue-row:hover .queue-remove {
@@ -476,22 +475,9 @@ const handleClear = () => {
   transform: scale(1.05);
 }
 
-.queue-tag {
-  flex-shrink: 0;
-}
-
-.queue-list::-webkit-scrollbar {
-  width: 4px;
-}
-
-.queue-list::-webkit-scrollbar-thumb {
-  background: var(--color-border-light);
-  border-radius: 999px;
-}
-
 @media (max-width: 720px) {
   .queue-row {
-    grid-template-columns: 24px 40px minmax(0, 1fr) 44px 22px;
+    gap: 10px;
   }
 }
 </style>

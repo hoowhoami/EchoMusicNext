@@ -2,6 +2,7 @@ import { ChildProcess, spawn, execSync } from 'child_process';
 import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import log from 'electron-log';
 
 let apiProcess: ChildProcess | null = null;
 const isDev = !app.isPackaged;
@@ -15,14 +16,14 @@ export function startApiServer() {
 
     // 启动前先尝试清理端口占用
     try {
-        console.log(`[Server] 正在清理端口 ${port} 的占用...`);
+        log.info(`[Server] Cleaning up port ${port}...`);
         if (process.platform === 'win32') {
             execSync(`for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /f /pid %a`, { stdio: 'ignore' });
         } else {
             execSync(`lsof -ti :${port} | xargs kill -9`, { stdio: 'ignore' });
         }
     } catch (e) {
-        // 如果没有进程占用端口，execSync 会报错，这里忽略即可
+        // Ignore
     }
 
     let apiPath = '';
@@ -30,24 +31,21 @@ export function startApiServer() {
     let args: string[] = [];
 
     if (isDev) {
-      // 开发环境：执行 npm run dev
       cwd = path.join(process.cwd(), 'server');
       const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
       
-      console.log(`[Server] 开发环境：准备在 ${cwd} 执行 npm install...`);
+      log.info(`[Server] Dev mode: Running npm install in ${cwd}...`);
       try {
-        // 自动化执行 npm install
         execSync(`${npmCmd} install`, { cwd, stdio: 'inherit' });
-        console.log('[Server] npm install 完成');
+        log.info('[Server] npm install finished');
       } catch (e) {
-        console.error('[Server] npm install 失败:', e);
+        log.error('[Server] npm install failed:', e);
       }
 
-      console.log(`[Server] 开发环境：启动 npm 进程...`);
+      log.info(`[Server] Dev mode: Starting API server...`);
       apiPath = npmCmd;
       args = ['run', 'dev', '--', `--port=${port}`, '--platform=lite'];
     } else {
-      // 生产环境：运行二进制文件
       cwd = path.join(process.resourcesPath, 'server');
       switch (process.platform) {
         case 'win32':
@@ -60,53 +58,54 @@ export function startApiServer() {
           apiPath = path.join(cwd, 'app_linux');
           break;
         default:
-          return reject(new Error(`不支持的平台: ${process.platform}`));
+          return reject(new Error(`Unsupported platform: ${process.platform}`));
       }
       args = [`--port=${port}`, '--platform=lite', '--host=127.0.0.1'];
     }
 
-    console.log(`[Server] API 路径: ${apiPath}, CWD: ${cwd}`);
-
-    if (isDev) {
-        // 开发环境直接启动 npm
-        apiProcess = spawn(apiPath, args, { cwd, windowsHide: true });
-    } else {
-        if (!fs.existsSync(apiPath)) {
-            const error = new Error(`API 可执行文件未找到：${apiPath}`);
-            console.error(error.message);
-            return reject(error);
-        }
-        apiProcess = spawn(apiPath, args, { cwd, windowsHide: true });
+    if (!isDev && !fs.existsSync(apiPath)) {
+      const error = new Error(`API executable not found: ${apiPath}`);
+      log.error(error.message);
+      return reject(error);
     }
 
+    apiProcess = spawn(apiPath, args, { cwd, windowsHide: true });
+
     apiProcess.stdout?.on('data', (data) => {
-      const output = data.toString();
-      console.log(`[Server] API 输出: ${output}`);
-      // 匹配关键字判断就绪状态
+      const output = data.toString().trim();
+      // 过滤掉冗余的 [OK]/[ERR] 路径日志，因为渲染进程已经记录了 API 请求
+      if (output.includes('[OK]') || output.includes('[ERR]')) {
+        return;
+      }
+      
+      // 仅记录关键信息
       if (output.includes('running') || output.includes('server started') || output.includes('localhost:12306') || output.includes('127.0.0.1:12306')) {
-        console.log('[Server] API 服务器已就绪');
+        log.info('[Server] API Server is ready');
         resolve();
+      } else if (output) {
+        log.debug(`[Server] API Output: ${output}`);
       }
     });
 
     apiProcess.stderr?.on('data', (data) => {
-      const output = data.toString();
-      // 某些库的日志会输出到 stderr，不代表一定报错
-      console.warn(`[Server] API 潜在错误/日志: ${output}`);
+      const output = data.toString().trim();
+      if (output) {
+        log.warn(`[Server] API Warning: ${output}`);
+      }
     });
 
     apiProcess.on('close', (code) => {
-      console.log(`[Server] API 进程关闭，退出码: ${code}`);
+      log.info(`[Server] API Process exited with code: ${code}`);
     });
 
     apiProcess.on('error', (error) => {
-      console.error('[Server] 启动 API 失败:', error);
+      log.error('[Server] Failed to start API:', error);
       reject(error);
     });
 
-    // 15秒超时兜底 (开发环境下编译可能较慢)
+    // 15s timeout
     setTimeout(() => {
-        reject(new Error('API 启动超时，请检查控制台日志'));
+        reject(new Error('API start timeout'));
     }, 15000);
   });
 }
@@ -117,9 +116,7 @@ export function startApiServer() {
 export function stopApiServer() {
   if (apiProcess && apiProcess.pid) {
     try {
-      // 检查进程是否还在运行 (信号 0 不杀进程，仅检查是否存在)
       process.kill(apiProcess.pid, 0);
-      
       if (process.platform === 'win32') {
         const { exec } = require('child_process');
         exec(`taskkill /F /T /PID ${apiProcess.pid}`);
@@ -127,8 +124,7 @@ export function stopApiServer() {
         process.kill(-apiProcess.pid, 'SIGKILL');
       }
     } catch (e) {
-      // 如果进程不存在 (ESRCH)，忽略错误
-      console.warn(`[Server] 停止 API 失败或进程已不存在: ${e}`);
+      log.warn(`[Server] Stop API failed or process not found: ${e}`);
     } finally {
       apiProcess = null;
     }

@@ -3,12 +3,14 @@ import { computed, ref, watch } from 'vue';
 import { useVModel } from '@vueuse/core';
 import Drawer from '@/components/ui/Drawer.vue';
 import Dialog from '@/components/ui/Dialog.vue';
-import Cover from '@/components/ui/Cover.vue';
-import Tag from '@/components/ui/Tag.vue';
+import { CheckboxIndicator, CheckboxRoot } from 'reka-ui';
 import { usePlaylistStore, type Song } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { useUserStore } from '@/stores/user';
 import { formatDuration } from '@/utils/format';
+import SongCard from '@/components/music/SongCard.vue';
+import { RecycleScroller } from 'vue-virtual-scroller';
+import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 
 interface Props {
   open?: boolean;
@@ -38,13 +40,19 @@ const selectedSongs = computed(() =>
   props.songs.filter((song) => selectedKeys.value.has(String(song.id))),
 );
 
-const isAllSelected = computed(() =>
-  props.songs.length > 0 && selectedKeys.value.size === props.songs.length,
+const isAllSelected = computed(
+  () => props.songs.length > 0 && selectedKeys.value.size === props.songs.length,
 );
 
-const isIndeterminate = computed(() =>
-  selectedKeys.value.size > 0 && !isAllSelected.value,
-);
+const isIndeterminate = computed(() => selectedKeys.value.size > 0 && !isAllSelected.value);
+
+type CheckboxState = boolean | 'indeterminate';
+
+const selectAllState = computed<CheckboxState>(() => {
+  if (isAllSelected.value) return true;
+  if (isIndeterminate.value) return 'indeterminate';
+  return false;
+});
 
 const toggleSelectAll = () => {
   if (isAllSelected.value) {
@@ -61,6 +69,17 @@ const toggleSong = (song: Song) => {
     next.delete(key);
   } else {
     next.add(key);
+  }
+  selectedKeys.value = next;
+};
+
+const setSongChecked = (song: Song, value: CheckboxState) => {
+  const key = String(song.id);
+  const next = new Set(selectedKeys.value);
+  if (value === true) {
+    next.add(key);
+  } else {
+    next.delete(key);
   }
   selectedKeys.value = next;
 };
@@ -95,33 +114,7 @@ const isSongPlayable = (song: Song) => {
   return Boolean(song.hash?.trim());
 };
 
-const getQualityTag = (song: Song) => {
-  const goods = song.relateGoods ?? [];
-  const hasQuality = (quality: string, level: number) =>
-    goods.some((item) => item.quality === quality || item.level === level);
-
-  if (hasQuality('high', 6)) return 'Hi-Res';
-  if (hasQuality('flac', 5)) return 'SQ';
-  if (hasQuality('320', 4)) return 'HQ';
-  return '';
-};
-
-const getPrivilegeTags = (song: Song) => {
-  const tags: { label: string; color: string }[] = [];
-  const isVip = song.privilege === 10 && song.payType === 3;
-  const isPaid = song.privilege === 10 && song.payType === 2;
-  const isNoCopyright = song.privilege === 5;
-  const isUnavailable = song.privilege === 40;
-
-  if (isPaid) tags.push({ label: '付费', color: '#EF4444' });
-  if (isVip) tags.push({ label: 'VIP', color: '#F59E0B' });
-  if (!isSongPlayable(song) && isNoCopyright) {
-    tags.push({ label: '版权', color: '#8B5CF6' });
-  }
-  if (isUnavailable) tags.push({ label: '音源', color: '#6B7280' });
-
-  return tags;
-};
+const itemHeight = 56;
 
 const canPlaySelected = computed(() => selectedSongs.value.some((song) => isSongPlayable(song)));
 const canAddSelected = computed(() => userStore.isLoggedIn && selectedSongs.value.length > 0);
@@ -170,21 +163,38 @@ const handleRemoveFromPlaylist = async () => {
 <template>
   <Drawer
     v-model:open="open"
-    side="bottom"
+    side="right"
     overlayClass="batch-drawer-overlay"
     panelClass="batch-drawer"
   >
     <div class="batch-header">
       <div class="batch-title">批量操作</div>
       <div class="batch-actions">
-        <button type="button" class="batch-action" :disabled="!canPlaySelected" @click="handlePlaySelected">
+        <button
+          type="button"
+          class="batch-action"
+          :disabled="!canPlaySelected"
+          @click="handlePlaySelected"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z" />
           </svg>
           播放
         </button>
-        <button type="button" class="batch-action" :disabled="!canAddSelected" @click="handleAddToPlaylist">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button
+          type="button"
+          class="batch-action"
+          :disabled="!canAddSelected"
+          @click="handleAddToPlaylist"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <path d="M12 5v14" />
             <path d="M5 12h14" />
           </svg>
@@ -196,7 +206,14 @@ const handleRemoveFromPlaylist = async () => {
           :disabled="!canRemoveSelected"
           @click="handleRemoveFromPlaylist"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <path d="M3 6h18" />
             <path d="M8 6v14" />
             <path d="M16 6v14" />
@@ -206,7 +223,14 @@ const handleRemoveFromPlaylist = async () => {
         </button>
       </div>
       <button type="button" class="batch-close" @click="open = false">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+        >
           <path d="M18 6 6 18" />
           <path d="M6 6l12 12" />
         </svg>
@@ -215,55 +239,89 @@ const handleRemoveFromPlaylist = async () => {
 
     <div class="batch-selection">
       <button type="button" class="batch-select" @click="toggleSelectAll">
-        <span class="batch-checkbox" :class="{ checked: isAllSelected, indeterminate: isIndeterminate }"></span>
+        <CheckboxRoot
+          class="batch-checkbox"
+          :model-value="selectAllState"
+          @update:model-value="toggleSelectAll"
+          @click.stop
+        >
+          <CheckboxIndicator as-child>
+            <span class="batch-checkbox-indicator"></span>
+          </CheckboxIndicator>
+        </CheckboxRoot>
         全选
       </button>
       <div class="batch-count">已选 {{ selectedKeys.size }} / {{ songs.length }}</div>
     </div>
 
-    <div class="batch-list">
-      <div
-        v-for="song in songs"
-        :key="song.id"
-        class="batch-row"
-        :class="{ selected: selectedKeys.has(String(song.id)) }"
-        @click="toggleSong(song)"
-      >
-        <span class="batch-checkbox" :class="{ checked: selectedKeys.has(String(song.id)) }"></span>
-        <div class="batch-cover" :class="{ disabled: !isSongPlayable(song) }">
-          <Cover :url="song.coverUrl" :size="120" :width="40" :height="40" :borderRadius="8" />
-        </div>
-        <div class="batch-info">
-          <div class="batch-name-row">
-            <span class="batch-name">{{ song.title }}</span>
-            <Tag
-              v-for="tag in getPrivilegeTags(song)"
-              :key="tag.label"
-              class="batch-tag"
-              :color="tag.color"
+    <RecycleScroller class="batch-list" :items="props.songs" :item-size="itemHeight" key-field="id">
+      <template #default="{ item: song }">
+        <div
+          class="batch-row"
+          :class="{ 'text-primary': selectedKeys.has(String(song.id)) }"
+          :style="{ height: `${itemHeight}px` }"
+          @click="toggleSong(song)"
+        >
+          <div class="batch-leading" @click.stop>
+            <CheckboxRoot
+              class="batch-checkbox"
+              :model-value="selectedKeys.has(String(song.id))"
+              @update:model-value="setSongChecked(song, $event)"
             >
-              {{ tag.label }}
-            </Tag>
-            <Tag v-if="getQualityTag(song)" class="batch-tag" color="#06B6D4">
-              {{ getQualityTag(song) }}
-            </Tag>
+              <CheckboxIndicator as-child>
+                <span class="batch-checkbox-indicator"></span>
+              </CheckboxIndicator>
+            </CheckboxRoot>
           </div>
-          <div class="batch-artist">{{ song.artist }}</div>
+          <div class="batch-card" :style="{ opacity: isSongPlayable(song) ? 1 : 0.45 }">
+            <SongCard
+              :id="song.id"
+              :hash="song.hash"
+              :title="song.title"
+              :artist="song.artist"
+              :artists="song.artists"
+              :album="song.album"
+              :albumId="song.albumId"
+              :coverUrl="song.coverUrl"
+              :duration="song.duration"
+              :audioUrl="song.audioUrl"
+              :mixSongId="song.mixSongId"
+              :privilege="song.privilege"
+              :payType="song.payType"
+              :oldCpy="song.oldCpy"
+              :relateGoods="song.relateGoods"
+              :showCover="true"
+              :showAlbum="false"
+              :showDuration="false"
+              :active="false"
+              :showMore="false"
+              :disableLinks="true"
+              variant="list"
+            />
+          </div>
+          <div class="batch-album">{{ song.album || '未知专辑' }}</div>
+          <div class="batch-duration">{{ formatDuration(song.duration) }}</div>
         </div>
-        <div class="batch-duration">{{ formatDuration(song.duration) }}</div>
-      </div>
-    </div>
+      </template>
+
+      <template #empty v-if="props.songs?.length === 0">
+        <div class="batch-empty">暂无歌曲</div>
+      </template>
+    </RecycleScroller>
   </Drawer>
 
   <Dialog
     v-model:open="showPlaylistDialog"
     title="添加到歌单"
-    contentClass="batch-playlist-dialog"
+    overlayClass="batch-playlist-overlay"
+    contentClass="batch-playlist-dialog max-w-[420px]"
     showClose
   >
     <div class="batch-playlist-body">
       <div v-if="isPlaylistLoading" class="batch-playlist-status">加载歌单中...</div>
-      <div v-else-if="playlistStore.userPlaylists.length === 0" class="batch-playlist-status">暂无可用歌单</div>
+      <div v-else-if="playlistStore.userPlaylists.length === 0" class="batch-playlist-status">
+        暂无可用歌单
+      </div>
       <button
         v-for="entry in playlistStore.userPlaylists"
         :key="entry.listid ?? entry.id"
@@ -287,7 +345,10 @@ const handleRemoveFromPlaylist = async () => {
 
 :global(.batch-drawer) {
   padding: 0;
-  max-height: calc(100vh - 120px);
+  box-shadow: none;
+  width: min(600px, 96vw);
+  top: 0;
+  bottom: var(--drawer-bottom-offset, 96px);
 }
 
 .batch-header {
@@ -320,7 +381,10 @@ const handleRemoveFromPlaylist = async () => {
   font-weight: 600;
   color: var(--color-text-main);
   background: rgba(0, 0, 0, 0.04);
-  transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .batch-action:hover {
@@ -367,7 +431,7 @@ const handleRemoveFromPlaylist = async () => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 20px 12px;
+  padding: 0 20px 12px 30px;
   font-size: 12px;
   color: var(--color-text-secondary);
 }
@@ -385,123 +449,114 @@ const handleRemoveFromPlaylist = async () => {
 }
 
 .batch-list {
+  flex: 1;
   padding: 0 14px 16px 18px;
   overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+}
+
+.batch-empty {
+  padding: 20px 0 28px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 
 .batch-row {
-  display: grid;
-  grid-template-columns: 20px 44px minmax(0, 1fr) 60px;
+  display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.02);
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-.dark .batch-row {
-  background: rgba(255, 255, 255, 0.04);
+  padding: 0;
+  border-radius: 8px;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+  cursor: default;
 }
 
 .batch-row:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .dark .batch-row:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.2);
 }
 
-.batch-row.selected {
-  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+.batch-leading {
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .batch-checkbox {
   width: 14px;
   height: 14px;
-  border-radius: 4px;
-  border: 1.5px solid var(--color-border-light);
-  position: relative;
-  display: inline-block;
+  border-radius: 3px;
+  border: 1px solid var(--color-border-light);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
 }
 
-.batch-checkbox.checked {
+.batch-checkbox[data-state='checked'],
+.batch-checkbox[data-state='indeterminate'] {
   border-color: var(--color-primary);
   background: var(--color-primary);
 }
 
-.batch-checkbox.checked::after {
+.batch-checkbox-indicator {
+  width: 8px;
+  height: 8px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.batch-checkbox[data-state='checked'] .batch-checkbox-indicator::after {
   content: '';
   position: absolute;
-  left: 3px;
-  top: 1px;
-  width: 5px;
-  height: 8px;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 7px;
   border: 2px solid #fff;
   border-top: none;
   border-left: none;
-  transform: rotate(45deg);
+  transform: translate(-50%, -55%) rotate(45deg);
 }
 
-.batch-checkbox.indeterminate {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-}
-
-.batch-checkbox.indeterminate::after {
+.batch-checkbox[data-state='indeterminate'] .batch-checkbox-indicator::after {
   content: '';
-  position: absolute;
-  left: 3px;
-  top: 6px;
-  width: 7px;
+  width: 8px;
   height: 2px;
+  border: none;
   background: #fff;
   border-radius: 999px;
-}
-
-.batch-cover {
-  border-radius: 8px;
-  overflow: hidden;
-  position: relative;
-}
-
-.batch-cover.disabled::after {
-  content: '';
   position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
-.batch-info {
+.batch-card {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex: 1;
 }
 
-.batch-name-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.batch-card :deep(.song-actions) {
+  display: none;
+}
+
+.batch-album {
+  width: 180px;
+  flex: 0 1 180px;
   min-width: 0;
-}
-
-.batch-name {
+  display: block;
   font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-main);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.batch-artist {
-  font-size: 11px;
-  font-weight: 600;
+  opacity: 0.6;
   color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -509,33 +564,17 @@ const handleRemoveFromPlaylist = async () => {
 }
 
 .batch-duration {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  text-align: right;
-}
-
-.batch-tag {
+  width: 64px;
   flex-shrink: 0;
-}
-
-.batch-list::-webkit-scrollbar {
-  width: 4px;
-}
-
-.batch-list::-webkit-scrollbar-thumb {
-  background: var(--color-border-light);
-  border-radius: 999px;
+  font-size: 12px;
+  opacity: 0.4;
+  color: var(--color-text-secondary);
 }
 
 @media (max-width: 720px) {
   :global(.batch-drawer) {
     bottom: 10px;
     width: 94vw;
-  }
-
-  .batch-row {
-    grid-template-columns: 20px 40px minmax(0, 1fr) 50px;
   }
 }
 
@@ -564,8 +603,12 @@ const handleRemoveFromPlaylist = async () => {
   color: var(--color-text-secondary);
 }
 
-:deep(.batch-playlist-dialog) {
-  max-width: 420px;
+:global(.batch-playlist-overlay) {
+  z-index: 1600 !important;
+}
+
+:global(.batch-playlist-dialog) {
+  z-index: 1610 !important;
 }
 
 .playlist-picker-item {
@@ -579,7 +622,9 @@ const handleRemoveFromPlaylist = async () => {
   align-items: center;
   justify-content: space-between;
   color: var(--color-text-main);
-  transition: color 0.2s ease, border-color 0.2s ease;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .playlist-picker-item:hover {

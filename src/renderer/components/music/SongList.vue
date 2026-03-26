@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { Song } from '@/stores/playlist';
 import { formatDuration } from '@/utils/format';
 import SongCard from './SongCard.vue';
+import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
+import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 
 interface Props {
   songs: Song[];
@@ -43,54 +45,13 @@ const filteredSongs = computed(() => {
   );
 });
 
-// 虚拟列表
 const itemHeight = 56;
-const bufferSize = 10;
-const containerRef = ref<HTMLElement | null>(null);
-const scrollTop = ref(0);
-const viewportHeight = ref(800);
-
-const handleScroll = (e: Event) => {
-  const target = e.target as HTMLElement;
-  scrollTop.value = target.scrollTop;
-};
-
-let scrollTarget: HTMLElement | null = null;
-
-onMounted(() => {
-  scrollTarget = document.querySelector('.view-port');
-  if (scrollTarget) {
-    scrollTarget.addEventListener('scroll', handleScroll);
-    viewportHeight.value = scrollTarget.clientHeight;
-    scrollTop.value = scrollTarget.scrollTop;
-  }
-});
-
-onUnmounted(() => {
-  if (scrollTarget) {
-    scrollTarget.removeEventListener('scroll', handleScroll);
-  }
-});
-
-const visibleRange = computed(() => {
-  const offsetTop = containerRef.value?.offsetTop || 0;
-  const relativeScrollTop = Math.max(0, scrollTop.value - offsetTop);
-
-  const start = Math.floor(relativeScrollTop / itemHeight);
-  const end = Math.ceil((relativeScrollTop + viewportHeight.value) / itemHeight);
-
-  return {
-    start: Math.max(0, start - bufferSize),
-    end: Math.min(filteredSongs.value.length, end + bufferSize),
-  };
-});
-
-const visibleSongs = computed(() => {
-  const { start, end } = visibleRange.value;
-  return filteredSongs.value.slice(start, end).map((song, index) => ({
-    ...song,
-    originalIndex: props.songs.findIndex((s) => s.id === song.id),
-  }));
+const originalIndexMap = computed(() => {
+  const map = new Map<string | number, number>();
+  props.songs.forEach((song, index) => {
+    map.set(song.id, index);
+  });
+  return map;
 });
 
 const isSongPlayable = (song: Song) => {
@@ -105,43 +66,29 @@ const isSongPlayable = (song: Song) => {
 
 const rowOpacity = (song: Song) => (isSongPlayable(song) ? 1 : 0.45);
 
-const totalHeight = computed(() => filteredSongs.value.length * itemHeight);
-const offsetY = computed(() => visibleRange.value.start * itemHeight);
+const listRef = ref<RecycleScrollerInstance | null>(null);
 
-// 定位逻辑 (复刻 Flutter)
 const scrollToActive = () => {
-  if (!props.activeId || !scrollTarget) return;
+  if (!props.activeId || !listRef.value) return;
   const index = filteredSongs.value.findIndex((s) => s.id === props.activeId);
   if (index === -1) return;
-
-  const offsetTop = containerRef.value?.offsetTop || 0;
-  // 考虑到吸顶高度 (52px header + 48px tabs + 44px table header = ~144px)
-  const pinnedHeight = 144;
-  const targetScrollTop =
-    offsetTop + index * itemHeight - viewportHeight.value / 2 + pinnedHeight / 2;
-
-  scrollTarget.scrollTo({
-    top: Math.max(0, targetScrollTop),
-    behavior: 'smooth',
-  });
+  listRef.value.scrollToItem(index);
 };
 
 defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value.length) });
 </script>
 
 <template>
-  <div
-    ref="containerRef"
-    class="song-list-container relative w-full"
-    :style="{ minHeight: `${totalHeight}px` }"
+  <RecycleScroller
+    ref="listRef"
+    class="song-list-container"
+    :items="filteredSongs"
+    :item-size="itemHeight"
+    key-field="id"
+    page-mode
   >
-    <div
-      class="song-list-content absolute top-0 left-0 right-0 flex flex-col"
-      :style="{ transform: `translateY(${offsetY}px)` }"
-    >
+    <template #default="{ item: song }">
       <div
-        v-for="song in visibleSongs"
-        :key="song.id"
         class="song-list-row group flex items-center py-0 rounded-lg transition-all duration-200 cursor-default"
         :style="{ height: `${itemHeight}px`, opacity: rowOpacity(song) }"
         :class="{ 'bg-primary/5 dark:bg-primary/10 text-primary': activeId === song.id }"
@@ -161,7 +108,7 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
               v-else
               class="absolute inset-0 flex items-center justify-center text-[12px] opacity-40 transition-opacity group-hover:opacity-0"
             >
-              {{ song.originalIndex + 1 }}
+              {{ (originalIndexMap.get(song.id) ?? 0) + 1 }}
             </span>
             <svg
               v-if="activeId !== song.id"
@@ -215,12 +162,14 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
           {{ formatDuration(song.duration) }}
         </div>
       </div>
-    </div>
+    </template>
 
-    <div v-if="filteredSongs.length === 0" class="py-20 text-center opacity-30 text-[14px] italic">
-      {{ props.searchQuery ? '未找到相关歌曲' : '暂无歌曲' }}
-    </div>
-  </div>
+    <template #empty v-if="filteredSongs?.length === 0">
+      <div class="py-20 text-center opacity-30 text-[14px] italic">
+        {{ props.searchQuery ? '未找到相关歌曲' : '暂无歌曲' }}
+      </div>
+    </template>
+  </RecycleScroller>
 </template>
 
 <style scoped>

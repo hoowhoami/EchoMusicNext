@@ -17,7 +17,6 @@ const isDev = import.meta.env.DEV;
 // 确保在渲染进程中使用，window 应该是可用的
 const getElectronLog = (): LoggerFunctions | undefined => {
   try {
-    // 使用 any 绕过可能的类型合并延迟
     const electron = (window as any).electron;
     return electron?.log;
   } catch (e) {
@@ -27,32 +26,69 @@ const getElectronLog = (): LoggerFunctions | undefined => {
 
 const electronLog = getElectronLog();
 
+const formatArgs = (args: any[]) => {
+  return args.map(arg => {
+    if (typeof arg === 'object') {
+      try {
+        return JSON.stringify(arg);
+      } catch (e) {
+        return arg;
+      }
+    }
+    return arg;
+  }).join(' ');
+};
+
 // 创建一个符合 Logger 接口的对象
 export const logger = {
-  info: (...args: any[]) => {
-    if (electronLog && !isDev) electronLog.info(...args);
-    console.info('[INFO]', ...args);
+  info: (module: string, ...args: any[]) => {
+    const message = `[${module}] ${formatArgs(args)}`;
+    if (electronLog && !isDev) {
+      electronLog.info(message);
+    } else {
+      console.info(`[INFO] [${module}]`, ...args);
+    }
   },
-  warn: (...args: any[]) => {
-    if (electronLog && !isDev) electronLog.warn(...args);
-    console.warn('[WARN]', ...args);
+  warn: (module: string, ...args: any[]) => {
+    const message = `[${module}] ${formatArgs(args)}`;
+    if (electronLog && !isDev) {
+      electronLog.warn(message);
+    } else {
+      console.warn(`[WARN] [${module}]`, ...args);
+    }
   },
-  error: (...args: any[]) => {
-    if (electronLog && !isDev) electronLog.error(...args);
-    console.error('[ERROR]', ...args);
+  error: (module: string, ...args: any[]) => {
+    const message = `[${module}] ${formatArgs(args)}`;
+    if (electronLog && !isDev) {
+      electronLog.error(message);
+    } else {
+      console.error(`[ERROR] [${module}]`, ...args);
+    }
   },
-  debug: (...args: any[]) => {
-    if (electronLog && !isDev) electronLog.debug(...args);
-    if (isDev) console.debug('[DEBUG]', ...args);
+  debug: (module: string, ...args: any[]) => {
+    const message = `[${module}] ${formatArgs(args)}`;
+    if (electronLog && !isDev) {
+      electronLog.debug(message);
+    } else if (isDev) {
+      console.debug(`[DEBUG] [${module}]`, ...args);
+    }
   },
-  verbose: (...args: any[]) => {
-    if (electronLog && !isDev) electronLog.verbose(...args);
-    if (isDev) console.log('[VERBOSE]', ...args);
+  verbose: (module: string, ...args: any[]) => {
+    const message = `[${module}] ${formatArgs(args)}`;
+    if (electronLog && !isDev) {
+      electronLog.verbose(message);
+    } else if (isDev) {
+      console.log(`[VERBOSE] [${module}]`, ...args);
+    }
   },
-  // 保持 log 兼容性，映射到 info
-  log: (...args: any[]) => {
-    if (electronLog && !isDev) electronLog.info(...args);
-    console.log('[LOG]', ...args);
+  // 兼容旧调用或简单调用
+  log: (module: string, ...args: any[]) => {
+    const message = `[${module}] ${formatArgs(args)}`;
+    if (electronLog && !isDev) {
+      electronLog.info(message);
+    } else {
+      console.log(`[LOG] [${module}]`, ...args);
+    }
   }
 };
 

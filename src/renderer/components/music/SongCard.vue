@@ -41,6 +41,7 @@ interface Props {
   mixSongId?: string | number;
   parentPlaylistId?: string | number;
   enableRemoveFromPlaylist?: boolean;
+  disableLinks?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -55,6 +56,7 @@ const props = withDefaults(defineProps<Props>(), {
   showCover: true,
   active: false,
   variant: 'card',
+  disableLinks: false,
 });
 
 const router = useRouter();
@@ -149,12 +151,14 @@ const hasAlbumDetail = computed(() => {
 });
 
 const isArtistClickable = (artist: SongArtist) => {
+  if (props.disableLinks) return false;
   const artistId = resolveNumericId(artist.id);
   if (!artistId) return false;
   return !isSameRoute('artist-detail', artistId);
 };
 
 const isAlbumClickable = computed(() => {
+  if (props.disableLinks) return false;
   const albumId = albumDetailId.value;
   if (!albumId || !hasAlbumDetail.value) return false;
   return !isSameRoute('album-detail', albumId);
@@ -285,7 +289,7 @@ const handleFavorite = () => {
     <div class="flex-1 min-w-0 flex flex-col gap-0.5" :style="{ opacity: contentOpacity }">
       <div class="flex items-center min-w-0">
         <h3
-          class="text-[13px] font-medium line-clamp-1"
+          class="text-[13px] font-medium truncate"
           :class="props.active ? 'text-primary' : 'text-text-main'"
         >
           {{ title }}
@@ -300,7 +304,7 @@ const handleFavorite = () => {
         </Tag>
       </div>
       <div
-        class="text-[11px] line-clamp-1 opacity-80 flex items-center gap-1 min-w-0"
+        class="text-[11px] opacity-80 flex items-center gap-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
         :class="props.active ? 'text-primary/70' : 'text-text-secondary'"
       >
         <span
@@ -331,7 +335,7 @@ const handleFavorite = () => {
     </div>
     
     <!-- 详情及评论 / 收藏 -->
-    <div class="song-actions ml-1" :class="showMore ? '' : 'song-actions-static'" @click.stop>
+    <div v-if="showMore" class="song-actions ml-1" @click.stop>
       <button
         type="button"
         class="song-action"
@@ -471,8 +475,7 @@ const handleFavorite = () => {
   transition: opacity 0.2s ease;
 }
 
-.song-card:hover .song-actions,
-.song-actions-static {
+.song-card:hover .song-actions {
   opacity: 1;
 }
 

@@ -116,11 +116,11 @@ export const usePlaylistStore = defineStore('playlist', {
         const songData = `${song.title}|${song.hash}|${song.albumId || 0}|${song.mixSongId}`;
         const res = await addPlaylistTrack(targetId, songData);
         if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
-          logger.info(`[PlaylistStore] Song ${song.title} added to playlist ${targetId}`);
+          logger.info('PlaylistStore', `Song ${song.title} added to playlist ${targetId}`);
           return true;
         }
       } catch (e) {
-        logger.error('[PlaylistStore] Add to playlist error:', e);
+        logger.error('PlaylistStore', 'Add to playlist error:', e);
       }
       return false;
     },
@@ -131,11 +131,11 @@ export const usePlaylistStore = defineStore('playlist', {
       try {
         const res = await deletePlaylistTrack(targetId, String(song.mixSongId));
         if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
-          logger.info(`[PlaylistStore] Song ${song.title} removed from playlist ${targetId}`);
+          logger.info('PlaylistStore', `Song ${song.title} removed from playlist ${targetId}`);
           return true;
         }
       } catch (e) {
-        logger.error('[PlaylistStore] Remove from playlist error:', e);
+        logger.error('PlaylistStore', 'Remove from playlist error:', e);
       }
       return false;
     },
@@ -155,10 +155,10 @@ export const usePlaylistStore = defineStore('playlist', {
           const songData = `${song.title}|${song.hash}|${song.albumId || 0}|${song.mixSongId}`;
           const res = await addPlaylistTrack(listId, songData);
           if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
-            logger.info(`[PlaylistStore] Song ${song.title} added to favorites on cloud`);
+            logger.info('PlaylistStore', `Song ${song.title} added to favorites on cloud`);
           }
         } catch (e) {
-          logger.error('[PlaylistStore] Add to favorites sync error:', e);
+          logger.error('PlaylistStore', 'Add to favorites sync error:', e);
         }
       }
     },
@@ -179,10 +179,10 @@ export const usePlaylistStore = defineStore('playlist', {
         try {
           const res = await deletePlaylistTrack(listId, String(song.mixSongId));
           if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
-            logger.info(`[PlaylistStore] Song ${song.title} removed from favorites on cloud`);
+            logger.info('PlaylistStore', `Song ${song.title} removed from favorites on cloud`);
           }
         } catch (e) {
-          logger.error('[PlaylistStore] Remove from favorites sync error:', e);
+          logger.error('PlaylistStore', 'Remove from favorites sync error:', e);
         }
       }
     },
@@ -198,10 +198,10 @@ export const usePlaylistStore = defineStore('playlist', {
       try {
         const res = await uploadPlayHistory(song.mixSongId);
         if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
-          logger.info(`[PlaylistStore] Play history uploaded: ${song.title}`);
+          logger.info('PlaylistStore', `Play history uploaded: ${song.title}`);
         }
       } catch (e) {
-        logger.error('[PlaylistStore] Upload history sync error:', e);
+        logger.error('PlaylistStore', 'Upload history sync error:', e);
       }
     },
 
@@ -215,7 +215,7 @@ export const usePlaylistStore = defineStore('playlist', {
           this.userPlaylists = Array.isArray(raw) ? raw.map((item) => mapPlaylistMeta(item)) : [];
         }
       } catch (e) {
-        logger.error('[PlaylistStore] Fetch user playlists error:', e);
+        logger.error('PlaylistStore', 'Fetch user playlists error:', e);
       }
     },
 
@@ -233,7 +233,7 @@ export const usePlaylistStore = defineStore('playlist', {
           return true;
         }
       } catch (e) {
-        logger.error('[PlaylistStore] Favorite playlist error:', e);
+        logger.error('PlaylistStore', 'Favorite playlist error:', e);
       }
       return false;
     },
@@ -266,7 +266,7 @@ export const usePlaylistStore = defineStore('playlist', {
           return true;
         }
       } catch (e) {
-        logger.error('[PlaylistStore] Unfavorite playlist error:', e);
+        logger.error('PlaylistStore', 'Unfavorite playlist error:', e);
       }
       return false;
     },

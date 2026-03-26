@@ -7,6 +7,7 @@ import {
   claimDayVip, upgradeDayVip, getVipMonthRecord 
 } from '@/api/user';
 import Avatar from '@/components/ui/Avatar.vue';
+import logger from '@/utils/logger';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -95,7 +96,7 @@ const loadData = async () => {
     userStore.setClaimStatus(isTvipClaimed, isSvipActive);
 
   } catch (e) {
-    console.error('[Profile] Load Data Error:', e);
+    logger.error('Profile', 'Load Data Error:', e);
   } finally {
     isLoading.value = false;
   }
@@ -111,7 +112,7 @@ const handleClaimTvip = async () => {
       userStore.setClaimStatus(true, userStore.isSvipClaimedToday);
       await loadData(); // 刷新
     }
-  } catch (e) { console.error(e); }
+  } catch (e) { logger.error('Profile', 'Claim TVIP error:', e); }
   finally { isLoading.value = false; }
 };
 
@@ -124,7 +125,7 @@ const handleUpgradeSvip = async () => {
       userStore.setClaimStatus(userStore.isTvipClaimedToday, true);
       await loadData(); // 刷新
     }
-  } catch (e) { console.error(e); }
+  } catch (e) { logger.error('Profile', 'Upgrade SVIP error:', e); }
   finally { isLoading.value = false; }
 };
 

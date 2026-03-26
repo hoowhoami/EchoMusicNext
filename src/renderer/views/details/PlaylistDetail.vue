@@ -13,6 +13,7 @@ import TabsList from '@/components/ui/TabsList.vue';
 import TabsTrigger from '@/components/ui/TabsTrigger.vue';
 import TabsContent from '@/components/ui/TabsContent.vue';
 import Badge from '@/components/ui/Badge.vue';
+import Dialog from '@/components/ui/Dialog.vue';
 import CommentList from '@/components/music/CommentList.vue';
 import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
 import { Song } from '@/stores/playlist';
@@ -91,13 +92,7 @@ const isOwnerPlaylist = computed(() => {
 const currentPlaylistIds = computed(() => {
   const meta = playlist.value;
   if (!meta) return [] as string[];
-  return [
-    meta.id,
-    meta.listid,
-    meta.listCreateListid,
-    meta.globalCollectionId,
-    meta.listCreateGid,
-  ]
+  return [meta.id, meta.listid, meta.listCreateListid, meta.globalCollectionId, meta.listCreateGid]
     .filter((item): item is string | number => item !== undefined && item !== null && item !== '')
     .map((item) => String(item));
 });
@@ -173,7 +168,12 @@ const fetchComments = async (reset = false) => {
   loadingComments.value = true;
   try {
     const res = await getPlaylistComments(playlistCommentId.value, commentPage.value);
-    if (res && typeof res === 'object' && 'status' in res && (res as { status?: number }).status === 1) {
+    if (
+      res &&
+      typeof res === 'object' &&
+      'status' in res &&
+      (res as { status?: number }).status === 1
+    ) {
       const record = toRecord(res);
       const data = toRecord(record.data ?? record.info ?? record);
       const listCandidate = data.list ?? data.comments ?? [];
@@ -181,7 +181,8 @@ const fetchComments = async (reset = false) => {
       const mapped = list.map(mapCommentItem).filter((item) => item.content.length > 0);
       comments.value = reset ? mapped : [...comments.value, ...mapped];
 
-      const totalRaw = data.total ?? data.count ?? record.total ?? record.count ?? commentTotal.value;
+      const totalRaw =
+        data.total ?? data.count ?? record.total ?? record.count ?? commentTotal.value;
       const totalValue = parseIntSafe(totalRaw);
       if (totalValue > 0) {
         commentTotal.value = totalValue;
@@ -240,10 +241,15 @@ const fetchData = async () => {
   loading.value = true;
   try {
     const detailRes = await getPlaylistDetail(getPlaylistId());
-    if (detailRes && typeof detailRes === 'object' && 'status' in detailRes && detailRes.status === 1) {
+    if (
+      detailRes &&
+      typeof detailRes === 'object' &&
+      'status' in detailRes &&
+      detailRes.status === 1
+    ) {
       const data = 'data' in detailRes ? (detailRes as { data?: unknown }).data : undefined;
       const info = 'info' in detailRes ? (detailRes as { info?: unknown }).info : undefined;
-      const raw = Array.isArray(data ?? info) ? (data ?? info)?.[0] : data ?? info;
+      const raw = Array.isArray(data ?? info) ? (data ?? info)?.[0] : (data ?? info);
       if (raw) {
         playlist.value = mapPlaylistMeta(raw);
       }
@@ -334,7 +340,11 @@ const fetchAllPlaylistTracks = async (
     if (!statusOk && !hasPayload) break;
 
     const payload =
-      'data' in res ? (res as { data?: unknown }).data : 'info' in res ? (res as { info?: unknown }).info : res;
+      'data' in res
+        ? (res as { data?: unknown }).data
+        : 'info' in res
+          ? (res as { info?: unknown }).info
+          : res;
     const { songs: parsedSongs } = parsePlaylistTracks(payload ?? res);
     const nextSongs = parsedSongs.filter((song) => {
       if (seenIds.has(song.id)) return false;
@@ -362,7 +372,7 @@ watch(
     if (activeTab.value === 'comments') {
       fetchComments(true);
     }
-  }
+  },
 );
 
 watch(
@@ -371,7 +381,7 @@ watch(
     if (nextId !== prevId && activeTab.value === 'comments') {
       fetchComments(true);
     }
-  }
+  },
 );
 
 const secondaryActions = computed(() => [
@@ -418,7 +428,8 @@ const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
 const sortedSongs = computed(() => {
   const base = songs.value.slice();
   if (!sortField.value || !sortOrder.value) return base;
-  const compareText = (a: string, b: string) => a.localeCompare(b, 'zh-Hans-CN', { sensitivity: 'base' });
+  const compareText = (a: string, b: string) =>
+    a.localeCompare(b, 'zh-Hans-CN', { sensitivity: 'base' });
   const direction = sortOrder.value === 'asc' ? 1 : -1;
 
   return base.sort((a, b) => {
@@ -464,11 +475,7 @@ const handlePlaySong = (song: Song) => {
           <div class="flex flex-col gap-2">
             <div class="flex items-center gap-3">
               <div class="flex items-center gap-2">
-                <Avatar
-                  :src="playlist.userPic"
-                  :size="20"
-                  class="rounded-full overflow-hidden"
-                />
+                <Avatar :src="playlist.userPic" :size="20" class="rounded-full overflow-hidden" />
                 <span class="text-[13px] font-semibold text-primary">{{
                   playlist.nickname || 'Unknown'
                 }}</span>
@@ -482,7 +489,14 @@ const handlePlaySong = (song: Song) => {
             </div>
             <div class="flex items-center flex-wrap gap-2 text-[11px] font-semibold">
               <span class="inline-flex items-center gap-1 text-text-main/50">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <path d="M9 18V5l12-2v13" />
                   <circle cx="6" cy="18" r="3" />
                   <circle cx="18" cy="16" r="3" />
@@ -501,7 +515,11 @@ const handlePlaySong = (song: Song) => {
         </template>
 
         <template #actions>
-          <ActionRow :secondaryActions="secondaryActions" @play="handlePlayAll" @batch="openBatchDrawer" />
+          <ActionRow
+            :secondaryActions="secondaryActions"
+            @play="handlePlayAll"
+            @batch="openBatchDrawer"
+          />
         </template>
 
         <template #collapsed-actions>
@@ -670,16 +688,16 @@ const handlePlaySong = (song: Song) => {
       <div class="pb-12">
         <Tabs :model-value="activeTab" class="w-full" @update:model-value="handleTabChange">
           <TabsContent value="songs" class="px-6">
-          <SongList
-            ref="songListRef"
-            :songs="sortedSongs"
-            :searchQuery="searchQuery"
-            :activeId="activeSongId"
-            :showCover="true"
-            :parentPlaylistId="playlist.listid || playlist.id"
-            :enableRemoveFromPlaylist="isOwnerPlaylist"
-            @play="handlePlaySong"
-          />
+            <SongList
+              ref="songListRef"
+              :songs="sortedSongs"
+              :searchQuery="searchQuery"
+              :activeId="activeSongId"
+              :showCover="true"
+              :parentPlaylistId="playlist.listid || playlist.id"
+              :enableRemoveFromPlaylist="isOwnerPlaylist"
+              @play="handlePlaySong"
+            />
           </TabsContent>
 
           <TabsContent value="comments" class="px-6 py-10">
@@ -731,7 +749,6 @@ const handlePlaySong = (song: Song) => {
     </template>
   </div>
 </template>
-
 
 <style scoped>
 @reference "@/style.css";

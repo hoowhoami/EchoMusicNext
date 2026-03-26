@@ -90,16 +90,18 @@ const panelClass = computed(() => [
 }
 
 :global(.drawer-right) {
-  top: 16px;
-  right: 16px;
-  bottom: 96px;
+  top: 0;
+  right: 0;
+  bottom: var(--drawer-bottom-offset, 96px);
   width: min(380px, 88vw);
   border-radius: 18px 0 0 18px;
   transform: translateX(12px);
+  box-shadow: none;
 }
 
 :global(.drawer-bottom) {
   left: var(--drawer-content-left, 0px);
+  top: var(--drawer-content-top, 0px);
   bottom: var(--drawer-bottom-offset, 96px);
   transform: translateY(8%);
   width: var(--drawer-content-width, 92vw);

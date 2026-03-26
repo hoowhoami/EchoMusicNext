@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useSettingStore } from '@/stores/setting';
 import Select from '@/components/ui/Select.vue';
 import Slider from '@/components/ui/Slider.vue';
@@ -7,6 +7,11 @@ import Switch from '@/components/ui/Switch.vue';
 import Dialog from '@/components/ui/Dialog.vue';
 
 const settingStore = useSettingStore();
+
+onMounted(() => {
+  settingStore.syncCloseBehavior();
+  settingStore.syncTheme();
+});
 
 type ThemeMode = 'light' | 'dark' | 'system';
 type CloseBehavior = 'tray' | 'exit';
@@ -138,7 +143,7 @@ const releaseChannelLabel = computed(() =>
             class="min-w-[180px]"
             :model-value="settingStore.closeBehavior"
             :options="closeBehaviorOptions"
-            @update:model-value="settingStore.closeBehavior = $event as CloseBehavior"
+            @update:model-value="settingStore.closeBehavior = $event as CloseBehavior; settingStore.syncCloseBehavior()"
           />
         </div>
       </div>

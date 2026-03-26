@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { usePlaylistStore } from './playlist';
 import { useLyricStore } from './lyric';
+import logger from '@/utils/logger';
 
 export type PlayMode = 'list' | 'single' | 'random';
 
@@ -48,7 +49,7 @@ export const usePlayerStore = defineStore('player', {
 
       // 错误处理
       audio.onerror = (e) => {
-        console.error('Audio playback error:', e);
+        logger.error('PlayerStore', 'Audio playback error:', e);
         this.isPlaying = false;
       };
     },
@@ -68,7 +69,7 @@ export const usePlayerStore = defineStore('player', {
         try {
           await audio.play();
         } catch (error) {
-          console.error('Playback failed:', error);
+          logger.error('PlayerStore', 'Playback failed:', error);
         }
       }
     },
@@ -117,7 +118,7 @@ export const usePlayerStore = defineStore('player', {
           await audio.play();
           playlistStore.addToHistory(track);
         } catch (error) {
-          console.error('Play track failed:', error);
+          logger.error('PlayerStore', 'Play track failed:', error);
         }
       }
     },

@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { useUserStore } from '@/stores/user';
 import { useDeviceStore } from '@/stores/device';
+import { logger } from './logger';
 
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = import.meta.env.DEV;
 const API_BASE_URL = isDev ? '/api' : 'http://127.0.0.1:12306';
 
 const request = axios.create({
@@ -37,31 +38,47 @@ request.interceptors.request.use(
       if (device.mac) authParts.push(`KUGOU_API_MAC=${device.mac}`);
     }
     
+    const auth = authParts.join(';');
     if (authParts.length > 0) {
-      config.headers['Authorization'] = authParts.join(';');
+      config.headers['Authorization'] = auth;
     }
     
     config.params = {
       ...config.params,
       t: Date.now(),
     };
+
+    // 打印请求日志
+    const fullUrl = axios.getUri(config);
+    logger.info('API', `Request: [${config.method?.toUpperCase()}] ${fullUrl}`, auth ? `Auth: ${auth}` : '');
     
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    logger.error('API', 'Request Error:', error);
+    return Promise.reject(error);
+  }
 );
 
 // 响应拦截器
 request.interceptors.response.use(
   (response) => {
     const data = response.data;
+    
+    // 打印响应日志
+    let resStr = typeof data === 'object' ? JSON.stringify(data) : String(data);
+    if (resStr.length > 2000) {
+      resStr = resStr.substring(0, 2000) + '... (truncated)';
+    }
+    logger.info('API', `Response: ${response.config.url} ->`, resStr);
+
     if (data.error_code === 20018 || (data.msg && data.msg.includes('登录已过期'))) {
-      console.warn('[API] 登录已过期');
+      logger.warn('API', '登录已过期');
     }
     return data;
   },
   (error) => {
-    console.error('[API] 请求失败', error);
+    logger.error('API', `Response Error: ${error.config?.url} ->`, error.message);
     return Promise.reject(error);
   }
 );

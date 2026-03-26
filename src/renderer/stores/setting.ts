@@ -42,6 +42,7 @@ export const useSettingStore = defineStore('setting', {
   actions: {
     setTheme(theme: 'light' | 'dark' | 'system') {
       this.theme = theme;
+      this.syncTheme();
     },
     toggleShortcuts(enabled: boolean) {
       this.shortcutEnabled = enabled;
@@ -67,6 +68,16 @@ export const useSettingStore = defineStore('setting', {
     openDisclaimer() {
       if (window.electron?.ipcRenderer) {
         window.electron.ipcRenderer.send('open-disclaimer', null);
+      }
+    },
+    syncCloseBehavior() {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('update-close-behavior', this.closeBehavior);
+      }
+    },
+    syncTheme() {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('update-theme', this.theme);
       }
     },
   },
