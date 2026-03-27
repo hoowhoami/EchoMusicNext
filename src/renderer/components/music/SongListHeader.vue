@@ -28,7 +28,7 @@ const handleSort = (field: SortField) => {
 </script>
 
 <template>
-  <div class="flex items-center px-6 py-2 text-[12px] text-text-secondary opacity-40 font-bold border-b border-border-light/30">
+  <div class="flex items-center px-6 py-2 text-[12px] text-text-main/80 font-bold border-b border-border-light/30">
     <div
       v-if="showIndex"
       class="w-10 shrink-0 text-left pl-4 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"

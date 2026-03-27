@@ -209,7 +209,7 @@ onUnmounted(() => {
             :borderRadius="12"
             class="transition-transform duration-500 group-hover:scale-110"
           />
-          <div v-else class="w-full h-full flex items-center justify-center text-text-main/20">
+          <div v-else class="w-full h-full flex items-center justify-center text-text-main/30">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M9 18V5l12-2v13" />
               <circle cx="6" cy="18" r="3" />
@@ -232,7 +232,7 @@ onUnmounted(() => {
               >
                 {{ currentTrack ? currentTrack.title : '未在播放' }}
               </span>
-              <span v-if="currentTrack" class="text-[14px] text-text-main/40 mx-0.5">-</span>
+              <span v-if="currentTrack" class="text-[14px] text-text-main/60 mx-0.5">-</span>
               <div v-if="currentTrack" class="flex items-center">
                 <template v-for="(artist, index) in artistList" :key="index">
                   <span
@@ -241,7 +241,7 @@ onUnmounted(() => {
                   >
                     {{ artist.name }}
                   </span>
-                  <span v-if="index < artistList.length - 1" class="text-[13px] text-text-main/30 mx-0.5">/</span>
+                  <span v-if="index < artistList.length - 1" class="text-[13px] text-text-main/50 mx-0.5">/</span>
                 </template>
               </div>
             </div>
@@ -296,7 +296,7 @@ onUnmounted(() => {
           <!-- 播放模式 -->
           <button
             @click="player.setPlayMode(player.playMode === 'list' ? 'random' : player.playMode === 'random' ? 'single' : 'list')"
-            class="p-2 text-text-main/30 hover:text-primary transition-all hover:scale-110 active:scale-90"
+            class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90"
           >
             <svg v-if="player.playMode === 'list'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 2l4 4-4 4M3 11v-1a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v1a4 4 0 01-4 4H3"/></svg>
             <svg v-else-if="player.playMode === 'random'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
@@ -335,7 +335,7 @@ onUnmounted(() => {
             ref="volumeContainerRef"
             class="relative flex items-center group/vol" 
           >
-            <button @click="toggleVolume" class="p-2 text-text-main/30 hover:text-primary transition-all hover:scale-110 active:scale-90" :class="{ 'text-primary': isVolumeVisible }">
+            <button @click="toggleVolume" class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90" :class="{ 'text-primary': isVolumeVisible }">
               <svg v-if="player.volume > 0.5" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                 <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
               </svg>
@@ -367,12 +367,12 @@ onUnmounted(() => {
                     <SliderThumb class="block w-3 h-3 bg-white border border-black/10 rounded-full shadow-sm focus:outline-none" />
                   </SliderRoot>
                   
-                  <button @click="toggleMute" class="mt-2 p-1 text-text-main/40 hover:text-primary transition-colors">
+                  <button @click="toggleMute" class="mt-2 p-1 text-text-main/60 hover:text-primary transition-colors">
                      <svg v-if="player.volume > 0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 5L6 9H2v6h4l5 4V5z"/></svg>
                      <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>
                   </button>
                   
-                  <span class="mt-1 text-[10px] font-bold text-text-main/40 tabular-nums">{{ Math.round(player.volume * 100) }}</span>
+                  <span class="mt-1 text-[10px] font-bold text-text-main/60 tabular-nums">{{ Math.round(player.volume * 100) }}</span>
 
                   <!-- 三角箭头 -->
                   <div class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-bg-card/95 rotate-45 border-r border-b border-border-light/40"></div>
@@ -384,7 +384,7 @@ onUnmounted(() => {
 
         <!-- 进度条系统 - 动态伸缩至最大值 -->
         <div class="w-full max-w-[480px] flex items-center gap-3 px-1 h-[14px] min-w-0">
-          <span class="text-[10px] font-medium text-text-main/30 w-9 shrink-0 text-right tabular-nums">{{ formatTime(player.currentTime) }}</span>
+          <span class="text-[10px] font-medium text-text-main/50 w-9 shrink-0 text-right tabular-nums">{{ formatTime(player.currentTime) }}</span>
           <SliderRoot
             :model-value="[player.currentTime]"
             :max="player.duration || 100"
@@ -402,7 +402,7 @@ onUnmounted(() => {
               :class="[isHoveringProgress ? 'opacity-100 scale-125' : 'opacity-0 scale-50']"
             />
           </SliderRoot>
-          <span class="text-[10px] font-medium text-text-main/30 w-9 shrink-0 text-left tabular-nums">{{ formatTime(player.duration) }}</span>
+          <span class="text-[10px] font-medium text-text-main/50 w-9 shrink-0 text-left tabular-nums">{{ formatTime(player.duration) }}</span>
         </div>
       </div>
 
@@ -410,7 +410,7 @@ onUnmounted(() => {
       <div class="player-actions flex-1 flex justify-end items-center gap-1 min-w-[120px] max-w-[320px]">
         <DropdownMenuRoot>
           <DropdownMenuTrigger as-child>
-            <button class="p-2 text-text-main/30 hover:text-primary transition-all hover:scale-110 active:scale-90" title="播放倍速">
+            <button class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90" title="播放倍速">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="9" />
                 <path d="M12 7v5l3 2" />
@@ -436,7 +436,7 @@ onUnmounted(() => {
 
         <DropdownMenuRoot>
           <DropdownMenuTrigger as-child>
-            <button class="p-2 text-text-main/30 hover:text-primary transition-all hover:scale-110 active:scale-90" title="音质">
+            <button class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90" title="音质">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 20v-8m0-4V4m-5 12v-2m0-4v-2m10 10v-6m0-4V8" />
               </svg>
@@ -511,7 +511,7 @@ onUnmounted(() => {
         </DropdownMenuRoot>
 
         <button
-          class="p-2 text-text-main/30 hover:text-primary transition-all hover:scale-110 active:scale-90"
+          class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90"
           title="播放队列"
           @click="openQueue"
         >

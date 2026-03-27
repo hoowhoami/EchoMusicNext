@@ -27,7 +27,7 @@ const handleClick = () => {
       <div class="info-wrapper text-center w-full">
         <h3 class="title">{{ name }}</h3>
         <p class="subtitle">
-          {{ songCount || 0 }} 歌曲 <span class="mx-0.5 opacity-40">•</span> {{ albumCount || 0 }} 专辑
+          {{ songCount || 0 }} 歌曲 <span class="mx-0.5 opacity-60">•</span> {{ albumCount || 0 }} 专辑
         </p>
       </div>
     </div>

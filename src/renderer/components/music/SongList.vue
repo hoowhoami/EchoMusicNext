@@ -106,7 +106,7 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
             </div>
             <span
               v-else
-              class="absolute inset-0 flex items-center justify-center text-[12px] opacity-40 transition-opacity group-hover:opacity-0"
+              class="absolute inset-0 flex items-center justify-center text-[12px] opacity-60 transition-opacity group-hover:opacity-0"
             >
               {{ (originalIndexMap.get(song.id) ?? 0) + 1 }}
             </span>
@@ -153,19 +153,19 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
 
         <div
           v-if="showAlbum"
-          class="w-48 min-w-0 hidden md:block text-[13px] opacity-60 truncate pr-4"
+          class="w-48 min-w-0 hidden md:block text-[13px] text-text-main/70 truncate pr-4"
         >
           {{ song.album || '未知专辑' }}
         </div>
 
-        <div v-if="showDuration" class="w-16 shrink-0 text-[12px] opacity-40">
+        <div v-if="showDuration" class="w-16 shrink-0 text-[12px] opacity-60">
           {{ formatDuration(song.duration) }}
         </div>
       </div>
     </template>
 
     <template #empty v-if="filteredSongs?.length === 0">
-      <div class="py-20 text-center opacity-30 text-[14px] italic">
+      <div class="py-20 text-center opacity-50 text-[14px] italic">
         {{ props.searchQuery ? '未找到相关歌曲' : '暂无歌曲' }}
       </div>
     </template>

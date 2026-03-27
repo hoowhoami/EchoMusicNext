@@ -67,7 +67,7 @@ onMounted(() => {
            <div class="w-2 h-2 rounded-full bg-primary/60 animate-bounce"></div>
         </div>
         
-        <p class="text-[13px] font-bold text-text-main/40 dark:text-text-main/20 tracking-[0.5px] uppercase">{{ statusMessage }}</p>
+        <p class="text-[13px] font-bold text-text-main/60 dark:text-text-main/40 tracking-[0.5px] uppercase">{{ statusMessage }}</p>
       </div>
 
       <!-- 错误状态 -->
@@ -88,7 +88,7 @@ onMounted(() => {
 
     <!-- 5. 底部标语 -->
     <footer class="absolute bottom-10 left-0 right-0 text-center">
-       <span class="text-[12px] font-bold text-text-main/20 uppercase tracking-[1.5px] tracking-widest">EchoMusic • 音为你而生</span>
+       <span class="text-[12px] font-bold text-text-main/40 uppercase tracking-[1.5px] tracking-widest">EchoMusic • 音为你而生</span>
     </footer>
   </div>
 </template>

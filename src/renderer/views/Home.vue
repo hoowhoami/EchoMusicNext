@@ -16,7 +16,7 @@ const playSong = (id: string) => {
     <!-- 1. 顶部横幅 (模拟推荐) -->
     <section class="hero-banner relative h-60 rounded-2xl overflow-hidden shadow-xl shadow-primary/10 group">
       <div class="absolute inset-0 bg-gradient-to-r from-primary/90 to-secondary/80"></div>
-      <div class="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1514525253361-bee8718a340b?q=80&w=1000&auto=format&fit=crop')] bg-cover bg-center mix-blend-overlay opacity-40"></div>
+      <div class="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1514525253361-bee8718a340b?q=80&w=1000&auto=format&fit=crop')] bg-cover bg-center mix-blend-overlay opacity-50"></div>
       <div class="relative h-full flex flex-col justify-center px-10 space-y-3">
         <span class="text-white/80 text-xs font-bold uppercase tracking-[2px]">今日推荐</span>
         <h2 class="text-4xl font-black text-white leading-tight">致敬经典：<br/>钢琴与浪漫的邂逅</h2>

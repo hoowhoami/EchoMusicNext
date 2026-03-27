@@ -59,7 +59,7 @@ onMounted(fetchData);
       <div class="flex items-center justify-between mb-10">
         <h1 class="text-2xl font-bold text-text-main flex items-center gap-3">
           {{ title }}
-          <span v-if="total > 0" class="text-[14px] font-normal opacity-40">({{ total }})</span>
+          <span v-if="total > 0" class="text-[14px] font-normal opacity-60">({{ total }})</span>
         </h1>
         
         <!-- 返回按钮 -->
@@ -90,7 +90,7 @@ onMounted(fetchData);
         <button 
           @click="page++; fetchData()" 
           :disabled="loading"
-          class="px-8 py-2 rounded-full border border-border-light hover:bg-black/5 dark:hover:bg-white/10 text-[13px] transition-all disabled:opacity-50"
+          class="px-8 py-2 rounded-full border border-border-light hover:bg-black/5 dark:hover:bg-white/10 text-[13px] transition-all disabled:opacity-60"
         >
           {{ loading ? '加载中...' : '加载更多' }}
         </button>

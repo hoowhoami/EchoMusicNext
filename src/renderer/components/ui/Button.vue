@@ -35,7 +35,7 @@ const sizes = {
     :as-child="asChild"
     :disabled="disabled || loading"
     :class="[
-      'inline-flex items-center justify-center font-black transition-all active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 disabled:cursor-not-allowed',
+      'inline-flex items-center justify-center font-black transition-all active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100 disabled:cursor-not-allowed',
       variants[variant],
       sizes[size],
       props.class

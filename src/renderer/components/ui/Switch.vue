@@ -41,7 +41,7 @@ const handleUpdate = (next: unknown) => {
 .switch-root {
   @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors outline-none;
   @apply data-[state=checked]:bg-primary data-[state=unchecked]:bg-text-secondary/30;
-  @apply data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed;
+  @apply data-[disabled]:opacity-60 data-[disabled]:cursor-not-allowed;
   @apply focus-visible:ring-2 focus-visible:ring-primary/40;
 }
 

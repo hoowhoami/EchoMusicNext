@@ -117,7 +117,7 @@ const thumbClass = computed(() => ['slider-thumb', props.thumbClass]);
 }
 
 .slider-root[data-disabled] {
-  @apply opacity-50 cursor-not-allowed;
+  @apply opacity-60 cursor-not-allowed;
 }
 
 .slider-root[data-disabled] .slider-thumb {

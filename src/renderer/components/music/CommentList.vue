@@ -36,7 +36,7 @@ const props = defineProps<Props>();
       <div class="flex-1 flex flex-col gap-1.5 min-w-0">
         <div class="flex items-center justify-between">
           <span class="text-[13px] font-bold text-text-main opacity-80">{{ comment.userName }}</span>
-          <span class="text-[11px] text-text-secondary opacity-40">{{ comment.time }}</span>
+          <span class="text-[11px] text-text-secondary opacity-60">{{ comment.time }}</span>
         </div>
         
         <p class="text-[14px] leading-relaxed text-text-main whitespace-pre-wrap break-words">

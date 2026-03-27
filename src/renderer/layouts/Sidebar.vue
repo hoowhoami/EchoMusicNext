@@ -232,7 +232,7 @@ watch(
     <div class="px-4 shrink-0 no-drag">
       <div v-for="group in menuGroups" :key="group.title" class="mb-4">
         <h2
-          class="px-3.5 text-[11px] font-semibold text-text-main/40 uppercase tracking-[0.5px] mb-2"
+          class="px-3.5 text-[11px] font-semibold text-text-main/60 uppercase tracking-[0.5px] mb-2"
         >
           {{ group.title }}
         </h2>
@@ -283,7 +283,7 @@ watch(
             'text-[11px] uppercase tracking-[0.3px] transition-all duration-200 whitespace-nowrap',
             activePlaylistTab === 0
               ? 'font-bold text-primary'
-              : 'font-normal text-text-main opacity-40 hover:opacity-60',
+              : 'font-normal text-text-main opacity-60 hover:opacity-80',
           ]"
         >
           自建歌单
@@ -295,7 +295,7 @@ watch(
             'text-[11px] uppercase tracking-[0.3px] transition-all duration-200 whitespace-nowrap',
             activePlaylistTab === 1
               ? 'font-bold text-primary'
-              : 'font-normal text-text-main opacity-40 hover:opacity-60',
+              : 'font-normal text-text-main opacity-60 hover:opacity-80',
           ]"
         >
           收藏歌单/专辑
@@ -303,8 +303,8 @@ watch(
       </div>
       <button
         :class="[
-          'p-1 hover:bg-black/[0.05] dark:hover:bg-white/[0.05] rounded-md transition-all text-text-main opacity-40 shrink-0',
-          activePlaylistTab === 0 ? 'visible opacity-40' : 'invisible opacity-0',
+          'p-1 hover:bg-black/[0.05] dark:hover:bg-white/[0.05] rounded-md transition-all text-text-main opacity-60 shrink-0',
+          activePlaylistTab === 0 ? 'visible opacity-60' : 'invisible opacity-0',
         ]"
       >
         <svg
@@ -355,7 +355,7 @@ watch(
           </button>
           <div
             v-if="createdPlaylists.length === 0"
-            class="py-8 text-center opacity-20 text-[12px] italic"
+            class="py-8 text-center opacity-40 text-[12px] italic"
           >
             暂无自建歌单
           </div>
@@ -427,7 +427,7 @@ watch(
           </button>
           <div
             v-if="favoritedPlaylists.length === 0 && favoritedAlbums.length === 0"
-            class="py-8 text-center opacity-20 text-[12px] italic"
+            class="py-8 text-center opacity-40 text-[12px] italic"
           >
             暂无收藏内容
           </div>
@@ -436,7 +436,7 @@ watch(
 
       <!-- 未登录空状态 -->
       <div v-if="!isLoggedIn" class="px-3.5 py-8 text-center">
-        <span class="text-[12px] font-normal text-text-main opacity-30 italic"
+        <span class="text-[12px] font-normal text-text-main opacity-50 italic"
           >登录同步云端歌单</span
         >
       </div>

@@ -135,7 +135,7 @@ const selectedLabel = computed(() => {
   @apply w-full px-3 py-2.5 rounded-xl text-left text-[13px] font-semibold flex items-center justify-between gap-2;
   @apply hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer select-none;
   @apply data-[state=checked]:text-primary data-[state=checked]:bg-primary/10;
-  @apply data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed;
+  @apply data-[disabled]:opacity-60 data-[disabled]:cursor-not-allowed;
   @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30;
 }
 

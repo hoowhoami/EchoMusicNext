@@ -190,7 +190,7 @@ const handleLocate = () => songListRef.value?.scrollToActive();
             <div class="text-[13px] font-semibold text-primary">
               {{ album.singerName }}
             </div>
-            <div class="text-[11px] font-semibold opacity-40">
+            <div class="text-[11px] font-semibold opacity-60">
               {{ album.publishTime }} • {{ songs.length }} 首歌曲
             </div>
           </div>
@@ -230,23 +230,6 @@ const handleLocate = () => songListRef.value?.scrollToActive();
               <path d="M3 18h18" />
             </svg>
           </button>
-          <button
-            @click="
-              router.push({ name: 'comment', params: { id: albumId }, query: { type: 'album' } })
-            "
-            class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-main opacity-60"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.2"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-          </button>
         </template>
       </SliverHeader>
 
@@ -277,7 +260,7 @@ const handleLocate = () => songListRef.value?.scrollToActive();
                     class="w-52 h-9 pl-8 pr-3 rounded-lg bg-black/[0.05] dark:bg-white/[0.08] outline-none text-[12px] focus:ring-1 focus:ring-primary/30 transition-all"
                   />
                   <svg
-                    class="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-30"
+                    class="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50"
                     width="14"
                     height="14"
                     viewBox="0 0 24 24"

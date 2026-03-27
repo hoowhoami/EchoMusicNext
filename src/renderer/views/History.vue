@@ -26,7 +26,7 @@ const playSong = (id: string) => {
           class="flex items-center px-4 py-3 rounded-xl hover:bg-bg-light group cursor-pointer transition-colors"
           @click="playSong(song.id)"
         >
-          <div class="w-12 text-sm font-bold opacity-40">{{ index + 1 }}</div>
+          <div class="w-12 text-sm font-bold opacity-60">{{ index + 1 }}</div>
           <div class="flex-1 flex items-center gap-4">
             <Cover :url="song.coverUrl" :size="100" :width="40" :height="40" :borderRadius="8" />
             <span :class="['text-sm font-bold', playerStore.currentTrackId === song.id ? 'text-primary' : 'text-text-main']">
@@ -36,7 +36,7 @@ const playSong = (id: string) => {
           <div class="text-sm font-medium text-text-secondary opacity-60">{{ song.artist }}</div>
         </div>
       </div>
-      <div v-else class="py-20 flex flex-col items-center justify-center opacity-20">
+      <div v-else class="py-20 flex flex-col items-center justify-center opacity-40">
         <p class="text-xl font-black">暂无播放历史</p>
       </div>
     </div>

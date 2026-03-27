@@ -57,7 +57,7 @@ onMounted(() => {
     <!-- 1. 背景高斯模糊 -->
     <div class="absolute inset-0 z-0 transition-all duration-1000 overflow-hidden">
        <div 
-        class="absolute inset-0 bg-cover bg-center scale-110 blur-[80px] opacity-20 dark:opacity-40 saturate-150 transition-all duration-1000"
+        class="absolute inset-0 bg-cover bg-center scale-110 blur-[80px] opacity-25 dark:opacity-45 saturate-150 transition-all duration-1000"
         :style="{ backgroundImage: `url(${backgroundUrl})` }"
        ></div>
        <div class="absolute inset-0 bg-bg-main/40 dark:bg-black/40"></div>
@@ -82,14 +82,14 @@ onMounted(() => {
           </div>
           <!-- 封面发光装饰 -->
           <div 
-            class="absolute -inset-4 blur-3xl opacity-20 -z-10 bg-primary/40 rounded-full transition-all duration-1000"
+            class="absolute -inset-4 blur-3xl opacity-25 -z-10 bg-primary/40 rounded-full transition-all duration-1000"
             :style="{ background: `radial-gradient(circle, ${'#0071E3'} 0%, transparent 70%)` }"
           ></div>
         </div>
 
         <div class="text-center space-y-2 max-w-md">
           <h2 class="text-3xl lg:text-4xl font-black tracking-tight truncate">{{ currentTrack?.title || '未在播放' }}</h2>
-          <p class="text-lg lg:text-xl font-medium opacity-60 truncate">{{ currentTrack?.artist || 'Unknown Artist' }}</p>
+          <p class="text-lg lg:text-xl font-medium opacity-70 truncate">{{ currentTrack?.artist || 'Unknown Artist' }}</p>
         </div>
       </div>
 
@@ -105,7 +105,7 @@ onMounted(() => {
               :key="index"
               :class="[
                 'lyric-line text-2xl lg:text-3xl font-bold transition-all duration-500 cursor-pointer hover:opacity-100',
-                lyricStore.currentIndex === index ? 'text-primary scale-105 opacity-100' : 'text-text-main/20 dark:text-white/20 opacity-40'
+                lyricStore.currentIndex === index ? 'text-primary scale-105 opacity-100' : 'text-text-main/40 dark:text-white/40 opacity-60'
               ]"
               @click="player.seek(line.time)"
             >
@@ -113,7 +113,7 @@ onMounted(() => {
             </div>
           </div>
           <div v-else class="h-full flex items-center justify-center">
-            <p class="text-2xl font-bold opacity-20">纯音乐，请欣赏</p>
+            <p class="text-2xl font-bold opacity-40">纯音乐，请欣赏</p>
           </div>
         </div>
       </div>

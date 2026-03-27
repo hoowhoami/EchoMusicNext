@@ -66,12 +66,12 @@ const emit = defineEmits<{
   color: var(--color-text-main);
 }
 
-.action-btn.secondary.emphasized {
-  @apply text-primary bg-primary/10;
-}
-
 .action-btn.primary {
   @apply bg-primary text-white hover:bg-primary-hover;
+}
+
+.action-btn.secondary.emphasized {
+  @apply text-primary bg-primary/10;
 }
 
 .action-btn:hover {

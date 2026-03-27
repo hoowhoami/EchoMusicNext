@@ -52,13 +52,13 @@ onUnmounted(() => {
     <!-- 1. 左侧：导航按钮 (no-drag) -->
     <div class="flex items-center gap-1 no-drag">
       <button @click="goBack" class="nav-btn group" :disabled="!canGoBack" title="后退">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" :class="['text-text-main transition-opacity', canGoBack ? 'opacity-40 group-hover:opacity-100' : 'opacity-20']"><path d="m15 18-6-6 6-6"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" :class="['text-text-main transition-opacity', canGoBack ? 'opacity-60 group-hover:opacity-100' : 'opacity-40']"><path d="m15 18-6-6 6-6"/></svg>
       </button>
       <button @click="goForward" class="nav-btn group" :disabled="!canGoForward" title="前进">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" :class="['text-text-main transition-opacity', canGoForward ? 'opacity-40 group-hover:opacity-100' : 'opacity-20']"><path d="m9 18 6-6-6-6"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" :class="['text-text-main transition-opacity', canGoForward ? 'opacity-60 group-hover:opacity-100' : 'opacity-40']"><path d="m9 18 6-6-6-6"/></svg>
       </button>
       <button @click="refresh" class="nav-btn group" title="刷新">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-text-main opacity-40 group-hover:opacity-100 transition-opacity">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-text-main opacity-60 group-hover:opacity-100 transition-opacity">
           <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/>
         </svg>
       </button>

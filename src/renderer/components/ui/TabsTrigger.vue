@@ -9,7 +9,7 @@ const forwardedProps = useForwardProps(props);
   <TabsTrigger
     v-bind="forwardedProps"
     :class="[
-      'tab-trigger relative h-full flex items-end pb-1 text-[15px] font-bold text-text-main opacity-40 transition-all cursor-pointer select-none focus-visible:outline-none data-[state=active]:opacity-100',
+      'tab-trigger relative h-full flex items-end pb-1 text-[15px] font-bold text-text-main opacity-60 transition-all cursor-pointer select-none focus-visible:outline-none data-[state=active]:opacity-100',
       props.class
     ]"
   >

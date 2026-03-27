@@ -31,7 +31,7 @@ const removeFromFavorites = (id: string, event: Event) => {
 
     <div class="space-y-1">
       <!-- 表头 -->
-      <div class="flex items-center px-4 py-2 text-[12px] font-bold text-text-secondary uppercase tracking-wider opacity-40 border-b border-border-light/50">
+      <div class="flex items-center px-4 py-2 text-[12px] font-bold text-text-secondary uppercase tracking-wider opacity-60 border-b border-border-light/50">
         <div class="w-12">#</div>
         <div class="flex-1">标题</div>
         <div class="w-48">艺人</div>
@@ -47,7 +47,7 @@ const removeFromFavorites = (id: string, event: Event) => {
           class="flex items-center px-4 py-3 rounded-xl hover:bg-bg-sidebar dark:hover:bg-white/5 group cursor-pointer transition-colors"
           @click="playSong(song.id)"
         >
-          <div class="w-12 text-sm font-bold opacity-40 group-hover:opacity-0 transition-opacity">
+          <div class="w-12 text-sm font-bold opacity-60 group-hover:opacity-0 transition-opacity">
             {{ index + 1 }}
           </div>
           <!-- 正在播放小图标 -->
@@ -76,7 +76,7 @@ const removeFromFavorites = (id: string, event: Event) => {
         </div>
       </div>
 
-      <div v-else class="py-20 flex flex-col items-center justify-center space-y-4 opacity-20">
+      <div v-else class="py-20 flex flex-col items-center justify-center space-y-4 opacity-40">
         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
         <p class="text-xl font-black">暂无收藏歌曲</p>
       </div>

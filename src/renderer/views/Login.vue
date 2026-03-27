@@ -261,7 +261,7 @@ onUnmounted(() => {
     <div class="flex-1 relative overflow-hidden flex items-center justify-center p-6 z-10">
       <div class="absolute top-4 left-6 z-[100]">
         <button @click="router.back()" class="no-drag w-10 h-10 flex items-center justify-center rounded-full text-text-main dark:text-white transition-all duration-300 bg-transparent hover:bg-black/[0.05] dark:hover:bg-white/[0.1]">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="opacity-40 group-hover:opacity-100"><path d="m15 18-6-6 6-6"/></svg>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60 group-hover:opacity-100"><path d="m15 18-6-6 6-6"/></svg>
         </button>
       </div>
 
@@ -275,7 +275,7 @@ onUnmounted(() => {
             <TabsContent value="0" class="w-full animate-fade-in flex flex-col items-center">
               <div class="text-center mb-4">
                 <h1 class="text-[26px] font-black tracking-tight leading-tight mb-1">扫码登录</h1>
-                <p class="text-[13px] opacity-40 font-bold uppercase tracking-[1.5px]">使用酷狗概念版扫码</p>
+                <p class="text-[13px] opacity-60 font-bold uppercase tracking-[1.5px]">使用酷狗概念版扫码</p>
               </div>
               <div class="relative w-48 h-48 bg-white p-3.5 rounded-[28px] shadow-[0_12px_40px_rgba(0,0,0,0.06)] border border-black/[0.02]">
                   <Image :src="qrUrl" class="w-full h-full rounded-xl" />
@@ -288,14 +288,14 @@ onUnmounted(() => {
                       <p class="text-[14px] font-black opacity-80">请在手机端确认</p>
                   </div>
               </div>
-              <div class="mt-6 text-[11px] font-black opacity-20 uppercase tracking-[3px]">等待扫码中</div>
+              <div class="mt-6 text-[11px] font-black opacity-40 uppercase tracking-[3px]">等待扫码中</div>
             </TabsContent>
 
             <!-- 2. 验证码登录 -->
             <TabsContent value="1" class="w-full animate-fade-in pb-2">
               <div class="text-center mb-4">
                 <h1 class="text-[26px] font-black mb-1">验证码登录</h1>
-                <p class="text-[13px] opacity-40 font-bold uppercase tracking-[1.5px]">无需密码，快捷安全</p>
+                <p class="text-[13px] opacity-60 font-bold uppercase tracking-[1.5px]">无需密码，快捷安全</p>
               </div>
               <div class="flex flex-col">
                 <Input 
@@ -337,7 +337,7 @@ onUnmounted(() => {
             <TabsContent value="2" class="w-full animate-fade-in flex flex-col items-center">
               <div class="text-center mb-4">
                 <h1 class="text-[26px] font-black mb-1">微信登录</h1>
-                <p class="text-[13px] opacity-40 font-bold uppercase tracking-[1.5px]">请使用微信扫描二维码</p>
+                <p class="text-[13px] opacity-60 font-bold uppercase tracking-[1.5px]">请使用微信扫描二维码</p>
               </div>
               <div class="relative w-48 h-48 bg-white p-3.5 rounded-[28px] shadow-[0_12px_40px_rgba(0,0,0,0.06)] border border-black/[0.02]">
                   <Image :src="wxQr.url" class="w-full h-full rounded-xl" />
@@ -350,14 +350,14 @@ onUnmounted(() => {
                       <p class="text-[14px] font-black opacity-80">请在手机端确认</p>
                   </div>
               </div>
-              <div class="mt-6 text-[11px] font-black opacity-20 uppercase tracking-[3px]">等待微信扫码</div>
+              <div class="mt-6 text-[11px] font-black opacity-40 uppercase tracking-[3px]">等待微信扫码</div>
             </TabsContent>
           </div>
 
           <!-- 底部：其他方式 -->
           <div class="px-10 pb-8">
             <div class="pt-6 border-t border-black/[0.03] dark:border-white/[0.03] flex flex-col items-center space-y-4">
-              <span class="text-[12px] font-black opacity-30 uppercase tracking-[4px]">其他登录方式</span>
+              <span class="text-[12px] font-black opacity-50 uppercase tracking-[4px]">其他登录方式</span>
               <TabsList class="gap-10">
                   <TabsTrigger value="0" class="group data-[state=active]:hidden">
                     <div class="w-14 h-14 rounded-full border border-border-light flex items-center justify-center text-primary/60 group-hover:text-primary transition-all group-active:scale-90 group-hover:bg-primary/5">

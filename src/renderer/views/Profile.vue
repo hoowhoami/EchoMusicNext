@@ -165,27 +165,27 @@ onMounted(() => loadData());
               <div v-if="tvip" class="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-[#07C160] to-[#07C160]/80 text-white text-[9px] font-black shadow-sm">畅听</div>
               <div v-if="svip" class="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-orange-500 to-orange-500/80 text-white text-[9px] font-black shadow-sm">概念</div>
             </div>
-            <p v-if="detail.descri" class="text-[13px] opacity-60 font-medium line-clamp-2 mb-4">{{ detail.descri }}</p>
+            <p v-if="detail.descri" class="text-[13px] opacity-70 font-medium line-clamp-2 mb-4">{{ detail.descri }}</p>
             
             <div class="flex items-center gap-8">
               <div class="flex flex-col">
                 <span class="text-[16px] font-black">Lv.{{ detail.p_grade || 0 }}</span>
-                <span class="text-[10px] opacity-40 uppercase font-bold tracking-wider">等级</span>
+                <span class="text-[10px] opacity-60 uppercase font-bold tracking-wider">等级</span>
               </div>
               <div class="w-[1px] h-5 bg-black/5 dark:bg-white/5"></div>
               <div class="flex flex-col">
                 <span class="text-[16px] font-black">{{ detail.follows || 0 }}</span>
-                <span class="text-[10px] opacity-40 uppercase font-bold tracking-wider">关注</span>
+                <span class="text-[10px] opacity-60 uppercase font-bold tracking-wider">关注</span>
               </div>
               <div class="w-[1px] h-5 bg-black/5 dark:bg-white/5"></div>
               <div class="flex flex-col">
                 <span class="text-[16px] font-black">{{ detail.fans || 0 }}</span>
-                <span class="text-[10px] opacity-40 uppercase font-bold tracking-wider">粉丝</span>
+                <span class="text-[10px] opacity-60 uppercase font-bold tracking-wider">粉丝</span>
               </div>
               <div class="w-[1px] h-5 bg-black/5 dark:bg-white/5"></div>
               <div class="flex flex-col">
                 <span class="text-[16px] font-black">{{ detail.nvisitors || 0 }}</span>
-                <span class="text-[10px] opacity-40 uppercase font-bold tracking-wider">访客</span>
+                <span class="text-[10px] opacity-60 uppercase font-bold tracking-wider">访客</span>
               </div>
             </div>
           </div>
@@ -203,23 +203,23 @@ onMounted(() => loadData());
           </div>
           <div class="space-y-1 p-2 rounded-[24px] bg-black/[0.03] dark:bg-white/[0.03]">
              <div class="flex items-center justify-between p-4">
-               <span class="text-[13px] opacity-40 font-bold">用户 ID</span>
+               <span class="text-[13px] opacity-60 font-bold">用户 ID</span>
                <span class="text-[13px] font-black">{{ userInfo.userid }}</span>
              </div>
              <div class="flex items-center justify-between p-4">
-               <span class="text-[13px] opacity-40 font-bold">性别</span>
+               <span class="text-[13px] opacity-60 font-bold">性别</span>
                <span class="text-[13px] font-black">{{ gender }}</span>
              </div>
              <div class="flex items-center justify-between p-4">
-               <span class="text-[13px] opacity-40 font-bold">乐龄</span>
+               <span class="text-[13px] opacity-60 font-bold">乐龄</span>
                <span class="text-[13px] font-black">{{ formatLeLing(detail.rtime) }}</span>
              </div>
              <div class="flex items-center justify-between p-4">
-               <span class="text-[13px] opacity-40 font-bold">累计听歌</span>
+               <span class="text-[13px] opacity-60 font-bold">累计听歌</span>
                <span class="text-[13px] font-black">{{ formatDuration(detail.duration) }}</span>
              </div>
              <div class="flex items-center justify-between p-4">
-               <span class="text-[13px] opacity-40 font-bold">所在地区</span>
+               <span class="text-[13px] opacity-60 font-bold">所在地区</span>
                <span class="text-[13px] font-black">{{ detail.loc || '未知' }} {{ detail.city || '' }}</span>
              </div>
           </div>
@@ -242,17 +242,17 @@ onMounted(() => loadData());
                   : 'bg-black/[0.03] dark:bg-white/[0.03] border-transparent hover:bg-black/[0.06] dark:hover:bg-white/[0.06] cursor-pointer'
                ]"
              >
-               <div :class="['w-10 h-10 rounded-full flex items-center justify-center shrink-0', userStore.isTvipClaimedToday ? 'bg-green-500/20 text-green-500' : 'bg-black/5 dark:bg-white/5 opacity-40']">
+               <div :class="['w-10 h-10 rounded-full flex items-center justify-center shrink-0', userStore.isTvipClaimedToday ? 'bg-green-500/20 text-green-500' : 'bg-black/5 dark:bg-white/5 opacity-60']">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
                </div>
                <div class="flex-1">
                  <h4 :class="['text-[14px] font-black', userStore.isTvipClaimedToday ? 'text-green-500' : '']">领取畅听会员</h4>
-                 <p v-if="tvip" class="text-[10px] opacity-40 font-bold uppercase">{{ getVipExpireText(tvip) }}</p>
+                 <p v-if="tvip" class="text-[10px] opacity-60 font-bold uppercase">{{ getVipExpireText(tvip) }}</p>
                </div>
                <div v-if="userStore.isTvipClaimedToday" class="text-green-500">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
                </div>
-               <div v-else class="opacity-20"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m9 18 6-6-6-6"/></svg></div>
+               <div v-else class="opacity-40"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m9 18 6-6-6-6"/></svg></div>
              </div>
 
              <!-- SVIP -->
@@ -262,20 +262,20 @@ onMounted(() => loadData());
                  'flex items-center gap-4 p-4 rounded-[20px] transition-all border',
                  userStore.isSvipClaimedToday || svip
                   ? 'bg-orange-500/10 border-orange-500/20' 
-                  : (userStore.isTvipClaimedToday ? 'bg-black/[0.03] dark:bg-white/[0.03] border-transparent hover:bg-black/[0.06] dark:hover:bg-white/[0.06] cursor-pointer' : 'bg-black/[0.01] dark:bg-white/[0.01] opacity-40 cursor-not-allowed')
+                  : (userStore.isTvipClaimedToday ? 'bg-black/[0.03] dark:bg-white/[0.03] border-transparent hover:bg-black/[0.06] dark:hover:bg-white/[0.06] cursor-pointer' : 'bg-black/[0.01] dark:bg-white/[0.01] opacity-60 cursor-not-allowed')
                ]"
              >
-               <div :class="['w-10 h-10 rounded-full flex items-center justify-center shrink-0', (userStore.isSvipClaimedToday || svip) ? 'bg-orange-500/20 text-orange-500' : 'bg-black/5 dark:bg-white/5 opacity-40']">
+               <div :class="['w-10 h-10 rounded-full flex items-center justify-center shrink-0', (userStore.isSvipClaimedToday || svip) ? 'bg-orange-500/20 text-orange-500' : 'bg-black/5 dark:bg-white/5 opacity-60']">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.71-2.13.71-2.13l-4.42-.87zM21 3s-9 0-12 9c-1.2 3.6 0 7 0 7l3-3c0 0-1-1 0-3s3-3 3-3l3-3s1 1 3 0l-3-3z"/></svg>
                </div>
                <div class="flex-1">
                  <h4 :class="['text-[14px] font-black', (userStore.isSvipClaimedToday || svip) ? 'text-orange-500' : '']">升级概念会员</h4>
-                 <p v-if="svip" class="text-[10px] opacity-40 font-bold uppercase">{{ getVipExpireText(svip) }}</p>
+                 <p v-if="svip" class="text-[10px] opacity-60 font-bold uppercase">{{ getVipExpireText(svip) }}</p>
                </div>
                <div v-if="userStore.isSvipClaimedToday || svip" class="text-orange-500">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
                </div>
-               <div v-else class="opacity-20"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m9 18 6-6-6-6"/></svg></div>
+               <div v-else class="opacity-40"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m9 18 6-6-6-6"/></svg></div>
              </div>
           </div>
         </div>
@@ -283,7 +283,7 @@ onMounted(() => loadData());
 
     </div>
     
-    <div v-else class="h-full flex flex-col items-center justify-center opacity-30 italic animate-in fade-in duration-500">
+    <div v-else class="h-full flex flex-col items-center justify-center opacity-40 italic animate-in fade-in duration-500">
        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="mb-4"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
        <span class="text-[16px] font-bold">请先登录以查看个人中心</span>
        <button @click="router.push('/login')" class="mt-6 px-8 py-2.5 rounded-full bg-primary text-white text-[14px] font-black not-italic opacity-100 hover:scale-105 active:scale-95 transition-all">立即登录</button>

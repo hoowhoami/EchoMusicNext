@@ -364,7 +364,7 @@ const handleFavorite = () => {
     <!-- 时长 -->
     <div
       v-if="showDuration && duration"
-      class="text-[11px] text-text-secondary opacity-40 px-2 group-hover:opacity-80 transition-opacity"
+      class="text-[11px] text-text-secondary opacity-60 px-2 group-hover:opacity-80 transition-opacity"
     >
       {{ formatDuration(duration) }}
     </div>

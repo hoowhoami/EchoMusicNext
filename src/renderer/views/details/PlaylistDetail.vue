@@ -383,34 +383,41 @@ watch(
   },
 );
 
-const secondaryActions = computed(() => [
-  {
-    icon: isFavoritePlaylist.value
-      ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>'
-      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
-    label: isFavoritePlaylist.value ? '已收藏' : '收藏',
-    emphasized: isFavoritePlaylist.value,
-    onTap: async () => {
-      if (!playlist.value) return;
-      if (!userStore.isLoggedIn) return;
-      if (isOwnerPlaylist.value) return;
-      if (isFavoritePlaylist.value) {
-        await playlistStore.unfavoritePlaylist(playlist.value);
-      } else {
-        await playlistStore.favoritePlaylist(playlist.value);
-      }
-    },
-  },
-  ...(isOwnerPlaylist.value
-    ? []
-    : [
-        {
-          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>',
-          label: '管理',
-          onTap: () => {},
-        },
-      ]),
-]);
+const secondaryActions = computed(() => {
+  const actions = [] as {
+    icon: string;
+    label: string;
+    emphasized?: boolean;
+    onTap: () => void;
+  }[];
+
+  if (!isOwnerPlaylist.value) {
+    actions.push({
+      icon: isFavoritePlaylist.value
+        ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+      label: isFavoritePlaylist.value ? '已收藏' : '收藏',
+      emphasized: isFavoritePlaylist.value,
+      onTap: async () => {
+        if (!playlist.value) return;
+        if (!userStore.isLoggedIn) return;
+        if (isFavoritePlaylist.value) {
+          await playlistStore.unfavoritePlaylist(playlist.value);
+        } else {
+          await playlistStore.favoritePlaylist(playlist.value);
+        }
+      },
+    });
+
+    actions.push({
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>',
+      label: '管理',
+      onTap: () => {},
+    });
+  }
+
+  return actions;
+});
 
 const handlePlayAll = () => {
   if (songs.value.length === 0) return;
@@ -484,7 +491,7 @@ const handlePlaySong = (song: Song) => {
                   playlist.nickname || 'Unknown'
                 }}</span>
               </div>
-              <span class="text-[11px] font-semibold text-text-main/40"
+              <span class="text-[11px] font-semibold text-text-main/60"
                 >{{
                   formatDate(playlist.publishDate || playlist.createTime, 'YYYY-MM-DD')
                 }}
@@ -552,27 +559,6 @@ const handlePlaySong = (song: Song) => {
               <path d="M3 18h18" />
             </svg>
           </button>
-          <button
-            @click="
-              router.push({
-                name: 'comment',
-                params: { id: getPlaylistId() },
-                query: { type: 'playlist' },
-              })
-            "
-            class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-main opacity-60"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.2"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-          </button>
         </template>
       </SliverHeader>
 
@@ -624,7 +610,7 @@ const handlePlaySong = (song: Song) => {
                     class="w-52 h-9 pl-8 pr-3 rounded-lg bg-black/[0.05] dark:bg-white/[0.08] outline-none text-[12px] focus:ring-1 focus:ring-primary/30 transition-all"
                   />
                   <svg
-                    class="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-30"
+                    class="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50"
                     width="14"
                     height="14"
                     viewBox="0 0 24 24"
@@ -692,7 +678,7 @@ const handlePlaySong = (song: Song) => {
               <div class="flex items-center justify-between mb-8">
                 <div class="text-[16px] font-semibold text-text-main">
                   评论
-                  <span v-if="commentTotal > 0" class="text-[12px] font-normal opacity-40 ml-2">
+                  <span v-if="commentTotal > 0" class="text-[12px] font-normal opacity-60 ml-2">
                     {{ commentTotal }}
                   </span>
                 </div>
@@ -716,7 +702,7 @@ const handlePlaySong = (song: Song) => {
                 <button
                   @click="fetchComments()"
                   :disabled="loadingComments"
-                  class="px-6 py-2 rounded-full border border-border-light/40 text-[12px] font-semibold text-text-secondary hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50"
+                  class="px-6 py-2 rounded-full border border-border-light/40 text-[12px] font-semibold text-text-secondary hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-60"
                 >
                   {{ loadingComments ? '加载中...' : '加载更多' }}
                 </button>

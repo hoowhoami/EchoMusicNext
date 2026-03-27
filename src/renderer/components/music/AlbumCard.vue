@@ -27,7 +27,7 @@ const handleClick = () => {
       <div class="info-wrapper">
         <h3 class="title">{{ name }}</h3>
         <p class="subtitle">
-          {{ artist }} <span v-if="publishTime" class="mx-0.5 opacity-40">•</span> {{ publishTime }}
+          {{ artist }} <span v-if="publishTime" class="mx-0.5 opacity-60">•</span> {{ publishTime }}
         </p>
       </div>
     </div>
