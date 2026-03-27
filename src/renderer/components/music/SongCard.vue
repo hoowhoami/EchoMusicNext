@@ -14,6 +14,7 @@ import { formatDuration } from '@/utils/format';
 import type { SongArtist, SongRelateGood } from '@/stores/playlist';
 import { usePlaylistStore, type Song } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
+import { useSettingStore } from '@/stores/setting';
 import Dialog from '@/components/ui/Dialog.vue';
 
 interface Props {
@@ -63,6 +64,7 @@ const router = useRouter();
 const route = useRoute();
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
+const settingStore = useSettingStore();
 const showPlaylistDialog = ref(false);
 const isPlaylistLoading = ref(false);
 
@@ -213,16 +215,30 @@ const buildSongPayload = (): Song => ({
   relateGoods: props.relateGoods,
 });
 
+const mergeSongIntoQueue = (payload: Song, replaceQueue: boolean) => {
+  const list = playlistStore.defaultList.slice();
+  const existingIndex = list.findIndex((item) => String(item.id) === String(payload.id));
+  if (replaceQueue) {
+    const filtered = list.filter((item) => String(item.id) !== String(payload.id));
+    playlistStore.defaultList = [payload, ...filtered];
+    return;
+  }
+
+  if (existingIndex === -1) {
+    playlistStore.defaultList = [payload, ...list];
+  }
+};
+
 const handlePlayNow = () => {
   if (!isPlayable.value) return;
   const payload = buildSongPayload();
-  const list = playlistStore.defaultList;
-  const exists = list.find((item) => String(item.id) === String(payload.id));
-  if (!exists) {
-    playlistStore.defaultList = [payload, ...list];
-  }
+  mergeSongIntoQueue(payload, settingStore.replacePlaylist);
   void playerStore.playTrack(String(payload.id));
   router.push({ name: 'playing' });
+};
+
+const handleDoubleClick = () => {
+  handlePlayNow();
 };
 
 const handlePlayNext = () => {
@@ -274,6 +290,7 @@ const handleFavorite = () => {
     <ContextMenuTrigger as-child>
       <div
         :class="[baseClass, props.class]"
+        @dblclick="handleDoubleClick"
       >
     <!-- 封面 -->
     <div

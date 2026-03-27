@@ -29,7 +29,6 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  (e: 'play', song: Song): void;
   (e: 'more', song: Song): void;
 }>();
 
@@ -92,7 +91,6 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
         class="song-list-row group flex items-center py-0 rounded-lg transition-all duration-200 cursor-default"
         :style="{ height: `${itemHeight}px`, opacity: rowOpacity(song) }"
         :class="{ 'bg-primary/5 dark:bg-primary/10 text-primary': activeId === song.id }"
-        @dblclick="emit('play', song)"
       >
         <div v-if="showIndex" class="w-10 shrink-0 flex items-center justify-start pl-2">
           <div class="relative w-4 h-4">

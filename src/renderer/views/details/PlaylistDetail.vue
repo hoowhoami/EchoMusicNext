@@ -408,12 +408,6 @@ const secondaryActions = computed(() => {
         }
       },
     });
-
-    actions.push({
-      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>',
-      label: '管理',
-      onTap: () => {},
-    });
   }
 
   return actions;
@@ -458,9 +452,6 @@ const sortedSongs = computed(() => {
   });
 });
 
-const handlePlaySong = (song: Song) => {
-  playerStore.playTrack(song.id);
-};
 </script>
 
 <template>
@@ -669,7 +660,6 @@ const handlePlaySong = (song: Song) => {
             :showCover="true"
             :parentPlaylistId="playlist.listid || playlist.id"
             :enableRemoveFromPlaylist="isOwnerPlaylist"
-            @play="handlePlaySong"
           />
         </TabsContent>
 
