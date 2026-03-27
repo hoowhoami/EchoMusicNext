@@ -16,6 +16,7 @@ import { usePlaylistStore, type Song } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
 import Dialog from '@/components/ui/Dialog.vue';
+import { iconMessageCircle, iconHeart } from '@/icons';
 
 interface Props {
   id: string | number;
@@ -31,6 +32,7 @@ interface Props {
   showDuration?: boolean;
   showMore?: boolean;
   showCover?: boolean;
+  showQuality?: boolean;
   active?: boolean;
   variant?: 'card' | 'list';
   privilege?: number;
@@ -56,6 +58,7 @@ const props = withDefaults(defineProps<Props>(), {
   showDuration: true,
   showMore: true,
   showCover: true,
+  showQuality: true,
   active: false,
   variant: 'card',
   disableLinks: false,
@@ -72,8 +75,8 @@ const isPlaylistLoading = ref(false);
 
 const baseClass = computed(() =>
   props.variant === 'list'
-    ? 'song-card group flex items-center gap-3 p-0 pr-8 rounded-none transition-all duration-300 bg-transparent hover:bg-transparent cursor-default'
-    : 'song-card group flex items-center gap-3 p-2 rounded-xl transition-all duration-300 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer'
+    ? 'song-card group flex items-center gap-3 p-0 pr-8 rounded-none transition-all duration-200 bg-transparent hover:bg-transparent cursor-default'
+    : 'song-card song-card-surface group flex items-center gap-3 p-2 rounded-xl transition-all duration-200 cursor-pointer'
 );
 
 const isVip = computed(() => props.privilege === 10 && props.payType === 3);
@@ -319,10 +322,13 @@ const handleFavorite = () => {
     </div>
     
     <!-- 信息 -->
-    <div class="flex-1 min-w-0 flex flex-col gap-0.5" :style="{ opacity: contentOpacity }">
-      <div class="flex items-center min-w-0">
+    <div
+      class="song-content flex-1 min-w-0 flex flex-col gap-0.5"
+      :style="{ opacity: contentOpacity }"
+    >
+      <div class="song-title-row flex items-center min-w-0 gap-1.5">
         <h3
-          class="text-[13px] font-medium truncate"
+          class="song-title text-[13px] font-semibold truncate"
           :class="props.active ? 'text-primary' : 'text-text-main'"
         >
           {{ title }}
@@ -335,27 +341,28 @@ const handleFavorite = () => {
         >
           {{ tag.label }}
         </Tag>
-      </div>
-      <div
-        class="text-[11px] opacity-80 flex items-center gap-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
-        :class="props.active ? 'text-primary/70' : 'text-text-secondary'"
-      >
-        <span
-          v-for="(artistItem, index) in artistList"
-          :key="`${artistItem.name}-${index}`"
-          :class="isArtistClickable(artistItem) ? 'song-artist song-link' : 'song-artist'"
-          @click.stop="isArtistClickable(artistItem) && goToArtist(artistItem)"
-        >
-          {{ artistItem.name }}
-          <span v-if="index < artistList.length - 1" class="mx-1 opacity-50">/</span>
-        </span>
         <Tag
-          v-if="qualityTag"
-          class="song-tag-inline"
+          v-if="qualityTag && showQuality"
+          class="song-tag"
           color="#06B6D4"
         >
           {{ qualityTag }}
         </Tag>
+      </div>
+      <div
+        class="song-subline text-[12px] flex items-center gap-1 min-w-0 overflow-hidden whitespace-nowrap text-text-secondary"
+      >
+        <span class="song-artist-list">
+          <span
+            v-for="(artistItem, index) in artistList"
+            :key="`${artistItem.name}-${index}`"
+            :class="isArtistClickable(artistItem) ? 'song-artist song-link' : 'song-artist'"
+            @click.stop="isArtistClickable(artistItem) && goToArtist(artistItem)"
+          >
+            {{ artistItem.name }}
+            <span v-if="index < artistList.length - 1" class="mx-1 opacity-50">/</span>
+          </span>
+        </span>
         <button
           v-if="showAlbum && album"
           type="button"
@@ -375,9 +382,7 @@ const handleFavorite = () => {
         title="详情及评论"
         @click.stop="goToSongDetail"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
-        </svg>
+        <Icon :icon="iconMessageCircle" width="16" height="16" />
       </button>
       <button
         type="button"
@@ -385,12 +390,12 @@ const handleFavorite = () => {
         title="收藏"
         @click.stop="handleFavorite"
       >
-        <svg v-if="isFavorite" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" />
-        </svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" />
-        </svg>
+        <Icon
+          :icon="iconHeart"
+          width="16"
+          height="16"
+          :class="isFavorite ? 'text-primary' : ''"
+        />
       </button>
     </div>
 
@@ -469,16 +474,38 @@ const handleFavorite = () => {
   user-select: none;
 }
 
+.song-card-surface:hover {
+  background: var(--color-bg-card);
+}
+
+.dark .song-card-surface:hover {
+  background: color-mix(in srgb, var(--color-text-main) 4%, transparent);
+}
+
+.song-card .song-title {
+  color: var(--color-text-main);
+  letter-spacing: -0.2px;
+}
+
+.song-card .song-title.text-primary {
+  color: var(--color-primary);
+}
+
+.song-card .song-subline {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.song-content {
+  min-width: 0;
+}
+
 .song-tag {
-  margin-left: 8px;
+  margin-left: 4px;
   flex-shrink: 0;
 }
 
-.song-tag-inline {
-  margin-left: 6px;
-  vertical-align: middle;
-  flex-shrink: 0;
-}
+
 
 
 .song-artist {
@@ -486,6 +513,24 @@ const handleFavorite = () => {
   display: inline-flex;
   align-items: center;
   min-width: 0;
+}
+
+.song-subline {
+  flex-wrap: nowrap;
+}
+
+.song-artist-list {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.song-subline .song-artist {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .song-album {
@@ -588,3 +633,15 @@ const handleFavorite = () => {
   color: var(--color-primary);
 }
 </style>
+.song-title-row {
+  min-width: 0;
+}
+
+.song-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.song-title-row .song-tag {
+  margin-left: 0;
+}

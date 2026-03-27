@@ -4,10 +4,18 @@ import { useVModel } from '@vueuse/core';
 import Drawer from '@/components/ui/Drawer.vue';
 import { usePlaylistStore, type Song } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
-import { formatDuration } from '@/utils/format';
 import SongCard from '@/components/music/SongCard.vue';
 import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
+import {
+  iconArrowUp,
+  iconCurrentLocation,
+  iconTrash,
+  iconX,
+  iconPlay,
+  iconPause,
+  iconList,
+} from '@/icons';
 
 interface Props {
   open?: boolean;
@@ -110,10 +118,7 @@ const handleClear = () => {
       </div>
       <div class="queue-actions">
         <button type="button" class="queue-icon-btn" title="滚动到顶部" @click="scrollToTop">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M7 10l5-5 5 5" />
-            <path d="M12 5v14" />
-          </svg>
+          <Icon :icon="iconArrowUp" width="16" height="16" />
         </button>
         <button
           type="button"
@@ -121,34 +126,13 @@ const handleClear = () => {
           title="滚动到当前播放"
           @click="scrollToCurrent"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="4" />
-            <path d="M12 2v3" />
-            <path d="M12 19v3" />
-            <path d="M2 12h3" />
-            <path d="M19 12h3" />
-          </svg>
+          <Icon :icon="iconCurrentLocation" width="16" height="16" />
         </button>
         <button type="button" class="queue-icon-btn" title="清空列表" @click="handleClear">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M4 7h16" />
-            <path d="M9 7v10" />
-            <path d="M15 7v10" />
-            <path d="M10 4h4" />
-          </svg>
+          <Icon :icon="iconTrash" width="16" height="16" />
         </button>
         <button type="button" class="queue-icon-btn" title="关闭" @click="open = false">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.4"
-          >
-            <path d="M18 6 6 18" />
-            <path d="M6 6l12 12" />
-          </svg>
+          <Icon :icon="iconX" width="16" height="16" />
         </button>
       </div>
     </div>
@@ -167,26 +151,19 @@ const handleClear = () => {
           class="queue-row"
           :class="{
             'is-current': String(track.id) === String(currentTrackId),
-            'bg-primary/5 dark:bg-primary/10 text-primary':
-              String(track.id) === String(currentTrackId),
           }"
           :style="{ height: `${itemHeight}px` }"
         >
           <div class="queue-leading">
             <span class="queue-index">{{ index + 1 }}</span>
             <button type="button" class="queue-play" @click="handlePlay(track)">
-              <svg
+              <Icon
                 v-if="String(track.id) !== String(currentTrackId) || !playerStore.isPlaying"
+                :icon="iconPlay"
                 width="14"
                 height="14"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M8 5v14l11-7z" />
-              </svg>
-              <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-              </svg>
+              />
+              <Icon v-else :icon="iconPause" width="14" height="14" />
             </button>
           </div>
 
@@ -211,18 +188,14 @@ const handleClear = () => {
               :showCover="true"
               :showAlbum="false"
               :showDuration="false"
+              :showQuality="false"
               :active="String(track.id) === String(currentTrackId)"
               :showMore="false"
               variant="list"
             />
           </div>
 
-          <div
-            class="queue-duration"
-            :style="{ marginLeft: '6px', textAlign: 'right' }"
-          >
-            {{ formatDuration(track.duration) }}
-          </div>
+          <!-- duration removed for queue view -->
 
           <button
             type="button"
@@ -231,17 +204,7 @@ const handleClear = () => {
             :disabled="String(track.id) === String(currentTrackId)"
             @click="handleRemove(track)"
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path d="M18 6 6 18" />
-              <path d="M6 6l12 12" />
-            </svg>
+            <Icon :icon="iconX" width="14" height="14" />
           </button>
         </div>
       </template>
@@ -249,16 +212,7 @@ const handleClear = () => {
       <template #empty v-if="queueTracks?.length === 0">
         <div class="queue-empty">
           <div class="queue-empty-icon">
-            <svg
-              width="40"
-              height="40"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-            >
-              <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-            </svg>
+            <Icon :icon="iconList" width="40" height="40" />
           </div>
           <div>列表为空，快去发现好音乐吧</div>
         </div>
@@ -390,19 +344,19 @@ const handleClear = () => {
 }
 
 .queue-row.is-current {
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--color-bg-card);
 }
 
 .dark .queue-row.is-current {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, #ffffff 4%, transparent);
 }
 
 .queue-row:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--color-bg-card);
 }
 
 .dark .queue-row:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, #ffffff 4%, transparent);
 }
 
 .queue-leading {
@@ -460,16 +414,16 @@ const handleClear = () => {
   display: none;
 }
 
-.queue-duration {
-  width: 72px;
-  flex-shrink: 0;
-  font-size: 12px;
-  opacity: 0.4;
-  margin-left: 8px;
-  text-align: right;
-  padding-right: 6px;
-  color: var(--color-text-secondary);
+.queue-card :deep(.song-title) {
+  flex: 1 1 auto;
+  min-width: 0;
 }
+
+.queue-card :deep(.song-title-row) {
+  min-width: 0;
+  gap: 4px;
+}
+
 
 .queue-remove {
   width: 24px;

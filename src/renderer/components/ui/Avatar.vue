@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, type CSSProperties } from 'vue';
 import { AvatarRoot, AvatarImage, AvatarFallback } from 'reka-ui';
+import { iconUser } from '@/icons';
 
 interface Props {
   src?: string;
@@ -63,9 +64,13 @@ const sizeStyle = computed<CSSProperties | undefined>(() => {
       ></div>
       
       <!-- 失败图标 (用户头像占位) -->
-      <svg width="60%" height="60%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="opacity-10 text-text-main z-20" :class="errorClass">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-      </svg>
+      <Icon
+        :icon="iconUser"
+        width="60%"
+        height="60%"
+        class="opacity-10 text-text-main z-20"
+        :class="errorClass"
+      />
     </AvatarFallback>
   </AvatarRoot>
 </template>

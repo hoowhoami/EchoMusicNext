@@ -11,6 +11,7 @@ import { formatDuration } from '@/utils/format';
 import SongCard from '@/components/music/SongCard.vue';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
+import { iconPlay, iconPlus, iconTrash, iconX } from '@/icons';
 
 interface Props {
   open?: boolean;
@@ -176,9 +177,7 @@ const handleRemoveFromPlaylist = async () => {
           :disabled="!canPlaySelected"
           @click="handlePlaySelected"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z" />
-          </svg>
+          <Icon :icon="iconPlay" width="16" height="16" />
           播放
         </button>
         <button
@@ -187,17 +186,7 @@ const handleRemoveFromPlaylist = async () => {
           :disabled="!canAddSelected"
           @click="handleAddToPlaylist"
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M12 5v14" />
-            <path d="M5 12h14" />
-          </svg>
+          <Icon :icon="iconPlus" width="16" height="16" />
           添加到
         </button>
         <button
@@ -206,34 +195,12 @@ const handleRemoveFromPlaylist = async () => {
           :disabled="!canRemoveSelected"
           @click="handleRemoveFromPlaylist"
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M3 6h18" />
-            <path d="M8 6v14" />
-            <path d="M16 6v14" />
-            <path d="M9 6l1-2h4l1 2" />
-          </svg>
+          <Icon :icon="iconTrash" width="16" height="16" />
           删除
         </button>
       </div>
       <button type="button" class="batch-close" @click="open = false">
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.4"
-        >
-          <path d="M18 6 6 18" />
-          <path d="M6 6l12 12" />
-        </svg>
+        <Icon :icon="iconX" width="16" height="16" />
       </button>
     </div>
 
@@ -501,12 +468,20 @@ const handleRemoveFromPlaylist = async () => {
   cursor: default;
 }
 
+.batch-row.text-primary {
+  background: var(--color-bg-card);
+}
+
+.dark .batch-row.text-primary {
+  background: color-mix(in srgb, #ffffff 4%, transparent);
+}
+
 .batch-row:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--color-bg-card);
 }
 
 .dark .batch-row:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, #ffffff 4%, transparent);
 }
 
 .batch-leading {
@@ -582,8 +557,8 @@ const handleRemoveFromPlaylist = async () => {
   flex: 0 1 180px;
   min-width: 0;
   display: block;
-  font-size: 13px;
-  opacity: 0.6;
+  font-size: 12px;
+  opacity: 0.7;
   color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -594,7 +569,7 @@ const handleRemoveFromPlaylist = async () => {
   width: 64px;
   flex-shrink: 0;
   font-size: 12px;
-  opacity: 0.4;
+  opacity: 0.5;
   color: var(--color-text-secondary);
 }
 

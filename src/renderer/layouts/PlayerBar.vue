@@ -14,6 +14,26 @@ import {
   DropdownMenuPortal,
 } from 'reka-ui';
 import PlayerQueueDrawer from '@/components/music/PlayerQueueDrawer.vue';
+import {
+  iconMusic,
+  iconHeart,
+  iconCloud,
+  iconMessageCircle,
+  iconRepeat,
+  iconShuffle,
+  iconListRestart,
+  iconSkipBack,
+  iconSkipForward,
+  iconPlay,
+  iconPause,
+  iconVolume2,
+  iconVolume1,
+  iconVolumeX,
+  iconVolumeOff,
+  iconList,
+  iconSpeedometer,
+  iconPulse,
+} from '@/icons';
 
 const router = useRouter();
 const player = usePlayerStore();
@@ -192,12 +212,12 @@ onUnmounted(() => {
 <template>
   <div class="player-bar-container w-full px-2 pb-[5px] z-[1000]">
     <footer
-      class="player-bar w-full h-[80px] bg-bg-card/80 backdrop-blur-md border border-border-light/40 rounded-[16px] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] flex items-center justify-between px-4 gap-8 select-none no-drag transition-all duration-300"
+      class="player-bar w-full h-[84px] bg-bg-card/80 backdrop-blur-md border border-border-light/40 rounded-[12px] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] flex items-center justify-between px-4 py-1 gap-8 select-none no-drag transition-all duration-300"
     >
       <!-- 1. 左侧：歌曲信息 - 弹性增长 -->
       <div class="flex-1 flex items-center gap-3 min-w-[120px] max-w-[320px] overflow-hidden">
         <div
-          class="relative w-[56px] h-[56px] shrink-0 cursor-pointer group rounded-xl overflow-hidden bg-black/[0.04] dark:bg-white/[0.04]"
+          class="relative w-[56px] h-[56px] shrink-0 cursor-pointer group rounded-[10px] overflow-hidden bg-black/[0.04] dark:bg-white/[0.04]"
           @click="navigateToPlaying"
         >
           <Cover
@@ -206,15 +226,11 @@ onUnmounted(() => {
             :size="200"
             :width="56"
             :height="56"
-            :borderRadius="12"
+            :borderRadius="10"
             class="transition-transform duration-500 group-hover:scale-110"
           />
           <div v-else class="w-full h-full flex items-center justify-center text-text-main/30">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M9 18V5l12-2v13" />
-              <circle cx="6" cy="18" r="3" />
-              <circle cx="18" cy="16" r="3" />
-            </svg>
+            <Icon :icon="iconMusic" width="24" height="24" />
           </div>
         </div>
 
@@ -254,25 +270,12 @@ onUnmounted(() => {
               :class="isFavorite ? 'text-red-500' : 'text-text-main/25 hover:text-primary'"
               title="收藏"
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                :fill="isFavorite ? 'currentColor' : 'none'"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
-                />
-              </svg>
+              <Icon :icon="iconHeart" width="20" height="20" />
             </button>
 
             <!-- 云盘标识 -->
             <div v-if="currentTrack?.privilege === 10" class="text-primary/60" title="云盘歌曲">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M17.5 19c2.5 0 4.5-2 4.5-4.5 0-2.3-1.7-4.2-3.9-4.5-1.1-3.5-4.4-6-8.1-6-3.8 0-7.1 2.5-8.1 6C-0.3 10.3-2 12.2-2 14.5c0 2.5 2 4.5 4.5 4.5" />
-              </svg>
+              <Icon :icon="iconCloud" width="16" height="16" />
             </div>
 
             <button
@@ -280,11 +283,7 @@ onUnmounted(() => {
               class="p-0.5 text-text-main/25 hover:text-primary transition-all hover:scale-110"
               title="详情及评论"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                <path d="M12 7v5" stroke-width="2" />
-                <path d="M12 14v.01" stroke-width="2.5" />
-              </svg>
+              <Icon :icon="iconMessageCircle" width="18" height="18" />
             </button>
           </div>
         </div>
@@ -298,36 +297,31 @@ onUnmounted(() => {
             @click="player.setPlayMode(player.playMode === 'list' ? 'random' : player.playMode === 'random' ? 'single' : 'list')"
             class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90"
           >
-            <svg v-if="player.playMode === 'list'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 2l4 4-4 4M3 11v-1a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v1a4 4 0 01-4 4H3"/></svg>
-            <svg v-else-if="player.playMode === 'random'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
-            <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 2l4 4-4 4M3 11v-1a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v1a4 4 0 01-4 4H3"/><path d="M11 15h2v-4h-2"/></svg>
+            <Icon v-if="player.playMode === 'list'" :icon="iconRepeat" width="22" height="22" />
+            <Icon v-else-if="player.playMode === 'random'" :icon="iconShuffle" width="22" height="22" />
+            <Icon v-else :icon="iconListRestart" width="22" height="22" />
           </button>
 
           <button @click="player.prev" class="p-2 text-text-main/60 hover:text-primary transition-all hover:scale-110 active:scale-90">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" /></svg>
+            <Icon :icon="iconSkipBack" width="22" height="22" />
           </button>
 
           <button
             @click="player.togglePlay"
-            class="player-toggle w-[42px] h-[42px] rounded-full bg-black/[0.04] flex items-center justify-center hover:scale-110 active:scale-95 transition-all border border-black/5"
+            class="player-toggle w-[38px] h-[38px] rounded-full bg-black/[0.04] flex items-center justify-center hover:scale-110 active:scale-95 transition-all border border-black/5"
           >
-            <svg
+            <Icon
               v-if="!player.isPlaying"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="currentColor"
+              :icon="iconPlay"
+              width="16"
+              height="16"
               class="ml-0.5"
-            >
-              <path d="M8 5v14l11-7z" />
-            </svg>
-            <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-            </svg>
+            />
+            <Icon v-else :icon="iconPause" width="20" height="20" />
           </button>
 
           <button @click="player.next" class="p-2 text-text-main/60 hover:text-primary transition-all hover:scale-110 active:scale-90">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg>
+            <Icon :icon="iconSkipForward" width="22" height="22" />
           </button>
 
           <!-- 音量控制 - 点击弹出 -->
@@ -336,15 +330,9 @@ onUnmounted(() => {
             class="relative flex items-center group/vol" 
           >
             <button @click="toggleVolume" class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90" :class="{ 'text-primary': isVolumeVisible }">
-              <svg v-if="player.volume > 0.5" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
-              </svg>
-              <svg v-else-if="player.volume > 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                <path d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 0 1 0 7.07" />
-              </svg>
-              <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                <path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6" />
-              </svg>
+              <Icon v-if="player.volume > 0.5" :icon="iconVolume2" width="22" height="22" />
+              <Icon v-else-if="player.volume > 0" :icon="iconVolume1" width="22" height="22" />
+              <Icon v-else :icon="iconVolumeX" width="22" height="22" />
             </button>
             
             <Transition name="volume-pop">
@@ -368,8 +356,8 @@ onUnmounted(() => {
                   </SliderRoot>
                   
                   <button @click="toggleMute" class="mt-2 p-1 text-text-main/60 hover:text-primary transition-colors">
-                     <svg v-if="player.volume > 0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 5L6 9H2v6h4l5 4V5z"/></svg>
-                     <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>
+                     <Icon v-if="player.volume > 0" :icon="iconVolumeOff" width="20" height="20" />
+                     <Icon v-else :icon="iconVolumeX" width="20" height="20" />
                   </button>
                   
                   <span class="mt-1 text-[10px] font-bold text-text-main/60 tabular-nums">{{ Math.round(player.volume * 100) }}</span>
@@ -409,14 +397,11 @@ onUnmounted(() => {
       <!-- 3. 右侧：功能选项 - 弹性增长 -->
       <div class="player-actions flex-1 flex justify-end items-center gap-1 min-w-[120px] max-w-[320px]">
         <DropdownMenuRoot>
-          <DropdownMenuTrigger as-child>
+        <DropdownMenuTrigger as-child>
             <button class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90" title="播放倍速">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M12 7v5l3 2" />
-              </svg>
+              <Icon :icon="iconSpeedometer" width="20" height="20" />
             </button>
-          </DropdownMenuTrigger>
+        </DropdownMenuTrigger>
           <DropdownMenuPortal>
             <DropdownMenuContent class="player-dropdown" align="center" side="top" :side-offset="8" :align-offset="0">
               <div class="player-dropdown-title">播放倍速</div>
@@ -435,13 +420,11 @@ onUnmounted(() => {
         </DropdownMenuRoot>
 
         <DropdownMenuRoot>
-          <DropdownMenuTrigger as-child>
-            <button class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90" title="音质">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 20v-8m0-4V4m-5 12v-2m0-4v-2m10 10v-6m0-4V8" />
-              </svg>
-            </button>
-          </DropdownMenuTrigger>
+        <DropdownMenuTrigger as-child>
+          <button class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90" title="音质">
+              <Icon :icon="iconPulse" width="20" height="20" />
+          </button>
+        </DropdownMenuTrigger>
           <DropdownMenuPortal>
             <DropdownMenuContent class="player-dropdown" align="center" side="top" :side-offset="8" :align-offset="0">
               <div class="player-dropdown-title">音质</div>
@@ -515,12 +498,7 @@ onUnmounted(() => {
           title="播放队列"
           @click="openQueue"
         >
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <path d="M6 5h12" />
-            <path d="M6 10h12" />
-            <path d="M6 15h12" />
-            <path d="M6 20h12" />
-          </svg>
+          <Icon :icon="iconList" width="22" height="22" />
         </button>
       </div>
     </footer>

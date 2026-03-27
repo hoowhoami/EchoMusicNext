@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { iconTriangleAlert } from '@/icons';
 
 const router = useRouter();
 const statusMessage = ref('正在初始化音乐引擎...');
@@ -73,7 +74,7 @@ onMounted(() => {
       <!-- 错误状态 -->
       <div v-else class="flex flex-col items-center space-y-6 px-10">
         <div class="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
-           <svg class="text-red-500" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4m0 4h.01"/></svg>
+           <Icon class="text-red-500" :icon="iconTriangleAlert" width="32" height="32" />
         </div>
         <div class="text-center space-y-2">
            <h2 class="text-lg font-bold text-red-500/90">启动失败</h2>

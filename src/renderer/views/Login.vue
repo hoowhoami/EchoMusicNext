@@ -20,6 +20,13 @@ import Button from '@/components/ui/Button.vue';
 
 import OverlayHeader from '@/layouts/OverlayHeader.vue';
 import Image from '@/components/ui/Image.vue';
+import {
+  iconBotMessageSquare,
+  iconCheck,
+  iconChevronLeft,
+  iconQrCode,
+  iconSmartphone,
+} from '@/icons';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -261,7 +268,7 @@ onUnmounted(() => {
     <div class="flex-1 relative overflow-hidden flex items-center justify-center p-6 z-10">
       <div class="absolute top-4 left-6 z-[100]">
         <button @click="router.back()" class="no-drag w-10 h-10 flex items-center justify-center rounded-full text-text-main dark:text-white transition-all duration-300 bg-transparent hover:bg-black/[0.05] dark:hover:bg-white/[0.1]">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60 group-hover:opacity-100"><path d="m15 18-6-6 6-6"/></svg>
+            <Icon class="opacity-60 group-hover:opacity-100" :icon="iconChevronLeft" width="24" height="24" />
         </button>
       </div>
 
@@ -284,7 +291,9 @@ onUnmounted(() => {
                       <button @click="loadQrCode" class="text-[13px] text-primary font-black hover:opacity-80 transition-all active:scale-95">重新加载</button>
                   </div>
                   <div v-if="qrStatus === 2" class="absolute inset-0 bg-white/98 rounded-2xl flex flex-col items-center justify-center space-y-5 z-30">
-                      <div class="w-14 h-14 bg-green-500 rounded-full flex items-center justify-center text-white"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4"><path d="M20 6L9 17l-5-5"/></svg></div>
+                      <div class="w-14 h-14 bg-green-500 rounded-full flex items-center justify-center text-white">
+                        <Icon :icon="iconCheck" width="32" height="32" />
+                      </div>
                       <p class="text-[14px] font-black opacity-80">请在手机端确认</p>
                   </div>
               </div>
@@ -346,7 +355,9 @@ onUnmounted(() => {
                       <button @click="loadWxQr" class="text-[13px] text-[#07C160] font-black hover:opacity-80 transition-all active:scale-95">重新加载</button>
                   </div>
                   <div v-if="wxQr.status === 1" class="absolute inset-0 bg-white/98 rounded-2xl flex flex-col items-center justify-center space-y-5 z-30">
-                      <div class="w-14 h-14 bg-[#07C160] rounded-full flex items-center justify-center text-white"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4"><path d="M20 6L9 17l-5-5"/></svg></div>
+                      <div class="w-14 h-14 bg-[#07C160] rounded-full flex items-center justify-center text-white">
+                        <Icon :icon="iconCheck" width="32" height="32" />
+                      </div>
                       <p class="text-[14px] font-black opacity-80">请在手机端确认</p>
                   </div>
               </div>
@@ -361,17 +372,17 @@ onUnmounted(() => {
               <TabsList class="gap-10">
                   <TabsTrigger value="0" class="group data-[state=active]:hidden">
                     <div class="w-14 h-14 rounded-full border border-border-light flex items-center justify-center text-primary/60 group-hover:text-primary transition-all group-active:scale-90 group-hover:bg-primary/5">
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 7V5a2 2 0 0 1 2-2h2m10 0h2a2 2 0 0 1 2 2v2m0 10v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 7h10v10H7z"/></svg>
+                      <Icon :icon="iconQrCode" width="22" height="22" />
                     </div>
                   </TabsTrigger>
                   <TabsTrigger value="1" class="group data-[state=active]:hidden">
                     <div class="w-14 h-14 rounded-full border border-border-light flex items-center justify-center text-text-main/50 group-hover:text-primary transition-all group-active:scale-90 group-hover:bg-primary/5">
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 18h.01M8 21h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2z"/></svg>
+                      <Icon :icon="iconSmartphone" width="22" height="22" />
                     </div>
                   </TabsTrigger>
                   <TabsTrigger value="2" class="group data-[state=active]:hidden">
                     <div class="w-14 h-14 rounded-full border border-border-light flex items-center justify-center text-[#07C160]/60 group-hover:text-[#07C160] transition-all group-active:scale-90 group-hover:bg-[#07C160]/5">
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 5.92 2 10.77c0 2.76 1.45 5.2 3.73 6.84l-.54 1.93c-.04.14.07.28.21.28.06 0 .13-.02.18-.06l2.31-1.34c.67.19 1.37.29 2.11.29 5.52 0 10-3.92 10-8.77S17.52 2 12 2zm4.1 8.56c-.22 0-.4-.18-.4-.4V8.43c0-.22.18-.4.4-.4s.4.18.4.4v1.73c0 .22-.18.4-.4.4zm-2.6 0c-.22 0-.4-.18-.4-.4V8.43c0-.22.18-.4.4-.4s.4.18.4.4v1.73c0 .22-.18.4-.4.4zm-4.93-.4c0-.22.18-.4.4-.4s.4.18.4.4v1.73c0 .22-.18.4-.4.4s-.4-.18-.4-.4V10.16zm2.6 0c0-.22.18-.4.4-.4s.4.18.4.4v1.73c0 .22-.18.4-.4.4s-.4-.18-.4-.4V10.16z"/></svg>
+                      <Icon :icon="iconBotMessageSquare" width="26" height="26" />
                     </div>
                   </TabsTrigger>
               </TabsList>

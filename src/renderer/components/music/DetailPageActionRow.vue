@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import type { IconifyIcon } from '@iconify/types';
+import { iconPlay, iconList } from '@/icons';
 interface Action {
-  icon: string;
+  icon: IconifyIcon;
   label: string;
   onTap: () => void;
   emphasized?: boolean;
@@ -33,25 +35,21 @@ const emit = defineEmits<{
       class="action-btn secondary"
       :class="{ 'emphasized': action.emphasized }"
     >
-      <div class="icon-wrap" v-html="action.icon"></div>
+      <div class="icon-wrap">
+        <Icon :icon="action.icon" width="16" height="16" />
+      </div>
       <span>{{ action.label }}</span>
     </button>
 
     <!-- 主要操作 (播放) -->
     <button @click="emit('play')" class="action-btn primary">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M8 5v14l11-7z"/>
-      </svg>
+      <Icon :icon="iconPlay" width="16" height="16" />
       <span>{{ playLabel }}</span>
     </button>
 
     <!-- 批量 (抽屉) -->
     <button @click="emit('batch')" class="action-btn secondary">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 6h18"/>
-        <path d="M3 12h18"/>
-        <path d="M3 18h18"/>
-      </svg>
+      <Icon :icon="iconList" width="16" height="16" />
       <span>批量</span>
     </button>
   </div>
@@ -84,10 +82,5 @@ const emit = defineEmits<{
 
 .icon-wrap {
   @apply flex items-center justify-center w-4 h-4;
-}
-
-:deep(svg) {
-  width: 16px;
-  height: 16px;
 }
 </style>

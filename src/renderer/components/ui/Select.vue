@@ -12,6 +12,7 @@ import {
   SelectViewport,
 } from 'reka-ui';
 import { computed } from 'vue';
+import { iconChevronDown, iconCheck } from '@/icons';
 
 interface SelectOption {
   label: string;
@@ -52,9 +53,7 @@ const selectedLabel = computed(() => {
         class="select-value"
       />
       <SelectIcon class="select-icon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        <Icon :icon="iconChevronDown" width="14" height="14" />
       </SelectIcon>
     </SelectTrigger>
 
@@ -77,9 +76,7 @@ const selectedLabel = computed(() => {
               {{ option.label }}
             </SelectItemText>
             <SelectItemIndicator class="select-item-indicator">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                <path d="M20 6L9 17l-5-5" />
-              </svg>
+              <Icon :icon="iconCheck" width="14" height="14" />
             </SelectItemIndicator>
           </SelectItem>
         </SelectViewport>

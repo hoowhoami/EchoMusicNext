@@ -6,6 +6,16 @@ import { usePlaylistStore } from '@/stores/playlist';
 import Avatar from '@/components/ui/Avatar.vue';
 import Cover from '@/components/ui/Cover.vue';
 import type { PlaylistMeta } from '@/utils/mappers';
+import {
+  iconSparkles,
+  iconCompass,
+  iconSearch,
+  iconClock,
+  iconCloud,
+  iconHeart,
+  iconSettings,
+  iconPlus,
+} from '@/icons';
 
 const router = useRouter();
 const route = useRoute();
@@ -112,20 +122,14 @@ const navigateToPlaylist = (playlist: PlaylistMeta) => {
   }
 };
 
-// 图标渲染映射 (Lucide 风格)
-const getIcon = (name: string) => {
-  if (name === 'sparkles')
-    return '<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>';
-  if (name === 'compass')
-    return '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>';
-  if (name === 'search') return '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>';
-  if (name === 'clock') return '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>';
-  if (name === 'cloud')
-    return '<path d="M17.5 19c2.5 0 4.5-2 4.5-4.5 0-2.3-1.7-4.2-3.9-4.5C17.6 6.6 14.2 4 10.2 4 6.8 4 3.9 6.2 3.1 9.4 1.3 10.2 0 11.9 0 14c0 2.8 2.2 5 5 5h12.5z"/>';
-  if (name === 'heart')
-    return '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>';
-  return '';
-};
+const iconMap = {
+  sparkles: iconSparkles,
+  compass: iconCompass,
+  search: iconSearch,
+  clock: iconClock,
+  cloud: iconCloud,
+  heart: iconHeart,
+} as const;
 
 // 初始加载和登录状态监听
 const syncCloudData = () => {
@@ -209,21 +213,7 @@ watch(
           @click="navigateTo('/main/settings')"
           class="p-2 mr-1 rounded-[14px] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] text-text-secondary transition-all active:scale-90"
         >
-          <svg
-            width="19"
-            height="19"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path
-              d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
-            />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
+          <Icon :icon="iconSettings" width="19" height="19" />
         </button>
       </div>
     </div>
@@ -248,22 +238,16 @@ watch(
                 : 'text-text-main/90 hover:bg-black/[0.04] dark:hover:bg-white/[0.04]',
             ]"
           >
-            <svg
+            <Icon
               width="18"
               height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+              :icon="iconMap[item.icon as keyof typeof iconMap]"
               :class="[
                 route.path === item.path
                   ? 'text-primary'
                   : 'text-text-main opacity-60 group-hover:opacity-100',
               ]"
-              v-html="getIcon(item.icon)"
-            ></svg>
+            />
             <span
               class="text-[14px]"
               :class="[route.path === item.path ? 'font-semibold' : 'font-normal']"
@@ -307,16 +291,7 @@ watch(
           activePlaylistTab === 0 ? 'visible opacity-60' : 'invisible opacity-0',
         ]"
       >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-        >
-          <path d="M12 5v14M5 12h14" />
-        </svg>
+        <Icon :icon="iconPlus" width="14" height="14" />
       </button>
     </div>
 

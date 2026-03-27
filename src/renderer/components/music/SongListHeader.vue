@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { iconChevronDown, iconChevronUp } from '@/icons';
+import { iconChevronUpDown, iconSortDown, iconSortUp } from '@/icons';
 
 export type SortField = 'index' | 'title' | 'album' | 'duration';
 export type SortOrder = 'asc' | 'desc' | null;
@@ -42,13 +42,9 @@ const handleSort = (field: SortField) => {
       <Icon
         v-if="sortField === 'index'"
         class="sort-icon"
-        :class="{ 'rotate-180': sortOrder === 'desc' }"
-        :icon="iconChevronDown"
+        :icon="sortOrder === 'asc' ? iconSortUp : sortOrder === 'desc' ? iconSortDown : iconChevronUpDown"
       />
-      <span v-else class="sort-icon-stack">
-        <Icon class="sort-icon" :icon="iconChevronUp" />
-        <Icon class="sort-icon sort-icon-down" :icon="iconChevronDown" />
-      </span>
+      <Icon v-else class="sort-icon" :icon="iconChevronUpDown" />
     </div>
 
     <div
@@ -60,13 +56,9 @@ const handleSort = (field: SortField) => {
       <Icon
         v-if="sortField === 'title'"
         class="sort-icon"
-        :class="{ 'rotate-180': sortOrder === 'desc' }"
-        :icon="iconChevronDown"
+        :icon="sortOrder === 'asc' ? iconSortUp : sortOrder === 'desc' ? iconSortDown : iconChevronUpDown"
       />
-      <span v-else class="sort-icon-stack">
-        <Icon class="sort-icon" :icon="iconChevronUp" />
-        <Icon class="sort-icon sort-icon-down" :icon="iconChevronDown" />
-      </span>
+      <Icon v-else class="sort-icon" :icon="iconChevronUpDown" />
     </div>
 
     <div
@@ -78,13 +70,9 @@ const handleSort = (field: SortField) => {
       <Icon
         v-if="sortField === 'album'"
         class="sort-icon"
-        :class="{ 'rotate-180': sortOrder === 'desc' }"
-        :icon="iconChevronDown"
+        :icon="sortOrder === 'asc' ? iconSortUp : sortOrder === 'desc' ? iconSortDown : iconChevronUpDown"
       />
-      <span v-else class="sort-icon-stack">
-        <Icon class="sort-icon" :icon="iconChevronUp" />
-        <Icon class="sort-icon sort-icon-down" :icon="iconChevronDown" />
-      </span>
+      <Icon v-else class="sort-icon" :icon="iconChevronUpDown" />
     </div>
 
     <div
@@ -95,13 +83,9 @@ const handleSort = (field: SortField) => {
       <Icon
         v-if="sortField === 'duration'"
         class="sort-icon"
-        :class="{ 'rotate-180': sortOrder === 'desc' }"
-        :icon="iconChevronDown"
+        :icon="sortOrder === 'asc' ? iconSortUp : sortOrder === 'desc' ? iconSortDown : iconChevronUpDown"
       />
-      <span v-else class="sort-icon-stack">
-        <Icon class="sort-icon" :icon="iconChevronUp" />
-        <Icon class="sort-icon sort-icon-down" :icon="iconChevronDown" />
-      </span>
+      <Icon v-else class="sort-icon" :icon="iconChevronUpDown" />
     </div>
   </div>
 </template>
@@ -110,18 +94,8 @@ const handleSort = (field: SortField) => {
 @reference "@/style.css";
 
 .sort-icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
-.sort-icon-stack {
-  display: flex;
-  flex-direction: column;
-  line-height: 1;
-  opacity: 0.4;
-}
-
-.sort-icon-down {
-  margin-top: -10px;
-}
 </style>

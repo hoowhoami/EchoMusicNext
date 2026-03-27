@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, watch, ref, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import {
+  iconChevronLeft,
+  iconChevronRight,
+  iconRefreshCw,
+  iconMinus,
+  iconSquare,
+  iconX,
+} from '@/icons';
 
 const route = useRoute();
 const router = useRouter();
@@ -52,15 +60,28 @@ onUnmounted(() => {
     <!-- 1. 左侧：导航按钮 (no-drag) -->
     <div class="flex items-center gap-1 no-drag">
       <button @click="goBack" class="nav-btn group" :disabled="!canGoBack" title="后退">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" :class="['text-text-main transition-opacity', canGoBack ? 'opacity-60 group-hover:opacity-100' : 'opacity-40']"><path d="m15 18-6-6 6-6"/></svg>
+        <Icon
+          :icon="iconChevronLeft"
+          width="20"
+          height="20"
+          :class="['text-text-main transition-opacity', canGoBack ? 'opacity-60 group-hover:opacity-100' : 'opacity-40']"
+        />
       </button>
       <button @click="goForward" class="nav-btn group" :disabled="!canGoForward" title="前进">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" :class="['text-text-main transition-opacity', canGoForward ? 'opacity-60 group-hover:opacity-100' : 'opacity-40']"><path d="m9 18 6-6-6-6"/></svg>
+        <Icon
+          :icon="iconChevronRight"
+          width="20"
+          height="20"
+          :class="['text-text-main transition-opacity', canGoForward ? 'opacity-60 group-hover:opacity-100' : 'opacity-40']"
+        />
       </button>
       <button @click="refresh" class="nav-btn group" title="刷新">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-text-main opacity-60 group-hover:opacity-100 transition-opacity">
-          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/>
-        </svg>
+        <Icon
+          :icon="iconRefreshCw"
+          width="15"
+          height="15"
+          class="text-text-main opacity-60 group-hover:opacity-100 transition-opacity"
+        />
       </button>
     </div>
 
@@ -70,13 +91,13 @@ onUnmounted(() => {
     <!-- 3. 右侧：窗口控制 (no-drag) -->
     <div v-if="!isMac" class="window-controls flex items-center no-drag h-full ml-4">
       <button @click="handleControl('minimize')" class="control-btn hover:bg-text-main/5">
-        <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
+        <Icon :icon="iconMinus" width="10" height="10" />
       </button>
       <button @click="handleControl('maximize')" class="control-btn hover:bg-text-main/5">
-        <svg width="9" height="9" viewBox="0 0 10 10"><path d="M1,1 L9,1 L9,9 L1,9 Z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+        <Icon :icon="iconSquare" width="9" height="9" />
       </button>
       <button @click="handleControl('close')" class="control-btn hover:bg-red-500 hover:text-white">
-        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1,1 L9,9 M9,1 L1,9" stroke="currentColor" stroke-width="1.2"/></svg>
+        <Icon :icon="iconX" width="10" height="10" />
       </button>
     </div>
   </header>
@@ -117,7 +138,7 @@ onUnmounted(() => {
   background: transparent;
   border: none;
 }
-</style>
+
 .nav-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
@@ -126,3 +147,4 @@ onUnmounted(() => {
 .nav-btn:disabled:hover {
   background-color: transparent;
 }
+</style>

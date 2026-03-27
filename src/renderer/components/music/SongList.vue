@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { Song } from '@/stores/playlist';
 import { formatDuration } from '@/utils/format';
 import SongCard from './SongCard.vue';
 import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
+import { iconPlay } from '@/icons';
 
 interface Props {
   songs: Song[];
@@ -67,11 +68,73 @@ const rowOpacity = (song: Song) => (isSongPlayable(song) ? 1 : 0.45);
 
 const listRef = ref<RecycleScrollerInstance | null>(null);
 
-const scrollToActive = () => {
-  if (!props.activeId || !listRef.value) return;
-  const index = filteredSongs.value.findIndex((s) => s.id === props.activeId);
+const readString = (value: unknown, fallback = ''): string => {
+  if (value === undefined || value === null) return fallback;
+  return String(value);
+};
+
+const activeIdText = computed(() => readString(props.activeId));
+const isActiveSong = (song: Song) => readString(song.id) === activeIdText.value;
+
+const getScrollContainer = (): HTMLElement | null =>
+  document.querySelector('.view-port') as HTMLElement | null;
+
+const getStickyOffset = (scrollContainer: HTMLElement): number => {
+  const containerTop = scrollContainer.getBoundingClientRect().top;
+  const stickyNodes = Array.from(
+    scrollContainer.querySelectorAll<HTMLElement>('.sliver-header-root, .song-list-sticky'),
+  );
+  if (stickyNodes.length === 0) return 0;
+  const bottoms = stickyNodes
+    .map((node) => node.getBoundingClientRect().bottom - containerTop)
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (bottoms.length === 0) return 0;
+  return Math.max(...bottoms);
+};
+
+const adjustActiveIntoView = (smooth = false) => {
+  const scrollContainer = getScrollContainer();
+  if (!scrollContainer || !activeIdText.value) return;
+  const row = scrollContainer.querySelector<HTMLElement>(
+    `[data-song-row][data-song-id="${activeIdText.value}"]`,
+  );
+  if (!row) return;
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const stickyOffset = getStickyOffset(scrollContainer);
+  const topLimit = containerRect.top + stickyOffset + 8;
+  const bottomLimit = containerRect.bottom - 12;
+  if (rowRect.top < topLimit) {
+    const target = scrollContainer.scrollTop - (topLimit - rowRect.top);
+    scrollContainer.scrollTo({ top: Math.max(0, target), behavior: smooth ? 'smooth' : 'auto' });
+    return;
+  }
+  if (rowRect.bottom > bottomLimit) {
+    const target = scrollContainer.scrollTop + (rowRect.bottom - bottomLimit);
+    scrollContainer.scrollTo({ top: Math.max(0, target), behavior: smooth ? 'smooth' : 'auto' });
+  }
+};
+
+const scrollToActive = async () => {
+  if (!activeIdText.value || !listRef.value) return;
+  const index = filteredSongs.value.findIndex((s) => readString(s.id) === activeIdText.value);
   if (index === -1) return;
   listRef.value.scrollToItem(index);
+  await nextTick();
+  const scrollContainer = getScrollContainer();
+  const scrollerEl = (listRef.value as { $el?: HTMLElement } | null)?.$el ?? null;
+  if (scrollContainer && scrollerEl) {
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const scrollerRect = scrollerEl.getBoundingClientRect();
+    const scrollerOffset = scrollerRect.top - containerRect.top;
+    const stickyOffset = getStickyOffset(scrollContainer);
+    const targetTop =
+      index * itemHeight + scrollContainer.scrollTop + scrollerOffset - stickyOffset - 8;
+    scrollContainer.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+    requestAnimationFrame(() => adjustActiveIntoView(true));
+    return;
+  }
+  requestAnimationFrame(() => adjustActiveIntoView(true));
 };
 
 defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value.length) });
@@ -90,12 +153,14 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
       <div
         class="song-list-row group flex items-center py-0 rounded-lg transition-all duration-200 cursor-default"
         :style="{ height: `${itemHeight}px`, opacity: rowOpacity(song) }"
-        :class="{ 'bg-primary/5 dark:bg-primary/10 text-primary': activeId === song.id }"
+        :class="{ 'is-active': isActiveSong(song) }"
+        :data-song-row="true"
+        :data-song-id="readString(song.id)"
       >
         <div v-if="showIndex" class="w-10 shrink-0 flex items-center justify-start pl-2">
           <div class="relative w-4 h-4">
             <div
-              v-if="activeId === song.id"
+              v-if="isActiveSong(song)"
               class="absolute inset-0 flex items-center justify-center gap-0.5"
             >
               <div class="w-0.5 h-full bg-primary animate-bounce-slow"></div>
@@ -108,17 +173,13 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
             >
               {{ (originalIndexMap.get(song.id) ?? 0) + 1 }}
             </span>
-            <svg
-              v-if="activeId !== song.id"
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="currentColor"
+            <Icon
+              v-if="!isActiveSong(song)"
               class="absolute inset-0 m-auto opacity-0 transition-opacity group-hover:opacity-100 text-text-main cursor-pointer"
-            >
-              <path d="M8 5v14l11-7z" />
-            </svg>
+              :icon="iconPlay"
+              width="14"
+              height="14"
+            />
           </div>
         </div>
 
@@ -144,7 +205,7 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
             :showCover="showCover"
             :showAlbum="false"
             :showDuration="false"
-            :active="activeId === song.id"
+            :active="isActiveSong(song)"
             variant="list"
           />
         </div>
@@ -204,11 +265,19 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
 }
 
 .song-list-row:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--color-bg-card);
 }
 
 .dark .song-list-row:hover {
-  background: rgba(255, 255, 255, 0.32);
+  background: color-mix(in srgb, #ffffff 4%, transparent);
+}
+
+.song-list-row.is-active {
+  background: var(--color-bg-card);
+}
+
+.dark .song-list-row.is-active {
+  background: color-mix(in srgb, #ffffff 4%, transparent);
 }
 
 .animate-bounce-slow {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { iconMinus, iconSquare, iconX } from '@/icons';
 
 const isMac = computed(() => window.electron.platform === 'darwin');
 
@@ -21,21 +22,21 @@ const handleControl = (action: 'minimize' | 'maximize' | 'close') => {
           class="w-11 h-full flex items-center justify-center text-text-main dark:text-white opacity-60 hover:opacity-100 transition-all duration-200 bg-transparent hover:bg-black/[0.05] dark:hover:bg-white/[0.1]" 
           title="最小化"
         >
-          <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
+          <Icon :icon="iconMinus" width="10" height="10" />
         </button>
         <button 
           @click="handleControl('maximize')" 
           class="w-11 h-full flex items-center justify-center text-text-main dark:text-white opacity-60 hover:opacity-100 transition-all duration-200 bg-transparent hover:bg-black/[0.05] dark:hover:bg-white/[0.1]" 
           title="最大化"
         >
-          <svg width="9" height="9" viewBox="0 0 10 10"><path d="M1,1 L9,1 L9,9 L1,9 Z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+          <Icon :icon="iconSquare" width="9" height="9" />
         </button>
         <button 
           @click="handleControl('close')" 
           class="w-11 h-full flex items-center justify-center text-text-main dark:text-white opacity-60 hover:opacity-100 transition-all duration-200 bg-transparent hover:bg-red-500 hover:text-white" 
           title="关闭"
         >
-          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1,1 L9,9 M9,1 L1,9" stroke="currentColor" stroke-width="1.2"/></svg>
+          <Icon :icon="iconX" width="10" height="10" />
         </button>
       </div>
     </div>

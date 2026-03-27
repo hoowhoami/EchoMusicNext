@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { getCoverUrl } from '@/utils/music';
+import { iconMusic } from '@/icons';
 
 interface Props {
   url?: string;
@@ -63,9 +64,7 @@ const containerStyle = computed(() => {
       v-if="status === 'loading'"
       class="absolute inset-0 flex items-center justify-center animate-pulse"
     >
-      <svg width="40%" height="40%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="opacity-10">
-        <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-      </svg>
+      <Icon :icon="iconMusic" width="40%" height="40%" class="opacity-10" />
     </div>
 
     <!-- 2. 图片主体 -->
@@ -86,9 +85,7 @@ const containerStyle = computed(() => {
       v-if="status === 'error'" 
       class="absolute inset-0 flex items-center justify-center bg-black/[0.02] dark:bg-white/[0.02]"
     >
-      <svg width="40%" height="40%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" class="opacity-10">
-        <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-      </svg>
+      <Icon :icon="iconMusic" width="40%" height="40%" class="opacity-10" />
     </div>
   </div>
 </template>

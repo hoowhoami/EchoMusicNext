@@ -16,7 +16,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const sizes = {
-  xs: 'text-[9px] px-1.5 py-[1px] rounded-[6px]',
+  xs: 'text-[9px] px-1.5 py-[1.5px] rounded-[6px]',
   sm: 'text-[10px] px-2 py-0.5 rounded-md',
 };
 

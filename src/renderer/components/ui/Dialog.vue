@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, useSlots } from 'vue';
 import { useVModel } from '@vueuse/core';
+import { iconX } from '@/icons';
 import {
   DialogContent,
   DialogDescription,
@@ -59,19 +60,7 @@ const bodyClass = computed(() => [
         <div :class="contentClass">
           <DialogClose v-if="props.showClose" as-child>
             <button class="dialog-close" type="button" aria-label="关闭">
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M18 6 6 18" />
-                <path d="M6 6l12 12" />
-              </svg>
+              <Icon :icon="iconX" width="14" height="14" />
             </button>
           </DialogClose>
 

@@ -2,6 +2,7 @@
 import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import Cover from '@/components/ui/Cover.vue';
+import { iconPause, iconPlay } from '@/icons';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
@@ -47,8 +48,13 @@ const playSong = (id: string) => {
             <!-- 播放按钮遮罩 -->
             <div class="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
               <div class="w-12 h-12 rounded-full bg-primary text-white flex items-center justify-center shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                 <svg v-if="playerStore.currentTrackId === song.id && playerStore.isPlaying" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                 <svg v-else width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                 <Icon
+                   v-if="playerStore.currentTrackId === song.id && playerStore.isPlaying"
+                   :icon="iconPause"
+                   width="24"
+                   height="24"
+                 />
+                 <Icon v-else :icon="iconPlay" width="24" height="24" />
               </div>
             </div>
             

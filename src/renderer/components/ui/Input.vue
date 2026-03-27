@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useVModel } from '@vueuse/core';
 import { Primitive, type PrimitiveProps } from 'reka-ui';
+import { iconX } from '@/icons';
 
 interface Props extends PrimitiveProps {
   modelValue?: string | number;
@@ -46,7 +47,7 @@ const handleClear = () => {
       type="button"
       class="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-text-main opacity-40 hover:opacity-70 transition-all active:scale-90"
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      <Icon :icon="iconX" width="14" height="14" />
     </button>
   </div>
 </template>

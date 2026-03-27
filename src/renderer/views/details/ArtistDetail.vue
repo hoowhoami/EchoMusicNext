@@ -16,6 +16,7 @@ import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
 import { Song } from '@/stores/playlist';
 import { mapAlbumMeta, mapArtistDetailMeta, mapArtistSong } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
+import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart } from '@/icons';
 
 const route = useRoute();
 const router = useRouter();
@@ -191,10 +192,10 @@ onMounted(async () => {
 
 const secondaryActions = computed(() => [
   {
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+    icon: iconHeart,
     label: '关注',
-    onTap: () => {}
-  }
+    onTap: () => {},
+  },
 ]);
 
 const handlePlayAll = () => {};
@@ -241,11 +242,11 @@ const handleLocate = () => songListRef.value?.scrollToActive();
         </template>
 
         <template #collapsed-actions>
-           <button @click="handlePlayAll" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-primary">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <button @click="handlePlayAll" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-primary">
+              <Icon :icon="iconPlay" width="20" height="20" />
            </button>
            <button @click="openBatchDrawer" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-main opacity-60">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>
+              <Icon :icon="iconList" width="18" height="18" />
            </button>
         </template>
       </SliverHeader>
@@ -253,7 +254,7 @@ const handleLocate = () => songListRef.value?.scrollToActive();
       <BatchActionDrawer v-model:open="showBatchDrawer" :songs="songs" />
 
       <!-- 2. Sticky Tabs + 表头 -->
-      <div class="sticky z-[90] bg-bg-main" :style="{ top: `${tabsTop}px` }">
+      <div class="song-list-sticky sticky z-[90] bg-bg-main" :style="{ top: `${tabsTop}px` }">
         <Tabs v-model="activeTab" class="w-full">
           <!-- Tab 切换栏 -->
           <div class="px-6 border-b border-border-light/10">
@@ -271,18 +272,27 @@ const handleLocate = () => songListRef.value?.scrollToActive();
               </TabsList>
 
               <!-- 右侧操作 -->
-              <div v-if="activeTab === 'songs'" class="flex items-center gap-2">
-                <div class="relative">
-                  <input
-                    v-model="searchQuery"
-                    type="text"
-                    placeholder="搜索歌曲..."
-                    class="w-52 h-9 pl-8 pr-3 rounded-lg bg-black/[0.05] dark:bg-white/[0.08] outline-none text-[12px] focus:ring-1 focus:ring-primary/30 transition-all"
+                <div v-if="activeTab === 'songs'" class="flex items-center gap-2">
+                  <div class="relative">
+                    <input
+                      v-model="searchQuery"
+                      type="text"
+                      placeholder="搜索歌曲..."
+                      class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] focus:ring-1 focus:ring-primary/40 transition-all"
+                    />
+                  <Icon
+                    class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60 dark:text-text-main/60"
+                    :icon="iconSearch"
+                    width="14"
+                    height="14"
                   />
-                  <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                 </div>
-                <button @click="handleLocate" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 opacity-60" title="定位当前播放">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><circle cx="12" cy="12" r="3"/></svg>
+                <button
+                  @click="handleLocate"
+                  class="song-locate-btn p-2 rounded-lg"
+                  title="定位当前播放"
+                >
+                  <Icon :icon="iconCurrentLocation" width="18" height="18" />
                 </button>
               </div>
             </div>
@@ -330,6 +340,63 @@ const handleLocate = () => songListRef.value?.scrollToActive();
     </template>
   </div>
 </template>
+
+<style scoped>
+.song-search-input {
+  background-color: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.3) !important;
+  color: #1d1d1f !important;
+}
+
+.song-search-input::placeholder {
+  color: rgba(29, 29, 31, 0.5) !important;
+}
+
+.song-search-input:focus {
+  border-color: rgba(0, 113, 227, 0.8) !important;
+  box-shadow: 0 0 0 1px rgba(0, 113, 227, 0.2) !important;
+}
+
+.dark .song-search-input {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #f5f5f7 !important;
+}
+
+.dark .song-search-input::placeholder {
+  color: rgba(245, 245, 247, 0.5) !important;
+}
+
+.dark .song-search-input:focus {
+  border-color: rgba(0, 113, 227, 0.7) !important;
+  box-shadow: 0 0 0 1px rgba(0, 113, 227, 0.3) !important;
+}
+
+.song-locate-btn {
+  background-color: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  color: rgba(29, 29, 31, 0.7);
+  transition: all 0.2s ease;
+}
+
+.song-locate-btn:hover {
+  border-color: rgba(0, 0, 0, 0.28);
+  color: rgba(29, 29, 31, 0.9);
+}
+
+.dark .song-locate-btn {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: none;
+  color: rgba(245, 245, 247, 0.7);
+}
+
+.dark .song-locate-btn:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(245, 245, 247, 0.9);
+}
+</style>
 
 <style scoped>
 @reference "@/style.css";

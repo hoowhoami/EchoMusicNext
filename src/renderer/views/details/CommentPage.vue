@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { getMusicComments, getPlaylistComments, getAlbumComments } from '@/api/comment';
 import CommentList from '@/components/music/CommentList.vue';
+import { iconX } from '@/icons';
 
 const route = useRoute();
 const id = route.params.id as string;
@@ -64,9 +65,7 @@ onMounted(fetchData);
         
         <!-- 返回按钮 -->
         <button @click="$router.back()" class="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-          </svg>
+          <Icon :icon="iconX" width="24" height="24" />
         </button>
       </div>
 

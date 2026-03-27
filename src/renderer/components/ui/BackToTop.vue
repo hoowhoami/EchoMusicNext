@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
+import { iconArrowUp } from '@/icons';
 
 const props = defineProps<{
   targetSelector?: string;
@@ -47,20 +48,12 @@ onUnmounted(() => {
       class="fixed right-8 bottom-32 z-50 p-3 rounded-full back-to-top-btn shadow-lg hover:shadow-xl transition-all duration-300 active:scale-95 group"
       aria-label="Back to top"
     >
-      <svg 
-        xmlns="http://www.w3.org/2000/svg" 
-        width="20" 
-        height="20" 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke="currentColor" 
-        stroke-width="2" 
-        stroke-linecap="round" 
-        stroke-linejoin="round"
+      <Icon
         class="transition-transform group-hover:-translate-y-1"
-      >
-        <path d="m18 15-6-6-6 6"/>
-      </svg>
+        :icon="iconArrowUp"
+        width="20"
+        height="20"
+      />
     </button>
   </Transition>
 </template>
