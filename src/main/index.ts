@@ -1,5 +1,4 @@
-import { app, BrowserWindow, globalShortcut } from 'electron';
-import { release } from 'os';
+import { app, globalShortcut } from 'electron';
 import { initLogger } from './logger';
 import { startApiServer, stopApiServer } from './server';
 import { registerIpcHandlers } from './ipc';
@@ -8,14 +7,8 @@ import { createWindow, getMainWindow, restoreWindow } from './window';
 // --- 初始化日志 ---
 initLogger();
 
-if (process.platform === 'darwin') {
-  app.commandLine.appendSwitch('limit-frame-rate', '60');
-} else if (process.platform === 'win32') {
-  app.commandLine.appendSwitch('ignore-gpu-blacklist');
-  app.commandLine.appendSwitch('enable-hardware-overlays');
-  app.setAppUserModelId(app.getName());
-} else if (process.platform === 'linux') {
-  app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder');
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.hoowhoami.echomusic');
 }
 
 // --- 保持应用单例运行 ---

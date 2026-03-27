@@ -179,6 +179,32 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
   user-select: none;
 }
 
+:global(.view-port::-webkit-scrollbar) {
+  width: 10px;
+}
+
+:global(.view-port::-webkit-scrollbar-track) {
+  background: transparent;
+}
+
+:global(.view-port::-webkit-scrollbar-thumb) {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 10px;
+}
+
+:global(.dark .view-port::-webkit-scrollbar-thumb) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+:global(.view-port) {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+:global(.dark .view-port) {
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
 .song-list-row:hover {
   background: rgba(0, 0, 0, 0.08);
 }

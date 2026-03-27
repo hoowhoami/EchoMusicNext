@@ -75,7 +75,6 @@ const showIntroDialog = ref(false);
 const showBatchDrawer = ref(false);
 
 // 搜索和定位逻辑
-const showSearch = ref(false);
 const searchQuery = ref('');
 const songListRef = ref<{ scrollToActive?: () => void } | null>(null);
 const sliverHeaderRef = ref<{ currentHeight?: number } | null>(null);
@@ -428,9 +427,13 @@ const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
 const sortedSongs = computed(() => {
   const base = songs.value.slice();
   if (!sortField.value || !sortOrder.value) return base;
-  const compareText = (a: string, b: string) =>
-    a.localeCompare(b, 'zh-Hans-CN', { sensitivity: 'base' });
-  const direction = sortOrder.value === 'asc' ? 1 : -1;
+    const compareText = (a: string, b: string) =>
+      a.localeCompare(b, 'zh-Hans-CN', { sensitivity: 'base' });
+    const indexMap = new Map<string, number>();
+    songs.value.forEach((song, index) => {
+      indexMap.set(song.id, index);
+    });
+    const direction = sortOrder.value === 'asc' ? 1 : -1;
 
   return base.sort((a, b) => {
     switch (sortField.value) {
@@ -441,6 +444,7 @@ const sortedSongs = computed(() => {
       case 'duration':
         return (a.duration - b.duration) * direction;
       case 'index':
+        return ((indexMap.get(a.id) ?? 0) - (indexMap.get(b.id) ?? 0)) * direction;
       default:
         return 0;
     }
@@ -612,50 +616,30 @@ const handlePlaySong = (song: Song) => {
 
               <!-- 右侧搜索与定位 -->
               <div v-if="activeTab === 'songs'" class="flex items-center gap-2">
-                <Transition name="search-expand">
-                  <div v-if="showSearch" class="relative">
-                    <input
-                      v-model="searchQuery"
-                      type="text"
-                      placeholder="搜索歌曲..."
-                      class="w-48 h-9 pl-8 pr-3 rounded-lg bg-black/[0.05] dark:bg-white/[0.08] outline-none text-[12px] focus:ring-1 focus:ring-primary/30 transition-all"
-                      @blur="!searchQuery && (showSearch = false)"
-                      autofocus
-                    />
-                    <svg
-                      class="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-30"
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.5"
-                    >
-                      <circle cx="11" cy="11" r="8" />
-                      <path d="m21 21-4.3-4.3" />
-                    </svg>
-                  </div>
-                </Transition>
-                <button
-                  @click="showSearch = !showSearch"
-                  class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 opacity-60"
-                  :class="{ 'text-primary opacity-100': showSearch }"
-                >
+                <div class="relative">
+                  <input
+                    v-model="searchQuery"
+                    type="text"
+                    placeholder="搜索歌曲..."
+                    class="w-52 h-9 pl-8 pr-3 rounded-lg bg-black/[0.05] dark:bg-white/[0.08] outline-none text-[12px] focus:ring-1 focus:ring-primary/30 transition-all"
+                  />
                   <svg
-                    width="18"
-                    height="18"
+                    class="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-30"
+                    width="14"
+                    height="14"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    stroke-width="2.2"
+                    stroke-width="2.5"
                   >
                     <circle cx="11" cy="11" r="8" />
                     <path d="m21 21-4.3-4.3" />
                   </svg>
-                </button>
+                </div>
                 <button
                   @click="handleLocate"
                   class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 opacity-60"
+                  title="定位当前播放"
                 >
                   <svg
                     width="18"
@@ -665,8 +649,11 @@ const handlePlaySong = (song: Song) => {
                     stroke="currentColor"
                     stroke-width="2.2"
                   >
+                    <path d="M12 3v4" />
+                    <path d="M12 17v4" />
+                    <path d="M3 12h4" />
+                    <path d="M17 12h4" />
                     <circle cx="12" cy="12" r="3" />
-                    <path d="M3 12h3m12 0h3M12 3v3m0 12v3" />
                   </svg>
                 </button>
               </div>
@@ -687,18 +674,18 @@ const handlePlaySong = (song: Song) => {
       <!-- 3. 内容区域 -->
       <div class="pb-12">
         <Tabs :model-value="activeTab" class="w-full" @update:model-value="handleTabChange">
-          <TabsContent value="songs" class="px-6">
-            <SongList
-              ref="songListRef"
-              :songs="sortedSongs"
-              :searchQuery="searchQuery"
-              :activeId="activeSongId"
-              :showCover="true"
-              :parentPlaylistId="playlist.listid || playlist.id"
-              :enableRemoveFromPlaylist="isOwnerPlaylist"
-              @play="handlePlaySong"
-            />
-          </TabsContent>
+        <TabsContent value="songs" class="px-6 flex flex-col flex-1 min-h-0">
+          <SongList
+            ref="songListRef"
+            :songs="sortedSongs"
+            :searchQuery="searchQuery"
+            :activeId="activeSongId"
+            :showCover="true"
+            :parentPlaylistId="playlist.listid || playlist.id"
+            :enableRemoveFromPlaylist="isOwnerPlaylist"
+            @play="handlePlaySong"
+          />
+        </TabsContent>
 
           <TabsContent value="comments" class="px-6 py-10">
             <div class="max-w-4xl mx-auto">

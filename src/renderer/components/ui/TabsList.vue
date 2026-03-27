@@ -8,7 +8,7 @@ const forwardedProps = useForwardProps(props);
 <template>
   <TabsList
     v-bind="forwardedProps"
-    :class="['flex items-center gap-8 h-14', props.class]"
+    :class="['flex items-center gap-3 h-9', props.class]"
   >
     <slot />
   </TabsList>

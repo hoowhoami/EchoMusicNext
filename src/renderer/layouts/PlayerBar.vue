@@ -515,7 +515,12 @@ onUnmounted(() => {
           title="播放队列"
           @click="openQueue"
         >
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M6 5h12" />
+            <path d="M6 10h12" />
+            <path d="M6 15h12" />
+            <path d="M6 20h12" />
+          </svg>
         </button>
       </div>
     </footer>

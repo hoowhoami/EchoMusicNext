@@ -82,8 +82,7 @@ export async function createWindow() {
       sandbox: false,
       webSecurity: false, // 禁用 CORS 限制
       allowRunningInsecureContent: true, // 允许混合内容
-      zoomFactor: 1.0, // 提速、降占用
-      backgroundThrottling: false,
+      zoomFactor: 1.0,
     },
   });
 

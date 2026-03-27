@@ -110,16 +110,9 @@ const handleClear = () => {
       </div>
       <div class="queue-actions">
         <button type="button" class="queue-icon-btn" title="滚动到顶部" @click="scrollToTop">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M12 19V5" />
-            <path d="M5 12l7-7 7 7" />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M7 10l5-5 5 5" />
+            <path d="M12 5v14" />
           </svg>
         </button>
         <button
@@ -128,31 +121,20 @@ const handleClear = () => {
           title="滚动到当前播放"
           @click="scrollToCurrent"
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M3 12h3m12 0h3M12 3v3m0 12v3" />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v3" />
+            <path d="M12 19v3" />
+            <path d="M2 12h3" />
+            <path d="M19 12h3" />
           </svg>
         </button>
         <button type="button" class="queue-icon-btn" title="清空列表" @click="handleClear">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M3 6h18" />
-            <path d="M8 6v14" />
-            <path d="M16 6v14" />
-            <path d="M9 6l1-2h4l1 2" />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 7h16" />
+            <path d="M9 7v10" />
+            <path d="M15 7v10" />
+            <path d="M10 4h4" />
           </svg>
         </button>
         <button type="button" class="queue-icon-btn" title="关闭" @click="open = false">
@@ -364,6 +346,32 @@ const handleClear = () => {
   padding: 10px 12px 14px 14px;
   overflow: auto;
   position: relative;
+}
+
+:global(.queue-list::-webkit-scrollbar) {
+  width: 10px;
+}
+
+:global(.queue-list::-webkit-scrollbar-track) {
+  background: transparent;
+}
+
+:global(.queue-list::-webkit-scrollbar-thumb) {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 10px;
+}
+
+:global(.dark .queue-list::-webkit-scrollbar-thumb) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+:global(.queue-list) {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+:global(.dark .queue-list) {
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 .queue-row {
