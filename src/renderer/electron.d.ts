@@ -4,6 +4,10 @@ export interface IElectronAPI {
     send: (channel: string, data: any) => void;
     on: (channel: string, func: (...args: any[]) => void) => void;
   };
+  shortcuts: {
+    register: (payload: { enabled: boolean; shortcutMap: Record<string, string> }) => void;
+    onTrigger: (func: (command: string) => void) => () => void;
+  };
   windowControl: (action: 'minimize' | 'maximize' | 'close') => void;
   apiServer: {
     start: () => Promise<{ success: boolean; error?: string }>;

@@ -1,5 +1,29 @@
 import { defineStore } from 'pinia';
 
+export const DEFAULT_SHORTCUT_LABELS: Record<string, string> = {
+  togglePlayback: '⌘Space',
+  previousTrack: '⌘←',
+  nextTrack: '⌘→',
+  volumeUp: '⌘↑',
+  volumeDown: '⌘↓',
+  toggleMute: '⌘M',
+  toggleFavorite: '⌘L',
+  togglePlayMode: '⌘P',
+  toggleWindow: '⌘W',
+};
+
+export const DEFAULT_GLOBAL_SHORTCUT_LABELS: Record<string, string> = {
+  togglePlayback: '⌘⇧Space',
+  previousTrack: '⌘⇧←',
+  nextTrack: '⌘⇧→',
+  volumeUp: '⌘⇧↑',
+  volumeDown: '⌘⇧↓',
+  toggleMute: '⌘⇧M',
+  toggleFavorite: '⌘⇧L',
+  togglePlayMode: '⌘⇧P',
+  toggleWindow: '⌘⇧W',
+};
+
 export const useSettingStore = defineStore('setting', {
   state: () => ({
     theme: 'system' as 'light' | 'dark' | 'system',
@@ -19,17 +43,9 @@ export const useSettingStore = defineStore('setting', {
     audioEffect: 'none' as 'none' | 'piano' | 'acappella' | 'subwoofer' | 'ancient' | 'surnay' | 'dj' | 'viper_tape' | 'viper_atmos' | 'viper_clear',
     globalShortcutsEnabled: false,
     shortcutBindings: {} as Record<string, string>,
-    defaultShortcutLabels: {
-      togglePlayback: '⌘⇧Space',
-      previousTrack: '⌘⇧←',
-      nextTrack: '⌘⇧→',
-      volumeUp: '⌘⇧↑',
-      volumeDown: '⌘⇧↓',
-      toggleMute: '⌘⇧M',
-      toggleFavorite: '⌘⇧L',
-      togglePlayMode: '⌘⇧P',
-      toggleWindow: '⌘⇧W',
-    } as Record<string, string>,
+    globalShortcutBindings: {} as Record<string, string>,
+    defaultShortcutLabels: { ...DEFAULT_SHORTCUT_LABELS } as Record<string, string>,
+    defaultGlobalShortcutLabels: { ...DEFAULT_GLOBAL_SHORTCUT_LABELS } as Record<string, string>,
     outputDevice: '自动',
     outputDevices: ['自动', '系统默认'] as string[],
     outputDeviceType: 'default' as 'default' | 'wasapi',
@@ -46,6 +62,10 @@ export const useSettingStore = defineStore('setting', {
     },
     toggleShortcuts(enabled: boolean) {
       this.shortcutEnabled = enabled;
+    },
+    resetShortcutDefaults() {
+      this.defaultShortcutLabels = { ...DEFAULT_SHORTCUT_LABELS };
+      this.defaultGlobalShortcutLabels = { ...DEFAULT_GLOBAL_SHORTCUT_LABELS };
     },
     openLogDirectory() {
       if (window.electron?.ipcRenderer) {

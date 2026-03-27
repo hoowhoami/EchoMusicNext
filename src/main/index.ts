@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, globalShortcut } from 'electron';
 import { release } from 'os';
 import { initLogger } from './logger';
 import { startApiServer, stopApiServer } from './server';
@@ -8,13 +8,15 @@ import { createWindow, getMainWindow, restoreWindow } from './window';
 // --- 初始化日志 ---
 initLogger();
 
-app.commandLine.appendSwitch('enable-smooth-scrolling'); // 平滑滚动
-app.commandLine.appendSwitch('ignore-gpu-blacklist'); // 强制启用GPU
-app.commandLine.appendSwitch('enable-hardware-overlays'); // 硬件叠加层（滚动神器）
-app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder'); // 硬件解码加速
-app.commandLine.appendSwitch('disable-frame-rate-limit'); // 解锁帧率上限
-
-if (process.platform === 'win32') app.setAppUserModelId(app.getName());
+if (process.platform === 'darwin') {
+  app.commandLine.appendSwitch('limit-frame-rate', '60');
+} else if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('ignore-gpu-blacklist');
+  app.commandLine.appendSwitch('enable-hardware-overlays');
+  app.setAppUserModelId(app.getName());
+} else if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder');
+}
 
 // --- 保持应用单例运行 ---
 const gotTheLock = app.requestSingleInstanceLock();
@@ -63,5 +65,6 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  globalShortcut.unregisterAll();
   stopApiServer();
 });

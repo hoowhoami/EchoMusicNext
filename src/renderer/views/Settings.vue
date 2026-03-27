@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useSettingStore } from '@/stores/setting';
 import Select from '@/components/ui/Select.vue';
 import Slider from '@/components/ui/Slider.vue';
@@ -27,6 +27,8 @@ type ShortcutCommand =
   | 'togglePlayMode'
   | 'toggleWindow';
 
+type ShortcutScope = 'local' | 'global';
+
 interface ShortcutItem {
   command: ShortcutCommand;
   title: string;
@@ -52,19 +54,148 @@ const themeOptions = [
 ];
 
 const shortcutBindings = computed(() => settingStore.shortcutBindings ?? {});
+const globalShortcutBindings = computed(() => settingStore.globalShortcutBindings ?? {});
+const isMac = computed(() => window.electron?.platform === 'darwin');
+const recording = ref<{ scope: ShortcutScope; command: ShortcutCommand } | null>(null);
+let removeRecorder: (() => void) | null = null;
+let removeOutside: (() => void) | null = null;
 
-const toggleShortcut = (command: ShortcutCommand) => {
-  const current = shortcutBindings.value[command] ?? settingStore.defaultShortcutLabels[command];
-  settingStore.shortcutBindings = {
-    ...shortcutBindings.value,
-    [command]: current,
-  };
+const isRecording = (command: ShortcutCommand, scope: ShortcutScope) =>
+  recording.value?.command === command && recording.value?.scope === scope;
+
+const formatMainKey = (key: string, mac: boolean) => {
+  if (key === ' ' || key === 'Spacebar') return 'Space';
+  if (key === 'ArrowLeft') return mac ? '←' : 'Left';
+  if (key === 'ArrowRight') return mac ? '→' : 'Right';
+  if (key === 'ArrowUp') return mac ? '↑' : 'Up';
+  if (key === 'ArrowDown') return mac ? '↓' : 'Down';
+  if (key.length === 1) return key.toUpperCase();
+  return key;
 };
 
-const clearShortcut = (command: ShortcutCommand) => {
-  const next = { ...shortcutBindings.value };
-  delete next[command];
-  settingStore.shortcutBindings = next;
+const buildShortcutLabel = (event: KeyboardEvent) => {
+  const key = event.key;
+  if (['Shift', 'Control', 'Alt', 'Meta'].includes(key)) return '';
+  const mainKey = formatMainKey(key, isMac.value);
+  if (!mainKey) return '';
+  if (isMac.value) {
+    const parts = [
+      event.metaKey ? '⌘' : '',
+      event.shiftKey ? '⇧' : '',
+      event.altKey ? '⌥' : '',
+      event.ctrlKey ? '⌃' : '',
+      mainKey,
+    ].filter(Boolean);
+    return parts.join('');
+  }
+  const parts = [
+    event.ctrlKey ? 'Ctrl' : '',
+    event.shiftKey ? 'Shift' : '',
+    event.altKey ? 'Alt' : '',
+    event.metaKey ? 'Meta' : '',
+    mainKey,
+  ].filter(Boolean);
+  return parts.join('+');
+};
+
+const resolveLabel = (
+  binding: Record<string, string>,
+  defaults: Record<string, string>,
+  command: ShortcutCommand
+) => {
+  if (Object.prototype.hasOwnProperty.call(binding, command)) {
+    return binding[command] ?? '';
+  }
+  return defaults[command] ?? '';
+};
+
+const getShortcutValue = (command: ShortcutCommand, scope: ShortcutScope) => {
+  if (isRecording(command, scope)) return '';
+  if (scope === 'global') {
+    return resolveLabel(globalShortcutBindings.value, settingStore.defaultGlobalShortcutLabels, command);
+  }
+  return resolveLabel(shortcutBindings.value, settingStore.defaultShortcutLabels, command);
+};
+
+const getShortcutPlaceholder = (command: ShortcutCommand, scope: ShortcutScope) => {
+  if (isRecording(command, scope)) return '按键盘输入快捷键';
+  if (scope === 'global' && !settingStore.globalShortcutsEnabled) return '开启后可录制';
+  return '点击录制';
+};
+
+const stopRecording = () => {
+  recording.value = null;
+  removeRecorder?.();
+  removeRecorder = null;
+  removeOutside?.();
+  removeOutside = null;
+};
+
+const startRecording = (command: ShortcutCommand, scope: ShortcutScope) => {
+  if (scope === 'global' && !settingStore.globalShortcutsEnabled) {
+    return;
+  }
+  if (isRecording(command, scope)) return;
+  if (recording.value && !isRecording(command, scope)) {
+    stopRecording();
+  }
+  recording.value = { command, scope };
+  removeRecorder?.();
+  const handler = (event: KeyboardEvent) => {
+    if (!recording.value) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.key === 'Backspace' || event.key === 'Delete') {
+      clearShortcut(recording.value.command, recording.value.scope);
+      stopRecording();
+      return;
+    }
+    const label = buildShortcutLabel(event);
+    if (!label) return;
+    const hasModifier = event.metaKey || event.ctrlKey || event.altKey || event.shiftKey;
+    if (!hasModifier) return;
+    if (recording.value.scope === 'global') {
+      settingStore.globalShortcutBindings = {
+        ...globalShortcutBindings.value,
+        [recording.value.command]: label,
+      };
+    } else {
+      settingStore.shortcutBindings = {
+        ...shortcutBindings.value,
+        [recording.value.command]: label,
+      };
+    }
+    stopRecording();
+  };
+  window.addEventListener('keydown', handler, true);
+  removeRecorder = () => window.removeEventListener('keydown', handler, true);
+
+  const outsideHandler = (event: MouseEvent) => {
+    if (!recording.value) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.shortcut-input')) return;
+    stopRecording();
+  };
+  window.addEventListener('mousedown', outsideHandler, true);
+  removeOutside = () => window.removeEventListener('mousedown', outsideHandler, true);
+};
+
+const clearShortcut = (command: ShortcutCommand, scope: ShortcutScope) => {
+  if (scope === 'global') {
+    const next = { ...globalShortcutBindings.value, [command]: '' };
+    settingStore.globalShortcutBindings = next;
+  } else {
+    const next = { ...shortcutBindings.value, [command]: '' };
+    settingStore.shortcutBindings = next;
+  }
+  if (isRecording(command, scope)) stopRecording();
+};
+
+const resetAllShortcuts = () => {
+  settingStore.resetShortcutDefaults();
+  settingStore.shortcutBindings = { ...settingStore.defaultShortcutLabels };
+  settingStore.globalShortcutBindings = { ...settingStore.defaultGlobalShortcutLabels };
+  stopRecording();
 };
 
 const showConfirmClear = ref(false);
@@ -89,6 +220,10 @@ const versionLabel = computed(() => settingStore.appVersion || '1.0.0');
 const releaseChannelLabel = computed(() =>
   settingStore.isPrerelease ? 'Prerelease' : 'Release'
 );
+
+onUnmounted(() => {
+  stopRecording();
+});
 </script>
 
 <template>
@@ -241,9 +376,50 @@ const releaseChannelLabel = computed(() =>
         <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M7 7h10v10H7z"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="M12 3v4"/><path d="M12 17v4"/></svg>
         </div>
-        <h2 class="text-lg font-bold">全局快捷键</h2>
+        <h2 class="text-lg font-bold">快捷键设置</h2>
       </div>
       <div class="settings-card">
+        <div class="shortcut-grid-header">
+          <div>功能说明</div>
+          <div class="shortcut-col-title">快捷键</div>
+          <div class="shortcut-col-title">全局快捷键</div>
+        </div>
+        <div class="settings-divider"></div>
+        <div class="shortcut-list">
+          <div v-for="item in shortcutItems" :key="item.command" class="shortcut-grid-row">
+            <div class="space-y-1">
+              <h3 class="font-semibold">{{ item.title }}</h3>
+              <p class="text-sm text-text-secondary">{{ item.desc }}</p>
+            </div>
+            <div class="shortcut-cell shortcut-cell-offset">
+              <input
+                class="shortcut-input"
+                :class="{ recording: isRecording(item.command, 'local') }"
+                :value="getShortcutValue(item.command, 'local')"
+                :placeholder="getShortcutPlaceholder(item.command, 'local')"
+                readonly
+                @click="startRecording(item.command, 'local')"
+                @focus="startRecording(item.command, 'local')"
+              />
+            </div>
+            <div class="shortcut-cell shortcut-cell-offset">
+              <input
+                class="shortcut-input"
+                :class="{
+                  recording: isRecording(item.command, 'global'),
+                  'shortcut-input-disabled': !settingStore.globalShortcutsEnabled,
+                }"
+                :value="getShortcutValue(item.command, 'global')"
+                :placeholder="getShortcutPlaceholder(item.command, 'global')"
+                :disabled="!settingStore.globalShortcutsEnabled"
+                readonly
+                @click="startRecording(item.command, 'global')"
+                @focus="startRecording(item.command, 'global')"
+              />
+            </div>
+          </div>
+        </div>
+        <div class="settings-divider"></div>
         <div class="settings-item">
           <div class="space-y-1">
             <h3 class="font-semibold">启用全局快捷键</h3>
@@ -252,17 +428,12 @@ const releaseChannelLabel = computed(() =>
           <Switch v-model="settingStore.globalShortcutsEnabled" />
         </div>
         <div class="settings-divider"></div>
-        <div v-for="item in shortcutItems" :key="item.command" class="settings-item">
+        <div class="settings-item">
           <div class="space-y-1">
-            <h3 class="font-semibold">{{ item.title }}</h3>
-            <p class="text-sm text-text-secondary">{{ item.desc }}</p>
+            <h3 class="font-semibold">恢复默认</h3>
+            <p class="text-sm text-text-secondary">恢复所有快捷键为默认</p>
           </div>
-          <div class="flex items-center gap-2">
-            <button class="shortcut-badge" @click="toggleShortcut(item.command)">
-              {{ shortcutBindings[item.command] || settingStore.defaultShortcutLabels[item.command] }}
-            </button>
-            <button class="shortcut-reset" @click="clearShortcut(item.command)">恢复默认</button>
-          </div>
+          <button class="settings-button" @click="resetAllShortcuts">恢复默认</button>
         </div>
       </div>
     </section>
@@ -428,13 +599,79 @@ const releaseChannelLabel = computed(() =>
 }
 
 
-.shortcut-badge {
-  @apply px-3 py-1.5 rounded-lg bg-bg-main border border-border-light text-[12px] font-semibold;
+.shortcut-input {
+  @apply w-full max-w-[220px] px-3 py-2 rounded-lg bg-bg-main border border-border-light text-[12px] font-semibold text-left;
+  outline: none;
 }
 
-.shortcut-reset {
-  @apply text-[11px] text-text-secondary hover:text-primary;
+
+.shortcut-input.recording {
+  border-color: #0071e3;
+  color: #0071e3;
+  background-color: rgba(0, 113, 227, 0.12);
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.25);
 }
+
+.dark .shortcut-input.recording {
+  border-color: #4aa3ff;
+  color: #8cc6ff;
+  background-color: rgba(0, 113, 227, 0.24);
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.4);
+}
+
+.shortcut-input:focus,
+.shortcut-input:focus-visible {
+  border-color: #0071e3;
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.25);
+}
+
+.dark .shortcut-input:focus,
+.dark .shortcut-input:focus-visible {
+  border-color: #4aa3ff;
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.4);
+}
+
+.shortcut-input::placeholder {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.dark .shortcut-input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.shortcut-input-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.shortcut-grid-header,
+.shortcut-grid-row,
+.shortcut-grid-footer {
+  @apply grid items-center gap-4;
+  grid-template-columns: minmax(200px, 1fr) minmax(180px, 240px) minmax(180px, 240px);
+}
+
+.shortcut-grid-header {
+  @apply text-[12px] text-text-secondary font-semibold tracking-wide text-left;
+}
+
+.shortcut-col-title {
+  @apply text-left pl-10;
+}
+
+.shortcut-grid-row {
+  @apply py-1.5;
+}
+
+.shortcut-cell {
+  @apply flex items-center justify-start;
+}
+
+.shortcut-cell-offset {
+  @apply pl-10;
+}
+
+
 
 .settings-warning {
   @apply mt-3 text-[12px] text-amber-600 bg-amber-500/10 rounded-lg px-3 py-2;

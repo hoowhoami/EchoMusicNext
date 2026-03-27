@@ -29,8 +29,8 @@
     "@vue/eslint-config-prettier": "^10.2.0",
     "@vue/eslint-config-typescript": "^14.7.0",
     "autoprefixer": "^10.4.27",
-    "electron": "^34.5.8",
-    "electron-builder": "^25.1.8",
+    "electron": "^41.0.4",
+    "electron-builder": "^26.8.1",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
@@ -87,7 +87,11 @@
     }
   },
   "pnpm": {
-    "allowedBuiltDependencies": [
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-winstaller"
+    ],
+    "ignoredBuiltDependencies": [
       "electron",
       "esbuild",
       "vue-demi"

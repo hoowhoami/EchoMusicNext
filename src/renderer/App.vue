@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue';
+import { onMounted, watch, onUnmounted } from 'vue';
 import { RouterView } from 'vue-router';
-import MainLayout from '@/layouts/MainLayout.vue';
 import { usePlayerStore } from './stores/player';
 import { useSettingStore } from './stores/setting';
+import { initShortcutSync, syncGlobalShortcuts } from '@/utils/shortcuts';
 
 const player = usePlayerStore();
 const settings = useSettingStore();
+let disposeShortcuts: (() => void) | null = null;
 
 const updateTheme = () => {
   const isDark =
@@ -18,10 +19,21 @@ const updateTheme = () => {
 onMounted(() => {
   player.init();
   updateTheme();
+  disposeShortcuts = initShortcutSync();
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateTheme);
 });
 
+onUnmounted(() => {
+  disposeShortcuts?.();
+  disposeShortcuts = null;
+});
+
 watch(() => settings.theme, updateTheme);
+watch(
+  () => [settings.globalShortcutsEnabled, settings.globalShortcutBindings],
+  () => syncGlobalShortcuts(),
+  { deep: true }
+);
 </script>
 
 <template>

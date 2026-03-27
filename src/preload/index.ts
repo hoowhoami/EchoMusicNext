@@ -8,6 +8,15 @@ contextBridge.exposeInMainWorld('electron', {
     on: (channel: string, func: (...args: any[]) => void) =>
       ipcRenderer.on(channel, (event, ...args) => func(...args)),
   },
+  shortcuts: {
+    register: (payload: { enabled: boolean; shortcutMap: Record<string, string> }) =>
+      ipcRenderer.send('shortcuts:register', payload),
+    onTrigger: (func: (command: string) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, command: string) => func(command);
+      ipcRenderer.on('shortcut-trigger', listener);
+      return () => ipcRenderer.removeListener('shortcut-trigger', listener);
+    },
+  },
   windowControl: (action: 'minimize' | 'maximize' | 'close') =>
     ipcRenderer.send('window-control', action),
   apiServer: {

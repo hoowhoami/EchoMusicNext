@@ -1,4 +1,5 @@
 ignoredBuiltDependencies:
   - electron
+  - electron-winstaller
   - esbuild
   - vue-demi

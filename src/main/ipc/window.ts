@@ -14,4 +14,15 @@ export const registerWindowHandlers = ({ getMainWindow }: IpcContext) => {
       else browserWindow.maximize();
     } else if (action === 'close') browserWindow.close();
   });
+
+  ipcMain.on('window-toggle', () => {
+    const browserWindow = getMainWindow();
+    if (!browserWindow) return;
+    if (browserWindow.isVisible()) {
+      browserWindow.hide();
+    } else {
+      browserWindow.show();
+      browserWindow.focus();
+    }
+  });
 };

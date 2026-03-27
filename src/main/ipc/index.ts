@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain } from 'electron';
 import { registerApiServerHandlers } from './server';
 import { registerWindowHandlers } from './window';
 import { registerSettingsHandlers } from './settings';
+import { registerShortcutHandlers } from './shortcuts';
 
 interface IpcContext {
   getMainWindow: () => BrowserWindow | null;
@@ -14,11 +15,15 @@ export const registerIpcHandlers = (context: IpcContext) => {
   registerWindowHandlers(context);
   registerApiServerHandlers();
   registerSettingsHandlers(context);
+  registerShortcutHandlers(context);
   registered = true;
 };
 
 export const unregisterIpcHandlers = () => {
   ipcMain.removeAllListeners('window-control');
+  ipcMain.removeAllListeners('window-toggle');
+  ipcMain.removeAllListeners('shortcuts:register');
+  ipcMain.removeAllListeners('shortcuts:refresh');
   ipcMain.removeAllListeners('api-server:stop');
   ipcMain.removeAllListeners('open-log-directory');
   ipcMain.removeAllListeners('check-for-updates');
