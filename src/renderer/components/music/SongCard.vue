@@ -43,6 +43,7 @@ interface Props {
   parentPlaylistId?: string | number;
   enableRemoveFromPlaylist?: boolean;
   disableLinks?: boolean;
+  queueContext?: Song[];
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -217,28 +218,43 @@ const buildSongPayload = (): Song => ({
 
 const mergeSongIntoQueue = (payload: Song, replaceQueue: boolean) => {
   const list = playlistStore.defaultList.slice();
-  const existingIndex = list.findIndex((item) => String(item.id) === String(payload.id));
-  if (replaceQueue) {
-    const filtered = list.filter((item) => String(item.id) !== String(payload.id));
-    playlistStore.defaultList = [payload, ...filtered];
-    return;
-  }
-
-  if (existingIndex === -1) {
+  const exists = list.some((item) => String(item.id) === String(payload.id));
+  if (!exists) {
     playlistStore.defaultList = [payload, ...list];
   }
 };
 
-const handlePlayNow = () => {
+const replaceQueueWithContext = (payload: Song) => {
+  const contextList = props.queueContext?.slice() ?? [];
+  if (contextList.length === 0) {
+    mergeSongIntoQueue(payload, false);
+    return;
+  }
+  const exists = contextList.some((item) => String(item.id) === String(payload.id));
+  const normalized = exists
+    ? contextList.map((item) => (String(item.id) === String(payload.id) ? { ...item, ...payload } : item))
+    : [payload, ...contextList];
+  playlistStore.defaultList = normalized;
+};
+
+const playFromCard = (replaceQueue: boolean) => {
   if (!isPlayable.value) return;
   const payload = buildSongPayload();
-  mergeSongIntoQueue(payload, settingStore.replacePlaylist);
+  if (replaceQueue) {
+    replaceQueueWithContext(payload);
+  } else {
+    mergeSongIntoQueue(payload, false);
+  }
   void playerStore.playTrack(String(payload.id));
   router.push({ name: 'playing' });
 };
 
+const handlePlayNow = () => {
+  playFromCard(false);
+};
+
 const handleDoubleClick = () => {
-  handlePlayNow();
+  playFromCard(settingStore.replacePlaylist);
 };
 
 const handlePlayNext = () => {

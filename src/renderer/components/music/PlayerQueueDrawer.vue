@@ -207,6 +207,7 @@ const handleClear = () => {
               :payType="track.payType"
               :oldCpy="track.oldCpy"
               :relateGoods="track.relateGoods"
+              :queueContext="queueTracks"
               :showCover="true"
               :showAlbum="false"
               :showDuration="false"
@@ -218,15 +219,16 @@ const handleClear = () => {
 
           <div
             class="queue-duration"
-            :style="{ width: '64px', marginLeft: '6px', textAlign: 'right' }"
+            :style="{ marginLeft: '6px', textAlign: 'right' }"
           >
             {{ formatDuration(track.duration) }}
           </div>
 
           <button
-            v-if="String(track.id) !== String(currentTrackId)"
             type="button"
             class="queue-remove"
+            :class="{ 'is-hidden': String(track.id) === String(currentTrackId) }"
+            :disabled="String(track.id) === String(currentTrackId)"
             @click="handleRemove(track)"
           >
             <svg
@@ -387,6 +389,14 @@ const handleClear = () => {
   cursor: default;
 }
 
+.queue-row.is-current {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.dark .queue-row.is-current {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 .queue-row:hover {
   background: rgba(0, 0, 0, 0.05);
 }
@@ -451,12 +461,13 @@ const handleClear = () => {
 }
 
 .queue-duration {
-  width: 64px;
+  width: 72px;
   flex-shrink: 0;
   font-size: 12px;
   opacity: 0.4;
   margin-left: 8px;
   text-align: right;
+  padding-right: 6px;
   color: var(--color-text-secondary);
 }
 
@@ -476,6 +487,11 @@ const handleClear = () => {
 
 .queue-row:hover .queue-remove {
   opacity: 1;
+}
+
+.queue-remove.is-hidden {
+  opacity: 0 !important;
+  pointer-events: none;
 }
 
 .queue-remove:hover {

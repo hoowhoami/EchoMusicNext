@@ -290,6 +290,7 @@ const handleRemoveFromPlaylist = async () => {
               :payType="song.payType"
               :oldCpy="song.oldCpy"
               :relateGoods="song.relateGoods"
+              :queueContext="props.songs"
               :showCover="true"
               :showAlbum="false"
               :showDuration="false"
