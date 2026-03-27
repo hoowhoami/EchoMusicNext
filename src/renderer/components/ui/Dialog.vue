@@ -9,6 +9,7 @@ import {
   DialogRoot,
   DialogTitle,
   DialogClose,
+  VisuallyHidden,
 } from 'reka-ui';
 
 interface Props {
@@ -75,17 +76,32 @@ const bodyClass = computed(() => [
           </DialogClose>
 
           <div v-if="hasHeader" class="dialog-header">
-            <DialogTitle v-if="hasTitle" as-child>
-              <h3 class="dialog-title">
-                <slot name="title">{{ props.title }}</slot>
-              </h3>
-            </DialogTitle>
-            <DialogDescription v-if="hasDescription" as-child>
-              <p class="dialog-description">
-                <slot name="description">{{ props.description }}</slot>
-              </p>
-            </DialogDescription>
+            <template v-if="hasTitle">
+              <DialogTitle as-child>
+                <h3 class="dialog-title">
+                  <slot name="title">{{ props.title }}</slot>
+                </h3>
+              </DialogTitle>
+            </template>
+            <VisuallyHidden v-else>
+              <DialogTitle>对话框</DialogTitle>
+            </VisuallyHidden>
+
+            <template v-if="hasDescription">
+              <DialogDescription as-child>
+                <p class="dialog-description">
+                  <slot name="description">{{ props.description }}</slot>
+                </p>
+              </DialogDescription>
+            </template>
+            <VisuallyHidden v-else>
+              <DialogDescription>对话框内容</DialogDescription>
+            </VisuallyHidden>
           </div>
+          <VisuallyHidden v-else>
+            <DialogTitle>对话框</DialogTitle>
+            <DialogDescription>对话框内容</DialogDescription>
+          </VisuallyHidden>
 
           <div v-if="hasBody" :class="bodyClass">
             <slot />

@@ -7,6 +7,9 @@ import {
   DialogOverlay,
   DialogContent,
   DialogPortal,
+  DialogTitle,
+  DialogDescription,
+  VisuallyHidden,
 } from 'reka-ui';
 
 interface Props {
@@ -48,6 +51,10 @@ const panelClass = computed(() => [
 
       <DialogContent as-child>
         <div :class="panelClass" :style="panelStyle">
+          <VisuallyHidden>
+            <DialogTitle>侧边栏</DialogTitle>
+            <DialogDescription>侧边栏内容</DialogDescription>
+          </VisuallyHidden>
           <slot />
         </div>
       </DialogContent>
