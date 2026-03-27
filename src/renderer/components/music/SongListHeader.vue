@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { iconChevronDown, iconChevronUp } from '@/icons';
+
 export type SortField = 'index' | 'title' | 'album' | 'duration';
 export type SortOrder = 'asc' | 'desc' | null;
 
@@ -28,29 +30,24 @@ const handleSort = (field: SortField) => {
 </script>
 
 <template>
-  <div class="flex items-center px-6 py-2 text-[12px] text-text-main/80 font-bold border-b border-border-light/30">
+  <div
+    class="flex items-center px-6 py-2 text-[12px] text-text-main/80 font-bold border-b border-border-light/30"
+  >
     <div
       v-if="showIndex"
-      class="w-10 shrink-0 text-left pl-4 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
+      class="shrink-0 text-left pl-4 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
       @click="handleSort('index')"
     >
       <span>#</span>
-      <svg
+      <Icon
         v-if="sortField === 'index'"
         class="sort-icon"
         :class="{ 'rotate-180': sortOrder === 'desc' }"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-      >
-        <path d="M7 10l5 5 5-5z" />
-      </svg>
+        :icon="iconChevronDown"
+      />
       <span v-else class="sort-icon-stack">
-        <svg class="sort-icon" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M7 14l5-5 5 5z" />
-        </svg>
-        <svg class="sort-icon sort-icon-down" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M7 10l5 5 5-5z" />
-        </svg>
+        <Icon class="sort-icon" :icon="iconChevronUp" />
+        <Icon class="sort-icon sort-icon-down" :icon="iconChevronDown" />
       </span>
     </div>
 
@@ -60,22 +57,15 @@ const handleSort = (field: SortField) => {
       @click="handleSort('title')"
     >
       <span>标题</span>
-      <svg
+      <Icon
         v-if="sortField === 'title'"
         class="sort-icon"
         :class="{ 'rotate-180': sortOrder === 'desc' }"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-      >
-        <path d="M7 10l5 5 5-5z" />
-      </svg>
+        :icon="iconChevronDown"
+      />
       <span v-else class="sort-icon-stack">
-        <svg class="sort-icon" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M7 14l5-5 5 5z" />
-        </svg>
-        <svg class="sort-icon sort-icon-down" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M7 10l5 5 5-5z" />
-        </svg>
+        <Icon class="sort-icon" :icon="iconChevronUp" />
+        <Icon class="sort-icon sort-icon-down" :icon="iconChevronDown" />
       </span>
     </div>
 
@@ -85,22 +75,15 @@ const handleSort = (field: SortField) => {
       @click="handleSort('album')"
     >
       <span>专辑</span>
-      <svg
+      <Icon
         v-if="sortField === 'album'"
         class="sort-icon"
         :class="{ 'rotate-180': sortOrder === 'desc' }"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-      >
-        <path d="M7 10l5 5 5-5z" />
-      </svg>
+        :icon="iconChevronDown"
+      />
       <span v-else class="sort-icon-stack">
-        <svg class="sort-icon" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M7 14l5-5 5 5z" />
-        </svg>
-        <svg class="sort-icon sort-icon-down" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M7 10l5 5 5-5z" />
-        </svg>
+        <Icon class="sort-icon" :icon="iconChevronUp" />
+        <Icon class="sort-icon sort-icon-down" :icon="iconChevronDown" />
       </span>
     </div>
 
@@ -109,22 +92,15 @@ const handleSort = (field: SortField) => {
       @click="handleSort('duration')"
     >
       <span>时长</span>
-      <svg
+      <Icon
         v-if="sortField === 'duration'"
         class="sort-icon"
         :class="{ 'rotate-180': sortOrder === 'desc' }"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-      >
-        <path d="M7 10l5 5 5-5z" />
-      </svg>
+        :icon="iconChevronDown"
+      />
       <span v-else class="sort-icon-stack">
-        <svg class="sort-icon" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M7 14l5-5 5 5z" />
-        </svg>
-        <svg class="sort-icon sort-icon-down" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M7 10l5 5 5-5z" />
-        </svg>
+        <Icon class="sort-icon" :icon="iconChevronUp" />
+        <Icon class="sort-icon sort-icon-down" :icon="iconChevronDown" />
       </span>
     </div>
   </div>
@@ -134,8 +110,8 @@ const handleSort = (field: SortField) => {
 @reference "@/style.css";
 
 .sort-icon {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 
 .sort-icon-stack {
@@ -146,6 +122,6 @@ const handleSort = (field: SortField) => {
 }
 
 .sort-icon-down {
-  margin-top: -9px;
+  margin-top: -10px;
 }
 </style>

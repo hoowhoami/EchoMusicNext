@@ -10,6 +10,9 @@
     "format": "prettier --write \"src/**/*.{vue,ts,js,json}\" \"vite.config.ts\" \"tsconfig*.json\""
   },
   "dependencies": {
+    "@iconify/types": "^2.0.0",
+    "@iconify-icons/lucide": "^1.2.4",
+    "@iconify/vue": "^5.0.0",
     "axios": "^1.13.6",
     "conf": "^15.1.0",
     "electron-log": "^5.4.3",
