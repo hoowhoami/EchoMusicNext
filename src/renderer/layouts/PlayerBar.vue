@@ -94,14 +94,17 @@ const goToComments = () => {
 };
 
 const setPlaybackRate = (rate: number) => {
+  if (player.playbackRate === rate) return;
   player.setPlaybackRate(rate);
 };
 
 const setAudioQuality = (quality: '128' | '320' | 'flac' | 'high') => {
+  if (settingStore.audioQuality === quality) return;
   settingStore.audioQuality = quality;
 };
 
 const setAudioEffect = (effect: 'none' | 'piano' | 'acappella' | 'subwoofer' | 'ancient' | 'surnay' | 'dj' | 'viper_tape' | 'viper_atmos' | 'viper_clear') => {
+  if (settingStore.audioEffect === effect) return;
   settingStore.audioEffect = effect;
 };
 
@@ -114,6 +117,14 @@ const handleSeek = (value: number[] | undefined) => {
   if (value && value.length > 0) {
     player.seek(value[0]);
   }
+};
+
+const handleSeekStart = () => {
+  player.notifySeekStart();
+};
+
+const handleSeekEnd = () => {
+  player.notifySeekEnd();
 };
 
 const lastVolume = ref(0.8);
@@ -379,10 +390,26 @@ onUnmounted(() => {
             :step="0.1"
             class="relative flex items-center select-none touch-none flex-1 min-w-0 h-4 group/progress"
             @update:model-value="handleSeek"
+            @pointerdown="handleSeekStart"
+            @pointerup="handleSeekEnd"
+            @pointercancel="handleSeekEnd"
             @mouseenter="isHoveringProgress = true"
             @mouseleave="isHoveringProgress = false"
           >
             <SliderTrack class="player-progress-track bg-black/[0.08] relative grow rounded-full h-[3px]">
+              <div class="climax-mark-layer">
+                <template v-for="(mark, index) in player.climaxMarks" :key="`${mark.start}-${index}`">
+                  <span
+                    class="climax-tick"
+                    :style="{ left: `calc(${(mark.start * 100).toFixed(3)}% - 1px)` }"
+                  ></span>
+                  <span
+                    v-if="mark.end > mark.start"
+                    class="climax-tick"
+                    :style="{ left: `calc(${(mark.end * 100).toFixed(3)}% - 1px)` }"
+                  ></span>
+                </template>
+              </div>
               <SliderRange class="absolute bg-primary rounded-full h-full" />
             </SliderTrack>
             <SliderThumb
@@ -397,18 +424,23 @@ onUnmounted(() => {
       <!-- 3. 右侧：功能选项 - 弹性增长 -->
       <div class="player-actions flex-1 flex justify-end items-center gap-1 min-w-[120px] max-w-[320px]">
         <DropdownMenuRoot>
-        <DropdownMenuTrigger as-child>
-            <button class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90" title="播放倍速">
+          <DropdownMenuTrigger as-child>
+            <button
+              class="p-2 transition-all hover:scale-110 active:scale-90"
+              :class="player.playbackRate !== 1 ? 'text-primary' : 'text-text-main/50 hover:text-primary'"
+              title="播放倍速"
+            >
               <Icon :icon="iconSpeedometer" width="20" height="20" />
             </button>
-        </DropdownMenuTrigger>
+          </DropdownMenuTrigger>
           <DropdownMenuPortal>
-            <DropdownMenuContent class="player-dropdown" align="center" side="top" :side-offset="8" :align-offset="0">
+            <DropdownMenuContent class="player-dropdown player-dropdown--narrow" align="center" side="top" :side-offset="8" :align-offset="0">
               <div class="player-dropdown-title">播放倍速</div>
               <DropdownMenuItem
                 v-for="rate in playbackRates"
                 :key="rate"
                 class="player-dropdown-item"
+                :class="{ 'is-active': player.playbackRate === rate }"
                 @select="setPlaybackRate(rate)"
               >
                 <span>{{ rate.toFixed(2).replace(/\.00$/, '') }}x</span>
@@ -420,70 +452,132 @@ onUnmounted(() => {
         </DropdownMenuRoot>
 
         <DropdownMenuRoot>
-        <DropdownMenuTrigger as-child>
-          <button class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90" title="音质">
+          <DropdownMenuTrigger as-child>
+            <button
+              class="p-2 transition-all hover:scale-110 active:scale-90"
+              :class="settingStore.audioQuality !== 'high' || settingStore.audioEffect !== 'none'
+                ? 'text-primary'
+                : 'text-text-main/50 hover:text-primary'"
+              title="音质"
+            >
               <Icon :icon="iconPulse" width="20" height="20" />
-          </button>
-        </DropdownMenuTrigger>
+            </button>
+          </DropdownMenuTrigger>
           <DropdownMenuPortal>
-            <DropdownMenuContent class="player-dropdown" align="center" side="top" :side-offset="8" :align-offset="0">
+            <DropdownMenuContent class="player-dropdown player-dropdown--narrow" align="center" side="top" :side-offset="8" :align-offset="0">
               <div class="player-dropdown-title">音质</div>
-              <DropdownMenuItem class="player-dropdown-item" @select="setAudioQuality('high')">
+              <DropdownMenuItem
+                class="player-dropdown-item"
+                :class="{ 'is-active': settingStore.audioQuality === 'high' }"
+                @select="setAudioQuality('high')"
+              >
                 <span>Hi-Res</span>
                 <span v-if="settingStore.audioQuality === 'high'" class="player-dropdown-check">✓</span>
               </DropdownMenuItem>
-              <DropdownMenuItem class="player-dropdown-item" @select="setAudioQuality('flac')">
+              <DropdownMenuItem
+                class="player-dropdown-item"
+                :class="{ 'is-active': settingStore.audioQuality === 'flac' }"
+                @select="setAudioQuality('flac')"
+              >
                 <span>SQ 无损</span>
                 <span v-if="settingStore.audioQuality === 'flac'" class="player-dropdown-check">✓</span>
               </DropdownMenuItem>
-              <DropdownMenuItem class="player-dropdown-item" @select="setAudioQuality('320')">
+              <DropdownMenuItem
+                class="player-dropdown-item"
+                :class="{ 'is-active': settingStore.audioQuality === '320' }"
+                @select="setAudioQuality('320')"
+              >
                 <span>HQ 高品质</span>
                 <span v-if="settingStore.audioQuality === '320'" class="player-dropdown-check">✓</span>
               </DropdownMenuItem>
-              <DropdownMenuItem class="player-dropdown-item" @select="setAudioQuality('128')">
+              <DropdownMenuItem
+                class="player-dropdown-item"
+                :class="{ 'is-active': settingStore.audioQuality === '128' }"
+                @select="setAudioQuality('128')"
+              >
                 <span>标准</span>
                 <span v-if="settingStore.audioQuality === '128'" class="player-dropdown-check">✓</span>
               </DropdownMenuItem>
               <div class="player-dropdown-divider"></div>
               <div class="player-dropdown-title">音效</div>
               <div class="player-dropdown-scroll">
-                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('none')">
+                <DropdownMenuItem
+                  class="player-dropdown-item"
+                  :class="{ 'is-active': settingStore.audioEffect === 'none' }"
+                  @select="setAudioEffect('none')"
+                >
                   <span>无音效</span>
                   <span v-if="settingStore.audioEffect === 'none'" class="player-dropdown-check">✓</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('piano')">
+                <DropdownMenuItem
+                  class="player-dropdown-item"
+                  :class="{ 'is-active': settingStore.audioEffect === 'piano' }"
+                  @select="setAudioEffect('piano')"
+                >
                   <span>钢琴</span>
                   <span v-if="settingStore.audioEffect === 'piano'" class="player-dropdown-check">✓</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('acappella')">
+                <DropdownMenuItem
+                  class="player-dropdown-item"
+                  :class="{ 'is-active': settingStore.audioEffect === 'acappella' }"
+                  @select="setAudioEffect('acappella')"
+                >
                   <span>清唱</span>
                   <span v-if="settingStore.audioEffect === 'acappella'" class="player-dropdown-check">✓</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('subwoofer')">
+                <DropdownMenuItem
+                  class="player-dropdown-item"
+                  :class="{ 'is-active': settingStore.audioEffect === 'subwoofer' }"
+                  @select="setAudioEffect('subwoofer')"
+                >
                   <span>重低音</span>
                   <span v-if="settingStore.audioEffect === 'subwoofer'" class="player-dropdown-check">✓</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('ancient')">
+                <DropdownMenuItem
+                  class="player-dropdown-item"
+                  :class="{ 'is-active': settingStore.audioEffect === 'ancient' }"
+                  @select="setAudioEffect('ancient')"
+                >
                   <span>古风</span>
                   <span v-if="settingStore.audioEffect === 'ancient'" class="player-dropdown-check">✓</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('surnay')">
+                <DropdownMenuItem
+                  class="player-dropdown-item"
+                  :class="{ 'is-active': settingStore.audioEffect === 'surnay' }"
+                  @select="setAudioEffect('surnay')"
+                >
                   <span>唢呐</span>
                   <span v-if="settingStore.audioEffect === 'surnay'" class="player-dropdown-check">✓</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('dj')">
+                <DropdownMenuItem
+                  class="player-dropdown-item"
+                  :class="{ 'is-active': settingStore.audioEffect === 'dj' }"
+                  @select="setAudioEffect('dj')"
+                >
                   <span>DJ</span>
                   <span v-if="settingStore.audioEffect === 'dj'" class="player-dropdown-check">✓</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('viper_tape')">
+                <DropdownMenuItem
+                  class="player-dropdown-item"
+                  :class="{ 'is-active': settingStore.audioEffect === 'viper_tape' }"
+                  @select="setAudioEffect('viper_tape')"
+                >
                   <span>蝰蛇母带</span>
                   <span v-if="settingStore.audioEffect === 'viper_tape'" class="player-dropdown-check">✓</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('viper_atmos')">
+                <DropdownMenuItem
+                  class="player-dropdown-item"
+                  :class="{ 'is-active': settingStore.audioEffect === 'viper_atmos' }"
+                  @select="setAudioEffect('viper_atmos')"
+                >
                   <span>蝰蛇全景声</span>
                   <span v-if="settingStore.audioEffect === 'viper_atmos'" class="player-dropdown-check">✓</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem class="player-dropdown-item" @select="setAudioEffect('viper_clear')">
+                <DropdownMenuItem
+                  class="player-dropdown-item"
+                  :class="{ 'is-active': settingStore.audioEffect === 'viper_clear' }"
+                  @select="setAudioEffect('viper_clear')"
+                >
                   <span>蝰蛇超清</span>
                   <span v-if="settingStore.audioEffect === 'viper_clear'" class="player-dropdown-check">✓</span>
                 </DropdownMenuItem>
@@ -535,6 +629,25 @@ onUnmounted(() => {
   transition: background-color 0.3s ease;
 }
 
+.climax-mark-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.climax-tick {
+  position: absolute;
+  top: calc(50% - 3px);
+  width: 2px;
+  height: 6px;
+  border-radius: 1px;
+  background: rgba(0, 113, 227, 0.8);
+}
+
+.dark .climax-tick {
+  background: rgba(0, 113, 227, 0.65);
+}
+
 .player-actions {
   padding-right: 6px;
 }
@@ -556,7 +669,7 @@ onUnmounted(() => {
 
 :deep(.player-dropdown) {
   min-width: 168px;
-  padding: 8px;
+  padding: 8px 0 8px 8px;
   border-radius: 12px;
   background: var(--color-bg-card);
   border: 1px solid var(--color-border-light);
@@ -568,11 +681,15 @@ onUnmounted(() => {
   position: relative;
 }
 
+:deep(.player-dropdown--narrow) {
+  min-width: 136px;
+}
+
 :deep(.player-dropdown-title) {
   font-size: 11px;
   font-weight: 700;
   color: var(--color-text-secondary);
-  padding: 2px 6px 6px;
+  padding: 2px 8px 6px 6px;
 }
 
 :deep(.player-dropdown-item) {
@@ -580,12 +697,26 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 6px 8px;
+  margin-right: 8px;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
   color: var(--color-text-main);
   cursor: pointer;
   transition: all 0.2s ease;
+}
+
+:deep(.player-dropdown-scroll .player-dropdown-item) {
+  margin-right: 4px;
+}
+
+:deep(.player-dropdown-item.is-active) {
+  background-color: rgba(0, 113, 227, 0.12);
+  color: var(--color-primary);
+}
+
+:deep(.dark .player-dropdown-item.is-active) {
+  background-color: rgba(0, 113, 227, 0.2);
 }
 
 :deep(.player-dropdown-item:hover) {
@@ -604,23 +735,14 @@ onUnmounted(() => {
 
 :deep(.player-dropdown-divider) {
   height: 1px;
-  margin: 4px 6px;
+  margin: 4px 8px 4px 6px;
   background-color: var(--color-border-light);
 }
 
 :deep(.player-dropdown-scroll) {
   max-height: 168px;
   overflow-y: auto;
-  padding-right: 2px;
-}
-
-:deep(.player-dropdown-scroll::-webkit-scrollbar) {
-  width: 4px;
-}
-
-:deep(.player-dropdown-scroll::-webkit-scrollbar-thumb) {
-  background: var(--color-border-light);
-  border-radius: 999px;
+  padding-right: 1px;
 }
 
 :deep(.player-dropdown-arrow) {

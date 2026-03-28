@@ -32,7 +32,7 @@ watch(() => settings.theme, updateTheme);
 watch(
   () => [settings.globalShortcutsEnabled, settings.globalShortcutBindings],
   () => syncGlobalShortcuts(),
-  { deep: true }
+  { deep: true },
 );
 </script>
 

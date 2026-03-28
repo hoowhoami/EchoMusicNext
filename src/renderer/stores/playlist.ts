@@ -33,6 +33,7 @@ export interface Song {
   audioUrl: string;
   hash: string;
   mixSongId: string | number;
+  source?: string;
   lyric?: string;
   privilege?: number;
   payType?: number;

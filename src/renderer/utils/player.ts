@@ -1,3 +1,5 @@
+import { Howl } from 'howler';
+
 export interface PlayerEngineEvents {
   timeUpdate?: (currentTime: number) => void;
   durationChange?: (duration: number) => void;
@@ -26,39 +28,108 @@ const clamp = (value: number, min: number, max: number): number => {
 };
 
 export class PlayerEngine {
-  private audio: HTMLAudioElement;
+  private howl: Howl | null;
   private events: PlayerEngineEvents;
+  private sourceUrl: string;
+  private volumeValue: number;
+  private playbackRateValue: number;
+  private durationValue: number;
+  private timeUpdateTimer: number | null;
+  private lastTimeValue: number;
 
   constructor() {
-    this.audio = new Audio();
+    this.howl = null;
     this.events = {};
-    this.bindEvents();
+    this.sourceUrl = '';
+    this.volumeValue = 1;
+    this.playbackRateValue = 1;
+    this.durationValue = 0;
+    this.timeUpdateTimer = null;
+    this.lastTimeValue = -1;
   }
 
-  private bindEvents(): void {
-    this.audio.ontimeupdate = () => {
-      this.events.timeUpdate?.(this.audio.currentTime);
-    };
+  private emitDurationChange(): void {
+    const duration = this.duration;
+    if (!Number.isFinite(duration)) return;
+    if (duration === this.durationValue) return;
+    this.durationValue = duration;
+    this.events.durationChange?.(duration);
+  }
 
-    this.audio.ondurationchange = () => {
-      this.events.durationChange?.(this.audio.duration);
-    };
+  private emitTimeUpdate(): void {
+    const current = this.currentTime;
+    if (!Number.isFinite(current)) return;
+    if (current === this.lastTimeValue) return;
+    this.lastTimeValue = current;
+    this.events.timeUpdate?.(current);
+    this.emitDurationChange();
+  }
 
-    this.audio.onended = () => {
-      this.events.ended?.();
-    };
+  private startTimeUpdates(): void {
+    this.stopTimeUpdates();
+    this.emitTimeUpdate();
+    this.timeUpdateTimer = window.setInterval(() => {
+      this.emitTimeUpdate();
+    }, 250);
+  }
 
-    this.audio.onplay = () => {
-      this.events.play?.();
-    };
+  private stopTimeUpdates(): void {
+    if (this.timeUpdateTimer !== null) {
+      window.clearInterval(this.timeUpdateTimer);
+      this.timeUpdateTimer = null;
+    }
+  }
 
-    this.audio.onpause = () => {
-      this.events.pause?.();
-    };
+  private handleError(payload?: unknown): void {
+    const errorEvent = new Event('error');
+    if (payload && typeof payload === 'object') {
+      (errorEvent as Event & { detail?: unknown }).detail = payload;
+    }
+    this.events.error?.(errorEvent);
+  }
 
-    this.audio.onerror = (event) => {
-      this.events.error?.(event);
-    };
+  private cleanupHowl(): void {
+    this.stopTimeUpdates();
+    if (!this.howl) return;
+    this.howl.off();
+    this.howl.stop();
+    this.howl.unload();
+    this.howl = null;
+  }
+
+  private buildHowl(url: string): void {
+    this.cleanupHowl();
+    this.howl = new Howl({
+      src: [url],
+      html5: true,
+      volume: this.volumeValue,
+      rate: this.playbackRateValue,
+      onload: () => {
+        this.emitDurationChange();
+      },
+      onplay: () => {
+        this.events.play?.();
+        this.startTimeUpdates();
+      },
+      onpause: () => {
+        this.events.pause?.();
+        this.stopTimeUpdates();
+      },
+      onstop: () => {
+        this.events.pause?.();
+        this.stopTimeUpdates();
+      },
+      onend: () => {
+        this.stopTimeUpdates();
+        this.events.ended?.();
+      },
+      onloaderror: (_id, error) => {
+        this.handleError(error);
+      },
+      onplayerror: (_id, error) => {
+        this.handleError(error);
+      },
+    });
   }
 
   setEvents(events: PlayerEngineEvents): void {
@@ -67,13 +138,31 @@ export class PlayerEngine {
 
   setVolume(value: number): number {
     const next = clamp(value, 0, 1);
-    this.audio.volume = next;
+    this.volumeValue = next;
+    this.howl?.volume(next);
     return next;
+  }
+
+  fadeTo(value: number, durationMs = 0): Promise<void> {
+    const next = clamp(value, 0, 1);
+    if (!this.howl || durationMs <= 0) {
+      this.setVolume(next);
+      return Promise.resolve();
+    }
+    const from = this.volumeValue;
+    this.howl.fade(from, next, durationMs);
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        this.volumeValue = next;
+        resolve();
+      }, durationMs);
+    });
   }
 
   setPlaybackRate(rate: number): number {
     const next = clamp(rate, 0.5, 2);
-    this.audio.playbackRate = next;
+    this.playbackRateValue = next;
+    this.howl?.rate(next);
     return next;
   }
 
@@ -124,51 +213,79 @@ export class PlayerEngine {
     session.setActionHandler('pause', handlers.pause ?? null);
     session.setActionHandler('previoustrack', handlers.previoustrack ?? null);
     session.setActionHandler('nexttrack', handlers.nexttrack ?? null);
-    session.setActionHandler('seekto', handlers.seekto ? (details) => handlers.seekto?.(details.seekTime ?? 0) : null);
-    session.setActionHandler('seekbackward', handlers.seekbackward ? (details) => handlers.seekbackward?.(details.seekOffset ?? 10) : null);
-    session.setActionHandler('seekforward', handlers.seekforward ? (details) => handlers.seekforward?.(details.seekOffset ?? 10) : null);
+    session.setActionHandler(
+      'seekto',
+      handlers.seekto ? (details) => handlers.seekto?.(details.seekTime ?? 0) : null,
+    );
+    session.setActionHandler(
+      'seekbackward',
+      handlers.seekbackward ? (details) => handlers.seekbackward?.(details.seekOffset ?? 10) : null,
+    );
+    session.setActionHandler(
+      'seekforward',
+      handlers.seekforward ? (details) => handlers.seekforward?.(details.seekOffset ?? 10) : null,
+    );
   }
 
   setSource(url: string): void {
-    if (!url || this.audio.src === url) return;
-    this.audio.src = url;
-    this.audio.load();
+    if (!url || this.sourceUrl === url) return;
+    this.sourceUrl = url;
+    this.durationValue = 0;
+    this.lastTimeValue = -1;
+    this.events.durationChange?.(0);
+    this.buildHowl(url);
   }
 
   async play(): Promise<void> {
-    await this.audio.play();
+    if (!this.howl) return;
+    try {
+      this.howl.play();
+    } catch (error) {
+      this.handleError(error);
+      throw error;
+    }
   }
 
   pause(): void {
-    this.audio.pause();
+    this.howl?.pause();
   }
 
   seek(time: number): void {
-    this.audio.currentTime = time;
+    if (!this.howl) return;
+    this.howl.seek(time);
+    this.emitTimeUpdate();
   }
 
   reset(): void {
-    this.audio.pause();
-    this.audio.currentTime = 0;
+    this.cleanupHowl();
+    this.sourceUrl = '';
+    this.durationValue = 0;
+    this.lastTimeValue = -1;
+    this.events.durationChange?.(0);
+    this.events.timeUpdate?.(0);
   }
 
   get source(): string {
-    return this.audio.src;
+    return this.sourceUrl;
   }
 
   get currentTime(): number {
-    return this.audio.currentTime;
+    if (!this.howl) return 0;
+    const value = this.howl.seek();
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
   }
 
   get duration(): number {
-    return this.audio.duration;
+    if (!this.howl) return 0;
+    const value = this.howl.duration();
+    return Number.isFinite(value) ? value : 0;
   }
 
   get volume(): number {
-    return this.audio.volume;
+    return this.volumeValue;
   }
 
   get playbackRate(): number {
-    return this.audio.playbackRate;
+    return this.playbackRateValue;
   }
 }

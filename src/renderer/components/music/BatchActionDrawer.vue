@@ -422,32 +422,6 @@ const handleRemoveFromPlaylist = async () => {
   overflow: auto;
 }
 
-:global(.batch-list::-webkit-scrollbar) {
-  width: 10px;
-}
-
-:global(.batch-list::-webkit-scrollbar-track) {
-  background: transparent;
-}
-
-:global(.batch-list::-webkit-scrollbar-thumb) {
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 10px;
-}
-
-:global(.dark .batch-list::-webkit-scrollbar-thumb) {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-:global(.batch-list) {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
-}
-
-:global(.dark .batch-list) {
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-}
-
 .batch-empty {
   padding: 20px 0 28px;
   text-align: center;

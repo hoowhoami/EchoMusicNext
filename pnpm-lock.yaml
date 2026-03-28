@@ -30,6 +30,9 @@ importers:
       electron-log:
         specifier: ^5.4.3
         version: 5.4.3
+      howler:
+        specifier: ^2.2.4
+        version: 2.2.4
       pinia:
         specifier: ^2.3.1
         version: 2.3.1(typescript@5.7.3)(vue@3.5.30)
@@ -52,6 +55,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.2.2
         version: 4.2.2(vite@6.2.0)
+      '@types/howler':
+        specifier: ^2.2.12
+        version: 2.2.12
       '@types/node':
         specifier: ^22.13.9
         version: 22.13.9
@@ -1291,6 +1297,10 @@ packages:
     resolution: {integrity: sha512-nEnwB++1u5lVDM2UI4c1+5R+FYaKfaAzS4OococimjVm3nQw3TuzH5UNsocrcTBbhnerblyHj4A49qXbIiZdpA==}
     dependencies:
       '@types/node': 22.13.9
+    dev: true
+
+  /@types/howler@2.2.12:
+    resolution: {integrity: sha512-hy769UICzOSdK0Kn1FBk4gN+lswcj1EKRkmiDtMkUGvFfYJzgaDXmVXkSShS2m89ERAatGIPnTUlp2HhfkVo5g==}
     dev: true
 
   /@types/http-cache-semantics@4.2.0:
@@ -3578,6 +3588,10 @@ packages:
     dependencies:
       lru-cache: 6.0.0
     dev: true
+
+  /howler@2.2.4:
+    resolution: {integrity: sha512-iARIBPgcQrwtEr+tALF+rapJ8qSc+Set2GJQl7xT1MQzWaVkFebdJhR3alVlSiUf5U7nAANKuj3aWpwerocD5w==}
+    dev: false
 
   /http-cache-semantics@4.2.0:
     resolution: {integrity: sha512-dTxcvPXqPvXBQpq5dUr6mEMJX4oIEFv6bwom3FDwKRDsuIjjJGANqhBuoAn9c1RQJIdAKav33ED65E2ys+87QQ==}

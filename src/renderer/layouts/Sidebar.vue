@@ -29,7 +29,6 @@ const userInfo = computed(() => userStore.info);
 // 歌单页签状态：0 为自建，1 为收藏
 const activePlaylistTab = ref(0);
 
-// 歌单分类逻辑 (复刻 Flutter UserProvider)
 const createdPlaylists = computed(() =>
   playlistStore.userPlaylists.filter((p) => p.listCreateUserid === userInfo.value?.userid),
 );
@@ -171,7 +170,7 @@ watch(
       }
     }
   },
-  { immediate: true }
+  { immediate: true },
 );
 </script>
 
@@ -296,7 +295,7 @@ watch(
     </div>
 
     <!-- 滚动区域: 歌单列表 -->
-    <div class="flex-1 overflow-y-auto px-4 pb-6 no-scrollbar no-drag">
+    <div class="flex-1 overflow-y-auto px-4 pb-6 no-drag sidebar-scroll">
       <nav v-if="isLoggedIn" class="space-y-0.5">
         <!-- 渲染自建歌单 -->
         <template v-if="activePlaylistTab === 0">
@@ -325,7 +324,8 @@ watch(
                   'text-[13px] truncate w-full font-medium tracking-tight',
                   isActivePlaylist(p) ? 'text-primary' : 'text-text-main/90',
                 ]"
-              >{{ p.name }}</span>
+                >{{ p.name }}</span
+              >
             </div>
           </button>
           <div
@@ -363,7 +363,8 @@ watch(
                   'text-[13px] truncate w-full font-medium tracking-tight',
                   isActivePlaylist(p) ? 'text-primary' : 'text-text-main/90',
                 ]"
-              >{{ p.name }}</span>
+                >{{ p.name }}</span
+              >
             </div>
           </button>
 
@@ -397,7 +398,8 @@ watch(
                   'text-[13px] truncate w-full font-medium tracking-tight',
                   isActiveAlbum(a) ? 'text-primary' : 'text-text-main/90',
                 ]"
-              >{{ a.name }}</span>
+                >{{ a.name }}</span
+              >
             </div>
           </button>
           <div

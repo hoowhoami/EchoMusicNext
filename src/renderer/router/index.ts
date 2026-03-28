@@ -82,6 +82,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/details/CommentPage.vue'),
         meta: { title: '评论' },
       },
+      {
+        path: 'error',
+        name: 'error',
+        component: () => import('@/views/ErrorPage.vue'),
+        meta: { title: '出错了' },
+      },
     ],
   },
 ];

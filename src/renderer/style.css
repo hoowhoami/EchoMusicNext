@@ -60,9 +60,7 @@
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* 开启平滑滚动 */
     scroll-behavior: smooth;
-    /* 可选：让滚动更细腻不卡顿 */
     -webkit-overflow-scrolling: touch;
     @apply bg-bg-main text-text-main transition-colors duration-300;
   }
@@ -74,39 +72,73 @@
   }
 }
 
-/* 优化后的滚动条：加宽以便拖动，增加透明边距，并实现自动显示/隐藏 */
+/**
+ * Electron 专用 永不失效滚动条
+ * 解决：弹出层 / 下拉框 导致 hover 失效、滚动条消失
+ */
 ::-webkit-scrollbar {
-  width: 10px; /* 增加宽度 */
-  height: 10px;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: transparent; /* 默认隐藏 */
-  border-radius: 10px;
-  border: 2px solid transparent; /* 制造留白，解决“贴壁”感 */
-  background-clip: padding-box;
-  transition: background-color 0.3s ease; /* 添加平滑过度的动画 */
-  min-height: 40px; /* 确保内容极长时，滚动条依然足够长，方便拖动 */
-}
-
-/* 当鼠标悬浮在容器上时显示滚动条 */
-*:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.16);
-}
-
-.dark *:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.22);
-}
-
-/* 鼠标直接悬浮在滚动条上时加深颜色 */
-::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.3) !important;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.4) !important;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.08); /* 基础浅色 */
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  min-height: 36px;
+  transition: background-color 0.15s ease-out; /* 缩短时间，减少粘滞感 */
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12); /* 深色模式基础浅色 */
+}
+
+/* 交互状态：当鼠标直接在滑块上时 */
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.28) !important;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* 激活状态 */
+::-webkit-scrollbar-thumb:active {
+  background-color: rgba(0, 0, 0, 0.45) !important;
+}
+
+.dark ::-webkit-scrollbar-thumb:active {
+  background-color: rgba(255, 255, 255, 0.55) !important;
+}
+
+/* 核心方案：基于容器 hover 触发滑块显色 */
+/* 即使滑块本身没被 hover，只要鼠标在容器内，它就是“活跃”颜色 */
+/* 一旦鼠标离开容器（或被弹出层遮挡导致离开），强制回退到上面的基础淡色 */
+.view-port,
+.queue-list,
+.batch-list,
+.sidebar-scroll,
+.overflow-auto,
+.overflow-y-auto,
+[class*="scroll"] {
+  &:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.22);
+  }
+}
+
+.dark .view-port,
+.dark .queue-list,
+.dark .batch-list,
+.dark .sidebar-scroll,
+.dark .overflow-auto,
+.dark .overflow-y-auto,
+.dark [class*="scroll"] {
+  &:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.28);
+  }
 }

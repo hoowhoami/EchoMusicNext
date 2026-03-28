@@ -23,21 +23,14 @@ import {
   mapPlaylistMeta,
   parsePlaylistTracks,
   resolvePlaylistTrackQueryId,
+  mapCommentItem,
   type PlaylistMeta,
+  type Comment,
 } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconMusic, iconHeart } from '@/icons';
-
-interface PlaylistComment {
-  id: string | number;
-  userName: string;
-  avatar: string;
-  content: string;
-  time: string;
-  likeCount: number;
-}
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -46,11 +39,6 @@ const isRecord = (value: unknown): value is UnknownRecord => {
 };
 
 const toRecord = (value: unknown): UnknownRecord => (isRecord(value) ? value : {});
-
-const readString = (value: unknown, fallback = ''): string => {
-  if (value == null) return fallback;
-  return String(value);
-};
 
 const parseIntSafe = (value: unknown): number => {
   if (value == null) return 0;
@@ -68,7 +56,7 @@ const playlist = ref<PlaylistMeta | null>(null);
 const songs = ref<Song[]>([]);
 const activeTab = ref('songs');
 const loadingComments = ref(false);
-const comments = ref<PlaylistComment[]>([]);
+const comments = ref<Comment[]>([]);
 const commentTotal = ref(0);
 const commentPage = ref(1);
 const hasMoreComments = ref(true);
@@ -142,18 +130,6 @@ const playlistCommentId = computed(() => {
   }
   return getPlaylistId();
 });
-
-const mapCommentItem = (item: unknown): PlaylistComment => {
-  const record = toRecord(item);
-  return {
-    id: readString(record.comment_id ?? record.id ?? ''),
-    userName: readString(record.user_name ?? record.nickname ?? '匿名用户'),
-    avatar: readString(record.user_img ?? record.avatar ?? ''),
-    content: readString(record.content ?? ''),
-    time: readString(record.add_time ?? record.time ?? ''),
-    likeCount: parseIntSafe(record.like_count ?? record.count ?? 0),
-  };
-};
 
 const fetchComments = async (reset = false) => {
   if (loadingComments.value) return;
@@ -241,17 +217,12 @@ const fetchData = async () => {
   loading.value = true;
   try {
     const detailRes = await getPlaylistDetail(getPlaylistId());
-    if (
-      detailRes &&
-      typeof detailRes === 'object' &&
-      'status' in detailRes &&
-      detailRes.status === 1
-    ) {
-      const data = 'data' in detailRes ? (detailRes as { data?: unknown }).data : undefined;
-      const info = 'info' in detailRes ? (detailRes as { info?: unknown }).info : undefined;
-      const raw = Array.isArray(data ?? info) ? (data ?? info)?.[0] : (data ?? info);
-      if (raw) {
-        playlist.value = mapPlaylistMeta(raw);
+    if (detailRes) {
+      const { status, data } = detailRes;
+      if (status === 1) {
+        if (data?.[0]) {
+          playlist.value = mapPlaylistMeta(data?.[0]);
+        }
       }
     }
 
@@ -427,13 +398,13 @@ const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
 const sortedSongs = computed(() => {
   const base = songs.value.slice();
   if (!sortField.value || !sortOrder.value) return base;
-    const compareText = (a: string, b: string) =>
-      a.localeCompare(b, 'zh-Hans-CN', { sensitivity: 'base' });
-    const indexMap = new Map<string, number>();
-    songs.value.forEach((song, index) => {
-      indexMap.set(song.id, index);
-    });
-    const direction = sortOrder.value === 'asc' ? 1 : -1;
+  const compareText = (a: string, b: string) =>
+    a.localeCompare(b, 'zh-Hans-CN', { sensitivity: 'base' });
+  const indexMap = new Map<string, number>();
+  songs.value.forEach((song, index) => {
+    indexMap.set(song.id, index);
+  });
+  const direction = sortOrder.value === 'asc' ? 1 : -1;
 
   return base.sort((a, b) => {
     switch (sortField.value) {
@@ -450,7 +421,6 @@ const sortedSongs = computed(() => {
     }
   });
 });
-
 </script>
 
 <template>
@@ -567,14 +537,14 @@ const sortedSongs = computed(() => {
               </TabsList>
 
               <!-- 右侧搜索与定位 -->
-                <div v-if="activeTab === 'songs'" class="flex items-center gap-2">
-                  <div class="relative">
-                    <input
-                      v-model="searchQuery"
-                      type="text"
-                      placeholder="搜索歌曲..."
-                      class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] focus:ring-1 focus:ring-primary/40 transition-all"
-                    />
+              <div v-if="activeTab === 'songs'" class="flex items-center gap-2">
+                <div class="relative">
+                  <input
+                    v-model="searchQuery"
+                    type="text"
+                    placeholder="搜索歌曲..."
+                    class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] focus:ring-1 focus:ring-primary/40 transition-all"
+                  />
                   <Icon
                     class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60 dark:text-text-main/60"
                     :icon="iconSearch"
@@ -607,17 +577,17 @@ const sortedSongs = computed(() => {
       <!-- 3. 内容区域 -->
       <div class="pb-12">
         <Tabs :model-value="activeTab" class="w-full" @update:model-value="handleTabChange">
-        <TabsContent value="songs" class="px-6 flex flex-col flex-1 min-h-0">
-          <SongList
-            ref="songListRef"
-            :songs="sortedSongs"
-            :searchQuery="searchQuery"
-            :activeId="activeSongId"
-            :showCover="true"
-            :parentPlaylistId="playlist.listid || playlist.id"
-            :enableRemoveFromPlaylist="isOwnerPlaylist"
-          />
-        </TabsContent>
+          <TabsContent value="songs" class="px-6 flex flex-col flex-1 min-h-0">
+            <SongList
+              ref="songListRef"
+              :songs="sortedSongs"
+              :searchQuery="searchQuery"
+              :activeId="activeSongId"
+              :showCover="true"
+              :parentPlaylistId="playlist.listid || playlist.id"
+              :enableRemoveFromPlaylist="isOwnerPlaylist"
+            />
+          </TabsContent>
 
           <TabsContent value="comments" class="px-6 py-10">
             <div class="max-w-4xl mx-auto">

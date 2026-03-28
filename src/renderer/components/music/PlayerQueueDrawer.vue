@@ -304,32 +304,6 @@ const handleClear = () => {
   position: relative;
 }
 
-:global(.queue-list::-webkit-scrollbar) {
-  width: 10px;
-}
-
-:global(.queue-list::-webkit-scrollbar-track) {
-  background: transparent;
-}
-
-:global(.queue-list::-webkit-scrollbar-thumb) {
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 10px;
-}
-
-:global(.dark .queue-list::-webkit-scrollbar-thumb) {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-:global(.queue-list) {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
-}
-
-:global(.dark .queue-list) {
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-}
-
 .queue-row {
   display: flex;
   align-items: center;
