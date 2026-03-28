@@ -114,4 +114,8 @@ const handleSelect = (index: number) => {
 .dark .custom-tab-item.active {
   color: #ffffff;
 }
+
+.dark .custom-tab-item:hover {
+  color: color-mix(in srgb, #ffffff 88%, transparent);
+}
 </style>

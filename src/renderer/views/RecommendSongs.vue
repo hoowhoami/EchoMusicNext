@@ -204,6 +204,7 @@ onMounted(() => {
         :sortField="sortField"
         :sortOrder="sortOrder"
         :showCover="true"
+        paddingClass="px-6"
         @sort="handleSort"
       />
     </div>

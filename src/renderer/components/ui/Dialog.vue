@@ -20,6 +20,7 @@ interface Props {
   showClose?: boolean;
   overlayClass?: string;
   contentClass?: string;
+  contentStyle?: Record<string, string | number>;
   descriptionClass?: string;
   bodyClass?: string;
 }
@@ -62,7 +63,7 @@ const computedBodyClass = computed(() => [
       </DialogOverlay>
 
       <DialogContent as-child>
-        <div :class="contentClass">
+        <div :class="contentClass" :style="props.contentStyle">
           <!-- 关闭按钮 -->
           <DialogClose v-if="props.showClose" as-child>
             <button class="dialog-close" type="button" aria-label="关闭">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useVModel } from '@vueuse/core';
 import Dialog from '@/components/ui/Dialog.vue';
 import CustomTabBar from '@/components/ui/CustomTabBar.vue';
 
@@ -29,6 +30,8 @@ const emit = defineEmits<{
   (e: 'select', option: PickerOption): void;
 }>();
 
+const open = useVModel(props, 'open', emit, { defaultValue: false });
+
 const groupedOptions = computed(() => {
   const groups = new Map<string, PickerOption[]>();
   props.options.forEach((opt) => {
@@ -56,7 +59,7 @@ const handleSelect = (option: PickerOption) => {
 };
 
 watch(
-  () => props.open,
+  () => open.value,
   (open) => {
     if (!open) return;
     if (!hasTabs.value) return;
@@ -70,9 +73,10 @@ watch(
 
 <template>
   <Dialog
-    v-model:open="props.open"
+    v-model:open="open"
     :title="props.title"
     contentClass="custom-picker-dialog"
+    :contentStyle="{ maxWidth: `${props.maxWidth}px` }"
     showClose
   >
     <div v-if="hasTabs" class="custom-picker-tabs">
@@ -96,8 +100,10 @@ watch(
 <style scoped>
 @reference "@/style.css";
 
-.custom-picker-dialog {
+:deep(.custom-picker-dialog) {
   width: min(520px, 92vw);
+  border-radius: 24px !important;
+  padding: 18px 2px 16px 18px !important;
 }
 
 .custom-picker-tabs {
@@ -108,20 +114,30 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  padding: 0 14px 14px;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 .custom-picker-option {
-  @apply px-4 py-2 rounded-[10px] border border-border-light text-[12px] font-semibold text-text-main transition-all;
+  @apply px-4 py-2 rounded-[10px] text-[12px] font-semibold transition-all;
+  color: var(--color-text-main);
+  border: 1px solid color-mix(in srgb, var(--color-text-main) 8%, transparent);
   background: color-mix(in srgb, var(--color-text-main) 6%, transparent);
 }
 
 .custom-picker-option.active {
-  @apply border-primary text-primary;
-  background: color-mix(in srgb, var(--color-primary) 15%, transparent);
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #ffffff;
+}
+
+.dark .custom-picker-option.active {
+  color: #000000;
 }
 
 .custom-picker-option:hover {
-  @apply border-primary/40;
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
 </style>

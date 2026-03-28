@@ -3,12 +3,13 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { getNewSongs } from '@/api/music';
-import { getPlaylistByCategory, getPlaylistTags, getRanks, getRankTop } from '@/api/playlist';
+import { getPlaylistByCategory, getPlaylistTags, getRanks, getRankTop, getRankSongs } from '@/api/playlist';
 import {
   mapPlaylistMeta,
   parsePlaylistTracks,
   mapAlbumMeta,
   mapRankMeta,
+  mapRankSong,
   type PlaylistMeta,
   type AlbumMeta,
   type RankMeta,
@@ -25,14 +26,11 @@ import CustomSelector from '@/components/ui/CustomSelector.vue';
 import CustomPicker, { type PickerOption } from '@/components/ui/CustomPicker.vue';
 import AlbumCard from '@/components/music/AlbumCard.vue';
 import { getAlbumTop } from '@/api/music';
-import { useRouter } from 'vue-router';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCurrentLocation, iconSearch } from '@/icons';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
-const router = useRouter();
-
 const recommendedPlaylists = ref<PlaylistMeta[]>([]);
 const newSongs = ref<Song[]>([]);
 const loadingPlaylists = ref(true);
@@ -60,15 +58,18 @@ const rankSortOrder = ref<SortOrder>(null);
 
 const albumTypes = ref<PickerOption[]>([
   { id: 'all', name: '全部' },
-  { id: '1', name: '华语' },
-  { id: '2', name: '欧美' },
-  { id: '3', name: '日本' },
-  { id: '4', name: '韩国' },
+  { id: 'chn', name: '华语' },
+  { id: 'eur', name: '欧美' },
+  { id: 'jpn', name: '日本' },
+  { id: 'kor', name: '韩国' },
 ]);
 const albumTypeId = ref('all');
 const albumTypeLabel = ref('全部');
-const albums = ref<AlbumMeta[]>([]);
+const albumPayload = ref<Record<string, unknown>>({});
+const albumFallbackList = ref<unknown[]>([]);
 const loadingAlbums = ref(true);
+const exploreHeaderHeight = 110;
+const rankToolbarOffset = exploreHeaderHeight + 52;
 
 const visibleNewSongs = computed(() => newSongs.value.slice(0, 10));
 const activeRankSongId = computed(() => playerStore.currentTrackId ?? undefined);
@@ -99,12 +100,61 @@ const sortedRankSongs = computed(() => {
   });
 });
 
+const albums = computed<AlbumMeta[]>(() => {
+  const map = albumPayload.value;
+  const readList = (value: unknown) => (Array.isArray(value) ? value : []);
+  const typeKeys = ['chn', 'eur', 'jpn', 'kor'];
+  let rawList: unknown[] = [];
+  if (albumTypeId.value === 'all') {
+    rawList = typeKeys.flatMap((key) => readList(map[key]));
+    if (rawList.length === 0) rawList = albumFallbackList.value;
+  } else {
+    rawList = readList(map[albumTypeId.value]);
+    if (rawList.length === 0) rawList = albumFallbackList.value;
+  }
+  return rawList.map((item) => mapAlbumMeta(item));
+});
+
+const hasAlbums = computed(() => albums.value.length > 0);
+
+const rankFilteredCount = computed(() => {
+  const query = rankSearchQuery.value.trim().toLowerCase();
+  if (!query) return sortedRankSongs.value.length;
+  return sortedRankSongs.value.filter((song) => {
+    return (
+      song.title.toLowerCase().includes(query) ||
+      song.artist.toLowerCase().includes(query) ||
+      song.album?.toLowerCase().includes(query)
+    );
+  }).length;
+});
+
+const rankSongCountLabel = computed(() => {
+  const total = rankSongs.value.length;
+  if (!rankSearchQuery.value.trim()) return `${total}`;
+  return `${rankFilteredCount.value} / ${total}`;
+});
+
 const extractList = (payload: unknown): unknown[] => {
   if (Array.isArray(payload)) return payload;
   if (payload && typeof payload === 'object') {
     const record = payload as Record<string, unknown>;
-    const data = record.data as Record<string, unknown> | undefined;
-    const list = data?.special_list ?? data?.list ?? record.list ?? record.info ?? data ?? record;
+    const data = record.data;
+    const dataRecord =
+      data && typeof data === 'object' && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
+        : undefined;
+    const songsRecord = (dataRecord?.songs as Record<string, unknown> | undefined) ?? undefined;
+    const list =
+      dataRecord?.special_list ??
+      dataRecord?.list ??
+      dataRecord?.info ??
+      dataRecord?.songlist ??
+      songsRecord?.list ??
+      record.list ??
+      record.info ??
+      data ??
+      record;
     return Array.isArray(list) ? list : [];
   }
   return [];
@@ -196,6 +246,9 @@ const loadRankSongs = async (targetId: number) => {
     const res = await getRankSongs(targetId, 1, 100);
     const list = extractList(res).map((item) => mapRankSong(item));
     rankSongs.value = list;
+    rankSortField.value = null;
+    rankSortOrder.value = null;
+    rankSearchQuery.value = '';
   } catch (error) {
     rankSongs.value = [];
   } finally {
@@ -206,11 +259,15 @@ const loadRankSongs = async (targetId: number) => {
 const loadAlbums = async () => {
   loadingAlbums.value = true;
   try {
-    const res = await getAlbumTop(albumTypeId.value === 'all' ? '' : albumTypeId.value);
-    const list = extractList(res).map((item) => mapAlbumMeta(item));
-    albums.value = list;
+    const res = await getAlbumTop();
+    const record = (res && typeof res === 'object') ? (res as Record<string, unknown>) : undefined;
+    const data = record?.data ?? record?.info ?? record;
+    const isMap = data && typeof data === 'object' && !Array.isArray(data);
+    albumPayload.value = (isMap ? (data as Record<string, unknown>) : {});
+    albumFallbackList.value = extractList(res);
   } catch (error) {
-    albums.value = [];
+    albumPayload.value = {};
+    albumFallbackList.value = [];
   } finally {
     loadingAlbums.value = false;
   }
@@ -275,18 +332,6 @@ watch(
   },
 );
 
-watch(
-  () => albumTypeId.value,
-  () => {
-    void loadAlbums();
-  },
-);
-
-const handleRankNavigate = () => {
-  if (!rankId.value) return;
-  router.push({ name: 'ranking' });
-};
-
 const handleSelectRank = (option: PickerOption) => {
   const id = Number.parseInt(option.id, 10);
   if (Number.isNaN(id)) return;
@@ -310,14 +355,18 @@ const handleSelectAlbumType = (option: PickerOption) => {
 </script>
 
 <template>
-  <div class="explore-view px-10 pt-5 pb-10">
-    <div class="text-[24px] font-semibold text-text-main tracking-tight">发现音乐</div>
-
-    <div class="mt-4">
-      <CustomTabBar
-        v-model="activeTabIndex"
-        :tabs="['歌单', '排行榜', '新碟上架', '新歌速递']"
-      />
+  <div
+    class="explore-view px-10 pt-5 pb-10"
+    :style="{ '--explore-header-height': `${exploreHeaderHeight}px` }"
+  >
+    <div class="explore-header">
+      <div class="text-[24px] font-semibold text-text-main tracking-tight">发现音乐</div>
+      <div class="mt-4">
+        <CustomTabBar
+          v-model="activeTabIndex"
+          :tabs="['歌单', '排行榜', '新碟上架', '新歌速递']"
+        />
+      </div>
     </div>
 
     <div v-if="activeTabIndex === 0" class="mt-6">
@@ -346,12 +395,76 @@ const handleSelectAlbumType = (option: PickerOption) => {
     </div>
 
     <div v-else-if="activeTabIndex === 1" class="mt-6">
-      <div class="explore-toolbar">
-        <CustomSelector :label="rankLabel" @click="showRankPicker = true" />
+      <div class="rank-toolbar sticky z-[120] bg-bg-main">
+        <div class="rank-toolbar-inner">
+          <CustomSelector :label="rankLabel" @click="showRankPicker = true" />
+          <div class="rank-toolbar-actions">
+            <div class="rank-action-scroll no-scrollbar">
+              <ActionRow @play="playRankSongs" @batch="openRankBatchDrawer" />
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="ranking-embed" @click="handleRankNavigate">
-        <div class="ranking-embed-title">进入排行榜</div>
-        <div class="ranking-embed-sub">当前：{{ rankLabel }}</div>
+
+      <BatchActionDrawer v-model:open="showRankBatchDrawer" :songs="rankSongs" source-id="rank" />
+
+      <div
+        class="song-list-sticky sticky z-[110] bg-bg-main"
+        :style="{ top: `${rankToolbarOffset}px` }"
+      >
+        <div class="px-10 border-b border-border-light/10">
+          <div class="flex items-center justify-between h-14">
+            <div class="rank-song-tab">
+              <span class="rank-song-label">歌曲</span>
+              <span class="rank-song-badge">{{ rankSongCountLabel }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="relative">
+                <input
+                  v-model="rankSearchQuery"
+                  type="text"
+                  placeholder="搜索歌曲..."
+                  class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] focus:ring-1 focus:ring-primary/40 transition-all"
+                />
+                <Icon
+                  class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60"
+                  :icon="iconSearch"
+                  width="14"
+                  height="14"
+                />
+              </div>
+              <button
+                @click="handleRankLocate"
+                class="song-locate-btn p-2 rounded-lg"
+                title="定位当前播放"
+              >
+                <Icon :icon="iconCurrentLocation" width="16" height="16" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <SongListHeader
+          :sortField="rankSortField"
+          :sortOrder="rankSortOrder"
+          :showCover="true"
+          paddingClass="px-10"
+          @sort="handleRankSort"
+        />
+      </div>
+
+      <div class="px-10 pb-12">
+        <div v-if="loadingRankSongs" class="flex items-center justify-center py-20">
+          <div class="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        <SongList
+          v-else
+          ref="rankSongListRef"
+          :songs="sortedRankSongs"
+          :searchQuery="rankSearchQuery"
+          :activeId="activeRankSongId"
+          :showCover="true"
+        />
       </div>
     </div>
 
@@ -360,6 +473,7 @@ const handleSelectAlbumType = (option: PickerOption) => {
         <CustomSelector :label="albumTypeLabel" @click="showAlbumPicker = true" />
       </div>
       <div v-if="loadingAlbums" class="h-[230px] flex items-center justify-center text-[12px] text-text-secondary/70">加载中...</div>
+      <div v-else-if="!hasAlbums" class="h-[230px] flex items-center justify-center text-[12px] text-text-secondary/70">暂无专辑</div>
       <div v-else class="album-grid">
         <AlbumCard
           v-for="album in albums"
@@ -421,6 +535,15 @@ const handleSelectAlbumType = (option: PickerOption) => {
 <style scoped>
 @reference "@/style.css";
 
+.explore-header {
+  position: sticky;
+  top: 0;
+  z-index: 130;
+  background: var(--color-bg-main);
+  padding: 0 0 12px 0;
+  min-height: var(--explore-header-height);
+}
+
 .explore-toolbar {
   display: flex;
   align-items: center;
@@ -442,28 +565,70 @@ const handleSelectAlbumType = (option: PickerOption) => {
   aspect-ratio: auto;
 }
 
-.ranking-embed {
-  height: 180px;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  cursor: pointer;
+.rank-toolbar {
+  top: var(--explore-header-height);
 }
 
-.ranking-embed-title {
+.rank-toolbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 10px 40px 6px;
+}
+
+.rank-toolbar-actions {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.rank-action-scroll {
+  overflow-x: auto;
+}
+
+.rank-action-scroll :deep(.action-row-wrap) {
+  flex-wrap: nowrap;
+}
+
+.rank-song-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  height: 36px;
+}
+
+.rank-song-label {
+  position: relative;
   font-size: 14px;
   font-weight: 600;
-  color: var(--color-primary);
+  color: var(--color-text-main);
+  padding-bottom: 6px;
 }
 
-.ranking-embed-sub {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--color-text-main) 60%, transparent);
+.rank-song-label::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 70%, transparent);
+}
+
+.rank-song-badge {
+  margin-left: -4px;
+  transform: translateY(-8px);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--color-primary);
+  border: 1.5px solid var(--color-bg-main);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
 .album-grid {

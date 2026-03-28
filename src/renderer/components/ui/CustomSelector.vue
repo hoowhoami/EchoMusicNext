@@ -28,11 +28,14 @@ const handleClick = () => {
 @reference "@/style.css";
 
 .custom-selector {
-  @apply inline-flex items-center gap-2 h-9 px-3 rounded-[10px] border border-border-light bg-black/[0.06] dark:bg-white/[0.06] text-text-main text-[13px] font-semibold transition-all;
+  @apply inline-flex items-center gap-2 h-9 px-3 rounded-[10px] text-text-main text-[13px] font-semibold transition-all;
+  border: 1px solid color-mix(in srgb, var(--color-text-main) 8%, transparent);
+  background: color-mix(in srgb, var(--color-text-main) 6%, transparent);
 }
 
 .custom-selector:hover {
-  @apply border-primary/30 bg-black/[0.08] dark:bg-white/[0.08];
+  border-color: color-mix(in srgb, var(--color-text-main) 12%, transparent);
+  background: color-mix(in srgb, var(--color-text-main) 8%, transparent);
 }
 
 .custom-selector-label {
