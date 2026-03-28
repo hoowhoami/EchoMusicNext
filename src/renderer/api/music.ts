@@ -69,6 +69,15 @@ export function getNewSongs() {
 }
 
 /**
+ * 获取新碟上架
+ */
+export function getAlbumTop(type = '', page = 1, pagesize = 30) {
+  return request.get('/top/album', {
+    params: { type, page, pagesize },
+  });
+}
+
+/**
  * 获取每日推荐歌曲
  */
 export function getEverydayRecommend() {
@@ -81,5 +90,27 @@ export function getEverydayRecommend() {
 export function getSongClimax(hash: string) {
   return request.get('/song/climax', {
     params: { hash },
+  });
+}
+
+/**
+ * 获取歌曲榜单信息
+ */
+export function getSongRanking(albumAudioId: string | number) {
+  return request.get('/song/ranking', {
+    params: { album_audio_id: albumAudioId },
+  });
+}
+
+/**
+ * 获取歌曲榜单过滤
+ */
+export function getSongRankingFilter(
+  albumAudioId: string | number,
+  page = 1,
+  pagesize = 30,
+) {
+  return request.get('/song/ranking/filter', {
+    params: { album_audio_id: albumAudioId, page, pagesize },
   });
 }

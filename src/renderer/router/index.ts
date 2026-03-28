@@ -29,6 +29,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Home.vue'),
       },
       {
+        path: 'recommend',
+        name: 'recommend-songs',
+        component: () => import('@/views/RecommendSongs.vue'),
+        meta: { title: '每日推荐' },
+      },
+      {
         path: 'collection',
         name: 'collection',
         component: () => import('@/views/Collection.vue'),
@@ -97,16 +103,11 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach((to, from) => {
-  // 不需要跳过历史，直接放行
-  if (!to.meta.skipHistory) return true;
+router.beforeEach((to) => {
+  // 不需要跳过历史，或者已经是重定向（replace）后的导航，直接放行
+  if (!to.meta.skipHistory || to.redirectedFrom) return true;
 
-  // 如果是来自同一个路由 = 已经重写过了，直接放行
-  if (from.fullPath === to.fullPath) {
-    return true;
-  }
-
-  // 只执行一次 replace
+  // 触发一次 replace 导航
   return {
     ...to,
     replace: true,

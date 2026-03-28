@@ -21,6 +21,7 @@ export interface PlaylistMeta {
   listCreateListid?: number;
   listid?: number;
   musiclibId?: number;
+  ipId?: number;
   name: string;
   pic: string;
   intro: string;
@@ -55,6 +56,15 @@ export interface AlbumMeta {
   company: string;
 }
 
+export interface RankMeta {
+  id: number;
+  name: string;
+  pic: string;
+  rankType?: number;
+  rankTypeName?: string;
+  updateFrequency?: string;
+}
+
 export interface ArtistMeta {
   id: number;
   name: string;
@@ -73,6 +83,14 @@ export interface Comment {
   content: string;
   time: string;
   likeCount: number;
+  replyCount?: number;
+  isHot?: boolean;
+  isStar?: boolean;
+  raw?: UnknownRecord;
+  specialId?: string;
+  tid?: string;
+  code?: string;
+  mixSongId?: string;
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -489,8 +507,52 @@ export const mapAlbumSong = (json: unknown): Song => {
   };
 };
 
+export const mapRankSong = (json: unknown): Song => {
+  const record = toRecord(json);
+  const audioInfo = getRecord(record, 'audio_info') ?? EMPTY_RECORD;
+  const albumInfo = getRecord(record, 'album_info') ?? EMPTY_RECORD;
+  const transParam = getRecord(record, 'trans_param') ?? EMPTY_RECORD;
+  const deprecated = getRecord(record, 'deprecated') ?? EMPTY_RECORD;
+  const privilegeDownload =
+    getRecord(record, 'privilege_download') ??
+    getRecord(record, 'privilegeDownload') ??
+    EMPTY_RECORD;
+  const artists = buildArtists(record, audioInfo);
+
+  const cover = readString(
+    pickValue(albumInfo.sizable_cover, transParam.union_cover, record.img, record.pic, ''),
+  );
+
+  const durationRaw = parseIntSafe(pickValue(audioInfo.duration_128, audioInfo.duration, 0));
+
+  const privilege = parseOptionalInt(pickValue(record.privilege, privilegeDownload.privilege));
+  const oldCpy = parseOptionalInt(pickValue(deprecated.old_cpy, record.old_cpy));
+  const payType = parseOptionalInt(pickValue(deprecated.pay_type, record.pay_type));
+
+  const relateGoods = buildRelateGoods(record, audioInfo);
+
+  return {
+    id: readString(pickValue(record.audio_id, record.mixsongid, audioInfo.audio_id, '')),
+    title: processSongTitle(readString(pickValue(record.songname, record.name, '未知歌曲'))),
+    artist: normalizeText(readString(pickValue(record.author_name, record.singername, record.singer, ''))),
+    artists,
+    album: normalizeText(readString(pickValue(albumInfo.album_name, record.album_name, ''))),
+    albumId: readString(pickValue(record.album_id, albumInfo.album_id, '')),
+    duration: Math.floor(durationRaw / 1000),
+    coverUrl: getCoverUrl(cover, 400),
+    audioUrl: '',
+    hash: readString(pickValue(audioInfo.hash_128, audioInfo.hash, record.hash, '')),
+    mixSongId: parseIntSafe(pickValue(record.audio_id, record.mixsongid, audioInfo.audio_id, 0)),
+    relateGoods,
+    privilege,
+    payType,
+    oldCpy,
+  };
+};
+
 export const mapPlaylistMeta = (json: unknown): PlaylistMeta => {
   const record = toRecord(json);
+  const extra = getRecord(record, 'extra') ?? EMPTY_RECORD;
   const isUserPlaylist =
     Object.prototype.hasOwnProperty.call(record, 'list_create_userid') &&
     (Object.prototype.hasOwnProperty.call(record, 'listid') ||
@@ -499,7 +561,6 @@ export const mapPlaylistMeta = (json: unknown): PlaylistMeta => {
   if (isUserPlaylist) {
     const typeValue = parseOptionalInt(record.type);
     const isDefault = record.is_def === 1 || record.is_default === 1 || record.is_def === 2;
-    console.log(record.musiclib_id);
     return {
       id: parseIntSafe(pickValue(record.listid, record.specialid, 0)),
       listid: parseIntSafe(record.listid),
@@ -510,6 +571,7 @@ export const mapPlaylistMeta = (json: unknown): PlaylistMeta => {
       listCreateUserid: parseOptionalInt(record.list_create_userid),
       listCreateListid: parseOptionalInt(record.list_create_listid),
       musiclibId: parseOptionalInt(record.musiclib_id),
+      ipId: parseOptionalInt(pickValue(record.ip_id, extra.ip_id, record.id)),
       name: readString(pickValue(record.name, record.specialname, '')),
       pic: formatPic(pickValue(record.pic, record.imgurl, record.cover, record.img, '')),
       intro: readString(pickValue(record.intro, record.description, record.desc, ''), ''),
@@ -538,9 +600,9 @@ export const mapPlaylistMeta = (json: unknown): PlaylistMeta => {
   }
 
   return {
-    id: parseIntSafe(pickValue(record.specialid, record.listid, record.global_collection_id, 0)),
+    id: parseIntSafe(pickValue(record.specialid, record.listid, record.global_collection_id, extra.specialid, 0)),
     globalCollectionId: readString(
-      pickValue(record.global_collection_id, record.gid, record.specialid, ''),
+      pickValue(record.global_collection_id, record.gid, record.specialid, extra.global_collection_id, ''),
     ),
     listCreateGid: readString(
       pickValue(
@@ -548,25 +610,29 @@ export const mapPlaylistMeta = (json: unknown): PlaylistMeta => {
         record.global_collection_id,
         record.gid,
         record.specialid,
+        extra.global_collection_id,
+        extra.global_special_id,
+        extra.specialid,
         '',
       ),
     ),
-    listCreateUserid: parseOptionalInt(pickValue(record.list_create_userid, record.userid)),
-    listCreateListid: parseOptionalInt(pickValue(record.list_create_listid, record.specialid)),
-    name: readString(pickValue(record.specialname, record.name, '')),
-    pic: formatPic(pickValue(record.flexible_cover, record.pic, record.imgurl, record.img, '')),
-    intro: readString(pickValue(record.intro, record.description, record.desc, ''), ''),
+    listCreateUserid: parseOptionalInt(pickValue(record.list_create_userid, extra.list_create_userid, record.userid)),
+    listCreateListid: parseOptionalInt(pickValue(record.list_create_listid, extra.specialid, record.specialid)),
+    ipId: parseOptionalInt(pickValue(record.ip_id, extra.ip_id, record.id)),
+    name: readString(pickValue(record.specialname, record.name, record.title, '')),
+    pic: formatPic(pickValue(record.flexible_cover, record.pic, record.imgurl, record.img, record.image_url, '')),
+    intro: readString(pickValue(record.intro, record.description, record.desc, record.sub_title, ''), ''),
     nickname: readString(
-      pickValue(record.nickname, record.username, record.author, record.list_create_username, ''),
+      pickValue(record.nickname, record.username, record.author, record.list_create_username, extra.list_create_username, ''),
     ),
     userPic: formatPic(
       pickValue(record.user_pic, record.avatar, record.create_user_pic, record.author_pic, ''),
     ),
     tags: readString(record.tags, ''),
     playCount: parseIntSafe(
-      pickValue(record.playcount, record.play_count, record.count, record.play_total, 0),
+      pickValue(record.playcount, record.play_count, record.count, record.play_total, extra.play_count, 0),
     ),
-    count: parseIntSafe(pickValue(record.song_count, record.songcount, record.count, 0)),
+    count: parseIntSafe(pickValue(record.song_count, record.songcount, record.count, extra.song_count, 0)),
     isPrivate: false,
     heat: parseOptionalInt(
       pickValue(record.collectcount, record.collect_count, record.collect_total),
@@ -639,20 +705,34 @@ export const mapAlbumMeta = (json: unknown): AlbumMeta => {
 
 export const mapAlbumDetailMeta = (json: unknown): AlbumMeta => {
   const record = toRecord(json);
+  const extra = getRecord(record, 'extra') ?? EMPTY_RECORD;
   return {
-    id: parseIntSafe(pickValue(record.album_id, record.albumid, record.id, 0)),
-    name: readString(pickValue(record.album_name, record.albumname, record.name, '')),
+    id: parseIntSafe(pickValue(record.album_id, record.albumid, record.id, extra.album_id, 0)),
+    name: readString(pickValue(record.album_name, record.albumname, record.name, extra.album_name, '')),
     pic: formatPic(
-      pickValue(record.sizable_cover, record.imgurl, record.img, record.pic, record.cover, ''),
+      pickValue(
+        record.sizable_cover,
+        record.imgurl,
+        record.img,
+        record.pic,
+        record.cover,
+        extra.sizable_cover,
+        extra.cover,
+        '',
+      ),
     ),
-    intro: readString(record.intro, ''),
-    singerName: readString(pickValue(record.author_name, record.singername, record.singer, '')),
-    singerId: parseIntSafe(pickValue(record.author_id, record.singerid, 0)),
+    intro: readString(pickValue(record.intro, extra.intro, '')),
+    singerName: readString(
+      pickValue(record.author_name, record.singername, record.singer, extra.singer_name, ''),
+    ),
+    singerId: parseIntSafe(pickValue(record.author_id, record.singerid, extra.singer_id, 0)),
     publishTime: readString(
-      pickValue(record.publish_date, record.publishtime, record.publish_time, ''),
+      pickValue(record.publish_date, record.publishtime, record.publish_time, extra.publish_time, ''),
     ).split(' ')[0],
-    songCount: parseIntSafe(pickValue(record.song_count, record.songcount, 0)),
-    playCount: parseIntSafe(pickValue(record.play_count, record.play_times, record.playcount, 0)),
+    songCount: parseIntSafe(pickValue(record.song_count, record.songcount, extra.song_count, 0)),
+    playCount: parseIntSafe(
+      pickValue(record.play_count, record.play_times, record.playcount, extra.play_count, 0),
+    ),
     heat: parseIntSafe(pickValue(record.heat, record.collect_count, record.collectcount, 0)),
     language: readString(record.language, ''),
     type: readString(record.type, ''),
@@ -768,8 +848,46 @@ export const mapArtistDetailMeta = (json: unknown): ArtistMeta => {
   };
 };
 
+export const mapRankMeta = (json: unknown): RankMeta => {
+  const record = toRecord(json);
+  const typeInfo = getRecord(record, 'type_info') ?? EMPTY_RECORD;
+  const rankTypeId = parseOptionalInt(pickValue(record.ranktype, record.rank_type, record.type));
+  return {
+    id: parseIntSafe(pickValue(record.rankid, record.id, 0)),
+    name: readString(pickValue(record.rankname, record.name, record.title, '')),
+    pic: formatPic(pickValue(record.imgurl, record.pic, record.cover, record.image, '')),
+    rankType: rankTypeId,
+    rankTypeName: readString(
+      pickValue(
+        record.rank_type_name,
+        record.type_name,
+        record.group,
+        typeInfo.name,
+        typeInfo.title,
+        '',
+      ),
+    ),
+    updateFrequency: readString(pickValue(record.updatefrequency, record.updateFrequency, record.update, '')),
+  };
+};
+
 export const mapCommentItem = (item: unknown): Comment => {
   const record = toRecord(item);
+  const specialId = readString(
+    pickValue(
+      record.special_child_id,
+      record.special_id,
+      record.specialId,
+      record.specialid,
+      record.childrenid,
+      '',
+    ),
+  );
+  const tid = readString(pickValue(record.tid, record.id, record.comment_id, record.commentId, ''));
+  const code = readString(record.code, '');
+  const mixSongId = readString(
+    pickValue(record.mixsongid, record.audio_id, record.album_audio_id, record.mixSongId, ''),
+  );
   return {
     id: readString(record.comment_id ?? record.id ?? ''),
     userName: readString(record.user_name ?? record.nickname ?? '匿名用户'),
@@ -777,5 +895,11 @@ export const mapCommentItem = (item: unknown): Comment => {
     content: readString(record.content ?? ''),
     time: readString(record.add_time ?? record.time ?? ''),
     likeCount: parseIntSafe(record.like_count ?? record.count ?? 0),
+    replyCount: parseIntSafe(record.reply_num ?? record.reply_count ?? 0),
+    raw: record,
+    specialId: specialId || undefined,
+    tid: tid || undefined,
+    code: code || undefined,
+    mixSongId: mixSongId || undefined,
   };
 };

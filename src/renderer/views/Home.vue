@@ -1,87 +1,322 @@
 <script setup lang="ts">
-import { usePlaylistStore } from '@/stores/playlist';
-import { usePlayerStore } from '@/stores/player';
-import Cover from '@/components/ui/Cover.vue';
-import { iconPause, iconPlay } from '@/icons';
+import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useUserStore } from '@/stores/user';
+import { getPlaylistByCategory, getTopIP } from '@/api/playlist';
+import PlaylistCard from '@/components/music/PlaylistCard.vue';
+import { mapPlaylistMeta, type PlaylistMeta } from '@/utils/mappers';
+import { iconPlay, iconSparkles } from '@/icons';
 
-const playlistStore = usePlaylistStore();
-const playerStore = usePlayerStore();
+interface RecommendSectionState {
+  loading: boolean;
+  error: string;
+}
 
-const playSong = (id: string) => {
-  playerStore.playTrack(id);
+const router = useRouter();
+const userStore = useUserStore();
+
+const todayLabel = computed(() => new Date().getDate().toString());
+
+const greeting = computed(() => {
+  const hour = new Date().getHours();
+  const base =
+    hour < 6
+      ? '凌晨好'
+      : hour < 9
+        ? '早上好'
+        : hour < 12
+          ? '上午好'
+          : hour < 14
+            ? '中午好'
+            : hour < 18
+              ? '下午好'
+              : '晚上好';
+  const nickname = userStore.info?.nickname;
+  return userStore.isLoggedIn && nickname ? `Hi, ${nickname} ${base}` : base;
+});
+
+const recommendedPlaylists = ref<PlaylistMeta[]>([]);
+const topIpPlaylists = ref<PlaylistMeta[]>([]);
+
+const recommendState = ref<RecommendSectionState>({ loading: true, error: '' });
+const topIpState = ref<RecommendSectionState>({ loading: true, error: '' });
+
+const extractPlaylistList = (payload: unknown): unknown[] => {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    const data = record.data as Record<string, unknown> | undefined;
+    const list = data?.special_list ?? data?.list ?? record.special_list ?? record.list;
+    if (Array.isArray(list)) return list;
+  }
+  return [];
 };
+
+const extractIpList = (payload: unknown): unknown[] => {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    const data = record.data as Record<string, unknown> | undefined;
+    const list = data?.list ?? record.list ?? data ?? [];
+    if (Array.isArray(list)) return list;
+  }
+  return [];
+};
+
+const loadRecommendPlaylists = async () => {
+  recommendState.value = { loading: true, error: '' };
+  try {
+    const res = await getPlaylistByCategory('0', 0, 1);
+    const list = extractPlaylistList(res).map((item) => mapPlaylistMeta(item));
+    recommendedPlaylists.value = list;
+  } catch (error) {
+    recommendState.value = { loading: false, error: '推荐歌单加载失败' };
+    return;
+  }
+  recommendState.value = { loading: false, error: '' };
+};
+
+const loadTopIp = async () => {
+  topIpState.value = { loading: true, error: '' };
+  try {
+    const res = await getTopIP();
+    const list = extractIpList(res)
+      .filter((item) => typeof item === 'object' && item !== null)
+      .filter((item) => {
+        const record = item as Record<string, unknown>;
+        const extra = record.extra as Record<string, unknown> | undefined;
+        const globalId = extra?.global_collection_id ?? extra?.global_special_id;
+        return record.type === 1 && Boolean(globalId);
+      })
+      .map((item) => mapPlaylistMeta(item));
+    topIpPlaylists.value = list;
+  } catch (error) {
+    topIpState.value = { loading: false, error: '编辑精选加载失败' };
+    return;
+  }
+  topIpState.value = { loading: false, error: '' };
+};
+
+const openRecommend = () => {
+  router.push({ name: 'recommend-songs' });
+};
+
+const openRanking = () => {
+  router.push({ name: 'ranking' });
+};
+
+const resolvePlaylistRouteId = (entry: PlaylistMeta) =>
+  entry.listCreateGid || entry.globalCollectionId || entry.listCreateListid || entry.id;
+
+onMounted(() => {
+  void loadRecommendPlaylists();
+  void loadTopIp();
+});
 </script>
 
 <template>
-  <div class="home-view p-8 space-y-10">
-    <!-- 1. 顶部横幅 (模拟推荐) -->
-    <section class="hero-banner relative h-60 rounded-2xl overflow-hidden shadow-xl shadow-primary/10 group">
-      <div class="absolute inset-0 bg-gradient-to-r from-primary/90 to-secondary/80"></div>
-      <div class="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1514525253361-bee8718a340b?q=80&w=1000&auto=format&fit=crop')] bg-cover bg-center mix-blend-overlay opacity-50"></div>
-      <div class="relative h-full flex flex-col justify-center px-10 space-y-3">
-        <span class="text-white/80 text-xs font-bold uppercase tracking-[2px]">今日推荐</span>
-        <h2 class="text-4xl font-black text-white leading-tight">致敬经典：<br/>钢琴与浪漫的邂逅</h2>
-        <button class="w-fit px-6 py-2.5 bg-white text-primary rounded-full text-sm font-bold shadow-lg hover:scale-105 active:scale-95 transition-all">
-          立即播放
-        </button>
+  <div class="home-view px-10 pt-6 pb-10">
+    <div class="home-header">
+      <div class="text-[22px] font-semibold tracking-tight text-text-main">{{ greeting }}</div>
+      <div class="text-[12px] text-text-secondary/80 mt-1">由此开启好心情 ~</div>
+    </div>
+
+    <div class="home-feature-row">
+      <button class="home-feature-card" @click="openRecommend">
+        <div class="feature-icon gradient-primary">{{ todayLabel }}</div>
+        <div class="feature-meta">
+          <div class="feature-title">每日推荐</div>
+          <div class="feature-sub">为你量身定制</div>
+        </div>
+        <div class="feature-action">
+          <Icon :icon="iconPlay" width="14" height="14" />
+        </div>
+      </button>
+      <button class="home-feature-card" @click="openRanking">
+        <div class="feature-icon gradient-secondary">TOP</div>
+        <div class="feature-meta">
+          <div class="feature-title">排行榜</div>
+          <div class="feature-sub">实时热门趋势</div>
+        </div>
+        <div class="feature-action">
+          <Icon :icon="iconSparkles" width="14" height="14" />
+        </div>
+      </button>
+    </div>
+
+    <section class="home-section">
+      <div class="section-header">
+        <div class="section-title">推荐歌单</div>
+      </div>
+      <div v-if="recommendState.loading" class="section-placeholder">加载中...</div>
+      <div v-else-if="recommendState.error" class="section-placeholder">{{ recommendState.error }}</div>
+      <div v-else class="playlist-grid">
+        <PlaylistCard
+          v-for="entry in recommendedPlaylists"
+          :key="String(entry.id)"
+          :id="resolvePlaylistRouteId(entry)"
+          :name="entry.name"
+          :coverUrl="entry.pic"
+          :creator="entry.nickname"
+          :songCount="entry.count"
+          layout="grid"
+        />
       </div>
     </section>
 
-    <!-- 2. 推荐列表 -->
-    <section class="space-y-6">
-      <div class="flex items-center justify-between">
-        <h3 class="text-2xl font-black text-text-main tracking-tight">为你推荐</h3>
-        <button class="text-sm font-bold text-primary hover:opacity-70 transition-opacity">查看全部</button>
+    <section class="home-section">
+      <div class="section-header">
+        <div class="section-title">编辑精选</div>
       </div>
-
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-        <div 
-          v-for="song in playlistStore.defaultList" 
-          :key="song.id"
-          class="song-card group cursor-pointer"
-          @click="playSong(song.id)"
-        >
-          <!-- 封面容器 -->
-          <div class="relative aspect-square rounded-xl overflow-hidden shadow-md bg-bg-card transition-all duration-300 group-hover:shadow-xl group-hover:-translate-y-1">
-            <Cover :url="song.coverUrl" :size="400" class="transition-transform duration-500 group-hover:scale-110" />
-            
-            <!-- 播放按钮遮罩 -->
-            <div class="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-              <div class="w-12 h-12 rounded-full bg-primary text-white flex items-center justify-center shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
-                 <Icon
-                   v-if="playerStore.currentTrackId === song.id && playerStore.isPlaying"
-                   :icon="iconPause"
-                   width="24"
-                   height="24"
-                 />
-                 <Icon v-else :icon="iconPlay" width="24" height="24" />
-              </div>
-            </div>
-            
-            <!-- 正在播放动画 -->
-            <div v-if="playerStore.currentTrackId === song.id && playerStore.isPlaying" class="absolute bottom-3 right-3 flex items-end gap-0.5 h-4">
-              <div class="w-1 bg-white rounded-full animate-music-bar-1"></div>
-              <div class="w-1 bg-white rounded-full animate-music-bar-2"></div>
-              <div class="w-1 bg-white rounded-full animate-music-bar-3"></div>
-            </div>
-          </div>
-
-          <div class="mt-3 space-y-1">
-            <h4 class="font-bold text-[14px] text-text-main truncate group-hover:text-primary transition-colors">{{ song.title }}</h4>
-            <p class="text-[12px] text-text-main/50 font-medium truncate">{{ song.artist }}</p>
-          </div>
-        </div>
+      <div v-if="topIpState.loading" class="section-placeholder">加载中...</div>
+      <div v-else-if="topIpState.error" class="section-placeholder">{{ topIpState.error }}</div>
+      <div v-else class="playlist-grid">
+        <PlaylistCard
+          v-for="entry in topIpPlaylists"
+          :key="`ip-${String(entry.id)}`"
+          :id="resolvePlaylistRouteId(entry)"
+          :name="entry.name"
+          :coverUrl="entry.pic"
+          :creator="entry.nickname"
+          :songCount="entry.count"
+          layout="grid"
+        />
       </div>
     </section>
   </div>
 </template>
 
 <style scoped>
-@keyframes music-bar {
-  0%, 100% { height: 4px; }
-  50% { height: 16px; }
+@reference "@/style.css";
+
+.home-view {
+  animation: fade-in 0.6s ease-out;
 }
-.animate-music-bar-1 { animation: music-bar 0.8s ease-in-out infinite; }
-.animate-music-bar-2 { animation: music-bar 0.8s ease-in-out infinite 0.2s; }
-.animate-music-bar-3 { animation: music-bar 0.8s ease-in-out infinite 0.4s; }
+
+.home-header {
+  margin-bottom: 28px;
+}
+
+.home-feature-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.home-feature-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 72px;
+  padding: 0 18px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--color-text-main) 2%, transparent);
+  border: 1px solid var(--color-border-light);
+  transition: all 0.2s ease;
+}
+
+.dark .home-feature-card {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.home-feature-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+}
+
+.feature-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
+}
+
+.gradient-primary {
+  background: linear-gradient(135deg, var(--color-primary), rgba(0, 113, 227, 0.7));
+}
+
+.gradient-secondary {
+  background: linear-gradient(135deg, var(--color-secondary), rgba(90, 200, 250, 0.7));
+}
+
+.feature-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.feature-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-main);
+}
+
+.feature-sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--color-text-main) 60%, transparent);
+}
+
+.feature-action {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+.home-section {
+  margin-top: 36px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-main);
+}
+
+.section-placeholder {
+  height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-text-main) 60%, transparent);
+}
+
+.playlist-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 </style>

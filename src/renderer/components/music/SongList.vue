@@ -5,7 +5,8 @@ import { formatDuration } from '@/utils/format';
 import SongCard from './SongCard.vue';
 import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
-import { iconPlay } from '@/icons';
+import { iconPlay, iconPause } from '@/icons';
+import { usePlayerStore } from '@/stores/player';
 
 interface Props {
   songs: Song[];
@@ -32,6 +33,8 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   (e: 'more', song: Song): void;
 }>();
+
+const playerStore = usePlayerStore();
 
 // 搜索过滤
 const filteredSongs = computed(() => {
@@ -75,6 +78,14 @@ const readString = (value: unknown, fallback = ''): string => {
 
 const activeIdText = computed(() => readString(props.activeId));
 const isActiveSong = (song: Song) => readString(song.id) === activeIdText.value;
+
+const handleTogglePlay = (song: Song) => {
+  if (isActiveSong(song)) {
+    playerStore.togglePlay();
+  } else {
+    playerStore.playTrack(song.id, props.songs);
+  }
+};
 
 const getScrollContainer = (): HTMLElement | null =>
   document.querySelector('.view-port') as HTMLElement | null;
@@ -159,27 +170,36 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
       >
         <div v-if="showIndex" class="w-10 shrink-0 flex items-center justify-start pl-2">
           <div class="relative w-4 h-4">
-            <div
-              v-if="isActiveSong(song)"
-              class="absolute inset-0 flex items-center justify-center gap-0.5"
-            >
-              <div class="w-0.5 h-full bg-primary animate-bounce-slow"></div>
-              <div class="w-0.5 h-2/3 bg-primary animate-bounce-fast"></div>
-              <div class="w-0.5 h-full bg-primary animate-bounce-medium"></div>
-            </div>
-            <span
-              v-else
-              class="absolute inset-0 flex items-center justify-center text-[12px] opacity-60 transition-opacity group-hover:opacity-0"
-            >
-              {{ (originalIndexMap.get(song.id) ?? 0) + 1 }}
-            </span>
-            <Icon
-              v-if="!isActiveSong(song)"
-              class="absolute inset-0 m-auto opacity-0 transition-opacity group-hover:opacity-100 text-text-main cursor-pointer"
-              :icon="iconPlay"
-              width="14"
-              height="14"
-            />
+            <template v-if="isActiveSong(song)">
+              <div
+                v-if="playerStore.isPlaying"
+                class="absolute inset-0 flex items-center justify-center text-primary cursor-pointer"
+                @click.stop="handleTogglePlay(song)"
+              >
+                <Icon :icon="iconPause" width="14" height="14" />
+              </div>
+              <div
+                v-else
+                class="absolute inset-0 flex items-center justify-center text-primary cursor-pointer"
+                @click.stop="handleTogglePlay(song)"
+              >
+                <Icon :icon="iconPlay" width="14" height="14" />
+              </div>
+            </template>
+            <template v-else>
+              <span
+                class="absolute inset-0 flex items-center justify-center text-[12px] opacity-60 transition-opacity group-hover:opacity-0"
+              >
+                {{ (originalIndexMap.get(song.id) ?? 0) + 1 }}
+              </span>
+              <Icon
+                class="absolute inset-0 m-auto opacity-0 transition-opacity group-hover:opacity-100 text-text-main cursor-pointer"
+                :icon="iconPlay"
+                width="14"
+                height="14"
+                @click.stop="handleTogglePlay(song)"
+              />
+            </template>
           </div>
         </div>
 
@@ -252,27 +272,5 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
 
 .dark .song-list-row.is-active {
   background: color-mix(in srgb, #ffffff 4%, transparent);
-}
-
-.animate-bounce-slow {
-  animation: bounce 1s infinite;
-}
-
-.animate-bounce-medium {
-  animation: bounce 0.8s infinite;
-}
-
-.animate-bounce-fast {
-  animation: bounce 1.2s infinite;
-}
-
-@keyframes bounce {
-  0%,
-  100% {
-    height: 100%;
-  }
-  50% {
-    height: 30%;
-  }
 }
 </style>

@@ -12,6 +12,7 @@ import TabsList from '@/components/ui/TabsList.vue';
 import TabsTrigger from '@/components/ui/TabsTrigger.vue';
 import TabsContent from '@/components/ui/TabsContent.vue';
 import Badge from '@/components/ui/Badge.vue';
+import Dialog from '@/components/ui/Dialog.vue';
 import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
 import { Song } from '@/stores/playlist';
 import { mapAlbumMeta, mapArtistDetailMeta, mapArtistSong } from '@/utils/mappers';
@@ -30,6 +31,7 @@ const activeTab = ref('songs');
 const loadedSongCount = computed(() => songs.value.length);
 const loadedAlbumCount = computed(() => albums.value.length);
 const showBatchDrawer = ref(false);
+const showIntroDialog = ref(false);
 
 // 搜索和定位逻辑
 const searchQuery = ref('');
@@ -219,16 +221,13 @@ const handleLocate = () => songListRef.value?.scrollToActive();
         typeLabel="ARTIST"
         :title="artist.name"
         :coverUrl="artist.pic"
-        :hasDetails="!!artist.intro"
+        :hasDetails="false"
         :expandedHeight="176"
       >
         <template #details>
           <div class="flex flex-col gap-1 text-text-main/60">
             <div class="text-[13px] font-semibold text-primary">
               {{ artist.songCount || songs.length }} 歌曲 • {{ artist.albumCount || albums.length }} 专辑
-            </div>
-            <div v-if="artist.intro" class="text-[11px] line-clamp-1 opacity-70">
-              {{ artist.intro }}
             </div>
           </div>
         </template>
@@ -253,13 +252,27 @@ const handleLocate = () => songListRef.value?.scrollToActive();
 
       <BatchActionDrawer v-model:open="showBatchDrawer" :songs="songs" />
 
+      <div v-if="artist.intro" class="px-6 pt-[6px] pb-[6px]">
+        <div class="text-[15px] font-semibold text-text-main">歌手介绍</div>
+        <div class="mt-[6px] text-[12px] leading-relaxed text-text-secondary line-clamp-1">
+          {{ artist.intro }}
+        </div>
+        <button
+          type="button"
+          class="mt-[2px] text-[11px] font-semibold text-primary"
+          @click="showIntroDialog = true"
+        >
+          查看详情
+        </button>
+      </div>
+
       <!-- 2. Sticky Tabs + 表头 -->
-      <div class="song-list-sticky sticky z-[90] bg-bg-main" :style="{ top: `${tabsTop}px` }">
+      <div class="song-list-sticky sticky z-[110] bg-bg-main" :style="{ top: `${tabsTop}px` }">
         <Tabs v-model="activeTab" class="w-full">
           <!-- Tab 切换栏 -->
           <div class="px-6 border-b border-border-light/10">
             <div class="flex items-center justify-between h-14">
-              <TabsList class="bg-transparent border-none">
+              <TabsList class="bg-transparent border-none gap-8">
                 <TabsTrigger value="songs">
                   <span class="relative">歌曲 <Badge :count="loadedSongCount" /></span>
                 </TabsTrigger>
@@ -331,72 +344,24 @@ const handleLocate = () => songListRef.value?.scrollToActive();
           </TabsContent>
 
           <TabsContent value="intro" class="mt-3 px-6">
-            <div class="max-w-3xl text-[14px] leading-relaxed text-text-secondary whitespace-pre-wrap py-4 px-2 opacity-80">
+            <div class="max-w-3xl text-[13px] leading-relaxed text-text-secondary whitespace-pre-wrap py-4 px-2 opacity-80">
               {{ artist.intro || '暂无简介' }}
             </div>
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog
+        v-model:open="showIntroDialog"
+        title="歌手介绍"
+        :description="artist.intro"
+        contentClass="max-w-[720px]"
+        descriptionClass="text-[13px]"
+        showClose
+      />
     </template>
   </div>
 </template>
-
-<style scoped>
-.song-search-input {
-  background-color: #ffffff !important;
-  border-color: rgba(0, 0, 0, 0.3) !important;
-  color: #1d1d1f !important;
-}
-
-.song-search-input::placeholder {
-  color: rgba(29, 29, 31, 0.5) !important;
-}
-
-.song-search-input:focus {
-  border-color: rgba(0, 113, 227, 0.8) !important;
-  box-shadow: 0 0 0 1px rgba(0, 113, 227, 0.2) !important;
-}
-
-.dark .song-search-input {
-  background-color: rgba(255, 255, 255, 0.08) !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
-  color: #f5f5f7 !important;
-}
-
-.dark .song-search-input::placeholder {
-  color: rgba(245, 245, 247, 0.5) !important;
-}
-
-.dark .song-search-input:focus {
-  border-color: rgba(0, 113, 227, 0.7) !important;
-  box-shadow: 0 0 0 1px rgba(0, 113, 227, 0.3) !important;
-}
-
-.song-locate-btn {
-  background-color: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.18);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-  color: rgba(29, 29, 31, 0.7);
-  transition: all 0.2s ease;
-}
-
-.song-locate-btn:hover {
-  border-color: rgba(0, 0, 0, 0.28);
-  color: rgba(29, 29, 31, 0.9);
-}
-
-.dark .song-locate-btn {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: none;
-  color: rgba(245, 245, 247, 0.7);
-}
-
-.dark .song-locate-btn:hover {
-  border-color: rgba(255, 255, 255, 0.22);
-  color: rgba(245, 245, 247, 0.9);
-}
-</style>
 
 <style scoped>
 @reference "@/style.css";

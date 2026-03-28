@@ -10,13 +10,43 @@ interface Props {
   creator?: string;
   songCount?: number;
   layout?: 'grid' | 'list';
+  coverRadius?: number;
+  showShadow?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   layout: 'grid',
+  coverRadius: 14,
+  showShadow: true,
 });
 
 const router = useRouter();
+
+const resolvedCoverRadius = computed(() => {
+  if (props.layout === 'list') return props.coverRadius ?? 10;
+  return props.coverRadius ?? 14;
+});
+
+const containerRadius = computed(() => {
+  if (props.layout === 'grid') {
+    return (props.coverRadius ?? 14) + 6;
+  }
+  return 14;
+});
+
+const cardShadow = computed(() =>
+  props.showShadow
+    ? '0 8px 18px rgba(0, 0, 0, 0.08)'
+    : 'none',
+);
+
+const cardHoverShadow = computed(() =>
+  props.showShadow
+    ? '0 10px 24px rgba(0, 0, 0, 0.12), 0 0 24px var(--color-primary-light)'
+    : 'none',
+);
+
+const coverShadowClass = computed(() => (props.showShadow ? 'shadow-sm' : ''));
 
 const subtitle = computed(() => {
   if (props.creator && props.songCount) {
@@ -36,9 +66,25 @@ const handleClick = () => {
     class="playlist-card-grid group cursor-pointer"
     @click="handleClick"
   >
-    <div class="card-container">
-      <div class="cover-wrapper">
-        <Cover :url="coverUrl" :size="400" class="w-full h-full" />
+    <div
+      class="card-container"
+      :style="{
+        boxShadow: cardShadow,
+        '--playlist-card-hover-shadow': cardHoverShadow,
+        borderRadius: `${containerRadius}px`,
+      }"
+    >
+      <div
+        class="cover-wrapper"
+        :class="coverShadowClass"
+        :style="{ borderRadius: `${resolvedCoverRadius}px` }"
+      >
+        <Cover
+          :url="coverUrl"
+          :size="400"
+          :borderRadius="resolvedCoverRadius"
+          class="w-full h-full"
+        />
       </div>
       <div class="info-wrapper">
         <h3 class="title">{{ name }}</h3>
@@ -52,7 +98,14 @@ const handleClick = () => {
     class="playlist-card-list group cursor-pointer"
     @click="handleClick"
   >
-    <Cover :url="coverUrl" :size="200" :width="56" :height="56" :borderRadius="10" class="shrink-0" />
+    <Cover
+      :url="coverUrl"
+      :size="200"
+      :width="56"
+      :height="56"
+      :borderRadius="resolvedCoverRadius"
+      class="shrink-0"
+    />
     <div class="info-wrapper ml-3 overflow-hidden">
       <h3 class="title">{{ name }}</h3>
       <p v-if="subtitle" class="subtitle">{{ subtitle }}</p>
@@ -74,15 +127,14 @@ const handleClick = () => {
 
 .card-container {
   @apply p-[10px] rounded-[20px] bg-white dark:bg-white/5 transition-all duration-300;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
 }
 
 .playlist-card-grid:hover .card-container {
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12), 0 0 24px var(--color-primary-light);
+  box-shadow: var(--playlist-card-hover-shadow, 0 10px 24px rgba(0, 0, 0, 0.12));
 }
 
 .cover-wrapper {
-  @apply aspect-square rounded-[14px] overflow-hidden shadow-sm;
+  @apply aspect-square overflow-hidden;
 }
 
 .info-wrapper {

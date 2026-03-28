@@ -14,8 +14,11 @@ const playlist = usePlaylistStore();
 const lyricStore = useLyricStore();
 
 const currentTrack = computed(() => {
-  return playlist.defaultList.find((s: Song) => s.id === player.currentTrackId) || 
-         playlist.favorites.find((s: Song) => s.id === player.currentTrackId);
+  return (
+    playlist.defaultList.find((s: Song) => String(s.id) === String(player.currentTrackId)) ||
+    playlist.favorites.find((s: Song) => String(s.id) === String(player.currentTrackId)) ||
+    playlist.history.find((s: Song) => String(s.id) === String(player.currentTrackId))
+  );
 });
 
 const backgroundUrl = computed(() => getCoverUrl(currentTrack.value?.coverUrl, 400));

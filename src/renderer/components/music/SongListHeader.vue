@@ -10,6 +10,7 @@ interface Props {
   showCover?: boolean;
   sortField?: SortField | null;
   sortOrder?: SortOrder;
+  paddingClass?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -18,6 +19,7 @@ const props = withDefaults(defineProps<Props>(), {
   showCover: true,
   sortField: null,
   sortOrder: null,
+  paddingClass: 'px-6',
 });
 
 const emit = defineEmits<{
@@ -31,11 +33,12 @@ const handleSort = (field: SortField) => {
 
 <template>
   <div
-    class="flex items-center px-6 py-2 text-[12px] text-text-main/80 font-bold border-b border-border-light/30"
+    class="flex items-center py-2 text-[12px] text-text-main/80 font-bold border-b border-border-light/30"
+    :class="props.paddingClass"
   >
     <div
       v-if="showIndex"
-      class="shrink-0 text-left pl-4 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
+      class="w-10 shrink-0 text-left pl-2 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
       @click="handleSort('index')"
     >
       <span>#</span>

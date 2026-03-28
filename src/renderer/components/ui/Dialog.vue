@@ -20,6 +20,8 @@ interface Props {
   showClose?: boolean;
   overlayClass?: string;
   contentClass?: string;
+  descriptionClass?: string;
+  bodyClass?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -36,16 +38,19 @@ const slots = useSlots();
 
 const hasTitle = computed(() => Boolean(props.title) || Boolean(slots.title));
 const hasDescription = computed(() => Boolean(props.description) || Boolean(slots.description));
-const hasHeader = computed(() => hasTitle.value || hasDescription.value);
 const hasFooter = computed(() => Boolean(slots.footer));
 const hasBody = computed(() => Boolean(slots.default));
 
 const overlayClass = computed(() => ['dialog-overlay', props.overlayClass]);
 const contentClass = computed(() => ['dialog-content', props.contentClass]);
-const bodyClass = computed(() => [
+const computedDescriptionClass = computed(() => [
+  'dialog-description',
+  props.descriptionClass,
+]);
+const computedBodyClass = computed(() => [
   'dialog-body',
-  hasHeader.value ? 'mt-4' : null,
-  hasFooter.value ? 'mb-2' : null,
+  hasDescription.value ? 'mt-2' : null,
+  props.bodyClass,
 ]);
 </script>
 
@@ -58,27 +63,30 @@ const bodyClass = computed(() => [
 
       <DialogContent as-child>
         <div :class="contentClass">
+          <!-- 关闭按钮 -->
           <DialogClose v-if="props.showClose" as-child>
             <button class="dialog-close" type="button" aria-label="关闭">
               <Icon :icon="iconX" width="14" height="14" />
             </button>
           </DialogClose>
 
-          <div v-if="hasHeader" class="dialog-header">
-            <template v-if="hasTitle">
-              <DialogTitle as-child>
-                <h3 class="dialog-title">
-                  <slot name="title">{{ props.title }}</slot>
-                </h3>
-              </DialogTitle>
-            </template>
-            <VisuallyHidden v-else>
-              <DialogTitle>对话框</DialogTitle>
-            </VisuallyHidden>
+          <!-- 固定头部：标题 -->
+          <div v-if="hasTitle" class="dialog-header shrink-0">
+            <DialogTitle as-child>
+              <h3 class="dialog-title">
+                <slot name="title">{{ props.title }}</slot>
+              </h3>
+            </DialogTitle>
+          </div>
+          <VisuallyHidden v-else>
+            <DialogTitle>对话框</DialogTitle>
+          </VisuallyHidden>
 
+          <!-- 可滚动区域：描述 + 内容 -->
+          <div class="dialog-scroll-area flex-1 overflow-y-auto min-h-0 mt-2">
             <template v-if="hasDescription">
               <DialogDescription as-child>
-                <p class="dialog-description">
+                <p :class="computedDescriptionClass">
                   <slot name="description">{{ props.description }}</slot>
                 </p>
               </DialogDescription>
@@ -86,17 +94,14 @@ const bodyClass = computed(() => [
             <VisuallyHidden v-else>
               <DialogDescription>对话框内容</DialogDescription>
             </VisuallyHidden>
-          </div>
-          <VisuallyHidden v-else>
-            <DialogTitle>对话框</DialogTitle>
-            <DialogDescription>对话框内容</DialogDescription>
-          </VisuallyHidden>
 
-          <div v-if="hasBody" :class="bodyClass">
-            <slot />
+            <div v-if="hasBody" :class="computedBodyClass">
+              <slot />
+            </div>
           </div>
 
-          <div v-if="hasFooter" class="dialog-footer">
+          <!-- 固定底部：页脚 -->
+          <div v-if="hasFooter" class="dialog-footer shrink-0">
             <slot name="footer" />
           </div>
         </div>
@@ -123,7 +128,10 @@ const bodyClass = computed(() => [
 }
 
 :global(.dialog-content) {
-  @apply fixed left-1/2 top-1/2 z-[210] w-[420px] max-w-[92vw] rounded-2xl bg-bg-main border border-border-light/40 p-6 shadow-2xl;
+  @apply fixed left-1/2 top-[46%] z-[210] w-[420px] max-w-[92vw] rounded-2xl bg-bg-main border border-border-light/40 shadow-2xl flex flex-col;
+  @apply max-h-[calc(100vh-240px)];
+  /* 将右侧内边距设为 2px，使滚动条紧贴边缘 */
+  padding: 24px 2px 24px 24px;
   opacity: 0;
   transform: translate(-50%, -50%) scale(0.98);
   transition:
@@ -143,7 +151,7 @@ const bodyClass = computed(() => [
 }
 
 .dialog-header {
-  @apply space-y-2;
+  @apply pb-2 pr-6; /* pr-6 补偿 content 的 24px 边距 */
 }
 
 .dialog-title {
@@ -151,19 +159,19 @@ const bodyClass = computed(() => [
 }
 
 .dialog-description {
-  @apply text-sm text-text-secondary;
+  @apply text-sm text-text-secondary whitespace-pre-wrap leading-relaxed pr-4;
 }
 
 .dialog-body {
-  @apply text-sm text-text-main;
+  @apply text-sm text-text-main pr-4;
 }
 
 .dialog-footer {
-  @apply flex justify-end gap-3 mt-6;
+  @apply flex justify-end gap-3 pt-4 pr-6;
 }
 
 .dialog-close {
-  @apply absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-text-main/50 hover:text-text-main transition-colors;
+  @apply absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-text-main/50 hover:text-text-main transition-all active:scale-90 z-10;
 }
 
 .dialog-close:focus-visible {

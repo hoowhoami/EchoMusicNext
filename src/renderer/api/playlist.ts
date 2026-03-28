@@ -51,6 +51,40 @@ export function getRanks() {
 }
 
 /**
+ * 获取歌单分类
+ */
+export function getPlaylistTags() {
+  return request.get('/playlist/tags');
+}
+
+/**
+ * 获取排行榜推荐列表
+ */
+export function getRankTop() {
+  return request.get('/rank/top');
+}
+
+/**
+ * 获取推荐歌单 (分类)
+ */
+export function getPlaylistByCategory(categoryId = '0', withsong = 0, withtag = 1) {
+  return request.get('/top/playlist', {
+    params: {
+      category_id: categoryId,
+      withsong,
+      withtag,
+    },
+  });
+}
+
+/**
+ * 获取编辑精选
+ */
+export function getTopIP() {
+  return request.get('/top/ip');
+}
+
+/**
  * 获取排行榜歌曲
  */
 export function getRankSongs(rankid: number, page = 1, pagesize = 100) {

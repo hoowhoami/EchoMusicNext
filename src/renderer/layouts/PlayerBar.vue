@@ -86,10 +86,20 @@ const goToArtist = (artist: SongArtist) => {
 
 const goToComments = () => {
   if (!currentTrack.value) return;
+  const track = currentTrack.value;
   router.push({
     name: 'comment',
-    params: { id: currentTrack.value.mixSongId ? String(currentTrack.value.mixSongId) : String(currentTrack.value.id) },
-    query: { type: 'music' },
+    params: { id: track.mixSongId ? String(track.mixSongId) : String(track.id) },
+    query: {
+      type: 'music',
+      title: track.title,
+      artist: track.artist,
+      album: track.album ?? '',
+      cover: track.coverUrl ?? '',
+      albumId: track.albumId ?? '',
+      hash: track.hash ?? '',
+      mixSongId: track.mixSongId ?? '',
+    },
   });
 };
 
@@ -290,7 +300,7 @@ onUnmounted(() => {
             </div>
 
             <button
-              @click="navigateToPlaying"
+              @click="goToComments"
               class="p-0.5 text-text-main/25 hover:text-primary transition-all hover:scale-110"
               title="详情及评论"
             >

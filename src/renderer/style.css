@@ -70,6 +70,61 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
+  .song-search-input {
+    background-color: #ffffff !important;
+    border-color: rgba(0, 0, 0, 0.3) !important;
+    color: #1d1d1f !important;
+  }
+
+  .song-search-input::placeholder {
+    color: rgba(29, 29, 31, 0.5) !important;
+  }
+
+  .song-search-input:focus {
+    border-color: rgba(0, 113, 227, 0.8) !important;
+    box-shadow: 0 0 0 1px rgba(0, 113, 227, 0.2) !important;
+  }
+
+  .dark .song-search-input {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    color: #f5f5f7 !important;
+  }
+
+  .dark .song-search-input::placeholder {
+    color: rgba(245, 245, 247, 0.5) !important;
+  }
+
+  .dark .song-search-input:focus {
+    border-color: rgba(0, 113, 227, 0.7) !important;
+    box-shadow: 0 0 0 1px rgba(0, 113, 227, 0.3) !important;
+  }
+
+  .song-locate-btn {
+    background-color: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    color: rgba(29, 29, 31, 0.7);
+    transition: all 0.2s ease;
+  }
+
+  .song-locate-btn:hover {
+    border-color: rgba(0, 0, 0, 0.28);
+    color: rgba(29, 29, 31, 0.9);
+  }
+
+  .dark .song-locate-btn {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: none;
+    color: rgba(245, 245, 247, 0.7);
+  }
+
+  .dark .song-locate-btn:hover {
+    border-color: rgba(255, 255, 255, 0.22);
+    color: rgba(245, 245, 247, 0.9);
+  }
 }
 
 /**
