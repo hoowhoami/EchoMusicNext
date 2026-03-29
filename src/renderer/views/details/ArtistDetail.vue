@@ -327,7 +327,7 @@ const handleLocate = () => songListRef.value?.scrollToActive();
       <div class="pb-12">
         <Tabs v-model="activeTab" class="w-full">
         <TabsContent value="songs" class="px-6 flex flex-col flex-1 min-h-0">
-          <SongList ref="songListRef" :songs="sortedSongs" :searchQuery="searchQuery" :showCover="true" />
+          <SongList ref="songListRef" :songs="sortedSongs" :searchQuery="searchQuery" :showCover="true"  />
         </TabsContent>
 
           <TabsContent value="albums" class="mt-4 px-6">

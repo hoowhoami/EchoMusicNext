@@ -432,6 +432,7 @@ const loadedSongCount = computed(() => songs.value.length);
               :searchQuery="searchQuery"
               :activeId="activeSongId"
               :showCover="true"
+              
             />
           </TabsContent>
 

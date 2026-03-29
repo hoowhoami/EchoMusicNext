@@ -597,6 +597,7 @@ const sortedSongs = computed(() => {
               :searchQuery="searchQuery"
               :activeId="activeSongId"
               :showCover="true"
+              
               :parentPlaylistId="playlist.listid || playlist.id"
               :enableRemoveFromPlaylist="isOwnerPlaylist"
             />

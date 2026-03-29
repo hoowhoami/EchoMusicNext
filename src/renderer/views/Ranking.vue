@@ -344,6 +344,7 @@ watch(
           :searchQuery="searchQuery"
           :activeId="activeSongId"
           :showCover="true"
+          
         />
       </div>
 

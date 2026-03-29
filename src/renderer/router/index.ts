@@ -45,6 +45,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Explore.vue'),
       },
       {
+        path: 'search',
+        name: 'search',
+        component: () => import('@/views/Search.vue'),
+        meta: { title: '搜索' },
+      },
+      {
         path: 'ranking',
         name: 'ranking',
         component: () => import('@/views/Ranking.vue'),
@@ -53,6 +59,11 @@ const routes: RouteRecordRaw[] = [
         path: 'history',
         name: 'history',
         component: () => import('@/views/History.vue'),
+      },
+      {
+        path: 'cloud',
+        name: 'cloud',
+        component: () => import('@/views/Cloud.vue'),
       },
       {
         path: 'profile',

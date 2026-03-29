@@ -130,3 +130,13 @@ export function uploadPlayHistory(mxid: number | string) {
     params: { mxid }
   });
 }
+
+
+/**
+ * 获取用户云盘
+ */
+export function getUserCloud(page = 1, pagesize = 100) {
+  return request.get('/user/cloud', {
+    params: { page, pagesize }
+  });
+}

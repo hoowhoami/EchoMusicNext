@@ -550,6 +550,102 @@ export const mapRankSong = (json: unknown): Song => {
   };
 };
 
+export const mapSearchSong = (json: unknown): Song => {
+  const record = toRecord(json);
+  const hq = getRecord(record, 'HQ') ?? EMPTY_RECORD;
+  const sq = getRecord(record, 'SQ') ?? EMPTY_RECORD;
+  const hiRes = getRecord(record, 'Res') ?? EMPTY_RECORD;
+  const singersRaw = getArray(record.Singers) ?? [];
+
+  const artists = singersRaw
+    .filter((item) => isRecord(item))
+    .map((item) => ({
+      id: readString((item as UnknownRecord).id, ''),
+      name: readString((item as UnknownRecord).name, ''),
+    }))
+    .filter((item) => item.name.length > 0);
+
+  const relateGoods: SongRelateGood[] = [];
+  if (hq.Hash) relateGoods.push({ hash: readString(hq.Hash, ''), quality: '320' });
+  if (sq.Hash) relateGoods.push({ hash: readString(sq.Hash, ''), quality: 'flac' });
+  if (hiRes.Hash) relateGoods.push({ hash: readString(hiRes.Hash, ''), quality: 'high' });
+
+  return {
+    id: readString(pickValue(record.MixSongID, record.Audioid, record.FileHash, '')),
+    title: processSongTitle(readString(pickValue(record.SongName, record.FileName, '未知歌曲'))),
+    artist: normalizeText(
+      artists.length > 0
+        ? artists.map((item) => item.name).join(', ')
+        : readString(pickValue(record.SingerName, '未知歌手')),
+    ),
+    artists,
+    album: normalizeText(readString(pickValue(record.AlbumName, ''))),
+    albumId: readString(pickValue(record.AlbumID, '')),
+    duration: parseIntSafe(pickValue(record.Duration, 0)),
+    coverUrl: getCoverUrl(readString(pickValue(record.Image, ''), ''), 400),
+    audioUrl: '',
+    hash: readString(pickValue(record.FileHash, '')),
+    mixSongId: parseIntSafe(pickValue(record.MixSongID, 0)),
+    privilege: parseOptionalInt(pickValue(record.AlbumPrivilege, undefined)),
+    oldCpy: parseOptionalInt(pickValue(record.OldCpy, undefined)),
+    payType: parseOptionalInt(pickValue(record.PayType, undefined)),
+    relateGoods,
+  };
+};
+
+
+export const mapHistorySong = (json: unknown): Song => {
+  const record = toRecord(json);
+  const info = getRecord(record, 'info');
+  return mapPlaylistSong(info ?? record);
+};
+
+export const mapCloudSong = (json: unknown): Song => {
+  const record = toRecord(json);
+  const audioInfo = getRecord(record, 'audio_info') ?? EMPTY_RECORD;
+  const albumInfo = getRecord(record, 'album_info') ?? EMPTY_RECORD;
+  const transParam = getRecord(record, 'trans_param') ?? EMPTY_RECORD;
+  const singers = buildArtists(record, audioInfo);
+
+  const title = processSongTitle(
+    readString(pickValue(record.songname, record.filename, record.name, audioInfo.songname, '未知歌曲')),
+  );
+  const artist = normalizeText(
+    readString(
+      pickValue(record.singername, record.author_name, record.singer, audioInfo.author_name, '未知歌手'),
+    ),
+  );
+  const album = normalizeText(
+    readString(pickValue(record.albumname, record.album_name, albumInfo.album_name, '')),
+  );
+  const cover = readString(
+    pickValue(record.cover, record.pic, albumInfo.sizable_cover, transParam.union_cover, ''),
+  );
+  const durationRaw = parseIntSafe(
+    pickValue(record.duration, record.timelen, audioInfo.duration, audioInfo.duration_128, 0),
+  );
+  const duration =
+    Object.prototype.hasOwnProperty.call(record, 'timelen') ||
+    Object.prototype.hasOwnProperty.call(audioInfo, 'duration_128')
+      ? Math.floor(durationRaw / 1000)
+      : durationRaw;
+
+  return {
+    id: readString(pickValue(record.audio_id, record.mixsongid, audioInfo.audio_id, record.hash, '')),
+    title,
+    artist,
+    artists: singers.length > 0 ? singers : [{ name: artist }],
+    album,
+    albumId: readString(pickValue(record.albumid, record.album_id, albumInfo.album_id, '')),
+    duration,
+    coverUrl: getCoverUrl(cover, 400),
+    audioUrl: '',
+    hash: readString(pickValue(record.hash, audioInfo.hash, audioInfo.hash_128, '')),
+    mixSongId: parseIntSafe(pickValue(record.mixsongid, record.audio_id, audioInfo.audio_id, 0)),
+    source: 'cloud',
+  };
+};
+
 export const mapPlaylistMeta = (json: unknown): PlaylistMeta => {
   const record = toRecord(json);
   const extra = getRecord(record, 'extra') ?? EMPTY_RECORD;

@@ -8,6 +8,7 @@ interface Props {
   coverUrl: string;
   artist?: string;
   publishTime?: string;
+  subtitle?: string;
 }
 
 const props = defineProps<Props>();
@@ -27,7 +28,7 @@ const handleClick = () => {
       <div class="info-wrapper">
         <h3 class="title">{{ name }}</h3>
         <p class="subtitle">
-          {{ artist }} <span v-if="publishTime" class="mx-0.5 opacity-60">•</span> {{ publishTime }}
+          {{ subtitle || `${artist || ''}${artist && publishTime ? ' • ' : ''}${publishTime || ''}`.trim() }}
         </p>
       </div>
     </div>
@@ -60,13 +61,16 @@ const handleClick = () => {
 
 .info-wrapper {
   @apply mt-2 px-0.5;
+  min-height: 36px;
 }
 
 .title {
-  @apply text-[13px] font-semibold text-text-main line-clamp-1 leading-[1.2];
+  @apply text-[13px] font-semibold text-text-main line-clamp-1;
+  line-height: 1.1;
 }
 
 .subtitle {
-  @apply text-[11px] font-semibold text-text-secondary line-clamp-1 mt-0.5 opacity-80;
+  @apply text-[11px] font-semibold text-text-secondary line-clamp-1 opacity-80;
+  margin-top: 2px;
 }
 </style>

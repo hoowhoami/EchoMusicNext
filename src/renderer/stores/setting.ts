@@ -54,6 +54,7 @@ export const useSettingStore = defineStore('setting', {
     checkPrerelease: false,
     appVersion: '1.0.0',
     isPrerelease: true,
+    searchHistory: [] as string[],
   }),
   actions: {
     setTheme(theme: 'light' | 'dark' | 'system') {
@@ -99,6 +100,17 @@ export const useSettingStore = defineStore('setting', {
       if (window.electron?.ipcRenderer) {
         window.electron.ipcRenderer.send('update-theme', this.theme);
       }
+    },
+    addToSearchHistory(keyword: string) {
+      const normalized = keyword.trim();
+      if (!normalized) return;
+      this.searchHistory = [normalized, ...this.searchHistory.filter((item) => item !== normalized)].slice(0, 20);
+    },
+    removeFromSearchHistory(keyword: string) {
+      this.searchHistory = this.searchHistory.filter((item) => item !== keyword);
+    },
+    clearSearchHistory() {
+      this.searchHistory = [];
     },
   },
   persist: true,

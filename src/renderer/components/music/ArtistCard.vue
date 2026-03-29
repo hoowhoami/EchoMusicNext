@@ -20,11 +20,13 @@ const handleClick = () => {
 
 <template>
   <div class="artist-card group cursor-pointer" @click="handleClick">
-    <div class="card-container flex flex-col items-center">
-      <div class="cover-wrapper">
-        <Cover :url="coverUrl" :size="400" :borderRadius="'50%'" class="w-full h-full" />
+    <div class="card-container flex flex-col">
+      <div class="cover-shell">
+        <div class="cover-wrapper">
+          <Cover :url="coverUrl" :size="400" :borderRadius="'50%'" class="w-full h-full" />
+        </div>
       </div>
-      <div class="info-wrapper text-center w-full">
+      <div class="info-wrapper w-full">
         <h3 class="title">{{ name }}</h3>
         <p class="subtitle">
           {{ songCount || 0 }} 歌曲 <span class="mx-0.5 opacity-60">•</span> {{ albumCount || 0 }} 专辑
@@ -46,7 +48,7 @@ const handleClick = () => {
 }
 
 .card-container {
-  @apply p-[10px] rounded-[20px] bg-white dark:bg-white/5 transition-all duration-300;
+  @apply p-3 rounded-[20px] bg-white dark:bg-white/5 transition-all duration-300;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
 }
 
@@ -54,19 +56,34 @@ const handleClick = () => {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12), 0 0 24px var(--color-primary-light);
 }
 
+.cover-shell {
+  height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .cover-wrapper {
-  @apply aspect-square rounded-full overflow-hidden shadow-sm;
+  width: 126px;
+  height: 126px;
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .info-wrapper {
-  @apply mt-2 px-0.5;
+  margin-top: 6px;
+  min-height: 38px;
+  text-align: left;
 }
 
 .title {
-  @apply text-[13px] font-semibold text-text-main line-clamp-1 leading-[1.2];
+  @apply text-[13px] font-semibold text-text-main line-clamp-1;
+  line-height: 1.15;
 }
 
 .subtitle {
-  @apply text-[11px] font-semibold text-text-secondary line-clamp-1 mt-0.5 opacity-80;
+  @apply text-[11px] font-semibold text-text-secondary line-clamp-1 opacity-80;
+  margin-top: 3px;
 }
 </style>

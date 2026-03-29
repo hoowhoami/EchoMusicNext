@@ -220,6 +220,7 @@ onMounted(() => {
         :searchQuery="searchQuery"
         :activeId="activeSongId"
         :showCover="true"
+        
       />
     </div>
   </div>

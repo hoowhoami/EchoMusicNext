@@ -75,7 +75,7 @@ const isPlaylistLoading = ref(false);
 
 const baseClass = computed(() =>
   props.variant === 'list'
-    ? 'song-card group flex items-center gap-3 p-0 pr-8 rounded-none transition-all duration-200 bg-transparent hover:bg-transparent cursor-default'
+    ? 'song-card group flex items-center gap-3 p-0 rounded-none transition-all duration-200 bg-transparent hover:bg-transparent cursor-default'
     : 'song-card song-card-surface group flex items-center gap-3 p-2 rounded-xl transition-all duration-200 cursor-pointer'
 );
 
@@ -314,10 +314,10 @@ const handleFavorite = () => {
     <!-- 封面 -->
     <div
       v-if="showCover"
-      class="relative w-10 h-10 shrink-0 rounded-md shadow-sm"
+      class="relative w-[46px] h-[46px] shrink-0 rounded-[12px] shadow-sm"
       :style="{ opacity: contentOpacity }"
     >
-      <Cover :url="coverUrl" :size="160" :borderRadius="4" class="w-full h-full" />
+      <Cover :url="coverUrl" :size="160" :borderRadius="12" class="w-full h-full" />
       
     </div>
     
@@ -375,7 +375,7 @@ const handleFavorite = () => {
     </div>
     
     <!-- 详情及评论 / 收藏 -->
-    <div v-if="showMore" class="song-actions ml-1" @click.stop>
+    <div v-if="showMore" class="song-actions ml-3 mr-[10px]" @click.stop>
       <button
         type="button"
         class="song-action"

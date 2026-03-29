@@ -14,6 +14,7 @@ interface Props {
   showCover?: boolean;
   showAlbum?: boolean;
   showDuration?: boolean;
+  rowPaddingClass?: string;
   activeId?: string | number;
   searchQuery?: string;
   parentPlaylistId?: string | number;
@@ -25,6 +26,7 @@ const props = withDefaults(defineProps<Props>(), {
   showCover: true,
   showAlbum: true,
   showDuration: true,
+  rowPaddingClass: '',
   searchQuery: '',
   parentPlaylistId: '',
   enableRemoveFromPlaylist: false,
@@ -48,7 +50,7 @@ const filteredSongs = computed(() => {
   );
 });
 
-const itemHeight = 56;
+const itemHeight = 60;
 const originalIndexMap = computed(() => {
   const map = new Map<string | number, number>();
   props.songs.forEach((song, index) => {
@@ -162,83 +164,86 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
   >
     <template #default="{ item: song }">
       <div
-        class="song-list-row group flex items-center py-0 rounded-lg transition-all duration-200 cursor-default"
+        class="song-list-row group rounded-lg transition-all duration-200 cursor-default"
         :style="{ height: `${itemHeight}px`, opacity: rowOpacity(song) }"
         :class="{ 'is-active': isActiveSong(song) }"
         :data-song-row="true"
         :data-song-id="readString(song.id)"
       >
-        <div v-if="showIndex" class="w-10 shrink-0 flex items-center justify-start pl-2">
-          <div class="relative w-4 h-4">
-            <template v-if="isActiveSong(song)">
-              <div
-                v-if="playerStore.isPlaying"
-                class="absolute inset-0 flex items-center justify-center text-primary cursor-pointer"
-                @click.stop="handleTogglePlay(song)"
-              >
-                <Icon :icon="iconPause" width="14" height="14" />
-              </div>
-              <div
-                v-else
-                class="absolute inset-0 flex items-center justify-center text-primary cursor-pointer"
-                @click.stop="handleTogglePlay(song)"
-              >
-                <Icon :icon="iconPlay" width="14" height="14" />
-              </div>
-            </template>
-            <template v-else>
-              <span
-                class="absolute inset-0 flex items-center justify-center text-[12px] opacity-60 transition-opacity group-hover:opacity-0"
-              >
-                {{ (originalIndexMap.get(song.id) ?? 0) + 1 }}
-              </span>
-              <Icon
-                class="absolute inset-0 m-auto opacity-0 transition-opacity group-hover:opacity-100 text-text-main cursor-pointer"
-                :icon="iconPlay"
-                width="14"
-                height="14"
-                @click.stop="handleTogglePlay(song)"
-              />
-            </template>
+        <div class="song-list-row-inner flex items-center w-full h-full" :class="props.rowPaddingClass">
+          <div v-if="showIndex" class="w-10 shrink-0 flex items-center justify-start pl-2">
+            <div class="relative w-4 h-4">
+              <template v-if="isActiveSong(song)">
+                <div
+                  v-if="playerStore.isPlaying"
+                  class="absolute inset-0 flex items-center justify-center text-primary cursor-pointer"
+                  @click.stop="handleTogglePlay(song)"
+                >
+                  <Icon :icon="iconPause" width="14" height="14" />
+                </div>
+                <div
+                  v-else
+                  class="absolute inset-0 flex items-center justify-center text-primary cursor-pointer"
+                  @click.stop="handleTogglePlay(song)"
+                >
+                  <Icon :icon="iconPlay" width="14" height="14" />
+                </div>
+              </template>
+              <template v-else>
+                <span
+                  class="absolute inset-0 flex items-center justify-center text-[12px] opacity-60 transition-opacity group-hover:opacity-0"
+                >
+                  {{ (originalIndexMap.get(song.id) ?? 0) + 1 }}
+                </span>
+                <Icon
+                  class="absolute inset-0 m-auto opacity-0 transition-opacity group-hover:opacity-100 text-text-main cursor-pointer"
+                  :icon="iconPlay"
+                  width="14"
+                  height="14"
+                  @click.stop="handleTogglePlay(song)"
+                />
+              </template>
+            </div>
           </div>
-        </div>
 
-        <div class="flex-1 min-w-0 ml-4">
-          <SongCard
-            :id="song.id"
-            :hash="song.hash"
-            :title="song.title"
-            :artist="song.artist"
-            :artists="song.artists"
-            :album="song.album"
-            :albumId="song.albumId"
-            :coverUrl="song.coverUrl"
-            :duration="song.duration"
-            :audioUrl="song.audioUrl"
-            :mixSongId="song.mixSongId"
-            :privilege="song.privilege"
-            :payType="song.payType"
-            :oldCpy="song.oldCpy"
-            :relateGoods="song.relateGoods"
-            :parentPlaylistId="props.parentPlaylistId"
-            :enableRemoveFromPlaylist="props.enableRemoveFromPlaylist"
-            :showCover="showCover"
-            :showAlbum="false"
-            :showDuration="false"
-            :active="isActiveSong(song)"
-            variant="list"
-          />
-        </div>
+          <div class="flex-1 min-w-0 ml-4">
+            <SongCard
+              :id="song.id"
+              :hash="song.hash"
+              :title="song.title"
+              :artist="song.artist"
+              :artists="song.artists"
+              :album="song.album"
+              :albumId="song.albumId"
+              :coverUrl="song.coverUrl"
+              :duration="song.duration"
+              :audioUrl="song.audioUrl"
+              :mixSongId="song.mixSongId"
+              :privilege="song.privilege"
+              :payType="song.payType"
+              :oldCpy="song.oldCpy"
+              :relateGoods="song.relateGoods"
+              :parentPlaylistId="props.parentPlaylistId"
+              :enableRemoveFromPlaylist="props.enableRemoveFromPlaylist"
+              :showCover="showCover"
+              :showAlbum="false"
+              :showDuration="false"
+              :showMore="false"
+              :active="isActiveSong(song)"
+              variant="list"
+            />
+          </div>
 
-        <div
-          v-if="showAlbum"
-          class="w-48 min-w-0 hidden md:block text-[13px] text-text-main/70 truncate pr-4"
-        >
-          {{ song.album || '未知专辑' }}
-        </div>
+          <div
+            v-if="showAlbum"
+            class="w-[188px] min-w-0 hidden md:block pl-[18px] text-[13px] text-text-main/70 truncate"
+          >
+            {{ song.album || '未知专辑' }}
+          </div>
 
-        <div v-if="showDuration" class="w-16 shrink-0 text-[12px] opacity-60">
-          {{ formatDuration(song.duration) }}
+          <div v-if="showDuration" class="w-16 shrink-0 pl-4 text-[12px] opacity-60 text-right whitespace-nowrap">
+            {{ formatDuration(song.duration) }}
+          </div>
         </div>
       </div>
     </template>
@@ -256,6 +261,15 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
 
 .song-list-container {
   user-select: none;
+  width: 100%;
+}
+
+.song-list-row {
+  width: 100%;
+}
+
+.song-list-row-inner {
+  box-sizing: border-box;
 }
 
 .song-list-row:hover {

@@ -139,19 +139,23 @@ const handleClick = () => {
 
 .info-wrapper {
   @apply mt-2 px-0.5;
+  min-height: 36px;
 }
 
 .title {
-  @apply text-[13px] font-semibold text-text-main line-clamp-1 leading-[1.2];
+  @apply text-[13px] font-semibold text-text-main line-clamp-1;
+  line-height: 1.1;
 }
 
 .subtitle {
-  @apply text-[11px] font-semibold text-text-secondary line-clamp-1 mt-0.5 opacity-80;
+  @apply text-[11px] font-semibold text-text-secondary line-clamp-1 opacity-80;
+  margin-top: 2px;
 }
 
 /* List Layout */
 .playlist-card-list {
-  @apply flex items-center p-3 rounded-[14px] transition-all duration-200;
+  @apply flex items-center rounded-[14px] transition-all duration-200;
+  padding: 4px 12px;
 }
 
 .playlist-card-list:hover {

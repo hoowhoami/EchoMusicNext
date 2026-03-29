@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<Props>(), {
   showCover: true,
   sortField: null,
   sortOrder: null,
-  paddingClass: 'px-6',
+  paddingClass: 'px-[14px]',
 });
 
 const emit = defineEmits<{
@@ -33,12 +33,12 @@ const handleSort = (field: SortField) => {
 
 <template>
   <div
-    class="flex items-center py-2 text-[12px] text-text-main/80 font-bold border-b border-border-light/30"
+    class="flex items-center h-11 text-[12px] text-text-main/80 font-bold border-b border-border-light/30"
     :class="props.paddingClass"
   >
     <div
       v-if="showIndex"
-      class="w-10 shrink-0 text-left pl-2 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
+      class="w-10 shrink-0 pl-2 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
       @click="handleSort('index')"
     >
       <span>#</span>
@@ -55,7 +55,7 @@ const handleSort = (field: SortField) => {
       :class="props.showCover ? 'ml-4' : ''"
       @click="handleSort('title')"
     >
-      <span>标题</span>
+      <span>歌曲</span>
       <Icon
         v-if="sortField === 'title'"
         class="sort-icon"
@@ -66,7 +66,7 @@ const handleSort = (field: SortField) => {
 
     <div
       v-if="showAlbum"
-      class="w-48 min-w-0 hidden md:flex cursor-pointer hover:opacity-100 transition-opacity items-center gap-1 whitespace-nowrap"
+      class="w-[188px] min-w-0 hidden md:flex pl-[18px] cursor-pointer hover:opacity-100 transition-opacity items-center gap-1 whitespace-nowrap"
       @click="handleSort('album')"
     >
       <span>专辑</span>
@@ -79,7 +79,7 @@ const handleSort = (field: SortField) => {
     </div>
 
     <div
-      class="w-16 shrink-0 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
+      class="w-16 shrink-0 pl-4 cursor-pointer hover:opacity-100 transition-opacity flex items-center justify-end gap-1 whitespace-nowrap"
       @click="handleSort('duration')"
     >
       <span>时长</span>
@@ -100,5 +100,4 @@ const handleSort = (field: SortField) => {
   width: 14px;
   height: 14px;
 }
-
 </style>
