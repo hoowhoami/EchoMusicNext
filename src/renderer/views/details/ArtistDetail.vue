@@ -14,10 +14,16 @@ import TabsContent from '@/components/ui/TabsContent.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Dialog from '@/components/ui/Dialog.vue';
 import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
-import { Song } from '@/stores/playlist';
+import { usePlaylistStore } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import { mapAlbumMeta, mapArtistDetailMeta, mapArtistSong } from '@/utils/mappers';
+import { usePlayerStore } from '@/stores/player';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart } from '@/icons';
+import { replaceQueueAndPlay } from '@/utils/songPlayback';
+
+const playlistStore = usePlaylistStore();
+const playerStore = usePlayerStore();
 
 const route = useRoute();
 const router = useRouter();
@@ -200,12 +206,15 @@ const secondaryActions = computed(() => [
   },
 ]);
 
-const handlePlayAll = () => {};
+const handlePlayAll = async () => {
+  if (songs.value.length === 0) return;
+  await replaceQueueAndPlay(playlistStore, playerStore, songs.value);
+};
 const openBatchDrawer = () => {
   if (songs.value.length === 0) return;
   showBatchDrawer.value = true;
 };
-const handleLocate = () => songListRef.value?.scrollToActive();
+const handleLocate = () => songListRef.value?.scrollToActive?.();
 </script>
 
 <template>

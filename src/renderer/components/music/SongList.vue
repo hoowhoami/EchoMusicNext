@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
-import { Song } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import { formatDuration } from '@/utils/format';
 import SongCard from './SongCard.vue';
 import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';

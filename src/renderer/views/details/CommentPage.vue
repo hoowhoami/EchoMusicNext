@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   getMusicComments,
@@ -19,9 +19,9 @@ import TabsList from '@/components/ui/TabsList.vue';
 import TabsTrigger from '@/components/ui/TabsTrigger.vue';
 import TabsContent from '@/components/ui/TabsContent.vue';
 import CommentList from '@/components/music/CommentList.vue';
-import Cover from '@/components/ui/Cover.vue';
+import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
 import BackToTop from '@/components/ui/BackToTop.vue';
-import { iconArrowLeft, iconX } from '@/icons';
+import { iconX } from '@/icons';
 
 interface CommentPayload {
   hot?: Comment[];
@@ -44,7 +44,30 @@ const songHash = computed(() => String(route.query.hash ?? ''));
 const songAlbumId = computed(() => String(route.query.albumId ?? ''));
 const songMixSongId = computed(() => String(route.query.mixSongId ?? id));
 
-const activeMainTab = ref('comments');
+const isMusicType = computed(() => type === 'music');
+const resourceTitle = computed(() => songTitle.value || String(route.query.title ?? ''));
+const resourceSubtitle = computed(() => {
+  if (type === 'music') {
+    return [songArtist.value, songAlbum.value].filter(Boolean).join(' • ');
+  }
+  return String(route.query.artist ?? route.query.subtitle ?? '');
+});
+const resourceCover = computed(() => String(route.query.cover ?? ''));
+const headerTypeLabel = computed(() => {
+  switch (type) {
+    case 'music':
+      return 'COMMENTS';
+    case 'playlist':
+      return 'PLAYLIST';
+    case 'album':
+      return 'ALBUM';
+    default:
+      return 'COMMENTS';
+  }
+});
+
+const headerTitle = computed(() => resourceTitle.value || title.value);
+
 const activeCommentTab = ref('hot');
 
 const isLoadingComments = ref(false);
@@ -83,6 +106,29 @@ const activeFloorComment = ref<Comment | null>(null);
 const floorMessage = ref('');
 const floorLoadMoreMessage = ref('');
 const floorBodyRef = ref<HTMLElement | null>(null);
+const classifyChipRowRef = ref<HTMLElement | null>(null);
+const hotwordChipRowRef = ref<HTMLElement | null>(null);
+
+const initialFloorComment = computed<Comment | null>(() => {
+  const specialId = String(route.query.floorSpecialId ?? '');
+  const tid = String(route.query.floorTid ?? '');
+  if (!specialId || !tid) return null;
+  return {
+    id: String(route.query.floorCommentId ?? tid),
+    userName: String(route.query.floorUserName ?? ''),
+    avatar: String(route.query.floorAvatar ?? ''),
+    content: String(route.query.floorContent ?? ''),
+    time: String(route.query.floorTime ?? ''),
+    likeCount: Number(route.query.floorLikeCount ?? 0) || 0,
+    replyCount: Number(route.query.floorReplyCount ?? 0) || 0,
+    isHot: String(route.query.floorIsHot ?? '') === '1',
+    isStar: String(route.query.floorIsStar ?? '') === '1',
+    specialId,
+    tid,
+    code: String(route.query.floorCode ?? ''),
+    mixSongId: String(route.query.floorMixSongId ?? ''),
+  };
+});
 
 const title = computed(() => {
   switch (type) {
@@ -98,6 +144,42 @@ const title = computed(() => {
 });
 
 const totalLabel = computed(() => (total.value > 0 ? `(${total.value})` : ''));
+const showCommentsEnd = computed(() => !hasMore.value && !isLoadingComments.value && comments.value.length > 0);
+const showClassifyEnd = computed(() => !hasMoreClassify.value && !isLoadingClassify.value && classifyComments.value.length > 0);
+const showHotwordEnd = computed(() => !hasMoreHotword.value && !isLoadingHotword.value && hotwordComments.value.length > 0);
+const showFloorEnd = computed(() => !floorHasMore.value && !floorLoading.value && floorReplies.value.length > 0);
+
+const scrollChipRowToActive = (container: HTMLElement | null) => {
+  if (!container) return;
+  const activeChip = container.querySelector<HTMLElement>('.comment-chip.is-active');
+  activeChip?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+};
+
+const maybeFetchByScroll = () => {
+  const scrollTop = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const fullHeight = document.documentElement.scrollHeight || document.body.scrollHeight || 0;
+  if (fullHeight - scrollTop - viewportHeight > 400) return;
+
+  if (type !== 'music') {
+    if (!isLoadingComments.value && hasMore.value) void fetchComments();
+    return;
+  }
+
+  if (activeCommentTab.value === 'classify') {
+    if (!isLoadingClassify.value && hasMoreClassify.value) void fetchClassifyComments();
+    return;
+  }
+
+  if (activeCommentTab.value === 'hotword') {
+    if (!isLoadingHotword.value && hasMoreHotword.value) void fetchHotwordComments();
+    return;
+  }
+
+  if (!isLoadingComments.value && hasMore.value) {
+    void fetchComments();
+  }
+};
 
 const formatCount = (value: number) => {
   if (!Number.isFinite(value)) return '--';
@@ -124,10 +206,10 @@ const effectTags = computed(() => {
     .filter((quality) => ['piano', 'acappella', 'subwoofer', 'ancient', 'surnay', 'dj', 'viper_tape', 'viper_atmos', 'viper_clear'].includes(quality));
 });
 
-const rankingInfo = computed(() => {
+const rankingInfo = computed<Array<Record<string, unknown>>>(() => {
   const data = rankingData.value?.data as Record<string, unknown> | undefined;
-  const list = (data?.info as unknown[]) ?? [];
-  return Array.isArray(list) ? list : [];
+  const list = data?.info;
+  return Array.isArray(list) ? list.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null) : [];
 });
 
 const rankingSummary = computed(() => {
@@ -432,18 +514,18 @@ const fetchFloorReplies = async (reset = false) => {
   }
 };
 
-const handleMainTabChange = (value: string) => {
-  activeMainTab.value = value;
-};
-
-const handleCommentTabChange = (value: string) => {
-  activeCommentTab.value = value;
+const handleCommentTabChange = (value: string | number) => {
+  activeCommentTab.value = String(value);
   if (value === 'classify' && classifyComments.value.length === 0) {
     void fetchClassifyComments(true);
   }
   if (value === 'hotword' && hotwordComments.value.length === 0) {
     void fetchHotwordComments(true);
   }
+  void nextTick(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    maybeFetchByScroll();
+  });
 };
 
 const fetchHeaderStats = async () => {
@@ -454,7 +536,7 @@ const fetchHeaderStats = async () => {
       getCommentCount(songHash.value || ''),
     ]);
     if (favoriteRes && typeof favoriteRes === 'object') {
-      const record = favoriteRes as Record<string, unknown>;
+      const record = favoriteRes as unknown as Record<string, unknown>;
       const data = (record.data as Record<string, unknown>) || record;
       const list = (data.list as Record<string, unknown>[]) || [];
       const first = Array.isArray(list) ? list[0] : undefined;
@@ -462,7 +544,7 @@ const fetchHeaderStats = async () => {
       favoriteCount.value = count;
     }
     if (commentRes && typeof commentRes === 'object') {
-      const record = commentRes as Record<string, unknown>;
+      const record = commentRes as unknown as Record<string, unknown>;
       const data = (record.data as Record<string, unknown>) || record;
       const count = Number(data.count ?? data.total ?? 0) || 0;
       commentCount.value = count;
@@ -482,7 +564,7 @@ const fetchDetailData = async () => {
       getSongRanking(songMixSongId.value || id),
     ]);
     if (privilegeRes && typeof privilegeRes === 'object') {
-      const record = privilegeRes as Record<string, unknown>;
+      const record = privilegeRes as unknown as Record<string, unknown>;
       const data = (record.data as unknown[]) || [];
       const list = Array.isArray(data) ? data : [];
       privilegeData.value = list.length > 0 && typeof list[0] === 'object'
@@ -490,181 +572,207 @@ const fetchDetailData = async () => {
         : null;
     }
     if (rankingRes && typeof rankingRes === 'object') {
-      rankingData.value = rankingRes as Record<string, unknown>;
+      rankingData.value = rankingRes as unknown as Record<string, unknown>;
     }
   } finally {
     detailLoading.value = false;
   }
 };
 
-onMounted(() => {
-  void fetchComments(true);
-  void fetchHeaderStats();
-  void fetchDetailData();
+onMounted(async () => {
+  window.addEventListener('scroll', maybeFetchByScroll, { passive: true });
+  await fetchComments(true);
+  if (isMusicType.value) {
+    void fetchHeaderStats();
+    void fetchDetailData();
+  }
+  if (initialFloorComment.value) {
+    openFloor(initialFloorComment.value);
+  }
+  void nextTick(() => {
+    scrollChipRowToActive(classifyChipRowRef.value);
+    scrollChipRowToActive(hotwordChipRowRef.value);
+  });
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', maybeFetchByScroll);
+});
+
+watch(selectedClassify, () => {
+  void nextTick(() => scrollChipRowToActive(classifyChipRowRef.value));
+});
+
+watch(selectedHotword, () => {
+  void nextTick(() => scrollChipRowToActive(hotwordChipRowRef.value));
 });
 </script>
 
 <template>
   <div class="comment-page bg-bg-main min-h-full">
-    <div class="comment-header">
-      <button class="comment-back" @click="router.back()">
-        <Icon :icon="iconArrowLeft" width="20" height="20" />
-      </button>
-      <div class="comment-title">
-        {{ title }}
-        <span class="comment-title-count" v-if="totalLabel">{{ totalLabel }}</span>
-      </div>
-      <div class="comment-spacer"></div>
-    </div>
+    <SliverHeader
+      :typeLabel="headerTypeLabel"
+      :title="headerTitle"
+      :coverUrl="resourceCover"
+      :hasDetails="true"
+      :expandedHeight="176"
+      :collapsedHeight="56"
+    >
+      <template #details>
+        <div class="flex flex-col gap-2">
+          <div v-if="resourceSubtitle" class="text-[13px] font-semibold text-primary truncate">
+            {{ resourceSubtitle }}
+          </div>
+          <div v-if="isMusicType" class="flex items-center flex-wrap gap-5 text-[12px] font-semibold text-text-main/55">
+            <span>累计收藏 {{ formatCount(favoriteCount) }}</span>
+            <span>评论 {{ formatCount(commentCount) }}</span>
+          </div>
+        </div>
+      </template>
+    </SliverHeader>
 
     <div class="comment-content-wrap">
-      <Tabs :model-value="activeMainTab" @update:model-value="handleMainTabChange">
-        <div class="comment-main-tabs">
-          <TabsList class="comment-main-list">
-            <TabsTrigger value="detail">详情</TabsTrigger>
-            <TabsTrigger value="comments">评论</TabsTrigger>
-          </TabsList>
+
+      <div v-if="isMusicType && !detailLoading && (qualityTags.length || effectTags.length || rankingInfo.length || rankingSummary)" class="detail-section">
+        <div v-if="qualityTags.length" class="detail-block">
+          <div class="detail-title">可选音质</div>
+          <div class="detail-tags">
+            <span v-for="tag in qualityTags" :key="tag" class="detail-tag">{{ tag }}</span>
+          </div>
         </div>
-
-        <TabsContent value="detail">
-          <div class="song-detail-panel">
-            <div class="song-detail-cover">
-              <Cover :url="songCover" :size="480" :width="140" :height="140" :borderRadius="20" />
-            </div>
-            <div class="song-detail-info">
-              <div class="song-detail-title">{{ songTitle || '未知歌曲' }}</div>
-              <div class="song-detail-sub">
-                <span>{{ songArtist || '未知歌手' }}</span>
-                <span v-if="songAlbum">• {{ songAlbum }}</span>
+        <div v-if="effectTags.length" class="detail-block">
+          <div class="detail-title">可用音效</div>
+          <div class="detail-tags">
+            <span v-for="tag in effectTags" :key="tag" class="detail-tag">{{ tag }}</span>
+          </div>
+        </div>
+        <div v-if="rankingSummary || rankingInfo.length" class="detail-block">
+          <div class="detail-title">榜单成就</div>
+          <div v-if="rankingSummary" class="detail-summary">• {{ rankingSummary }}</div>
+          <div v-if="rankingInfo.length" class="ranking-list">
+            <div v-for="(rank, index) in rankingInfo" :key="index" class="ranking-card">
+              <div class="ranking-title">{{ rank.platform_name || '未知平台' }}</div>
+              <div class="ranking-meta">
+                <span>累计上榜：{{ rank.ranking_times || 0 }}次</span>
+                <span>最近上榜：{{ rank.last_time || '未知' }}</span>
               </div>
-              <div class="song-detail-meta">
-                <span>收藏：{{ formatCount(favoriteCount) }}</span>
-                <span>评论：{{ formatCount(commentCount) }}</span>
-              </div>
+              <div class="ranking-rank">第 {{ rank.ranking_num || 0 }} 名</div>
             </div>
           </div>
+        </div>
+      </div>
 
-          <div v-if="detailLoading" class="comment-detail-empty">加载中...</div>
-
-          <div v-if="!detailLoading && (qualityTags.length || effectTags.length)" class="detail-section">
-            <div v-if="qualityTags.length" class="detail-block">
-              <div class="detail-title">可选音质</div>
-              <div class="detail-tags">
-                <span v-for="tag in qualityTags" :key="tag" class="detail-tag">{{ tag }}</span>
-              </div>
-            </div>
-            <div v-if="effectTags.length" class="detail-block">
-              <div class="detail-title">可用音效</div>
-              <div class="detail-tags">
-                <span v-for="tag in effectTags" :key="tag" class="detail-tag">{{ tag }}</span>
-              </div>
-            </div>
+      <div v-if="isMusicType" class="comment-tabs-shell">
+        <Tabs :model-value="activeCommentTab" @update:model-value="handleCommentTabChange">
+          <div class="comment-sub-tabs">
+            <TabsList class="comment-sub-list">
+              <TabsTrigger value="hot">精彩评论</TabsTrigger>
+              <TabsTrigger value="all">全部评论</TabsTrigger>
+              <TabsTrigger value="classify">分类评论</TabsTrigger>
+              <TabsTrigger value="hotword">热词评论</TabsTrigger>
+            </TabsList>
           </div>
 
-          <div v-if="!detailLoading" class="detail-section">
-            <div class="detail-title">榜单成就</div>
-            <div v-if="rankingSummary" class="detail-summary">• {{ rankingSummary }}</div>
-            <div v-if="rankingInfo.length === 0" class="comment-detail-empty">暂无榜单数据</div>
-            <div v-else class="ranking-list">
-              <div v-for="(rank, index) in rankingInfo" :key="index" class="ranking-card">
-                <div class="ranking-title">{{ rank.platform_name || '未知平台' }}</div>
-                <div class="ranking-meta">
-                  <span>累计上榜：{{ rank.ranking_times || 0 }}次</span>
-                  <span>最近上榜：{{ rank.last_time || '未知' }}</span>
-                </div>
-                <div class="ranking-rank">第 {{ rank.ranking_num || 0 }} 名</div>
+          <TabsContent value="hot">
+            <div v-if="hotComments.some((item) => item.isStar)" class="comment-section-title">歌手说</div>
+            <CommentList
+              :comments="hotComments.filter((item) => item.isStar)"
+              :loading="isLoadingComments"
+              :onTapReplies="openFloor"
+              compact
+            />
+            <div v-if="hotComments.some((item) => item.isHot)" class="comment-section-title">热门评论</div>
+            <CommentList
+              :comments="hotComments.filter((item) => item.isHot)"
+              :loading="isLoadingComments"
+              :onTapReplies="openFloor"
+              compact
+            />
+            <div class="comment-section-title">最新评论{{ total > 0 ? ` (${total})` : '' }}</div>
+            <CommentList :comments="comments" :loading="isLoadingComments" :onTapReplies="openFloor" compact />
+            <div v-if="hasMore || isLoadingComments || showCommentsEnd" class="comment-load-more">
+              <div v-if="isLoadingComments" class="comment-loading-inline">
+                <div class="comment-loading-spinner"></div>
+                <span>加载中...</span>
               </div>
+              <button v-else-if="hasMore" @click="fetchComments()">加载更多</button>
+              <div v-else class="comment-end-hint">已加载全部评论</div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="all">
+            <div class="comment-section-title">最新评论{{ total > 0 ? ` (${total})` : '' }}</div>
+            <CommentList :comments="comments" :loading="isLoadingComments" :onTapReplies="openFloor" compact />
+            <div v-if="hasMore || isLoadingComments || showCommentsEnd" class="comment-load-more">
+              <div v-if="isLoadingComments" class="comment-loading-inline">
+                <div class="comment-loading-spinner"></div>
+                <span>加载中...</span>
+              </div>
+              <button v-else-if="hasMore" @click="fetchComments()">加载更多</button>
+              <div v-else class="comment-end-hint">已加载全部评论</div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="classify">
+            <div ref="classifyChipRowRef" class="comment-chip-row">
+              <button
+                v-for="item in classifyList"
+                :key="item.id"
+                :class="['comment-chip', selectedClassify === item.id && 'is-active']"
+                @click="selectedClassify = item.id; void fetchClassifyComments(true)"
+              >
+                {{ item.name }}<span v-if="item.count" class="comment-chip-count">{{ item.count }}</span>
+              </button>
+            </div>
+            <CommentList :comments="classifyComments" :loading="isLoadingClassify" :onTapReplies="openFloor" compact empty-text="该分类下暂无评论" />
+            <div v-if="hasMoreClassify || isLoadingClassify || showClassifyEnd" class="comment-load-more">
+              <div v-if="isLoadingClassify" class="comment-loading-inline">
+                <div class="comment-loading-spinner"></div>
+                <span>加载中...</span>
+              </div>
+              <button v-else-if="hasMoreClassify" @click="fetchClassifyComments()">加载更多</button>
+              <div v-else class="comment-end-hint">已加载全部评论</div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="hotword">
+            <div ref="hotwordChipRowRef" class="comment-chip-row">
+              <button
+                v-for="item in hotwordList"
+                :key="item.content"
+                :class="['comment-chip', selectedHotword === item.content && 'is-active']"
+                @click="selectedHotword = item.content; void fetchHotwordComments(true)"
+              >
+                {{ item.content }}<span v-if="item.count" class="comment-chip-count">{{ item.count }}</span>
+              </button>
+            </div>
+            <CommentList :comments="hotwordComments" :loading="isLoadingHotword" :onTapReplies="openFloor" compact empty-text="该热词下暂无评论" />
+            <div v-if="hasMoreHotword || isLoadingHotword || showHotwordEnd" class="comment-load-more">
+              <div v-if="isLoadingHotword" class="comment-loading-inline">
+                <div class="comment-loading-spinner"></div>
+                <span>加载中...</span>
+              </div>
+              <button v-else-if="hasMoreHotword" @click="fetchHotwordComments()">加载更多</button>
+              <div v-else class="comment-end-hint">已加载全部评论</div>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      <template v-else>
+        <div v-if="hotComments.length" class="comment-section-title">热门评论</div>
+        <CommentList :comments="hotComments" :loading="isLoadingComments" :onTapReplies="openFloor" compact />
+        <div class="comment-section-title">最新评论{{ total > 0 ? ` (${total})` : '' }}</div>
+        <CommentList :comments="comments" :loading="isLoadingComments" :onTapReplies="openFloor" compact />
+        <div v-if="hasMore || isLoadingComments || showCommentsEnd" class="comment-load-more">
+          <div v-if="isLoadingComments" class="comment-loading-inline">
+            <div class="comment-loading-spinner"></div>
+            <span>加载中...</span>
           </div>
-        </TabsContent>
-
-        <TabsContent value="comments">
-          <div class="comment-input">
-            <textarea placeholder="发表评论..." disabled />
-            <button disabled>发布评论</button>
-            <div class="comment-input-hint">暂未开放评论发布</div>
-          </div>
-
-          <Tabs
-            v-if="type === 'music'"
-            :model-value="activeCommentTab"
-            @update:model-value="handleCommentTabChange"
-          >
-            <div class="comment-sub-tabs">
-              <TabsList class="comment-sub-list">
-                <TabsTrigger value="hot">精彩评论</TabsTrigger>
-                <TabsTrigger value="all">全部评论</TabsTrigger>
-                <TabsTrigger value="classify">分类评论</TabsTrigger>
-                <TabsTrigger value="hotword">热词评论</TabsTrigger>
-              </TabsList>
-            </div>
-
-            <TabsContent value="hot">
-              <div v-if="hotComments.some((item) => item.isStar)" class="comment-section-title">歌手说</div>
-              <CommentList
-                :comments="hotComments.filter((item) => item.isStar)"
-                :loading="isLoadingComments"
-                :onTapReplies="openFloor"
-              />
-              <div v-if="hotComments.some((item) => item.isHot)" class="comment-section-title">热门评论</div>
-              <CommentList
-                :comments="hotComments.filter((item) => item.isHot)"
-                :loading="isLoadingComments"
-                :onTapReplies="openFloor"
-              />
-              <div v-if="comments.length" class="comment-section-title">最新评论</div>
-              <CommentList :comments="comments" :loading="isLoadingComments" :onTapReplies="openFloor" />
-            </TabsContent>
-            <TabsContent value="all">
-              <CommentList :comments="comments" :loading="isLoadingComments" :onTapReplies="openFloor" />
-              <div v-if="hasMore" class="comment-load-more">
-                <button @click="fetchComments()" :disabled="isLoadingComments">{{ isLoadingComments ? '加载中...' : '加载更多' }}</button>
-              </div>
-            </TabsContent>
-            <TabsContent value="classify">
-              <div class="comment-chip-row">
-                <button
-                  v-for="item in classifyList"
-                  :key="item.id"
-                  :class="['comment-chip', selectedClassify === item.id && 'is-active']"
-                  @click="selectedClassify = item.id; fetchClassifyComments(true)"
-                >
-                  {{ item.name }}
-                </button>
-              </div>
-              <CommentList :comments="classifyComments" :loading="isLoadingClassify" :onTapReplies="openFloor" />
-              <div v-if="hasMoreClassify" class="comment-load-more">
-                <button @click="fetchClassifyComments()" :disabled="isLoadingClassify">{{ isLoadingClassify ? '加载中...' : '加载更多' }}</button>
-              </div>
-            </TabsContent>
-            <TabsContent value="hotword">
-              <div class="comment-chip-row">
-                <button
-                  v-for="item in hotwordList"
-                  :key="item.content"
-                  :class="['comment-chip', selectedHotword === item.content && 'is-active']"
-                  @click="selectedHotword = item.content; fetchHotwordComments(true)"
-                >
-                  {{ item.content }}
-                </button>
-              </div>
-              <CommentList :comments="hotwordComments" :loading="isLoadingHotword" :onTapReplies="openFloor" />
-              <div v-if="hasMoreHotword" class="comment-load-more">
-                <button @click="fetchHotwordComments()" :disabled="isLoadingHotword">{{ isLoadingHotword ? '加载中...' : '加载更多' }}</button>
-              </div>
-            </TabsContent>
-          </Tabs>
-
-          <template v-else>
-            <CommentList :comments="hotComments" :loading="isLoadingComments" :onTapReplies="openFloor" />
-            <div class="comment-section-title">最新评论</div>
-            <CommentList :comments="comments" :loading="isLoadingComments" :onTapReplies="openFloor" />
-            <div v-if="hasMore" class="comment-load-more">
-              <button @click="fetchComments()" :disabled="isLoadingComments">{{ isLoadingComments ? '加载中...' : '加载更多' }}</button>
-            </div>
-          </template>
-        </TabsContent>
-      </Tabs>
+          <button v-else-if="hasMore" @click="fetchComments()">加载更多</button>
+          <div v-else class="comment-end-hint">已加载全部评论</div>
+        </div>
+      </template>
     </div>
 
     <Drawer v-model:open="showFloor" side="bottom" panelClass="comment-floor">
@@ -681,18 +789,24 @@ onMounted(() => {
           :comments="[activeFloorComment]"
           :showDivider="false"
           :loading="false"
+          compact
         />
         <div class="comment-floor-section">
           回复{{ floorTotal > 0 ? ` (${floorTotal})` : '' }}
         </div>
-        <CommentList :comments="floorReplies" :loading="floorLoading" :showDivider="true" />
+        <CommentList :comments="floorReplies" :loading="floorLoading" :showDivider="true" compact />
         <div v-if="!floorLoading && floorReplies.length === 0" class="comment-floor-empty">
           {{ floorMessage || '暂无回复' }}
         </div>
-        <div v-if="floorHasMore" class="comment-load-more">
-          <button @click="fetchFloorReplies()" :disabled="floorLoading">
-            {{ floorLoading ? '加载中...' : floorLoadMoreMessage || '加载更多' }}
+        <div v-if="floorHasMore || floorLoading || showFloorEnd" class="comment-load-more comment-load-more-floor">
+          <div v-if="floorLoading" class="comment-loading-inline">
+            <div class="comment-loading-spinner"></div>
+            <span>加载中...</span>
+          </div>
+          <button v-else-if="floorHasMore" @click="fetchFloorReplies()">
+            {{ floorLoadMoreMessage || '加载更多' }}
           </button>
+          <div v-else class="comment-end-hint">已加载全部评论</div>
         </div>
       </div>
     </Drawer>
@@ -708,62 +822,20 @@ onMounted(() => {
   padding: 0 24px 40px;
 }
 
-.comment-header {
-  position: sticky;
-  top: 0;
-  z-index: 120;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 20px 0 10px;
-  background: var(--color-bg-main);
-}
-
-.comment-back {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border-light);
-  color: var(--color-text-main);
-}
-
-.comment-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--color-text-main);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.comment-title-count {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-
-.comment-spacer {
-  flex: 1;
-}
-
 .comment-content-wrap {
   max-width: 860px;
   margin: 0 auto;
-  max-height: calc(100vh - 120px);
-  overflow-y: auto;
-  padding-bottom: 40px;
+  padding: 4px 0 40px;
 }
 
-.comment-main-tabs,
+.comment-tabs-shell {
+  margin-top: 10px;
+}
+
 .comment-sub-tabs {
-  margin-top: 16px;
-  margin-bottom: 16px;
+  margin: 8px 0 14px;
 }
 
-.comment-main-list,
 .comment-sub-list {
   background: color-mix(in srgb, var(--color-text-main) 8%, transparent);
   padding: 4px;
@@ -771,87 +843,62 @@ onMounted(() => {
   border: 1px solid color-mix(in srgb, var(--color-text-main) 12%, transparent);
 }
 
-.comment-input {
-  position: relative;
-  margin: 12px 0 24px;
-}
-
-.comment-input textarea {
-  width: 100%;
-  min-height: 96px;
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid transparent;
-  background: color-mix(in srgb, var(--color-text-main) 4%, transparent);
-  color: var(--color-text-main);
-  font-size: 14px;
-  outline: none;
-  resize: none;
-}
-
-.comment-input textarea:disabled {
-  opacity: 0.6;
-}
-
-.comment-input button {
-  position: absolute;
-  right: 14px;
-  bottom: 12px;
-  padding: 6px 16px;
-  border-radius: 999px;
-  background: var(--color-primary);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.comment-input button:disabled {
-  opacity: 0.6;
-}
-
-.comment-input-hint {
-  position: absolute;
-  right: 16px;
-  top: 10px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-
 .comment-chip-row {
   display: flex;
   gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 8px 0 4px;
+  margin: 0 -2px 12px;
+  scrollbar-width: none;
+}
+
+.comment-chip-row::-webkit-scrollbar {
+  display: none;
 }
 
 .comment-chip {
-  padding: 6px 12px;
-  border-radius: 999px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--color-text-main) 12%, transparent);
-  background: var(--color-bg-card);
+  background: color-mix(in srgb, var(--color-text-main) 6%, transparent);
   font-size: 12px;
   font-weight: 600;
   color: var(--color-text-secondary);
+  white-space: nowrap;
+  box-shadow: none;
 }
 
 .comment-chip.is-active {
-  color: var(--color-primary);
-  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: white;
+  border-color: transparent;
+  background: var(--color-primary);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.comment-chip-count {
+  margin-left: 6px;
+  font-size: 11px;
+  opacity: 0.72;
+  font-family: monospace;
 }
 
 .comment-section-title {
-  margin: 20px 0 10px;
+  margin: 16px 0 8px;
+  padding: 0 16px;
   font-size: 13px;
   font-weight: 700;
-  color: var(--color-text-secondary);
+  color: color-mix(in srgb, var(--color-text-main) 70%, transparent);
 }
 
 .comment-load-more {
   display: flex;
   justify-content: center;
-  margin: 20px 0 32px;
+  margin: 18px 0 30px;
 }
 
 .comment-load-more button {
@@ -864,57 +911,38 @@ onMounted(() => {
   background: var(--color-bg-card);
 }
 
-.comment-detail-empty {
-  padding: 40px 0;
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
-.song-detail-panel {
-  display: flex;
-  gap: 20px;
-  padding: 20px;
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--color-text-main) 4%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-text-main) 10%, transparent);
+.comment-loading-inline {
+  display: inline-flex;
   align-items: center;
-}
-
-.song-detail-cover {
-  flex-shrink: 0;
-}
-
-.song-detail-info {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.song-detail-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--color-text-main);
-}
-
-.song-detail-sub {
-  font-size: 14px;
+  gap: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--color-text-secondary);
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
-.song-detail-meta {
+.comment-end-hint {
   font-size: 12px;
-  color: color-mix(in srgb, var(--color-text-main) 55%, transparent);
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-text-main) 42%, transparent);
+}
+
+.comment-loading-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  border-top-color: var(--color-primary);
+  animation: comment-spin 0.8s linear infinite;
+}
+
+@keyframes comment-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .detail-section {
-  margin-top: 24px;
+  margin-top: 12px;
   padding: 20px;
   border-radius: 20px;
   background: color-mix(in srgb, var(--color-text-main) 4%, transparent);
@@ -990,18 +1018,26 @@ onMounted(() => {
   color: var(--color-text-main);
 }
 
+.comment-detail-empty {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
 :global(.comment-floor) {
   padding: 0;
-  border-radius: 24px;
+  border-radius: 24px 24px 0 0;
   overflow: hidden;
+  box-shadow: 0 -18px 48px color-mix(in srgb, black 18%, transparent);
 }
 
 .comment-floor-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px 8px;
+  padding: 18px 20px 10px;
 }
+
 
 .comment-floor-title {
   font-size: 16px;
@@ -1021,7 +1057,7 @@ onMounted(() => {
 }
 
 .comment-floor-body {
-  padding: 0 16px 16px;
+  padding: 0 16px 18px;
   max-height: 72vh;
   overflow-y: auto;
 }
@@ -1035,9 +1071,13 @@ onMounted(() => {
 }
 
 .comment-floor-section {
-  margin: 12px 0 8px;
+  margin: 16px 0 10px;
   font-size: 12px;
   font-weight: 700;
   color: var(--color-text-secondary);
+}
+
+.comment-load-more-floor {
+  margin-bottom: 8px;
 }
 </style>

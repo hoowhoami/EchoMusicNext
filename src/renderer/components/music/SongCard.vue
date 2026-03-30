@@ -11,8 +11,8 @@ import {
   ContextMenuItem,
 } from 'reka-ui';
 import { formatDuration } from '@/utils/format';
-import type { SongArtist, SongRelateGood } from '@/stores/playlist';
-import { usePlaylistStore, type Song } from '@/stores/playlist';
+import type { Song, SongArtist, SongRelateGood } from '@/models/song';
+import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
 import Dialog from '@/components/ui/Dialog.vue';
@@ -197,7 +197,16 @@ const goToComments = () => {
   router.push({
     name: 'comment',
     params: { id: String(commentId) },
-    query: { type: 'music' },
+    query: {
+      type: 'music',
+      title: props.title,
+      artist: props.artist,
+      album: props.album ?? '',
+      cover: props.coverUrl ?? '',
+      albumId: props.albumId ?? '',
+      hash: props.hash ?? '',
+      mixSongId: props.mixSongId ?? props.id,
+    },
   });
 };
 
@@ -219,25 +228,26 @@ const buildSongPayload = (): Song => ({
   relateGoods: props.relateGoods,
 });
 
-const mergeSongIntoQueue = (payload: Song, replaceQueue: boolean) => {
+const mergeSongIntoQueue = (payload: Song) => {
   const list = playlistStore.defaultList.slice();
   const exists = list.some((item) => String(item.id) === String(payload.id));
   if (!exists) {
     playlistStore.defaultList = [payload, ...list];
+    playlistStore.syncQueuedNextTrackIds();
   }
 };
 
 const replaceQueueWithContext = (payload: Song) => {
   const contextList = props.queueContext?.slice() ?? [];
   if (contextList.length === 0) {
-    mergeSongIntoQueue(payload, false);
+    mergeSongIntoQueue(payload);
     return;
   }
   const exists = contextList.some((item) => String(item.id) === String(payload.id));
   const normalized = exists
     ? contextList.map((item) => (String(item.id) === String(payload.id) ? { ...item, ...payload } : item))
     : [payload, ...contextList];
-  playlistStore.defaultList = normalized;
+  playlistStore.setPlaybackQueue(normalized, 0);
 };
 
 const playFromCard = (replaceQueue: boolean) => {
@@ -246,7 +256,7 @@ const playFromCard = (replaceQueue: boolean) => {
   if (replaceQueue) {
     replaceQueueWithContext(payload);
   } else {
-    mergeSongIntoQueue(payload, false);
+    mergeSongIntoQueue(payload);
   }
   void playerStore.playTrack(String(payload.id));
   router.push({ name: 'playing' });
@@ -271,6 +281,8 @@ const handlePlayNext = () => {
   const insertIndex = currentIndex >= 0 ? currentIndex + 1 : list.length;
   list.splice(insertIndex, 0, item);
   playlistStore.defaultList = list;
+  playlistStore.enqueuePlayNext(item.id);
+  playlistStore.syncQueuedNextTrackIds();
 };
 
 const handleAddToPlaylist = async () => {

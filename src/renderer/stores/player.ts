@@ -11,6 +11,8 @@ import {
   type PlayerEngineEvents,
 } from '@/utils/player';
 import { getCoverUrl } from '@/utils/music';
+import type { Song } from '@/models/song';
+import { isPlayableSong } from '@/utils/songPlayback';
 
 type AudioQualityValue = '128' | '320' | 'flac' | 'high';
 type AudioEffectValue =
@@ -50,15 +52,6 @@ const normalizeEffect = (value: string | undefined): AudioEffectValue => {
 
 const clampNumber = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
-
-const canPlaySong = (song: Song): boolean => {
-  if (song.privilege === 40) return false;
-  if (song.privilege === 10 && song.payType === 2) return false;
-  if (song.privilege === 5) return song.oldCpy === 1;
-  return true;
-};
-
-const isPlayableSong = (song: Song): boolean => Boolean(song.hash?.trim()) && canPlaySong(song);
 
 const findPlayableIndex = (
   songs: Song[],
@@ -448,6 +441,8 @@ export const usePlayerStore = defineStore('player', {
 
       this.currentTrackId = id;
       this.currentPlaylist = sourceList;
+      playlistStore.consumeQueuedNextTrackId(id);
+      playlistStore.syncQueuedNextTrackIds();
       this.currentAudioUrl = resolved;
       track.audioUrl = resolved;
       this.climaxMarks = [];
@@ -527,6 +522,7 @@ export const usePlayerStore = defineStore('player', {
     },
 
     stop() {
+      const playlistStore = usePlaylistStore();
       engine.reset();
       this.currentTime = 0;
       this.duration = 0;
@@ -535,6 +531,7 @@ export const usePlayerStore = defineStore('player', {
       this.currentAudioUrl = '';
       this.isLoading = false;
       this.pendingSwitch = null;
+      playlistStore.queuedNextTrackIds = [];
       useLyricStore().setLyric('');
       engine.updateMediaPlaybackState(
         buildMediaState({
@@ -548,8 +545,20 @@ export const usePlayerStore = defineStore('player', {
 
     next() {
       const playlistStore = usePlaylistStore();
-      const list = this.currentPlaylist ?? playlistStore.defaultList;
+      playlistStore.syncQueuedNextTrackIds();
+      const list = playlistStore.defaultList.length > 0 ? playlistStore.defaultList : (this.currentPlaylist ?? []);
       if (list.length === 0) return;
+
+      const queuedNextId = playlistStore.peekQueuedNextTrackId();
+      if (queuedNextId) {
+        const queuedSong = list.find((song) => String(song.id) === queuedNextId);
+        if (queuedSong && isPlayableSong(queuedSong)) {
+          playlistStore.consumeQueuedNextTrackId(queuedNextId);
+          void this.playTrack(String(queuedSong.id), list);
+          return;
+        }
+        playlistStore.consumeQueuedNextTrackId(queuedNextId);
+      }
 
       let nextIndex = 0;
       const currentIndex = list.findIndex((s) => String(s.id) === String(this.currentTrackId));
@@ -570,12 +579,12 @@ export const usePlayerStore = defineStore('player', {
 
       const nextSong = list[nextIndex];
       if (!nextSong) return;
-      this.playTrack(nextSong.id, list);
+      void this.playTrack(String(nextSong.id), list);
     },
 
     prev() {
       const playlistStore = usePlaylistStore();
-      const list = this.currentPlaylist ?? playlistStore.defaultList;
+      const list = playlistStore.defaultList.length > 0 ? playlistStore.defaultList : (this.currentPlaylist ?? []);
       if (list.length === 0) return;
 
       const currentIndex = list.findIndex((s) => String(s.id) === String(this.currentTrackId));

@@ -15,7 +15,8 @@ import Badge from '@/components/ui/Badge.vue';
 import Dialog from '@/components/ui/Dialog.vue';
 import CommentList from '@/components/music/CommentList.vue';
 import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
-import { Song } from '@/stores/playlist';
+import { usePlaylistStore } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import {
   mapAlbumDetailMeta,
   mapAlbumSong,
@@ -26,6 +27,7 @@ import {
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { usePlayerStore } from '@/stores/player';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart } from '@/icons';
+import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -60,6 +62,7 @@ const showBatchDrawer = ref(false);
 const showIntroDialog = ref(false);
 
 const playerStore = usePlayerStore();
+const playlistStore = usePlaylistStore();
 
 // 搜索和定位逻辑
 const searchQuery = ref('');
@@ -177,8 +180,8 @@ const fetchComments = async (reset = false) => {
   }
 };
 
-const handleTabChange = (value: string) => {
-  activeTab.value = value;
+const handleTabChange = (value: string | number) => {
+  activeTab.value = String(value);
   if (value === 'comments' && comments.value.length === 0) {
     fetchComments(true);
   }
@@ -201,10 +204,11 @@ const fetchData = async () => {
     ) {
       const data = 'data' in detailRes ? (detailRes as { data?: unknown }).data : undefined;
       const info = 'info' in detailRes ? (detailRes as { info?: unknown }).info : undefined;
-      const rawList = Array.isArray(data ?? info)
-        ? (data ?? info)
-        : (data ?? info)
-          ? [data ?? info]
+      const rawSource = data ?? info;
+      const rawList: unknown[] = Array.isArray(rawSource)
+        ? rawSource
+        : rawSource != null
+          ? [rawSource]
           : [];
       const raw = rawList[0];
       if (raw) {
@@ -213,10 +217,10 @@ const fetchData = async () => {
     }
 
     if (songsRes && typeof songsRes === 'object' && 'status' in songsRes && songsRes.status === 1) {
-      const data =
-        'data' in songsRes ? (songsRes as { data?: { info?: unknown } }).data : undefined;
+      const data = 'data' in songsRes ? (songsRes as { data?: unknown }).data : undefined;
       const info = 'info' in songsRes ? (songsRes as { info?: unknown }).info : undefined;
-      const list = data?.songs ?? info ?? [];
+      const dataRecord = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+      const list = dataRecord.songs ?? dataRecord.info ?? info ?? [];
       songs.value = Array.isArray(list) ? list.map((item) => mapAlbumSong(item)) : [];
     }
 
@@ -282,17 +286,44 @@ const secondaryActions = computed(() => [
   },
 ]);
 
-const handlePlayAll = () => {
+const handlePlayAll = async () => {
   if (songs.value.length === 0) return;
-  playerStore.playTrack(songs.value[0].id);
+  await replaceQueueAndPlay(playlistStore, playerStore, songs.value);
 };
 const openBatchDrawer = () => {
   if (songs.value.length === 0) return;
   showBatchDrawer.value = true;
 };
-const handleLocate = () => songListRef.value?.scrollToActive();
+const handleLocate = () => songListRef.value?.scrollToActive?.();
 
 const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
+
+const openCommentPageWithFloor = (comment: Comment) => {
+  if (!album.value) return;
+  void router.push({
+    name: 'comment',
+    params: { id: getAlbumId() },
+    query: {
+      type: 'album',
+      title: album.value.name,
+      cover: album.value.pic,
+      artist: album.value.singerName || '',
+      floorSpecialId: comment.specialId || '',
+      floorTid: comment.tid || String(comment.id),
+      floorCode: comment.code || '',
+      floorMixSongId: comment.mixSongId || '',
+      floorCommentId: String(comment.id),
+      floorUserName: comment.userName,
+      floorAvatar: comment.avatar,
+      floorContent: comment.content,
+      floorTime: comment.time,
+      floorLikeCount: String(comment.likeCount),
+      floorReplyCount: String(comment.replyCount ?? 0),
+      floorIsHot: comment.isHot ? '1' : '0',
+      floorIsStar: comment.isStar ? '1' : '0',
+    },
+  });
+};
 const loadedSongCount = computed(() => songs.value.length);
 </script>
 
@@ -450,7 +481,7 @@ const loadedSongCount = computed(() => songs.value.length);
                     router.push({
                       name: 'comment',
                       params: { id: getAlbumId() },
-                      query: { type: 'album' },
+                      query: { type: 'album', title: album.name, cover: album.pic, artist: album.singerName || '' },
                     })
                   "
                   class="px-4 py-1.5 rounded-full border border-border-light/40 text-[12px] font-semibold text-text-secondary hover:text-primary hover:border-primary/40 transition-colors"
@@ -459,9 +490,10 @@ const loadedSongCount = computed(() => songs.value.length);
                 </button>
               </div>
 
-              <CommentList :comments="hotComments" :loading="loadingComments" />
-              <div class="text-[12px] font-semibold text-text-secondary mt-6 mb-3">最新评论</div>
-              <CommentList :comments="comments" :loading="loadingComments" :total="commentTotal" />
+              <div v-if="hotComments.length" class="text-[12px] font-semibold text-text-secondary mt-2 mb-3">热门评论</div>
+              <CommentList :comments="hotComments" :loading="loadingComments" :onTapReplies="openCommentPageWithFloor" compact />
+              <div class="text-[12px] font-semibold text-text-secondary mt-6 mb-3">最新评论<span v-if="commentTotal > 0" class="ml-1 opacity-60">({{ commentTotal }})</span></div>
+              <CommentList :comments="comments" :loading="loadingComments" :total="commentTotal" :onTapReplies="openCommentPageWithFloor" compact />
 
               <div v-if="hasMoreComments" class="flex justify-center mt-8">
                 <button
@@ -488,28 +520,6 @@ const loadedSongCount = computed(() => songs.value.length);
     </template>
   </div>
 </template>
-
-<style scoped>
-@reference "@/style.css";
-
-.search-expand-enter-active,
-.search-expand-leave-active {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.search-expand-enter-from,
-.search-expand-leave-to {
-  opacity: 0;
-  width: 0;
-  transform: translateX(10px);
-}
-
-:deep(.song-list) {
-  @apply px-0;
-}
-</style>
-
-<style scoped>
-</style>
 
 <style scoped>
 @reference "@/style.css";

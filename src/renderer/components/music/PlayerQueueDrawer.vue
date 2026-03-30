@@ -2,7 +2,8 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { useVModel } from '@vueuse/core';
 import Drawer from '@/components/ui/Drawer.vue';
-import { usePlaylistStore, type Song } from '@/stores/playlist';
+import { usePlaylistStore } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
 import SongCard from '@/components/music/SongCard.vue';
 import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
@@ -34,6 +35,7 @@ const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
 
 const queueTracks = computed(() => playlistStore.defaultList);
+const filteredInvalidCount = computed(() => playlistStore.queueFilteredInvalidCount);
 const currentTrackId = computed(() => playerStore.currentTrackId);
 
 const itemHeight = 56;
@@ -84,7 +86,7 @@ const handleRemove = (song: Song) => {
   const index = list.findIndex((item) => String(item.id) === targetId);
   if (index === -1) return;
   const nextList = list.filter((item) => String(item.id) !== targetId);
-  playlistStore.defaultList = nextList;
+  playlistStore.removeFromQueue(targetId);
 
   if (String(playerStore.currentTrackId) !== targetId) return;
 
@@ -94,12 +96,12 @@ const handleRemove = (song: Song) => {
   }
 
   const nextIndex = Math.min(index, nextList.length - 1);
-  playerStore.playTrack(String(nextList[nextIndex].id));
+  void playerStore.playTrack(String(nextList[nextIndex].id), nextList);
 };
 
 const handleClear = () => {
   if (playlistStore.defaultList.length === 0) return;
-  playlistStore.defaultList = [];
+  playlistStore.clearPlaybackQueue();
   playerStore.stop();
 };
 </script>
@@ -114,7 +116,9 @@ const handleClear = () => {
     <div class="queue-header">
       <div>
         <div class="queue-title">播放列表</div>
-        <div class="queue-subtitle">共 {{ queueTracks.length }} 首歌曲</div>
+        <div class="queue-subtitle">
+          共 {{ queueTracks.length }} 首歌曲<span v-if="filteredInvalidCount > 0"> · 已过滤 {{ filteredInvalidCount }} 首无效歌曲</span>
+        </div>
       </div>
       <div class="queue-actions">
         <button type="button" class="queue-icon-btn" title="滚动到顶部" @click="scrollToTop">

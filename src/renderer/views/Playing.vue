@@ -2,7 +2,8 @@
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { usePlayerStore } from '@/stores/player';
-import { usePlaylistStore, type Song } from '@/stores/playlist';
+import { usePlaylistStore } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import { useLyricStore } from '@/stores/lyric';
 import OverlayHeader from '@/layouts/OverlayHeader.vue';
 import Cover from '@/components/ui/Cover.vue';

@@ -4,7 +4,7 @@ import { iconPlay, iconList } from '@/icons';
 interface Action {
   icon: IconifyIcon;
   label: string;
-  onTap: () => void;
+  onTap: () => void | Promise<void>;
   emphasized?: boolean;
 }
 

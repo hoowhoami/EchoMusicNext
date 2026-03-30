@@ -2,7 +2,8 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { getSearchDefault, getSearchHot, getSearchSuggest, search } from '@/api/search';
 import { useSettingStore } from '@/stores/setting';
-import { usePlaylistStore, type Song } from '@/stores/playlist';
+import { usePlaylistStore } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
 import {
   mapAlbumMeta,
@@ -23,6 +24,7 @@ import AlbumCard from '@/components/music/AlbumCard.vue';
 import ArtistCard from '@/components/music/ArtistCard.vue';
 import BackToTop from '@/components/ui/BackToTop.vue';
 import { iconChevronRight, iconClock, iconCurrentLocation, iconSearch, iconSparkles, iconTrash, iconX } from '@/icons';
+import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
 interface SearchHotKeyword {
   keyword: string;
@@ -325,21 +327,9 @@ const handleSongSort = (field: SortField) => {
   }
 };
 
-const isPlayableSong = (song: Song) => {
-  const isUnavailable = song.privilege === 40;
-  const isPaid = song.privilege === 10 && song.payType === 2;
-  const isNoCopyright = song.privilege === 5;
-  if (isUnavailable || isPaid) return false;
-  if (isNoCopyright) return song.oldCpy === 1;
-  return Boolean(song.hash?.trim());
-};
-
-const playSearchSongs = () => {
+const playSearchSongs = async () => {
   if (songResults.value.length === 0) return;
-  const playable = songResults.value.find((song) => isPlayableSong(song));
-  if (!playable) return;
-  playlistStore.defaultList = songResults.value.slice();
-  playerStore.playTrack(playable.id);
+  await replaceQueueAndPlay(playlistStore, playerStore, songResults.value);
 };
 
 const openSongBatchDrawer = () => {

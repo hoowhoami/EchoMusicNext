@@ -9,48 +9,10 @@ import {
 import { uploadPlayHistory } from '@/api/user';
 import logger from '@/utils/logger';
 import { mapPlaylistMeta, type PlaylistMeta } from '@/utils/mappers';
+import type { Song } from '@/models/song';
 
-export interface SongRelateGood {
-  hash?: string;
-  quality?: string;
-  level?: number;
-}
-
-export interface SongArtist {
-  id?: string | number;
-  name: string;
-}
-
-export interface Song {
-  id: string;
-  title: string;
-  artist: string;
-  artists?: SongArtist[];
-  album?: string;
-  albumId?: string | number;
-  duration: number;
-  coverUrl: string;
-  audioUrl: string;
-  hash: string;
-  mixSongId: string | number;
-  source?: string;
-  lyric?: string;
-  privilege?: number;
-  payType?: number;
-  oldCpy?: number;
-  relateGoods?: SongRelateGood[];
-}
-
-export interface PlaylistInfo {
-  id: string;
-  name: string;
-  coverUrl: string;
-  songCount: number;
-  userId: number;
-  isDefault?: boolean;
-  type?: number;
-  source?: number;
-}
+export type { Song, SongRelateGood, SongArtist } from '@/models/song';
+export type { PlaylistInfo } from '@/models/playlist';
 
 const sampleLrc = `[00:00.00]梦中的婚礼
 [00:02.00]作曲 : Paul de Senneville
@@ -66,7 +28,6 @@ const sampleLrc = `[00:00.00]梦中的婚礼
 
 export const usePlaylistStore = defineStore('playlist', {
   state: () => ({
-    // 默认内置列表 (写死模拟数据)
     defaultList: [
       {
         id: '1',
@@ -88,11 +49,10 @@ export const usePlaylistStore = defineStore('playlist', {
     favorites: [] as Song[],
     history: [] as Song[],
     userPlaylists: [] as PlaylistMeta[],
+    queueFilteredInvalidCount: 0,
+    queuedNextTrackIds: [] as string[],
   }),
   getters: {
-    /**
-     * 获取“我喜欢”歌单
-     */
     likedPlaylist(state) {
       return state.userPlaylists.find(
         (p) =>
@@ -106,9 +66,43 @@ export const usePlaylistStore = defineStore('playlist', {
     likedPlaylistId(): string | number | null {
       const lp = this.likedPlaylist;
       return lp ? lp.listCreateGid || lp.globalCollectionId || lp.listid || lp.id : null;
-    }
+    },
   },
   actions: {
+    setPlaybackQueue(songs: Song[], filteredInvalidCount = 0) {
+      this.defaultList = songs.slice();
+      this.queueFilteredInvalidCount = Math.max(0, filteredInvalidCount);
+      this.queuedNextTrackIds = [];
+    },
+    clearPlaybackQueue() {
+      this.defaultList = [];
+      this.queueFilteredInvalidCount = 0;
+      this.queuedNextTrackIds = [];
+    },
+    enqueuePlayNext(songId: string | number) {
+      const id = String(songId ?? '');
+      if (!id) return;
+      this.queuedNextTrackIds = this.queuedNextTrackIds.filter((item) => item !== id);
+      this.queuedNextTrackIds.unshift(id);
+    },
+    consumeQueuedNextTrackId(songId: string | number) {
+      const id = String(songId ?? '');
+      if (!id || this.queuedNextTrackIds.length === 0) return;
+      this.queuedNextTrackIds = this.queuedNextTrackIds.filter((item) => item !== id);
+    },
+    peekQueuedNextTrackId(): string | null {
+      return this.queuedNextTrackIds[0] ?? null;
+    },
+    syncQueuedNextTrackIds() {
+      if (this.queuedNextTrackIds.length === 0) return;
+      const validIds = new Set(this.defaultList.map((song) => String(song.id)));
+      this.queuedNextTrackIds = this.queuedNextTrackIds.filter((id) => validIds.has(id));
+    },
+    removeFromQueue(songId: string | number) {
+      const id = String(songId ?? '');
+      this.defaultList = this.defaultList.filter((song) => String(song.id) !== id);
+      this.consumeQueuedNextTrackId(id);
+    },
     async addToPlaylist(listId: string | number, song: Song) {
       const targetId = String(listId ?? '');
       if (!targetId) return false;
@@ -140,16 +134,11 @@ export const usePlaylistStore = defineStore('playlist', {
       }
       return false;
     },
-    /**
-     * 添加到收藏 (同步远端)
-     */
     async addToFavorites(song: Song) {
-      // 1. 更新本地状态 (乐观更新)
       if (!this.favorites.find((s) => s.id === song.id)) {
         this.favorites.unshift(song);
       }
 
-      // 2. 同步远端
       const listId = this.likedPlaylistId;
       if (listId) {
         try {
@@ -163,18 +152,12 @@ export const usePlaylistStore = defineStore('playlist', {
         }
       }
     },
-
-    /**
-     * 从收藏移除 (同步远端)
-     */
     async removeFromFavorites(id: string) {
-      const song = this.favorites.find(s => s.id === id);
+      const song = this.favorites.find((s) => s.id === id);
       if (!song) return;
 
-      // 1. 更新本地状态
       this.favorites = this.favorites.filter((s) => s.id !== id);
 
-      // 2. 同步远端
       const listId = this.likedPlaylistId;
       if (listId) {
         try {
@@ -187,15 +170,9 @@ export const usePlaylistStore = defineStore('playlist', {
         }
       }
     },
-
-    /**
-     * 添加到历史记录 (同步远端)
-     */
     async addToHistory(song: Song) {
-      // 1. 更新本地状态
       this.history = [song, ...this.history.filter((s) => s.id !== song.id)].slice(0, 100);
 
-      // 2. 同步远端
       try {
         const res = await uploadPlayHistory(song.mixSongId);
         if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
@@ -205,7 +182,6 @@ export const usePlaylistStore = defineStore('playlist', {
         logger.error('PlaylistStore', 'Upload history sync error:', e);
       }
     },
-
     async fetchUserPlaylists() {
       try {
         const res = await getUserPlaylists();
@@ -219,7 +195,6 @@ export const usePlaylistStore = defineStore('playlist', {
         logger.error('PlaylistStore', 'Fetch user playlists error:', e);
       }
     },
-
     async favoritePlaylist(meta: PlaylistMeta) {
       try {
         const res = await addPlaylist(meta.name, {
@@ -238,7 +213,6 @@ export const usePlaylistStore = defineStore('playlist', {
       }
       return false;
     },
-
     async unfavoritePlaylist(meta: PlaylistMeta) {
       try {
         const target = this.userPlaylists.find((p) => {

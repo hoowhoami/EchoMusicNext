@@ -1,4 +1,4 @@
-import { Song, SongRelateGood, SongArtist } from '@/stores/playlist';
+import type { Song, SongRelateGood, SongArtist } from '@/models/song';
 import { getCoverUrl } from './music';
 
 export interface PlaylistTrackQueryContext {
@@ -969,6 +969,8 @@ export const mapRankMeta = (json: unknown): RankMeta => {
 
 export const mapCommentItem = (item: unknown): Comment => {
   const record = toRecord(item);
+  const likeRecord = getRecord(record, 'like');
+  const userRecord = getRecord(record, 'user');
   const specialId = readString(
     pickValue(
       record.special_child_id,
@@ -986,12 +988,26 @@ export const mapCommentItem = (item: unknown): Comment => {
   );
   return {
     id: readString(record.comment_id ?? record.id ?? ''),
-    userName: readString(record.user_name ?? record.nickname ?? '匿名用户'),
-    avatar: readString(record.user_img ?? record.avatar ?? ''),
+    userName: readString(
+      pickValue(record.user_name, record.nickname, userRecord?.name, userRecord?.nickname, '匿名用户'),
+    ),
+    avatar: readString(
+      pickValue(record.user_pic, record.user_img, record.avatar, userRecord?.avatar, userRecord?.pic, ''),
+    ),
     content: readString(record.content ?? ''),
-    time: readString(record.add_time ?? record.time ?? ''),
-    likeCount: parseIntSafe(record.like_count ?? record.count ?? 0),
-    replyCount: parseIntSafe(record.reply_num ?? record.reply_count ?? 0),
+    time: readString(pickValue(record.addtime, record.add_time, record.time, '')),
+    likeCount: parseIntSafe(
+      pickValue(
+        likeRecord?.count,
+        record.like_count,
+        record.likeCount,
+        record.like_num,
+        record.reply_like_count,
+        record.count,
+        0,
+      ),
+    ),
+    replyCount: parseIntSafe(pickValue(record.reply_num, record.reply_count, record.replyCount, 0)),
     raw: record,
     specialId: specialId || undefined,
     tid: tid || undefined,

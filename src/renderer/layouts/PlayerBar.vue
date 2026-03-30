@@ -3,7 +3,8 @@ import { useRouter } from 'vue-router';
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
-import { usePlaylistStore, type Song, type SongArtist } from '@/stores/playlist';
+import { usePlaylistStore } from '@/stores/playlist';
+import type { Song, SongArtist } from '@/models/song';
 import { SliderRoot, SliderTrack, SliderRange, SliderThumb } from 'reka-ui';
 import Cover from '@/components/ui/Cover.vue';
 import {

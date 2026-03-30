@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { getUserCloud } from '@/api/user';
-import { usePlaylistStore, type Song } from '@/stores/playlist';
+import { usePlaylistStore } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
 import { useUserStore } from '@/stores/user';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
@@ -12,6 +13,7 @@ import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
 import { mapCloudSong } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCloud, iconCurrentLocation, iconList, iconPlay, iconSearch } from '@/icons';
+import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
 const PAGE_SIZE = 100;
 
@@ -72,8 +74,6 @@ const formatBytes = (value: number) => {
   const digits = size >= 100 || unitIndex === 0 ? 0 : size >= 10 ? 1 : 2;
   return `${size.toFixed(digits)} ${units[unitIndex]}`;
 };
-
-const isPlayableSong = (song: Song) => Boolean(song.hash?.trim());
 
 const handleSort = (field: SortField) => {
   if (sortField.value === field) {
@@ -167,11 +167,8 @@ const loadCloud = async (page = 1, append = false) => {
   }
 };
 
-const handlePlayAll = () => {
-  const playable = songs.value.find((song) => isPlayableSong(song));
-  if (!playable) return;
-  playlistStore.defaultList = songs.value.slice();
-  void playerStore.playTrack(playable.id, songs.value);
+const handlePlayAll = async () => {
+  await replaceQueueAndPlay(playlistStore, playerStore, songs.value);
 };
 
 const openBatchDrawer = () => {

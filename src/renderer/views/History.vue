@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { getUserHistory } from '@/api/user';
-import { usePlaylistStore, type Song } from '@/stores/playlist';
+import { usePlaylistStore } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
 import { useUserStore } from '@/stores/user';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
@@ -12,6 +13,7 @@ import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
 import { mapHistorySong } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconClock, iconCurrentLocation, iconList, iconPlay, iconSearch } from '@/icons';
+import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
@@ -54,15 +56,6 @@ const historyCoverUrl = computed(() => {
   `;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 });
-
-const isPlayableSong = (song: Song) => {
-  const isUnavailable = song.privilege === 40;
-  const isPaid = song.privilege === 10 && song.payType === 2;
-  const isNoCopyright = song.privilege === 5;
-  if (isUnavailable || isPaid) return false;
-  if (isNoCopyright) return song.oldCpy === 1;
-  return Boolean(song.hash?.trim());
-};
 
 const handleSort = (field: SortField) => {
   if (sortField.value === field) {
@@ -153,11 +146,8 @@ const loadHistory = async (append = false) => {
   }
 };
 
-const handlePlayAll = () => {
-  const playable = songs.value.find((song) => isPlayableSong(song));
-  if (!playable) return;
-  playlistStore.defaultList = songs.value.slice();
-  void playerStore.playTrack(playable.id, songs.value);
+const handlePlayAll = async () => {
+  await replaceQueueAndPlay(playlistStore, playerStore, songs.value);
 };
 
 const openBatchDrawer = () => {

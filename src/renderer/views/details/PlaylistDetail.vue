@@ -16,7 +16,7 @@ import Badge from '@/components/ui/Badge.vue';
 import Dialog from '@/components/ui/Dialog.vue';
 import CommentList from '@/components/music/CommentList.vue';
 import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
-import { Song } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import { formatDate } from '@/utils/format';
 import { useUserStore } from '@/stores/user';
 import {
@@ -31,6 +31,7 @@ import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue
 import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconMusic, iconHeart } from '@/icons';
+import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -54,6 +55,7 @@ const getPlaylistId = () => route.params.id as string;
 const loading = ref(true);
 const playlist = ref<PlaylistMeta | null>(null);
 const songs = ref<Song[]>([]);
+const playlistFilteredInvalidCount = ref(0);
 const activeTab = ref('songs');
 const loadingComments = ref(false);
 const comments = ref<Comment[]>([]);
@@ -217,8 +219,8 @@ const handleSort = (field: SortField) => {
   }
 };
 
-const handleTabChange = (value: string) => {
-  activeTab.value = value;
+const handleTabChange = (value: string | number) => {
+  activeTab.value = String(value);
   if (value === 'comments' && comments.value.length === 0) {
     fetchComments(true);
   }
@@ -267,8 +269,9 @@ const fetchData = async () => {
             : 'info' in tracksRes
               ? (tracksRes as { info?: unknown }).info
               : tracksRes;
-        const { songs: parsedSongs } = parsePlaylistTracks(payload ?? tracksRes);
+        const { songs: parsedSongs, filteredCount } = parsePlaylistTracks(payload ?? tracksRes);
         songs.value = parsedSongs;
+        playlistFilteredInvalidCount.value = filteredCount;
       }
     }
 
@@ -284,9 +287,10 @@ const fetchData = async () => {
             : 'info' in fallbackTracks
               ? (fallbackTracks as { info?: unknown }).info
               : fallbackTracks;
-        const { songs: parsedSongs } = parsePlaylistTracks(payload ?? fallbackTracks);
+        const { songs: parsedSongs, filteredCount } = parsePlaylistTracks(payload ?? fallbackTracks);
         if (parsedSongs.length > 0) {
           songs.value = parsedSongs;
+          playlistFilteredInvalidCount.value = filteredCount;
         }
       }
     }
@@ -327,7 +331,8 @@ const fetchAllPlaylistTracks = async (
         : 'info' in res
           ? (res as { info?: unknown }).info
           : res;
-    const { songs: parsedSongs } = parsePlaylistTracks(payload ?? res);
+    const { songs: parsedSongs, filteredCount } = parsePlaylistTracks(payload ?? res);
+    playlistFilteredInvalidCount.value += filteredCount;
     const nextSongs = parsedSongs.filter((song) => {
       if (seenIds.has(song.id)) return false;
       seenIds.add(song.id);
@@ -346,6 +351,7 @@ watch(
   () => {
     playlist.value = null;
     songs.value = [];
+    playlistFilteredInvalidCount.value = 0;
     comments.value = [];
     hotComments.value = [];
     commentPage.value = 1;
@@ -369,10 +375,10 @@ watch(
 
 const secondaryActions = computed(() => {
   const actions = [] as {
-    icon: string;
+    icon: typeof iconHeart;
     label: string;
     emphasized?: boolean;
-    onTap: () => void;
+    onTap: () => void | Promise<void>;
   }[];
 
   if (!isOwnerPlaylist.value) {
@@ -395,17 +401,44 @@ const secondaryActions = computed(() => {
   return actions;
 });
 
-const handlePlayAll = () => {
+const handlePlayAll = async () => {
   if (songs.value.length === 0) return;
-  playerStore.playTrack(songs.value[0].id);
+  await replaceQueueAndPlay(playlistStore, playerStore, songs.value, playlistFilteredInvalidCount.value);
 };
 const openBatchDrawer = () => {
   if (songs.value.length === 0) return;
   showBatchDrawer.value = true;
 };
-const handleLocate = () => songListRef.value?.scrollToActive();
+const handleLocate = () => songListRef.value?.scrollToActive?.();
 
 const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
+
+const openCommentPageWithFloor = (comment: Comment) => {
+  if (!playlist.value) return;
+  void router.push({
+    name: 'comment',
+    params: { id: getPlaylistId() },
+    query: {
+      type: 'playlist',
+      title: playlist.value.name,
+      cover: playlist.value.pic,
+      artist: playlist.value.nickname || '',
+      floorSpecialId: comment.specialId || '',
+      floorTid: comment.tid || String(comment.id),
+      floorCode: comment.code || '',
+      floorMixSongId: comment.mixSongId || '',
+      floorCommentId: String(comment.id),
+      floorUserName: comment.userName,
+      floorAvatar: comment.avatar,
+      floorContent: comment.content,
+      floorTime: comment.time,
+      floorLikeCount: String(comment.likeCount),
+      floorReplyCount: String(comment.replyCount ?? 0),
+      floorIsHot: comment.isHot ? '1' : '0',
+      floorIsStar: comment.isStar ? '1' : '0',
+    },
+  });
+};
 
 const sortedSongs = computed(() => {
   const base = songs.value.slice();
@@ -617,7 +650,7 @@ const sortedSongs = computed(() => {
                     router.push({
                       name: 'comment',
                       params: { id: getPlaylistId() },
-                      query: { type: 'playlist' },
+                      query: { type: 'playlist', title: playlist.name, cover: playlist.pic, artist: playlist.nickname || '' },
                     })
                   "
                   class="px-4 py-1.5 rounded-full border border-border-light/40 text-[12px] font-semibold text-text-secondary hover:text-primary hover:border-primary/40 transition-colors"
@@ -626,9 +659,10 @@ const sortedSongs = computed(() => {
                 </button>
               </div>
 
-              <CommentList :comments="hotComments" :loading="loadingComments" />
-              <div class="text-[12px] font-semibold text-text-secondary mt-6 mb-3">最新评论</div>
-              <CommentList :comments="comments" :loading="loadingComments" :total="commentTotal" />
+              <div v-if="hotComments.length" class="text-[12px] font-semibold text-text-secondary mt-2 mb-3">热门评论</div>
+              <CommentList :comments="hotComments" :loading="loadingComments" :onTapReplies="openCommentPageWithFloor" compact />
+              <div class="text-[12px] font-semibold text-text-secondary mt-6 mb-3">最新评论<span v-if="commentTotal > 0" class="ml-1 opacity-60">({{ commentTotal }})</span></div>
+              <CommentList :comments="comments" :loading="loadingComments" :total="commentTotal" :onTapReplies="openCommentPageWithFloor" compact />
 
               <div v-if="hasMoreComments" class="flex justify-center mt-8">
                 <button

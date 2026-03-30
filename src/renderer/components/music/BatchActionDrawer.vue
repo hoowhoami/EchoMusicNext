@@ -4,7 +4,8 @@ import { useVModel } from '@vueuse/core';
 import Drawer from '@/components/ui/Drawer.vue';
 import Dialog from '@/components/ui/Dialog.vue';
 import { CheckboxIndicator, CheckboxRoot } from 'reka-ui';
-import { usePlaylistStore, type Song } from '@/stores/playlist';
+import { usePlaylistStore } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
 import { useUserStore } from '@/stores/user';
 import { formatDuration } from '@/utils/format';
@@ -12,6 +13,7 @@ import SongCard from '@/components/music/SongCard.vue';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 import { iconPlay, iconPlus, iconTrash, iconX } from '@/icons';
+import { isPlayableSong, replaceQueueAndPlay } from '@/utils/songPlayback';
 
 interface Props {
   open?: boolean;
@@ -105,33 +107,20 @@ watch(
   },
 );
 
-const isSongPlayable = (song: Song) => {
-  const isUnavailable = song.privilege === 40;
-  const isPaid = song.privilege === 10 && song.payType === 2;
-  const isNoCopyright = song.privilege === 5;
-
-  if (isUnavailable || isPaid) return false;
-  if (isNoCopyright) return song.oldCpy === 1;
-  return Boolean(song.hash?.trim());
-};
-
 const itemHeight = 56;
 
-const canPlaySelected = computed(() => selectedSongs.value.some((song) => isSongPlayable(song)));
+const canPlaySelected = computed(() => selectedSongs.value.some((song) => isPlayableSong(song)));
 const canAddSelected = computed(() => userStore.isLoggedIn && selectedSongs.value.length > 0);
 const canRemoveSelected = computed(
   () => Boolean(props.sourceId) && userStore.isLoggedIn && selectedSongs.value.length > 0,
 );
 
-const handlePlaySelected = () => {
+const handlePlaySelected = async () => {
   if (!canPlaySelected.value) return;
-  const playable = selectedSongs.value.find((song) => isSongPlayable(song));
-  if (!playable) return;
-
-  const nextList = selectedSongs.value.slice();
-  playlistStore.defaultList = nextList;
-  playerStore.playTrack(String(playable.id));
-  open.value = false;
+  const played = await replaceQueueAndPlay(playlistStore, playerStore, selectedSongs.value);
+  if (played) {
+    open.value = false;
+  }
 };
 
 const handleAddToPlaylist = async () => {
@@ -240,7 +229,7 @@ const handleRemoveFromPlaylist = async () => {
               </CheckboxIndicator>
             </CheckboxRoot>
           </div>
-          <div class="batch-card" :style="{ opacity: isSongPlayable(song) ? 1 : 0.45 }">
+          <div class="batch-card" :style="{ opacity: isPlayableSong(song) ? 1 : 0.45 }">
             <SongCard
               :id="song.id"
               :hash="song.hash"

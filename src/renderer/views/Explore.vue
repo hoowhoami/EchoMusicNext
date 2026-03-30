@@ -14,7 +14,7 @@ import {
   type AlbumMeta,
   type RankMeta,
 } from '@/utils/mappers';
-import type { Song } from '@/stores/playlist';
+import type { Song } from '@/models/song';
 import PlaylistCard from '@/components/music/PlaylistCard.vue';
 import SongList from '@/components/music/SongList.vue';
 import SongListHeader from '@/components/music/SongListHeader.vue';
@@ -27,6 +27,7 @@ import AlbumCard from '@/components/music/AlbumCard.vue';
 import { getAlbumTop } from '@/api/music';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCurrentLocation, iconSearch, iconSparkles } from '@/icons';
+import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
@@ -330,21 +331,9 @@ const loadAlbums = async () => {
   }
 };
 
-const isPlayableSong = (song: Song) => {
-  const isUnavailable = song.privilege === 40;
-  const isPaid = song.privilege === 10 && song.payType === 2;
-  const isNoCopyright = song.privilege === 5;
-  if (isUnavailable || isPaid) return false;
-  if (isNoCopyright) return song.oldCpy === 1;
-  return Boolean(song.hash?.trim());
-};
-
-const playRankSongs = () => {
+const playRankSongs = async () => {
   if (rankSongs.value.length === 0) return;
-  const playable = rankSongs.value.find((song) => isPlayableSong(song));
-  if (!playable) return;
-  playlistStore.defaultList = rankSongs.value.slice();
-  playerStore.playTrack(playable.id);
+  await replaceQueueAndPlay(playlistStore, playerStore, rankSongs.value);
 };
 
 const openRankBatchDrawer = () => {
@@ -352,12 +341,9 @@ const openRankBatchDrawer = () => {
   showRankBatchDrawer.value = true;
 };
 
-const playNewSongs = () => {
+const playNewSongs = async () => {
   if (newSongs.value.length === 0) return;
-  const playable = newSongs.value.find((song) => isPlayableSong(song));
-  if (!playable) return;
-  playlistStore.defaultList = newSongs.value.slice();
-  playerStore.playTrack(playable.id);
+  await replaceQueueAndPlay(playlistStore, playerStore, newSongs.value);
 };
 
 const openNewSongBatchDrawer = () => {
