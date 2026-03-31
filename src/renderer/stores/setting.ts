@@ -55,6 +55,7 @@ export const useSettingStore = defineStore('setting', {
     appVersion: '1.0.0',
     isPrerelease: true,
     searchHistory: [] as string[],
+    userAgreementAccepted: false,
   }),
   actions: {
     setTheme(theme: 'light' | 'dark' | 'system') {
@@ -111,6 +112,9 @@ export const useSettingStore = defineStore('setting', {
     },
     clearSearchHistory() {
       this.searchHistory = [];
+    },
+    acceptUserAgreement() {
+      this.userAgreementAccepted = true;
     },
   },
   persist: true,

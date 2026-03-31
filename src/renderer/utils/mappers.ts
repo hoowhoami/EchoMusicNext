@@ -406,7 +406,7 @@ export const parsePlaylistTracks = (responseData: unknown): PlaylistParseResult 
   for (const rawSong of songsData) {
     if (!rawSong || typeof rawSong !== 'object') continue;
     const song = mapPlaylistSong(rawSong);
-    if (isMeaninglessHashlessSong(song)) {
+    if (isMeaninglessHashlessSong(song) || !hasUsableSongHash(song)) {
       filteredCount += 1;
       continue;
     }
@@ -415,6 +415,8 @@ export const parsePlaylistTracks = (responseData: unknown): PlaylistParseResult 
 
   return { songs, filteredCount };
 };
+
+const hasUsableSongHash = (song: Song): boolean => Boolean(song.hash.trim());
 
 const isMeaninglessHashlessSong = (song: Song): boolean => {
   return (

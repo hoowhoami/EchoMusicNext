@@ -24,6 +24,22 @@ interface VipActionResponse {
   error_code?: number;
 }
 
+interface VipLevelInfo {
+  product_type?: string;
+  is_vip?: number;
+  vip_end_time?: string | number;
+}
+
+interface VipInfoState {
+  busi_vip?: VipLevelInfo[];
+  [key: string]: unknown;
+}
+
+interface DetailState {
+  gender?: number;
+  [key: string]: unknown;
+}
+
 const router = useRouter();
 const userStore = useUserStore();
 const userInfo = computed(() => userStore.info);
@@ -31,12 +47,12 @@ const userInfo = computed(() => userStore.info);
 const isLoading = ref(false);
 
 // 提取详细信息
-const detail = computed(() => userInfo.value?.extendsInfo?.detail || {});
-const vipInfo = computed(() => userInfo.value?.extendsInfo?.vip || {});
-const busiVip = computed(() => vipInfo.value?.busi_vip || []);
+const detail = computed<DetailState>(() => (userInfo.value?.extendsInfo?.detail as DetailState | undefined) || {});
+const vipInfo = computed<VipInfoState>(() => (userInfo.value?.extendsInfo?.vip as VipInfoState | undefined) || {});
+const busiVip = computed<VipLevelInfo[]>(() => vipInfo.value?.busi_vip || []);
 
-const tvip = computed(() => busiVip.value.find((v: any) => v.product_type === 'tvip' && v.is_vip === 1));
-const svip = computed(() => busiVip.value.find((v: any) => v.product_type === 'svip' && v.is_vip === 1));
+const tvip = computed(() => busiVip.value.find((v) => v.product_type === 'tvip' && v.is_vip === 1));
+const svip = computed(() => busiVip.value.find((v) => v.product_type === 'svip' && v.is_vip === 1));
 
 const gender = computed(() => {
   const g = detail.value?.gender;

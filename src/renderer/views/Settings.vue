@@ -6,6 +6,7 @@ import Slider from '@/components/ui/Slider.vue';
 import Switch from '@/components/ui/Switch.vue';
 import Dialog from '@/components/ui/Dialog.vue';
 import Button from '@/components/ui/Button.vue';
+import DisclaimerDialog from '@/components/app/DisclaimerDialog.vue';
 import {
   iconPlus,
   iconMinus,
@@ -20,6 +21,7 @@ import {
 } from '@/icons';
 
 const settingStore = useSettingStore();
+const showDisclaimer = ref(false);
 
 onMounted(() => {
   settingStore.syncCloseBehavior();
@@ -457,7 +459,7 @@ onUnmounted(() => {
             <h3 class="font-semibold">恢复默认</h3>
             <p class="text-sm text-text-secondary">恢复所有快捷键为默认</p>
           </div>
-          <Button variant="outline" size="sm" class="settings-button" @click="resetAllShortcuts"
+          <Button variant="outline" size="xs" class="settings-button" @click="resetAllShortcuts"
             >恢复默认</Button
           >
         </div>
@@ -594,10 +596,10 @@ onUnmounted(() => {
           <Button
             variant="ghost"
             size="xs"
-            class="text-text-secondary h-8 w-8 min-w-0 p-0"
+            class="text-text-secondary h-10 w-10 min-w-0 p-0"
             @click="settingStore.openRepo()"
           >
-            <Icon :icon="iconExternalLink" width="18" height="18" />
+            <Icon :icon="iconExternalLink" width="20" height="20" />
           </Button>
         </div>
         <div class="settings-divider"></div>
@@ -609,10 +611,10 @@ onUnmounted(() => {
           <Button
             variant="ghost"
             size="xs"
-            class="text-text-secondary h-8 w-8 min-w-0 p-0"
-            @click="settingStore.openDisclaimer()"
+            class="text-text-secondary h-10 w-10 min-w-0 p-0"
+            @click="showDisclaimer = true"
           >
-            <Icon :icon="iconChevronRight" width="16" height="16" />
+            <Icon :icon="iconChevronRight" width="20" height="20" />
           </Button>
         </div>
       </div>
@@ -643,6 +645,8 @@ onUnmounted(() => {
         >
       </template>
     </Dialog>
+
+    <DisclaimerDialog v-model:open="showDisclaimer" />
   </div>
 </template>
 

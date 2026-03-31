@@ -112,8 +112,7 @@ const thumbClass = computed(() => ['slider-thumb', props.thumbClass]);
 }
 
 .slider-thumb {
-   block w-3 h-3 rounded-full bg-white border border-black/10 shadow-sm transition-shadow;
-   focus-visible:outline-none;
+  @apply block w-3 h-3 rounded-full bg-white border border-black/10 shadow-sm transition-shadow focus-visible:outline-none;
 }
 
 .slider-thumb:focus-visible {

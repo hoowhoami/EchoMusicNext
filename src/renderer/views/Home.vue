@@ -2,11 +2,13 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '@/stores/user';
+import { useSettingStore } from '@/stores/setting';
 import { getPlaylistByCategory, getTopIP } from '@/api/playlist';
 import PlaylistCard from '@/components/music/PlaylistCard.vue';
 import { mapPlaylistMeta, type PlaylistMeta } from '@/utils/mappers';
 import { iconPlay, iconSparkles } from '@/icons';
 import Button from '@/components/ui/Button.vue';
+import UserAgreementDialog from '@/components/app/UserAgreementDialog.vue';
 
 interface RecommendSectionState {
   loading: boolean;
@@ -15,6 +17,8 @@ interface RecommendSectionState {
 
 const router = useRouter();
 const userStore = useUserStore();
+const settingStore = useSettingStore();
+const showUserAgreement = ref(false);
 
 const todayLabel = computed(() => new Date().getDate().toString());
 
@@ -110,9 +114,21 @@ const resolvePlaylistRouteId = (entry: PlaylistMeta) =>
   entry.listCreateGid || entry.globalCollectionId || entry.listCreateListid || entry.id;
 
 onMounted(() => {
+  showUserAgreement.value = !settingStore.userAgreementAccepted;
+  if (userStore.isLoggedIn) {
+    void userStore.fetchUserInfoOnce();
+  }
   void loadRecommendPlaylists();
   void loadTopIp();
 });
+
+const handleAcceptAgreement = () => {
+  settingStore.acceptUserAgreement();
+};
+
+const handleRejectAgreement = () => {
+  window.electron.ipcRenderer.send('quit-app', null);
+};
 </script>
 
 <template>
@@ -185,6 +201,12 @@ onMounted(() => {
       </div>
     </section>
   </div>
+
+  <UserAgreementDialog
+    v-model:open="showUserAgreement"
+    @accept="handleAcceptAgreement"
+    @reject="handleRejectAgreement"
+  />
 </template>
 
 <style scoped>

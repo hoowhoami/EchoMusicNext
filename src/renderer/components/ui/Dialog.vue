@@ -19,6 +19,9 @@ interface Props {
   title?: string;
   description?: string;
   showClose?: boolean;
+  modal?: boolean;
+  closeOnEscape?: boolean;
+  closeOnInteractOutside?: boolean;
   overlayClass?: string;
   contentClass?: string;
   contentStyle?: Record<string, string | number>;
@@ -29,6 +32,9 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   open: false,
   showClose: false,
+  modal: true,
+  closeOnEscape: true,
+  closeOnInteractOutside: true,
 });
 
 const emit = defineEmits<{
@@ -54,16 +60,28 @@ const computedBodyClass = computed(() => [
   hasDescription.value ? 'mt-2' : null,
   props.bodyClass,
 ]);
+
+const handleEscapeKeyDown = (event: Event) => {
+  if (!props.closeOnEscape) {
+    event.preventDefault();
+  }
+};
+
+const handleInteractOutside = (event: Event) => {
+  if (!props.closeOnInteractOutside) {
+    event.preventDefault();
+  }
+};
 </script>
 
 <template>
-  <DialogRoot v-model:open="open">
+  <DialogRoot v-model:open="open" :modal="props.modal">
     <DialogPortal>
       <DialogOverlay as-child>
         <div :class="overlayClass" />
       </DialogOverlay>
 
-      <DialogContent as-child>
+      <DialogContent as-child @escape-key-down="handleEscapeKeyDown" @interact-outside="handleInteractOutside">
         <div :class="contentClass" :style="props.contentStyle">
           <!-- 关闭按钮 -->
           <DialogClose v-if="props.showClose" as-child>

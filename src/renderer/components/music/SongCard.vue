@@ -621,6 +621,17 @@ const handleFavorite = () => {
   border-color: var(--color-primary);
   color: var(--color-primary);
 }
+.song-title-row {
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.song-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.song-tag {
+  margin-left: 0;
+}
 </style>
-.song-title-row { min-width: 0; } .song-title { flex: 0 1 auto; min-width: 0; } .song-title-row
-.song-tag { margin-left: 0; }

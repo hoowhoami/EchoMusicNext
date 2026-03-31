@@ -20,6 +20,7 @@ import type { Song } from '@/models/song';
 import { formatDate } from '@/utils/format';
 import { useUserStore } from '@/stores/user';
 import Button from '@/components/ui/Button.vue';
+import Tooltip from '@/components/ui/Tooltip.vue';
 import {
   mapPlaylistMeta,
   parsePlaylistTracks,
@@ -32,7 +33,15 @@ import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue
 import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
-import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconMusic, iconHeart } from '@/icons';
+import {
+  iconCurrentLocation,
+  iconSearch,
+  iconPlay,
+  iconList,
+  iconMusic,
+  iconHeart,
+  iconInfo,
+} from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
 type UnknownRecord = Record<string, unknown>;
@@ -290,7 +299,9 @@ const fetchData = async () => {
             : 'info' in fallbackTracks
               ? (fallbackTracks as { info?: unknown }).info
               : fallbackTracks;
-        const { songs: parsedSongs, filteredCount } = parsePlaylistTracks(payload ?? fallbackTracks);
+        const { songs: parsedSongs, filteredCount } = parsePlaylistTracks(
+          payload ?? fallbackTracks,
+        );
         if (parsedSongs.length > 0) {
           songs.value = parsedSongs;
           playlistFilteredInvalidCount.value = filteredCount;
@@ -405,14 +416,24 @@ const secondaryActions = computed(() => {
 });
 
 const handleSongDoubleTapPlay = async (song: Song) => {
-  const played = await replaceQueueAndPlay(playlistStore, playerStore, songs.value, playlistFilteredInvalidCount.value);
+  const played = await replaceQueueAndPlay(
+    playlistStore,
+    playerStore,
+    songs.value,
+    playlistFilteredInvalidCount.value,
+  );
   if (!played) return;
   await playerStore.playTrack(String(song.id), playlistStore.defaultList);
 };
 
 const handlePlayAll = async () => {
   if (songs.value.length === 0) return;
-  await replaceQueueAndPlay(playlistStore, playerStore, songs.value, playlistFilteredInvalidCount.value);
+  await replaceQueueAndPlay(
+    playlistStore,
+    playerStore,
+    songs.value,
+    playlistFilteredInvalidCount.value,
+  );
 };
 const openBatchDrawer = () => {
   if (songs.value.length === 0) return;
@@ -513,9 +534,26 @@ const sortedSongs = computed(() => {
               >
             </div>
             <div class="flex items-center flex-wrap gap-2 text-[11px] font-semibold">
-              <span class="inline-flex items-center gap-1 text-text-main/50">
+              <span class="playlist-song-count inline-flex items-center gap-1 text-text-main/50">
                 <Icon :icon="iconMusic" width="12" height="12" />
-                {{ songTotalCount }}
+                <span>{{ songTotalCount }}</span>
+                <Tooltip
+                  v-if="playlistFilteredInvalidCount > 0"
+                  side="bottom"
+                  align="center"
+                  :side-offset="10"
+                  contentClass="song-filter-tooltip"
+                >
+                  <template #trigger>
+                    <Button variant="unstyled" size="none" class="song-filter-info-btn rounded-lg">
+                      <Icon :icon="iconInfo" width="14" height="14" />
+                    </Button>
+                  </template>
+                  <span class="block whitespace-pre-line"
+                    >当前列表已过滤 {{ playlistFilteredInvalidCount }} 首无效歌曲</span
+                  >
+                  <span class="block whitespace-pre-line">通常是因为歌曲信息缺失无法参与播放</span>
+                </Tooltip>
               </span>
               <span
                 v-for="tag in playlistTags"
@@ -537,13 +575,17 @@ const sortedSongs = computed(() => {
         </template>
 
         <template #collapsed-actions>
-          <Button variant="unstyled" size="none"
+          <Button
+            variant="unstyled"
+            size="none"
             @click="handlePlayAll"
             class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-primary"
           >
             <Icon :icon="iconPlay" width="20" height="20" />
           </Button>
-          <Button variant="unstyled" size="none"
+          <Button
+            variant="unstyled"
+            size="none"
             @click="openBatchDrawer"
             class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-main opacity-60"
           >
@@ -563,7 +605,9 @@ const sortedSongs = computed(() => {
         <div class="mt-[6px] text-[12px] leading-relaxed text-text-secondary line-clamp-1">
           {{ playlist.intro }}
         </div>
-        <Button variant="unstyled" size="none"
+        <Button
+          variant="unstyled"
+          size="none"
           type="button"
           class="mt-[2px] text-[11px] font-semibold text-primary"
           @click="showIntroDialog = true"
@@ -606,7 +650,9 @@ const sortedSongs = computed(() => {
                     height="14"
                   />
                 </div>
-                <Button variant="unstyled" size="none"
+                <Button
+                  variant="unstyled"
+                  size="none"
                   @click="handleLocate"
                   class="song-locate-btn p-2 rounded-lg"
                   title="定位当前播放"
@@ -618,13 +664,6 @@ const sortedSongs = computed(() => {
           </div>
 
           <!-- 表头 (仅在歌曲 tab 显示) -->
-          <div
-            v-if="playlistFilteredInvalidCount > 0"
-            class="mx-6 mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-[12px] font-medium text-text-main/75"
-          >
-            当前列表已过滤 {{ playlistFilteredInvalidCount }} 条无效歌曲数据
-          </div>
-
           <SongListHeader
             v-if="activeTab === 'songs'"
             :sortField="sortField"
@@ -647,7 +686,9 @@ const sortedSongs = computed(() => {
               :activeId="activeSongId"
               :showCover="true"
               :enableDefaultDoubleTapPlay="true"
-              :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined"
+              :onSongDoubleTapPlay="
+                settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined
+              "
               :parentPlaylistId="playlist.listid || playlist.id"
               :enableRemoveFromPlaylist="isOwnerPlaylist"
             />
@@ -655,11 +696,35 @@ const sortedSongs = computed(() => {
 
           <TabsContent value="comments" class="px-6 pt-5 pb-10">
             <div class="max-w-4xl mx-auto">
-              <div v-if="hotComments.length" class="text-[12px] font-semibold text-text-secondary mt-2 mb-3">热门评论</div>
-              <CommentList :comments="hotComments" :loading="loadingComments" :onTapReplies="openCommentPageWithFloor" compact hide-empty />
-              <CommentList :comments="comments" :loading="loadingComments" :total="commentTotal" :onTapReplies="openCommentPageWithFloor" compact :hide-empty="hotComments.length > 0" />
+              <div
+                v-if="hotComments.length"
+                class="text-[12px] font-semibold text-text-secondary mt-2 mb-3"
+              >
+                热门评论
+              </div>
+              <CommentList
+                :comments="hotComments"
+                :loading="loadingComments"
+                :onTapReplies="openCommentPageWithFloor"
+                compact
+                hide-empty
+              />
+              <CommentList
+                :comments="comments"
+                :loading="loadingComments"
+                :total="commentTotal"
+                :onTapReplies="openCommentPageWithFloor"
+                compact
+                :hide-empty="hotComments.length > 0"
+              />
 
-              <div v-if="loadingComments || ((hotComments.length > 0 || comments.length > 0) && !hasMoreComments)" class="flex justify-center mt-8">
+              <div
+                v-if="
+                  loadingComments ||
+                  ((hotComments.length > 0 || comments.length > 0) && !hasMoreComments)
+                "
+                class="flex justify-center mt-8"
+              >
                 <div class="text-[12px] font-semibold text-text-secondary">
                   {{ loadingComments ? '加载中...' : '已加载全部评论' }}
                 </div>
@@ -693,6 +758,42 @@ const sortedSongs = computed(() => {
   opacity: 0;
   width: 0;
   transform: translateX(10px);
+}
+
+.playlist-song-count {
+  gap: 4px;
+}
+
+.song-filter-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: #f59e0b;
+  transition: all 0.2s ease;
+}
+
+.song-filter-info-btn:hover {
+  color: #d97706;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.song-filter-info-btn:active {
+  transform: scale(0.96);
+}
+
+:deep(.song-filter-tooltip) {
+  max-width: 280px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--color-bg-card);
+  color: var(--color-text-main);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
+  z-index: 150;
 }
 
 :deep(.song-list) {

@@ -49,7 +49,7 @@ const handleLogin = async () => {
 }
 
 .auth-expired-btn {
-   min-w-[96px] rounded-lg text-[13px] font-semibold;
+  @apply min-w-[96px] rounded-lg text-[13px] font-semibold;
 }
 
 .auth-expired-btn--ghost {

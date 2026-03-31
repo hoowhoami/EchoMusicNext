@@ -71,10 +71,6 @@ const startServer = async () => {
     if (result && result.success) {
       await ensureDeviceReady();
 
-      if (userStore.isLoggedIn) {
-        void userStore.fetchUserInfo();
-      }
-
       statusMessage.value = '引擎就绪，正在开启音乐世界...';
       // 增加一点点延迟，让用户看清状态切换
       setTimeout(() => {

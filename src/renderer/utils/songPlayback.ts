@@ -162,6 +162,8 @@ export const resolvePlayableSongForRequest = (
   return null;
 };
 
+const hasUsableSongHash = (song: Song): boolean => Boolean(String(song.hash ?? '').trim());
+
 const isMeaninglessHashlessSong = (song: Song): boolean => {
   const title = String(song.title ?? '').trim();
   const artist = String(song.artist ?? '').trim();
@@ -182,7 +184,7 @@ export const resolvePlayableQueue = (
   let hiddenCount = Math.max(0, filteredInvalidCount);
 
   for (const song of songs) {
-    if (isMeaninglessHashlessSong(song)) {
+    if (isMeaninglessHashlessSong(song) || !hasUsableSongHash(song)) {
       hiddenCount += 1;
       continue;
     }

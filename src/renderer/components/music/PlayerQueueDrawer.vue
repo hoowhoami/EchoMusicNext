@@ -37,7 +37,6 @@ const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
 
 const queueTracks = computed(() => playlistStore.defaultList);
-const filteredInvalidCount = computed(() => playlistStore.queueFilteredInvalidCount);
 const currentTrackId = computed(() => playerStore.currentTrackId);
 
 const itemHeight = 56;
@@ -110,13 +109,11 @@ const handleClear = () => {
     <div class="queue-header">
       <div>
         <div class="queue-title">播放列表</div>
-        <div class="queue-subtitle">
-          共 {{ queueTracks.length }} 首歌曲<span v-if="filteredInvalidCount > 0"> · 已过滤 {{ filteredInvalidCount }} 首无效歌曲</span>
-        </div>
+        <div class="queue-subtitle">共 {{ queueTracks.length }} 首歌曲</div>
       </div>
       <div class="queue-actions">
         <Button type="button" class="queue-icon-btn" variant="ghost" size="xs" title="滚动到顶部" @click="scrollToTop">
-          <Icon :icon="iconArrowUp" width="16" height="16" />
+          <Icon :icon="iconArrowUp" width="22" height="22" />
         </Button>
         <Button
           type="button"
@@ -126,18 +123,19 @@ const handleClear = () => {
           title="滚动到当前播放"
           @click="scrollToCurrent"
         >
-          <Icon :icon="iconCurrentLocation" width="16" height="16" />
+          <Icon :icon="iconCurrentLocation" width="22" height="22" />
         </Button>
         <Button type="button" class="queue-icon-btn" variant="ghost" size="xs" title="清空列表" @click="handleClear">
-          <Icon :icon="iconTrash" width="16" height="16" />
+          <Icon :icon="iconTrash" width="22" height="22" />
         </Button>
         <Button type="button" class="queue-icon-btn" variant="ghost" size="xs" title="关闭" @click="open = false">
-          <Icon :icon="iconX" width="16" height="16" />
+          <Icon :icon="iconX" width="22" height="22" />
         </Button>
       </div>
     </div>
 
     <div class="queue-divider"></div>
+
 
     <RecycleScroller
       ref="scrollerRef"
@@ -258,13 +256,13 @@ const handleClear = () => {
 .queue-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
 }
 
 .queue-icon-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -391,15 +389,20 @@ const handleClear = () => {
 }
 
 .queue-card :deep(.song-title) {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
 .queue-card :deep(.song-title-row) {
   min-width: 0;
   gap: 4px;
+  flex-wrap: nowrap;
 }
 
+.queue-card :deep(.song-tag) {
+  margin-left: 0;
+  flex-shrink: 0;
+}
 
 .queue-remove {
   width: 24px;

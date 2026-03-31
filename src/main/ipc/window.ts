@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 
 interface IpcContext {
   getMainWindow: () => BrowserWindow | null;
@@ -24,5 +24,9 @@ export const registerWindowHandlers = ({ getMainWindow }: IpcContext) => {
       browserWindow.show();
       browserWindow.focus();
     }
+  });
+
+  ipcMain.on('quit-app', () => {
+    app.quit();
   });
 };

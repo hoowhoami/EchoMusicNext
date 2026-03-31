@@ -197,7 +197,6 @@ const iconMap = {
 // 初始加载和登录状态监听
 const syncCloudData = () => {
   if (isLoggedIn.value) {
-    userStore.fetchUserInfo();
     playlistStore.fetchUserPlaylists();
   }
 };
