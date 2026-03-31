@@ -2,11 +2,18 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
+import { useSettingStore } from '@/stores/setting';
 import { getNewSongs } from '@/api/music';
-import { getPlaylistByCategory, getPlaylistTags, getRanks, getRankTop, getRankSongs } from '@/api/playlist';
+import {
+  getPlaylistByCategory,
+  getPlaylistTags,
+  getRanks,
+  getRankTop,
+  getRankSongs,
+} from '@/api/playlist';
 import {
   mapPlaylistMeta,
-  parsePlaylistTracks,
+  mapTopSong,
   mapAlbumMeta,
   mapRankMeta,
   mapRankSong,
@@ -31,6 +38,7 @@ import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
+const settingStore = useSettingStore();
 const recommendedPlaylists = ref<PlaylistMeta[]>([]);
 const newSongs = ref<Song[]>([]);
 const loadingPlaylists = ref(true);
@@ -68,9 +76,9 @@ const albumTypeLabel = ref('全部');
 const albumPayload = ref<Record<string, unknown>>({});
 const albumFallbackList = ref<unknown[]>([]);
 const loadingAlbums = ref(true);
-const exploreHeaderHeight = 110;
-const rankToolbarOffset = exploreHeaderHeight + 52;
-const newSongToolbarOffset = exploreHeaderHeight + 52;
+const exploreHeaderHeight = 102;
+const rankToolbarOffset = exploreHeaderHeight + 46;
+const newSongToolbarOffset = exploreHeaderHeight + 46;
 
 const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
 const sortedRankSongs = computed(() => {
@@ -213,7 +221,9 @@ const extractList = (payload: unknown): unknown[] => {
 const loadPlaylistCategories = async () => {
   try {
     const res = await getPlaylistTags();
-    const list = extractList(res).filter((item) => typeof item === 'object' && item !== null) as Record<string, unknown>[];
+    const list = extractList(res).filter(
+      (item) => typeof item === 'object' && item !== null,
+    ) as Record<string, unknown>[];
     const options: PickerOption[] = [];
     list.forEach((cat) => {
       const groupName = String(cat.tag_name ?? cat.name ?? '');
@@ -255,8 +265,8 @@ const loadNewSongs = async () => {
   loadingNewSongs.value = true;
   try {
     const res = await getNewSongs();
-    const songs = parsePlaylistTracks(res).songs;
-    newSongs.value = songs;
+    const list = extractList(res);
+    newSongs.value = list.map((item) => mapTopSong(item));
   } catch (error) {
     newSongs.value = [];
   } finally {
@@ -318,10 +328,11 @@ const loadAlbums = async () => {
     };
     const typeParam = typeMap[albumTypeId.value] ?? '';
     const res = await getAlbumTop(typeParam, 1, 30);
-    const record = (res && typeof res === 'object') ? (res as unknown as Record<string, unknown>) : undefined;
+    const record =
+      res && typeof res === 'object' ? (res as unknown as Record<string, unknown>) : undefined;
     const data = record?.data ?? record?.info ?? record;
     const isMap = data && typeof data === 'object' && !Array.isArray(data);
-    albumPayload.value = (isMap ? (data as Record<string, unknown>) : {});
+    albumPayload.value = isMap ? (data as Record<string, unknown>) : {};
     albumFallbackList.value = extractList(res);
   } catch (error) {
     albumPayload.value = {};
@@ -336,6 +347,12 @@ const playRankSongs = async () => {
   await replaceQueueAndPlay(playlistStore, playerStore, rankSongs.value);
 };
 
+const handleRankSongDoubleTapPlay = async (song: Song) => {
+  const played = await replaceQueueAndPlay(playlistStore, playerStore, rankSongs.value, 0);
+  if (!played) return;
+  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
+};
+
 const openRankBatchDrawer = () => {
   if (rankSongs.value.length === 0) return;
   showRankBatchDrawer.value = true;
@@ -344,6 +361,12 @@ const openRankBatchDrawer = () => {
 const playNewSongs = async () => {
   if (newSongs.value.length === 0) return;
   await replaceQueueAndPlay(playlistStore, playerStore, newSongs.value);
+};
+
+const handleNewSongDoubleTapPlay = async (song: Song) => {
+  const played = await replaceQueueAndPlay(playlistStore, playerStore, newSongs.value, 0);
+  if (!played) return;
+  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
 };
 
 const openNewSongBatchDrawer = () => {
@@ -445,26 +468,30 @@ const handleSelectAlbumType = (option: PickerOption) => {
     <div class="explore-header">
       <div class="text-[24px] font-semibold text-text-main tracking-tight">发现音乐</div>
       <div class="mt-4">
-        <CustomTabBar
-          v-model="activeTabIndex"
-          :tabs="['歌单', '排行榜', '新碟上架', '新歌速递']"
-        />
+        <CustomTabBar v-model="activeTabIndex" :tabs="['歌单', '排行榜', '新碟上架', '新歌速递']" />
       </div>
     </div>
 
-    <div v-if="activeTabIndex === 0" class="mt-[10px]">
+    <div v-if="activeTabIndex === 0" class="mt-0">
       <div class="explore-toolbar">
         <CustomSelector :label="playlistCategoryLabel" @click="showPlaylistPicker = true" />
       </div>
-      <div v-if="loadingPlaylists" class="h-[220px] flex items-center justify-center text-[12px] text-text-secondary/70">加载中...</div>
-      <div v-else class="playlist-grid">
+      <div
+        v-if="loadingPlaylists"
+        class="h-[220px] flex items-center justify-center text-[12px] text-text-secondary/70"
+      >
+        加载中...
+      </div>
+      <div v-else class="playlist-grid mt-1">
         <div
           v-for="entry in recommendedPlaylists"
           :key="String(entry.id)"
           class="playlist-grid-item"
         >
           <PlaylistCard
-            :id="entry.listCreateGid || entry.globalCollectionId || entry.listCreateListid || entry.id"
+            :id="
+              entry.listCreateGid || entry.globalCollectionId || entry.listCreateListid || entry.id
+            "
             :name="entry.name"
             :coverUrl="entry.pic"
             :creator="entry.nickname"
@@ -477,7 +504,7 @@ const handleSelectAlbumType = (option: PickerOption) => {
       </div>
     </div>
 
-    <div v-else-if="activeTabIndex === 1" class="mt-[10px]">
+    <div v-else-if="activeTabIndex === 1" class="mt-0">
       <div class="rank-toolbar sticky z-[120] bg-bg-main">
         <div class="rank-toolbar-inner">
           <CustomSelector :label="rankLabel" @click="showRankPicker = true" />
@@ -538,7 +565,9 @@ const handleSelectAlbumType = (option: PickerOption) => {
 
       <div class="pb-12">
         <div v-if="loadingRankSongs" class="flex items-center justify-center py-20">
-          <div class="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <div
+            class="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"
+          ></div>
         </div>
         <SongList
           v-else
@@ -547,17 +576,29 @@ const handleSelectAlbumType = (option: PickerOption) => {
           :searchQuery="rankSearchQuery"
           :activeId="activeSongId"
           :showCover="true"
+          :enableDefaultDoubleTapPlay="true"
+          :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleRankSongDoubleTapPlay : undefined"
           rowPaddingClass="px-0"
         />
       </div>
     </div>
 
-    <div v-else-if="activeTabIndex === 2" class="mt-[10px]">
+    <div v-else-if="activeTabIndex === 2" class="mt-0">
       <div class="explore-toolbar">
         <CustomSelector :label="albumTypeLabel" @click="showAlbumPicker = true" />
       </div>
-      <div v-if="loadingAlbums" class="h-[230px] flex items-center justify-center text-[12px] text-text-secondary/70">加载中...</div>
-      <div v-else-if="!hasAlbums" class="h-[230px] flex items-center justify-center text-[12px] text-text-secondary/70">暂无专辑</div>
+      <div
+        v-if="loadingAlbums"
+        class="h-[230px] flex items-center justify-center text-[12px] text-text-secondary/70"
+      >
+        加载中...
+      </div>
+      <div
+        v-else-if="!hasAlbums"
+        class="h-[230px] flex items-center justify-center text-[12px] text-text-secondary/70"
+      >
+        暂无专辑
+      </div>
       <div v-else class="album-grid">
         <AlbumCard
           v-for="album in albums"
@@ -571,7 +612,7 @@ const handleSelectAlbumType = (option: PickerOption) => {
       </div>
     </div>
 
-    <div v-else class="mt-[10px]">
+    <div v-else class="mt-0">
       <div class="new-song-toolbar sticky z-[120] bg-bg-main">
         <div class="new-song-toolbar-inner">
           <div class="new-song-title-wrap">
@@ -643,7 +684,9 @@ const handleSelectAlbumType = (option: PickerOption) => {
 
       <div class="pb-12">
         <div v-if="loadingNewSongs" class="flex items-center justify-center py-20">
-          <div class="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <div
+            class="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"
+          ></div>
         </div>
         <SongList
           v-else
@@ -652,6 +695,8 @@ const handleSelectAlbumType = (option: PickerOption) => {
           :searchQuery="newSongSearchQuery"
           :activeId="activeSongId"
           :showCover="true"
+          :enableDefaultDoubleTapPlay="true"
+          :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleNewSongDoubleTapPlay : undefined"
           rowPaddingClass="px-0"
         />
       </div>
@@ -692,14 +737,15 @@ const handleSelectAlbumType = (option: PickerOption) => {
   top: 0;
   z-index: 130;
   background: var(--color-bg-main);
-  padding: 0 0 12px 0;
+  padding: 0 0 6px 0;
   min-height: var(--explore-header-height);
 }
 
 .explore-toolbar {
   display: flex;
   align-items: center;
-  padding: 0 0 10px 0;
+  min-height: 46px;
+  padding: 0 0 6px 0;
 }
 
 .playlist-grid {
@@ -725,8 +771,8 @@ const handleSelectAlbumType = (option: PickerOption) => {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 52px;
-  padding: 10px 0 6px;
+  height: 46px;
+  padding: 0 0 6px;
 }
 
 .new-song-toolbar {
@@ -737,8 +783,8 @@ const handleSelectAlbumType = (option: PickerOption) => {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 52px;
-  padding: 10px 0 6px;
+  height: 46px;
+  padding: 0 0 6px;
 }
 
 .new-song-title-wrap {
@@ -757,7 +803,11 @@ const handleSelectAlbumType = (option: PickerOption) => {
   justify-content: center;
   color: #ffffff;
   border-radius: 8px;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 92%, white), var(--color-secondary));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary) 92%, white),
+    var(--color-secondary)
+  );
 }
 
 .new-song-toolbar-actions {

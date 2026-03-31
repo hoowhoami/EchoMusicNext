@@ -4,18 +4,20 @@ import { getEverydayRecommend } from '@/api/music';
 import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
+import { useSettingStore } from '@/stores/setting';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
 import ActionRow from '@/components/music/DetailPageActionRow.vue';
 import SongList from '@/components/music/SongList.vue';
 import SongListHeader from '@/components/music/SongListHeader.vue';
 import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
-import { parsePlaylistTracks } from '@/utils/mappers';
+import { mapTopSong } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconPlay, iconList, iconCurrentLocation, iconSearch } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
+const settingStore = useSettingStore();
 
 const loading = ref(true);
 const songs = ref<Song[]>([]);
@@ -90,6 +92,12 @@ const sortedSongs = computed(() => {
 
 const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
 
+const handleSongDoubleTapPlay = async (song: Song) => {
+  const played = await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0);
+  if (!played) return;
+  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
+};
+
 const handlePlayAll = async () => {
   if (songs.value.length === 0) return;
   await replaceQueueAndPlay(playlistStore, playerStore, songs.value);
@@ -106,8 +114,8 @@ const fetchRecommendSongs = async () => {
   loading.value = true;
   try {
     const res = await getEverydayRecommend();
-    const parsed = parsePlaylistTracks(res).songs;
-    songs.value = parsed;
+    const list = Array.isArray((res as { data?: unknown[] })?.data) ? (res as { data?: unknown[] }).data ?? [] : Array.isArray(res) ? res : [];
+    songs.value = list.map((item) => mapTopSong(item));
   } catch (error) {
     songs.value = [];
   } finally {
@@ -210,7 +218,8 @@ onMounted(() => {
         :searchQuery="searchQuery"
         :activeId="activeSongId"
         :showCover="true"
-        
+        :enableDefaultDoubleTapPlay="true"
+        :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined"
       />
     </div>
   </div>

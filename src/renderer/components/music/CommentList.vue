@@ -10,12 +10,14 @@ interface Props {
   onTapReplies?: (comment: Comment) => void;
   emptyText?: string;
   compact?: boolean;
+  hideEmpty?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showDivider: false,
   emptyText: '暂无评论',
   compact: false,
+  hideEmpty: false,
 });
 
 const formatLike = (value: number) => {
@@ -31,7 +33,7 @@ const formatLike = (value: number) => {
       <div class="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
     </div>
 
-    <div v-else-if="comments.length === 0" class="comment-empty">
+    <div v-else-if="!hideEmpty && comments.length === 0" class="comment-empty">
       {{ emptyText }}
     </div>
 
@@ -103,10 +105,11 @@ const formatLike = (value: number) => {
 }
 
 .comment-item {
-  margin: 0 16px 12px;
+  margin: 0 12px 12px;
   padding: 20px;
   border-radius: 20px;
   background: color-mix(in srgb, var(--color-text-main) 5%, transparent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
 }
 
 .comment-list.is-compact .comment-item {
@@ -186,11 +189,11 @@ const formatLike = (value: number) => {
   padding: 6px 10px;
   border-radius: 999px;
   background: var(--color-bg-card);
-  border: 1px solid color-mix(in srgb, var(--color-text-main) 8%, transparent);
   color: var(--color-primary);
   font-size: 11px;
   font-weight: 600;
   flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
 .comment-content {
@@ -225,9 +228,9 @@ const formatLike = (value: number) => {
 }
 
 .comment-badge-star {
-  color: #f59e0b;
-  border-color: rgba(245, 158, 11, 0.35);
-  background: rgba(245, 158, 11, 0.14);
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
 
 </style>

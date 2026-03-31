@@ -4,7 +4,11 @@ import request from '@/utils/request';
  * 注册设备获取 dfid/mid
  */
 export function registerDevice() {
-  return request.get('/register/dev');
+  return request.get('/register/dev', {
+    headers: {
+      'X-Skip-Auth': '1',
+    },
+  });
 }
 
 /**

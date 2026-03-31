@@ -11,12 +11,14 @@ import CustomTabBar from '@/components/ui/CustomTabBar.vue';
 import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
+import { useSettingStore } from '@/stores/setting';
 import { mapRankMeta, mapRankSong, type RankMeta } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconPlay, iconList, iconChevronDown, iconCurrentLocation, iconSearch } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/songPlayback';
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
+const settingStore = useSettingStore();
 
 const loadingRanks = ref(true);
 const loadingSongs = ref(false);
@@ -128,6 +130,12 @@ const sortedSongs = computed(() => {
 });
 
 const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
+
+const handleSongDoubleTapPlay = async (song: Song) => {
+  const played = await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0);
+  if (!played) return;
+  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
+};
 
 const handlePlayAll = async () => {
   if (songs.value.length === 0) return;
@@ -334,7 +342,8 @@ watch(
           :searchQuery="searchQuery"
           :activeId="activeSongId"
           :showCover="true"
-          
+          :enableDefaultDoubleTapPlay="true"
+          :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined"
         />
       </div>
 

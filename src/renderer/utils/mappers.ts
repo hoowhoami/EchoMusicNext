@@ -165,11 +165,23 @@ const buildArtists = (record: UnknownRecord, audioInfo: UnknownRecord): SongArti
     for (const raw of singerInfo) {
       if (!isRecord(raw)) continue;
       const name = readString(
-        pickValue(raw.name, raw.author_name, raw.singername, raw.singer),
+        pickValue(
+          raw.name,
+          raw.AuthorName,
+          raw.author_name,
+          raw.singername,
+          raw.singer,
+        ),
         '',
       ).trim();
       if (!name) continue;
-      const id = pickValue(raw.id, raw.author_id, raw.singerid, raw.singer_id);
+      const id = pickValue(
+        raw.id,
+        raw.AuthorId,
+        raw.author_id,
+        raw.singerid,
+        raw.singer_id,
+      );
       artists.push({
         id: id !== undefined && id !== null ? readString(id) : undefined,
         name,
@@ -180,17 +192,33 @@ const buildArtists = (record: UnknownRecord, audioInfo: UnknownRecord): SongArti
   if (artists.length === 0) {
     const fallbackName = readString(
       pickValue(
+        record.AuthorName,
         record.author_name,
         record.singername,
         record.singer,
+        audioInfo.AuthorName,
         audioInfo.author_name,
         audioInfo.singername,
       ),
       '',
     ).trim();
 
+    const fallbackId = pickValue(
+      record.AuthorId,
+      record.author_id,
+      record.singerid,
+      record.singer_id,
+      audioInfo.AuthorId,
+      audioInfo.author_id,
+      audioInfo.singerid,
+      audioInfo.singer_id,
+    );
+
     if (fallbackName) {
-      artists.push({ name: fallbackName });
+      artists.push({
+        id: fallbackId !== undefined && fallbackId !== null ? readString(fallbackId) : undefined,
+        name: fallbackName,
+      });
     }
   }
 
@@ -264,6 +292,71 @@ const cleanupAudioExtension = (value: string): string => {
     }
   }
   return output;
+};
+
+export const mapTopSong = (json: unknown): Song => {
+  const record = toRecord(json);
+  const transParam = getRecord(record, 'trans_param') ?? EMPTY_RECORD;
+
+  let singerName = readString(pickValue(record.author_name, record.singername, record.singer), '');
+  let title = processSongTitle(
+    readString(pickValue(record.songname, record.filename, record.name, '未知歌曲')),
+  );
+
+  title = cleanupAudioExtension(title);
+  singerName = cleanupAudioExtension(singerName);
+
+  const artists = buildArtists(record, EMPTY_RECORD);
+  const relateGoods = buildRelateGoods(record, EMPTY_RECORD);
+  const durationFromTimeLength = parseIntSafe(pickValue(record.time_length, 0));
+  const durationRaw =
+    durationFromTimeLength !== 0
+      ? durationFromTimeLength
+      : parseIntSafe(pickValue(record.timelength, record.duration, 0));
+  const duration = durationFromTimeLength !== 0 ? durationRaw : Math.floor(durationRaw / 1000);
+
+  return {
+    id: readString(pickValue(record.mixsongid, record.audio_id, record.album_audio_id, record.hash, '')),
+    title: title || '未知歌曲',
+    artist: normalizeText(
+      singerName || (artists.length > 0 ? artists.map((item) => item.name).join(', ') : '未知歌手'),
+    ),
+    artists,
+    album: normalizeText(readString(pickValue(record.album_name, record.albumname, ''))),
+    albumId: readString(pickValue(record.album_id, record.albumid, '')),
+    duration,
+    coverUrl: getCoverUrl(
+      readString(
+        pickValue(record.album_sizable_cover, transParam.union_cover, record.cover, ''),
+        '',
+      ),
+      400,
+    ),
+    audioUrl: '',
+    hash: readString(pickValue(record.hash, record.hash_128, record.FileHash, '')),
+    mixSongId: parseIntSafe(pickValue(record.audio_id, record.album_audio_id, record.mixsongid, 0)),
+    privilege: parseOptionalInt(pickValue(record.privilege, undefined)),
+    payType: parseOptionalInt(pickValue(record.pay_type, undefined)),
+    oldCpy: parseOptionalInt(pickValue(record.old_cpy, record.media_old_cpy, undefined)),
+    relateGoods,
+  };
+};
+
+export const mapSongByShape = (json: unknown): Song => {
+  const record = toRecord(json);
+
+  if (Object.prototype.hasOwnProperty.call(record, 'base')) return mapAlbumSong(record);
+  if (
+    Object.prototype.hasOwnProperty.call(record, 'Singers') ||
+    Object.prototype.hasOwnProperty.call(record, 'SongName') ||
+    Object.prototype.hasOwnProperty.call(record, 'FileHash')
+  ) {
+    return mapSearchSong(record);
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'deprecated')) return mapRankSong(record);
+  if (Object.prototype.hasOwnProperty.call(record, 'authors')) return mapTopSong(record);
+  if (record.source === 'cloud') return mapCloudSong(record);
+  return mapPlaylistSong(record);
 };
 
 export const resolvePlaylistTrackQueryId = (
@@ -460,7 +553,7 @@ export const mapArtistSong = (_artistId: string | number, json: unknown): Song =
     artist: normalizeText(readString(record.author_name, '未知歌手')),
     artists,
     album: normalizeText(readString(record.album_name, '')),
-    albumId: readString(record.album_id, ''),
+    albumId: readString(pickValue(record.album_id, record.albumid, ''), ''),
     duration: Math.floor(parseIntSafe(pickValue(record.timelength, 0)) / 1000),
     coverUrl: getCoverUrl(readString(transParam.union_cover, ''), 400),
     audioUrl: '',
@@ -492,9 +585,22 @@ export const mapAlbumSong = (json: unknown): Song => {
     id: readString(pickValue(base.audio_id, record.audio_id, audioInfo.audio_id, '')),
     title: processSongTitle(readString(pickValue(base.audio_name, record.songname, '未知歌曲'))),
     artist: normalizeText(readString(pickValue(base.author_name, record.author_name, '未知歌手'))),
-    artists,
+    artists:
+      artists.length > 0
+        ? artists
+        : [
+            {
+              id: readString(pickValue(base.author_id, base.AuthorId), ''),
+              name: normalizeText(
+                readString(pickValue(base.author_name, base.AuthorName, record.author_name, '未知歌手')),
+              ),
+            },
+          ].filter((item) => item.name.length > 0),
     album: normalizeText(readString(pickValue(albumInfo.album_name, record.album_name, ''))),
-    albumId: readString(pickValue(base.album_id, record.album_id, '')),
+    albumId: readString(
+      pickValue(base.album_id, base.albumid, record.album_id, record.albumid, albumInfo.album_id, ''),
+      '',
+    ),
     duration: Math.floor(parseIntSafe(pickValue(audioInfo.duration, record.timelength, 0)) / 1000),
     coverUrl: getCoverUrl(cover, 400),
     audioUrl: '',
@@ -537,7 +643,10 @@ export const mapRankSong = (json: unknown): Song => {
     artist: normalizeText(readString(pickValue(record.author_name, record.singername, record.singer, ''))),
     artists,
     album: normalizeText(readString(pickValue(albumInfo.album_name, record.album_name, ''))),
-    albumId: readString(pickValue(record.album_id, albumInfo.album_id, '')),
+    albumId: readString(
+      pickValue(record.album_id, record.albumid, albumInfo.id, albumInfo.album_id, ''),
+      '',
+    ),
     duration: Math.floor(durationRaw / 1000),
     coverUrl: getCoverUrl(cover, 400),
     audioUrl: '',
@@ -560,8 +669,27 @@ export const mapSearchSong = (json: unknown): Song => {
   const artists = singersRaw
     .filter((item) => isRecord(item))
     .map((item) => ({
-      id: readString((item as UnknownRecord).id, ''),
-      name: readString((item as UnknownRecord).name, ''),
+      id: readString(
+        pickValue(
+          (item as UnknownRecord).id,
+          (item as UnknownRecord).AuthorId,
+          (item as UnknownRecord).author_id,
+          (item as UnknownRecord).singerid,
+          (item as UnknownRecord).singer_id,
+          '',
+        ),
+        '',
+      ),
+      name: readString(
+        pickValue(
+          (item as UnknownRecord).name,
+          (item as UnknownRecord).AuthorName,
+          (item as UnknownRecord).author_name,
+          (item as UnknownRecord).singername,
+          '',
+        ),
+        '',
+      ),
     }))
     .filter((item) => item.name.length > 0);
 
@@ -580,7 +708,7 @@ export const mapSearchSong = (json: unknown): Song => {
     ),
     artists,
     album: normalizeText(readString(pickValue(record.AlbumName, ''))),
-    albumId: readString(pickValue(record.AlbumID, '')),
+    albumId: readString(pickValue(record.AlbumID, record.AlbumId, record.albumid, '')),
     duration: parseIntSafe(pickValue(record.Duration, 0)),
     coverUrl: getCoverUrl(readString(pickValue(record.Image, ''), ''), 400),
     audioUrl: '',
@@ -636,7 +764,10 @@ export const mapCloudSong = (json: unknown): Song => {
     artist,
     artists: singers.length > 0 ? singers : [{ name: artist }],
     album,
-    albumId: readString(pickValue(record.albumid, record.album_id, albumInfo.album_id, '')),
+    albumId: readString(
+      pickValue(record.albumid, record.album_id, albumInfo.id, albumInfo.album_id, ''),
+      '',
+    ),
     duration,
     coverUrl: getCoverUrl(cover, 400),
     audioUrl: '',
@@ -712,7 +843,9 @@ export const mapPlaylistMeta = (json: unknown): PlaylistMeta => {
         '',
       ),
     ),
-    listCreateUserid: parseOptionalInt(pickValue(record.list_create_userid, extra.list_create_userid, record.userid)),
+    listCreateUserid: parseOptionalInt(
+      pickValue(record.list_create_userid, extra.list_create_userid, record.userid, record.suid),
+    ),
     listCreateListid: parseOptionalInt(pickValue(record.list_create_listid, extra.specialid, record.specialid)),
     ipId: parseOptionalInt(pickValue(record.ip_id, extra.ip_id, record.id)),
     name: readString(pickValue(record.specialname, record.name, record.title, '')),
@@ -770,7 +903,14 @@ export const mapAlbumMeta = (json: unknown): AlbumMeta => {
       ),
     ),
     singerId: parseIntSafe(
-      pickValue(record.SingerId, record.singerid, record.author_id, record.singer_id, 0),
+      pickValue(
+        record.SingerId,
+        record.SingerID,
+        record.singerid,
+        record.author_id,
+        record.singer_id,
+        0,
+      ),
     ),
     publishTime: readString(
       pickValue(
@@ -821,7 +961,9 @@ export const mapAlbumDetailMeta = (json: unknown): AlbumMeta => {
     singerName: readString(
       pickValue(record.author_name, record.singername, record.singer, extra.singer_name, ''),
     ),
-    singerId: parseIntSafe(pickValue(record.author_id, record.singerid, extra.singer_id, 0)),
+    singerId: parseIntSafe(
+      pickValue(record.author_id, record.singerid, record.singer_id, extra.singer_id, extra.singerid, 0),
+    ),
     publishTime: readString(
       pickValue(record.publish_date, record.publishtime, record.publish_time, extra.publish_time, ''),
     ).split(' ')[0],
@@ -909,7 +1051,9 @@ export const mapArtistDetailMeta = (json: unknown): ArtistMeta => {
   }
 
   return {
-    id: parseIntSafe(pickValue(record.AuthorId, record.author_id, record.singerid, record.id, 0)),
+    id: parseIntSafe(
+      pickValue(record.AuthorId, record.author_id, record.singerid, record.singer_id, record.id, 0),
+    ),
     name: readString(
       pickValue(record.AuthorName, record.author_name, record.singername, record.name, ''),
     ),

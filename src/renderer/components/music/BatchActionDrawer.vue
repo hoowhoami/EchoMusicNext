@@ -376,7 +376,18 @@ const handleRemoveFromPlaylist = async () => {
   align-items: center;
   justify-content: center;
   color: var(--color-text-secondary);
+  outline: none;
+  box-shadow: none;
+  -webkit-tap-highlight-color: transparent;
   transition: all 0.2s ease;
+}
+
+.batch-close:focus,
+.batch-close:focus-visible,
+.batch-close:active {
+  outline: none;
+  box-shadow: none;
+  background: transparent;
 }
 
 .batch-close:hover {

@@ -369,18 +369,18 @@ onUnmounted(() => {
           <div class="px-10 pb-8">
             <div class="pt-6 border-t border-black/[0.03] dark:border-white/[0.03] flex flex-col items-center space-y-4">
               <span class="text-[12px] font-black opacity-50 uppercase tracking-[4px]">其他登录方式</span>
-              <TabsList class="gap-10">
-                  <TabsTrigger value="0" class="group data-[state=active]:hidden">
+              <TabsList class="gap-10 !h-auto items-center">
+                  <TabsTrigger value="0" class="group !h-auto !pb-0 items-center data-[state=active]:hidden [&_.active-line]:hidden">
                     <div class="w-14 h-14 rounded-full border border-border-light flex items-center justify-center text-primary/60 group-hover:text-primary transition-all group-active:scale-90 group-hover:bg-primary/5">
                       <Icon :icon="iconQrCode" width="22" height="22" />
                     </div>
                   </TabsTrigger>
-                  <TabsTrigger value="1" class="group data-[state=active]:hidden">
+                  <TabsTrigger value="1" class="group !h-auto !pb-0 items-center data-[state=active]:hidden [&_.active-line]:hidden">
                     <div class="w-14 h-14 rounded-full border border-border-light flex items-center justify-center text-text-main/50 group-hover:text-primary transition-all group-active:scale-90 group-hover:bg-primary/5">
                       <Icon :icon="iconSmartphone" width="22" height="22" />
                     </div>
                   </TabsTrigger>
-                  <TabsTrigger value="2" class="group data-[state=active]:hidden">
+                  <TabsTrigger value="2" class="group !h-auto !pb-0 items-center data-[state=active]:hidden [&_.active-line]:hidden">
                     <div class="w-14 h-14 rounded-full border border-border-light flex items-center justify-center text-[#07C160]/60 group-hover:text-[#07C160] transition-all group-active:scale-90 group-hover:bg-[#07C160]/5">
                       <Icon :icon="iconBotMessageSquare" width="26" height="26" />
                     </div>

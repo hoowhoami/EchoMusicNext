@@ -9,16 +9,29 @@ interface Props {
   hasDetails?: boolean;
   expandedHeight?: number;
   collapsedHeight?: number;
+  contentPaddingX?: number;
+  contentGap?: number;
+  coverBaseSize?: number;
+  titleFontSize?: number;
+  detailsGap?: number;
+  detailsMarginTop?: number;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   hasDetails: false,
   expandedHeight: 230,
   collapsedHeight: 56,
+  contentPaddingX: 24,
+  contentGap: 20,
+  coverBaseSize: 150,
+  titleFontSize: 24,
+  detailsGap: 10,
+  detailsMarginTop: 8,
 });
 
 const scrollY = ref(0);
 const scrollThreshold = computed(() => props.expandedHeight - props.collapsedHeight);
+const currentHeight = computed(() => Math.max(props.collapsedHeight, props.expandedHeight - scrollY.value));
 
 // 计算收缩比例 (0 到 1)
 const progress = computed(() => {
@@ -26,7 +39,7 @@ const progress = computed(() => {
 });
 
 // 封面变换逻辑 (150px -> 32px)
-const coverSize = 150;
+const coverSize = props.coverBaseSize;
 const targetCoverSize = 32;
 const coverScale = computed(() => 1 - progress.value * (1 - targetCoverSize / coverSize));
 
@@ -36,11 +49,13 @@ const currentCoverWidth = computed(() => {
 });
 
 // 标题缩放 (24px -> 17.5px)
-const titleScale = computed(() => 1 - progress.value * (1 - 17.5 / 24));
+const titleScale = computed(() => 1 - progress.value * (1 - 17.5 / props.titleFontSize));
 
 // 详情内容的透明度和位移
 const detailsOpacity = computed(() => Math.max(0, 1 - progress.value * 3.5));
 const detailsTranslateY = computed(() => -progress.value * 30);
+
+defineExpose({ currentHeight });
 
 const handleScroll = (e: Event) => {
   const target = e.target as HTMLElement;
@@ -79,10 +94,18 @@ onUnmounted(() => {
     ></div>
 
     <!-- 内容层 -->
-    <div class="relative h-full px-6 flex items-start gap-5 pt-3 overflow-visible">
+    <div
+      class="relative h-full items-start overflow-visible pointer-events-none flex"
+      :style="{
+        paddingLeft: `${props.contentPaddingX}px`,
+        paddingRight: `${props.contentPaddingX}px`,
+        gap: `${props.contentGap}px`,
+        paddingTop: '10px',
+      }"
+    >
       <!-- 封面图 -->
       <div
-        class="shrink-0 relative z-30 origin-top-left flex items-start overflow-visible"
+        class="shrink-0 relative z-30 origin-top-left flex items-start overflow-visible pointer-events-auto"
         :style="{ width: `${currentCoverWidth}px` }"
       >
         <div
@@ -100,11 +123,11 @@ onUnmounted(() => {
       </div>
 
       <!-- 标题和详情 -->
-      <div class="flex-1 flex flex-col min-w-0 relative z-10">
+      <div class="flex-1 flex flex-col min-w-0 relative z-10 pt-0.5 pointer-events-auto">
         <div class="flex items-center justify-between gap-3">
           <h1
-            class="flex-1 min-w-0 text-[24px] font-bold text-text-main leading-tight truncate origin-left transition-all duration-75"
-            :style="{ transform: `scale(${titleScale})` }"
+            class="flex-1 min-w-0 font-bold text-text-main leading-tight truncate origin-left transition-all duration-75"
+            :style="{ fontSize: `${props.titleFontSize}px`, transform: `scale(${titleScale})` }"
           >
             {{ title }}
           </h1>
@@ -118,15 +141,17 @@ onUnmounted(() => {
 
         <!-- 详情插槽 -->
         <div
-          class="flex flex-col gap-2.5 mt-2 transition-all duration-75"
+          class="flex flex-col transition-all duration-75"
           :style="{
             opacity: detailsOpacity,
             transform: `translateY(${detailsTranslateY}px)`,
             pointerEvents: progress > 0.4 ? 'none' : 'auto',
+            gap: `${props.detailsGap}px`,
+            marginTop: `${props.detailsMarginTop}px`,
           }"
         >
           <slot name="details" />
-          <div class="mt-4">
+          <div class="mt-2.5">
             <slot name="actions" />
           </div>
         </div>

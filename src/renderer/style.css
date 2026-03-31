@@ -50,6 +50,17 @@
     -webkit-app-region: no-drag;
   }
 
+  a,
+  button,
+  input,
+  textarea,
+  select,
+  summary,
+  [role='button'],
+  [tabindex] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body,
   html,
   #app {
@@ -63,6 +74,39 @@
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
     @apply bg-bg-main text-text-main transition-colors duration-300;
+  }
+
+  input,
+  textarea,
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    box-shadow: none;
+  }
+
+  input:focus,
+  input:focus-visible,
+  textarea:focus,
+  textarea:focus-visible,
+  select:focus,
+  select:focus-visible {
+    outline: none;
+  }
+
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  textarea:-webkit-autofill:hover,
+  textarea:-webkit-autofill:focus,
+  select:-webkit-autofill,
+  select:-webkit-autofill:hover,
+  select:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--color-text-main);
+    -webkit-box-shadow: 0 0 0 1000px var(--color-bg-card) inset;
+    transition: background-color 9999s ease-in-out 0s;
+    border-color: transparent;
   }
 }
 
@@ -125,6 +169,43 @@
     border-color: rgba(255, 255, 255, 0.22);
     color: rgba(245, 245, 247, 0.9);
   }
+}
+
+.explore-header,
+.rank-toolbar,
+.new-song-toolbar,
+.search-song-toolbar,
+.song-list-sticky,
+.comment-main-tabs {
+  isolation: isolate;
+}
+
+.explore-header::before,
+.rank-toolbar::before,
+.new-song-toolbar::before,
+.search-song-toolbar::before,
+.song-list-sticky::before,
+.comment-main-tabs::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  background: var(--color-bg-main);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.view-port,
+.sidebar-scroll,
+.queue-list,
+.batch-list,
+.profile-page,
+.dialog-scroll-area,
+.comment-floor-body {
+  scrollbar-gutter: stable;
 }
 
 /**

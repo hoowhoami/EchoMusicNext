@@ -30,6 +30,7 @@ import {
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
+import { useSettingStore } from '@/stores/setting';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconMusic, iconHeart } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
@@ -73,6 +74,7 @@ const sliverHeaderRef = ref<{ currentHeight?: number } | null>(null);
 const userStore = useUserStore();
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
+const settingStore = useSettingStore();
 
 const isOwnerPlaylist = computed(() => {
   const meta = playlist.value;
@@ -401,6 +403,12 @@ const secondaryActions = computed(() => {
   return actions;
 });
 
+const handleSongDoubleTapPlay = async (song: Song) => {
+  const played = await replaceQueueAndPlay(playlistStore, playerStore, songs.value, playlistFilteredInvalidCount.value);
+  if (!played) return;
+  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
+};
+
 const handlePlayAll = async () => {
   if (songs.value.length === 0) return;
   await replaceQueueAndPlay(playlistStore, playerStore, songs.value, playlistFilteredInvalidCount.value);
@@ -609,6 +617,13 @@ const sortedSongs = computed(() => {
           </div>
 
           <!-- 表头 (仅在歌曲 tab 显示) -->
+          <div
+            v-if="playlistFilteredInvalidCount > 0"
+            class="mx-6 mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-[12px] font-medium text-text-main/75"
+          >
+            当前列表已过滤 {{ playlistFilteredInvalidCount }} 条无效歌曲数据
+          </div>
+
           <SongListHeader
             v-if="activeTab === 'songs'"
             :sortField="sortField"
@@ -630,48 +645,23 @@ const sortedSongs = computed(() => {
               :searchQuery="searchQuery"
               :activeId="activeSongId"
               :showCover="true"
-              
+              :enableDefaultDoubleTapPlay="true"
+              :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined"
               :parentPlaylistId="playlist.listid || playlist.id"
               :enableRemoveFromPlaylist="isOwnerPlaylist"
             />
           </TabsContent>
 
-          <TabsContent value="comments" class="px-6 py-10">
+          <TabsContent value="comments" class="px-6 pt-5 pb-10">
             <div class="max-w-4xl mx-auto">
-              <div class="flex items-center justify-between mb-8">
-                <div class="text-[16px] font-semibold text-text-main">
-                  评论
-                  <span v-if="commentTotal > 0" class="text-[12px] font-normal opacity-60 ml-2">
-                    {{ commentTotal }}
-                  </span>
-                </div>
-                <button
-                  @click="
-                    router.push({
-                      name: 'comment',
-                      params: { id: getPlaylistId() },
-                      query: { type: 'playlist', title: playlist.name, cover: playlist.pic, artist: playlist.nickname || '' },
-                    })
-                  "
-                  class="px-4 py-1.5 rounded-full border border-border-light/40 text-[12px] font-semibold text-text-secondary hover:text-primary hover:border-primary/40 transition-colors"
-                >
-                  查看全部
-                </button>
-              </div>
-
               <div v-if="hotComments.length" class="text-[12px] font-semibold text-text-secondary mt-2 mb-3">热门评论</div>
-              <CommentList :comments="hotComments" :loading="loadingComments" :onTapReplies="openCommentPageWithFloor" compact />
-              <div class="text-[12px] font-semibold text-text-secondary mt-6 mb-3">最新评论<span v-if="commentTotal > 0" class="ml-1 opacity-60">({{ commentTotal }})</span></div>
-              <CommentList :comments="comments" :loading="loadingComments" :total="commentTotal" :onTapReplies="openCommentPageWithFloor" compact />
+              <CommentList :comments="hotComments" :loading="loadingComments" :onTapReplies="openCommentPageWithFloor" compact hide-empty />
+              <CommentList :comments="comments" :loading="loadingComments" :total="commentTotal" :onTapReplies="openCommentPageWithFloor" compact :hide-empty="hotComments.length > 0" />
 
-              <div v-if="hasMoreComments" class="flex justify-center mt-8">
-                <button
-                  @click="fetchComments()"
-                  :disabled="loadingComments"
-                  class="px-6 py-2 rounded-full border border-border-light/40 text-[12px] font-semibold text-text-secondary hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-60"
-                >
-                  {{ loadingComments ? '加载中...' : '加载更多' }}
-                </button>
+              <div v-if="loadingComments || ((hotComments.length > 0 || comments.length > 0) && !hasMoreComments)" class="flex justify-center mt-8">
+                <div class="text-[12px] font-semibold text-text-secondary">
+                  {{ loadingComments ? '加载中...' : '已加载全部评论' }}
+                </div>
               </div>
             </div>
           </TabsContent>

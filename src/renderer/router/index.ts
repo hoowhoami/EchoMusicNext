@@ -14,9 +14,9 @@ const routes: RouteRecordRaw[] = [
     meta: { skipHistory: true },
   },
   {
-    path: '/playing',
-    name: 'playing',
-    component: () => import('@/views/Playing.vue'),
+    path: '/lyric',
+    name: 'lyric',
+    component: () => import('@/views/Lyric.vue'),
     meta: { skipHistory: true },
   },
   {
@@ -33,11 +33,6 @@ const routes: RouteRecordRaw[] = [
         name: 'recommend-songs',
         component: () => import('@/views/RecommendSongs.vue'),
         meta: { title: '每日推荐' },
-      },
-      {
-        path: 'collection',
-        name: 'collection',
-        component: () => import('@/views/Collection.vue'),
       },
       {
         path: 'explore',

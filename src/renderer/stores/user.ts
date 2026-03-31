@@ -21,7 +21,7 @@ export const useUserStore = defineStore('user', {
   state: () => ({
     info: null as UserInfo | null,
     isLoggedIn: false,
-    // 每日权益状态 (1:1 复刻)
+    // 每日权益状态
     isTvipClaimedToday: false,
     isSvipClaimedToday: false,
   }),
@@ -31,9 +31,9 @@ export const useUserStore = defineStore('user', {
       this.isLoggedIn = !!info.token;
     },
     handleLoginSuccess(data: any) {
-      // 兼容多种返回格式 (酷狗概念版 API 特色)
+      // 兼容多种返回格式
       const rawExtends = data.extends || data.extendsInfo || this.info?.extendsInfo;
-      
+
       const user: UserInfo = {
         userid: data.userid || data.userId || this.info?.userid,
         nickname: data.nickname || data.userName || this.info?.nickname,
@@ -41,11 +41,12 @@ export const useUserStore = defineStore('user', {
         token: data.token || this.info?.token,
         t1: data.t1 || this.info?.t1,
         vip_type: data.vip_type !== undefined ? data.vip_type : this.info?.vip_type,
-        p_grade: data.p_grade || rawExtends?.detail?.p_grade || data.detail?.p_grade || this.info?.p_grade,
+        p_grade:
+          data.p_grade || rawExtends?.detail?.p_grade || data.detail?.p_grade || this.info?.p_grade,
         extendsInfo: {
           detail: rawExtends?.detail || data.detail || this.info?.extendsInfo?.detail || {},
-          vip: rawExtends?.vip || data.vip || this.info?.extendsInfo?.vip || {}
-        }
+          vip: rawExtends?.vip || data.vip || this.info?.extendsInfo?.vip || {},
+        },
       };
       this.setUserInfo(user);
     },
@@ -55,10 +56,7 @@ export const useUserStore = defineStore('user', {
     async fetchUserInfo() {
       if (!this.isLoggedIn) return;
       try {
-        const [detailRes, vipRes]: any = await Promise.all([
-          getUserDetail(),
-          getUserVipDetail()
-        ]);
+        const [detailRes, vipRes]: any = await Promise.all([getUserDetail(), getUserVipDetail()]);
 
         if (detailRes && detailRes.status === 1) {
           logger.info('UserStore', 'User detail fetched');
@@ -72,8 +70,8 @@ export const useUserStore = defineStore('user', {
             ...this.info!,
             extendsInfo: {
               ...currentExtends,
-              vip: vipRes.data || vipRes
-            }
+              vip: vipRes.data || vipRes,
+            },
           };
         }
       } catch (e) {
@@ -89,7 +87,7 @@ export const useUserStore = defineStore('user', {
       this.isLoggedIn = false;
       this.isTvipClaimedToday = false;
       this.isSvipClaimedToday = false;
-    }
+    },
   },
   persist: true,
 });

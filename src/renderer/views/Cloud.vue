@@ -4,6 +4,7 @@ import { getUserCloud } from '@/api/user';
 import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
+import { useSettingStore } from '@/stores/setting';
 import { useUserStore } from '@/stores/user';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
 import ActionRow from '@/components/music/DetailPageActionRow.vue';
@@ -19,6 +20,7 @@ const PAGE_SIZE = 100;
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
+const settingStore = useSettingStore();
 const userStore = useUserStore();
 
 const loading = ref(false);
@@ -165,6 +167,12 @@ const loadCloud = async (page = 1, append = false) => {
     loading.value = false;
     loadingMore.value = false;
   }
+};
+
+const handleSongDoubleTapPlay = async (song: Song) => {
+  const played = await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0);
+  if (!played) return;
+  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
 };
 
 const handlePlayAll = async () => {
@@ -335,6 +343,8 @@ onMounted(() => {
           :searchQuery="searchQuery"
           :activeId="activeSongId"
           :showCover="true"
+          :enableDefaultDoubleTapPlay="true"
+          :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined"
         />
         <div v-if="!loading && hasMore" class="flex justify-center pt-4">
           <button

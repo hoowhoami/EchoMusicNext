@@ -29,13 +29,34 @@ const userInfo = computed(() => userStore.info);
 // 歌单页签状态：0 为自建，1 为收藏
 const activePlaylistTab = ref(0);
 
+const likedPlaylistId = computed(() => String(playlistStore.likedPlaylistId ?? ''));
+
+const isLikedPlaylist = (playlist: PlaylistMeta) => {
+  const likedId = likedPlaylistId.value;
+  if (!likedId) return false;
+
+  const candidateIds = [
+    playlist.id,
+    playlist.listid,
+    playlist.listCreateGid,
+    playlist.globalCollectionId,
+    playlist.listCreateListid,
+  ]
+    .filter((value) => value !== undefined && value !== null && String(value) !== '')
+    .map((value) => String(value));
+
+  return candidateIds.includes(likedId);
+};
+
 const createdPlaylists = computed(() =>
-  playlistStore.userPlaylists.filter((p) => p.listCreateUserid === userInfo.value?.userid),
+  playlistStore.userPlaylists.filter(
+    (p) => p.listCreateUserid === userInfo.value?.userid && !isLikedPlaylist(p),
+  ),
 );
 
 const favoritedPlaylists = computed(() =>
   playlistStore.userPlaylists.filter(
-    (p) => p.listCreateUserid !== userInfo.value?.userid && p.source !== 2,
+    (p) => p.listCreateUserid !== userInfo.value?.userid && p.source !== 2 && !isLikedPlaylist(p),
   ),
 );
 
@@ -55,13 +76,57 @@ const menuGroups = [
     items: [
       { name: '播放历史', path: '/main/history', icon: 'clock' },
       { name: '我的云盘', path: '/main/cloud', icon: 'cloud' },
-      { name: '我最喜爱', path: '/main/collection', icon: 'heart' },
+      { name: '我最喜爱', path: '/main/home', icon: 'heart', action: 'liked-playlist' },
     ],
   },
 ];
 
 const navigateTo = (path: string) => {
   router.push(path);
+};
+
+const likedPlaylistRouteId = computed(() => {
+  const likedPlaylist = playlistStore.likedPlaylist;
+  if (!likedPlaylist) return '';
+  return getPlaylistRouteId(likedPlaylist);
+});
+
+const navigateToLikedPlaylist = async () => {
+  if (!isLoggedIn.value) {
+    await router.push('/login');
+    return;
+  }
+
+  let likedPlaylist = playlistStore.likedPlaylist;
+  if (!likedPlaylist) {
+    await playlistStore.fetchUserPlaylists();
+    likedPlaylist = playlistStore.likedPlaylist;
+  }
+
+  if (!likedPlaylist) return;
+  navigateToPlaylist(likedPlaylist);
+};
+
+const isMenuItemDisabled = (item: { path: string; action?: string }) => {
+  return item.action === 'liked-playlist' && !isLoggedIn.value;
+};
+
+const handleMenuClick = (item: { path: string; action?: string }) => {
+  if (isMenuItemDisabled(item)) return;
+  if (item.action === 'liked-playlist') {
+    void navigateToLikedPlaylist();
+    return;
+  }
+  navigateTo(item.path);
+};
+
+const isMenuItemActive = (item: { path: string; action?: string }) => {
+  if (item.action === 'liked-playlist') {
+    return (
+      route.name === 'playlist-detail' && activePlaylistRouteId.value === likedPlaylistRouteId.value
+    );
+  }
+  return route.path === item.path;
 };
 
 const isOwnerPlaylist = (playlist: PlaylistMeta) => {
@@ -229,12 +294,16 @@ watch(
           <button
             v-for="item in group.items"
             :key="item.path"
-            @click="navigateTo(item.path)"
+            @click="handleMenuClick(item)"
+            :disabled="isMenuItemDisabled(item)"
+            :title="isMenuItemDisabled(item) ? '登录后可用' : undefined"
             :class="[
-              'w-full flex items-center gap-3.5 px-3.5 py-2 rounded-[14px] transition-all duration-200 group cursor-pointer active:scale-[0.98]',
-              route.path === item.path
-                ? 'bg-primary/[0.12] text-primary'
-                : 'text-text-main/90 hover:bg-black/[0.04] dark:hover:bg-white/[0.04]',
+              'w-full flex items-center gap-3.5 px-3.5 py-2 rounded-[14px] transition-all duration-200 group active:scale-[0.98]',
+              isMenuItemDisabled(item)
+                ? 'cursor-not-allowed opacity-35 text-text-main/55'
+                : isMenuItemActive(item)
+                  ? 'cursor-pointer bg-primary/[0.12] text-primary'
+                  : 'cursor-pointer text-text-main/90 hover:bg-black/[0.04] dark:hover:bg-white/[0.04]',
             ]"
           >
             <Icon
@@ -242,14 +311,16 @@ watch(
               height="18"
               :icon="iconMap[item.icon as keyof typeof iconMap]"
               :class="[
-                route.path === item.path
-                  ? 'text-primary'
-                  : 'text-text-main opacity-60 group-hover:opacity-100',
+                isMenuItemDisabled(item)
+                  ? 'text-text-main opacity-40'
+                  : isMenuItemActive(item)
+                    ? 'text-primary'
+                    : 'text-text-main opacity-60 group-hover:opacity-100',
               ]"
             />
             <span
               class="text-[14px]"
-              :class="[route.path === item.path ? 'font-semibold' : 'font-normal']"
+              :class="[isMenuItemActive(item) ? 'font-semibold' : 'font-normal']"
               >{{ item.name }}</span
             >
           </button>

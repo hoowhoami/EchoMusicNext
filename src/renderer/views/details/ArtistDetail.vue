@@ -18,12 +18,14 @@ import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
 import { mapAlbumMeta, mapArtistDetailMeta, mapArtistSong } from '@/utils/mappers';
 import { usePlayerStore } from '@/stores/player';
+import { useSettingStore } from '@/stores/setting';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
+const settingStore = useSettingStore();
 
 const route = useRoute();
 const router = useRouter();
@@ -206,6 +208,12 @@ const secondaryActions = computed(() => [
   },
 ]);
 
+const handleSongDoubleTapPlay = async (song: Song) => {
+  const played = await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0);
+  if (!played) return;
+  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
+};
+
 const handlePlayAll = async () => {
   if (songs.value.length === 0) return;
   await replaceQueueAndPlay(playlistStore, playerStore, songs.value);
@@ -336,7 +344,9 @@ const handleLocate = () => songListRef.value?.scrollToActive?.();
       <div class="pb-12">
         <Tabs v-model="activeTab" class="w-full">
         <TabsContent value="songs" class="px-6 flex flex-col flex-1 min-h-0">
-          <SongList ref="songListRef" :songs="sortedSongs" :searchQuery="searchQuery" :showCover="true"  />
+          <SongList ref="songListRef" :songs="sortedSongs" :searchQuery="searchQuery" :showCover="true"
+            :enableDefaultDoubleTapPlay="true"
+            :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined" />
         </TabsContent>
 
           <TabsContent value="albums" class="mt-4 px-6">

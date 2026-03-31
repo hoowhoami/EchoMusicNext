@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import {
   getUserPlaylists,
+  getPlaylistTracks,
+  getPlaylistTracksNew,
   addPlaylistTrack,
   deletePlaylistTrack,
   addPlaylist,
@@ -8,7 +10,7 @@ import {
 } from '@/api/playlist';
 import { uploadPlayHistory } from '@/api/user';
 import logger from '@/utils/logger';
-import { mapPlaylistMeta, type PlaylistMeta } from '@/utils/mappers';
+import { mapPlaylistMeta, parsePlaylistTracks, type PlaylistMeta } from '@/utils/mappers';
 import type { Song } from '@/models/song';
 
 export type { Song, SongRelateGood, SongArtist } from '@/models/song';
@@ -25,6 +27,58 @@ const sampleLrc = `[00:00.00]梦中的婚礼
 [01:40.00]梦境与现实交织
 [02:10.00]在这浪漫的夜晚
 [02:40.00]EchoMusic 陪伴着你`;
+
+const normalizePlaylistName = (value: string | undefined): string => String(value ?? '').trim();
+
+const getPlaylistIdentityValues = (playlist: PlaylistMeta): string[] => {
+  return [
+    playlist.id,
+    playlist.listid,
+    playlist.listCreateGid,
+    playlist.globalCollectionId,
+    playlist.listCreateListid,
+  ]
+    .filter((value) => value !== undefined && value !== null && String(value) !== '')
+    .map((value) => String(value));
+};
+
+const findLikedPlaylist = (playlists: PlaylistMeta[]): PlaylistMeta | undefined => {
+  let index = playlists.findIndex((playlist) => {
+    const name = normalizePlaylistName(playlist.name);
+    return name === '我喜欢的音乐';
+  });
+
+  if (index === -1) {
+    index = playlists.findIndex((playlist) =>
+      normalizePlaylistName(playlist.name).includes('喜欢'),
+    );
+  }
+
+  if (index === -1) {
+    index = playlists.findIndex((playlist) => playlist.type === 1 || playlist.isDefault === true);
+  }
+
+  if (index === -1) {
+    index = playlists.findIndex((playlist) => normalizePlaylistName(playlist.name) === '默认收藏');
+  }
+
+  return index === -1 ? undefined : playlists[index];
+};
+
+const dedupeSongs = (songs: Song[]): Song[] => {
+  const seen = new Set<string>();
+  return songs.filter((song) => {
+    const key =
+      String(song.mixSongId ?? '0') !== '0'
+        ? `mx:${String(song.mixSongId)}`
+        : song.hash
+          ? `hash:${song.hash.toLowerCase()}`
+          : `id:${String(song.id)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 export const usePlaylistStore = defineStore('playlist', {
   state: () => ({
@@ -54,21 +108,57 @@ export const usePlaylistStore = defineStore('playlist', {
   }),
   getters: {
     likedPlaylist(state) {
-      return state.userPlaylists.find(
-        (p) =>
-          p.name === '我喜欢' ||
-          p.name === '我喜欢的音乐' ||
-          (p.name?.includes('喜欢') ?? false) ||
-          p.type === 1 ||
-          p.isDefault === true,
-      );
+      return findLikedPlaylist(state.userPlaylists);
     },
     likedPlaylistId(): string | number | null {
-      const lp = this.likedPlaylist;
-      return lp ? lp.listCreateGid || lp.globalCollectionId || lp.listid || lp.id : null;
+      const playlist = this.likedPlaylist;
+      if (!playlist) return null;
+      return playlist.listCreateGid || playlist.listid || playlist.id;
     },
   },
   actions: {
+    resolveNumericListId(id: string | number | null | undefined): string | number | null {
+      if (id === undefined || id === null || String(id) === '') return null;
+      const target = String(id);
+      const matched = this.userPlaylists.find((playlist) =>
+        getPlaylistIdentityValues(playlist).includes(target),
+      );
+      if (!matched) return id;
+      return matched.listid || matched.id || id;
+    },
+    syncCloudFavorites(songs: Song[]) {
+      this.favorites = dedupeSongs(songs);
+    },
+    async fetchLikedPlaylistSongs() {
+      const likedPlaylist = this.likedPlaylist;
+      const likedId = this.likedPlaylistId;
+      if (!likedPlaylist || !likedId) {
+        this.favorites = [];
+        return false;
+      }
+
+      const numericId = this.resolveNumericListId(likedId);
+      let songs: Song[] = [];
+
+      try {
+        const primary = await getPlaylistTracks(String(likedId), 1, 200);
+        songs = parsePlaylistTracks(primary).songs;
+      } catch (error) {
+        logger.warn('PlaylistStore', 'Fetch liked playlist by gid failed:', error);
+      }
+
+      if (songs.length === 0 && numericId !== null && numericId !== undefined) {
+        try {
+          const fallback = await getPlaylistTracksNew(numericId, 1, 200);
+          songs = parsePlaylistTracks(fallback).songs;
+        } catch (error) {
+          logger.error('PlaylistStore', 'Fetch liked playlist by listid failed:', error);
+        }
+      }
+
+      this.syncCloudFavorites(songs);
+      return songs.length > 0;
+    },
     setPlaybackQueue(songs: Song[], filteredInvalidCount = 0) {
       this.defaultList = songs.slice();
       this.queueFilteredInvalidCount = Math.max(0, filteredInvalidCount);
@@ -135,11 +225,11 @@ export const usePlaylistStore = defineStore('playlist', {
       return false;
     },
     async addToFavorites(song: Song) {
-      if (!this.favorites.find((s) => s.id === song.id)) {
+      if (!this.favorites.find((item) => String(item.id) === String(song.id))) {
         this.favorites.unshift(song);
       }
 
-      const listId = this.likedPlaylistId;
+      const listId = this.resolveNumericListId(this.likedPlaylistId);
       if (listId) {
         try {
           const songData = `${song.title}|${song.hash}|${song.albumId || 0}|${song.mixSongId}`;
@@ -153,12 +243,12 @@ export const usePlaylistStore = defineStore('playlist', {
       }
     },
     async removeFromFavorites(id: string) {
-      const song = this.favorites.find((s) => s.id === id);
+      const song = this.favorites.find((item) => String(item.id) === String(id));
       if (!song) return;
 
-      this.favorites = this.favorites.filter((s) => s.id !== id);
+      this.favorites = this.favorites.filter((item) => String(item.id) !== String(id));
 
-      const listId = this.likedPlaylistId;
+      const listId = this.resolveNumericListId(this.likedPlaylistId);
       if (listId) {
         try {
           const res = await deletePlaylistTrack(listId, String(song.mixSongId));
@@ -190,6 +280,7 @@ export const usePlaylistStore = defineStore('playlist', {
           const info = 'info' in res ? (res as { info?: unknown }).info : undefined;
           const raw = data?.info ?? info ?? [];
           this.userPlaylists = Array.isArray(raw) ? raw.map((item) => mapPlaylistMeta(item)) : [];
+          await this.fetchLikedPlaylistSongs();
         }
       } catch (e) {
         logger.error('PlaylistStore', 'Fetch user playlists error:', e);
@@ -215,10 +306,10 @@ export const usePlaylistStore = defineStore('playlist', {
     },
     async unfavoritePlaylist(meta: PlaylistMeta) {
       try {
-        const target = this.userPlaylists.find((p) => {
-          const localId = String(p.listid ?? p.id);
-          const originalId = String(p.listCreateGid ?? p.globalCollectionId ?? '');
-          const originalListId = String(p.listCreateListid ?? '');
+        const target = this.userPlaylists.find((playlist) => {
+          const localId = String(playlist.listid ?? playlist.id);
+          const originalId = String(playlist.listCreateGid ?? playlist.globalCollectionId ?? '');
+          const originalListId = String(playlist.listCreateListid ?? '');
           const currentIds = [
             String(meta.id),
             String(meta.listid ?? ''),

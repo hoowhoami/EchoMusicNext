@@ -26,6 +26,7 @@ import {
 } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { usePlayerStore } from '@/stores/player';
+import { useSettingStore } from '@/stores/setting';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/songPlayback';
 
@@ -48,6 +49,11 @@ const route = useRoute();
 const router = useRouter();
 const getAlbumId = () => route.params.id as string;
 
+const isSameRoute = (name: string, targetId: string | number) => {
+  const routeId = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id;
+  return route.name === name && String(routeId) === String(targetId);
+};
+
 const loading = ref(true);
 const album = ref<AlbumMeta | null>(null);
 const songs = ref<Song[]>([]);
@@ -62,6 +68,7 @@ const showBatchDrawer = ref(false);
 const showIntroDialog = ref(false);
 
 const playerStore = usePlayerStore();
+const settingStore = useSettingStore();
 const playlistStore = usePlaylistStore();
 
 // 搜索和定位逻辑
@@ -74,6 +81,19 @@ const tabsTop = computed(() => {
   const headerHeight = sliverHeaderRef.value?.currentHeight || 52;
   return headerHeight;
 });
+
+const canOpenAlbumArtist = computed(() => {
+  if (!album.value?.singerId) return false;
+  return !isSameRoute('artist-detail', album.value.singerId);
+});
+
+const openAlbumArtist = () => {
+  if (!canOpenAlbumArtist.value || !album.value?.singerId) return;
+  router.push({
+    name: 'artist-detail',
+    params: { id: String(album.value.singerId) },
+  });
+};
 
 // 排序逻辑
 const sortField = ref<SortField | null>(null);
@@ -286,6 +306,12 @@ const secondaryActions = computed(() => [
   },
 ]);
 
+const handleSongDoubleTapPlay = async (song: Song) => {
+  const played = await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0);
+  if (!played) return;
+  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
+};
+
 const handlePlayAll = async () => {
   if (songs.value.length === 0) return;
   await replaceQueueAndPlay(playlistStore, playerStore, songs.value);
@@ -347,9 +373,15 @@ const loadedSongCount = computed(() => songs.value.length);
       >
         <template #details>
           <div class="flex flex-col gap-1 text-text-main/60">
-            <div class="text-[13px] font-semibold text-primary">
+            <button
+              type="button"
+              class="album-singer-link"
+              :class="{ 'is-link': canOpenAlbumArtist }"
+              :disabled="!canOpenAlbumArtist"
+              @click="openAlbumArtist"
+            >
               {{ album.singerName }}
-            </div>
+            </button>
             <div class="text-[11px] font-semibold opacity-60">
               {{ album.publishTime }} • {{ album.songCount }} 首歌曲
             </div>
@@ -463,46 +495,21 @@ const loadedSongCount = computed(() => songs.value.length);
               :searchQuery="searchQuery"
               :activeId="activeSongId"
               :showCover="true"
-              
+              :enableDefaultDoubleTapPlay="true"
+              :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined"
             />
           </TabsContent>
 
-          <TabsContent value="comments" class="px-6 py-10">
+          <TabsContent value="comments" class="px-6 pt-5 pb-10">
             <div class="max-w-4xl mx-auto">
-              <div class="flex items-center justify-between mb-8">
-                <div class="text-[16px] font-semibold text-text-main">
-                  评论
-                  <span v-if="commentTotal > 0" class="text-[12px] font-normal opacity-60 ml-2">
-                    {{ commentTotal }}
-                  </span>
-                </div>
-                <button
-                  @click="
-                    router.push({
-                      name: 'comment',
-                      params: { id: getAlbumId() },
-                      query: { type: 'album', title: album.name, cover: album.pic, artist: album.singerName || '' },
-                    })
-                  "
-                  class="px-4 py-1.5 rounded-full border border-border-light/40 text-[12px] font-semibold text-text-secondary hover:text-primary hover:border-primary/40 transition-colors"
-                >
-                  查看全部
-                </button>
-              </div>
-
               <div v-if="hotComments.length" class="text-[12px] font-semibold text-text-secondary mt-2 mb-3">热门评论</div>
-              <CommentList :comments="hotComments" :loading="loadingComments" :onTapReplies="openCommentPageWithFloor" compact />
-              <div class="text-[12px] font-semibold text-text-secondary mt-6 mb-3">最新评论<span v-if="commentTotal > 0" class="ml-1 opacity-60">({{ commentTotal }})</span></div>
-              <CommentList :comments="comments" :loading="loadingComments" :total="commentTotal" :onTapReplies="openCommentPageWithFloor" compact />
+              <CommentList :comments="hotComments" :loading="loadingComments" :onTapReplies="openCommentPageWithFloor" compact hide-empty />
+              <CommentList :comments="comments" :loading="loadingComments" :total="commentTotal" :onTapReplies="openCommentPageWithFloor" compact :hide-empty="hotComments.length > 0" />
 
-              <div v-if="hasMoreComments" class="flex justify-center mt-8">
-                <button
-                  @click="fetchComments()"
-                  :disabled="loadingComments"
-                  class="px-6 py-2 rounded-full border border-border-light/40 text-[12px] font-semibold text-text-secondary hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-60"
-                >
-                  {{ loadingComments ? '加载中...' : '加载更多' }}
-                </button>
+              <div v-if="loadingComments || ((hotComments.length > 0 || comments.length > 0) && !hasMoreComments)" class="flex justify-center mt-8">
+                <div class="text-[12px] font-semibold text-text-secondary">
+                  {{ loadingComments ? '加载中...' : '已加载全部评论' }}
+                </div>
               </div>
             </div>
           </TabsContent>
@@ -523,6 +530,20 @@ const loadedSongCount = computed(() => songs.value.length);
 
 <style scoped>
 @reference "@/style.css";
+
+.album-singer-link {
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.album-singer-link.is-link {
+  cursor: pointer;
+}
+
 
 .search-expand-enter-active,
 .search-expand-leave-active {

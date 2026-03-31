@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { getSearchDefault, getSearchHot, getSearchSuggest, search } from '@/api/search';
+import { getSearchHot, getSearchSuggest, search } from '@/api/search';
 import { useSettingStore } from '@/stores/setting';
 import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
@@ -235,9 +235,9 @@ const detachScrollTarget = () => {
 const loadHotSearches = async () => {
   isLoadingHot.value = true;
   try {
-    const [hotRes, defaultRes] = await Promise.all([getSearchHot(), getSearchDefault()]);
+    const hotRes = await getSearchHot();
     hotSearchCategories.value = extractHotCategories(hotRes);
-    defaultKeyword.value = extractSearchDefaultKeyword(defaultRes);
+    defaultKeyword.value = '';
     if (selectedHotCategoryIndex.value >= hotSearchCategories.value.length) {
       selectedHotCategoryIndex.value = 0;
     }
@@ -330,6 +330,12 @@ const handleSongSort = (field: SortField) => {
 const playSearchSongs = async () => {
   if (songResults.value.length === 0) return;
   await replaceQueueAndPlay(playlistStore, playerStore, songResults.value);
+};
+
+const handleSongDoubleTapPlay = async (song: Song) => {
+  const played = await replaceQueueAndPlay(playlistStore, playerStore, songResults.value, 0);
+  if (!played) return;
+  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
 };
 
 const openSongBatchDrawer = () => {
@@ -622,6 +628,8 @@ onUnmounted(() => {
             :searchQuery="songSearchQuery"
             :activeId="activeSongId"
             :showCover="true"
+            :enableDefaultDoubleTapPlay="true"
+            :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined"
             rowPaddingClass="px-0"
           />
         </div>

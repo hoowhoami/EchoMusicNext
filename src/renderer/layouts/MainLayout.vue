@@ -11,12 +11,12 @@ import BackToTop from '@/components/ui/BackToTop.vue';
     <Sidebar class="w-[220px] shrink-0" />
 
     <!-- 2. 右侧容器 (内容 + 播放器) -->
-    <div class="flex-1 flex flex-col min-w-0 relative">
+    <div class="flex-1 flex flex-col min-w-0 min-h-0 relative">
       <!-- 2.1 主体内容区域 -->
-      <main class="main-content flex-1 flex flex-col min-h-0">
+      <main class="main-content flex-1 flex flex-col min-h-0 overflow-hidden">
         <TitleBar />
         <!-- 滚动容器 -->
-        <div class="view-port flex-1 overflow-y-auto overflow-x-hidden">
+        <div class="view-port flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
           <router-view />
         </div>
       </main>

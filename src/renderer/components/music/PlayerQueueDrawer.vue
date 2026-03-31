@@ -8,6 +8,7 @@ import { usePlayerStore } from '@/stores/player';
 import SongCard from '@/components/music/SongCard.vue';
 import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
+import { isPlayableSong } from '@/utils/songPlayback';
 import {
   iconArrowUp,
   iconCurrentLocation,
@@ -62,15 +63,7 @@ watch(
   },
 );
 
-const isSongPlayable = (song: Song) => {
-  const isUnavailable = song.privilege === 40;
-  const isPaid = song.privilege === 10 && song.payType === 2;
-  const isNoCopyright = song.privilege === 5;
-
-  if (isUnavailable || isPaid) return false;
-  if (isNoCopyright) return song.oldCpy === 1;
-  return Boolean(song.hash?.trim());
-};
+const isSongPlayable = (song: Song) => isPlayableSong(song);
 
 const handlePlay = (song: Song) => {
   if (String(song.id) === String(playerStore.currentTrackId)) {

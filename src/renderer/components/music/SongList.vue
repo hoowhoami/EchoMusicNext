@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import type { Song } from '@/models/song';
 import { formatDuration } from '@/utils/format';
 import SongCard from './SongCard.vue';
@@ -7,6 +8,9 @@ import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 import { iconPlay, iconPause } from '@/icons';
 import { usePlayerStore } from '@/stores/player';
+import { usePlaylistStore } from '@/stores/playlist';
+import { buildSongListGridTemplate } from './songListLayout';
+import { isPlayableSong, queueAndPlaySong } from '@/utils/songPlayback';
 
 interface Props {
   songs: Song[];
@@ -19,6 +23,8 @@ interface Props {
   searchQuery?: string;
   parentPlaylistId?: string | number;
   enableRemoveFromPlaylist?: boolean;
+  onSongDoubleTapPlay?: (song: Song) => void | Promise<void>;
+  enableDefaultDoubleTapPlay?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -30,6 +36,7 @@ const props = withDefaults(defineProps<Props>(), {
   searchQuery: '',
   parentPlaylistId: '',
   enableRemoveFromPlaylist: false,
+  enableDefaultDoubleTapPlay: false,
 });
 
 const emit = defineEmits<{
@@ -37,6 +44,9 @@ const emit = defineEmits<{
 }>();
 
 const playerStore = usePlayerStore();
+const playlistStore = usePlaylistStore();
+const router = useRouter();
+const route = useRoute();
 
 // 搜索过滤
 const filteredSongs = computed(() => {
@@ -51,6 +61,12 @@ const filteredSongs = computed(() => {
 });
 
 const itemHeight = 60;
+const rowGridTemplate = computed(() => buildSongListGridTemplate({
+  showIndex: props.showIndex,
+  showAlbum: props.showAlbum,
+  showDuration: props.showDuration,
+}));
+
 const originalIndexMap = computed(() => {
   const map = new Map<string | number, number>();
   props.songs.forEach((song, index) => {
@@ -59,15 +75,7 @@ const originalIndexMap = computed(() => {
   return map;
 });
 
-const isSongPlayable = (song: Song) => {
-  const isUnavailable = song.privilege === 40;
-  const isPaid = song.privilege === 10 && song.payType === 2;
-  const isNoCopyright = song.privilege === 5;
-
-  if (isUnavailable || isPaid) return false;
-  if (isNoCopyright) return song.oldCpy === 1;
-  return Boolean(song.hash?.trim());
-};
+const isSongPlayable = (song: Song) => isPlayableSong(song);
 
 const rowOpacity = (song: Song) => (isSongPlayable(song) ? 1 : 0.45);
 
@@ -81,12 +89,41 @@ const readString = (value: unknown, fallback = ''): string => {
 const activeIdText = computed(() => readString(props.activeId));
 const isActiveSong = (song: Song) => readString(song.id) === activeIdText.value;
 
-const handleTogglePlay = (song: Song) => {
+const resolveNumericId = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number.parseInt(String(value), 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return null;
+  return parsed;
+};
+
+const isSameRoute = (name: string, targetId: string | number) => {
+  const routeId = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id;
+  return route.name === name && String(routeId) === String(targetId);
+};
+
+const isAlbumClickable = (song: Song) => {
+  const albumId = resolveNumericId(song.albumId);
+  if (!albumId || !(song.album ?? '').trim()) return false;
+  return !isSameRoute('album-detail', albumId);
+};
+
+const openAlbumDetail = (song: Song) => {
+  const albumId = resolveNumericId(song.albumId);
+  if (!albumId || !isAlbumClickable(song)) return;
+  router.push({
+    name: 'album-detail',
+    params: { id: String(albumId) },
+  });
+};
+
+const handleTogglePlay = async (song: Song) => {
   if (isActiveSong(song)) {
     playerStore.togglePlay();
-  } else {
-    playerStore.playTrack(song.id, props.songs);
+    return;
   }
+
+  const target = props.songs.find((item) => String(item.id) === String(song.id)) ?? song;
+  await queueAndPlaySong(playlistStore, playerStore, target);
 };
 
 const getScrollContainer = (): HTMLElement | null =>
@@ -170,8 +207,12 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
         :data-song-row="true"
         :data-song-id="readString(song.id)"
       >
-        <div class="song-list-row-inner flex items-center w-full h-full" :class="props.rowPaddingClass">
-          <div v-if="showIndex" class="w-10 shrink-0 flex items-center justify-start pl-2">
+        <div
+          class="song-list-row-inner grid items-center w-full h-full"
+          :class="props.rowPaddingClass"
+          :style="{ gridTemplateColumns: rowGridTemplate }"
+        >
+          <div v-if="showIndex" class="flex items-center justify-start pl-2">
             <div class="relative w-4 h-4">
               <template v-if="isActiveSong(song)">
                 <div
@@ -206,7 +247,7 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
             </div>
           </div>
 
-          <div class="flex-1 min-w-0 ml-4">
+          <div class="min-w-0">
             <SongCard
               :id="song.id"
               :hash="song.hash"
@@ -228,20 +269,27 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
               :showCover="showCover"
               :showAlbum="false"
               :showDuration="false"
-              :showMore="false"
+              :showMore="true"
               :active="isActiveSong(song)"
+              :queueContext="props.songs"
+              :onDoubleTapPlay="props.onSongDoubleTapPlay"
+              :enableDefaultDoubleTapPlay="props.enableDefaultDoubleTapPlay"
               variant="list"
             />
           </div>
 
-          <div
+          <button
             v-if="showAlbum"
-            class="w-[188px] min-w-0 hidden md:block pl-[18px] text-[13px] text-text-main/70 truncate"
+            type="button"
+            class="min-w-0 hidden md:block pr-3 text-[13px] text-left text-text-main/70 truncate"
+            :class="isAlbumClickable(song) ? 'song-list-meta-link' : ''"
+            :disabled="!isAlbumClickable(song)"
+            @click.stop="openAlbumDetail(song)"
           >
             {{ song.album || '未知专辑' }}
-          </div>
+          </button>
 
-          <div v-if="showDuration" class="w-16 shrink-0 pl-4 text-[12px] opacity-60 text-right whitespace-nowrap">
+          <div v-if="showDuration" class="pl-2 text-[12px] opacity-60 text-left whitespace-nowrap">
             {{ formatDuration(song.duration) }}
           </div>
         </div>
@@ -286,5 +334,12 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
 
 .dark .song-list-row.is-active {
   background: color-mix(in srgb, #ffffff 4%, transparent);
+}
+.song-list-meta-link {
+  cursor: pointer;
+}
+
+.song-list-meta-link:hover {
+  color: var(--color-primary);
 }
 </style>

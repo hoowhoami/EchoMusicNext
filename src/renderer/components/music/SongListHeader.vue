@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { iconChevronUpDown, iconSortDown, iconSortUp } from '@/icons';
+import { computed } from 'vue';
+import {
+  buildSongListGridTemplate,
+  SONG_LIST_TITLE_OFFSET_WITH_COVER,
+} from './songListLayout';
 
 export type SortField = 'index' | 'title' | 'album' | 'duration';
 export type SortOrder = 'asc' | 'desc' | null;
@@ -19,7 +24,7 @@ const props = withDefaults(defineProps<Props>(), {
   showCover: true,
   sortField: null,
   sortOrder: null,
-  paddingClass: 'px-[14px]',
+  paddingClass: '',
 });
 
 const emit = defineEmits<{
@@ -29,16 +34,23 @@ const emit = defineEmits<{
 const handleSort = (field: SortField) => {
   emit('sort', field);
 };
+
+const gridTemplate = computed(() => buildSongListGridTemplate({
+  showIndex: props.showIndex,
+  showAlbum: props.showAlbum,
+  showDuration: true,
+}));
 </script>
 
 <template>
   <div
-    class="flex items-center h-11 text-[12px] text-text-main/80 font-bold border-b border-border-light/30"
+    class="grid items-center h-11 text-[12px] text-text-main/80 font-bold border-b border-border-light/30"
     :class="props.paddingClass"
+    :style="{ gridTemplateColumns: gridTemplate }"
   >
     <div
       v-if="showIndex"
-      class="w-10 shrink-0 pl-2 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
+      class="pl-2 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
       @click="handleSort('index')"
     >
       <span>#</span>
@@ -51,22 +63,24 @@ const handleSort = (field: SortField) => {
     </div>
 
     <div
-      class="flex-1 min-w-0 cursor-pointer hover:opacity-100 transition-opacity flex items-center gap-1"
-      :class="props.showCover ? 'ml-4' : ''"
+      class="min-w-0 cursor-pointer hover:opacity-100 transition-opacity flex items-center"
       @click="handleSort('title')"
     >
-      <span>歌曲</span>
-      <Icon
-        v-if="sortField === 'title'"
-        class="sort-icon"
-        :icon="sortOrder === 'asc' ? iconSortUp : sortOrder === 'desc' ? iconSortDown : iconChevronUpDown"
-      />
-      <Icon v-else class="sort-icon" :icon="iconChevronUpDown" />
+      <div v-if="props.showCover" class="shrink-0" :style="{ width: `${SONG_LIST_TITLE_OFFSET_WITH_COVER}px` }"></div>
+      <div class="min-w-0 flex items-center gap-1">
+        <span>歌曲</span>
+        <Icon
+          v-if="sortField === 'title'"
+          class="sort-icon"
+          :icon="sortOrder === 'asc' ? iconSortUp : sortOrder === 'desc' ? iconSortDown : iconChevronUpDown"
+        />
+        <Icon v-else class="sort-icon" :icon="iconChevronUpDown" />
+      </div>
     </div>
 
     <div
       v-if="showAlbum"
-      class="w-[188px] min-w-0 hidden md:flex pl-[18px] cursor-pointer hover:opacity-100 transition-opacity items-center gap-1 whitespace-nowrap"
+      class="min-w-0 hidden md:flex pr-3 cursor-pointer hover:opacity-100 transition-opacity items-center gap-1 whitespace-nowrap"
       @click="handleSort('album')"
     >
       <span>专辑</span>
@@ -79,7 +93,7 @@ const handleSort = (field: SortField) => {
     </div>
 
     <div
-      class="w-16 shrink-0 pl-4 cursor-pointer hover:opacity-100 transition-opacity flex items-center justify-end gap-1 whitespace-nowrap"
+      class="pl-2 cursor-pointer hover:opacity-100 transition-opacity flex items-center justify-start gap-1 whitespace-nowrap"
       @click="handleSort('duration')"
     >
       <span>时长</span>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, watch, onUnmounted } from 'vue';
 import { RouterView } from 'vue-router';
+import AuthExpiredDialog from '@/components/app/AuthExpiredDialog.vue';
 import { usePlayerStore } from './stores/player';
 import { useSettingStore } from './stores/setting';
 import { initShortcutSync, syncGlobalShortcuts } from '@/utils/shortcuts';
@@ -42,6 +43,7 @@ watch(
       <component :is="Component" />
     </transition>
   </RouterView>
+  <AuthExpiredDialog />
 </template>
 
 <style>

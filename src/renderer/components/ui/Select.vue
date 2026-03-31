@@ -12,16 +12,18 @@ import {
   SelectViewport,
 } from 'reka-ui';
 import { computed } from 'vue';
-import { iconChevronDown, iconCheck } from '@/icons';
+import { iconChevronDown } from '@/icons';
+
+type SelectValueType = string | number;
 
 interface SelectOption {
   label: string;
-  value: string | number | boolean;
+  value: SelectValueType;
   disabled?: boolean;
 }
 
 interface Props {
-  modelValue?: string | number | boolean;
+  modelValue?: SelectValueType;
   options: SelectOption[];
   placeholder?: string;
   class?: string;
@@ -35,7 +37,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  (e: 'update:modelValue', value: string | number | boolean): void;
+  (e: 'update:modelValue', value: SelectValueType): void;
 }>();
 
 const selectedLabel = computed(() => {
@@ -45,7 +47,10 @@ const selectedLabel = computed(() => {
 </script>
 
 <template>
-  <SelectRoot :model-value="props.modelValue" @update:model-value="emit('update:modelValue', $event)">
+  <SelectRoot
+    :model-value="props.modelValue"
+    @update:model-value="emit('update:modelValue', $event as SelectValueType)"
+  >
     <SelectTrigger :class="['select-trigger', props.triggerClass, props.class]">
       <SelectValue
         :placeholder="props.placeholder"
@@ -67,7 +72,7 @@ const selectedLabel = computed(() => {
         <SelectViewport class="select-viewport">
           <SelectItem
             v-for="option in props.options"
-            :key="option.value"
+            :key="String(option.value)"
             :value="option.value"
             :disabled="option.disabled"
             class="select-item"
@@ -76,7 +81,7 @@ const selectedLabel = computed(() => {
               {{ option.label }}
             </SelectItemText>
             <SelectItemIndicator class="select-item-indicator">
-              <Icon :icon="iconCheck" width="14" height="14" />
+              ✓
             </SelectItemIndicator>
           </SelectItem>
         </SelectViewport>
@@ -146,7 +151,7 @@ const selectedLabel = computed(() => {
 }
 
 .select-item-indicator {
-  @apply text-primary;
+  @apply text-primary text-[14px] leading-none font-bold;
 }
 
 @keyframes select-fade-in {

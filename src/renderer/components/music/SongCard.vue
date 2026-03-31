@@ -17,6 +17,18 @@ import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
 import Dialog from '@/components/ui/Dialog.vue';
 import { iconMessageCircle, iconHeart } from '@/icons';
+import {
+  addSongToPlayNext,
+  getSongPrivilegeTags,
+  getSongQualityTag,
+  getSongUnavailableMessage,
+  isNoCopyrightSong,
+  isPaidSong,
+  isPlayableSong,
+  isUnavailableSong,
+  isVipSong,
+  queueAndPlaySong,
+} from '@/utils/songPlayback';
 
 interface Props {
   id: string | number;
@@ -46,6 +58,8 @@ interface Props {
   enableRemoveFromPlaylist?: boolean;
   disableLinks?: boolean;
   queueContext?: Song[];
+  onDoubleTapPlay?: (song: Song) => void | Promise<void>;
+  enableDefaultDoubleTapPlay?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -62,6 +76,7 @@ const props = withDefaults(defineProps<Props>(), {
   active: false,
   variant: 'card',
   disableLinks: false,
+  enableDefaultDoubleTapPlay: false,
 });
 
 const router = useRouter();
@@ -72,59 +87,50 @@ const settingStore = useSettingStore();
 const showPlaylistDialog = ref(false);
 const isPlaylistLoading = ref(false);
 
-
 const baseClass = computed(() =>
   props.variant === 'list'
     ? 'song-card group flex items-center gap-3 p-0 rounded-none transition-all duration-200 bg-transparent hover:bg-transparent cursor-default'
-    : 'song-card song-card-surface group flex items-center gap-3 p-2 rounded-xl transition-all duration-200 cursor-pointer'
+    : 'song-card song-card-surface group flex items-center gap-3 p-2 rounded-xl transition-all duration-200 cursor-pointer',
 );
 
-const isVip = computed(() => props.privilege === 10 && props.payType === 3);
-const isPaid = computed(() => props.privilege === 10 && props.payType === 2);
-const isNoCopyright = computed(() => props.privilege === 5);
-const isUnavailable = computed(() => props.privilege === 40);
+const songState = computed<Song>(() => ({
+  id: String(props.id),
+  title: props.title,
+  artist: props.artist,
+  artists: props.artists,
+  album: props.album,
+  albumId: props.albumId,
+  duration: props.duration ?? 0,
+  coverUrl: props.coverUrl,
+  audioUrl: props.audioUrl ?? '',
+  hash: props.hash,
+  mixSongId: props.mixSongId ?? '',
+  privilege: props.privilege,
+  payType: props.payType,
+  oldCpy: props.oldCpy,
+  relateGoods: props.relateGoods,
+}));
 
-const canPlay = computed(() => {
-  if (isUnavailable.value) return false;
-  if (isPaid.value) return false;
-  if (isNoCopyright.value) return props.oldCpy === 1;
-  return true;
-});
-
-const isPlayable = computed(() => props.hash.trim() !== '' && canPlay.value);
+const isVip = computed(() => isVipSong(songState.value));
+const isPaid = computed(() => isPaidSong(songState.value));
+const isNoCopyright = computed(() => isNoCopyrightSong(songState.value));
+const isUnavailable = computed(() => isUnavailableSong(songState.value));
+const isPlayable = computed(() => isPlayableSong(songState.value));
+const unavailableMessage = computed(() => getSongUnavailableMessage(songState.value));
 const contentOpacity = computed(() => {
   if (props.variant === 'list') return 1;
   return isPlayable.value ? 1 : 0.45;
 });
 
-const qualityTag = computed(() => {
-  const goods = props.relateGoods ?? [];
-  const hasQuality = (quality: string, level: number) =>
-    goods.some((item) => item.quality === quality || item.level === level);
+const qualityTag = computed(() => getSongQualityTag(songState.value));
 
-  if (hasQuality('high', 6)) return 'Hi-Res';
-  if (hasQuality('flac', 5)) return 'SQ';
-  if (hasQuality('320', 4)) return 'HQ';
-  return '';
-});
-
-const privilegeTags = computed(() => {
-  const tags: { label: string; color: string }[] = [];
-
-  if (isPaid.value) tags.push({ label: '付费', color: '#EF4444' });
-  if (isVip.value) tags.push({ label: 'VIP', color: '#F59E0B' });
-  if (!isPlayable.value && isNoCopyright.value) {
-    tags.push({ label: '版权', color: '#8B5CF6' });
-  }
-  if (isUnavailable.value) tags.push({ label: '音源', color: '#6B7280' });
-
-  return tags;
-});
+const privilegeTags = computed(() =>
+  getSongPrivilegeTags(songState.value).map((tag) => ({ label: tag.label, color: tag.color })),
+);
 
 const isFavorite = computed(() =>
   playlistStore.favorites.some((item) => String(item.id) === String(props.id)),
 );
-
 
 const artistList = computed(() => {
   if (props.artists && props.artists.length > 0) return props.artists;
@@ -189,18 +195,17 @@ const goToAlbum = () => {
 };
 
 const goToSongDetail = () => {
-  router.push({ name: 'playing' });
-};
-
-const goToComments = () => {
-  const commentId = resolveNumericId(props.mixSongId) ?? resolveNumericId(props.id) ?? String(props.id);
+  const commentId =
+    resolveNumericId(props.mixSongId) ?? resolveNumericId(props.id) ?? String(props.id);
   router.push({
     name: 'comment',
     params: { id: String(commentId) },
     query: {
+      mainTab: 'detail',
       type: 'music',
       title: props.title,
       artist: props.artist,
+      artistId: props.artists?.[0]?.id ?? '',
       album: props.album ?? '',
       cover: props.coverUrl ?? '',
       albumId: props.albumId ?? '',
@@ -228,61 +233,36 @@ const buildSongPayload = (): Song => ({
   relateGoods: props.relateGoods,
 });
 
-const mergeSongIntoQueue = (payload: Song) => {
-  const list = playlistStore.defaultList.slice();
-  const exists = list.some((item) => String(item.id) === String(payload.id));
-  if (!exists) {
-    playlistStore.defaultList = [payload, ...list];
-    playlistStore.syncQueuedNextTrackIds();
-  }
+const handleQueueAndPlayCurrentSong = async () => {
+  if (!isPlayable.value) return false;
+  const payload = buildSongPayload();
+  return queueAndPlaySong(playlistStore, playerStore, payload);
 };
 
-const replaceQueueWithContext = (payload: Song) => {
-  const contextList = props.queueContext?.slice() ?? [];
-  if (contextList.length === 0) {
-    mergeSongIntoQueue(payload);
-    return;
-  }
-  const exists = contextList.some((item) => String(item.id) === String(payload.id));
-  const normalized = exists
-    ? contextList.map((item) => (String(item.id) === String(payload.id) ? { ...item, ...payload } : item))
-    : [payload, ...contextList];
-  playlistStore.setPlaybackQueue(normalized, 0);
+const handlePlayNow = async () => {
+  await handleQueueAndPlayCurrentSong();
 };
 
-const playFromCard = (replaceQueue: boolean) => {
+const handleDoubleClick = async () => {
   if (!isPlayable.value) return;
   const payload = buildSongPayload();
-  if (replaceQueue) {
-    replaceQueueWithContext(payload);
-  } else {
-    mergeSongIntoQueue(payload);
+
+  if (props.onDoubleTapPlay) {
+    await props.onDoubleTapPlay(payload);
+    return;
   }
-  void playerStore.playTrack(String(payload.id));
-  router.push({ name: 'playing' });
-};
 
-const handlePlayNow = () => {
-  playFromCard(false);
-};
+  if (props.enableDefaultDoubleTapPlay) {
+    await handlePlayNow();
+    return;
+  }
 
-const handleDoubleClick = () => {
-  playFromCard(settingStore.replacePlaylist);
+  await handleQueueAndPlayCurrentSong();
 };
 
 const handlePlayNext = () => {
   if (!isPlayable.value) return;
-  const payload = buildSongPayload();
-  const list = playlistStore.defaultList.slice();
-  const existingIndex = list.findIndex((item) => String(item.id) === String(payload.id));
-  const currentIndex = list.findIndex((item) => String(item.id) === String(playerStore.currentTrackId ?? ''));
-
-  const item = existingIndex >= 0 ? list.splice(existingIndex, 1)[0] : payload;
-  const insertIndex = currentIndex >= 0 ? currentIndex + 1 : list.length;
-  list.splice(insertIndex, 0, item);
-  playlistStore.defaultList = list;
-  playlistStore.enqueuePlayNext(item.id);
-  playlistStore.syncQueuedNextTrackIds();
+  addSongToPlayNext(playlistStore, playerStore, buildSongPayload());
 };
 
 const handleAddToPlaylist = async () => {
@@ -305,120 +285,103 @@ const handleRemoveFromPlaylist = () => {
 };
 
 const handleFavorite = () => {
-  if (playlistStore.favorites.find((item) => item.id === props.id)) {
-    playlistStore.removeFromFavorites(String(props.id));
+  if (isFavorite.value) {
+    void playlistStore.removeFromFavorites(String(props.id));
     return;
   }
 
-  playlistStore.addToFavorites(buildSongPayload());
+  void playlistStore.addToFavorites(buildSongPayload());
 };
-
-
 </script>
 
 <template>
   <ContextMenuRoot>
     <ContextMenuTrigger as-child>
-      <div
-        :class="[baseClass, props.class]"
-        @dblclick="handleDoubleClick"
-      >
-    <!-- 封面 -->
-    <div
-      v-if="showCover"
-      class="relative w-[46px] h-[46px] shrink-0 rounded-[12px] shadow-sm"
-      :style="{ opacity: contentOpacity }"
-    >
-      <Cover :url="coverUrl" :size="160" :borderRadius="12" class="w-full h-full" />
-      
-    </div>
-    
-    <!-- 信息 -->
-    <div
-      class="song-content flex-1 min-w-0 flex flex-col gap-0.5"
-      :style="{ opacity: contentOpacity }"
-    >
-      <div class="song-title-row flex items-center min-w-0 gap-1.5">
-        <h3
-          class="song-title text-[13px] font-semibold truncate"
-          :class="props.active ? 'text-primary' : 'text-text-main'"
+      <div :class="[baseClass, props.class]" @dblclick="handleDoubleClick">
+        <!-- 封面 -->
+        <div
+          v-if="showCover"
+          class="relative w-[46px] h-[46px] shrink-0 rounded-[12px] shadow-sm"
+          :style="{ opacity: contentOpacity }"
         >
-          {{ title }}
-        </h3>
-        <Tag
-          v-for="tag in privilegeTags"
-          :key="tag.label"
-          class="song-tag"
-          :color="tag.color"
-        >
-          {{ tag.label }}
-        </Tag>
-        <Tag
-          v-if="qualityTag && showQuality"
-          class="song-tag"
-          color="#06B6D4"
-        >
-          {{ qualityTag }}
-        </Tag>
-      </div>
-      <div
-        class="song-subline text-[12px] flex items-center gap-1 min-w-0 overflow-hidden whitespace-nowrap text-text-secondary"
-      >
-        <span class="song-artist-list">
-          <span
-            v-for="(artistItem, index) in artistList"
-            :key="`${artistItem.name}-${index}`"
-            :class="isArtistClickable(artistItem) ? 'song-artist song-link' : 'song-artist'"
-            @click.stop="isArtistClickable(artistItem) && goToArtist(artistItem)"
-          >
-            {{ artistItem.name }}
-            <span v-if="index < artistList.length - 1" class="mx-1 opacity-50">/</span>
-          </span>
-        </span>
-        <button
-          v-if="showAlbum && album"
-          type="button"
-          :class="isAlbumClickable ? 'song-album song-link opacity-60' : 'song-album opacity-60'"
-          @click.stop="isAlbumClickable && goToAlbum()"
-        >
-          • {{ album }}
-        </button>
-      </div>
-    </div>
-    
-    <!-- 详情及评论 / 收藏 -->
-    <div v-if="showMore" class="song-actions ml-3 mr-[10px]" @click.stop>
-      <button
-        type="button"
-        class="song-action"
-        title="详情及评论"
-        @click.stop="goToSongDetail"
-      >
-        <Icon :icon="iconMessageCircle" width="16" height="16" />
-      </button>
-      <button
-        type="button"
-        class="song-action"
-        title="收藏"
-        @click.stop="handleFavorite"
-      >
-        <Icon
-          :icon="iconHeart"
-          width="16"
-          height="16"
-          :class="isFavorite ? 'text-primary' : ''"
-        />
-      </button>
-    </div>
+          <Cover :url="coverUrl" :size="160" :borderRadius="12" class="w-full h-full" />
+        </div>
 
-    <!-- 时长 -->
-    <div
-      v-if="showDuration && duration"
-      class="text-[11px] text-text-secondary opacity-60 px-2 group-hover:opacity-80 transition-opacity"
-    >
-      {{ formatDuration(duration) }}
-    </div>
-    
+        <!-- 信息 -->
+        <div
+          class="song-content flex-1 min-w-0 flex flex-col gap-0.5"
+          :style="{ opacity: contentOpacity }"
+        >
+          <div class="song-title-row flex items-center min-w-0 gap-1.5">
+            <h3
+              class="song-title text-[13px] font-semibold truncate"
+              :class="props.active ? 'text-primary' : 'text-text-main'"
+            >
+              {{ title }}
+            </h3>
+            <Tag v-for="tag in privilegeTags" :key="tag.label" class="song-tag" :color="tag.color">
+              {{ tag.label }}
+            </Tag>
+            <Tag v-if="qualityTag && showQuality" class="song-tag" color="#06B6D4">
+              {{ qualityTag }}
+            </Tag>
+          </div>
+          <div
+            class="song-subline text-[12px] flex items-center gap-1 min-w-0 overflow-hidden whitespace-nowrap text-text-secondary"
+          >
+            <span class="song-artist-list">
+              <span
+                v-for="(artistItem, index) in artistList"
+                :key="`${artistItem.name}-${index}`"
+                :class="isArtistClickable(artistItem) ? 'song-artist song-link' : 'song-artist'"
+                @click.stop="isArtistClickable(artistItem) && goToArtist(artistItem)"
+              >
+                {{ artistItem.name }}
+                <span v-if="index < artistList.length - 1" class="mx-1 opacity-50">/</span>
+              </span>
+            </span>
+            <button
+              v-if="showAlbum && album"
+              type="button"
+              :class="
+                isAlbumClickable ? 'song-album song-link opacity-60' : 'song-album opacity-60'
+              "
+              @click.stop="isAlbumClickable && goToAlbum()"
+            >
+              • {{ album }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 详情及评论 / 收藏 -->
+        <div v-if="showMore" class="song-actions ml-3 mr-[10px]" @click.stop>
+          <button type="button" class="song-action" title="详情及评论" @click.stop="goToSongDetail">
+            <Icon :icon="iconMessageCircle" width="16" height="16" />
+          </button>
+          <button
+            type="button"
+            class="song-action"
+            :class="{ 'is-active': isFavorite }"
+            :title="isFavorite ? '已收藏' : '收藏'"
+            :aria-pressed="isFavorite"
+            @click.stop="handleFavorite"
+          >
+            <Icon
+              :icon="iconHeart"
+              width="16"
+              height="16"
+              :class="{ 'text-primary': isFavorite }"
+            />
+          </button>
+        </div>
+
+        <!-- 时长 -->
+        <div
+          v-if="showDuration && duration"
+          class="text-[11px] text-text-secondary opacity-60 px-2 group-hover:opacity-80 transition-opacity"
+        >
+          {{ formatDuration(duration) }}
+        </div>
       </div>
     </ContextMenuTrigger>
     <ContextMenuPortal>
@@ -462,7 +425,10 @@ const handleFavorite = () => {
       <div v-if="isPlaylistLoading" class="py-6 text-center text-text-secondary text-[12px]">
         加载歌单中...
       </div>
-      <div v-else-if="playlistStore.userPlaylists.length === 0" class="py-6 text-center text-text-secondary text-[12px]">
+      <div
+        v-else-if="playlistStore.userPlaylists.length === 0"
+        class="py-6 text-center text-text-secondary text-[12px]"
+      >
         暂无可用歌单
       </div>
       <button
@@ -516,9 +482,6 @@ const handleFavorite = () => {
   margin-left: 4px;
   flex-shrink: 0;
 }
-
-
-
 
 .song-artist {
   white-space: nowrap;
@@ -585,6 +548,15 @@ const handleFavorite = () => {
   transform: scale(1.12);
 }
 
+.song-action.is-active {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.song-action.is-active:hover {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
 :deep(.song-context-menu) {
   min-width: 172px;
   padding: 6px;
@@ -637,7 +609,9 @@ const handleFavorite = () => {
   align-items: center;
   justify-content: space-between;
   color: var(--color-text-main);
-  transition: color 0.2s ease, border-color 0.2s ease;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .playlist-picker-item:hover {
@@ -645,15 +619,5 @@ const handleFavorite = () => {
   color: var(--color-primary);
 }
 </style>
-.song-title-row {
-  min-width: 0;
-}
-
-.song-title {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
-.song-title-row .song-tag {
-  margin-left: 0;
-}
+.song-title-row { min-width: 0; } .song-title { flex: 0 1 auto; min-width: 0; } .song-title-row
+.song-tag { margin-left: 0; }
