@@ -1,4 +1,9 @@
-import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
+import {
+  createRouter,
+  createWebHashHistory,
+  type RouteLocationNormalized,
+  type RouteRecordRaw,
+} from 'vue-router';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -114,11 +119,16 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach((to) => {
-  // 不需要跳过历史，或者已经是重定向（replace）后的导航，直接放行
-  if (!to.meta.skipHistory || to.redirectedFrom) return true;
+const shouldSkipHistory = (route: RouteLocationNormalized): boolean => {
+  return route.matched.some((record) => record.meta?.skipHistory === true);
+};
 
-  // 触发一次 replace 导航
+router.beforeEach((to, from) => {
+  const skipToHistory = shouldSkipHistory(to);
+  const skipFromHistory = from.matched.length > 0 && shouldSkipHistory(from);
+
+  if ((!skipToHistory && !skipFromHistory) || to.redirectedFrom) return true;
+
   return {
     ...to,
     replace: true,

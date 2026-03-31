@@ -22,7 +22,7 @@ const canGoForward = ref(false);
 const updateNavState = () => {
   if (typeof window === 'undefined') return;
   const historyState = window.history.state as { back?: string | null; forward?: string | null } | null;
-  const skipCurrent = route.meta?.skipHistory === true;
+  const skipCurrent = route.matched.some((record) => record.meta?.skipHistory === true);
   canGoBack.value = !skipCurrent && !!historyState?.back;
   canGoForward.value = !skipCurrent && !!historyState?.forward;
 };
@@ -44,7 +44,7 @@ watch(
   () => {
     updateNavState();
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 onMounted(() => {

@@ -18,5 +18,5 @@ export const closeTransientView = async (
   route: Pick<RouteLocationNormalizedLoaded, 'query'>,
   fallback = '/main/home',
 ): Promise<void> => {
-  await router.push(resolveCloseTarget(route, fallback));
+  await router.replace(resolveCloseTarget(route, fallback));
 };

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { usePlayerStore, type PlayMode } from '@/stores/player';
 import { usePlaylistStore } from '@/stores/playlist';
@@ -160,8 +160,19 @@ const closeLyricPage = async () => {
   await closeTransientView(router, route);
 };
 
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape') return;
+  event.preventDefault();
+  void closeLyricPage();
+};
+
 onMounted(() => {
   void nextTick(() => scrollToCurrentLine(false));
+  window.addEventListener('keydown', handleKeydown);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown);
 });
 </script>
 
