@@ -6,6 +6,7 @@ import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
 import SongCard from '@/components/music/SongCard.vue';
+import Button from '@/components/ui/Button.vue';
 import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 import { isPlayableSong } from '@/utils/songPlayback';
@@ -114,23 +115,25 @@ const handleClear = () => {
         </div>
       </div>
       <div class="queue-actions">
-        <button type="button" class="queue-icon-btn" title="滚动到顶部" @click="scrollToTop">
+        <Button type="button" class="queue-icon-btn" variant="ghost" size="xs" title="滚动到顶部" @click="scrollToTop">
           <Icon :icon="iconArrowUp" width="16" height="16" />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           class="queue-icon-btn"
+          variant="ghost"
+          size="xs"
           title="滚动到当前播放"
           @click="scrollToCurrent"
         >
           <Icon :icon="iconCurrentLocation" width="16" height="16" />
-        </button>
-        <button type="button" class="queue-icon-btn" title="清空列表" @click="handleClear">
+        </Button>
+        <Button type="button" class="queue-icon-btn" variant="ghost" size="xs" title="清空列表" @click="handleClear">
           <Icon :icon="iconTrash" width="16" height="16" />
-        </button>
-        <button type="button" class="queue-icon-btn" title="关闭" @click="open = false">
+        </Button>
+        <Button type="button" class="queue-icon-btn" variant="ghost" size="xs" title="关闭" @click="open = false">
           <Icon :icon="iconX" width="16" height="16" />
-        </button>
+        </Button>
       </div>
     </div>
 
@@ -153,7 +156,7 @@ const handleClear = () => {
         >
           <div class="queue-leading">
             <span class="queue-index">{{ index + 1 }}</span>
-            <button type="button" class="queue-play" @click="handlePlay(track)">
+            <Button type="button" class="queue-play" variant="ghost" size="xs" @click="handlePlay(track)">
               <Icon
                 v-if="String(track.id) !== String(currentTrackId) || !playerStore.isPlaying"
                 :icon="iconPlay"
@@ -161,7 +164,7 @@ const handleClear = () => {
                 height="14"
               />
               <Icon v-else :icon="iconPause" width="14" height="14" />
-            </button>
+            </Button>
           </div>
 
           <div class="queue-card" :style="{ opacity: isSongPlayable(track) ? 1 : 0.45 }">
@@ -194,15 +197,17 @@ const handleClear = () => {
 
           <!-- duration removed for queue view -->
 
-          <button
+          <Button
             type="button"
             class="queue-remove"
+            variant="ghost"
+            size="xs"
             :class="{ 'is-hidden': String(track.id) === String(currentTrackId) }"
             :disabled="String(track.id) === String(currentTrackId)"
             @click="handleRemove(track)"
           >
             <Icon :icon="iconX" width="14" height="14" />
-          </button>
+          </Button>
         </div>
       </template>
 

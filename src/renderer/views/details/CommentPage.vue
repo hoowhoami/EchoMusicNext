@@ -23,6 +23,7 @@ import CustomTabBar from '@/components/ui/CustomTabBar.vue';
 import CommentList from '@/components/music/CommentList.vue';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
 import BackToTop from '@/components/ui/BackToTop.vue';
+import Button from '@/components/ui/Button.vue';
 import { iconX } from '@/icons';
 
 interface CommentPayload {
@@ -727,7 +728,7 @@ watch(total, (value) => {
     >
       <template #details>
         <div class="comment-song-header">
-          <button
+          <Button variant="unstyled" size="none"
             v-if="songArtist"
             type="button"
             class="comment-song-subtitle"
@@ -736,9 +737,9 @@ watch(total, (value) => {
             @click="openArtistDetail"
           >
             {{ songArtist }}
-          </button>
+          </Button>
           <div v-if="isMusicType" class="comment-song-meta-row">
-            <button
+            <Button variant="unstyled" size="none"
               type="button"
               class="comment-song-meta"
               :class="{ 'is-link': canOpenAlbum }"
@@ -747,7 +748,7 @@ watch(total, (value) => {
             >
               <span class="comment-song-meta-label">专辑</span>
               <span class="comment-song-meta-value">{{ songAlbum || '单曲' }}</span>
-            </button>
+            </Button>
             <div class="comment-song-meta">
               <span class="comment-song-meta-label">语言</span>
               <span class="comment-song-meta-value">{{ songLanguage }}</span>
@@ -852,14 +853,14 @@ watch(total, (value) => {
               <template v-else-if="activeCommentTab === 'classify'">
                 <div class="comment-list-wrap">
                   <div ref="classifyChipRowRef" class="comment-chip-row">
-                    <button
+                    <Button variant="unstyled" size="none"
                       v-for="item in classifyList"
                       :key="item.id"
                       :class="['comment-chip', selectedClassify === item.id && 'is-active']"
                       @click="selectedClassify = item.id; void fetchClassifyComments(true)"
                     >
                       {{ item.name }}<span v-if="item.count" class="comment-chip-count">{{ item.count }}</span>
-                    </button>
+                    </Button>
                   </div>
                   <CommentList :comments="classifyComments" :loading="isLoadingClassify" :onTapReplies="openFloor" compact empty-text="该分类下暂无评论" />
                   <div v-if="isLoadingClassify || showClassifyEnd" class="comment-load-more">
@@ -875,14 +876,14 @@ watch(total, (value) => {
               <template v-else>
                 <div class="comment-list-wrap">
                   <div ref="hotwordChipRowRef" class="comment-chip-row">
-                    <button
+                    <Button variant="unstyled" size="none"
                       v-for="item in hotwordList"
                       :key="item.content"
                       :class="['comment-chip', selectedHotword === item.content && 'is-active']"
                       @click="selectedHotword = item.content; void fetchHotwordComments(true)"
                     >
                       {{ item.content }}<span v-if="item.count" class="comment-chip-count">{{ item.count }}</span>
-                    </button>
+                    </Button>
                   </div>
                   <CommentList :comments="hotwordComments" :loading="isLoadingHotword" :onTapReplies="openFloor" compact empty-text="该热词下暂无评论" />
                   <div v-if="isLoadingHotword || showHotwordEnd" class="comment-load-more">
@@ -916,9 +917,9 @@ watch(total, (value) => {
     <Drawer v-model:open="showFloor" side="bottom" panelClass="comment-floor">
       <div class="comment-floor-header">
         <div class="comment-floor-title">楼层评论</div>
-        <button class="comment-floor-close" @click="showFloor = false">
+        <Button class="comment-floor-close" variant="ghost" size="xs" @click="showFloor = false">
           <Icon :icon="iconX" width="16" height="16" />
-        </button>
+        </Button>
       </div>
       <div class="comment-floor-body" ref="floorBodyRef" @scroll="handleFloorScroll">
         <div class="comment-floor-section">原评论</div>
@@ -941,9 +942,9 @@ watch(total, (value) => {
             <div class="comment-loading-spinner"></div>
             <span>加载中...</span>
           </div>
-          <button v-else-if="floorHasMore" @click="fetchFloorReplies()">
+          <Button v-else-if="floorHasMore" variant="outline" size="xs" @click="fetchFloorReplies()">
             {{ floorLoadMoreMessage || '加载更多' }}
-          </button>
+          </Button>
           <div v-else class="comment-end-hint">已加载全部评论</div>
         </div>
       </div>

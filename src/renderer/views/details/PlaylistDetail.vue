@@ -19,6 +19,7 @@ import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
 import type { Song } from '@/models/song';
 import { formatDate } from '@/utils/format';
 import { useUserStore } from '@/stores/user';
+import Button from '@/components/ui/Button.vue';
 import {
   mapPlaylistMeta,
   parsePlaylistTracks,
@@ -536,18 +537,18 @@ const sortedSongs = computed(() => {
         </template>
 
         <template #collapsed-actions>
-          <button
+          <Button variant="unstyled" size="none"
             @click="handlePlayAll"
             class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-primary"
           >
             <Icon :icon="iconPlay" width="20" height="20" />
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled" size="none"
             @click="openBatchDrawer"
             class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-main opacity-60"
           >
             <Icon :icon="iconList" width="18" height="18" />
-          </button>
+          </Button>
         </template>
       </SliverHeader>
 
@@ -562,13 +563,13 @@ const sortedSongs = computed(() => {
         <div class="mt-[6px] text-[12px] leading-relaxed text-text-secondary line-clamp-1">
           {{ playlist.intro }}
         </div>
-        <button
+        <Button variant="unstyled" size="none"
           type="button"
           class="mt-[2px] text-[11px] font-semibold text-primary"
           @click="showIntroDialog = true"
         >
           查看详情
-        </button>
+        </Button>
       </div>
 
       <!-- 2. Sticky Tabs + 表头 -->
@@ -596,7 +597,7 @@ const sortedSongs = computed(() => {
                     v-model="searchQuery"
                     type="text"
                     placeholder="搜索歌曲..."
-                    class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] focus:ring-1 focus:ring-primary/40 transition-all"
+                    class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] transition-all"
                   />
                   <Icon
                     class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60 dark:text-text-main/60"
@@ -605,13 +606,13 @@ const sortedSongs = computed(() => {
                     height="14"
                   />
                 </div>
-                <button
+                <Button variant="unstyled" size="none"
                   @click="handleLocate"
                   class="song-locate-btn p-2 rounded-lg"
                   title="定位当前播放"
                 >
                   <Icon :icon="iconCurrentLocation" width="18" height="18" />
-                </button>
+                </Button>
               </div>
             </div>
           </div>

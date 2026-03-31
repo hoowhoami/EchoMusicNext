@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { IconifyIcon } from '@iconify/types';
 import { iconPlay, iconList } from '@/icons';
+import Button from '@/components/ui/Button.vue';
 interface Action {
   icon: IconifyIcon;
   label: string;
@@ -28,7 +29,7 @@ const emit = defineEmits<{
 <template>
   <div class="action-row-wrap flex flex-wrap gap-2">
     <!-- 次要操作 (收藏、批量等) -->
-    <button
+    <Button variant="unstyled" size="none"
       v-for="action in secondaryActions"
       :key="action.label"
       @click="action.onTap"
@@ -39,19 +40,19 @@ const emit = defineEmits<{
         <Icon :icon="action.icon" width="16" height="16" />
       </div>
       <span>{{ action.label }}</span>
-    </button>
+    </Button>
 
     <!-- 主要操作 (播放) -->
-    <button @click="emit('play')" class="action-btn primary">
+    <Button variant="unstyled" size="none" @click="emit('play')" class="action-btn primary">
       <Icon :icon="iconPlay" width="16" height="16" />
       <span>{{ playLabel }}</span>
-    </button>
+    </Button>
 
     <!-- 批量 (抽屉) -->
-    <button @click="emit('batch')" class="action-btn secondary">
+    <Button variant="unstyled" size="none" @click="emit('batch')" class="action-btn secondary">
       <Icon :icon="iconList" width="16" height="16" />
       <span>批量</span>
-    </button>
+    </Button>
   </div>
 </template>
 

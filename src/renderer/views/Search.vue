@@ -5,6 +5,7 @@ import { useSettingStore } from '@/stores/setting';
 import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
+import Button from '@/components/ui/Button.vue';
 import {
   mapAlbumMeta,
   mapArtistMeta,
@@ -444,7 +445,7 @@ onUnmounted(() => {
             @input="handleSearchChanged(searchInput)"
             @keydown.enter.prevent="runSearch()"
           />
-          <button
+          <Button variant="unstyled" size="none"
             v-if="searchInput"
             type="button"
             class="search-clear-btn"
@@ -452,8 +453,8 @@ onUnmounted(() => {
             @click="searchInput = ''; handleSearchChanged(''); searchInputRef?.focus()"
           >
             <Icon :icon="iconX" width="16" height="16" />
-          </button>
-          <button type="button" class="search-submit-btn" @click="runSearch()">搜索</button>
+          </Button>
+          <Button variant="unstyled" size="none" type="button" class="search-submit-btn" @click="runSearch()">搜索</Button>
         </div>
 
         <div v-if="showSuggestions" class="search-suggestions-panel">
@@ -470,7 +471,7 @@ onUnmounted(() => {
               class="search-suggestion-group"
             >
               <div class="search-suggestion-title">{{ category.label }}</div>
-              <button
+              <Button variant="unstyled" size="none"
                 v-for="record in category.records"
                 :key="`${category.label}-${record.text}`"
                 type="button"
@@ -485,7 +486,7 @@ onUnmounted(() => {
                 <span class="search-suggestion-trailing">
                   <Icon :icon="iconChevronRight" width="13" height="13" />
                 </span>
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -502,12 +503,12 @@ onUnmounted(() => {
         <div v-if="searchHistory.length > 0" class="search-section">
           <div class="search-section-header">
             <div class="search-section-title">历史搜索</div>
-            <button type="button" class="search-history-clear" @click="settingStore.clearSearchHistory()">
+            <Button variant="unstyled" size="none" type="button" class="search-history-clear" @click="settingStore.clearSearchHistory()">
               <Icon :icon="iconTrash" width="16" height="16" />
-            </button>
+            </Button>
           </div>
           <div class="search-chip-wrap">
-            <button
+            <Button variant="unstyled" size="none"
               v-for="keyword in searchHistory"
               :key="keyword"
               type="button"
@@ -521,14 +522,14 @@ onUnmounted(() => {
               <span class="history-chip-close" @click.stop="settingStore.removeFromSearchHistory(keyword)">
                 <Icon :icon="iconX" width="10" height="10" />
               </span>
-            </button>
+            </Button>
           </div>
         </div>
 
         <div class="search-section">
           <div class="search-section-title">热门搜索</div>
           <div v-if="hotSearchCategories.length > 0" class="search-hot-tabs">
-            <button
+            <Button variant="unstyled" size="none"
               v-for="(category, index) in hotSearchCategories"
               :key="category.name"
               type="button"
@@ -537,10 +538,10 @@ onUnmounted(() => {
               @click="selectedHotCategoryIndex = index"
             >
               {{ category.name }}
-            </button>
+            </Button>
           </div>
           <div class="search-chip-wrap mt-5">
-            <button
+            <Button variant="unstyled" size="none"
               v-for="item in currentHotKeywords"
               :key="`${item.keyword}-${item.reason}`"
               type="button"
@@ -552,7 +553,7 @@ onUnmounted(() => {
                 <span class="opacity-40">•</span>
                 <span class="hot-chip-reason">{{ item.reason }}</span>
               </template>
-            </button>
+            </Button>
           </div>
         </div>
       </template>
@@ -595,7 +596,7 @@ onUnmounted(() => {
                     v-model="songSearchQuery"
                     type="text"
                     placeholder="搜索歌曲..."
-                    class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] focus:ring-1 focus:ring-primary/40 transition-all"
+                    class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] transition-all"
                   />
                   <Icon
                     class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60"
@@ -604,9 +605,9 @@ onUnmounted(() => {
                     height="14"
                   />
                 </div>
-                <button @click="handleSongLocate" class="song-locate-btn p-2 rounded-lg" title="定位当前播放">
+                <Button variant="unstyled" size="none" @click="handleSongLocate" class="song-locate-btn p-2 rounded-lg" title="定位当前播放">
                   <Icon :icon="iconCurrentLocation" width="16" height="16" />
-                </button>
+                </Button>
               </div>
             </div>
           </div>

@@ -2,9 +2,10 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '@/stores/user';
-import { 
-  getUserDetail, getUserVipDetail, 
-  claimDayVip, upgradeDayVip, getVipMonthRecord 
+import Button from '@/components/ui/Button.vue';
+import {
+  getUserDetail, getUserVipDetail,
+  claimDayVip, upgradeDayVip, getVipMonthRecord
 } from '@/api/user';
 import Avatar from '@/components/ui/Avatar.vue';
 import logger from '@/utils/logger';
@@ -158,13 +159,13 @@ onMounted(() => loadData());
       <!-- 1. Header -->
       <header class="flex items-center justify-between mb-6">
         <h1 class="text-[24px] font-black tracking-tight">个人中心</h1>
-        <button 
+        <Button variant="unstyled" size="none" 
           @click="handleLogout"
           class="w-10 h-10 flex items-center justify-center rounded-full border border-border-light hover:bg-red-500/10 hover:text-red-500 transition-all active:scale-90"
           title="退出登录"
         >
           <Icon :icon="iconLogOut" width="20" height="20" />
-        </button>
+        </Button>
       </header>
 
       <!-- 2. User Profile Card -->
@@ -300,7 +301,7 @@ onMounted(() => loadData());
     <div v-else class="h-full flex flex-col items-center justify-center opacity-40 italic animate-in fade-in duration-500">
        <Icon :icon="iconUser" width="64" height="64" class="mb-4" />
        <span class="text-[16px] font-bold">请先登录以查看个人中心</span>
-       <button @click="router.push('/login')" class="mt-6 px-8 py-2.5 rounded-full bg-primary text-white text-[14px] font-black not-italic opacity-100 hover:scale-105 active:scale-95 transition-all">立即登录</button>
+       <Button variant="primary" size="sm" @click="router.push('/login')" class="mt-6 rounded-full not-italic">立即登录</Button>
     </div>
   </div>
 </template>

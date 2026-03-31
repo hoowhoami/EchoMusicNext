@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, watch, ref, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import Button from '@/components/ui/Button.vue';
 import {
   iconChevronLeft,
   iconChevronRight,
@@ -59,30 +60,30 @@ onUnmounted(() => {
   <header class="title-bar drag flex items-center px-6 shrink-0 select-none transition-colors duration-300 z-[100] bg-transparent">
     <!-- 1. 左侧：导航按钮 (no-drag) -->
     <div class="flex items-center gap-1 no-drag">
-      <button @click="goBack" class="nav-btn group" :disabled="!canGoBack" title="后退">
+      <Button variant="unstyled" size="none" @click="goBack" class="nav-btn group" :disabled="!canGoBack" title="后退">
         <Icon
           :icon="iconChevronLeft"
           width="20"
           height="20"
           :class="['text-text-main transition-opacity', canGoBack ? 'opacity-60 group-hover:opacity-100' : 'opacity-40']"
         />
-      </button>
-      <button @click="goForward" class="nav-btn group" :disabled="!canGoForward" title="前进">
+      </Button>
+      <Button variant="unstyled" size="none" @click="goForward" class="nav-btn group" :disabled="!canGoForward" title="前进">
         <Icon
           :icon="iconChevronRight"
           width="20"
           height="20"
           :class="['text-text-main transition-opacity', canGoForward ? 'opacity-60 group-hover:opacity-100' : 'opacity-40']"
         />
-      </button>
-      <button @click="refresh" class="nav-btn group" title="刷新">
+      </Button>
+      <Button variant="unstyled" size="none" @click="refresh" class="nav-btn group" title="刷新">
         <Icon
           :icon="iconRefreshCw"
           width="15"
           height="15"
           class="text-text-main opacity-60 group-hover:opacity-100 transition-opacity"
         />
-      </button>
+      </Button>
     </div>
 
     <!-- 2. 中间：空白区域 -->
@@ -90,15 +91,15 @@ onUnmounted(() => {
 
     <!-- 3. 右侧：窗口控制 (no-drag) -->
     <div v-if="!isMac" class="window-controls flex items-center no-drag h-full ml-4">
-      <button @click="handleControl('minimize')" class="control-btn hover:bg-text-main/5">
+      <Button variant="unstyled" size="none" @click="handleControl('minimize')" class="control-btn hover:bg-text-main/5">
         <Icon :icon="iconMinus" width="10" height="10" />
-      </button>
-      <button @click="handleControl('maximize')" class="control-btn hover:bg-text-main/5">
+      </Button>
+      <Button variant="unstyled" size="none" @click="handleControl('maximize')" class="control-btn hover:bg-text-main/5">
         <Icon :icon="iconSquare" width="9" height="9" />
-      </button>
-      <button @click="handleControl('close')" class="control-btn hover:bg-red-500 hover:text-white">
+      </Button>
+      <Button variant="unstyled" size="none" @click="handleControl('close')" class="control-btn hover:bg-red-500 hover:text-white">
         <Icon :icon="iconX" width="10" height="10" />
-      </button>
+      </Button>
     </div>
   </header>
 </template>

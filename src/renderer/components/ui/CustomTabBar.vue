@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import Button from '@/components/ui/Button.vue';
 
 interface Props {
   tabs: string[];
@@ -35,7 +36,7 @@ const handleSelect = (index: number) => {
   <div class="custom-tab-root" :class="props.class">
     <div class="custom-tab-track">
       <div class="custom-tab-slider" :style="sliderStyle"></div>
-      <button
+      <Button variant="unstyled" size="none"
         v-for="(label, index) in props.tabs"
         :key="label + index"
         type="button"
@@ -44,7 +45,7 @@ const handleSelect = (index: number) => {
         @click="handleSelect(index)"
       >
         {{ label }}
-      </button>
+      </Button>
     </div>
   </div>
 </template>

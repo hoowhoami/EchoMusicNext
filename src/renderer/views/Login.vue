@@ -9,6 +9,7 @@ import {
   createWxLogin, checkWxLogin, loginByOpenPlat 
 } from '@/api/user';
 import logger from '@/utils/logger';
+import { closeTransientView } from '@/utils/navigation';
 
 // 引入封装后的 UI 组件
 import Tabs from '@/components/ui/Tabs.vue';
@@ -33,6 +34,10 @@ const userStore = useUserStore();
 
 // 当前选中的 Tab (0: 扫码, 1: 验证码, 2: 微信)
 const activeTab = ref('0');
+
+const closeLoginPage = async () => {
+  await closeTransientView(router, { query: router.currentRoute.value.query });
+};
 
 // --- 酷狗扫码逻辑 ---
 const qrKey = ref<string | undefined>(undefined);
@@ -267,9 +272,14 @@ onUnmounted(() => {
 
     <div class="flex-1 relative overflow-hidden flex items-center justify-center p-6 z-10">
       <div class="absolute top-4 left-6 z-[100]">
-        <button @click="router.back()" class="no-drag w-10 h-10 flex items-center justify-center rounded-full text-text-main dark:text-white transition-all duration-300 bg-transparent hover:bg-black/[0.05] dark:hover:bg-white/[0.1]">
-            <Icon class="opacity-60 group-hover:opacity-100" :icon="iconChevronLeft" width="24" height="24" />
-        </button>
+        <Button
+          @click="closeLoginPage"
+          variant="ghost"
+          size="xs"
+          class="no-drag h-10 w-10 min-w-0 rounded-full p-0 text-text-main dark:text-white bg-transparent hover:bg-black/[0.05] dark:hover:bg-white/[0.1]"
+        >
+          <Icon class="opacity-60 group-hover:opacity-100" :icon="iconChevronLeft" width="24" height="24" />
+        </Button>
       </div>
 
       <!-- 设置 activationMode="manual" 防止焦点自动切换导致意外 Tab 跳转 -->
@@ -288,7 +298,7 @@ onUnmounted(() => {
                   <Image :src="qrUrl" class="w-full h-full rounded-xl" />
                   <div v-if="qrStatus === 0" class="absolute inset-0 bg-white/95 rounded-2xl flex flex-col items-center justify-center space-y-4 z-30">
                       <span class="text-[13px] font-black opacity-60">二维码已过期</span>
-                      <button @click="loadQrCode" class="text-[13px] text-primary font-black hover:opacity-80 transition-all active:scale-95">重新加载</button>
+                      <Button @click="loadQrCode" variant="ghost" size="xs" class="text-[13px] text-primary font-black hover:opacity-80">重新加载</Button>
                   </div>
                   <div v-if="qrStatus === 2" class="absolute inset-0 bg-white/98 rounded-2xl flex flex-col items-center justify-center space-y-5 z-30">
                       <div class="w-14 h-14 bg-green-500 rounded-full flex items-center justify-center text-white">
@@ -352,7 +362,7 @@ onUnmounted(() => {
                   <Image :src="wxQr.url" class="w-full h-full rounded-xl" />
                   <div v-if="wxQr.status === 3" class="absolute inset-0 bg-white/95 rounded-2xl flex flex-col items-center justify-center space-y-4 z-30">
                       <span class="text-[13px] font-black opacity-60">二维码已过期</span>
-                      <button @click="loadWxQr" class="text-[13px] text-[#07C160] font-black hover:opacity-80 transition-all active:scale-95">重新加载</button>
+                      <Button @click="loadWxQr" variant="ghost" size="xs" class="text-[13px] text-[#07C160] font-black hover:opacity-80">重新加载</Button>
                   </div>
                   <div v-if="wxQr.status === 1" class="absolute inset-0 bg-white/98 rounded-2xl flex flex-col items-center justify-center space-y-5 z-30">
                       <div class="w-14 h-14 bg-[#07C160] rounded-full flex items-center justify-center text-white">

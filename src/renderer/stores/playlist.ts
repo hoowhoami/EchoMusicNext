@@ -261,8 +261,6 @@ export const usePlaylistStore = defineStore('playlist', {
       }
     },
     async addToHistory(song: Song) {
-      this.history = [song, ...this.history.filter((s) => s.id !== song.id)].slice(0, 100);
-
       try {
         const res = await uploadPlayHistory(song.mixSongId);
         if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
@@ -337,5 +335,10 @@ export const usePlaylistStore = defineStore('playlist', {
       return false;
     },
   },
-  persist: true,
+  persist: {
+    omit: ['history'],
+    afterHydrate: (context) => {
+      context.store.history = [];
+    },
+  },
 });

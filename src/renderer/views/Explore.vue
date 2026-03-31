@@ -4,6 +4,7 @@ import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
 import { getNewSongs } from '@/api/music';
+import Button from '@/components/ui/Button.vue';
 import {
   getPlaylistByCategory,
   getPlaylistTags,
@@ -534,7 +535,7 @@ const handleSelectAlbumType = (option: PickerOption) => {
                   v-model="rankSearchQuery"
                   type="text"
                   placeholder="搜索歌曲..."
-                  class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] focus:ring-1 focus:ring-primary/40 transition-all"
+                  class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] transition-all"
                 />
                 <Icon
                   class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60"
@@ -543,13 +544,13 @@ const handleSelectAlbumType = (option: PickerOption) => {
                   height="14"
                 />
               </div>
-              <button
+              <Button variant="unstyled" size="none"
                 @click="handleRankLocate"
                 class="song-locate-btn p-2 rounded-lg"
                 title="定位当前播放"
               >
                 <Icon :icon="iconCurrentLocation" width="16" height="16" />
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -653,7 +654,7 @@ const handleSelectAlbumType = (option: PickerOption) => {
                   v-model="newSongSearchQuery"
                   type="text"
                   placeholder="搜索歌曲..."
-                  class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] focus:ring-1 focus:ring-primary/40 transition-all"
+                  class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] transition-all"
                 />
                 <Icon
                   class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60"
@@ -662,13 +663,13 @@ const handleSelectAlbumType = (option: PickerOption) => {
                   height="14"
                 />
               </div>
-              <button
+              <Button variant="unstyled" size="none"
                 @click="handleNewSongLocate"
                 class="song-locate-btn p-2 rounded-lg"
                 title="定位当前播放"
               >
                 <Icon :icon="iconCurrentLocation" width="16" height="16" />
-              </button>
+              </Button>
             </div>
           </div>
         </div>

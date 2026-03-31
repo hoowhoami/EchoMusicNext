@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { iconChevronDown } from '@/icons';
+import Button from '@/components/ui/Button.vue';
 
 interface Props {
   label: string;
@@ -18,10 +19,10 @@ const handleClick = () => {
 </script>
 
 <template>
-  <button type="button" class="custom-selector" :class="props.class" @click="handleClick">
+  <Button variant="unstyled" size="none" type="button" class="custom-selector" :class="props.class" @click="handleClick">
     <span class="custom-selector-label">{{ label }}</span>
     <Icon :icon="iconChevronDown" width="14" height="14" class="custom-selector-icon" />
-  </button>
+  </Button>
 </template>
 
 <style scoped>

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useVModel } from '@vueuse/core';
 import Dialog from '@/components/ui/Dialog.vue';
+import Button from '@/components/ui/Button.vue';
 import CustomTabBar from '@/components/ui/CustomTabBar.vue';
 
 export interface PickerOption {
@@ -83,16 +84,18 @@ watch(
       <CustomTabBar v-model="activeTabIndex" :tabs="tabs" />
     </div>
     <div class="custom-picker-options">
-      <button
+      <Button
         v-for="opt in activeOptions"
         :key="opt.id"
         type="button"
         class="custom-picker-option"
         :class="{ active: opt.id === props.selectedId }"
+        variant="ghost"
+        size="xs"
         @click="handleSelect(opt)"
       >
         {{ opt.name }}
-      </button>
+      </Button>
     </div>
   </Dialog>
 </template>

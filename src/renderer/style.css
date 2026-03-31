@@ -85,13 +85,23 @@
     box-shadow: none;
   }
 
-  input:focus,
+  input:focus:not(:focus-visible),
+  textarea:focus:not(:focus-visible),
+  select:focus:not(:focus-visible),
+  button:focus:not(:focus-visible),
+  [tabindex]:focus:not(:focus-visible) {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
   input:focus-visible,
-  textarea:focus,
   textarea:focus-visible,
-  select:focus,
-  select:focus-visible {
-    outline: none;
+  select:focus-visible,
+  button:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--color-primary) !important;
+    outline-offset: 2px;
+    box-shadow: none !important;
   }
 
   input:-webkit-autofill,
@@ -115,6 +125,39 @@
     display: none;
   }
 
+  .app-focus-ring {
+    outline: none !important;
+  }
+
+  .app-focus-ring:focus-visible {
+    outline: 2px solid var(--color-primary) !important;
+    outline-offset: 2px;
+    box-shadow: none !important;
+  }
+
+  .app-focus-ring-soft {
+    outline: none !important;
+  }
+
+  .app-focus-ring-soft:focus-visible {
+    outline: none !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent) !important;
+  }
+
+  .app-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .app-icon-button:focus-visible {
+    outline: none !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent) !important;
+  }
+
   .song-search-input {
     background-color: #ffffff !important;
     border-color: rgba(0, 0, 0, 0.3) !important;
@@ -125,7 +168,7 @@
     color: rgba(29, 29, 31, 0.5) !important;
   }
 
-  .song-search-input:focus {
+  .song-search-input:focus-visible {
     border-color: rgba(0, 113, 227, 0.8) !important;
     box-shadow: 0 0 0 1px rgba(0, 113, 227, 0.2) !important;
   }
@@ -140,7 +183,7 @@
     color: rgba(245, 245, 247, 0.5) !important;
   }
 
-  .dark .song-search-input:focus {
+  .dark .song-search-input:focus-visible {
     border-color: rgba(0, 113, 227, 0.7) !important;
     box-shadow: 0 0 0 1px rgba(0, 113, 227, 0.3) !important;
   }
@@ -208,10 +251,6 @@
   scrollbar-gutter: stable;
 }
 
-/**
- * Electron 专用 永不失效滚动条
- * 解决：弹出层 / 下拉框 导致 hover 失效、滚动条消失
- */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -261,7 +300,7 @@
 .sidebar-scroll,
 .overflow-auto,
 .overflow-y-auto,
-[class*="scroll"] {
+[class*='scroll'] {
   &:hover::-webkit-scrollbar-thumb {
     background-color: rgba(0, 0, 0, 0.22);
   }
@@ -273,7 +312,7 @@
 .dark .sidebar-scroll,
 .dark .overflow-auto,
 .dark .overflow-y-auto,
-.dark [class*="scroll"] {
+.dark [class*='scroll'] {
   &:hover::-webkit-scrollbar-thumb {
     background-color: rgba(255, 255, 255, 0.28);
   }

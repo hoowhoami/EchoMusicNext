@@ -5,6 +5,7 @@ import Select from '@/components/ui/Select.vue';
 import Slider from '@/components/ui/Slider.vue';
 import Switch from '@/components/ui/Switch.vue';
 import Dialog from '@/components/ui/Dialog.vue';
+import Button from '@/components/ui/Button.vue';
 import {
   iconPlus,
   iconMinus,
@@ -55,7 +56,11 @@ const shortcutItems: ShortcutItem[] = [
   { command: 'volumeDown', title: '音量 -', desc: '将播放器音量降低 5%' },
   { command: 'toggleMute', title: '静音', desc: '切换播放器静音状态' },
   { command: 'toggleFavorite', title: '收藏当前歌曲', desc: '切换播放器当前歌曲的收藏状态' },
-  { command: 'togglePlayMode', title: '切换播放模式', desc: '在列表循环、单曲循环、随机播放之间切换' },
+  {
+    command: 'togglePlayMode',
+    title: '切换播放模式',
+    desc: '在列表循环、单曲循环、随机播放之间切换',
+  },
   { command: 'toggleWindow', title: '显示 / 隐藏窗口', desc: '切换主窗口的显示和隐藏状态' },
 ];
 
@@ -113,7 +118,7 @@ const buildShortcutLabel = (event: KeyboardEvent) => {
 const resolveLabel = (
   binding: Record<string, string>,
   defaults: Record<string, string>,
-  command: ShortcutCommand
+  command: ShortcutCommand,
 ) => {
   if (Object.prototype.hasOwnProperty.call(binding, command)) {
     return binding[command] ?? '';
@@ -124,7 +129,11 @@ const resolveLabel = (
 const getShortcutValue = (command: ShortcutCommand, scope: ShortcutScope) => {
   if (isRecording(command, scope)) return '';
   if (scope === 'global') {
-    return resolveLabel(globalShortcutBindings.value, settingStore.defaultGlobalShortcutLabels, command);
+    return resolveLabel(
+      globalShortcutBindings.value,
+      settingStore.defaultGlobalShortcutLabels,
+      command,
+    );
   }
   return resolveLabel(shortcutBindings.value, settingStore.defaultShortcutLabels, command);
 };
@@ -225,13 +234,11 @@ const closeBehaviorOptions = [
 ];
 
 const outputDeviceOptions = computed(() =>
-  settingStore.outputDevices.map((device) => ({ label: device, value: device }))
+  settingStore.outputDevices.map((device) => ({ label: device, value: device })),
 );
 
 const versionLabel = computed(() => settingStore.appVersion || '1.0.0');
-const releaseChannelLabel = computed(() =>
-  settingStore.isPrerelease ? 'Prerelease' : 'Release'
-);
+const releaseChannelLabel = computed(() => (settingStore.isPrerelease ? 'Prerelease' : 'Release'));
 
 onUnmounted(() => {
   stopRecording();
@@ -246,7 +253,7 @@ onUnmounted(() => {
 
     <section class="space-y-6">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+        <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon :icon="iconPlus" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">外观与界面</h2>
@@ -290,7 +297,10 @@ onUnmounted(() => {
             class="min-w-[180px]"
             :model-value="settingStore.closeBehavior"
             :options="closeBehaviorOptions"
-            @update:model-value="settingStore.closeBehavior = $event as CloseBehavior; settingStore.syncCloseBehavior()"
+            @update:model-value="
+              settingStore.closeBehavior = $event as CloseBehavior;
+              settingStore.syncCloseBehavior();
+            "
           />
         </div>
       </div>
@@ -298,7 +308,7 @@ onUnmounted(() => {
 
     <section class="space-y-6">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+        <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon :icon="iconMinus" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">播放体验</h2>
@@ -322,7 +332,9 @@ onUnmounted(() => {
         <div v-if="settingStore.volumeFade" class="settings-item">
           <div class="space-y-1">
             <h3 class="font-semibold">淡入淡出时长</h3>
-            <p class="text-sm text-text-secondary">{{ (settingStore.volumeFadeTime / 1000).toFixed(1) }}s</p>
+            <p class="text-sm text-text-secondary">
+              {{ (settingStore.volumeFadeTime / 1000).toFixed(1) }}s
+            </p>
           </div>
           <Slider
             class="w-48"
@@ -354,7 +366,7 @@ onUnmounted(() => {
 
     <section class="space-y-6">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+        <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon :icon="iconList" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">播放音质</h2>
@@ -385,7 +397,7 @@ onUnmounted(() => {
 
     <section class="space-y-6">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+        <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon :icon="iconGrid" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">快捷键设置</h2>
@@ -445,14 +457,16 @@ onUnmounted(() => {
             <h3 class="font-semibold">恢复默认</h3>
             <p class="text-sm text-text-secondary">恢复所有快捷键为默认</p>
           </div>
-          <button class="settings-button" @click="resetAllShortcuts">恢复默认</button>
+          <Button variant="outline" size="sm" class="settings-button" @click="resetAllShortcuts"
+            >恢复默认</Button
+          >
         </div>
       </div>
     </section>
 
     <section class="space-y-6">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+        <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon :icon="iconChevronUpDown" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">音频设备</h2>
@@ -486,7 +500,7 @@ onUnmounted(() => {
 
     <section class="space-y-6">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+        <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon :icon="iconStar" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">实验性功能</h2>
@@ -504,7 +518,7 @@ onUnmounted(() => {
 
     <section class="space-y-6">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+        <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon :icon="iconShield" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">数据与安全</h2>
@@ -515,7 +529,13 @@ onUnmounted(() => {
             <h3 class="font-semibold">查看运行日志</h3>
             <p class="text-sm text-text-secondary">打开本地日志目录以供排查问题</p>
           </div>
-          <button class="settings-button" @click="settingStore.openLogDirectory()">立即查看</button>
+          <Button
+            variant="ghost"
+            size="xs"
+            class="settings-button"
+            @click="settingStore.openLogDirectory()"
+            >立即查看</Button
+          >
         </div>
         <div class="settings-divider"></div>
         <div class="settings-item">
@@ -523,14 +543,20 @@ onUnmounted(() => {
             <h3 class="font-semibold">清除应用数据</h3>
             <p class="text-sm text-text-secondary">移除所有持久化设置及缓存信息</p>
           </div>
-          <button class="settings-button danger" @click="showConfirmClear = true">立即清除</button>
+          <Button
+            variant="danger"
+            size="xs"
+            class="settings-button danger"
+            @click="showConfirmClear = true"
+            >立即清除</Button
+          >
         </div>
       </div>
     </section>
 
     <section class="space-y-6">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+        <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon :icon="iconInfo" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">关于 EchoMusic</h2>
@@ -547,9 +573,17 @@ onUnmounted(() => {
         <div class="settings-item">
           <div class="space-y-1">
             <h3 class="font-semibold">当前版本</h3>
-            <p class="text-sm text-text-secondary">Version v{{ versionLabel }} {{ releaseChannelLabel }}</p>
+            <p class="text-sm text-text-secondary">
+              Version v{{ versionLabel }} {{ releaseChannelLabel }}
+            </p>
           </div>
-          <button class="text-primary text-sm font-semibold" @click="settingStore.checkForUpdates()">检查更新</button>
+          <Button
+            variant="ghost"
+            size="xs"
+            class="text-primary text-sm font-semibold"
+            @click="settingStore.checkForUpdates()"
+            >检查更新</Button
+          >
         </div>
         <div class="settings-divider"></div>
         <div class="settings-item">
@@ -557,9 +591,14 @@ onUnmounted(() => {
             <h3 class="font-semibold">项目源码</h3>
             <p class="text-sm text-text-secondary">开源共享于 GitHub</p>
           </div>
-          <button class="text-text-secondary" @click="settingStore.openRepo()">
+          <Button
+            variant="ghost"
+            size="xs"
+            class="text-text-secondary h-8 w-8 min-w-0 p-0"
+            @click="settingStore.openRepo()"
+          >
             <Icon :icon="iconExternalLink" width="18" height="18" />
-          </button>
+          </Button>
         </div>
         <div class="settings-divider"></div>
         <div class="settings-item">
@@ -567,9 +606,14 @@ onUnmounted(() => {
             <h3 class="font-semibold">免责声明</h3>
             <p class="text-sm text-text-secondary">查看法律条款与免责声明</p>
           </div>
-          <button class="text-text-secondary" @click="settingStore.openDisclaimer()">
+          <Button
+            variant="ghost"
+            size="xs"
+            class="text-text-secondary h-8 w-8 min-w-0 p-0"
+            @click="settingStore.openDisclaimer()"
+          >
             <Icon :icon="iconChevronRight" width="16" height="16" />
-          </button>
+          </Button>
         </div>
       </div>
     </section>
@@ -580,8 +624,23 @@ onUnmounted(() => {
       description="此操作将移除所有持久化设置与缓存，无法撤销。"
     >
       <template #footer>
-        <button class="settings-button" @click="showConfirmClear = false">取消</button>
-        <button class="settings-button danger" @click="settingStore.clearAppData(); showConfirmClear = false;">确认清除</button>
+        <Button
+          class="settings-button"
+          variant="outline"
+          size="sm"
+          @click="showConfirmClear = false"
+          >取消</Button
+        >
+        <Button
+          class="settings-button danger"
+          variant="danger"
+          size="sm"
+          @click="
+            settingStore.clearAppData();
+            showConfirmClear = false;
+          "
+          >确认清除</Button
+        >
       </template>
     </Dialog>
   </div>
@@ -610,12 +669,10 @@ onUnmounted(() => {
   @apply bg-bg-main text-text-main border border-border-light rounded-lg px-3 py-1.5 text-sm font-semibold focus:outline-none min-w-[160px];
 }
 
-
 .shortcut-input {
   @apply w-full max-w-[220px] px-3 py-2 rounded-lg bg-bg-main border border-border-light text-[12px] font-semibold text-left;
   outline: none;
 }
-
 
 .shortcut-input.recording {
   border-color: #0071e3;
@@ -631,13 +688,11 @@ onUnmounted(() => {
   box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.4);
 }
 
-.shortcut-input:focus,
 .shortcut-input:focus-visible {
   border-color: #0071e3;
   box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.25);
 }
 
-.dark .shortcut-input:focus,
 .dark .shortcut-input:focus-visible {
   border-color: #4aa3ff;
   box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.4);
@@ -683,23 +738,26 @@ onUnmounted(() => {
   @apply pl-10;
 }
 
-
-
 .settings-warning {
   @apply mt-3 text-[12px] text-amber-600 bg-amber-500/10 rounded-lg px-3 py-2;
 }
 
 .settings-button {
-  @apply px-4 py-1.5 rounded-full bg-primary/10 text-primary text-[12px] font-semibold hover:bg-primary/20 transition-colors;
+  @apply px-4 py-1.5 rounded-lg bg-primary/10 text-primary text-[12px] font-semibold hover:bg-primary/20 transition-colors;
 }
 
 .settings-button.danger {
   @apply bg-red-500/10 text-red-500 hover:bg-red-500/20;
 }
 
-
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

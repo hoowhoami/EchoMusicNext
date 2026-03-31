@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { iconMessageCircle, iconThumbsUp } from '@/icons';
 import type { Comment } from '@/utils/mappers';
+import Button from '@/components/ui/Button.vue';
 
 interface Props {
   comments: Comment[];
@@ -63,7 +64,7 @@ const formatLike = (value: number) => {
 
           <div class="comment-content">{{ comment.content }}</div>
 
-          <button
+          <Button variant="unstyled" size="none"
             v-if="props.onTapReplies && comment.replyCount && comment.replyCount > 0"
             type="button"
             class="comment-reply"
@@ -71,7 +72,7 @@ const formatLike = (value: number) => {
           >
             <Icon :icon="iconMessageCircle" width="14" height="14" />
             <span>{{ `查看${comment.replyCount}条回复` }}</span>
-          </button>
+          </Button>
         </div>
       </div>
 

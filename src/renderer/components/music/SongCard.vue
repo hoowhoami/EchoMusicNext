@@ -16,6 +16,7 @@ import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
 import Dialog from '@/components/ui/Dialog.vue';
+import Button from '@/components/ui/Button.vue';
 import { iconMessageCircle, iconHeart } from '@/icons';
 import {
   addSongToPlayNext,
@@ -340,7 +341,7 @@ const handleFavorite = () => {
                 <span v-if="index < artistList.length - 1" class="mx-1 opacity-50">/</span>
               </span>
             </span>
-            <button
+            <Button variant="unstyled" size="none"
               v-if="showAlbum && album"
               type="button"
               :class="
@@ -349,16 +350,16 @@ const handleFavorite = () => {
               @click.stop="isAlbumClickable && goToAlbum()"
             >
               • {{ album }}
-            </button>
+            </Button>
           </div>
         </div>
 
         <!-- 详情及评论 / 收藏 -->
         <div v-if="showMore" class="song-actions ml-3 mr-[10px]" @click.stop>
-          <button type="button" class="song-action" title="详情及评论" @click.stop="goToSongDetail">
+          <Button variant="unstyled" size="none" type="button" class="song-action" title="详情及评论" @click.stop="goToSongDetail">
             <Icon :icon="iconMessageCircle" width="16" height="16" />
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled" size="none"
             type="button"
             class="song-action"
             :class="{ 'is-active': isFavorite }"
@@ -372,7 +373,7 @@ const handleFavorite = () => {
               height="16"
               :class="{ 'text-primary': isFavorite }"
             />
-          </button>
+          </Button>
         </div>
 
         <!-- 时长 -->
@@ -431,16 +432,18 @@ const handleFavorite = () => {
       >
         暂无可用歌单
       </div>
-      <button
+      <Button
         v-for="entry in playlistStore.userPlaylists"
         :key="entry.listid ?? entry.id"
         type="button"
         class="playlist-picker-item"
+        variant="ghost"
+        size="sm"
         @click="handleSelectPlaylist(entry.listid ?? entry.id)"
       >
         <span class="text-[13px] font-semibold text-text-main truncate">{{ entry.name }}</span>
         <span class="text-[11px] text-text-secondary/60">{{ entry.count ?? 0 }} 首</span>
-      </button>
+      </Button>
     </div>
   </Dialog>
 </template>

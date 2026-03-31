@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, useSlots } from 'vue';
+import Button from '@/components/ui/Button.vue';
 import { useVModel } from '@vueuse/core';
 import { iconX } from '@/icons';
 import {
@@ -66,9 +67,9 @@ const computedBodyClass = computed(() => [
         <div :class="contentClass" :style="props.contentStyle">
           <!-- 关闭按钮 -->
           <DialogClose v-if="props.showClose" as-child>
-            <button class="dialog-close" type="button" aria-label="关闭">
+            <Button class="dialog-close" variant="ghost" size="xs" type="button" aria-label="关闭">
               <Icon :icon="iconX" width="14" height="14" />
-            </button>
+            </Button>
           </DialogClose>
 
           <!-- 固定头部：标题 -->
@@ -172,10 +173,6 @@ const computedBodyClass = computed(() => [
 }
 
 .dialog-close {
-  @apply absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-text-main/50 hover:text-text-main transition-all active:scale-90 z-10;
-}
-
-.dialog-close:focus-visible {
-  @apply outline-none ring-2 ring-primary/30;
+  @apply absolute top-4 right-4 h-8 w-8 min-w-0 p-0 text-text-main/50 hover:text-text-main z-10;
 }
 </style>

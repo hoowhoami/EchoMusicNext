@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { iconArrowUp } from '@/icons';
+import Button from '@/components/ui/Button.vue';
 
 const props = defineProps<{
   targetSelector?: string;
@@ -42,7 +43,7 @@ onUnmounted(() => {
 
 <template>
   <Transition name="fade">
-    <button
+    <Button variant="unstyled" size="none"
       v-if="visible"
       @click="scrollToTop"
       class="fixed right-8 bottom-32 z-50 p-3 rounded-full back-to-top-btn shadow-lg hover:shadow-xl transition-all duration-300 active:scale-95 group"
@@ -54,7 +55,7 @@ onUnmounted(() => {
         width="20"
         height="20"
       />
-    </button>
+    </Button>
   </Transition>
 </template>
 

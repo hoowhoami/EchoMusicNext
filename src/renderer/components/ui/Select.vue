@@ -106,7 +106,8 @@ const selectedLabel = computed(() => {
 }
 
 .select-trigger:focus-visible {
-  @apply outline-none ring-2 ring-primary/30;
+  @apply outline-none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
 
 .select-value {
@@ -138,7 +139,11 @@ const selectedLabel = computed(() => {
   @apply hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer select-none;
   @apply data-[state=checked]:text-primary data-[state=checked]:bg-primary/10;
   @apply data-[disabled]:opacity-60 data-[disabled]:cursor-not-allowed;
-  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30;
+  @apply focus-visible:outline-none;
+}
+
+.select-item:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
 
 :global(.select-content::after) {

@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { iconTriangleAlert, iconRefreshCw, iconChevronLeft } from '@/icons';
+import Button from '@/components/ui/Button.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -38,21 +39,25 @@ const handleGoBack = () => {
     </div>
 
     <div class="flex items-center gap-4">
-      <button 
+      <Button
+        variant="outline"
+        size="sm"
         @click="handleGoBack"
-        class="flex items-center gap-2 px-6 py-2.5 rounded-full border border-border-light/40 text-[14px] font-semibold text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+        class="flex items-center gap-2 rounded-full"
       >
         <Icon :icon="iconChevronLeft" width="18" height="18" />
         返回上一页
-      </button>
+      </Button>
       
-      <button 
+      <Button
+        variant="primary"
+        size="sm"
         @click="handleRetry"
-        class="flex items-center gap-2 px-6 py-2.5 rounded-full bg-primary text-[14px] font-semibold text-white hover:opacity-90 transition-opacity shadow-lg shadow-primary/20"
+        class="flex items-center gap-2 rounded-full"
       >
         <Icon :icon="iconRefreshCw" width="16" height="16" />
         重试一次
-      </button>
+      </Button>
     </div>
   </div>
 </template>

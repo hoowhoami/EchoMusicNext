@@ -9,7 +9,9 @@ import OverlayHeader from '@/layouts/OverlayHeader.vue';
 import Cover from '@/components/ui/Cover.vue';
 import Slider from '@/components/ui/Slider.vue';
 import { formatDuration } from '@/utils/format';
+import { closeTransientView } from '@/utils/navigation';
 import { getCoverUrl } from '@/utils/music';
+import Button from '@/components/ui/Button.vue';
 import {
   iconChevronDown,
   iconHeart,
@@ -155,12 +157,7 @@ watch(
 );
 
 const closeLyricPage = async () => {
-  const from = Array.isArray(route.query.from) ? route.query.from[0] : route.query.from;
-  if (typeof from === 'string' && from.trim()) {
-    await router.push(from);
-    return;
-  }
-  await router.push('/main/home');
+  await closeTransientView(router, route);
 };
 
 onMounted(() => {
@@ -189,9 +186,9 @@ onMounted(() => {
 
     <div class="relative z-10 flex h-full flex-col">
       <div class="flex items-center justify-between px-6 pt-11 pb-3 no-drag">
-        <button type="button" class="lyric-top-btn" title="返回" @click="closeLyricPage">
+        <Button variant="unstyled" size="none" type="button" class="lyric-top-btn" title="返回" @click="closeLyricPage">
           <Icon :icon="iconChevronDown" width="22" height="22" />
-        </button>
+        </Button>
         <div class="text-center max-w-[48vw]">
           <p class="text-[11px] uppercase tracking-[0.45em] text-white/45">Lyrics</p>
           <h1 class="mt-1 truncate text-[14px] font-semibold text-white/85">
@@ -237,7 +234,7 @@ onMounted(() => {
               <div ref="lyricListRef" class="lyric-scroll h-full overflow-y-auto px-3">
                 <div class="min-h-full py-[32vh]">
                   <template v-if="hasLyrics">
-                    <button
+                    <Button variant="unstyled" size="none"
                       v-for="(line, index) in lyricStore.lines"
                       :key="`${line.time}-${index}`"
                       type="button"
@@ -257,7 +254,7 @@ onMounted(() => {
                       >
                         {{ line.text }}
                       </span>
-                    </button>
+                    </Button>
                   </template>
                   <div
                     v-else
@@ -303,34 +300,34 @@ onMounted(() => {
 
               <div class="mt-6 flex items-center justify-between gap-4">
                 <div class="flex items-center gap-2.5">
-                  <button type="button" class="lyric-icon-btn" title="收藏" @click="toggleFavorite">
+                  <Button variant="unstyled" size="none" type="button" class="lyric-icon-btn" title="收藏" @click="toggleFavorite">
                     <Icon
                       :icon="iconHeart"
                       width="20"
                       height="20"
                       :class="isFavorite ? 'text-[#ff6b81]' : 'text-white/72'"
                     />
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="unstyled" size="none"
                     type="button"
                     class="lyric-icon-btn"
                     :title="playModeMeta.label"
                     @click="cyclePlayMode"
                   >
                     <Icon :icon="playModeMeta.icon" width="20" height="20" class="text-white/78" />
-                  </button>
+                  </Button>
                 </div>
 
                 <div class="flex items-center gap-3">
-                  <button
+                  <Button variant="unstyled" size="none"
                     type="button"
                     class="lyric-transport-btn"
                     title="上一曲"
                     @click="playerStore.prev()"
                   >
                     <Icon :icon="iconSkipBack" width="22" height="22" />
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="unstyled" size="none"
                     type="button"
                     class="lyric-play-btn"
                     :title="playerStore.isPlaying ? '暂停' : '播放'"
@@ -341,15 +338,15 @@ onMounted(() => {
                       width="26"
                       height="26"
                     />
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="unstyled" size="none"
                     type="button"
                     class="lyric-transport-btn"
                     title="下一曲"
                     @click="playerStore.next()"
                   >
                     <Icon :icon="iconSkipForward" width="22" height="22" />
-                  </button>
+                  </Button>
                 </div>
 
                 <div class="flex min-w-[190px] items-center justify-end gap-3">

@@ -11,6 +11,7 @@ import { usePlayerStore } from '@/stores/player';
 import { usePlaylistStore } from '@/stores/playlist';
 import { buildSongListGridTemplate } from './songListLayout';
 import { isPlayableSong, queueAndPlaySong } from '@/utils/songPlayback';
+import Button from '@/components/ui/Button.vue';
 
 interface Props {
   songs: Song[];
@@ -278,7 +279,7 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
             />
           </div>
 
-          <button
+          <Button variant="unstyled" size="none"
             v-if="showAlbum"
             type="button"
             class="min-w-0 hidden md:block pr-3 text-[13px] text-left text-text-main/70 truncate"
@@ -287,7 +288,7 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
             @click.stop="openAlbumDetail(song)"
           >
             {{ song.album || '未知专辑' }}
-          </button>
+          </Button>
 
           <div v-if="showDuration" class="pl-2 text-[12px] opacity-60 text-left whitespace-nowrap">
             {{ formatDuration(song.duration) }}

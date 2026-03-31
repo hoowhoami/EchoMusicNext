@@ -39,10 +39,14 @@ const handleUpdate = (next: unknown) => {
 @reference "@/style.css";
 
 .switch-root {
-  @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors outline-none;
-  @apply data-[state=checked]:bg-primary data-[state=unchecked]:bg-text-secondary/30;
+  @apply relative inline-flex h-6 w-11 items-center rounded-full border border-border-light/60 transition-colors outline-none;
+  @apply data-[state=checked]:bg-primary data-[state=unchecked]:bg-text-secondary/10;
   @apply data-[disabled]:opacity-60 data-[disabled]:cursor-not-allowed;
-  @apply focus-visible:ring-2 focus-visible:ring-primary/40;
+  @apply focus-visible:outline-none;
+}
+
+.switch-root:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
 
 .switch-thumb {

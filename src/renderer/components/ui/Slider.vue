@@ -112,8 +112,12 @@ const thumbClass = computed(() => ['slider-thumb', props.thumbClass]);
 }
 
 .slider-thumb {
-  @apply block w-3 h-3 rounded-full bg-white border border-black/10 shadow-sm transition-shadow;
-  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30;
+   block w-3 h-3 rounded-full bg-white border border-black/10 shadow-sm transition-shadow;
+   focus-visible:outline-none;
+}
+
+.slider-thumb:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
 
 .slider-root[data-disabled] {

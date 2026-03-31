@@ -6,6 +6,7 @@ import { iconTriangleAlert } from '@/icons';
 import { useDeviceStore, type DeviceInfo } from '@/stores/device';
 import { useUserStore } from '@/stores/user';
 import logger from '@/utils/logger';
+import Button from '@/components/ui/Button.vue';
 
 const router = useRouter();
 const deviceStore = useDeviceStore();
@@ -160,18 +161,12 @@ onMounted(() => {
           <p class="text-sm text-text-secondary max-w-xs">{{ statusMessage }}</p>
         </div>
         <div class="flex gap-4 pt-6 no-drag">
-          <button
-            @click="startServer"
-            class="px-8 py-2.5 bg-primary text-white rounded-xl text-sm font-bold shadow-lg shadow-primary/20 active:scale-95 transition-all"
-          >
+          <Button variant="primary" size="sm" @click="startServer">
             重试启动
-          </button>
-          <button
-            @click="closeWindow"
-            class="px-8 py-2.5 bg-text-main/5 text-text-main/80 rounded-xl text-sm font-bold active:scale-95 transition-all"
-          >
+          </Button>
+          <Button variant="secondary" size="sm" @click="closeWindow">
             退出应用
-          </button>
+          </Button>
         </div>
       </div>
     </main>

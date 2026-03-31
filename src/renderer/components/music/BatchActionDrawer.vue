@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useVModel } from '@vueuse/core';
 import Drawer from '@/components/ui/Drawer.vue';
 import Dialog from '@/components/ui/Dialog.vue';
+import Button from '@/components/ui/Button.vue';
 import { CheckboxIndicator, CheckboxRoot } from 'reka-ui';
 import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
@@ -160,41 +161,47 @@ const handleRemoveFromPlaylist = async () => {
     <div class="batch-header">
       <div class="batch-title">批量操作</div>
       <div class="batch-actions">
-        <button
+        <Button
           type="button"
           class="batch-action"
+          variant="secondary"
+          size="xs"
           :disabled="!canPlaySelected"
           @click="handlePlaySelected"
         >
           <Icon :icon="iconPlay" width="16" height="16" />
           播放
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           class="batch-action"
+          variant="secondary"
+          size="xs"
           :disabled="!canAddSelected"
           @click="handleAddToPlaylist"
         >
           <Icon :icon="iconPlus" width="16" height="16" />
           添加到
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           class="batch-action danger"
+          variant="ghost"
+          size="xs"
           :disabled="!canRemoveSelected"
           @click="handleRemoveFromPlaylist"
         >
           <Icon :icon="iconTrash" width="16" height="16" />
           删除
-        </button>
+        </Button>
       </div>
-      <button type="button" class="batch-close" @click="open = false">
+      <Button type="button" class="batch-close" variant="ghost" size="xs" @click="open = false">
         <Icon :icon="iconX" width="16" height="16" />
-      </button>
+      </Button>
     </div>
 
     <div class="batch-selection">
-      <button type="button" class="batch-select" @click="toggleSelectAll">
+      <Button type="button" class="batch-select" variant="ghost" size="xs" @click="toggleSelectAll">
         <CheckboxRoot
           class="batch-checkbox"
           :model-value="selectAllState"
@@ -206,7 +213,7 @@ const handleRemoveFromPlaylist = async () => {
           </CheckboxIndicator>
         </CheckboxRoot>
         全选
-      </button>
+      </Button>
       <div class="batch-count">已选 {{ selectedKeys.size }} / {{ songs.length }}</div>
     </div>
 
@@ -279,16 +286,18 @@ const handleRemoveFromPlaylist = async () => {
       <div v-else-if="playlistStore.userPlaylists.length === 0" class="batch-playlist-status">
         暂无可用歌单
       </div>
-      <button
+      <Button
         v-for="entry in playlistStore.userPlaylists"
         :key="entry.listid ?? entry.id"
         type="button"
         class="playlist-picker-item"
+        variant="ghost"
+        size="sm"
         @click="handleSelectPlaylist(entry.listid ?? entry.id)"
       >
         <span class="batch-playlist-name">{{ entry.name }}</span>
         <span class="batch-playlist-count">{{ entry.count ?? 0 }} 首</span>
-      </button>
+      </Button>
     </div>
   </Dialog>
 </template>
@@ -382,13 +391,6 @@ const handleRemoveFromPlaylist = async () => {
   transition: all 0.2s ease;
 }
 
-.batch-close:focus,
-.batch-close:focus-visible,
-.batch-close:active {
-  outline: none;
-  box-shadow: none;
-  background: transparent;
-}
 
 .batch-close:hover {
   color: var(--color-text-main);

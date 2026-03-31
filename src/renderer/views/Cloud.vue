@@ -15,6 +15,7 @@ import { mapCloudSong } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCloud, iconCurrentLocation, iconList, iconPlay, iconSearch } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/songPlayback';
+import Button from '@/components/ui/Button.vue';
 
 const PAGE_SIZE = 100;
 
@@ -214,7 +215,6 @@ onMounted(() => {
         <Icon :icon="iconCloud" width="32" height="32" />
       </div>
       <div class="text-[22px] font-semibold text-text-main">登录后查看云盘</div>
-      <div class="mt-2 text-[13px] font-medium text-text-secondary/75">仅支持基础的云盘功能</div>
     </div>
 
     <template v-else>
@@ -228,7 +228,6 @@ onMounted(() => {
       >
         <template #details>
           <div class="flex flex-col gap-2">
-            <div class="text-[13px] font-semibold text-text-secondary">仅支持基础的云盘功能</div>
             <div class="text-[12px] font-medium text-text-secondary/75">支持基础浏览、播放与容量查看</div>
             <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] font-semibold text-text-secondary/80">
               <div class="inline-flex items-center gap-1.5">
@@ -248,18 +247,18 @@ onMounted(() => {
         </template>
 
         <template #collapsed-actions>
-          <button
+          <Button variant="unstyled" size="none"
             @click="handlePlayAll"
             class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-primary"
           >
             <Icon :icon="iconPlay" width="20" height="20" />
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled" size="none"
             @click="openBatchDrawer"
             class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-main opacity-60"
           >
             <Icon :icon="iconList" width="18" height="18" />
-          </button>
+          </Button>
         </template>
       </SliverHeader>
 
@@ -293,7 +292,7 @@ onMounted(() => {
                   v-model="searchQuery"
                   type="text"
                   placeholder="搜索歌曲..."
-                  class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] focus:ring-1 focus:ring-primary/40 transition-all"
+                  class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] transition-all"
                 />
                 <Icon
                   class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60"
@@ -302,13 +301,13 @@ onMounted(() => {
                   height="14"
                 />
               </div>
-              <button
+              <Button variant="unstyled" size="none"
                 @click="handleLocate"
                 class="song-locate-btn p-2 rounded-lg"
                 title="定位当前播放"
               >
                 <Icon :icon="iconCurrentLocation" width="16" height="16" />
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -347,13 +346,13 @@ onMounted(() => {
           :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined"
         />
         <div v-if="!loading && hasMore" class="flex justify-center pt-4">
-          <button
+          <Button variant="unstyled" size="none"
             class="px-4 h-9 rounded-lg bg-black/[0.04] dark:bg-white/[0.06] text-[12px] font-semibold text-text-main/75 hover:text-text-main transition-colors"
             :disabled="loadingMore"
             @click="handleLoadMore"
           >
             {{ loadingMore ? '加载中...' : '加载更多' }}
-          </button>
+          </Button>
         </div>
       </div>
     </template>

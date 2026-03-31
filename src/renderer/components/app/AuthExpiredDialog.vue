@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import Dialog from '@/components/ui/Dialog.vue';
+import Button from '@/components/ui/Button.vue';
 import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
@@ -30,12 +31,12 @@ const handleLogin = async () => {
     contentClass="auth-expired-dialog"
   >
     <template #footer>
-      <button class="auth-expired-btn auth-expired-btn--ghost" @click="authStore.hideSessionExpiredDialog()">
+      <Button class="auth-expired-btn auth-expired-btn--ghost" variant="outline" size="sm" @click="authStore.hideSessionExpiredDialog()">
         稍后再说
-      </button>
-      <button class="auth-expired-btn auth-expired-btn--primary" @click="handleLogin">
+      </Button>
+      <Button class="auth-expired-btn auth-expired-btn--primary" variant="primary" size="sm" @click="handleLogin">
         去登录
-      </button>
+      </Button>
     </template>
   </Dialog>
 </template>
@@ -48,14 +49,13 @@ const handleLogin = async () => {
 }
 
 .auth-expired-btn {
-  @apply px-5 py-2 rounded-full text-[13px] font-semibold transition-all duration-200 active:scale-95;
+   min-w-[96px] rounded-lg text-[13px] font-semibold;
 }
 
 .auth-expired-btn--ghost {
-  @apply border border-border-light/50 text-text-secondary hover:text-text-main hover:border-border-light/70 hover:bg-black/5 dark:hover:bg-white/5;
+  @apply text-text-secondary hover:text-text-main;
 }
 
 .auth-expired-btn--primary {
-  @apply bg-primary text-white shadow-[0_10px_30px_rgba(0,113,227,0.22)] hover:bg-primary-hover;
 }
 </style>

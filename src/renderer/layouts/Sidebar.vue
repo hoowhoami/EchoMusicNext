@@ -6,6 +6,7 @@ import { usePlaylistStore } from '@/stores/playlist';
 import Avatar from '@/components/ui/Avatar.vue';
 import Cover from '@/components/ui/Cover.vue';
 import type { PlaylistMeta } from '@/utils/mappers';
+import Button from '@/components/ui/Button.vue';
 import {
   iconSparkles,
   iconCompass,
@@ -76,7 +77,7 @@ const menuGroups = [
     items: [
       { name: '播放历史', path: '/main/history', icon: 'clock' },
       { name: '我的云盘', path: '/main/cloud', icon: 'cloud' },
-      { name: '我最喜爱', path: '/main/home', icon: 'heart', action: 'liked-playlist' },
+      { name: '我最喜爱', path: '/main/liked', icon: 'heart', action: 'liked-playlist' },
     ],
   },
 ];
@@ -93,7 +94,7 @@ const likedPlaylistRouteId = computed(() => {
 
 const navigateToLikedPlaylist = async () => {
   if (!isLoggedIn.value) {
-    await router.push('/login');
+    await router.push('/main/liked');
     return;
   }
 
@@ -107,9 +108,7 @@ const navigateToLikedPlaylist = async () => {
   navigateToPlaylist(likedPlaylist);
 };
 
-const isMenuItemDisabled = (item: { path: string; action?: string }) => {
-  return item.action === 'liked-playlist' && !isLoggedIn.value;
-};
+const isMenuItemDisabled = (_item: { path: string; action?: string }) => false;
 
 const handleMenuClick = (item: { path: string; action?: string }) => {
   if (isMenuItemDisabled(item)) return;
@@ -122,7 +121,7 @@ const handleMenuClick = (item: { path: string; action?: string }) => {
 
 const isMenuItemActive = (item: { path: string; action?: string }) => {
   if (item.action === 'liked-playlist') {
-    return (
+    return route.name === 'liked-songs' || (
       route.name === 'playlist-detail' && activePlaylistRouteId.value === likedPlaylistRouteId.value
     );
   }
@@ -273,12 +272,12 @@ watch(
         </div>
         <div class="w-[1px] h-[22px] bg-black/[0.1] dark:bg-white/[0.1] mx-1.5"></div>
         <!-- 2.3 设置按钮 -->
-        <button
+        <Button variant="unstyled" size="none"
           @click="navigateTo('/main/settings')"
           class="p-2 mr-1 rounded-[14px] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] text-text-secondary transition-all active:scale-90"
         >
           <Icon :icon="iconSettings" width="19" height="19" />
-        </button>
+        </Button>
       </div>
     </div>
 
@@ -291,12 +290,12 @@ watch(
           {{ group.title }}
         </h2>
         <nav class="space-y-0.5">
-          <button
+          <Button variant="unstyled" size="none"
             v-for="item in group.items"
             :key="item.path"
             @click="handleMenuClick(item)"
             :disabled="isMenuItemDisabled(item)"
-            :title="isMenuItemDisabled(item) ? '登录后可用' : undefined"
+            :title="undefined"
             :class="[
               'w-full flex items-center gap-3.5 px-3.5 py-2 rounded-[14px] transition-all duration-200 group active:scale-[0.98]',
               isMenuItemDisabled(item)
@@ -323,7 +322,7 @@ watch(
               :class="[isMenuItemActive(item) ? 'font-semibold' : 'font-normal']"
               >{{ item.name }}</span
             >
-          </button>
+          </Button>
         </nav>
       </div>
     </div>
@@ -331,7 +330,7 @@ watch(
     <!-- 滚动区域标题: 歌单分类页签 (固定在滚动区上方) -->
     <div class="pl-7.5 pr-4 h-7 flex items-center justify-between mb-2 shrink-0 no-drag mt-2">
       <div class="flex items-center gap-2">
-        <button
+        <Button variant="unstyled" size="none"
           @click="activePlaylistTab = 0"
           :class="[
             'text-[11px] uppercase tracking-[0.3px] transition-all duration-200 whitespace-nowrap',
@@ -341,9 +340,9 @@ watch(
           ]"
         >
           自建歌单
-        </button>
+        </Button>
         <div class="w-[1px] h-2.5 bg-black/[0.15] dark:bg-white/[0.15] mx-0.5"></div>
-        <button
+        <Button variant="unstyled" size="none"
           @click="activePlaylistTab = 1"
           :class="[
             'text-[11px] uppercase tracking-[0.3px] transition-all duration-200 whitespace-nowrap',
@@ -353,16 +352,16 @@ watch(
           ]"
         >
           收藏歌单/专辑
-        </button>
+        </Button>
       </div>
-      <button
+      <Button variant="unstyled" size="none"
         :class="[
           'p-1 hover:bg-black/[0.05] dark:hover:bg-white/[0.05] rounded-md transition-all text-text-main opacity-60 shrink-0',
           activePlaylistTab === 0 ? 'visible opacity-60' : 'invisible opacity-0',
         ]"
       >
         <Icon :icon="iconPlus" width="14" height="14" />
-      </button>
+      </Button>
     </div>
 
     <!-- 滚动区域: 歌单列表 -->
@@ -370,7 +369,7 @@ watch(
       <nav v-if="isLoggedIn" class="space-y-0.5">
         <!-- 渲染自建歌单 -->
         <template v-if="activePlaylistTab === 0">
-          <button
+          <Button variant="unstyled" size="none"
             v-for="p in createdPlaylists"
             :key="p.listid || p.id"
             @click="navigateToPlaylist(p)"
@@ -398,7 +397,7 @@ watch(
                 >{{ p.name }}</span
               >
             </div>
-          </button>
+          </Button>
           <div
             v-if="createdPlaylists.length === 0"
             class="py-8 text-center opacity-40 text-[12px] italic"
@@ -409,7 +408,7 @@ watch(
 
         <!-- 渲染收藏歌单 + 收藏专辑 -->
         <template v-else>
-          <button
+          <Button variant="unstyled" size="none"
             v-for="p in favoritedPlaylists"
             :key="p.listid || p.id"
             @click="navigateToPlaylist(p)"
@@ -437,14 +436,14 @@ watch(
                 >{{ p.name }}</span
               >
             </div>
-          </button>
+          </Button>
 
           <div
             v-if="favoritedAlbums.length > 0"
             class="my-2.5 mx-3.5 h-[1px] bg-black/[0.05] dark:bg-white/[0.05]"
           ></div>
 
-          <button
+          <Button variant="unstyled" size="none"
             v-for="a in favoritedAlbums"
             :key="a.listid || a.id"
             @click="navigateToPlaylist(a)"
@@ -472,7 +471,7 @@ watch(
                 >{{ a.name }}</span
               >
             </div>
-          </button>
+          </Button>
           <div
             v-if="favoritedPlaylists.length === 0 && favoritedAlbums.length === 0"
             class="py-8 text-center opacity-40 text-[12px] italic"

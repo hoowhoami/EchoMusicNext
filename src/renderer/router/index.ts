@@ -56,6 +56,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/History.vue'),
       },
       {
+        path: 'liked',
+        name: 'liked-songs',
+        component: () => import('@/views/LikedSongs.vue'),
+      },
+      {
         path: 'cloud',
         name: 'cloud',
         component: () => import('@/views/Cloud.vue'),

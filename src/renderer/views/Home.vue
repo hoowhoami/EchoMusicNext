@@ -6,6 +6,7 @@ import { getPlaylistByCategory, getTopIP } from '@/api/playlist';
 import PlaylistCard from '@/components/music/PlaylistCard.vue';
 import { mapPlaylistMeta, type PlaylistMeta } from '@/utils/mappers';
 import { iconPlay, iconSparkles } from '@/icons';
+import Button from '@/components/ui/Button.vue';
 
 interface RecommendSectionState {
   loading: boolean;
@@ -122,7 +123,7 @@ onMounted(() => {
     </div>
 
     <div class="home-feature-row">
-      <button class="home-feature-card" @click="openRecommend">
+      <Button variant="unstyled" size="none" class="home-feature-card" @click="openRecommend">
         <div class="feature-icon gradient-primary">{{ todayLabel }}</div>
         <div class="feature-meta">
           <div class="feature-title">每日推荐</div>
@@ -131,8 +132,8 @@ onMounted(() => {
         <div class="feature-action">
           <Icon :icon="iconPlay" width="14" height="14" />
         </div>
-      </button>
-      <button class="home-feature-card" @click="openRanking">
+      </Button>
+      <Button variant="unstyled" size="none" class="home-feature-card" @click="openRanking">
         <div class="feature-icon gradient-secondary">TOP</div>
         <div class="feature-meta">
           <div class="feature-title">排行榜</div>
@@ -141,7 +142,7 @@ onMounted(() => {
         <div class="feature-action">
           <Icon :icon="iconSparkles" width="14" height="14" />
         </div>
-      </button>
+      </Button>
     </div>
 
     <section class="home-section">

@@ -7,6 +7,7 @@ import { usePlaylistStore } from '@/stores/playlist';
 import type { Song, SongArtist } from '@/models/song';
 import { SliderRoot, SliderTrack, SliderRange, SliderThumb } from 'reka-ui';
 import Cover from '@/components/ui/Cover.vue';
+import Button from '@/components/ui/Button.vue';
 import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
@@ -335,27 +336,27 @@ onUnmounted(() => {
           </div>
 
           <div class="flex items-center gap-2.5 mt-1.5 h-6">
-            <button
+            <Button variant="unstyled" size="none"
               @click="toggleFavorite"
               class="p-0.5 transition-all hover:scale-110 active:scale-90"
               :class="isFavorite ? 'text-red-500' : 'text-text-main/25 hover:text-primary'"
               title="收藏"
             >
               <Icon :icon="iconHeart" width="20" height="20" />
-            </button>
+            </Button>
 
             <!-- 云盘标识 -->
             <div v-if="currentTrack?.source === 'cloud'" class="text-primary/60" title="云盘歌曲">
               <Icon :icon="iconCloud" width="16" height="16" />
             </div>
 
-            <button
+            <Button variant="unstyled" size="none"
               @click="goToComments"
               class="p-0.5 text-text-main/25 hover:text-primary transition-all hover:scale-110"
               title="详情及评论"
             >
               <Icon :icon="iconMessageCircle" width="18" height="18" />
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -364,7 +365,7 @@ onUnmounted(() => {
       <div class="flex-[1.5] flex flex-col items-center justify-center gap-1 min-w-[150px]">
         <div class="flex items-center justify-center gap-4 h-10">
           <!-- 播放模式 -->
-          <button
+          <Button variant="unstyled" size="none"
             @click="
               player.setPlayMode(
                 player.playMode === 'list'
@@ -384,33 +385,33 @@ onUnmounted(() => {
               height="22"
             />
             <Icon v-else :icon="iconListRestart" width="22" height="22" />
-          </button>
+          </Button>
 
-          <button
+          <Button variant="unstyled" size="none"
             @click="player.prev"
             class="p-2 text-text-main/60 hover:text-primary transition-all hover:scale-110 active:scale-90"
           >
             <Icon :icon="iconSkipBack" width="22" height="22" />
-          </button>
+          </Button>
 
-          <button
+          <Button variant="unstyled" size="none"
             @click="player.togglePlay"
             class="player-toggle w-[38px] h-[38px] rounded-full bg-black/[0.04] flex items-center justify-center hover:scale-110 active:scale-95 transition-all border border-black/5"
           >
             <Icon v-if="!player.isPlaying" :icon="iconPlay" width="16" height="16" class="ml-0.5" />
             <Icon v-else :icon="iconPause" width="20" height="20" />
-          </button>
+          </Button>
 
-          <button
+          <Button variant="unstyled" size="none"
             @click="player.next"
             class="p-2 text-text-main/60 hover:text-primary transition-all hover:scale-110 active:scale-90"
           >
             <Icon :icon="iconSkipForward" width="22" height="22" />
-          </button>
+          </Button>
 
           <!-- 音量控制 - 点击弹出 -->
           <div ref="volumeContainerRef" class="relative flex items-center group/vol">
-            <button
+            <Button variant="unstyled" size="none"
               @click="toggleVolume"
               class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90"
               :class="{ 'text-primary': isVolumeVisible }"
@@ -418,7 +419,7 @@ onUnmounted(() => {
               <Icon v-if="player.volume > 0.5" :icon="iconVolume2" width="22" height="22" />
               <Icon v-else-if="player.volume > 0" :icon="iconVolume1" width="22" height="22" />
               <Icon v-else :icon="iconVolumeX" width="22" height="22" />
-            </button>
+            </Button>
 
             <Transition name="volume-pop">
               <div
@@ -442,17 +443,17 @@ onUnmounted(() => {
                       <SliderRange class="absolute bg-primary rounded-full w-full" />
                     </SliderTrack>
                     <SliderThumb
-                      class="block w-3 h-3 bg-white border border-black/10 rounded-full shadow-sm focus:outline-none"
+                      class="player-volume-thumb block w-3 h-3 bg-white border border-black/10 rounded-full shadow-sm focus-visible:outline-none"
                     />
                   </SliderRoot>
 
-                  <button
+                  <Button variant="unstyled" size="none"
                     @click="toggleMute"
                     class="mt-2 p-1 text-text-main/60 hover:text-primary transition-colors"
                   >
                     <Icon v-if="player.volume > 0" :icon="iconVolumeOff" width="20" height="20" />
                     <Icon v-else :icon="iconVolumeX" width="20" height="20" />
-                  </button>
+                  </Button>
 
                   <span class="mt-1 text-[10px] font-bold text-text-main/60 tabular-nums">{{
                     Math.round(player.volume * 100)
@@ -508,7 +509,7 @@ onUnmounted(() => {
               <SliderRange class="absolute bg-primary rounded-full h-full" />
             </SliderTrack>
             <SliderThumb
-              class="block w-2.5 h-2.5 bg-white border border-black/10 rounded-full shadow-md focus:outline-none transition-all duration-200"
+              class="player-progress-thumb block w-2.5 h-2.5 bg-white border border-black/10 rounded-full shadow-md focus-visible:outline-none transition-all duration-200"
               :class="[isHoveringProgress ? 'opacity-100 scale-125' : 'opacity-0 scale-50']"
             />
           </SliderRoot>
@@ -525,7 +526,7 @@ onUnmounted(() => {
       >
         <DropdownMenuRoot>
           <DropdownMenuTrigger as-child>
-            <button
+            <Button variant="unstyled" size="none"
               class="p-2 transition-all hover:scale-110 active:scale-90"
               :class="
                 player.playbackRate !== 1 ? 'text-primary' : 'text-text-main/50 hover:text-primary'
@@ -533,7 +534,7 @@ onUnmounted(() => {
               title="播放倍速"
             >
               <Icon :icon="iconSpeedometer" width="20" height="20" />
-            </button>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuPortal>
             <DropdownMenuContent
@@ -561,7 +562,7 @@ onUnmounted(() => {
 
         <DropdownMenuRoot>
           <DropdownMenuTrigger as-child>
-            <button
+            <Button variant="unstyled" size="none"
               class="p-2 transition-all hover:scale-110 active:scale-90"
               :class="
                 settingStore.audioQuality !== 'high' || settingStore.audioEffect !== 'none'
@@ -571,7 +572,7 @@ onUnmounted(() => {
               title="音质"
             >
               <Icon :icon="iconPulse" width="20" height="20" />
-            </button>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuPortal>
             <DropdownMenuContent
@@ -741,13 +742,13 @@ onUnmounted(() => {
           </DropdownMenuPortal>
         </DropdownMenuRoot>
 
-        <button
+        <Button variant="unstyled" size="none"
           class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90"
           title="播放队列"
           @click="openQueue"
         >
           <Icon :icon="iconList" width="22" height="22" />
-        </button>
+        </Button>
       </div>
     </footer>
   </div>
@@ -827,6 +828,11 @@ onUnmounted(() => {
 
 .dark .player-progress-track {
   background-color: rgba(245, 245, 247, 0.4);
+}
+
+.player-volume-thumb:focus-visible,
+.player-progress-thumb:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
 
 :deep(.player-dropdown) {
