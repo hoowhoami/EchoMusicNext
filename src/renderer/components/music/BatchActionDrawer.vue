@@ -203,7 +203,7 @@ const handleRemoveFromPlaylist = async () => {
         </Button>
       </div>
       <Button type="button" class="batch-close" variant="ghost" size="xs" @click="open = false">
-        <Icon :icon="iconX" width="16" height="16" />
+        <Icon :icon="iconX" width="18" height="18" />
       </Button>
     </div>
 
@@ -387,9 +387,9 @@ const handleRemoveFromPlaylist = async () => {
 }
 
 .batch-close {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -410,7 +410,7 @@ const handleRemoveFromPlaylist = async () => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 20px 12px 30px;
+  padding: 0 20px 12px 18px;
   font-size: 12px;
   color: var(--color-text-secondary);
 }
@@ -419,6 +419,8 @@ const handleRemoveFromPlaylist = async () => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  padding-left: 12px;
+  padding-right: 12px;
   font-weight: 600;
   color: var(--color-text-main);
 }
