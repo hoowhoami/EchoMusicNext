@@ -47,7 +47,6 @@ export const useSettingStore = defineStore('setting', {
     preventSleep: true,
     defaultAudioQuality: 'high' as '128' | '320' | 'flac' | 'high',
     compatibilityMode: true,
-    audioEffect: 'none' as 'none' | 'piano' | 'acappella' | 'subwoofer' | 'ancient' | 'surnay' | 'dj' | 'viper_tape' | 'viper_atmos' | 'viper_clear',
     globalShortcutsEnabled: false,
     shortcutBindings: {} as Record<string, string>,
     globalShortcutBindings: {} as Record<string, string>,

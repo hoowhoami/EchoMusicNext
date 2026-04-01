@@ -9,6 +9,8 @@ interface Props {
   min?: number;
   max?: number;
   step?: number;
+  showValue?: boolean;
+  valueSuffix?: string;
   disabled?: boolean;
   orientation?: SliderOrientation;
   class?: string;
@@ -21,6 +23,8 @@ const props = withDefaults(defineProps<Props>(), {
   min: 0,
   max: 100,
   step: 1,
+  showValue: false,
+  valueSuffix: '',
   disabled: false,
   orientation: 'horizontal',
 });
@@ -51,25 +55,29 @@ const rootClass = computed(() => [
 const trackClass = computed(() => ['slider-track', props.trackClass]);
 const rangeClass = computed(() => ['slider-range', props.rangeClass]);
 const thumbClass = computed(() => ['slider-thumb', props.thumbClass]);
+const valueLabel = computed(() => `${normalizedValue.value}${props.valueSuffix}`);
 </script>
 
 <template>
-  <SliderRoot
-    :model-value="[normalizedValue]"
-    :min="props.min"
-    :max="props.max"
-    :step="props.step"
-    :disabled="props.disabled"
-    :orientation="props.orientation"
-    :class="rootClass"
-    @update:model-value="handleUpdate"
-    @value-commit="handleCommit"
-  >
-    <SliderTrack :class="trackClass">
-      <SliderRange :class="rangeClass" />
-    </SliderTrack>
-    <SliderThumb :class="thumbClass" />
-  </SliderRoot>
+  <div class="slider-wrapper" :class="props.orientation === 'vertical' ? 'slider-wrapper-vertical' : 'slider-wrapper-horizontal'">
+    <SliderRoot
+      :model-value="[normalizedValue]"
+      :min="props.min"
+      :max="props.max"
+      :step="props.step"
+      :disabled="props.disabled"
+      :orientation="props.orientation"
+      :class="rootClass"
+      @update:model-value="handleUpdate"
+      @value-commit="handleCommit"
+    >
+      <SliderTrack :class="trackClass">
+        <SliderRange :class="rangeClass" />
+      </SliderTrack>
+      <SliderThumb :class="thumbClass" />
+    </SliderRoot>
+    <span v-if="props.showValue" class="slider-value-label">{{ valueLabel }}</span>
+  </div>
 </template>
 
 <style scoped>
@@ -77,6 +85,14 @@ const thumbClass = computed(() => ['slider-thumb', props.thumbClass]);
 
 .slider-root {
   @apply relative select-none touch-none cursor-pointer;
+}
+
+.slider-wrapper-horizontal {
+  @apply relative flex items-center pt-4;
+}
+
+.slider-wrapper-vertical {
+  @apply flex flex-col items-center gap-2;
 }
 
 .slider-root-horizontal {
@@ -88,7 +104,12 @@ const thumbClass = computed(() => ['slider-thumb', props.thumbClass]);
 }
 
 .slider-track {
-  @apply relative grow rounded-full bg-black/[0.06] dark:bg-white/[0.08];
+  background-color: color-mix(in srgb, var(--color-text-main) 9%, var(--color-bg-card) 91%);
+  @apply relative grow rounded-full;
+}
+
+:global(.dark) .slider-track {
+  background-color: color-mix(in srgb, var(--color-text-main) 14%, var(--color-bg-card) 86%);
 }
 
 .slider-root-horizontal .slider-track {
@@ -113,6 +134,10 @@ const thumbClass = computed(() => ['slider-thumb', props.thumbClass]);
 
 .slider-thumb {
   @apply block w-3 h-3 rounded-full bg-white border border-black/10 shadow-sm transition-shadow focus-visible:outline-none;
+}
+
+.slider-value-label {
+  @apply absolute top-0 right-0 text-[11px] font-semibold text-text-main/70 tabular-nums leading-none pointer-events-none;
 }
 
 .slider-thumb:focus-visible {

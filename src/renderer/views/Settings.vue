@@ -25,7 +25,6 @@ const settingStore = useSettingStore();
 const playerStore = usePlayerStore();
 const showDisclaimer = ref(false);
 const isRequestingOutputPermission = ref(false);
-
 onMounted(() => {
   settingStore.syncCloseBehavior();
   settingStore.syncTheme();
@@ -438,9 +437,7 @@ onUnmounted(() => {
         <div v-if="settingStore.volumeFade" class="settings-item">
           <div class="space-y-1">
             <h3 class="font-semibold">淡入淡出时长</h3>
-            <p class="text-sm text-text-secondary">
-              {{ (settingStore.volumeFadeTime / 1000).toFixed(1) }}s
-            </p>
+            <p class="text-sm text-text-secondary">调整歌曲切换时的过渡时长</p>
           </div>
           <Slider
             class="w-48"
@@ -448,7 +445,10 @@ onUnmounted(() => {
             :min="100"
             :max="3000"
             :step="100"
+            show-value
+            :value-suffix="'ms'"
             @update:model-value="settingStore.volumeFadeTime = $event"
+            @value-commit="settingStore.volumeFadeTime = $event"
           />
         </div>
         <div class="settings-divider"></div>

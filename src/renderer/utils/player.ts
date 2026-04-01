@@ -38,6 +38,9 @@ export class PlayerEngine {
   private timeUpdateTimer: number | null;
   private lastTimeValue: number;
   private preferredSinkId: string;
+  private fadeTimer: number | null;
+  private pendingFadeResolve: (() => void) | null;
+  private fadeSeq: number;
 
   constructor() {
     this.howl = null;
@@ -49,6 +52,9 @@ export class PlayerEngine {
     this.timeUpdateTimer = null;
     this.lastTimeValue = -1;
     this.preferredSinkId = 'default';
+    this.fadeTimer = null;
+    this.pendingFadeResolve = null;
+    this.fadeSeq = 0;
   }
 
   private emitDurationChange(): void {
@@ -131,8 +137,21 @@ export class PlayerEngine {
     }
   }
 
+  private cancelPendingFade(): void {
+    if (this.fadeTimer !== null) {
+      window.clearTimeout(this.fadeTimer);
+      this.fadeTimer = null;
+    }
+    if (this.pendingFadeResolve) {
+      const resolve = this.pendingFadeResolve;
+      this.pendingFadeResolve = null;
+      resolve();
+    }
+  }
+
   private cleanupHowl(): void {
     this.stopTimeUpdates();
+    this.cancelPendingFade();
     if (!this.howl) return;
     this.howl.off();
     this.howl.stop();
@@ -190,15 +209,24 @@ export class PlayerEngine {
 
   fadeTo(value: number, durationMs = 0): Promise<void> {
     const next = clamp(value, 0, 1);
+    this.cancelPendingFade();
     if (!this.howl || durationMs <= 0) {
       this.setVolume(next);
       return Promise.resolve();
     }
+
     const from = this.volumeValue;
+    const fadeSeq = ++this.fadeSeq;
     this.howl.fade(from, next, durationMs);
+
     return new Promise((resolve) => {
-      window.setTimeout(() => {
-        this.volumeValue = next;
+      this.pendingFadeResolve = resolve;
+      this.fadeTimer = window.setTimeout(() => {
+        if (fadeSeq === this.fadeSeq) {
+          this.volumeValue = next;
+        }
+        this.fadeTimer = null;
+        this.pendingFadeResolve = null;
         resolve();
       }, durationMs);
     });

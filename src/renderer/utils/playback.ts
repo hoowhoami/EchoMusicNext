@@ -78,6 +78,14 @@ export const queueAndPlaySong = async (
   const resolvedSong = resolvePlayableSongForRequest(song, [song]);
   if (!resolvedSong) return false;
 
+  const isCurrentSong = String(playerStore.currentTrackId ?? '') === String(resolvedSong.id);
+  if (isCurrentSong) {
+    if (!playerStore.isPlaying) {
+      await playerStore.togglePlay?.();
+    }
+    return true;
+  }
+
   const nextList = activeList.slice();
   const exists = nextList.some((item) => isSameSong(item, resolvedSong));
   if (!exists) {

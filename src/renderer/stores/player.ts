@@ -15,7 +15,7 @@ import type { Song, SongRelateGood } from '@/models/song';
 import { doesRelateGoodMatchQuality, getSongQualityCandidates, isPlayableSong, resolveEffectiveSongQuality } from '@/utils/song';
 
 export type AudioQualityValue = '128' | '320' | 'flac' | 'high';
-type AudioEffectValue =
+export type AudioEffectValue =
   | 'none'
   | 'piano'
   | 'acappella'
@@ -111,9 +111,17 @@ type PendingSwitch = {
   previousTrackId: string | null;
   previousPlaylist: Song[] | null;
   previousAudioUrl: string;
+  previousResolvedAudioQuality: AudioQualityValue | null;
+  previousResolvedAudioEffect: AudioEffectValue;
   previousTime: number;
   wasPlaying: boolean;
   targetTrackId: string;
+};
+
+type ResolvedAudioSource = {
+  url: string;
+  quality: AudioQualityValue | null;
+  effect: AudioEffectValue;
 };
 
 type ClimaxMark = { start: number; end: number };
@@ -198,6 +206,9 @@ export const usePlayerStore = defineStore('player', {
     lastError: '' as string | null,
     currentPlaylist: null as Song[] | null,
     currentAudioUrl: '' as string,
+    currentResolvedAudioQuality: null as AudioQualityValue | null,
+    currentResolvedAudioEffect: 'none' as AudioEffectValue,
+    audioEffect: 'none' as AudioEffectValue,
     recentSeekIgnoreEnd: false,
     settingsWatcherRegistered: false,
     pendingSwitch: null as PendingSwitch | null,
@@ -206,6 +217,8 @@ export const usePlayerStore = defineStore('player', {
     climaxMarks: [] as ClimaxMark[],
     outputDeviceWatcherRegistered: false,
     currentAudioQualityOverride: null as AudioQualityValue | null,
+    playbackRequestSeq: 0,
+    climaxRequestSeq: 0,
   }),
   actions: {
     init() {
@@ -219,7 +232,6 @@ export const usePlayerStore = defineStore('player', {
       // 恢复持久化的音量与倍速
       engine.setVolume(this.volume);
       engine.setPlaybackRate(this.playbackRate);
-
       this.registerSettingWatchers(settingStore);
       this.registerOutputDeviceWatcher(settingStore);
       void this.refreshOutputDevices(settingStore);
@@ -334,7 +346,6 @@ export const usePlayerStore = defineStore('player', {
 
       let snapshot = {
         defaultAudioQuality: settingStore.defaultAudioQuality,
-        audioEffect: settingStore.audioEffect,
         compatibilityMode: settingStore.compatibilityMode,
         volumeFade: settingStore.volumeFade,
         volumeFadeTime: settingStore.volumeFadeTime,
@@ -347,7 +358,6 @@ export const usePlayerStore = defineStore('player', {
           && state.defaultAudioQuality !== snapshot.defaultAudioQuality;
         const shouldRefresh =
           shouldRefreshDefaultQuality ||
-          state.audioEffect !== snapshot.audioEffect ||
           state.compatibilityMode !== snapshot.compatibilityMode;
         const shouldUpdateFade =
           state.volumeFade !== snapshot.volumeFade ||
@@ -356,7 +366,6 @@ export const usePlayerStore = defineStore('player', {
 
         snapshot = {
           defaultAudioQuality: state.defaultAudioQuality,
-          audioEffect: state.audioEffect,
           compatibilityMode: state.compatibilityMode,
           volumeFade: state.volumeFade,
           volumeFadeTime: state.volumeFadeTime,
@@ -501,6 +510,7 @@ export const usePlayerStore = defineStore('player', {
       const playlistStore = usePlaylistStore();
       const lyricStore = useLyricStore();
       const settingStore = useSettingStore();
+      const requestSeq = ++this.playbackRequestSeq;
       const sourceList = playlist ?? playlistStore.defaultList;
       logger.info('PlayerStore', 'Play track requested', {
         requestedTrackId: String(id),
@@ -534,6 +544,8 @@ export const usePlayerStore = defineStore('player', {
       const isSameTrackReplay = previousTrackId === resolvedId;
       const previousPlaylist = this.currentPlaylist;
       const previousAudioUrl = this.currentAudioUrl;
+      const previousResolvedAudioQuality = this.currentResolvedAudioQuality;
+      const previousResolvedAudioEffect = this.currentResolvedAudioEffect;
       const previousTime = this.currentTime;
       const wasPlaying = this.isPlaying;
 
@@ -543,11 +555,19 @@ export const usePlayerStore = defineStore('player', {
       logger.info('PlayerStore', 'Resolving audio url for track', {
         track: summarizeSong(track),
         defaultAudioQuality: settingStore.defaultAudioQuality,
-        audioEffect: settingStore.audioEffect,
+        audioEffect: this.audioEffect,
         compatibilityMode: settingStore.compatibilityMode,
       });
       const resolved = await this.resolveAudioUrl(track);
-      if (!resolved) {
+      if (requestSeq !== this.playbackRequestSeq) {
+        logger.info('PlayerStore', 'Ignore stale playTrack result', {
+          requestSeq,
+          latestRequestSeq: this.playbackRequestSeq,
+          track: summarizeSong(track),
+        });
+        return;
+      }
+      if (!resolved.url) {
         logger.error('PlayerStore', 'Resolve audio url failed', {
           track: summarizeSong(track),
           autoNext: settingStore.autoNext,
@@ -569,6 +589,8 @@ export const usePlayerStore = defineStore('player', {
         previousTrackId,
         previousPlaylist,
         previousAudioUrl,
+        previousResolvedAudioQuality,
+        previousResolvedAudioEffect,
         previousTime,
         wasPlaying,
         targetTrackId: String(track.id),
@@ -582,26 +604,40 @@ export const usePlayerStore = defineStore('player', {
 
       if (wasPlaying && settingStore.volumeFade) {
         const fadeMs = clampNumber(settingStore.volumeFadeTime ?? 1000, 120, 1000);
-        await this.fadeVolume(0, { durationMs: fadeMs, respectUserVolume: true });
+        const transitionFadeMs = Math.min(fadeMs, 220);
+        await this.fadeVolume(0, { durationMs: transitionFadeMs, respectUserVolume: true });
       } else {
         engine.setVolume(this.volume);
       }
 
-      this.currentTrackId = id;
+      if (requestSeq !== this.playbackRequestSeq) {
+        logger.info('PlayerStore', 'Ignore stale playTrack after fade', {
+          requestSeq,
+          latestRequestSeq: this.playbackRequestSeq,
+          track: summarizeSong(track),
+        });
+        return;
+      }
+
+      this.currentTrackId = resolvedId;
       this.currentPlaylist = sourceList;
       playlistStore.consumeQueuedNextTrackId(id);
       playlistStore.syncQueuedNextTrackIds();
-      this.currentAudioUrl = resolved;
-      track.audioUrl = resolved;
+      this.currentAudioUrl = resolved.url;
+      this.currentResolvedAudioQuality = resolved.quality;
+      this.currentResolvedAudioEffect = resolved.effect;
+      track.audioUrl = resolved.url;
       this.climaxMarks = [];
       this.currentTime = 0;
       this.duration = 0;
 
       logger.info('PlayerStore', 'Binding resolved source to engine', {
         track: summarizeSong(track),
-        audioUrlLength: resolved.length,
+        audioUrlLength: resolved.url.length,
+        resolvedQuality: resolved.quality,
+        resolvedEffect: resolved.effect,
       });
-      engine.setSource(resolved);
+      engine.setSource(resolved.url);
 
       // 设置歌词
       if (track.lyric) {
@@ -623,6 +659,14 @@ export const usePlayerStore = defineStore('player', {
 
       try {
         await engine.play();
+        if (requestSeq !== this.playbackRequestSeq) {
+          logger.info('PlayerStore', 'Ignore stale playTrack after engine.play', {
+            requestSeq,
+            latestRequestSeq: this.playbackRequestSeq,
+            track: summarizeSong(track),
+          });
+          return;
+        }
         logger.info('PlayerStore', 'Play track succeeded', {
           track: summarizeSong(track),
           wasPlaying,
@@ -644,6 +688,14 @@ export const usePlayerStore = defineStore('player', {
         }
       } catch (error) {
         logger.error('PlayerStore', 'Play track failed:', error);
+        if (requestSeq !== this.playbackRequestSeq) {
+          logger.info('PlayerStore', 'Ignore stale playTrack error', {
+            requestSeq,
+            latestRequestSeq: this.playbackRequestSeq,
+            track: summarizeSong(track),
+          });
+          return;
+        }
         this.isLoading = false;
         this.lastError = 'playback-failed';
         settingStore.syncPreventSleep(false);
@@ -652,6 +704,8 @@ export const usePlayerStore = defineStore('player', {
           this.currentTrackId = previousTrackId;
           this.currentPlaylist = previousPlaylist;
           this.currentAudioUrl = previousAudioUrl;
+          this.currentResolvedAudioQuality = previousResolvedAudioQuality;
+          this.currentResolvedAudioEffect = previousResolvedAudioEffect;
           engine.setSource(previousAudioUrl);
           if (previousTime > 0) {
             engine.seek(previousTime);
@@ -725,6 +779,21 @@ export const usePlayerStore = defineStore('player', {
       return request;
     },
 
+    setAudioEffect(effect: AudioEffectValue) {
+      const nextEffect = normalizeEffect(effect);
+      if (this.audioEffect === nextEffect) return;
+      this.audioEffect = nextEffect;
+      logger.info('PlayerStore', 'Current audio effect updated', {
+        audioEffect: this.audioEffect,
+      });
+      if (!this.currentTrackId) return;
+      if (this.isLoading || this.pendingSettingRefresh) {
+        this.pendingSettingRefresh = true;
+        return;
+      }
+      void this.refreshCurrentTrack();
+    },
+
     setCurrentAudioQualityOverride(quality: AudioQualityValue | null, options?: { refresh?: boolean }) {
       const nextQuality = quality ? normalizeQuality(quality) : null;
       if (this.currentAudioQualityOverride === nextQuality) return;
@@ -759,7 +828,12 @@ export const usePlayerStore = defineStore('player', {
       this.isPlaying = false;
       this.currentTrackId = null;
       this.currentAudioUrl = '';
+      this.currentResolvedAudioQuality = null;
+      this.currentResolvedAudioEffect = 'none';
       this.currentAudioQualityOverride = null;
+      this.audioEffect = 'none';
+      this.playbackRequestSeq += 1;
+      this.climaxRequestSeq += 1;
       this.isLoading = false;
       this.pendingSwitch = null;
       this.outputDeviceWatcherRegistered = false;
@@ -1031,22 +1105,34 @@ export const usePlayerStore = defineStore('player', {
       settingStore.outputDeviceType = 'default';
     },
 
-    async resolveAudioUrl(track: Song, options?: { forceReload?: boolean }): Promise<string> {
+    async resolveAudioUrl(track: Song, options?: { forceReload?: boolean }): Promise<ResolvedAudioSource> {
       if (!track.hash) {
         logger.warn('PlayerStore', 'Resolve audio url skipped because track hash is missing', summarizeSong(track));
-        return '';
+        return { url: '', quality: null, effect: 'none' };
       }
-      if (track.audioUrl && !options?.forceReload) {
-        logger.debug('PlayerStore', 'Reuse cached audio url', {
+      const canReuseCurrentSource =
+        !!track.audioUrl
+        && !options?.forceReload
+        && !!this.currentTrackId
+        && String(track.id) === String(this.currentTrackId)
+        && track.audioUrl === this.currentAudioUrl;
+
+      if (canReuseCurrentSource) {
+        logger.debug('PlayerStore', 'Reuse current audio url', {
           track: summarizeSong(track),
           forceReload: !!options?.forceReload,
+          resolvedQuality: this.currentResolvedAudioQuality,
         });
-        return track.audioUrl;
+        return {
+          url: track.audioUrl!,
+          quality: this.currentResolvedAudioQuality,
+          effect: this.currentResolvedAudioEffect,
+        };
       }
 
       const settingStore = useSettingStore();
       const audioQuality = this.getEffectiveAudioQuality(settingStore);
-      const audioEffect = normalizeEffect(settingStore.audioEffect);
+      const audioEffect = normalizeEffect(this.audioEffect);
       const compatibilityMode = settingStore.compatibilityMode ?? true;
 
       if (track.source === 'cloud') {
@@ -1057,7 +1143,7 @@ export const usePlayerStore = defineStore('player', {
         } else {
           logger.warn('PlayerStore', 'Resolved cloud track audio url is empty', summarizeSong(track));
         }
-        return cloudUrl ?? '';
+        return { url: cloudUrl ?? '', quality: null, effect: 'none' };
       }
 
       let relateGoods = track.relateGoods ?? [];
@@ -1066,22 +1152,35 @@ export const usePlayerStore = defineStore('player', {
       }
 
       if (audioEffect !== 'none') {
-        try {
-          logger.debug('PlayerStore', 'Trying effect audio url', {
-            track: summarizeSong(track),
-            audioEffect,
-          });
-          const effectRes = await getSongUrl(track.hash, audioEffect);
-          const effectUrl = resolveUrlFromResponse(effectRes);
-          if (effectUrl) {
-            logger.info('PlayerStore', 'Resolved effect audio url successfully', {
+        const matchedEffect = relateGoods.find((item) => item.quality === audioEffect && item.hash);
+        const effectHashes = [matchedEffect?.hash, track.hash]
+          .filter((value, index, list): value is string => !!value && list.indexOf(value) === index);
+
+        for (const effectHash of effectHashes) {
+          try {
+            logger.debug('PlayerStore', 'Trying effect audio url', {
               track: summarizeSong(track),
               audioEffect,
+              hash: effectHash,
+              source: effectHash === matchedEffect?.hash ? 'relateGoods' : 'track',
             });
-            return effectUrl;
+            const effectRes = await getSongUrl(effectHash, audioEffect);
+            const effectUrl = resolveUrlFromResponse(effectRes);
+            if (effectUrl) {
+              logger.info('PlayerStore', 'Resolved effect audio url successfully', {
+                track: summarizeSong(track),
+                audioEffect,
+                hash: effectHash,
+              });
+              return { url: effectUrl, quality: audioQuality, effect: audioEffect };
+            }
+          } catch (error) {
+            logger.warn('PlayerStore', 'Fetch effect url failed:', error, {
+              track: summarizeSong(track),
+              audioEffect,
+              hash: effectHash,
+            });
           }
-        } catch (error) {
-          logger.warn('PlayerStore', 'Fetch effect url failed:', error);
         }
       }
 
@@ -1109,7 +1208,7 @@ export const usePlayerStore = defineStore('player', {
               track: summarizeSong(track),
               quality,
             });
-            return url;
+            return { url, quality, effect: 'none' };
           }
         } catch (error) {
           logger.warn('PlayerStore', 'Fetch quality url failed:', error);
@@ -1123,7 +1222,11 @@ export const usePlayerStore = defineStore('player', {
           const url = resolveUrlFromResponse(res);
           if (url) {
             logger.info('PlayerStore', 'Resolved fallback audio url successfully', summarizeSong(track));
-            return url;
+            return {
+              url,
+              quality: this.getResolvedAudioQuality(track, settingStore),
+              effect: 'none',
+            };
           }
         } catch (error) {
           logger.warn('PlayerStore', 'Fetch fallback url failed:', error);
@@ -1136,7 +1239,7 @@ export const usePlayerStore = defineStore('player', {
         audioEffect,
         compatibilityMode,
       });
-      return '';
+      return { url: '', quality: null, effect: 'none' };
     },
 
     async refreshCurrentTrack() {
@@ -1150,6 +1253,7 @@ export const usePlayerStore = defineStore('player', {
       }
       const playlistStore = usePlaylistStore();
       const settingStore = useSettingStore();
+      const requestSeq = ++this.playbackRequestSeq;
       const track = findTrackById(this.currentTrackId, this.currentPlaylist, playlistStore);
       if (!track) {
         logger.warn('PlayerStore', 'Refresh current track failed because active track is missing', {
@@ -1170,23 +1274,37 @@ export const usePlayerStore = defineStore('player', {
       this.isLoading = true;
 
       const resolved = await this.resolveAudioUrl(track, { forceReload: true });
-      if (!resolved) {
+      if (requestSeq !== this.playbackRequestSeq) {
+        logger.info('PlayerStore', 'Ignore stale refreshCurrentTrack result', {
+          requestSeq,
+          latestRequestSeq: this.playbackRequestSeq,
+          track: summarizeSong(track),
+        });
+        return;
+      }
+      if (!resolved.url) {
         logger.error('PlayerStore', 'Refresh current track failed because resolved url is empty', summarizeSong(track));
         this.isLoading = false;
         this.lastError = 'audio-url-unavailable';
         return;
       }
 
-      if (wasPlaying && settingStore.volumeFade) {
-        const fadeMs = clampNumber(settingStore.volumeFadeTime ?? 1000, 120, 1000);
-        await this.fadeVolume(0, { durationMs: fadeMs, respectUserVolume: true });
-      } else {
-        engine.setVolume(this.volume);
+      engine.setVolume(this.volume);
+
+      if (requestSeq !== this.playbackRequestSeq) {
+        logger.info('PlayerStore', 'Ignore stale refreshCurrentTrack before apply source', {
+          requestSeq,
+          latestRequestSeq: this.playbackRequestSeq,
+          track: summarizeSong(track),
+        });
+        return;
       }
 
-      this.currentAudioUrl = resolved;
-      track.audioUrl = resolved;
-      engine.setSource(resolved);
+      this.currentAudioUrl = resolved.url;
+      this.currentResolvedAudioQuality = resolved.quality;
+      this.currentResolvedAudioEffect = resolved.effect;
+      track.audioUrl = resolved.url;
+      engine.setSource(resolved.url);
       engine.setPlaybackRate(this.playbackRate);
       void this.fetchClimaxMarks(track);
 
@@ -1199,6 +1317,14 @@ export const usePlayerStore = defineStore('player', {
       if (wasPlaying) {
         try {
           await engine.play();
+          if (requestSeq !== this.playbackRequestSeq) {
+            logger.info('PlayerStore', 'Ignore stale refreshCurrentTrack after engine.play', {
+              requestSeq,
+              latestRequestSeq: this.playbackRequestSeq,
+              track: summarizeSong(track),
+            });
+            return;
+          }
           logger.info('PlayerStore', 'Refresh current track replay succeeded', {
             track: summarizeSong(track),
             restoredTime: previousTime,
@@ -1208,13 +1334,16 @@ export const usePlayerStore = defineStore('player', {
         }
       }
 
-      if (wasPlaying && settingStore.volumeFade) {
-        this.fadeIn();
-      } else if (wasPlaying) {
+      if (wasPlaying) {
         engine.setVolume(this.volume);
       }
 
       this.isLoading = false;
+
+      if (this.pendingSettingRefresh) {
+        this.pendingSettingRefresh = false;
+        void this.refreshCurrentTrack();
+      }
     },
 
     async recoverFromPendingSwitch(reason: string) {
@@ -1233,6 +1362,8 @@ export const usePlayerStore = defineStore('player', {
       this.currentTrackId = fallback.previousTrackId;
       this.currentPlaylist = fallback.previousPlaylist;
       this.currentAudioUrl = fallback.previousAudioUrl;
+      this.currentResolvedAudioQuality = fallback.previousResolvedAudioQuality;
+      this.currentResolvedAudioEffect = fallback.previousResolvedAudioEffect;
       engine.setSource(fallback.previousAudioUrl);
       if (fallback.previousTime > 0) {
         engine.seek(fallback.previousTime);
@@ -1261,42 +1392,70 @@ export const usePlayerStore = defineStore('player', {
     },
 
     async fetchClimaxMarks(track: Song) {
-      if (!track.hash) return;
+      if (!track.hash) {
+        this.climaxMarks = [];
+        return;
+      }
+      const requestSeq = ++this.climaxRequestSeq;
       logger.debug('PlayerStore', 'Fetching climax marks', summarizeSong(track));
       try {
         const res = await getSongClimax(track.hash);
+        if (requestSeq !== this.climaxRequestSeq || String(track.id) !== String(this.currentTrackId)) {
+          logger.debug('PlayerStore', 'Ignore stale climax marks result', {
+            requestSeq,
+            latestRequestSeq: this.climaxRequestSeq,
+            track: summarizeSong(track),
+            currentTrackId: this.currentTrackId,
+          });
+          return;
+        }
         const data = res && typeof res === 'object' ? (res as { data?: unknown }).data : undefined;
         const list = Array.isArray(data) ? data : [];
         const marks: ClimaxMark[] = [];
         const duration = track.duration || this.duration || 0;
-        const total = duration > 0 ? duration : 1;
+        if (!(duration > 0) || list.length === 0) {
+          this.climaxMarks = [];
+          return;
+        }
+        const total = duration;
 
         list.forEach((item) => {
           if (!item || typeof item !== 'object') return;
           const record = item as Record<string, unknown>;
-          const startRaw = record.start_time ?? record.starttime ?? record.start ?? 0;
-          const endRaw = record.end_time ?? record.endtime ?? record.end ?? 0;
+          const startRaw = record.start_time ?? record.starttime ?? record.start;
+          const endRaw = record.end_time ?? record.endtime ?? record.end;
           const startMs = Number(startRaw);
-          const endMs = Number(endRaw || startMs + 15000);
-          if (!Number.isFinite(startMs)) return;
-          const start = Math.max(0, startMs / 1000);
-          const end = Math.max(start, endMs / 1000);
+          const endMs = Number(endRaw);
+          if (!Number.isFinite(startMs) || startMs <= 0 || startMs >= total * 1000) return;
+
+          const start = startMs / 1000;
+          const end = Number.isFinite(endMs) && endMs > startMs
+            ? Math.min(total, endMs / 1000)
+            : start;
           const normalizedStart = start / total;
           const normalizedEnd = end / total;
-          if (normalizedStart <= 1) {
-            marks.push({
-              start: normalizedStart,
-              end: Math.min(1, normalizedEnd),
-            });
-          }
+
+          if (!Number.isFinite(normalizedStart) || !Number.isFinite(normalizedEnd)) return;
+          if (normalizedStart <= 0 || normalizedStart >= 1) return;
+          if (normalizedEnd <= 0) return;
+
+          marks.push({
+            start: normalizedStart,
+            end: Math.min(1, Math.max(normalizedStart, normalizedEnd)),
+          });
         });
 
-        this.climaxMarks = marks;
+        this.climaxMarks = marks
+          .sort((a, b) => a.start - b.start)
+          .filter((mark, index, arr) => index === 0 || Math.abs(mark.start - arr[index - 1].start) > 0.002);
         logger.debug('PlayerStore', 'Fetched climax marks', {
           track: summarizeSong(track),
           count: marks.length,
         });
       } catch (error) {
+        if (requestSeq === this.climaxRequestSeq) {
+          this.climaxMarks = [];
+        }
         logger.warn('PlayerStore', 'Fetch climax marks failed:', error);
       }
     },
@@ -1317,11 +1476,12 @@ export const usePlayerStore = defineStore('player', {
       const settingStore = useSettingStore();
       if (!settingStore.volumeFade) return;
       const fadeMs = clampNumber(settingStore.volumeFadeTime ?? 1000, 120, 1200);
+      const transitionFadeMs = Math.min(fadeMs, 220);
       logger.debug('PlayerStore', 'Fade in playback volume', {
         targetVolume: this.volume,
-        durationMs: fadeMs,
+        durationMs: transitionFadeMs,
       });
-      void this.fadeVolume(this.volume, { durationMs: fadeMs, respectUserVolume: false });
+      void this.fadeVolume(this.volume, { durationMs: transitionFadeMs, respectUserVolume: false });
     },
 
     fadeVolume(
@@ -1357,6 +1517,6 @@ export const usePlayerStore = defineStore('player', {
     },
   },
   persist: {
-    pick: ['volume', 'playMode', 'currentTrackId', 'playbackRate'],
+    pick: ['volume', 'playMode', 'currentTrackId', 'playbackRate', 'audioEffect'],
   },
 });
