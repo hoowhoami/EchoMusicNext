@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { getCoverUrl } from '@/utils/music';
+import { getCoverUrl } from '@/utils/cover';
 import { iconMusic } from '@/icons';
 
 interface Props {

@@ -14,7 +14,8 @@ import SongCard from '@/components/music/SongCard.vue';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 import { iconPlay, iconPlus, iconTrash, iconX } from '@/icons';
-import { isPlayableSong, replaceQueueAndPlay } from '@/utils/songPlayback';
+import { isPlayableSong } from '@/utils/song';
+import { replaceQueueAndPlay } from '@/utils/playback';
 
 interface Props {
   open?: boolean;
@@ -110,10 +111,16 @@ watch(
 
 const itemHeight = 56;
 
+const createdPlaylists = computed(() => playlistStore.getCreatedPlaylists(userStore.info?.userid));
+
 const canPlaySelected = computed(() => selectedSongs.value.some((song) => isPlayableSong(song)));
 const canAddSelected = computed(() => userStore.isLoggedIn && selectedSongs.value.length > 0);
 const canRemoveSelected = computed(
-  () => Boolean(props.sourceId) && userStore.isLoggedIn && selectedSongs.value.length > 0,
+  () =>
+    Boolean(props.sourceId) &&
+    userStore.isLoggedIn &&
+    selectedSongs.value.length > 0 &&
+    playlistStore.isOwnedPlaylist(props.sourceId, userStore.info?.userid),
 );
 
 const handlePlaySelected = async () => {
@@ -248,7 +255,9 @@ const handleRemoveFromPlaylist = async () => {
               :coverUrl="song.coverUrl"
               :duration="song.duration"
               :audioUrl="song.audioUrl"
+              :source="song.source"
               :mixSongId="song.mixSongId"
+              :fileId="song.fileId"
               :privilege="song.privilege"
               :payType="song.payType"
               :oldCpy="song.oldCpy"
@@ -283,11 +292,11 @@ const handleRemoveFromPlaylist = async () => {
   >
     <div class="batch-playlist-body">
       <div v-if="isPlaylistLoading" class="batch-playlist-status">加载歌单中...</div>
-      <div v-else-if="playlistStore.userPlaylists.length === 0" class="batch-playlist-status">
+      <div v-else-if="createdPlaylists.length === 0" class="batch-playlist-status">
         暂无可用歌单
       </div>
       <Button
-        v-for="entry in playlistStore.userPlaylists"
+        v-for="entry in createdPlaylists"
         :key="entry.listid ?? entry.id"
         type="button"
         class="playlist-picker-item"

@@ -4,7 +4,7 @@ import request from '@/utils/request';
  * 获取歌手详情
  */
 export function getArtistDetail(id: string | number) {
-  return request.post('/artist/detail', { id });
+  return request.get('/artist/detail', { params: { id } });
 }
 
 /**
@@ -16,7 +16,7 @@ export function getArtistSongs(
   pagesize = 200,
   sort: 'hot' | 'new' = 'hot'
 ) {
-  return request.post('/artist/audios', { id, page, pagesize, sort });
+  return request.get('/artist/audios', { params: { id, page, pagesize, sort } });
 }
 
 /**
@@ -28,5 +28,5 @@ export function getArtistAlbums(
   pagesize = 30,
   sort: 'hot' | 'new' = 'hot'
 ) {
-  return request.post('/artist/albums', { id, page, pagesize, sort });
+  return request.get('/artist/albums', { params: { id, page, pagesize, sort } });
 }

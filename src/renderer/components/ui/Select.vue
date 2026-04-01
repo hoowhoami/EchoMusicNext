@@ -107,7 +107,7 @@ const selectedLabel = computed(() => {
 
 .select-trigger:focus-visible {
   @apply outline-none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  box-shadow: none;
 }
 
 .select-value {
@@ -143,7 +143,7 @@ const selectedLabel = computed(() => {
 }
 
 .select-item:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  box-shadow: none;
 }
 
 :global(.select-content::after) {

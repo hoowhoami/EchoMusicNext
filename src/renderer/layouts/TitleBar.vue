@@ -13,7 +13,6 @@ import {
 
 const route = useRoute();
 const router = useRouter();
-
 const isMac = computed(() => window.electron.platform === 'darwin');
 
 const canGoBack = ref(false);
@@ -37,7 +36,16 @@ const goBack = () => {
 const goForward = () => {
   if (canGoForward.value) router.forward();
 };
-const refresh = () => window.location.reload();
+const refresh = async () => {
+  await router.replace({
+    path: route.path,
+    query: {
+      ...route.query,
+      _t: Date.now().toString(),
+    },
+    hash: route.hash,
+  });
+};
 
 watch(
   () => route.fullPath,

@@ -10,7 +10,8 @@ import { iconPlay, iconPause } from '@/icons';
 import { usePlayerStore } from '@/stores/player';
 import { usePlaylistStore } from '@/stores/playlist';
 import { buildSongListGridTemplate } from './songListLayout';
-import { isPlayableSong, queueAndPlaySong } from '@/utils/songPlayback';
+import { isPlayableSong } from '@/utils/song';
+import { queueAndPlaySong } from '@/utils/playback';
 import Button from '@/components/ui/Button.vue';
 
 interface Props {
@@ -260,7 +261,9 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
               :coverUrl="song.coverUrl"
               :duration="song.duration"
               :audioUrl="song.audioUrl"
+              :source="song.source"
               :mixSongId="song.mixSongId"
+              :fileId="song.fileId"
               :privilege="song.privilege"
               :payType="song.payType"
               :oldCpy="song.oldCpy"

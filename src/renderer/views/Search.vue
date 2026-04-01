@@ -11,10 +11,10 @@ import {
   mapArtistMeta,
   mapPlaylistMeta,
   mapSearchSong,
-  type AlbumMeta,
-  type ArtistMeta,
-  type PlaylistMeta,
 } from '@/utils/mappers';
+import type { AlbumMeta } from '@/models/album';
+import type { ArtistMeta } from '@/models/artist';
+import type { PlaylistMeta } from '@/models/playlist';
 import CustomTabBar from '@/components/ui/CustomTabBar.vue';
 import SongList from '@/components/music/SongList.vue';
 import SongListHeader, { type SortField, type SortOrder } from '@/components/music/SongListHeader.vue';
@@ -25,7 +25,7 @@ import AlbumCard from '@/components/music/AlbumCard.vue';
 import ArtistCard from '@/components/music/ArtistCard.vue';
 import BackToTop from '@/components/ui/BackToTop.vue';
 import { iconChevronRight, iconClock, iconCurrentLocation, iconSearch, iconSparkles, iconTrash, iconX } from '@/icons';
-import { replaceQueueAndPlay } from '@/utils/songPlayback';
+import { replaceQueueAndPlay } from '@/utils/playback';
 
 interface SearchHotKeyword {
   keyword: string;

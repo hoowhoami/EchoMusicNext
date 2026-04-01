@@ -1,5 +1,12 @@
 import { defineStore } from 'pinia';
 
+type OutputDeviceOption = {
+  label: string;
+  value: string;
+};
+
+type OutputDeviceStatus = 'idle' | 'ready' | 'unsupported' | 'permission' | 'fallback' | 'error';
+
 export const DEFAULT_SHORTCUT_LABELS: Record<string, string> = {
   togglePlayback: '⌘Space',
   previousTrack: '⌘←',
@@ -38,7 +45,7 @@ export const useSettingStore = defineStore('setting', {
     volumeFadeTime: 1000,
     autoNext: false,
     preventSleep: true,
-    audioQuality: 'high' as '128' | '320' | 'flac' | 'high',
+    defaultAudioQuality: 'high' as '128' | '320' | 'flac' | 'high',
     compatibilityMode: true,
     audioEffect: 'none' as 'none' | 'piano' | 'acappella' | 'subwoofer' | 'ancient' | 'surnay' | 'dj' | 'viper_tape' | 'viper_atmos' | 'viper_clear',
     globalShortcutsEnabled: false,
@@ -46,9 +53,13 @@ export const useSettingStore = defineStore('setting', {
     globalShortcutBindings: {} as Record<string, string>,
     defaultShortcutLabels: { ...DEFAULT_SHORTCUT_LABELS } as Record<string, string>,
     defaultGlobalShortcutLabels: { ...DEFAULT_GLOBAL_SHORTCUT_LABELS } as Record<string, string>,
-    outputDevice: '自动',
-    outputDevices: ['自动', '系统默认'] as string[],
+    outputDevice: 'default',
+    outputDevices: [
+      { label: '系统默认', value: 'default' },
+    ] as OutputDeviceOption[],
     outputDeviceType: 'default' as 'default' | 'wasapi',
+    outputDeviceStatus: 'idle' as OutputDeviceStatus,
+    outputDeviceStatusMessage: '',
     pauseOnDeviceChange: false,
     autoReceiveVip: false,
     checkPrerelease: false,
@@ -75,11 +86,21 @@ export const useSettingStore = defineStore('setting', {
       }
     },
     clearAppData() {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('clear-app-data', null);
+      }
+      localStorage.clear();
+      sessionStorage.clear();
       this.$reset();
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 80);
     },
     checkForUpdates() {
       if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('check-for-updates', null);
+        window.electron.ipcRenderer.send('check-for-updates', {
+          prerelease: this.checkPrerelease,
+        });
       }
     },
     openRepo() {
@@ -101,6 +122,23 @@ export const useSettingStore = defineStore('setting', {
       if (window.electron?.ipcRenderer) {
         window.electron.ipcRenderer.send('update-theme', this.theme);
       }
+    },
+    syncRememberWindowSize() {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('update-remember-window-size', this.rememberWindowSize);
+      }
+    },
+    syncPreventSleep(isPlaying = false) {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.send('update-power-save-blocker', {
+          enabled: this.preventSleep,
+          isPlaying,
+        });
+      }
+    },
+    setOutputDeviceStatus(status: OutputDeviceStatus, message = '') {
+      this.outputDeviceStatus = status;
+      this.outputDeviceStatusMessage = message;
     },
     addToSearchHistory(keyword: string) {
       const normalized = keyword.trim();

@@ -1,21 +1,10 @@
 import { defineStore } from 'pinia';
-import { getUserDetail, getUserVipDetail } from '@/api/user';
+import { claimDayVip, getUserDetail, getUserVipDetail, getVipMonthRecord, upgradeDayVip } from '@/api/user';
+import type { User, UserExtendsInfo } from '@/models/user';
+import { mapUser } from '@/utils/mappers';
 import logger from '@/utils/logger';
 
-export interface UserInfo {
-  userid?: number;
-  nickname?: string;
-  pic?: string;
-  token?: string;
-  t1?: string;
-  vip_type?: number;
-  p_grade?: number;
-  extendsInfo?: {
-    detail?: Record<string, unknown>;
-    vip?: Record<string, unknown>;
-    [key: string]: unknown;
-  };
-}
+export type UserInfo = User;
 
 interface ApiPayload {
   status?: number;
@@ -23,13 +12,60 @@ interface ApiPayload {
   [key: string]: unknown;
 }
 
-const readNumber = (value: unknown): number | undefined =>
-  typeof value === 'number' ? value : undefined;
-
 const asApiPayload = (value: unknown): ApiPayload | null => {
   if (!value || typeof value !== 'object') return null;
   return value as ApiPayload;
 };
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+};
+
+const mergeExtendsInfo = (...sources: Array<UserExtendsInfo | undefined>): UserExtendsInfo | undefined => {
+  const merged = sources.reduce<UserExtendsInfo>((acc, source) => {
+    if (!source) return acc;
+    return {
+      ...acc,
+      ...source,
+      detail: isRecord(source.detail)
+        ? {
+            ...(isRecord(acc.detail) ? acc.detail : {}),
+            ...source.detail,
+          }
+        : acc.detail,
+      vip: isRecord(source.vip)
+        ? {
+            ...(isRecord(acc.vip) ? acc.vip : {}),
+            ...source.vip,
+          }
+        : acc.vip,
+    };
+  }, {});
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
+};
+
+const normalizeUserInfo = (info: UserInfo): UserInfo => {
+  const next = { ...info };
+
+  if ((typeof next.userid !== 'number' || next.userid <= 0) && typeof next.userId === 'number' && next.userId > 0) {
+    next.userid = next.userId;
+  }
+  if ((typeof next.userId !== 'number' || next.userId <= 0) && typeof next.userid === 'number' && next.userid > 0) {
+    next.userId = next.userid;
+  }
+
+  return next;
+};
+
+const buildPatchedUserInfo = (current: UserInfo | null, patch: Partial<UserInfo>): UserInfo => {
+  return normalizeUserInfo({
+    ...(current ?? { userid: 0, token: '' }),
+    ...patch,
+  });
+};
+
+
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -37,68 +73,60 @@ export const useUserStore = defineStore('user', {
     isLoggedIn: false,
     hasFetchedUserInfo: false,
     isFetchingUserInfo: false,
-    // 每日权益状态
     isTvipClaimedToday: false,
     isSvipClaimedToday: false,
+    isAutoClaimingVip: false,
   }),
   actions: {
     setUserInfo(info: UserInfo) {
-      this.info = info;
-      this.isLoggedIn = !!info.token;
-      if (!info.token) {
-        this.hasFetchedUserInfo = false;
-      }
+      const nextInfo = normalizeUserInfo(info);
+      this.$patch((state) => {
+        state.info = nextInfo;
+        state.isLoggedIn = !!nextInfo.token;
+        if (!nextInfo.token) {
+          state.hasFetchedUserInfo = false;
+        }
+      });
     },
     handleLoginSuccess(data: Record<string, unknown>) {
       this.hasFetchedUserInfo = false;
-      // 兼容多种返回格式
-      const rawExtends =
-        (data.extends as UserInfo['extendsInfo'] | undefined) ||
-        (data.extendsInfo as UserInfo['extendsInfo'] | undefined) ||
-        this.info?.extendsInfo;
 
-      const user: UserInfo = {
-        userid:
-          typeof data.userid === 'number'
-            ? data.userid
-            : typeof data.userId === 'number'
-              ? data.userId
-              : this.info?.userid,
-        nickname:
-          typeof data.nickname === 'string'
-            ? data.nickname
-            : typeof data.userName === 'string'
-              ? data.userName
-              : this.info?.nickname,
-        pic:
-          typeof data.pic === 'string'
-            ? data.pic
-            : typeof data.userPic === 'string'
-              ? data.userPic
-              : this.info?.pic,
-        token: typeof data.token === 'string' ? data.token : this.info?.token,
-        t1: typeof data.t1 === 'string' ? data.t1 : this.info?.t1,
-        vip_type: typeof data.vip_type === 'number' ? data.vip_type : this.info?.vip_type,
-        p_grade:
-          typeof data.p_grade === 'number'
-            ? data.p_grade
-            : readNumber(rawExtends?.detail?.p_grade) ||
-              readNumber((data.detail as Record<string, unknown> | undefined)?.p_grade) ||
-              this.info?.p_grade,
-        extendsInfo: {
-          detail:
-            rawExtends?.detail ||
-            ((data.detail as Record<string, unknown> | undefined) ?? this.info?.extendsInfo?.detail ?? {}),
-          vip:
-            rawExtends?.vip ||
-            ((data.vip as Record<string, unknown> | undefined) ?? this.info?.extendsInfo?.vip ?? {}),
-        },
-      };
-      this.setUserInfo(user);
+      const mapped = mapUser(data);
+      const detailPayload = isRecord(data.detail)
+        ? data.detail
+        : isRecord(data.extendsInfo) && isRecord((data.extendsInfo as Record<string, unknown>).detail)
+          ? ((data.extendsInfo as Record<string, unknown>).detail as Record<string, unknown>)
+          : isRecord(data)
+            ? data
+            : undefined;
+
+      const vipPayload = isRecord(data.vip)
+        ? data.vip
+        : isRecord(data.extendsInfo) && isRecord((data.extendsInfo as Record<string, unknown>).vip)
+          ? ((data.extendsInfo as Record<string, unknown>).vip as Record<string, unknown>)
+          : undefined;
+
+      const mergedExtends = mergeExtendsInfo(
+        this.info?.extendsInfo,
+        mapped.extendsInfo,
+        detailPayload ? { detail: detailPayload } : undefined,
+        vipPayload ? { vip: vipPayload } : undefined,
+      );
+
+      const nextInfo = buildPatchedUserInfo(this.info, {
+        ...mapped,
+        ...(mergedExtends
+          ? {
+              extends: mergedExtends,
+              extendsInfo: mergedExtends,
+              ...(mergedExtends.detail ? { detail: mergedExtends.detail } : {}),
+              ...(mergedExtends.vip ? { vip: mergedExtends.vip } : {}),
+            }
+          : {}),
+      });
+
+      this.setUserInfo(nextInfo);
     },
-    /**
-     * 主动获取用户详情 (等级、VIP等)
-     */
     async fetchUserInfo() {
       if (!this.isLoggedIn) return;
       try {
@@ -117,16 +145,19 @@ export const useUserStore = defineStore('user', {
 
         if (vipPayload?.status === 1 && this.info) {
           logger.info('UserStore', 'VIP detail fetched');
-          const currentExtends = this.info?.extendsInfo || {};
-          this.info = {
-            ...this.info,
-            extendsInfo: {
-              ...currentExtends,
-              vip: vipPayload.data && typeof vipPayload.data === 'object'
-                ? (vipPayload.data as Record<string, unknown>)
-                : vipPayload,
-            },
-          };
+          const vipData =
+            vipPayload.data && typeof vipPayload.data === 'object'
+              ? (vipPayload.data as Record<string, unknown>)
+              : undefined;
+          const mergedExtends = mergeExtendsInfo(
+            this.info.extendsInfo,
+            vipData ? { vip: vipData } : undefined,
+          );
+
+          this.setUserInfo(buildPatchedUserInfo(this.info, {
+            ...(vipData ? { vip: vipData } : {}),
+            ...(mergedExtends ? { extends: mergedExtends, extendsInfo: mergedExtends } : {}),
+          }));
         }
       } catch (e) {
         logger.error('UserStore', 'Fetch user info error:', e);
@@ -142,6 +173,48 @@ export const useUserStore = defineStore('user', {
         this.isFetchingUserInfo = false;
       }
     },
+
+    async autoReceiveVipIfNeeded() {
+      if (!this.isLoggedIn || this.isAutoClaimingVip) return;
+      this.isAutoClaimingVip = true;
+      try {
+        if (!this.info) {
+          await this.fetchUserInfo();
+        }
+
+        const today = new Date().toISOString().split('T')[0];
+        const recordRes = await getVipMonthRecord();
+        const recordList = Array.isArray(recordRes?.data?.list)
+          ? (recordRes.data.list as Array<Record<string, unknown>>)
+          : [];
+        let isTvipClaimed = recordList.some((item) => String(item.day ?? '') === today);
+
+        if (!isTvipClaimed) {
+          const claimRes = await claimDayVip(today) as { status?: number };
+          isTvipClaimed = claimRes?.status === 1;
+        }
+
+        const vipInfo = (this.info?.extendsInfo?.vip ?? this.info?.vip ?? {}) as Record<string, unknown>;
+        const busiVip = Array.isArray(vipInfo.busi_vip) ? (vipInfo.busi_vip as Array<Record<string, unknown>>) : [];
+        const hasSvip = busiVip.some((item) => item.product_type === 'svip' && Number(item.is_vip ?? 0) === 1);
+
+        let isSvipClaimed = hasSvip;
+        if (isTvipClaimed && !hasSvip) {
+          const upgradeRes = await upgradeDayVip() as { status?: number; error_code?: number };
+          isSvipClaimed = upgradeRes?.status === 1 || upgradeRes?.error_code === 297002;
+        }
+
+        this.setClaimStatus(isTvipClaimed, isSvipClaimed);
+        if (isTvipClaimed || isSvipClaimed) {
+          await this.fetchUserInfo();
+        }
+      } catch (error) {
+        logger.warn('UserStore', 'Auto receive VIP skipped:', error);
+      } finally {
+        this.isAutoClaimingVip = false;
+      }
+    },
+
     setClaimStatus(tvip: boolean, svip: boolean) {
       this.isTvipClaimedToday = tvip;
       this.isSvipClaimedToday = svip;
@@ -153,9 +226,10 @@ export const useUserStore = defineStore('user', {
       this.isFetchingUserInfo = false;
       this.isTvipClaimedToday = false;
       this.isSvipClaimedToday = false;
+      this.isAutoClaimingVip = false;
     },
   },
   persist: {
-    omit: ['hasFetchedUserInfo', 'isFetchingUserInfo'],
+    omit: ['hasFetchedUserInfo', 'isFetchingUserInfo', 'isAutoClaimingVip'],
   },
 });

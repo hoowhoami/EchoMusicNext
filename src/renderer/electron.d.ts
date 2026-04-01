@@ -3,6 +3,7 @@ export interface IElectronAPI {
   ipcRenderer: {
     send: (channel: string, data: unknown) => void;
     on: (channel: string, func: (...args: unknown[]) => void) => void;
+    off: (channel: string, func: (...args: unknown[]) => void) => void;
   };
   shortcuts: {
     register: (payload: { enabled: boolean; shortcutMap: Record<string, string> }) => void;

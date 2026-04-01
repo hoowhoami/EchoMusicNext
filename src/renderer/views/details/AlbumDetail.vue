@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getAlbumDetail, getAlbumSongs } from '@/api/album';
+import { getAlbumDetail, getAlbumSongs, favoriteAlbum as favoriteAlbumApi, unfavoriteAlbum as unfavoriteAlbumApi } from '@/api/album';
 import { getAlbumComments } from '@/api/comment';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
 import ActionRow from '@/components/music/DetailPageActionRow.vue';
@@ -22,14 +22,15 @@ import {
   mapAlbumDetailMeta,
   mapAlbumSong,
   mapCommentItem,
-  type AlbumMeta,
-  type Comment,
 } from '@/utils/mappers';
+import type { AlbumMeta } from '@/models/album';
+import type { Comment } from '@/models/comment';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart } from '@/icons';
-import { replaceQueueAndPlay } from '@/utils/songPlayback';
+import { replaceQueueAndPlay } from '@/utils/playback';
+import { useUserStore } from '@/stores/user';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -68,9 +69,16 @@ const hasMoreComments = ref(true);
 const showBatchDrawer = ref(false);
 const showIntroDialog = ref(false);
 
+const loadedSongCount = computed(() => songs.value.length);
+const albumSongCount = computed(() => {
+  const metaCount = album.value?.songCount ?? 0;
+  return metaCount > 0 ? metaCount : loadedSongCount.value;
+});
+
 const playerStore = usePlayerStore();
 const settingStore = useSettingStore();
 const playlistStore = usePlaylistStore();
+const userStore = useUserStore();
 
 // 搜索和定位逻辑
 const searchQuery = ref('');
@@ -87,6 +95,53 @@ const canOpenAlbumArtist = computed(() => {
   if (!album.value?.singerId) return false;
   return !isSameRoute('artist-detail', album.value.singerId);
 });
+
+const currentAlbumIds = computed(() => {
+  const meta = album.value;
+  if (!meta) return [] as string[];
+  return [meta.id, meta.albumid, meta.album_id]
+    .filter((item): item is number => item !== undefined && item !== null)
+    .map((item) => String(item));
+});
+
+const isFavoriteAlbum = computed(() => {
+  const ids = currentAlbumIds.value;
+  if (ids.length === 0) return false;
+  return playlistStore.userPlaylists.some((entry) => {
+    if (entry.source !== 2) return false;
+    const entryIds = [entry.id, entry.listid, entry.listCreateListid, entry.globalCollectionId, entry.listCreateGid]
+      .filter((item): item is string | number => item !== undefined && item !== null && String(item) !== '')
+      .map((item) => String(item));
+    return entryIds.some((id) => ids.includes(id));
+  });
+});
+
+const toggleFavoriteAlbum = async () => {
+  const meta = album.value;
+  if (!meta || !userStore.isLoggedIn) return;
+
+  if (isFavoriteAlbum.value) {
+    const target = playlistStore.userPlaylists.find((entry) => {
+      if (entry.source !== 2) return false;
+      const entryIds = [entry.id, entry.listid, entry.listCreateListid, entry.globalCollectionId, entry.listCreateGid]
+        .filter((item): item is string | number => item !== undefined && item !== null && String(item) !== '')
+        .map((item) => String(item));
+      return entryIds.some((id) => currentAlbumIds.value.includes(id));
+    });
+    const listId = target?.listid ?? target?.id;
+    if (!listId) return;
+    const res = await unfavoriteAlbumApi(listId);
+    if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
+      await playlistStore.fetchUserPlaylists();
+    }
+    return;
+  }
+
+  const res = await favoriteAlbumApi(meta.id, meta.name, meta.singerId);
+  if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
+    await playlistStore.fetchUserPlaylists();
+  }
+};
 
 const openAlbumArtist = () => {
   if (!canOpenAlbumArtist.value || !album.value?.singerId) return;
@@ -245,7 +300,7 @@ const fetchData = async () => {
       songs.value = Array.isArray(list) ? list.map((item) => mapAlbumSong(item)) : [];
     }
 
-    const totalSongs = album.value?.songCount ?? 0;
+    const totalSongs = albumSongCount.value;
     if (totalSongs > songs.value.length) {
       void fetchAllAlbumSongs(totalSongs);
     }
@@ -299,13 +354,19 @@ watch(
   },
 );
 
-const secondaryActions = computed(() => [
-  {
+const secondaryActions = computed(() => {
+  if (!userStore.isLoggedIn || !album.value) return [];
+  return [{
     icon: iconHeart,
-    label: '收藏',
-    onTap: () => {},
-  },
-]);
+    label: isFavoriteAlbum.value ? '已收藏' : '收藏',
+    emphasized: isFavoriteAlbum.value,
+    tone: 'favorite' as const,
+    onTap: async () => {
+      if (!album.value) return;
+      await toggleFavoriteAlbum()
+    },
+  }];
+});
 
 const handleSongDoubleTapPlay = async (song: Song) => {
   const played = await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0);
@@ -351,7 +412,6 @@ const openCommentPageWithFloor = (comment: Comment) => {
     },
   });
 };
-const loadedSongCount = computed(() => songs.value.length);
 </script>
 
 <template>
@@ -384,7 +444,7 @@ const loadedSongCount = computed(() => songs.value.length);
               {{ album.singerName }}
             </Button>
             <div class="text-[11px] font-semibold opacity-60">
-              {{ album.publishTime }} • {{ album.songCount }} 首歌曲
+              {{ album.publishTime }} • {{ albumSongCount }} 首歌曲
             </div>
           </div>
         </template>

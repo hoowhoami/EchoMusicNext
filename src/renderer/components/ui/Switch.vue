@@ -46,7 +46,7 @@ const handleUpdate = (next: unknown) => {
 }
 
 .switch-root:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  box-shadow: none;
 }
 
 .switch-thumb {

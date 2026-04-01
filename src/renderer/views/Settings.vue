@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useSettingStore } from '@/stores/setting';
+import { usePlayerStore } from '@/stores/player';
 import Select from '@/components/ui/Select.vue';
 import Slider from '@/components/ui/Slider.vue';
 import Switch from '@/components/ui/Switch.vue';
@@ -8,12 +9,12 @@ import Dialog from '@/components/ui/Dialog.vue';
 import Button from '@/components/ui/Button.vue';
 import DisclaimerDialog from '@/components/app/DisclaimerDialog.vue';
 import {
-  iconPlus,
-  iconMinus,
-  iconList,
-  iconGrid,
-  iconChevronUpDown,
-  iconStar,
+  iconPalette,
+  iconPlayerPlay,
+  iconVolume2,
+  iconKeyboard,
+  iconDeviceSpeaker,
+  iconFlask,
   iconShield,
   iconInfo,
   iconExternalLink,
@@ -21,7 +22,9 @@ import {
 } from '@/icons';
 
 const settingStore = useSettingStore();
+const playerStore = usePlayerStore();
 const showDisclaimer = ref(false);
+const isRequestingOutputPermission = ref(false);
 
 onMounted(() => {
   settingStore.syncCloseBehavior();
@@ -222,12 +225,23 @@ const resetAllShortcuts = () => {
 };
 
 const showConfirmClear = ref(false);
+const showUpdateResult = ref(false);
+const isCheckingUpdate = ref(false);
+const updateResult = ref<{
+  status: 'available' | 'latest' | 'error';
+  currentVersion: string;
+  latestVersion?: string;
+  releaseName?: string;
+  releaseUrl?: string;
+  body?: string;
+  message?: string;
+} | null>(null);
 
 const audioQualityOptions = [
-  { label: 'Hi-Res品质', value: 'high' },
-  { label: 'SQ无损品质', value: 'flac' },
-  { label: 'HQ高品质', value: '320' },
   { label: '标准品质', value: '128' },
+  { label: 'HQ 高品质', value: '320' },
+  { label: 'SQ 无损品质', value: 'flac' },
+  { label: 'Hi-Res 品质', value: 'high' },
 ];
 
 const closeBehaviorOptions = [
@@ -235,15 +249,105 @@ const closeBehaviorOptions = [
   { label: '彻底退出程序', value: 'exit' },
 ];
 
-const outputDeviceOptions = computed(() =>
-  settingStore.outputDevices.map((device) => ({ label: device, value: device })),
-);
+const outputDeviceOptions = computed(() => settingStore.outputDevices);
+const outputDeviceFeedbackTone = computed(() => {
+  if (settingStore.outputDeviceStatus === 'error') return 'danger';
+  if (settingStore.outputDeviceStatus === 'unsupported' || settingStore.outputDeviceStatus === 'permission' || settingStore.outputDeviceStatus === 'fallback') return 'warning';
+  return 'info';
+});
+const hasOutputDeviceFeedback = computed(() => settingStore.outputDeviceStatus !== 'idle' && !!settingStore.outputDeviceStatusMessage);
+const canRequestOutputDevicePermission = computed(() => {
+  const status = settingStore.outputDeviceStatus;
+  return typeof navigator.mediaDevices?.getUserMedia === 'function' && (status === 'permission' || status === 'error');
+});
+const outputDevicePermissionActionLabel = computed(() => {
+  if (isRequestingOutputPermission.value) return '请求中...';
+  return settingStore.outputDeviceStatus === 'error' ? '重新获取设备' : '授权音频设备';
+});
 
 const versionLabel = computed(() => settingStore.appVersion || '1.0.0');
 const releaseChannelLabel = computed(() => (settingStore.isPrerelease ? 'Prerelease' : 'Release'));
+const updateDialogTitle = computed(() => {
+  if (!updateResult.value) return '检查更新';
+  if (updateResult.value.status === 'available') return '发现新版本';
+  if (updateResult.value.status === 'latest') return '已是最新版本';
+  return '检查更新失败';
+});
+const updateDialogDescription = computed(() => {
+  if (!updateResult.value) return '';
+  if (updateResult.value.status === 'available') {
+    return `当前版本 v${updateResult.value.currentVersion}，发现新版本 ${updateResult.value.releaseName || updateResult.value.latestVersion || ''}`.trim();
+  }
+  if (updateResult.value.status === 'latest') {
+    return `当前版本 v${updateResult.value.currentVersion} 已是最新版本。`;
+  }
+  return updateResult.value.message || '暂时无法获取更新信息，请稍后再试。';
+});
+const updateResultBody = computed(() => {
+  if (!updateResult.value?.body) return '';
+  return updateResult.value.body.trim();
+});
+
+const handleCheckUpdates = () => {
+  isCheckingUpdate.value = true;
+  settingStore.checkForUpdates();
+};
+
+const handleRequestOutputDevicePermission = async () => {
+  if (isRequestingOutputPermission.value) return;
+  isRequestingOutputPermission.value = true;
+  try {
+    await playerStore.requestOutputDevicePermission(settingStore);
+  } finally {
+    isRequestingOutputPermission.value = false;
+  }
+};
+
+const handleOutputDeviceChange = async (value: string | number | boolean | null | undefined) => {
+  const nextValue = String(value ?? 'default');
+  if (nextValue === settingStore.outputDevice) return;
+
+  if (nextValue !== 'default' && settingStore.outputDeviceStatus === 'permission' && typeof navigator.mediaDevices?.getUserMedia === 'function') {
+    if (isRequestingOutputPermission.value) return;
+    isRequestingOutputPermission.value = true;
+    try {
+      const granted = await playerStore.requestOutputDevicePermission(settingStore);
+      if (!granted) return;
+    } finally {
+      isRequestingOutputPermission.value = false;
+    }
+  }
+
+  settingStore.outputDevice = nextValue;
+};
+
+const handleOpenUpdateRelease = () => {
+  const url = updateResult.value?.releaseUrl;
+  if (!url) return;
+  window.electron?.ipcRenderer?.send('open-external', url);
+};
+
+const handleUpdateCheckResult = (payload: unknown) => {
+  isCheckingUpdate.value = false;
+  if (!payload || typeof payload !== 'object') {
+    updateResult.value = {
+      status: 'error',
+      currentVersion: versionLabel.value,
+      message: '返回的更新信息无效。',
+    };
+  } else {
+    updateResult.value = payload as typeof updateResult.value;
+  }
+  showUpdateResult.value = true;
+};
+
+onMounted(() => {
+  window.electron?.ipcRenderer?.on('update-check-result', handleUpdateCheckResult);
+});
 
 onUnmounted(() => {
   stopRecording();
+  window.electron?.ipcRenderer?.off('update-check-result', handleUpdateCheckResult);
 });
 </script>
 
@@ -256,7 +360,7 @@ onUnmounted(() => {
     <section class="space-y-6">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-          <Icon :icon="iconPlus" width="18" height="18" />
+          <Icon :icon="iconPalette" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">外观与界面</h2>
       </div>
@@ -311,7 +415,7 @@ onUnmounted(() => {
     <section class="space-y-6">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-          <Icon :icon="iconMinus" width="18" height="18" />
+          <Icon :icon="iconPlayerPlay" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">播放体验</h2>
       </div>
@@ -369,21 +473,21 @@ onUnmounted(() => {
     <section class="space-y-6">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-          <Icon :icon="iconList" width="18" height="18" />
+          <Icon :icon="iconVolume2" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">播放音质</h2>
       </div>
       <div class="settings-card">
         <div class="settings-item">
           <div class="space-y-1">
-            <h3 class="font-semibold">首选音质</h3>
-            <p class="text-sm text-text-secondary">根据网络环境选择播放音质</p>
+            <h3 class="font-semibold">默认音质</h3>
+            <p class="text-sm text-text-secondary">新歌曲默认按此音质解析，播放器中可临时覆盖当前歌曲</p>
           </div>
           <Select
             class="min-w-[180px]"
-            :model-value="settingStore.audioQuality"
+            :model-value="settingStore.defaultAudioQuality"
             :options="audioQualityOptions"
-            @update:model-value="settingStore.audioQuality = $event as AudioQuality"
+            @update:model-value="settingStore.defaultAudioQuality = $event as AudioQuality"
           />
         </div>
         <div class="settings-divider"></div>
@@ -400,7 +504,7 @@ onUnmounted(() => {
     <section class="space-y-6">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-          <Icon :icon="iconGrid" width="18" height="18" />
+          <Icon :icon="iconKeyboard" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">快捷键设置</h2>
       </div>
@@ -469,7 +573,7 @@ onUnmounted(() => {
     <section class="space-y-6">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-          <Icon :icon="iconChevronUpDown" width="18" height="18" />
+          <Icon :icon="iconDeviceSpeaker" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">音频设备</h2>
       </div>
@@ -483,7 +587,7 @@ onUnmounted(() => {
             class="min-w-[180px]"
             :model-value="settingStore.outputDevice"
             :options="outputDeviceOptions"
-            @update:model-value="settingStore.outputDevice = String($event)"
+            @update:model-value="handleOutputDeviceChange"
           />
         </div>
         <div class="settings-divider"></div>
@@ -494,8 +598,20 @@ onUnmounted(() => {
           </div>
           <Switch v-model="settingStore.pauseOnDeviceChange" />
         </div>
-        <div v-if="settingStore.outputDeviceType === 'wasapi'" class="settings-warning">
-          该设备为 WASAPI 驱动，可能导致部分音效不可用
+        <div v-if="hasOutputDeviceFeedback" :class="['settings-warning', `is-${outputDeviceFeedbackTone}`]">
+          <div class="settings-warning-content">
+            <span>{{ settingStore.outputDeviceStatusMessage }}</span>
+            <Button
+              v-if="canRequestOutputDevicePermission"
+              variant="outline"
+              size="xs"
+              class="settings-button"
+              :disabled="isRequestingOutputPermission"
+              @click="handleRequestOutputDevicePermission"
+            >
+              {{ outputDevicePermissionActionLabel }}
+            </Button>
+          </div>
         </div>
       </div>
     </section>
@@ -503,7 +619,7 @@ onUnmounted(() => {
     <section class="space-y-6">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-          <Icon :icon="iconStar" width="18" height="18" />
+          <Icon :icon="iconFlask" width="18" height="18" />
         </div>
         <h2 class="text-lg font-bold">实验性功能</h2>
       </div>
@@ -583,8 +699,9 @@ onUnmounted(() => {
             variant="ghost"
             size="xs"
             class="text-primary text-sm font-semibold"
-            @click="settingStore.checkForUpdates()"
-            >检查更新</Button
+            :disabled="isCheckingUpdate"
+            @click="handleCheckUpdates"
+            >{{ isCheckingUpdate ? '检查中...' : '检查更新' }}</Button
           >
         </div>
         <div class="settings-divider"></div>
@@ -646,6 +763,31 @@ onUnmounted(() => {
       </template>
     </Dialog>
 
+
+    <Dialog
+      v-model:open="showUpdateResult"
+      :title="updateDialogTitle"
+      :description="updateDialogDescription"
+      showClose
+      contentClass="settings-update-dialog"
+      bodyClass="settings-update-body"
+    >
+      <div v-if="updateResultBody" class="settings-update-changelog">
+        {{ updateResultBody }}
+      </div>
+      <template #footer>
+        <Button variant="ghost" size="sm" @click="showUpdateResult = false">关闭</Button>
+        <Button
+          v-if="updateResult?.status === 'available' && updateResult?.releaseUrl"
+          variant="primary"
+          size="sm"
+          @click="handleOpenUpdateRelease"
+        >
+          前往下载
+        </Button>
+      </template>
+    </Dialog>
+
     <DisclaimerDialog v-model:open="showDisclaimer" />
   </div>
 </template>
@@ -693,13 +835,13 @@ onUnmounted(() => {
 }
 
 .shortcut-input:focus-visible {
-  border-color: #0071e3;
-  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.25);
+  border-color: var(--color-border-light);
+  box-shadow: none;
 }
 
 .dark .shortcut-input:focus-visible {
-  border-color: #4aa3ff;
-  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.4);
+  border-color: var(--color-border-light);
+  box-shadow: none;
 }
 
 .shortcut-input::placeholder {
@@ -743,7 +885,39 @@ onUnmounted(() => {
 }
 
 .settings-warning {
-  @apply mt-3 text-[12px] text-amber-600 bg-amber-500/10 rounded-lg px-3 py-2;
+  @apply mt-3 text-[12px] rounded-lg px-3 py-2;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.settings-warning-content {
+  @apply flex items-center justify-between gap-3;
+}
+
+.settings-warning-content span {
+  @apply min-w-0 flex-1;
+}
+
+.settings-warning.is-info {
+  color: color-mix(in srgb, var(--color-text-main) 78%, var(--color-primary) 22%);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.settings-warning.is-danger {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.settings-update-changelog {
+  @apply max-h-72 overflow-y-auto whitespace-pre-wrap text-[13px] leading-6 text-text-secondary rounded-xl bg-black/[0.03] dark:bg-white/[0.04] px-4 py-3;
+}
+
+:global(.settings-update-dialog) {
+  @apply w-[520px] max-w-[92vw];
+}
+
+:global(.settings-update-body) {
+  @apply pr-4 pb-1;
 }
 
 .settings-button {

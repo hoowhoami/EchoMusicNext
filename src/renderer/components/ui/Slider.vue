@@ -116,7 +116,7 @@ const thumbClass = computed(() => ['slider-thumb', props.thumbClass]);
 }
 
 .slider-thumb:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  box-shadow: none;
 }
 
 .slider-root[data-disabled] {

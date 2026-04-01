@@ -4,10 +4,12 @@ import { RouterView } from 'vue-router';
 import AuthExpiredDialog from '@/components/app/AuthExpiredDialog.vue';
 import { usePlayerStore } from './stores/player';
 import { useSettingStore } from './stores/setting';
+import { useUserStore } from './stores/user';
 import { initShortcutSync, syncGlobalShortcuts } from '@/utils/shortcuts';
 
 const player = usePlayerStore();
 const settings = useSettingStore();
+const user = useUserStore();
 let disposeShortcuts: (() => void) | null = null;
 
 const updateTheme = () => {
@@ -20,6 +22,13 @@ const updateTheme = () => {
 onMounted(() => {
   player.init();
   updateTheme();
+  settings.syncTheme();
+  settings.syncCloseBehavior();
+  settings.syncRememberWindowSize();
+  settings.syncPreventSleep(player.isPlaying);
+  if (settings.autoReceiveVip && user.isLoggedIn) {
+    void user.autoReceiveVipIfNeeded();
+  }
   disposeShortcuts = initShortcutSync();
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateTheme);
 });
@@ -30,6 +39,18 @@ onUnmounted(() => {
 });
 
 watch(() => settings.theme, updateTheme);
+watch(() => settings.rememberWindowSize, () => settings.syncRememberWindowSize());
+watch(() => settings.preventSleep, () => settings.syncPreventSleep(player.isPlaying));
+watch(() => player.isPlaying, (isPlaying) => settings.syncPreventSleep(isPlaying));
+watch(
+  () => [settings.autoReceiveVip, user.isLoggedIn],
+  ([enabled, loggedIn]) => {
+    if (enabled && loggedIn) {
+      void user.autoReceiveVipIfNeeded();
+    }
+  },
+  { immediate: true },
+);
 watch(
   () => [settings.globalShortcutsEnabled, settings.globalShortcutBindings],
   () => syncGlobalShortcuts(),

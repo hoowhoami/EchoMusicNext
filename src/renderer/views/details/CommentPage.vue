@@ -12,8 +12,9 @@ import {
   getCommentCount,
 } from '@/api/comment';
 import { getSongPrivilegeLite, getSongRanking } from '@/api/music';
-import { mapCommentItem, type Comment } from '@/utils/mappers';
-import { getSongEffectTags, getSongQualityTags } from '@/utils/songPlayback';
+import { mapCommentItem } from '@/utils/mappers';
+import type { Comment } from '@/models/comment';
+import { getSongEffectTags, getSongQualityTags } from '@/utils/song';
 import Drawer from '@/components/ui/Drawer.vue';
 import Tabs from '@/components/ui/Tabs.vue';
 import TabsList from '@/components/ui/TabsList.vue';

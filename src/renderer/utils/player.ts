@@ -1,4 +1,5 @@
 import { Howl } from 'howler';
+import logger from './logger';
 
 export interface PlayerEngineEvents {
   timeUpdate?: (currentTime: number) => void;
@@ -36,6 +37,7 @@ export class PlayerEngine {
   private durationValue: number;
   private timeUpdateTimer: number | null;
   private lastTimeValue: number;
+  private preferredSinkId: string;
 
   constructor() {
     this.howl = null;
@@ -46,6 +48,7 @@ export class PlayerEngine {
     this.durationValue = 0;
     this.timeUpdateTimer = null;
     this.lastTimeValue = -1;
+    this.preferredSinkId = 'default';
   }
 
   private emitDurationChange(): void {
@@ -88,6 +91,46 @@ export class PlayerEngine {
     this.events.error?.(errorEvent);
   }
 
+
+  private getAudioNode(): HTMLAudioElement | null {
+    const sound = (this.howl as unknown as { _sounds?: Array<{ _node?: HTMLAudioElement }> } | null)?._sounds?.[0];
+    const node = sound?._node;
+    return node instanceof HTMLAudioElement ? node : null;
+  }
+
+  private async applySinkId(node?: HTMLAudioElement | null): Promise<boolean> {
+    const targetNode = node ?? this.getAudioNode();
+    if (!targetNode) {
+      logger.debug('PlayerEngine', 'Skip applySinkId because audio node is not ready yet', {
+        preferredSinkId: this.preferredSinkId,
+      });
+      return true;
+    }
+
+    const nextSinkId = this.preferredSinkId || 'default';
+    const mediaNode = targetNode as HTMLAudioElement & { setSinkId?: (sinkId: string) => Promise<void> };
+    if (typeof mediaNode.setSinkId !== 'function') {
+      logger.warn('PlayerEngine', 'setSinkId is not supported by current media element', {
+        requestedDeviceId: nextSinkId,
+      });
+      return nextSinkId === 'default';
+    }
+
+    try {
+      await mediaNode.setSinkId(nextSinkId);
+      logger.info('PlayerEngine', 'setSinkId applied successfully', {
+        requestedDeviceId: nextSinkId,
+      });
+      return true;
+    } catch (error) {
+      logger.warn('PlayerEngine', 'setSinkId failed', {
+        requestedDeviceId: nextSinkId,
+        error,
+      });
+      return false;
+    }
+  }
+
   private cleanupHowl(): void {
     this.stopTimeUpdates();
     if (!this.howl) return;
@@ -106,8 +149,10 @@ export class PlayerEngine {
       rate: this.playbackRateValue,
       onload: () => {
         this.emitDurationChange();
+        void this.applySinkId();
       },
       onplay: () => {
+        void this.applySinkId();
         this.events.play?.();
         this.startTimeUpdates();
       },
@@ -234,6 +279,15 @@ export class PlayerEngine {
     this.lastTimeValue = -1;
     this.events.durationChange?.(0);
     this.buildHowl(url);
+  }
+
+
+  async setOutputDevice(deviceId: string): Promise<boolean> {
+    this.preferredSinkId = deviceId || 'default';
+    logger.info('PlayerEngine', 'Set preferred output device', {
+      requestedDeviceId: this.preferredSinkId,
+    });
+    return this.applySinkId();
   }
 
   async play(): Promise<void> {

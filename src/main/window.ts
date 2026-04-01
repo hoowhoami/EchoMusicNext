@@ -1,13 +1,32 @@
-import { BrowserWindow, shell, app, nativeTheme, ipcMain } from 'electron';
+import {
+  BrowserWindow,
+  shell,
+  app,
+  nativeTheme,
+  ipcMain,
+  powerSaveBlocker,
+  screen,
+} from 'electron';
 import Conf from 'conf';
 import { join } from 'path';
 
 type CloseBehavior = 'tray' | 'exit';
 type ThemeMode = 'light' | 'dark' | 'system';
 
+type WindowState = {
+  width: number;
+  height: number;
+  x?: number;
+  y?: number;
+  isMaximized: boolean;
+};
+
 type AppSettings = {
   closeBehavior: CloseBehavior;
   theme: ThemeMode;
+  rememberWindowSize: boolean;
+  preventSleep: boolean;
+  windowState: WindowState;
 };
 
 const settingsStore = new Conf<AppSettings>({
@@ -15,11 +34,22 @@ const settingsStore = new Conf<AppSettings>({
   defaults: {
     closeBehavior: 'tray',
     theme: 'system',
+    rememberWindowSize: true,
+    preventSleep: true,
+    windowState: {
+      width: 1100,
+      height: 750,
+      isMaximized: false,
+    },
   },
 });
 
 let closeBehavior: CloseBehavior = settingsStore.get('closeBehavior', 'tray');
 let currentTheme: ThemeMode = settingsStore.get('theme', 'system');
+let rememberWindowSize = settingsStore.get('rememberWindowSize', true);
+let preventSleep = settingsStore.get('preventSleep', true);
+let isPlaybackActive = false;
+let powerSaveBlockerId = -1;
 
 let win: BrowserWindow | null = null;
 let isQuitting = false;
@@ -41,6 +71,90 @@ ipcMain.on('update-theme', (_event, theme: ThemeMode) => {
   settingsStore.set('theme', theme);
 });
 
+ipcMain.on('update-remember-window-size', (_event, enabled: boolean) => {
+  rememberWindowSize = enabled;
+  settingsStore.set('rememberWindowSize', enabled);
+});
+
+const syncPowerSaveBlocker = () => {
+  const shouldBlock = preventSleep && isPlaybackActive;
+  if (shouldBlock) {
+    if (powerSaveBlockerId === -1 || !powerSaveBlocker.isStarted(powerSaveBlockerId)) {
+      powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+    }
+    return;
+  }
+
+  if (powerSaveBlockerId !== -1 && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
+    powerSaveBlocker.stop(powerSaveBlockerId);
+  }
+  powerSaveBlockerId = -1;
+};
+
+ipcMain.on(
+  'update-power-save-blocker',
+  (_event, payload: { enabled: boolean; isPlaying: boolean }) => {
+    preventSleep = Boolean(payload?.enabled);
+    isPlaybackActive = Boolean(payload?.isPlaying);
+    settingsStore.set('preventSleep', preventSleep);
+    syncPowerSaveBlocker();
+  },
+);
+
+const getPersistedWindowState = (): WindowState => {
+  return settingsStore.get('windowState', {
+    width: 1100,
+    height: 750,
+    isMaximized: false,
+  });
+};
+
+const hasVisibleArea = (bounds: { x?: number; y?: number; width: number; height: number }) => {
+  return screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    const x = bounds.x ?? area.x;
+    const y = bounds.y ?? area.y;
+    return (
+      x < area.x + area.width &&
+      x + bounds.width > area.x &&
+      y < area.y + area.height &&
+      y + bounds.height > area.y
+    );
+  });
+};
+
+const buildWindowBounds = () => {
+  if (!rememberWindowSize) {
+    return { width: 1100, height: 750 } as const;
+  }
+
+  const state = getPersistedWindowState();
+  const bounds = {
+    width: Math.max(1050, state.width || 1100),
+    height: Math.max(700, state.height || 750),
+    ...(typeof state.x === 'number' ? { x: state.x } : {}),
+    ...(typeof state.y === 'number' ? { y: state.y } : {}),
+  };
+
+  if ((typeof bounds.x === 'number' || typeof bounds.y === 'number') && !hasVisibleArea(bounds)) {
+    return { width: bounds.width, height: bounds.height } as const;
+  }
+
+  return bounds;
+};
+
+const persistWindowState = () => {
+  if (!win || !rememberWindowSize || win.isDestroyed()) return;
+  const bounds = win.getBounds();
+  settingsStore.set('windowState', {
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
+    isMaximized: win.isMaximized(),
+  });
+};
+
 export function getMainWindow() {
   return win;
 }
@@ -61,11 +175,13 @@ export async function createWindow() {
     initialBgColor = nativeTheme.shouldUseDarkColors ? '#1a1a1c' : '#ffffff';
   }
 
+  const initialBounds = buildWindowBounds();
+  const initialWindowState = getPersistedWindowState();
+
   win = new BrowserWindow({
     title: 'EchoMusic',
     icon: join(__dirname, '../../public/favicon.ico'),
-    width: 1100,
-    height: 750,
+    ...initialBounds,
     minWidth: 1050,
     minHeight: 700,
     show: false, // 初始不显示，防止白屏
@@ -86,12 +202,14 @@ export async function createWindow() {
     },
   });
 
+  if (rememberWindowSize && initialWindowState.isMaximized) {
+    win.maximize();
+  }
+
   // 当窗口准备好显示时再展示，优雅解决启动白屏
   win.once('ready-to-show', () => {
     win?.show();
   });
-
-  win.webContents.setFrameRate(60); // 锁定60帧，滚动更稳
 
   if (url) {
     win.loadURL(url);
@@ -114,7 +232,24 @@ export async function createWindow() {
     }
   });
 
+  win.on('resize', () => {
+    if (!win?.isMaximized()) persistWindowState();
+  });
+
+  win.on('move', () => {
+    if (!win?.isMaximized()) persistWindowState();
+  });
+
+  win.on('maximize', () => {
+    persistWindowState();
+  });
+
+  win.on('unmaximize', () => {
+    persistWindowState();
+  });
+
   win.on('closed', () => {
+    syncPowerSaveBlocker();
     win = null;
   });
 

@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router';
 import { useUserStore } from '@/stores/user';
 import Button from '@/components/ui/Button.vue';
 import {
-  getUserDetail, getUserVipDetail,
   claimDayVip, upgradeDayVip, getVipMonthRecord
 } from '@/api/user';
 import Avatar from '@/components/ui/Avatar.vue';
@@ -96,36 +95,15 @@ const loadData = async () => {
   if (!userStore.isLoggedIn) return;
   isLoading.value = true;
   try {
-    // 并发获取基础信息、VIP信息、领取记录
-    const [detailRes, vipRes, recordRes] = await Promise.all([
-      getUserDetail(),
-      getUserVipDetail(),
-      getVipMonthRecord()
-    ]);
+    await userStore.fetchUserInfo();
 
-    if (detailRes.status === 1) {
-      userStore.handleLoginSuccess({ ...userInfo.value, extendsInfo: { detail: detailRes.data } });
-    }
-    if (vipRes.status === 1) {
-      userStore.handleLoginSuccess({ 
-        ...userInfo.value, 
-        extendsInfo: { 
-          detail: detail.value, 
-          vip: vipRes.data 
-        } 
-      });
-    }
-
-    // 同步领取状态
+    const recordRes = await getVipMonthRecord();
     const today = new Date().toISOString().split('T')[0];
     const recordList = recordRes?.data?.list || [];
     const isTvipClaimed = recordList.some((item: any) => item.day === today);
-    
-    // 检查 SVIP 是否已通过 extendsInfo 存在
     const isSvipActive = !!svip.value;
-    
-    userStore.setClaimStatus(isTvipClaimed, isSvipActive);
 
+    userStore.setClaimStatus(isTvipClaimed, isSvipActive);
   } catch (e) {
     logger.error('Profile', 'Load Data Error:', e);
   } finally {

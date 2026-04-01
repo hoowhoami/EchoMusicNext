@@ -1,8 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 import Sidebar from './Sidebar.vue';
 import TitleBar from './TitleBar.vue';
 import PlayerBar from './PlayerBar.vue';
 import BackToTop from '@/components/ui/BackToTop.vue';
+
+const route = useRoute();
+const routeViewKey = computed(() => String(route.query._t ?? route.fullPath));
 </script>
 
 <template>
@@ -17,7 +22,7 @@ import BackToTop from '@/components/ui/BackToTop.vue';
         <TitleBar />
         <!-- 滚动容器 -->
         <div class="view-port flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
-          <router-view />
+          <router-view :key="routeViewKey" />
         </div>
       </main>
 

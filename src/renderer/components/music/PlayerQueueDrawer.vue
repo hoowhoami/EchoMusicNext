@@ -9,7 +9,7 @@ import SongCard from '@/components/music/SongCard.vue';
 import Button from '@/components/ui/Button.vue';
 import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
-import { isPlayableSong } from '@/utils/songPlayback';
+import { isPlayableSong } from '@/utils/song';
 import {
   iconArrowUp,
   iconCurrentLocation,
@@ -177,7 +177,9 @@ const handleClear = () => {
               :coverUrl="track.coverUrl"
               :duration="track.duration"
               :audioUrl="track.audioUrl"
+              :source="track.source"
               :mixSongId="track.mixSongId"
+              :fileId="track.fileId"
               :privilege="track.privilege"
               :payType="track.payType"
               :oldCpy="track.oldCpy"

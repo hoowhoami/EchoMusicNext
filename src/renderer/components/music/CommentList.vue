@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { iconMessageCircle, iconThumbsUp } from '@/icons';
-import type { Comment } from '@/utils/mappers';
+import type { Comment } from '@/models/comment';
 import Button from '@/components/ui/Button.vue';
 
 interface Props {

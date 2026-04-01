@@ -10,7 +10,7 @@ import Cover from '@/components/ui/Cover.vue';
 import Slider from '@/components/ui/Slider.vue';
 import { formatDuration } from '@/utils/format';
 import { closeTransientView } from '@/utils/navigation';
-import { getCoverUrl } from '@/utils/music';
+import { getCoverUrl } from '@/utils/cover';
 import Button from '@/components/ui/Button.vue';
 import {
   iconChevronDown,
@@ -26,6 +26,7 @@ import {
   iconVolume1,
   iconVolumeX,
 } from '@/icons';
+import { isSameSong } from '@/utils/song';
 
 const router = useRouter();
 const route = useRoute();
@@ -54,7 +55,7 @@ const currentIndex = computed(() => lyricStore.currentIndex);
 const hasLyrics = computed(() => lyricStore.lines.length > 0);
 const isFavorite = computed(() => {
   if (!currentTrack.value) return false;
-  return playlistStore.favorites.some((song) => String(song.id) === String(currentTrack.value?.id));
+  return playlistStore.favorites.some((song) => isSameSong(song, currentTrack.value as Song) || String(song.id) === String(currentTrack.value?.id));
 });
 
 const playModeMeta = computed(() => {
@@ -96,7 +97,7 @@ const cyclePlayMode = () => {
 const toggleFavorite = () => {
   if (!currentTrack.value) return;
   if (isFavorite.value) {
-    void playlistStore.removeFromFavorites(String(currentTrack.value.id));
+    void playlistStore.removeFavoriteSong(currentTrack.value);
     return;
   }
   void playlistStore.addToFavorites(currentTrack.value);

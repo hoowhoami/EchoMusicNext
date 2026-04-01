@@ -15,21 +15,13 @@ import type { Song, SongArtist, SongRelateGood } from '@/models/song';
 import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
+import { useUserStore } from '@/stores/user';
 import Dialog from '@/components/ui/Dialog.vue';
 import Button from '@/components/ui/Button.vue';
-import { iconMessageCircle, iconHeart } from '@/icons';
-import {
-  addSongToPlayNext,
-  getSongPrivilegeTags,
-  getSongQualityTag,
-  getSongUnavailableMessage,
-  isNoCopyrightSong,
-  isPaidSong,
-  isPlayableSong,
-  isUnavailableSong,
-  isVipSong,
-  queueAndPlaySong,
-} from '@/utils/songPlayback';
+import { iconMessageCircle, iconHeart, iconHeartFilled } from '@/icons';
+import { isSameSong } from '@/utils/song';
+import { addSongToPlayNext, queueAndPlaySong } from '@/utils/playback';
+import { getSongDerivedState } from '@/utils/song';
 
 interface Props {
   id: string | number;
@@ -55,6 +47,8 @@ interface Props {
   artists?: SongArtist[];
   albumId?: string | number;
   mixSongId?: string | number;
+  fileId?: string | number;
+  source?: string;
   parentPlaylistId?: string | number;
   enableRemoveFromPlaylist?: boolean;
   disableLinks?: boolean;
@@ -67,6 +61,8 @@ const props = withDefaults(defineProps<Props>(), {
   hash: '',
   audioUrl: '',
   mixSongId: '',
+  fileId: '',
+  source: '',
   parentPlaylistId: '',
   enableRemoveFromPlaylist: false,
   showAlbum: true,
@@ -85,6 +81,7 @@ const route = useRoute();
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
 const settingStore = useSettingStore();
+const userStore = useUserStore();
 const showPlaylistDialog = ref(false);
 const isPlaylistLoading = ref(false);
 
@@ -97,50 +94,65 @@ const baseClass = computed(() =>
 const songState = computed<Song>(() => ({
   id: String(props.id),
   title: props.title,
+  name: props.title,
   artist: props.artist,
   artists: props.artists,
+  singers: props.artists,
   album: props.album,
+  albumName: props.album,
   albumId: props.albumId,
   duration: props.duration ?? 0,
   coverUrl: props.coverUrl,
+  cover: props.coverUrl,
   audioUrl: props.audioUrl ?? '',
   hash: props.hash,
   mixSongId: props.mixSongId ?? '',
+  fileId: props.fileId,
+  source: props.source,
+  mvHash: undefined,
   privilege: props.privilege,
   payType: props.payType,
   oldCpy: props.oldCpy,
   relateGoods: props.relateGoods,
 }));
 
-const isVip = computed(() => isVipSong(songState.value));
-const isPaid = computed(() => isPaidSong(songState.value));
-const isNoCopyright = computed(() => isNoCopyrightSong(songState.value));
-const isUnavailable = computed(() => isUnavailableSong(songState.value));
-const isPlayable = computed(() => isPlayableSong(songState.value));
-const unavailableMessage = computed(() => getSongUnavailableMessage(songState.value));
+const derivedState = computed(() => getSongDerivedState(songState.value));
+const isVip = computed(() => derivedState.value.isVip);
+const isPaid = computed(() => derivedState.value.isPaid);
+const isNoCopyright = computed(() => derivedState.value.isNoCopyright);
+const isUnavailable = computed(() => derivedState.value.isUnavailable);
+const isPlayable = computed(() => derivedState.value.isPlayable);
+const unavailableMessage = computed(() => derivedState.value.unavailableMessage);
 const contentOpacity = computed(() => {
   if (props.variant === 'list') return 1;
   return isPlayable.value ? 1 : 0.45;
 });
 
-const qualityTag = computed(() => getSongQualityTag(songState.value));
+const qualityTag = computed(() => derivedState.value.qualityTag);
 
 const privilegeTags = computed(() =>
-  getSongPrivilegeTags(songState.value).map((tag) => ({ label: tag.label, color: tag.color })),
+  derivedState.value.privilegeTags.map((tag) => ({ label: tag.label, color: tag.color })),
 );
 
 const isFavorite = computed(() =>
-  playlistStore.favorites.some((item) => String(item.id) === String(props.id)),
+  playlistStore.favorites.some((item) => isSameSong(item, songState.value) || String(item.id) === String(props.id)),
+);
+
+const selectablePlaylists = computed(() =>
+  playlistStore.getCreatedPlaylists(userStore.info?.userid),
 );
 
 const artistList = computed(() => {
   if (props.artists && props.artists.length > 0) return props.artists;
   if (!props.artist) return [] as SongArtist[];
-  return props.artist
+  const names = props.artist
     .split(/[,/，]/)
     .map((name) => name.trim())
-    .filter((name) => name.length > 0)
-    .map((name) => ({ name }));
+    .filter((name) => name.length > 0);
+  if (names.length === 1) {
+    return [{ id: props.artists?.[0]?.id, name: names[0] }];
+  }
+  return names.map((name) => ({ name }));
 });
 
 const resolveRouteId = (value: unknown) => (Array.isArray(value) ? value[0] : value);
@@ -219,15 +231,22 @@ const goToSongDetail = () => {
 const buildSongPayload = (): Song => ({
   id: String(props.id),
   title: props.title,
+  name: props.title,
   artist: props.artist,
   artists: props.artists,
+  singers: props.artists,
   album: props.album,
+  albumName: props.album,
   albumId: props.albumId,
   duration: props.duration ?? 0,
   coverUrl: props.coverUrl,
+  cover: props.coverUrl,
   audioUrl: props.audioUrl,
   hash: props.hash,
   mixSongId: props.mixSongId ?? props.id,
+  fileId: props.fileId,
+  source: props.source,
+  mvHash: undefined,
   privilege: props.privilege,
   payType: props.payType,
   oldCpy: props.oldCpy,
@@ -282,12 +301,13 @@ const handleSelectPlaylist = async (listId: string | number) => {
 
 const handleRemoveFromPlaylist = () => {
   if (!props.parentPlaylistId) return;
+  if (!playlistStore.isOwnedPlaylist(props.parentPlaylistId, userStore.info?.userid)) return;
   void playlistStore.removeFromPlaylist(String(props.parentPlaylistId), buildSongPayload());
 };
 
 const handleFavorite = () => {
   if (isFavorite.value) {
-    void playlistStore.removeFromFavorites(String(props.id));
+    void playlistStore.removeFavoriteSong(buildSongPayload());
     return;
   }
 
@@ -356,22 +376,22 @@ const handleFavorite = () => {
 
         <!-- 详情及评论 / 收藏 -->
         <div v-if="showMore" class="song-actions ml-3 mr-[10px]" @click.stop>
-          <Button variant="unstyled" size="none" type="button" class="song-action" title="详情及评论" @click.stop="goToSongDetail">
+          <Button variant="unstyled" size="none" type="button" class="song-action song-action-hover-only" title="详情及评论" @click.stop="goToSongDetail">
             <Icon :icon="iconMessageCircle" width="16" height="16" />
           </Button>
           <Button variant="unstyled" size="none"
             type="button"
-            class="song-action"
+            class="song-action song-action-favorite"
             :class="{ 'is-active': isFavorite }"
             :title="isFavorite ? '已收藏' : '收藏'"
             :aria-pressed="isFavorite"
             @click.stop="handleFavorite"
           >
             <Icon
-              :icon="iconHeart"
+              :icon="isFavorite ? iconHeartFilled : iconHeart"
               width="16"
               height="16"
-              :class="{ 'text-primary': isFavorite }"
+              class="text-red-500"
             />
           </Button>
         </div>
@@ -426,14 +446,11 @@ const handleFavorite = () => {
       <div v-if="isPlaylistLoading" class="py-6 text-center text-text-secondary text-[12px]">
         加载歌单中...
       </div>
-      <div
-        v-else-if="playlistStore.userPlaylists.length === 0"
-        class="py-6 text-center text-text-secondary text-[12px]"
-      >
+      <div v-else-if="selectablePlaylists.length === 0" class="py-6 text-center text-text-secondary text-[12px]">
         暂无可用歌单
       </div>
       <Button
-        v-for="entry in playlistStore.userPlaylists"
+        v-for="entry in selectablePlaylists"
         :key="entry.listid ?? entry.id"
         type="button"
         class="playlist-picker-item"
@@ -527,11 +544,18 @@ const handleFavorite = () => {
   display: flex;
   align-items: center;
   gap: 6px;
-  opacity: 0;
-  transition: opacity 0.2s ease;
+  opacity: 1;
 }
 
-.song-card:hover .song-actions {
+.song-action-hover-only {
+  opacity: 0;
+  transition:
+    opacity 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.song-card:hover .song-action-hover-only {
   opacity: 1;
 }
 
@@ -556,8 +580,23 @@ const handleFavorite = () => {
   background: color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
 
-.song-action.is-active:hover {
-  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+.song-action-favorite {
+  color: #ef4444;
+  background: transparent;
+}
+
+.song-action-favorite:hover {
+  color: #dc2626;
+  background: transparent;
+}
+
+.song-action-favorite.is-active {
+  color: #ef4444;
+  background: transparent;
+}
+
+.song-action-favorite.is-active:hover {
+  background: transparent;
 }
 
 :deep(.song-context-menu) {

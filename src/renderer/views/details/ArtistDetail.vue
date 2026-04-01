@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getArtistDetail, getArtistSongs, getArtistAlbums } from '@/api/artist';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
@@ -21,7 +21,7 @@ import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart } from '@/icons';
-import { replaceQueueAndPlay } from '@/utils/songPlayback';
+import { replaceQueueAndPlay } from '@/utils/playback';
 import Button from '@/components/ui/Button.vue';
 
 const playlistStore = usePlaylistStore();
@@ -30,7 +30,7 @@ const settingStore = useSettingStore();
 
 const route = useRoute();
 const router = useRouter();
-const artistId = route.params.id as string;
+const getArtistId = () => String(Array.isArray(route.params.id) ? route.params.id[0] ?? '' : route.params.id ?? '');
 
 const loading = ref(true);
 const artist = ref<ReturnType<typeof mapArtistDetailMeta> | null>(null);
@@ -102,9 +102,9 @@ const fetchData = async () => {
   loading.value = true;
   try {
     const [detailRes, songsRes, albumsRes] = await Promise.all([
-      getArtistDetail(artistId),
-      getArtistSongs(artistId, 1, 200, 'hot'),
-      getArtistAlbums(artistId, 1, 30, 'hot')
+      getArtistDetail(getArtistId()),
+      getArtistSongs(getArtistId(), 1, 200, 'hot'),
+      getArtistAlbums(getArtistId(), 1, 30, 'hot')
     ]);
 
     if (detailRes && typeof detailRes === 'object' && 'status' in detailRes && detailRes.status === 1) {
@@ -123,7 +123,7 @@ const fetchData = async () => {
         || (payload as { list?: unknown }).list
         || (payload as { songs?: unknown }).songs
         || [];
-      songs.value = Array.isArray(list) ? list.map((item) => mapArtistSong(artistId, item)) : [];
+      songs.value = Array.isArray(list) ? list.map((item) => mapArtistSong(getArtistId(), item)) : [];
     }
 
     if (albumsRes && typeof albumsRes === 'object' && 'status' in albumsRes && albumsRes.status === 1) {
@@ -145,7 +145,7 @@ const fetchAllArtistSongs = async (totalCount: number) => {
   const seenIds = new Set(songs.value.map((song) => song.id));
   let page = 2;
   while (songs.value.length < totalCount) {
-    const res = await getArtistSongs(artistId, page, pageSize, 'hot');
+    const res = await getArtistSongs(getArtistId(), page, pageSize, 'hot');
     if (!res || typeof res !== 'object' || !('status' in res) || res.status !== 1) break;
     const data = 'data' in res ? (res as { data?: unknown }).data : undefined;
     const payload = data ?? res;
@@ -153,7 +153,7 @@ const fetchAllArtistSongs = async (totalCount: number) => {
       || (payload as { list?: unknown }).list
       || (payload as { songs?: unknown }).songs
       || [];
-    const nextSongs = Array.isArray(list) ? list.map((item) => mapArtistSong(artistId, item)) : [];
+    const nextSongs = Array.isArray(list) ? list.map((item) => mapArtistSong(getArtistId(), item)) : [];
     const filtered = nextSongs.filter((song) => {
       if (seenIds.has(song.id)) return false;
       seenIds.add(song.id);
@@ -171,7 +171,7 @@ const fetchAllArtistAlbums = async (totalCount: number) => {
   const seenIds = new Set(albums.value.map((album) => String(album.id)));
   let page = 2;
   while (albums.value.length < totalCount) {
-    const res = await getArtistAlbums(artistId, page, pageSize, 'hot');
+    const res = await getArtistAlbums(getArtistId(), page, pageSize, 'hot');
     if (!res || typeof res !== 'object' || !('status' in res) || res.status !== 1) break;
     const data = 'data' in res ? (res as { data?: { info?: unknown } }).data : undefined;
     const info = 'info' in res ? (res as { info?: unknown }).info : undefined;
@@ -200,6 +200,26 @@ onMounted(async () => {
     void fetchAllArtistAlbums(totalAlbums);
   }
 });
+
+watch(
+  () => route.params.id,
+  async () => {
+    artist.value = null;
+    songs.value = [];
+    albums.value = [];
+    loading.value = true;
+    await fetchData();
+    const artistMeta = artist.value as { songCount?: number; albumCount?: number } | null;
+    const totalSongs = Number(artistMeta?.songCount ?? 0);
+    const totalAlbums = Number(artistMeta?.albumCount ?? 0);
+    if (totalSongs > songs.value.length) {
+      void fetchAllArtistSongs(totalSongs);
+    }
+    if (totalAlbums > albums.value.length) {
+      void fetchAllArtistAlbums(totalAlbums);
+    }
+  },
+);
 
 const secondaryActions = computed(() => [
   {

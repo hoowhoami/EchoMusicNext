@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getPlaylistDetail, getPlaylistTracks, getPlaylistTracksNew } from '@/api/playlist';
+import { getPlaylistDetail, getPlaylistTracks } from '@/api/playlist';
 import { getPlaylistComments } from '@/api/comment';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
 import ActionRow from '@/components/music/DetailPageActionRow.vue';
@@ -21,14 +21,10 @@ import { formatDate } from '@/utils/format';
 import { useUserStore } from '@/stores/user';
 import Button from '@/components/ui/Button.vue';
 import Tooltip from '@/components/ui/Tooltip.vue';
-import {
-  mapPlaylistMeta,
-  parsePlaylistTracks,
-  resolvePlaylistTrackQueryId,
-  mapCommentItem,
-  type PlaylistMeta,
-  type Comment,
-} from '@/utils/mappers';
+import { mapPlaylistMeta, resolvePlaylistTrackQueryId, mapCommentItem } from '@/utils/mappers';
+import { parsePlaylistTracks } from '@/utils/mappers';
+import type { PlaylistMeta } from '@/models/playlist';
+import type { Comment } from '@/models/comment';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
@@ -42,7 +38,7 @@ import {
   iconHeart,
   iconInfo,
 } from '@/icons';
-import { replaceQueueAndPlay } from '@/utils/songPlayback';
+import { replaceQueueAndPlay } from '@/utils/playback';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -89,7 +85,7 @@ const settingStore = useSettingStore();
 const isOwnerPlaylist = computed(() => {
   const meta = playlist.value;
   const currentUserId = userStore.info?.userid;
-  return !!meta && !!currentUserId && meta.listCreateUserid === currentUserId;
+  return !!meta && !!currentUserId && meta.listCreateUserid === currentUserId && meta.source !== 2;
 });
 
 const currentPlaylistIds = computed(() => {
@@ -260,15 +256,7 @@ const fetchData = async () => {
       currentUserId,
     });
 
-    let tracksRes: unknown;
-    let didFallback = false;
-    try {
-      tracksRes = await getPlaylistTracks(queryId, 1, 200);
-    } catch (e) {
-      const fallbackListId = playlistMeta?.listid ?? getPlaylistId();
-      tracksRes = await getPlaylistTracksNew(fallbackListId, 1, 200);
-      didFallback = true;
-    }
+    const tracksRes = await getPlaylistTracks(queryId, 1, 200);
 
     if (tracksRes && typeof tracksRes === 'object') {
       const hasStatus = 'status' in tracksRes;
@@ -289,24 +277,7 @@ const fetchData = async () => {
 
     const targetTotal = playlistMeta?.count ?? 0;
     if (songs.value.length > 0 && targetTotal > songs.value.length) {
-      void fetchAllPlaylistTracks(queryId, playlistMeta?.listid, targetTotal);
-    } else if (!didFallback && songs.value.length === 0 && playlistMeta?.listid) {
-      const fallbackTracks = await getPlaylistTracksNew(playlistMeta.listid, 1, 200);
-      if (fallbackTracks && typeof fallbackTracks === 'object') {
-        const payload =
-          'data' in fallbackTracks
-            ? (fallbackTracks as { data?: unknown }).data
-            : 'info' in fallbackTracks
-              ? (fallbackTracks as { info?: unknown }).info
-              : fallbackTracks;
-        const { songs: parsedSongs, filteredCount } = parsePlaylistTracks(
-          payload ?? fallbackTracks,
-        );
-        if (parsedSongs.length > 0) {
-          songs.value = parsedSongs;
-          playlistFilteredInvalidCount.value = filteredCount;
-        }
-      }
+      void fetchAllPlaylistTracks(queryId, targetTotal);
     }
   } catch (e) {
     console.error('Fetch playlist error:', e);
@@ -317,7 +288,6 @@ const fetchData = async () => {
 
 const fetchAllPlaylistTracks = async (
   queryId: string,
-  listid: number | undefined,
   totalCount: number,
 ) => {
   const pageSize = 200;
@@ -325,13 +295,7 @@ const fetchAllPlaylistTracks = async (
   let page = 2;
 
   while (songs.value.length < totalCount) {
-    let res: unknown;
-    try {
-      res = await getPlaylistTracks(queryId, page, pageSize);
-    } catch (e) {
-      if (!listid) break;
-      res = await getPlaylistTracksNew(listid, page, pageSize);
-    }
+    const res = await getPlaylistTracks(queryId, page, pageSize);
 
     if (!res || typeof res !== 'object') break;
     const hasStatus = 'status' in res;
@@ -392,6 +356,7 @@ const secondaryActions = computed(() => {
     icon: typeof iconHeart;
     label: string;
     emphasized?: boolean;
+    tone?: 'default' | 'favorite';
     onTap: () => void | Promise<void>;
   }[];
 
@@ -400,13 +365,14 @@ const secondaryActions = computed(() => {
       icon: iconHeart,
       label: isFavoritePlaylist.value ? '已收藏' : '收藏',
       emphasized: isFavoritePlaylist.value,
+      tone: 'favorite',
       onTap: async () => {
         if (!playlist.value) return;
         if (!userStore.isLoggedIn) return;
         if (isFavoritePlaylist.value) {
-          await playlistStore.unfavoritePlaylist(playlist.value);
+          await playlistStore.unfavoritePlaylist(playlist.value, userStore.info?.userid);
         } else {
-          await playlistStore.favoritePlaylist(playlist.value);
+          await playlistStore.favoritePlaylist(playlist.value, userStore.info?.userid);
         }
       },
     });

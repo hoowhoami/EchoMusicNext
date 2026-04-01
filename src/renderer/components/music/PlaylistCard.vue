@@ -34,15 +34,11 @@ const containerRadius = computed(() => {
   return 14;
 });
 
-const cardShadow = computed(() =>
-  props.showShadow
-    ? '0 8px 18px rgba(0, 0, 0, 0.08)'
-    : 'none',
-);
+const cardShadow = computed(() => (props.showShadow ? 'var(--playlist-card-shadow)' : 'none'));
 
 const cardHoverShadow = computed(() =>
   props.showShadow
-    ? '0 10px 24px rgba(0, 0, 0, 0.12), 0 0 24px var(--color-primary-light)'
+    ? 'var(--playlist-card-hover-shadow)'
     : 'none',
 );
 
@@ -126,7 +122,15 @@ const handleClick = () => {
 }
 
 .card-container {
-  @apply p-[10px] rounded-[20px] bg-white dark:bg-white/5 transition-all duration-300;
+  @apply p-[10px] rounded-[20px] bg-bg-card border border-border-light/50 transition-all duration-300;
+  --playlist-card-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  --playlist-card-hover-shadow: 0 12px 28px rgba(15, 23, 42, 0.12), 0 0 24px var(--color-primary-light);
+}
+
+:global(.dark) .card-container {
+  border-color: color-mix(in srgb, var(--color-border-light) 92%, transparent);
+  --playlist-card-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+  --playlist-card-hover-shadow: 0 14px 34px rgba(0, 0, 0, 0.42), 0 0 24px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .playlist-card-grid:hover .card-container {
@@ -154,16 +158,13 @@ const handleClick = () => {
 
 /* List Layout */
 .playlist-card-list {
-  @apply flex items-center rounded-[14px] transition-all duration-200;
+  @apply flex items-center rounded-[14px] border border-transparent transition-all duration-200;
   padding: 4px 12px;
 }
 
 .playlist-card-list:hover {
-  background-color: rgba(0, 0, 0, 0.04);
-}
-
-.dark .playlist-card-list:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: color-mix(in srgb, var(--color-text-main) 5%, transparent);
+  border-color: color-mix(in srgb, var(--color-border-light) 80%, transparent);
 }
 
 .playlist-card-list .title {

@@ -13,7 +13,7 @@ import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
 import { mapTopSong } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconPlay, iconList, iconCurrentLocation, iconSearch } from '@/icons';
-import { replaceQueueAndPlay } from '@/utils/songPlayback';
+import { replaceQueueAndPlay } from '@/utils/playback';
 import Button from '@/components/ui/Button.vue';
 
 const playlistStore = usePlaylistStore();

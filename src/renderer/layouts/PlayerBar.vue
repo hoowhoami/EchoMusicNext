@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-import { computed, ref, onMounted, onUnmounted } from 'vue';
-import { usePlayerStore } from '@/stores/player';
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
+import { usePlayerStore, type AudioQualityValue } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
 import { usePlaylistStore } from '@/stores/playlist';
 import type { Song, SongArtist } from '@/models/song';
 import { SliderRoot, SliderTrack, SliderRange, SliderThumb } from 'reka-ui';
 import Cover from '@/components/ui/Cover.vue';
+import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import {
   DropdownMenuRoot,
@@ -19,6 +20,7 @@ import PlayerQueueDrawer from '@/components/music/PlayerQueueDrawer.vue';
 import {
   iconMusic,
   iconHeart,
+  iconHeartFilled,
   iconCloud,
   iconMessageCircle,
   iconRepeat,
@@ -36,6 +38,7 @@ import {
   iconSpeedometer,
   iconPulse,
 } from '@/icons';
+import { hasSongQuality, isSameSong, resolveEffectiveSongQuality } from '@/utils/song';
 
 const router = useRouter();
 const player = usePlayerStore();
@@ -52,9 +55,11 @@ const currentTrack = computed(() => {
 
 const isFavorite = computed(() => {
   return currentTrack.value
-    ? playlist.favorites.some((s) => s.id === currentTrack.value?.id)
+    ? playlist.favorites.some((s) => isSameSong(s, currentTrack.value as Song) || s.id === currentTrack.value?.id)
     : false;
 });
+
+const queueCount = computed(() => playlist.defaultList.length);
 
 const playbackRates = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
@@ -135,9 +140,42 @@ const setPlaybackRate = (rate: number) => {
   player.setPlaybackRate(rate);
 };
 
-const setAudioQuality = (quality: '128' | '320' | 'flac' | 'high') => {
-  if (settingStore.audioQuality === quality) return;
-  settingStore.audioQuality = quality;
+const requestedAudioQuality = computed(() => player.getEffectiveAudioQuality(settingStore));
+const effectiveAudioQuality = computed(() => {
+  if (!currentTrack.value) return requestedAudioQuality.value;
+  return resolveEffectiveSongQuality(
+    currentTrack.value,
+    requestedAudioQuality.value,
+    settingStore.compatibilityMode ?? true,
+  );
+});
+const currentAudioQualityOverride = computed(() => player.currentAudioQualityOverride);
+const audioQualityDisplayLabel = computed(() => {
+  if (effectiveAudioQuality.value === '128') return '标准';
+  if (effectiveAudioQuality.value === '320') return 'HQ';
+  if (effectiveAudioQuality.value === 'flac') return 'SQ';
+  return 'Hi-Res';
+});
+const isAudioQualityDisabled = (quality: AudioQualityValue) => {
+  if (quality === effectiveAudioQuality.value) return false;
+  if (!currentTrack.value) return quality !== '128';
+  return !hasSongQuality(currentTrack.value, quality);
+};
+const currentEffectiveAudioQualityLabel = computed(() => {
+  const source = currentAudioQualityOverride.value === null ? '默认' : '本曲覆盖';
+  return `${audioQualityDisplayLabel.value} - ${source}`;
+});
+const audioQualityButtonBadge = computed(() => {
+  if (effectiveAudioQuality.value === '128') return 'SD';
+  if (effectiveAudioQuality.value === '320') return 'HQ';
+  if (effectiveAudioQuality.value === 'flac') return 'SQ';
+  return 'HR';
+});
+
+const setAudioQuality = (quality: AudioQualityValue) => {
+  if (player.currentAudioQualityOverride === null && effectiveAudioQuality.value === quality) return;
+  if (player.currentAudioQualityOverride === quality) return;
+  player.setCurrentAudioQualityOverride(quality);
 };
 
 const setAudioEffect = (
@@ -161,6 +199,20 @@ const openQueue = () => {
   isQueueDrawerOpen.value = true;
 };
 
+const lastVolume = ref(0.8);
+const isHoveringProgress = ref(false);
+const isVolumeVisible = ref(false);
+const volumeContainerRef = ref<HTMLElement | null>(null);
+const isQueueDrawerOpen = ref(false);
+const isQualityMenuOpen = ref(false);
+
+watch(isQualityMenuOpen, (open) => {
+  if (!open) return;
+  if (!currentTrack.value) return;
+  if ((currentTrack.value.relateGoods?.length ?? 0) > 0) return;
+  void player.ensureTrackRelateGoods(currentTrack.value);
+});
+
 const handleSeek = (value: number[] | undefined) => {
   if (value && value.length > 0) {
     player.seek(value[0]);
@@ -174,12 +226,6 @@ const handleSeekStart = () => {
 const handleSeekEnd = () => {
   player.notifySeekEnd();
 };
-
-const lastVolume = ref(0.8);
-const isHoveringProgress = ref(false);
-const isVolumeVisible = ref(false);
-const volumeContainerRef = ref<HTMLElement | null>(null);
-const isQueueDrawerOpen = ref(false);
 
 const toggleVolume = (e: Event) => {
   e.stopPropagation();
@@ -216,7 +262,7 @@ const toggleFavorite = (e: Event) => {
   e.stopPropagation();
   if (!currentTrack.value) return;
   if (isFavorite.value) {
-    playlist.removeFromFavorites(currentTrack.value.id);
+    playlist.removeFavoriteSong(currentTrack.value);
   } else {
     playlist.addToFavorites(currentTrack.value);
   }
@@ -338,11 +384,10 @@ onUnmounted(() => {
           <div class="flex items-center gap-2.5 mt-1.5 h-6">
             <Button variant="unstyled" size="none"
               @click="toggleFavorite"
-              class="p-0.5 transition-all hover:scale-110 active:scale-90"
-              :class="isFavorite ? 'text-red-500' : 'text-text-main/25 hover:text-primary'"
+              class="p-0.5 text-red-500 transition-all hover:scale-110 active:scale-90"
               title="收藏"
             >
-              <Icon :icon="iconHeart" width="20" height="20" />
+              <Icon :icon="isFavorite ? iconHeartFilled : iconHeart" width="18" height="18" />
             </Button>
 
             <!-- 云盘标识 -->
@@ -527,7 +572,7 @@ onUnmounted(() => {
         <DropdownMenuRoot>
           <DropdownMenuTrigger as-child>
             <Button variant="unstyled" size="none"
-              class="p-2 transition-all hover:scale-110 active:scale-90"
+              class="p-2 transition-colors"
               :class="
                 player.playbackRate !== 1 ? 'text-primary' : 'text-text-main/50 hover:text-primary'
               "
@@ -541,7 +586,7 @@ onUnmounted(() => {
               class="player-dropdown player-dropdown--narrow"
               align="center"
               side="top"
-              :side-offset="8"
+              :side-offset="4"
               :align-offset="0"
             >
               <div class="player-dropdown-title">播放倍速</div>
@@ -560,18 +605,21 @@ onUnmounted(() => {
           </DropdownMenuPortal>
         </DropdownMenuRoot>
 
-        <DropdownMenuRoot>
+        <DropdownMenuRoot v-model:open="isQualityMenuOpen">
           <DropdownMenuTrigger as-child>
             <Button variant="unstyled" size="none"
-              class="p-2 transition-all hover:scale-110 active:scale-90"
+              class="p-2 transition-colors"
               :class="
-                settingStore.audioQuality !== 'high' || settingStore.audioEffect !== 'none'
+                player.currentAudioQualityOverride !== null || settingStore.audioEffect !== 'none'
                   ? 'text-primary'
                   : 'text-text-main/50 hover:text-primary'
               "
-              title="音质"
+              :title="`当前生效音质：${currentEffectiveAudioQualityLabel}`"
             >
-              <Icon :icon="iconPulse" width="20" height="20" />
+              <span class="player-quality-button-inner">
+                <Icon :icon="iconPulse" width="20" height="20" />
+                <span v-if="currentTrack" class="player-quality-badge">{{ audioQualityButtonBadge }}</span>
+              </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuPortal>
@@ -579,49 +627,50 @@ onUnmounted(() => {
               class="player-dropdown player-dropdown--narrow"
               align="center"
               side="top"
-              :side-offset="8"
+              :side-offset="4"
               :align-offset="0"
             >
-              <div class="player-dropdown-title">音质</div>
+              <div class="player-dropdown-title">本曲音质</div>
+              <div class="player-dropdown-subtitle">{{ currentEffectiveAudioQualityLabel }}</div>
               <DropdownMenuItem
                 class="player-dropdown-item"
-                :class="{ 'is-active': settingStore.audioQuality === 'high' }"
-                @select="setAudioQuality('high')"
-              >
-                <span>Hi-Res</span>
-                <span v-if="settingStore.audioQuality === 'high'" class="player-dropdown-check"
-                  >✓</span
-                >
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                class="player-dropdown-item"
-                :class="{ 'is-active': settingStore.audioQuality === 'flac' }"
-                @select="setAudioQuality('flac')"
-              >
-                <span>SQ 无损</span>
-                <span v-if="settingStore.audioQuality === 'flac'" class="player-dropdown-check"
-                  >✓</span
-                >
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                class="player-dropdown-item"
-                :class="{ 'is-active': settingStore.audioQuality === '320' }"
-                @select="setAudioQuality('320')"
-              >
-                <span>HQ 高品质</span>
-                <span v-if="settingStore.audioQuality === '320'" class="player-dropdown-check"
-                  >✓</span
-                >
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                class="player-dropdown-item"
-                :class="{ 'is-active': settingStore.audioQuality === '128' }"
+                :class="{ 'is-active': effectiveAudioQuality === '128', 'is-disabled': isAudioQualityDisabled('128') }"
+                :disabled="isAudioQualityDisabled('128')"
                 @select="setAudioQuality('128')"
               >
-                <span>标准</span>
-                <span v-if="settingStore.audioQuality === '128'" class="player-dropdown-check"
-                  >✓</span
-                >
+                <span class="player-dropdown-label">标准</span>
+                <span class="player-dropdown-badge">SD</span>
+                <span class="player-dropdown-check" :class="{ 'is-visible': effectiveAudioQuality === '128' }">✓</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                class="player-dropdown-item"
+                :class="{ 'is-active': effectiveAudioQuality === '320', 'is-disabled': isAudioQualityDisabled('320') }"
+                :disabled="isAudioQualityDisabled('320')"
+                @select="setAudioQuality('320')"
+              >
+                <span class="player-dropdown-label">高品质</span>
+                <span class="player-dropdown-badge">HQ</span>
+                <span class="player-dropdown-check" :class="{ 'is-visible': effectiveAudioQuality === '320' }">✓</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                class="player-dropdown-item"
+                :class="{ 'is-active': effectiveAudioQuality === 'flac', 'is-disabled': isAudioQualityDisabled('flac') }"
+                :disabled="isAudioQualityDisabled('flac')"
+                @select="setAudioQuality('flac')"
+              >
+                <span class="player-dropdown-label">无损</span>
+                <span class="player-dropdown-badge">SQ</span>
+                <span class="player-dropdown-check" :class="{ 'is-visible': effectiveAudioQuality === 'flac' }">✓</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                class="player-dropdown-item"
+                :class="{ 'is-active': effectiveAudioQuality === 'high', 'is-disabled': isAudioQualityDisabled('high') }"
+                :disabled="isAudioQualityDisabled('high')"
+                @select="setAudioQuality('high')"
+              >
+                <span class="player-dropdown-label">Hi-Res</span>
+                <span class="player-dropdown-badge">HR</span>
+                <span class="player-dropdown-check" :class="{ 'is-visible': effectiveAudioQuality === 'high' }">✓</span>
               </DropdownMenuItem>
               <div class="player-dropdown-divider"></div>
               <div class="player-dropdown-title">音效</div>
@@ -742,13 +791,21 @@ onUnmounted(() => {
           </DropdownMenuPortal>
         </DropdownMenuRoot>
 
-        <Button variant="unstyled" size="none"
-          class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90"
-          title="播放队列"
-          @click="openQueue"
-        >
-          <Icon :icon="iconList" width="22" height="22" />
-        </Button>
+        <div class="relative">
+          <Button variant="unstyled" size="none"
+            class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90"
+            title="播放队列"
+            @click="openQueue"
+          >
+            <Icon :icon="iconList" width="22" height="22" />
+          </Button>
+          <Badge
+            v-if="settingStore.showPlaylistCount"
+            :count="queueCount > 99 ? '99+' : queueCount"
+            class="-top-0.5"
+            style="right: -4px"
+          />
+        </div>
       </div>
     </footer>
   </div>
@@ -820,6 +877,7 @@ onUnmounted(() => {
   border-color: transparent;
 }
 
+
 .dark .player-toggle {
   background-color: rgba(245, 245, 247, 0.22);
   border-color: transparent;
@@ -832,12 +890,13 @@ onUnmounted(() => {
 
 .player-volume-thumb:focus-visible,
 .player-progress-thumb:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  box-shadow: none;
 }
 
 :deep(.player-dropdown) {
   min-width: 168px;
   padding: 8px 0 8px 8px;
+  will-change: transform, opacity;
   border-radius: 12px;
   background: var(--color-bg-card);
   border: 1px solid var(--color-border-light);
@@ -860,6 +919,38 @@ onUnmounted(() => {
   padding: 2px 8px 6px 6px;
 }
 
+:deep(.player-dropdown-subtitle) {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  padding: 0 8px 6px 6px;
+}
+
+.player-quality-button-inner {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player-quality-badge {
+  position: absolute;
+  right: -8px;
+  top: -7px;
+  min-width: 18px;
+  height: 12px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 20%, var(--color-bg-card) 80%);
+  color: var(--color-primary);
+  font-size: 9px;
+  line-height: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-align: center;
+  pointer-events: none;
+}
+
 :deep(.player-dropdown-item) {
   display: flex;
   align-items: center;
@@ -871,7 +962,54 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--color-text-main);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+}
+
+:deep(.player-dropdown-item.is-disabled),
+:deep(.player-dropdown-item[data-disabled]) {
+  opacity: 0.42;
+  cursor: not-allowed;
+  color: var(--color-text-secondary);
+}
+
+:deep(.player-dropdown-item.is-disabled:hover),
+:deep(.player-dropdown-item[data-disabled]:hover) {
+  background-color: transparent;
+  color: var(--color-text-secondary);
+}
+
+:deep(.player-dropdown-meta) {
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+:deep(.player-dropdown-label) {
+  min-width: 0;
+  flex: 1;
+}
+
+:deep(.player-dropdown-badge) {
+  margin-left: 4px;
+  margin-right: 6px;
+  min-width: 22px;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(0, 113, 227, 0.1);
+  color: var(--color-primary);
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 800;
+  text-align: center;
+}
+
+:deep(.player-dropdown-item.is-disabled) .player-dropdown-badge,
+:deep(.player-dropdown-item[data-disabled]) .player-dropdown-badge {
+  background: rgba(127, 127, 127, 0.1);
+  color: var(--color-text-secondary);
 }
 
 :deep(.player-dropdown-scroll .player-dropdown-item) {
@@ -897,8 +1035,16 @@ onUnmounted(() => {
 }
 
 :deep(.player-dropdown-check) {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: right;
   font-size: 12px;
   color: var(--color-primary);
+  opacity: 0;
+}
+
+:deep(.player-dropdown-check.is-visible) {
+  opacity: 1;
 }
 
 :deep(.player-dropdown-divider) {
@@ -915,13 +1061,15 @@ onUnmounted(() => {
 
 :deep(.player-dropdown-arrow) {
   position: absolute;
-  bottom: -6px;
   left: 50%;
-  width: 12px;
-  height: 12px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
   background: var(--color-bg-card);
   border-right: 1px solid var(--color-border-light);
   border-bottom: 1px solid var(--color-border-light);
   transform: translateX(-50%) rotate(45deg);
+  pointer-events: none;
+  z-index: -1;
 }
 </style>

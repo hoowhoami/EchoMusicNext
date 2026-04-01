@@ -30,5 +30,6 @@ export const unregisterIpcHandlers = () => {
   ipcMain.removeAllListeners('check-for-updates');
   ipcMain.removeAllListeners('open-external');
   ipcMain.removeAllListeners('open-disclaimer');
+  ipcMain.removeAllListeners('clear-app-data');
   ipcMain.removeHandler('api-server:start');
 };

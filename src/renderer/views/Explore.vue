@@ -18,10 +18,10 @@ import {
   mapAlbumMeta,
   mapRankMeta,
   mapRankSong,
-  type PlaylistMeta,
-  type AlbumMeta,
-  type RankMeta,
 } from '@/utils/mappers';
+import type { PlaylistMeta } from '@/models/playlist';
+import type { AlbumMeta } from '@/models/album';
+import type { RankMeta } from '@/models/rank';
 import type { Song } from '@/models/song';
 import PlaylistCard from '@/components/music/PlaylistCard.vue';
 import SongList from '@/components/music/SongList.vue';
@@ -35,7 +35,7 @@ import AlbumCard from '@/components/music/AlbumCard.vue';
 import { getAlbumTop } from '@/api/music';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCurrentLocation, iconSearch, iconSparkles } from '@/icons';
-import { replaceQueueAndPlay } from '@/utils/songPlayback';
+import { replaceQueueAndPlay } from '@/utils/playback';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();

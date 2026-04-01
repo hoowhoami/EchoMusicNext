@@ -7,6 +7,7 @@ interface Action {
   label: string;
   onTap: () => void | Promise<void>;
   emphasized?: boolean;
+  tone?: 'default' | 'favorite';
 }
 
 interface Props {
@@ -34,7 +35,7 @@ const emit = defineEmits<{
       :key="action.label"
       @click="action.onTap"
       class="action-btn secondary"
-      :class="{ 'emphasized': action.emphasized }"
+      :class="[{ 'emphasized': action.emphasized }, action.tone === 'favorite' ? 'favorite' : '']"
     >
       <div class="icon-wrap">
         <Icon :icon="action.icon" width="16" height="16" />
@@ -69,8 +70,24 @@ const emit = defineEmits<{
   @apply bg-primary text-white hover:bg-primary-hover;
 }
 
+.action-btn.secondary.favorite {
+  color: #f87171;
+  background: color-mix(in srgb, #ef4444 6%, transparent);
+}
+
+.action-btn.secondary.favorite:hover {
+  color: #ef4444;
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+}
+
 .action-btn.secondary.emphasized {
-  @apply text-primary bg-primary/10;
+  color: #ef4444;
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+}
+
+.action-btn.secondary.emphasized:hover {
+  color: #dc2626;
+  background: color-mix(in srgb, #ef4444 16%, transparent);
 }
 
 .action-btn:hover {
