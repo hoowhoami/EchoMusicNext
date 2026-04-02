@@ -6,6 +6,7 @@ import { useSettingStore } from '@/stores/setting';
 import { getPlaylistByCategory, getTopIP } from '@/api/playlist';
 import PlaylistCard from '@/components/music/PlaylistCard.vue';
 import { mapPlaylistMeta } from '@/utils/mappers';
+import { extractList } from '@/utils/extractors';
 import type { PlaylistMeta } from '@/models/playlist';
 import { iconPlay, iconSparkles } from '@/icons';
 import Button from '@/components/ui/Button.vue';
@@ -47,27 +48,9 @@ const topIpPlaylists = ref<PlaylistMeta[]>([]);
 const recommendState = ref<RecommendSectionState>({ loading: true, error: '' });
 const topIpState = ref<RecommendSectionState>({ loading: true, error: '' });
 
-const extractPlaylistList = (payload: unknown): unknown[] => {
-  if (Array.isArray(payload)) return payload;
-  if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>;
-    const data = record.data as Record<string, unknown> | undefined;
-    const list = data?.special_list ?? data?.list ?? record.special_list ?? record.list;
-    if (Array.isArray(list)) return list;
-  }
-  return [];
-};
+const extractPlaylistList = (payload: unknown): unknown[] => extractList(payload);
 
-const extractIpList = (payload: unknown): unknown[] => {
-  if (Array.isArray(payload)) return payload;
-  if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>;
-    const data = record.data as Record<string, unknown> | undefined;
-    const list = data?.list ?? record.list ?? data ?? [];
-    if (Array.isArray(list)) return list;
-  }
-  return [];
-};
+const extractIpList = (payload: unknown): unknown[] => extractList(payload);
 
 const loadRecommendPlaylists = async () => {
   recommendState.value = { loading: true, error: '' };

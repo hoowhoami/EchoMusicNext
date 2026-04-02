@@ -71,9 +71,11 @@ export function getNewSongs() {
 /**
  * 获取新碟上架
  */
-export function getAlbumTop(type = '', page = 1, pagesize = 30) {
+export function getAlbumTop(type = '') {
   return request.get('/top/album', {
-    params: { type, page, pagesize },
+    params: {
+      ...(type ? { type } : {}),
+    },
   });
 }
 

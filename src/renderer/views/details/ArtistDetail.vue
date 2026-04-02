@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { getArtistDetail, getArtistSongs, getArtistAlbums } from '@/api/artist';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
 import ActionRow from '@/components/music/DetailPageActionRow.vue';
@@ -23,13 +23,13 @@ import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/playback';
 import Button from '@/components/ui/Button.vue';
+import { extractFirstObject, extractList } from '@/utils/extractors';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
 const settingStore = useSettingStore();
 
 const route = useRoute();
-const router = useRouter();
 const getArtistId = () => String(Array.isArray(route.params.id) ? route.params.id[0] ?? '' : route.params.id ?? '');
 
 const loading = ref(true);
@@ -42,18 +42,15 @@ const loadedAlbumCount = computed(() => albums.value.length);
 const showBatchDrawer = ref(false);
 const showIntroDialog = ref(false);
 
-// 搜索和定位逻辑
 const searchQuery = ref('');
 const songListRef = ref<{ scrollToActive?: () => void } | null>(null);
 const sliverHeaderRef = ref<{ currentHeight?: number } | null>(null);
 
-// 计算 Tabs 的 sticky top 位置
 const tabsTop = computed(() => {
   const headerHeight = sliverHeaderRef.value?.currentHeight || 52;
   return headerHeight;
 });
 
-// 排序逻辑
 const sortField = ref<SortField | null>(null);
 const sortOrder = ref<SortOrder>(null);
 
@@ -98,62 +95,17 @@ const sortedSongs = computed(() => {
   });
 });
 
-const fetchData = async () => {
-  loading.value = true;
-  try {
-    const [detailRes, songsRes, albumsRes] = await Promise.all([
-      getArtistDetail(getArtistId()),
-      getArtistSongs(getArtistId(), 1, 200, 'hot'),
-      getArtistAlbums(getArtistId(), 1, 30, 'hot')
-    ]);
-
-    if (detailRes && typeof detailRes === 'object' && 'status' in detailRes && detailRes.status === 1) {
-      const data = 'data' in detailRes ? (detailRes as { data?: unknown }).data : undefined;
-      const info = 'info' in detailRes ? (detailRes as { info?: unknown }).info : undefined;
-      const raw = data ?? info;
-      if (raw) {
-        artist.value = mapArtistDetailMeta(raw);
-      }
-    }
-    
-    if (songsRes && typeof songsRes === 'object' && 'status' in songsRes && songsRes.status === 1) {
-      const data = 'data' in songsRes ? (songsRes as { data?: unknown }).data : undefined;
-      const payload = data ?? songsRes;
-      const list = (payload as { info?: unknown; list?: unknown; songs?: unknown }).info
-        || (payload as { list?: unknown }).list
-        || (payload as { songs?: unknown }).songs
-        || [];
-      songs.value = Array.isArray(list) ? list.map((item) => mapArtistSong(getArtistId(), item)) : [];
-    }
-
-    if (albumsRes && typeof albumsRes === 'object' && 'status' in albumsRes && albumsRes.status === 1) {
-      const data = 'data' in albumsRes ? (albumsRes as { data?: { info?: unknown } }).data : undefined;
-      const info = 'info' in albumsRes ? (albumsRes as { info?: unknown }).info : undefined;
-      const list = data?.info ?? info ?? [];
-      albums.value = Array.isArray(list) ? list.map((item) => mapAlbumMeta(item)) : [];
-    }
-  } catch (e) {
-    console.error('Fetch artist detail error:', e);
-  } finally {
-    loading.value = false;
-  }
-};
 
 const fetchAllArtistSongs = async (totalCount: number) => {
   if (songs.value.length >= totalCount) return;
+  const artistId = getArtistId();
   const pageSize = 200;
   const seenIds = new Set(songs.value.map((song) => song.id));
   let page = 2;
+
   while (songs.value.length < totalCount) {
-    const res = await getArtistSongs(getArtistId(), page, pageSize, 'hot');
-    if (!res || typeof res !== 'object' || !('status' in res) || res.status !== 1) break;
-    const data = 'data' in res ? (res as { data?: unknown }).data : undefined;
-    const payload = data ?? res;
-    const list = (payload as { info?: unknown; list?: unknown; songs?: unknown }).info
-      || (payload as { list?: unknown }).list
-      || (payload as { songs?: unknown }).songs
-      || [];
-    const nextSongs = Array.isArray(list) ? list.map((item) => mapArtistSong(getArtistId(), item)) : [];
+    const res = await getArtistSongs(artistId, page, pageSize, 'hot');
+    const nextSongs = extractList(res).map((item) => mapArtistSong(artistId, item));
     const filtered = nextSongs.filter((song) => {
       if (seenIds.has(song.id)) return false;
       seenIds.add(song.id);
@@ -165,59 +117,47 @@ const fetchAllArtistSongs = async (totalCount: number) => {
   }
 };
 
-const fetchAllArtistAlbums = async (totalCount: number) => {
-  if (albums.value.length >= totalCount) return;
-  const pageSize = 30;
-  const seenIds = new Set(albums.value.map((album) => String(album.id)));
-  let page = 2;
-  while (albums.value.length < totalCount) {
-    const res = await getArtistAlbums(getArtistId(), page, pageSize, 'hot');
-    if (!res || typeof res !== 'object' || !('status' in res) || res.status !== 1) break;
-    const data = 'data' in res ? (res as { data?: { info?: unknown } }).data : undefined;
-    const info = 'info' in res ? (res as { info?: unknown }).info : undefined;
-    const list = data?.info ?? info ?? [];
-    const nextAlbums = Array.isArray(list) ? list.map((item) => mapAlbumMeta(item)) : [];
-    const filtered = nextAlbums.filter((album) => {
-      const id = String(album.id);
-      if (seenIds.has(id)) return false;
-      seenIds.add(id);
-      return true;
-    });
-    if (filtered.length === 0) break;
-    albums.value = [...albums.value, ...filtered];
-    page += 1;
-  }
-};
+const fetchData = async () => {
+  loading.value = true;
+  try {
+    const [detailRes, songsRes, albumsRes] = await Promise.all([
+      getArtistDetail(getArtistId()),
+      getArtistSongs(getArtistId(), 1, 200, 'hot'),
+      getArtistAlbums(getArtistId(), 1, 30, 'hot'),
+    ]);
 
-onMounted(async () => {
-  await fetchData();
-  const totalSongs = artist.value?.songCount ?? 0;
-  const totalAlbums = artist.value?.albumCount ?? 0;
-  if (totalSongs > songs.value.length) {
-    void fetchAllArtistSongs(totalSongs);
-  }
-  if (totalAlbums > albums.value.length) {
-    void fetchAllArtistAlbums(totalAlbums);
-  }
-});
+    const detailRaw = extractFirstObject(detailRes);
+    if (detailRaw) {
+      artist.value = mapArtistDetailMeta(detailRaw);
+    }
 
-watch(
-  () => route.params.id,
-  async () => {
-    artist.value = null;
-    songs.value = [];
-    albums.value = [];
-    loading.value = true;
-    await fetchData();
-    const artistMeta = artist.value as { songCount?: number; albumCount?: number } | null;
-    const totalSongs = Number(artistMeta?.songCount ?? 0);
-    const totalAlbums = Number(artistMeta?.albumCount ?? 0);
+    songs.value = extractList(songsRes).map((item) => mapArtistSong(getArtistId(), item));
+    albums.value = extractList(albumsRes).map((item) => mapAlbumMeta(item));
+
+    const totalSongs = artist.value?.songCount ?? 0;
     if (totalSongs > songs.value.length) {
       void fetchAllArtistSongs(totalSongs);
     }
-    if (totalAlbums > albums.value.length) {
-      void fetchAllArtistAlbums(totalAlbums);
-    }
+  } catch (error) {
+    artist.value = null;
+    songs.value = [];
+    albums.value = [];
+  } finally {
+    loading.value = false;
+  }
+};
+
+watch(
+  () => route.params.id,
+  () => {
+    artist.value = null;
+    songs.value = [];
+    albums.value = [];
+    searchQuery.value = '';
+    sortField.value = null;
+    sortOrder.value = null;
+    activeTab.value = 'songs';
+    void fetchData();
   },
 );
 
@@ -242,6 +182,10 @@ const openBatchDrawer = () => {
   showBatchDrawer.value = true;
 };
 const handleLocate = () => songListRef.value?.scrollToActive?.();
+
+onMounted(() => {
+  void fetchData();
+});
 </script>
 
 <template>
@@ -251,7 +195,6 @@ const handleLocate = () => songListRef.value?.scrollToActive?.();
     </div>
 
     <template v-else-if="artist">
-      <!-- 1. Sliver Header -->
       <SliverHeader
         ref="sliverHeaderRef"
         typeLabel="ARTIST"
@@ -269,7 +212,7 @@ const handleLocate = () => songListRef.value?.scrollToActive?.();
         </template>
 
         <template #actions>
-          <ActionRow 
+          <ActionRow
             :secondaryActions="secondaryActions"
             @play="handlePlayAll"
             @batch="openBatchDrawer"
@@ -278,11 +221,11 @@ const handleLocate = () => songListRef.value?.scrollToActive?.();
 
         <template #collapsed-actions>
           <Button variant="unstyled" size="none" @click="handlePlayAll" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-primary">
-              <Icon :icon="iconPlay" width="20" height="20" />
-           </Button>
-           <Button variant="unstyled" size="none" @click="openBatchDrawer" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-main opacity-60">
-              <Icon :icon="iconList" width="18" height="18" />
-           </Button>
+            <Icon :icon="iconPlay" width="20" height="20" />
+          </Button>
+          <Button variant="unstyled" size="none" @click="openBatchDrawer" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-main opacity-60">
+            <Icon :icon="iconList" width="18" height="18" />
+          </Button>
         </template>
       </SliverHeader>
 
@@ -302,10 +245,8 @@ const handleLocate = () => songListRef.value?.scrollToActive?.();
         </Button>
       </div>
 
-      <!-- 2. Sticky Tabs + 表头 -->
       <div class="song-list-sticky sticky z-[110] bg-bg-main" :style="{ top: `${tabsTop}px` }">
         <Tabs v-model="activeTab" class="w-full">
-          <!-- Tab 切换栏 -->
           <div class="px-6 border-b border-border-light/10">
             <div class="flex items-center justify-between h-14">
               <TabsList class="bg-transparent border-none gap-8">
@@ -315,20 +256,16 @@ const handleLocate = () => songListRef.value?.scrollToActive?.();
                 <TabsTrigger value="albums">
                   <span class="relative">专辑 <Badge :count="loadedAlbumCount" /></span>
                 </TabsTrigger>
-                <TabsTrigger value="intro">
-                  <span>详情</span>
-                </TabsTrigger>
               </TabsList>
 
-              <!-- 右侧操作 -->
-                <div v-if="activeTab === 'songs'" class="flex items-center gap-2">
-                  <div class="relative">
-                    <input
-                      v-model="searchQuery"
-                      type="text"
-                      placeholder="搜索歌曲..."
-                      class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] transition-all"
-                    />
+              <div v-if="activeTab === 'songs'" class="flex items-center gap-2">
+                <div class="relative">
+                  <input
+                    v-model="searchQuery"
+                    type="text"
+                    placeholder="搜索歌曲..."
+                    class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg bg-white border border-black/30 shadow-sm text-text-main placeholder:text-text-main/50 dark:bg-white/[0.08] dark:border-white/10 dark:shadow-none outline-none text-[12px] transition-all"
+                  />
                   <Icon
                     class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60 dark:text-text-main/60"
                     :icon="iconSearch"
@@ -347,7 +284,6 @@ const handleLocate = () => songListRef.value?.scrollToActive?.();
             </div>
           </div>
 
-          <!-- 表头 (仅在歌曲 tab 显示) -->
           <SongListHeader
             v-if="activeTab === 'songs'"
             :sortField="sortField"
@@ -359,17 +295,16 @@ const handleLocate = () => songListRef.value?.scrollToActive?.();
         </Tabs>
       </div>
 
-      <!-- 3. 内容区域 -->
       <div class="pb-12">
         <Tabs v-model="activeTab" class="w-full">
-        <TabsContent value="songs" class="px-6 flex flex-col flex-1 min-h-0">
-          <SongList ref="songListRef" :songs="sortedSongs" :searchQuery="searchQuery" :showCover="true"
-            :enableDefaultDoubleTapPlay="true"
-            :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined" />
-        </TabsContent>
+          <TabsContent value="songs" class="px-6 flex flex-col flex-1 min-h-0">
+            <SongList ref="songListRef" :songs="sortedSongs" :searchQuery="searchQuery" :showCover="true"
+              :enableDefaultDoubleTapPlay="true"
+              :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined" />
+          </TabsContent>
 
           <TabsContent value="albums" class="mt-4 px-6">
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 px-2">
+            <div class="artist-album-grid px-2">
               <AlbumCard
                 v-for="album in albums"
                 :key="album.id"
@@ -379,12 +314,6 @@ const handleLocate = () => songListRef.value?.scrollToActive?.();
                 :artist="album.singerName"
                 :publishTime="album.publishTime"
               />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="intro" class="mt-3 px-6">
-            <div class="max-w-3xl text-[13px] leading-relaxed text-text-secondary whitespace-pre-wrap py-4 px-2 opacity-80">
-              {{ artist.intro || '暂无简介' }}
             </div>
           </TabsContent>
         </Tabs>
@@ -416,5 +345,19 @@ const handleLocate = () => songListRef.value?.scrollToActive?.();
 
 :deep(.song-list) {
   @apply px-0;
+}
+.artist-album-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+.artist-album-grid :deep(.card-container) {
+  height: 230px;
+}
+
+.artist-album-grid :deep(.cover-wrapper) {
+  height: 170px;
+  aspect-ratio: auto;
 }
 </style>

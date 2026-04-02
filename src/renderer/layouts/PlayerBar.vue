@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
+import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { usePlayerStore, type AudioEffectValue, type AudioQualityValue } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
 import { usePlaylistStore } from '@/stores/playlist';
@@ -291,15 +291,25 @@ const updateDrawerWidth = () => {
 // Marquee logic
 const songInfoRef = ref<HTMLElement | null>(null);
 const isMarqueeActive = ref(false);
+const marqueeDistance = ref('0px');
 
 const checkMarquee = () => {
-  if (songInfoRef.value) {
-    const container = songInfoRef.value.parentElement;
-    if (container) {
-      isMarqueeActive.value = songInfoRef.value.scrollWidth > container.clientWidth;
-    }
-  }
+  if (!songInfoRef.value) return;
+  const container = songInfoRef.value.parentElement;
+  if (!container) return;
+  const overflow = Math.max(0, songInfoRef.value.scrollWidth - container.clientWidth);
+  isMarqueeActive.value = overflow > 8;
+  marqueeDistance.value = `${overflow}px`;
 };
+
+watch(
+  () => [currentTrack.value?.id, currentTrack.value?.title, currentTrack.value?.artist],
+  async () => {
+    await nextTick();
+    checkMarquee();
+  },
+  { immediate: true },
+);
 
 onMounted(() => {
   window.addEventListener('resize', checkMarquee);
@@ -345,8 +355,9 @@ onUnmounted(() => {
           <div class="relative w-full overflow-hidden h-6 flex items-center">
             <div
               ref="songInfoRef"
-              class="whitespace-nowrap transition-transform flex items-center gap-1"
+              class="player-song-info whitespace-nowrap transition-transform flex items-center gap-1 min-w-max"
               :class="{ 'marquee-animation': isMarqueeActive }"
+              :style="{ '--marquee-distance': marqueeDistance }"
               @mouseenter="checkMarquee"
             >
               <span
@@ -816,23 +827,20 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.player-song-info {
+  will-change: transform;
+}
+
 .marquee-animation {
-  animation: marquee 15s linear infinite;
-  padding-left: 0;
+  animation: marquee 10s linear infinite;
 }
 
 @keyframes marquee {
-  0% {
+  0%, 12% {
     transform: translateX(0);
   }
-  10% {
-    transform: translateX(0);
-  }
-  90% {
-    transform: translateX(calc(-100% + 180px));
-  }
-  100% {
-    transform: translateX(calc(-100% + 180px));
+  88%, 100% {
+    transform: translateX(calc(var(--marquee-distance, 0px) * -1));
   }
 }
 

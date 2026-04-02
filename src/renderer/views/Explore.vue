@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { extractAlbumGroups, extractList } from '@/utils/extractors';
 import { usePlaylistStore } from '@/stores/playlist';
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
@@ -194,30 +195,7 @@ const newSongCountLabel = computed(() => {
   return `${newSongFilteredCount.value} / ${total}`;
 });
 
-const extractList = (payload: unknown): unknown[] => {
-  if (Array.isArray(payload)) return payload;
-  if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>;
-    const data = record.data;
-    const dataRecord =
-      data && typeof data === 'object' && !Array.isArray(data)
-        ? (data as Record<string, unknown>)
-        : undefined;
-    const songsRecord = (dataRecord?.songs as Record<string, unknown> | undefined) ?? undefined;
-    const list =
-      dataRecord?.special_list ??
-      dataRecord?.list ??
-      dataRecord?.info ??
-      dataRecord?.songlist ??
-      songsRecord?.list ??
-      record.list ??
-      record.info ??
-      data ??
-      record;
-    return Array.isArray(list) ? list : [];
-  }
-  return [];
-};
+// shared extractors moved to utils/extractors.ts
 
 const loadPlaylistCategories = async () => {
   try {
@@ -320,20 +298,8 @@ const loadRankSongs = async (targetId: number) => {
 const loadAlbums = async () => {
   loadingAlbums.value = true;
   try {
-    const typeMap: Record<string, string> = {
-      all: '',
-      chn: '1',
-      eur: '2',
-      jpn: '3',
-      kor: '4',
-    };
-    const typeParam = typeMap[albumTypeId.value] ?? '';
-    const res = await getAlbumTop(typeParam, 1, 30);
-    const record =
-      res && typeof res === 'object' ? (res as unknown as Record<string, unknown>) : undefined;
-    const data = record?.data ?? record?.info ?? record;
-    const isMap = data && typeof data === 'object' && !Array.isArray(data);
-    albumPayload.value = isMap ? (data as Record<string, unknown>) : {};
+    const res = await getAlbumTop();
+    albumPayload.value = extractAlbumGroups(res);
     albumFallbackList.value = extractList(res);
   } catch (error) {
     albumPayload.value = {};
@@ -870,8 +836,16 @@ const handleSelectAlbumType = (option: PickerOption) => {
 
 .album-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 220px));
   gap: 20px;
-  justify-content: start;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+.album-grid :deep(.card-container) {
+  height: 230px;
+}
+
+.album-grid :deep(.cover-wrapper) {
+  height: 170px;
+  aspect-ratio: auto;
 }
 </style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { getEverydayRecommend } from '@/api/music';
+import { extractList } from '@/utils/extractors';
 import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
@@ -113,8 +114,7 @@ const fetchRecommendSongs = async () => {
   loading.value = true;
   try {
     const res = await getEverydayRecommend();
-    const list = Array.isArray((res as { data?: unknown[] })?.data) ? (res as { data?: unknown[] }).data ?? [] : Array.isArray(res) ? res : [];
-    songs.value = list.map((item) => mapTopSong(item));
+    songs.value = extractList(res).map((item) => mapTopSong(item));
   } catch (error) {
     songs.value = [];
   } finally {

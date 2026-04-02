@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
+import { extractFirstObject, extractList } from '@/utils/extractors';
 import { useRoute, useRouter } from 'vue-router';
 import { getAlbumDetail, getAlbumSongs, favoriteAlbum as favoriteAlbumApi, unfavoriteAlbum as unfavoriteAlbumApi } from '@/api/album';
 import { getAlbumComments } from '@/api/comment';
@@ -16,7 +17,7 @@ import Dialog from '@/components/ui/Dialog.vue';
 import CommentList from '@/components/music/CommentList.vue';
 import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
 import { usePlaylistStore } from '@/stores/playlist';
-import type { Song } from '@/models/song';
+import type { Song, SongArtist } from '@/models/song';
 import Button from '@/components/ui/Button.vue';
 import {
   mapAlbumDetailMeta,
@@ -91,10 +92,36 @@ const tabsTop = computed(() => {
   return headerHeight;
 });
 
-const canOpenAlbumArtist = computed(() => {
-  if (!album.value?.singerId) return false;
-  return !isSameRoute('artist-detail', album.value.singerId);
-});
+const albumArtists = ref<SongArtist[]>([]);
+
+const parseAlbumArtists = (payload: unknown): SongArtist[] => {
+  if (!isRecord(payload)) return [];
+  const rawAuthors = Array.isArray(payload.authors) ? payload.authors : [];
+  const mapped = rawAuthors
+    .filter((item) => isRecord(item))
+    .map((item) => ({
+      id: item.author_id != null ? String(item.author_id) : undefined,
+      name: String(item.author_name ?? '').trim(),
+    }))
+    .filter((item) => item.name.length > 0);
+
+  if (mapped.length > 0) return mapped;
+  if (!album.value?.singerName) return [];
+  return [{ id: album.value.singerId ? String(album.value.singerId) : undefined, name: album.value.singerName }];
+};
+
+const isAlbumArtistClickable = (artist: SongArtist) => {
+  if (!artist.id) return false;
+  return !isSameRoute('artist-detail', artist.id);
+};
+
+const openAlbumArtist = (artist: SongArtist) => {
+  if (!artist.id || !isAlbumArtistClickable(artist)) return;
+  router.push({
+    name: 'artist-detail',
+    params: { id: String(artist.id) },
+  });
+};
 
 const currentAlbumIds = computed(() => {
   const meta = album.value;
@@ -141,14 +168,6 @@ const toggleFavoriteAlbum = async () => {
   if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
     await playlistStore.fetchUserPlaylists();
   }
-};
-
-const openAlbumArtist = () => {
-  if (!canOpenAlbumArtist.value || !album.value?.singerId) return;
-  router.push({
-    name: 'artist-detail',
-    params: { id: String(album.value.singerId) },
-  });
 };
 
 // 排序逻辑
@@ -272,33 +291,15 @@ const fetchData = async () => {
       getAlbumSongs(albumId, 1, 30),
     ]);
 
-    if (
-      detailRes &&
-      typeof detailRes === 'object' &&
-      'status' in detailRes &&
-      detailRes.status === 1
-    ) {
-      const data = 'data' in detailRes ? (detailRes as { data?: unknown }).data : undefined;
-      const info = 'info' in detailRes ? (detailRes as { info?: unknown }).info : undefined;
-      const rawSource = data ?? info;
-      const rawList: unknown[] = Array.isArray(rawSource)
-        ? rawSource
-        : rawSource != null
-          ? [rawSource]
-          : [];
-      const raw = rawList[0];
-      if (raw) {
-        album.value = mapAlbumDetailMeta(raw);
-      }
+    const detailRaw = extractFirstObject(detailRes);
+    if (detailRaw) {
+      album.value = mapAlbumDetailMeta(detailRaw);
+      albumArtists.value = parseAlbumArtists(detailRaw);
+    } else {
+      albumArtists.value = [];
     }
 
-    if (songsRes && typeof songsRes === 'object' && 'status' in songsRes && songsRes.status === 1) {
-      const data = 'data' in songsRes ? (songsRes as { data?: unknown }).data : undefined;
-      const info = 'info' in songsRes ? (songsRes as { info?: unknown }).info : undefined;
-      const dataRecord = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
-      const list = dataRecord.songs ?? dataRecord.info ?? info ?? [];
-      songs.value = Array.isArray(list) ? list.map((item) => mapAlbumSong(item)) : [];
-    }
+    songs.value = extractList(songsRes).map((item) => mapAlbumSong(item));
 
     const totalSongs = albumSongCount.value;
     if (totalSongs > songs.value.length) {
@@ -320,10 +321,7 @@ const fetchAllAlbumSongs = async (totalCount: number) => {
   while (songs.value.length < totalCount) {
     const res = await getAlbumSongs(albumId, page, pageSize);
     if (!res || typeof res !== 'object' || !('status' in res) || res.status !== 1) break;
-    const data = 'data' in res ? (res as { data?: { info?: unknown } }).data : undefined;
-    const info = 'info' in res ? (res as { info?: unknown }).info : undefined;
-    const list = data?.info ?? info ?? [];
-    const nextSongs = Array.isArray(list) ? list.map((item) => mapAlbumSong(item)) : [];
+    const nextSongs = extractList(res).map((item) => mapAlbumSong(item));
     const filtered = nextSongs.filter((song) => {
       if (seenIds.has(song.id)) return false;
       seenIds.add(song.id);
@@ -341,6 +339,7 @@ watch(
   () => route.params.id,
   () => {
     album.value = null;
+    albumArtists.value = [];
     songs.value = [];
     comments.value = [];
     hotComments.value = [];
@@ -432,15 +431,20 @@ const openCommentPageWithFloor = (comment: Comment) => {
       >
         <template #details>
           <div class="flex flex-col gap-1 text-text-main/60">
-            <Button variant="unstyled" size="none"
-              type="button"
-              class="album-singer-link"
-              :class="{ 'is-link': canOpenAlbumArtist }"
-              :disabled="!canOpenAlbumArtist"
-              @click="openAlbumArtist"
-            >
-              {{ album.singerName }}
-            </Button>
+            <div class="album-artist-line">
+              <template v-for="(artistItem, index) in albumArtists" :key="`${artistItem.name}-${index}`">
+                <Button variant="unstyled" size="none"
+                  type="button"
+                  class="album-singer-link"
+                  :class="{ 'is-link': isAlbumArtistClickable(artistItem) }"
+                  :disabled="!isAlbumArtistClickable(artistItem)"
+                  @click="openAlbumArtist(artistItem)"
+                >
+                  {{ artistItem.name }}
+                </Button>
+                <span v-if="index < albumArtists.length - 1" class="album-artist-separator"> / </span>
+              </template>
+            </div>
             <div class="text-[11px] font-semibold opacity-60">
               {{ album.publishTime }} • {{ albumSongCount }} 首歌曲
             </div>
@@ -590,7 +594,16 @@ const openCommentPageWithFloor = (comment: Comment) => {
 <style scoped>
 @reference "@/style.css";
 
+.album-artist-line {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .album-singer-link {
+  display: inline;
   padding: 0;
   background: transparent;
   text-align: left;
@@ -601,6 +614,12 @@ const openCommentPageWithFloor = (comment: Comment) => {
 
 .album-singer-link.is-link {
   cursor: pointer;
+}
+
+.album-artist-separator {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.5;
 }
 
 
