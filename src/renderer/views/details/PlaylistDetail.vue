@@ -382,14 +382,13 @@ const secondaryActions = computed(() => {
 });
 
 const handleSongDoubleTapPlay = async (song: Song) => {
-  const played = await replaceQueueAndPlay(
+  await replaceQueueAndPlay(
     playlistStore,
     playerStore,
     songs.value,
     playlistFilteredInvalidCount.value,
+    song,
   );
-  if (!played) return;
-  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
 };
 
 const handlePlayAll = async () => {

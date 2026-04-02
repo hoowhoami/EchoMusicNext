@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { usePlaylistStore } from './playlist';
 import { useLyricStore } from './lyric';
 import { useSettingStore } from './setting';
+import type { OutputDeviceDisconnectBehavior } from './setting';
 import logger from '@/utils/logger';
 import { getCloudSongUrl, getSongClimax, getSongPrivilegeLite, getSongUrl } from '@/api/music';
 import {
@@ -92,6 +93,24 @@ const resolveUrlFromResponse = (payload: unknown): string => {
   return '';
 };
 
+const buildAudioOutputDeviceSignature = (devices: MediaDeviceInfo[]): string | null => {
+  const outputs = devices
+    .filter((device) => device.kind === 'audiooutput')
+    .map((device) => ({
+      deviceId: device.deviceId || 'default',
+      groupId: device.groupId || '',
+      label: device.label || '',
+    }))
+    .sort((left, right) => {
+      const leftKey = `${left.deviceId}|${left.groupId}|${left.label}`;
+      const rightKey = `${right.deviceId}|${right.groupId}|${right.label}`;
+      return leftKey.localeCompare(rightKey);
+    });
+
+  if (outputs.length === 0) return null;
+  return outputs.map((device) => `${device.deviceId}|${device.groupId}|${device.label}`).join('::');
+};
+
 const findTrackById = (
   id: string | null,
   list: Song[] | null | undefined,
@@ -105,17 +124,6 @@ const findTrackById = (
     if (found) return found;
   }
   return undefined;
-};
-
-type PendingSwitch = {
-  previousTrackId: string | null;
-  previousPlaylist: Song[] | null;
-  previousAudioUrl: string;
-  previousResolvedAudioQuality: AudioQualityValue | null;
-  previousResolvedAudioEffect: AudioEffectValue;
-  previousTime: number;
-  wasPlaying: boolean;
-  targetTrackId: string;
 };
 
 type ResolvedAudioSource = {
@@ -154,6 +162,15 @@ const buildMediaState = (state: {
   isPlaying: state.isPlaying,
   duration: state.duration,
   currentTime: state.currentTime,
+  playbackRate: state.playbackRate,
+});
+
+const buildStoppedPlaybackState = (state: {
+  playbackRate: number;
+}): MediaSessionState => ({
+  isPlaying: false,
+  duration: 0,
+  currentTime: 0,
   playbackRate: state.playbackRate,
 });
 
@@ -211,16 +228,102 @@ export const usePlayerStore = defineStore('player', {
     audioEffect: 'none' as AudioEffectValue,
     recentSeekIgnoreEnd: false,
     settingsWatcherRegistered: false,
-    pendingSwitch: null as PendingSwitch | null,
     isDraggingProgress: false,
     pendingSettingRefresh: false,
     climaxMarks: [] as ClimaxMark[],
     outputDeviceWatcherRegistered: false,
+    lastAudioOutputDeviceSignature: null as string | null,
+    outputDeviceRefreshTimer: null as number | null,
+    appliedOutputDeviceId: 'default' as string,
     currentAudioQualityOverride: null as AudioQualityValue | null,
     playbackRequestSeq: 0,
     climaxRequestSeq: 0,
+    currentTrackSnapshot: null as Song | null,
+    autoNextTimer: null as number | null,
+    autoNextAttempts: 0,
+    autoNextSourceTrackId: null as string | null,
   }),
   actions: {
+    clearAutoNextTimer() {
+      if (this.autoNextTimer !== null) {
+        window.clearTimeout(this.autoNextTimer);
+        this.autoNextTimer = null;
+      }
+    },
+
+    clearOutputDeviceRefreshTimer() {
+      if (this.outputDeviceRefreshTimer !== null) {
+        window.clearTimeout(this.outputDeviceRefreshTimer);
+        this.outputDeviceRefreshTimer = null;
+      }
+    },
+
+    applyFailedPlaybackState(options?: { keepResolvedSource?: boolean }) {
+      this.isLoading = false;
+      this.isPlaying = false;
+      this.currentTime = 0;
+      this.duration = 0;
+      if (!options?.keepResolvedSource) {
+        this.currentAudioUrl = '';
+        this.currentResolvedAudioQuality = null;
+        this.currentResolvedAudioEffect = 'none';
+      }
+
+      engine.updateMediaPlaybackState(
+        buildStoppedPlaybackState({
+          playbackRate: this.playbackRate,
+        })
+      );
+    },
+
+    scheduleAutoNext() {
+      const settingStore = useSettingStore();
+      const playlistStore = usePlaylistStore();
+      if (!settingStore.autoNext || !this.currentTrackId) return;
+
+      const list = playlistStore.defaultList.length > 0 ? playlistStore.defaultList : (this.currentPlaylist ?? []);
+      if (list.length <= 1) return;
+
+      const currentTrackId = String(this.currentTrackId);
+      const maxAttempts = Math.max(0, Math.floor(settingStore.autoNextMaxAttempts || 0));
+      if (maxAttempts > 0 && this.autoNextAttempts >= maxAttempts) {
+        return;
+      }
+
+      this.clearAutoNextTimer();
+      const delayMs = Math.max(0, Math.floor((settingStore.autoNextDelaySeconds || 0) * 1000));
+      this.autoNextTimer = window.setTimeout(() => {
+        this.autoNextTimer = null;
+        if (String(this.currentTrackId ?? '') !== currentTrackId || this.isPlaying || this.isLoading) return;
+        this.autoNextAttempts += 1;
+        void this.skipToNextAfterFailure();
+      }, delayMs);
+    },
+
+    skipToNextAfterFailure() {
+      const playlistStore = usePlaylistStore();
+      playlistStore.syncQueuedNextTrackIds();
+      const list = playlistStore.defaultList.length > 0 ? playlistStore.defaultList : (this.currentPlaylist ?? []);
+      if (list.length === 0 || !this.currentTrackId) return;
+
+      const currentIndex = list.findIndex((song) => String(song.id) === String(this.currentTrackId));
+      let nextIndex = -1;
+
+      if (this.playMode === 'random') {
+        nextIndex = this.pickRandomIndex(list.length, currentIndex);
+        if (!isPlayableSong(list[nextIndex])) {
+          nextIndex = findPlayableIndex(list, nextIndex, true, false);
+        }
+      } else {
+        nextIndex = findPlayableIndex(list, Math.max(0, currentIndex), true, false);
+      }
+
+      const nextSong = nextIndex >= 0 ? list[nextIndex] : null;
+      if (!nextSong) return;
+
+      return this.playTrack(String(nextSong.id), list, { preserveFailureChain: true });
+    },
+
     init() {
       const lyricStore = useLyricStore();
       const settingStore = useSettingStore();
@@ -312,19 +415,15 @@ export const usePlayerStore = defineStore('player', {
         error: (event) => {
           logger.error('PlayerStore', 'Audio playback error:', event);
           this.lastError = event?.type ?? 'playback-error';
-          this.isLoading = false;
-          this.isPlaying = false;
+          this.applyFailedPlaybackState({ keepResolvedSource: true });
           settingStore.syncPreventSleep(false);
 
           if (settingStore.autoNext && this.currentPlaylist?.length) {
-            this.pendingSwitch = null;
-            void this.next();
+            this.scheduleAutoNext();
             return;
           }
 
-          if (this.pendingSwitch?.targetTrackId === this.currentTrackId) {
-            void this.recoverFromPendingSwitch('engine-error');
-          }
+          this.clearAutoNextTimer();
         },
       };
 
@@ -506,7 +605,7 @@ export const usePlayerStore = defineStore('player', {
       );
     },
 
-    async playTrack(id: string, playlist?: Song[]) {
+    async playTrack(id: string, playlist?: Song[], options?: { preserveFailureChain?: boolean }) {
       const playlistStore = usePlaylistStore();
       const lyricStore = useLyricStore();
       const settingStore = useSettingStore();
@@ -519,6 +618,11 @@ export const usePlayerStore = defineStore('player', {
         isPlaying: this.isPlaying,
       });
       const resolvedId = String(id);
+      this.clearAutoNextTimer();
+      if (!options?.preserveFailureChain) {
+        this.autoNextAttempts = 0;
+        this.autoNextSourceTrackId = null;
+      }
       const track =
         sourceList.find((s) => String(s.id) === resolvedId) ||
         playlistStore.favorites.find((s) => String(s.id) === resolvedId) ||
@@ -537,20 +641,68 @@ export const usePlayerStore = defineStore('player', {
       if (!isPlayableSong(track)) {
         logger.warn('PlayerStore', 'Track not playable:', track);
         this.lastError = 'track-not-playable';
+        this.currentTrackSnapshot = track;
+        this.currentTrackId = resolvedId;
+        this.currentPlaylist = sourceList;
+        this.applyFailedPlaybackState();
+        this.clearAutoNextTimer();
+        if (settingStore.autoNext && sourceList.length > 0) {
+          this.autoNextSourceTrackId = resolvedId;
+          this.scheduleAutoNext();
+        }
         return;
       }
 
-      const previousTrackId = this.currentTrackId;
-      const isSameTrackReplay = previousTrackId === resolvedId;
-      const previousPlaylist = this.currentPlaylist;
-      const previousAudioUrl = this.currentAudioUrl;
-      const previousResolvedAudioQuality = this.currentResolvedAudioQuality;
-      const previousResolvedAudioEffect = this.currentResolvedAudioEffect;
-      const previousTime = this.currentTime;
       const wasPlaying = this.isPlaying;
 
+      if (wasPlaying && settingStore.volumeFade) {
+        const fadeMs = clampNumber(settingStore.volumeFadeTime ?? 1000, 120, 1000);
+        const transitionFadeMs = Math.min(fadeMs, 220);
+        await this.fadeVolume(0, { durationMs: transitionFadeMs, respectUserVolume: true });
+      }
+
+      if (requestSeq !== this.playbackRequestSeq) {
+        logger.info('PlayerStore', 'Ignore stale playTrack before switching target', {
+          requestSeq,
+          latestRequestSeq: this.playbackRequestSeq,
+          track: summarizeSong(track),
+        });
+        return;
+      }
+
+      engine.reset();
+      engine.setVolume(this.volume);
+      engine.setPlaybackRate(this.playbackRate);
+
+      this.currentTrackId = resolvedId;
+      this.currentTrackSnapshot = track;
+      this.currentPlaylist = sourceList;
+      this.currentAudioUrl = '';
+      this.currentResolvedAudioQuality = null;
+      this.currentResolvedAudioEffect = 'none';
+      this.currentTime = 0;
+      this.duration = 0;
+      this.isPlaying = false;
       this.isLoading = true;
       this.lastError = null;
+      this.climaxMarks = [];
+
+      playlistStore.consumeQueuedNextTrackId(id);
+      playlistStore.syncQueuedNextTrackIds();
+
+      if (track.lyric) {
+        lyricStore.setLyric(track.lyric);
+      } else {
+        lyricStore.setLyric('');
+      }
+
+      const pendingMediaMeta = buildMediaMeta(track);
+      if (pendingMediaMeta) engine.updateMediaMetadata(pendingMediaMeta);
+      engine.updateMediaPlaybackState(
+        buildStoppedPlaybackState({
+          playbackRate: this.playbackRate,
+        })
+      );
 
       logger.info('PlayerStore', 'Resolving audio url for track', {
         track: summarizeSong(track),
@@ -572,64 +724,23 @@ export const usePlayerStore = defineStore('player', {
           track: summarizeSong(track),
           autoNext: settingStore.autoNext,
         });
-        this.isLoading = false;
         this.lastError = 'audio-url-unavailable';
+        this.currentTrackSnapshot = track;
+        this.currentTrackId = resolvedId;
+        this.currentPlaylist = sourceList;
+        this.applyFailedPlaybackState();
         if (settingStore.autoNext && sourceList.length > 0) {
-          this.currentPlaylist = sourceList;
-          void this.next();
+          this.autoNextSourceTrackId = resolvedId;
+          this.scheduleAutoNext();
         }
         return;
       }
 
-      if (!isSameTrackReplay) {
-        this.currentAudioQualityOverride = null;
-      }
-
-      this.pendingSwitch = {
-        previousTrackId,
-        previousPlaylist,
-        previousAudioUrl,
-        previousResolvedAudioQuality,
-        previousResolvedAudioEffect,
-        previousTime,
-        wasPlaying,
-        targetTrackId: String(track.id),
-      };
-      logger.info('PlayerStore', 'Prepared pending switch', {
-        previousTrackId,
-        previousTime,
-        wasPlaying,
-        targetTrackId: String(track.id),
-      });
-
-      if (wasPlaying && settingStore.volumeFade) {
-        const fadeMs = clampNumber(settingStore.volumeFadeTime ?? 1000, 120, 1000);
-        const transitionFadeMs = Math.min(fadeMs, 220);
-        await this.fadeVolume(0, { durationMs: transitionFadeMs, respectUserVolume: true });
-      } else {
-        engine.setVolume(this.volume);
-      }
-
-      if (requestSeq !== this.playbackRequestSeq) {
-        logger.info('PlayerStore', 'Ignore stale playTrack after fade', {
-          requestSeq,
-          latestRequestSeq: this.playbackRequestSeq,
-          track: summarizeSong(track),
-        });
-        return;
-      }
-
-      this.currentTrackId = resolvedId;
-      this.currentPlaylist = sourceList;
-      playlistStore.consumeQueuedNextTrackId(id);
-      playlistStore.syncQueuedNextTrackIds();
+      this.currentAudioQualityOverride = null;
       this.currentAudioUrl = resolved.url;
       this.currentResolvedAudioQuality = resolved.quality;
       this.currentResolvedAudioEffect = resolved.effect;
       track.audioUrl = resolved.url;
-      this.climaxMarks = [];
-      this.currentTime = 0;
-      this.duration = 0;
 
       logger.info('PlayerStore', 'Binding resolved source to engine', {
         track: summarizeSong(track),
@@ -638,24 +749,6 @@ export const usePlayerStore = defineStore('player', {
         resolvedEffect: resolved.effect,
       });
       engine.setSource(resolved.url);
-
-      // 设置歌词
-      if (track.lyric) {
-        lyricStore.setLyric(track.lyric);
-      } else {
-        lyricStore.setLyric('');
-      }
-
-      const mediaMeta = buildMediaMeta(track);
-      if (mediaMeta) engine.updateMediaMetadata(mediaMeta);
-      engine.updateMediaPlaybackState(
-        buildMediaState({
-          isPlaying: this.isPlaying,
-          duration: this.duration,
-          currentTime: this.currentTime,
-          playbackRate: this.playbackRate,
-        })
-      );
 
       try {
         await engine.play();
@@ -673,6 +766,9 @@ export const usePlayerStore = defineStore('player', {
           playlistLength: sourceList.length,
         });
         this.isLoading = false;
+        this.autoNextAttempts = 0;
+        this.autoNextSourceTrackId = String(track.id);
+        this.clearAutoNextTimer();
         if (settingStore.volumeFade) {
           this.fadeIn();
         } else {
@@ -680,7 +776,6 @@ export const usePlayerStore = defineStore('player', {
         }
         logger.info('PlayerStore', 'Adding track to play history', summarizeSong(track));
         playlistStore.addToHistory(track);
-        this.pendingSwitch = null;
         void this.fetchClimaxMarks(track);
         if (this.pendingSettingRefresh) {
           this.pendingSettingRefresh = false;
@@ -696,35 +791,19 @@ export const usePlayerStore = defineStore('player', {
           });
           return;
         }
-        this.isLoading = false;
         this.lastError = 'playback-failed';
         settingStore.syncPreventSleep(false);
-
-        if (previousTrackId && previousAudioUrl) {
-          this.currentTrackId = previousTrackId;
-          this.currentPlaylist = previousPlaylist;
-          this.currentAudioUrl = previousAudioUrl;
-          this.currentResolvedAudioQuality = previousResolvedAudioQuality;
-          this.currentResolvedAudioEffect = previousResolvedAudioEffect;
-          engine.setSource(previousAudioUrl);
-          if (previousTime > 0) {
-            engine.seek(previousTime);
-          }
-          if (wasPlaying) {
-            try {
-              await engine.play();
-            } catch (resumeError) {
-              logger.error('PlayerStore', 'Resume previous track failed:', resumeError);
-            }
-          }
-        }
-
-        this.pendingSwitch = null;
+        this.applyFailedPlaybackState({ keepResolvedSource: true });
 
         if (settingStore.volumeFade) {
-          this.fadeIn();
+          engine.setVolume(this.volume);
         } else {
           engine.setVolume(this.volume);
+        }
+
+        if (settingStore.autoNext && sourceList.length > 0) {
+          this.autoNextSourceTrackId = resolvedId;
+          this.scheduleAutoNext();
         }
 
         if (this.pendingSettingRefresh) {
@@ -822,6 +901,10 @@ export const usePlayerStore = defineStore('player', {
         currentTrackId: this.currentTrackId,
         currentTime: this.currentTime,
       });
+      this.clearAutoNextTimer();
+      this.autoNextAttempts = 0;
+      this.autoNextSourceTrackId = null;
+      this.currentTrackSnapshot = null;
       engine.reset();
       this.currentTime = 0;
       this.duration = 0;
@@ -835,7 +918,6 @@ export const usePlayerStore = defineStore('player', {
       this.playbackRequestSeq += 1;
       this.climaxRequestSeq += 1;
       this.isLoading = false;
-      this.pendingSwitch = null;
       this.outputDeviceWatcherRegistered = false;
       playlistStore.queuedNextTrackIds = [];
       useLyricStore().setLyric('');
@@ -858,6 +940,8 @@ export const usePlayerStore = defineStore('player', {
       });
       const list = playlistStore.defaultList.length > 0 ? playlistStore.defaultList : (this.currentPlaylist ?? []);
       if (list.length === 0) return;
+
+      this.clearAutoNextTimer();
 
       const queuedNextId = playlistStore.peekQueuedNextTrackId();
       if (queuedNextId) {
@@ -930,6 +1014,7 @@ export const usePlayerStore = defineStore('player', {
         prevIndex,
         track: summarizeSong(prevSong),
       });
+      this.clearAutoNextTimer();
       this.playTrack(prevSong.id, list);
     },
 
@@ -944,8 +1029,12 @@ export const usePlayerStore = defineStore('player', {
 
       logger.info('PlayerStore', 'Output device watcher registered');
       navigator.mediaDevices.addEventListener('devicechange', () => {
-        logger.info('PlayerStore', 'Detected media device change, refreshing output devices');
-        void this.refreshOutputDevices(settingStore);
+        logger.info('PlayerStore', 'Detected media device change, scheduling output device refresh');
+        this.clearOutputDeviceRefreshTimer();
+        this.outputDeviceRefreshTimer = window.setTimeout(() => {
+          this.outputDeviceRefreshTimer = null;
+          void this.refreshOutputDevices(settingStore);
+        }, 800);
       });
     },
 
@@ -971,6 +1060,14 @@ export const usePlayerStore = defineStore('player', {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const outputs = devices.filter((device) => device.kind === 'audiooutput');
+        const nextSignature = buildAudioOutputDeviceSignature(devices);
+        const previousSignature = this.lastAudioOutputDeviceSignature;
+        const hasDeviceSignatureChanged =
+          previousSignature !== null
+          && nextSignature !== null
+          && nextSignature !== previousSignature;
+        this.lastAudioOutputDeviceSignature = nextSignature;
+
         const outputOptions = outputs
           .filter((device) => device.deviceId && device.deviceId !== 'default')
           .map((device, index) => ({
@@ -1002,24 +1099,40 @@ export const usePlayerStore = defineStore('player', {
         const hasCurrentDevice =
           currentOutput === 'default'
           || outputOptions.some((item) => item.value === currentOutput);
+        const shouldRestorePreferredOutput =
+          currentOutput !== 'default'
+          && hasCurrentDevice
+          && this.appliedOutputDeviceId === 'default';
 
         if (!hasCurrentDevice) {
-          const shouldPause = settingStore.pauseOnDeviceChange && this.isPlaying;
+          const disconnectBehavior = settingStore.outputDeviceDisconnectBehavior as OutputDeviceDisconnectBehavior;
+          const shouldPause = disconnectBehavior === 'pause' && this.isPlaying;
           logger.warn('PlayerStore', 'Current output device missing, fallback to default', {
             currentOutput,
             shouldPause,
+            disconnectBehavior,
+            previousSignature,
+            nextSignature,
           });
-          settingStore.outputDevice = 'default';
-          settingStore.outputDeviceType = 'default';
-          await this.applyOutputDevice('default', settingStore);
+
+          if (disconnectBehavior === 'fallback') {
+            await this.applyOutputDevice('default', settingStore, { persistSelection: false });
+            settingStore.setOutputDeviceStatus('fallback', '所选输出设备已不可用，已临时切回系统默认输出，原选择会保留。');
+            return;
+          }
+
           if (shouldPause) {
             engine.pause();
           }
-          settingStore.setOutputDeviceStatus('fallback', '所选输出设备已不可用，已自动切回系统默认输出。');
+          settingStore.setOutputDeviceStatus('fallback', '所选输出设备已不可用，播放已暂停，请重新连接设备或手动切换输出。');
           return;
         }
 
         await this.applyOutputDevice(currentOutput, settingStore);
+        if (shouldRestorePreferredOutput) {
+          const matched = settingStore.outputDevices.find((item) => item.value === currentOutput);
+          settingStore.setOutputDeviceStatus('ready', `已恢复到首选输出设备：${matched?.label || '所选输出设备'}。`);
+        }
       } catch (error) {
         logger.warn('PlayerStore', 'Refresh output devices failed:', error);
         settingStore.outputDevices = fallbackOptions;
@@ -1072,20 +1185,34 @@ export const usePlayerStore = defineStore('player', {
       }
     },
 
-    async applyOutputDevice(deviceId: string, settingStore = useSettingStore()) {
+    async applyOutputDevice(
+      deviceId: string,
+      settingStore = useSettingStore(),
+      options?: { persistSelection?: boolean },
+    ) {
       const targetDeviceId = deviceId;
+      const persistSelection = options?.persistSelection ?? true;
       logger.info('PlayerStore', 'Applying output device', {
         requestedDeviceId: targetDeviceId,
         currentOutputDevice: settingStore.outputDevice,
+        persistSelection,
       });
       const applied = await engine.setOutputDevice(targetDeviceId);
+      if (applied) {
+        this.appliedOutputDeviceId = targetDeviceId;
+      }
       if (!applied && targetDeviceId !== 'default') {
         logger.warn('PlayerStore', 'Apply output device failed, falling back to default', {
           requestedDeviceId: targetDeviceId,
         });
         await engine.setOutputDevice('default');
-        settingStore.outputDevice = 'default';
-        settingStore.setOutputDeviceStatus('fallback', '当前设备不支持切换到所选输出，已回退到系统默认输出。');
+        this.appliedOutputDeviceId = 'default';
+        if (persistSelection) {
+          settingStore.outputDevice = 'default';
+        }
+        settingStore.setOutputDeviceStatus('fallback', persistSelection
+          ? '当前设备不支持切换到所选输出，已回退到系统默认输出。'
+          : '当前设备不支持切换到所选输出，已临时回退到系统默认输出。');
       } else if (!applied) {
         logger.warn('PlayerStore', 'Apply output device unsupported in current environment', {
           requestedDeviceId: targetDeviceId,
@@ -1093,7 +1220,7 @@ export const usePlayerStore = defineStore('player', {
         settingStore.setOutputDeviceStatus('unsupported', '当前系统暂不支持在应用内切换输出设备，请使用系统声音设置切换。');
       } else if (deviceId === 'default') {
         logger.info('PlayerStore', 'Output device switched to system default');
-        settingStore.setOutputDeviceStatus('ready', '当前使用系统默认输出设备。');
+        settingStore.setOutputDeviceStatus('ready', persistSelection ? '当前使用系统默认输出设备。' : '当前临时使用系统默认输出设备。');
       } else {
         const matched = settingStore.outputDevices.find((item) => item.value === deviceId);
         logger.info('PlayerStore', 'Output device switched successfully', {
@@ -1343,37 +1470,6 @@ export const usePlayerStore = defineStore('player', {
       if (this.pendingSettingRefresh) {
         this.pendingSettingRefresh = false;
         void this.refreshCurrentTrack();
-      }
-    },
-
-    async recoverFromPendingSwitch(reason: string) {
-      if (!this.pendingSwitch) return;
-      const fallback = this.pendingSwitch;
-      logger.warn('PlayerStore', 'Recovering from pending switch', {
-        reason,
-        previousTrackId: fallback.previousTrackId,
-        targetTrackId: fallback.targetTrackId,
-        previousTime: fallback.previousTime,
-        wasPlaying: fallback.wasPlaying,
-      });
-      this.pendingSwitch = null;
-      if (!fallback.previousTrackId || !fallback.previousAudioUrl) return;
-
-      this.currentTrackId = fallback.previousTrackId;
-      this.currentPlaylist = fallback.previousPlaylist;
-      this.currentAudioUrl = fallback.previousAudioUrl;
-      this.currentResolvedAudioQuality = fallback.previousResolvedAudioQuality;
-      this.currentResolvedAudioEffect = fallback.previousResolvedAudioEffect;
-      engine.setSource(fallback.previousAudioUrl);
-      if (fallback.previousTime > 0) {
-        engine.seek(fallback.previousTime);
-      }
-      if (fallback.wasPlaying) {
-        try {
-          await engine.play();
-        } catch (resumeError) {
-          logger.error('PlayerStore', 'Recover previous track failed:', resumeError, reason);
-        }
       }
     },
 

@@ -334,9 +334,7 @@ const playSearchSongs = async () => {
 };
 
 const handleSongDoubleTapPlay = async (song: Song) => {
-  const played = await replaceQueueAndPlay(playlistStore, playerStore, songResults.value, 0);
-  if (!played) return;
-  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
+  await replaceQueueAndPlay(playlistStore, playerStore, songResults.value, 0, song);
 };
 
 const openSongBatchDrawer = () => {

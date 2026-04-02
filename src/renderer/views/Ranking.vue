@@ -134,9 +134,7 @@ const sortedSongs = computed(() => {
 const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
 
 const handleSongDoubleTapPlay = async (song: Song) => {
-  const played = await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0);
-  if (!played) return;
-  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
+  await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0, song);
 };
 
 const handlePlayAll = async () => {

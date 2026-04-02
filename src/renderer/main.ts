@@ -11,23 +11,82 @@ const app = createApp(App);
 const pinia = createPinia();
 pinia.use(piniaPluginPersistedstate);
 
-// Vue 全局异常处理
-app.config.errorHandler = (err: any, instance, info) => {
-  logger.error('App', 'Global exception catch', err, instance, info);
+const ERROR_REDIRECT_DEDUPE_MS = 1200;
+let lastErrorSignature = '';
+let lastErrorAt = 0;
 
-  // 如果是路由正在切换中，或者是正常页面逻辑错误，跳转到错误页
-  // 避免在错误页本身出错导致无限循环
-  if (router.currentRoute.value.name !== 'error') {
-    router.push({
-      name: 'error',
-      query: {
-        message: err.message || String(err),
-        status: 'App Error',
-        from: router.currentRoute.value.fullPath,
-      },
-    });
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message || error.name || '发生了一些未知的错误';
+  if (typeof error === 'string') return error;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = Reflect.get(error, 'message');
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+
+  try {
+    const serialized = JSON.stringify(error);
+    return serialized === undefined ? '发生了一些未知的错误' : serialized;
+  } catch {
+    return String(error ?? '发生了一些未知的错误');
   }
 };
+
+const shouldSkipErrorRedirect = (status: string, message: string, from: string): boolean => {
+  const signature = `${status}|${message}|${from}`;
+  const now = Date.now();
+  if (signature === lastErrorSignature && now - lastErrorAt < ERROR_REDIRECT_DEDUPE_MS) {
+    return true;
+  }
+  lastErrorSignature = signature;
+  lastErrorAt = now;
+  return false;
+};
+
+const navigateToErrorPage = async (error: unknown, status: string): Promise<void> => {
+  const currentRoute = router.currentRoute.value;
+  if (currentRoute.name === 'error') return;
+
+  const message = getErrorMessage(error);
+  const from = currentRoute.fullPath;
+  if (shouldSkipErrorRedirect(status, message, from)) return;
+
+  try {
+    await router.replace({
+      name: 'error',
+      query: {
+        message,
+        status,
+        from,
+      },
+    });
+  } catch (navigationError) {
+    logger.error('App', 'Failed to navigate to error page', navigationError);
+  }
+};
+
+app.config.errorHandler = (err: unknown, instance, info) => {
+  logger.error('App', 'Vue global exception catch', err, instance, info);
+  void navigateToErrorPage(err, 'App Error');
+};
+
+window.addEventListener('error', (event) => {
+  logger.error('App', 'Window error event', event.error ?? event.message, {
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+  });
+  void navigateToErrorPage(event.error ?? event.message, 'Window Error');
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  logger.error('App', 'Unhandled promise rejection', event.reason);
+  void navigateToErrorPage(event.reason, 'Unhandled Rejection');
+});
+
+router.onError((error) => {
+  logger.error('App', 'Router error', error);
+  void navigateToErrorPage(error, 'Route Error');
+});
 
 app.use(pinia);
 app.use(router);

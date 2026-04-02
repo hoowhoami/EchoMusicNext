@@ -44,13 +44,16 @@ export const resolvePlayableSongForRequest = (
 export const resolvePlayableQueue = (
   songs: Song[],
   filteredInvalidCount = 0,
+  requestedSong?: Song,
 ): ResolvedPlayableQueue => {
   const resolved = splitValidSongs(songs);
   const hiddenCount = Math.max(0, filteredInvalidCount) + resolved.filteredCount;
 
   return {
     queue: resolved.songs,
-    firstPlayable: resolvePlayableSongForRequest(resolved.songs[0] ?? songs[0], resolved.songs),
+    firstPlayable: requestedSong
+      ? resolvePlayableSongForRequest(requestedSong, resolved.songs)
+      : resolvePlayableSongForRequest(resolved.songs[0] ?? songs[0], resolved.songs),
     filteredInvalidCount: hiddenCount,
     sourceCount: resolved.songs.length + hiddenCount,
   };
@@ -61,8 +64,9 @@ export const replaceQueueAndPlay = async (
   playerStore: PlaybackPlayerLike,
   songs: Song[],
   filteredInvalidCount = 0,
+  requestedSong?: Song,
 ): Promise<boolean> => {
-  const resolved = resolvePlayableQueue(songs, filteredInvalidCount);
+  const resolved = resolvePlayableQueue(songs, filteredInvalidCount, requestedSong);
   if (!resolved.firstPlayable) return false;
   playlistStore.setPlaybackQueue(resolved.queue, resolved.filteredInvalidCount);
   await playerStore.playTrack(String(resolved.firstPlayable.id), resolved.queue);

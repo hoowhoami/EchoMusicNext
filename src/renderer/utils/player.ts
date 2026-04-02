@@ -153,10 +153,11 @@ export class PlayerEngine {
     this.stopTimeUpdates();
     this.cancelPendingFade();
     if (!this.howl) return;
-    this.howl.off();
-    this.howl.stop();
-    this.howl.unload();
+    const currentHowl = this.howl;
     this.howl = null;
+    currentHowl.stop();
+    currentHowl.off();
+    currentHowl.unload();
   }
 
   private buildHowl(url: string): void {

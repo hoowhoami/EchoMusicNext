@@ -3,7 +3,10 @@ import { defineStore } from 'pinia';
 type OutputDeviceOption = {
   label: string;
   value: string;
+  disabled?: boolean;
 };
+
+export type OutputDeviceDisconnectBehavior = 'pause' | 'fallback';
 
 type OutputDeviceStatus = 'idle' | 'ready' | 'unsupported' | 'permission' | 'fallback' | 'error';
 
@@ -44,6 +47,8 @@ export const useSettingStore = defineStore('setting', {
     volumeFade: true,
     volumeFadeTime: 1000,
     autoNext: false,
+    autoNextDelaySeconds: 3,
+    autoNextMaxAttempts: 10,
     preventSleep: true,
     defaultAudioQuality: 'high' as '128' | '320' | 'flac' | 'high',
     compatibilityMode: true,
@@ -59,7 +64,7 @@ export const useSettingStore = defineStore('setting', {
     outputDeviceType: 'default' as 'default' | 'wasapi',
     outputDeviceStatus: 'idle' as OutputDeviceStatus,
     outputDeviceStatusMessage: '',
-    pauseOnDeviceChange: false,
+    outputDeviceDisconnectBehavior: 'pause' as OutputDeviceDisconnectBehavior,
     autoReceiveVip: false,
     checkPrerelease: false,
     appVersion: '1.0.0',

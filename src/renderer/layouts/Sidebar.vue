@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button.vue';
 import Cover from '@/components/ui/Cover.vue';
 import Dialog from '@/components/ui/Dialog.vue';
 import Input from '@/components/ui/Input.vue';
+import RefreshIcon from '@/components/ui/RefreshIcon.vue';
 import Switch from '@/components/ui/Switch.vue';
 import {
   iconClock,
@@ -13,7 +14,6 @@ import {
   iconCompass,
   iconHeart,
   iconPlus,
-  iconRefreshCw,
   iconSearch,
   iconSettings,
   iconSparkles,
@@ -478,7 +478,7 @@ watch(
           :disabled="!isLoggedIn"
           @click="refreshUserPlaylists"
         >
-          <Icon :icon="iconRefreshCw" width="13" height="13" />
+          <RefreshIcon width="15" height="15" />
         </Button>
         <div class="sidebar-section-action-slot">
           <Button

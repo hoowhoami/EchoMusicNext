@@ -2,10 +2,10 @@
 import { computed, watch, ref, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';
+import RefreshIcon from '@/components/ui/RefreshIcon.vue';
 import {
   iconChevronLeft,
   iconChevronRight,
-  iconRefreshCw,
   iconMinus,
   iconSquare,
   iconX,
@@ -85,10 +85,9 @@ onUnmounted(() => {
         />
       </Button>
       <Button variant="unstyled" size="none" @click="refresh" class="nav-btn group" title="刷新">
-        <Icon
-          :icon="iconRefreshCw"
-          width="15"
-          height="15"
+        <RefreshIcon
+          width="16"
+          height="16"
           class="text-text-main opacity-60 group-hover:opacity-100 transition-opacity"
         />
       </Button>

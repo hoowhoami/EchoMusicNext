@@ -349,9 +349,7 @@ const playRankSongs = async () => {
 };
 
 const handleRankSongDoubleTapPlay = async (song: Song) => {
-  const played = await replaceQueueAndPlay(playlistStore, playerStore, rankSongs.value, 0);
-  if (!played) return;
-  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
+  await replaceQueueAndPlay(playlistStore, playerStore, rankSongs.value, 0, song);
 };
 
 const openRankBatchDrawer = () => {
@@ -365,9 +363,7 @@ const playNewSongs = async () => {
 };
 
 const handleNewSongDoubleTapPlay = async (song: Song) => {
-  const played = await replaceQueueAndPlay(playlistStore, playerStore, newSongs.value, 0);
-  if (!played) return;
-  await playerStore.playTrack(String(song.id), playlistStore.defaultList);
+  await replaceQueueAndPlay(playlistStore, playerStore, newSongs.value, 0, song);
 };
 
 const openNewSongBatchDrawer = () => {

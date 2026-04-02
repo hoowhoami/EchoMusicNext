@@ -48,6 +48,7 @@ const settingStore = useSettingStore();
 
 const currentTrack = computed(() => {
   return (
+    player.currentTrackSnapshot ||
     playlist.defaultList.find((s: Song) => s.id === player.currentTrackId) ||
     playlist.favorites.find((s: Song) => s.id === player.currentTrackId) ||
     playlist.history.find((s: Song) => s.id === player.currentTrackId)

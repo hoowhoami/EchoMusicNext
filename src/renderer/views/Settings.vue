@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useSettingStore } from '@/stores/setting';
 import { usePlayerStore } from '@/stores/player';
+import type { OutputDeviceDisconnectBehavior } from '@/stores/setting';
 import Select from '@/components/ui/Select.vue';
 import Slider from '@/components/ui/Slider.vue';
 import Switch from '@/components/ui/Switch.vue';
@@ -80,6 +81,22 @@ const isMac = computed(() => window.electron?.platform === 'darwin');
 const recording = ref<{ scope: ShortcutScope; command: ShortcutCommand } | null>(null);
 let removeRecorder: (() => void) | null = null;
 let removeOutside: (() => void) | null = null;
+
+const autoNextDelayInput = computed({
+  get: () => String(settingStore.autoNextDelaySeconds ?? 0),
+  set: (value: string | number) => {
+    const parsed = Number.parseInt(String(value).trim(), 10);
+    settingStore.autoNextDelaySeconds = Number.isNaN(parsed) ? 0 : Math.max(0, Math.min(parsed, 600));
+  },
+});
+
+const autoNextMaxAttemptsInput = computed({
+  get: () => String(settingStore.autoNextMaxAttempts ?? 0),
+  set: (value: string | number) => {
+    const parsed = Number.parseInt(String(value).trim(), 10);
+    settingStore.autoNextMaxAttempts = Number.isNaN(parsed) ? 1 : Math.max(1, Math.min(parsed, 999));
+  },
+});
 
 const isRecording = (command: ShortcutCommand, scope: ShortcutScope) =>
   recording.value?.command === command && recording.value?.scope === scope;
@@ -248,7 +265,23 @@ const closeBehaviorOptions = [
   { label: '彻底退出程序', value: 'exit' },
 ];
 
+const outputDeviceDisconnectBehaviorOptions = [
+  { label: '暂停播放', value: 'pause' },
+  { label: '切到默认设备', value: 'fallback' },
+];
+
 const outputDeviceOptions = computed(() => settingStore.outputDevices);
+const selectedOutputDeviceLabel = computed(() => {
+  const matched = settingStore.outputDevices.find((item) => item.value === settingStore.outputDevice);
+  return matched?.label || (settingStore.outputDevice === 'default' ? '系统默认' : '未识别设备');
+});
+const appliedOutputDeviceLabel = computed(() => {
+  const matched = settingStore.outputDevices.find((item) => item.value === playerStore.appliedOutputDeviceId);
+  return matched?.label || (playerStore.appliedOutputDeviceId === 'default' ? '系统默认' : '未识别设备');
+});
+const isOutputDeviceTemporarilyFellBack = computed(() =>
+  playerStore.appliedOutputDeviceId === 'default' && settingStore.outputDevice !== 'default',
+);
 const outputDeviceFeedbackTone = computed(() => {
   if (settingStore.outputDeviceStatus === 'error') return 'danger';
   if (settingStore.outputDeviceStatus === 'unsupported' || settingStore.outputDeviceStatus === 'permission' || settingStore.outputDeviceStatus === 'fallback') return 'warning';
@@ -455,9 +488,45 @@ onUnmounted(() => {
         <div class="settings-item">
           <div class="space-y-1">
             <h3 class="font-semibold">自动跳过错误</h3>
-            <p class="text-sm text-text-secondary">歌曲加载失败时自动尝试下一首</p>
+            <p class="text-sm text-text-secondary">播放失败时停留在当前歌曲，并按设定延迟自动尝试下一首</p>
           </div>
           <Switch v-model="settingStore.autoNext" />
+        </div>
+        <div v-if="settingStore.autoNext" class="settings-item">
+          <div class="space-y-1">
+            <h3 class="font-semibold">失败后切换延迟</h3>
+            <p class="text-sm text-text-secondary">给用户留出确认失败状态的时间，再自动切换</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <input
+              v-model="autoNextDelayInput"
+              type="number"
+              min="0"
+              max="600"
+              step="1"
+              placeholder="0"
+              class="settings-number-input"
+            />
+            <span class="text-sm text-text-secondary">秒</span>
+          </div>
+        </div>
+        <div v-if="settingStore.autoNext" class="settings-item">
+          <div class="space-y-1">
+            <h3 class="font-semibold">最大自动切换次数</h3>
+            <p class="text-sm text-text-secondary">连续失败时最多自动尝试的次数，避免无限跳歌</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <input
+              v-model="autoNextMaxAttemptsInput"
+              type="number"
+              min="1"
+              max="999"
+              step="1"
+              placeholder="10"
+              class="settings-number-input"
+            />
+            <span class="text-sm text-text-secondary">次</span>
+          </div>
         </div>
         <div class="settings-divider"></div>
         <div class="settings-item">
@@ -582,6 +651,10 @@ onUnmounted(() => {
           <div class="space-y-1">
             <h3 class="font-semibold">输出设备</h3>
             <p class="text-sm text-text-secondary">选择音频播放输出设备</p>
+            <p class="text-xs text-text-secondary/80">
+              首选输出：{{ selectedOutputDeviceLabel }}
+              <span v-if="isOutputDeviceTemporarilyFellBack"> · 当前实际输出：{{ appliedOutputDeviceLabel }}</span>
+            </p>
           </div>
           <Select
             class="min-w-[180px]"
@@ -593,10 +666,15 @@ onUnmounted(() => {
         <div class="settings-divider"></div>
         <div class="settings-item">
           <div class="space-y-1">
-            <h3 class="font-semibold">设备断开时暂停</h3>
-            <p class="text-sm text-text-secondary">检测到输出设备断开时自动暂停播放</p>
+            <h3 class="font-semibold">设备断开后的行为</h3>
+            <p class="text-sm text-text-secondary">当当前所选输出设备断开时，选择暂停播放或临时切换到系统默认设备</p>
           </div>
-          <Switch v-model="settingStore.pauseOnDeviceChange" />
+          <Select
+            class="min-w-[180px]"
+            :model-value="settingStore.outputDeviceDisconnectBehavior"
+            :options="outputDeviceDisconnectBehaviorOptions"
+            @update:model-value="settingStore.outputDeviceDisconnectBehavior = $event as OutputDeviceDisconnectBehavior"
+          />
         </div>
         <div v-if="hasOutputDeviceFeedback" :class="['settings-warning', `is-${outputDeviceFeedbackTone}`]">
           <div class="settings-warning-content">
@@ -813,6 +891,34 @@ onUnmounted(() => {
 
 .settings-select {
   @apply bg-bg-main text-text-main border border-border-light rounded-lg px-3 py-1.5 text-sm font-semibold focus:outline-none min-w-[160px];
+}
+
+.settings-number-input {
+  width: 120px;
+  height: 40px;
+  padding: 0 6px 0 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border-light) 92%, transparent);
+  background: color-mix(in srgb, var(--color-text-main) 4%, transparent);
+  color: var(--color-text-main);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 40px;
+}
+
+.settings-number-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border-light));
+}
+
+.settings-number-input::-webkit-outer-spin-button,
+.settings-number-input::-webkit-inner-spin-button {
+  margin: 0;
+  opacity: 1;
+  min-height: 34px;
+  transform: scale(1.08);
+  transform-origin: right center;
 }
 
 .shortcut-input {

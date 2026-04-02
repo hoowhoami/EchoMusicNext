@@ -15,7 +15,7 @@ import { getSongPrivilegeLite, getSongRanking } from '@/api/music';
 import { mapCommentItem } from '@/utils/mappers';
 import type { Comment } from '@/models/comment';
 import { getSongEffectTags, getSongQualityTags } from '@/utils/song';
-import Drawer from '@/components/ui/Drawer.vue';
+import Dialog from '@/components/ui/Dialog.vue';
 import Tabs from '@/components/ui/Tabs.vue';
 import TabsList from '@/components/ui/TabsList.vue';
 import TabsTrigger from '@/components/ui/TabsTrigger.vue';
@@ -915,11 +915,15 @@ watch(total, (value) => {
       </template>
     </div>
 
-    <Drawer v-model:open="showFloor" side="bottom" panelClass="comment-floor">
+    <Dialog
+      v-model:open="showFloor"
+      contentClass="comment-floor-dialog"
+      bodyClass="comment-floor-dialog-body"
+    >
       <div class="comment-floor-header">
         <div class="comment-floor-title">楼层评论</div>
         <Button class="comment-floor-close" variant="ghost" size="xs" @click="showFloor = false">
-          <Icon :icon="iconX" width="16" height="16" />
+          <Icon :icon="iconX" width="20" height="20" />
         </Button>
       </div>
       <div class="comment-floor-body" ref="floorBodyRef" @scroll="handleFloorScroll">
@@ -949,7 +953,7 @@ watch(total, (value) => {
           <div v-else class="comment-end-hint">已加载全部评论</div>
         </div>
       </div>
-    </Drawer>
+    </Dialog>
 
     <BackToTop target-selector=".comment-content-wrap" :threshold="360" />
   </div>
@@ -1269,18 +1273,49 @@ watch(total, (value) => {
   color: var(--color-text-secondary);
 }
 
-:global(.comment-floor) {
-  padding: 0;
-  border-radius: 24px 24px 0 0;
+:global(.comment-floor-dialog) {
+  left: calc(var(--drawer-content-left, 0px) + (var(--drawer-content-width, 92vw) / 2));
+  top: calc(var(--drawer-content-top, 0px) + (var(--drawer-content-height, 100vh) / 2));
+  width: min(620px, calc(var(--drawer-content-width, 92vw) - 40px));
+  max-width: calc(var(--drawer-content-width, 92vw) - 40px);
+  max-height: min(720px, calc(var(--drawer-content-height, 100vh) - 24px));
+  padding: 24px 2px 24px 24px;
+  border-radius: 24px;
   overflow: hidden;
-  box-shadow: 0 -18px 48px color-mix(in srgb, black 18%, transparent);
+  box-shadow: 0 18px 48px color-mix(in srgb, black 18%, transparent);
+  transform: translate(-50%, -50%) scale(0.98);
+}
+
+:global(.comment-floor-dialog[data-state='open']) {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+:global(.comment-floor-dialog[data-state='closed']) {
+  transform: translate(-50%, -50%) scale(0.98);
+}
+
+:global(.comment-floor-dialog .dialog-scroll-area) {
+  margin-top: 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+:global(.comment-floor-dialog .comment-floor-dialog-body) {
+  padding-right: 16px;
+  margin-top: 0;
 }
 
 .comment-floor-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 16px 10px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0 16px 12px 0;
+  margin-bottom: 4px;
+  background: var(--color-bg-main);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border-light) 72%, transparent);
 }
 
 
@@ -1293,18 +1328,25 @@ watch(total, (value) => {
 .comment-floor-close {
   width: 32px;
   height: 32px;
-  border-radius: 999px;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border-light);
+  padding: 0;
+  color: color-mix(in srgb, var(--color-text-main) 50%, transparent);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.comment-floor-close:hover {
+  color: var(--color-text-main);
 }
 
 .comment-floor-body {
-  padding: 0 12px 18px;
-  max-height: 72vh;
-  overflow-y: auto;
+  padding: 0 0 2px;
+  max-height: none;
+  overflow: visible;
 }
 
 .comment-floor-empty {
