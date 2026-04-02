@@ -834,10 +834,16 @@ export const usePlayerStore = defineStore('player', {
       playlistStore.consumeQueuedNextTrackId(id);
       playlistStore.syncQueuedNextTrackIds();
 
+      const lyricHash = String(track.hash ?? track.id ?? '');
       if (track.lyric) {
-        lyricStore.setLyric(track.lyric);
+        lyricStore.setLyric(track.lyric, lyricHash);
       } else {
-        lyricStore.setLyric('');
+        lyricStore.clear(lyricHash, '歌词加载中...');
+      }
+      if (lyricHash) {
+        void lyricStore.fetchLyrics(lyricHash);
+      } else if (!track.lyric) {
+        lyricStore.clear('', '暂无歌词');
       }
 
       const pendingMediaMeta = buildMediaMeta(track);
@@ -1065,7 +1071,7 @@ export const usePlayerStore = defineStore('player', {
       this.isLoading = false;
       this.outputDeviceWatcherRegistered = false;
       playlistStore.queuedNextTrackIds = [];
-      useLyricStore().setLyric('');
+      useLyricStore().clear('', '暂无歌词');
       engine.updateMediaPlaybackState(
         buildMediaState({
           isPlaying: false,

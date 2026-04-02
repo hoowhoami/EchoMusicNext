@@ -14,14 +14,20 @@ import { getCoverUrl } from '@/utils/cover';
 import Button from '@/components/ui/Button.vue';
 import {
   iconChevronDown,
+  iconCopy,
   iconHeart,
+  iconLanguage,
+  iconMinus,
   iconPause,
   iconPlay,
+  iconPlus,
+  iconRefreshCw,
   iconRepeat,
   iconListRestart,
   iconShuffle,
   iconSkipBack,
   iconSkipForward,
+  iconTypography,
   iconVolume2,
   iconVolume1,
   iconVolumeX,
@@ -38,25 +44,42 @@ const lyricListRef = ref<HTMLElement | null>(null);
 const progressValue = ref(0);
 const isProgressDragging = ref(false);
 const volumeValue = ref(Math.round(playerStore.volume * 100));
+const copyFeedback = ref(false);
 
 const currentTrack = computed<Song | undefined>(() => {
   const currentId = String(playerStore.currentTrackId ?? '');
   if (!currentId) return undefined;
   return (
-    playlistStore.defaultList.find((song) => String(song.id) === currentId) ||
-    playlistStore.favorites.find((song) => String(song.id) === currentId) ||
-    playerStore.currentTrackSnapshot ||
-    undefined
+    playlistStore.defaultList.find((song) => String(song.id) === currentId)
+    || playlistStore.favorites.find((song) => String(song.id) === currentId)
+    || playerStore.currentTrackSnapshot
+    || undefined
   );
 });
 
 const backgroundUrl = computed(() => getCoverUrl(currentTrack.value?.coverUrl, 900));
-
 const currentIndex = computed(() => lyricStore.currentIndex);
 const hasLyrics = computed(() => lyricStore.lines.length > 0);
+const currentTrackHash = computed(() => String(currentTrack.value?.hash ?? currentTrack.value?.id ?? ''));
+const lyricModeLabel = computed(() => {
+  if (lyricStore.lyricsMode === 'translation') return '翻译';
+  if (lyricStore.lyricsMode === 'romanization') return '音译';
+  return '标准';
+});
+const canToggleMode = computed(() => lyricStore.hasTranslation || lyricStore.hasRomanization);
+const emptyStateText = computed(() => {
+  if (lyricStore.isLoading) return '歌词加载中…';
+  return lyricStore.tips || '暂无歌词';
+});
+const titleFontSize = computed(() => `clamp(${23 * lyricStore.fontScale}px, ${2.3 * lyricStore.fontScale}vw, ${36 * lyricStore.fontScale}px)`);
+const secondaryFontSize = computed(() => `clamp(${12 * lyricStore.fontScale}px, ${1.0 * lyricStore.fontScale}vw, ${15 * lyricStore.fontScale}px)`);
+const fontWeightLabel = computed(() => `W${lyricStore.fontWeightValue}`);
+
 const isFavorite = computed(() => {
   if (!currentTrack.value) return false;
-  return playlistStore.favorites.some((song) => isSameSong(song, currentTrack.value as Song) || String(song.id) === String(currentTrack.value?.id));
+  return playlistStore.favorites.some(
+    (song) => isSameSong(song, currentTrack.value as Song) || String(song.id) === String(currentTrack.value?.id),
+  );
 });
 
 const playModeMeta = computed(() => {
@@ -124,6 +147,52 @@ const handleVolumeInput = (value: number) => {
   playerStore.setVolume(value / 100);
 };
 
+const copyLyrics = async () => {
+  const text = lyricStore.copyableText.trim();
+  if (!text) return;
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+  } else {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.opacity = '0';
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+  }
+
+  copyFeedback.value = true;
+  window.setTimeout(() => {
+    copyFeedback.value = false;
+  }, 1200);
+};
+
+const refreshLyrics = async () => {
+  const hash = currentTrackHash.value;
+  if (!hash) return;
+  lyricStore.clear(hash, '歌词加载中...');
+  await lyricStore.fetchLyrics(hash);
+  lyricStore.updateCurrentIndex(playerStore.currentTime);
+  await nextTick();
+  scrollToCurrentLine(false);
+};
+
+const increaseFontWeight = () => {
+  lyricStore.updateFontWeight(lyricStore.fontWeightIndex + 1);
+};
+
+const decreaseFontWeight = () => {
+  lyricStore.updateFontWeight(lyricStore.fontWeightIndex - 1);
+};
+
+const toggleLyricsMode = () => {
+  if (!canToggleMode.value) return;
+  lyricStore.toggleLyricsMode();
+};
+
 watch(
   () => lyricStore.currentIndex,
   async (index, previous) => {
@@ -158,14 +227,30 @@ watch(
   },
 );
 
+watch(
+  () => lyricStore.lyricsMode,
+  async () => {
+    await nextTick();
+    scrollToCurrentLine(false);
+  },
+);
+
 const closeLyricPage = async () => {
   await closeTransientView(router, route);
 };
 
 const handleKeydown = (event: KeyboardEvent) => {
-  if (event.key !== 'Escape') return;
-  event.preventDefault();
-  void closeLyricPage();
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    void closeLyricPage();
+    return;
+  }
+
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+    if (!hasLyrics.value) return;
+    event.preventDefault();
+    void copyLyrics();
+  }
 };
 
 onMounted(() => {
@@ -182,316 +267,275 @@ onUnmounted(() => {
   <div class="lyric-view relative h-screen w-screen overflow-hidden text-white select-none">
     <div class="absolute inset-0 overflow-hidden">
       <div
-        class="absolute inset-[-6%] scale-110 bg-cover bg-center blur-[90px] saturate-[1.35]"
+        class="absolute inset-0 bg-cover bg-center opacity-[0.16] blur-[2px] scale-[1.08]"
         :style="{ backgroundImage: backgroundUrl ? `url(${backgroundUrl})` : undefined }"
       ></div>
       <div class="absolute inset-0 lyric-view__backdrop"></div>
-      <div class="absolute inset-0 lyric-view__noise opacity-[0.16]"></div>
-      <div
-        class="absolute left-[8%] top-[16%] h-56 w-56 rounded-full bg-primary/20 blur-[120px]"
-      ></div>
-      <div
-        class="absolute bottom-[12%] right-[10%] h-72 w-72 rounded-full bg-primary/18 blur-[140px]"
-      ></div>
     </div>
 
     <OverlayHeader />
 
     <div class="relative z-10 flex h-full flex-col">
-      <div class="flex items-center justify-between px-6 pt-11 pb-3 no-drag">
-        <Button variant="unstyled" size="none" type="button" class="lyric-top-btn" title="返回" @click="closeLyricPage">
-          <Icon :icon="iconChevronDown" width="22" height="22" />
-        </Button>
-        <div class="text-center max-w-[48vw]">
-          <p class="text-[11px] uppercase tracking-[0.45em] text-white/45">Lyrics</p>
-          <h1 class="mt-1 truncate text-[14px] font-semibold text-white/85">
-            {{ currentTrack?.album || 'EchoMusic' }}
-          </h1>
+      <div class="h-12 w-full drag"></div>
+
+      <div class="px-6 pb-3 no-drag">
+        <div class="flex h-12 items-center">
+          <Button variant="unstyled" size="none" type="button" class="lyric-icon-btn" title="返回" @click="closeLyricPage">
+            <Icon :icon="iconChevronDown" width="22" height="22" />
+          </Button>
+          <div class="ml-auto flex items-center gap-2">
+            <div class="lyric-weight-pill">
+              <Icon :icon="iconTypography" width="13" height="13" class="text-white/62" />
+              <Button variant="unstyled" size="none" type="button" class="lyric-weight-btn" :disabled="lyricStore.fontWeightIndex <= 0" @click="decreaseFontWeight">
+                <Icon :icon="iconMinus" width="10" height="10" />
+              </Button>
+              <span class="lyric-weight-label">{{ fontWeightLabel }}</span>
+              <Button variant="unstyled" size="none" type="button" class="lyric-weight-btn" :disabled="lyricStore.fontWeightIndex >= 8" @click="increaseFontWeight">
+                <Icon :icon="iconPlus" width="10" height="10" />
+              </Button>
+            </div>
+            <Button variant="unstyled" size="none" type="button" class="lyric-tool-chip" :disabled="!canToggleMode" @click="toggleLyricsMode">
+              <Icon :icon="iconLanguage" width="14" height="14" />
+              <span>{{ lyricModeLabel }}</span>
+            </Button>
+            <Button variant="unstyled" size="none" type="button" class="lyric-tool-chip" :disabled="!hasLyrics" @click="copyLyrics">
+              <Icon :icon="iconCopy" width="14" height="14" />
+              <span>{{ copyFeedback ? '已复制' : '复制' }}</span>
+            </Button>
+            <Button variant="unstyled" size="none" type="button" class="lyric-tool-chip" :disabled="!currentTrackHash" @click="refreshLyrics">
+              <Icon :icon="iconRefreshCw" width="14" height="14" :class="lyricStore.isLoading ? 'animate-spin' : ''" />
+              <span>刷新</span>
+            </Button>
+          </div>
         </div>
-        <div class="w-11"></div>
       </div>
 
-      <main class="flex-1 min-h-0 px-8 pb-8 pt-2">
-        <div class="mx-auto flex h-full max-w-[1520px] items-center gap-10 xl:gap-14">
-          <section class="flex min-w-0 flex-[0.95] items-center justify-center">
-            <div class="w-full max-w-[460px] text-center">
-              <div class="lyric-cover-shell mx-auto">
-                <div class="lyric-cover-glow"></div>
+      <div class="flex-1 min-h-0 px-14">
+        <div class="mx-auto flex h-full max-w-[1500px] items-center gap-10">
+          <section class="flex min-w-0 flex-[5] items-center justify-center">
+            <div class="lyric-info-panel">
+              <div class="lyric-cover-shell">
                 <div class="lyric-cover-frame">
-                  <Cover
-                    :url="currentTrack?.coverUrl"
-                    :size="800"
-                    class="h-full w-full"
-                    :borderRadius="30"
-                  />
+                  <Cover :url="currentTrack?.coverUrl" :size="800" class="h-full w-full" :borderRadius="24" />
                 </div>
               </div>
-
-              <div class="mt-10 space-y-3 px-4">
-                <h2
-                  class="truncate text-[clamp(30px,4vw,48px)] font-black tracking-[-0.04em] text-white"
-                >
-                  {{ currentTrack?.title || '未在播放' }}
-                </h2>
-                <p class="truncate text-[clamp(16px,2vw,22px)] font-semibold text-white/62">
-                  {{ currentTrack?.artist || '等待播放中' }}
-                </p>
-              </div>
+              <h2 class="mt-12 truncate text-center text-[clamp(28px,2.6vw,34px)] font-semibold tracking-[-0.04em] text-white">
+                {{ currentTrack?.title || '未在播放' }}
+              </h2>
+              <p class="mt-3 truncate text-center text-[clamp(16px,1.4vw,18px)] font-semibold text-white/62">
+                {{ currentTrack?.artist || '等待播放中' }}
+              </p>
             </div>
           </section>
 
-          <section class="flex min-w-0 flex-[1.25] flex-col justify-center self-stretch pb-5 pt-8">
-            <div
-              class="flex-1 min-h-0 overflow-hidden rounded-[36px] border border-white/8 bg-white/[0.045] px-6 py-6 shadow-[0_24px_90px_rgba(0,0,0,0.26)] backdrop-blur-2xl"
-            >
-              <div ref="lyricListRef" class="lyric-scroll h-full overflow-y-auto px-3">
-                <div class="min-h-full py-[32vh]">
-                  <template v-if="hasLyrics">
-                    <Button variant="unstyled" size="none"
+          <section class="flex min-w-0 flex-[7] flex-col justify-center self-stretch">
+            <div class="lyric-stage flex-1 min-h-0">
+              <div ref="lyricListRef" class="lyric-scroll h-full overflow-y-auto">
+                <template v-if="hasLyrics">
+                  <div class="py-[14vh]">
+                    <div
                       v-for="(line, index) in lyricStore.lines"
                       :key="`${line.time}-${index}`"
-                      type="button"
-                      :data-lyric-index="index"
-                      :class="[
-                        'lyric-line group w-full border-none bg-transparent px-4 py-4 text-left transition-all duration-300',
-                        currentIndex === index
-                          ? 'is-current'
-                          : currentIndex > index
-                            ? 'is-past'
-                            : 'is-future',
-                      ]"
-                      @click="playerStore.seek(line.time)"
+                      class="lyric-row"
+                      :style="{ height: ((lyricStore.lyricsMode === 'translation' || lyricStore.lyricsMode === 'romanization') ? 100 : 70) * lyricStore.fontScale + 'px' }"
                     >
-                      <span
-                        class="block text-[clamp(22px,2.8vw,38px)] font-black tracking-[-0.03em] leading-[1.22]"
+                      <Button
+                        variant="unstyled"
+                        size="none"
+                        type="button"
+                        :data-lyric-index="index"
+                        :class="['lyric-line', currentIndex === index ? 'is-current' : 'is-idle']"
+                        @click="playerStore.seek(line.time)"
                       >
-                        {{ line.text }}
-                      </span>
-                    </Button>
-                  </template>
-                  <div
-                    v-else
-                    class="flex min-h-[40vh] items-center justify-center px-8 text-center"
-                  >
-                    <div class="space-y-3">
-                      <p class="text-[30px] font-black tracking-[-0.04em] text-white/88">
-                        纯音乐，请欣赏
-                      </p>
-                      <p class="text-sm font-medium text-white/45">当前歌曲暂无可滚动歌词</p>
+                        <span
+                          class="block leading-[1.24] tracking-[0.01em]"
+                          :style="{ fontSize: titleFontSize, fontWeight: String(lyricStore.fontWeightValue) }"
+                        >
+                          <template v-if="currentIndex === index && line.characters.length > 1">
+                            <span
+                              v-for="(char, charIndex) in line.characters"
+                              :key="`${index}-${charIndex}-${char.startTime}`"
+                              class="lyric-character"
+                              :class="char.highlighted ? 'is-highlighted' : ''"
+                            >{{ char.text }}</span>
+                          </template>
+                          <template v-else>
+                            {{ line.text }}
+                          </template>
+                        </span>
+                        <span
+                          v-if="(lyricStore.lyricsMode === 'translation' && line.translated) || (lyricStore.lyricsMode === 'romanization' && line.romanized)"
+                          class="mt-1.5 block max-w-full truncate text-white/58"
+                          :style="{ fontSize: secondaryFontSize, fontWeight: String(currentIndex === index ? Math.max(500, lyricStore.fontWeightValue - 200) : 400) }"
+                        >
+                          {{ lyricStore.lyricsMode === 'translation' ? line.translated : line.romanized }}
+                        </span>
+                      </Button>
                     </div>
+                  </div>
+                </template>
+
+                <div v-else class="flex h-full items-center justify-center text-center">
+                  <div class="space-y-3">
+                    <p class="text-[28px] font-semibold text-white/88">
+                      {{ lyricStore.isLoading ? '歌词加载中…' : '纯音乐，请欣赏' }}
+                    </p>
+                    <p class="text-sm font-semibold text-white/38">{{ emptyStateText }}</p>
                   </div>
                 </div>
               </div>
             </div>
-
-            <div
-              class="mt-7 rounded-[30px] border border-white/8 bg-black/20 px-6 py-5 shadow-[0_18px_56px_rgba(0,0,0,0.24)] backdrop-blur-2xl no-drag"
-            >
-              <div
-                class="mb-3 flex items-center justify-between text-[12px] font-semibold text-white/42"
-              >
-                <span>{{
-                  formatDuration(isProgressDragging ? progressValue : playerStore.currentTime)
-                }}</span>
-                <span>{{ formatDuration(playerStore.duration) }}</span>
-              </div>
-
-              <div @pointerdown="handleProgressPointerDown">
-                <Slider
-                  :model-value="progressValue"
-                  :min="0"
-                  :max="Math.max(playerStore.duration, 1)"
-                  :step="1"
-                  class="lyric-progress-slider"
-                  track-class="lyric-progress-track"
-                  range-class="lyric-progress-range"
-                  thumb-class="lyric-progress-thumb"
-                  @update:model-value="handleProgressInput"
-                  @value-commit="handleProgressCommit"
-                />
-              </div>
-
-              <div class="mt-6 flex items-center justify-between gap-4">
-                <div class="flex items-center gap-2.5">
-                  <Button variant="unstyled" size="none" type="button" class="lyric-icon-btn" title="收藏" @click="toggleFavorite">
-                    <Icon
-                      :icon="iconHeart"
-                      width="20"
-                      height="20"
-                      :class="isFavorite ? 'text-[#ff6b81]' : 'text-white/72'"
-                    />
-                  </Button>
-                  <Button variant="unstyled" size="none"
-                    type="button"
-                    class="lyric-icon-btn"
-                    :title="playModeMeta.label"
-                    @click="cyclePlayMode"
-                  >
-                    <Icon :icon="playModeMeta.icon" width="20" height="20" class="text-white/78" />
-                  </Button>
-                </div>
-
-                <div class="flex items-center gap-3">
-                  <Button variant="unstyled" size="none"
-                    type="button"
-                    class="lyric-transport-btn"
-                    title="上一曲"
-                    @click="playerStore.prev()"
-                  >
-                    <Icon :icon="iconSkipBack" width="22" height="22" />
-                  </Button>
-                  <Button variant="unstyled" size="none"
-                    type="button"
-                    class="lyric-play-btn"
-                    :title="playerStore.isPlaying ? '暂停' : '播放'"
-                    @click="playerStore.togglePlay()"
-                  >
-                    <Icon
-                      :icon="playerStore.isPlaying ? iconPause : iconPlay"
-                      width="26"
-                      height="26"
-                    />
-                  </Button>
-                  <Button variant="unstyled" size="none"
-                    type="button"
-                    class="lyric-transport-btn"
-                    title="下一曲"
-                    @click="playerStore.next()"
-                  >
-                    <Icon :icon="iconSkipForward" width="22" height="22" />
-                  </Button>
-                </div>
-
-                <div class="flex min-w-[190px] items-center justify-end gap-3">
-                  <Icon :icon="volumeIcon" width="18" height="18" class="text-white/62" />
-                  <Slider
-                    :model-value="volumeValue"
-                    :min="0"
-                    :max="100"
-                    :step="1"
-                    class="w-[132px]"
-                    track-class="lyric-volume-track"
-                    range-class="lyric-volume-range"
-                    thumb-class="lyric-volume-thumb"
-                    @update:model-value="handleVolumeInput"
-                    @value-commit="handleVolumeInput"
-                  />
-                </div>
-              </div>
-            </div>
           </section>
         </div>
-      </main>
+      </div>
+
+      <div class="px-10 pb-6 pt-2 no-drag">
+        <div class="lyric-bottom-bar mx-auto max-w-[1500px]">
+          <div class="mb-2 flex items-center justify-between text-[11px] font-semibold text-white/42">
+            <span>{{ formatDuration(isProgressDragging ? progressValue : playerStore.currentTime) }}</span>
+            <span>{{ formatDuration(playerStore.duration) }}</span>
+          </div>
+
+          <div @pointerdown="handleProgressPointerDown">
+            <Slider
+              :model-value="progressValue"
+              :min="0"
+              :max="Math.max(playerStore.duration, 1)"
+              :step="1"
+              class="lyric-progress-slider"
+              track-class="lyric-progress-track"
+              range-class="lyric-progress-range"
+              thumb-class="lyric-progress-thumb"
+              @update:model-value="handleProgressInput"
+              @value-commit="handleProgressCommit"
+            />
+          </div>
+
+          <div class="mt-4 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-2">
+              <Button variant="unstyled" size="none" type="button" class="lyric-compact-btn" title="收藏" @click="toggleFavorite">
+                <Icon :icon="iconHeart" width="16" height="16" :class="isFavorite ? 'text-[#ff6b81]' : 'text-white/66'" />
+              </Button>
+              <Button variant="unstyled" size="none" type="button" class="lyric-compact-btn" :title="playModeMeta.label" @click="cyclePlayMode">
+                <Icon :icon="playModeMeta.icon" width="17" height="17" class="text-white/70" />
+              </Button>
+            </div>
+
+            <div class="flex items-center gap-2.5">
+              <Button variant="unstyled" size="none" type="button" class="lyric-transport-btn" title="上一曲" @click="playerStore.prev()">
+                <Icon :icon="iconSkipBack" width="18" height="18" />
+              </Button>
+              <Button variant="unstyled" size="none" type="button" class="lyric-play-btn" :title="playerStore.isPlaying ? '暂停' : '播放'" @click="playerStore.togglePlay()">
+                <Icon :icon="playerStore.isPlaying ? iconPause : iconPlay" width="18" height="18" />
+              </Button>
+              <Button variant="unstyled" size="none" type="button" class="lyric-transport-btn" title="下一曲" @click="playerStore.next()">
+                <Icon :icon="iconSkipForward" width="18" height="18" />
+              </Button>
+            </div>
+
+            <div class="flex min-w-[132px] items-center justify-end gap-2">
+              <Icon :icon="volumeIcon" width="15" height="15" class="text-white/54" />
+              <Slider
+                :model-value="volumeValue"
+                :min="0"
+                :max="100"
+                :step="1"
+                class="w-[92px]"
+                track-class="lyric-volume-track"
+                range-class="lyric-volume-range"
+                thumb-class="lyric-volume-thumb"
+                @update:model-value="handleVolumeInput"
+                @value-commit="handleVolumeInput"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.lyric-view {
-  animation: lyric-fade-in 0.55s ease;
-}
-
 .lyric-view__backdrop {
   background:
-    linear-gradient(
-      180deg,
-      rgba(8, 10, 16, 0.72) 0%,
-      rgba(8, 10, 16, 0.36) 24%,
-      rgba(8, 10, 16, 0.58) 100%
-    ),
-    radial-gradient(
-      circle at top left,
-      color-mix(in srgb, var(--color-primary) 36%, transparent) 0%,
-      transparent 36%
-    ),
-    radial-gradient(
-      circle at bottom right,
-      color-mix(in srgb, var(--color-primary) 24%, transparent) 0%,
-      transparent 40%
-    ),
-    rgba(7, 8, 12, 0.34);
+    linear-gradient(180deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.44) 50%, rgba(0, 0, 0, 0.82) 100%),
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.04) 0%, transparent 48%);
 }
 
-.lyric-view__noise {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
-  background-size: 24px 24px;
-  mix-blend-mode: soft-light;
-}
-
-.lyric-top-btn,
 .lyric-icon-btn,
+.lyric-tool-chip,
+.lyric-weight-btn,
+.lyric-compact-btn,
 .lyric-transport-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(20px);
-  transition:
-    transform 0.2s ease,
-    background-color 0.2s ease,
-    border-color 0.2s ease;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
 }
 
-.lyric-top-btn:hover,
 .lyric-icon-btn:hover,
+.lyric-tool-chip:hover,
+.lyric-weight-btn:hover,
+.lyric-compact-btn:hover,
 .lyric-transport-btn:hover,
 .lyric-play-btn:hover {
   transform: translateY(-1px);
 }
 
-.lyric-top-btn,
 .lyric-icon-btn {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
 }
 
-.lyric-transport-btn {
-  width: 50px;
-  height: 50px;
+.lyric-tool-chip {
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lyric-weight-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 8px 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(18px);
+}
+
+.lyric-weight-btn,
+.lyric-compact-btn {
+  width: 26px;
+  height: 26px;
   border-radius: 999px;
 }
 
-.lyric-play-btn {
-  width: 66px;
-  height: 66px;
-  border: none;
-  border-radius: 999px;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-primary) 76%, white 18%),
-    color-mix(in srgb, var(--color-primary) 92%, black 6%)
-  );
-  color: white;
-  box-shadow: 0 18px 40px color-mix(in srgb, var(--color-primary) 34%, transparent);
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.25s ease;
+.lyric-weight-label {
+  min-width: 38px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.84);
+}
+
+.lyric-info-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
 }
 
 .lyric-cover-shell {
   position: relative;
-  width: min(28vw, 420px);
-  aspect-ratio: 1;
-}
-
-.lyric-cover-glow {
-  position: absolute;
-  inset: -24px;
-  border-radius: 40px;
-  background:
-    radial-gradient(
-      circle at 50% 35%,
-      color-mix(in srgb, var(--color-primary) 42%, white 10%) 0%,
-      transparent 68%
-    ),
-    radial-gradient(circle at 50% 100%, rgba(255, 255, 255, 0.2) 0%, transparent 52%);
-  filter: blur(28px);
-  opacity: 0.95;
+  width: clamp(240px, 38vh, 400px);
+  height: clamp(240px, 38vh, 400px);
 }
 
 .lyric-cover-frame {
@@ -499,140 +543,99 @@ onUnmounted(() => {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  border-radius: 30px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow:
-    0 36px 80px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+.lyric-stage {
+  min-height: 0;
 }
 
 .lyric-scroll {
+  height: 100%;
   scrollbar-width: none;
-  mask-image: linear-gradient(to bottom, transparent 0%, black 13%, black 87%, transparent 100%);
 }
 
 .lyric-scroll::-webkit-scrollbar {
   display: none;
 }
 
-.lyric-line {
-  border-radius: 24px;
-  opacity: 0.42;
-  transform: scale(0.96);
+.lyric-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.lyric-line span {
-  text-wrap: balance;
+.lyric-line {
+  width: 100%;
+  padding: 0 16px;
+  text-align: center;
+  transition: opacity 0.26s ease, transform 0.26s ease;
+}
+
+.lyric-line.is-idle {
+  opacity: 0.38;
+  transform: scale(0.9) translateY(4px);
 }
 
 .lyric-line.is-current {
   opacity: 1;
-  transform: scale(1);
+  transform: scale(1) translateY(0);
+}
+
+.lyric-character {
+  transition: color 0.18s ease;
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.lyric-character.is-highlighted {
+  color: color-mix(in srgb, var(--color-primary) 92%, white 10%);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
+
+.lyric-bottom-bar {
+  padding: 4px 6px 0;
+}
+
+.lyric-transport-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+}
+
+.lyric-play-btn {
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 96%, white 8%), color-mix(in srgb, var(--color-primary) 82%, black 8%));
   color: white;
-  text-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--color-primary) 24%, transparent);
+  transition: transform 0.2s ease, box-shadow 0.25s ease;
 }
 
-.lyric-line.is-current span {
-  color: color-mix(in srgb, white 78%, var(--color-primary) 22%);
+.lyric-progress-track,
+.lyric-volume-track {
+  background: rgba(255, 255, 255, 0.12) !important;
 }
 
-.lyric-line.is-current::before {
-  content: '';
-  position: absolute;
-  inset: 6px 0;
-  border-radius: 18px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--color-primary) 16%, transparent),
-    transparent 72%
-  );
-  opacity: 0.9;
-  z-index: -1;
+.lyric-progress-range,
+.lyric-volume-range {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.92), color-mix(in srgb, var(--color-primary) 70%, white 20%)) !important;
 }
 
-.lyric-line.is-past {
-  opacity: 0.22;
+.lyric-progress-thumb,
+.lyric-volume-thumb {
+  width: 9px !important;
+  height: 9px !important;
+  background: #fff !important;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
 }
 
-.lyric-line.is-future:hover,
-.lyric-line.is-past:hover {
-  opacity: 0.68;
-  transform: scale(0.985);
-}
-
-:deep(.lyric-progress-slider.slider-root-horizontal) {
-  height: 18px;
-}
-
-:deep(.lyric-progress-track) {
-  height: 5px;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-:deep(.lyric-progress-range) {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--color-primary) 92%, white 10%),
-    color-mix(in srgb, var(--color-primary) 72%, white 18%)
-  );
-}
-
-:deep(.lyric-progress-thumb) {
-  width: 14px;
-  height: 14px;
-  border: none;
-  background: #fff;
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-primary) 22%, transparent);
-}
-
-:deep(.lyric-volume-track) {
-  height: 4px;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-:deep(.lyric-volume-range) {
-  background: rgba(255, 255, 255, 0.9);
-}
-
-:deep(.lyric-volume-thumb) {
-  width: 11px;
-  height: 11px;
-  border: none;
-  background: #fff;
-}
-
-@keyframes lyric-fade-in {
-  from {
-    opacity: 0;
-    transform: scale(1.015);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@media (max-width: 1180px) {
-  .lyric-cover-shell {
-    width: min(36vw, 360px);
-  }
-}
-
-@media (max-width: 980px) {
-  .lyric-view {
-    overflow-y: auto;
-  }
-
-  .lyric-view > .relative {
-    min-height: 100vh;
-  }
-
-  .lyric-cover-shell {
-    width: min(62vw, 320px);
-  }
-
-  .lyric-scroll {
-    mask-image: linear-gradient(to bottom, transparent 0%, black 8%, black 92%, transparent 100%);
-  }
+.lyric-tool-chip:disabled,
+.lyric-weight-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  transform: none !important;
 }
 </style>
