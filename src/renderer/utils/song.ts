@@ -48,7 +48,6 @@ export const isUnavailableSong = (song: Song): boolean => song.privilege === 40;
 
 export const canPlaySong = (song: Song): boolean => {
   if (isUnavailableSong(song)) return false;
-  if (isPaidSong(song)) return false;
   if (isNoCopyrightSong(song)) return song.oldCpy === 1;
   return true;
 };

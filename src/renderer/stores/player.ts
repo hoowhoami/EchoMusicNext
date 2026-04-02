@@ -14,7 +14,13 @@ import {
 } from '@/utils/player';
 import { getCoverUrl } from '@/utils/cover';
 import type { Song, SongRelateGood } from '@/models/song';
-import { doesRelateGoodMatchQuality, getSongQualityCandidates, isPlayableSong, resolveEffectiveSongQuality } from '@/utils/song';
+import {
+  doesRelateGoodMatchQuality,
+  getSongQualityCandidates,
+  isPaidSong,
+  isPlayableSong,
+  resolveEffectiveSongQuality,
+} from '@/utils/song';
 
 export type AudioQualityValue = '128' | '320' | 'flac' | 'high';
 export type AudioEffectValue =
@@ -170,6 +176,14 @@ type ResolvedAudioSource = {
 
 type ClimaxMark = { start: number; end: number };
 
+export type PlaybackNotice = {
+  code: string;
+  title: string;
+  reason: string;
+  detail: string;
+  trackId: string | null;
+};
+
 export type PlayMode = 'list' | 'single' | 'random';
 
 // 保持一个全局 PlayerEngine 实例
@@ -246,6 +260,48 @@ const summarizeSong = (track: Song | undefined) => {
   };
 };
 
+const resolvePlaybackNotice = (params: {
+  code: string;
+  track?: Song | null;
+  autoNextEnabled?: boolean;
+  autoNextDelaySeconds?: number;
+}): PlaybackNotice => {
+  const trackId = params.track ? String(params.track.id) : null;
+  const requiresPurchase = Boolean(params.track && isPaidSong(params.track));
+  const autoNextDelay = Math.max(0, Math.floor(params.autoNextDelaySeconds ?? 0));
+  const autoNextDetail = params.autoNextEnabled
+    ? `${autoNextDelay > 0 ? `${autoNextDelay} 秒后` : '即将'}尝试下一首`
+    : '请稍后重试';
+
+  if (params.code === 'track-not-playable') {
+    return {
+      code: params.code,
+      title: '播放失败',
+      reason: '当前歌曲暂不可播放',
+      detail: autoNextDetail,
+      trackId,
+    };
+  }
+
+  if (params.code === 'audio-url-unavailable') {
+    return {
+      code: params.code,
+      title: '播放失败',
+      reason: requiresPurchase ? '可能需要购买或账号权限' : '暂时无法获取可用音源',
+      detail: autoNextDetail,
+      trackId,
+    };
+  }
+
+  return {
+    code: params.code,
+    title: '播放失败',
+    reason: requiresPurchase ? '可能需要购买或账号权限' : '音频加载或播放过程中出现异常',
+    detail: autoNextDetail,
+    trackId,
+  };
+};
+
 export const usePlayerStore = defineStore('player', {
   state: () => ({
     isPlaying: false,
@@ -282,8 +338,25 @@ export const usePlayerStore = defineStore('player', {
     autoNextTimer: null as number | null,
     autoNextAttempts: 0,
     autoNextSourceTrackId: null as string | null,
+    playbackNotice: null as PlaybackNotice | null,
   }),
   actions: {
+    showPlaybackNotice(code: string, track?: Song | null) {
+      const settingStore = useSettingStore();
+      this.playbackNotice = resolvePlaybackNotice({
+        code,
+        track,
+        autoNextEnabled: settingStore.autoNext,
+        autoNextDelaySeconds: settingStore.autoNextDelaySeconds,
+      });
+    },
+
+    clearPlaybackNotice(trackId?: string | number | null) {
+      if (!this.playbackNotice) return;
+      if (trackId !== undefined && trackId !== null && this.playbackNotice.trackId !== String(trackId)) return;
+      this.playbackNotice = null;
+    },
+
     getTrackedPlayCount(track?: Song | null): number {
       const mxid = resolveTrackMxid(track);
       if (!mxid) return Math.max(0, track?.playCount ?? 0);
@@ -529,6 +602,7 @@ export const usePlayerStore = defineStore('player', {
           });
           this.isPlaying = true;
           this.isLoading = false;
+          this.clearPlaybackNotice(this.currentTrackId);
           settingStore.syncPreventSleep(true);
           engine.updateMediaPlaybackState(
             buildMediaState({
@@ -559,6 +633,7 @@ export const usePlayerStore = defineStore('player', {
         error: (event) => {
           logger.error('PlayerStore', 'Audio playback error:', event);
           this.lastError = event?.type ?? 'playback-error';
+          this.showPlaybackNotice('playback-failed', this.currentTrackSnapshot);
           this.applyFailedPlaybackState({ keepResolvedSource: true });
           settingStore.syncPreventSleep(false);
 
@@ -787,6 +862,7 @@ export const usePlayerStore = defineStore('player', {
         this.currentTrackSnapshot = track;
         this.currentTrackId = resolvedId;
         this.currentPlaylist = sourceList;
+        this.showPlaybackNotice('track-not-playable', track);
         this.applyFailedPlaybackState();
         this.clearAutoNextTimer();
         if (settingStore.autoNext && sourceList.length > 0) {
@@ -829,6 +905,7 @@ export const usePlayerStore = defineStore('player', {
       this.isPlaying = false;
       this.isLoading = true;
       this.lastError = null;
+      this.clearPlaybackNotice();
       this.climaxMarks = [];
 
       playlistStore.consumeQueuedNextTrackId(id);
@@ -878,6 +955,7 @@ export const usePlayerStore = defineStore('player', {
         this.currentTrackSnapshot = track;
         this.currentTrackId = resolvedId;
         this.currentPlaylist = sourceList;
+        this.showPlaybackNotice('audio-url-unavailable', track);
         this.applyFailedPlaybackState();
         if (settingStore.autoNext && sourceList.length > 0) {
           this.autoNextSourceTrackId = resolvedId;
@@ -940,6 +1018,7 @@ export const usePlayerStore = defineStore('player', {
           return;
         }
         this.lastError = 'playback-failed';
+        this.showPlaybackNotice('playback-failed', track);
         settingStore.syncPreventSleep(false);
         this.applyFailedPlaybackState({ keepResolvedSource: true });
 
@@ -1564,6 +1643,7 @@ export const usePlayerStore = defineStore('player', {
         logger.error('PlayerStore', 'Refresh current track failed because resolved url is empty', summarizeSong(track));
         this.isLoading = false;
         this.lastError = 'audio-url-unavailable';
+        this.showPlaybackNotice('audio-url-unavailable', track);
         return;
       }
 

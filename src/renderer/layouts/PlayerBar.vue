@@ -10,6 +10,7 @@ import Cover from '@/components/ui/Cover.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Tag from '@/components/ui/Tag.vue';
+import Tooltip from '@/components/ui/Tooltip.vue';
 import AudioWaveIcon from '@/components/ui/AudioWaveIcon.vue';
 import {
   DropdownMenuRoot,
@@ -24,6 +25,7 @@ import {
   iconHeart,
   iconHeartFilled,
   iconCloud,
+  iconTriangleAlert,
   iconMessageCircle,
   iconRepeat,
   iconShuffle,
@@ -56,11 +58,14 @@ const currentTrack = computed(() => {
 
 const isFavorite = computed(() => {
   return currentTrack.value
-    ? playlist.favorites.some((s) => isSameSong(s, currentTrack.value as Song) || s.id === currentTrack.value?.id)
+    ? playlist.favorites.some(
+        (s) => isSameSong(s, currentTrack.value as Song) || s.id === currentTrack.value?.id,
+      )
     : false;
 });
 
 const queueCount = computed(() => playlist.defaultList.length);
+const playbackNotice = computed(() => player.playbackNotice);
 
 const playbackRates = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
@@ -171,7 +176,9 @@ const audioQualityButtonBadge = computed(() => {
   return 'HR';
 });
 const currentAudioQualityBadgeColor = computed(() =>
-  player.currentResolvedAudioEffect !== 'none' ? '#10B981' : getAudioQualityTagColor(effectiveAudioQuality.value)
+  player.currentResolvedAudioEffect !== 'none'
+    ? '#10B981'
+    : getAudioQualityTagColor(effectiveAudioQuality.value),
 );
 
 const getAudioQualityTagColor = (quality: AudioQualityValue) => {
@@ -182,7 +189,8 @@ const getAudioQualityTagColor = (quality: AudioQualityValue) => {
 };
 
 const setAudioQuality = (quality: AudioQualityValue) => {
-  if (player.currentAudioQualityOverride === null && effectiveAudioQuality.value === quality) return;
+  if (player.currentAudioQualityOverride === null && effectiveAudioQuality.value === quality)
+    return;
   if (player.currentAudioQualityOverride === quality) return;
   player.setCurrentAudioQualityOverride(quality);
 };
@@ -291,14 +299,16 @@ const updateDrawerWidth = () => {
 const songInfoRef = ref<HTMLElement | null>(null);
 const isMarqueeActive = ref(false);
 const marqueeDistance = ref('0px');
+const MARQUEE_MAX_SCROLL_PX = 180;
 
 const checkMarquee = () => {
   if (!songInfoRef.value) return;
   const container = songInfoRef.value.parentElement;
   if (!container) return;
   const overflow = Math.max(0, songInfoRef.value.scrollWidth - container.clientWidth);
-  isMarqueeActive.value = overflow > 8;
-  marqueeDistance.value = `${overflow}px`;
+  const travelDistance = Math.min(overflow, MARQUEE_MAX_SCROLL_PX);
+  isMarqueeActive.value = overflow > 8 && travelDistance > 8;
+  marqueeDistance.value = `${travelDistance}px`;
 };
 
 watch(
@@ -390,25 +400,48 @@ onUnmounted(() => {
           </div>
 
           <div class="flex items-center gap-2.5 mt-1.5 h-6">
-            <Button variant="unstyled" size="none"
+            <Button
+              variant="unstyled"
+              size="none"
               @click="toggleFavorite"
               class="p-0.5 text-red-500 transition-all hover:scale-110 active:scale-90"
               title="收藏"
             >
-              <Icon :icon="isFavorite ? iconHeartFilled : iconHeart" width="18" height="18" />
+              <Icon :icon="isFavorite ? iconHeartFilled : iconHeart" width="20" height="20" />
             </Button>
 
-            <Button variant="unstyled" size="none"
+            <Button
+              variant="unstyled"
+              size="none"
               @click="goToComments"
               class="p-0.5 text-text-main/25 hover:text-primary transition-all hover:scale-110"
               title="详情及评论"
             >
-              <Icon :icon="iconMessageCircle" width="18" height="18" />
+              <Icon :icon="iconMessageCircle" width="20" height="20" />
             </Button>
 
             <div v-if="currentTrack?.source === 'cloud'" class="text-primary/60" title="云盘歌曲">
-              <Icon :icon="iconCloud" width="18" height="18" />
+              <Icon :icon="iconCloud" width="20" height="20" />
             </div>
+
+            <Tooltip
+              v-if="playbackNotice"
+              side="top"
+              align="start"
+              :side-offset="10"
+              contentClass="player-error-tooltip"
+            >
+              <template #trigger>
+                <div class="player-error-indicator">
+                  <Icon :icon="iconTriangleAlert" width="20" height="20" />
+                </div>
+              </template>
+              <div class="player-error-tooltip-content">
+                <div class="player-error-tooltip-title">{{ playbackNotice.title }}</div>
+                <div class="player-error-tooltip-reason">{{ playbackNotice.reason }}</div>
+                <div class="player-error-tooltip-detail">{{ playbackNotice.detail }}</div>
+              </div>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -417,7 +450,9 @@ onUnmounted(() => {
       <div class="flex-[1.5] flex flex-col items-center justify-center gap-1 min-w-[150px]">
         <div class="flex items-center justify-center gap-4 h-10">
           <!-- 播放模式 -->
-          <Button variant="unstyled" size="none"
+          <Button
+            variant="unstyled"
+            size="none"
             @click="
               player.setPlayMode(
                 player.playMode === 'list'
@@ -439,14 +474,18 @@ onUnmounted(() => {
             <Icon v-else :icon="iconListRestart" width="22" height="22" />
           </Button>
 
-          <Button variant="unstyled" size="none"
+          <Button
+            variant="unstyled"
+            size="none"
             @click="player.prev"
             class="p-2 text-text-main/60 hover:text-primary transition-all hover:scale-110 active:scale-90"
           >
             <Icon :icon="iconSkipBack" width="22" height="22" />
           </Button>
 
-          <Button variant="unstyled" size="none"
+          <Button
+            variant="unstyled"
+            size="none"
             @click="player.togglePlay"
             class="player-toggle w-[38px] h-[38px] rounded-full bg-black/[0.04] flex items-center justify-center hover:scale-110 active:scale-95 transition-all border border-black/5"
           >
@@ -454,7 +493,9 @@ onUnmounted(() => {
             <Icon v-else :icon="iconPause" width="20" height="20" />
           </Button>
 
-          <Button variant="unstyled" size="none"
+          <Button
+            variant="unstyled"
+            size="none"
             @click="player.next"
             class="p-2 text-text-main/60 hover:text-primary transition-all hover:scale-110 active:scale-90"
           >
@@ -463,7 +504,9 @@ onUnmounted(() => {
 
           <!-- 音量控制 - 点击弹出 -->
           <div ref="volumeContainerRef" class="relative flex items-center group/vol">
-            <Button variant="unstyled" size="none"
+            <Button
+              variant="unstyled"
+              size="none"
               @click="toggleVolume"
               class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90"
               :class="{ 'text-primary': isVolumeVisible }"
@@ -489,9 +532,7 @@ onUnmounted(() => {
                     class="relative flex flex-col items-center select-none touch-none w-5 h-full"
                     @update:model-value="handleVolumeChange"
                   >
-                    <SliderTrack
-                      class="player-volume-track relative grow rounded-full w-[3px]"
-                    >
+                    <SliderTrack class="player-volume-track relative grow rounded-full w-[3px]">
                       <SliderRange class="absolute bg-primary rounded-full w-full" />
                     </SliderTrack>
                     <SliderThumb
@@ -499,12 +540,19 @@ onUnmounted(() => {
                     />
                   </SliderRoot>
 
-                  <Button variant="unstyled" size="none"
+                  <Button
+                    variant="unstyled"
+                    size="none"
                     @click="toggleMute"
                     class="mt-2 p-1 text-text-main/60 hover:text-primary transition-colors"
                   >
                     <Icon v-if="player.volume > 0.5" :icon="iconVolume2" width="20" height="20" />
-                    <Icon v-else-if="player.volume > 0" :icon="iconVolume1" width="20" height="20" />
+                    <Icon
+                      v-else-if="player.volume > 0"
+                      :icon="iconVolume1"
+                      width="20"
+                      height="20"
+                    />
                     <Icon v-else :icon="iconVolumeX" width="20" height="20" />
                   </Button>
 
@@ -579,7 +627,9 @@ onUnmounted(() => {
       >
         <DropdownMenuRoot>
           <DropdownMenuTrigger as-child>
-            <Button variant="unstyled" size="none"
+            <Button
+              variant="unstyled"
+              size="none"
               class="p-2 transition-colors"
               :class="
                 player.playbackRate !== 1 ? 'text-primary' : 'text-text-main/50 hover:text-primary'
@@ -606,7 +656,11 @@ onUnmounted(() => {
                 @select="setPlaybackRate(rate)"
               >
                 <span>{{ rate.toFixed(2).replace(/\.00$/, '') }}x</span>
-                <span class="player-dropdown-check" :class="{ 'is-visible': player.playbackRate === rate }">✓</span>
+                <span
+                  class="player-dropdown-check"
+                  :class="{ 'is-visible': player.playbackRate === rate }"
+                  >✓</span
+                >
               </DropdownMenuItem>
               <div class="player-dropdown-arrow"></div>
             </DropdownMenuContent>
@@ -615,7 +669,9 @@ onUnmounted(() => {
 
         <DropdownMenuRoot v-model:open="isQualityMenuOpen">
           <DropdownMenuTrigger as-child>
-            <Button variant="unstyled" size="none"
+            <Button
+              variant="unstyled"
+              size="none"
               class="p-2 transition-colors"
               :class="
                 player.currentAudioQualityOverride !== null || player.audioEffect !== 'none'
@@ -650,43 +706,71 @@ onUnmounted(() => {
               <div class="player-dropdown-title">音质选择</div>
               <DropdownMenuItem
                 class="player-dropdown-item"
-                :class="{ 'is-active': effectiveAudioQuality === '128', 'is-disabled': isAudioQualityDisabled('128') }"
+                :class="{
+                  'is-active': effectiveAudioQuality === '128',
+                  'is-disabled': isAudioQualityDisabled('128'),
+                }"
                 :disabled="isAudioQualityDisabled('128')"
                 @select="setAudioQuality('128')"
               >
                 <span class="player-dropdown-label">标准</span>
                 <Tag class="player-dropdown-tag" :color="getAudioQualityTagColor('128')">SD</Tag>
-                <span class="player-dropdown-check" :class="{ 'is-visible': effectiveAudioQuality === '128' }">✓</span>
+                <span
+                  class="player-dropdown-check"
+                  :class="{ 'is-visible': effectiveAudioQuality === '128' }"
+                  >✓</span
+                >
               </DropdownMenuItem>
               <DropdownMenuItem
                 class="player-dropdown-item"
-                :class="{ 'is-active': effectiveAudioQuality === '320', 'is-disabled': isAudioQualityDisabled('320') }"
+                :class="{
+                  'is-active': effectiveAudioQuality === '320',
+                  'is-disabled': isAudioQualityDisabled('320'),
+                }"
                 :disabled="isAudioQualityDisabled('320')"
                 @select="setAudioQuality('320')"
               >
                 <span class="player-dropdown-label">高品质</span>
                 <Tag class="player-dropdown-tag" :color="getAudioQualityTagColor('320')">HQ</Tag>
-                <span class="player-dropdown-check" :class="{ 'is-visible': effectiveAudioQuality === '320' }">✓</span>
+                <span
+                  class="player-dropdown-check"
+                  :class="{ 'is-visible': effectiveAudioQuality === '320' }"
+                  >✓</span
+                >
               </DropdownMenuItem>
               <DropdownMenuItem
                 class="player-dropdown-item"
-                :class="{ 'is-active': effectiveAudioQuality === 'flac', 'is-disabled': isAudioQualityDisabled('flac') }"
+                :class="{
+                  'is-active': effectiveAudioQuality === 'flac',
+                  'is-disabled': isAudioQualityDisabled('flac'),
+                }"
                 :disabled="isAudioQualityDisabled('flac')"
                 @select="setAudioQuality('flac')"
               >
                 <span class="player-dropdown-label">无损</span>
                 <Tag class="player-dropdown-tag" :color="getAudioQualityTagColor('flac')">SQ</Tag>
-                <span class="player-dropdown-check" :class="{ 'is-visible': effectiveAudioQuality === 'flac' }">✓</span>
+                <span
+                  class="player-dropdown-check"
+                  :class="{ 'is-visible': effectiveAudioQuality === 'flac' }"
+                  >✓</span
+                >
               </DropdownMenuItem>
               <DropdownMenuItem
                 class="player-dropdown-item"
-                :class="{ 'is-active': effectiveAudioQuality === 'high', 'is-disabled': isAudioQualityDisabled('high') }"
+                :class="{
+                  'is-active': effectiveAudioQuality === 'high',
+                  'is-disabled': isAudioQualityDisabled('high'),
+                }"
                 :disabled="isAudioQualityDisabled('high')"
                 @select="setAudioQuality('high')"
               >
                 <span class="player-dropdown-label">Hi-Res</span>
                 <Tag class="player-dropdown-tag" :color="getAudioQualityTagColor('high')">HR</Tag>
-                <span class="player-dropdown-check" :class="{ 'is-visible': effectiveAudioQuality === 'high' }">✓</span>
+                <span
+                  class="player-dropdown-check"
+                  :class="{ 'is-visible': effectiveAudioQuality === 'high' }"
+                  >✓</span
+                >
               </DropdownMenuItem>
               <div class="player-dropdown-divider"></div>
               <div class="player-dropdown-title">音效</div>
@@ -697,7 +781,9 @@ onUnmounted(() => {
                   @select="setAudioEffect('none')"
                 >
                   <span>原声</span>
-                  <span class="player-dropdown-check" :class="{ 'is-visible': player.audioEffect === 'none' }"
+                  <span
+                    class="player-dropdown-check"
+                    :class="{ 'is-visible': player.audioEffect === 'none' }"
                     >✓</span
                   >
                 </DropdownMenuItem>
@@ -707,7 +793,9 @@ onUnmounted(() => {
                   @select="setAudioEffect('piano')"
                 >
                   <span>钢琴</span>
-                  <span class="player-dropdown-check" :class="{ 'is-visible': player.audioEffect === 'piano' }"
+                  <span
+                    class="player-dropdown-check"
+                    :class="{ 'is-visible': player.audioEffect === 'piano' }"
                     >✓</span
                   >
                 </DropdownMenuItem>
@@ -718,7 +806,8 @@ onUnmounted(() => {
                 >
                   <span>清唱</span>
                   <span
-                    class="player-dropdown-check" :class="{ 'is-visible': player.audioEffect === 'acappella' }"
+                    class="player-dropdown-check"
+                    :class="{ 'is-visible': player.audioEffect === 'acappella' }"
                     >✓</span
                   >
                 </DropdownMenuItem>
@@ -729,7 +818,8 @@ onUnmounted(() => {
                 >
                   <span>重低音</span>
                   <span
-                    class="player-dropdown-check" :class="{ 'is-visible': player.audioEffect === 'subwoofer' }"
+                    class="player-dropdown-check"
+                    :class="{ 'is-visible': player.audioEffect === 'subwoofer' }"
                     >✓</span
                   >
                 </DropdownMenuItem>
@@ -739,7 +829,9 @@ onUnmounted(() => {
                   @select="setAudioEffect('ancient')"
                 >
                   <span>古风</span>
-                  <span class="player-dropdown-check" :class="{ 'is-visible': player.audioEffect === 'ancient' }"
+                  <span
+                    class="player-dropdown-check"
+                    :class="{ 'is-visible': player.audioEffect === 'ancient' }"
                     >✓</span
                   >
                 </DropdownMenuItem>
@@ -749,7 +841,9 @@ onUnmounted(() => {
                   @select="setAudioEffect('surnay')"
                 >
                   <span>唢呐</span>
-                  <span class="player-dropdown-check" :class="{ 'is-visible': player.audioEffect === 'surnay' }"
+                  <span
+                    class="player-dropdown-check"
+                    :class="{ 'is-visible': player.audioEffect === 'surnay' }"
                     >✓</span
                   >
                 </DropdownMenuItem>
@@ -759,7 +853,9 @@ onUnmounted(() => {
                   @select="setAudioEffect('dj')"
                 >
                   <span>DJ</span>
-                  <span class="player-dropdown-check" :class="{ 'is-visible': player.audioEffect === 'dj' }"
+                  <span
+                    class="player-dropdown-check"
+                    :class="{ 'is-visible': player.audioEffect === 'dj' }"
                     >✓</span
                   >
                 </DropdownMenuItem>
@@ -770,7 +866,8 @@ onUnmounted(() => {
                 >
                   <span>蝰蛇母带</span>
                   <span
-                    class="player-dropdown-check" :class="{ 'is-visible': player.audioEffect === 'viper_tape' }"
+                    class="player-dropdown-check"
+                    :class="{ 'is-visible': player.audioEffect === 'viper_tape' }"
                     >✓</span
                   >
                 </DropdownMenuItem>
@@ -781,7 +878,8 @@ onUnmounted(() => {
                 >
                   <span>蝰蛇全景声</span>
                   <span
-                    class="player-dropdown-check" :class="{ 'is-visible': player.audioEffect === 'viper_atmos' }"
+                    class="player-dropdown-check"
+                    :class="{ 'is-visible': player.audioEffect === 'viper_atmos' }"
                     >✓</span
                   >
                 </DropdownMenuItem>
@@ -792,7 +890,8 @@ onUnmounted(() => {
                 >
                   <span>蝰蛇超清</span>
                   <span
-                    class="player-dropdown-check" :class="{ 'is-visible': player.audioEffect === 'viper_clear' }"
+                    class="player-dropdown-check"
+                    :class="{ 'is-visible': player.audioEffect === 'viper_clear' }"
                     >✓</span
                   >
                 </DropdownMenuItem>
@@ -803,7 +902,9 @@ onUnmounted(() => {
         </DropdownMenuRoot>
 
         <div class="relative">
-          <Button variant="unstyled" size="none"
+          <Button
+            variant="unstyled"
+            size="none"
             class="p-2 text-text-main/50 hover:text-primary transition-all hover:scale-110 active:scale-90"
             title="播放队列"
             @click="openQueue"
@@ -834,10 +935,12 @@ onUnmounted(() => {
 }
 
 @keyframes marquee {
-  0%, 12% {
+  0%,
+  12% {
     transform: translateX(0);
   }
-  88%, 100% {
+  88%,
+  100% {
     transform: translateX(calc(var(--marquee-distance, 0px) * -1));
   }
 }
@@ -880,11 +983,73 @@ onUnmounted(() => {
   padding-right: 6px;
 }
 
+.player-error-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: #ef4444;
+  opacity: 0.92;
+  cursor: help;
+  animation: player-error-pulse 1.8s ease-in-out 2;
+}
+
+.dark .player-error-indicator {
+  color: #f87171;
+}
+
+@keyframes player-error-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.88;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+:global(.player-error-tooltip) {
+  max-width: 280px;
+  z-index: 1400 !important;
+}
+
+.player-error-tooltip-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.player-error-tooltip-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ef4444;
+}
+
+.dark .player-error-tooltip-title {
+  color: #f87171;
+}
+
+.player-error-tooltip-reason {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-main);
+  line-height: 1.5;
+}
+
+.player-error-tooltip-detail {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+}
+
 .player-toggle {
   background-color: rgba(0, 0, 0, 0.04);
   border-color: transparent;
 }
-
 
 .dark .player-toggle {
   background-color: rgba(245, 245, 247, 0.22);
@@ -897,7 +1062,7 @@ onUnmounted(() => {
 }
 
 .player-volume-track {
-  background-color: rgba(29, 29, 31, 0.20);
+  background-color: rgba(29, 29, 31, 0.2);
 }
 
 .dark .player-volume-track {
@@ -973,7 +1138,10 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--color-text-main);
   cursor: pointer;
-  transition: background-color 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    opacity 0.18s ease;
 }
 
 :deep(.player-dropdown-item.is-disabled),

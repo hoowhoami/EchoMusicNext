@@ -901,9 +901,14 @@ onUnmounted(() => {
   border: 1px solid color-mix(in srgb, var(--color-border-light) 92%, transparent);
   background: color-mix(in srgb, var(--color-text-main) 4%, transparent);
   color: var(--color-text-main);
+  color-scheme: light;
   font-size: 13px;
   font-weight: 600;
   line-height: 40px;
+}
+
+.dark .settings-number-input {
+  color-scheme: dark;
 }
 
 .settings-number-input:focus-visible {
