@@ -7,7 +7,6 @@ import {
   addPlaylist,
   deletePlaylist,
 } from '@/api/playlist';
-import { uploadPlayHistory } from '@/api/user';
 import logger from '@/utils/logger';
 import { mapPlaylistMeta } from '@/utils/mappers';
 import { parsePlaylistTracks } from '@/utils/mappers';
@@ -107,7 +106,6 @@ export const usePlaylistStore = defineStore('playlist', {
       },
     ] as Song[],
     favorites: [] as Song[],
-    history: [] as Song[],
     userPlaylists: [] as PlaylistMeta[],
     queueFilteredInvalidCount: 0,
     queuedNextTrackIds: [] as string[],
@@ -332,16 +330,6 @@ export const usePlaylistStore = defineStore('playlist', {
       if (!matched) return;
       return this.removeFromFavorites(String(matched.id));
     },
-    async addToHistory(song: Song) {
-      try {
-        const res = await uploadPlayHistory(song.mixSongId);
-        if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
-          logger.info('PlaylistStore', `Play history uploaded: ${song.title}`);
-        }
-      } catch (e) {
-        logger.error('PlaylistStore', 'Upload history sync error:', e);
-      }
-    },
     async fetchUserPlaylists() {
       try {
         const res = await getUserPlaylists();
@@ -476,10 +464,5 @@ export const usePlaylistStore = defineStore('playlist', {
       return false;
     },
   },
-  persist: {
-    omit: ['history'],
-    afterHydrate: (context) => {
-      context.store.history = [];
-    },
-  },
+  persist: true,
 });

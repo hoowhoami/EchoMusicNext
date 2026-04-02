@@ -77,7 +77,7 @@ export const mapTopSong = (json: unknown): Song => {
     cover,
     audioUrl: '',
     hash: readString(pickValue(record.hash, record.hash_128, record.FileHash, '')),
-    mixSongId: parseIntSafe(pickValue(record.audio_id, record.album_audio_id, record.mixsongid, 0)),
+    mixSongId: parseIntSafe(pickValue(record.mixsongid, record.album_audio_id, record.audio_id, 0)),
     mvHash: readString(pickValue(record.video_hash, record.mvhash, ''), ''),
     fileId: parseOptionalInt(pickValue(record.fileid, record.file_id, record.Audioid, record.audio_id)),
     privilege: parseOptionalInt(pickValue(record.privilege, undefined)),
@@ -202,7 +202,7 @@ export const mapPlaylistSong = (json: unknown): Song => {
     audioUrl: '',
     hash,
     mvHash: readString(pickValue(record.video_hash, record.mvhash, ''), ''),
-    mixSongId: parseIntSafe(pickValue(record.mixsongid, record.audio_id, audioInfo.audio_id, 0)),
+    mixSongId: parseIntSafe(pickValue(record.mixsongid, record.album_audio_id, record.audio_id, audioInfo.audio_id, 0)),
     fileId: parseOptionalInt(pickValue(record.fileid, record.file_id, record.Audioid, record.audio_id)),
     privilege,
     relateGoods,
@@ -296,7 +296,7 @@ export const mapAlbumSong = (json: unknown): Song => {
     audioUrl: '',
     hash: readString(pickValue(audioInfo.hash, record.hash, '')),
     mvHash: readString(pickValue(record.video_hash, record.mvhash, ''), ''),
-    mixSongId: parseIntSafe(pickValue(base.audio_id, record.audio_id, 0)),
+    mixSongId: parseIntSafe(pickValue(base.mixsongid, base.album_audio_id, base.audio_id, record.mixsongid, record.album_audio_id, record.audio_id, 0)),
     fileId: parseOptionalInt(pickValue(record.fileid, record.file_id, record.Audioid, record.audio_id, audioInfo.audio_id)),
     privilege: parseOptionalInt(pickValue(record.privilege, copyright.privilege, undefined)),
     relateGoods: buildRelateGoods(record, audioInfo),
@@ -350,7 +350,7 @@ export const mapRankSong = (json: unknown): Song => {
     cover,
     audioUrl: '',
     hash: readString(pickValue(audioInfo.hash_128, audioInfo.hash, record.hash, '')),
-    mixSongId: parseIntSafe(pickValue(record.audio_id, record.mixsongid, audioInfo.audio_id, 0)),
+    mixSongId: parseIntSafe(pickValue(record.mixsongid, record.album_audio_id, record.audio_id, audioInfo.audio_id, 0)),
     fileId: parseOptionalInt(pickValue(record.fileid, record.file_id, record.Audioid, record.audio_id, audioInfo.audio_id)),
     privilege,
     relateGoods,
@@ -433,7 +433,43 @@ export const mapSearchSong = (json: unknown): Song => {
 export const mapHistorySong = (json: unknown): Song => {
   const record = toRecord(json);
   const info = getRecord(record, 'info');
-  return mapPlaylistSong(info ?? record);
+  const base = mapPlaylistSong(info ?? record);
+  const playedAt = parseIntSafe(
+    pickValue(
+      record.ot,
+      record.play_time,
+      record.played_time,
+      record.last_play_time,
+      record.listen_time,
+      record.time,
+      0,
+    ),
+  );
+  const playCount = parseIntSafe(
+    pickValue(record.pc, record.play_count, record.playcount, record.count, 0),
+  );
+  const mxid = parseIntSafe(
+    pickValue(record.mxid, record.mixsongid, info?.mixsongid, info?.MixSongID, 0),
+  );
+  const historyIdentity = readString(
+    pickValue(record.history_id, record.id, record.play_id, record.pid, record.bp, ''),
+    '',
+  );
+
+  return {
+    ...base,
+    id:
+      readString(base.id, '') ||
+      (mxid > 0 ? String(mxid) : readString(pickValue(record.mxid, ''), '')),
+    mixSongId: mxid > 0 ? mxid : base.mixSongId,
+    lastPlayedAt: playedAt > 0 ? playedAt : undefined,
+    playCount: playCount > 0 ? playCount : undefined,
+    historyKey:
+      historyIdentity ||
+      (playedAt > 0
+        ? `${String(mxid || base.mixSongId || base.id)}:${playedAt}`
+        : `${String(mxid || base.mixSongId || base.id)}:${base.hash || base.id}`),
+  };
 };
 
 export const mapCloudSong = (json: unknown): Song => {
@@ -491,9 +527,8 @@ export const mapCloudSong = (json: unknown): Song => {
     audioUrl: '',
     hash: readString(pickValue(record.hash, audioInfo.hash, audioInfo.hash_128, '')),
     mvHash: readString(pickValue(record.video_hash, record.mvhash, ''), ''),
-    mixSongId: parseIntSafe(pickValue(record.mixsongid, record.audio_id, audioInfo.audio_id, 0)),
+    mixSongId: parseIntSafe(pickValue(record.mixsongid, record.album_audio_id, record.audio_id, audioInfo.audio_id, 0)),
     fileId: parseOptionalInt(pickValue(record.fileid, record.file_id, record.Audioid, record.audio_id, audioInfo.audio_id)),
     source: 'cloud',
   };
 };
-

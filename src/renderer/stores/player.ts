@@ -5,6 +5,7 @@ import { useSettingStore } from './setting';
 import type { OutputDeviceDisconnectBehavior } from './setting';
 import logger from '@/utils/logger';
 import { getCloudSongUrl, getSongClimax, getSongPrivilegeLite, getSongUrl } from '@/api/music';
+import { getServerNow, uploadPlayHistory } from '@/api/user';
 import {
   PlayerEngine,
   type MediaSessionMeta,
@@ -118,12 +119,47 @@ const findTrackById = (
 ): Song | undefined => {
   if (!id) return undefined;
   const targetId = String(id);
-  const pool = [list ?? [], playlistStore.defaultList, playlistStore.favorites, playlistStore.history];
+  const pool = [list ?? [], playlistStore.defaultList, playlistStore.favorites];
   for (const group of pool) {
     const found = group.find((song) => String(song.id) === targetId);
     if (found) return found;
   }
   return undefined;
+};
+
+const HISTORY_UPLOAD_MIN_SECONDS = 15;
+const HISTORY_UPLOAD_PROGRESS_RATIO = 0.5;
+
+const resolveTrackMxid = (track: Song | null | undefined): number | null => {
+  if (!track) return null;
+  const candidates = [track.mixSongId, track.fileId, track.id];
+  for (const candidate of candidates) {
+    const parsed = Number.parseInt(String(candidate ?? ''), 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+};
+
+const trimPlayCountMap = (source: Record<string, number>, limit = 500): Record<string, number> => {
+  const entries = Object.entries(source);
+  if (entries.length <= limit) return source;
+  return Object.fromEntries(entries.slice(entries.length - limit));
+};
+
+const resolveServerTimestamp = (payload: unknown): number | null => {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  const source = (record.data && typeof record.data === 'object'
+    ? record.data
+    : record) as Record<string, unknown>;
+  const candidates = [source.now, source.time, source.timestamp, source.server_time, source.serverTime];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value) && value > 0) {
+      return value > 1e12 ? Math.floor(value / 1000) : Math.floor(value);
+    }
+  }
+  return null;
 };
 
 type ResolvedAudioSource = {
@@ -239,11 +275,118 @@ export const usePlayerStore = defineStore('player', {
     playbackRequestSeq: 0,
     climaxRequestSeq: 0,
     currentTrackSnapshot: null as Song | null,
+    historyUploadCommitted: false,
+    historyUploadTrackId: null as string | null,
+    historyUploadPlayCount: 0,
+    historyPlayCountMap: {} as Record<string, number>,
     autoNextTimer: null as number | null,
     autoNextAttempts: 0,
     autoNextSourceTrackId: null as string | null,
   }),
   actions: {
+    getTrackedPlayCount(track?: Song | null): number {
+      const mxid = resolveTrackMxid(track);
+      if (!mxid) return Math.max(0, track?.playCount ?? 0);
+      return Math.max(0, this.historyPlayCountMap[String(mxid)] ?? track?.playCount ?? 0);
+    },
+
+    syncTrackedPlayCount(track: Song, playCount: number) {
+      const mxid = resolveTrackMxid(track);
+      if (!mxid || playCount <= 0) return;
+      this.historyPlayCountMap = trimPlayCountMap({
+        ...this.historyPlayCountMap,
+        [String(mxid)]: Math.max(playCount, this.historyPlayCountMap[String(mxid)] ?? 0),
+      });
+    },
+
+    hydrateHistoryPlayCounts(tracks: Song[]) {
+      if (tracks.length === 0) return;
+      const nextMap = { ...this.historyPlayCountMap };
+      let changed = false;
+      tracks.forEach((track) => {
+        const mxid = resolveTrackMxid(track);
+        const playCount = Math.max(0, track.playCount ?? 0);
+        if (!mxid || playCount <= 0) return;
+        const key = String(mxid);
+        if (playCount > (nextMap[key] ?? 0)) {
+          nextMap[key] = playCount;
+          changed = true;
+        }
+      });
+      if (changed) {
+        this.historyPlayCountMap = trimPlayCountMap(nextMap);
+      }
+    },
+
+    resetHistoryUploadState(track?: Song | null) {
+      this.historyUploadCommitted = false;
+      this.historyUploadTrackId = track ? String(track.id) : null;
+      this.historyUploadPlayCount = Math.max(1, this.getTrackedPlayCount(track) + 1);
+    },
+
+    async commitListeningHistory(track?: Song | null) {
+      const target = track ?? this.currentTrackSnapshot;
+      if (!target || !this.currentTrackId) return;
+      const activeTrackId = String(this.currentTrackId);
+      if (String(target.id) !== activeTrackId) return;
+      if (this.historyUploadCommitted && this.historyUploadTrackId === activeTrackId) return;
+
+      const mxid = resolveTrackMxid(target);
+      if (!mxid) {
+        logger.warn('PlayerStore', 'Skip play history upload because mxid is missing', summarizeSong(target));
+        return;
+      }
+
+      const effectiveDuration = Number(target.duration || this.duration || 0);
+      const effectiveProgress = Number(this.currentTime || 0);
+      const requiredProgress = effectiveDuration > 0
+        ? Math.min(Math.max(effectiveDuration * HISTORY_UPLOAD_PROGRESS_RATIO, HISTORY_UPLOAD_MIN_SECONDS), effectiveDuration)
+        : HISTORY_UPLOAD_MIN_SECONDS;
+
+      if (effectiveProgress < requiredProgress) {
+        return;
+      }
+
+      let timestamp = Math.floor(Date.now() / 1000);
+      try {
+        const nowRes = await getServerNow();
+        timestamp = resolveServerTimestamp(nowRes) ?? timestamp;
+      } catch (error) {
+        logger.warn('PlayerStore', 'Fetch server time failed, fallback to local timestamp', error);
+      }
+
+      try {
+        const playCount = Math.max(1, this.historyUploadPlayCount || this.getTrackedPlayCount(target) + 1);
+        const res = await uploadPlayHistory(mxid, { time: timestamp, pc: playCount });
+        if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
+          this.historyUploadCommitted = true;
+          this.historyUploadTrackId = activeTrackId;
+          this.historyUploadPlayCount = playCount;
+          this.syncTrackedPlayCount(target, playCount);
+          if (this.currentTrackSnapshot && String(this.currentTrackSnapshot.id) === activeTrackId) {
+            this.currentTrackSnapshot = {
+              ...this.currentTrackSnapshot,
+              playCount,
+              lastPlayedAt: timestamp,
+            };
+          }
+          logger.info('PlayerStore', 'Play history uploaded', {
+            track: summarizeSong(target),
+            mxid,
+            playCount,
+            timestamp,
+            progress: effectiveProgress,
+          });
+        }
+      } catch (error) {
+        logger.error('PlayerStore', 'Upload history sync error:', error);
+      }
+    },
+
+    maybeCommitListeningHistory() {
+      void this.commitListeningHistory();
+    },
+
     clearAutoNextTimer() {
       if (this.autoNextTimer !== null) {
         window.clearTimeout(this.autoNextTimer);
@@ -343,6 +486,7 @@ export const usePlayerStore = defineStore('player', {
         timeUpdate: (currentTime) => {
           this.currentTime = currentTime;
           lyricStore.updateCurrentIndex(currentTime);
+          this.maybeCommitListeningHistory();
           engine.updateMediaPlaybackState(
             buildMediaState({
               isPlaying: this.isPlaying,
@@ -625,8 +769,7 @@ export const usePlayerStore = defineStore('player', {
       }
       const track =
         sourceList.find((s) => String(s.id) === resolvedId) ||
-        playlistStore.favorites.find((s) => String(s.id) === resolvedId) ||
-        playlistStore.history.find((s) => String(s.id) === resolvedId);
+        playlistStore.favorites.find((s) => String(s.id) === resolvedId);
 
       if (!track) {
         logger.warn('PlayerStore', 'Requested track not found in available lists', {
@@ -676,6 +819,7 @@ export const usePlayerStore = defineStore('player', {
 
       this.currentTrackId = resolvedId;
       this.currentTrackSnapshot = track;
+      this.resetHistoryUploadState(track);
       this.currentPlaylist = sourceList;
       this.currentAudioUrl = '';
       this.currentResolvedAudioQuality = null;
@@ -774,8 +918,6 @@ export const usePlayerStore = defineStore('player', {
         } else {
           engine.setVolume(this.volume);
         }
-        logger.info('PlayerStore', 'Adding track to play history', summarizeSong(track));
-        playlistStore.addToHistory(track);
         void this.fetchClimaxMarks(track);
         if (this.pendingSettingRefresh) {
           this.pendingSettingRefresh = false;
@@ -905,6 +1047,9 @@ export const usePlayerStore = defineStore('player', {
       this.autoNextAttempts = 0;
       this.autoNextSourceTrackId = null;
       this.currentTrackSnapshot = null;
+      this.historyUploadCommitted = false;
+      this.historyUploadTrackId = null;
+      this.historyUploadPlayCount = 0;
       engine.reset();
       this.currentTime = 0;
       this.duration = 0;
@@ -1613,6 +1758,6 @@ export const usePlayerStore = defineStore('player', {
     },
   },
   persist: {
-    pick: ['volume', 'playMode', 'currentTrackId', 'playbackRate', 'audioEffect'],
+    pick: ['volume', 'playMode', 'currentTrackId', 'playbackRate', 'audioEffect', 'historyPlayCountMap'],
   },
 });

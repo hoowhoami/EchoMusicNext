@@ -17,7 +17,7 @@ import { iconCloud, iconCurrentLocation, iconList, iconPlay, iconSearch } from '
 import { replaceQueueAndPlay } from '@/utils/playback';
 import Button from '@/components/ui/Button.vue';
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 30;
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
@@ -28,6 +28,7 @@ const loading = ref(false);
 const loadingMore = ref(false);
 const hasMore = ref(false);
 const currentPage = ref(1);
+const isBackgroundResolving = ref(false);
 const totalSongCount = ref(0);
 const cloudCapacity = ref(0);
 const cloudAvailable = ref(0);
@@ -128,41 +129,77 @@ const resetCloudState = () => {
   totalSongCount.value = 0;
   cloudCapacity.value = 0;
   cloudAvailable.value = 0;
+  isBackgroundResolving.value = false;
 };
 
-const loadCloud = async (page = 1, append = false) => {
-  if (!isLoggedIn.value) return;
-  if (append) {
-    if (!hasMore.value || loadingMore.value) return;
-    loadingMore.value = true;
-  } else {
-    loading.value = true;
-  }
+const mapCloudPage = (payload: unknown) => {
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : undefined;
+  const data = record?.data && typeof record.data === 'object'
+    ? (record.data as Record<string, unknown>)
+    : record;
+  const rawList = Array.isArray(data?.list) ? data.list : [];
+  const mapped = rawList
+    .filter((item) => typeof item === 'object' && item !== null)
+    .map((item) => mapCloudSong(item));
+
+  return {
+    songs: mapped,
+    total: Number(data?.list_count ?? data?.count ?? mapped.length) || mapped.length,
+    capacity: Number(data?.max_size ?? data?.capacity ?? 0) || 0,
+    available: Number(data?.availble_size ?? data?.available ?? 0) || 0,
+  };
+};
+
+const resolveAllCloudSongs = async (totalCount: number) => {
+  if (isBackgroundResolving.value || songs.value.length >= totalCount) return;
+  isBackgroundResolving.value = true;
+  const seenIds = new Set(songs.value.map((song) => song.id));
+  let page = currentPage.value + 1;
 
   try {
-    const res = await getUserCloud(page, PAGE_SIZE);
-    const record = res && typeof res === 'object' ? (res as unknown as Record<string, unknown>) : undefined;
-    const data = record?.data && typeof record.data === 'object'
-      ? (record.data as Record<string, unknown>)
-      : record;
-    const rawList = Array.isArray(data?.list) ? data.list : [];
-    const mapped = rawList
-      .filter((item) => typeof item === 'object' && item !== null)
-      .map((item) => mapCloudSong(item));
-
-    songs.value = append ? [...songs.value, ...mapped] : mapped;
-    currentPage.value = page;
-    totalSongCount.value = Number(data?.list_count ?? data?.count ?? mapped.length) || mapped.length;
-    cloudCapacity.value = Number(data?.max_size ?? data?.capacity ?? 0) || 0;
-    cloudAvailable.value = Number(data?.availble_size ?? data?.available ?? 0) || 0;
-    hasMore.value = songs.value.length < totalSongCount.value || mapped.length >= PAGE_SIZE;
-  } catch {
-    if (!append) {
-      songs.value = [];
-      totalSongCount.value = 0;
-      cloudCapacity.value = 0;
-      cloudAvailable.value = 0;
+    while (songs.value.length < totalCount) {
+      const res = await getUserCloud(page, PAGE_SIZE);
+      const nextBatch = mapCloudPage(res).songs;
+      const filtered = nextBatch.filter((song) => {
+        if (seenIds.has(song.id)) return false;
+        seenIds.add(song.id);
+        return true;
+      });
+      if (filtered.length === 0) break;
+      songs.value = [...songs.value, ...filtered];
+      currentPage.value = page;
+      hasMore.value = songs.value.length < totalCount;
+      page += 1;
     }
+  } catch {
+    hasMore.value = songs.value.length < totalCount;
+  } finally {
+    isBackgroundResolving.value = false;
+  }
+};
+
+const loadCloud = async () => {
+  if (!isLoggedIn.value) return;
+  loading.value = true;
+
+  try {
+    const res = await getUserCloud(1, PAGE_SIZE);
+    const parsed = mapCloudPage(res);
+    songs.value = parsed.songs;
+    currentPage.value = 1;
+    totalSongCount.value = parsed.total;
+    cloudCapacity.value = parsed.capacity;
+    cloudAvailable.value = parsed.available;
+    hasMore.value = songs.value.length < totalSongCount.value;
+
+    if (songs.value.length > 0 && totalSongCount.value > songs.value.length) {
+      void resolveAllCloudSongs(totalSongCount.value);
+    }
+  } catch {
+    songs.value = [];
+    totalSongCount.value = 0;
+    cloudCapacity.value = 0;
+    cloudAvailable.value = 0;
     hasMore.value = false;
   } finally {
     loading.value = false;
@@ -184,9 +221,6 @@ const openBatchDrawer = () => {
 };
 
 const handleLocate = () => songListRef.value?.scrollToActive?.();
-const handleLoadMore = () => {
-  void loadCloud(currentPage.value + 1, true);
-};
 
 watch(
   () => isLoggedIn.value,
@@ -343,14 +377,8 @@ onMounted(() => {
           :enableDefaultDoubleTapPlay="true"
           :onSongDoubleTapPlay="settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined"
         />
-        <div v-if="!loading && hasMore" class="flex justify-center pt-4">
-          <Button variant="unstyled" size="none"
-            class="px-4 h-9 rounded-lg bg-black/[0.04] dark:bg-white/[0.06] text-[12px] font-semibold text-text-main/75 hover:text-text-main transition-colors"
-            :disabled="loadingMore"
-            @click="handleLoadMore"
-          >
-            {{ loadingMore ? '加载中...' : '加载更多' }}
-          </Button>
+        <div v-if="!loading && isBackgroundResolving" class="flex justify-center pt-4">
+          <div class="text-[12px] font-semibold text-text-secondary/70">正在后台补全剩余云盘歌曲...</div>
         </div>
       </div>
     </template>

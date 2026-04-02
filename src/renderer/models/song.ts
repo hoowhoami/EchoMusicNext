@@ -33,4 +33,7 @@ export interface Song {
   payType?: number;
   oldCpy?: number;
   relateGoods?: SongRelateGood[];
+  playCount?: number;
+  lastPlayedAt?: number;
+  historyKey?: string;
 }

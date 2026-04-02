@@ -138,7 +138,7 @@ export const executeShortcutCommand = (command: ShortcutCommand) => {
     const track =
       playlistStore.defaultList.find((s) => s.id === playerStore.currentTrackId) ||
       playlistStore.favorites.find((s) => s.id === playerStore.currentTrackId) ||
-      playlistStore.history.find((s) => s.id === playerStore.currentTrackId);
+      playerStore.currentTrackSnapshot;
     if (!track) return;
     const exists = playlistStore.favorites.some((s) => s.id === track.id);
     if (exists) playlistStore.removeFromFavorites(track.id);

@@ -126,12 +126,29 @@ export function getUserHistory(bp?: string) {
 }
 
 /**
+ * 获取服务器时间
+ */
+export function getServerNow() {
+  return request.get('/server/now');
+}
+
+/**
  * 上传播放历史
  * @param mixSongId 歌曲 mixSongId
  */
-export function uploadPlayHistory(mxid: number | string) {
+export function uploadPlayHistory(
+  mxid: number | string,
+  options?: {
+    time?: number;
+    pc?: number;
+  },
+) {
   return request.get('/playhistory/upload', {
-    params: { mxid }
+    params: {
+      mxid,
+      time: options?.time,
+      pc: options?.pc,
+    }
   });
 }
 
@@ -139,7 +156,7 @@ export function uploadPlayHistory(mxid: number | string) {
 /**
  * 获取用户云盘
  */
-export function getUserCloud(page = 1, pagesize = 100) {
+export function getUserCloud(page = 1, pagesize = 30) {
   return request.get('/user/cloud', {
     params: { page, pagesize }
   });

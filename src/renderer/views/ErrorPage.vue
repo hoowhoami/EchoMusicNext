@@ -59,8 +59,6 @@ const handleGoHome = () => {
           回到首页
         </Button>
       </div>
-
-      <p class="error-footnote">标题栏已经提供后退与刷新，这里只保留一个稳定的恢复入口。</p>
     </section>
   </div>
 </template>
@@ -86,7 +84,11 @@ const handleGoHome = () => {
   border-radius: 30px;
   border: 1px solid color-mix(in srgb, var(--color-border-light) 82%, transparent);
   background:
-    linear-gradient(180deg, color-mix(in srgb, white 78%, transparent), color-mix(in srgb, white 92%, transparent)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, white 78%, transparent),
+      color-mix(in srgb, white 92%, transparent)
+    ),
     var(--color-bg-card);
   box-shadow:
     0 24px 60px rgba(15, 23, 42, 0.08),
@@ -96,7 +98,11 @@ const handleGoHome = () => {
 
 :global(.dark) .error-shell {
   background:
-    linear-gradient(180deg, color-mix(in srgb, #1b1f26 94%, transparent), color-mix(in srgb, #101318 98%, transparent)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #1b1f26 94%, transparent),
+      color-mix(in srgb, #101318 98%, transparent)
+    ),
     var(--color-bg-card);
   box-shadow:
     0 26px 72px rgba(0, 0, 0, 0.35),

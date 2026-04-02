@@ -39,6 +39,34 @@ const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
 const songCount = computed(() => songs.value.length);
 const displayedCountLabel = computed(() => `${songCount.value}`);
 
+const mergeHistorySongs = (current: Song[], incoming: Song[]): Song[] => {
+  if (current.length === 0) return incoming.slice();
+
+  const merged = current.slice();
+  const keyIndexMap = new Map<string, number>();
+  merged.forEach((song, index) => {
+    keyIndexMap.set(song.historyKey ?? `${song.id}:${song.lastPlayedAt ?? ''}`, index);
+  });
+
+  incoming.forEach((song) => {
+    const key = song.historyKey ?? `${song.id}:${song.lastPlayedAt ?? ''}`;
+    const existingIndex = keyIndexMap.get(key);
+    if (existingIndex === undefined) {
+      keyIndexMap.set(key, merged.length);
+      merged.push(song);
+      return;
+    }
+
+    merged[existingIndex] = {
+      ...merged[existingIndex],
+      ...song,
+      playCount: Math.max(merged[existingIndex].playCount ?? 0, song.playCount ?? 0) || undefined,
+    };
+  });
+
+  return merged;
+};
+
 const historyCoverUrl = computed(() => {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="400" height="400">
@@ -132,10 +160,18 @@ const loadHistory = async (append = false) => {
         ? data?.songs
         : [];
     const mapped = rawList
-      .filter((item) => typeof item === 'object' && item !== null)
+      .filter(
+        (item) =>
+          typeof item === 'object' &&
+          item !== null &&
+          'info' in item &&
+          typeof (item as { info?: unknown }).info === 'object' &&
+          (item as { info?: unknown }).info !== null,
+      )
       .map((item) => mapHistorySong(item));
 
-    remoteSongs.value = append ? [...remoteSongs.value, ...mapped] : mapped;
+    playerStore.hydrateHistoryPlayCounts(mapped);
+    remoteSongs.value = append ? mergeHistorySongs(remoteSongs.value, mapped) : mergeHistorySongs([], mapped);
     nextBp.value = typeof data?.bp === 'string' ? data.bp : '';
     hasMore.value = Boolean(data?.has_more ?? (mapped.length > 0 && nextBp.value));
   } catch {
@@ -298,6 +334,7 @@ onMounted(() => {
           v-else
           ref="songListRef"
           :songs="sortedSongs"
+          itemKeyField="historyKey"
           :searchQuery="searchQuery"
           :activeId="activeSongId"
           :showCover="true"

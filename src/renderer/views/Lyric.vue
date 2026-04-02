@@ -45,7 +45,8 @@ const currentTrack = computed<Song | undefined>(() => {
   return (
     playlistStore.defaultList.find((song) => String(song.id) === currentId) ||
     playlistStore.favorites.find((song) => String(song.id) === currentId) ||
-    playlistStore.history.find((song) => String(song.id) === currentId)
+    playerStore.currentTrackSnapshot ||
+    undefined
   );
 });
 

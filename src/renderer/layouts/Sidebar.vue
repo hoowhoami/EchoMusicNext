@@ -42,7 +42,9 @@ const newPlaylistIsPrivate = ref(false);
 const pendingRemovePlaylist = ref<PlaylistMeta | null>(null);
 
 const likedPlaylistId = computed(() => String(playlistStore.likedPlaylistQueryId ?? ''));
-const currentUserId = computed(() => String(userInfo.value?.userid ?? userInfo.value?.userId ?? ''));
+const currentUserId = computed(() =>
+  String(userInfo.value?.userid ?? userInfo.value?.userId ?? ''),
+);
 const currentUserIdNumber = computed<number | undefined>(() => {
   const value = userInfo.value?.userid ?? userInfo.value?.userId;
   return typeof value === 'number' && value > 0 ? value : undefined;
@@ -84,7 +86,10 @@ const getPlaylistIdentityList = (playlist: PlaylistMeta): string[] => {
     playlist.globalCollectionId,
     playlist.listCreateListid,
   ]
-    .filter((value): value is string | number => value !== undefined && value !== null && String(value) !== '')
+    .filter(
+      (value): value is string | number =>
+        value !== undefined && value !== null && String(value) !== '',
+    )
     .map((value) => String(value));
 };
 
@@ -118,7 +123,9 @@ const favoritedPlaylists = computed(() =>
   ),
 );
 
-const favoritedAlbums = computed(() => playlistStore.userPlaylists.filter((playlist) => playlist.source === 2));
+const favoritedAlbums = computed(() =>
+  playlistStore.userPlaylists.filter((playlist) => playlist.source === 2),
+);
 
 const activePlaylistRouteId = computed(() => {
   return route.name === 'playlist-detail' ? String(route.params.id ?? '') : '';
@@ -272,15 +279,16 @@ const handleRemovePlaylist = async () => {
   const routeId = getPlaylistRouteId(playlist);
   const currentUserIdValue = currentUserIdNumber.value;
   const isOwned = isOwnerPlaylist(playlist);
-  const shouldNavigateAway = isOwned
-    && route.name === 'playlist-detail'
-    && activePlaylistRouteId.value === routeId;
+  const shouldNavigateAway =
+    isOwned && route.name === 'playlist-detail' && activePlaylistRouteId.value === routeId;
 
   isRemovingPlaylist.value = true;
   try {
     let success = false;
     if (playlist.source === 2) {
-      success = await playlistStore.unfavoriteAlbum(playlist.listCreateListid ?? playlist.listid ?? playlist.id);
+      success = await playlistStore.unfavoriteAlbum(
+        playlist.listCreateListid ?? playlist.listid ?? playlist.id,
+      );
     } else if (isOwned) {
       success = await playlistStore.deleteOwnedPlaylist(playlist.listid ?? playlist.id);
     } else {
@@ -313,8 +321,10 @@ const handleMenuClick = (item: { path: string; action?: string }) => {
 
 const isMenuItemActive = (item: { path: string; action?: string }) => {
   if (item.action === 'liked-playlist') {
-    return route.name === 'liked-songs' || (
-      route.name === 'playlist-detail' && activePlaylistRouteId.value === likedPlaylistRouteId.value
+    return (
+      route.name === 'liked-songs' ||
+      (route.name === 'playlist-detail' &&
+        activePlaylistRouteId.value === likedPlaylistRouteId.value)
     );
   }
   return route.path === item.path;
@@ -363,20 +373,28 @@ watch(
 </script>
 
 <template>
-  <aside class="sidebar h-full flex flex-col bg-bg-sidebar border-r border-border-light select-none transition-all duration-300 relative">
+  <aside
+    class="sidebar h-full flex flex-col bg-bg-sidebar border-r border-border-light select-none transition-all duration-300 relative"
+  >
     <div :class="['drag w-full shrink-0', isMac ? 'h-14' : 'h-10']"></div>
 
     <div :class="['px-4 pb-3 shrink-0 no-drag', isMac ? 'mt-2' : 'mt-0']">
-      <div class="user-info-card flex items-center bg-bg-info-card border border-black/[0.08] dark:border-white/10 rounded-[20px] p-1 transition-all duration-200">
+      <div
+        class="user-info-card flex items-center bg-bg-info-card border border-black/[0.08] dark:border-white/10 rounded-[20px] p-1 transition-all duration-200"
+      >
         <div
           class="sidebar-user-link flex-1 flex items-center gap-3 p-1.5 rounded-[14px] cursor-pointer transition-all active:scale-[0.98]"
           @click="navigateTo(isLoggedIn ? '/main/profile' : '/login')"
         >
-          <div class="w-[34px] h-[34px] shrink-0 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+          <div
+            class="w-[34px] h-[34px] shrink-0 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden"
+          >
             <Avatar :src="isLoggedIn ? userInfo?.pic : ''" class="w-full h-full" />
           </div>
           <div class="flex flex-col min-w-0">
-            <span class="text-[13px] font-semibold text-text-main truncate leading-tight tracking-tight">
+            <span
+              class="text-[13px] font-semibold text-text-main truncate leading-tight tracking-tight"
+            >
               {{ isLoggedIn ? userInfo?.nickname : '未登录' }}
             </span>
             <span class="text-[9px] text-text-secondary font-medium opacity-60 tracking-wider">
@@ -398,7 +416,9 @@ watch(
 
     <div class="px-4 shrink-0 no-drag">
       <div v-for="group in menuGroups" :key="group.title" class="mb-4">
-        <h2 class="px-3.5 text-[11px] font-semibold text-text-main/60 uppercase tracking-[0.5px] mb-2">
+        <h2
+          class="px-3.5 text-[11px] font-semibold text-text-main/60 uppercase tracking-[0.5px] mb-2"
+        >
           {{ group.title }}
         </h2>
         <nav class="space-y-0.5">
@@ -430,7 +450,10 @@ watch(
                     : 'text-text-main opacity-60 group-hover:opacity-100',
               ]"
             />
-            <span class="text-[14px]" :class="[isMenuItemActive(item) ? 'font-semibold' : 'font-normal']">
+            <span
+              class="text-[14px]"
+              :class="[isMenuItemActive(item) ? 'font-semibold' : 'font-normal']"
+            >
               {{ item.name }}
             </span>
           </Button>
@@ -510,8 +533,20 @@ watch(
             ]"
             @click="navigateToPlaylist(playlist)"
           >
-            <Cover :url="playlist.pic" :size="100" :width="28" :height="28" :borderRadius="6" class="shrink-0" />
-            <div :class="['sidebar-playlist-label-wrap', canRemovePlaylist(playlist) ? 'has-action' : '']">
+            <Cover
+              :url="playlist.pic"
+              :size="100"
+              :width="28"
+              :height="28"
+              :borderRadius="6"
+              class="shrink-0"
+            />
+            <div
+              :class="[
+                'sidebar-playlist-label-wrap',
+                canRemovePlaylist(playlist) ? 'has-action' : '',
+              ]"
+            >
               <span
                 :class="[
                   'text-[13px] truncate w-full font-medium tracking-tight',
@@ -533,7 +568,10 @@ watch(
               <Icon :icon="iconTrash" width="14" height="14" />
             </Button>
           </div>
-          <div v-if="createdPlaylists.length === 0" class="py-8 text-center opacity-40 text-[12px] italic">
+          <div
+            v-if="createdPlaylists.length === 0"
+            class="py-8 text-center opacity-40 text-[12px] italic"
+          >
             暂无自建歌单
           </div>
         </template>
@@ -550,7 +588,14 @@ watch(
             ]"
             @click="navigateToPlaylist(playlist)"
           >
-            <Cover :url="playlist.pic" :size="100" :width="28" :height="28" :borderRadius="6" class="shrink-0" />
+            <Cover
+              :url="playlist.pic"
+              :size="100"
+              :width="28"
+              :height="28"
+              :borderRadius="6"
+              class="shrink-0"
+            />
             <div class="sidebar-playlist-label-wrap has-action">
               <span
                 :class="[
@@ -587,7 +632,14 @@ watch(
             ]"
             @click="navigateToPlaylist(album)"
           >
-            <Cover :url="album.pic" :size="100" :width="28" :height="28" :borderRadius="6" class="shrink-0" />
+            <Cover
+              :url="album.pic"
+              :size="100"
+              :width="28"
+              :height="28"
+              :borderRadius="6"
+              class="shrink-0"
+            />
             <div class="sidebar-playlist-label-wrap has-action">
               <span
                 :class="[
@@ -610,14 +662,19 @@ watch(
             </Button>
           </div>
 
-          <div v-if="favoritedPlaylists.length === 0 && favoritedAlbums.length === 0" class="py-8 text-center opacity-40 text-[12px] italic">
+          <div
+            v-if="favoritedPlaylists.length === 0 && favoritedAlbums.length === 0"
+            class="py-8 text-center opacity-40 text-[12px] italic"
+          >
             暂无收藏内容
           </div>
         </template>
       </nav>
 
       <div v-else class="px-3.5 py-8 text-center">
-        <span class="text-[12px] font-normal text-text-main opacity-50 italic">登录同步云端歌单</span>
+        <span class="text-[12px] font-normal text-text-main opacity-50 italic"
+          >登录同步云端歌单</span
+        >
       </div>
     </div>
   </aside>
@@ -637,16 +694,23 @@ watch(
         :show-clear="!isCreatingPlaylist"
         input-class="h-12 rounded-[14px] px-4 pr-10 text-[14px] font-medium"
       />
-      <div class="flex items-center justify-between rounded-[14px] bg-black/[0.03] dark:bg-white/[0.03] px-4 py-3">
+      <div
+        class="flex items-center justify-between rounded-[14px] bg-black/[0.03] dark:bg-white/[0.03] px-4 py-3"
+      >
         <div class="flex flex-col gap-1">
           <span class="text-[14px] font-medium text-text-main">设为隐私歌单</span>
-          <span class="text-[12px] text-text-secondary/80">仅自己可见，和原版行为保持一致</span>
+          <span class="text-[12px] text-text-secondary/80">仅自己可见</span>
         </div>
         <Switch v-model="newPlaylistIsPrivate" :disabled="isCreatingPlaylist" />
       </div>
     </div>
     <template #footer>
-      <Button variant="ghost" size="sm" :disabled="isCreatingPlaylist" @click="closeCreatePlaylistDialog">
+      <Button
+        variant="ghost"
+        size="sm"
+        :disabled="isCreatingPlaylist"
+        @click="closeCreatePlaylistDialog"
+      >
         取消
       </Button>
       <Button
@@ -670,10 +734,20 @@ watch(
     :close-on-interact-outside="!isRemovingPlaylist"
   >
     <template #footer>
-      <Button variant="ghost" size="sm" :disabled="isRemovingPlaylist" @click="closeRemovePlaylistDialog">
+      <Button
+        variant="ghost"
+        size="sm"
+        :disabled="isRemovingPlaylist"
+        @click="closeRemovePlaylistDialog"
+      >
         取消
       </Button>
-      <Button variant="danger" size="sm" :loading="isRemovingPlaylist" @click="handleRemovePlaylist">
+      <Button
+        variant="danger"
+        size="sm"
+        :loading="isRemovingPlaylist"
+        @click="handleRemovePlaylist"
+      >
         {{ removeDialogConfirmText }}
       </Button>
     </template>

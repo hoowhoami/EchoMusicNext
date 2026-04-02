@@ -27,6 +27,7 @@ interface Props {
   enableRemoveFromPlaylist?: boolean;
   onSongDoubleTapPlay?: (song: Song) => void | Promise<void>;
   enableDefaultDoubleTapPlay?: boolean;
+  itemKeyField?: 'id' | 'historyKey';
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -39,6 +40,7 @@ const props = withDefaults(defineProps<Props>(), {
   parentPlaylistId: '',
   enableRemoveFromPlaylist: false,
   enableDefaultDoubleTapPlay: false,
+  itemKeyField: 'id',
 });
 
 const emit = defineEmits<{
@@ -72,7 +74,7 @@ const rowGridTemplate = computed(() => buildSongListGridTemplate({
 const originalIndexMap = computed(() => {
   const map = new Map<string | number, number>();
   props.songs.forEach((song, index) => {
-    map.set(song.id, index);
+    map.set(props.itemKeyField === 'historyKey' ? (song.historyKey ?? song.id) : song.id, index);
   });
   return map;
 });
@@ -198,7 +200,7 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
     class="song-list-container"
     :items="filteredSongs"
     :item-size="itemHeight"
-    key-field="id"
+    :key-field="props.itemKeyField"
     page-mode
   >
     <template #default="{ item: song }">
@@ -236,7 +238,7 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
                 <span
                   class="absolute inset-0 flex items-center justify-center text-[12px] opacity-60 transition-opacity group-hover:opacity-0"
                 >
-                  {{ (originalIndexMap.get(song.id) ?? 0) + 1 }}
+                  {{ (originalIndexMap.get(props.itemKeyField === 'historyKey' ? (song.historyKey ?? song.id) : song.id) ?? 0) + 1 }}
                 </span>
                 <Icon
                   class="absolute inset-0 m-auto opacity-0 transition-opacity group-hover:opacity-100 text-text-main cursor-pointer"

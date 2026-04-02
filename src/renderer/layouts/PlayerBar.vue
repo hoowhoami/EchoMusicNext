@@ -50,8 +50,7 @@ const currentTrack = computed(() => {
   return (
     player.currentTrackSnapshot ||
     playlist.defaultList.find((s: Song) => s.id === player.currentTrackId) ||
-    playlist.favorites.find((s: Song) => s.id === player.currentTrackId) ||
-    playlist.history.find((s: Song) => s.id === player.currentTrackId)
+    playlist.favorites.find((s: Song) => s.id === player.currentTrackId)
   );
 });
 
@@ -399,11 +398,6 @@ onUnmounted(() => {
               <Icon :icon="isFavorite ? iconHeartFilled : iconHeart" width="18" height="18" />
             </Button>
 
-            <!-- 云盘标识 -->
-            <div v-if="currentTrack?.source === 'cloud'" class="text-primary/60" title="云盘歌曲">
-              <Icon :icon="iconCloud" width="16" height="16" />
-            </div>
-
             <Button variant="unstyled" size="none"
               @click="goToComments"
               class="p-0.5 text-text-main/25 hover:text-primary transition-all hover:scale-110"
@@ -411,6 +405,10 @@ onUnmounted(() => {
             >
               <Icon :icon="iconMessageCircle" width="18" height="18" />
             </Button>
+
+            <div v-if="currentTrack?.source === 'cloud'" class="text-primary/60" title="云盘歌曲">
+              <Icon :icon="iconCloud" width="18" height="18" />
+            </div>
           </div>
         </div>
       </div>
