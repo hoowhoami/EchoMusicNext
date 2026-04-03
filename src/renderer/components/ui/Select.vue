@@ -68,6 +68,8 @@ const selectedLabel = computed(() => {
         :class="props.contentClass"
         position="popper"
         :side-offset="6"
+        :collision-padding="12"
+        avoid-collisions
       >
         <SelectViewport class="select-viewport">
           <SelectItem
@@ -120,9 +122,12 @@ const selectedLabel = computed(() => {
 
 :global(.select-content) {
   @apply relative z-[9999] rounded-[20px] border border-border-light bg-bg-card shadow-[0_16px_40px_rgba(0,0,0,0.18)] p-2;
+  box-sizing: border-box;
   width: max-content;
   min-width: var(--reka-select-trigger-width);
   max-width: min(320px, var(--reka-select-content-available-width));
+  max-height: min(320px, var(--reka-select-content-available-height));
+  overflow: hidden;
   animation: select-fade-in 0.16s ease-out;
 }
 
@@ -131,7 +136,11 @@ const selectedLabel = computed(() => {
 }
 
 .select-viewport {
-  @apply max-h-60 overflow-y-auto bg-transparent;
+  max-height: min(304px, var(--reka-select-content-available-height));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  background: transparent;
 }
 
 .select-item {

@@ -20,6 +20,7 @@ import {
   iconInfo,
   iconExternalLink,
   iconChevronRight,
+  iconTypography,
 } from '@/icons';
 
 const settingStore = useSettingStore();
@@ -29,7 +30,24 @@ const isRequestingOutputPermission = ref(false);
 onMounted(() => {
   settingStore.syncCloseBehavior();
   settingStore.syncTheme();
+  void settingStore.hydrateDesktopLyric();
 });
+
+const desktopLyricThemeOptions = [
+  { label: '跟随系统', value: 'system' },
+  { label: '浅色', value: 'light' },
+  { label: '深色', value: 'dark' },
+];
+
+const desktopLyricAlignOptions = [
+  { label: '左对齐', value: 'left' },
+  { label: '居中', value: 'center' },
+  { label: '右对齐', value: 'right' },
+];
+
+const commitDesktopLyricSettings = async (partial?: Partial<typeof settingStore.desktopLyric>) => {
+  await settingStore.syncDesktopLyricSettings(partial);
+};
 
 type ThemeMode = 'light' | 'dark' | 'system';
 type CloseBehavior = 'tray' | 'exit';
@@ -86,7 +104,9 @@ const autoNextDelayInput = computed({
   get: () => String(settingStore.autoNextDelaySeconds ?? 0),
   set: (value: string | number) => {
     const parsed = Number.parseInt(String(value).trim(), 10);
-    settingStore.autoNextDelaySeconds = Number.isNaN(parsed) ? 0 : Math.max(0, Math.min(parsed, 600));
+    settingStore.autoNextDelaySeconds = Number.isNaN(parsed)
+      ? 0
+      : Math.max(0, Math.min(parsed, 600));
   },
 });
 
@@ -94,7 +114,9 @@ const autoNextMaxAttemptsInput = computed({
   get: () => String(settingStore.autoNextMaxAttempts ?? 0),
   set: (value: string | number) => {
     const parsed = Number.parseInt(String(value).trim(), 10);
-    settingStore.autoNextMaxAttempts = Number.isNaN(parsed) ? 1 : Math.max(1, Math.min(parsed, 999));
+    settingStore.autoNextMaxAttempts = Number.isNaN(parsed)
+      ? 1
+      : Math.max(1, Math.min(parsed, 999));
   },
 });
 
@@ -272,25 +294,41 @@ const outputDeviceDisconnectBehaviorOptions = [
 
 const outputDeviceOptions = computed(() => settingStore.outputDevices);
 const selectedOutputDeviceLabel = computed(() => {
-  const matched = settingStore.outputDevices.find((item) => item.value === settingStore.outputDevice);
+  const matched = settingStore.outputDevices.find(
+    (item) => item.value === settingStore.outputDevice,
+  );
   return matched?.label || (settingStore.outputDevice === 'default' ? '系统默认' : '未识别设备');
 });
 const appliedOutputDeviceLabel = computed(() => {
-  const matched = settingStore.outputDevices.find((item) => item.value === playerStore.appliedOutputDeviceId);
-  return matched?.label || (playerStore.appliedOutputDeviceId === 'default' ? '系统默认' : '未识别设备');
+  const matched = settingStore.outputDevices.find(
+    (item) => item.value === playerStore.appliedOutputDeviceId,
+  );
+  return (
+    matched?.label || (playerStore.appliedOutputDeviceId === 'default' ? '系统默认' : '未识别设备')
+  );
 });
-const isOutputDeviceTemporarilyFellBack = computed(() =>
-  playerStore.appliedOutputDeviceId === 'default' && settingStore.outputDevice !== 'default',
+const isOutputDeviceTemporarilyFellBack = computed(
+  () => playerStore.appliedOutputDeviceId === 'default' && settingStore.outputDevice !== 'default',
 );
 const outputDeviceFeedbackTone = computed(() => {
   if (settingStore.outputDeviceStatus === 'error') return 'danger';
-  if (settingStore.outputDeviceStatus === 'unsupported' || settingStore.outputDeviceStatus === 'permission' || settingStore.outputDeviceStatus === 'fallback') return 'warning';
+  if (
+    settingStore.outputDeviceStatus === 'unsupported' ||
+    settingStore.outputDeviceStatus === 'permission' ||
+    settingStore.outputDeviceStatus === 'fallback'
+  )
+    return 'warning';
   return 'info';
 });
-const hasOutputDeviceFeedback = computed(() => settingStore.outputDeviceStatus !== 'idle' && !!settingStore.outputDeviceStatusMessage);
+const hasOutputDeviceFeedback = computed(
+  () => settingStore.outputDeviceStatus !== 'idle' && !!settingStore.outputDeviceStatusMessage,
+);
 const canRequestOutputDevicePermission = computed(() => {
   const status = settingStore.outputDeviceStatus;
-  return typeof navigator.mediaDevices?.getUserMedia === 'function' && (status === 'permission' || status === 'error');
+  return (
+    typeof navigator.mediaDevices?.getUserMedia === 'function' &&
+    (status === 'permission' || status === 'error')
+  );
 });
 const outputDevicePermissionActionLabel = computed(() => {
   if (isRequestingOutputPermission.value) return '请求中...';
@@ -339,7 +377,11 @@ const handleOutputDeviceChange = async (value: string | number | boolean | null 
   const nextValue = String(value ?? 'default');
   if (nextValue === settingStore.outputDevice) return;
 
-  if (nextValue !== 'default' && settingStore.outputDeviceStatus === 'permission' && typeof navigator.mediaDevices?.getUserMedia === 'function') {
+  if (
+    nextValue !== 'default' &&
+    settingStore.outputDeviceStatus === 'permission' &&
+    typeof navigator.mediaDevices?.getUserMedia === 'function'
+  ) {
     if (isRequestingOutputPermission.value) return;
     isRequestingOutputPermission.value = true;
     try {
@@ -444,6 +486,8 @@ onUnmounted(() => {
       </div>
     </section>
 
+
+
     <section class="space-y-6">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
@@ -488,7 +532,9 @@ onUnmounted(() => {
         <div class="settings-item">
           <div class="space-y-1">
             <h3 class="font-semibold">自动跳过错误</h3>
-            <p class="text-sm text-text-secondary">播放失败时停留在当前歌曲，并按设定延迟自动尝试下一首</p>
+            <p class="text-sm text-text-secondary">
+              播放失败时停留在当前歌曲，并按设定延迟自动尝试下一首
+            </p>
           </div>
           <Switch v-model="settingStore.autoNext" />
         </div>
@@ -550,7 +596,9 @@ onUnmounted(() => {
         <div class="settings-item">
           <div class="space-y-1">
             <h3 class="font-semibold">默认音质</h3>
-            <p class="text-sm text-text-secondary">新歌曲默认按此音质解析，播放器中可临时覆盖当前歌曲</p>
+            <p class="text-sm text-text-secondary">
+              新歌曲默认按此音质解析，播放器中可临时覆盖当前歌曲
+            </p>
           </div>
           <Select
             class="min-w-[180px]"
@@ -566,6 +614,62 @@ onUnmounted(() => {
             <p class="text-sm text-text-secondary">首选音质不可用时自动尝试备选</p>
           </div>
           <Switch v-model="settingStore.compatibilityMode" />
+        </div>
+      </div>
+    </section>
+
+    <section class="space-y-6">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+          <Icon :icon="iconTypography" width="18" height="18" />
+        </div>
+        <h2 class="text-lg font-bold">桌面歌词</h2>
+      </div>
+      <div class="settings-card">
+        <div class="settings-item">
+          <div class="space-y-1">
+            <h3 class="font-semibold">文字粗体</h3>
+            <p class="text-sm text-text-secondary">歌词使用更高字重显示</p>
+          </div>
+          <Switch
+            :model-value="settingStore.desktopLyric.bold"
+            @update:model-value="commitDesktopLyricSettings({ bold: Boolean($event) })"
+          />
+        </div>
+        <div class="settings-divider"></div>
+        <div class="settings-item items-start">
+          <div class="space-y-1">
+            <h3 class="font-semibold">文字颜色</h3>
+            <p class="text-sm text-text-secondary">设置逐字歌词的已播颜色与未播颜色</p>
+          </div>
+          <div class="flex items-center gap-5 pt-1">
+            <div class="flex items-center gap-2.5">
+              <span class="text-[13px] font-semibold text-text-secondary">已播字色</span>
+              <input
+                class="settings-color-input"
+                type="color"
+                :value="settingStore.desktopLyric.playedColor"
+                @input="
+                  commitDesktopLyricSettings({
+                    playedColor: String(($event.target as HTMLInputElement).value),
+                  })
+                "
+              />
+            </div>
+            <div class="flex items-center gap-2.5">
+              <span class="text-[13px] font-semibold text-text-secondary">未播字色</span>
+              <input
+                class="settings-color-input"
+                type="color"
+                :value="settingStore.desktopLyric.unplayedColor"
+                @input="
+                  commitDesktopLyricSettings({
+                    unplayedColor: String(($event.target as HTMLInputElement).value),
+                  })
+                "
+              />
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -653,7 +757,9 @@ onUnmounted(() => {
             <p class="text-sm text-text-secondary">选择音频播放输出设备</p>
             <p class="text-xs text-text-secondary/80">
               首选输出：{{ selectedOutputDeviceLabel }}
-              <span v-if="isOutputDeviceTemporarilyFellBack"> · 当前实际输出：{{ appliedOutputDeviceLabel }}</span>
+              <span v-if="isOutputDeviceTemporarilyFellBack">
+                · 当前实际输出：{{ appliedOutputDeviceLabel }}</span
+              >
             </p>
           </div>
           <Select
@@ -667,16 +773,23 @@ onUnmounted(() => {
         <div class="settings-item">
           <div class="space-y-1">
             <h3 class="font-semibold">设备断开后的行为</h3>
-            <p class="text-sm text-text-secondary">当当前所选输出设备断开时，选择暂停播放或临时切换到系统默认设备</p>
+            <p class="text-sm text-text-secondary">
+              当当前所选输出设备断开时，选择暂停播放或临时切换到系统默认设备
+            </p>
           </div>
           <Select
             class="min-w-[180px]"
             :model-value="settingStore.outputDeviceDisconnectBehavior"
             :options="outputDeviceDisconnectBehaviorOptions"
-            @update:model-value="settingStore.outputDeviceDisconnectBehavior = $event as OutputDeviceDisconnectBehavior"
+            @update:model-value="
+              settingStore.outputDeviceDisconnectBehavior = $event as OutputDeviceDisconnectBehavior
+            "
           />
         </div>
-        <div v-if="hasOutputDeviceFeedback" :class="['settings-warning', `is-${outputDeviceFeedbackTone}`]">
+        <div
+          v-if="hasOutputDeviceFeedback"
+          :class="['settings-warning', `is-${outputDeviceFeedbackTone}`]"
+        >
           <div class="settings-warning-content">
             <span>{{ settingStore.outputDeviceStatusMessage }}</span>
             <Button
@@ -841,7 +954,6 @@ onUnmounted(() => {
       </template>
     </Dialog>
 
-
     <Dialog
       v-model:open="showUpdateResult"
       :title="updateDialogTitle"
@@ -905,6 +1017,33 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 600;
   line-height: 40px;
+}
+
+.settings-text-input {
+  width: 320px;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border-light) 92%, transparent);
+  background: color-mix(in srgb, var(--color-text-main) 4%, transparent);
+  color: var(--color-text-main);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-text-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border-light));
+}
+
+.settings-color-input {
+  width: 34px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--color-border-light) 92%, transparent);
+  border-radius: 8px;
+  background: transparent;
 }
 
 .dark .settings-number-input {

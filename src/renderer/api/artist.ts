@@ -30,3 +30,17 @@ export function getArtistAlbums(
 ) {
   return request.get('/artist/albums', { params: { id, page, pagesize, sort } });
 }
+
+/**
+ * 关注歌手
+ */
+export function followArtist(id: string | number) {
+  return request.get('/artist/follow', { params: { id } });
+}
+
+/**
+ * 取消关注歌手
+ */
+export function unfollowArtist(id: string | number) {
+  return request.get('/artist/unfollow', { params: { id } });
+}

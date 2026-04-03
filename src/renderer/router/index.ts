@@ -25,6 +25,12 @@ const routes: RouteRecordRaw[] = [
     meta: { skipHistory: true },
   },
   {
+    path: '/desktop-lyric',
+    name: 'desktop-lyric',
+    component: () => import('@/views/DesktopLyric.vue'),
+    meta: { skipHistory: true },
+  },
+  {
     path: '/main',
     component: () => import('@/layouts/MainLayout.vue'),
     children: [

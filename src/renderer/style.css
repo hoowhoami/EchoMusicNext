@@ -78,6 +78,13 @@
     @apply bg-bg-main text-text-main transition-colors duration-300;
   }
 
+  html.desktop-lyric-window,
+  html.desktop-lyric-window body,
+  html.desktop-lyric-window #app {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
   input,
   textarea,
   select {

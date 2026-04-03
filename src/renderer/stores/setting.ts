@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import type { DesktopLyricSettings } from '../../shared/desktop-lyric';
 
 type OutputDeviceOption = {
   label: string;
@@ -9,6 +10,34 @@ type OutputDeviceOption = {
 export type OutputDeviceDisconnectBehavior = 'pause' | 'fallback';
 
 type OutputDeviceStatus = 'idle' | 'ready' | 'unsupported' | 'permission' | 'fallback' | 'error';
+
+const DEFAULT_DESKTOP_LYRIC_SETTINGS: DesktopLyricSettings = {
+  enabled: false,
+  locked: false,
+  clickThrough: true,
+  autoShow: true,
+  alwaysOnTop: true,
+  theme: 'system',
+  opacity: 0.92,
+  scale: 1,
+  fontFamily:
+    'SF Pro Display, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Inter, system-ui, sans-serif',
+  inactiveFontSize: 26,
+  activeFontSize: 40,
+  secondaryFontSize: 18,
+  lineGap: 14,
+  width: 960,
+  height: 220,
+  secondaryMode: 'none',
+  alignment: 'center',
+  fontSize: 30,
+  doubleLine: true,
+  playedColor: '#31cfa1',
+  unplayedColor: '#b9b9b9',
+  strokeColor: '#f1b8b3',
+  strokeEnabled: false,
+  bold: false,
+};
 
 export const DEFAULT_SHORTCUT_LABELS: Record<string, string> = {
   togglePlayback: '⌘Space',
@@ -71,6 +100,7 @@ export const useSettingStore = defineStore('setting', {
     isPrerelease: true,
     searchHistory: [] as string[],
     userAgreementAccepted: false,
+    desktopLyric: { ...DEFAULT_DESKTOP_LYRIC_SETTINGS } as DesktopLyricSettings,
   }),
   actions: {
     setTheme(theme: 'light' | 'dark' | 'system') {
@@ -139,6 +169,46 @@ export const useSettingStore = defineStore('setting', {
           isPlaying,
         });
       }
+    },
+    async hydrateDesktopLyric() {
+      if (!window.electron?.desktopLyric) return;
+      const snapshot = await window.electron.desktopLyric.getSnapshot();
+      this.desktopLyric = {
+        ...DEFAULT_DESKTOP_LYRIC_SETTINGS,
+        ...snapshot.settings,
+      };
+    },
+    async syncDesktopLyricSettings(partial?: Partial<DesktopLyricSettings>) {
+      if (!window.electron?.desktopLyric) return;
+      const payload = {
+        ...this.desktopLyric,
+        ...(partial ?? {}),
+      };
+      const snapshot = await window.electron.desktopLyric.updateSettings(payload);
+      this.desktopLyric = {
+        ...DEFAULT_DESKTOP_LYRIC_SETTINGS,
+        ...snapshot.settings,
+      };
+    },
+    async setDesktopLyricEnabled(enabled: boolean) {
+      this.desktopLyric = {
+        ...this.desktopLyric,
+        enabled,
+      };
+      if (!window.electron?.desktopLyric) return;
+      const snapshot = enabled
+        ? await window.electron.desktopLyric.show()
+        : await window.electron.desktopLyric.hide();
+      this.desktopLyric = {
+        ...DEFAULT_DESKTOP_LYRIC_SETTINGS,
+        ...snapshot.settings,
+      };
+    },
+    setDesktopLyricLocal(partial: Partial<DesktopLyricSettings>) {
+      this.desktopLyric = {
+        ...this.desktopLyric,
+        ...partial,
+      };
     },
     setOutputDeviceStatus(status: OutputDeviceStatus, message = '') {
       this.outputDeviceStatus = status;

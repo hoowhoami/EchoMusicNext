@@ -44,6 +44,11 @@ const settingsStore = new Conf<AppSettings>({
   },
 });
 
+const minWidth: number = 1100;
+const minHeight: number = 720;
+const defaultWidth: number = 1150;
+const defaultHeight: number = 750;
+
 let closeBehavior: CloseBehavior = settingsStore.get('closeBehavior', 'tray');
 let currentTheme: ThemeMode = settingsStore.get('theme', 'system');
 let rememberWindowSize = settingsStore.get('rememberWindowSize', true);
@@ -103,8 +108,8 @@ ipcMain.on(
 
 const getPersistedWindowState = (): WindowState => {
   return settingsStore.get('windowState', {
-    width: 1100,
-    height: 750,
+    width: defaultWidth,
+    height: defaultHeight,
     isMaximized: false,
   });
 };
@@ -125,13 +130,13 @@ const hasVisibleArea = (bounds: { x?: number; y?: number; width: number; height:
 
 const buildWindowBounds = () => {
   if (!rememberWindowSize) {
-    return { width: 1100, height: 750 } as const;
+    return { width: defaultWidth, height: defaultHeight } as const;
   }
 
   const state = getPersistedWindowState();
   const bounds = {
-    width: Math.max(1050, state.width || 1100),
-    height: Math.max(700, state.height || 750),
+    width: Math.max(minWidth, state.width || defaultWidth),
+    height: Math.max(minHeight, state.height || defaultHeight),
     ...(typeof state.x === 'number' ? { x: state.x } : {}),
     ...(typeof state.y === 'number' ? { y: state.y } : {}),
   };
@@ -182,8 +187,8 @@ export async function createWindow() {
     title: 'EchoMusic',
     icon: join(__dirname, '../../public/favicon.ico'),
     ...initialBounds,
-    minWidth: 1050,
-    minHeight: 700,
+    minWidth: minWidth,
+    minHeight: minHeight,
     show: false, // 初始不显示，防止白屏
     backgroundColor: initialBgColor, // 动态设置背景色
     frame: false,

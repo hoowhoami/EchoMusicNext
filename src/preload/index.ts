@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import log from 'electron-log/renderer';
+import type { DesktopLyricPointerState, DesktopLyricSettings, DesktopLyricSnapshot, DesktopLyricSnapshotPatch } from '../shared/desktop-lyric';
 
 const ipcListenerMap = new Map<string, WeakMap<(...args: any[]) => void, (...args: any[]) => void>>();
 
@@ -47,6 +48,37 @@ contextBridge.exposeInMainWorld('electron', {
   apiServer: {
     start: () => ipcRenderer.invoke('api-server:start'),
     stop: () => ipcRenderer.send('api-server:stop'),
+  },
+  desktopLyric: {
+    getSnapshot: () => ipcRenderer.invoke('desktop-lyric:get-snapshot') as Promise<DesktopLyricSnapshot>,
+    show: () => ipcRenderer.invoke('desktop-lyric:show') as Promise<DesktopLyricSnapshot>,
+    hide: () => ipcRenderer.invoke('desktop-lyric:hide') as Promise<DesktopLyricSnapshot>,
+    toggleLock: () => ipcRenderer.invoke('desktop-lyric:toggle-lock') as Promise<DesktopLyricSnapshot>,
+    updateSettings: (payload: Partial<DesktopLyricSettings>) =>
+      ipcRenderer.invoke('desktop-lyric:update-settings', payload) as Promise<DesktopLyricSnapshot>,
+    syncSnapshot: (payload: DesktopLyricSnapshotPatch) =>
+      ipcRenderer.invoke('desktop-lyric:sync-snapshot', payload) as Promise<DesktopLyricSnapshot>,
+    onSnapshot: (func: (snapshot: DesktopLyricSnapshot) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, snapshotPayload: DesktopLyricSnapshot) =>
+        func(snapshotPayload);
+      ipcRenderer.on('desktop-lyric:snapshot', listener);
+      return () => ipcRenderer.removeListener('desktop-lyric:snapshot', listener);
+    },
+    onPointerState: (func: (state: DesktopLyricPointerState) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, pointerState: DesktopLyricPointerState) =>
+        func(pointerState);
+      ipcRenderer.on('desktop-lyric:pointer-state', listener);
+      return () => ipcRenderer.removeListener('desktop-lyric:pointer-state', listener);
+    },
+    setDragMode: (enabled: boolean) => ipcRenderer.send('desktop-lyric:drag-mode', enabled),
+    startResize: (direction: string, screenX: number, screenY: number) =>
+      ipcRenderer.send('desktop-lyric:resize-start', { direction, screenX, screenY }),
+    updateResize: (screenX: number, screenY: number) =>
+      ipcRenderer.send('desktop-lyric:resize-update', { screenX, screenY }),
+    endResize: () => ipcRenderer.send('desktop-lyric:resize-end'),
+    setHover: (hovering: boolean) => ipcRenderer.send('desktop-lyric:hover', hovering),
+    command: (command: 'togglePlayback' | 'previousTrack' | 'nextTrack') =>
+      ipcRenderer.send('desktop-lyric:command', command),
   },
   log: log.functions
 });

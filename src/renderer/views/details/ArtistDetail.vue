@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { getArtistDetail, getArtistSongs, getArtistAlbums } from '@/api/artist';
+import { getArtistDetail, getArtistSongs, getArtistAlbums, followArtist, unfollowArtist } from '@/api/artist';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
 import ActionRow from '@/components/music/DetailPageActionRow.vue';
 import SongList from '@/components/music/SongList.vue';
@@ -20,7 +20,7 @@ import { mapAlbumMeta, mapArtistDetailMeta, mapArtistSong } from '@/utils/mapper
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
-import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart } from '@/icons';
+import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart, iconHeartFilled } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/playback';
 import Button from '@/components/ui/Button.vue';
 import { extractFirstObject, extractList } from '@/utils/extractors';

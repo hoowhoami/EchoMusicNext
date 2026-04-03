@@ -3,6 +3,7 @@ import { registerApiServerHandlers } from './server';
 import { registerWindowHandlers } from './window';
 import { registerSettingsHandlers } from './settings';
 import { registerShortcutHandlers } from './shortcuts';
+import { registerDesktopLyricHandlers } from '../desktopLyric';
 
 interface IpcContext {
   getMainWindow: () => BrowserWindow | null;
@@ -16,6 +17,7 @@ export const registerIpcHandlers = (context: IpcContext) => {
   registerApiServerHandlers();
   registerSettingsHandlers(context);
   registerShortcutHandlers(context);
+  registerDesktopLyricHandlers();
   registered = true;
 };
 
@@ -31,5 +33,16 @@ export const unregisterIpcHandlers = () => {
   ipcMain.removeAllListeners('open-external');
   ipcMain.removeAllListeners('open-disclaimer');
   ipcMain.removeAllListeners('clear-app-data');
+  ipcMain.removeAllListeners('desktop-lyric:drag-mode');
+  ipcMain.removeAllListeners('desktop-lyric:hover');
+  ipcMain.removeAllListeners('desktop-lyric:resize-start');
+  ipcMain.removeAllListeners('desktop-lyric:resize-update');
+  ipcMain.removeAllListeners('desktop-lyric:resize-end');
+  ipcMain.removeAllListeners('desktop-lyric:command');
   ipcMain.removeHandler('api-server:start');
+  ipcMain.removeHandler('desktop-lyric:get-snapshot');
+  ipcMain.removeHandler('desktop-lyric:show');
+  ipcMain.removeHandler('desktop-lyric:hide');
+  ipcMain.removeHandler('desktop-lyric:update-settings');
+  ipcMain.removeHandler('desktop-lyric:sync-snapshot');
 };

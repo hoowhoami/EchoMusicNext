@@ -64,6 +64,8 @@ import arrowNarrowUp from '@iconify/icons-tabler/arrow-narrow-up';
 import arrowNarrowDown from '@iconify/icons-tabler/arrow-narrow-down';
 import currentLocation from '@iconify/icons-tabler/current-location';
 import typography from '@iconify/icons-tabler/typography';
+import lock from '@iconify/icons-tabler/lock';
+import lockOpen from '@iconify/icons-tabler/lock-open';
 
 export const iconChevronDown = chevronDown as IconifyIcon;
 export const iconChevronUp = chevronUp as IconifyIcon;
@@ -133,3 +135,5 @@ export const iconSortUp = arrowNarrowUp as IconifyIcon;
 export const iconSortDown = arrowNarrowDown as IconifyIcon;
 export const iconCurrentLocation = currentLocation as IconifyIcon;
 export const iconTypography = typography as IconifyIcon;
+export const iconLock = lock as IconifyIcon;
+export const iconLockOpen = lockOpen as IconifyIcon;

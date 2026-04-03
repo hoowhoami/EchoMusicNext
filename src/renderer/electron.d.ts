@@ -1,3 +1,5 @@
+import type { DesktopLyricPointerState, DesktopLyricSettings, DesktopLyricSnapshot, DesktopLyricSnapshotPatch } from '../shared/desktop-lyric';
+
 export interface IElectronAPI {
   platform: string;
   ipcRenderer: {
@@ -13,6 +15,22 @@ export interface IElectronAPI {
   apiServer: {
     start: () => Promise<{ success: boolean; error?: string }>;
     stop: () => void;
+  };
+  desktopLyric: {
+    getSnapshot: () => Promise<DesktopLyricSnapshot>;
+    show: () => Promise<DesktopLyricSnapshot>;
+    hide: () => Promise<DesktopLyricSnapshot>;
+    toggleLock: () => Promise<DesktopLyricSnapshot>;
+    updateSettings: (payload: Partial<DesktopLyricSettings>) => Promise<DesktopLyricSnapshot>;
+    syncSnapshot: (payload: DesktopLyricSnapshotPatch) => Promise<DesktopLyricSnapshot>;
+    onSnapshot: (func: (snapshot: DesktopLyricSnapshot) => void) => () => void;
+    onPointerState: (func: (state: DesktopLyricPointerState) => void) => () => void;
+    setDragMode: (enabled: boolean) => void;
+    startResize: (direction: string, screenX: number, screenY: number) => void;
+    updateResize: (screenX: number, screenY: number) => void;
+    endResize: () => void;
+    setHover: (hovering: boolean) => void;
+    command: (command: 'togglePlayback' | 'previousTrack' | 'nextTrack') => void;
   };
   log: {
     info: (...args: unknown[]) => void;

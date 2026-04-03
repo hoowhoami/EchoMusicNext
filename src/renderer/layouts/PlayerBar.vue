@@ -39,6 +39,7 @@ import {
   iconVolumeX,
   iconList,
   iconSpeedometer,
+  iconTypography,
 } from '@/icons';
 import { hasSongQuality, isSameSong, resolveEffectiveSongQuality } from '@/utils/song';
 
@@ -194,6 +195,10 @@ const setAudioEffect = (effect: AudioEffectValue) => {
 
 const openQueue = () => {
   isQueueDrawerOpen.value = true;
+};
+
+const toggleDesktopLyric = async () => {
+  await settingStore.setDesktopLyricEnabled(!settingStore.desktopLyric.enabled);
 };
 
 const lastVolume = ref(0.8);
@@ -892,6 +897,21 @@ onUnmounted(() => {
             </DropdownMenuContent>
           </DropdownMenuPortal>
         </DropdownMenuRoot>
+
+        <Button
+          variant="unstyled"
+          size="none"
+          class="p-2 transition-colors"
+          :class="
+            settingStore.desktopLyric.enabled
+              ? 'text-primary'
+              : 'text-text-main/50 hover:text-primary'
+          "
+          :title="settingStore.desktopLyric.enabled ? '关闭桌面歌词' : '开启桌面歌词'"
+          @click="toggleDesktopLyric"
+        >
+          <Icon :icon="iconTypography" width="20" height="20" />
+        </Button>
 
         <div class="relative">
           <Button
