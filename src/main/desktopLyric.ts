@@ -534,8 +534,11 @@ const applyWindowInteractivity = () => {
     desktopLyricWindow.blur();
   }
   desktopLyricWindow.setAlwaysOnTop(alwaysOnTop, 'screen-saver', 1);
-  desktopLyricWindow.setVisibleOnAllWorkspaces(alwaysOnTop, { visibleOnFullScreen: true });
-  desktopLyricWindow.setSkipTaskbar(true);
+  desktopLyricWindow.setVisibleOnAllWorkspaces(alwaysOnTop, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true,
+  });
+  desktopLyricWindow.setSkipTaskbar(process.platform !== 'darwin');
   syncDesktopLyricHoverTracking();
 };
 
@@ -573,7 +576,7 @@ export const ensureDesktopLyricWindow = async () => {
     resizable: true,
     movable: true,
     hasShadow: false,
-    skipTaskbar: true,
+    skipTaskbar: process.platform !== 'darwin',
     fullscreenable: false,
     roundedCorners: false,
     focusable: false,

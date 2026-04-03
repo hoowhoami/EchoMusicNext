@@ -46,6 +46,11 @@ export const initDesktopLyricSync = async () => {
 
   await settingStore.hydrateDesktopLyric();
 
+  if (settingStore.desktopLyric.enabled) {
+    const snapshot = await window.electron.desktopLyric.show();
+    settingStore.setDesktopLyricLocal(snapshot.settings);
+  }
+
   const stops: WatchStopHandle[] = [];
   const { currentTime, isPlaying, duration, playbackRate, currentTrackId, currentTrackSnapshot } =
     storeToRefs(playerStore);
