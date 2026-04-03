@@ -169,8 +169,24 @@ const adjustActiveIntoView = (smooth = false) => {
   }
 };
 
+const isActiveVisible = (): boolean => {
+  const scrollContainer = getScrollContainer();
+  if (!scrollContainer || !activeIdText.value) return false;
+  const row = scrollContainer.querySelector<HTMLElement>(
+    `[data-song-row][data-song-id="${activeIdText.value}"]`,
+  );
+  if (!row) return false;
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const stickyOffset = getStickyOffset(scrollContainer);
+  const topLimit = containerRect.top + stickyOffset + 8;
+  const bottomLimit = containerRect.bottom - 12;
+  return rowRect.top >= topLimit && rowRect.bottom <= bottomLimit;
+};
+
 const scrollToActive = async () => {
   if (!activeIdText.value || !listRef.value) return;
+  if (isActiveVisible()) return;
   const index = filteredSongs.value.findIndex((s) => readString(s.id) === activeIdText.value);
   if (index === -1) return;
   listRef.value.scrollToItem(index);

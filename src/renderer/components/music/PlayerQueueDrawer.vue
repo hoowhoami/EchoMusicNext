@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useVModel } from '@vueuse/core';
 import Drawer from '@/components/ui/Drawer.vue';
 import { usePlaylistStore } from '@/stores/playlist';
@@ -41,27 +41,69 @@ const currentTrackId = computed(() => playerStore.currentTrackId);
 
 const itemHeight = 56;
 const scrollerRef = ref<RecycleScrollerInstance | null>(null);
+const scrollRetryTimer = ref<number | null>(null);
 
 const scrollToTop = () => {
   scrollerRef.value?.scrollToPosition(0);
 };
 
-const scrollToCurrent = () => {
+const getScrollerElement = (): HTMLElement | null =>
+  (scrollerRef.value as { $el?: HTMLElement } | null)?.$el ?? null;
+
+const isCurrentVisible = (): boolean => {
+  const targetId = currentTrackId.value ? String(currentTrackId.value) : '';
+  const scrollerEl = getScrollerElement();
+  if (!targetId || !scrollerEl) return false;
+  const row = scrollerEl.querySelector<HTMLElement>(`[data-queue-row][data-song-id="${targetId}"]`);
+  if (!row) return false;
+  const scrollerRect = scrollerEl.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const topLimit = scrollerRect.top + 8;
+  const bottomLimit = scrollerRect.bottom - 8;
+  return rowRect.top >= topLimit && rowRect.bottom <= bottomLimit;
+};
+
+const clearScrollRetryTimer = () => {
+  if (scrollRetryTimer.value === null) return;
+  window.clearTimeout(scrollRetryTimer.value);
+  scrollRetryTimer.value = null;
+};
+
+const scrollToCurrent = (force = true) => {
   const targetId = currentTrackId.value ? String(currentTrackId.value) : '';
   if (!targetId || !scrollerRef.value) return;
+  if (!force && isCurrentVisible()) return;
   const index = queueTracks.value.findIndex((song) => String(song.id) === targetId);
   if (index < 0) return;
   scrollerRef.value.scrollToItem(index);
 };
 
+const scheduleAutoScrollToCurrent = async () => {
+  await nextTick();
+  requestAnimationFrame(() => {
+    scrollToCurrent(false);
+    clearScrollRetryTimer();
+    scrollRetryTimer.value = window.setTimeout(() => {
+      scrollToCurrent(false);
+      scrollRetryTimer.value = null;
+    }, 240);
+  });
+};
+
 watch(
-  () => [open.value, currentTrackId.value, queueTracks.value.length],
-  async ([isOpen]) => {
-    if (!isOpen) return;
-    await nextTick();
-    scrollToCurrent();
+  () => open.value,
+  (isOpen) => {
+    if (!isOpen) {
+      clearScrollRetryTimer();
+      return;
+    }
+    void scheduleAutoScrollToCurrent();
   },
 );
+
+onBeforeUnmount(() => {
+  clearScrollRetryTimer();
+});
 
 const isSongPlayable = (song: Song) => isPlayableSong(song);
 
@@ -121,7 +163,7 @@ const handleClear = () => {
           variant="ghost"
           size="xs"
           title="滚动到当前播放"
-          @click="scrollToCurrent"
+          @click="scrollToCurrent(false)"
         >
           <Icon :icon="iconCurrentLocation" width="22" height="22" />
         </Button>
@@ -147,6 +189,8 @@ const handleClear = () => {
       <template #default="{ item: track, index }">
         <div
           class="queue-row"
+          :data-queue-row="true"
+          :data-song-id="String(track.id)"
           :class="{
             'is-current': String(track.id) === String(currentTrackId),
           }"
