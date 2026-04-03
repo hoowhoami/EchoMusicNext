@@ -80,7 +80,7 @@ const initSortable = () => {
 };
 
 const scrollToTop = () => {
-  scrollTo(0);
+  containerProps.ref.value?.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
 const isCurrentVisible = (): boolean => {
@@ -110,7 +110,9 @@ const scrollToCurrent = (force = true) => {
   if (!force && isCurrentVisible()) return;
   const index = queueTracks.value.findIndex((song) => String(song.id) === targetId);
   if (index < 0) return;
-  scrollTo(index);
+  
+  const targetScrollTop = index * itemHeight;
+  containerProps.ref.value?.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
 };
 
 const scheduleAutoScrollToCurrent = async () => {
