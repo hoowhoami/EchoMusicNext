@@ -325,15 +325,12 @@ onUnmounted(() => {
                 <div class="lyric-cover-frame">
                   <Cover
                     :url="currentTrack?.coverUrl"
-                    :size="700"
-                    :width="420"
-                    :height="420"
-                    :borderRadius="24"
+                    :size="800"
+                    :borderRadius="28"
                     class="h-full w-full"
                   />
                 </div>
               </div>
-
               <div class="mt-7 w-full max-w-[420px] space-y-2 text-center">
                 <h1
                   class="truncate text-[26px] font-semibold tracking-[0.02em] text-black/95 dark:text-white/95"
