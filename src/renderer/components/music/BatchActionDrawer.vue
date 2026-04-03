@@ -11,8 +11,7 @@ import { usePlayerStore } from '@/stores/player';
 import { useUserStore } from '@/stores/user';
 import { formatDuration } from '@/utils/format';
 import SongCard from '@/components/music/SongCard.vue';
-import { RecycleScroller } from 'vue-virtual-scroller';
-import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
+import { useVirtualList } from '@vueuse/core';
 import { iconPlay, iconPlus, iconTrash, iconX } from '@/icons';
 import { isPlayableSong } from '@/utils/song';
 import { replaceQueueAndPlay } from '@/utils/playback';
@@ -110,6 +109,9 @@ watch(
 );
 
 const itemHeight = 56;
+const { list, containerProps, wrapperProps } = useVirtualList(computed(() => props.songs), {
+  itemHeight,
+});
 
 const createdPlaylists = computed(() => playlistStore.getCreatedPlaylists(userStore.info?.userid));
 
@@ -224,44 +226,46 @@ const handleRemoveFromPlaylist = async () => {
       <div class="batch-count">已选 {{ selectedKeys.size }} / {{ songs.length }}</div>
     </div>
 
-    <RecycleScroller class="batch-list" :items="props.songs" :item-size="itemHeight" key-field="id">
-      <template #default="{ item: song }">
+    <div v-bind="containerProps" class="batch-list scroll-smooth">
+      <div v-bind="wrapperProps" class="batch-list-inner">
         <div
+          v-for="entry in list"
+          :key="entry.data.id"
           class="batch-row"
-          :class="{ 'text-primary': selectedKeys.has(String(song.id)) }"
+          :class="{ 'text-primary': selectedKeys.has(String(entry.data.id)) }"
           :style="{ height: `${itemHeight}px` }"
-          @click="toggleSong(song)"
+          @click="toggleSong(entry.data)"
         >
           <div class="batch-leading" @click.stop>
             <CheckboxRoot
               class="batch-checkbox"
-              :model-value="selectedKeys.has(String(song.id))"
-              @update:model-value="setSongChecked(song, $event)"
+              :model-value="selectedKeys.has(String(entry.data.id))"
+              @update:model-value="setSongChecked(entry.data, $event)"
             >
               <CheckboxIndicator as-child>
                 <span class="batch-checkbox-indicator"></span>
               </CheckboxIndicator>
             </CheckboxRoot>
           </div>
-          <div class="batch-card" :style="{ opacity: isPlayableSong(song) ? 1 : 0.45 }">
+          <div class="batch-card" :style="{ opacity: isPlayableSong(entry.data) ? 1 : 0.45 }">
             <SongCard
-              :id="song.id"
-              :hash="song.hash"
-              :title="song.title"
-              :artist="song.artist"
-              :artists="song.artists"
-              :album="song.album"
-              :albumId="song.albumId"
-              :coverUrl="song.coverUrl"
-              :duration="song.duration"
-              :audioUrl="song.audioUrl"
-              :source="song.source"
-              :mixSongId="song.mixSongId"
-              :fileId="song.fileId"
-              :privilege="song.privilege"
-              :payType="song.payType"
-              :oldCpy="song.oldCpy"
-              :relateGoods="song.relateGoods"
+              :id="entry.data.id"
+              :hash="entry.data.hash"
+              :title="entry.data.title"
+              :artist="entry.data.artist"
+              :artists="entry.data.artists"
+              :album="entry.data.album"
+              :albumId="entry.data.albumId"
+              :coverUrl="entry.data.coverUrl"
+              :duration="entry.data.duration"
+              :audioUrl="entry.data.audioUrl"
+              :source="entry.data.source"
+              :mixSongId="entry.data.mixSongId"
+              :fileId="entry.data.fileId"
+              :privilege="entry.data.privilege"
+              :payType="entry.data.payType"
+              :oldCpy="entry.data.oldCpy"
+              :relateGoods="entry.data.relateGoods"
               :queueContext="props.songs"
               :showCover="true"
               :showAlbum="false"
@@ -272,15 +276,13 @@ const handleRemoveFromPlaylist = async () => {
               variant="list"
             />
           </div>
-          <div class="batch-album">{{ song.album || '未知专辑' }}</div>
-          <div class="batch-duration">{{ formatDuration(song.duration) }}</div>
+          <div class="batch-album">{{ entry.data.album || '未知专辑' }}</div>
+          <div class="batch-duration">{{ formatDuration(entry.data.duration) }}</div>
         </div>
-      </template>
+      </div>
 
-      <template #empty v-if="props.songs?.length === 0">
-        <div class="batch-empty">暂无歌曲</div>
-      </template>
-    </RecycleScroller>
+      <div v-if="props.songs?.length === 0" class="batch-empty">暂无歌曲</div>
+    </div>
   </Drawer>
 
   <Dialog

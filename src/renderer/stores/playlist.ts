@@ -229,6 +229,18 @@ export const usePlaylistStore = defineStore('playlist', {
       this.defaultList = this.defaultList.filter((song) => String(song.id) !== id);
       this.consumeQueuedNextTrackId(id);
     },
+    reorderPlaybackQueue(fromIndex: number, toIndex: number) {
+      if (fromIndex === toIndex) return;
+      if (fromIndex < 0 || fromIndex >= this.defaultList.length) return;
+
+      const nextList = this.defaultList.slice();
+      const [movedSong] = nextList.splice(fromIndex, 1);
+      if (!movedSong) return;
+
+      const normalizedTarget = Math.max(0, Math.min(toIndex, nextList.length));
+      nextList.splice(normalizedTarget, 0, movedSong);
+      this.defaultList = nextList;
+    },
     async addToPlaylist(listId: string | number, song: Song) {
       const targetId = String(listId ?? '');
       if (!targetId) return false;

@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import { useVModel } from '@vueuse/core';
+import { computed, nextTick, onBeforeUnmount, ref, watch, onMounted } from 'vue';
+import { useVModel, useVirtualList } from '@vueuse/core';
 import Drawer from '@/components/ui/Drawer.vue';
 import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
 import SongCard from '@/components/music/SongCard.vue';
 import Button from '@/components/ui/Button.vue';
-import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
-import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
+import Sortable from 'sortablejs';
 import { isPlayableSong } from '@/utils/song';
 import {
   iconArrowUp,
@@ -37,22 +36,56 @@ const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
 
 const queueTracks = computed(() => playlistStore.defaultList);
+const queueEntries = computed(() =>
+  queueTracks.value.map((track, index) => ({
+    track,
+    queueIndex: index,
+    queueRenderKey: `${track.historyKey ?? track.id}:${track.hash ?? ''}:${index}`,
+  })),
+);
 const currentTrackId = computed(() => playerStore.currentTrackId);
 
 const itemHeight = 56;
-const scrollerRef = ref<RecycleScrollerInstance | null>(null);
-const scrollRetryTimer = ref<number | null>(null);
+const { list, containerProps, wrapperProps, scrollTo } = useVirtualList(queueEntries, {
+  itemHeight,
+});
 
-const scrollToTop = () => {
-  scrollerRef.value?.scrollToPosition(0);
+const sortableContainerRef = ref<HTMLElement | null>(null);
+let sortableInstance: Sortable | null = null;
+
+const initSortable = () => {
+  if (sortableInstance) {
+    sortableInstance.destroy();
+    sortableInstance = null;
+  }
+
+  const el = sortableContainerRef.value;
+  if (!el) return;
+
+  sortableInstance = new Sortable(el, {
+    animation: 150,
+    handle: '.queue-card',
+    ghostClass: 'queue-sortable-ghost',
+    dragClass: 'queue-sortable-drag',
+    onEnd: (evt) => {
+      const { oldIndex, newIndex } = evt;
+      if (oldIndex !== undefined && newIndex !== undefined && oldIndex !== newIndex) {
+        // Need to account for virtual list offset
+        const actualOldIndex = list.value[oldIndex].index;
+        const actualNewIndex = list.value[newIndex].index;
+        playlistStore.reorderPlaybackQueue(actualOldIndex, actualNewIndex);
+      }
+    },
+  });
 };
 
-const getScrollerElement = (): HTMLElement | null =>
-  (scrollerRef.value as { $el?: HTMLElement } | null)?.$el ?? null;
+const scrollToTop = () => {
+  scrollTo(0);
+};
 
 const isCurrentVisible = (): boolean => {
   const targetId = currentTrackId.value ? String(currentTrackId.value) : '';
-  const scrollerEl = getScrollerElement();
+  const scrollerEl = containerProps.ref.value;
   if (!targetId || !scrollerEl) return false;
   const row = scrollerEl.querySelector<HTMLElement>(`[data-queue-row][data-song-id="${targetId}"]`);
   if (!row) return false;
@@ -63,6 +96,8 @@ const isCurrentVisible = (): boolean => {
   return rowRect.top >= topLimit && rowRect.bottom <= bottomLimit;
 };
 
+const scrollRetryTimer = ref<number | null>(null);
+
 const clearScrollRetryTimer = () => {
   if (scrollRetryTimer.value === null) return;
   window.clearTimeout(scrollRetryTimer.value);
@@ -71,11 +106,11 @@ const clearScrollRetryTimer = () => {
 
 const scrollToCurrent = (force = true) => {
   const targetId = currentTrackId.value ? String(currentTrackId.value) : '';
-  if (!targetId || !scrollerRef.value) return;
+  if (!targetId) return;
   if (!force && isCurrentVisible()) return;
   const index = queueTracks.value.findIndex((song) => String(song.id) === targetId);
   if (index < 0) return;
-  scrollerRef.value.scrollToItem(index);
+  scrollTo(index);
 };
 
 const scheduleAutoScrollToCurrent = async () => {
@@ -92,17 +127,45 @@ const scheduleAutoScrollToCurrent = async () => {
 
 watch(
   () => open.value,
-  (isOpen) => {
-    if (!isOpen) {
+  async (isOpen) => {
+    if (isOpen) {
+      await nextTick();
+      initSortable();
+      void scheduleAutoScrollToCurrent();
+    } else {
       clearScrollRetryTimer();
-      return;
+      if (sortableInstance) {
+        sortableInstance.destroy();
+        sortableInstance = null;
+      }
     }
-    void scheduleAutoScrollToCurrent();
   },
+);
+
+onMounted(() => {
+  if (open.value) {
+    void nextTick(() => {
+      initSortable();
+    });
+  }
+});
+
+watch(
+  () => list.value,
+  () => {
+    // Re-init sortable when virtual list data changes to ensure correct indices
+    if (open.value) {
+      initSortable();
+    }
+  },
+  { deep: false },
 );
 
 onBeforeUnmount(() => {
   clearScrollRetryTimer();
+  if (sortableInstance) {
+    sortableInstance.destroy();
+  }
 });
 
 const isSongPlayable = (song: Song) => isPlayableSong(song);
@@ -154,7 +217,14 @@ const handleClear = () => {
         <div class="queue-subtitle">共 {{ queueTracks.length }} 首歌曲</div>
       </div>
       <div class="queue-actions">
-        <Button type="button" class="queue-icon-btn" variant="ghost" size="xs" title="滚动到顶部" @click="scrollToTop">
+        <Button
+          type="button"
+          class="queue-icon-btn"
+          variant="ghost"
+          size="xs"
+          title="滚动到顶部"
+          @click="scrollToTop"
+        >
           <Icon :icon="iconArrowUp" width="22" height="22" />
         </Button>
         <Button
@@ -178,29 +248,35 @@ const handleClear = () => {
 
     <div class="queue-divider"></div>
 
-
-    <RecycleScroller
-      ref="scrollerRef"
-      class="queue-list"
-      :items="queueTracks"
-      :item-size="itemHeight"
-      key-field="id"
-    >
-      <template #default="{ item: track, index }">
+    <div v-bind="containerProps" class="queue-list">
+      <div
+        v-bind="wrapperProps"
+        ref="sortableContainerRef"
+        class="queue-list-inner"
+      >
         <div
+          v-for="entry in list"
+          :key="entry.data.queueRenderKey"
           class="queue-row"
           :data-queue-row="true"
-          :data-song-id="String(track.id)"
+          :data-song-id="String(entry.data.track.id)"
+          :data-queue-index="entry.data.queueIndex"
           :class="{
-            'is-current': String(track.id) === String(currentTrackId),
+            'is-current': String(entry.data.track.id) === String(currentTrackId),
           }"
           :style="{ height: `${itemHeight}px` }"
         >
           <div class="queue-leading">
-            <span class="queue-index">{{ index + 1 }}</span>
-            <Button type="button" class="queue-play" variant="ghost" size="xs" @click="handlePlay(track)">
+            <span class="queue-index">{{ entry.data.queueIndex + 1 }}</span>
+            <Button
+              type="button"
+              class="queue-play"
+              variant="ghost"
+              size="xs"
+              @click="handlePlay(entry.data.track)"
+            >
               <Icon
-                v-if="String(track.id) !== String(currentTrackId) || !playerStore.isPlaying"
+                v-if="String(entry.data.track.id) !== String(currentTrackId) || !playerStore.isPlaying"
                 :icon="iconPlay"
                 width="14"
                 height="14"
@@ -209,61 +285,63 @@ const handleClear = () => {
             </Button>
           </div>
 
-          <div class="queue-card" :style="{ opacity: isSongPlayable(track) ? 1 : 0.45 }">
+          <div
+            class="queue-card"
+            :style="{ opacity: isSongPlayable(entry.data.track) ? 1 : 0.45 }"
+            title="拖动排序"
+          >
             <SongCard
-              :id="track.id"
-              :hash="track.hash"
-              :title="track.title"
-              :artist="track.artist"
-              :artists="track.artists"
-              :album="track.album"
-              :albumId="track.albumId"
-              :coverUrl="track.coverUrl"
-              :duration="track.duration"
-              :audioUrl="track.audioUrl"
-              :source="track.source"
-              :mixSongId="track.mixSongId"
-              :fileId="track.fileId"
-              :privilege="track.privilege"
-              :payType="track.payType"
-              :oldCpy="track.oldCpy"
-              :relateGoods="track.relateGoods"
+              :id="entry.data.track.id"
+              :hash="entry.data.track.hash"
+              :title="entry.data.track.title"
+              :artist="entry.data.track.artist"
+              :artists="entry.data.track.artists"
+              :album="entry.data.track.album"
+              :albumId="entry.data.track.albumId"
+              :coverUrl="entry.data.track.coverUrl"
+              :duration="entry.data.track.duration"
+              :audioUrl="entry.data.track.audioUrl"
+              :source="entry.data.track.source"
+              :mixSongId="entry.data.track.mixSongId"
+              :fileId="entry.data.track.fileId"
+              :privilege="entry.data.track.privilege"
+              :payType="entry.data.track.payType"
+              :oldCpy="entry.data.track.oldCpy"
+              :relateGoods="entry.data.track.relateGoods"
               :queueContext="queueTracks"
               :showCover="true"
               :showAlbum="false"
               :showDuration="false"
               :showQuality="false"
-              :active="String(track.id) === String(currentTrackId)"
+              :active="String(entry.data.track.id) === String(currentTrackId)"
               :showMore="false"
               variant="list"
             />
           </div>
-
-          <!-- duration removed for queue view -->
 
           <Button
             type="button"
             class="queue-remove"
             variant="ghost"
             size="xs"
-            :class="{ 'is-hidden': String(track.id) === String(currentTrackId) }"
-            :disabled="String(track.id) === String(currentTrackId)"
-            @click="handleRemove(track)"
+            :class="{ 'is-hidden': String(entry.data.track.id) === String(currentTrackId) }"
+            :disabled="String(entry.data.track.id) === String(currentTrackId)"
+            @click="handleRemove(entry.data.track)"
           >
             <Icon :icon="iconX" width="14" height="14" />
           </Button>
         </div>
-      </template>
+      </div>
 
-      <template #empty v-if="queueTracks?.length === 0">
+      <div v-if="queueTracks?.length === 0" class="queue-empty-container">
         <div class="queue-empty">
           <div class="queue-empty-icon">
             <Icon :icon="iconList" width="40" height="40" />
           </div>
           <div>列表为空，快去发现好音乐吧</div>
         </div>
-      </template>
-    </RecycleScroller>
+      </div>
+    </div>
   </Drawer>
 </template>
 
@@ -327,8 +405,16 @@ const handleClear = () => {
   background: var(--color-border-light);
 }
 
+.queue-empty-container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
 .queue-empty {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -351,15 +437,18 @@ const handleClear = () => {
 }
 
 .queue-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
-  align-items: center;
   padding: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
+    background-color 0.22s ease,
+    color 0.22s ease,
+    opacity 0.22s ease,
+    box-shadow 0.22s ease,
+    filter 0.22s ease;
   cursor: default;
 }
 
@@ -428,6 +517,20 @@ const handleClear = () => {
 .queue-card {
   flex: 1;
   min-width: 0;
+  cursor: grab;
+  border-radius: 10px;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease,
+    filter 0.2s ease;
+}
+
+.queue-card:hover {
+  transform: translateX(1px);
+}
+
+.queue-card:active {
+  cursor: grabbing;
 }
 
 .queue-card :deep(.song-actions) {
@@ -476,6 +579,17 @@ const handleClear = () => {
 .queue-remove:hover {
   color: #ef4444;
   transform: scale(1.05);
+}
+
+.queue-sortable-ghost {
+  opacity: 0.4;
+  background: var(--color-primary-light) !important;
+}
+
+.queue-sortable-drag {
+  opacity: 0.9;
+  background: var(--color-bg-card) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 @media (max-width: 720px) {

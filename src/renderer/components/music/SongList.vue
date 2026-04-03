@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useVirtualList } from '@vueuse/core';
 import type { Song } from '@/models/song';
 import { formatDuration } from '@/utils/format';
 import SongCard from './SongCard.vue';
-import { RecycleScroller, RecycleScrollerInstance } from 'vue-virtual-scroller';
-import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 import { iconPlay, iconPause } from '@/icons';
 import { usePlayerStore } from '@/stores/player';
 import { usePlaylistStore } from '@/stores/playlist';
@@ -65,6 +64,10 @@ const filteredSongs = computed(() => {
 });
 
 const itemHeight = 60;
+const { list, containerProps, wrapperProps, scrollTo } = useVirtualList(filteredSongs, {
+  itemHeight,
+});
+
 const rowGridTemplate = computed(() => buildSongListGridTemplate({
   showIndex: props.showIndex,
   showAlbum: props.showAlbum,
@@ -82,8 +85,6 @@ const originalIndexMap = computed(() => {
 const isSongPlayable = (song: Song) => isPlayableSong(song);
 
 const rowOpacity = (song: Song) => (isSongPlayable(song) ? 1 : 0.45);
-
-const listRef = ref<RecycleScrollerInstance | null>(null);
 
 const readString = (value: unknown, fallback = ''): string => {
   if (value === undefined || value === null) return fallback;
@@ -185,14 +186,14 @@ const isActiveVisible = (): boolean => {
 };
 
 const scrollToActive = async () => {
-  if (!activeIdText.value || !listRef.value) return;
+  if (!activeIdText.value) return;
   if (isActiveVisible()) return;
   const index = filteredSongs.value.findIndex((s) => readString(s.id) === activeIdText.value);
   if (index === -1) return;
-  listRef.value.scrollToItem(index);
+  scrollTo(index);
   await nextTick();
   const scrollContainer = getScrollContainer();
-  const scrollerEl = (listRef.value as { $el?: HTMLElement } | null)?.$el ?? null;
+  const scrollerEl = containerProps.ref.value;
   if (scrollContainer && scrollerEl) {
     const containerRect = scrollContainer.getBoundingClientRect();
     const scrollerRect = scrollerEl.getBoundingClientRect();
@@ -211,21 +212,16 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
 </script>
 
 <template>
-  <RecycleScroller
-    ref="listRef"
-    class="song-list-container"
-    :items="filteredSongs"
-    :item-size="itemHeight"
-    :key-field="props.itemKeyField"
-    page-mode
-  >
-    <template #default="{ item: song }">
+  <div v-bind="containerProps" class="song-list-container scroll-smooth">
+    <div v-bind="wrapperProps" class="song-list-inner">
       <div
+        v-for="entry in list"
+        :key="props.itemKeyField === 'historyKey' ? (entry.data.historyKey ?? entry.data.id) : entry.data.id"
         class="song-list-row group rounded-lg transition-all duration-200 cursor-default"
-        :style="{ height: `${itemHeight}px`, opacity: rowOpacity(song) }"
-        :class="{ 'is-active': isActiveSong(song) }"
+        :style="{ height: `${itemHeight}px`, opacity: rowOpacity(entry.data) }"
+        :class="{ 'is-active': isActiveSong(entry.data) }"
         :data-song-row="true"
-        :data-song-id="readString(song.id)"
+        :data-song-id="readString(entry.data.id)"
       >
         <div
           class="song-list-row-inner grid items-center w-full h-full"
@@ -234,18 +230,18 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
         >
           <div v-if="showIndex" class="flex items-center justify-start pl-2">
             <div class="relative w-4 h-4">
-              <template v-if="isActiveSong(song)">
+              <template v-if="isActiveSong(entry.data)">
                 <div
                   v-if="playerStore.isPlaying"
                   class="absolute inset-0 flex items-center justify-center text-primary cursor-pointer"
-                  @click.stop="handleTogglePlay(song)"
+                  @click.stop="handleTogglePlay(entry.data)"
                 >
                   <Icon :icon="iconPause" width="14" height="14" />
                 </div>
                 <div
                   v-else
                   class="absolute inset-0 flex items-center justify-center text-primary cursor-pointer"
-                  @click.stop="handleTogglePlay(song)"
+                  @click.stop="handleTogglePlay(entry.data)"
                 >
                   <Icon :icon="iconPlay" width="14" height="14" />
                 </div>
@@ -254,14 +250,14 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
                 <span
                   class="absolute inset-0 flex items-center justify-center text-[12px] opacity-60 transition-opacity group-hover:opacity-0"
                 >
-                  {{ (originalIndexMap.get(props.itemKeyField === 'historyKey' ? (song.historyKey ?? song.id) : song.id) ?? 0) + 1 }}
+                  {{ (originalIndexMap.get(props.itemKeyField === 'historyKey' ? (entry.data.historyKey ?? entry.data.id) : entry.data.id) ?? 0) + 1 }}
                 </span>
                 <Icon
                   class="absolute inset-0 m-auto opacity-0 transition-opacity group-hover:opacity-100 text-text-main cursor-pointer"
                   :icon="iconPlay"
                   width="14"
                   height="14"
-                  @click.stop="handleTogglePlay(song)"
+                  @click.stop="handleTogglePlay(entry.data)"
                 />
               </template>
             </div>
@@ -269,30 +265,30 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
 
           <div class="min-w-0">
             <SongCard
-              :id="song.id"
-              :hash="song.hash"
-              :title="song.title"
-              :artist="song.artist"
-              :artists="song.artists"
-              :album="song.album"
-              :albumId="song.albumId"
-              :coverUrl="song.coverUrl"
-              :duration="song.duration"
-              :audioUrl="song.audioUrl"
-              :source="song.source"
-              :mixSongId="song.mixSongId"
-              :fileId="song.fileId"
-              :privilege="song.privilege"
-              :payType="song.payType"
-              :oldCpy="song.oldCpy"
-              :relateGoods="song.relateGoods"
+              :id="entry.data.id"
+              :hash="entry.data.hash"
+              :title="entry.data.title"
+              :artist="entry.data.artist"
+              :artists="entry.data.artists"
+              :album="entry.data.album"
+              :albumId="entry.data.albumId"
+              :coverUrl="entry.data.coverUrl"
+              :duration="entry.data.duration"
+              :audioUrl="entry.data.audioUrl"
+              :source="entry.data.source"
+              :mixSongId="entry.data.mixSongId"
+              :fileId="entry.data.fileId"
+              :privilege="entry.data.privilege"
+              :payType="entry.data.payType"
+              :oldCpy="entry.data.oldCpy"
+              :relateGoods="entry.data.relateGoods"
               :parentPlaylistId="props.parentPlaylistId"
               :enableRemoveFromPlaylist="props.enableRemoveFromPlaylist"
               :showCover="showCover"
               :showAlbum="false"
               :showDuration="false"
               :showMore="true"
-              :active="isActiveSong(song)"
+              :active="isActiveSong(entry.data)"
               :queueContext="props.songs"
               :onDoubleTapPlay="props.onSongDoubleTapPlay"
               :enableDefaultDoubleTapPlay="props.enableDefaultDoubleTapPlay"
@@ -304,27 +300,65 @@ defineExpose({ scrollToActive, filteredCount: computed(() => filteredSongs.value
             v-if="showAlbum"
             type="button"
             class="min-w-0 hidden md:block pr-3 text-[13px] text-left text-text-main/70 truncate"
-            :class="isAlbumClickable(song) ? 'song-list-meta-link' : ''"
-            :disabled="!isAlbumClickable(song)"
-            @click.stop="openAlbumDetail(song)"
+            :class="isAlbumClickable(entry.data) ? 'song-list-meta-link' : ''"
+            :disabled="!isAlbumClickable(entry.data)"
+            @click.stop="openAlbumDetail(entry.data)"
           >
-            {{ song.album || '未知专辑' }}
+            {{ entry.data.album || '未知专辑' }}
           </Button>
 
           <div v-if="showDuration" class="pl-2 text-[12px] opacity-60 text-left whitespace-nowrap">
-            {{ formatDuration(song.duration) }}
+            {{ formatDuration(entry.data.duration) }}
           </div>
         </div>
       </div>
-    </template>
+    </div>
 
-    <template #empty v-if="filteredSongs?.length === 0">
-      <div class="py-20 text-center opacity-50 text-[14px] italic">
-        {{ props.searchQuery ? '未找到相关歌曲' : '暂无歌曲' }}
-      </div>
-    </template>
-  </RecycleScroller>
+    <div v-if="filteredSongs?.length === 0" class="py-20 text-center opacity-50 text-[14px] italic">
+      {{ props.searchQuery ? '未找到相关歌曲' : '暂无歌曲' }}
+    </div>
+  </div>
 </template>
+
+<style scoped>
+@reference "@/style.css";
+
+.song-list-container {
+  user-select: none;
+  width: 100%;
+}
+
+.song-list-row {
+  width: 100%;
+}
+
+.song-list-row-inner {
+  box-sizing: border-box;
+}
+
+.song-list-row:hover {
+  background: var(--color-bg-card);
+}
+
+.dark .song-list-row:hover {
+  background: color-mix(in srgb, #ffffff 4%, transparent);
+}
+
+.song-list-row.is-active {
+  background: var(--color-bg-card);
+}
+
+.dark .song-list-row.is-active {
+  background: color-mix(in srgb, #ffffff 4%, transparent);
+}
+.song-list-meta-link {
+  cursor: pointer;
+}
+
+.song-list-meta-link:hover {
+  color: var(--color-primary);
+}
+</style>
 
 <style scoped>
 @reference "@/style.css";

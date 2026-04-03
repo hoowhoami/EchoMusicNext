@@ -13,6 +13,7 @@
     "@iconify/icons-tabler": "^1.2.95",
     "@iconify/types": "^2.0.0",
     "@iconify/vue": "^5.0.0",
+    "@vueuse/core": "^14.2.1",
     "axios": "^1.13.6",
     "conf": "^15.1.0",
     "electron-log": "^5.4.3",
@@ -20,14 +21,15 @@
     "pinia": "^2.3.1",
     "pinia-plugin-persistedstate": "^4.2.0",
     "reka-ui": "^2.9.2",
+    "sortablejs": "^1.15.7",
     "vue": "^3.5.30",
-    "vue-router": "^4.5.0",
-    "vue-virtual-scroller": "2.0.0-beta.8"
+    "vue-router": "^4.5.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
     "@types/howler": "^2.2.12",
     "@types/node": "^22.13.9",
+    "@types/sortablejs": "^1.15.9",
     "@typescript-eslint/eslint-plugin": "^8.57.2",
     "@typescript-eslint/parser": "^8.57.2",
     "@vitejs/plugin-vue": "^6.0.5",
