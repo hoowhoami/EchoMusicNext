@@ -1,11 +1,21 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { usePlayerStore, type PlayMode } from '@/stores/player';
+import { usePlayerStore } from '@/stores/player';
 import { usePlaylistStore } from '@/stores/playlist';
 import { useLyricStore } from '@/stores/lyric';
 import type { Song } from '@/models/song';
 import OverlayHeader from '@/layouts/OverlayHeader.vue';
+import {
+  PopoverRoot,
+  PopoverTrigger,
+  PopoverPortal,
+  PopoverContent,
+  SliderRoot,
+  SliderTrack,
+  SliderRange,
+  SliderThumb,
+} from 'reka-ui';
 import Cover from '@/components/ui/Cover.vue';
 import Slider from '@/components/ui/Slider.vue';
 import { formatDuration } from '@/utils/format';
@@ -15,24 +25,13 @@ import Button from '@/components/ui/Button.vue';
 import {
   iconChevronDown,
   iconCopy,
-  iconHeart,
   iconLanguage,
-  iconMinus,
   iconPause,
   iconPlay,
-  iconPlus,
-  iconRefreshCw,
-  iconRepeat,
-  iconListRestart,
-  iconShuffle,
   iconSkipBack,
   iconSkipForward,
   iconTypography,
-  iconVolume2,
-  iconVolume1,
-  iconVolumeX,
 } from '@/icons';
-import { isSameSong } from '@/utils/song';
 
 const router = useRouter();
 const route = useRoute();
@@ -43,24 +42,23 @@ const lyricStore = useLyricStore();
 const lyricListRef = ref<HTMLElement | null>(null);
 const progressValue = ref(0);
 const isProgressDragging = ref(false);
-const volumeValue = ref(Math.round(playerStore.volume * 100));
+const isHoveringProgress = ref(false);
 const copyFeedback = ref(false);
 
 const currentTrack = computed<Song | undefined>(() => {
   const currentId = String(playerStore.currentTrackId ?? '');
   if (!currentId) return undefined;
   return (
-    playlistStore.defaultList.find((song) => String(song.id) === currentId)
-    || playlistStore.favorites.find((song) => String(song.id) === currentId)
-    || playerStore.currentTrackSnapshot
-    || undefined
+    playlistStore.defaultList.find((song) => String(song.id) === currentId) ||
+    playlistStore.favorites.find((song) => String(song.id) === currentId) ||
+    playerStore.currentTrackSnapshot ||
+    undefined
   );
 });
 
 const backgroundUrl = computed(() => getCoverUrl(currentTrack.value?.coverUrl, 900));
 const currentIndex = computed(() => lyricStore.currentIndex);
 const hasLyrics = computed(() => lyricStore.lines.length > 0);
-const currentTrackHash = computed(() => String(currentTrack.value?.hash ?? currentTrack.value?.id ?? ''));
 const lyricModeLabel = computed(() => {
   if (lyricStore.lyricsMode === 'translation') return '翻译';
   if (lyricStore.lyricsMode === 'romanization') return '音译';
@@ -71,31 +69,16 @@ const emptyStateText = computed(() => {
   if (lyricStore.isLoading) return '歌词加载中…';
   return lyricStore.tips || '暂无歌词';
 });
-const titleFontSize = computed(() => `clamp(${23 * lyricStore.fontScale}px, ${2.3 * lyricStore.fontScale}vw, ${36 * lyricStore.fontScale}px)`);
-const secondaryFontSize = computed(() => `clamp(${12 * lyricStore.fontScale}px, ${1.0 * lyricStore.fontScale}vw, ${15 * lyricStore.fontScale}px)`);
+const titleFontSize = computed(
+  () =>
+    `clamp(${23 * lyricStore.fontScale}px, ${2.3 * lyricStore.fontScale}vw, ${36 * lyricStore.fontScale}px)`,
+);
+const secondaryFontSize = computed(
+  () =>
+    `clamp(${12 * lyricStore.fontScale}px, ${1.0 * lyricStore.fontScale}vw, ${15 * lyricStore.fontScale}px)`,
+);
 const fontWeightLabel = computed(() => `W${lyricStore.fontWeightValue}`);
-
-const isFavorite = computed(() => {
-  if (!currentTrack.value) return false;
-  return playlistStore.favorites.some(
-    (song) => isSameSong(song, currentTrack.value as Song) || String(song.id) === String(currentTrack.value?.id),
-  );
-});
-
-const playModeMeta = computed(() => {
-  const map: Record<PlayMode, { icon: typeof iconRepeat; label: string }> = {
-    list: { icon: iconRepeat, label: '列表循环' },
-    single: { icon: iconListRestart, label: '单曲循环' },
-    random: { icon: iconShuffle, label: '随机播放' },
-  };
-  return map[playerStore.playMode];
-});
-
-const volumeIcon = computed(() => {
-  if (playerStore.volume <= 0) return iconVolumeX;
-  if (playerStore.volume < 0.45) return iconVolume1;
-  return iconVolume2;
-});
+const fontSizeLabel = computed(() => `${Math.round(lyricStore.fontScale * 100)}%`);
 
 const scrollToCurrentLine = (smooth: boolean) => {
   const container = lyricListRef.value;
@@ -109,42 +92,25 @@ const scrollToCurrentLine = (smooth: boolean) => {
   container.scrollTo({ top: Math.max(0, offset), behavior: smooth ? 'smooth' : 'auto' });
 };
 
-const cyclePlayMode = () => {
-  const nextMode: Record<PlayMode, PlayMode> = {
-    list: 'random',
-    random: 'single',
-    single: 'list',
-  };
-  playerStore.setPlayMode(nextMode[playerStore.playMode]);
-};
-
-const toggleFavorite = () => {
-  if (!currentTrack.value) return;
-  if (isFavorite.value) {
-    void playlistStore.removeFavoriteSong(currentTrack.value);
-    return;
+const handleProgressInput = (value: number[] | undefined) => {
+  if (!value?.length) return;
+  if (!isProgressDragging.value) {
+    isProgressDragging.value = true;
+    playerStore.notifySeekStart();
   }
-  void playlistStore.addToFavorites(currentTrack.value);
+  progressValue.value = value[0];
 };
 
-const handleProgressInput = (value: number) => {
-  progressValue.value = value;
-};
-
-const handleProgressCommit = (value: number) => {
+const handleProgressCommit = (value: number[] | undefined) => {
+  if (!value?.length) return;
   playerStore.notifySeekEnd();
   isProgressDragging.value = false;
-  playerStore.seek(value);
+  playerStore.seek(value[0]);
 };
 
 const handleProgressPointerDown = () => {
   isProgressDragging.value = true;
   playerStore.notifySeekStart();
-};
-
-const handleVolumeInput = (value: number) => {
-  volumeValue.value = value;
-  playerStore.setVolume(value / 100);
 };
 
 const copyLyrics = async () => {
@@ -170,24 +136,6 @@ const copyLyrics = async () => {
   }, 1200);
 };
 
-const refreshLyrics = async () => {
-  const hash = currentTrackHash.value;
-  if (!hash) return;
-  lyricStore.clear(hash, '歌词加载中...');
-  await lyricStore.fetchLyrics(hash);
-  lyricStore.updateCurrentIndex(playerStore.currentTime);
-  await nextTick();
-  scrollToCurrentLine(false);
-};
-
-const increaseFontWeight = () => {
-  lyricStore.updateFontWeight(lyricStore.fontWeightIndex + 1);
-};
-
-const decreaseFontWeight = () => {
-  lyricStore.updateFontWeight(lyricStore.fontWeightIndex - 1);
-};
-
 const toggleLyricsMode = () => {
   if (!canToggleMode.value) return;
   lyricStore.toggleLyricsMode();
@@ -207,14 +155,6 @@ watch(
   (value) => {
     if (isProgressDragging.value) return;
     progressValue.value = value;
-  },
-  { immediate: true },
-);
-
-watch(
-  () => playerStore.volume,
-  (value) => {
-    volumeValue.value = Math.round(value * 100);
   },
   { immediate: true },
 );
@@ -264,13 +204,18 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="lyric-view relative h-screen w-screen overflow-hidden text-white select-none">
+  <div
+    class="lyric-view relative h-screen w-screen overflow-hidden bg-[#eef2f7] text-black select-none transition-colors duration-500 dark:bg-[#030406] dark:text-white"
+  >
     <div class="absolute inset-0 overflow-hidden">
       <div
-        class="absolute inset-0 bg-cover bg-center opacity-[0.16] blur-[2px] scale-[1.08]"
+        class="absolute inset-[-6%] scale-[1.06] bg-cover bg-center opacity-[0.18] blur-[2px] transition-all duration-500 dark:opacity-[0.22]"
         :style="{ backgroundImage: backgroundUrl ? `url(${backgroundUrl})` : undefined }"
       ></div>
-      <div class="absolute inset-0 lyric-view__backdrop"></div>
+      <div class="lyric-atmosphere absolute inset-0"></div>
+      <div
+        class="absolute inset-0 bg-gradient-to-b from-white/72 via-white/48 to-white/84 transition-colors duration-500 dark:from-black/88 dark:via-black/72 dark:to-black/92"
+      ></div>
     </div>
 
     <OverlayHeader />
@@ -280,64 +225,148 @@ onUnmounted(() => {
 
       <div class="px-6 pb-3 no-drag">
         <div class="flex h-12 items-center">
-          <Button variant="unstyled" size="none" type="button" class="lyric-icon-btn" title="返回" @click="closeLyricPage">
+          <Button
+            variant="unstyled"
+            size="none"
+            type="button"
+            class="lyric-icon-btn"
+            title="返回"
+            @click="closeLyricPage"
+          >
             <Icon :icon="iconChevronDown" width="22" height="22" />
           </Button>
+
           <div class="ml-auto flex items-center gap-2">
-            <div class="lyric-weight-pill">
-              <Icon :icon="iconTypography" width="13" height="13" class="text-white/62" />
-              <Button variant="unstyled" size="none" type="button" class="lyric-weight-btn" :disabled="lyricStore.fontWeightIndex <= 0" @click="decreaseFontWeight">
-                <Icon :icon="iconMinus" width="10" height="10" />
-              </Button>
-              <span class="lyric-weight-label">{{ fontWeightLabel }}</span>
-              <Button variant="unstyled" size="none" type="button" class="lyric-weight-btn" :disabled="lyricStore.fontWeightIndex >= 8" @click="increaseFontWeight">
-                <Icon :icon="iconPlus" width="10" height="10" />
-              </Button>
-            </div>
-            <Button variant="unstyled" size="none" type="button" class="lyric-tool-chip" :disabled="!canToggleMode" @click="toggleLyricsMode">
+            <PopoverRoot>
+              <PopoverTrigger as-child>
+                <Button variant="unstyled" size="none" type="button" class="lyric-tool-chip">
+                  <Icon :icon="iconTypography" width="14" height="14" />
+                  <span>字体</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverPortal>
+                <PopoverContent
+                  class="z-[100] w-[260px] rounded-[24px] border border-black/10 bg-white/70 p-6 shadow-2xl backdrop-blur-xl dark:border-white/20 dark:bg-black/60"
+                  :side-offset="8"
+                  align="end"
+                >
+                  <div class="space-y-6 text-black dark:text-white">
+                    <div>
+                      <div class="mb-2 flex items-center justify-between text-[13px] font-semibold">
+                        <span class="text-black/60 dark:text-white/60">字体大小</span>
+                        <span class="font-mono">{{ fontSizeLabel }}</span>
+                      </div>
+                      <Slider
+                        :model-value="lyricStore.fontScale"
+                        :min="0.7"
+                        :max="1.4"
+                        :step="0.1"
+                        @update:model-value="(v) => lyricStore.updateFontScale(v)"
+                        class="h-1 w-full"
+                        track-class="bg-black/15 dark:bg-white/30"
+                        range-class="bg-black dark:bg-white"
+                        thumb-class="h-3.5 w-3.5 bg-black dark:bg-white shadow-md"
+                      />
+                    </div>
+                    <div>
+                      <div class="mb-2 flex items-center justify-between text-[13px] font-semibold">
+                        <span class="text-black/60 dark:text-white/60">字体字重</span>
+                        <span class="font-mono">{{ fontWeightLabel }}</span>
+                      </div>
+                      <Slider
+                        :model-value="lyricStore.fontWeightIndex"
+                        :min="0"
+                        :max="8"
+                        :step="1"
+                        @update:model-value="(v) => lyricStore.updateFontWeight(v)"
+                        class="h-1 w-full"
+                        track-class="bg-black/15 dark:bg-white/30"
+                        range-class="bg-black dark:bg-white"
+                        thumb-class="h-3.5 w-3.5 bg-black dark:bg-white shadow-md"
+                      />
+                    </div>
+                  </div>
+                </PopoverContent>
+              </PopoverPortal>
+            </PopoverRoot>
+            <Button
+              variant="unstyled"
+              size="none"
+              type="button"
+              class="lyric-tool-chip"
+              :disabled="!canToggleMode"
+              @click="toggleLyricsMode"
+            >
               <Icon :icon="iconLanguage" width="14" height="14" />
               <span>{{ lyricModeLabel }}</span>
             </Button>
-            <Button variant="unstyled" size="none" type="button" class="lyric-tool-chip" :disabled="!hasLyrics" @click="copyLyrics">
+            <Button
+              variant="unstyled"
+              size="none"
+              type="button"
+              class="lyric-tool-chip"
+              :disabled="!hasLyrics"
+              @click="copyLyrics"
+            >
               <Icon :icon="iconCopy" width="14" height="14" />
               <span>{{ copyFeedback ? '已复制' : '复制' }}</span>
-            </Button>
-            <Button variant="unstyled" size="none" type="button" class="lyric-tool-chip" :disabled="!currentTrackHash" @click="refreshLyrics">
-              <Icon :icon="iconRefreshCw" width="14" height="14" :class="lyricStore.isLoading ? 'animate-spin' : ''" />
-              <span>刷新</span>
             </Button>
           </div>
         </div>
       </div>
 
-      <div class="flex-1 min-h-0 px-14">
-        <div class="mx-auto flex h-full max-w-[1500px] items-center gap-10">
-          <section class="flex min-w-0 flex-[5] items-center justify-center">
-            <div class="lyric-info-panel">
+      <div class="flex-1 min-h-0 px-6 pb-2 no-drag">
+        <div class="mx-auto flex h-full max-w-[1560px] gap-7">
+          <section
+            class="hidden min-w-[250px] max-w-[420px] flex-[5] items-center justify-center md:flex"
+          >
+            <div class="lyric-info-card lyric-info-panel">
               <div class="lyric-cover-shell">
                 <div class="lyric-cover-frame">
-                  <Cover :url="currentTrack?.coverUrl" :size="800" class="h-full w-full" :borderRadius="24" />
+                  <Cover
+                    :url="currentTrack?.coverUrl"
+                    :size="700"
+                    :width="420"
+                    :height="420"
+                    :borderRadius="24"
+                    class="h-full w-full"
+                  />
                 </div>
               </div>
-              <h2 class="mt-12 truncate text-center text-[clamp(28px,2.6vw,34px)] font-semibold tracking-[-0.04em] text-white">
-                {{ currentTrack?.title || '未在播放' }}
-              </h2>
-              <p class="mt-3 truncate text-center text-[clamp(16px,1.4vw,18px)] font-semibold text-white/62">
-                {{ currentTrack?.artist || '等待播放中' }}
-              </p>
+
+              <div class="mt-7 w-full max-w-[420px] space-y-2 text-center">
+                <h1
+                  class="truncate text-[26px] font-semibold tracking-[0.02em] text-black/95 dark:text-white/95"
+                >
+                  {{ currentTrack?.title || '未在播放' }}
+                </h1>
+                <p class="truncate text-[14px] font-semibold text-black/60 dark:text-white/60">
+                  {{ currentTrack?.artist || '点击播放开始同步歌词' }}
+                </p>
+              </div>
             </div>
           </section>
 
-          <section class="flex min-w-0 flex-[7] flex-col justify-center self-stretch">
-            <div class="lyric-stage flex-1 min-h-0">
-              <div ref="lyricListRef" class="lyric-scroll h-full overflow-y-auto">
+          <section class="lyric-panel-surface relative flex min-w-0 flex-[7] flex-col justify-center self-stretch">
+            <div class="lyric-stage absolute inset-0">
+              <div ref="lyricListRef" class="lyric-scroll absolute inset-0 overflow-y-auto">
                 <template v-if="hasLyrics">
-                  <div class="py-[14vh]">
+                  <div class="py-[40vh]">
                     <div
                       v-for="(line, index) in lyricStore.lines"
                       :key="`${line.time}-${index}`"
                       class="lyric-row"
-                      :style="{ height: ((lyricStore.lyricsMode === 'translation' || lyricStore.lyricsMode === 'romanization') ? 100 : 70) * lyricStore.fontScale + 'px' }"
+                      :style="{
+                        minHeight:
+                          (lyricStore.lyricsMode === 'translation' ||
+                          lyricStore.lyricsMode === 'romanization'
+                            ? 100
+                            : 70) *
+                            lyricStore.fontScale +
+                          'px',
+                        paddingTop: '16px',
+                        paddingBottom: '16px',
+                      }"
                     >
                       <Button
                         variant="unstyled"
@@ -349,7 +378,10 @@ onUnmounted(() => {
                       >
                         <span
                           class="block leading-[1.24] tracking-[0.01em]"
-                          :style="{ fontSize: titleFontSize, fontWeight: String(lyricStore.fontWeightValue) }"
+                          :style="{
+                            fontSize: titleFontSize,
+                            fontWeight: String(lyricStore.fontWeightValue),
+                          }"
                         >
                           <template v-if="currentIndex === index && line.characters.length > 1">
                             <span
@@ -357,18 +389,33 @@ onUnmounted(() => {
                               :key="`${index}-${charIndex}-${char.startTime}`"
                               class="lyric-character"
                               :class="char.highlighted ? 'is-highlighted' : ''"
-                            >{{ char.text }}</span>
+                              >{{ char.text }}</span
+                            >
                           </template>
                           <template v-else>
                             {{ line.text }}
                           </template>
                         </span>
                         <span
-                          v-if="(lyricStore.lyricsMode === 'translation' && line.translated) || (lyricStore.lyricsMode === 'romanization' && line.romanized)"
-                          class="mt-1.5 block max-w-full truncate text-white/58"
-                          :style="{ fontSize: secondaryFontSize, fontWeight: String(currentIndex === index ? Math.max(500, lyricStore.fontWeightValue - 200) : 400) }"
+                          v-if="
+                            (lyricStore.lyricsMode === 'translation' && line.translated) ||
+                            (lyricStore.lyricsMode === 'romanization' && line.romanized)
+                          "
+                          class="lyric-subline mt-1.5 block max-w-full truncate"
+                          :style="{
+                            fontSize: secondaryFontSize,
+                            fontWeight: String(
+                              currentIndex === index
+                                ? Math.max(500, lyricStore.fontWeightValue - 200)
+                                : 400,
+                            ),
+                          }"
                         >
-                          {{ lyricStore.lyricsMode === 'translation' ? line.translated : line.romanized }}
+                          {{
+                            lyricStore.lyricsMode === 'translation'
+                              ? line.translated
+                              : line.romanized
+                          }}
                         </span>
                       </Button>
                     </div>
@@ -377,10 +424,12 @@ onUnmounted(() => {
 
                 <div v-else class="flex h-full items-center justify-center text-center">
                   <div class="space-y-3">
-                    <p class="text-[28px] font-semibold text-white/88">
+                    <p class="text-[28px] font-semibold text-black/88 dark:text-white/88">
                       {{ lyricStore.isLoading ? '歌词加载中…' : '纯音乐，请欣赏' }}
                     </p>
-                    <p class="text-sm font-semibold text-white/38">{{ emptyStateText }}</p>
+                    <p class="text-sm font-semibold text-black/38 dark:text-white/38">
+                      {{ emptyStateText }}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -389,65 +438,103 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="px-10 pb-6 pt-2 no-drag">
-        <div class="lyric-bottom-bar mx-auto max-w-[1500px]">
-          <div class="mb-2 flex items-center justify-between text-[11px] font-semibold text-white/42">
-            <span>{{ formatDuration(isProgressDragging ? progressValue : playerStore.currentTime) }}</span>
-            <span>{{ formatDuration(playerStore.duration) }}</span>
+      <div class="px-6 pb-6 pt-2 no-drag">
+        <div class="lyric-controls-surface mx-auto flex w-full max-w-[560px] flex-col items-center">
+          <div class="flex items-center justify-center gap-8">
+            <Button
+              variant="unstyled"
+              size="none"
+              type="button"
+              class="flex h-11 w-11 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
+              title="上一曲"
+              @click="playerStore.prev()"
+            >
+              <Icon
+                :icon="iconSkipBack"
+                width="24"
+                height="24"
+                class="text-black/80 dark:text-white/80"
+              />
+            </Button>
+            <Button
+              variant="unstyled"
+              size="none"
+              type="button"
+              class="lyric-main-play-btn flex h-14 w-14 items-center justify-center rounded-full transition-all active:scale-95"
+              :title="playerStore.isPlaying ? '暂停' : '播放'"
+              @click="playerStore.togglePlay()"
+            >
+              <Icon
+                :icon="playerStore.isPlaying ? iconPause : iconPlay"
+                width="24"
+                height="24"
+                class="text-black dark:text-white"
+              />
+            </Button>
+            <Button
+              variant="unstyled"
+              size="none"
+              type="button"
+              class="flex h-11 w-11 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
+              title="下一曲"
+              @click="playerStore.next()"
+            >
+              <Icon
+                :icon="iconSkipForward"
+                width="24"
+                height="24"
+                class="text-black/80 dark:text-white/80"
+              />
+            </Button>
           </div>
 
-          <div @pointerdown="handleProgressPointerDown">
-            <Slider
-              :model-value="progressValue"
+          <div class="mt-4 flex w-[420px] max-w-full items-center gap-3">
+            <span
+              class="w-[42px] text-right font-mono text-[11px] font-semibold text-black/40 dark:text-white/40"
+            >
+              {{ formatDuration(isProgressDragging ? progressValue : playerStore.currentTime) }}
+            </span>
+            <SliderRoot
+              :model-value="[isProgressDragging ? progressValue : playerStore.currentTime]"
               :min="0"
               :max="Math.max(playerStore.duration, 1)"
               :step="1"
-              class="lyric-progress-slider"
-              track-class="lyric-progress-track"
-              range-class="lyric-progress-range"
-              thumb-class="lyric-progress-thumb"
+              class="relative flex items-center select-none touch-none flex-1 min-w-0 h-4 group/progress"
               @update:model-value="handleProgressInput"
               @value-commit="handleProgressCommit"
-            />
-          </div>
-
-          <div class="mt-4 flex items-center justify-between gap-4">
-            <div class="flex items-center gap-2">
-              <Button variant="unstyled" size="none" type="button" class="lyric-compact-btn" title="收藏" @click="toggleFavorite">
-                <Icon :icon="iconHeart" width="16" height="16" :class="isFavorite ? 'text-[#ff6b81]' : 'text-white/66'" />
-              </Button>
-              <Button variant="unstyled" size="none" type="button" class="lyric-compact-btn" :title="playModeMeta.label" @click="cyclePlayMode">
-                <Icon :icon="playModeMeta.icon" width="17" height="17" class="text-white/70" />
-              </Button>
-            </div>
-
-            <div class="flex items-center gap-2.5">
-              <Button variant="unstyled" size="none" type="button" class="lyric-transport-btn" title="上一曲" @click="playerStore.prev()">
-                <Icon :icon="iconSkipBack" width="18" height="18" />
-              </Button>
-              <Button variant="unstyled" size="none" type="button" class="lyric-play-btn" :title="playerStore.isPlaying ? '暂停' : '播放'" @click="playerStore.togglePlay()">
-                <Icon :icon="playerStore.isPlaying ? iconPause : iconPlay" width="18" height="18" />
-              </Button>
-              <Button variant="unstyled" size="none" type="button" class="lyric-transport-btn" title="下一曲" @click="playerStore.next()">
-                <Icon :icon="iconSkipForward" width="18" height="18" />
-              </Button>
-            </div>
-
-            <div class="flex min-w-[132px] items-center justify-end gap-2">
-              <Icon :icon="volumeIcon" width="15" height="15" class="text-white/54" />
-              <Slider
-                :model-value="volumeValue"
-                :min="0"
-                :max="100"
-                :step="1"
-                class="w-[92px]"
-                track-class="lyric-volume-track"
-                range-class="lyric-volume-range"
-                thumb-class="lyric-volume-thumb"
-                @update:model-value="handleVolumeInput"
-                @value-commit="handleVolumeInput"
+              @pointerdown="handleProgressPointerDown"
+              @mouseenter="isHoveringProgress = true"
+              @mouseleave="isHoveringProgress = false"
+            >
+              <SliderTrack class="bg-black/10 dark:bg-white/10 relative grow rounded-full h-[3px]">
+                <div class="climax-mark-layer">
+                  <template
+                    v-for="(mark, index) in playerStore.climaxMarks"
+                    :key="`${mark.start}-${index}`"
+                  >
+                    <span
+                      class="climax-tick"
+                      :style="{ left: `calc(${(mark.start * 100).toFixed(3)}% - 1px)` }"
+                    ></span>
+                    <span
+                      v-if="mark.end > mark.start"
+                      class="climax-tick"
+                      :style="{ left: `calc(${(mark.end * 100).toFixed(3)}% - 1px)` }"
+                    ></span>
+                  </template>
+                </div>
+                <SliderRange class="absolute bg-black dark:bg-white rounded-full h-full" />
+              </SliderTrack>
+              <SliderThumb
+                class="block w-3 h-3 bg-black dark:bg-white rounded-full shadow-md focus-visible:outline-none transition-all duration-200"
+                :class="[isHoveringProgress ? 'opacity-100 scale-110' : 'opacity-0 scale-50']"
               />
-            </div>
+            </SliderRoot>
+            <span
+              class="w-[42px] text-left font-mono text-[11px] font-semibold text-black/40 dark:text-white/40"
+            >
+              {{ formatDuration(playerStore.duration) }}
+            </span>
           </div>
         </div>
       </div>
@@ -455,57 +542,64 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style scoped>
-.lyric-view__backdrop {
+<style>
+.lyric-atmosphere {
   background:
-    linear-gradient(180deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.44) 50%, rgba(0, 0, 0, 0.82) 100%),
-    radial-gradient(circle at center, rgba(255, 255, 255, 0.04) 0%, transparent 48%);
+    radial-gradient(44% 34% at 18% 24%, rgba(255, 255, 255, 0.76), transparent 72%),
+    radial-gradient(28% 24% at 82% 18%, rgba(0, 113, 227, 0.1), transparent 74%),
+    radial-gradient(48% 42% at 50% 100%, rgba(255, 255, 255, 0.36), transparent 78%);
 }
 
-.lyric-icon-btn,
-.lyric-tool-chip,
-.lyric-weight-btn,
-.lyric-compact-btn,
-.lyric-transport-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-}
-
-.lyric-icon-btn:hover,
-.lyric-tool-chip:hover,
-.lyric-weight-btn:hover,
-.lyric-compact-btn:hover,
-.lyric-transport-btn:hover,
-.lyric-play-btn:hover {
-  transform: translateY(-1px);
+.dark .lyric-atmosphere {
+  background:
+    radial-gradient(40% 34% at 16% 22%, rgba(37, 99, 235, 0.12), transparent 72%),
+    radial-gradient(34% 28% at 84% 18%, rgba(255, 255, 255, 0.03), transparent 75%),
+    radial-gradient(52% 48% at 50% 100%, rgba(0, 0, 0, 0.58), transparent 78%);
 }
 
 .lyric-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 36px;
   height: 36px;
   border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 10px 30px rgba(148, 163, 184, 0.12);
+  backdrop-filter: blur(18px);
+  transition: all 0.2s ease;
+}
+
+.lyric-icon-btn:hover,
+.lyric-tool-chip:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .lyric-tool-chip {
-  gap: 6px;
-  height: 36px;
-  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
+  background: rgba(255, 255, 255, 0.26);
+  box-shadow: 0 12px 28px rgba(148, 163, 184, 0.1);
+  backdrop-filter: blur(18px);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: all 0.2s ease;
 }
 
-.lyric-weight-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 36px;
-  padding: 0 8px 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(18px);
+.dark .lyric-tool-chip,
+.dark .lyric-icon-btn {
+  background: rgba(9, 12, 18, 0.62);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
+}
+
+.dark .lyric-icon-btn:hover,
+.dark .lyric-tool-chip:hover {
+  background: rgba(14, 18, 26, 0.78);
 }
 
 .lyric-weight-btn,
@@ -521,6 +615,10 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
+  color: rgba(15, 23, 42, 0.86);
+}
+
+.dark .lyric-weight-label {
   color: rgba(255, 255, 255, 0.84);
 }
 
@@ -530,6 +628,45 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   width: 100%;
+}
+
+.lyric-info-card {
+  width: min(100%, 420px);
+  padding: 18px 8px 12px;
+}
+
+.dark .lyric-info-card {
+}
+
+.lyric-panel-surface {
+}
+
+.dark .lyric-panel-surface {
+}
+
+.lyric-controls-surface {
+  padding: 16px 12px 10px;
+}
+
+.dark .lyric-controls-surface {
+}
+
+.lyric-main-play-btn {
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 12px 32px rgba(148, 163, 184, 0.16);
+}
+
+.lyric-main-play-btn:hover {
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.dark .lyric-main-play-btn {
+  background: rgba(10, 14, 20, 0.82);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+
+.dark .lyric-main-play-btn:hover {
+  background: rgba(15, 20, 28, 0.92);
 }
 
 .lyric-cover-shell {
@@ -543,12 +680,24 @@ onUnmounted(() => {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  border-radius: 24px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+  border-radius: 28px;
+  box-shadow: 0 22px 56px rgba(15, 23, 42, 0.14);
+}
+
+.dark .lyric-cover-frame {
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.45);
 }
 
 .lyric-stage {
   min-height: 0;
+  mask-image: linear-gradient(180deg, transparent 0%, black 12%, black 88%, transparent 100%);
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    transparent 0%,
+    black 12%,
+    black 88%,
+    transparent 100%
+  );
 }
 
 .lyric-scroll {
@@ -560,76 +709,143 @@ onUnmounted(() => {
   display: none;
 }
 
+.climax-mark-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.climax-tick {
+  position: absolute;
+  top: calc(50% - 3px);
+  width: 2px;
+  height: 6px;
+  border-radius: 1px;
+  background: rgba(0, 113, 227, 0.78);
+}
+
+.dark .climax-tick {
+  background: rgba(96, 165, 250, 0.72);
+}
+
 .lyric-row {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0 8px;
 }
 
 .lyric-line {
   width: 100%;
-  padding: 0 16px;
+  max-width: min(100%, 920px);
+  padding: 18px 28px;
+  border-radius: 28px;
   text-align: center;
-  transition: opacity 0.26s ease, transform 0.26s ease;
+  color: inherit;
+  transition:
+    opacity 0.26s ease,
+    transform 0.26s ease,
+    background-color 0.26s ease,
+    box-shadow 0.26s ease;
+}
+
+.lyric-line > span:first-child {
+  color: rgba(15, 23, 42, 0.82);
+  transition: color 0.2s ease;
+}
+
+.dark .lyric-line > span:first-child {
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .lyric-line.is-idle {
-  opacity: 0.38;
-  transform: scale(0.9) translateY(4px);
+  opacity: 0.52;
+  transform: scale(0.965) translateY(4px);
+}
+
+.lyric-line.is-idle > span:first-child {
+  color: rgba(15, 23, 42, 0.34);
+}
+
+.dark .lyric-line.is-idle > span:first-child {
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .lyric-line.is-current {
   opacity: 1;
   transform: scale(1) translateY(0);
+  background: transparent;
+  box-shadow: none;
+}
+
+.lyric-line.is-current > span:first-child {
+  color: rgba(15, 23, 42, 0.98);
+}
+
+.dark .lyric-line.is-current {
+  background: transparent;
+  box-shadow: none;
+}
+
+.dark .lyric-line.is-current > span:first-child {
+  color: rgba(255, 255, 255, 0.98);
+}
+
+.lyric-subline {
+  color: rgba(15, 23, 42, 0.46);
+}
+
+.dark .lyric-subline {
+  color: rgba(255, 255, 255, 0.46);
+}
+
+.lyric-line.is-current .lyric-subline {
+  color: rgba(15, 23, 42, 0.62);
+}
+
+.dark .lyric-line.is-current .lyric-subline {
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .lyric-character {
   transition: color 0.18s ease;
-  color: rgba(255, 255, 255, 0.96);
+  color: rgba(15, 23, 42, 0.84);
+}
+
+.dark .lyric-character {
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.lyric-line.is-idle .lyric-character {
+  color: rgba(15, 23, 42, 0.34);
+}
+
+.dark .lyric-line.is-idle .lyric-character {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.lyric-line.is-current .lyric-character {
+  color: rgba(15, 23, 42, 0.98);
+}
+
+.dark .lyric-line.is-current .lyric-character {
+  color: rgba(255, 255, 255, 0.98);
 }
 
 .lyric-character.is-highlighted {
-  color: color-mix(in srgb, var(--color-primary) 92%, white 10%);
-  text-shadow: 0 0 10px color-mix(in srgb, var(--color-primary) 40%, transparent);
+  color: var(--color-primary);
 }
 
-.lyric-bottom-bar {
-  padding: 4px 6px 0;
+.dark .lyric-character.is-highlighted {
+  color: var(--color-primary);
 }
 
-.lyric-transport-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
+.lyric-line.is-current .lyric-character.is-highlighted {
+  color: var(--color-primary);
 }
 
-.lyric-play-btn {
-  width: 42px;
-  height: 42px;
-  border: none;
-  border-radius: 999px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 96%, white 8%), color-mix(in srgb, var(--color-primary) 82%, black 8%));
-  color: white;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--color-primary) 24%, transparent);
-  transition: transform 0.2s ease, box-shadow 0.25s ease;
-}
-
-.lyric-progress-track,
-.lyric-volume-track {
-  background: rgba(255, 255, 255, 0.12) !important;
-}
-
-.lyric-progress-range,
-.lyric-volume-range {
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.92), color-mix(in srgb, var(--color-primary) 70%, white 20%)) !important;
-}
-
-.lyric-progress-thumb,
-.lyric-volume-thumb {
-  width: 9px !important;
-  height: 9px !important;
-  background: #fff !important;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+.dark .lyric-line.is-current .lyric-character.is-highlighted {
+  color: var(--color-primary);
 }
 
 .lyric-tool-chip:disabled,

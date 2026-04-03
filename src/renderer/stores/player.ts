@@ -155,10 +155,17 @@ const trimPlayCountMap = (source: Record<string, number>, limit = 500): Record<s
 const resolveServerTimestamp = (payload: unknown): number | null => {
   if (!payload || typeof payload !== 'object') return null;
   const record = payload as Record<string, unknown>;
-  const source = (record.data && typeof record.data === 'object'
-    ? record.data
-    : record) as Record<string, unknown>;
-  const candidates = [source.now, source.time, source.timestamp, source.server_time, source.serverTime];
+  const source = (record.data && typeof record.data === 'object' ? record.data : record) as Record<
+    string,
+    unknown
+  >;
+  const candidates = [
+    source.now,
+    source.time,
+    source.timestamp,
+    source.server_time,
+    source.serverTime,
+  ];
   for (const candidate of candidates) {
     const value = Number(candidate);
     if (Number.isFinite(value) && value > 0) {
@@ -215,9 +222,7 @@ const buildMediaState = (state: {
   playbackRate: state.playbackRate,
 });
 
-const buildStoppedPlaybackState = (state: {
-  playbackRate: number;
-}): MediaSessionState => ({
+const buildStoppedPlaybackState = (state: { playbackRate: number }): MediaSessionState => ({
   isPlaying: false,
   duration: 0,
   currentTime: 0,
@@ -228,9 +233,8 @@ const privilegeLiteRequests = new Map<string, Promise<SongRelateGood[]>>();
 
 const parseRelateGoodsFromPrivilege = (payload: unknown): SongRelateGood[] => {
   if (!payload || typeof payload !== 'object') return [];
-  const source = 'data' in (payload as Record<string, unknown>)
-    ? (payload as { data?: unknown }).data
-    : payload;
+  const source =
+    'data' in (payload as Record<string, unknown>) ? (payload as { data?: unknown }).data : payload;
   const list = Array.isArray(source) ? source : [];
   const first = list[0] as Record<string, unknown> | undefined;
   const goods = (first?.relate_goods ?? first?.relateGoods ?? []) as unknown;
@@ -353,7 +357,12 @@ export const usePlayerStore = defineStore('player', {
 
     clearPlaybackNotice(trackId?: string | number | null) {
       if (!this.playbackNotice) return;
-      if (trackId !== undefined && trackId !== null && this.playbackNotice.trackId !== String(trackId)) return;
+      if (
+        trackId !== undefined &&
+        trackId !== null &&
+        this.playbackNotice.trackId !== String(trackId)
+      )
+        return;
       this.playbackNotice = null;
     },
 
@@ -406,15 +415,26 @@ export const usePlayerStore = defineStore('player', {
 
       const mxid = resolveTrackMxid(target);
       if (!mxid) {
-        logger.warn('PlayerStore', 'Skip play history upload because mxid is missing', summarizeSong(target));
+        logger.warn(
+          'PlayerStore',
+          'Skip play history upload because mxid is missing',
+          summarizeSong(target),
+        );
         return;
       }
 
       const effectiveDuration = Number(target.duration || this.duration || 0);
       const effectiveProgress = Number(this.currentTime || 0);
-      const requiredProgress = effectiveDuration > 0
-        ? Math.min(Math.max(effectiveDuration * HISTORY_UPLOAD_PROGRESS_RATIO, HISTORY_UPLOAD_MIN_SECONDS), effectiveDuration)
-        : HISTORY_UPLOAD_MIN_SECONDS;
+      const requiredProgress =
+        effectiveDuration > 0
+          ? Math.min(
+              Math.max(
+                effectiveDuration * HISTORY_UPLOAD_PROGRESS_RATIO,
+                HISTORY_UPLOAD_MIN_SECONDS,
+              ),
+              effectiveDuration,
+            )
+          : HISTORY_UPLOAD_MIN_SECONDS;
 
       if (effectiveProgress < requiredProgress) {
         return;
@@ -429,7 +449,10 @@ export const usePlayerStore = defineStore('player', {
       }
 
       try {
-        const playCount = Math.max(1, this.historyUploadPlayCount || this.getTrackedPlayCount(target) + 1);
+        const playCount = Math.max(
+          1,
+          this.historyUploadPlayCount || this.getTrackedPlayCount(target) + 1,
+        );
         const res = await uploadPlayHistory(mxid, { time: timestamp, pc: playCount });
         if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
           this.historyUploadCommitted = true;
@@ -488,7 +511,7 @@ export const usePlayerStore = defineStore('player', {
       engine.updateMediaPlaybackState(
         buildStoppedPlaybackState({
           playbackRate: this.playbackRate,
-        })
+        }),
       );
     },
 
@@ -497,7 +520,10 @@ export const usePlayerStore = defineStore('player', {
       const playlistStore = usePlaylistStore();
       if (!settingStore.autoNext || !this.currentTrackId) return;
 
-      const list = playlistStore.defaultList.length > 0 ? playlistStore.defaultList : (this.currentPlaylist ?? []);
+      const list =
+        playlistStore.defaultList.length > 0
+          ? playlistStore.defaultList
+          : (this.currentPlaylist ?? []);
       if (list.length <= 1) return;
 
       const currentTrackId = String(this.currentTrackId);
@@ -510,7 +536,12 @@ export const usePlayerStore = defineStore('player', {
       const delayMs = Math.max(0, Math.floor((settingStore.autoNextDelaySeconds || 0) * 1000));
       this.autoNextTimer = window.setTimeout(() => {
         this.autoNextTimer = null;
-        if (String(this.currentTrackId ?? '') !== currentTrackId || this.isPlaying || this.isLoading) return;
+        if (
+          String(this.currentTrackId ?? '') !== currentTrackId ||
+          this.isPlaying ||
+          this.isLoading
+        )
+          return;
         this.autoNextAttempts += 1;
         void this.skipToNextAfterFailure();
       }, delayMs);
@@ -519,10 +550,15 @@ export const usePlayerStore = defineStore('player', {
     skipToNextAfterFailure() {
       const playlistStore = usePlaylistStore();
       playlistStore.syncQueuedNextTrackIds();
-      const list = playlistStore.defaultList.length > 0 ? playlistStore.defaultList : (this.currentPlaylist ?? []);
+      const list =
+        playlistStore.defaultList.length > 0
+          ? playlistStore.defaultList
+          : (this.currentPlaylist ?? []);
       if (list.length === 0 || !this.currentTrackId) return;
 
-      const currentIndex = list.findIndex((song) => String(song.id) === String(this.currentTrackId));
+      const currentIndex = list.findIndex(
+        (song) => String(song.id) === String(this.currentTrackId),
+      );
       let nextIndex = -1;
 
       if (this.playMode === 'random') {
@@ -566,7 +602,7 @@ export const usePlayerStore = defineStore('player', {
               duration: this.duration,
               currentTime,
               playbackRate: this.playbackRate,
-            })
+            }),
           );
         },
         durationChange: (duration) => {
@@ -577,7 +613,7 @@ export const usePlayerStore = defineStore('player', {
               duration,
               currentTime: this.currentTime,
               playbackRate: this.playbackRate,
-            })
+            }),
           );
         },
         ended: () => {
@@ -610,7 +646,7 @@ export const usePlayerStore = defineStore('player', {
               duration: this.duration,
               currentTime: this.currentTime,
               playbackRate: this.playbackRate,
-            })
+            }),
           );
         },
         pause: () => {
@@ -627,7 +663,7 @@ export const usePlayerStore = defineStore('player', {
               duration: this.duration,
               currentTime: this.currentTime,
               playbackRate: this.playbackRate,
-            })
+            }),
           );
         },
         error: (event) => {
@@ -672,11 +708,10 @@ export const usePlayerStore = defineStore('player', {
 
       settingStore.$subscribe((_mutation, state) => {
         const shouldRefreshDefaultQuality =
-          this.currentAudioQualityOverride === null
-          && state.defaultAudioQuality !== snapshot.defaultAudioQuality;
+          this.currentAudioQualityOverride === null &&
+          state.defaultAudioQuality !== snapshot.defaultAudioQuality;
         const shouldRefresh =
-          shouldRefreshDefaultQuality ||
-          state.compatibilityMode !== snapshot.compatibilityMode;
+          shouldRefreshDefaultQuality || state.compatibilityMode !== snapshot.compatibilityMode;
         const shouldUpdateFade =
           state.volumeFade !== snapshot.volumeFade ||
           state.volumeFadeTime !== snapshot.volumeFadeTime;
@@ -777,7 +812,7 @@ export const usePlayerStore = defineStore('player', {
           duration: this.duration,
           currentTime: this.currentTime,
           playbackRate: this.playbackRate,
-        })
+        }),
       );
     },
 
@@ -805,7 +840,7 @@ export const usePlayerStore = defineStore('player', {
           duration: this.duration,
           currentTime: targetTime,
           playbackRate: this.playbackRate,
-        })
+        }),
       );
     },
 
@@ -820,7 +855,7 @@ export const usePlayerStore = defineStore('player', {
           duration: this.duration,
           currentTime: this.currentTime,
           playbackRate: this.playbackRate,
-        })
+        }),
       );
     },
 
@@ -918,7 +953,9 @@ export const usePlayerStore = defineStore('player', {
         lyricStore.clear(lyricHash, '歌词加载中...');
       }
       if (lyricHash) {
-        void lyricStore.fetchLyrics(lyricHash);
+        void lyricStore.fetchLyrics(lyricHash, {
+          preserveCurrent: Boolean(track.lyric),
+        });
       } else if (!track.lyric) {
         lyricStore.clear('', '暂无歌词');
       }
@@ -928,7 +965,7 @@ export const usePlayerStore = defineStore('player', {
       engine.updateMediaPlaybackState(
         buildStoppedPlaybackState({
           playbackRate: this.playbackRate,
-        })
+        }),
       );
 
       logger.info('PlayerStore', 'Resolving audio url for track', {
@@ -1044,7 +1081,10 @@ export const usePlayerStore = defineStore('player', {
       return normalizeQuality(this.currentAudioQualityOverride ?? settingStore.defaultAudioQuality);
     },
 
-    getResolvedAudioQuality(track: Pick<Song, 'relateGoods'>, settingStore = useSettingStore()): AudioQualityValue {
+    getResolvedAudioQuality(
+      track: Pick<Song, 'relateGoods'>,
+      settingStore = useSettingStore(),
+    ): AudioQualityValue {
       return resolveEffectiveSongQuality(
         track,
         this.getEffectiveAudioQuality(settingStore),
@@ -1100,7 +1140,10 @@ export const usePlayerStore = defineStore('player', {
       void this.refreshCurrentTrack();
     },
 
-    setCurrentAudioQualityOverride(quality: AudioQualityValue | null, options?: { refresh?: boolean }) {
+    setCurrentAudioQualityOverride(
+      quality: AudioQualityValue | null,
+      options?: { refresh?: boolean },
+    ) {
       const nextQuality = quality ? normalizeQuality(quality) : null;
       if (this.currentAudioQualityOverride === nextQuality) return;
       this.currentAudioQualityOverride = nextQuality;
@@ -1157,7 +1200,7 @@ export const usePlayerStore = defineStore('player', {
           duration: 0,
           currentTime: 0,
           playbackRate: this.playbackRate,
-        })
+        }),
       );
     },
 
@@ -1168,7 +1211,10 @@ export const usePlayerStore = defineStore('player', {
         currentTrackId: this.currentTrackId,
         playMode: this.playMode,
       });
-      const list = playlistStore.defaultList.length > 0 ? playlistStore.defaultList : (this.currentPlaylist ?? []);
+      const list =
+        playlistStore.defaultList.length > 0
+          ? playlistStore.defaultList
+          : (this.currentPlaylist ?? []);
       if (list.length === 0) return;
 
       this.clearAutoNextTimer();
@@ -1221,7 +1267,10 @@ export const usePlayerStore = defineStore('player', {
 
     prev() {
       const playlistStore = usePlaylistStore();
-      const list = playlistStore.defaultList.length > 0 ? playlistStore.defaultList : (this.currentPlaylist ?? []);
+      const list =
+        playlistStore.defaultList.length > 0
+          ? playlistStore.defaultList
+          : (this.currentPlaylist ?? []);
       logger.info('PlayerStore', 'Skip to previous requested', {
         currentTrackId: this.currentTrackId,
         playMode: this.playMode,
@@ -1248,18 +1297,23 @@ export const usePlayerStore = defineStore('player', {
       this.playTrack(prevSong.id, list);
     },
 
-
     registerOutputDeviceWatcher(settingStore: ReturnType<typeof useSettingStore>) {
       if (this.outputDeviceWatcherRegistered) return;
       this.outputDeviceWatcherRegistered = true;
       if (!navigator.mediaDevices?.addEventListener) {
-        logger.info('PlayerStore', 'Output device watcher unavailable: mediaDevices.addEventListener not supported');
+        logger.info(
+          'PlayerStore',
+          'Output device watcher unavailable: mediaDevices.addEventListener not supported',
+        );
         return;
       }
 
       logger.info('PlayerStore', 'Output device watcher registered');
       navigator.mediaDevices.addEventListener('devicechange', () => {
-        logger.info('PlayerStore', 'Detected media device change, scheduling output device refresh');
+        logger.info(
+          'PlayerStore',
+          'Detected media device change, scheduling output device refresh',
+        );
         this.clearOutputDeviceRefreshTimer();
         this.outputDeviceRefreshTimer = window.setTimeout(() => {
           this.outputDeviceRefreshTimer = null;
@@ -1269,9 +1323,7 @@ export const usePlayerStore = defineStore('player', {
     },
 
     async refreshOutputDevices(settingStore: ReturnType<typeof useSettingStore>) {
-      const fallbackOptions = [
-        { label: '系统默认', value: 'default' },
-      ];
+      const fallbackOptions = [{ label: '系统默认', value: 'default' }];
 
       logger.info('PlayerStore', 'Refreshing output devices', {
         currentOutputDevice: settingStore.outputDevice,
@@ -1283,7 +1335,10 @@ export const usePlayerStore = defineStore('player', {
         logger.warn('PlayerStore', 'Output device enumeration unsupported in current environment');
         settingStore.outputDevices = fallbackOptions;
         settingStore.outputDeviceType = 'default';
-        settingStore.setOutputDeviceStatus('unsupported', '当前系统暂不支持在应用内切换输出设备，请使用系统声音设置切换。');
+        settingStore.setOutputDeviceStatus(
+          'unsupported',
+          '当前系统暂不支持在应用内切换输出设备，请使用系统声音设置切换。',
+        );
         return;
       }
 
@@ -1293,9 +1348,9 @@ export const usePlayerStore = defineStore('player', {
         const nextSignature = buildAudioOutputDeviceSignature(devices);
         const previousSignature = this.lastAudioOutputDeviceSignature;
         const hasDeviceSignatureChanged =
-          previousSignature !== null
-          && nextSignature !== null
-          && nextSignature !== previousSignature;
+          previousSignature !== null &&
+          nextSignature !== null &&
+          nextSignature !== previousSignature;
         this.lastAudioOutputDeviceSignature = nextSignature;
 
         const outputOptions = outputs
@@ -1318,7 +1373,10 @@ export const usePlayerStore = defineStore('player', {
 
         const labelsMissing = outputs.length > 0 && outputs.every((device) => !device.label);
         if (labelsMissing) {
-          settingStore.setOutputDeviceStatus('permission', '系统未返回设备名称，可能需要授予媒体设备权限后才能显示完整列表。');
+          settingStore.setOutputDeviceStatus(
+            'permission',
+            '系统未返回设备名称，可能需要授予媒体设备权限后才能显示完整列表。',
+          );
         } else if (outputs.length <= 1) {
           settingStore.setOutputDeviceStatus('ready', '当前仅检测到系统默认输出设备。');
         } else {
@@ -1327,15 +1385,15 @@ export const usePlayerStore = defineStore('player', {
 
         const currentOutput = settingStore.outputDevice;
         const hasCurrentDevice =
-          currentOutput === 'default'
-          || outputOptions.some((item) => item.value === currentOutput);
+          currentOutput === 'default' || outputOptions.some((item) => item.value === currentOutput);
         const shouldRestorePreferredOutput =
-          currentOutput !== 'default'
-          && hasCurrentDevice
-          && this.appliedOutputDeviceId === 'default';
+          currentOutput !== 'default' &&
+          hasCurrentDevice &&
+          this.appliedOutputDeviceId === 'default';
 
         if (!hasCurrentDevice) {
-          const disconnectBehavior = settingStore.outputDeviceDisconnectBehavior as OutputDeviceDisconnectBehavior;
+          const disconnectBehavior =
+            settingStore.outputDeviceDisconnectBehavior as OutputDeviceDisconnectBehavior;
           const shouldPause = disconnectBehavior === 'pause' && this.isPlaying;
           logger.warn('PlayerStore', 'Current output device missing, fallback to default', {
             currentOutput,
@@ -1347,21 +1405,30 @@ export const usePlayerStore = defineStore('player', {
 
           if (disconnectBehavior === 'fallback') {
             await this.applyOutputDevice('default', settingStore, { persistSelection: false });
-            settingStore.setOutputDeviceStatus('fallback', '所选输出设备已不可用，已临时切回系统默认输出，原选择会保留。');
+            settingStore.setOutputDeviceStatus(
+              'fallback',
+              '所选输出设备已不可用，已临时切回系统默认输出，原选择会保留。',
+            );
             return;
           }
 
           if (shouldPause) {
             engine.pause();
           }
-          settingStore.setOutputDeviceStatus('fallback', '所选输出设备已不可用，播放已暂停，请重新连接设备或手动切换输出。');
+          settingStore.setOutputDeviceStatus(
+            'fallback',
+            '所选输出设备已不可用，播放已暂停，请重新连接设备或手动切换输出。',
+          );
           return;
         }
 
         await this.applyOutputDevice(currentOutput, settingStore);
         if (shouldRestorePreferredOutput) {
           const matched = settingStore.outputDevices.find((item) => item.value === currentOutput);
-          settingStore.setOutputDeviceStatus('ready', `已恢复到首选输出设备：${matched?.label || '所选输出设备'}。`);
+          settingStore.setOutputDeviceStatus(
+            'ready',
+            `已恢复到首选输出设备：${matched?.label || '所选输出设备'}。`,
+          );
         }
       } catch (error) {
         logger.warn('PlayerStore', 'Refresh output devices failed:', error);
@@ -1369,9 +1436,15 @@ export const usePlayerStore = defineStore('player', {
         settingStore.outputDeviceType = 'default';
         const errorName = error instanceof DOMException ? error.name : '';
         if (errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError') {
-          settingStore.setOutputDeviceStatus('permission', '尚未获得音频设备权限，请先授权后再获取完整设备列表。');
+          settingStore.setOutputDeviceStatus(
+            'permission',
+            '尚未获得音频设备权限，请先授权后再获取完整设备列表。',
+          );
         } else {
-          settingStore.setOutputDeviceStatus('error', '获取输出设备失败，请检查系统音频权限或稍后重试。');
+          settingStore.setOutputDeviceStatus(
+            'error',
+            '获取输出设备失败，请检查系统音频权限或稍后重试。',
+          );
         }
       }
     },
@@ -1383,7 +1456,10 @@ export const usePlayerStore = defineStore('player', {
       });
 
       if (!navigator.mediaDevices?.getUserMedia) {
-        settingStore.setOutputDeviceStatus('unsupported', '当前系统暂不支持在应用内请求音频设备权限，请使用系统声音设置切换输出设备。');
+        settingStore.setOutputDeviceStatus(
+          'unsupported',
+          '当前系统暂不支持在应用内请求音频设备权限，请使用系统声音设置切换输出设备。',
+        );
         return false;
       }
 
@@ -1396,7 +1472,10 @@ export const usePlayerStore = defineStore('player', {
         await this.refreshOutputDevices(settingStore);
 
         if (settingStore.outputDeviceStatus === 'permission') {
-          settingStore.setOutputDeviceStatus('permission', '已发起权限请求，但系统仍未返回完整设备信息，请确认系统已允许麦克风或媒体设备访问。');
+          settingStore.setOutputDeviceStatus(
+            'permission',
+            '已发起权限请求，但系统仍未返回完整设备信息，请确认系统已允许麦克风或媒体设备访问。',
+          );
           return false;
         }
 
@@ -1405,7 +1484,10 @@ export const usePlayerStore = defineStore('player', {
         logger.warn('PlayerStore', 'Request output device permission failed:', error);
         const errorName = error instanceof DOMException ? error.name : '';
         if (errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError') {
-          settingStore.setOutputDeviceStatus('permission', '未获得音频设备权限，请在系统设置中允许麦克风或媒体设备访问后重试。');
+          settingStore.setOutputDeviceStatus(
+            'permission',
+            '未获得音频设备权限，请在系统设置中允许麦克风或媒体设备访问后重试。',
+          );
         } else if (errorName === 'NotFoundError') {
           settingStore.setOutputDeviceStatus('error', '未检测到可用音频设备，请连接设备后重试。');
         } else {
@@ -1440,39 +1522,58 @@ export const usePlayerStore = defineStore('player', {
         if (persistSelection) {
           settingStore.outputDevice = 'default';
         }
-        settingStore.setOutputDeviceStatus('fallback', persistSelection
-          ? '当前设备不支持切换到所选输出，已回退到系统默认输出。'
-          : '当前设备不支持切换到所选输出，已临时回退到系统默认输出。');
+        settingStore.setOutputDeviceStatus(
+          'fallback',
+          persistSelection
+            ? '当前设备不支持切换到所选输出，已回退到系统默认输出。'
+            : '当前设备不支持切换到所选输出，已临时回退到系统默认输出。',
+        );
       } else if (!applied) {
         logger.warn('PlayerStore', 'Apply output device unsupported in current environment', {
           requestedDeviceId: targetDeviceId,
         });
-        settingStore.setOutputDeviceStatus('unsupported', '当前系统暂不支持在应用内切换输出设备，请使用系统声音设置切换。');
+        settingStore.setOutputDeviceStatus(
+          'unsupported',
+          '当前系统暂不支持在应用内切换输出设备，请使用系统声音设置切换。',
+        );
       } else if (deviceId === 'default') {
         logger.info('PlayerStore', 'Output device switched to system default');
-        settingStore.setOutputDeviceStatus('ready', persistSelection ? '当前使用系统默认输出设备。' : '当前临时使用系统默认输出设备。');
+        settingStore.setOutputDeviceStatus(
+          'ready',
+          persistSelection ? '当前使用系统默认输出设备。' : '当前临时使用系统默认输出设备。',
+        );
       } else {
         const matched = settingStore.outputDevices.find((item) => item.value === deviceId);
         logger.info('PlayerStore', 'Output device switched successfully', {
           requestedDeviceId: targetDeviceId,
           label: matched?.label || '所选输出设备',
         });
-        settingStore.setOutputDeviceStatus('ready', `已切换到 ${matched?.label || '所选输出设备'}。`);
+        settingStore.setOutputDeviceStatus(
+          'ready',
+          `已切换到 ${matched?.label || '所选输出设备'}。`,
+        );
       }
       settingStore.outputDeviceType = 'default';
     },
 
-    async resolveAudioUrl(track: Song, options?: { forceReload?: boolean }): Promise<ResolvedAudioSource> {
+    async resolveAudioUrl(
+      track: Song,
+      options?: { forceReload?: boolean },
+    ): Promise<ResolvedAudioSource> {
       if (!track.hash) {
-        logger.warn('PlayerStore', 'Resolve audio url skipped because track hash is missing', summarizeSong(track));
+        logger.warn(
+          'PlayerStore',
+          'Resolve audio url skipped because track hash is missing',
+          summarizeSong(track),
+        );
         return { url: '', quality: null, effect: 'none' };
       }
       const canReuseCurrentSource =
-        !!track.audioUrl
-        && !options?.forceReload
-        && !!this.currentTrackId
-        && String(track.id) === String(this.currentTrackId)
-        && track.audioUrl === this.currentAudioUrl;
+        !!track.audioUrl &&
+        !options?.forceReload &&
+        !!this.currentTrackId &&
+        String(track.id) === String(this.currentTrackId) &&
+        track.audioUrl === this.currentAudioUrl;
 
       if (canReuseCurrentSource) {
         logger.debug('PlayerStore', 'Reuse current audio url', {
@@ -1496,9 +1597,17 @@ export const usePlayerStore = defineStore('player', {
         logger.info('PlayerStore', 'Resolving cloud track audio url', summarizeSong(track));
         const cloudUrl = await getCloudSongUrl(track.hash, track.mixSongId, track.albumId);
         if (cloudUrl) {
-          logger.info('PlayerStore', 'Resolved cloud track audio url successfully', summarizeSong(track));
+          logger.info(
+            'PlayerStore',
+            'Resolved cloud track audio url successfully',
+            summarizeSong(track),
+          );
         } else {
-          logger.warn('PlayerStore', 'Resolved cloud track audio url is empty', summarizeSong(track));
+          logger.warn(
+            'PlayerStore',
+            'Resolved cloud track audio url is empty',
+            summarizeSong(track),
+          );
         }
         return { url: cloudUrl ?? '', quality: null, effect: 'none' };
       }
@@ -1510,8 +1619,9 @@ export const usePlayerStore = defineStore('player', {
 
       if (audioEffect !== 'none') {
         const matchedEffect = relateGoods.find((item) => item.quality === audioEffect && item.hash);
-        const effectHashes = [matchedEffect?.hash, track.hash]
-          .filter((value, index, list): value is string => !!value && list.indexOf(value) === index);
+        const effectHashes = [matchedEffect?.hash, track.hash].filter(
+          (value, index, list): value is string => !!value && list.indexOf(value) === index,
+        );
 
         for (const effectHash of effectHashes) {
           try {
@@ -1544,12 +1654,18 @@ export const usePlayerStore = defineStore('player', {
       const candidates = getSongQualityCandidates(audioQuality, compatibilityMode);
 
       for (const quality of candidates) {
-        const matched = relateGoods.find((item) => doesRelateGoodMatchQuality(item, quality) && item.hash);
+        const matched = relateGoods.find(
+          (item) => doesRelateGoodMatchQuality(item, quality) && item.hash,
+        );
         if (!matched?.hash) {
-          logger.debug('PlayerStore', 'Skip quality candidate because relateGoods hash is missing', {
-            track: summarizeSong(track),
-            quality,
-          });
+          logger.debug(
+            'PlayerStore',
+            'Skip quality candidate because relateGoods hash is missing',
+            {
+              track: summarizeSong(track),
+              quality,
+            },
+          );
           continue;
         }
         try {
@@ -1574,11 +1690,19 @@ export const usePlayerStore = defineStore('player', {
 
       if (compatibilityMode) {
         try {
-          logger.debug('PlayerStore', 'Trying fallback audio url with original hash', summarizeSong(track));
+          logger.debug(
+            'PlayerStore',
+            'Trying fallback audio url with original hash',
+            summarizeSong(track),
+          );
           const res = await getSongUrl(track.hash);
           const url = resolveUrlFromResponse(res);
           if (url) {
-            logger.info('PlayerStore', 'Resolved fallback audio url successfully', summarizeSong(track));
+            logger.info(
+              'PlayerStore',
+              'Resolved fallback audio url successfully',
+              summarizeSong(track),
+            );
             return {
               url,
               quality: this.getResolvedAudioQuality(track, settingStore),
@@ -1640,7 +1764,11 @@ export const usePlayerStore = defineStore('player', {
         return;
       }
       if (!resolved.url) {
-        logger.error('PlayerStore', 'Refresh current track failed because resolved url is empty', summarizeSong(track));
+        logger.error(
+          'PlayerStore',
+          'Refresh current track failed because resolved url is empty',
+          summarizeSong(track),
+        );
         this.isLoading = false;
         this.lastError = 'audio-url-unavailable';
         this.showPlaybackNotice('audio-url-unavailable', track);
@@ -1727,7 +1855,10 @@ export const usePlayerStore = defineStore('player', {
       logger.debug('PlayerStore', 'Fetching climax marks', summarizeSong(track));
       try {
         const res = await getSongClimax(track.hash);
-        if (requestSeq !== this.climaxRequestSeq || String(track.id) !== String(this.currentTrackId)) {
+        if (
+          requestSeq !== this.climaxRequestSeq ||
+          String(track.id) !== String(this.currentTrackId)
+        ) {
           logger.debug('PlayerStore', 'Ignore stale climax marks result', {
             requestSeq,
             latestRequestSeq: this.climaxRequestSeq,
@@ -1756,9 +1887,8 @@ export const usePlayerStore = defineStore('player', {
           if (!Number.isFinite(startMs) || startMs <= 0 || startMs >= total * 1000) return;
 
           const start = startMs / 1000;
-          const end = Number.isFinite(endMs) && endMs > startMs
-            ? Math.min(total, endMs / 1000)
-            : start;
+          const end =
+            Number.isFinite(endMs) && endMs > startMs ? Math.min(total, endMs / 1000) : start;
           const normalizedStart = start / total;
           const normalizedEnd = end / total;
 
@@ -1774,7 +1904,10 @@ export const usePlayerStore = defineStore('player', {
 
         this.climaxMarks = marks
           .sort((a, b) => a.start - b.start)
-          .filter((mark, index, arr) => index === 0 || Math.abs(mark.start - arr[index - 1].start) > 0.002);
+          .filter(
+            (mark, index, arr) =>
+              index === 0 || Math.abs(mark.start - arr[index - 1].start) > 0.002,
+          );
         logger.debug('PlayerStore', 'Fetched climax marks', {
           track: summarizeSong(track),
           count: marks.length,
@@ -1813,7 +1946,7 @@ export const usePlayerStore = defineStore('player', {
 
     fadeVolume(
       target: number,
-      options?: { durationMs?: number; respectUserVolume?: boolean }
+      options?: { durationMs?: number; respectUserVolume?: boolean },
     ): Promise<void> {
       const durationMs = Math.max(0, options?.durationMs ?? 1000);
       logger.debug('PlayerStore', 'Fade volume requested', {
@@ -1844,6 +1977,13 @@ export const usePlayerStore = defineStore('player', {
     },
   },
   persist: {
-    pick: ['volume', 'playMode', 'currentTrackId', 'playbackRate', 'audioEffect', 'historyPlayCountMap'],
+    pick: [
+      'volume',
+      'playMode',
+      'currentTrackId',
+      'playbackRate',
+      'audioEffect',
+      'historyPlayCountMap',
+    ],
   },
 });

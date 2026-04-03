@@ -630,7 +630,7 @@ const handleFavorite = () => {
   color: var(--color-primary);
 }
 
-:deep(.dark .song-context-item:hover) {
+.dark :deep(.song-context-item:hover) {
   background-color: rgba(255, 255, 255, 0.08);
 }
 

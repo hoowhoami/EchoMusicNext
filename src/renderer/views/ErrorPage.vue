@@ -96,7 +96,7 @@ const handleGoHome = () => {
   backdrop-filter: blur(18px);
 }
 
-:global(.dark) .error-shell {
+.dark .error-shell {
   background:
     linear-gradient(
       180deg,
@@ -123,7 +123,7 @@ const handleGoHome = () => {
   letter-spacing: 0.02em;
 }
 
-:global(.dark) .error-badge {
+.dark .error-badge {
   color: #ff8a8a;
   background: color-mix(in srgb, #ef4444 18%, transparent);
 }
@@ -170,7 +170,7 @@ const handleGoHome = () => {
   box-shadow: 0 12px 28px rgba(239, 68, 68, 0.12);
 }
 
-:global(.dark) .error-icon-core {
+.dark .error-icon-core {
   background: linear-gradient(180deg, rgba(31, 35, 43, 0.94), rgba(20, 22, 28, 0.9));
   border-color: rgba(255, 255, 255, 0.06);
 }

@@ -37,7 +37,6 @@ import {
   iconVolume2,
   iconVolume1,
   iconVolumeX,
-  iconVolumeOff,
   iconList,
   iconSpeedometer,
 } from '@/icons';
@@ -155,13 +154,6 @@ const effectiveAudioQuality = computed(() => {
     requestedAudioQuality.value,
     settingStore.compatibilityMode ?? true,
   );
-});
-const currentAudioQualityOverride = computed(() => player.currentAudioQualityOverride);
-const audioQualityDisplayLabel = computed(() => {
-  if (effectiveAudioQuality.value === '128') return '标准';
-  if (effectiveAudioQuality.value === '320') return 'HQ';
-  if (effectiveAudioQuality.value === 'flac') return 'SQ';
-  return 'Hi-Res';
 });
 const isAudioQualityDisabled = (quality: AudioQualityValue) => {
   if (quality === effectiveAudioQuality.value) return false;
@@ -1177,7 +1169,7 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-:deep(.dark .player-dropdown-tag) {
+.dark :deep(.player-dropdown-tag) {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
@@ -1189,8 +1181,8 @@ onUnmounted(() => {
   box-shadow: none;
 }
 
-:deep(.dark .player-dropdown-item.is-disabled) .player-dropdown-tag,
-:deep(.dark .player-dropdown-item[data-disabled]) .player-dropdown-tag {
+.dark :deep(.player-dropdown-item.is-disabled .player-dropdown-tag),
+.dark :deep(.player-dropdown-item[data-disabled] .player-dropdown-tag) {
   color: color-mix(in srgb, var(--color-text-secondary) 88%, white 12%);
   border-color: color-mix(in srgb, var(--color-text-secondary) 30%, transparent);
   background-color: color-mix(in srgb, var(--color-text-secondary) 14%, transparent);
@@ -1205,7 +1197,7 @@ onUnmounted(() => {
   color: var(--color-primary);
 }
 
-:deep(.dark .player-dropdown-item.is-active) {
+.dark :deep(.player-dropdown-item.is-active) {
   background-color: rgba(0, 113, 227, 0.2);
 }
 
@@ -1214,7 +1206,7 @@ onUnmounted(() => {
   color: var(--color-primary);
 }
 
-:deep(.dark .player-dropdown-item:hover) {
+.dark :deep(.player-dropdown-item:hover) {
   background-color: rgba(255, 255, 255, 0.08);
 }
 

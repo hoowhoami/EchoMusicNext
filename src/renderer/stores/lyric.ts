@@ -29,6 +29,10 @@ type LyricSearchResponse = {
   info?: LyricSearchCandidate[];
 };
 
+type LyricSearchEnvelope = LyricSearchResponse & {
+  data?: LyricSearchResponse;
+};
+
 type LyricDetailResponse = {
   decodeContent?: string;
   lyric?: string;
@@ -49,17 +53,35 @@ const normalizeDetailPayload = (payload: unknown): LyricDetailResponse | null =>
   if (!payload || typeof payload !== 'object') return null;
   const record = payload as LyricDetailEnvelope;
   const nested = record.data && typeof record.data === 'object' ? record.data : null;
-  const decodeContent = typeof (nested?.decodeContent ?? record.decodeContent) === 'string'
-    ? String(nested?.decodeContent ?? record.decodeContent)
-    : '';
-  const lyric = typeof (nested?.lyric ?? record.lyric) === 'string'
-    ? String(nested?.lyric ?? record.lyric)
-    : '';
+  const decodeContent =
+    typeof (nested?.decodeContent ?? record.decodeContent) === 'string'
+      ? String(nested?.decodeContent ?? record.decodeContent)
+      : '';
+  const lyric =
+    typeof (nested?.lyric ?? record.lyric) === 'string'
+      ? String(nested?.lyric ?? record.lyric)
+      : '';
   if (!decodeContent && !lyric) return null;
   return { decodeContent, lyric };
 };
 
-const decodeLanguageLine = (line: string): { translationLyrics?: unknown[]; romanizationLyrics?: unknown[] } => {
+const normalizeSearchPayload = (payload: unknown): LyricSearchResponse | null => {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as LyricSearchEnvelope;
+  const nested = record.data && typeof record.data === 'object' ? record.data : null;
+  const candidates: LyricSearchCandidate[] = Array.isArray(nested?.candidates ?? record.candidates)
+    ? ((nested?.candidates ?? record.candidates ?? []) as LyricSearchCandidate[])
+    : [];
+  const info: LyricSearchCandidate[] = Array.isArray(nested?.info ?? record.info)
+    ? ((nested?.info ?? record.info ?? []) as LyricSearchCandidate[])
+    : [];
+  if (candidates.length === 0 && info.length === 0) return null;
+  return { candidates, info };
+};
+
+const decodeLanguageLine = (
+  line: string,
+): { translationLyrics?: unknown[]; romanizationLyrics?: unknown[] } => {
   try {
     const code = line.slice(10, -1);
     if (!code) return {};
@@ -71,9 +93,11 @@ const decodeLanguageLine = (line: string): { translationLyrics?: unknown[]; roma
     const utf8 = decodeURIComponent(
       Array.from(decoded)
         .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
-        .join('')
+        .join(''),
     );
-    const languageData = JSON.parse(utf8) as { content?: Array<{ type?: number; lyricContent?: unknown[] }> };
+    const languageData = JSON.parse(utf8) as {
+      content?: Array<{ type?: number; lyricContent?: unknown[] }>;
+    };
 
     let translationLyrics: unknown[] | undefined;
     let romanizationLyrics: unknown[] | undefined;
@@ -90,7 +114,11 @@ const decodeLanguageLine = (line: string): { translationLyrics?: unknown[]; roma
   }
 };
 
-const buildFallbackCharacters = (text: string, startTime: number, duration: number): LyricCharacter[] => {
+const buildFallbackCharacters = (
+  text: string,
+  startTime: number,
+  duration: number,
+): LyricCharacter[] => {
   const safeText = text.trim();
   if (!safeText) return [];
   const total = Math.max(duration, safeText.length * 120);
@@ -128,9 +156,10 @@ export const useLyricStore = defineStore('lyric', {
   getters: {
     showTranslation: (state) => state.lyricsMode === 'translation' && state.hasTranslation,
     showRomanization: (state) => state.lyricsMode === 'romanization' && state.hasRomanization,
-    currentLine: (state) => (state.currentIndex >= 0 ? state.lines[state.currentIndex] ?? null : null),
+    currentLine: (state) =>
+      state.currentIndex >= 0 ? (state.lines[state.currentIndex] ?? null) : null,
     activeSecondaryText: (state) => {
-      const line = state.currentIndex >= 0 ? state.lines[state.currentIndex] ?? null : null;
+      const line = state.currentIndex >= 0 ? (state.lines[state.currentIndex] ?? null) : null;
       return line ? getSecondaryText(line, state.lyricsMode) : '';
     },
     fontWeightValue: (state) => {
@@ -206,7 +235,9 @@ export const useLyricStore = defineStore('lyric', {
     },
     parseLyricContent(payload: LyricDetailResponse, hash = '') {
       this.resetLyricsState({ hash, tips: '暂无歌词' });
-      const content = String(payload.decodeContent ?? payload.lyric ?? '').trim();
+      const content = String(payload.decodeContent ?? payload.lyric ?? '')
+        .replace(/^\uFEFF/, '')
+        .trim();
       this.rawLyric = content;
       this.loadedHash = hash;
       this.isLoading = false;
@@ -216,14 +247,17 @@ export const useLyricStore = defineStore('lyric', {
         return;
       }
 
-      const sourceLines = content.split('\n');
+      const sourceLines = content.split(/\r?\n/);
       const languageLine = sourceLines.find((line) => line.startsWith('[language:')) ?? '';
-      const { translationLyrics, romanizationLyrics } = languageLine ? decodeLanguageLine(languageLine) : {};
+      const { translationLyrics, romanizationLyrics } = languageLine
+        ? decodeLanguageLine(languageLine)
+        : {};
       const charRegex = /<(\d+),(\d+),\d+>([^<]+)/g;
       const parsedLines: LyricLine[] = [];
 
       for (const sourceLine of sourceLines) {
         const krcMatch = sourceLine.match(/^\[(\d+),(\d+)\](.*)$/);
+
         if (krcMatch) {
           const lineStart = Number.parseInt(krcMatch[1], 10);
           const lineDuration = Number.parseInt(krcMatch[2], 10);
@@ -245,14 +279,15 @@ export const useLyricStore = defineStore('lyric', {
             }
           } else {
             const text = lineContent.replace(/<.*?>/g, '').trim();
-            characters.push(...buildFallbackCharacters(text, lineStart, lineDuration));
+            if (text) {
+              characters.push(...buildFallbackCharacters(text, lineStart, lineDuration));
+            }
           }
 
-          const text = characters.map((char) => char.text).join('').trim();
-          if (text) {
+          if (characters.length > 0) {
             parsedLines.push({
-              time: lineStart / 1000,
-              text,
+              time: characters[0].startTime / 1000,
+              text: characters.map((c) => c.text).join(''),
               characters,
             });
           }
@@ -260,20 +295,27 @@ export const useLyricStore = defineStore('lyric', {
         }
 
         const lrcMatch = sourceLine.match(/^\[(\d+):(\d+(?:\.\d+)?)\](.*)$/);
-        if (!lrcMatch) continue;
+        if (lrcMatch) {
+          const minutes = Number.parseInt(lrcMatch[1], 10);
+          const seconds = Number.parseFloat(lrcMatch[2]);
+          const text = (lrcMatch[3] ?? '').trim();
+          const startTime = Math.round((minutes * 60 + seconds) * 1000);
 
-        const minutes = Number.parseInt(lrcMatch[1], 10);
-        const seconds = Number.parseFloat(lrcMatch[2]);
-        const text = (lrcMatch[3] ?? '').trim();
-        const startTime = Math.round((minutes * 60 + seconds) * 1000);
-        const characters = buildFallbackCharacters(text, startTime, 3000);
-        if (!text || characters.length === 0) continue;
-
-        parsedLines.push({
-          time: startTime / 1000,
-          text,
-          characters,
-        });
+          if (text) {
+            parsedLines.push({
+              time: startTime / 1000,
+              text,
+              characters: [
+                {
+                  text,
+                  startTime,
+                  endTime: startTime + 3000,
+                  highlighted: false,
+                },
+              ],
+            });
+          }
+        }
       }
 
       this.lines = parsedLines.map((line, index) => {
@@ -293,8 +335,55 @@ export const useLyricStore = defineStore('lyric', {
         if (translated) this.hasTranslation = true;
         if (romanized) this.hasRomanization = true;
 
+        const stripText = (textToStrip: string) => {
+          if (!textToStrip) return;
+          let remaining = textToStrip.replace(/\s+/g, '');
+          const characters = line.characters;
+          while (remaining.length > 0 && characters.length > 0) {
+            const lastChar = characters[characters.length - 1];
+            if (!lastChar) break;
+            const charTextNoSpace = lastChar.text.replace(/\s+/g, '');
+
+            if (charTextNoSpace === '') {
+              characters.pop();
+              continue;
+            }
+
+            if (remaining.endsWith(charTextNoSpace)) {
+              remaining = remaining.slice(0, -charTextNoSpace.length);
+              characters.pop();
+            } else if (charTextNoSpace.endsWith(remaining)) {
+              let charsDeleted = 0;
+              let i = lastChar.text.length - 1;
+              while (i >= 0 && charsDeleted < remaining.length) {
+                if (!/\s/.test(lastChar.text[i] ?? '')) {
+                  charsDeleted++;
+                }
+                i--;
+              }
+              lastChar.text = lastChar.text.slice(0, i + 1);
+              remaining = '';
+              break;
+            } else {
+              break;
+            }
+          }
+        };
+
+        stripText(translated);
+        stripText(romanized);
+
+        if (line.characters.length > 0) {
+          line.text = line.characters
+            .map((c) => c.text)
+            .join('')
+            .trim();
+        }
+
         return {
-          ...line,
+          time: line.time,
+          text: line.text,
+          characters: line.characters,
           translated: translated || undefined,
           romanized: romanized || undefined,
         };
@@ -311,9 +400,10 @@ export const useLyricStore = defineStore('lyric', {
 
       const currentTimeMs = Math.round(currentTime * 1000);
       let nextIndex = -1;
-      const startSearchIndex = this.currentIndex >= 0 && currentTime >= this.lines[this.currentIndex].time
-        ? this.currentIndex
-        : 0;
+      const startSearchIndex =
+        this.currentIndex >= 0 && currentTime >= this.lines[this.currentIndex].time
+          ? this.currentIndex
+          : 0;
 
       for (let index = startSearchIndex; index < this.lines.length; index += 1) {
         const currentLine = this.lines[index];
@@ -345,7 +435,7 @@ export const useLyricStore = defineStore('lyric', {
         char.highlighted = currentTimeMs >= char.startTime;
       });
     },
-    async fetchLyrics(hash: string) {
+    async fetchLyrics(hash: string, options?: { preserveCurrent?: boolean }) {
       const normalizedHash = String(hash ?? '').trim();
       if (!normalizedHash) {
         this.clear('', '暂无歌词');
@@ -359,24 +449,39 @@ export const useLyricStore = defineStore('lyric', {
       this.beginLoading(normalizedHash);
 
       try {
-        const searchResult = await searchLyric(normalizedHash) as LyricSearchResponse | null;
+        const searchResult = normalizeSearchPayload(await searchLyric(normalizedHash));
         if (requestSerial !== this.requestSerial) return;
 
-        const target = (Array.isArray(searchResult?.candidates) && searchResult.candidates.length > 0
-          ? searchResult.candidates[0]
-          : Array.isArray(searchResult?.info) && searchResult.info.length > 0
-            ? searchResult.info[0]
-            : null) ?? null;
+        const target =
+          (Array.isArray(searchResult?.candidates) && searchResult.candidates.length > 0
+            ? searchResult.candidates[0]
+            : Array.isArray(searchResult?.info) && searchResult.info.length > 0
+              ? searchResult.info[0]
+              : null) ?? null;
 
         if (!target?.id || !target.accesskey) {
+          if (options?.preserveCurrent && this.lines.length > 0) {
+            this.isLoading = false;
+            this.loadedHash = normalizedHash;
+            this.tips = '歌词已加载';
+            return;
+          }
           this.clear(normalizedHash, '暂无歌词');
           return;
         }
 
-        const lyricData = normalizeDetailPayload(await getLyric(String(target.id), String(target.accesskey)));
+        const lyricData = normalizeDetailPayload(
+          await getLyric(String(target.id), String(target.accesskey)),
+        );
         if (requestSerial !== this.requestSerial) return;
 
         if (!lyricData) {
+          if (options?.preserveCurrent && this.lines.length > 0) {
+            this.isLoading = false;
+            this.loadedHash = normalizedHash;
+            this.tips = '歌词已加载';
+            return;
+          }
           this.clear(normalizedHash, '暂无歌词');
           return;
         }
@@ -385,6 +490,12 @@ export const useLyricStore = defineStore('lyric', {
       } catch (error) {
         if (requestSerial !== this.requestSerial) return;
         logger.error('LyricStore', 'Fetch lyrics failed', error, { hash: normalizedHash });
+        if (options?.preserveCurrent && this.lines.length > 0) {
+          this.isLoading = false;
+          this.loadedHash = normalizedHash;
+          this.tips = '歌词已加载';
+          return;
+        }
         this.clear(normalizedHash, '歌词加载失败');
       }
     },

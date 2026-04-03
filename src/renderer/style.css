@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --bg-sidebar: #ffffff; /* 浅色侧栏纯白 */
   --bg-main: #f5f5f7; /* 浅色主体浅灰白 */

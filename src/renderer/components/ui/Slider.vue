@@ -108,7 +108,7 @@ const valueLabel = computed(() => `${normalizedValue.value}${props.valueSuffix}`
   @apply relative grow rounded-full;
 }
 
-:global(.dark) .slider-track {
+.dark .slider-track {
   background-color: color-mix(in srgb, var(--color-text-main) 14%, var(--color-bg-card) 86%);
 }
 

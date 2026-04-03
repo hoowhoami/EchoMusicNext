@@ -52,7 +52,7 @@ const handleClick = () => {
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
-:global(.dark) .card-container {
+.dark .card-container {
   border-color: color-mix(in srgb, var(--color-border-light) 92%, transparent);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
 }
@@ -61,7 +61,7 @@ const handleClick = () => {
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12), 0 0 24px var(--color-primary-light);
 }
 
-:global(.dark) .artist-card:hover .card-container {
+.dark .artist-card:hover .card-container {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42), 0 0 24px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
@@ -80,7 +80,7 @@ const handleClick = () => {
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
 }
 
-:global(.dark) .cover-wrapper {
+.dark .cover-wrapper {
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
 }
 

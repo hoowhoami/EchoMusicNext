@@ -27,7 +27,7 @@ export function getSongPrivilegeLite(hash: string, albumId?: string | number) {
 export async function getCloudSongUrl(
   hash: string,
   audioId?: string | number,
-  albumAudioId?: string | number
+  albumAudioId?: string | number,
 ): Promise<string | null> {
   const res = await request.get('/user/cloud/url', {
     params: {
@@ -48,7 +48,9 @@ export async function getCloudSongUrl(
  */
 export function searchLyric(hash: string) {
   return request.get('/search/lyric', {
-    params: { hash },
+    params: {
+      hash,
+    },
   });
 }
 
@@ -107,11 +109,7 @@ export function getSongRanking(albumAudioId: string | number) {
 /**
  * 获取歌曲榜单过滤
  */
-export function getSongRankingFilter(
-  albumAudioId: string | number,
-  page = 1,
-  pagesize = 30,
-) {
+export function getSongRankingFilter(albumAudioId: string | number, page = 1, pagesize = 30) {
   return request.get('/song/ranking/filter', {
     params: { album_audio_id: albumAudioId, page, pagesize },
   });
