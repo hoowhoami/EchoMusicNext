@@ -1,4 +1,4 @@
-import { Menu, Tray, app, nativeImage, type MenuItemConstructorOptions } from 'electron';
+import { Menu, Tray, app, nativeImage, nativeTheme, type MenuItemConstructorOptions } from 'electron';
 import { join } from 'path';
 
 type TrayCommand = 'togglePlayback' | 'previousTrack' | 'nextTrack';
@@ -33,7 +33,7 @@ const resolveTrayIconPath = () => {
   const iconName = process.platform === 'darwin'
     ? 'IconTemplate.png'
     : process.platform === 'win32'
-      ? 'icon.ico'
+      ? (nativeTheme.shouldUseDarkColors ? 'win_tray_icon_dark.ico' : 'win_tray_icon_light.ico')
       : 'linux_tray_icon.png';
 
   if (app.isPackaged) {
@@ -107,6 +107,7 @@ export const createDockMenu = () => Menu.buildFromTemplate(createPlaybackMenuIte
 
 const rebuildTrayMenu = () => {
   if (appTray) {
+    appTray.setImage(createTrayImage());
     appTray.setToolTip('EchoMusic');
     appTray.setContextMenu(createTrayMenu());
   }
@@ -129,11 +130,17 @@ export const initTray = (context: TrayContext) => {
   appTray.on('double-click', () => {
     trayContext?.restoreWindow();
   });
+  if (process.platform === 'win32') {
+    nativeTheme.on('updated', rebuildTrayMenu);
+  }
 
   return appTray;
 };
 
 export const destroyTray = () => {
+  if (process.platform === 'win32') {
+    nativeTheme.removeListener('updated', rebuildTrayMenu);
+  }
   if (!appTray) return;
   appTray.destroy();
   appTray = null;
