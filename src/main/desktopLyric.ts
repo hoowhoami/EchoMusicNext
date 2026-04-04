@@ -240,8 +240,8 @@ const getEffectiveTheme = (theme: DesktopLyricSettings['theme']) => {
   return theme;
 };
 
-const getBackgroundColor = (theme: DesktopLyricSettings['theme']) => {
-  return getEffectiveTheme(theme) === 'dark' ? '#05070a00' : '#f8fafc00';
+const getBackgroundColor = (_theme: DesktopLyricSettings['theme']) => {
+  return '#00000000';
 };
 
 let desktopLyricWindow: BrowserWindow | null = null;
@@ -255,6 +255,12 @@ let desktopLyricUnlockHotzoneBlockedUntil = 0;
 let desktopLyricUnlockHotzoneCooldownTimer: NodeJS.Timeout | null = null;
 let desktopLyricLockPhaseTimer: NodeJS.Timeout | null = null;
 let desktopLyricResizeSession: DesktopLyricResizeSession | null = null;
+let desktopLyricClosingFromFailure = false;
+let desktopLyricAppIsQuitting = false;
+
+app.on('before-quit', () => {
+  desktopLyricAppIsQuitting = true;
+});
 let snapshot: DesktopLyricSnapshot = {
   playback: null,
   lyrics: [],
@@ -308,8 +314,10 @@ const persistWindowBounds = () => {
 };
 
 const sendSnapshot = () => {
-  if (!desktopLyricWindow || desktopLyricWindow.isDestroyed()) return;
-  desktopLyricWindow.webContents.send('desktop-lyric:snapshot', snapshot);
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (win.isDestroyed()) return;
+    win.webContents.send('desktop-lyric:snapshot', snapshot);
+  });
 };
 
 const sendPointerState = () => {
@@ -548,6 +556,13 @@ const syncWindowAppearance = () => {
   applyWindowInteractivity();
 };
 
+const destroyDesktopLyricWindowFromFailure = (reason: 'unresponsive' | 'render-process-gone') => {
+  if (!desktopLyricWindow || desktopLyricWindow.isDestroyed() || desktopLyricClosingFromFailure) return;
+  desktopLyricClosingFromFailure = true;
+  console.error(`[DesktopLyric] Window destroyed due to ${reason}`);
+  desktopLyricWindow.destroy();
+};
+
 export const getDesktopLyricWindow = () => desktopLyricWindow;
 
 export const ensureDesktopLyricWindow = async () => {
@@ -614,6 +629,12 @@ export const ensureDesktopLyricWindow = async () => {
   desktopLyricWindow.on('focus', () => {
     desktopLyricWindow?.blur();
   });
+  desktopLyricWindow.on('unresponsive', () => {
+    destroyDesktopLyricWindowFromFailure('unresponsive');
+  });
+  desktopLyricWindow.webContents.on('render-process-gone', () => {
+    destroyDesktopLyricWindowFromFailure('render-process-gone');
+  });
   desktopLyricWindow.on('hide', () => {
     stopDesktopLyricHoverTracking();
     clearUnlockHotzoneCooldownTimer();
@@ -630,10 +651,22 @@ export const ensureDesktopLyricWindow = async () => {
     desktopLyricHovering = false;
     desktopLyricPointerState = { insideWindow: false, insideUnlockHotzone: false };
     desktopLyricWindow = null;
+    desktopLyricClosingFromFailure = false;
+
+    const appIsQuitting = !app.isReady() || desktopLyricAppIsQuitting;
     snapshot = {
       ...snapshot,
       lockPhase: 'idle',
+      settings: {
+        ...snapshot.settings,
+        enabled: appIsQuitting ? snapshot.settings.enabled : false,
+      },
     };
+
+    if (!appIsQuitting) {
+      settingsStore.set('enabled', false);
+      sendSnapshot();
+    }
   });
 
   if (url) {
