@@ -6,9 +6,14 @@ on:
       - 'v*'
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build for ${{ matrix.os }}
+    timeout-minutes: 90
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -47,6 +52,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -54,11 +61,17 @@ jobs:
           version: 9
 
       - name: Install root dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-audit --no-fund --frozen-lockfile
 
       - name: Install server dependencies
         working-directory: server
-        run: npm install
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
 
       - name: Build server executable
         working-directory: server
@@ -67,6 +80,9 @@ jobs:
 
       - name: Build desktop app
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: pnpm build
 
       - name: Upload build artifacts
@@ -75,13 +91,151 @@ jobs:
           name: EchoMusicNext-${{ matrix.os }}
           path: ${{ matrix.artifact_glob }}
           if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish Release Assets
+    timeout-minutes: 20
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: List downloaded artifacts
+        run: find release-artifacts -maxdepth 2 -type f | sort
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: ${{ matrix.artifact_glob }}
+          files: release-artifacts/**
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    name: Send Telegram Notification
+    if: startsWith(github.ref, 'refs/tags/') && success()
+    needs:
+      - build
+      - release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Build changelog
+        shell: bash
+        run: |
+          set -e
+          git fetch --tags --force
+          PREV_TAG=$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="$PREV_TAG..${GITHUB_SHA}"
+          else
+            RANGE="${GITHUB_SHA}"
+          fi
+
+          CHANGELOG=$(git log "$RANGE" --pretty=format:"• %s" \
+            | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g' \
+            | awk 'NR==1{printf "%s",$0;next}{printf "\n%s",$0}')
+
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="无"
+          fi
+
+          {
+            echo "CHANGELOG<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Build artifact links
+        shell: bash
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME}"
+          REPO="${GITHUB_REPOSITORY}"
+
+          mapfile -t FILES < <(find release-artifacts -maxdepth 2 -type f | sort)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "ARTIFACT_LINKS=无" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          LINKS=""
+          for filepath in "${FILES[@]}"; do
+            filename=$(basename "$filepath")
+            escaped_name=$(printf '%s' "$filename" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
+            link="https://github.com/${REPO}/releases/download/${VERSION}/${filename}"
+            if [ -z "$LINKS" ]; then
+              LINKS="• <a href=\"${link}\">${escaped_name}</a>"
+            else
+              LINKS="${LINKS}\n• <a href=\"${link}\">${escaped_name}</a>"
+            fi
+          done
+
+          {
+            echo "ARTIFACT_LINKS<<EOF"
+            printf '%b\n' "$LINKS"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Send Telegram message
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
+        run: |
+          set -e
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets are missing, skip notification."
+            exit 0
+          fi
+
+          VERSION="${GITHUB_REF_NAME}"
+          REPO="${GITHUB_REPOSITORY}"
+
+          printf -v MESSAGE '%s\n\n%s\n%s\n\n%s\n%s\n\n%s' \
+            "🎉 <b>EchoMusic ${VERSION} 构建成功！</b>" \
+            "📝 <b>更新内容：</b>" \
+            "${CHANGELOG}" \
+            "📦 <b>下载地址：</b>" \
+            "${ARTIFACT_LINKS}" \
+            "🔗 <a href=\"https://github.com/${REPO}/releases/tag/${VERSION}\">查看完整 Release</a>"
+
+          PAYLOAD=$(jq -n \
+            --arg chat_id "$TELEGRAM_CHAT_ID" \
+            --arg text "$MESSAGE" \
+            --arg parse_mode "HTML" \
+            '{chat_id: $chat_id, text: $text, parse_mode: $parse_mode, disable_web_page_preview: true}')
+
+          if [ -n "$TELEGRAM_TOPIC_ID" ]; then
+            PAYLOAD=$(echo "$PAYLOAD" | jq --arg topic_id "$TELEGRAM_TOPIC_ID" '. + {message_thread_id: ($topic_id | tonumber)}')
+          fi
+
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
