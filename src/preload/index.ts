@@ -52,6 +52,11 @@ contextBridge.exposeInMainWorld('electron', {
   tray: {
     syncPlayback: (payload: { isPlaying?: boolean; playMode?: 'list' | 'random' | 'single' }) =>
       ipcRenderer.send('tray:sync-playback', payload),
+    onSetPlayMode: (func: (playMode: 'list' | 'random' | 'single') => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, playMode: 'list' | 'random' | 'single') => func(playMode);
+      ipcRenderer.on('tray:set-play-mode', listener);
+      return () => ipcRenderer.removeListener('tray:set-play-mode', listener);
+    },
   },
   desktopLyric: {
     getSnapshot: () => ipcRenderer.invoke('desktop-lyric:get-snapshot') as Promise<DesktopLyricSnapshot>,

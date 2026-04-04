@@ -1130,9 +1130,9 @@ onUnmounted(() => {
 
 .player-quality-icon {
   display: block;
-  width: 18px;
-  height: 18px;
-  transform: translateY(1.5px);
+  width: 20px;
+  height: 20px;
+  transform: translateY(3px);
 }
 
 .player-quality-badge {

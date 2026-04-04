@@ -17,6 +17,7 @@ const route = useRoute();
 const isDesktopLyricWindow = () => route.name === 'desktop-lyric';
 let disposeShortcuts: (() => void) | null = null;
 let disposeDesktopLyricSync: (() => void) | null = null;
+let disposeTrayPlayModeSync: (() => void) | null = null;
 
 const updateTheme = () => {
   const isDark =
@@ -53,6 +54,9 @@ onMounted(() => {
   }
   if (!isDesktopLyricWindow()) {
     disposeShortcuts = initShortcutSync();
+    disposeTrayPlayModeSync = window.electron?.tray?.onSetPlayMode((playMode) => {
+      player.setPlayMode(playMode);
+    }) ?? null;
     syncTrayPlayback();
   }
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateTheme);
@@ -63,6 +67,8 @@ onUnmounted(() => {
   disposeShortcuts = null;
   disposeDesktopLyricSync?.();
   disposeDesktopLyricSync = null;
+  disposeTrayPlayModeSync?.();
+  disposeTrayPlayModeSync = null;
 });
 
 watch(() => settings.theme, updateTheme);

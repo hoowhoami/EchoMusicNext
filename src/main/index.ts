@@ -3,7 +3,7 @@ import { initLogger } from './logger';
 import { startApiServer, stopApiServer } from './server';
 import { registerIpcHandlers } from './ipc';
 import { createWindow, getMainWindow, restoreWindow } from './window';
-import { destroyTray, initTray } from './tray';
+import { createDockMenu, destroyTray, initTray } from './tray';
 
 // --- 初始化日志 ---
 initLogger();
@@ -40,6 +40,9 @@ app.whenReady().then(async () => {
     getMainWindow,
     restoreWindow,
   });
+  if (process.platform === 'darwin') {
+    app.dock?.setMenu(createDockMenu());
+  }
 });
 
 app.on('window-all-closed', () => {

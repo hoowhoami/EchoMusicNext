@@ -1,7 +1,7 @@
-import { Menu, Tray, app, nativeImage } from 'electron';
+import { Menu, Tray, app, nativeImage, type MenuItemConstructorOptions } from 'electron';
 import { join } from 'path';
 
-type TrayCommand = 'togglePlayback' | 'previousTrack' | 'nextTrack' | 'togglePlayMode';
+type TrayCommand = 'togglePlayback' | 'previousTrack' | 'nextTrack';
 type PlayMode = 'list' | 'random' | 'single';
 
 interface TrayContext {
@@ -13,6 +13,8 @@ interface TrayPlaybackState {
   isPlaying: boolean;
   playMode: PlayMode;
 }
+
+const TRAY_GUID = '3f7a61a2-6707-46ba-95d9-4c53dbb9581a';
 
 let appTray: Tray | null = null;
 let trayContext: TrayContext | null = null;
@@ -29,7 +31,7 @@ const playModeLabelMap: Record<PlayMode, string> = {
 
 const resolveTrayIconPath = () => {
   const iconName = process.platform === 'darwin'
-    ? 'mac_tray_icon_template.png'
+    ? 'IconTemplate.png'
     : process.platform === 'win32'
       ? 'icon.ico'
       : 'icon.png';
@@ -43,42 +45,75 @@ const resolveTrayIconPath = () => {
 
 const createTrayImage = () => {
   const image = nativeImage.createFromPath(resolveTrayIconPath());
+
   if (process.platform === 'darwin') {
     image.setTemplateImage(true);
   }
+
   return image;
 };
 
 const forwardCommandToRenderer = (command: TrayCommand) => {
   const mainWindow = trayContext?.getMainWindow();
-  if (!mainWindow) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send('shortcut-trigger', command);
 };
 
+const setPlayModeFromTray = (playMode: PlayMode) => {
+  const mainWindow = trayContext?.getMainWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('tray:set-play-mode', playMode);
+};
+
+const createPlaybackMenuItems = (): MenuItemConstructorOptions[] => ([
+  {
+    label: playbackState.isPlaying ? '暂停' : '播放',
+    click: () => forwardCommandToRenderer('togglePlayback'),
+  },
+  {
+    label: '上一首',
+    click: () => forwardCommandToRenderer('previousTrack'),
+  },
+  {
+    label: '下一首',
+    click: () => forwardCommandToRenderer('nextTrack'),
+  },
+  {
+    label: '播放模式',
+    submenu: (Object.entries(playModeLabelMap) as Array<[PlayMode, string]>).map<MenuItemConstructorOptions>(([mode, label]) => ({
+      label,
+      type: 'radio',
+      checked: playbackState.playMode === mode,
+      click: () => setPlayModeFromTray(mode),
+    })),
+  },
+]);
+
+const createTrayMenu = () => Menu.buildFromTemplate([
+  {
+    label: '显示主窗口',
+    click: () => trayContext?.restoreWindow(),
+  },
+  { type: 'separator' },
+  ...createPlaybackMenuItems(),
+  { type: 'separator' },
+  {
+    role: 'quit',
+    label: '退出',
+  },
+]);
+
+export const createDockMenu = () => Menu.buildFromTemplate(createPlaybackMenuItems());
+
 const rebuildTrayMenu = () => {
-  if (!appTray) return;
+  if (appTray) {
+    appTray.setToolTip('EchoMusic');
+    appTray.setContextMenu(createTrayMenu());
+  }
 
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: playbackState.isPlaying ? '暂停' : '播放',
-      click: () => forwardCommandToRenderer('togglePlayback'),
-    },
-    {
-      label: '上一首',
-      click: () => forwardCommandToRenderer('previousTrack'),
-    },
-    {
-      label: '下一首',
-      click: () => forwardCommandToRenderer('nextTrack'),
-    },
-    {
-      label: `播放模式：${playModeLabelMap[playbackState.playMode]}`,
-      click: () => forwardCommandToRenderer('togglePlayMode'),
-    },
-  ]);
-
-  appTray.setToolTip('EchoMusic');
-  appTray.setContextMenu(contextMenu);
+  if (process.platform === 'darwin') {
+    app.dock?.setMenu(createDockMenu());
+  }
 };
 
 export const initTray = (context: TrayContext) => {
@@ -88,11 +123,13 @@ export const initTray = (context: TrayContext) => {
     return appTray;
   }
 
-  appTray = new Tray(createTrayImage());
-  appTray.on('click', () => {
+  appTray = new Tray(createTrayImage(), process.platform === 'linux' ? undefined : TRAY_GUID);
+  appTray.setToolTip('EchoMusic');
+  appTray.setContextMenu(createTrayMenu());
+  appTray.on('double-click', () => {
     trayContext?.restoreWindow();
   });
-  rebuildTrayMenu();
+
   return appTray;
 };
 
