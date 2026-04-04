@@ -561,7 +561,7 @@ const applyWindowInteractivity = () => {
     visibleOnFullScreen: true,
     skipTransformProcessType: true,
   });
-  desktopLyricWindow.setSkipTaskbar(process.platform !== 'darwin');
+  desktopLyricWindow.setSkipTaskbar(true);
   syncDesktopLyricHoverTracking();
 };
 
@@ -606,7 +606,9 @@ export const ensureDesktopLyricWindow = async () => {
     resizable: true,
     movable: true,
     hasShadow: false,
-    skipTaskbar: process.platform !== 'darwin',
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    type: 'panel',
     fullscreenable: false,
     roundedCorners: false,
     focusable: false,

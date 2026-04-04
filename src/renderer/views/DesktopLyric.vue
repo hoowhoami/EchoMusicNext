@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Button from '@/components/ui/Button.vue';
-import Select from '@/components/ui/Select.vue';
-import Switch from '@/components/ui/Switch.vue';
 import {
   iconLock,
   iconLockOpen,
@@ -10,7 +8,6 @@ import {
   iconPause,
   iconStepBack,
   iconStepForward,
-  iconSettings,
   iconX,
 } from '@/icons';
 import type {
@@ -64,7 +61,6 @@ const pointerState = ref<DesktopLyricPointerState>({
   insideToolbarHotzone: false,
 });
 const isHovering = ref(false);
-const settingsVisible = ref(false);
 const nowMs = ref(0);
 const currentLineViewportRef = ref<HTMLElement | null>(null);
 const currentLineContentRef = ref<HTMLElement | null>(null);
@@ -125,7 +121,7 @@ const showChrome = computed(
   () =>
     !snapshot.value.settings.locked &&
     snapshot.value.lockPhase !== 'unlocking' &&
-    (pointerState.value.insideWindow || settingsVisible.value),
+    pointerState.value.insideWindow,
 );
 const showUnlockChip = computed(
   () =>
@@ -232,9 +228,6 @@ const syncSettings = async (partial: Partial<DesktopLyricSettings>) => {
 const setHoverState = (hovering: boolean) => {
   if (snapshot.value.settings.locked) return;
   isHovering.value = hovering;
-  if (!hovering) {
-    settingsVisible.value = false;
-  }
   window.electron?.desktopLyric?.setHover?.(hovering);
 };
 
@@ -265,7 +258,6 @@ const closeWindow = async () => {
 const toggleLock = async () => {
   if (!window.electron?.desktopLyric) return;
   snapshot.value = await window.electron.desktopLyric.toggleLock();
-  settingsVisible.value = false;
 };
 
 const togglePlayback = () => {
@@ -278,11 +270,6 @@ const playPrevious = () => {
 
 const playNext = () => {
   window.electron?.desktopLyric?.command('nextTrack');
-};
-
-const toggleSettings = () => {
-  if (snapshot.value.settings.locked) return;
-  settingsVisible.value = !settingsVisible.value;
 };
 
 const tick = () => {
@@ -315,7 +302,11 @@ onUnmounted(() => {
   if (measureFrame) window.cancelAnimationFrame(measureFrame);
   window.removeEventListener('resize', requestMeasure);
   handleResizeEnd();
-  pointerState.value = { insideWindow: false, insideUnlockHotzone: false };
+  pointerState.value = {
+    insideWindow: false,
+    insideUnlockHotzone: false,
+    insideToolbarHotzone: false,
+  };
   window.electron?.desktopLyric?.setHover?.(false);
   document.documentElement.classList.remove('desktop-lyric-window');
   document.body.classList.remove('desktop-lyric-window');
@@ -370,7 +361,7 @@ onUnmounted(() => {
         </Button>
       </div>
 
-      <div v-else class="qq-toolbar no-drag" :class="{ visible: showChrome || settingsVisible }">
+      <div v-else class="qq-toolbar no-drag" :class="{ visible: showChrome }">
         <div class="qq-toolbar-main">
           <Button variant="unstyled" size="none" class="qq-icon-btn" @click="playPrevious">
             <Icon :icon="iconStepBack" width="16" height="16" />
@@ -391,55 +382,9 @@ onUnmounted(() => {
           >
             <Icon :icon="iconLock" width="16" height="16" />
           </Button>
-          <Button variant="unstyled" size="none" class="qq-icon-btn" @click="toggleSettings">
-            <Icon :icon="iconSettings" width="16" height="16" />
-          </Button>
           <Button variant="unstyled" size="none" class="qq-icon-btn" @click="closeWindow">
             <Icon :icon="iconX" width="16" height="16" />
           </Button>
-        </div>
-      </div>
-
-      <div v-if="settingsVisible && !snapshot.settings.locked" class="qq-settings-popover no-drag">
-        <div class="qq-settings-grid">
-          <div class="qq-field">
-            <span class="qq-field-label">对齐</span>
-            <Select
-              class="qq-select"
-              :model-value="snapshot.settings.alignment"
-              :options="alignOptions"
-              @update:model-value="syncSettings({ alignment: $event as DesktopLyricAlign })"
-            />
-          </div>
-          <div class="qq-switch-row">
-            <span class="qq-field-label">双行歌词</span>
-            <Switch
-              :model-value="snapshot.settings.doubleLine"
-              @update:model-value="syncSettings({ doubleLine: Boolean($event) })"
-            />
-          </div>
-          <div class="qq-field qq-color-field">
-            <span class="qq-field-label">已播字色</span>
-            <input
-              class="qq-color-input"
-              type="color"
-              :value="snapshot.settings.playedColor"
-              @input="
-                syncSettings({ playedColor: String(($event.target as HTMLInputElement).value) })
-              "
-            />
-          </div>
-          <div class="qq-field qq-color-field">
-            <span class="qq-field-label">未播字色</span>
-            <input
-              class="qq-color-input"
-              type="color"
-              :value="snapshot.settings.unplayedColor"
-              @input="
-                syncSettings({ unplayedColor: String(($event.target as HTMLInputElement).value) })
-              "
-            />
-          </div>
         </div>
       </div>
 
@@ -708,78 +653,6 @@ onUnmounted(() => {
 
 .dark .qq-toolbar-divider {
   background: rgba(255, 255, 255, 0.12);
-}
-
-.qq-settings-popover {
-  position: absolute;
-  top: 50px;
-  left: 50%;
-  z-index: 4;
-  width: min(520px, calc(100vw - 24px));
-  padding: 16px 18px;
-  border-radius: 16px;
-  transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.97);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
-  backdrop-filter: blur(20px);
-}
-
-.dark .qq-settings-popover {
-  background: rgba(15, 23, 42, 0.96);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
-}
-
-.qq-settings-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
-  align-items: center;
-}
-
-.qq-field,
-.qq-switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: rgba(0, 0, 0, 0.86);
-}
-
-.dark .qq-field,
-.dark .qq-switch-row {
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.qq-field {
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.qq-field-label {
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.qq-select {
-  width: 100%;
-  min-width: 140px;
-}
-
-.qq-color-field {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.qq-color-input {
-  width: 34px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.18);
-  background: transparent;
-  border-radius: 8px;
 }
 
 .qq-content-layout {
