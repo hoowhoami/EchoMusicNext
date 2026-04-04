@@ -34,7 +34,7 @@ const resolveTrayIconPath = () => {
     ? 'IconTemplate.png'
     : process.platform === 'win32'
       ? 'icon.ico'
-      : 'icon.png';
+      : 'linux_tray_icon.png';
 
   if (app.isPackaged) {
     return join(process.resourcesPath, 'icons', iconName);
