@@ -16,6 +16,9 @@ export interface IElectronAPI {
     start: () => Promise<{ success: boolean; error?: string }>;
     stop: () => void;
   };
+  tray: {
+    syncPlayback: (payload: { isPlaying?: boolean; playMode?: 'list' | 'random' | 'single' }) => void;
+  };
   desktopLyric: {
     getSnapshot: () => Promise<DesktopLyricSnapshot>;
     show: () => Promise<DesktopLyricSnapshot>;

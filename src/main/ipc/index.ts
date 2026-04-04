@@ -3,6 +3,7 @@ import { registerApiServerHandlers } from './server';
 import { registerWindowHandlers } from './window';
 import { registerSettingsHandlers } from './settings';
 import { registerShortcutHandlers } from './shortcuts';
+import { registerTrayHandlers } from './tray';
 import { registerDesktopLyricHandlers } from '../desktopLyric';
 
 interface IpcContext {
@@ -17,6 +18,7 @@ export const registerIpcHandlers = (context: IpcContext) => {
   registerApiServerHandlers();
   registerSettingsHandlers(context);
   registerShortcutHandlers(context);
+  registerTrayHandlers();
   registerDesktopLyricHandlers();
   registered = true;
 };
@@ -27,6 +29,7 @@ export const unregisterIpcHandlers = () => {
   ipcMain.removeAllListeners('quit-app');
   ipcMain.removeAllListeners('shortcuts:register');
   ipcMain.removeAllListeners('shortcuts:refresh');
+  ipcMain.removeAllListeners('tray:sync-playback');
   ipcMain.removeAllListeners('api-server:stop');
   ipcMain.removeAllListeners('open-log-directory');
   ipcMain.removeAllListeners('check-for-updates');

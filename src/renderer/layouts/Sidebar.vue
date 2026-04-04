@@ -22,11 +22,13 @@ import {
 import type { PlaylistMeta } from '@/models/playlist';
 import { usePlaylistStore } from '@/stores/playlist';
 import { useUserStore } from '@/stores/user';
+import { useToastStore } from '@/stores/toast';
 
 const router = useRouter();
 const route = useRoute();
 const userStore = useUserStore();
 const playlistStore = usePlaylistStore();
+const toastStore = useToastStore();
 
 const isMac = computed(() => window.electron.platform === 'darwin');
 const isLoggedIn = computed(() => userStore.isLoggedIn);
@@ -192,13 +194,21 @@ const navigateToPlaylist = (playlist: PlaylistMeta) => {
 
 const navigateToLikedPlaylist = async () => {
   if (!isLoggedIn.value) {
-    await router.push('/main/liked');
+    try {
+      await router.push('/main/liked');
+    } catch {
+      toastStore.navigateFailed();
+    }
     return;
   }
 
   let likedPlaylist = playlistStore.likedPlaylist;
   if (!likedPlaylist) {
-    await playlistStore.fetchUserPlaylists();
+    try {
+      await playlistStore.fetchUserPlaylists();
+    } catch {
+      toastStore.loadFailed('歌单');
+    }
     likedPlaylist = playlistStore.likedPlaylist;
   }
 
@@ -208,7 +218,11 @@ const navigateToLikedPlaylist = async () => {
 
 const refreshUserPlaylists = async () => {
   if (!isLoggedIn.value) return;
-  await playlistStore.fetchUserPlaylists();
+  try {
+    await playlistStore.fetchUserPlaylists();
+  } catch {
+    toastStore.loadFailed('歌单');
+  }
 };
 
 const openCreatePlaylistDialog = () => {
@@ -231,11 +245,17 @@ const handleCreatePlaylist = async () => {
   isCreatingPlaylist.value = true;
   try {
     const success = await playlistStore.createPlaylist(name, newPlaylistIsPrivate.value, userId);
-    if (!success) return;
+    if (!success) {
+      toastStore.actionFailed('创建歌单');
+      return;
+    }
     activePlaylistTab.value = 0;
     showCreateDialog.value = false;
     newPlaylistName.value = '';
     newPlaylistIsPrivate.value = false;
+    toastStore.actionSucceeded('创建歌单');
+  } catch {
+    toastStore.actionFailed('创建歌单');
   } finally {
     isCreatingPlaylist.value = false;
   }
@@ -295,14 +315,28 @@ const handleRemovePlaylist = async () => {
       success = await playlistStore.unfavoritePlaylist(playlist, currentUserIdValue);
     }
 
-    if (!success) return;
+    if (!success) {
+      toastStore.actionFailed(isOwned ? '删除歌单' : '取消收藏');
+      return;
+    }
 
     showRemoveDialog.value = false;
     pendingRemovePlaylist.value = null;
 
     if (shouldNavigateAway) {
-      await router.push('/main/home');
+      try {
+        await router.push('/main/home');
+      } catch {
+        toastStore.navigateFailed();
+      }
     }
+    if (isOwned) {
+      toastStore.actionCompleted('删除歌单');
+    } else {
+      toastStore.actionCompleted('取消收藏');
+    }
+  } catch {
+    toastStore.actionFailed(isOwned ? '删除歌单' : '取消收藏');
   } finally {
     isRemovingPlaylist.value = false;
   }

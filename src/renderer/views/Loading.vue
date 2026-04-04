@@ -5,12 +5,14 @@ import { registerDevice } from '@/api/user';
 import { iconTriangleAlert } from '@/icons';
 import { useDeviceStore, type DeviceInfo } from '@/stores/device';
 import { useUserStore } from '@/stores/user';
+import { useToastStore } from '@/stores/toast';
 import logger from '@/utils/logger';
 import Button from '@/components/ui/Button.vue';
 
 const router = useRouter();
 const deviceStore = useDeviceStore();
 const userStore = useUserStore();
+const toastStore = useToastStore();
 const statusMessage = ref('正在初始化音乐引擎...');
 const hasError = ref(false);
 
@@ -49,7 +51,13 @@ const ensureDeviceReady = async () => {
 
   statusMessage.value = '正在注册设备信息...';
 
-  const response = await registerDevice();
+  let response: unknown;
+  try {
+    response = await registerDevice();
+  } catch {
+    toastStore.actionFailed('注册设备');
+    throw new Error('设备注册失败');
+  }
   const deviceInfo = extractDeviceInfo(response);
 
   if (!deviceInfo?.dfid) {

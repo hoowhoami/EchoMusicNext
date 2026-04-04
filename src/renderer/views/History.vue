@@ -16,11 +16,13 @@ import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue
 import { iconClock, iconCurrentLocation, iconList, iconPlay, iconSearch } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/playback';
 import Button from '@/components/ui/Button.vue';
+import { useToastStore } from '@/stores/toast';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
 const settingStore = useSettingStore();
 const userStore = useUserStore();
+const toastStore = useToastStore();
 
 const loading = ref(false);
 const loadingMore = ref(false);
@@ -179,6 +181,7 @@ const loadHistory = async (append = false) => {
       remoteSongs.value = [];
     }
     hasMore.value = false;
+    toastStore.loadFailed('历史记录');
   } finally {
     loading.value = false;
     loadingMore.value = false;

@@ -18,8 +18,10 @@ import type { RankMeta } from '@/models/rank';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconPlay, iconList, iconChevronDown, iconCurrentLocation, iconSearch } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/playback';
+import { useToastStore } from '@/stores/toast';
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
+const toastStore = useToastStore();
 const settingStore = useSettingStore();
 
 const loadingRanks = ref(true);
@@ -134,12 +136,20 @@ const sortedSongs = computed(() => {
 const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
 
 const handleSongDoubleTapPlay = async (song: Song) => {
-  await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0, song);
+  try {
+    await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0, song);
+  } catch {
+    toastStore.actionFailed('播放');
+  }
 };
 
 const handlePlayAll = async () => {
   if (songs.value.length === 0) return;
-  await replaceQueueAndPlay(playlistStore, playerStore, songs.value);
+  try {
+    await replaceQueueAndPlay(playlistStore, playerStore, songs.value);
+  } catch {
+    toastStore.actionFailed('播放');
+  }
 };
 
 const openBatchDrawer = () => {
@@ -175,8 +185,15 @@ const loadRanks = async () => {
     }
     if (ranks.value.length > 0) {
       selectedRankId.value = ranks.value[0].id;
-      await loadRankSongs(ranks.value[0].id);
+      try {
+        await loadRankSongs(ranks.value[0].id);
+      } catch {
+        toastStore.loadFailed('排行榜歌曲');
+      }
     }
+  } catch {
+    ranks.value = [];
+    toastStore.loadFailed('排行榜');
   } finally {
     loadingRanks.value = false;
   }
@@ -191,6 +208,9 @@ const loadRankSongs = async (rankId: number) => {
     const payload = res?.data?.list || res?.data?.info || res?.data?.songlist || res?.data || res;
     const list = Array.isArray(payload) ? payload : [];
     songs.value = list.map((item) => mapRankSong(item));
+  } catch {
+    songs.value = [];
+    toastStore.loadFailed('排行榜歌曲');
   } finally {
     loadingSongs.value = false;
   }
@@ -199,7 +219,11 @@ const loadRankSongs = async (rankId: number) => {
 const handleRankSelect = async (rankId: number) => {
   showSelectorDialog.value = false;
   if (rankId === selectedRankId.value) return;
-  await loadRankSongs(rankId);
+  try {
+    await loadRankSongs(rankId);
+  } catch {
+    toastStore.loadFailed('排行榜歌曲');
+  }
 };
 
 onMounted(() => {

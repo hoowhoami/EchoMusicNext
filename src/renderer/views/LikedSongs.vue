@@ -4,10 +4,12 @@ import { useRouter } from 'vue-router';
 import { usePlaylistStore } from '@/stores/playlist';
 import { useUserStore } from '@/stores/user';
 import { iconHeart } from '@/icons';
+import { useToastStore } from '@/stores/toast';
 
 const router = useRouter();
 const playlistStore = usePlaylistStore();
 const userStore = useUserStore();
+const toastStore = useToastStore();
 
 const isLoggedIn = computed(() => userStore.isLoggedIn);
 
@@ -16,7 +18,11 @@ const openLikedPlaylist = async () => {
 
   let likedPlaylist = playlistStore.likedPlaylist;
   if (!likedPlaylist) {
-    await playlistStore.fetchUserPlaylists();
+    try {
+      await playlistStore.fetchUserPlaylists();
+    } catch {
+      toastStore.loadFailed('歌单');
+    }
     likedPlaylist = playlistStore.likedPlaylist;
   }
 
@@ -27,10 +33,14 @@ const openLikedPlaylist = async () => {
       ? String(likedPlaylist.listCreateListid ?? likedPlaylist.id)
       : likedPlaylist.listCreateGid || likedPlaylist.globalCollectionId || likedPlaylist.listCreateListid || likedPlaylist.id;
 
-  await router.replace({
-    name: 'playlist-detail',
-    params: { id: String(routeId) },
-  });
+  try {
+    await router.replace({
+      name: 'playlist-detail',
+      params: { id: String(routeId) },
+    });
+  } catch {
+    toastStore.navigateFailed();
+  }
 };
 
 onMounted(() => {

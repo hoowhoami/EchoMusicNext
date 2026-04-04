@@ -59,6 +59,8 @@ let powerSaveBlockerId = -1;
 let win: BrowserWindow | null = null;
 let isQuitting = false;
 
+const resolveDevWindowIcon = () => join(process.cwd(), 'build/icons/icon.png');
+
 // 监听应用准备退出
 app.on('before-quit', () => {
   isQuitting = true;
@@ -185,7 +187,7 @@ export async function createWindow() {
 
   win = new BrowserWindow({
     title: 'EchoMusic',
-    icon: join(__dirname, '../../public/favicon.ico'),
+    ...(!app.isPackaged ? { icon: resolveDevWindowIcon() } : {}),
     ...initialBounds,
     minWidth: minWidth,
     minHeight: minHeight,

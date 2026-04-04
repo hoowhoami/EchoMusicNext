@@ -1,4 +1,5 @@
 import type { RouteLocationNormalizedLoaded, Router } from 'vue-router';
+import { useToastStore } from '@/stores/toast';
 
 const readSingleQueryValue = (value: unknown): string => {
   if (Array.isArray(value)) return typeof value[0] === 'string' ? value[0].trim() : '';
@@ -18,5 +19,10 @@ export const closeTransientView = async (
   route: Pick<RouteLocationNormalizedLoaded, 'query'>,
   fallback = '/main/home',
 ): Promise<void> => {
-  await router.replace(resolveCloseTarget(route, fallback));
+  const toastStore = useToastStore();
+  try {
+    await router.replace(resolveCloseTarget(route, fallback));
+  } catch {
+    toastStore.navigateFailed();
+  }
 };

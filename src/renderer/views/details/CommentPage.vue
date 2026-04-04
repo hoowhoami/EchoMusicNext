@@ -26,6 +26,7 @@ import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
 import BackToTop from '@/components/ui/BackToTop.vue';
 import Button from '@/components/ui/Button.vue';
 import { iconX } from '@/icons';
+import { useToastStore } from '@/stores/toast';
 
 interface CommentPayload {
   hot?: Comment[];
@@ -37,6 +38,7 @@ interface CommentPayload {
 
 const route = useRoute();
 const router = useRouter();
+const toastStore = useToastStore();
 const id = route.params.id as string;
 const type = route.query.type as 'music' | 'playlist' | 'album';
 
@@ -386,6 +388,8 @@ const fetchMusicComments = async (reset = false) => {
       hasMore.value = total.value > 0 ? comments.value.length < total.value : payload.list.length >= 30;
       if (hasMore.value) page.value += 1;
     }
+  } catch {
+    toastStore.loadFailed('评论');
   } finally {
     isLoadingComments.value = false;
   }
@@ -417,6 +421,8 @@ const fetchPlaylistComments = async (reset = false) => {
       hasMore.value = total.value > 0 ? comments.value.length < total.value : payload.list.length >= 30;
       if (hasMore.value) page.value += 1;
     }
+  } catch {
+    toastStore.loadFailed('评论');
   } finally {
     isLoadingComments.value = false;
   }
@@ -448,6 +454,8 @@ const fetchAlbumComments = async (reset = false) => {
       hasMore.value = total.value > 0 ? comments.value.length < total.value : payload.list.length >= 30;
       if (hasMore.value) page.value += 1;
     }
+  } catch {
+    toastStore.loadFailed('评论');
   } finally {
     isLoadingComments.value = false;
   }
@@ -480,6 +488,8 @@ const fetchClassifyComments = async (reset = false) => {
         : payload.list.length >= 30;
       if (hasMoreClassify.value) classifyPage.value += 1;
     }
+  } catch {
+    toastStore.loadFailed('分类评论');
   } finally {
     isLoadingClassify.value = false;
   }
@@ -512,6 +522,8 @@ const fetchHotwordComments = async (reset = false) => {
         : payload.list.length >= 30;
       if (hasMoreHotword.value) hotwordPage.value += 1;
     }
+  } catch {
+    toastStore.loadFailed('热词评论');
   } finally {
     isLoadingHotword.value = false;
   }
@@ -598,6 +610,7 @@ const fetchFloorReplies = async (reset = false) => {
       }
     }
   } catch {
+    toastStore.loadFailed('楼层评论');
     floorLoadMoreMessage.value = '加载更多失败，点击重试';
   } finally {
     floorLoading.value = false;

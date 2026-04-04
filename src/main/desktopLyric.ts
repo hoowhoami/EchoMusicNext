@@ -575,7 +575,7 @@ export const ensureDesktopLyricWindow = async () => {
 
   desktopLyricWindow = new BrowserWindow({
     title: 'EchoMusic Desktop Lyric',
-    icon: join(__dirname, '../../public/favicon.ico'),
+    ...(!app.isPackaged ? { icon: join(process.cwd(), 'build/icons/icon.png') } : {}),
     width: bounds.width,
     height: bounds.height,
     x: bounds.x,

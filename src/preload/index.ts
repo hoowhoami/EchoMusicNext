@@ -49,6 +49,10 @@ contextBridge.exposeInMainWorld('electron', {
     start: () => ipcRenderer.invoke('api-server:start'),
     stop: () => ipcRenderer.send('api-server:stop'),
   },
+  tray: {
+    syncPlayback: (payload: { isPlaying?: boolean; playMode?: 'list' | 'random' | 'single' }) =>
+      ipcRenderer.send('tray:sync-playback', payload),
+  },
   desktopLyric: {
     getSnapshot: () => ipcRenderer.invoke('desktop-lyric:get-snapshot') as Promise<DesktopLyricSnapshot>,
     show: () => ipcRenderer.invoke('desktop-lyric:show') as Promise<DesktopLyricSnapshot>,

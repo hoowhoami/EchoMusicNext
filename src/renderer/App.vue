@@ -3,6 +3,7 @@ import { onMounted, watch, onUnmounted } from 'vue';
 import { RouterView } from 'vue-router';
 import { useRoute } from 'vue-router';
 import AuthExpiredDialog from '@/components/app/AuthExpiredDialog.vue';
+import ToastViewport from '@/components/app/ToastViewport.vue';
 import { usePlayerStore } from './stores/player';
 import { useSettingStore } from './stores/setting';
 import { useUserStore } from './stores/user';
@@ -22,6 +23,14 @@ const updateTheme = () => {
     settings.theme === 'dark' ||
     (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.classList.toggle('dark', isDark);
+};
+
+const syncTrayPlayback = () => {
+  if (isDesktopLyricWindow()) return;
+  window.electron?.tray?.syncPlayback({
+    isPlaying: player.isPlaying,
+    playMode: player.playMode,
+  });
 };
 
 onMounted(() => {
@@ -44,6 +53,7 @@ onMounted(() => {
   }
   if (!isDesktopLyricWindow()) {
     disposeShortcuts = initShortcutSync();
+    syncTrayPlayback();
   }
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateTheme);
 });
@@ -67,6 +77,10 @@ watch(() => settings.preventSleep, () => {
 watch(() => player.isPlaying, (isPlaying) => {
   if (isDesktopLyricWindow()) return;
   settings.syncPreventSleep(isPlaying);
+  syncTrayPlayback();
+});
+watch(() => player.playMode, () => {
+  syncTrayPlayback();
 });
 watch(
   () => [settings.autoReceiveVip, user.isLoggedIn],
@@ -94,6 +108,7 @@ watch(
     </transition>
   </RouterView>
   <AuthExpiredDialog />
+  <ToastViewport />
 </template>
 
 <style>

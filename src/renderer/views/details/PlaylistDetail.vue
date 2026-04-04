@@ -39,6 +39,7 @@ import {
   iconInfo,
 } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/playback';
+import { useToastStore } from '@/stores/toast';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -81,6 +82,7 @@ const userStore = useUserStore();
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
 const settingStore = useSettingStore();
+const toastStore = useToastStore();
 
 const isOwnerPlaylist = computed(() => {
   const meta = playlist.value;
@@ -294,32 +296,36 @@ const fetchAllPlaylistTracks = async (
   const seenIds = new Set(songs.value.map((song) => song.id));
   let page = 2;
 
-  while (songs.value.length < totalCount) {
-    const res = await getPlaylistTracks(queryId, page, pageSize);
+  try {
+    while (songs.value.length < totalCount) {
+      const res = await getPlaylistTracks(queryId, page, pageSize);
 
-    if (!res || typeof res !== 'object') break;
-    const hasStatus = 'status' in res;
-    const statusOk = hasStatus && (res as { status?: number }).status === 1;
-    const hasPayload = 'data' in res || 'info' in res;
-    if (!statusOk && !hasPayload) break;
+      if (!res || typeof res !== 'object') break;
+      const hasStatus = 'status' in res;
+      const statusOk = hasStatus && (res as { status?: number }).status === 1;
+      const hasPayload = 'data' in res || 'info' in res;
+      if (!statusOk && !hasPayload) break;
 
-    const payload =
-      'data' in res
-        ? (res as { data?: unknown }).data
-        : 'info' in res
-          ? (res as { info?: unknown }).info
-          : res;
-    const { songs: parsedSongs, filteredCount } = parsePlaylistTracks(payload ?? res);
-    playlistFilteredInvalidCount.value += filteredCount;
-    const nextSongs = parsedSongs.filter((song) => {
-      if (seenIds.has(song.id)) return false;
-      seenIds.add(song.id);
-      return true;
-    });
+      const payload =
+        'data' in res
+          ? (res as { data?: unknown }).data
+          : 'info' in res
+            ? (res as { info?: unknown }).info
+            : res;
+      const { songs: parsedSongs, filteredCount } = parsePlaylistTracks(payload ?? res);
+      playlistFilteredInvalidCount.value += filteredCount;
+      const nextSongs = parsedSongs.filter((song) => {
+        if (seenIds.has(song.id)) return false;
+        seenIds.add(song.id);
+        return true;
+      });
 
-    if (nextSongs.length === 0) break;
-    songs.value = [...songs.value, ...nextSongs];
-    page += 1;
+      if (nextSongs.length === 0) break;
+      songs.value = [...songs.value, ...nextSongs];
+      page += 1;
+    }
+  } catch {
+    toastStore.loadFailed('歌单歌曲');
   }
 };
 

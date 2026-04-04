@@ -15,6 +15,7 @@ import { useVirtualList } from '@vueuse/core';
 import { iconPlay, iconPlus, iconTrash, iconX } from '@/icons';
 import { isPlayableSong } from '@/utils/song';
 import { replaceQueueAndPlay } from '@/utils/playback';
+import { useToastStore } from '@/stores/toast';
 
 interface Props {
   open?: boolean;
@@ -35,6 +36,7 @@ const open = useVModel(props, 'open', emit, { defaultValue: false });
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
 const userStore = useUserStore();
+const toastStore = useToastStore();
 
 const selectedKeys = ref<Set<string>>(new Set());
 const showPlaylistDialog = ref(false);
@@ -127,9 +129,15 @@ const canRemoveSelected = computed(
 
 const handlePlaySelected = async () => {
   if (!canPlaySelected.value) return;
-  const played = await replaceQueueAndPlay(playlistStore, playerStore, selectedSongs.value);
-  if (played) {
-    open.value = false;
+  try {
+    const played = await replaceQueueAndPlay(playlistStore, playerStore, selectedSongs.value);
+    if (played) {
+      open.value = false;
+    } else {
+      toastStore.unavailable('当前歌曲');
+    }
+  } catch {
+    toastStore.actionFailed('播放');
   }
 };
 
@@ -138,25 +146,39 @@ const handleAddToPlaylist = async () => {
   showPlaylistDialog.value = true;
   if (playlistStore.userPlaylists.length === 0) {
     isPlaylistLoading.value = true;
-    await playlistStore.fetchUserPlaylists();
+    try {
+      await playlistStore.fetchUserPlaylists();
+    } catch {
+      toastStore.loadFailed('歌单');
+    }
     isPlaylistLoading.value = false;
   }
 };
 
 const handleSelectPlaylist = async (listId: string | number) => {
-  for (const song of selectedSongs.value) {
-    await playlistStore.addToPlaylist(String(listId), song);
+  try {
+    for (const song of selectedSongs.value) {
+      await playlistStore.addToPlaylist(String(listId), song);
+    }
+    toastStore.actionCompleted('添加到歌单');
+    showPlaylistDialog.value = false;
+    open.value = false;
+  } catch {
+    toastStore.actionFailed('添加到歌单');
   }
-  showPlaylistDialog.value = false;
-  open.value = false;
 };
 
 const handleRemoveFromPlaylist = async () => {
   if (!canRemoveSelected.value) return;
-  for (const song of selectedSongs.value) {
-    await playlistStore.removeFromPlaylist(String(props.sourceId), song);
+  try {
+    for (const song of selectedSongs.value) {
+      await playlistStore.removeFromPlaylist(String(props.sourceId), song);
+    }
+    toastStore.actionCompleted('从歌单移除');
+    open.value = false;
+  } catch {
+    toastStore.actionFailed('从歌单移除');
   }
-  open.value = false;
 };
 </script>
 

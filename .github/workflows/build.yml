@@ -1,0 +1,87 @@
+name: Build EchoMusicNext Desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            server_bin: app_macos
+            pkg_target: node18-macos-x64
+            artifact_glob: |
+              dist/EchoMusic-*.dmg
+              dist/EchoMusic-*.zip
+          - os: ubuntu-22.04
+            server_bin: app_linux
+            pkg_target: node18-linux-x64
+            artifact_glob: |
+              dist/EchoMusic-*.AppImage
+              dist/EchoMusic-*.deb
+              dist/EchoMusic-*.rpm
+              dist/EchoMusic-*.tar.gz
+          - os: windows-latest
+            server_bin: app_win.exe
+            pkg_target: node18-win-x64
+            artifact_glob: |
+              dist/EchoMusic-*-Windows-Setup-*.exe
+              dist/EchoMusic-*.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm install
+
+      - name: Build server executable
+        working-directory: server
+        shell: bash
+        run: npx pkg . -t ${{ matrix.pkg_target }} -C GZip -o bin/${{ matrix.server_bin }} --no-bytecode
+
+      - name: Build desktop app
+        shell: bash
+        run: pnpm build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: EchoMusicNext-${{ matrix.os }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ matrix.artifact_glob }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

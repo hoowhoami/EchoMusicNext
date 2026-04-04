@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { useToastStore } from './toast';
 import type { DesktopLyricSettings } from '../../shared/desktop-lyric';
 
 type OutputDeviceOption = {
@@ -172,23 +173,33 @@ export const useSettingStore = defineStore('setting', {
     },
     async hydrateDesktopLyric() {
       if (!window.electron?.desktopLyric) return;
-      const snapshot = await window.electron.desktopLyric.getSnapshot();
-      this.desktopLyric = {
-        ...DEFAULT_DESKTOP_LYRIC_SETTINGS,
-        ...snapshot.settings,
-      };
+      const toastStore = useToastStore();
+      try {
+        const snapshot = await window.electron.desktopLyric.getSnapshot();
+        this.desktopLyric = {
+          ...DEFAULT_DESKTOP_LYRIC_SETTINGS,
+          ...snapshot.settings,
+        };
+      } catch {
+        toastStore.actionFailed('同步桌面歌词状态');
+      }
     },
     async syncDesktopLyricSettings(partial?: Partial<DesktopLyricSettings>) {
       if (!window.electron?.desktopLyric) return;
+      const toastStore = useToastStore();
       const payload = {
         ...this.desktopLyric,
         ...(partial ?? {}),
       };
-      const snapshot = await window.electron.desktopLyric.updateSettings(payload);
-      this.desktopLyric = {
-        ...DEFAULT_DESKTOP_LYRIC_SETTINGS,
-        ...snapshot.settings,
-      };
+      try {
+        const snapshot = await window.electron.desktopLyric.updateSettings(payload);
+        this.desktopLyric = {
+          ...DEFAULT_DESKTOP_LYRIC_SETTINGS,
+          ...snapshot.settings,
+        };
+      } catch {
+        toastStore.actionFailed('同步桌面歌词设置');
+      }
     },
     async setDesktopLyricEnabled(enabled: boolean) {
       this.desktopLyric = {
@@ -196,13 +207,18 @@ export const useSettingStore = defineStore('setting', {
         enabled,
       };
       if (!window.electron?.desktopLyric) return;
-      const snapshot = enabled
-        ? await window.electron.desktopLyric.show()
-        : await window.electron.desktopLyric.hide();
-      this.desktopLyric = {
-        ...DEFAULT_DESKTOP_LYRIC_SETTINGS,
-        ...snapshot.settings,
-      };
+      const toastStore = useToastStore();
+      try {
+        const snapshot = enabled
+          ? await window.electron.desktopLyric.show()
+          : await window.electron.desktopLyric.hide();
+        this.desktopLyric = {
+          ...DEFAULT_DESKTOP_LYRIC_SETTINGS,
+          ...snapshot.settings,
+        };
+      } catch {
+        toastStore.actionFailed(enabled ? '开启桌面歌词' : '关闭桌面歌词');
+      }
     },
     setDesktopLyricLocal(partial: Partial<DesktopLyricSettings>) {
       this.desktopLyric = {

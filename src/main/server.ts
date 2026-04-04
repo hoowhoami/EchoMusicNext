@@ -7,6 +7,26 @@ import log from 'electron-log';
 let apiProcess: ChildProcess | null = null;
 const isDev = !app.isPackaged;
 
+const resolvePackagedServerEntry = (cwd: string) => {
+  const platformBinaryName =
+    process.platform === 'win32'
+      ? 'app_win.exe'
+      : process.platform === 'darwin'
+        ? 'app_macos'
+        : process.platform === 'linux'
+          ? 'app_linux'
+          : '';
+
+  if (!platformBinaryName) return '';
+
+  const candidates = [
+    path.join(cwd, platformBinaryName),
+    path.join(cwd, 'bin', platformBinaryName),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
+};
+
 /**
  * 启动 API 服务器
  */
@@ -47,18 +67,9 @@ export function startApiServer() {
       args = ['run', 'dev', '--', `--port=${port}`, '--platform=lite'];
     } else {
       cwd = path.join(process.resourcesPath, 'server');
-      switch (process.platform) {
-        case 'win32':
-          apiPath = path.join(cwd, 'app_win.exe');
-          break;
-        case 'darwin':
-          apiPath = path.join(cwd, 'app_macos');
-          break;
-        case 'linux':
-          apiPath = path.join(cwd, 'app_linux');
-          break;
-        default:
-          return reject(new Error(`Unsupported platform: ${process.platform}`));
+      apiPath = resolvePackagedServerEntry(cwd);
+      if (!apiPath) {
+        return reject(new Error(`Unsupported platform: ${process.platform}`));
       }
       args = [`--port=${port}`, '--platform=lite', '--host=127.0.0.1'];
     }

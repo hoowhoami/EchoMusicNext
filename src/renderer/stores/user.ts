@@ -3,6 +3,7 @@ import { claimDayVip, getUserDetail, getUserVipDetail, getVipMonthRecord, upgrad
 import type { User, UserExtendsInfo } from '@/models/user';
 import { mapUser } from '@/utils/mappers';
 import logger from '@/utils/logger';
+import { useToastStore } from './toast';
 
 export type UserInfo = User;
 
@@ -177,6 +178,7 @@ export const useUserStore = defineStore('user', {
     async autoReceiveVipIfNeeded() {
       if (!this.isLoggedIn || this.isAutoClaimingVip) return;
       this.isAutoClaimingVip = true;
+      const toastStore = useToastStore();
       try {
         if (!this.info) {
           await this.fetchUserInfo();
@@ -210,6 +212,7 @@ export const useUserStore = defineStore('user', {
         }
       } catch (error) {
         logger.warn('UserStore', 'Auto receive VIP skipped:', error);
+        toastStore.actionFailed('领取 VIP');
       } finally {
         this.isAutoClaimingVip = false;
       }

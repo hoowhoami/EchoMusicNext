@@ -44,12 +44,14 @@ const qrKey = ref<string | undefined>(undefined);
 const qrUrl = ref<string | undefined>(undefined);
 const qrStatus = ref(1); 
 const isLoadingQr = ref(false);
+const qrError = ref('');
 let isPollingQr = false;
 
 const loadQrCode = async () => {
   if (activeTab.value !== '0') return;
   isLoadingQr.value = true;
   qrUrl.value = undefined;
+  qrError.value = '';
   isPollingQr = false;
   try {
     const keyRes: any = await getLoginQrKey();
@@ -70,6 +72,8 @@ const loadQrCode = async () => {
     }
   } catch (e) {
     logger.error('Login', 'Load QR Error:', e);
+    qrError.value = '二维码加载失败，请稍后重试';
+    qrStatus.value = 0;
   } finally {
     isLoadingQr.value = false;
   }
@@ -100,6 +104,9 @@ const startCheckStatus = async () => {
       }
     } catch (e) {
       logger.error('Login', 'Check QR Status Error:', e);
+      qrError.value = '扫码状态检查失败，请稍后重试';
+      qrStatus.value = 0;
+      break;
     }
     await new Promise(resolve => setTimeout(resolve, 3000));
   }
@@ -137,10 +144,13 @@ const handleSendCode = async () => {
   smsData.error = '';
   try {
     const res: any = await sendSmsCode(mobile);
-    if (res.status === 1) startCountdown();
-    else smsData.error = res.error || '发送失败';
+    if (res.status === 1) {
+      startCountdown();
+    } else {
+      smsData.error = res.error || '发送验证码失败，请稍后重试';
+    }
   } catch (e) {
-    smsData.error = '网络错误';
+    smsData.error = '发送验证码失败，请稍后重试';
   } finally {
     smsData.isSending = false;
   }
@@ -156,10 +166,10 @@ const handleSmsLogin = async () => {
       userStore.handleLoginSuccess(res.data);
       router.push('/main/home');
     } else {
-      smsData.error = res.error || '登录失败';
+      smsData.error = res.error || '登录失败，请稍后重试';
     }
   } catch (e) {
-    smsData.error = '登录异常';
+    smsData.error = '登录失败，请稍后重试';
   } finally {
     smsData.isSending = false;
   }
@@ -170,7 +180,8 @@ const wxQr = reactive({
   url: '',
   uuid: '',
   status: 0, // 0: 等待, 1: 扫描, 2: 确认, 3: 过期
-  isLoading: false
+  isLoading: false,
+  error: ''
 });
 let isPollingWx = false;
 
@@ -179,6 +190,7 @@ const loadWxQr = async () => {
   wxQr.isLoading = true;
   wxQr.url = '';
   wxQr.status = 0;
+  wxQr.error = '';
   isPollingWx = false;
   try {
     const res: any = await createWxLogin();
@@ -194,6 +206,8 @@ const loadWxQr = async () => {
     }
   } catch (e) {
     logger.error('Login', 'Load Wx QR Error:', e);
+    wxQr.error = '微信二维码加载失败，请稍后重试';
+    wxQr.status = 3;
   } finally {
     wxQr.isLoading = false;
   }
@@ -234,6 +248,9 @@ const startCheckWxStatus = async () => {
       }
     } catch (e) {
       logger.error('Login', 'Check Wx Status Error:', e);
+      wxQr.error = '微信登录状态检查失败，请稍后重试';
+      wxQr.status = 3;
+      break;
     }
     // 如果发生异常或请求结束，等待 3 秒再次尝试
     await new Promise(resolve => setTimeout(resolve, 3000));
@@ -297,7 +314,7 @@ onUnmounted(() => {
               <div class="relative w-48 h-48 bg-white p-3.5 rounded-[28px] shadow-[0_12px_40px_rgba(0,0,0,0.06)] border border-black/[0.02]">
                   <Image :src="qrUrl" class="w-full h-full rounded-xl" />
                   <div v-if="qrStatus === 0" class="absolute inset-0 bg-white/95 rounded-2xl flex flex-col items-center justify-center space-y-4 z-30">
-                      <span class="text-[13px] font-black opacity-60">二维码已过期</span>
+                      <span class="text-[13px] font-black opacity-60">{{ qrError || '二维码已过期' }}</span>
                       <Button @click="loadQrCode" variant="ghost" size="xs" class="text-[13px] text-primary font-black hover:opacity-80">重新加载</Button>
                   </div>
                   <div v-if="qrStatus === 2" class="absolute inset-0 bg-white/98 rounded-2xl flex flex-col items-center justify-center space-y-5 z-30">
@@ -361,7 +378,7 @@ onUnmounted(() => {
               <div class="relative w-48 h-48 bg-white p-3.5 rounded-[28px] shadow-[0_12px_40px_rgba(0,0,0,0.06)] border border-black/[0.02]">
                   <Image :src="wxQr.url" class="w-full h-full rounded-xl" />
                   <div v-if="wxQr.status === 3" class="absolute inset-0 bg-white/95 rounded-2xl flex flex-col items-center justify-center space-y-4 z-30">
-                      <span class="text-[13px] font-black opacity-60">二维码已过期</span>
+                      <span class="text-[13px] font-black opacity-60">{{ wxQr.error || '二维码已过期' }}</span>
                       <Button @click="loadWxQr" variant="ghost" size="xs" class="text-[13px] text-[#07C160] font-black hover:opacity-80">重新加载</Button>
                   </div>
                   <div v-if="wxQr.status === 1" class="absolute inset-0 bg-white/98 rounded-2xl flex flex-col items-center justify-center space-y-5 z-30">

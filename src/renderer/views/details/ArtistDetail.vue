@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { getArtistDetail, getArtistSongs, getArtistAlbums, followArtist, unfollowArtist } from '@/api/artist';
 import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
 import ActionRow from '@/components/music/DetailPageActionRow.vue';
@@ -19,6 +19,8 @@ import type { Song } from '@/models/song';
 import { mapAlbumMeta, mapArtistDetailMeta, mapArtistSong } from '@/utils/mappers';
 import { usePlayerStore } from '@/stores/player';
 import { useSettingStore } from '@/stores/setting';
+import { useUserStore } from '@/stores/user';
+import { useToastStore } from '@/stores/toast';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart, iconHeartFilled } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/playback';
@@ -28,8 +30,11 @@ import { extractFirstObject, extractList } from '@/utils/extractors';
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
 const settingStore = useSettingStore();
+const userStore = useUserStore();
+const toastStore = useToastStore();
 
 const route = useRoute();
+const router = useRouter();
 const getArtistId = () => String(Array.isArray(route.params.id) ? route.params.id[0] ?? '' : route.params.id ?? '');
 
 const loading = ref(true);
@@ -41,6 +46,7 @@ const loadedSongCount = computed(() => songs.value.length);
 const loadedAlbumCount = computed(() => albums.value.length);
 const showBatchDrawer = ref(false);
 const showIntroDialog = ref(false);
+const togglingFollow = ref(false);
 
 const searchQuery = ref('');
 const songListRef = ref<{ scrollToActive?: () => void } | null>(null);
@@ -103,17 +109,21 @@ const fetchAllArtistSongs = async (totalCount: number) => {
   const seenIds = new Set(songs.value.map((song) => song.id));
   let page = 2;
 
-  while (songs.value.length < totalCount) {
-    const res = await getArtistSongs(artistId, page, pageSize, 'hot');
-    const nextSongs = extractList(res).map((item) => mapArtistSong(artistId, item));
-    const filtered = nextSongs.filter((song) => {
-      if (seenIds.has(song.id)) return false;
-      seenIds.add(song.id);
-      return true;
-    });
-    if (filtered.length === 0) break;
-    songs.value = [...songs.value, ...filtered];
-    page += 1;
+  try {
+    while (songs.value.length < totalCount) {
+      const res = await getArtistSongs(artistId, page, pageSize, 'hot');
+      const nextSongs = extractList(res).map((item) => mapArtistSong(artistId, item));
+      const filtered = nextSongs.filter((song) => {
+        if (seenIds.has(song.id)) return false;
+        seenIds.add(song.id);
+        return true;
+      });
+      if (filtered.length === 0) break;
+      songs.value = [...songs.value, ...filtered];
+      page += 1;
+    }
+  } catch {
+    toastStore.loadFailed('歌手歌曲');
   }
 };
 
@@ -161,13 +171,64 @@ watch(
   },
 );
 
-const secondaryActions = computed(() => [
-  {
-    icon: iconHeart,
-    label: '关注',
-    onTap: () => {},
-  },
-]);
+const isFollowed = computed(() => artist.value?.isFollowed === true);
+
+const isRequestSuccessful = (payload: unknown) => {
+  if (!payload || typeof payload !== 'object') return false;
+  const record = payload as Record<string, unknown>;
+  return record.status === 1 || record.code === 200 || record.error_code === 0;
+};
+
+const toggleArtistFollow = async () => {
+  if (!artist.value || togglingFollow.value) return;
+
+  if (!userStore.isLoggedIn) {
+    toastStore.loginRequired('关注歌手');
+    await router.push({ name: 'login' });
+    return;
+  }
+
+  togglingFollow.value = true;
+  const previousFollowed = artist.value.isFollowed === true;
+
+  try {
+    const response = previousFollowed
+      ? await unfollowArtist(artist.value.id)
+      : await followArtist(artist.value.id);
+
+    if (isRequestSuccessful(response)) {
+      artist.value = {
+        ...artist.value,
+        isFollowed: !previousFollowed,
+      };
+      if (previousFollowed) {
+        toastStore.actionCompleted('取消关注');
+      } else {
+        toastStore.actionSucceeded('关注');
+      }
+    } else {
+      toastStore.actionFailed(previousFollowed ? '取消关注' : '关注');
+    }
+  } catch (error) {
+    toastStore.actionFailed(previousFollowed ? '取消关注' : '关注');
+  } finally {
+    togglingFollow.value = false;
+  }
+};
+
+const secondaryActions = computed(() => {
+  if (!artist.value) return [];
+
+  return [
+    {
+      icon: isFollowed.value ? iconHeartFilled : iconHeart,
+      label: togglingFollow.value ? (isFollowed.value ? '取消中...' : '关注中...') : (isFollowed.value ? '已关注' : '关注'),
+      emphasized: isFollowed.value,
+      tone: 'favorite' as const,
+      onTap: toggleArtistFollow,
+    },
+  ];
+});
 
 const handleSongDoubleTapPlay = async (song: Song) => {
   await replaceQueueAndPlay(playlistStore, playerStore, songs.value, 0, song);
@@ -220,6 +281,14 @@ onMounted(() => {
         </template>
 
         <template #collapsed-actions>
+          <Button
+            variant="unstyled"
+            size="none"
+            @click="toggleArtistFollow"
+            class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-red-500"
+          >
+            <Icon :icon="isFollowed ? iconHeartFilled : iconHeart" width="18" height="18" />
+          </Button>
           <Button variant="unstyled" size="none" @click="handlePlayAll" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-primary">
             <Icon :icon="iconPlay" width="20" height="20" />
           </Button>

@@ -55,13 +55,21 @@
     "appId": "com.hoowhoami.echomusicnext",
     "productName": "EchoMusic",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "dist",
       "dist-electron"
     ],
     "extraResources": [
+      {
+        "from": "build/icons",
+        "to": "icons",
+        "filter": [
+          "**/*"
+        ]
+      },
       {
         "from": "server",
         "to": "server",
@@ -72,6 +80,7 @@
       }
     ],
     "mac": {
+      "icon": "build/icons/icon.icns",
       "category": "public.app-category.music",
       "target": [
         "dmg",
@@ -79,19 +88,30 @@
       ]
     },
     "win": {
+      "icon": "build/icons/icon.ico",
       "target": [
         "nsis",
-        "zip"
+        "portable"
       ]
     },
     "linux": {
+      "icon": "build/icons",
       "target": [
         "AppImage",
         "deb",
         "rpm",
         "tar.gz"
       ]
-    }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-${version}-Windows-Setup-${arch}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-macOS.${ext}"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

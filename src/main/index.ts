@@ -3,6 +3,7 @@ import { initLogger } from './logger';
 import { startApiServer, stopApiServer } from './server';
 import { registerIpcHandlers } from './ipc';
 import { createWindow, getMainWindow, restoreWindow } from './window';
+import { destroyTray, initTray } from './tray';
 
 // --- 初始化日志 ---
 initLogger();
@@ -35,6 +36,10 @@ app.whenReady().then(async () => {
   }
   // 创建主窗口
   createWindow();
+  initTray({
+    getMainWindow,
+    restoreWindow,
+  });
 });
 
 app.on('window-all-closed', () => {
@@ -59,5 +64,6 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   globalShortcut.unregisterAll();
+  destroyTray();
   stopApiServer();
 });

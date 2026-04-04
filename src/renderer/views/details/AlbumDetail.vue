@@ -32,6 +32,7 @@ import { useSettingStore } from '@/stores/setting';
 import { iconCurrentLocation, iconSearch, iconPlay, iconList, iconHeart } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/playback';
 import { useUserStore } from '@/stores/user';
+import { useToastStore } from '@/stores/toast';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -80,6 +81,7 @@ const playerStore = usePlayerStore();
 const settingStore = useSettingStore();
 const playlistStore = usePlaylistStore();
 const userStore = useUserStore();
+const toastStore = useToastStore();
 
 // 搜索和定位逻辑
 const searchQuery = ref('');
@@ -145,7 +147,11 @@ const isFavoriteAlbum = computed(() => {
 
 const toggleFavoriteAlbum = async () => {
   const meta = album.value;
-  if (!meta || !userStore.isLoggedIn) return;
+  if (!meta) return;
+  if (!userStore.isLoggedIn) {
+    toastStore.loginRequired('收藏专辑');
+    return;
+  }
 
   if (isFavoriteAlbum.value) {
     const target = playlistStore.userPlaylists.find((entry) => {
@@ -157,16 +163,30 @@ const toggleFavoriteAlbum = async () => {
     });
     const listId = target?.listid ?? target?.id;
     if (!listId) return;
-    const res = await unfavoriteAlbumApi(listId);
-    if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
-      await playlistStore.fetchUserPlaylists();
+    try {
+      const res = await unfavoriteAlbumApi(listId);
+      if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
+        await playlistStore.fetchUserPlaylists();
+        toastStore.actionCompleted('取消收藏专辑');
+      } else {
+        toastStore.actionFailed('取消收藏专辑');
+      }
+    } catch {
+      toastStore.actionFailed('取消收藏专辑');
     }
     return;
   }
 
-  const res = await favoriteAlbumApi(meta.id, meta.name, meta.singerId);
-  if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
-    await playlistStore.fetchUserPlaylists();
+  try {
+    const res = await favoriteAlbumApi(meta.id, meta.name, meta.singerId);
+    if (res && typeof res === 'object' && 'status' in res && res.status === 1) {
+      await playlistStore.fetchUserPlaylists();
+      toastStore.actionSucceeded('收藏专辑');
+    } else {
+      toastStore.actionFailed('收藏专辑');
+    }
+  } catch {
+    toastStore.actionFailed('收藏专辑');
   }
 };
 
@@ -270,6 +290,7 @@ const fetchComments = async (reset = false) => {
   } catch (e) {
     console.error('Fetch album comments error:', e);
     hasMoreComments.value = false;
+    toastStore.loadFailed('专辑评论');
   } finally {
     loadingComments.value = false;
   }
@@ -318,18 +339,22 @@ const fetchAllAlbumSongs = async (totalCount: number) => {
   const albumId = getAlbumId();
   const seenIds = new Set(songs.value.map((song) => song.id));
   let page = 2;
-  while (songs.value.length < totalCount) {
-    const res = await getAlbumSongs(albumId, page, pageSize);
-    if (!res || typeof res !== 'object' || !('status' in res) || res.status !== 1) break;
-    const nextSongs = extractList(res).map((item) => mapAlbumSong(item));
-    const filtered = nextSongs.filter((song) => {
-      if (seenIds.has(song.id)) return false;
-      seenIds.add(song.id);
-      return true;
-    });
-    if (filtered.length === 0) break;
-    songs.value = [...songs.value, ...filtered];
-    page += 1;
+  try {
+    while (songs.value.length < totalCount) {
+      const res = await getAlbumSongs(albumId, page, pageSize);
+      if (!res || typeof res !== 'object' || !('status' in res) || res.status !== 1) break;
+      const nextSongs = extractList(res).map((item) => mapAlbumSong(item));
+      const filtered = nextSongs.filter((song) => {
+        if (seenIds.has(song.id)) return false;
+        seenIds.add(song.id);
+        return true;
+      });
+      if (filtered.length === 0) break;
+      songs.value = [...songs.value, ...filtered];
+      page += 1;
+    }
+  } catch {
+    toastStore.loadFailed('专辑歌曲');
   }
 };
 

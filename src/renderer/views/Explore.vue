@@ -37,10 +37,12 @@ import { getAlbumTop } from '@/api/music';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCurrentLocation, iconSearch, iconSparkles } from '@/icons';
 import { replaceQueueAndPlay } from '@/utils/playback';
+import { useToastStore } from '@/stores/toast';
 
 const playlistStore = usePlaylistStore();
 const playerStore = usePlayerStore();
 const settingStore = useSettingStore();
+const toastStore = useToastStore();
 const recommendedPlaylists = ref<PlaylistMeta[]>([]);
 const newSongs = ref<Song[]>([]);
 const loadingPlaylists = ref(true);
@@ -224,6 +226,7 @@ const loadPlaylistCategories = async () => {
     }
   } catch (error) {
     playlistCategories.value = [];
+    toastStore.loadFailed('歌单分类');
   }
 };
 
