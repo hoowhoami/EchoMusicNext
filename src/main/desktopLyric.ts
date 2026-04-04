@@ -249,6 +249,7 @@ let desktopLyricHovering = false;
 let desktopLyricPointerState: DesktopLyricPointerState = {
   insideWindow: false,
   insideUnlockHotzone: false,
+  insideToolbarHotzone: false,
 };
 let desktopLyricHoverPollTimer: NodeJS.Timeout | null = null;
 let desktopLyricUnlockHotzoneBlockedUntil = 0;
@@ -330,6 +331,7 @@ const getCursorRelativeState = (): DesktopLyricPointerState => {
     return {
       insideWindow: false,
       insideUnlockHotzone: false,
+      insideToolbarHotzone: false,
     };
   }
 
@@ -341,7 +343,7 @@ const getCursorRelativeState = (): DesktopLyricPointerState => {
     point.y >= bounds.y &&
     point.y <= bounds.y + bounds.height;
 
-  const unlockHotzoneWidth = 92;
+  const unlockHotzoneWidth = 70;
   const unlockHotzoneHeight = 28;
   const unlockHotzoneTop = 8;
   const unlockHotzoneLeft = bounds.x + Math.round((bounds.width - unlockHotzoneWidth) / 2);
@@ -352,9 +354,22 @@ const getCursorRelativeState = (): DesktopLyricPointerState => {
     point.y >= bounds.y + unlockHotzoneTop &&
     point.y <= bounds.y + unlockHotzoneTop + unlockHotzoneHeight;
 
+  // toolbar: 6 icon btns (28px each) + 1 divider (9px) + 6 gaps (6px each) ≈ 231px, 28px tall
+  const toolbarHotzoneWidth = 232;
+  const toolbarHotzoneHeight = 28;
+  const toolbarHotzoneTop = 8;
+  const toolbarHotzoneLeft = bounds.x + Math.round((bounds.width - toolbarHotzoneWidth) / 2);
+  const insideToolbarHotzone =
+    insideWindow &&
+    point.x >= toolbarHotzoneLeft &&
+    point.x <= toolbarHotzoneLeft + toolbarHotzoneWidth &&
+    point.y >= bounds.y + toolbarHotzoneTop &&
+    point.y <= bounds.y + toolbarHotzoneTop + toolbarHotzoneHeight;
+
   return {
     insideWindow,
     insideUnlockHotzone,
+    insideToolbarHotzone,
   };
 };
 
@@ -516,7 +531,7 @@ const syncDesktopLyricHoverTracking = () => {
     clearUnlockHotzoneCooldownTimer();
     clearDesktopLyricLockPhaseTimer();
     setDesktopLyricHovering(false);
-    setDesktopLyricPointerState({ insideWindow: false, insideUnlockHotzone: false });
+    setDesktopLyricPointerState({ insideWindow: false, insideUnlockHotzone: false, insideToolbarHotzone: false });
     return;
   }
 
@@ -640,7 +655,7 @@ export const ensureDesktopLyricWindow = async () => {
     clearUnlockHotzoneCooldownTimer();
     clearDesktopLyricLockPhaseTimer();
     setDesktopLyricHovering(false);
-    setDesktopLyricPointerState({ insideWindow: false, insideUnlockHotzone: false });
+    setDesktopLyricPointerState({ insideWindow: false, insideUnlockHotzone: false, insideToolbarHotzone: false });
     setDesktopLyricLockPhase('idle');
   });
   desktopLyricWindow.on('closed', () => {
@@ -649,7 +664,7 @@ export const ensureDesktopLyricWindow = async () => {
     clearDesktopLyricLockPhaseTimer();
     desktopLyricResizeSession = null;
     desktopLyricHovering = false;
-    desktopLyricPointerState = { insideWindow: false, insideUnlockHotzone: false };
+    desktopLyricPointerState = { insideWindow: false, insideUnlockHotzone: false, insideToolbarHotzone: false };
     desktopLyricWindow = null;
     desktopLyricClosingFromFailure = false;
 

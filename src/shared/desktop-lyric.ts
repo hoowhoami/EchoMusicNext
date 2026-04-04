@@ -62,6 +62,7 @@ export type DesktopLyricLockPhase = 'idle' | 'locking' | 'unlocking';
 export type DesktopLyricPointerState = {
   insideWindow: boolean;
   insideUnlockHotzone: boolean;
+  insideToolbarHotzone: boolean;
 };
 
 export type DesktopLyricSnapshot = {

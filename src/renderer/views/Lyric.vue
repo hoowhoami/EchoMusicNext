@@ -57,17 +57,22 @@ const currentTrack = computed<Song | undefined>(() => {
 });
 
 const backgroundUrl = computed(() => getCoverUrl(currentTrack.value?.coverUrl, 900));
+const currentTrackLyricHash = computed(() =>
+  String(currentTrack.value?.hash ?? currentTrack.value?.id ?? '').trim(),
+);
 const currentIndex = computed(() => lyricStore.currentIndex);
 const hasLyrics = computed(() => lyricStore.lines.length > 0);
+const hasActiveTrack = computed(() => Boolean(currentTrack.value));
 const lyricModeLabel = computed(() => {
   if (lyricStore.lyricsMode === 'translation') return '翻译';
   if (lyricStore.lyricsMode === 'romanization') return '音译';
   return '标准';
 });
 const canToggleMode = computed(() => lyricStore.hasTranslation || lyricStore.hasRomanization);
-const emptyStateText = computed(() => {
+const emptyStateTitle = computed(() => {
+  if (!hasActiveTrack.value) return '未在播放';
   if (lyricStore.isLoading) return '歌词加载中…';
-  return lyricStore.tips || '暂无歌词';
+  return '暂无歌词';
 });
 const titleFontSize = computed(
   () =>
@@ -141,6 +146,29 @@ const toggleLyricsMode = () => {
   lyricStore.toggleLyricsMode();
 };
 
+const ensureLyricsForCurrentTrack = () => {
+  const track = currentTrack.value;
+  if (!track || lyricStore.isLoading || !playerStore.isPlaying) return;
+
+  const lyricHash = currentTrackLyricHash.value;
+  if (!lyricHash) {
+    if (!hasLyrics.value) lyricStore.clear('', '暂无歌词');
+    return;
+  }
+
+  if (lyricStore.loadedHash !== lyricHash) {
+    if (track.lyric) {
+      lyricStore.setLyric(track.lyric, lyricHash);
+    } else if (!hasLyrics.value) {
+      lyricStore.clear(lyricHash, '歌词加载中...');
+    }
+  }
+
+  void lyricStore.fetchLyrics(lyricHash, {
+    preserveCurrent: Boolean(track.lyric),
+  });
+};
+
 watch(
   () => lyricStore.currentIndex,
   async (index, previous) => {
@@ -160,11 +188,17 @@ watch(
 );
 
 watch(
-  () => currentTrack.value?.id,
-  async () => {
-    await nextTick();
-    scrollToCurrentLine(false);
+  () => [currentTrack.value?.id, playerStore.isPlaying],
+  async ([id, isPlaying]) => {
+    if (isPlaying) {
+      ensureLyricsForCurrentTrack();
+    }
+    if (id) {
+      await nextTick();
+      scrollToCurrentLine(false);
+    }
   },
+  { immediate: true },
 );
 
 watch(
@@ -422,10 +456,7 @@ onUnmounted(() => {
                 <div v-else class="flex h-full items-center justify-center text-center">
                   <div class="space-y-3">
                     <p class="text-[28px] font-semibold text-black/88 dark:text-white/88">
-                      {{ lyricStore.isLoading ? '歌词加载中…' : '纯音乐，请欣赏' }}
-                    </p>
-                    <p class="text-sm font-semibold text-black/38 dark:text-white/38">
-                      {{ emptyStateText }}
+                      {{ emptyStateTitle }}
                     </p>
                   </div>
                 </div>

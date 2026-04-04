@@ -58,7 +58,11 @@ const fallbackSnapshot: DesktopLyricSnapshot = {
 };
 
 const snapshot = ref<DesktopLyricSnapshot>(fallbackSnapshot);
-const pointerState = ref<DesktopLyricPointerState>({ insideWindow: false, insideUnlockHotzone: false });
+const pointerState = ref<DesktopLyricPointerState>({
+  insideWindow: false,
+  insideUnlockHotzone: false,
+  insideToolbarHotzone: false,
+});
 const isHovering = ref(false);
 const settingsVisible = ref(false);
 const nowMs = ref(0);
@@ -149,14 +153,13 @@ const getCharProgress = (char: LyricCharacterPayload) => {
 
 const currentText = computed(() => {
   if (currentLine.value?.text?.trim()) return currentLine.value.text.trim();
-  return playback.value?.title || '桌面歌词';
+  return playback.value?.title || 'EchoMusic';
 });
 
 const nextText = computed(() => {
   if (nextLine.value?.text?.trim()) return nextLine.value.text.trim();
-  return playback.value?.artist || 'EchoMusic';
+  return playback.value?.artist || '听你想听';
 });
-
 
 const currentShouldScroll = computed(() => currentLineOverflow.value > 6);
 const nextShouldScroll = computed(() => false);
@@ -176,7 +179,10 @@ const measureLineOverflow = (viewport: HTMLElement | null, content: HTMLElement 
 };
 
 const measureOverflow = () => {
-  currentLineOverflow.value = measureLineOverflow(currentLineViewportRef.value, currentLineContentRef.value);
+  currentLineOverflow.value = measureLineOverflow(
+    currentLineViewportRef.value,
+    currentLineContentRef.value,
+  );
   nextLineOverflow.value = measureLineOverflow(nextLineViewportRef.value, nextLineContentRef.value);
 };
 
@@ -190,13 +196,15 @@ const requestMeasure = () => {
 
 const currentChars = computed(() => {
   if (currentLine.value?.characters?.length) return currentLine.value.characters;
-  return Array.from(currentText.value).map((char, index) => ({
-    text: char,
-    startTime: index * 70,
-    endTime: (index + 1) * 70,
-  }));
+  if (currentLine.value?.text?.trim()) {
+    return Array.from(currentLine.value.text.trim()).map((char, index) => ({
+      text: char,
+      startTime: index * 70,
+      endTime: (index + 1) * 70,
+    }));
+  }
+  return null;
 });
-
 
 watch(
   [
@@ -345,18 +353,24 @@ onUnmounted(() => {
       <div class="qq-hit-area"></div>
       <div class="qq-background" :class="{ visible: showChrome }"></div>
 
-      <div v-if="snapshot.settings.locked" class="qq-lock-state no-drag" :class="{ visible: showUnlockChip }">
-        <Button variant="unstyled" size="none" class="qq-unlock-chip" title="解锁桌面歌词" @click="toggleLock">
+      <div
+        v-if="snapshot.settings.locked"
+        class="qq-lock-state no-drag"
+        :class="{ visible: showUnlockChip }"
+      >
+        <Button
+          variant="unstyled"
+          size="none"
+          class="qq-unlock-chip"
+          title="解锁桌面歌词"
+          @click="toggleLock"
+        >
           <Icon :icon="iconLockOpen" width="14" height="14" />
           <span>解锁</span>
         </Button>
       </div>
 
-      <div
-        v-else
-        class="qq-toolbar no-drag"
-        :class="{ visible: showChrome || settingsVisible }"
-      >
+      <div v-else class="qq-toolbar no-drag" :class="{ visible: showChrome || settingsVisible }">
         <div class="qq-toolbar-main">
           <Button variant="unstyled" size="none" class="qq-icon-btn" @click="playPrevious">
             <Icon :icon="iconStepBack" width="16" height="16" />
@@ -368,7 +382,13 @@ onUnmounted(() => {
             <Icon :icon="iconStepForward" width="16" height="16" />
           </Button>
           <span class="qq-toolbar-divider"></span>
-          <Button variant="unstyled" size="none" class="qq-icon-btn" title="锁定桌面歌词" @click="toggleLock">
+          <Button
+            variant="unstyled"
+            size="none"
+            class="qq-icon-btn"
+            title="锁定桌面歌词"
+            @click="toggleLock"
+          >
             <Icon :icon="iconLock" width="16" height="16" />
           </Button>
           <Button variant="unstyled" size="none" class="qq-icon-btn" @click="toggleSettings">
@@ -380,10 +400,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div
-        v-if="settingsVisible && !snapshot.settings.locked"
-        class="qq-settings-popover no-drag"
-      >
+      <div v-if="settingsVisible && !snapshot.settings.locked" class="qq-settings-popover no-drag">
         <div class="qq-settings-grid">
           <div class="qq-field">
             <span class="qq-field-label">对齐</span>
@@ -407,7 +424,9 @@ onUnmounted(() => {
               class="qq-color-input"
               type="color"
               :value="snapshot.settings.playedColor"
-              @input="syncSettings({ playedColor: String(($event.target as HTMLInputElement).value) })"
+              @input="
+                syncSettings({ playedColor: String(($event.target as HTMLInputElement).value) })
+              "
             />
           </div>
           <div class="qq-field qq-color-field">
@@ -416,7 +435,9 @@ onUnmounted(() => {
               class="qq-color-input"
               type="color"
               :value="snapshot.settings.unplayedColor"
-              @input="syncSettings({ unplayedColor: String(($event.target as HTMLInputElement).value) })"
+              @input="
+                syncSettings({ unplayedColor: String(($event.target as HTMLInputElement).value) })
+              "
             />
           </div>
         </div>
@@ -438,22 +459,35 @@ onUnmounted(() => {
                 class="qq-lyric-line-content"
                 :style="getScrollStyle(currentLineOverflow)"
               >
-                <span
-                  v-for="(char, index) in currentChars"
-                  :key="`${currentText}-${index}-${char.startTime}`"
-                  class="qq-char"
-                  :style="{
-                    color:
-                      getCharProgress(char) >= 1
-                        ? snapshot.settings.playedColor
-                        : snapshot.settings.unplayedColor,
-                    WebkitTextStroke: snapshot.settings.strokeEnabled
-                      ? `1px ${snapshot.settings.strokeColor}`
-                      : '0 transparent',
-                  }"
-                >
-                  {{ char.text }}
-                </span>
+                <template v-if="currentChars">
+                  <span
+                    v-for="(char, index) in currentChars"
+                    :key="`${currentText}-${index}-${char.startTime}`"
+                    class="qq-char"
+                    :style="{
+                      color:
+                        getCharProgress(char) >= 1
+                          ? snapshot.settings.playedColor
+                          : snapshot.settings.unplayedColor,
+                      WebkitTextStroke: snapshot.settings.strokeEnabled
+                        ? `1px ${snapshot.settings.strokeColor}`
+                        : '0 transparent',
+                    }"
+                  >
+                    {{ char.text }}
+                  </span>
+                </template>
+                <template v-else>
+                  <span
+                    class="qq-char"
+                    :style="{
+                      color: snapshot.settings.unplayedColor,
+                      WebkitTextStroke: snapshot.settings.strokeEnabled
+                        ? `1px ${snapshot.settings.strokeColor}`
+                        : '0 transparent',
+                    }"
+                  >{{ currentText }}</span>
+                </template>
               </div>
             </div>
             <div
@@ -607,7 +641,9 @@ onUnmounted(() => {
   z-index: 3;
   opacity: 0;
   transform: translateX(-50%) translateY(-8px);
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
 }
 
 .qq-toolbar.visible,
@@ -834,7 +870,8 @@ onUnmounted(() => {
 }
 
 @keyframes qq-lyric-marquee {
-  0%, 22% {
+  0%,
+  22% {
     transform: translate3d(0, 0, 0);
   }
 
