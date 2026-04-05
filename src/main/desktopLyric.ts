@@ -43,6 +43,7 @@ const DEFAULT_DESKTOP_LYRIC_SETTINGS: DesktopLyricPersistedSettings = {
   clickThrough: true,
   autoShow: true,
   alwaysOnTop: true,
+  secondaryEnabled: false,
   theme: 'system',
   opacity: 0.92,
   scale: 1,
@@ -144,6 +145,7 @@ function getDesktopLyricSettings(): DesktopLyricSettings {
     clickThrough: Boolean(raw.clickThrough),
     autoShow: Boolean(raw.autoShow),
     alwaysOnTop: Boolean(raw.alwaysOnTop),
+    secondaryEnabled: Boolean(raw.secondaryEnabled),
     theme: raw.theme ?? 'system',
     opacity: clamp(Number(raw.opacity) || DEFAULT_DESKTOP_LYRIC_SETTINGS.opacity, 0.25, 1),
     scale: clamp(Number(raw.scale) || DEFAULT_DESKTOP_LYRIC_SETTINGS.scale, 0.75, 1.5),
@@ -354,8 +356,8 @@ const getCursorRelativeState = (): DesktopLyricPointerState => {
     point.y >= bounds.y + unlockHotzoneTop &&
     point.y <= bounds.y + unlockHotzoneTop + unlockHotzoneHeight;
 
-  // toolbar: 6 icon btns (28px each) + 1 divider (9px) + 6 gaps (6px each) ≈ 231px, 28px tall
-  const toolbarHotzoneWidth = 232;
+  // toolbar: 3 控制按钮 + 分割线 + 2 文本按钮 + 2 控制按钮，保守放宽热区
+  const toolbarHotzoneWidth = 428;
   const toolbarHotzoneHeight = 28;
   const toolbarHotzoneTop = 8;
   const toolbarHotzoneLeft = bounds.x + Math.round((bounds.width - toolbarHotzoneWidth) / 2);
@@ -939,7 +941,7 @@ export const registerDesktopLyricHandlers = () => {
 
   ipcMain.on(
     'desktop-lyric:command',
-    (_event, command: 'togglePlayback' | 'previousTrack' | 'nextTrack') => {
+    (_event, command: 'togglePlayback' | 'previousTrack' | 'nextTrack' | 'toggleLyricsMode') => {
       const focusedMainWindow = BrowserWindow.getAllWindows().find(
         (win) => win !== desktopLyricWindow && !win.isDestroyed(),
       );

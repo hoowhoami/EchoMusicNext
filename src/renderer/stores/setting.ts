@@ -18,6 +18,7 @@ const DEFAULT_DESKTOP_LYRIC_SETTINGS: DesktopLyricSettings = {
   clickThrough: true,
   autoShow: true,
   alwaysOnTop: true,
+  secondaryEnabled: false,
   theme: 'system',
   opacity: 0.92,
   scale: 1,

@@ -309,6 +309,10 @@ const rankingSummary = computed(() => {
   return String(data?.title2 ?? '');
 });
 
+const singerComments = computed(() => hotComments.value.filter((item) => item.isStar));
+const popularComments = computed(() => hotComments.value.filter((item) => item.isHot && !item.isStar));
+const hasFeaturedComments = computed(() => singerComments.value.length > 0 || popularComments.value.length > 0);
+
 const buildPayload = (data: unknown): CommentPayload => {
   const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
   const payload = (record.data as Record<string, unknown>) || record;
@@ -810,12 +814,14 @@ watch(total, (value) => {
                 <div v-if="rankingSummary" class="detail-summary">• {{ rankingSummary }}</div>
                 <div v-if="rankingInfo.length" class="ranking-list">
                   <div v-for="(rank, index) in rankingInfo" :key="index" class="ranking-card">
-                    <div class="ranking-title">{{ rank.platform_name || '未知平台' }}</div>
+                    <div class="ranking-card-header">
+                      <div class="ranking-title">{{ rank.platform_name || '未知平台' }}</div>
+                      <div class="ranking-rank">第 {{ rank.ranking_num || 0 }} 名</div>
+                    </div>
                     <div class="ranking-meta">
                       <span>累计上榜：{{ rank.ranking_times || 0 }}次</span>
                       <span>最近上榜：{{ rank.last_time || '未知' }}</span>
                     </div>
-                    <div class="ranking-rank">第 {{ rank.ranking_num || 0 }} 名</div>
                   </div>
                 </div>
               </div>
@@ -834,16 +840,24 @@ watch(total, (value) => {
 
               <template v-if="activeCommentTab === 'hot'">
                 <div class="comment-list-wrap">
-                  <div v-if="hotComments.some((item) => item.isStar)" class="comment-section-title">歌手说</div>
+                  <div v-if="singerComments.length" class="comment-section-title">歌手说</div>
                   <CommentList
-                    :comments="hotComments.filter((item) => item.isStar)"
+                    :comments="singerComments"
+                    :loading="isLoadingComments"
+                    :onTapReplies="openFloor"
+                    compact
+                    hide-empty
+                  />
+                  <div v-if="popularComments.length" class="comment-section-title">热门评论</div>
+                  <CommentList
+                    :comments="popularComments"
                     :loading="isLoadingComments"
                     :onTapReplies="openFloor"
                     compact
                     hide-empty
                   />
                   <div
-                    v-if="!isLoadingComments && !hotComments.some((item) => item.isStar || item.isHot)"
+                    v-if="!isLoadingComments && !hasFeaturedComments"
                     class="comment-only-empty"
                   >
                     暂无评论
@@ -1260,10 +1274,18 @@ watch(total, (value) => {
   gap: 8px;
 }
 
+.ranking-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .ranking-title {
   font-size: 16px;
   font-weight: 700;
   color: var(--color-text-main);
+  min-width: 0;
 }
 
 .ranking-meta {
@@ -1275,9 +1297,22 @@ watch(total, (value) => {
 }
 
 .ranking-rank {
+  flex-shrink: 0;
   font-size: 18px;
   font-weight: 700;
   color: var(--color-text-main);
+  text-align: right;
+}
+
+@media (max-width: 520px) {
+  .ranking-card-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ranking-rank {
+    text-align: left;
+  }
 }
 
 .comment-detail-empty {

@@ -2,6 +2,8 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import {
+  iconChevronUpDown,
+  iconLanguage,
   iconLock,
   iconLockOpen,
   iconPlayerPlay,
@@ -24,6 +26,7 @@ const defaultSettings: DesktopLyricSettings = {
   clickThrough: true,
   autoShow: true,
   alwaysOnTop: true,
+  secondaryEnabled: false,
   theme: 'system',
   opacity: 0.92,
   scale: 1,
@@ -111,6 +114,17 @@ const currentLine = computed(() => snapshot.value.lyrics[snapshot.value.currentI
 const nextLine = computed(() => snapshot.value.lyrics[snapshot.value.currentIndex + 1] ?? null);
 const playback = computed(() => snapshot.value.playback);
 const isPlaying = computed(() => Boolean(playback.value?.isPlaying));
+const hasTranslation = computed(() => snapshot.value.lyrics.some((line) => Boolean(line.translated?.trim())));
+const hasRomanization = computed(() => snapshot.value.lyrics.some((line) => Boolean(line.romanized?.trim())));
+const canToggleSecondary = computed(() => hasTranslation.value || hasRomanization.value);
+const canCycleSecondaryMode = computed(() => hasTranslation.value && hasRomanization.value);
+const displayLabel = computed(() => {
+  if (!snapshot.value.settings.secondaryEnabled || !canToggleSecondary.value) return '原词';
+  return lyricModeLabel.value;
+});
+const lyricModeLabel = computed(() => {
+  return snapshot.value.settings.secondaryMode === 'romanization' ? '音译' : '翻译';
+});
 const justifyContent = computed(() => {
   const alignment = snapshot.value.settings.alignment;
   if (alignment === 'left') return 'flex-start';
@@ -152,7 +166,25 @@ const currentText = computed(() => {
   return playback.value?.title || 'EchoMusic';
 });
 
+const currentSecondaryText = computed(() => {
+  const line = currentLine.value;
+  if (!snapshot.value.settings.secondaryEnabled || !line) return '';
+  const romanized = line.romanized?.trim() ?? '';
+  const translated = line.translated?.trim() ?? '';
+  if (snapshot.value.settings.secondaryMode === 'romanization') return romanized || translated;
+  if (snapshot.value.settings.secondaryMode === 'translation') return translated || romanized;
+  return '';
+});
+
+const showSecondaryLine = computed(
+  () =>
+    snapshot.value.settings.secondaryEnabled
+      ? Boolean(currentSecondaryText.value)
+      : snapshot.value.settings.doubleLine,
+);
+
 const nextText = computed(() => {
+  if (snapshot.value.settings.secondaryEnabled) return currentSecondaryText.value;
   if (nextLine.value?.text?.trim()) return nextLine.value.text.trim();
   return playback.value?.artist || '听你想听';
 });
@@ -206,7 +238,9 @@ watch(
   [
     currentText,
     nextText,
+    currentSecondaryText,
     () => snapshot.value.settings.fontSize,
+    () => snapshot.value.settings.secondaryFontSize,
     () => snapshot.value.settings.doubleLine,
     () => snapshot.value.settings.bold,
   ],
@@ -218,11 +252,12 @@ watch(
 );
 
 const syncSettings = async (partial: Partial<DesktopLyricSettings>) => {
-  if (!window.electron?.desktopLyric) return;
+  if (!window.electron?.desktopLyric) return snapshot.value;
   snapshot.value = await window.electron.desktopLyric.updateSettings({
     ...snapshot.value.settings,
     ...partial,
   });
+  return snapshot.value;
 };
 
 const setHoverState = (hovering: boolean) => {
@@ -270,6 +305,27 @@ const playPrevious = () => {
 
 const playNext = () => {
   window.electron?.desktopLyric?.command('nextTrack');
+};
+
+const toggleSecondary = async () => {
+  if (!canToggleSecondary.value) return;
+  snapshot.value = await syncSettings({
+    secondaryEnabled: !snapshot.value.settings.secondaryEnabled,
+    secondaryMode:
+      snapshot.value.settings.secondaryMode === 'none'
+        ? hasRomanization.value
+          ? 'romanization'
+          : 'translation'
+        : snapshot.value.settings.secondaryMode,
+  });
+};
+
+const cycleSecondaryMode = async () => {
+  if (!canCycleSecondaryMode.value) return;
+  snapshot.value = await syncSettings({
+    secondaryMode:
+      snapshot.value.settings.secondaryMode === 'translation' ? 'romanization' : 'translation',
+  });
 };
 
 const tick = () => {
@@ -373,6 +429,30 @@ onUnmounted(() => {
             <Icon :icon="iconStepForward" width="16" height="16" />
           </Button>
           <span class="qq-toolbar-divider"></span>
+          <div class="qq-mode-group">
+            <Button
+              variant="unstyled"
+              size="none"
+              class="qq-icon-btn qq-toggle-btn"
+              :class="{ 'is-active': snapshot.settings.secondaryEnabled }"
+              :disabled="!canToggleSecondary"
+              title="歌词显示模式"
+              @click="toggleSecondary"
+            >
+              <Icon :icon="iconLanguage" width="16" height="16" />
+              <span class="qq-mode-label">{{ displayLabel }}</span>
+            </Button>
+            <Button
+              variant="unstyled"
+              size="none"
+              class="qq-icon-btn qq-mode-switch"
+              :disabled="!canCycleSecondaryMode"
+              :title="`切换辅文类型：${lyricModeLabel}`"
+              @click="cycleSecondaryMode"
+            >
+              <Icon :icon="iconChevronUpDown" width="16" height="16" />
+            </Button>
+          </div>
           <Button
             variant="unstyled"
             size="none"
@@ -391,7 +471,7 @@ onUnmounted(() => {
       <div class="qq-content-layout">
         <div class="qq-top-safe"></div>
         <div class="qq-lyric-stage" :style="{ justifyContent }">
-          <div class="qq-lyric-stack" :class="{ 'double-line': snapshot.settings.doubleLine }">
+          <div class="qq-lyric-stack" :class="{ 'double-line': showSecondaryLine }">
             <div
               ref="currentLineViewportRef"
               class="qq-lyric-line current"
@@ -436,10 +516,13 @@ onUnmounted(() => {
               </div>
             </div>
             <div
-              v-if="snapshot.settings.doubleLine"
+              v-if="showSecondaryLine"
               ref="nextLineViewportRef"
               class="qq-lyric-line next"
-              :class="{ 'is-scrolling': nextShouldScroll }"
+              :class="{
+                'is-secondary': Boolean(currentSecondaryText),
+                'is-scrolling': nextShouldScroll,
+              }"
               :style="{ justifyContent: nextShouldScroll ? 'flex-start' : justifyContent }"
             >
               <div
@@ -622,6 +705,64 @@ onUnmounted(() => {
   height: 28px;
 }
 
+.qq-mode-btn:disabled {
+  opacity: 0.38;
+}
+
+.qq-mode-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.qq-toggle-btn.is-active {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.qq-mode-btn,
+.qq-toggle-btn {
+  width: auto;
+  min-width: 26px;
+  padding: 0 8px;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.qq-mode-switch {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.qq-mode-label {
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dark .qq-mode-group {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dark .qq-toggle-btn.is-active {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.qq-mode-switch:hover,
+.qq-toggle-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.dark .qq-mode-switch:hover,
+.dark .qq-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
 .qq-unlock-chip {
   height: 28px;
   padding: 0 10px;
@@ -719,13 +860,21 @@ onUnmounted(() => {
 
 .qq-lyric-line.current {
   font-size: var(--qq-lyric-font-size);
-  line-height: 1.2;
+  line-height: 1.28;
+}
+
+.qq-lyric-stack:not(.double-line) .qq-lyric-line.current {
+  min-height: calc(var(--qq-lyric-font-size) * 1.46);
 }
 
 .qq-lyric-line.next {
   font-size: var(--qq-lyric-next-size);
-  line-height: 1.2;
+  line-height: 1.28;
   color: rgba(127, 127, 127, 0.9);
+}
+
+.qq-lyric-line.next.is-secondary {
+  opacity: 0.92;
 }
 
 .dark .qq-lyric-line.next {

@@ -35,6 +35,7 @@ export type DesktopLyricSettings = {
   clickThrough: boolean;
   autoShow: boolean;
   alwaysOnTop: boolean;
+  secondaryEnabled: boolean;
   theme: DesktopLyricThemeMode;
   opacity: number;
   scale: number;

@@ -86,7 +86,7 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.send('desktop-lyric:resize-update', { screenX, screenY }),
     endResize: () => ipcRenderer.send('desktop-lyric:resize-end'),
     setHover: (hovering: boolean) => ipcRenderer.send('desktop-lyric:hover', hovering),
-    command: (command: 'togglePlayback' | 'previousTrack' | 'nextTrack') =>
+    command: (command: 'togglePlayback' | 'previousTrack' | 'nextTrack' | 'toggleLyricsMode') =>
       ipcRenderer.send('desktop-lyric:command', command),
   },
   log: log.functions

@@ -1,11 +1,13 @@
 import { usePlayerStore } from '@/stores/player';
 import { usePlaylistStore } from '@/stores/playlist';
 import { useSettingStore } from '@/stores/setting';
+import { useLyricStore } from '@/stores/lyric';
 
 type ShortcutCommand =
   | 'togglePlayback'
   | 'previousTrack'
   | 'nextTrack'
+  | 'toggleLyricsMode'
   | 'volumeUp'
   | 'volumeDown'
   | 'toggleMute'
@@ -108,6 +110,7 @@ export const resolveShortcutMap = (scope: 'local' | 'global'): ShortcutMap => {
     togglePlayback: labelToAccelerator(bindings.togglePlayback ?? defaults.togglePlayback ?? ''),
     previousTrack: labelToAccelerator(bindings.previousTrack ?? defaults.previousTrack ?? ''),
     nextTrack: labelToAccelerator(bindings.nextTrack ?? defaults.nextTrack ?? ''),
+    toggleLyricsMode: '',
     volumeUp: labelToAccelerator(bindings.volumeUp ?? defaults.volumeUp ?? ''),
     volumeDown: labelToAccelerator(bindings.volumeDown ?? defaults.volumeDown ?? ''),
     toggleMute: labelToAccelerator(bindings.toggleMute ?? defaults.toggleMute ?? ''),
@@ -120,6 +123,7 @@ export const resolveShortcutMap = (scope: 'local' | 'global'): ShortcutMap => {
 export const executeShortcutCommand = (command: ShortcutCommand) => {
   const playerStore = usePlayerStore();
   const playlistStore = usePlaylistStore();
+  const lyricStore = useLyricStore();
 
   if (command === 'togglePlayback') {
     playerStore.togglePlay();
@@ -127,6 +131,8 @@ export const executeShortcutCommand = (command: ShortcutCommand) => {
     playerStore.prev();
   } else if (command === 'nextTrack') {
     playerStore.next();
+  } else if (command === 'toggleLyricsMode') {
+    lyricStore.toggleSecondaryEnabled();
   } else if (command === 'volumeUp') {
     playerStore.setVolume(playerStore.volume + 0.05);
   } else if (command === 'volumeDown') {

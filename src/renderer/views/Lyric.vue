@@ -26,6 +26,7 @@ import {
   iconChevronDown,
   iconCopy,
   iconLanguage,
+  iconChevronUpDown,
   iconPause,
   iconPlay,
   iconSkipBack,
@@ -63,12 +64,14 @@ const currentTrackLyricHash = computed(() =>
 const currentIndex = computed(() => lyricStore.currentIndex);
 const hasLyrics = computed(() => lyricStore.lines.length > 0);
 const hasActiveTrack = computed(() => Boolean(currentTrack.value));
-const lyricModeLabel = computed(() => {
-  if (lyricStore.lyricsMode === 'translation') return '翻译';
+const displayLabel = computed(() => {
+  if (!lyricStore.secondaryEnabled || !lyricStore.canShowSecondary) return '原词';
   if (lyricStore.lyricsMode === 'romanization') return '音译';
-  return '标准';
+  if (lyricStore.lyricsMode === 'translation') return '翻译';
+  return lyricStore.preferredMode === 'romanization' ? '音译' : '翻译';
 });
-const canToggleMode = computed(() => lyricStore.hasTranslation || lyricStore.hasRomanization);
+const canToggleSecondary = computed(() => lyricStore.canShowSecondary);
+const canCycleSecondaryMode = computed(() => lyricStore.hasTranslation && lyricStore.hasRomanization);
 const emptyStateTitle = computed(() => {
   if (!hasActiveTrack.value) return '未在播放';
   if (lyricStore.isLoading) return '歌词加载中…';
@@ -141,9 +144,14 @@ const copyLyrics = async () => {
   }, 1200);
 };
 
-const toggleLyricsMode = () => {
-  if (!canToggleMode.value) return;
-  lyricStore.toggleLyricsMode();
+const toggleSecondary = () => {
+  if (!canToggleSecondary.value) return;
+  lyricStore.toggleSecondaryEnabled();
+};
+
+const cycleSecondaryMode = () => {
+  if (!canCycleSecondaryMode.value) return;
+  lyricStore.cycleSecondaryMode();
 };
 
 const ensureLyricsForCurrentTrack = () => {
@@ -323,17 +331,30 @@ onUnmounted(() => {
                 </PopoverContent>
               </PopoverPortal>
             </PopoverRoot>
-            <Button
-              variant="unstyled"
-              size="none"
-              type="button"
-              class="lyric-tool-chip"
-              :disabled="!canToggleMode"
-              @click="toggleLyricsMode"
-            >
-              <Icon :icon="iconLanguage" width="14" height="14" />
-              <span>{{ lyricModeLabel }}</span>
-            </Button>
+            <div class="lyric-tool-group">
+              <Button
+                variant="unstyled"
+                size="none"
+                type="button"
+                class="lyric-tool-chip lyric-tool-chip-main"
+                :class="{ 'is-active': lyricStore.secondaryEnabled }"
+                :disabled="!canToggleSecondary"
+                @click="toggleSecondary"
+              >
+                <Icon :icon="iconLanguage" width="14" height="14" />
+                <span class="lyric-tool-chip-label" v-text="displayLabel"></span>
+              </Button>
+              <Button
+                variant="unstyled"
+                size="none"
+                type="button"
+                class="lyric-tool-chip-inline"
+                :disabled="!canCycleSecondaryMode"
+                @click.stop="cycleSecondaryMode"
+              >
+                <Icon :icon="iconChevronUpDown" width="14" height="14" />
+              </Button>
+            </div>
             <Button
               variant="unstyled"
               size="none"
@@ -428,10 +449,7 @@ onUnmounted(() => {
                           </template>
                         </span>
                         <span
-                          v-if="
-                            (lyricStore.lyricsMode === 'translation' && line.translated) ||
-                            (lyricStore.lyricsMode === 'romanization' && line.romanized)
-                          "
+                          v-if="lyricStore.lineSecondaryText(line)"
                           class="lyric-subline mt-1.5 block max-w-full truncate"
                           :style="{
                             fontSize: secondaryFontSize,
@@ -442,11 +460,7 @@ onUnmounted(() => {
                             ),
                           }"
                         >
-                          {{
-                            lyricStore.lyricsMode === 'translation'
-                              ? line.translated
-                              : line.romanized
-                          }}
+                          {{ lyricStore.lineSecondaryText(line) }}
                         </span>
                       </Button>
                     </div>
@@ -619,10 +633,93 @@ onUnmounted(() => {
   transition: all 0.2s ease;
 }
 
+.lyric-tool-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 3px;
+  height: 39.5px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 28px rgba(148, 163, 184, 0.1);
+  backdrop-filter: blur(18px);
+}
+
+.lyric-tool-chip-main {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: max-content;
+  flex-shrink: 0;
+  height: 33.5px;
+  padding: 0 16px;
+  box-shadow: none;
+  background: transparent;
+}
+
+.lyric-tool-chip-label {
+  display: inline-block;
+  min-width: 2em;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 1;
+  color: rgba(15, 23, 42, 0.88);
+}
+
+.lyric-tool-chip.is-active {
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 10px 24px rgba(148, 163, 184, 0.14);
+}
+
+.lyric-tool-chip-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 33.5px;
+  height: 33.5px;
+  margin-left: 2px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: none;
+  backdrop-filter: blur(18px);
+  opacity: 0.92;
+  transition: all 0.2s ease;
+}
+
+.lyric-tool-chip-inline:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.62);
+}
+
 .dark .lyric-tool-chip,
 .dark .lyric-icon-btn {
   background: rgba(9, 12, 18, 0.62);
   box-shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
+}
+
+.dark .lyric-tool-group {
+  background: rgba(9, 12, 18, 0.42);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.24);
+}
+
+.dark .lyric-tool-chip-inline {
+  background: rgba(14, 18, 26, 0.76);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.dark .lyric-tool-chip.is-active {
+  background: rgba(20, 27, 39, 0.94);
+}
+
+.dark .lyric-tool-chip-label {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.dark .lyric-tool-chip-inline:hover {
+  background: rgba(14, 18, 26, 0.78);
 }
 
 .dark .lyric-icon-btn:hover,

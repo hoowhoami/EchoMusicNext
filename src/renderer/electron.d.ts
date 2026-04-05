@@ -34,7 +34,7 @@ export interface IElectronAPI {
     updateResize: (screenX: number, screenY: number) => void;
     endResize: () => void;
     setHover: (hovering: boolean) => void;
-    command: (command: 'togglePlayback' | 'previousTrack' | 'nextTrack') => void;
+    command: (command: 'togglePlayback' | 'previousTrack' | 'nextTrack' | 'toggleLyricsMode') => void;
   };
   log: {
     info: (...args: unknown[]) => void;
