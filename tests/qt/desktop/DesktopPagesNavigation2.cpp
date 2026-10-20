@@ -243,6 +243,7 @@ void DesktopPagesTest::productionProfileFieldsAndMembershipDates()
                     session.shell.zoomIn();
             auto *info = visual(session.window->contentItem(), "profileMembershipInfo-super");
             QVERIFY(info && info->isVisible());
+            QVERIFY(!info->findChild<QObject *>("iconButtonToolTip"));
             auto *view = visual(session.window->contentItem(), "profileScrollView");
             QVERIFY(view);
             view->setProperty("contentY", std::max(0., view->property("contentHeight").toReal() -

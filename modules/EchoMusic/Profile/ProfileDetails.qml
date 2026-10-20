@@ -216,6 +216,9 @@ Rectangle {
                                     visible: !!member.membership
                                     glyph: "info-circle"
                                     text: qsTr("查看%1到期时间").arg(member.modelData.label)
+                                    // The anchored dates popup is this button's explanation.
+                                    // A second hover tooltip would stack on top of it.
+                                    tooltipText: ""
                                     implicitWidth: 20
                                     implicitHeight: 20
                                     padding: 3.5

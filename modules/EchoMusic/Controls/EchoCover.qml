@@ -8,6 +8,9 @@ Item {
     property url source
     property bool circular: false
     property real cornerRadius: circular ? width / 2 : Theme.mediaRadius
+    // Hide only artwork during a compositor flight; attached surfaces such as
+    // a cover shadow can keep their existing scene-graph/material ownership.
+    property real artworkOpacity: 1
     readonly property int status: cover.status
     // Public static artwork for short, frozen compositor transitions.
     readonly property Item transitionArtwork: cover.status === Image.Ready ? cover : placeholder
@@ -42,6 +45,8 @@ Item {
         id: surface
         property bool synchronous: false
         property real glyphSize: control.placeholderGlyphSize
+        property color glyphColor: control.colors.text
+        property real glyphOpacity: control.placeholderOpacity
         color: control.placeholderColor
         EchoIcon {
             // The small bundled glyph must exist on the first flight frame.
@@ -49,8 +54,8 @@ Item {
             anchors.centerIn: parent
             width: surface.glyphSize
             height: surface.glyphSize
-            opacity: control.placeholderOpacity
-            color: control.colors.text
+            opacity: surface.glyphOpacity
+            color: surface.glyphColor
             name: control.placeholderGlyph
         }
     }
@@ -58,6 +63,7 @@ Item {
         id: placeholder
         anchors.fill: parent
         radius: control.cornerRadius
+        opacity: control.artworkOpacity
     }
     Image {
         id: cover
@@ -71,6 +77,7 @@ Item {
     }
     Loader {
         objectName: "coverMaskOwner"
+        opacity: control.artworkOpacity
         anchors.fill: parent
         active: control.resourceActive && cover.status === Image.Ready
         // The effect and its texture provider share one lifetime. A pooled

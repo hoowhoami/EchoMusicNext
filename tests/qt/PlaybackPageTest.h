@@ -17,6 +17,8 @@ private slots:
     void emptyArtworkKeepsItsRadiusAcrossPageEntry();
     void firstOpenCoverFlightLandsOnItsLayout_data();
     void firstOpenCoverFlightLandsOnItsLayout();
+    void coverHandoffPreservesSurfaceAndShadow_data();
+    void coverHandoffPreservesSurfaceAndShadow();
     void clearingCurrentQueueClearsLyrics_data();
     void clearingCurrentQueueClearsLyrics();
     void lyricResourcesReleaseAcrossPageCycles();

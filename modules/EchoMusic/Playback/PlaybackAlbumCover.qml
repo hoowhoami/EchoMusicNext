@@ -95,6 +95,7 @@ EchoCover {
     }
     Loader {
         id: videoLoader
+        opacity: cover.artworkOpacity
         anchors.fill: parent
         // A closed page/default-off preference allocates no media player, video
         // sink or mask texture. Decoder objects leave with this visible surface.

@@ -960,6 +960,116 @@ void PlaybackPageTest::firstOpenCoverFlightLandsOnItsLayout()
     QVERIFY(qAbs(landing.height() - settled.height()) <= tolerance);
 }
 
+void PlaybackPageTest::coverHandoffPreservesSurfaceAndShadow_data()
+{
+    QTest::addColumn<int>("mode");
+    QTest::addColumn<qreal>("scale");
+    QTest::addColumn<bool>("withArtwork");
+    for (const int mode : {int(ThemeStore::Light), int(ThemeStore::Dark)})
+        for (const qreal scale : {1., 1.25})
+            for (const bool artwork : {false, true})
+                QTest::newRow(qPrintable(QString("%1-%2-%3").arg(mode).arg(scale).arg(artwork)))
+                    << mode << scale << artwork;
+}
+void PlaybackPageTest::coverHandoffPreservesSurfaceAndShadow()
+{
+    QFETCH(int, mode);
+    QFETCH(qreal, scale);
+    QFETCH(bool, withArtwork);
+    Session session;
+    session.theme.setMode(ThemeStore::Mode(mode));
+    session.theme.setMotionEnabled(false);
+    QVERIFY(session.create(false, "PlaybackPageHarness.qml", {{"surfaceScale", scale}}));
+    QTRY_VERIFY(!PlaybackServiceTestAccess::queueRestorePending(session.playback));
+    QTRY_VERIFY(session.page()->property("opened").toBool());
+    auto *motion = session.item("playbackPageMotion");
+    auto *cover = session.item("playbackPageCover");
+    auto *source = session.item("transitionSourceCover");
+    QVERIFY(motion && cover && source);
+    QPointer<QQuickItem> shadow = session.item("playbackCoverShadow");
+    QVERIFY(shadow);
+    if (withArtwork) {
+        QImage art(512, 512, QImage::Format_RGB32);
+        art.fill(QColor("#b6533d"));
+        const auto path = session.directory.filePath("handoff-cover.png");
+        QVERIFY(art.save(path));
+        PlaybackServiceTestAccess::cover(session.playback, QUrl::fromLocalFile(path).toString());
+        QTRY_COMPARE(source->property("status").toInt(), 1);
+        QTRY_COMPARE(cover->property("status").toInt(), 1);
+    }
+    // Keep the real page/cover/shadow on a stationary, high-contrast background.
+    QQmlComponent backgroundComponent(&session.engine);
+    backgroundComponent.setData(R"(
+        import QtQuick
+        Rectangle { anchors.fill: parent; z: -0.5; color: "#c8c8c8" }
+    )",
+                                QUrl());
+    QScopedPointer<QObject> background(backgroundComponent.create());
+    QVERIFY2(background, qPrintable(backgroundComponent.errorString()));
+    qobject_cast<QQuickItem *>(background.data())
+        ->setParentItem(session.page()->property("contentItem").value<QQuickItem *>());
+    session.theme.setMotionEnabled(true);
+    QVERIFY(QMetaObject::invokeMethod(motion, "prepare", Q_ARG(bool, true)));
+    motion->setProperty("progress", .5);
+    const auto halfway = motion->property("currentRect").toRectF();
+    const auto movingShadow =
+        shadow->mapRectToItem(motion, QRectF(0, 0, shadow->width(), shadow->height()));
+    QVERIFY(qAbs(movingShadow.x() - halfway.x()) < .01);
+    QVERIFY(qAbs(movingShadow.y() - halfway.y()) < .01);
+    QVERIFY(qAbs(movingShadow.width() - halfway.width()) < .01);
+    QVERIFY(qAbs(movingShadow.height() - halfway.height()) < .01);
+    motion->setProperty("progress", 1.);
+    motion->setProperty("hostOpacity", 1.);
+    motion->setProperty("contentOpacity", 1.);
+    motion->setProperty("contentOffset", 0.);
+    QTest::qWait(60);
+    const auto before = session.window->grabWindow();
+    QVERIFY(!before.isNull());
+    QVERIFY(QMetaObject::invokeMethod(motion, "finish"));
+    QCOMPARE(session.item("playbackCoverShadow"), shadow.data());
+    QTest::qWait(60);
+    const auto after = session.window->grabWindow();
+    QVERIFY(!after.isNull());
+    const auto bounds = cover->mapRectToScene(QRectF(0, 0, cover->width(), cover->height()));
+    const auto sample =
+        bounds.adjusted(-72 * scale, -72 * scale, 72 * scale, 96 * scale)
+            .intersected(QRectF(0, 0, session.window->width(), session.window->height()));
+    const auto dpr = before.devicePixelRatio();
+    const auto region = QRect(qRound(sample.x() * dpr), qRound(sample.y() * dpr),
+                              qRound(sample.width() * dpr), qRound(sample.height() * dpr));
+    const auto a = before.copy(region), b = after.copy(region);
+    QCOMPARE(a.size(), b.size());
+    double interiorError = 0, exteriorError = 0;
+    int interiorSamples = 0, exteriorSamples = 0;
+    for (int y = 0; y < a.height(); ++y)
+        for (int x = 0; x < a.width(); ++x) {
+            const auto p = a.pixelColor(x, y), q = b.pixelColor(x, y);
+            const double difference =
+                qAbs(p.red() - q.red()) + qAbs(p.green() - q.green()) + qAbs(p.blue() - q.blue());
+            const QPointF point(sample.x() + x / dpr, sample.y() + y / dpr);
+            if (bounds.adjusted(12, 12, -12, -12).contains(point)) {
+                interiorError += difference;
+                ++interiorSamples;
+            } else if (!bounds.adjusted(-4, -4, 4, 4).contains(point)) {
+                exteriorError += difference;
+                ++exteriorSamples;
+            }
+        }
+    interiorError /= interiorSamples * 3.;
+    exteriorError /= exteriorSamples * 3.;
+    qInfo() << "Cover handoff mean channel difference: fill" << interiorError << "surroundings"
+            << exteriorError;
+    const auto captures = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+    if (!captures.isEmpty()) {
+        QDir().mkpath(captures);
+        const auto name = QString("/handoff-%1-%2-%3").arg(mode).arg(scale).arg(withArtwork);
+        QVERIFY(a.save(captures + name + "-flight.png"));
+        QVERIFY(b.save(captures + name + "-settled.png"));
+    }
+    QVERIFY2(interiorError < 1., "Cover fill/glyph must not change on handoff");
+    QVERIFY2(exteriorError < 1., "Cover shadow must not appear suddenly on handoff");
+}
+
 void PlaybackPageTest::clearingCurrentQueueClearsLyrics_data()
 {
     QTest::addColumn<bool>("clearWhileOpen");

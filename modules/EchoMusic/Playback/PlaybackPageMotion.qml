@@ -30,6 +30,10 @@ Item {
     function bounds(item: Item): rect {
         return item.mapToItem(motion, 0, 0, item.width, item.height);
     }
+    function blendColor(from: color, to: color): color {
+        const t = cornerBlend;
+        return Qt.rgba(from.r + (to.r - from.r) * t, from.g + (to.g - from.g) * t, from.b + (to.b - from.b) * t, from.a + (to.a - from.a) * t);
+    }
     function prepare(forward: bool): void {
         const interrupted = coverFlight;
         const previous = currentRect;
@@ -88,6 +92,24 @@ Item {
             target: placeholderSnapshot.item
             property: "glyphSize"
             value: motion.smallGlyphSize + (motion.targetCover.placeholderGlyphSize - motion.smallGlyphSize) * motion.cornerBlend
+            when: placeholderSnapshot.item !== null
+        }
+        Binding {
+            target: placeholderSnapshot.item
+            property: "color"
+            value: motion.sourceCover ? motion.blendColor(motion.sourceCover.placeholderColor, motion.targetCover.placeholderColor) : motion.targetCover.placeholderColor
+            when: placeholderSnapshot.item !== null
+        }
+        Binding {
+            target: placeholderSnapshot.item
+            property: "glyphColor"
+            value: motion.sourceCover ? motion.blendColor(motion.sourceCover.colors.text, motion.targetCover.colors.text) : motion.targetCover.colors.text
+            when: placeholderSnapshot.item !== null
+        }
+        Binding {
+            target: placeholderSnapshot.item
+            property: "glyphOpacity"
+            value: motion.sourceCover ? motion.sourceCover.placeholderOpacity + (motion.targetCover.placeholderOpacity - motion.sourceCover.placeholderOpacity) * motion.cornerBlend : motion.targetCover.placeholderOpacity
             when: placeholderSnapshot.item !== null
         }
     }

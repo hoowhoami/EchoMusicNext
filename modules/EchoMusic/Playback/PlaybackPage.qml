@@ -303,7 +303,8 @@ Popup {
                 }
                 PlaybackAlbumCover {
                     id: albumCover
-                    opacity: motion.coverFlight ? 0 : motion.hostOpacity
+                    opacity: motion.hostOpacity
+                    artworkOpacity: motion.coverFlight ? 0 : 1
                     Layout.topMargin: body.narrow ? 16 : 24
                     objectName: "playbackPageCover"
                     Layout.alignment: Qt.AlignHCenter
@@ -315,13 +316,24 @@ Popup {
                     placeholderGlyphSize: 32
                     resourceActive: page.resourceActive
                     EchoSurfaceShadow {
-                        anchors.fill: parent
+                        objectName: "playbackCoverShadow"
+                        // One shadow follows the flight and remains in place
+                        // on landing, without appearing as a new final layer.
+                        x: motion.coverFlight ? motion.currentRect.x - motion.largeRect.x : 0
+                        y: motion.coverFlight ? motion.currentRect.y - motion.largeRect.y : 0
+                        width: parent.width
+                        height: parent.height
                         surface: parent
                         z: -1
-                        radius: Theme.mediaRadius
+                        opacity: motion.coverFlight ? motion.cornerBlend : 1
+                        radius: motion.coverFlight ? motion.smallRadius + (Theme.mediaRadius - motion.smallRadius) * motion.cornerBlend : Theme.mediaRadius
                         blur: 64
                         offset: Qt.vector2d(0, 24)
                         color: Qt.rgba(0, 0, 0, 0.3)
+                        transform: Scale {
+                            xScale: motion.coverFlight ? motion.currentRect.width / Math.max(1, motion.largeRect.width) : 1
+                            yScale: motion.coverFlight ? motion.currentRect.height / Math.max(1, motion.largeRect.height) : 1
+                        }
                     }
                 }
                 EchoTextTagRow {
