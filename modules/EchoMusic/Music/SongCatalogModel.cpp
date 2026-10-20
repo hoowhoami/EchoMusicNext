@@ -1,6 +1,7 @@
 #include <QQmlEngine>
 #include "SongCatalogModel.h"
 #include "SongMetadataService.h"
+#include "SongRowFacts.h"
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <algorithm>
@@ -15,75 +16,6 @@ QString baseSortText(const QString &text)
     // case- and accent-insensitive comparison rather than during every comparison.
     static const QRegularExpression marks(QStringLiteral(R"(\p{M})"));
     return text.normalized(QString::NormalizationForm_D).remove(marks);
-}
-QVariantList privilegeTags(const PlaybackTrack &t)
-{
-    QVariantList tags;
-    const auto add = [&](const QString &label, const QString &color) {
-        tags.append(QVariantMap{{"label", label}, {"color", color}});
-    };
-    const int payment = t.catalogMetadata.value("payment_type").toInt();
-    if (t.catalogPrivilege == 10 && payment == 2)
-        add(QObject::tr("付费"), "#EF4444");
-    if (t.catalogPrivilege == 10 && payment == 3)
-        add("VIP", "#F59E0B");
-    if (t.catalogPrivilege == 5 && t.catalogMetadata.value("old_copyright_code").toInt() != 1)
-        add(QObject::tr("版权"), "#8B5CF6");
-    if (t.catalogPrivilege == 40)
-        add(QObject::tr("音源"), "#6B7280");
-    return tags;
-}
-QString qualityLabel(const PlaybackTrack &t)
-{
-    const auto resources = t.catalogMetadata.value("resources").toArray();
-    const auto bits = quint64(t.catalogMetadata.value("rights")
-                                  .toObject()
-                                  .value("quality_map")
-                                  .toObject()
-                                  .value("attr0")
-                                  .toInteger());
-    const auto has = [&](const QString &quality, int bit) {
-        for (const auto &v : resources)
-            if (v.toObject()["quality"] == quality &&
-                !v.toObject().value("hash").toString().isEmpty())
-                return true;
-        return bool(bits & (quint64(1) << bit));
-    };
-    return has("high", 6)   ? QStringLiteral("Hi-Res")
-           : has("flac", 5) ? QStringLiteral("SQ")
-           : has("320", 4)  ? QStringLiteral("HQ")
-                            : QString();
-}
-// Return distinct non-effect quality labels in resource order.
-// DiscoverFlow uses the whole set; single-label controls use qualityLabel.
-QVariantList qualityTags(const PlaybackTrack &t)
-{
-    const auto resources = t.catalogMetadata.value("resources").toArray();
-    const auto labelFor = [](const QString &quality) -> QString {
-        if (quality == "high")
-            return QStringLiteral("Hi-Res");
-        if (quality == "flac")
-            return QStringLiteral("SQ");
-        if (quality == "320")
-            return QStringLiteral("HQ");
-        return {};
-    };
-    static const QSet<QString> effects{"piano",  "vocal", "accompaniment", "subwoofer", "ancient",
-                                       "surnay", "dj"};
-    QVariantList tags;
-    QSet<QString> seen;
-    for (const auto &value : resources) {
-        const auto entry = value.toObject();
-        const auto quality = entry.value("quality").toString();
-        const auto label = labelFor(quality);
-        // A quality label requires a non-empty resource hash. Size alone is insufficient.
-        if (label.isEmpty() || effects.contains(quality) || seen.contains(label) ||
-            entry.value("hash").toString().isEmpty())
-            continue;
-        seen.insert(label);
-        tags.append(label);
-    }
-    return tags;
 }
 } // namespace
 SongCatalogModel::SongCatalogModel(QObject *parent) : QAbstractListModel(parent)
@@ -205,9 +137,9 @@ SongCatalogModel::Entry SongCatalogModel::songEntry(const QJsonObject &song)
     entry.titleSort = baseSortText(entry.title.trimmed());
     entry.artistSort = baseSortText(entry.artist);
     entry.albumSort = baseSortText(entry.album);
-    entry.badges = privilegeTags(track);
-    entry.quality = qualityLabel(track);
-    entry.qualityTags = qualityTags(track);
+    entry.badges = songPrivilegeTags(track);
+    entry.quality = songQualityLabel(track);
+    entry.qualityTags = songQualityTags(track);
     entry.playable = track.catalogPrivilege != 40 &&
                      (track.catalogPrivilege != 5 ||
                       track.catalogMetadata.value("old_copyright_code").toInt() == 1);

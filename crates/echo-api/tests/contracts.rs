@@ -990,6 +990,39 @@ fn artist_songs_preserve_total_duration_authors_and_covers() {
     assert_eq!(second.page, Some(2));
     assert_eq!(second.items.len(), 100);
     assert!(second.items[0].id != first.items[0].id);
+    let facts = &first.items[4];
+    assert_eq!(facts.privilege, Some(10));
+    assert_eq!(facts.metadata.payment_type, Some(3));
+    assert_eq!(facts.metadata.old_copyright_code, Some(0));
+    assert_eq!(facts.metadata.originality_code, Some(1));
+    assert_eq!(
+        facts
+            .metadata
+            .rights
+            .as_ref()
+            .and_then(|rights| rights.quality_map.as_ref())
+            .and_then(|map| map.attr0),
+        Some(1058193524)
+    );
+    let resource = |quality: &str| {
+        facts
+            .metadata
+            .resources
+            .iter()
+            .find(|resource| resource.quality == quality)
+    };
+    assert_eq!(
+        resource("flac").and_then(|resource| resource.hash.as_deref()),
+        Some("AAF382638C9E300E1B1036F8AB0DBED2")
+    );
+    assert_eq!(
+        resource("320").and_then(|resource| resource.hash.as_deref()),
+        Some("D7A864D967A51EB5D39ED284F8BF85FC")
+    );
+    assert_eq!(
+        resource("high").and_then(|resource| resource.hash.as_deref()),
+        Some("2F4886D5826028AA763FF857AC78E8F6")
+    );
 }
 #[test]
 fn album_tracks_preserve_milliseconds_disc_position_and_authors() {
@@ -999,6 +1032,34 @@ fn album_tracks_preserve_milliseconds_disc_position_and_authors() {
     assert_eq!(first.page.items[0].song.id, "32042818");
     assert_eq!(first.page.items[0].song.duration_ms, Some(271151));
     assert_eq!(first.page.items[0].position, Some(1));
+    let facts = &first.page.items[0];
+    assert_eq!(facts.song.privilege, Some(10));
+    assert_eq!(facts.metadata.payment_type, Some(3));
+    assert_eq!(facts.metadata.old_copyright_code, Some(0));
+    assert_eq!(facts.metadata.originality_code, Some(1));
+    assert_eq!(
+        facts
+            .metadata
+            .rights
+            .as_ref()
+            .and_then(|rights| rights.quality_map.as_ref())
+            .and_then(|map| map.attr0),
+        Some(1061142645)
+    );
+    assert!(facts.metadata.resources.iter().any(|resource| {
+        resource.quality == "flac"
+            && resource
+                .hash
+                .as_deref()
+                .is_some_and(|hash| !hash.is_empty())
+    }));
+    assert!(facts.metadata.resources.iter().any(|resource| {
+        resource.quality == "320"
+            && resource
+                .hash
+                .as_deref()
+                .is_some_and(|hash| !hash.is_empty())
+    }));
     let second = album_songs::convert(&sample("album_songs/page2.json"), 2, 2).unwrap();
     assert_eq!(second.page.page, Some(2));
     assert_eq!(second.page.items[0].position, Some(3));
@@ -1915,6 +1976,66 @@ fn original_display_fact_comes_from_sampled_song_search_flag() {
             assert_eq!(song.original, wire["IsOriginal"].as_u64().map(|v| v == 1));
         }
     }
+}
+
+#[test]
+fn search_rows_keep_payment_vip_quality_resources_and_rights() {
+    let SearchResults::Songs(page) = search::convert(
+        SearchKind::Song,
+        &sample("search/song-original-label-20261016.json"),
+    )
+    .unwrap() else {
+        panic!("song kind")
+    };
+    let first = &page.items[0];
+    assert_eq!(first.privilege, Some(10));
+    assert_eq!(first.metadata.payment_type, Some(3));
+    assert_eq!(first.metadata.old_copyright_code, Some(0));
+    assert_eq!(first.metadata.originality_code, Some(1));
+    assert_eq!(
+        first
+            .metadata
+            .rights
+            .as_ref()
+            .and_then(|rights| rights.quality_map.as_ref())
+            .and_then(|map| map.attr0),
+        Some(2134884468)
+    );
+    let hash = |quality: &str| {
+        first
+            .metadata
+            .resources
+            .iter()
+            .find(|resource| resource.quality == quality)
+            .and_then(|resource| resource.hash.as_deref())
+    };
+    assert_eq!(hash("320"), Some("1B56126A8A03924F1DD066259C095CBC"));
+    assert_eq!(hash("flac"), Some("0A69169202DE95AAF24A9944CCF0730D"));
+    assert_eq!(hash("high"), Some("D667BC5EE93F201126697CB3BA745009"));
+
+    // Lyric search spells the same quality entries as nested objects.
+    let SearchResults::Lyrics(page) =
+        search::convert(SearchKind::Lyric, &sample("search/lyric.json")).unwrap()
+    else {
+        panic!("lyric kind")
+    };
+    let first = &page.items[0];
+    assert_eq!(first.song.privilege, Some(10));
+    assert_eq!(first.metadata.payment_type, Some(3));
+    assert!(first.metadata.resources.iter().any(|resource| {
+        resource.quality == "flac"
+            && resource
+                .hash
+                .as_deref()
+                .is_some_and(|hash| !hash.is_empty())
+    }));
+    assert!(first.metadata.resources.iter().any(|resource| {
+        resource.quality == "high"
+            && resource
+                .hash
+                .as_deref()
+                .is_some_and(|hash| !hash.is_empty())
+    }));
 }
 
 #[test]

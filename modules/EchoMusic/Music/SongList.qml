@@ -42,6 +42,8 @@ ListView {
     delegate: SongRow {
         id: row
         required original
+        required privilegeTags
+        required qualityLabel
         showOriginal: list.showOriginal
         width: list.width
         geometry: list.geometry

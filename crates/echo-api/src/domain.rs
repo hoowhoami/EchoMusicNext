@@ -79,6 +79,7 @@ pub struct PlaylistSummary {
 #[derive(Debug, Serialize)]
 pub struct LyricHit {
     pub song: SongSummary,
+    pub metadata: crate::domain::discovery::CatalogSongFacts,
     pub lyric_id: Option<u64>,
     pub excerpt: String,
 }
@@ -100,6 +101,7 @@ pub struct SearchSong {
     pub audio_id: Option<u64>,
     #[serde(flatten)]
     pub song: SongSummary,
+    pub metadata: crate::domain::discovery::CatalogSongFacts,
     pub original: Option<bool>,
     pub original_code: Option<u32>,
 }

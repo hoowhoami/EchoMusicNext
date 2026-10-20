@@ -94,7 +94,9 @@ public:
         DurationMs,
         Original,
         ArtistLinks,
-        AlbumId
+        AlbumId,
+        PrivilegeTags,
+        QualityLabel
     };
     explicit SearchModel(ApiClient &api, QObject *parent = nullptr);
     void attachPlayback(PlaybackService &playback);
@@ -219,6 +221,8 @@ private:
         quint64 durationMs = 0;
         PlaybackTrack track;
         bool original = false;
+        QVariantList badges;
+        QString quality;
     };
     struct Bucket
     {

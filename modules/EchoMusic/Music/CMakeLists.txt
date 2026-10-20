@@ -7,6 +7,8 @@ qt_add_qml_module(
     SharingTypes.h
     SongCatalogModel.h
     SongCatalogModel.cpp
+    SongRowFacts.h
+    SongRowFacts.cpp
     SongCatalogActions.h
     SongCatalogActions.cpp
     ArtistDirectorySliceModel.h

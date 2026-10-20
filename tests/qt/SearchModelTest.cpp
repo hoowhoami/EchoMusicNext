@@ -205,6 +205,33 @@ private slots:
         QVERIFY(!SearchModelTestAccess::suggestionTimerActive(suggestions));
         drain(api);
     }
+    void songRowsExposeVipAndQualityBadgesFromCatalogMetadata()
+    {
+        ApiClient api;
+        SearchModel model(api);
+        const auto id = SearchModelTestAccess::prepare(model, api, 1);
+        const QByteArray payload = QByteArrayLiteral(
+            R"({"kind":"songs","page":{"page":1,"page_size":30,"total":1,"items":[)"
+            R"({"id":"32100650","hash":"B3A52A7A958BF0AED0EBFBA2E9A818B7",)"
+            R"("title":"晴天","artists":[{"id":3520,"name":"周杰伦"}],)"
+            R"("album_title":"叶惠美","cover_url":"","duration_ms":269000,"privilege":10,)"
+            R"("metadata":{"payment_type":3,"old_copyright_code":0,"originality_code":1,)"
+            R"("resources":[{"quality":"flac","hash":"0A69169202DE95AAF24A9944CCF0730D"}],)"
+            R"("rights":{"quality_map":{"attr0":16}}}}]}})");
+        SearchModelTestAccess::succeed(model, id, payload);
+        QCOMPARE(model.count(), 1);
+        const auto row = model.index(0);
+        const auto tags = model.data(row, SearchModel::PrivilegeTags).toList();
+        QCOMPARE(tags.size(), 1);
+        QCOMPARE(tags.first().toMap().value("label").toString(), QStringLiteral("VIP"));
+        QCOMPARE(model.data(row, SearchModel::QualityLabel).toString(), QStringLiteral("SQ"));
+        // The page binds the proxy model, so forwarded roles must match.
+        const auto projected = model.results()->index(0, 0);
+        QCOMPARE(model.results()->data(projected, SearchModel::QualityLabel).toString(),
+                 QStringLiteral("SQ"));
+        QCOMPARE(model.results()->data(projected, SearchModel::PrivilegeTags).toList().size(), 1);
+        drain(api);
+    }
     void liveAnonymousSearchAndPagination()
     {
         if (qEnvironmentVariable("ECHO_LIVE_SEARCH") != QStringLiteral("1"))

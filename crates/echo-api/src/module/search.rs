@@ -1,8 +1,11 @@
 //! /search has six independent item models; fields do not fall back across kinds.
 use crate::{
-    domain::*,
+    domain::{discovery::CatalogSongFacts, *},
     error::ApiError,
-    util::request::{self, ApiClient, Identity},
+    util::{
+        catalog_rights::WireTrans,
+        request::{self, ApiClient, Identity},
+    },
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -84,6 +87,303 @@ fn artists(s: Vec<Singer>) -> Vec<ArtistRef> {
 fn milliseconds(s: Option<u64>) -> Option<u64> {
     s.and_then(|v| v.checked_mul(1000))
 }
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "PascalCase", default)]
+struct SearchQuality {
+    hash: String,
+    file_size: Option<u64>,
+    bit_rate: Option<u64>,
+    duration: Option<u64>,
+    ext_name: Option<String>,
+    privilege: Option<u32>,
+    pay_type: Option<u32>,
+    fail_process: Option<u32>,
+}
+#[allow(clippy::too_many_arguments)]
+fn push_quality(
+    resources: &mut Vec<crate::domain::discovery::AudioResource>,
+    quality: &str,
+    hash: String,
+    size: Option<u64>,
+    duration: Option<u64>,
+    bitrate: Option<u64>,
+    extension: Option<String>,
+    privilege: Option<u32>,
+    payment: Option<u32>,
+    failure: Option<u32>,
+) {
+    let hash = (!hash.is_empty()).then_some(hash);
+    if hash.is_none()
+        && size.is_none()
+        && duration.is_none()
+        && bitrate.is_none()
+        && extension.is_none()
+    {
+        return;
+    }
+    if resources
+        .iter()
+        .any(|resource| resource.quality == quality && resource.hash == hash)
+    {
+        return;
+    }
+    resources.push(crate::domain::discovery::AudioResource {
+        quality: quality.into(),
+        hash,
+        size_bytes: size,
+        duration_ms: milliseconds(duration),
+        bit_rate_bps: bitrate.and_then(|value| value.checked_mul(1000)),
+        extension,
+        privilege,
+        payment_type: payment,
+        failure_code: failure,
+        download_status: None,
+    });
+}
+/// Song and lyric search expose the same rights, payment and quality facts but
+/// spell the quality entries differently (flat fields vs nested objects).
+#[derive(Default, Deserialize)]
+struct SongFacts {
+    #[serde(
+        rename = "AlbumPrivilege",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    album_privilege: Option<u32>,
+    #[serde(
+        rename = "PayType",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    pay_type: Option<u32>,
+    #[serde(
+        rename = "OldCpy",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    old_cpy: Option<u32>,
+    #[serde(
+        rename = "FailProcess",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    fail_process: Option<u32>,
+    #[serde(
+        rename = "IsOriginal",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    original: Option<u32>,
+    #[serde(
+        rename = "HQFileHash",
+        default,
+        deserialize_with = "crate::util::response::text"
+    )]
+    hq_file_hash: String,
+    #[serde(
+        rename = "HQFileSize",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    hq_file_size: Option<u64>,
+    #[serde(
+        rename = "HQBitrate",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    hq_bitrate: Option<u64>,
+    #[serde(
+        rename = "HQDuration",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    hq_duration: Option<u64>,
+    #[serde(
+        rename = "HQExtName",
+        default,
+        deserialize_with = "crate::util::response::text"
+    )]
+    hq_ext_name: String,
+    #[serde(
+        rename = "HQPrivilege",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    hq_privilege: Option<u32>,
+    #[serde(
+        rename = "HQPayType",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    hq_pay_type: Option<u32>,
+    #[serde(
+        rename = "HQFailProcess",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    hq_fail_process: Option<u32>,
+    #[serde(
+        rename = "SQFileHash",
+        default,
+        deserialize_with = "crate::util::response::text"
+    )]
+    sq_file_hash: String,
+    #[serde(
+        rename = "SQFileSize",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    sq_file_size: Option<u64>,
+    #[serde(
+        rename = "SQBitrate",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    sq_bitrate: Option<u64>,
+    #[serde(
+        rename = "SQDuration",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    sq_duration: Option<u64>,
+    #[serde(
+        rename = "SQExtName",
+        default,
+        deserialize_with = "crate::util::response::text"
+    )]
+    sq_ext_name: String,
+    #[serde(
+        rename = "SQPrivilege",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    sq_privilege: Option<u32>,
+    #[serde(
+        rename = "SQPayType",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    sq_pay_type: Option<u32>,
+    #[serde(
+        rename = "SQFailProcess",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    sq_fail_process: Option<u32>,
+    #[serde(
+        rename = "ResFileHash",
+        default,
+        deserialize_with = "crate::util::response::text"
+    )]
+    res_file_hash: String,
+    #[serde(
+        rename = "ResFileSize",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    res_file_size: Option<u64>,
+    #[serde(
+        rename = "ResBitrate",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    res_bitrate: Option<u64>,
+    #[serde(
+        rename = "ResDuration",
+        default,
+        deserialize_with = "crate::util::response::optional"
+    )]
+    res_duration: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::object")]
+    trans_param: WireTrans,
+    #[serde(
+        rename = "HQ",
+        default,
+        deserialize_with = "crate::util::response::object"
+    )]
+    hq: SearchQuality,
+    #[serde(
+        rename = "SQ",
+        default,
+        deserialize_with = "crate::util::response::object"
+    )]
+    sq: SearchQuality,
+    #[serde(
+        rename = "Res",
+        default,
+        deserialize_with = "crate::util::response::object"
+    )]
+    res: SearchQuality,
+}
+impl SongFacts {
+    fn privilege(&self, fallback: Option<u32>) -> Option<u32> {
+        self.album_privilege.or(fallback)
+    }
+    fn into_metadata(self) -> CatalogSongFacts {
+        let (rights, mut resources) = match self.trans_param.convert() {
+            Ok((rights, resources)) => (Some(rights), resources),
+            Err(_) => (None, Vec::new()),
+        };
+        push_quality(
+            &mut resources,
+            "320",
+            self.hq_file_hash,
+            self.hq_file_size,
+            self.hq_duration,
+            self.hq_bitrate,
+            Some(self.hq_ext_name).filter(|value| !value.is_empty()),
+            self.hq_privilege,
+            self.hq_pay_type,
+            self.hq_fail_process,
+        );
+        push_quality(
+            &mut resources,
+            "flac",
+            self.sq_file_hash,
+            self.sq_file_size,
+            self.sq_duration,
+            self.sq_bitrate,
+            Some(self.sq_ext_name).filter(|value| !value.is_empty()),
+            self.sq_privilege,
+            self.sq_pay_type,
+            self.sq_fail_process,
+        );
+        push_quality(
+            &mut resources,
+            "high",
+            self.res_file_hash,
+            self.res_file_size,
+            self.res_duration,
+            self.res_bitrate,
+            None,
+            None,
+            None,
+            None,
+        );
+        for (quality, entry) in [("320", self.hq), ("flac", self.sq), ("high", self.res)] {
+            push_quality(
+                &mut resources,
+                quality,
+                entry.hash,
+                entry.file_size,
+                entry.duration,
+                entry.bit_rate,
+                entry.ext_name,
+                entry.privilege,
+                entry.pay_type,
+                entry.fail_process,
+            );
+        }
+        CatalogSongFacts {
+            payment_type: self.pay_type,
+            failure_code: self.fail_process,
+            old_copyright_code: self.old_cpy,
+            originality_code: self.original,
+            rights,
+            resources,
+        }
+    }
+}
 #[derive(Deserialize)]
 struct Song {
     #[serde(
@@ -119,9 +419,8 @@ struct Song {
     #[serde(rename = "Privilege")]
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     privilege: Option<u32>,
-    #[serde(rename = "IsOriginal")]
-    #[serde(default, deserialize_with = "crate::util::response::optional")]
-    original: Option<u32>,
+    #[serde(flatten)]
+    facts: SongFacts,
 }
 #[derive(Deserialize)]
 struct Album {
@@ -211,6 +510,8 @@ struct Lyric {
     #[serde(rename = "Lyric")]
     #[serde(default, deserialize_with = "crate::util::response::text")]
     excerpt: String,
+    #[serde(flatten)]
+    facts: SongFacts,
 }
 #[derive(Deserialize)]
 struct Mv {
@@ -236,10 +537,14 @@ struct Mv {
 pub fn convert(kind: SearchKind, bytes: &[u8]) -> Result<SearchResults, ApiError> {
     Ok(match kind {
         SearchKind::Song => SearchResults::Songs(page::<Song>(bytes)?.map(|s| {
+            let original = s.facts.original;
+            let facts = s.facts;
+            let privilege = facts.privilege(s.privilege);
+            let metadata = facts.into_metadata();
             Ok(SearchSong {
                 audio_id: s.audio_id,
-                original: s.original.and_then(crate::util::numeric::boolean),
-                original_code: s.original,
+                original: original.and_then(crate::util::numeric::boolean),
+                original_code: original,
                 song: SongSummary {
                     id: s.id,
                     hash: s.hash,
@@ -249,8 +554,9 @@ pub fn convert(kind: SearchKind, bytes: &[u8]) -> Result<SearchResults, ApiError
                     album_title: Some(s.album_title),
                     duration_ms: milliseconds(s.duration),
                     cover_url: cover_url(s.image),
-                    privilege: s.privilege,
+                    privilege,
                 },
+                metadata,
             })
         })?),
         SearchKind::Album => SearchResults::Albums(page::<Album>(bytes)?.map(|a| {
@@ -286,6 +592,9 @@ pub fn convert(kind: SearchKind, bytes: &[u8]) -> Result<SearchResults, ApiError
             })
         })?),
         SearchKind::Lyric => SearchResults::Lyrics(page::<Lyric>(bytes)?.map(|s| {
+            let facts = s.facts;
+            let privilege = facts.privilege(s.privilege);
+            let metadata = facts.into_metadata();
             Ok(LyricHit {
                 lyric_id: s.lyric_id,
                 excerpt: s.excerpt,
@@ -298,8 +607,9 @@ pub fn convert(kind: SearchKind, bytes: &[u8]) -> Result<SearchResults, ApiError
                     album_title: None,
                     duration_ms: milliseconds(s.duration),
                     cover_url: cover_url(s.image),
-                    privilege: s.privilege,
+                    privilege,
                 },
+                metadata,
             })
         })?),
         SearchKind::Mv => SearchResults::Mvs(page::<Mv>(bytes)?.map(|m| {

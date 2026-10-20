@@ -3,6 +3,7 @@
 #include "PlaybackService.h"
 #include "SearchResultModel.h"
 #include "SongCommands.h"
+#include "SongRowFacts.h"
 #include "StorageService.h"
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -218,16 +219,22 @@ QVariant SearchModel::data(const QModelIndex &index, int role) const
         return QVariant::fromValue(row.durationMs);
     case Original:
         return row.original;
+    case PrivilegeTags:
+        return row.badges;
+    case QualityLabel:
+        return row.quality;
     default:
         return {};
     }
 }
 QHash<int, QByteArray> SearchModel::roleNames() const
 {
-    return {{ArtistLinks, "artistLinks"},   {AlbumId, "albumId"},     {Title, "title"},
-            {ArtistText, "artistText"},     {AlbumText, "albumText"}, {CoverUrl, "coverUrl"},
-            {DurationText, "durationText"}, {ExtraText, "extraText"}, {ResourceId, "resourceId"},
-            {DurationMs, "durationMs"},     {Original, "original"}};
+    return {
+        {ArtistLinks, "artistLinks"},   {AlbumId, "albumId"},     {Title, "title"},
+        {ArtistText, "artistText"},     {AlbumText, "albumText"}, {CoverUrl, "coverUrl"},
+        {DurationText, "durationText"}, {ExtraText, "extraText"}, {ResourceId, "resourceId"},
+        {DurationMs, "durationMs"},     {Original, "original"},   {PrivilegeTags, "privilegeTags"},
+        {QualityLabel, "qualityLabel"}};
 }
 QStringList SearchModel::searchHistory() const
 {
@@ -467,7 +474,10 @@ void SearchModel::succeeded(quint64 id, const QByteArray &payload)
         switch (requestKind) {
         case Kind::Song:
         case Kind::Lyric: {
-            const auto song = requestKind == Kind::Lyric ? item.value("song").toObject() : item;
+            auto song = requestKind == Kind::Lyric ? item.value("song").toObject() : item;
+            // Lyric hits keep the song summary separate from catalog facts.
+            if (requestKind == Kind::Lyric && item.contains("metadata"))
+                song.insert("metadata", item.value("metadata"));
             row = {song.value("title").toString(),
                    artistNames(song),
                    song.value("album_title").toString(),
@@ -478,6 +488,8 @@ void SearchModel::succeeded(quint64 id, const QByteArray &payload)
                    quint64(song.value("duration_ms").toDouble())};
             row.track = PlaybackTrack::fromDomain(song);
             row.original = song.value("original").toBool();
+            row.badges = songPrivilegeTags(row.track);
+            row.quality = songQualityLabel(row.track);
             break;
         }
         case Kind::Album:

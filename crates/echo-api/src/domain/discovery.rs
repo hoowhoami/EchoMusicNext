@@ -60,6 +60,19 @@ pub struct AudioResource {
     pub failure_code: Option<u32>,
     pub download_status: Option<u32>,
 }
+
+/// Minimal catalog facts shared by song rows whose samples expose payment,
+/// quality resources and rights without the full discovery metadata bundle.
+/// Rights and resources stay available to badges, filters and queue snapshots.
+#[derive(Debug, Serialize)]
+pub struct CatalogSongFacts {
+    pub payment_type: Option<u32>,
+    pub failure_code: Option<u32>,
+    pub old_copyright_code: Option<u32>,
+    pub originality_code: Option<u32>,
+    pub rights: Option<CatalogRights>,
+    pub resources: Vec<AudioResource>,
+}
 #[derive(Debug, Serialize)]
 pub struct VideoReference {
     pub id: Option<String>,
