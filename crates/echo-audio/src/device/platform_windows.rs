@@ -2,32 +2,32 @@ use crate::device::selection::{
     device_name_matches_key, is_default_device_name, parse_device_key, select_named_output_device,
 };
 use crate::device::watcher::{
-    run_debounced_device_events, run_debounced_playback_output_events, PlaybackOutputDeviceEvent,
+    PlaybackOutputDeviceEvent, run_debounced_device_events, run_debounced_playback_output_events,
 };
 use crate::events::{AudioDevice, PlayerEvent};
 use crate::shared::AudioSampleFormat;
 use cpal::traits::{DeviceTrait, HostTrait};
-use std::ffi::{c_void, OsString};
+use std::ffi::{OsString, c_void};
 use std::mem;
 use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::slice;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, TrySendError};
+use std::sync::mpsc::{Sender, SyncSender, TrySendError, channel, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use windows::core::{implement, PCWSTR, PWSTR};
 use windows::Win32::Devices::Properties;
 use windows::Win32::Foundation::{RPC_E_CHANGED_MODE, S_FALSE, S_OK};
 use windows::Win32::Media::Audio::{
-    eRender, EDataFlow, ERole, IMMDeviceEnumerator, IMMNotificationClient,
-    IMMNotificationClient_Impl, MMDeviceEnumerator, DEVICE_STATE,
+    DEVICE_STATE, EDataFlow, ERole, IMMDeviceEnumerator, IMMNotificationClient,
+    IMMNotificationClient_Impl, MMDeviceEnumerator, eRender,
 };
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com::{
-    self, CoCreateInstance, StructuredStorage, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
+    self, CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, STGM_READ, StructuredStorage,
 };
 use windows::Win32::System::Variant::VT_LPWSTR;
+use windows::core::{PCWSTR, PWSTR, implement};
 
 // GetDevicePeriod is normally available for every WASAPI endpoint. Keep a
 // conservative fallback for broken drivers, but do not clamp a reported
@@ -793,6 +793,8 @@ fn wasapi_resolved_format(
     }
 }
 
+/// # Safety
+/// An extensible format tag must refer to a full WAVEFORMATEXTENSIBLE allocation.
 unsafe fn wasapi_resolved_format_from_wave_format(
     wave_format: &Audio::WAVEFORMATEX,
 ) -> Result<WasapiResolvedFormat, String> {
@@ -823,9 +825,12 @@ unsafe fn wasapi_resolved_format_from_wave_format(
             }
         }
         KernelStreaming::WAVE_FORMAT_EXTENSIBLE => {
-            let extensible = &*(wave_format as *const _ as *const Audio::WAVEFORMATEXTENSIBLE);
+            // SAFETY: guaranteed by the caller for this format tag.
+            let extensible =
+                unsafe { &*(wave_format as *const _ as *const Audio::WAVEFORMATEXTENSIBLE) };
             let sub_format = extensible.SubFormat;
-            let valid_bits_per_sample = extensible.Samples.wValidBitsPerSample;
+            // The tagged WASAPI format stores valid-bits in this union member.
+            let valid_bits_per_sample = unsafe { extensible.Samples.wValidBitsPerSample };
             if sub_format == Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT {
                 if bits_per_sample == 32 {
                     WasapiSampleFormat::F32

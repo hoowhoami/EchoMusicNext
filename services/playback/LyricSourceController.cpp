@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "LyricSourceController.h"
 #include <QCryptographicHash>
 #include <QJsonDocument>
@@ -134,7 +135,7 @@ qint64 LyricSourceController::selectedDuration() const
 }
 QString LyricSourceController::preferenceKey() const
 {
-    return "lyrics/sources/" +
+    return EchoMusic::SettingsKeys::Lyrics::SourcesPrefix +
            QString::fromLatin1(
                QCryptographicHash::hash(m_track.key().toUtf8(), QCryptographicHash::Sha256)
                    .toHex());

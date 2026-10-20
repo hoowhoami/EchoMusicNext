@@ -40,21 +40,21 @@ fn disabled_execution_speed(version: u32, execution_speed_flag: u32) -> PowerThr
 #[cfg(target_os = "windows")]
 mod windows_impl {
     use super::{
-        disabled_execution_speed, PowerThrottlingState,
         PROCESS_INFORMATION_PROCESS_POWER_THROTTLING, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
-        PROCESS_POWER_THROTTLING_EXECUTION_SPEED, THREAD_INFORMATION_THREAD_POWER_THROTTLING,
-        THREAD_POWER_THROTTLING_CURRENT_VERSION, THREAD_POWER_THROTTLING_EXECUTION_SPEED,
+        PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PowerThrottlingState,
+        THREAD_INFORMATION_THREAD_POWER_THROTTLING, THREAD_POWER_THROTTLING_CURRENT_VERSION,
+        THREAD_POWER_THROTTLING_EXECUTION_SPEED, disabled_execution_speed,
     };
     use std::ffi::c_void;
     use std::mem;
-    use windows::core::PCSTR;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::System::Threading::{
         self, AVRT_PRIORITY, AVRT_PRIORITY_HIGH, AVRT_PRIORITY_NORMAL,
     };
+    use windows::core::PCSTR;
 
     #[link(name = "kernel32")]
-    extern "system" {
+    unsafe extern "system" {
         fn SetProcessInformation(
             hprocess: HANDLE,
             processinformationclass: i32,
@@ -142,8 +142,8 @@ mod windows_impl {
 
 #[cfg(target_os = "windows")]
 pub use windows_impl::{
-    boost_audio_output_thread, boost_audio_producer_thread, opt_out_process_power_throttling,
-    MultimediaTask,
+    MultimediaTask, boost_audio_output_thread, boost_audio_producer_thread,
+    opt_out_process_power_throttling,
 };
 
 #[cfg(target_os = "macos")]

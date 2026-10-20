@@ -1,6 +1,6 @@
 use crate::config::SpectrumConfig;
 use crate::events::SpectrumFrame;
-use rustfft::{num_complex::Complex32, Fft, FftPlanner};
+use rustfft::{Fft, FftPlanner, num_complex::Complex32};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 

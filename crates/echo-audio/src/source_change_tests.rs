@@ -159,11 +159,13 @@ fn source_change_retains_output_session_but_drains_and_invalidates_old_audio() {
     let mut current_play = PlayTask {
         source_request_seq: LATEST_SOURCE_OPEN_REQUEST_SEQ.load(Ordering::Acquire),
     };
-    assert!(current_play
-        .compute()
-        .unwrap_err()
-        .reason
-        .contains("no audio source loaded"));
+    assert!(
+        current_play
+            .compute()
+            .unwrap_err()
+            .reason
+            .contains("no audio source loaded")
+    );
     destroy().unwrap();
 }
 

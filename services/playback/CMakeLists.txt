@@ -12,6 +12,7 @@ add_library(
     SongShareText.cpp
     AudioEffectCatalog.h
     AudioEffectCatalog.cpp
+    DspProviderRegistry_p.h
     DspProviderRegistry.h
     DspProviderRegistry.cpp
     SleepTimer.h
@@ -23,6 +24,7 @@ add_library(
     NativeBridge.cpp
     PlaybackQueueCatalog.h
     PlaybackQueueCatalog.cpp
+    PlaybackRepository_p.h
     PlaybackRepository.h
     PlaybackRepository.cpp
     AudioEngine.cpp
@@ -101,10 +103,15 @@ target_link_libraries(
            echo_sharing
            echo_library
            echo_platform
-           Qt6::Widgets
-           Qt6::Sql
            Qt6::Network
-           Qt6::Concurrent
-    PRIVATE echo_build_options echo_ffi
+    PRIVATE echo_build_options echo_ffi Qt6::Widgets Qt6::Sql Qt6::Concurrent
 )
 qt_extract_metatypes(echo_playback_service)
+
+target_link_libraries(echo_playback_service PRIVATE echo_settings_keys)
+
+target_sources(
+    echo_playback_service
+    PRIVATE PlaybackQueueController.h PlaybackQueueController.cpp PlaybackOutputController.h
+            PlaybackOutputController.cpp PlaybackSessionController.h PlaybackSessionController.cpp
+)

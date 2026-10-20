@@ -21,7 +21,9 @@ Item {
     property rect toRect
     property rect largeRect
     property real smallRadius: 0
+    property real smallGlyphSize: 0
     property Item snapshotSource: null
+    property Component snapshotPlaceholder: null
     readonly property real cornerBlend: fromBlend + (toBlend - fromBlend) * progress
     readonly property rect currentRect: Qt.rect(fromRect.x + (toRect.x - fromRect.x) * progress, fromRect.y + (toRect.y - fromRect.y) * progress, fromRect.width + (toRect.width - fromRect.width) * progress, fromRect.height + (toRect.height - fromRect.height) * progress)
     readonly property int travelDuration: !Theme.store.motionEnabled ? 0 : coverFlight ? (entering ? 460 : 360) : 400
@@ -46,10 +48,14 @@ Item {
             fromBlend = interrupted ? blend : forward ? 0 : 1;
             toBlend = forward ? 1 : 0;
             smallRadius = sourceCover.cornerRadius * largeRect.width / small.width;
-            // Freeze the displayed static artwork/placeholder, including on
-            // failure. A transition never starts another video decoder.
-            if (!interrupted)
-                snapshotSource = (forward ? sourceCover : targetCover).transitionArtwork;
+            smallGlyphSize = sourceCover.placeholderGlyphSize * small.width / sourceCover.width;
+            // Both artwork and placeholder use the same flight and corner masks.
+            // Freeze the choice across interruptions without another decoder.
+            if (!interrupted) {
+                const cover = forward ? sourceCover : targetCover;
+                snapshotSource = cover.transitionArtwork;
+                snapshotPlaceholder = cover.status === Image.Ready ? null : cover.transitionPlaceholder;
+            }
         }
         progress = 0;
         if (forward && !interrupted) {
@@ -60,9 +66,31 @@ Item {
     function finish(): void {
         coverFlight = false;
         snapshotSource = null;
+        snapshotPlaceholder = null;
     }
     visible: coverFlight
     enabled: false
+    EchoImageMetrics {
+        id: flightMetrics
+        item: motion.targetCover
+        active: motion.coverFlight
+    }
+    // Keep the placeholder at its actual animated size. The shared mask owns
+    // its corners, while the glyph travels between the bar and page sizes.
+    Loader {
+        id: placeholderSnapshot
+        objectName: "playbackCoverFlightPlaceholder"
+        active: motion.coverFlight && motion.snapshotPlaceholder !== null
+        sourceComponent: motion.snapshotPlaceholder
+        width: motion.currentRect.width
+        height: motion.currentRect.height
+        Binding {
+            target: placeholderSnapshot.item
+            property: "glyphSize"
+            value: motion.smallGlyphSize + (motion.targetCover.placeholderGlyphSize - motion.smallGlyphSize) * motion.cornerBlend
+            when: placeholderSnapshot.item !== null
+        }
+    }
     Loader {
         active: motion.coverFlight
         sourceComponent: Item {
@@ -77,9 +105,14 @@ Item {
             }
             ShaderEffectSource {
                 id: snapshot
+                objectName: "playbackCoverFlightCapture"
                 anchors.fill: parent
-                sourceItem: motion.snapshotSource
-                live: false
+                sourceItem: placeholderSnapshot.active ? (placeholderSnapshot.item as Item) : motion.snapshotSource
+                hideSource: placeholderSnapshot.active
+                // A frozen small-cover snapshot must retain destination density;
+                // otherwise its source-item geometry downsamples the loaded art.
+                textureSize: flightMetrics.pixelSize
+                live: placeholderSnapshot.active
                 visible: false
             }
             Item {
@@ -88,6 +121,7 @@ Item {
                 visible: false
                 layer.enabled: true
                 layer.smooth: true
+                layer.textureSize: flightMetrics.pixelSize
                 Rectangle {
                     anchors.fill: parent
                     radius: motion.targetCover.cornerRadius
@@ -101,6 +135,7 @@ Item {
                 visible: false
                 layer.enabled: true
                 layer.smooth: true
+                layer.textureSize: flightMetrics.pixelSize
                 Rectangle {
                     anchors.fill: parent
                     radius: motion.smallRadius

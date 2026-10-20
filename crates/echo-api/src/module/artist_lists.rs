@@ -16,14 +16,7 @@ pub struct Query {
     pub category: u32,
     pub musician: u32,
 }
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    errcode: i64,
-    data: serde_json::Value,
-}
+type Wire = crate::util::response::ErrcodeEnvelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
     #[serde(default, deserialize_with = "crate::util::response::optional")]

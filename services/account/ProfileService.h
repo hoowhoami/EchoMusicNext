@@ -173,6 +173,10 @@ public:
 signals:
     void changed();
     void notice(const QString &message, bool warning);
+    /// Editor feedback raised as a toast so the scrollable form never hides it.
+    /// tone follows EchoMusic::ToastService::Tone (0 Info, 1 Success, 2 Warning,
+    /// 3 Danger), matching the reference profile form.
+    void editNotice(const QString &message, int tone);
     void chatSent(const QString &submitted);
     void relationshipsMutated();
     void profileSaved();

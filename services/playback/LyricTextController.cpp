@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "LyricTextController.h"
 #include <QJsonDocument>
 #include <QCryptographicHash>
@@ -24,7 +25,7 @@ QString profile(const QString &mode)
 }
 QString offsetKey(const QString &track)
 {
-    return "lyrics/trackOffsets/" +
+    return EchoMusic::SettingsKeys::Lyrics::TrackOffsetsPrefix +
            QString::fromLatin1(
                QCryptographicHash::hash(track.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
@@ -33,17 +34,21 @@ LyricTextController::LyricTextController(LyricModel &model, NativeBridge &native
                                          QSettings &settings, QObject *parent)
     : QObject(parent), m_model(model), m_native(native), m_settings(settings)
 {
-    m_ruby = settings.value("lyrics/romanizationAsRuby", false).toBool();
-    m_filterEnabled = settings.value("lyrics/filterEnabled", false).toBool();
-    m_filterPattern = settings.value("lyrics/filterPattern").toString();
+    m_ruby = settings.value(EchoMusic::SettingsKeys::Lyrics::RomanizationAsRuby, false).toBool();
+    m_filterEnabled =
+        settings.value(EchoMusic::SettingsKeys::Lyrics::FilterEnabled, false).toBool();
+    m_filterPattern = settings.value(EchoMusic::SettingsKeys::Lyrics::FilterPattern).toString();
     updateFilter();
-    m_mode = settings.value("lyrics/conversion", "none").toString();
-    m_wantTranslation = settings.value("lyrics/wantTranslation", false).toBool();
-    m_wantRomanization = settings.value("lyrics/wantRomanization", false).toBool();
+    m_mode = settings.value(EchoMusic::SettingsKeys::Lyrics::Conversion, "none").toString();
+    m_wantTranslation =
+        settings.value(EchoMusic::SettingsKeys::Lyrics::WantTranslation, false).toBool();
+    m_wantRomanization =
+        settings.value(EchoMusic::SettingsKeys::Lyrics::WantRomanization, false).toBool();
     if (m_mode != "none" && profile(m_mode).isEmpty())
         m_mode = "none";
-    m_globalOffset = qBound(-20000, settings.value("lyrics/globalOffsetMs", 0).toInt(), 20000);
-    const auto step = settings.value("lyrics/offsetStep", .1).toDouble();
+    m_globalOffset = qBound(
+        -20000, settings.value(EchoMusic::SettingsKeys::Lyrics::GlobalOffsetMs, 0).toInt(), 20000);
+    const auto step = settings.value(EchoMusic::SettingsKeys::Lyrics::OffsetStep, .1).toDouble();
     m_step = std::isfinite(step) ? qBound(.1, step, 5.) : .1;
     connect(&native, &NativeBridge::completed, this, &LyricTextController::completed);
 }
@@ -75,7 +80,7 @@ void LyricTextController::setFilterEnabled(bool value)
     if (m_filterEnabled == value)
         return;
     m_filterEnabled = value;
-    m_settings.setValue("lyrics/filterEnabled", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::FilterEnabled, value);
     updateFilter();
     emit changed();
 }
@@ -84,7 +89,7 @@ void LyricTextController::setFilterPattern(const QString &value)
     if (m_filterPattern == value)
         return;
     m_filterPattern = value;
-    m_settings.setValue("lyrics/filterPattern", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::FilterPattern, value);
     updateFilter();
     emit changed();
 }
@@ -93,7 +98,7 @@ void LyricTextController::setRomanizationAsRuby(bool value)
     if (m_ruby == value)
         return;
     m_ruby = value;
-    m_settings.setValue("lyrics/romanizationAsRuby", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::RomanizationAsRuby, value);
     emit changed();
 }
 bool LyricTextController::replace(const QJsonObject &lyrics, const QString &track)
@@ -128,7 +133,7 @@ void LyricTextController::setWantTranslation(bool value)
     if (m_wantTranslation == value)
         return;
     m_wantTranslation = value;
-    m_settings.setValue("lyrics/wantTranslation", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::WantTranslation, value);
     emit changed();
 }
 void LyricTextController::setWantRomanization(bool value)
@@ -136,7 +141,7 @@ void LyricTextController::setWantRomanization(bool value)
     if (m_wantRomanization == value)
         return;
     m_wantRomanization = value;
-    m_settings.setValue("lyrics/wantRomanization", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::WantRomanization, value);
     emit changed();
 }
 void LyricTextController::setConversion(const QString &mode)
@@ -144,13 +149,13 @@ void LyricTextController::setConversion(const QString &mode)
     if (mode == m_mode || (mode != "none" && profile(mode).isEmpty()))
         return;
     m_mode = mode;
-    m_settings.setValue("lyrics/conversion", mode);
+    m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::Conversion, mode);
     apply();
 }
 void LyricTextController::setGlobalOffsetMs(int offset)
 {
     m_globalOffset = qBound(-20000, offset, 20000);
-    m_settings.setValue("lyrics/globalOffsetMs", m_globalOffset);
+    m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::GlobalOffsetMs, m_globalOffset);
     publish();
 }
 void LyricTextController::setOffsetStep(double step)
@@ -158,7 +163,7 @@ void LyricTextController::setOffsetStep(double step)
     if (!std::isfinite(step))
         return;
     m_step = qBound(.1, step, 5.);
-    m_settings.setValue("lyrics/offsetStep", m_step);
+    m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::OffsetStep, m_step);
     emit changed();
 }
 void LyricTextController::adjustTrackOffset(int direction)

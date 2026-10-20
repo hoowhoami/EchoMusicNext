@@ -2,8 +2,8 @@
 license = "GPL-3.0-only"
 name = "echo-audio-capture"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.87"
+edition.workspace = true
+rust-version.workspace = true
 
 [lib]
 crate-type = ["rlib"]
@@ -20,3 +20,6 @@ block2 = "0.6"
 dispatch2 = "0.3"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSError", "NSString"] }
+
+[lints]
+workspace = true

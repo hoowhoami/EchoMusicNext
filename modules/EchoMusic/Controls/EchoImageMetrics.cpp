@@ -19,6 +19,7 @@ void EchoImageMetrics::setItem(QQuickItem *item)
         return;
     m_item = item;
     m_pixels = {};
+    m_decodePixels = {};
     rebuild();
     emit itemChanged();
     emit metricsChanged();
@@ -28,8 +29,10 @@ void EchoImageMetrics::setActive(bool active)
     if (m_active == active)
         return;
     m_active = active;
-    if (!active)
+    if (!active) {
         m_pixels = {};
+        m_decodePixels = {};
+    }
     rebuild();
     emit activeChanged();
     emit metricsChanged();
@@ -40,9 +43,18 @@ void EchoImageMetrics::setSource(const QUrl &source)
         return;
     m_source = source;
     m_pixels = {};
+    m_decodePixels = {};
     updateSize();
     emit sourceChanged();
     emit metricsChanged();
+}
+void EchoImageMetrics::setMinimumSize(const QSizeF &size)
+{
+    if (m_minimumSize == size)
+        return;
+    m_minimumSize = size;
+    updateSize();
+    emit minimumSizeChanged();
 }
 QUrl EchoImageMetrics::resolvedSource() const
 {
@@ -50,7 +62,7 @@ QUrl EchoImageMetrics::resolvedSource() const
         return {};
     auto url = m_source;
     auto path = url.path();
-    const int needed = qMax(m_pixels.width(), m_pixels.height());
+    const int needed = qMax(m_decodePixels.width(), m_decodePixels.height());
     const int requested = needed <= 240 ? 240 : needed <= 400 ? 400 : needed <= 800 ? 800 : 1600;
     // A size placeholder explicitly grants resizing. For already-normalized
     // URLs only known Kugou artwork paths are eligible; never rewrite arbitrary
@@ -123,12 +135,17 @@ void EchoImageMetrics::updateSize()
     const auto bucket = [](qreal pixels) {
         return qIsFinite(pixels) ? qBound(32, qCeil(qMin(pixels, 1600.) / 32) * 32, 1600) : 32;
     };
-    const QSize requested(bucket(m_item->width() * std::hypot(x.x(), x.y()) * dpr),
-                          bucket(m_item->height() * std::hypot(y.x(), y.y()) * dpr));
-    const auto size = m_pixels.expandedTo(requested);
-    if (size == m_pixels)
+    const QSize display(bucket(m_item->width() * std::hypot(x.x(), x.y()) * dpr),
+                        bucket(m_item->height() * std::hypot(y.x(), y.y()) * dpr));
+    const QSize requested(
+        bucket(qMax(m_item->width(), m_minimumSize.width()) * std::hypot(x.x(), x.y()) * dpr),
+        bucket(qMax(m_item->height(), m_minimumSize.height()) * std::hypot(y.x(), y.y()) * dpr));
+    const auto size = m_pixels.expandedTo(display);
+    const auto decoded = m_decodePixels.expandedTo(requested);
+    if (size == m_pixels && decoded == m_decodePixels)
         return;
     m_pixels = size;
+    m_decodePixels = decoded;
     emit metricsChanged();
 }
 } // namespace EchoMusic

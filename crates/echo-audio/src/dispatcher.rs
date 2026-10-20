@@ -1,9 +1,9 @@
 use crate::events::PlayerEvent;
-use crate::{emit_event, with_runtime, PlayerRuntime, RuntimeCommand};
+use crate::{PlayerRuntime, RuntimeCommand, emit_event, with_runtime};
 use std::cell::Cell;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, sync_channel, RecvTimeoutError, Sender, SyncSender, TrySendError};
+use std::sync::mpsc::{RecvTimeoutError, Sender, SyncSender, TrySendError, channel, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -182,51 +182,53 @@ pub(crate) fn start_core_dispatcher() -> crate::Result<()> {
     let (sender, receiver) = channel::<CoreDispatcherMessage>();
     let handle = thread::Builder::new()
         .name("player-core-dispatcher".to_string())
-        .spawn(move || loop {
-            match receiver.recv_timeout(CORE_LOOP_TICK) {
-                Ok(CoreDispatcherMessage::Command { name, command }) => {
-                    let mut guard = crate::runtime_guard();
-                    let Some(runtime) = guard.as_mut() else {
-                        emit_event(PlayerEvent::log(
-                            "debug",
-                            format!("core command '{name}' ignored: runtime stopped"),
-                        ));
-                        continue;
-                    };
-                    CORE_DISPATCH_ACTIVE.set(true);
-                    let result = catch_unwind(AssertUnwindSafe(|| command(runtime)));
-                    CORE_DISPATCH_ACTIVE.set(false);
-                    if let Err(payload) = result {
-                        emit_event(PlayerEvent::log(
-                            "error",
-                            format!(
-                                "core command '{name}' panicked: {}",
-                                panic_payload_message(payload.as_ref())
-                            ),
-                        ));
+        .spawn(move || {
+            loop {
+                match receiver.recv_timeout(CORE_LOOP_TICK) {
+                    Ok(CoreDispatcherMessage::Command { name, command }) => {
+                        let mut guard = crate::runtime_guard();
+                        let Some(runtime) = guard.as_mut() else {
+                            emit_event(PlayerEvent::log(
+                                "debug",
+                                format!("core command '{name}' ignored: runtime stopped"),
+                            ));
+                            continue;
+                        };
+                        CORE_DISPATCH_ACTIVE.set(true);
+                        let result = catch_unwind(AssertUnwindSafe(|| command(runtime)));
+                        CORE_DISPATCH_ACTIVE.set(false);
+                        if let Err(payload) = result {
+                            emit_event(PlayerEvent::log(
+                                "error",
+                                format!(
+                                    "core command '{name}' panicked: {}",
+                                    panic_payload_message(payload.as_ref())
+                                ),
+                            ));
+                        }
                     }
-                }
-                Ok(CoreDispatcherMessage::Shutdown) => break,
-                Err(RecvTimeoutError::Timeout) => {
-                    let mut guard = crate::runtime_guard();
-                    let Some(runtime) = guard.as_mut() else {
-                        continue;
-                    };
-                    CORE_DISPATCH_ACTIVE.set(true);
-                    let result =
-                        catch_unwind(AssertUnwindSafe(|| crate::on_core_loop_tick(runtime)));
-                    CORE_DISPATCH_ACTIVE.set(false);
-                    if let Err(payload) = result {
-                        emit_event(PlayerEvent::log(
-                            "error",
-                            format!(
-                                "core loop tick panicked: {}",
-                                panic_payload_message(payload.as_ref())
-                            ),
-                        ));
+                    Ok(CoreDispatcherMessage::Shutdown) => break,
+                    Err(RecvTimeoutError::Timeout) => {
+                        let mut guard = crate::runtime_guard();
+                        let Some(runtime) = guard.as_mut() else {
+                            continue;
+                        };
+                        CORE_DISPATCH_ACTIVE.set(true);
+                        let result =
+                            catch_unwind(AssertUnwindSafe(|| crate::on_core_loop_tick(runtime)));
+                        CORE_DISPATCH_ACTIVE.set(false);
+                        if let Err(payload) = result {
+                            emit_event(PlayerEvent::log(
+                                "error",
+                                format!(
+                                    "core loop tick panicked: {}",
+                                    panic_payload_message(payload.as_ref())
+                                ),
+                            ));
+                        }
                     }
+                    Err(RecvTimeoutError::Disconnected) => break,
                 }
-                Err(RecvTimeoutError::Disconnected) => break,
             }
         })
         .map_err(|err| {

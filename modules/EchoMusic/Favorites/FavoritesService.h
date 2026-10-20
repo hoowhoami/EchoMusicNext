@@ -39,6 +39,8 @@ class FavoritesService final : public QObject
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY changed)
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY changed)
 public:
+    /// Explicit UI composition; construction alone does not register pages.
+    void registerRoutes(RouteController &router);
     FavoritesService(ApiClient &, PlaybackService &, UserPlaylistModel &, PlaylistOrderModel &,
                      SongMetadataService &, RouteController &, bool networkEnabled,
                      QObject *parent = nullptr);

@@ -295,14 +295,6 @@ HistoryService::HistoryService(ApiClient &api, PlaybackService &playback,
         else
             cancelMetadata();
     });
-    router.registerPage({"history",
-                         "/main/history",
-                         QUrl("qrc:/qt/qml/EchoMusic/History/HistoryPage.qml"),
-                         {"tab"},
-                         true,
-                         true,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
 }
 HistoryService::~HistoryService()
 {
@@ -432,5 +424,20 @@ void HistoryService::shutdown()
     cancelMetadata();
     disconnect(&m_playback, nullptr, this, nullptr);
     emit changed();
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void HistoryService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"history",
+                         "/main/history",
+                         QUrl("qrc:/qt/qml/EchoMusic/History/HistoryPage.qml"),
+                         {"tab"},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

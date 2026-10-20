@@ -15,15 +15,7 @@ pub struct Query {
     pub code: String,
     pub user_id: Option<u64>,
 }
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-    #[serde(default)]
-    data: serde_json::Value,
-}
+type Wire = crate::util::response::DefaultDataEnvelope<serde_json::Value>;
 pub fn valid_mobile(mobile: &str) -> bool {
     mobile.len() == 11 && mobile.starts_with('1') && mobile.bytes().all(|b| b.is_ascii_digit())
 }

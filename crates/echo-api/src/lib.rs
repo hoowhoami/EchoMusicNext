@@ -8,6 +8,17 @@ pub mod util;
 use serde::{Deserialize, Serialize};
 
 use util::request::{ApiClient, Identity};
+
+/// Decode the bounded, untrusted request bytes accepted by the C ABI. Keeping
+/// this safe function shared lets fuzzers exercise the production ingress
+/// without inventing invalid native pointers or constructing an audio runtime.
+pub fn decode_ffi_request(input: &[u8]) -> Option<Request> {
+    if input.is_empty() || input.len() > 1024 * 1024 {
+        return None;
+    }
+    serde_json::from_slice(input).ok()
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {

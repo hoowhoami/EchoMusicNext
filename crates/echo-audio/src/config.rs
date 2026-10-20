@@ -398,11 +398,7 @@ impl PlayerConfig {
 }
 
 pub(crate) fn finite_or(value: f64, default: f64) -> f64 {
-    if value.is_finite() {
-        value
-    } else {
-        default
-    }
+    if value.is_finite() { value } else { default }
 }
 
 fn finite_clamp(value: f64, min: f64, max: f64, default: f64) -> f64 {

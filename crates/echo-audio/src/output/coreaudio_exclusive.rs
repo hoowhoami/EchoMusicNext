@@ -1,16 +1,17 @@
 use super::cpal_shared::OutputResampler;
 use crate::device::platform_macos::{
-    coreaudio_device_display_name, coreaudio_status_message, monitor_coreaudio_exclusive_changes,
+    CoreAudioExclusiveChangeMonitor, CoreAudioMixingGuard, CoreAudioPcmFormat,
+    CoreAudioPcmSampleFormat, CoreAudioPhysicalFormatGuard, coreaudio_device_display_name,
+    coreaudio_status_message, monitor_coreaudio_exclusive_changes,
     prepare_coreaudio_exclusive_format, resolve_coreaudio_device_id, run_coreaudio_callback,
-    try_disable_coreaudio_mixing, CoreAudioExclusiveChangeMonitor, CoreAudioMixingGuard,
-    CoreAudioPcmFormat, CoreAudioPcmSampleFormat, CoreAudioPhysicalFormatGuard,
+    try_disable_coreaudio_mixing,
 };
 use crate::events::{PlayerErrorCode, PlayerEvent};
 use crate::exclusive::ExclusiveGuard;
 use crate::output::{
-    build_output_stats, emit_output_runtime_error, fill_output_reusing,
-    output_buffer_mode_for_frames, output_start_was_cancelled, report_output_start,
-    report_output_start_failure, OutputStartSender, OutputStopToken, MIN_REALTIME_BUFFER_FRAMES,
+    MIN_REALTIME_BUFFER_FRAMES, OutputStartSender, OutputStopToken, build_output_stats,
+    emit_output_runtime_error, fill_output_reusing, output_buffer_mode_for_frames,
+    output_start_was_cancelled, report_output_start, report_output_start_failure,
 };
 use crate::shared::SharedAudio;
 use coreaudio_sys as ca;
@@ -283,25 +284,29 @@ unsafe extern "C" fn render_callback(
 }
 
 unsafe fn silence_coreaudio_buffers(list: *mut ca::AudioBufferList) {
-    let buffer_count = (*list).mNumberBuffers as usize;
-    let buffers = slice::from_raw_parts_mut((*list).mBuffers.as_mut_ptr(), buffer_count);
-    for buffer in buffers {
-        if !buffer.mData.is_null() {
-            std::ptr::write_bytes(buffer.mData, 0, buffer.mDataByteSize as usize);
+    unsafe {
+        let buffer_count = (*list).mNumberBuffers as usize;
+        let buffers = slice::from_raw_parts_mut((*list).mBuffers.as_mut_ptr(), buffer_count);
+        for buffer in buffers {
+            if !buffer.mData.is_null() {
+                std::ptr::write_bytes(buffer.mData, 0, buffer.mDataByteSize as usize);
+            }
         }
     }
 }
 
 unsafe fn fill_coreaudio_buffers(context: &CoreAudioOutputContext, list: *mut ca::AudioBufferList) {
-    let buffer_count = (*list).mNumberBuffers as usize;
-    if buffer_count == 0 {
-        return;
-    }
-    let buffers = slice::from_raw_parts_mut((*list).mBuffers.as_mut_ptr(), buffer_count);
-    if context.format.non_interleaved || buffer_count > 1 {
-        fill_non_interleaved(buffers, context);
-    } else {
-        fill_interleaved(&mut buffers[0], context);
+    unsafe {
+        let buffer_count = (*list).mNumberBuffers as usize;
+        if buffer_count == 0 {
+            return;
+        }
+        let buffers = slice::from_raw_parts_mut((*list).mBuffers.as_mut_ptr(), buffer_count);
+        if context.format.non_interleaved || buffer_count > 1 {
+            fill_non_interleaved(buffers, context);
+        } else {
+            fill_interleaved(&mut buffers[0], context);
+        }
     }
 }
 
@@ -504,11 +509,7 @@ fn i24_sample(sample: f32) -> i32 {
 
 fn i24_in_32_sample(sample: f32, high_aligned: bool) -> i32 {
     let value = i24_sample(sample);
-    if high_aligned {
-        value << 8
-    } else {
-        value
-    }
+    if high_aligned { value << 8 } else { value }
 }
 
 fn write_i24_packed_sample(target: &mut [u8], sample: f32, big_endian: bool) {

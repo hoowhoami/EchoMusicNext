@@ -1,3 +1,4 @@
+#include "PlaybackRepository_p.h"
 #include "ListenTogetherController.h"
 #include "PlaybackService.h"
 #include "ListenTogetherSeed.h"

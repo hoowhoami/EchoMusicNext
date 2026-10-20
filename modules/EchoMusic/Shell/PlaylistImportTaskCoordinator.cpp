@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "PlaylistImportTaskCoordinator.h"
 namespace EchoMusic
 {
@@ -6,10 +7,11 @@ PlaylistImportTaskCoordinator::PlaylistImportTaskCoordinator(PlaylistImportServi
                                                              QSettings &settings, QObject *parent)
     : QObject(parent), m_service(service), m_tasks(tasks)
 {
-    service.setProperty("backgroundReminderMuted",
-                        settings.value("library/import/backgroundReminderMuted", false));
+    service.setProperty(
+        "backgroundReminderMuted",
+        settings.value(EchoMusic::SettingsKeys::Library::ImportBackgroundReminderMuted, false));
     connect(&service, &PlaylistImportService::reminderChanged, this, [&service, &settings] {
-        settings.setValue("library/import/backgroundReminderMuted",
+        settings.setValue(EchoMusic::SettingsKeys::Library::ImportBackgroundReminderMuted,
                           service.property("backgroundReminderMuted"));
     });
     connect(&service, &PlaylistImportService::started, this, [this] {

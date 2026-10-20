@@ -465,6 +465,7 @@ private slots:
         SongMetadataService metadata(api);
         RouteController router;
         CloudService cloud(api, playback, metadata, router, false);
+        cloud.registerRoutes(router);
         QVERIFY(router.navigate("cloud"));
         CloudServiceTestAccess::enableMetadata(cloud);
         const auto file = [](int id, const QString &songId) {
@@ -558,6 +559,7 @@ private slots:
         SongMetadataService metadata(api);
         RouteController router;
         CloudService cloud(api, playback, metadata, router, false);
+        cloud.registerRoutes(router);
         QVERIFY(router.registerPage({"other", "/main/other", QUrl("qrc:/not-instantiated.qml")}));
         QVERIFY(router.navigate("cloud"));
         CloudServiceTestAccess::enableMetadata(cloud);
@@ -612,6 +614,7 @@ private slots:
         SongMetadataService metadata(api);
         RouteController router;
         FavoritesService favorites(api, playback, library, order, metadata, router, false);
+        favorites.registerRoutes(router);
         UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
         QVERIFY(router.navigate("favorites"));
         FavoritesServiceTestAccess::enablePaging(favorites);
@@ -711,6 +714,7 @@ private slots:
         SongMetadataService metadata(api);
         RouteController router;
         FavoritesService favorites(api, playback, library, order, metadata, router, false);
+        favorites.registerRoutes(router);
         QVERIFY(router.registerPage({"other", "/main/other", QUrl("qrc:/not-instantiated.qml")}));
         UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
         QVERIFY(router.navigate("favorites"));
@@ -1391,6 +1395,7 @@ ApplicationWindow {
         RouteController router;
         SongMetadataService songMetadata(api);
         FavoritesService favorites(api, playback, library, order, songMetadata, router, true);
+        favorites.registerRoutes(router);
         QSignalSpy metadataReady(&songMetadata, &SongMetadataService::completed);
         QVERIFY(router.navigate("favorites"));
         QTRY_VERIFY_WITH_TIMEOUT(
@@ -1414,6 +1419,7 @@ ApplicationWindow {
         favorites.shutdown();
         metadataReady.clear();
         CloudService cloud(api, playback, songMetadata, router, true);
+        cloud.registerRoutes(router);
         QVERIFY(router.navigate("cloud"));
         QTRY_VERIFY_WITH_TIMEOUT(!cloud.loading(), 45000);
         QVERIFY2(cloud.errorMessage().isEmpty(), qPrintable(cloud.errorMessage()));
@@ -1447,6 +1453,7 @@ ApplicationWindow {
         RouteController router;
         SongMetadataService songMetadata(api);
         FavoritesService favorites(api, playback, library, order, songMetadata, router, false);
+        favorites.registerRoutes(router);
         UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
         QVERIFY(router.navigate("favorites"));
         FavoritesServiceTestAccess::enablePaging(favorites);
@@ -1499,8 +1506,11 @@ ApplicationWindow {
         RouteController router;
         SongMetadataService songMetadata(api);
         FavoritesService favorites(api, playback, library, order, songMetadata, router, false);
+        favorites.registerRoutes(router);
         CloudService cloud(api, playback, songMetadata, router, false);
+        cloud.registerRoutes(router);
         PurchasedService purchased(api, playback, router, false);
+        purchased.registerRoutes(router);
         QJsonArray songs;
         for (int i = 1; i <= 80; ++i)
             songs.append(
@@ -1729,6 +1739,7 @@ Window {
         PlaylistOrderModel order(api, mutations);
         SongMetadataService songMetadata(api);
         FavoritesService favorites(api, playback, library, order, songMetadata, router, false);
+        favorites.registerRoutes(router);
         QVERIFY(router.available("favorites"));
 
         // Album cards: only source_code == 2 rows project, id = creatorListId.
@@ -1796,6 +1807,7 @@ Window {
         RouteController router;
         SongMetadataService songMetadata(api);
         CloudService cloud(api, playback, songMetadata, router, false);
+        cloud.registerRoutes(router);
         QVERIFY(router.available("cloud"));
         QSignalSpy notices(&cloud, &CloudService::notice);
 
@@ -1891,6 +1903,7 @@ Window {
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"), &network);
         RouteController router;
         PurchasedService purchased(api, playback, router, false);
+        purchased.registerRoutes(router);
         QVERIFY(router.available("purchased"));
 
         PurchasedServiceTestAccess::acceptSongs(purchased, {}, 0);
@@ -1913,6 +1926,7 @@ Window {
         // The preceding instance has already consumed its setup reads.
         RouteController freshRouter;
         PurchasedService fresh(api, playback, freshRouter, false);
+        fresh.registerRoutes(freshRouter);
         PurchasedServiceTestAccess::loadTab(fresh);
         const auto kinds = PurchasedServiceTestAccess::pendingKinds(fresh);
         QCOMPARE(kinds.size(), 2);
@@ -1951,6 +1965,7 @@ Window {
         PlaylistOrderModel order(api, mutations);
         SongMetadataService songMetadata(api);
         FavoritesService favorites(api, playback, library, order, songMetadata, router, false);
+        favorites.registerRoutes(router);
 
         // Hide reordering when no liked playlist resolves.
         QVERIFY(!favorites.canAdjustSongOrder());

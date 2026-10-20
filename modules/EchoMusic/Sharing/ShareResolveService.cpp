@@ -17,14 +17,6 @@ ShareResolveService::ShareResolveService(ApiClient &api, SharingCommands &comman
       m_window(window), m_network(network)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
-    router.registerPage({"share-resolve",
-                         "/main/share",
-                         QUrl("qrc:/qt/qml/EchoMusic/Sharing/ShareResolvePage.qml"),
-                         {},
-                         false,
-                         false,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
     connect(&router, &RouteController::pageActivated, this, [this](RouteContext *context) {
         if (context->name() == "share-resolve")
             begin(context->query());
@@ -377,5 +369,20 @@ void ShareResolveService::shutdown()
     cancel();
     m_clipboardMonitoring = m_loading = false;
     m_pluginOpener = {};
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void ShareResolveService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"share-resolve",
+                         "/main/share",
+                         QUrl("qrc:/qt/qml/EchoMusic/Sharing/ShareResolvePage.qml"),
+                         {},
+                         false,
+                         false,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

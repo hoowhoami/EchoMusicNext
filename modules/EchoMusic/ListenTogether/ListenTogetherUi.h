@@ -89,6 +89,9 @@ class ListenTogetherUi final : public QObject
     Q_PROPERTY(EchoMusic::ListenTogetherController *room READ room CONSTANT)
     Q_PROPERTY(EchoMusic::PlaybackService *playback READ playback CONSTANT)
 public:
+    /// Explicit UI composition; construction alone does not register pages.
+    void registerRoutes(RouteController &router);
+
     ListenTogetherUi(ApiClient &, PlaybackService &, UserPlaylistModel &, SongMetadataService &,
                      RouteController &, bool networkEnabled, QObject *parent = nullptr);
     ListenTogetherController *room();

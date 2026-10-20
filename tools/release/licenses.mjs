@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { root } from './contract.mjs';
+import { rustSbom, vendorInventory } from './sbom.mjs';
 export function collectLicenses(destination, qt, version) {
   const output = path.join(destination, 'deployment');
   fs.mkdirSync(output, { recursive: true });
@@ -81,6 +82,14 @@ export function collectLicenses(destination, qt, version) {
   fs.writeFileSync(
     path.join(output, 'Rust/dependencies.json'),
     JSON.stringify(inventory, null, 2) + '\n',
+  );
+  fs.writeFileSync(
+    path.join(output, 'Rust/bom.cdx.json'),
+    JSON.stringify(rustSbom(metadata, root, version), null, 2) + '\n',
+  );
+  fs.writeFileSync(
+    path.join(output, 'vendor-inventory.json'),
+    JSON.stringify(vendorInventory(root), null, 2) + '\n',
   );
   fs.writeFileSync(
     path.join(output, 'SOURCE.txt'),

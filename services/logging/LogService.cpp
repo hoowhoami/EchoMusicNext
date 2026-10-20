@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "LogService.h"
 #include "CrashDiagnostics.h"
 #include "LogRedaction.h"
@@ -342,18 +343,21 @@ LogService::LogService(const QString &directory, int level, bool console, QSetti
     int retentionDays = 7;
     if (preferences) {
         m_preferences = accessor(*preferences);
-        const auto savedLevel =
-            levels.indexOf(m_preferences->value("logging/level", "info").toString());
+        const auto savedLevel = levels.indexOf(
+            m_preferences->value(EchoMusic::SettingsKeys::Logging::Level, "info").toString());
         if (!commandLineLevel && savedLevel >= 0)
             m_level = savedLevel;
-        m_responseBody = m_preferences->value("logging/apiResponseBody", false).toBool();
+        m_responseBody =
+            m_preferences->value(EchoMusic::SettingsKeys::Logging::ApiResponseBody, false).toBool();
         bool validRetention = false;
         const auto savedRetention =
-            m_preferences->value("logging/retentionDays", 7).toInt(&validRetention);
+            m_preferences->value(EchoMusic::SettingsKeys::Logging::RetentionDays, 7)
+                .toInt(&validRetention);
         if (validRetention && savedRetention >= 1 && savedRetention <= 365)
             retentionDays = savedRetention;
         const auto now = QDateTime::currentMSecsSinceEpoch();
-        const auto savedUntil = m_preferences->value("logging/diagnosticUntil", 0).toLongLong();
+        const auto savedUntil =
+            m_preferences->value(EchoMusic::SettingsKeys::Logging::DiagnosticUntil, 0).toLongLong();
         if (savedUntil > now)
             m_diagnosticUntil = qMin(savedUntil, now + 10 * 60000);
     }
@@ -380,7 +384,7 @@ LogService::LogService(const QString &directory, int level, bool console, QSetti
     connect(&m_diagnostics, &QTimer::timeout, this, [this] {
         if (!diagnosticActive()) {
             m_diagnosticUntil = 0;
-            persist("logging/diagnosticUntil", 0);
+            persist(EchoMusic::SettingsKeys::Logging::DiagnosticUntil, 0);
             m_diagnostics.stop();
             applyThreshold();
         }
@@ -437,7 +441,7 @@ void LogService::applyThreshold()
 void LogService::setLevel(const QString &value)
 {
     const auto next = levels.indexOf(value);
-    if (next < 0 || next == m_level || !persist("logging/level", value))
+    if (next < 0 || next == m_level || !persist(EchoMusic::SettingsKeys::Logging::Level, value))
         return;
     m_level = next;
     applyThreshold();
@@ -445,7 +449,8 @@ void LogService::setLevel(const QString &value)
 }
 void LogService::setApiResponseBody(bool enabled)
 {
-    if (enabled == m_responseBody || !persist("logging/apiResponseBody", enabled))
+    if (enabled == m_responseBody ||
+        !persist(EchoMusic::SettingsKeys::Logging::ApiResponseBody, enabled))
         return;
     m_responseBody = enabled;
     applyThreshold();
@@ -454,7 +459,7 @@ void LogService::setApiResponseBody(bool enabled)
 bool LogService::enableTemporaryDiagnostics()
 {
     const auto until = QDateTime::currentMSecsSinceEpoch() + 10 * 60000;
-    if (!persist("logging/diagnosticUntil", until))
+    if (!persist(EchoMusic::SettingsKeys::Logging::DiagnosticUntil, until))
         return false;
     m_diagnosticUntil = until;
     m_diagnostics.start();
@@ -464,7 +469,7 @@ bool LogService::enableTemporaryDiagnostics()
 }
 void LogService::disableTemporaryDiagnostics()
 {
-    if (!persist("logging/diagnosticUntil", 0))
+    if (!persist(EchoMusic::SettingsKeys::Logging::DiagnosticUntil, 0))
         return;
     m_diagnosticUntil = 0;
     m_diagnostics.stop();

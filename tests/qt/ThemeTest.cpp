@@ -1060,6 +1060,7 @@ elif sys.argv[1] == 'dispatch':
         PlaylistDetailService playlists(
             session.api, playback, session.accountUi.playlists, session.accountUi.mutations,
             *session.accountUi.library.order(), songMetadata, session.routes, false);
+        playlists.registerRoutes(session.routes);
         // Production Main retains route loaders. Tear those down before their
         // borrowed playlist/playback services, including on an assertion failure.
         const auto cleanup = qScopeGuard([&] {

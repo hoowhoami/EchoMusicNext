@@ -8,7 +8,7 @@ use model::{
     MediaControlEvent, MetadataPayload, PlayStatePayload, SkipIntervalPayload, TimelinePayload,
 };
 use std::sync::RwLock;
-use sys_media::{create_platform_controls, SystemMediaControls};
+use sys_media::{SystemMediaControls, create_platform_controls};
 
 // 用 RwLock 而非 Mutex：update_* 都是 &self（读锁，可并发），仅 initialize/shutdown/
 // register_event_handler 是 &mut self（写锁，仅启动/关闭时）。这样异步化的 update_metadata

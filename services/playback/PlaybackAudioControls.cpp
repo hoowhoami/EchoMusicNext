@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "PlaybackAudioControls.h"
 #include "EqualizerPresets.h"
 #include <QJsonDocument>
@@ -24,7 +25,7 @@ QString effectDisplayName(QString name)
 }
 QString effectNameKey(const QString &path)
 {
-    return "audio/impulseNames/" +
+    return EchoMusic::SettingsKeys::Audio::ImpulseNamesPrefix +
            QString::fromLatin1(
                QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
@@ -40,7 +41,8 @@ QString presetBankKey(const QString &provider, const QString &mode, const QStrin
         return QString::fromLatin1(
             QCryptographicHash::hash(v.toUtf8(), QCryptographicHash::Sha256).toHex());
     };
-    return "audio/providerPresets/" + hash(provider) + "/" + mode + "/" + hash(preset);
+    return EchoMusic::SettingsKeys::Audio::ProviderPresetsPrefix + hash(provider) + "/" + mode +
+           "/" + hash(preset);
 }
 QString defaultPreset(const QString &id)
 {
@@ -75,8 +77,9 @@ PlaybackAudioControls::PlaybackAudioControls(AudioEngine &engine, NativeBridge &
                         m_irsPaths.removeAll(path);
                     m_irsPaths = m_importBatchPaths + m_irsPaths;
                     m_irs = m_importBatchPaths.first();
-                    m_settings.setValue("audio/impulseResponses", m_irsPaths);
-                    m_settings.setValue("audio/impulseResponse", m_irs);
+                    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseResponses,
+                                        m_irsPaths);
+                    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseResponse, m_irs);
                     if (m_irsEnabled)
                         applyEffect();
                     emit changed();
@@ -85,22 +88,24 @@ PlaybackAudioControls::PlaybackAudioControls(AudioEngine &engine, NativeBridge &
                 } else
                     emit fileNotice(error, false);
             });
-    m_providerMode = settings.value("audio/providerMode", "speaker").toString();
+    m_providerMode =
+        settings.value(EchoMusic::SettingsKeys::Audio::ProviderMode, "speaker").toString();
     if (m_providerMode != "headphone")
         m_providerMode = "speaker";
     m_targetMode = m_providerMode;
     connect(&m_providers, &DspProviderRegistry::restored, this, [this] {
-        const auto saved = m_settings.value("audio/providerId").toString();
+        const auto saved = m_settings.value(EchoMusic::SettingsKeys::Audio::ProviderId).toString();
         if (saved.isEmpty())
             return;
         if (m_providers.record(saved).isEmpty()) {
             m_error = tr("已保存的音效引擎不可用，使用内置音效引擎");
-            m_settings.remove("audio/providerId");
+            m_settings.remove(EchoMusic::SettingsKeys::Audio::ProviderId);
             emit changed();
             return;
         }
         m_targetProvider = saved;
-        m_targetPreset = m_settings.value("audio/providerPreset").toString();
+        m_targetPreset =
+            m_settings.value(EchoMusic::SettingsKeys::Audio::ProviderPreset).toString();
         applyEffect();
     });
     connect(&m_providers, &DspProviderRegistry::imported, this, [this](const QString &id) {
@@ -120,10 +125,11 @@ PlaybackAudioControls::PlaybackAudioControls(AudioEngine &engine, NativeBridge &
         if (m_ready)
             m_engine.equalizer(m_gains);
     });
-    m_input = settings.value("audio/inputDevice", "default").toString();
-    m_pauseOnDisconnect = settings.value("audio/pauseOnDisconnect", true).toBool();
-    m_normalization = settings.value("audio/normalization", true).toBool();
-    const auto lufs = settings.value("audio/referenceLufs", -14).toDouble();
+    m_input = settings.value(EchoMusic::SettingsKeys::Audio::InputDevice, "default").toString();
+    m_pauseOnDisconnect =
+        settings.value(EchoMusic::SettingsKeys::Audio::PauseOnDisconnect, true).toBool();
+    m_normalization = settings.value(EchoMusic::SettingsKeys::Audio::Normalization, true).toBool();
+    const auto lufs = settings.value(EchoMusic::SettingsKeys::Audio::ReferenceLufs, -14).toDouble();
     m_referenceLufs = std::isfinite(lufs) ? qBound(-20., lufs, -8.) : -14.;
     connect(&native, &NativeBridge::completed, this,
             [this](quint64 id, quint64, bool success, const QByteArray &bytes) {
@@ -138,19 +144,20 @@ PlaybackAudioControls::PlaybackAudioControls(AudioEngine &engine, NativeBridge &
                     m_error = tr("无法读取输入设备");
                 emit changed();
             });
-    const auto gains = settings.value("audio/equalizer").toList();
+    const auto gains = settings.value(EchoMusic::SettingsKeys::Audio::Equalizer).toList();
     for (int i = 0; i < 10; ++i) {
         const double v = i < gains.size() ? gains[i].toDouble() : 0.;
         m_gains.append(std::isfinite(v) ? qBound(-12., v, 12.) : 0.);
     }
-    m_device = outputSelection(settings.value("audio/outputDevice").toString());
-    m_exclusive = settings.value("audio/exclusive", false).toBool() &&
+    m_device =
+        outputSelection(settings.value(EchoMusic::SettingsKeys::Audio::OutputDevice).toString());
+    m_exclusive = settings.value(EchoMusic::SettingsKeys::Audio::Exclusive, false).toBool() &&
                   !m_device.startsWith("pipewire:") && !m_device.startsWith("pulse:") &&
                   !m_device.startsWith("pulseaudio:");
-    m_irs = settings.value("audio/impulseResponse").toString();
-    m_irsEnabled = settings.value("audio/impulseEnabled", false).toBool();
-    m_irsPaths = settings.value("audio/impulseResponses").toStringList();
-    const auto mix = settings.value("audio/impulseMix", .5).toDouble();
+    m_irs = settings.value(EchoMusic::SettingsKeys::Audio::ImpulseResponse).toString();
+    m_irsEnabled = settings.value(EchoMusic::SettingsKeys::Audio::ImpulseEnabled, false).toBool();
+    m_irsPaths = settings.value(EchoMusic::SettingsKeys::Audio::ImpulseResponses).toStringList();
+    const auto mix = settings.value(EchoMusic::SettingsKeys::Audio::ImpulseMix, .5).toDouble();
     m_mix = std::isfinite(mix) ? qBound(0., mix, 1.) : .5;
 }
 QVariantList PlaybackAudioControls::gains() const
@@ -170,7 +177,7 @@ QVariantList PlaybackAudioControls::impulseResponses() const
     QHash<QString, QString> sources;
     // The local download identity is authored by AudioEffectCatalog, not an
     // upstream response. Project it here so QML never parses storage keys.
-    const QString prefix = QStringLiteral("audio/downloadedEffects/");
+    const QString prefix = EchoMusic::SettingsKeys::Audio::DownloadedEffectsPrefix;
     for (const auto &key : m_settings.allKeys()) {
         if (!key.startsWith(prefix))
             continue;
@@ -197,15 +204,18 @@ void PlaybackAudioControls::registerImpulseResponse(const QString &path, const Q
     const auto displayName = uniqueEffectName(name, path);
     m_irsPaths.removeAll(path);
     m_irsPaths.prepend(path);
-    m_settings.setValue("audio/impulseResponses", m_irsPaths);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseResponses, m_irsPaths);
     m_settings.setValue(effectNameKey(path), displayName);
     if (!identity.isEmpty())
-        m_settings.setValue("audio/downloadedEffects/" + identity, path);
+        m_settings.setValue(EchoMusic::SettingsKeys::Audio::DownloadedEffectsPrefix + identity,
+                            path);
     emit changed();
 }
 QString PlaybackAudioControls::downloadedImpulseResponse(const QString &identity) const
 {
-    const auto path = m_settings.value("audio/downloadedEffects/" + identity).toString();
+    const auto path =
+        m_settings.value(EchoMusic::SettingsKeys::Audio::DownloadedEffectsPrefix + identity)
+            .toString();
     return m_irsPaths.contains(path) && QFileInfo(path).isReadable() ? path : QString();
 }
 void PlaybackAudioControls::initialize()
@@ -276,7 +286,7 @@ void PlaybackAudioControls::setVolumeNormalization(bool enabled)
     if (m_normalization == enabled)
         return;
     m_normalization = enabled;
-    m_settings.setValue("audio/normalization", enabled);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::Normalization, enabled);
     applyNormalization();
 }
 void PlaybackAudioControls::setReferenceLufs(double lufs)
@@ -284,7 +294,7 @@ void PlaybackAudioControls::setReferenceLufs(double lufs)
     if (!std::isfinite(lufs))
         return;
     m_referenceLufs = qBound(-20., lufs, -8.);
-    m_settings.setValue("audio/referenceLufs", m_referenceLufs);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ReferenceLufs, m_referenceLufs);
     applyNormalization();
 }
 void PlaybackAudioControls::handleEvent(const QJsonObject &event)
@@ -302,9 +312,9 @@ void PlaybackAudioControls::handleEvent(const QJsonObject &event)
             m_providerId = m_targetProvider;
             m_providerPreset = m_targetPreset;
             m_providerMode = m_targetMode;
-            m_settings.setValue("audio/providerId", m_providerId);
-            m_settings.setValue("audio/providerPreset", m_providerPreset);
-            m_settings.setValue("audio/providerMode", m_providerMode);
+            m_settings.setValue(EchoMusic::SettingsKeys::Audio::ProviderId, m_providerId);
+            m_settings.setValue(EchoMusic::SettingsKeys::Audio::ProviderPreset, m_providerPreset);
+            m_settings.setValue(EchoMusic::SettingsKeys::Audio::ProviderMode, m_providerMode);
             if (!providerPresetId().isEmpty())
                 m_settings.setValue(presetBankKey(m_providerId, m_providerMode, providerPresetId()),
                                     m_providerPreset);
@@ -329,8 +339,8 @@ void PlaybackAudioControls::handleEvent(const QJsonObject &event)
             m_outputPending = false;
             m_device = m_appliedDevice;
             m_exclusive = m_appliedExclusive;
-            m_settings.setValue("audio/outputDevice", m_device);
-            m_settings.setValue("audio/exclusive", m_exclusive);
+            m_settings.setValue(EchoMusic::SettingsKeys::Audio::OutputDevice, m_device);
+            m_settings.setValue(EchoMusic::SettingsKeys::Audio::Exclusive, m_exclusive);
         }
         m_error = event.value("message").toString();
         emit changed();
@@ -339,8 +349,8 @@ void PlaybackAudioControls::handleEvent(const QJsonObject &event)
             if (quint64(event.value("output_revision").toInteger()) != m_outputRevision)
                 return;
             m_outputPending = false;
-            m_settings.setValue("audio/outputDevice", m_device);
-            m_settings.setValue("audio/exclusive", m_exclusive);
+            m_settings.setValue(EchoMusic::SettingsKeys::Audio::OutputDevice, m_device);
+            m_settings.setValue(EchoMusic::SettingsKeys::Audio::Exclusive, m_exclusive);
         } else if (m_outputPending)
             return;
         m_appliedDevice = outputSelection(event.value("output_device").toString());
@@ -383,7 +393,7 @@ void PlaybackAudioControls::handleEvent(const QJsonObject &event)
 }
 void PlaybackAudioControls::saveEqualizer()
 {
-    m_settings.setValue("audio/equalizer", gains());
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::Equalizer, gains());
     if (m_ready && !m_equalizerCommit.isActive())
         m_equalizerCommit.start();
     emit changed();
@@ -415,7 +425,7 @@ void PlaybackAudioControls::setInputDevice(const QString &name)
     if (name.size() > 4096)
         return;
     m_input = name;
-    m_settings.setValue("audio/inputDevice", name);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::InputDevice, name);
     emit changed();
 }
 void PlaybackAudioControls::setPauseOnDisconnect(bool pause)
@@ -423,7 +433,7 @@ void PlaybackAudioControls::setPauseOnDisconnect(bool pause)
     m_pauseOnDisconnect = pause;
     if (m_ready)
         m_engine.disconnectPolicy(pause);
-    m_settings.setValue("audio/pauseOnDisconnect", pause);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::PauseOnDisconnect, pause);
     emit changed();
 }
 void PlaybackAudioControls::refreshInputs()
@@ -449,8 +459,8 @@ void PlaybackAudioControls::setOutputDevice(const QString &selection)
     if (m_ready)
         requestOutput();
     else {
-        m_settings.setValue("audio/outputDevice", name);
-        m_settings.setValue("audio/exclusive", m_exclusive);
+        m_settings.setValue(EchoMusic::SettingsKeys::Audio::OutputDevice, name);
+        m_settings.setValue(EchoMusic::SettingsKeys::Audio::Exclusive, m_exclusive);
     }
     emit changed();
 }
@@ -465,7 +475,7 @@ void PlaybackAudioControls::setExclusive(bool exclusive)
     if (m_ready)
         requestOutput();
     else
-        m_settings.setValue("audio/exclusive", exclusive);
+        m_settings.setValue(EchoMusic::SettingsKeys::Audio::Exclusive, exclusive);
     emit changed();
 }
 void PlaybackAudioControls::requestOutput()
@@ -510,8 +520,8 @@ void PlaybackAudioControls::selectImpulseResponse(const QString &path)
     m_targetPreset.clear();
     m_irs = path;
     m_irsEnabled = true;
-    m_settings.setValue("audio/impulseResponse", path);
-    m_settings.setValue("audio/impulseEnabled", true);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseResponse, path);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseEnabled, true);
     applyEffect();
     emit changed();
 }
@@ -522,12 +532,13 @@ void PlaybackAudioControls::removeImpulseResponse(const QString &path)
     m_irsPaths.removeAll(path);
     m_settings.remove(effectNameKey(path));
     for (const auto &key : m_settings.allKeys())
-        if (key.startsWith("audio/downloadedEffects/") && m_settings.value(key).toString() == path)
+        if (key.startsWith(EchoMusic::SettingsKeys::Audio::DownloadedEffectsPrefix) &&
+            m_settings.value(key).toString() == path)
             m_settings.remove(key);
-    m_settings.setValue("audio/impulseResponses", m_irsPaths);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseResponses, m_irsPaths);
     if (path == m_irs) {
         m_irs.clear();
-        m_settings.setValue("audio/impulseResponse", m_irs);
+        m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseResponse, m_irs);
         setImpulseEnabled(false);
     }
     // Remove owned resources without touching the user's original file.
@@ -551,7 +562,7 @@ void PlaybackAudioControls::setImpulseMix(double mix)
     if (!std::isfinite(mix))
         return;
     m_mix = qBound(0., mix, 1.);
-    m_settings.setValue("audio/impulseMix", m_mix);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseMix, m_mix);
     if (m_irsEnabled)
         applyEffect();
     emit changed();
@@ -559,7 +570,7 @@ void PlaybackAudioControls::setImpulseMix(double mix)
 void PlaybackAudioControls::setImpulseEnabled(bool enabled)
 {
     m_irsEnabled = enabled;
-    m_settings.setValue("audio/impulseEnabled", enabled);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseEnabled, enabled);
     applyEffect();
     emit changed();
 }
@@ -653,7 +664,7 @@ void PlaybackAudioControls::selectProviderPreset(const QString &id)
     if (!found)
         return;
     m_irsEnabled = false;
-    m_settings.setValue("audio/impulseEnabled", false);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseEnabled, false);
     m_targetPreset =
         id.isEmpty()
             ? QString()

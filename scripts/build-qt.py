@@ -21,6 +21,7 @@ modules = [
     "qtshadertools",
     "qtsvg",
     "qtdeclarative",
+    "qttools",  # Linguist extraction/compilation is part of the development SDK.
 ]
 if sys.platform.startswith("linux"):
     modules.append("qtwayland")  # Wayland QPA lives outside qtbase's X11 plugin.

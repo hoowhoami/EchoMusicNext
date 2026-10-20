@@ -1,8 +1,8 @@
 use crate::events::AudioDevice;
 #[cfg(target_os = "linux")]
 use crate::shared::MIX_CHANNELS;
-use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::SampleFormat;
+use cpal::traits::{DeviceTrait, HostTrait};
 #[cfg(target_os = "linux")]
 use cpal::{Stream, StreamConfig};
 use std::collections::HashMap;
@@ -511,16 +511,20 @@ mod tests {
         clear_preferred_output_sample_rate_cache();
         let missing = preferred_output_sample_rate("__missing_echo_music_device__", false);
         assert_eq!(missing, None);
-        assert!(preferred_sample_rate_cache()
-            .lock()
-            .expect("cache lock should not be poisoned")
-            .contains_key(&("__missing_echo_music_device__".to_string(), false)));
+        assert!(
+            preferred_sample_rate_cache()
+                .lock()
+                .expect("cache lock should not be poisoned")
+                .contains_key(&("__missing_echo_music_device__".to_string(), false))
+        );
 
         clear_preferred_output_sample_rate_cache();
-        assert!(preferred_sample_rate_cache()
-            .lock()
-            .expect("cache lock should not be poisoned")
-            .is_empty());
+        assert!(
+            preferred_sample_rate_cache()
+                .lock()
+                .expect("cache lock should not be poisoned")
+                .is_empty()
+        );
     }
 
     #[test]

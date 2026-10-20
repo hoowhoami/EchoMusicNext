@@ -3,20 +3,12 @@
 namespace EchoMusic
 {
 ArtistDetailService::ArtistDetailService(ApiClient &api, PlaybackService &playback,
-                                         RouteController &router, ShellSettings &settings,
+                                         RouteController &, ShellSettings &settings,
                                          bool networkEnabled, QObject *parent)
     : QObject(parent), m_api(api), m_playback(playback), m_settings(settings),
       m_network(networkEnabled)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
-    router.registerPage({"artist-detail",
-                         "/main/artist/:id",
-                         QUrl("qrc:/qt/qml/EchoMusic/Artists/ArtistDetailPage.qml"),
-                         {"tab"},
-                         true,
-                         true,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
 }
 ArtistDetailService::~ArtistDetailService()
 {
@@ -48,5 +40,20 @@ void ArtistDetailService::shutdown()
     for (const auto &context : std::as_const(m_contexts))
         if (context)
             context->shutdown();
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void ArtistDetailService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"artist-detail",
+                         "/main/artist/:id",
+                         QUrl("qrc:/qt/qml/EchoMusic/Artists/ArtistDetailPage.qml"),
+                         {"tab"},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

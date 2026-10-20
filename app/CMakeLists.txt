@@ -1,4 +1,31 @@
-qt_add_executable(echomusicnext main.cpp Application.h Application.cpp ApplicationShutdown.h)
+qt_add_executable(
+    echomusicnext
+    main.cpp
+    Application.h
+    Application.cpp
+    ApplicationShutdown.h
+    AppContext_p.h
+    AppContext.cpp
+    ShellBootstrap.cpp
+    CoreBootstrap.cpp
+    AccountBootstrap.cpp
+    RouteCatalog.cpp
+    PageWiring.cpp
+    PluginWiring.cpp
+    ShutdownWiring.cpp
+    SmokeBootstrap.cpp
+    UiBootstrap.cpp
+    RecoveryBootstrap.cpp
+)
+set(ECHO_APPLICATION_OUTPUT_DIRECTORY
+    ""
+    CACHE PATH "Optional isolated executable output for active-session validation"
+)
+if(ECHO_APPLICATION_OUTPUT_DIRECTORY)
+    set_target_properties(
+        echomusicnext PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${ECHO_APPLICATION_OUTPUT_DIRECTORY}"
+    )
+endif()
 if(NOT APPLE)
     if(WIN32)
         set(ECHO_APP_ICON assets/icon.ico)
@@ -168,3 +195,5 @@ else()
                 "$<TARGET_FILE_DIR:echomusicnext>"
     )
 endif()
+
+target_link_libraries(echomusicnext PRIVATE echo_settings_keys)

@@ -9,13 +9,7 @@ use serde::Deserialize;
 pub struct Query {
     pub mobile: String,
 }
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-}
+type Wire = crate::util::response::AckEnvelope;
 pub fn convert(bytes: &[u8]) -> Result<Vec<u8>, ApiError> {
     let wire: Wire = request::decode(bytes)?;
     request::success(wire.status, wire.error_code)?;

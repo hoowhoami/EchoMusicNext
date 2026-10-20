@@ -1,8 +1,8 @@
 [package]
 name = "echo-audio"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.87"
+edition.workspace = true
+rust-version.workspace = true
 license = "GPL-3.0-only"
 
 [lib]
@@ -52,3 +52,6 @@ objc2-core-audio-types = "0.3"
 alsa = "0.11"
 cpal = { version = "0.18", features = ["pipewire", "pulseaudio"] }
 
+
+[lints]
+workspace = true

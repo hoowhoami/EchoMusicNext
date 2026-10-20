@@ -1,7 +1,7 @@
 use super::{ReadSeek, StreamOptions};
-use ffmpeg_audio::{error::HttpError, AudioError, HttpAudioSource, HttpAudioSourceOptions};
-use std::sync::atomic::{AtomicBool, Ordering};
+use ffmpeg_audio::{AudioError, HttpAudioSource, HttpAudioSourceOptions, error::HttpError};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub fn is_http_url(url: &str) -> bool {
@@ -61,7 +61,7 @@ fn can_fallback_proxy_candidate(error: &AudioError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::can_fallback_proxy_candidate;
-    use ffmpeg_audio::{error::HttpError, AudioError};
+    use ffmpeg_audio::{AudioError, error::HttpError};
 
     #[test]
     fn transport_failures_can_try_the_next_proxy_candidate() {

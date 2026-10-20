@@ -16,14 +16,7 @@ pub struct Query {
     #[serde(default)]
     pub tag_ids: Vec<String>,
 }
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-    data: serde_json::Value,
-}
+type Wire = crate::util::response::Envelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
     #[serde(default, deserialize_with = "crate::util::response::list")]

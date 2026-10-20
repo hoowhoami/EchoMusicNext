@@ -12,6 +12,8 @@ EchoCover {
     readonly property bool canPlay: resourceActive && playback.playing && playback.lyricAppearance.dynamicAlbumCover && Theme.store.motionEnabled
     readonly property AlbumVideoSurface videoSurface: videoLoader.item as AlbumVideoSurface
     source: playback.cover
+    // Match the playerbar's current-track cache key before the flight starts.
+    minimumDecodeSize: 380
     placeholderColor: colors.mutedSurface
     placeholderGlyphSize: 32
     function sync(): void {

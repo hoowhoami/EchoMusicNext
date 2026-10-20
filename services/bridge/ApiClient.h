@@ -10,6 +10,7 @@
 #include <QThread>
 #include <cstdint>
 #include <optional>
+#include <memory>
 
 struct EchoRuntime;
 struct EchoResult;
@@ -457,6 +458,19 @@ signals:
     void sessionChanged(quint64 revision);
 
 private:
+    struct AuthClient;
+    std::unique_ptr<AuthClient> m_auth;
+    struct CatalogClient;
+    std::unique_ptr<CatalogClient> m_catalog;
+    struct CloudClient;
+    std::unique_ptr<CloudClient> m_cloud;
+    struct SocialClient;
+    std::unique_ptr<SocialClient> m_social;
+    struct LibraryClient;
+    std::unique_ptr<LibraryClient> m_library;
+    struct MediaClient;
+    std::unique_ptr<MediaClient> m_media;
+
     friend class ApiClientTestAccess;
     struct Pending
     {

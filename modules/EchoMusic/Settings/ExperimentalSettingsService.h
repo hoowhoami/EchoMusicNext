@@ -25,10 +25,7 @@ public:
     {
         return m_busy;
     }
-    bool resetPending() const
-    {
-        return m_settings.value("network/resetDeviceIdentity").toBool();
-    }
+    bool resetPending() const;
     Q_INVOKABLE QVariantList userInfo() const;
     Q_INVOKABLE void copyAuthorization();
     Q_INVOKABLE void resetDeviceIdentity();

@@ -11,11 +11,21 @@ Item {
     readonly property int status: cover.status
     // Public static artwork for short, frozen compositor transitions.
     readonly property Item transitionArtwork: cover.status === Image.Ready ? cover : placeholder
+    // A flight applies its own corner mask. Instantiate this square recipe only
+    // during that flight, so a small cover's rounded corners are not baked in.
+    readonly property Component transitionPlaceholder: Component {
+        CoverPlaceholder {
+            synchronous: true
+        }
+    }
     property string placeholderGlyph: "music"
     property real placeholderGlyphSize: 20
     property real placeholderOpacity: 0.3
     // Pooled/inactive delegates release decoded images and their mask textures.
     property bool resourceActive: true
+    // An existing visible image may also supply a larger compositor transition.
+    // Reserve only that bounded destination, without creating another surface.
+    property real minimumDecodeSize: 0
     property ThemeColors colors: Theme.colors
     property color placeholderColor: colors.hover
     implicitWidth: 48
@@ -26,20 +36,28 @@ Item {
         item: control
         active: control.resourceActive && control.visible
         source: control.source
+        minimumSize: Qt.size(control.minimumDecodeSize, control.minimumDecodeSize)
     }
-    Rectangle {
-        id: placeholder
-        anchors.fill: parent
-        radius: control.cornerRadius
+    component CoverPlaceholder: Rectangle {
+        id: surface
+        property bool synchronous: false
+        property real glyphSize: control.placeholderGlyphSize
         color: control.placeholderColor
         EchoIcon {
+            // The small bundled glyph must exist on the first flight frame.
+            asynchronous: !surface.synchronous
             anchors.centerIn: parent
-            width: control.placeholderGlyphSize
-            height: control.placeholderGlyphSize
+            width: surface.glyphSize
+            height: surface.glyphSize
             opacity: control.placeholderOpacity
             color: control.colors.text
             name: control.placeholderGlyph
         }
+    }
+    CoverPlaceholder {
+        id: placeholder
+        anchors.fill: parent
+        radius: control.cornerRadius
     }
     Image {
         id: cover
@@ -47,7 +65,7 @@ Item {
         anchors.fill: parent
         source: metrics.resolvedSource
         asynchronous: true
-        sourceSize: metrics.pixelSize
+        sourceSize: metrics.decodeSize
         fillMode: Image.PreserveAspectCrop
         visible: false
     }

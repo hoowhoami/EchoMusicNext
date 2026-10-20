@@ -21,6 +21,7 @@ add_library(
 target_compile_definitions(echo_platform PRIVATE ECHO_APPLICATION_ID="${ECHO_APPLICATION_ID}")
 qt_extract_metatypes(echo_platform)
 target_include_directories(echo_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_sources(echo_platform PRIVATE ApplicationTranslations.h ApplicationTranslations.cpp)
 target_link_libraries(
     echo_platform
     PUBLIC Qt6::Core Qt6::Network Qt6::Gui

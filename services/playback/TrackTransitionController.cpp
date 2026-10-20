@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "TrackTransitionController.h"
 #include "PlaybackService.h"
 #include <QJsonArray>
@@ -21,11 +22,13 @@ TrackTransitionController::TrackTransitionController(PlaybackService &playback, 
     : QObject(&playback), m_playback(playback), m_api(api), m_settings(settings),
       m_source(api, playback.m_membership, this, playback.cloudSources())
 {
-    const auto stored = settings.value("playback/transitionMode", "automix-pro").toString();
+    const auto stored =
+        settings.value(EchoMusic::SettingsKeys::Playback::TransitionMode, "automix-pro").toString();
     if (modes.contains(stored))
         m_mode = stored;
-    m_fadeSeconds = qBound(0, settings.value("playback/fadeSeconds", 15).toInt(), 15);
-    m_matchTempo = settings.value("playback/matchTempo", false).toBool();
+    m_fadeSeconds =
+        qBound(0, settings.value(EchoMusic::SettingsKeys::Playback::FadeSeconds, 15).toInt(), 15);
+    m_matchTempo = settings.value(EchoMusic::SettingsKeys::Playback::MatchTempo, false).toBool();
     m_timeout.setSingleShot(true);
     connect(&api, &ApiClient::sessionChanged, this, [this] {
         clear();
@@ -109,7 +112,7 @@ void TrackTransitionController::setMode(const QString &mode)
         return;
     clear();
     m_mode = mode;
-    m_settings.setValue("playback/transitionMode", mode);
+    m_settings.setValue(EchoMusic::SettingsKeys::Playback::TransitionMode, mode);
     initialize();
     emit changed();
 }
@@ -120,7 +123,7 @@ void TrackTransitionController::setFadeSeconds(int seconds)
         return;
     clear();
     m_fadeSeconds = seconds;
-    m_settings.setValue("playback/fadeSeconds", seconds);
+    m_settings.setValue(EchoMusic::SettingsKeys::Playback::FadeSeconds, seconds);
     initialize();
     emit changed();
 }
@@ -130,7 +133,7 @@ void TrackTransitionController::setMatchTempo(bool enabled)
         return;
     clear();
     m_matchTempo = enabled;
-    m_settings.setValue("playback/matchTempo", enabled);
+    m_settings.setValue(EchoMusic::SettingsKeys::Playback::MatchTempo, enabled);
     initialize();
     emit changed();
 }

@@ -357,6 +357,7 @@ private slots:
         SongMetadataService songMetadata(api);
         PlaylistDetailService service(api, playback, library, mutations, order, songMetadata,
                                       router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("playlist-detail", {}, "cover-playlist"));
         auto *context = service.contextFor(router.current());
         PlaylistDetailContextTestAccess::seed(*context, "Cover playlist");
@@ -603,6 +604,7 @@ Window {
         SongMetadataService songMetadata(api);
         PlaylistDetailService service(api, playback, library, mutations, order, songMetadata,
                                       router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("playlist-detail", {}, "public-one"));
         auto *route = router.current();
         auto *context = service.contextFor(route);
@@ -667,6 +669,7 @@ Window {
         SongMetadataService songMetadata(api);
         PlaylistDetailService service(api, playback, library, mutations, order, songMetadata,
                                       router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("playlist-detail", {}, "eof-playlist"));
         auto *context = service.contextFor(router.current());
         PlaylistDetailContextTestAccess::seed(*context, "EOF");
@@ -703,6 +706,7 @@ Window {
         SongMetadataService songMetadata(api);
         PlaylistDetailService service(api, playback, library, mutations, order, songMetadata,
                                       router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("playlist-detail", {}, "partial-playlist"));
         auto *context = service.contextFor(router.current());
         PlaylistDetailContextTestAccess::seed(*context, "Partial");
@@ -762,6 +766,7 @@ Window {
         SongMetadataService songMetadata(api);
         PlaylistDetailService service(api, playback, library, mutations, order, songMetadata,
                                       router, true);
+        service.registerRoutes(router);
         library.fetchMore({});
         QTRY_VERIFY_WITH_TIMEOUT(library.state() != UserPlaylistModel::State::Loading, 45000);
         QCOMPARE(library.state(), UserPlaylistModel::State::Ready);
@@ -839,6 +844,7 @@ Window {
         SongMetadataService songMetadata(api);
         PlaylistDetailService service(api, playback, library, mutations, order, songMetadata,
                                       router, live);
+        service.registerRoutes(router);
         SidebarPlaylistModel sidebar(library);
         QString global = "collection_3_2132029040_287_0";
         if (ownedLive) {
@@ -1146,6 +1152,7 @@ Window {
         SongMetadataService songMetadata(api);
         PlaylistDetailService service(api, playback, library, mutations, order, songMetadata,
                                       router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("playlist-detail", {}, "cover-playlist"));
         auto *context = service.contextFor(router.current());
         PlaylistDetailContextTestAccess::seed(*context, "Owner playlist");
@@ -1234,6 +1241,7 @@ Window {
         SongMetadataService songMetadata(api);
         PlaylistDetailService service(api, playback, library, mutations, order, songMetadata,
                                       router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("playlist-detail", {}, "cover-playlist"));
         auto *context = service.contextFor(router.current());
         PlaylistDetailContextTestAccess::seed(*context, "Owner playlist");

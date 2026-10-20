@@ -12,6 +12,13 @@ private slots:
     void desktopUnwrappedReadingUsesNativeCursorPositions();
     void sceneGraphPlaybackCpu();
     void pageArtworkTransitionPreservesGeometryAndReverses();
+    void artworkFlightMatchesFullResolutionCover();
+    void artworkFlightMatchesFullResolutionCover_data();
+    void emptyArtworkKeepsItsRadiusAcrossPageEntry();
+    void firstOpenCoverFlightLandsOnItsLayout_data();
+    void firstOpenCoverFlightLandsOnItsLayout();
+    void clearingCurrentQueueClearsLyrics_data();
+    void clearingCurrentQueueClearsLyrics();
     void lyricResourcesReleaseAcrossPageCycles();
     void preferencesValidateAndPersistWithoutResettingGlobalBackground();
     void optionalArtworkCancelsStaleTrackAndRestoresBoundedMemoryCache();

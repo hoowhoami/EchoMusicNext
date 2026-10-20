@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "FloatingPlayerController.h"
 #include <QGuiApplication>
 #include <QScreen>
@@ -41,8 +42,10 @@ FloatingPlayerController::FloatingPlayerController(QSettings &settings, bool per
     // resync after Qt's show/activation handling and the host's pin changes.
     qGuiApp->installEventFilter(this);
 #endif
-    m_desktopEnabled = persist && settings.value("floating/desktop/enabled", false).toBool();
-    m_locked = settings.value("floating/desktop/locked", false).toBool();
+    m_desktopEnabled =
+        persist &&
+        settings.value(EchoMusic::SettingsKeys::Floating::DesktopEnabled, false).toBool();
+    m_locked = settings.value(EchoMusic::SettingsKeys::Floating::DesktopLocked, false).toBool();
     for (auto *timer : {&m_desktopSave, &m_miniSave, &m_collapse})
         timer->setSingleShot(true);
     m_desktopSave.setInterval(160);
@@ -147,7 +150,7 @@ void FloatingPlayerController::setDesktopEnabled(bool value)
         saveDesktop();
     m_desktopEnabled = value;
     if (m_persist)
-        m_settings.setValue("floating/desktop/enabled", value);
+        m_settings.setValue(EchoMusic::SettingsKeys::Floating::DesktopEnabled, value);
     applyDesktop();
     emit changed();
 }
@@ -157,7 +160,7 @@ void FloatingPlayerController::setLocked(bool value)
         return;
     m_locked = value;
     if (m_persist)
-        m_settings.setValue("floating/desktop/locked", value);
+        m_settings.setValue(EchoMusic::SettingsKeys::Floating::DesktopLocked, value);
     applyDesktop();
     emit changed();
 }
@@ -259,7 +262,9 @@ void FloatingPlayerController::attachDesktop(QQuickWindow *window)
             &FloatingPlayerController::syncUnlockMonitoring);
     connect(window, &QObject::destroyed, this, &FloatingPlayerController::syncUnlockMonitoring);
     m_restoring = true;
-    const auto saved = m_persist ? m_settings.value("floating/desktop/geometry").toRect() : QRect{};
+    const auto saved =
+        m_persist ? m_settings.value(EchoMusic::SettingsKeys::Floating::DesktopGeometry).toRect()
+                  : QRect{};
     if (wayland())
         window->resize(saved.isValid() ? saved.size() : QSize(720, 200));
     else {
@@ -300,8 +305,9 @@ void FloatingPlayerController::attachMini(QQuickWindow *window)
     window->setMaximumWidth(560);
     window->installEventFilter(this);
     auto saved = m_anchor.isValid() ? m_anchor
-                 : m_persist        ? m_settings.value("floating/mini/anchor").toRect()
-                                    : QRect{};
+                 : m_persist
+                     ? m_settings.value(EchoMusic::SettingsKeys::Floating::MiniAnchor).toRect()
+                     : QRect{};
     if (saved.isValid())
         saved.setSize({qBound(360, saved.width(), 560), 64});
     m_anchor = fitBounds(saved, workAreas(), primaryArea(), {360, 64});
@@ -454,8 +460,10 @@ void FloatingPlayerController::saveDesktop()
         return;
     auto bounds = m_desktopWindow->geometry();
     if (wayland())
-        bounds.moveTopLeft(m_settings.value("floating/desktop/geometry").toRect().topLeft());
-    m_settings.setValue("floating/desktop/geometry", bounds);
+        bounds.moveTopLeft(m_settings.value(EchoMusic::SettingsKeys::Floating::DesktopGeometry)
+                               .toRect()
+                               .topLeft());
+    m_settings.setValue(EchoMusic::SettingsKeys::Floating::DesktopGeometry, bounds);
 }
 void FloatingPlayerController::saveMini()
 {
@@ -470,7 +478,7 @@ void FloatingPlayerController::saveMini()
         bounds.moveTopLeft(m_anchor.topLeft());
     m_anchor = bounds;
     if (m_persist)
-        m_settings.setValue("floating/mini/anchor", bounds);
+        m_settings.setValue(EchoMusic::SettingsKeys::Floating::MiniAnchor, bounds);
 }
 void FloatingPlayerController::moveDesktop()
 {

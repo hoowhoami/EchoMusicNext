@@ -1642,6 +1642,7 @@ dependencies = [
  "echo-log",
  "flate2",
  "md-5",
+ "proptest",
  "regex",
  "reqwest",
  "rsa",

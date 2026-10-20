@@ -21,15 +21,7 @@ pub struct Query {
     pub page_size: u32,
 }
 
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-    #[serde(default)]
-    data: serde_json::Value,
-}
+type Wire = crate::util::response::DefaultDataEnvelope<serde_json::Value>;
 
 /// Quota counters from get_list and del_files retain the provider field names
 /// list_ver and availble_size.

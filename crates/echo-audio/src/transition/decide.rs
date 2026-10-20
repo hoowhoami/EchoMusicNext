@@ -15,7 +15,7 @@
 
 use super::analysis::TrackAnalysis;
 use super::plan::PlanTemplate;
-use super::{TransitionMode, TransitionSettings, MIN_SUPPORTED_TRACK_SECS};
+use super::{MIN_SUPPORTED_TRACK_SECS, TransitionMode, TransitionSettings};
 use serde::Serialize;
 
 /// Upper bound for a manually triggered crossfade (user pressed "next").
@@ -707,14 +707,16 @@ mod tests {
         for (a_duration, b_duration) in [(20.0, 180.0), (200.0, 20.0)] {
             let a = analysis(a_duration, 120.0, 0.0, vec![]);
             let b = analysis(b_duration, 120.0, 0.0, vec![]);
-            assert!(decide_transition(&TransitionRequest {
-                settings: settings(TransitionMode::Fade, 15.0),
-                trigger: TransitionTrigger::EndOfTrack,
-                a: &a,
-                b: &b,
-                a_position_secs: 0.0,
-            })
-            .is_none());
+            assert!(
+                decide_transition(&TransitionRequest {
+                    settings: settings(TransitionMode::Fade, 15.0),
+                    trigger: TransitionTrigger::EndOfTrack,
+                    a: &a,
+                    b: &b,
+                    a_position_secs: 0.0,
+                })
+                .is_none()
+            );
         }
     }
 
@@ -999,14 +1001,16 @@ mod tests {
         .unwrap();
         assert_eq!(plan.strategy, DecisionStrategy::Fade);
         assert!(plan.overlap_secs <= 4.0);
-        assert!(decide_transition(&TransitionRequest {
-            settings: settings(TransitionMode::None, 5.0),
-            trigger: TransitionTrigger::EndOfTrack,
-            a: &a,
-            b: &b,
-            a_position_secs: 0.0,
-        })
-        .is_none());
+        assert!(
+            decide_transition(&TransitionRequest {
+                settings: settings(TransitionMode::None, 5.0),
+                trigger: TransitionTrigger::EndOfTrack,
+                a: &a,
+                b: &b,
+                a_position_secs: 0.0,
+            })
+            .is_none()
+        );
     }
 
     #[test]

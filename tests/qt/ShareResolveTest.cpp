@@ -69,6 +69,7 @@ struct Fixture
     ShareResolveService shares{api, commands, router, shell, window};
     Fixture()
     {
+        shares.registerRoutes(router);
         api.setNetworkTransport(1); // No network adapter: controlled native-domain callbacks only.
         api.setAccount(900001, "offline-test-fixture");
         playback.songCommands()->attachSharing(commands);

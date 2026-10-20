@@ -193,7 +193,7 @@ fn encode(samples: &[f32], format: &str) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{convert, FORMAT_F32_LE, FORMAT_S16_LE};
+    use super::{FORMAT_F32_LE, FORMAT_S16_LE, convert};
     use crate::buffer::CapturedSamples;
 
     #[test]

@@ -1,4 +1,5 @@
 #include "ApiClient.h"
+#include "ApiDomains_p.h"
 #include "echo_ffi.h"
 
 #include <QCoreApplication>
@@ -29,6 +30,12 @@ ApiClient::ApiClient(QObject *parent) : ApiClient(DeviceIdentity::temporary(), p
 ApiClient::ApiClient(DeviceIdentity device, QObject *parent)
     : QObject(parent), m_device(std::move(device))
 {
+    m_auth = std::make_unique<AuthClient>(*this);
+    m_catalog = std::make_unique<CatalogClient>(*this);
+    m_cloud = std::make_unique<CloudClient>(*this);
+    m_social = std::make_unique<SocialClient>(*this);
+    m_library = std::make_unique<LibraryClient>(*this);
+    m_media = std::make_unique<MediaClient>(*this);
     auto dispatcher = new Dispatcher;
     dispatcher->receiver = this;
     m_dispatcher = dispatcher;
@@ -116,9 +123,7 @@ quint64 ApiClient::submitPrepared(Pending pending)
 
 quint64 ApiClient::refreshLogin()
 {
-    if (!m_userId || m_token.isEmpty())
-        return 0;
-    return submit({{"operation", "login_token"}}, true, {AuthenticationMode::CurrentAccount});
+    return m_auth->refreshLogin();
 }
 bool ApiClient::setDeviceIdentity(DeviceIdentity device)
 {
@@ -133,14 +138,11 @@ bool ApiClient::setDeviceIdentity(DeviceIdentity device)
 }
 quint64 ApiClient::recognizeAudio(const QByteArray &pcm)
 {
-    if (pcm.isEmpty() || pcm.size() > 160000 || pcm.size() % 2)
-        return 0;
-    return submit({{"operation", "audio_match"},
-                   {"query", QJsonObject{{"pcm_base64", QString::fromLatin1(pcm.toBase64())}}}});
+    return m_media->recognizeAudio(pcm);
 }
 quint64 ApiClient::registerDevice()
 {
-    return submit({{"operation", "register_dev"}}, true, {AuthenticationMode::DeviceOnly});
+    return m_auth->registerDevice();
 }
 QString ApiClient::diagnosticAuthorization() const
 {
@@ -183,1035 +185,442 @@ QVariantList ApiClient::diagnosticIdentityEntries() const
 }
 quint64 ApiClient::createQrLogin()
 {
-    return submit({{"operation", "login_qr_key"}}, true, {AuthenticationMode::DeviceOnly});
+    return m_auth->createQrLogin();
 }
 quint64 ApiClient::checkQrLogin(const QString &key)
 {
-    return submit({{"operation", "login_qr_check"}, {"query", QJsonObject{{"key", key}}}}, true,
-                  {AuthenticationMode::DeviceOnly});
+    return m_auth->checkQrLogin(key);
 }
 
 quint64 ApiClient::createProviderQr(QrProvider provider)
 {
-    if (provider == QrProvider::Kugou)
-        return createQrLogin();
-    return submit(
-        {{"operation", provider == QrProvider::Qq ? "login_qq_qr_create" : "login_wx_create"}},
-        false);
+    return m_auth->createProviderQr(provider);
 }
 quint64 ApiClient::checkProviderQr(QrProvider provider, const QJsonObject &session)
 {
-    if (provider == QrProvider::Kugou)
-        return checkQrLogin(session.value("key").toString());
-    if (provider == QrProvider::Qq)
-        return submit(
-            {{"operation", "login_qq_qr_check"}, {"query", QJsonObject{{"session", session}}}},
-            true, {AuthenticationMode::DeviceOnly});
-    return submit({{"operation", "login_wx_check"}, {"query", session}}, false);
+    return m_auth->checkProviderQr(provider, session);
 }
 quint64 ApiClient::exchangeWechatCode(const QString &code)
 {
-    return submit({{"operation", "login_openplat"},
-                   {"query", QJsonObject{{"stage", "authorize"}, {"code", code}}}},
-                  true, {AuthenticationMode::DeviceOnly, false});
+    return m_auth->exchangeWechatCode(code);
 }
 quint64 ApiClient::finishProviderLogin(QrProvider provider, const QJsonObject &authorization)
 {
-    if (provider == QrProvider::Kugou)
-        return 0;
-    QJsonObject query{{"authorization", authorization}};
-    if (provider == QrProvider::Wechat)
-        query.insert("stage", "finish");
-    return submit({{"operation", provider == QrProvider::Wechat ? "login_openplat" : "login_qq"},
-                   {"query", query}},
-                  true, {AuthenticationMode::DeviceOnly});
+    return m_auth->finishProviderLogin(provider, authorization);
 }
 quint64 ApiClient::sendSmsCode(const QString &mobile)
 {
-    return submit({{"operation", "captcha_sent"}, {"query", QJsonObject{{"mobile", mobile}}}}, true,
-                  {AuthenticationMode::DeviceOnly});
+    return m_auth->sendSmsCode(mobile);
 }
 quint64 ApiClient::smsLogin(const QString &mobile, const QString &code,
                             std::optional<quint64> selectedUser)
 {
-    QJsonObject query{{"mobile", mobile},
-                      {"code", code},
-                      {"user_id", selectedUser ? QJsonValue(qint64(*selectedUser))
-                                               : QJsonValue(QJsonValue::Null)}};
-    return submit({{"operation", "login_cellphone"}, {"query", query}}, true,
-                  {AuthenticationMode::DeviceOnly});
+    return m_auth->smsLogin(mobile, code, selectedUser);
 }
 
 quint64 ApiClient::passwordLogin(const QString &username, const QString &password)
 {
-    return submit({{"operation", "login"},
-                   {"query", QJsonObject{{"username", username}, {"password", password}}}},
-                  true, {AuthenticationMode::DeviceOnly, true});
+    return m_auth->passwordLogin(username, password);
 }
 
 quint64 ApiClient::searchHot(RequestOptions options)
 {
-    return submit({{"operation", "search_hot"}}, true, options);
+    return m_catalog->searchHot(options);
 }
 quint64 ApiClient::searchDefault(RequestOptions options)
 {
-    return submit({{"operation", "search_default"}}, true, options);
+    return m_catalog->searchDefault(options);
 }
 quint64 ApiClient::searchSuggest(const QString &keyword, RequestOptions options)
 {
-    return submit({{"operation", "search_suggest"}, {"query", QJsonObject{{"keyword", keyword}}}},
-                  true, options);
+    return m_catalog->searchSuggest(keyword, options);
 }
 quint64 ApiClient::search(SearchKind kind, const QString &keyword, quint32 page, quint32 pageSize,
                           RequestOptions options)
 {
-    QString wireKind;
-    switch (kind) {
-    case SearchKind::Song:
-        wireKind = QStringLiteral("song");
-        break;
-    case SearchKind::Album:
-        wireKind = QStringLiteral("album");
-        break;
-    case SearchKind::Artist:
-        wireKind = QStringLiteral("author");
-        break;
-    case SearchKind::Playlist:
-        wireKind = QStringLiteral("special");
-        break;
-    case SearchKind::Lyric:
-        wireKind = QStringLiteral("lyric");
-        break;
-    case SearchKind::Mv:
-        wireKind = QStringLiteral("mv");
-        break;
-    }
-    return submit({{"operation", "search"},
-                   {"query", QJsonObject{{"keyword", keyword},
-                                         {"kind", wireKind},
-                                         {"page", qint64(page)},
-                                         {"page_size", qint64(pageSize)}}}},
-                  true, options);
+    return m_catalog->search(kind, keyword, page, pageSize, options);
 }
 quint64 ApiClient::recommendedPlaylists(const QString &categoryId)
 {
-    return submit(
-        {{"operation", "top_playlist"}, {"query", QJsonObject{{"category_id", categoryId}}}});
+    return m_catalog->recommendedPlaylists(categoryId);
 }
 quint64 ApiClient::editorPlaylists()
 {
-    return submit({{"operation", "top_ip"}});
+    return m_catalog->editorPlaylists();
 }
 quint64 ApiClient::styleRecommendations(const QStringList &tagIds)
 {
-    return submit({{"operation", "everyday_style_recommend"},
-                   {"query", QJsonObject{{"tag_ids", QJsonArray::fromStringList(tagIds)}}}});
+    return m_catalog->styleRecommendations(tagIds);
 }
 quint64 ApiClient::dailyRecommendations()
 {
-    return submit({{"operation", "everyday_recommend"}});
+    return m_catalog->dailyRecommendations();
 }
 quint64 ApiClient::freeListenSongs()
 {
-    return submit({{"operation", "ai_recommend_song"}});
+    return m_catalog->freeListenSongs();
 }
 quint64 ApiClient::discoverRecommendations(quint32 pageSize)
 {
-    if (!pageSize)
-        return 0;
-    return submit(
-        {{"operation", "home_discover"}, {"query", QJsonObject{{"page_size", int(pageSize)}}}},
-        true, {AuthenticationMode::DeviceOnly, false});
+    return m_catalog->discoverRecommendations(pageSize);
 }
 quint64 ApiClient::personalFm(const FmRequest &request)
 {
-    const QStringList modes{"normal", "small", "peak", "radio"};
-    const QStringList actions{"play",      "login",      "garbage",
-                              "click_red", "cancel_red", "change_song_pool"};
-    QJsonObject query{{"mode", modes.value(int(request.mode))},
-                      {"action", actions.value(int(request.action))},
-                      {"song_pool_id", int(request.pool)},
-                      {"remain_songcnt", int(request.remaining)},
-                      {"is_overplay", request.overplay},
-                      {"hash", request.hash},
-                      {"cur_mark", request.mark}};
-    if (request.audioId)
-        query.insert("songid", qint64(*request.audioId));
-    if (request.playSeconds)
-        query.insert("playtime", qint64(*request.playSeconds));
-    // Explicit SSA completion permits one retry.
-    // Transport failures do not authorize replaying this request.
-    return submit({{"operation", "personal_fm"}, {"query", query}});
+    return m_media->personalFm(request);
 }
 quint64 ApiClient::newSongCatalog()
 {
-    return submit({{"operation", "top_song"}}, true, {AuthenticationMode::CurrentAccount, false});
+    return m_catalog->newSongCatalog();
 }
 quint64 ApiClient::newAlbumCatalog()
 {
-    return submit({{"operation", "top_album"}}, true, {AuthenticationMode::CurrentAccount, false});
+    return m_catalog->newAlbumCatalog();
 }
 quint64 ApiClient::playlistCategories()
 {
-    return submit({{"operation", "playlist_tags"}}, true,
-                  {AuthenticationMode::CurrentAccount, false});
+    return m_catalog->playlistCategories();
 }
 quint64 ApiClient::artistDirectory(quint32 sex, quint32 category, quint32 musician)
 {
-    return submit({{"operation", "artist_lists"},
-                   {"query", QJsonObject{{"sex", int(sex)},
-                                         {"category", int(category)},
-                                         {"musician", int(musician)}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_catalog->artistDirectory(sex, category, musician);
 }
 quint64 ApiClient::recommendedRanks()
 {
-    return submit({{"operation", "rank_top"}});
+    return m_catalog->recommendedRanks();
 }
 quint64 ApiClient::rankCatalog()
 {
-    return submit({{"operation", "rank_list"}});
+    return m_catalog->rankCatalog();
 }
 quint64 ApiClient::rankSongs(quint64 rankId)
 {
-    return submit(
-        {{"operation", "rank_audio"}, {"query", QJsonObject{{"rank_id", qint64(rankId)}}}});
+    return m_catalog->rankSongs(rankId);
 }
 quint64 ApiClient::songClimax(const QString &hash)
 {
-    return submit({{"operation", "song_climax"}, {"query", QJsonObject{{"hash", hash}}}}, true,
-                  {AuthenticationMode::CurrentAccount, false});
+    return m_media->songClimax(hash);
 }
 quint64 ApiClient::albumDynamicCover(quint64 audio, quint64 album)
 {
-    if (audio > quint64(std::numeric_limits<qint64>::max()) ||
-        album > quint64(std::numeric_limits<qint64>::max()))
-        return 0;
-    return submit(
-        {{"operation", "album_dycover"},
-         {"query", QJsonObject{{"album_audio_id", qint64(audio)}, {"album_id", qint64(album)}}}},
-        true, {AuthenticationMode::DeviceOnly, false});
+    return m_media->albumDynamicCover(audio, album);
 }
-namespace
-{
-QString commentResourceName(ApiClient::CommentResource resource)
-{
-    switch (resource) {
-    case ApiClient::CommentResource::Album:
-        return QStringLiteral("album");
-    case ApiClient::CommentResource::Playlist:
-        return QStringLiteral("playlist");
-    case ApiClient::CommentResource::Music:
-        return QStringLiteral("music");
-    }
-    Q_UNREACHABLE();
-}
-QJsonObject commentWriteQuery(const ApiClient::CommentWrite &w)
-{
-    QJsonObject q{{"resource", commentResourceName(w.resource)},
-                  {"id", w.id},
-                  {"name", w.name},
-                  {"content", w.content},
-                  {"comment_id", w.commentId},
-                  {"thread_id", w.threadId},
-                  {"parent_id", w.parentId},
-                  {"reply_user_name", w.replyUserName},
-                  {"reply_content", w.replyContent}};
-    if (!w.code.isEmpty())
-        q.insert("code", w.code);
-    if (w.mixSongId)
-        q.insert("mix_song_id", qint64(w.mixSongId));
-    return q;
-}
-} // namespace
+
 quint64 ApiClient::comments(const CommentQuery &q)
 {
-    QString operation;
-    switch (q.section) {
-    case CommentSection::Category:
-        operation = "comment_music_classify";
-        break;
-    case CommentSection::HotWord:
-        operation = "comment_music_hotword";
-        break;
-    case CommentSection::Floor:
-        operation = "comment_floor";
-        break;
-    case CommentSection::All:
-        operation = "comment_" + commentResourceName(q.resource);
-        break;
-    }
-    QJsonObject query{{"resource", commentResourceName(q.resource)},
-                      {"id", q.id},
-                      {"page", qint64(q.page)},
-                      {"page_size", qint64(q.pageSize)}};
-    if (!q.code.isEmpty())
-        query.insert("code", q.code);
-    if (q.categoryId)
-        query.insert("category_id", qint64(q.categoryId));
-    if (q.mixSongId)
-        query.insert("mix_song_id", qint64(q.mixSongId));
-    if (!q.threadId.isEmpty())
-        query.insert("thread_id", q.threadId);
-    if (!q.hotWord.isEmpty())
-        query.insert("hot_word", q.hotWord);
-    return submit({{"operation", operation}, {"query", query}}, true,
-                  {AuthenticationMode::CurrentAccount, true});
+    return m_social->comments(q);
 }
 quint64 ApiClient::sendComment(const CommentWrite &w)
 {
-    return submit({{"operation", "comment_" + commentResourceName(w.resource) + "_send"},
-                   {"query", commentWriteQuery(w)}},
-                  true, {AuthenticationMode::CurrentAccount, true});
+    return m_social->sendComment(w);
 }
 quint64 ApiClient::replyComment(const CommentWrite &w)
 {
-    return submit({{"operation", "comment_floor_send"}, {"query", commentWriteQuery(w)}}, true,
-                  {AuthenticationMode::CurrentAccount, true});
+    return m_social->replyComment(w);
 }
 quint64 ApiClient::deleteComment(const CommentWrite &w)
 {
-    return submit({{"operation", "comment_music_del"}, {"query", commentWriteQuery(w)}}, true,
-                  {AuthenticationMode::CurrentAccount, true});
+    return m_social->deleteComment(w);
 }
 quint64 ApiClient::songRanking(quint64 mix, bool details)
 {
-    return submit(
-        {{"operation", details ? "song_ranking_filter" : "song_ranking"},
-         {"query", QJsonObject{{"album_audio_id", qint64(mix)}, {"page", 1}, {"page_size", 30}}}},
-        true, {AuthenticationMode::CurrentAccount, true});
+    return m_media->songRanking(mix, details);
 }
 quint64 ApiClient::commentCount(const QString &hash)
 {
-    return submit({{"operation", "comment_count"}, {"query", QJsonObject{{"hash", hash}}}}, true,
-                  {AuthenticationMode::CurrentAccount, true});
+    return m_social->commentCount(hash);
 }
 quint64 ApiClient::favoriteCount(quint64 mix)
 {
-    return submit(
-        {{"operation", "favorite_count"}, {"query", QJsonObject{{"ids", QJsonArray{qint64(mix)}}}}},
-        true, {AuthenticationMode::CurrentAccount, true});
+    return m_social->favoriteCount(mix);
 }
 quint64 ApiClient::songMv(quint64 mix)
 {
-    return submit(
-        {{"operation", "kmr_audio_mv"}, {"query", QJsonObject{{"album_audio_id", qint64(mix)}}}},
-        true, {AuthenticationMode::CurrentAccount, true});
+    return m_media->songMv(mix);
 }
 quint64 ApiClient::videoDetail(const QString &id)
 {
-    return submit({{"operation", "video_detail"}, {"query", QJsonObject{{"id", id}}}}, true,
-                  {AuthenticationMode::CurrentAccount, true});
+    return m_media->videoDetail(id);
 }
 quint64 ApiClient::videoPrivilege(const QString &hash)
 {
-    return submit({{"operation", "video_privilege"}, {"query", QJsonObject{{"hash", hash}}}}, true,
-                  {AuthenticationMode::CurrentAccount, true});
+    return m_media->videoPrivilege(hash);
 }
 quint64 ApiClient::videoUrl(const QString &hash)
 {
-    return submit({{"operation", "video_url"}, {"query", QJsonObject{{"hash", hash}}}}, true,
-                  {AuthenticationMode::CurrentAccount, true});
+    return m_media->videoUrl(hash);
 }
 quint64 ApiClient::collectVideo(quint64 id, bool collect)
 {
-    if (!m_userId || !id)
-        return 0;
-    return submit({{"operation", collect ? "mv_collect" : "mv_collect_del"},
-                   {"query", QJsonObject{{"id", qint64(id)}}}},
-                  true, {AuthenticationMode::CurrentAccount, true});
+    return m_social->collectVideo(id, collect);
 }
 quint64 ApiClient::commentAuthorProducts(const QList<quint64> &ids)
 {
-    QJsonArray users;
-    for (auto id : ids)
-        users.append(qint64(id));
-    return submit(
-        {{"operation", "user_batch_union_vipinfo"}, {"query", QJsonObject{{"user_ids", users}}}},
-        true, {AuthenticationMode::DeviceOnly, false});
+    return m_social->commentAuthorProducts(ids);
 }
 quint64 ApiClient::songBarrage(const QString &hash, quint32 size)
 {
-    return submit(
-        {{"operation", "song_barrage"},
-         {"query", QJsonObject{{"hash", hash}, {"page", 1}, {"page_size", qint64(size)}}}},
-        true, {AuthenticationMode::CurrentAccount, true});
+    return m_social->songBarrage(hash, size);
 }
 quint64 ApiClient::sendSongBarrage(const QString &hash, const QString &name, const QString &content)
 {
-    return submit({{"operation", "song_barrage_send"},
-                   {"query", QJsonObject{{"hash", hash}, {"name", name}, {"content", content}}}},
-                  true, {AuthenticationMode::CurrentAccount, true});
+    return m_social->sendSongBarrage(hash, name, content);
 }
 quint64 ApiClient::videoBarrage(const QString &hash, quint32 size)
 {
-    return submit(
-        {{"operation", "video_barrage"},
-         {"query", QJsonObject{{"hash", hash}, {"page", 1}, {"page_size", qint64(size)}}}},
-        true, {AuthenticationMode::CurrentAccount, true});
+    return m_social->videoBarrage(hash, size);
 }
 quint64 ApiClient::sendVideoBarrage(const QString &hash, const QString &name,
                                     const QString &content)
 {
-    return submit({{"operation", "video_barrage_send"},
-                   {"query", QJsonObject{{"hash", hash}, {"name", name}, {"content", content}}}},
-                  true, {AuthenticationMode::CurrentAccount, true});
+    return m_social->sendVideoBarrage(hash, name, content);
 }
 quint64 ApiClient::albumDetail(quint64 albumId, RequestOptions options)
 {
-    if (albumId > quint64(std::numeric_limits<qint64>::max()))
-        return 0;
-    return submit({{"operation", "album_detail"}, {"id", qint64(albumId)}}, true, options);
+    return m_catalog->albumDetail(albumId, options);
 }
 quint64 ApiClient::albumSongs(quint64 albumId, quint32 page, quint32 pageSize,
                               RequestOptions options)
 {
-    if (albumId > quint64(std::numeric_limits<qint64>::max()))
-        return 0;
-    return submit({{"operation", "album_songs"},
-                   {"query", QJsonObject{{"id", qint64(albumId)},
-                                         {"page", qint64(page)},
-                                         {"page_size", qint64(pageSize)}}}},
-                  true, options);
+    return m_catalog->albumSongs(albumId, page, pageSize, options);
 }
 quint64 ApiClient::artistDetail(quint64 artistId, RequestOptions options)
 {
-    if (artistId > quint64(std::numeric_limits<qint64>::max()))
-        return 0;
-    return submit({{"operation", "artist_detail"}, {"id", qint64(artistId)}}, true, options);
+    return m_catalog->artistDetail(artistId, options);
 }
 quint64 ApiClient::artistSongs(quint64 artistId, quint32 page, quint32 pageSize,
                                const QString &sort, RequestOptions options)
 {
-    if (artistId > quint64(std::numeric_limits<qint64>::max()))
-        return 0;
-    return submit({{"operation", "artist_songs"},
-                   {"query", QJsonObject{{"id", qint64(artistId)},
-                                         {"page", qint64(page)},
-                                         {"page_size", qint64(pageSize)},
-                                         {"sort", sort}}}},
-                  true, options);
+    return m_catalog->artistSongs(artistId, page, pageSize, sort, options);
 }
 quint64 ApiClient::artistAlbums(quint64 artistId, quint32 page, quint32 pageSize,
                                 const QString &sort, RequestOptions options)
 {
-    if (artistId > quint64(std::numeric_limits<qint64>::max()))
-        return 0;
-    return submit({{"operation", "artist_albums"},
-                   {"query", QJsonObject{{"id", qint64(artistId)},
-                                         {"page", qint64(page)},
-                                         {"page_size", qint64(pageSize)},
-                                         {"sort", sort}}}},
-                  true, options);
+    return m_catalog->artistAlbums(artistId, page, pageSize, sort, options);
 }
 quint64 ApiClient::userDetail(RequestOptions options)
 {
-    return submit({{"operation", "user_detail"}}, true, options);
+    return m_social->userDetail(options);
 }
 quint64 ApiClient::userInfo()
 {
-    return submit({{"operation", "user_info"}});
+    return m_social->userInfo();
 }
 quint64 ApiClient::userVipDetail()
 {
-    return submit({{"operation", "user_vip_detail"}});
+    return m_social->userVipDetail();
 }
 quint64 ApiClient::userGradeInfo(std::optional<quint64> userId, bool automaticVerification)
 {
-    if ((userId && !*userId) || (!userId && !m_userId))
-        return 0;
-    QJsonObject query{
-        {"user_id", userId ? QJsonValue(qint64(*userId)) : QJsonValue(QJsonValue::Null)}};
-    return submit({{"operation", "user_grade_info"}, {"query", query}}, true,
-                  userId
-                      ? RequestOptions{AuthenticationMode::DeviceOnly, false}
-                      : RequestOptions{AuthenticationMode::CurrentAccount, automaticVerification});
+    return m_social->userGradeInfo(userId, automaticVerification);
 }
 quint64 ApiClient::reportListeningEvent(ListeningEvent event, quint64 songId, qint64 durationMs,
                                         bool completed)
 {
-    if (!m_userId || !songId || durationMs < 0)
-        return 0;
-    return submit(
-        {{"operation", "user_listen_report"},
-         {"query",
-          QJsonObject{{"event", event == ListeningEvent::Start ? "start" : "end"},
-                      {"mixsongid", qint64(songId)},
-                      {"duration_ms", event == ListeningEvent::End ? QJsonValue(durationMs)
-                                                                   : QJsonValue(QJsonValue::Null)},
-                      {"completed", completed}}}},
-        true, {AuthenticationMode::CurrentAccount, false});
+    return m_media->reportListeningEvent(event, songId, durationMs, completed);
 }
 quint64 ApiClient::reportListeningProgress(quint64 baselineSeconds, quint64 incrementSeconds)
 {
-    if (!m_userId)
-        return 0;
-    return submit({{"operation", "user_grade_progress"},
-                   {"query", QJsonObject{{"baseline_seconds", qint64(baselineSeconds)},
-                                         {"increment_seconds", qint64(incrementSeconds)}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_media->reportListeningProgress(baselineSeconds, incrementSeconds);
 }
 quint64 ApiClient::socialUsers(SocialList list)
 {
-    if (!m_userId)
-        return 0;
-    const QStringList operations{"user_follow", "user_friends", "user_fans", "user_visitors"};
-    const auto value = int(list);
-    if (value < 0 || value >= operations.size())
-        return 0;
-    return submit({{"operation", operations[value]}});
+    return m_social->socialUsers(list);
 }
 quint64 ApiClient::followUser(quint64 id, bool following)
 {
-    if (!m_userId || !id || id == m_userId)
-        return 0;
-    return submit(
-        {{"operation", following ? "user_follow_add" : "user_follow_del"}, {"id", qint64(id)}},
-        true, {AuthenticationMode::CurrentAccount, false});
+    return m_social->followUser(id, following);
 }
 quint64 ApiClient::followArtist(quint64 id, bool following)
 {
-    if (!m_userId || !id)
-        return 0;
-    return submit(
-        {{"operation", following ? "artist_follow" : "artist_unfollow"}, {"id", qint64(id)}}, true,
-        {AuthenticationMode::CurrentAccount, false});
+    return m_social->followArtist(id, following);
 }
 quint64 ApiClient::socialMessages(quint64 target, const QString &tag)
 {
-    if (!m_userId || !target || target == m_userId)
-        return 0;
-    return submit({{"operation", "user_follow_message"},
-                   {"query", QJsonObject{{"target", qint64(target)},
-                                         {"tag", tag.isEmpty() ? QJsonValue(QJsonValue::Null)
-                                                               : QJsonValue(tag)}}}});
+    return m_social->socialMessages(target, tag);
 }
 quint64 ApiClient::sendSocialMessage(quint64 target, const QString &tag, const QString &text,
                                      const QString &nickname)
 {
-    if (!m_userId || !target || target == m_userId || text.trimmed().isEmpty() || text.size() > 200)
-        return 0;
-    return submit({{"operation", "user_follow_chat"},
-                   {"query", QJsonObject{{"target", qint64(target)},
-                                         {"tag", tag.isEmpty() ? QJsonValue(QJsonValue::Null)
-                                                               : QJsonValue(tag)},
-                                         {"text", text},
-                                         {"nickname", nickname}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_social->sendSocialMessage(target, tag, text, nickname);
 }
 quint64 ApiClient::loginDevices()
 {
-    return m_userId ? submit({{"operation", "login_device"}}) : 0;
+    return m_auth->loginDevices();
 }
 quint64 ApiClient::kickLoginDevice(const LoginDeviceTarget &target)
 {
-    if (!m_userId || target.mid.isEmpty() || target.mid == m_device.mid ||
-        !target.activeAtSeconds || !target.appId || !target.clientVersion)
-        return 0;
-    return submit({{"operation", "login_device_kick"},
-                   {"query", QJsonObject{{"target_mid", target.mid},
-                                         {"transport_fingerprint", target.transportFingerprint},
-                                         {"active_at_seconds", qint64(target.activeAtSeconds)},
-                                         {"app_id", qint64(target.appId)},
-                                         {"client_version", qint64(target.clientVersion)}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_auth->kickLoginDevice(target);
 }
 quint64 ApiClient::updateUserProfile(const ProfilePatch &patch)
 {
-    if (!m_userId)
-        return 0;
-    QJsonObject query;
-    for (const auto &entry :
-         {std::pair<QString, std::optional<QString>>{"nickname", patch.nickname},
-          {"birthday", patch.birthday},
-          {"signature", patch.signature},
-          {"province", patch.province},
-          {"city", patch.city}})
-        if (entry.second)
-            query.insert(entry.first, *entry.second);
-    if (patch.gender)
-        query.insert("gender", qint64(*patch.gender));
-    if (query.isEmpty())
-        return 0;
-    return submit({{"operation", "user_update"}, {"query", query}}, true,
-                  {AuthenticationMode::CurrentAccount, false});
+    return m_social->updateUserProfile(patch);
 }
 quint64 ApiClient::updateUserAvatar(const QByteArray &image)
 {
-    if (!m_userId || image.isEmpty() || image.size() > 8 * 1024 * 1024)
-        return 0;
-    const auto id =
-        submit({{"operation", "user_update_avatar"},
-                {"query", QJsonObject{{"image_base64", QString::fromLatin1(image.toBase64())},
-                                      {"local_date", QDate::currentDate().toString("yyyyMMdd")}}}},
-               true, {AuthenticationMode::CurrentAccount, false});
-    // This write is never replayed, and the native runtime already owns its
-    // serialized input. Do not retain another image/base64 in pending metadata.
-    if (id)
-        m_pending[id].request = {{"operation", "user_update_avatar"}};
-    return id;
+    return m_social->updateUserAvatar(image);
 }
 quint64 ApiClient::contentBlacklist(BlacklistKind kind, quint32 page, quint32 pageSize)
 {
-    if (!m_userId || !page || !pageSize || pageSize > 500)
-        return 0;
-    return submit({{"operation", "blacklist_list"},
-                   {"query", QJsonObject{{"label", kind == BlacklistKind::Song ? "song" : "singer"},
-                                         {"page", qint64(page)},
-                                         {"page_size", qint64(pageSize)}}}});
+    return m_social->contentBlacklist(kind, page, pageSize);
 }
 quint64 ApiClient::editContentBlacklist(BlacklistKind kind, const QString &key, const QString &name,
                                         const QString &mixSongId, bool remove)
 {
-    if (!m_userId || key.isEmpty())
-        return 0;
-    return submit({{"operation", "blacklist"},
-                   {"query", QJsonObject{{"label", kind == BlacklistKind::Song ? "song" : "singer"},
-                                         {"key", key},
-                                         {"name", name},
-                                         {"mix_song_id", mixSongId},
-                                         {"remove", remove}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_social->editContentBlacklist(kind, key, name, mixSongId, remove);
 }
 quint64 ApiClient::listeningPreferences()
 {
-    return m_userId ? submit({{"operation", "user_preference"}}) : 0;
+    return m_social->listeningPreferences();
 }
 quint64 ApiClient::updateListeningPreferences(const PreferencePatch &patch)
 {
-    if (!m_userId)
-        return 0;
-    QJsonObject query;
-    for (const auto &entry :
-         {std::pair<QString, std::optional<QString>>{"recommendation_mode", patch.mode},
-          {"gender", patch.gender},
-          {"age", patch.age},
-          {"languages", patch.languages},
-          {"styles", patch.styles},
-          {"recommendation", patch.recommendation}})
-        if (entry.second)
-            query.insert(entry.first, *entry.second);
-    if (query.isEmpty())
-        return 0;
-    return submit({{"operation", "user_preference_update"}, {"query", query}}, true,
-                  {AuthenticationMode::CurrentAccount, false});
+    return m_social->updateListeningPreferences(patch);
 }
 quint64 ApiClient::userPlaylists(quint32 page, quint32 pageSize)
 {
-    if (!m_userId || !page || !pageSize || pageSize > 200)
-        return 0;
-    return submit(
-        {{"operation", "user_playlist"},
-         {"query", QJsonObject{{"page", qint64(page)}, {"page_size", qint64(pageSize)}}}});
+    return m_library->userPlaylists(page, pageSize);
 }
 quint64 ApiClient::importPlaylistLink(const QString &text)
 {
-    if (!m_userId || text.isEmpty() || text.size() > 8192)
-        return 0;
-    return submit({{"operation", "import_playlist"},
-                   {"query", QJsonObject{{"action", "link"}, {"url", text}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_library->importPlaylistLink(text);
 }
 quint64 ApiClient::submitPlaylistImportImage(const QString &serial, const QByteArray &image)
 {
-    if (!m_userId || serial.isEmpty() || image.isEmpty() || image.size() > 10 * 1024 * 1024)
-        return 0;
-    return submit({{"operation", "import_playlist"},
-                   {"query", QJsonObject{{"action", "submit_image"},
-                                         {"task_sn", serial},
-                                         {"image_base64", QString::fromLatin1(image.toBase64())}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_library->submitPlaylistImportImage(serial, image);
 }
 quint64 ApiClient::importPlaylistScreenshot(const QString &serial, CloudPlaylistId id,
                                             const QString &title)
 {
-    if (!m_userId || !id.value || serial.isEmpty() || title.isEmpty())
-        return 0;
-    return submit({{"operation", "import_playlist"},
-                   {"query", QJsonObject{{"action", "screenshot"},
-                                         {"task_sn", serial},
-                                         {"cloud_list_id", qint64(id.value)},
-                                         {"title", title}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_library->importPlaylistScreenshot(serial, id, title);
 }
 quint64 ApiClient::playlistImportStatus(quint64 task)
 {
-    if (!m_userId || !task)
-        return 0;
-    return submit(
-        {{"operation", "import_playlist"},
-         {"query", QJsonObject{{"action", "status"}, {"task_ids", QJsonArray{qint64(task)}}}}},
-        true);
+    return m_library->playlistImportStatus(task);
 }
 quint64 ApiClient::playlistImportResult(CloudPlaylistId id, quint32 page, quint32 size)
 {
-    if (!m_userId || !id.value || !page || !size || size > 100)
-        return 0;
-    return submit({{"operation", "import_playlist"},
-                   {"query", QJsonObject{{"action", "result"},
-                                         {"cloud_list_id", qint64(id.value)},
-                                         {"page", qint64(page)},
-                                         {"page_size", qint64(size)}}}},
-                  true);
+    return m_library->playlistImportResult(id, page, size);
 }
 quint64 ApiClient::userCloud(quint32 page, quint32 pageSize)
 {
-    if (!m_userId || !page || pageSize > 100)
-        return 0;
-    return submit({{"operation", "user_cloud"},
-                   {"query", QJsonObject{{"page", int(page)}, {"page_size", int(pageSize)}}}});
+    return m_cloud->userCloud(page, pageSize);
 }
 quint64 ApiClient::cloudMatch(const QString &hash)
 {
-    return m_userId
-               ? submit({{"operation", "user_cloud_match"}, {"query", QJsonObject{{"hash", hash}}}},
-                        true, {AuthenticationMode::CurrentAccount, true, false})
-               : 0;
+    return m_cloud->cloudMatch(hash);
 }
 quint64 ApiClient::cloudUpload(CloudUploadStage stage, QJsonObject parameters)
 {
-    static const QStringList stages = {"auth", "initiate", "part", "complete", "add"};
-    parameters.insert("stage", stages.at(int(stage)));
-    return m_userId ? submit({{"operation", "user_cloud_upload"}, {"query", parameters}}, true,
-                             {AuthenticationMode::CurrentAccount, true, false})
-                    : 0;
+    return m_cloud->cloudUpload(stage, parameters);
 }
 quint64 ApiClient::userCloudDelete(const QList<CloudDeleteTarget> &targets)
 {
-    if (!m_userId || targets.isEmpty() || targets.size() > 200)
-        return 0;
-    QJsonArray files;
-    for (const auto &target : targets) {
-        if (!target.kvId || target.kvId > quint64(std::numeric_limits<qint64>::max()))
-            return 0;
-        QJsonObject file{{"kv_id", qint64(target.kvId)}};
-        if (target.albumAudioId &&
-            target.albumAudioId <= quint64(std::numeric_limits<qint64>::max()))
-            file.insert("album_audio_id", qint64(target.albumAudioId));
-        files.append(file);
-    }
-    return submit({{"operation", "user_cloud_del"}, {"query", QJsonObject{{"files", files}}}});
+    return m_cloud->userCloudDelete(targets);
 }
 quint64 ApiClient::userVideoCollect(quint32 page, quint32 pageSize)
 {
-    if (!m_userId || !page || pageSize > 100)
-        return 0;
-    return submit({{"operation", "user_video_collect"},
-                   {"query", QJsonObject{{"page", int(page)}, {"page_size", int(pageSize)}}}});
+    return m_social->userVideoCollect(page, pageSize);
 }
 quint64 ApiClient::purchasedSongs(quint32 page, quint32 pageSize)
 {
-    if (!m_userId || !page || pageSize > 100)
-        return 0;
-    return submit({{"operation", "user_purchased_songs"},
-                   {"query", QJsonObject{{"page", int(page)}, {"page_size", int(pageSize)}}}});
+    return m_library->purchasedSongs(page, pageSize);
 }
 quint64 ApiClient::purchasedAlbums(quint32 page, quint32 pageSize)
 {
-    if (!m_userId || !page || pageSize > 100)
-        return 0;
-    return submit({{"operation", "user_purchased_albums"},
-                   {"query", QJsonObject{{"page", int(page)}, {"page_size", int(pageSize)}}}});
+    return m_library->purchasedAlbums(page, pageSize);
 }
 quint64 ApiClient::playlistDetails(const QList<PublicCollectionId> &ids, RequestOptions options)
 {
-    if (ids.isEmpty() || ids.size() > 100)
-        return 0;
-    QJsonArray values;
-    for (const auto &id : ids) {
-        if (id.value.isEmpty() || id.value.size() > 256 || id.value.contains(u','))
-            return 0;
-        values.append(id.value);
-    }
-    return submit(
-        {{"operation", "playlist_detail"}, {"query", QJsonObject{{"global_ids", values}}}}, true,
-        options);
+    return m_library->playlistDetails(ids, options);
 }
 quint64 ApiClient::publicPlaylistTracks(const PublicCollectionId &id, quint32 page,
                                         quint32 pageSize, RequestOptions options)
 {
-    if (id.value.isEmpty() || id.value.size() > 256 || !page || !pageSize || pageSize > 200)
-        return 0;
-    return submit({{"operation", "playlist_track_all"},
-                   {"query", QJsonObject{{"global_id", id.value},
-                                         {"page", qint64(page)},
-                                         {"page_size", qint64(pageSize)}}}},
-                  true, options);
+    return m_library->publicPlaylistTracks(id, page, pageSize, options);
 }
 quint64 ApiClient::cloudPlaylistTracks(CloudPlaylistId id, quint32 page, quint32 pageSize)
 {
-    if (!m_userId || !id.value || id.value > quint64(std::numeric_limits<qint64>::max()) || !page ||
-        !pageSize || pageSize > 300)
-        return 0;
-    return submit({{"operation", "playlist_track_all_new"},
-                   {"query", QJsonObject{{"cloud_list_id", qint64(id.value)},
-                                         {"page", qint64(page)},
-                                         {"page_size", qint64(pageSize)}}}});
+    return m_library->cloudPlaylistTracks(id, page, pageSize);
 }
 quint64 ApiClient::songMetadata(const QList<quint64> &ids, RequestOptions options)
 {
-    if (ids.isEmpty() || ids.size() > 100)
-        return 0;
-    QJsonArray values;
-    QSet<quint64> seen;
-    for (auto id : ids) {
-        if (!id || id > quint64(std::numeric_limits<qint64>::max()) || seen.contains(id))
-            return 0;
-        seen.insert(id);
-        values.append(qint64(id));
-    }
-    return submit({{"operation", "krm_audio"}, {"query", QJsonObject{{"album_audio_ids", values}}}},
-                  true, options);
+    return m_media->songMetadata(ids, options);
 }
 quint64 ApiClient::audioEffects(EffectCategory category, quint32 page, quint32 pageSize,
                                 quint32 sort, quint64 brand)
 {
-    if (!page || !pageSize || pageSize > 50)
-        return 0;
-    static const QStringList operations{"effects_artist", "effects_brand", "effects_brand_detail",
-                                        "get_model"};
-    const auto index = int(category);
-    if (index < 0 || index >= operations.size())
-        return 0;
-    QJsonObject query{{"page", int(page)}, {"page_size", int(pageSize)}};
-    if (category == EffectCategory::Market) {
-        if (sort < 2 || sort > 4)
-            return 0;
-        query.insert("sort", int(sort));
-    }
-    if (category == EffectCategory::HeadphoneModels) {
-        if (!brand || brand > quint64(std::numeric_limits<qint64>::max()))
-            return 0;
-        query.insert("brand_id", qint64(brand));
-    }
-    return submit({{"operation", operations[index]}, {"query", query}}, true);
+    return m_media->audioEffects(category, page, pageSize, sort, brand);
 }
 quint64 ApiClient::commonHeadphoneEffect()
 {
-    return submit({{"operation", "effects_match"}}, true);
+    return m_media->commonHeadphoneEffect();
 }
 quint64 ApiClient::lyricCandidates(const QString &hash, quint64 songId, quint64 durationMs,
                                    bool allCandidates)
 {
-    return submit({{"operation", "search_lyric"},
-                   {"query", QJsonObject{{"hash", hash},
-                                         {"song_id", qint64(songId)},
-                                         {"duration_ms", qint64(durationMs)},
-                                         {"all_candidates", allCandidates}}}});
+    return m_media->lyricCandidates(hash, songId, durationMs, allCandidates);
 }
 quint64 ApiClient::lyric(const QString &id, const QString &accessKey)
 {
-    return submit(
-        {{"operation", "lyric"}, {"query", QJsonObject{{"id", id}, {"accesskey", accessKey}}}});
+    return m_media->lyric(id, accessKey);
 }
 quint64 ApiClient::lyricCandidatesByKeywords(const QString &keywords, quint64 durationMs,
                                              bool allCandidates)
 {
-    if (keywords.trimmed().isEmpty())
-        return 0;
-    return submit({{"operation", "search_lyric"},
-                   {"query", QJsonObject{{"keywords", keywords.trimmed()},
-                                         {"duration_ms", qint64(durationMs)},
-                                         {"all_candidates", allCandidates}}}});
+    return m_media->lyricCandidatesByKeywords(keywords, durationMs, allCandidates);
 }
 quint64 ApiClient::userVerify(RequestOptions options)
 {
-    return submit({{"operation", "user_verify"}}, true, options);
+    return m_auth->userVerify(options);
 }
 quint64 ApiClient::createPlaylist(const QString &title, bool isPrivate)
 {
-    if (!m_userId || title.trimmed().isEmpty())
-        return 0;
-    return submit({{"operation", "playlist_add"},
-                   {"query", QJsonObject{{"title", title}, {"private", isPrivate}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_library->createPlaylist(title, isPrivate);
 }
 quint64 ApiClient::collectPlaylist(const CollectionTarget &target)
 {
-    if (!m_userId || target.title.trimmed().isEmpty() || !target.creatorListId)
-        return 0;
-    QJsonObject collection{{"source", int(target.source)},
-                           {"creator_id", target.creatorId ? QJsonValue(qint64(*target.creatorId))
-                                                           : QJsonValue(QJsonValue::Null)},
-                           {"creator_list_id", qint64(target.creatorListId)},
-                           {"creator_global_id", target.creatorGlobalId}};
-    return submit(
-        {{"operation", "playlist_add"},
-         {"query",
-          QJsonObject{{"title", target.title}, {"private", false}, {"collection", collection}}}},
-        true, {AuthenticationMode::CurrentAccount, false});
+    return m_library->collectPlaylist(target);
 }
 quint64 ApiClient::addPlaylistTracks(CloudPlaylistId id, const QList<PlaylistTrackInput> &tracks)
 {
-    if (!m_userId || !id.value || id.value > quint64(std::numeric_limits<qint64>::max()) ||
-        tracks.isEmpty() || tracks.size() > 300)
-        return 0;
-    QJsonArray values;
-    for (const auto &track : tracks) {
-        if (track.albumId > quint64(std::numeric_limits<qint64>::max()) ||
-            track.songId > quint64(std::numeric_limits<qint64>::max()))
-            return 0;
-        values.append(QJsonObject{{"title", track.title},
-                                  {"hash", track.hash},
-                                  {"album_id", qint64(track.albumId)},
-                                  {"song_id", qint64(track.songId)}});
-    }
-    return submit({{"operation", "playlist_tracks_add"},
-                   {"query", QJsonObject{{"cloud_list_id", qint64(id.value)}, {"tracks", values}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_library->addPlaylistTracks(id, tracks);
 }
 quint64 ApiClient::removePlaylistTracks(CloudPlaylistId id, const QList<PlaylistTrackFileId> &files)
 {
-    if (!m_userId || !id.value || id.value > quint64(std::numeric_limits<qint64>::max()) ||
-        files.isEmpty() || files.size() > 300)
-        return 0;
-    QJsonArray values;
-    for (auto file : files) {
-        if (!file.value || file.value > quint64(std::numeric_limits<qint64>::max()))
-            return 0;
-        values.append(qint64(file.value));
-    }
-    return submit(
-        {{"operation", "playlist_tracks_del"},
-         {"query", QJsonObject{{"cloud_list_id", qint64(id.value)}, {"file_ids", values}}}},
-        true, {AuthenticationMode::CurrentAccount, false});
+    return m_library->removePlaylistTracks(id, files);
 }
 quint64 ApiClient::sortPlaylistTracks(CloudPlaylistId id, quint64 revision,
                                       const QList<PlaylistTrackPosition> &positions)
 {
-    // Allow ordering across all loaded pages. Reject empty or duplicate IDs
-    // without imposing a single-page count limit.
-    if (!m_userId || !id.value || id.value > quint64(std::numeric_limits<qint64>::max()) ||
-        revision > quint64(std::numeric_limits<qint64>::max()) || positions.isEmpty())
-        return 0;
-    QJsonArray values;
-    for (auto position : positions) {
-        if (!position.fileId.value ||
-            position.fileId.value > quint64(std::numeric_limits<qint64>::max()))
-            return 0;
-        values.append(QJsonObject{{"file_id", qint64(position.fileId.value)},
-                                  {"position", qint64(position.position)}});
-    }
-    return submit({{"operation", "playlist_tracks_sort"},
-                   {"query", QJsonObject{{"cloud_list_id", qint64(id.value)},
-                                         {"revision", qint64(revision)},
-                                         {"positions", values}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_library->sortPlaylistTracks(id, revision, positions);
 }
 quint64 ApiClient::sortPlaylists(quint64 totalRevision, const QList<PlaylistPosition> &positions)
 {
-    if (!m_userId || totalRevision > quint64(std::numeric_limits<qint64>::max()) ||
-        positions.isEmpty())
-        return 0;
-    QJsonArray values;
-    QSet<quint64> ids;
-    QSet<QPair<int, quint32>> occupiedPositions;
-    for (const auto &p : positions) {
-        if ((p.kind != PlaylistKind::Owned && p.kind != PlaylistKind::Collected) || !p.id.value ||
-            p.id.value > quint64(std::numeric_limits<qint64>::max()) || ids.contains(p.id.value) ||
-            occupiedPositions.contains({int(p.kind), p.position}))
-            return 0;
-        ids.insert(p.id.value);
-        occupiedPositions.insert({int(p.kind), p.position});
-        values.append(QJsonObject{{"cloud_list_id", qint64(p.id.value)},
-                                  {"kind", p.kind == PlaylistKind::Owned ? "owned" : "collected"},
-                                  {"position", qint64(p.position)}});
-    }
-    return submit(
-        {{"operation", "playlist_sort"},
-         {"query", QJsonObject{{"total_revision", qint64(totalRevision)}, {"positions", values}}}},
-        true, {AuthenticationMode::CurrentAccount, false});
+    return m_library->sortPlaylists(totalRevision, positions);
 }
 quint64 ApiClient::uploadPlaylistCover(const QByteArray &png)
 {
-    Q_ASSERT(QThread::currentThread() == thread());
-    if (m_closing)
-        return 0;
-    if (png.size() > 8 * 1024 * 1024 || !png.startsWith(QByteArray::fromHex("89504e470d0a1a0a")))
-        return 0;
-    const auto date = QDate::currentDate().toString(QStringLiteral("yyyyMMdd")).toUInt();
-    Pending pending;
-    pending.revision = m_revision;
-    pending.automaticVerification = false;
-    // Metadata only: no image bytes/base64 retained in Qt's pending requests.
-    pending.request = {{"operation", "playlist_pic_upload"}, {"local_date", qint64(date)}};
-    const auto id = echo_runtime_upload_playlist_cover(
-        m_runtime, reinterpret_cast<const uint8_t *>(png.constData()), size_t(png.size()), date,
-        m_revision, callback, m_dispatcher);
-    if (id) {
-        pending.logicalId = id;
-        m_pending.insert(id, std::move(pending));
-    }
-    return id;
+    return m_library->uploadPlaylistCover(png);
 }
 quint64 ApiClient::updatePlaylist(const PlaylistUpdate &update)
 {
-    if (!m_userId || !update.id.value ||
-        update.id.value > quint64(std::numeric_limits<qint64>::max()) ||
-        update.totalRevision > quint64(std::numeric_limits<qint64>::max()))
-        return 0;
-    QJsonObject query{{"cloud_list_id", qint64(update.id.value)},
-                      {"total_revision", qint64(update.totalRevision)},
-                      {"sort_index", update.sortIndex},
-                      {"description", update.description},
-                      {"tags", update.tags}};
-    if (update.title)
-        query.insert(QStringLiteral("title"), *update.title);
-    if (update.coverReference)
-        query.insert(QStringLiteral("cover_reference"), *update.coverReference);
-    return submit({{"operation", "playlist_update"}, {"query", query}}, true,
-                  {AuthenticationMode::CurrentAccount, false});
+    return m_library->updatePlaylist(update);
 }
 quint64 ApiClient::deletePlaylist(CloudPlaylistId id)
 {
-    if (!m_userId || !id.value || id.value > quint64(std::numeric_limits<qint64>::max()))
-        return 0;
-    return submit({{"operation", "playlist_del"},
-                   {"query", QJsonObject{{"cloud_list_id", qint64(id.value)}}}},
-                  true, {AuthenticationMode::CurrentAccount, false});
+    return m_library->deletePlaylist(id);
 }
 quint64 ApiClient::playbackSource(const QString &hash, quint64 albumId, quint64 songId,
                                   PlaybackQuality quality, const QString &authorization,
                                   RequestOptions options, SoundEffect effect,
                                   const QString &originPage)
 {
-    if (albumId > quint64(std::numeric_limits<qint64>::max()) ||
-        songId > quint64(std::numeric_limits<qint64>::max()))
-        return 0;
-    static const QStringList qualities{"standard",   "higher",      "flac",        "hi_res",
-                                       "viper_tape", "viper_clear", "viper_atmos", "automatic"};
-    const int q = int(quality);
-    if (q < 0 || q >= qualities.size())
-        return 0;
-    static const QStringList effects{"none",      "piano",   "vocal",  "accompaniment",
-                                     "subwoofer", "ancient", "surnay", "dj"};
-    if (int(effect) < 0 || int(effect) >= effects.size())
-        return 0;
-    QJsonObject query{{"effect", effects[int(effect)]},
-                      {"hash", hash},
-                      {"album_id", qint64(albumId)},
-                      {"song_id", qint64(songId)},
-                      {"quality", qualities[q]}};
-    if (!authorization.isEmpty())
-        query.insert(QStringLiteral("authorization"), authorization);
-    if (!originPage.isEmpty())
-        query.insert(QStringLiteral("origin_page"), originPage);
-    return submit({{"operation", "song_url_auth_merge"}, {"query", query}}, true, options);
+    return m_media->playbackSource(hash, albumId, songId, quality, authorization, options, effect,
+                                   originPage);
 }
 quint64 ApiClient::songPrivileges(const QList<PrivilegeResource> &resources, RequestOptions options)
 {
-    QJsonArray items;
-    for (const auto &resource : resources) {
-        QJsonObject item{{"hash", resource.hash}};
-        if (resource.albumId) {
-            if (*resource.albumId > quint64(std::numeric_limits<qint64>::max()))
-                return 0;
-            item.insert(QStringLiteral("album_id"), qint64(*resource.albumId));
-        }
-        items.append(item);
-    }
-    return submit({{"operation", "privilege_lite"}, {"query", QJsonObject{{"resources", items}}}},
-                  true, options);
+    return m_media->songPrivileges(resources, options);
 }
 bool ApiClient::matchesAccountSnapshot(quint64 userId, const QString &token,
                                        const QString &t1) const

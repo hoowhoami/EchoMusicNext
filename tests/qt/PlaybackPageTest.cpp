@@ -243,7 +243,8 @@ struct Session
     QScopedPointer<QObject> root;
     QQuickWindow *window = nullptr;
     bool create(bool seed = true,
-                const QString &harness = QStringLiteral("PlaybackPageHarness.qml"))
+                const QString &harness = QStringLiteral("PlaybackPageHarness.qml"),
+                const QVariantMap &initialProperties = {})
     {
         if (seed) {
             // The real asynchronous empty-queue restore must finish before
@@ -260,10 +261,11 @@ struct Session
                                 harnessUrl.isLocalFile()
                                     ? harnessUrl
                                     : QUrl("qrc:/qt/qml/EchoMusic/PlaybackPageTests/" + harness));
-        root.reset(
-            component.createWithInitialProperties({{"playback", QVariant::fromValue(&playback)},
-                                                   {"controller", QVariant::fromValue(&controller)},
-                                                   {"router", QVariant::fromValue(&router)}}));
+        auto properties = initialProperties;
+        properties.insert("playback", QVariant::fromValue(&playback));
+        properties.insert("controller", QVariant::fromValue(&controller));
+        properties.insert("router", QVariant::fromValue(&router));
+        root.reset(component.createWithInitialProperties(properties));
         if (!root) {
             qWarning().noquote() << component.errorString();
             return false;
@@ -765,6 +767,10 @@ void PlaybackPageTest::pageArtworkTransitionPreservesGeometryAndReverses()
         auto *source = session.item("transitionSourceCover");
         QVERIFY(source);
         QTRY_COMPARE(source->property("status").toInt(), 1); // Image.Ready
+        auto *sourceImage = findVisual(source, "coverImage");
+        QVERIFY(sourceImage);
+        const auto decoded = sourceImage->property("sourceSize").toSize();
+        QVERIFY(decoded.width() >= 380 * scale * session.window->effectiveDevicePixelRatio());
         QVERIFY(QMetaObject::invokeMethod(session.page(), "open"));
         QTRY_VERIFY(session.page()->property("coverMoving").toBool());
         auto *motion = session.item("playbackPageMotion");
@@ -776,6 +782,11 @@ void PlaybackPageTest::pageArtworkTransitionPreservesGeometryAndReverses()
         QCOMPARE(motion->property("travelDuration").toInt(), 460);
         QPointer<QQuickItem> flight;
         QTRY_VERIFY((flight = session.item("playbackCoverFlight")));
+        auto *captureItem = session.item("playbackCoverFlightCapture");
+        QVERIFY(captureItem);
+        const auto required =
+            qCeil(large.width() * scale * session.window->effectiveDevicePixelRatio());
+        QVERIFY(captureItem->property("textureSize").toSize().width() >= required);
         QTRY_VERIFY_WITH_TIMEOUT(motion->property("progress").toDouble() > 0, 2000);
         QTest::qWait(60);
         const auto middle = motion->property("currentRect").toRectF();
@@ -833,6 +844,312 @@ void PlaybackPageTest::pageArtworkTransitionPreservesGeometryAndReverses()
         QVERIFY(!session.item("playbackCoverFlight"));
         QVERIFY(warnings.isEmpty());
     }
+}
+void PlaybackPageTest::emptyArtworkKeepsItsRadiusAcrossPageEntry()
+{
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        for (const qreal scale : {1., 1.25}) {
+            Session session;
+            QVERIFY(session.create(false));
+            QTRY_VERIFY(!PlaybackServiceTestAccess::queueRestorePending(session.playback));
+            QTRY_VERIFY(session.page()->property("opened").toBool());
+            QVERIFY(!session.playback.hasTrack());
+            session.theme.setMode(mode);
+            session.root->setProperty("surfaceScale", scale);
+            auto *cover = session.item("playbackPageCover");
+            auto *motion = session.item("playbackPageMotion");
+            QVERIFY(cover && motion);
+            for (const bool missingFile : {false, true}) {
+                QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+                QTRY_VERIFY(!session.page()->property("visible").toBool());
+                PlaybackServiceTestAccess::cover(
+                    session.playback,
+                    missingFile
+                        ? QUrl::fromLocalFile(session.directory.filePath("absent.png")).toString()
+                        : QString());
+                auto *source = session.item("transitionSourceCover");
+                QVERIFY(source);
+                QTRY_COMPARE(source->property("status").toInt(), missingFile ? 3 : 0);
+                const auto radius = cover->property("cornerRadius").toReal();
+                int frames = 0;
+                bool changedRadius = false, flew = false;
+                QObject frameContext;
+                const auto connection = connect(
+                    session.window, &QQuickWindow::frameSwapped, &frameContext,
+                    [&] {
+                        ++frames;
+                        changedRadius |=
+                            !qFuzzyCompare(cover->property("cornerRadius").toReal(), radius);
+                        flew |= session.page()->property("coverMoving").toBool();
+                    },
+                    Qt::QueuedConnection);
+                QVERIFY(QMetaObject::invokeMethod(session.page(), "open"));
+                QTRY_VERIFY(session.page()->property("coverMoving").toBool());
+                QCOMPARE(motion->property("travelDuration").toInt(), 460);
+                QQuickItem *placeholderOwner = nullptr;
+                QTRY_VERIFY((placeholderOwner = session.item("playbackCoverFlightPlaceholder")));
+                QPointer<QObject> placeholder =
+                    placeholderOwner->property("item").value<QObject *>();
+                QVERIFY(placeholder);
+                QCOMPARE(placeholder->property("radius").toReal(), 0.);
+                QTRY_VERIFY(session.page()->property("opened").toBool());
+                QObject::disconnect(connection);
+                QVERIFY(frames > 2);
+                QVERIFY(flew);
+                QVERIFY(!changedRadius);
+                QVERIFY(!session.item("playbackCoverFlightCapture"));
+                QTRY_VERIFY(placeholder.isNull());
+                const auto pixels = session.window->grabWindow();
+                QVERIFY(!pixels.isNull());
+                const auto directory = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+                if (!directory.isEmpty()) {
+                    QDir().mkpath(directory);
+                    QVERIFY(pixels.save(directory + QString("/empty-cover-%1-%2-%3.png")
+                                                        .arg(int(mode))
+                                                        .arg(scale)
+                                                        .arg(missingFile)));
+                }
+            }
+            session.theme.setMotionEnabled(false);
+            QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+            QTRY_VERIFY(!session.page()->property("visible").toBool());
+            QVERIFY(QMetaObject::invokeMethod(session.page(), "open"));
+            QTRY_VERIFY(session.page()->property("opened").toBool());
+            QVERIFY(!session.page()->property("coverMoving").toBool());
+        }
+    }
+}
+
+void PlaybackPageTest::firstOpenCoverFlightLandsOnItsLayout_data()
+{
+    QTest::addColumn<int>("mode");
+    QTest::addColumn<qreal>("scale");
+    QTest::addColumn<int>("windowWidth");
+    QTest::addColumn<bool>("withTrack");
+    for (const int mode : {int(ThemeStore::Light), int(ThemeStore::Dark)})
+        for (const qreal scale : {1., 1.25})
+            for (const int width : {760, 1200})
+                for (const bool withTrack : {false, true})
+                    QTest::newRow(qPrintable(
+                        QString("%1-%2-%3-%4").arg(mode).arg(scale).arg(width).arg(withTrack)))
+                        << mode << scale << width << withTrack;
+}
+void PlaybackPageTest::firstOpenCoverFlightLandsOnItsLayout()
+{
+    QFETCH(int, mode);
+    QFETCH(qreal, scale);
+    QFETCH(int, windowWidth);
+    QFETCH(bool, withTrack);
+    Session session;
+    session.theme.setMode(ThemeStore::Mode(mode));
+    QVERIFY(session.create(withTrack, "PlaybackPageHarness.qml",
+                           {{"surfaceScale", scale}, {"width", windowWidth}}));
+    auto *motion = session.item("playbackPageMotion");
+    auto *cover = session.item("playbackPageCover");
+    QVERIFY(motion && cover);
+    const auto landing = motion->property("toRect").toRectF();
+    QVERIFY(!landing.isEmpty());
+    QTRY_VERIFY(session.page()->property("opened").toBool());
+    const auto settled =
+        cover->mapRectToItem(motion, QRectF(0, 0, cover->width(), cover->height()));
+    qInfo() << "First-open landing" << landing << "settled" << settled;
+    const qreal tolerance = .5 / (scale * session.window->effectiveDevicePixelRatio());
+    QVERIFY(qAbs(landing.x() - settled.x()) <= tolerance);
+    QVERIFY(qAbs(landing.y() - settled.y()) <= tolerance);
+    QVERIFY(qAbs(landing.width() - settled.width()) <= tolerance);
+    QVERIFY(qAbs(landing.height() - settled.height()) <= tolerance);
+}
+
+void PlaybackPageTest::clearingCurrentQueueClearsLyrics_data()
+{
+    QTest::addColumn<bool>("clearWhileOpen");
+    QTest::addColumn<bool>("removeLastSong");
+    QTest::newRow("clear-open") << true << false;
+    QTest::newRow("clear-closed") << false << false;
+    QTest::newRow("remove-last-open") << true << true;
+    QTest::newRow("remove-last-closed") << false << true;
+}
+void PlaybackPageTest::clearingCurrentQueueClearsLyrics()
+{
+    QFETCH(bool, clearWhileOpen);
+    QFETCH(bool, removeLastSong);
+    Session session;
+    QTcpServer transport;
+    QVERIFY(transport.listen(QHostAddress::LocalHost));
+    QVERIFY(session.api.setNetworkTransport(transport.serverPort()));
+    QVERIFY(session.create(false));
+    QTRY_VERIFY(!PlaybackServiceTestAccess::queueRestorePending(session.playback));
+    QTRY_VERIFY(session.page()->property("opened").toBool());
+    PlaybackTrack track;
+    track.id = "32042818";
+    track.songId = 32042818;
+    track.hash = "105A2705BEEE36A8BED029A8E1A6311D";
+    track.title = QStringLiteral("待清空曲目");
+    track.durationMs = 268000;
+    PlaybackServiceTestAccess::repository(session.playback)
+        ->save(0, {{"clear-lyrics", "歌词清理", {track}, 0, {}, 1}}, "clear-lyrics");
+    PlaybackServiceTestAccess::reloadQueue(session.playback);
+    QTRY_VERIFY(session.playback.hasTrack());
+    auto &source = *session.playback.lyricSource();
+    using Access = LyricSourceControllerTestAccess;
+    QTRY_VERIFY(Access::search(source));
+    Access::complete(
+        source, session.api, Access::search(source),
+        R"([{"source_id":"clear-lyrics","access_key":"fixture-only","title":"待清空曲目","duration_ms":268000,"word_timed":true,"scrollable":true}])");
+    QTRY_VERIFY(Access::download(source));
+    const auto download = Access::download(source);
+    const QByteArray lyrics =
+        R"({"offset_ms":0,"scrollable":true,"lines":[{"text":"清空后不能残留","start_ms":0,"duration_ms":5000,"words":[]}]})";
+    Access::complete(source, session.api, download, lyrics);
+    QTRY_COMPARE(session.playback.lyricState(), QString("ready"));
+    QTRY_COMPARE(session.item("playbackLyricList")->property("count").toInt(), 1);
+    if (!clearWhileOpen) {
+        QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+        QTRY_VERIFY(!session.page()->property("visible").toBool());
+    }
+    if (removeLastSong)
+        session.playback.removeViewedIndex(0);
+    else
+        session.playback.queueCatalog()->removeViewed();
+    QVERIFY(!session.playback.hasTrack());
+    QCOMPARE(session.playback.queue()->rowCount(), 0);
+    QCOMPARE(session.playback.durationMs(), qint64(0));
+    QCOMPARE(session.playback.lyrics()->rowCount(), 0);
+    QCOMPARE(session.playback.lyricState(), QString("empty"));
+    QVERIFY(session.playback.cover().isEmpty());
+    QVERIFY(!session.playback.coverColor().isValid());
+    // Presentation preferences and a late download must not revive old text.
+    session.playback.lyricText()->setGlobalOffsetMs(100);
+    session.playback.lyricText()->setConversion("traditional");
+    Access::complete(source, session.api, download, lyrics);
+    QCOMPARE(session.playback.lyrics()->rowCount(), 0);
+    if (!clearWhileOpen) {
+        QVERIFY(QMetaObject::invokeMethod(session.page(), "open"));
+        QTRY_VERIFY(session.page()->property("opened").toBool());
+    }
+    QTRY_COMPARE(session.item("playbackLyricList")->property("count").toInt(), 0);
+    QTRY_VERIFY(session.item("playbackLyricEmptyState")->isVisible());
+    QCOMPARE(session.item("playbackLyricEmptyState")->property("text").toString(),
+             QString("暂无歌词"));
+}
+
+void PlaybackPageTest::artworkFlightMatchesFullResolutionCover_data()
+{
+    QTest::addColumn<int>("artworkStatus");
+    QTest::newRow("decoded-artwork") << 1;
+    QTest::newRow("empty-placeholder") << 0;
+    QTest::newRow("failed-placeholder") << 3;
+}
+void PlaybackPageTest::artworkFlightMatchesFullResolutionCover()
+{
+    QFETCH(int, artworkStatus);
+    Session session;
+    QVERIFY(session.create());
+    if (!QSGRendererInterface::isApiRhiBased(session.window->rendererInterface()->graphicsApi()))
+        QSKIP("Cover flight detail requires native RHI rendering");
+    QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+    QTRY_VERIFY(!session.page()->property("visible").toBool());
+    QImage pattern(1024, 1024, QImage::Format_RGB32);
+    for (int y = 0; y < pattern.height(); ++y)
+        for (int x = 0; x < pattern.width(); ++x)
+            pattern.setPixelColor(
+                x, y, QColor((x / 8 % 2) * 255, (y / 8 % 2) * 255, ((x + y) / 12 % 2) * 255));
+    const auto path = session.directory.filePath("flight-detail.png");
+    QVERIFY(pattern.save(path));
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Playback
+Item {
+ width: 600; height: 500; z: 10000
+ property url artwork
+ property real zoom: 1.25
+ scale: zoom; transformOrigin: Item.TopLeft
+ EchoCover { id: small; objectName: "detailSource"; x: 20; y: 20; width: 56; height: 56; minimumDecodeSize: 380; source: parent.artwork }
+ EchoCover { id: large; objectName: "detailTarget"; x: 100; y: 100; width: 280; height: 280; minimumDecodeSize: 380; source: parent.artwork; visible: false }
+ PlaybackPageMotion { id: flight; objectName: "detailFlight"; anchors.fill: parent; sourceCover: small; targetCover: large }
+})",
+                      QUrl());
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto *host = qobject_cast<QQuickItem *>(object.data());
+    host->setParentItem(session.window->contentItem());
+    host->setProperty("artwork", artworkStatus == 0 ? QUrl()
+                                 : artworkStatus == 3
+                                     ? QUrl::fromLocalFile(session.directory.filePath("absent.png"))
+                                     : QUrl::fromLocalFile(path));
+    auto *small = findVisual(host, "detailSource");
+    auto *large = findVisual(host, "detailTarget");
+    auto *motion = findVisual(host, "detailFlight");
+    QVERIFY(small && large && motion);
+    QTRY_COMPARE(small->property("status").toInt(), artworkStatus);
+    QVERIFY(QMetaObject::invokeMethod(motion, "prepare", Q_ARG(bool, true)));
+    motion->setProperty("progress", 1.);
+    QTest::qWait(80);
+    const auto moving = session.window->grabWindow();
+    QVERIFY(!moving.isNull());
+    QVERIFY(QMetaObject::invokeMethod(motion, "finish"));
+    large->setVisible(true);
+    QTRY_COMPARE(large->property("status").toInt(), artworkStatus);
+    QTest::qWait(80);
+    const auto settled = session.window->grabWindow();
+    const auto rect = large->mapRectToScene(artworkStatus == 1 ? QRectF(16, 16, 248, 248)
+                                                               : QRectF(0, 0, 280, 280));
+    const auto crop = [&](const QImage &frame) {
+        const auto dpr = frame.devicePixelRatio();
+        return frame.copy(QRect(qRound(rect.x() * dpr), qRound(rect.y() * dpr),
+                                qRound(rect.width() * dpr), qRound(rect.height() * dpr)));
+    };
+    const auto during = crop(moving), after = crop(settled);
+    QCOMPARE(during.size(), after.size());
+    if (artworkStatus != 1) {
+        const auto fill = during.pixelColor(during.width() / 2, during.height() / 4);
+        const auto glyphBounds = [&](const QImage &frame) {
+            QRect ink;
+            for (int y = frame.height() / 4; y < frame.height() * 3 / 4; ++y)
+                for (int x = frame.width() / 4; x < frame.width() * 3 / 4; ++x) {
+                    const auto pixel = frame.pixelColor(x, y);
+                    if (qAbs(pixel.red() - fill.red()) + qAbs(pixel.green() - fill.green()) +
+                            qAbs(pixel.blue() - fill.blue()) >
+                        30)
+                        ink |= QRect(x, y, 1, 1);
+                }
+            return ink;
+        };
+        const auto flyingGlyph = glyphBounds(during), settledGlyph = glyphBounds(after);
+        QVERIFY2(flyingGlyph.width() > 10 && flyingGlyph.height() > 10,
+                 "The flight must include the placeholder's music glyph");
+        QVERIFY(qAbs(flyingGlyph.width() - settledGlyph.width()) <= 1);
+        QVERIFY(qAbs(flyingGlyph.height() - settledGlyph.height()) <= 1);
+    }
+    double error = 0;
+    int samples = 0;
+    const int cornerSize = qRound(20 * 1.25 * moving.devicePixelRatio());
+    for (int y = 0; y < during.height(); ++y)
+        for (int x = 0; x < during.width(); ++x) {
+            // Empty artwork must settle without a corner jump. Exclude the
+            // center glyph, whose size differs between the two cover slots.
+            if (artworkStatus != 1 && !((x < cornerSize || x >= during.width() - cornerSize) &&
+                                        (y < cornerSize || y >= during.height() - cornerSize)))
+                continue;
+            const auto a = during.pixelColor(x, y), b = after.pixelColor(x, y);
+            error +=
+                qAbs(a.red() - b.red()) + qAbs(a.green() - b.green()) + qAbs(a.blue() - b.blue());
+            ++samples;
+        }
+    error /= samples * 3.;
+    qInfo() << "Flight vs settled detail DPR" << moving.devicePixelRatio()
+            << "mean channel difference" << error;
+    QVERIFY2(error < 2., qPrintable(QString::number(error)));
+    const auto captures = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+    if (!captures.isEmpty()) {
+        QDir().mkpath(captures);
+        const auto suffix = QString("-%1.png").arg(artworkStatus);
+        QVERIFY(during.save(captures + "/flight-detail" + suffix));
+        QVERIFY(after.save(captures + "/settled-detail" + suffix));
+    }
+    QVERIFY(!findVisual(host, "playbackCoverFlight"));
 }
 void PlaybackPageTest::lyricResourcesReleaseAcrossPageCycles()
 {
@@ -2174,7 +2491,13 @@ void PlaybackPageTest::manualScrollRecoversAndLargeSeeksRemainVirtualized()
     auto *list = session.item("playbackLyricList");
     QVERIFY(list);
     QTRY_VERIFY(list->property("initialized").toBool());
+    QTRY_VERIFY(session.page()->property("opened").toBool());
+    QTRY_VERIFY(list->isEnabled());
+    QSignalSpy frame(session.window, &QQuickWindow::frameSwapped);
+    session.window->requestUpdate();
+    QTRY_VERIFY(!frame.isEmpty());
     const auto point = list->mapToScene({list->width() / 2, list->height() / 2});
+    Test::moveNativePointer(session.window, point.toPoint());
     QWheelEvent wheel(point, session.window->mapToGlobal(point.toPoint()), {}, {0, -120},
                       Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
     QCoreApplication::sendEvent(session.window, &wheel);

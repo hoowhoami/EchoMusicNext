@@ -19,13 +19,7 @@ pub struct Query {
     pub client_version: u32,
     pub transport_fingerprint: String,
 }
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-}
+type Wire = crate::util::response::AckEnvelope;
 #[derive(Serialize)]
 pub struct Acknowledgement {
     pub removed: bool,

@@ -278,7 +278,7 @@ pub unsafe extern "C" fn echo_runtime_submit(
         let Some(callback) = callback else { return 0 };
         // SAFETY: validated non-null; caller supplies valid buffers and runtime.
         let bytes = unsafe { slice::from_raw_parts(input, len) };
-        let Ok(request) = serde_json::from_slice(bytes) else {
+        let Some(request) = echo_api::decode_ffi_request(bytes) else {
             return 0;
         };
         unsafe { &*runtime }.submit(request, revision, callback, context as usize)

@@ -198,7 +198,9 @@ mod tests {
         };
         assert_eq!(
             encode_frame(&frame),
-            vec![1, 0, 0, 0, 0, 0, 0, 0, 0x44, 0xAC, 0, 0, 2, 0, 2, 0, 0, 0, 1, 0, 0xFF, 0xFF]
+            vec![
+                1, 0, 0, 0, 0, 0, 0, 0, 0x44, 0xAC, 0, 0, 2, 0, 2, 0, 0, 0, 1, 0, 0xFF, 0xFF
+            ]
         );
     }
 

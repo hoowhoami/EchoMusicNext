@@ -2,8 +2,12 @@
 name = "ffi-header"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
 cbindgen = "0.29"
 
+
+[lints]
+workspace = true

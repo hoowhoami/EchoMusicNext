@@ -3,7 +3,7 @@ mod buffer;
 mod resample;
 
 use backend::{
-    list_input_devices as enumerate_input_devices, start_input_device, start_system, CaptureBackend,
+    CaptureBackend, list_input_devices as enumerate_input_devices, start_input_device, start_system,
 };
 use buffer::{CapturedSamples, SampleRing};
 use std::cell::RefCell;

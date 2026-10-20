@@ -532,21 +532,36 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!playback.loading() && !playback.errorMessage().isEmpty(), 15000);
         QCOMPARE(playback.queue()->currentIndex(), 0);
         QTRY_COMPARE_WITH_TIMEOUT(playback.queue()->currentIndex(), 2, 5000);
-        QTRY_VERIFY(!playback.loading() && !playback.errorMessage().isEmpty());
+        QTRY_VERIFY2(!playback.loading() && !playback.errorMessage().isEmpty(),
+                     qPrintable(QString("loading=%1 playing=%2 index=%3 error=%4")
+                                    .arg(playback.loading())
+                                    .arg(playback.playing())
+                                    .arg(playback.queue()->currentIndex())
+                                    .arg(playback.errorMessage())));
         QTest::qWait(1100);
         // Failure traversal advances in single-loop mode but cannot loop forever.
         QCOMPARE(playback.queue()->currentIndex(), 2);
 
         preferences->setAutoNextDelaySeconds(1);
         playback.playIndex(0); // Explicit intent starts a new failure chain.
-        QTRY_VERIFY(!playback.loading() && !playback.errorMessage().isEmpty());
+        QTRY_VERIFY2(!playback.loading() && !playback.errorMessage().isEmpty(),
+                     qPrintable(QString("loading=%1 playing=%2 index=%3 error=%4")
+                                    .arg(playback.loading())
+                                    .arg(playback.playing())
+                                    .arg(playback.queue()->currentIndex())
+                                    .arg(playback.errorMessage())));
         playback.pause();
         QTest::qWait(1100);
         QCOMPARE(playback.queue()->currentIndex(), 0);
         QVERIFY(!playback.playing());
 
         playback.playIndex(0);
-        QTRY_VERIFY(!playback.loading() && !playback.errorMessage().isEmpty());
+        QTRY_VERIFY2(!playback.loading() && !playback.errorMessage().isEmpty(),
+                     qPrintable(QString("loading=%1 playing=%2 index=%3 error=%4")
+                                    .arg(playback.loading())
+                                    .arg(playback.playing())
+                                    .arg(playback.queue()->currentIndex())
+                                    .arg(playback.errorMessage())));
         preferences->setAutoNext(false); // Cancels an already pending deadline.
         QTest::qWait(1100);
         QCOMPARE(playback.queue()->currentIndex(), 0);
@@ -558,7 +573,12 @@ private slots:
         QVERIFY(!persisted.autoNext());
         preferences->setAutoNext(true);
         playback.playIndex(0);
-        QTRY_VERIFY(!playback.loading() && !playback.errorMessage().isEmpty());
+        QTRY_VERIFY2(!playback.loading() && !playback.errorMessage().isEmpty(),
+                     qPrintable(QString("loading=%1 playing=%2 index=%3 error=%4")
+                                    .arg(playback.loading())
+                                    .arg(playback.playing())
+                                    .arg(playback.queue()->currentIndex())
+                                    .arg(playback.errorMessage())));
         api.advanceSession();
         const auto indexAfterSession = playback.queue()->currentIndex();
         QTest::qWait(1100);

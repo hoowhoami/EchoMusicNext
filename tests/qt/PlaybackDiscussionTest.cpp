@@ -271,6 +271,7 @@ private slots:
         RouteController router;
         CommentAuthorService authors(api, live);
         DetailsService details(api, playback, router, live, nullptr, live ? &authors : nullptr);
+        details.registerRoutes(router);
         auto *discussion = details.playbackDiscussion();
         ShellSettings settings(prefs);
         ShellController commands(prefs, router);

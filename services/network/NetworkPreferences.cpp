@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "NetworkPreferences.h"
 #include "SystemNetworkMonitor.h"
 #include <QThread>
@@ -48,7 +49,7 @@ void NetworkPreferences::eraseCredentialForReset(std::function<void(QString)> co
 namespace
 {
 Q_LOGGING_CATEGORY(networkPolicyLog, "echo.network.policy")
-constexpr auto timeoutsKey = "network/localPolicy";
+constexpr auto timeoutsKey = EchoMusic::SettingsKeys::Network::LocalPolicy;
 
 class TransportProxyFactory final : public QNetworkProxyFactory
 {
@@ -125,7 +126,7 @@ NetworkPreferences::NetworkPreferences(QSettings &settings, ApiClient &api, QObj
     m_configuration.apiTimeoutSeconds = m_apiSeconds;
     m_configuration.playerTimeoutSeconds = m_playerSeconds;
     m_passwordId = saved.value("passwordId").toString();
-    m_githubProxy = settings.value("network/githubProxyUrl").toString();
+    m_githubProxy = settings.value(EchoMusic::SettingsKeys::Network::GithubProxyUrl).toString();
     m_transport = std::make_unique<NetworkTransport>();
     connect(m_transport.get(), &NetworkTransport::mediaRequestRejected, this,
             &NetworkPreferences::mediaRequestRejected);
@@ -332,7 +333,7 @@ void NetworkPreferences::setGithubProxyUrl(const QString &value)
     if (m_githubProxy == normalized)
         return;
     auto writer = freshWriter(m_settings);
-    writer->setValue("network/githubProxyUrl", normalized);
+    writer->setValue(EchoMusic::SettingsKeys::Network::GithubProxyUrl, normalized);
     writer->sync();
     if (writer->status() != QSettings::NoError) {
         setError(tr("无法保存 GitHub 加速地址"));

@@ -1,7 +1,7 @@
 use crate::events::{AudioDevice, PlayerEvent};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};

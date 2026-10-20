@@ -209,12 +209,14 @@ fn stamp_time(minutes: &str, seconds: &str) -> Result<u64, ApiError> {
     Ok(time.round() as u64)
 }
 /// Recognize a document layout only at the embedded boundary. Online echoes
-/// retain their rows; blank timestamped lines break adjacency in both passes.
+/// retain their rows; blank timestamped lines, metadata and KRC rows break
+/// adjacency in both passes.
 fn paired_layout(text: &str) -> Result<bool, ApiError> {
-    let (mut entries, mut pairs, mut unpaired) = (0usize, 0usize, 0usize);
+    let (mut entries, mut pairs) = (0usize, 0usize);
     let mut pending: Option<(u64, String)> = None;
     for source in text.lines() {
         let Some(c) = lrc_stamp().captures(source.trim()) else {
+            pending = None;
             continue;
         };
         let body = compact_body(&source.trim()[c[0].len()..]);
@@ -229,11 +231,12 @@ fn paired_layout(text: &str) -> Result<bool, ApiError> {
                 pairs += 1;
                 continue;
             }
-            unpaired += 1;
         }
         pending = Some((at, body));
     }
-    unpaired += usize::from(pending.is_some());
+    // Clearing pending must not erase already-counted standalone rows:
+    // every accepted pair consumes exactly two entries.
+    let unpaired = entries.saturating_sub(pairs * 2);
     Ok(pairs >= 2 && unpaired <= 2usize.max((entries as f64 * 0.3).round() as usize))
 }
 fn enhanced_words(body: &str, line_start: u64) -> Result<Vec<LyricWord>, ApiError> {
@@ -287,14 +290,16 @@ fn parse_lrc(text: &str, scrollable: bool, embedded: bool) -> Result<Lyrics, Api
     let mut pending: Option<(usize, u64)> = None;
     for source in text.lines() {
         let source = source.trim();
+        if source.is_empty() {
+            pending = None;
+            continue;
+        }
         if let Some(offset) = source
             .strip_prefix("[offset:")
             .and_then(|v| v.strip_suffix(']'))
         {
             result.offset_ms = offset.parse().map_err(|_| ApiError::decode())?;
-            continue;
-        }
-        if source.is_empty() {
+            pending = None;
             continue;
         }
         if source.starts_with('[') && source.split(']').next().is_some_and(|s| s.contains(',')) {
@@ -331,7 +336,10 @@ fn parse_lrc(text: &str, scrollable: bool, embedded: bool) -> Result<Lyrics, Api
                 starts.push((minute * 60 + second) * 1000 + milliseconds);
             }
             let content = source[end..].trim();
-            if content.is_empty() {
+            // A line with only inline timestamps (or none at all) is a
+            // separator, not lyric text. Detection already treats it as blank;
+            // parsing must not create a row that the next line can pair with.
+            if compact_body(content).is_empty() {
                 pending = None;
                 continue;
             }
@@ -483,6 +491,85 @@ mod tests {
         assert_eq!(blank.lines.len(), 4);
         assert_eq!(blank.lines[2].text, "Keep");
         assert!(blank.lines[2].translation.is_empty());
+    }
+    #[test]
+    fn paired_layout_rejects_separators_and_counts_gaps() {
+        let mixed = "[00:10.00]原词一\n[10100,2000]<0,500,0>K\n[00:10.10]译文一\n[00:20.00]原词二\n[00:20.00]译文二\n[00:30.00]原词三\n[00:30.00]译文三";
+        let lyrics = parse_embedded(mixed).unwrap();
+        assert_eq!(lyrics.lines.len(), 5);
+        assert_eq!(lyrics.lines[0].text, "原词一");
+        assert!(lyrics.lines[0].translation.is_empty());
+        assert_eq!(lyrics.lines[2].text, "译文一");
+        assert_eq!(lyrics.lines[3].translation, "译文二");
+        assert_eq!(lyrics.lines[4].translation, "译文三");
+
+        for separator in ["", "   ", "[ar:Artist]", "[10100,2000]<0,500,0>Interlude"] {
+            let source = format!(
+                "[00:10.00]First\n{separator}\n[00:10.10]Second\n[00:20.00]Third\n[00:20.00]Fourth"
+            );
+            let lyrics = parse_embedded(&source).unwrap();
+            assert!(
+                lyrics.lines.iter().all(|line| line.translation.is_empty()),
+                "{separator:?}"
+            );
+            assert_eq!(lyrics.lines.last().unwrap().text, "Fourth");
+        }
+    }
+    #[test]
+    fn timed_empty_lines_do_not_hide_unpaired_rows() {
+        let mut source = String::from(
+            "[00:01.00]First voice\n[00:01.10]Second voice\n[00:02.00]Third voice\n[00:02.10]Fourth voice",
+        );
+        for i in 0..8 {
+            source.push_str(&format!(
+                "\n[00:{:02}.00]Solo {i}\n[00:{:02}.50]",
+                10 + i,
+                10 + i
+            ));
+        }
+        let lyrics = parse_embedded(&source).unwrap();
+        assert_eq!(lyrics.lines.len(), 12);
+        assert!(lyrics.lines.iter().all(|line| line.translation.is_empty()));
+    }
+    #[test]
+    fn blank_separator_survives_other_pairs() {
+        let source = "[00:10.00]First voice\n\n[00:10.10]Second voice\n[ti:Song]\n[00:53.02]Baby just let me let go\n[00:53.02]允许我离开\n[00:57.10]You were the shadow\n[00:57.10]你是我的影子";
+        let lyrics = parse_embedded(source).unwrap();
+        let texts = lyrics
+            .lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            texts,
+            [
+                "First voice",
+                "Second voice",
+                "Baby just let me let go",
+                "You were the shadow"
+            ]
+        );
+        assert!(lyrics.lines[0].translation.is_empty());
+        assert!(lyrics.lines[1].translation.is_empty());
+        assert_eq!(lyrics.lines[2].translation, "允许我离开");
+        assert_eq!(lyrics.lines[3].translation, "你是我的影子");
+    }
+    #[test]
+    fn timestamp_only_enhanced_line_is_a_separator() {
+        let lyrics = parse_embedded(
+            "[00:10.00]原词一\n[00:10.00]<00:10.00>\n[00:10.10]原词二\n[00:20.00]原词三\n[00:20.00]译文三\n[00:30.00]原词四\n[00:30.00]译文四",
+        )
+        .unwrap();
+        let texts = lyrics
+            .lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(texts, ["原词一", "原词二", "原词三", "原词四"]);
+        assert!(lyrics.lines[0].translation.is_empty());
+        assert!(lyrics.lines[1].translation.is_empty());
+        assert_eq!(lyrics.lines[2].translation, "译文三");
+        assert_eq!(lyrics.lines[3].translation, "译文四");
     }
     #[test]
     fn enhanced_lrc_pairs_strip_tags_but_keep_actual_word_times() {

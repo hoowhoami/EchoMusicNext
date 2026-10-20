@@ -21,7 +21,7 @@
 //! * After A runs out, its chain is drained for reverb/echo tails; B's chain is blended
 //!   back to dry over `POST_MIX_RELEASE_SECS` so the incoming track never stays filtered.
 
-use super::effects::{DeckEffectChain, AUTOMATION_BLOCK_FRAMES};
+use super::effects::{AUTOMATION_BLOCK_FRAMES, DeckEffectChain};
 use super::plan::DjPlan;
 use soundtouch_rs::{InterpolationAlgorithm, SoundTouch, SoundTouchPreset};
 use std::collections::VecDeque;

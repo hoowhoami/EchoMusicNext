@@ -40,3 +40,15 @@ target_link_libraries(
             echo_themeplugin
             echo_build_options
 )
+
+target_link_libraries(echo_plugins PRIVATE echo_settings_keys)
+
+target_sources(
+    echo_plugins PRIVATE PluginRuntimeHelpers_p.h PluginRuntimeActivation.cpp
+                         PluginRuntimeMutation.cpp PluginRuntimeDiscovery.cpp
+)
+
+target_sources(
+    echo_plugins PRIVATE PluginManagerHelpers_p.h PluginManagerCatalog.cpp
+                         PluginManagerInstallation.cpp PluginManagerSharing.cpp
+)

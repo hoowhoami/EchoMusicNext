@@ -1,0 +1,81 @@
+name: Instrumented quality reports
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cpp:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [sanitizers, coverage]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    env:
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: SDK and build prerequisites
+        run: |
+          sudo apt-get update
+          xargs -a tools/qt/linux-packages.txt sudo apt-get install -y
+          python -m pip install cmake==4.4.4 ninja==1.13.0 gcovr==8.7
+          rustup toolchain install 1.99.0 --profile minimal
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/qt-official
+            build/qt-sdk
+          key: qt-6.12.0-ubuntu-22.04-x64-${{ hashFiles('scripts/qt_sdk.py', 'scripts/qt_download.py', 'scripts/install-qt.py', 'scripts/build-qt.py', 'tools/qt/requirements.txt', 'tools/release/licenses.mjs') }}
+      - name: Prepare pinned Qt and instrumented build
+        run: |
+          python scripts/install-qt.py
+          python scripts/build.py --preset release --configure-only
+          if [ '${{ matrix.mode }}' = sanitizers ]; then
+            cmake -S . -B build/release -DECHO_ENABLE_SANITIZERS=ON
+          else
+            cmake -S . -B build/release -DECHO_ENABLE_COVERAGE=ON
+          fi
+          cmake --build --preset release
+      - name: Production Qt and service tests
+        run: xvfb-run --auto-servernum ctest --preset release
+      - name: Service coverage reports
+        if: always() && matrix.mode == 'coverage'
+        run: |
+          mkdir -p build/quality-reports
+          gcovr --root . --filter services/ --xml-pretty --xml build/quality-reports/services.xml --html-details build/quality-reports/services.html --json-summary build/quality-reports/services-summary.json --print-summary build/release
+          gcovr --root . --filter modules/EchoMusic/ --xml-pretty --xml build/quality-reports/features.xml --html-details build/quality-reports/features.html --json-summary build/quality-reports/features-summary.json --print-summary build/release
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cpp-${{ matrix.mode }}-reports
+          path: |
+            build/quality-reports/
+            build/release/Testing/Temporary/
+  api-coverage:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v5
+      - name: Coverage toolchain
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component llvm-tools-preview
+          cargo install cargo-llvm-cov --version 0.9.1 --locked
+      - name: Public API coverage
+        run: |
+          mkdir -p build/quality-reports
+          cargo llvm-cov --locked -p echo-api --ignore-filename-regex /src/bin/ --fail-under-lines 20 --lcov --output-path build/quality-reports/echo-api.lcov
+          cargo llvm-cov report --ignore-filename-regex /src/bin/ --html --output-dir build/quality-reports/echo-api
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: echo-api-coverage
+          path: build/quality-reports/

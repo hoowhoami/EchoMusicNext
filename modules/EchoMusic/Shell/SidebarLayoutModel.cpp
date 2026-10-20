@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "SidebarLayoutModel.h"
 #include "LibraryController.h"
 #include <algorithm>
@@ -104,9 +105,11 @@ SidebarLayoutModel::SidebarLayoutModel(QSettings &preferences, QObject *parent)
                          {"ranking", tr("排行榜"), "arrows-sort", {}},
                          {"purchased", tr("已购音乐"), "shopping-bag", {}},
                          {"listen-together", tr("一起听"), "headphones", {}}};
-    m_hidden = preferences.value("sidebar/hiddenEntries").toStringList();
-    m_hiddenGroups = preferences.value("sidebar/hiddenGroups").toStringList();
-    const auto order = preferences.value("sidebar/entryOrder").toStringList();
+    m_hidden = preferences.value(EchoMusic::SettingsKeys::Sidebar::HiddenEntries).toStringList();
+    m_hiddenGroups =
+        preferences.value(EchoMusic::SettingsKeys::Sidebar::HiddenGroups).toStringList();
+    const auto order =
+        preferences.value(EchoMusic::SettingsKeys::Sidebar::EntryOrder).toStringList();
     // Ignore removed/unknown entries and append newly introduced entries in their
     // source order. Reordering never permits one entry to leave its group.
     std::stable_sort(m_entries.begin(), m_entries.end(), [&order](const Entry &a, const Entry &b) {
@@ -114,7 +117,9 @@ SidebarLayoutModel::SidebarLayoutModel(QSettings &preferences, QObject *parent)
         return (ai < 0 ? order.size() : ai) < (bi < 0 ? order.size() : bi);
     });
     const auto pins =
-        preferences.value("sidebar/shortcuts", QStringList{"home", "explore"}).toStringList();
+        preferences
+            .value(EchoMusic::SettingsKeys::Sidebar::Shortcuts, QStringList{"home", "explore"})
+            .toStringList();
     for (const auto &key : pins)
         if (std::any_of(m_shortcutCatalog.cbegin(), m_shortcutCatalog.cend(),
                         [&key](const Entry &e) { return e.key == key; }) &&
@@ -293,11 +298,12 @@ void SidebarLayoutModel::save()
     QStringList order;
     for (const auto &e : m_entries)
         order.append(e.key);
-    m_preferences.setValue("sidebar/entryOrder", order);
-    m_preferences.setValue("sidebar/hiddenEntries", m_hidden);
-    m_preferences.setValue("sidebar/hiddenGroups", m_hiddenGroups);
+    m_preferences.setValue(EchoMusic::SettingsKeys::Sidebar::EntryOrder, order);
+    m_preferences.setValue(EchoMusic::SettingsKeys::Sidebar::HiddenEntries, m_hidden);
+    m_preferences.setValue(EchoMusic::SettingsKeys::Sidebar::HiddenGroups, m_hiddenGroups);
     // Other layout preferences may save during a drag. Never persist a preview.
-    m_preferences.setValue("sidebar/shortcuts", m_dragKey.isEmpty() ? m_pinned : m_dragOriginal);
+    m_preferences.setValue(EchoMusic::SettingsKeys::Sidebar::Shortcuts,
+                           m_dragKey.isEmpty() ? m_pinned : m_dragOriginal);
     applyPlaylistVisibility();
     emit changed();
 }

@@ -37,6 +37,8 @@ class ExploreService final : public QObject
     Q_PROPERTY(QString sex READ sex NOTIFY changed)
     Q_PROPERTY(QString artistType READ artistType NOTIFY changed)
 public:
+    /// Explicit UI composition; construction alone does not register pages.
+    void registerRoutes(RouteController &router);
     enum Part
     {
         Categories,

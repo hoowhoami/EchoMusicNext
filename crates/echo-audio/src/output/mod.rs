@@ -305,19 +305,11 @@ fn selected_backend_name(exclusive: bool) -> &'static str {
     }
     #[cfg(target_os = "linux")]
     {
-        if exclusive {
-            "alsa"
-        } else {
-            "cpal"
-        }
+        if exclusive { "alsa" } else { "cpal" }
     }
     #[cfg(target_os = "macos")]
     {
-        if exclusive {
-            "coreaudio"
-        } else {
-            "cpal"
-        }
+        if exclusive { "coreaudio" } else { "cpal" }
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {

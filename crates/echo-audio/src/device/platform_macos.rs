@@ -1,16 +1,16 @@
-use crate::device::watcher::run_debounced_device_events;
 use crate::device::watcher::PlaybackOutputDeviceEvent;
+use crate::device::watcher::run_debounced_device_events;
 use crate::events::{AudioDevice, PlayerEvent};
 use crate::exclusive::ExclusiveGuard;
-use crate::shared::{AudioSampleFormat, SharedAudio, MIX_CHANNELS};
+use crate::shared::{AudioSampleFormat, MIX_CHANNELS, SharedAudio};
 use coreaudio_sys as ca;
 use objc2_core_audio_types::{AudioBufferList, AudioValueRange};
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::{CStr, c_char, c_void};
 use std::mem;
-use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, SyncSender};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{SyncSender, sync_channel};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -190,7 +190,7 @@ impl Drop for CoreAudioMixingGuard {
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     fn CFStringGetCString(
         the_string: CFStringRef,
         buffer: *mut c_char,

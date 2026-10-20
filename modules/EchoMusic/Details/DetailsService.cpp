@@ -3,33 +3,16 @@
 #include "ShellController.h"
 namespace EchoMusic
 {
-DetailsService::DetailsService(ApiClient &a, PlaybackService &p, RouteController &r, bool network,
+DetailsService::DetailsService(ApiClient &a, PlaybackService &p, RouteController &, bool network,
                                QObject *parent, CommentAuthorService *authors,
                                WindowController *window)
-    : QObject(parent), m_authors(authors), m_api(a), m_playback(p), m_collection(a, network, this),
-      m_discussion(a, p, network, this, authors), m_network(network)
+    : QObject(parent), m_window(window), m_authors(authors), m_api(a), m_playback(p),
+      m_collection(a, network, this), m_discussion(a, p, network, this, authors), m_network(network)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     connect(&a, &ApiClient::sessionChanged, this, [this] { m_entryTrack.reset(); });
     connect(&m_discussion, &PlaybackDiscussion::notice, this, &DetailsService::notice);
     connect(&m_collection, &VideoCollectionService::notice, this, &DetailsService::notice);
-    r.registerPage({"song-detail",
-                    "/main/detail/:id",
-                    QUrl("qrc:/qt/qml/EchoMusic/Details/SongDetailPage.qml"),
-                    {"tab", "mainTab", "commentTab"},
-                    false,
-                    true,
-                    false,
-                    {{"service", QVariant::fromValue(this)}}});
-    r.registerPage(
-        {"mv-detail",
-         "/main/mv/:id",
-         QUrl("qrc:/qt/qml/EchoMusic/Details/MvDetailPage.qml"),
-         {},
-         false,
-         true,
-         false,
-         {{"service", QVariant::fromValue(this)}, {"windowService", QVariant::fromValue(window)}}});
 }
 DetailsService::~DetailsService()
 {
@@ -105,5 +88,29 @@ void DetailsService::shutdown()
     for (auto c : std::as_const(m_videos))
         if (c)
             c->shutdown();
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void DetailsService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"song-detail",
+                         "/main/detail/:id",
+                         QUrl("qrc:/qt/qml/EchoMusic/Details/SongDetailPage.qml"),
+                         {"tab", "mainTab", "commentTab"},
+                         false,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
+    router.registerPage({"mv-detail",
+                         "/main/mv/:id",
+                         QUrl("qrc:/qt/qml/EchoMusic/Details/MvDetailPage.qml"),
+                         {},
+                         false,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)},
+                          {"windowService", QVariant::fromValue(m_window)}}});
 }
 } // namespace EchoMusic

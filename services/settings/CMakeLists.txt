@@ -1,0 +1,3 @@
+add_library(echo_settings_keys INTERFACE)
+target_include_directories(echo_settings_keys INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(echo_settings_keys INTERFACE Qt6::Core)

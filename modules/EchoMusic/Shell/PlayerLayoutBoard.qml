@@ -7,6 +7,7 @@ import EchoMusic.Shell
 
 Rectangle {
     id: board
+    objectName: "playerLayoutBoard"
     required property ShellActionModel actions
     property bool resourceActive: true
     property bool narrow: false
@@ -163,6 +164,7 @@ Rectangle {
                         actions: board.actions
                         zone: modelData.zone
                         label: modelData.label
+                        dragLayer: board
                         resourceActive: board.resourceActive
                     }
                 }
@@ -190,6 +192,7 @@ Rectangle {
                 zone: ShellActionModel.More
                 label: qsTr("更多菜单按钮")
                 showLabel: false
+                dragLayer: board
                 resourceActive: board.resourceActive
             }
         }

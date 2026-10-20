@@ -4,14 +4,7 @@ use crate::{
     util::request::{self, ApiClient, Endpoint, Identity, Origin},
 };
 use serde::{Deserialize, Serialize};
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-    data: serde_json::Value,
-}
+type Wire = crate::util::response::Envelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct BusinessVip {
     #[serde(default, deserialize_with = "crate::util::response::optional")]

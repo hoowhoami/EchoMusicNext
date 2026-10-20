@@ -1,6 +1,6 @@
 use crate::audio_graph::AudioFilterGraph;
-use crate::dsp::provider::ProviderDescriptor;
 use crate::dsp::DspSettings;
+use crate::dsp::provider::ProviderDescriptor;
 use crate::spectrum::SampleRing;
 mod ao_state;
 mod clock;
@@ -19,8 +19,8 @@ use realtime_ring::RealtimeAudioRing;
 pub use session::PlaybackSession;
 pub use types::{
     AudioOutputStats, AudioSampleFormat, DecodedAudioChunk, DecodedAudioData, DecodedAudioFormat,
-    FilterInput, MixFormat, PacketCacheSeekableRange, PacketCacheStats, PlaybackSignal,
-    TrackSwitchInfo, MIX_CHANNELS,
+    FilterInput, MIX_CHANNELS, MixFormat, PacketCacheSeekableRange, PacketCacheStats,
+    PlaybackSignal, TrackSwitchInfo,
 };
 
 use clock::stall_timeout_millis;
@@ -608,7 +608,7 @@ impl SharedAudio {
         speed: f32,
         operation: crate::transition_filter::DeckFilterOperation,
     ) -> Result<Vec<f32>, String> {
-        use std::sync::mpsc::{sync_channel, RecvTimeoutError};
+        use std::sync::mpsc::{RecvTimeoutError, sync_channel};
         let (reply, receive) = sync_channel(1);
         {
             let mut queue = self
@@ -638,7 +638,7 @@ impl SharedAudio {
                 Ok(result) => return result,
                 Err(RecvTimeoutError::Timeout) => continue,
                 Err(RecvTimeoutError::Disconnected) => {
-                    return Err("transition DSP worker disconnected".to_string())
+                    return Err("transition DSP worker disconnected".to_string());
                 }
             }
         }

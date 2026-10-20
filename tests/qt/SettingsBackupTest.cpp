@@ -31,7 +31,7 @@ QByteArray readFile(const QString &path)
 }
 QByteArray packageManifest()
 {
-    return R"({"schemaVersion":1,"id":"test.backup","name":"Backup test","version":"1.0.0","kind":"qml-js","entry":"index.mjs","contexts":["main"],"requires":{"hostVersion":">=0.1.0 <1.0.0","sdkVersion":">=1.0.0 <2.0.0","features":[]},"capabilities":[]})";
+    return R"({"format":"echomod","schemaVersion":1,"id":"test.backup","name":"Backup test","version":"1.0.0","kind":"qml-js","entry":"index.mjs","contexts":["main"],"requires":{"hostVersion":">=0.1.0 <1.0.0","sdkVersion":">=1.0.0 <2.0.0","features":[]},"capabilities":[]})";
 }
 } // namespace
 class SettingsBackupTest : public QObject

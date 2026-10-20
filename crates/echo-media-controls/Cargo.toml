@@ -1,7 +1,8 @@
 [package]
 name = "echo-media-controls"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 license = "GPL-3.0-only"
 
 [lib]
@@ -33,3 +34,6 @@ objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-media-player = "0.3"
 objc2-app-kit = "0.3"
+
+[lints]
+workspace = true

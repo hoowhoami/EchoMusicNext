@@ -332,10 +332,11 @@ Window {
                     Accessible.checkable: true
                     Accessible.checked: window.service.panel === "lyric"
                     background: EchoCover {
+                        objectName: "miniPlayerCover"
                         source: window.playback.cover
                         resourceActive: window.live
                         colors: Theme.floating
-                        cornerRadius: 10
+                        cornerRadius: Theme.mediaRadius
                     }
                     onClicked: window.service.setPanel(window.service.panel === "lyric" ? "" : "lyric")
                 }

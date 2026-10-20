@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "ThemeStore.h"
 #include "ThemeImageStore.h"
 #include <QFutureWatcher>
@@ -152,7 +153,9 @@ ThemeStore::ThemeStore(QSettings &settings, QObject *parent, const QString &imag
     m_sampleTimer.setInterval(100);
     connect(&m_sampleTimer, &QTimer::timeout, this, &ThemeStore::scheduleImageSample);
     const auto object =
-        QJsonDocument::fromJson(settings.value("appearance/preferences").toByteArray()).object();
+        QJsonDocument::fromJson(
+            settings.value(EchoMusic::SettingsKeys::Appearance::Preferences).toByteArray())
+            .object();
     const auto version = object.value("version").toInt();
     if (version >= 1 && version <= 3) {
         const auto mode = object.value("mode").toInt();
@@ -179,7 +182,8 @@ ThemeStore::ThemeStore(QSettings &settings, QObject *parent, const QString &imag
         if (version == 3)
             restoreBackgroundDraft(object.value("draft").toObject());
     }
-    const auto savedFont = settings.value("typography/globalFont", "system-ui").toString();
+    const auto savedFont =
+        settings.value(EchoMusic::SettingsKeys::Typography::GlobalFont, "system-ui").toString();
     if (savedFont == "system-ui" || QFontDatabase::hasFamily(savedFont))
         m_globalFont = savedFont;
     configureUiTypography(m_globalFont);
@@ -189,9 +193,9 @@ ThemeStore::ThemeStore(QSettings &settings, QObject *parent, const QString &imag
                    ? family
                    : QStringLiteral("follow");
     };
-    m_lyricFont = loadLyricFont("typography/lyricFont");
-    m_desktopLyricFont = loadLyricFont("typography/desktopLyricFont");
-    m_miniLyricFont = loadLyricFont("typography/miniLyricFont");
+    m_lyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::LyricFont);
+    m_desktopLyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::DesktopLyricFont);
+    m_miniLyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::MiniLyricFont);
     connect(this, &ThemeStore::fontChanged, this, &ThemeStore::lyricFontsChanged);
     qApp->installEventFilter(this);
     auto *hints = QGuiApplication::styleHints();
@@ -263,7 +267,7 @@ void ThemeStore::setGlobalFont(const QString &family)
     if (family == m_globalFont || (family != "system-ui" && !QFontDatabase::hasFamily(family)))
         return;
     m_globalFont = family;
-    m_settings.setValue("typography/globalFont", family);
+    m_settings.setValue(EchoMusic::SettingsKeys::Typography::GlobalFont, family);
     configureUiTypography(family);
     // QGuiApplication does not deliver ApplicationFontChange to itself on all
     // platforms. Own writes notify explicitly, including an equal resolved font.
@@ -281,15 +285,17 @@ void ThemeStore::setLyricFontPreference(QString &preference, const QString &key,
 }
 void ThemeStore::setLyricFont(const QString &family)
 {
-    setLyricFontPreference(m_lyricFont, "typography/lyricFont", family);
+    setLyricFontPreference(m_lyricFont, EchoMusic::SettingsKeys::Typography::LyricFont, family);
 }
 void ThemeStore::setDesktopLyricFont(const QString &family)
 {
-    setLyricFontPreference(m_desktopLyricFont, "typography/desktopLyricFont", family);
+    setLyricFontPreference(m_desktopLyricFont,
+                           EchoMusic::SettingsKeys::Typography::DesktopLyricFont, family);
 }
 void ThemeStore::setMiniLyricFont(const QString &family)
 {
-    setLyricFontPreference(m_miniLyricFont, "typography/miniLyricFont", family);
+    setLyricFontPreference(m_miniLyricFont, EchoMusic::SettingsKeys::Typography::MiniLyricFont,
+                           family);
 }
 QFont ThemeStore::resolvedLyricFont(const QString &family) const
 {
@@ -452,7 +458,7 @@ void ThemeStore::save()
         {"windowFrosted", m_windowFrosted},
         {"floatingFrosted", m_floatingFrosted},
         {"draft", backgroundPreview() ? m_beforeBackground : backgroundDraft()}};
-    m_settings.setValue("appearance/preferences",
+    m_settings.setValue(EchoMusic::SettingsKeys::Appearance::Preferences,
                         QJsonDocument(object).toJson(QJsonDocument::Compact));
 }
 void ThemeStore::adoptSystemScheme(Qt::ColorScheme scheme)

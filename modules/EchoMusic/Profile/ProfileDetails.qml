@@ -246,8 +246,7 @@ Rectangle {
     Timer {
         id: expiryClose
         interval: 150
-        onTriggered: if (!expiryHover.hovered)
-            expiryPopupOwner.close()
+        onTriggered: expiryPopupOwner.close()
     }
     EchoPopupLoader {
         id: expiryPopupOwner
@@ -304,15 +303,21 @@ Rectangle {
                     }
                     HoverHandler {
                         id: expiryHover
-                        onHoveredChanged: if (!hovered)
-                            expiryClose.restart()
+                        onHoveredChanged: {
+                            if (hovered)
+                                expiryClose.stop();
+                            else
+                                expiryClose.restart();
+                        }
                     }
                 }
             }
         }
     }
-    onVisibleChanged: if (!visible)
-        expiryPopupOwner.close()
+    onVisibleChanged: if (!visible) {
+        expiryClose.stop();
+        expiryPopupOwner.close();
+    }
     Connections {
         target: details.account
         function onChanged(): void {

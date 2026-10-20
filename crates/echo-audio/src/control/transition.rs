@@ -1,6 +1,6 @@
 use super::*;
 use crate::transition::analysis::{TrackAnalysis, TrackAnalyzer};
-use crate::transition::decide::{decide_transition, TransitionRequest, TransitionTrigger};
+use crate::transition::decide::{TransitionRequest, TransitionTrigger, decide_transition};
 use crate::transition::{TransitionMode, TransitionSettings};
 use crate::transition_runner::ArmedTransition;
 use std::collections::HashMap;
@@ -628,7 +628,11 @@ pub(crate) fn armed_transition_from_prepared(
         "info",
         format!(
             "transition loudness armed: request={request_id:?} outgoing_seq={outgoing_seq} incoming_seq={} mode={} template={:?} a_gain_db={current_normalization_gain_db:.2} b_gain_db={next_normalization_gain_db:.2} reference_gain_db={reference_db:.2} a_mix_gain={:.6} b_mix_gain={:.6} gain_stage=post-deck-dsp",
-            info.seq, plan.mode.as_str(), plan.template, norm_a / reference, norm_b / reference,
+            info.seq,
+            plan.mode.as_str(),
+            plan.template,
+            norm_a / reference,
+            norm_b / reference,
         ),
     ));
     ArmedTransition {
@@ -676,9 +680,11 @@ mod tests {
                 });
             }
             assert!(cache_get("evict-0").head.is_none());
-            assert!(cache_get(&format!("evict-{}", ANALYSIS_CACHE_ENTRIES + 2))
-                .head
-                .is_some());
+            assert!(
+                cache_get(&format!("evict-{}", ANALYSIS_CACHE_ENTRIES + 2))
+                    .head
+                    .is_some()
+            );
         });
     }
 

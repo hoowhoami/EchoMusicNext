@@ -15,7 +15,7 @@ pub mod plan;
 #[allow(unused_imports)]
 pub use analysis::{TrackAnalysis, TrackAnalyzer};
 #[allow(unused_imports)]
-pub use decide::{decide_transition, TransitionPlan, TransitionRequest, TransitionTrigger};
+pub use decide::{TransitionPlan, TransitionRequest, TransitionTrigger, decide_transition};
 #[allow(unused_imports)]
 pub use mixer::{DeckInput, MixerOutput, TransitionMixer};
 #[allow(unused_imports)]

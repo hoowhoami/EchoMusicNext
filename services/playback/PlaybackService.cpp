@@ -1,4 +1,8 @@
+#include "SettingsKeys.h"
 #include "PlaybackService.h"
+#include "PlaybackSessionController.h"
+#include "PlaybackOutputController.h"
+#include "PlaybackQueueController.h"
 #include "TrackTransitionController.h"
 #include "PlaybackRecoveryController.h"
 #include "PlaybackFailureController.h"
@@ -75,6 +79,9 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
       m_dynamicCover(api, this), m_lyricText(m_lyrics, m_native, settings, this),
       m_lyricSource(api, settings, this)
 {
+    m_sessionController = std::make_unique<PlaybackSessionController>(*this);
+    m_outputController = std::make_unique<PlaybackOutputController>(*this);
+    m_queueController = std::make_unique<PlaybackQueueController>(*this);
     connect(&m_songCommands, &SongCommands::sharingChanged, this, &PlaybackService::sharingChanged);
 
     connect(this, &PlaybackService::changed, this, &PlaybackService::publishProgressStatus);
@@ -208,10 +215,14 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                 m_lyricText.setPosition(m_position);
                 emit changed();
             });
-    m_volume = qBound(0., settings.value("playback/volume", DefaultVolume).toDouble(), 150.);
+    m_volume = qBound(
+        0., settings.value(EchoMusic::SettingsKeys::Playback::Volume, DefaultVolume).toDouble(),
+        150.);
     m_unmutedVolume = m_volume > 0 ? m_volume : DefaultVolume;
-    m_speed = qBound(.1, settings.value("playback/speed", 1).toDouble(), 5.);
-    m_mode = PlayMode(qBound(0, settings.value("playback/mode", 0).toInt(), 3));
+    m_speed =
+        qBound(.1, settings.value(EchoMusic::SettingsKeys::Playback::Speed, 1).toDouble(), 5.);
+    m_mode =
+        PlayMode(qBound(0, settings.value(EchoMusic::SettingsKeys::Playback::Mode, 0).toInt(), 3));
     m_quality = m_preferences.defaultQuality();
     m_startupAutoPlayPending = m_preferences.autoPlayOnLaunch();
     connect(&m_cloudSources, &CloudAudioIndex::settled, this, &PlaybackService::changed);
@@ -230,7 +241,8 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
         if (hasTrack() && m_track.localPath.isEmpty())
             refreshCurrentSource();
     });
-    const auto effect = settings.value("playback/songEffect", "none").toString();
+    const auto effect =
+        settings.value(EchoMusic::SettingsKeys::Playback::SongEffect, "none").toString();
     if (QStringList{"none", "piano", "vocal", "accompaniment", "subwoofer", "ancient", "surnay",
                     "dj"}
             .contains(effect))
@@ -354,6 +366,15 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
             m_sourcePreference.clear();
             m_sourceFailure.clear();
             m_mvFailure.clear();
+            // stop() preserves a selected song's lyrics for replay. Removing
+            // that selection retires its presentation on every lyric surface.
+            m_duration = 0;
+            m_coverColor = QColor();
+            m_coverPng.clear();
+            m_privileges = {};
+            m_error.clear();
+            m_lyricText.clear();
+            publishMedia();
             emit changed();
         });
     };
@@ -484,110 +505,39 @@ void PlaybackService::publishProgressStatus()
 }
 void PlaybackService::invalidate()
 {
-    m_climax.clear();
-    m_progress.reset();
-    publishProgressStatus();
-    m_resolvedQuality.clear();
-    m_failure->cancel();
-    m_recovery->cancel();
-    m_transition->clear();
-    ++m_sequence;
-    m_audioSequence = ++m_audioSerial;
-    ++m_sourceRevision;
-    m_engine.cancelSourceReplacement();
-    m_artwork.cancel();
-    m_embeddedCover.clear();
-    m_lyricSource.clear();
-    m_source.cancel();
-    m_urls.clear();
-    m_urlIndex = 0;
-    cancelTrackProbe();
-    if (const auto embedded = std::exchange(m_embeddedRequest, 0))
-        m_native.cancel(embedded);
-    m_probedSource.clear();
-    m_audioTrack = 0;
+    m_sessionController->invalidate();
 }
 void PlaybackService::playTracks(const PlaybackTracks &tracks, int index, const QString &title,
                                  const QString &sourceKey)
 {
-    if (m_closing || index < 0 || index >= tracks.size())
-        return;
-    // Replaying the same source keeps its queue identity/order. Browsing alone
-    // never replaces the active queue; only this explicit play command does.
-    finishHistory();
-    m_sourceKey = sourceKey;
-    m_queueTitle = title;
-    m_catalog.activate(sourceKey, title, tracks, index);
-    playIndex(queue()->currentIndex());
+    m_queueController->playTracks(tracks, index, title, sourceKey);
 }
 void PlaybackService::playFromSelection(const PlaybackTracks &tracks, int index,
                                         const QString &title, const QString &sourceKey,
                                         bool selectedSong)
 {
-    if (selectedSong && m_preferences.queueMode() == "single" && index >= 0 &&
-        index < tracks.size()) {
-        queueAndPlayTrack(tracks[index], title, sourceKey);
-    } else
-        playTracks(tracks, index, title, sourceKey);
+    m_queueController->playFromSelection(tracks, index, title, sourceKey, selectedSong);
 }
 void PlaybackService::queueAndPlayTrack(const PlaybackTrack &track, const QString &title,
                                         const QString &sourceKey)
 {
-    if (m_closing || !track.playable())
-        return;
-    auto *existing = m_catalog.modelForKey(sourceKey);
-    auto merged = existing ? existing->tracks() : PlaybackTracks{};
-    int target = -1;
-    for (int i = 0; i < merged.size(); ++i)
-        if ((!track.id.isEmpty() && merged[i].id == track.id) || merged[i].key() == track.key() ||
-            (!track.hash.isEmpty() &&
-             merged[i].hash.compare(track.hash, Qt::CaseInsensitive) == 0)) {
-            target = i;
-            break;
-        }
-    if (target < 0) {
-        target = merged.size();
-        merged.append(track);
-    }
-    const bool current =
-        hasTrack() && (!track.id.isEmpty() ? m_track.id == track.id : m_track.key() == track.key());
-    if (current) {
-        // Adopt context without restarting or pausing current audio.
-        // Row play/pause toggles use a separate command.
-        m_sourceKey = sourceKey;
-        m_queueTitle = title;
-        m_catalog.activate(sourceKey, title, merged, target);
-        emit changed();
-        if (!m_playing)
-            play();
-    } else
-        playTracks(merged, target, title, sourceKey);
+    m_queueController->queueAndPlayTrack(track, title, sourceKey);
 }
 void PlaybackService::appendTracks(const PlaybackTracks &tracks, bool next)
 {
-    appendTracksImpl(tracks, next, false);
+    m_queueController->appendTracks(tracks, next);
 }
 void PlaybackService::enqueueTracks(const PlaybackTracks &tracks, bool cut)
 {
-    appendTracksImpl(tracks, true, !cut);
+    m_queueController->enqueueTracks(tracks, cut);
 }
 void PlaybackService::appendTracksImpl(const PlaybackTracks &tracks, bool next, bool sequential)
 {
-    auto *target = queue();
-    if (m_personalFm->active() || m_sourceKey == "queue:home-discover" ||
-        m_sourceKey == "queue:listen-together") {
-        target = m_catalog.modelForKey(m_catalog.lastLocalKey());
-        if (!target)
-            target = m_catalog.modelForKey("default");
-    }
-    if (target)
-        target->append(tracks, next, m_track.id.isEmpty() ? m_track.key() : m_track.id, sequential);
-    emit changed();
+    m_queueController->appendTracksImpl(tracks, next, sequential);
 }
 void PlaybackService::playIndex(int index)
 {
-    m_listenTogether->localTrackRequested();
-    startIndex(index, false);
+    m_queueController->playIndex(index);
 }
 void PlaybackService::startIndex(int index, bool preserveFailureChain)
 {
@@ -600,6 +550,7 @@ void PlaybackService::startIndex(int index, bool preserveFailureChain)
     }
     startTrack(*track, index, preserveFailureChain);
 }
+
 void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
                                  bool preserveFailureChain)
 {
@@ -699,250 +650,27 @@ void PlaybackService::loadNextUrl()
 }
 void PlaybackService::ensureLyrics()
 {
-    if (m_closing || !hasTrack() || m_lyricState != "idle" || m_lyrics.rowCount())
-        return;
-    // load() emits changed while resetting its previous source; leave idle first
-    // so presentation observers cannot start a second request reentrantly.
-    m_lyricState = "loading";
-    requestLyrics();
+    m_sessionController->ensureLyrics();
 }
 void PlaybackService::requestLyrics()
 {
-    m_lyricSource.load(m_track);
-    m_lyricSource.setDuration(m_duration);
+    m_sessionController->requestLyrics();
 }
 void PlaybackService::requestEmbeddedMetadata()
 {
-    if (m_embeddedRequest)
-        m_native.cancel(m_embeddedRequest);
-    m_embeddedRequest =
-        m_native.submit(NativeBridge::EmbeddedMetadata,
-                        QJsonObject{{"seq", qint64(m_audioSequence)},
-                                    {"cover_cache_dir", m_embeddedDirectory.path()}},
-                        m_sequence);
+    m_sessionController->requestEmbeddedMetadata();
 }
 void PlaybackService::onEvent(const QJsonObject &event)
 {
-    if (m_closing)
-        return;
-    m_audioControls.handleEvent(event);
-    const auto kind = event.value("event").toString();
-    if (m_cast->remoteMedia() && kind != "ready" && kind != "system-command" &&
-        kind != "media-error")
-        return;
-    consumeOutputEvent(event);
+    m_outputController->onEvent(event);
 }
 void PlaybackService::mediaRouteChanged()
 {
-    if (m_closing)
-        return;
-    if (!hasTrack()) {
-        emit changed();
-        return;
-    }
-    m_transition->clear();
-    m_recovery->cancel();
-    cancelTrackProbe();
-    const bool autoplay = m_playing || m_loading && m_autoplay;
-    m_resumePosition = m_position;
-    m_engine.command(AudioEngine::Pause);
-    m_playing = false;
-    m_loaded = false;
-    m_loading = true;
-    m_autoplay = autoplay;
-    m_seamless = false;
-    m_error.clear();
-    emit changed();
-    if (!m_urls.isEmpty()) {
-        m_urlIndex = qMax(0, m_urlIndex - 1);
-        loadNextUrl();
-    } else if (m_ready)
-        resolve();
+    m_outputController->mediaRouteChanged();
 }
 void PlaybackService::consumeOutputEvent(const QJsonObject &event)
 {
-    if (m_closing)
-        return;
-    const auto kind = event.value("event").toString();
-    if (kind == "ready") {
-        m_ready = true;
-        m_initializationError.clear();
-        emit engineInitializationChanged();
-        // Queue this before transition setup, restored queues or pending loads.
-        // Changes made while native initialization was pending are read here.
-        m_engine.networkTimeout(m_networkPreferences ? m_networkPreferences->playerTimeoutSeconds()
-                                                     : 60);
-        m_engine.command(AudioEngine::Volume, localVolume());
-        m_engine.command(AudioEngine::Speed, m_speed);
-        m_audioControls.initialize();
-        m_transition->initialize();
-        tryStartupAutoPlay();
-        if (m_loading)
-            resolve();
-        return;
-    }
-    if (kind == "system-command") {
-        const auto c = event.value("command").toString();
-        if (c == "Play")
-            play();
-        else if (c == "Pause")
-            pause();
-        else if (c == "Stop")
-            stop();
-        else if (c == "NextSong")
-            next();
-        else if (c == "PreviousSong")
-            previous();
-        else if (c == "Seek")
-            seek(qint64(event.value("position_ms").toDouble()));
-        else if (c == "SeekForward")
-            seek(m_position + qint64(event.value("offset_ms").toDouble(10000)));
-        else if (c == "SeekBackward")
-            seek(m_position - qint64(event.value("offset_ms").toDouble(10000)));
-        return;
-    }
-    if (kind == "media-error") {
-        qWarning().noquote() << "System media:" << event.value("message").toString();
-        return;
-    }
-    if (!m_cast->remoteMedia() && m_transition->handleEvent(event))
-        return;
-    const auto seq = event.value("track_seq");
-    if (!seq.isNull() && !seq.isUndefined() && quint64(seq.toDouble()) != m_audioSequence)
-        return;
-    if (!event.value("source_revision").isNull() && !event.value("source_revision").isUndefined() &&
-        quint64(event.value("source_revision").toInteger()) != m_sourceRevision)
-        return;
-    if (!m_cast->remoteMedia() && kind != "state-change" && m_recovery->handleEvent(event))
-        return;
-    // Recovery may reject old output positions; do not let those clear busy.
-    if (kind == "time-update" || kind == "seeked") {
-        if (!m_cast->remoteMedia() &&
-            !m_recovery->acceptsPosition(qint64(event.value("time").toDouble() * 1000)))
-            return;
-    }
-    m_progress.observe(event);
-    publishProgressStatus();
-    if (kind == "source-switched" ||
-        (kind == "file-loaded" && quint64(event.value("seq").toDouble()) == m_audioSequence))
-        requestEmbeddedMetadata();
-    if (kind == "source-switched") {
-        m_progress.reset();
-        m_audioControls.setTrackLoudness(m_pendingLoudness);
-        m_loading = false;
-        m_loaded = true;
-        m_appliedEffect = m_effectFallback ? QString("none") : m_songEffect;
-        m_seamless = false;
-        m_position = qint64(event.value("time").toDouble() * 1000);
-        m_duration = qint64(event.value("duration").toDouble() * 1000);
-        m_error.clear();
-        publishMedia();
-        m_lyricText.setPosition(m_position);
-        if (m_sourceKind == "mv")
-            m_climax.clear();
-        else
-            m_climax.load(m_track, m_duration);
-        m_lyricSource.setDuration(m_duration);
-        emit changed();
-        emit timelineReset();
-        emit positionChanged();
-    } else if (kind == "file-loaded") {
-        if (quint64(event.value("seq").toDouble()) != m_audioSequence)
-            return;
-        m_audioControls.setTrackLoudness(m_pendingLoudness);
-        m_loading = false;
-        m_loaded = true;
-        m_appliedEffect = m_effectFallback ? QString("none") : m_songEffect;
-        m_error.clear();
-        publishMedia();
-        if (m_resumePosition >= 0) {
-            if (m_cast->remoteMedia())
-                m_cast->seek(qBound<qint64>(0, m_resumePosition, m_duration));
-            else
-                m_engine.command(AudioEngine::Seek,
-                                 double(qBound<qint64>(0, m_resumePosition, m_duration)) / 1000.);
-            m_resumePosition = -1;
-        }
-        if (m_autoplay) {
-            if (m_cast->remoteMedia())
-                m_cast->playMedia();
-            else if (m_preferences.volumeFade())
-                m_engine.playFaded(localVolume(), m_preferences.volumeFadeMs());
-            else
-                m_engine.command(AudioEngine::Play);
-        }
-        if (m_sourceKind == "mv")
-            m_climax.clear();
-        else
-            m_climax.load(m_track, m_duration);
-        m_lyricSource.setDuration(m_duration);
-        m_listenTogether->nativeTrackReady();
-        emit changed();
-    } else if (kind == "duration-change") {
-        m_duration = qint64(event.value("duration").toDouble() * 1000);
-        m_climax.setDuration(m_duration);
-        m_lyricSource.setDuration(m_duration);
-        emit changed();
-    } else if (kind == "time-update" || kind == "seeked") {
-        const auto position = qint64(event.value("time").toDouble() * 1000);
-        if (kind == "seeked")
-            m_listening.resetPosition();
-        m_listening.tick(m_track.key(), m_track.songId, m_track.localPath.isEmpty(),
-                         m_playing && !m_loading && progressBusyReason() == ProgressReady, position,
-                         speed());
-        const auto elapsed = m_listenTick.restart();
-        if (m_playing && elapsed > 0 && elapsed < 2000)
-            m_listenedMs += elapsed;
-        m_position = position;
-        if (kind == "seeked")
-            m_listenTogether->nativeSeekCompleted();
-        m_lyricText.setPosition(m_position);
-        if (kind == "seeked")
-            emit timelineReset();
-        emit positionChanged();
-    } else if (kind == "state-change") {
-        m_listening.resetPosition();
-        const auto s = event.value("state").toObject();
-        m_playing = s.value("playing").toBool() && !s.value("paused").toBool();
-        if (m_playing)
-            m_failure->succeeded();
-        if (!m_cast->remoteMedia())
-            m_recovery->handleEvent(event);
-        m_listenTick.restart();
-        m_engine.mediaTimeline(m_position, m_duration, m_playing, speed());
-        emit changed();
-    } else if (kind == "playback-end") {
-        if (event.value("reason").toString() != "eof")
-            return;
-        m_listening.flush(true);
-        m_playing = false;
-        if (!m_sleepTimer.trackEnded())
-            next(true);
-    } else if (kind == "error") {
-        m_listening.flush();
-        if (!m_ready) {
-            m_initializationError = event.value("message").toString();
-            emit engineInitializationChanged();
-        }
-        m_progress.reset();
-        m_error = event.value("message").toString();
-        if (!m_seamless)
-            m_playing = false;
-        const bool mediaFailure = PlaybackSourceRequest::mediaError(event);
-        if (mediaFailure && !m_urls.isEmpty() && m_urlIndex < m_urls.size()) {
-            m_loaded = false;
-            m_seamless = false;
-            m_loading = true;
-            m_resumePosition = m_sourceKind == "mv" ? -1 : m_position;
-            loadNextUrl();
-        } else if (mediaFailure && recoverSource(m_error)) {
-            emit changed();
-        } else {
-            m_loading = false;
-            m_failure->failed();
-            emit changed();
-        }
-    }
+    m_outputController->consumeOutputEvent(event);
 }
 void PlaybackService::toggle()
 {
@@ -1157,7 +885,7 @@ void PlaybackService::setVolume(double value)
         m_unmutedVolume = value;
     m_volume = value;
     if (!m_remoteVolume) {
-        m_settings.setValue("playback/volume", value);
+        m_settings.setValue(EchoMusic::SettingsKeys::Playback::Volume, value);
         if (m_ready)
             m_engine.command(AudioEngine::Volume, value);
     }
@@ -1191,7 +919,7 @@ void PlaybackService::setSpeed(double value)
         return;
     m_transition->clear();
     m_speed = value;
-    m_settings.setValue("playback/speed", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Playback::Speed, value);
     if (m_ready)
         m_engine.command(AudioEngine::Speed, value);
     emit changed();
@@ -1202,7 +930,7 @@ void PlaybackService::setPlayMode(PlayMode mode)
         return;
     m_transition->clear();
     m_mode = mode;
-    m_settings.setValue("playback/mode", int(mode));
+    m_settings.setValue(EchoMusic::SettingsKeys::Playback::Mode, int(mode));
     emit changed();
 }
 void PlaybackService::cycleMode()
@@ -1267,7 +995,7 @@ void PlaybackService::setSongEffect(const QString &effect)
              .contains(effect))
         return;
     m_songEffect = effect;
-    m_settings.setValue("playback/songEffect", effect);
+    m_settings.setValue(EchoMusic::SettingsKeys::Playback::SongEffect, effect);
     if (hasTrack() && m_track.localPath.isEmpty()) {
         refreshCurrentSource();
     }
@@ -1323,105 +1051,43 @@ void PlaybackService::retry()
 }
 void PlaybackService::requestHistory()
 {
-    if (m_closing)
-        return;
-    if (m_repository)
-        m_repository->loadHistory(m_account, m_revision);
-    else
-        emit historyLoaded({});
+    m_queueController->requestHistory();
 }
 void PlaybackService::removeHistory(const QStringList &keys)
 {
-    if (!m_closing && m_repository)
-        m_repository->removeHistory(m_account, keys);
+    m_queueController->removeHistory(keys);
 }
 void PlaybackService::clearHistory()
 {
-    if (!m_closing && m_repository)
-        m_repository->clearHistory(m_account);
+    m_queueController->clearHistory();
 }
 void PlaybackService::shutdown()
 {
-    if (m_listenTogether)
-        m_listenTogether->shutdown();
-    m_personalFm->shutdown();
-    m_discoverQueue->shutdown();
-    if (std::exchange(m_closing, true))
-        return;
-    m_sleepInhibitor.setRequired(false);
-    m_recovery->cancel();
-    finishHistory();
-    m_listening.shutdown();
-    persist();
-    m_saveTimer.stop();
-    m_spectrum.stop();
-    m_mediaTimer.stop();
-    invalidate();
-    m_sleepTimer.cancel();
-    m_effectCatalog.shutdown();
-    m_audioControls.shutdownImports();
-    // The selected remote renderer must acknowledge Stop before the native
-    // actor starts cancellation/join. Audio/SQL owners can drain in parallel.
-    m_cast->shutdown([guard = QPointer<PlaybackService>(this)] {
-        if (guard)
-            guard->m_native.shutdown();
-    });
-    if (m_repository)
-        m_repository->shutdown();
-    m_engine.shutdown();
+    m_sessionController->shutdown();
 }
 void PlaybackService::playViewedIndex(int index)
 {
-    if (m_catalog.viewActive() && index == queue()->currentIndex() && m_loaded) {
-        toggle();
-        return;
-    }
-    m_catalog.activateViewed();
-    m_sourceKey = m_catalog.activeKey();
-    m_queueTitle = m_catalog.activeTitle();
-    playIndex(index);
+    m_queueController->playViewedIndex(index);
 }
 void PlaybackService::resumeViewedQueue()
 {
-    auto *model = m_catalog.viewModel();
-    if (model && model->rowCount())
-        playViewedIndex(qMax(0, model->currentIndex()));
+    m_queueController->resumeViewedQueue();
 }
 void PlaybackService::removeViewedIndex(int index)
 {
-    auto *model = m_catalog.viewModel();
-    if (!model || !model->at(index))
-        return;
-    const bool active = model == queue() && model->at(index)->key() == m_track.key();
-    const bool wasPlaying = m_playing;
-    model->remove(index);
-    if (active && model->rowCount()) {
-        playIndex(qMin(index, model->rowCount() - 1));
-        m_autoplay = wasPlaying;
-    }
+    m_queueController->removeViewedIndex(index);
 }
 void PlaybackService::publishMedia()
 {
-    if (!m_ready)
-        return;
-    m_engine.mediaMetadata(m_track.title, m_track.artist, m_track.album, m_duration, m_coverPng);
-    m_engine.mediaTimeline(m_position, m_duration, m_playing, speed());
+    m_outputController->publishMedia();
 }
 void PlaybackService::persist()
 {
-    if (!m_repository || m_restoring || (m_queueRestorePending && m_sequence == m_restoreSequence))
-        return;
-    const auto states = m_catalog.snapshot();
-    m_repository->save(PlaybackRepository::SharedQueueScope, states, m_catalog.activeKey(),
-                       m_catalog.lastLocalKey());
+    m_queueController->persist();
 }
 void PlaybackService::finishHistory()
 {
-    m_listening.flush();
-    if (m_repository && m_listenedMs > 0)
-        m_repository->record(m_account, m_track, m_listenedMs);
-    m_listenedMs = 0;
-    m_listenTick.restart();
+    m_sessionController->finishHistory();
 }
 } // namespace EchoMusic
 

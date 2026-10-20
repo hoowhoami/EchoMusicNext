@@ -46,6 +46,21 @@ bool systemMaterial(HWND handle, int material)
 {
     return SUCCEEDED(DwmSetWindowAttribute(handle, 38, &material, sizeof(material)));
 }
+bool extendFrame(HWND handle, bool enabled)
+{
+    // DWM only paints the system backdrop where the frame accepts it. A
+    // frameless window has no non-client area, so the whole client area must
+    // opt in while the material is active.
+    const MARGINS margins = enabled ? MARGINS{-1, -1, -1, -1} : MARGINS{0, 0, 0, 0};
+    return SUCCEEDED(DwmExtendFrameIntoClientArea(handle, &margins));
+}
+void refreshFrame(HWND handle)
+{
+    // DWM can defer a newly requested backdrop on an already visible frameless
+    // window until the non-client area is recalculated.
+    SetWindowPos(handle, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
 } // namespace
 WindowsWindowBackdrop::WindowsWindowBackdrop()
 {
@@ -145,19 +160,33 @@ bool WindowsWindowBackdrop::material(bool enabled)
     // windows. That alpha description masks the system backdrop. D3D11 keeps
     // its premultiplied DirectComposition swapchain, so suspend only DWM_BB
     // while system Acrylic owns the backdrop and restore Qt's description on exit.
-    if (enabled)
-        return alphaBehind(m_handle, false) && systemMaterial(m_handle, 3);
+    // A frameless window has no non-client frame for DWM to paint the material
+    // into, so the client area must extend the frame while the material is active.
+    if (enabled) {
+        if (!extendFrame(m_handle, true))
+            return false;
+        if (!alphaBehind(m_handle, false) || !systemMaterial(m_handle, 3)) {
+            extendFrame(m_handle, false);
+            return false;
+        }
+        refreshFrame(m_handle);
+        return true;
+    }
     const bool cleared = systemMaterial(m_handle, 1);
+    const bool framed = extendFrame(m_handle, false);
     const bool restored = alphaBehind(m_handle, true);
-    return cleared && restored;
+    refreshFrame(m_handle);
+    return cleared && framed && restored;
 }
 void WindowsWindowBackdrop::queueRepair()
 {
     if (m_repairQueued || m_build < 22000)
         return;
     m_repairQueued = true;
-    // Reassert DWM corner/material policy after Qt's native handler. The
-    // QObject context cancels this callback on teardown.
+    // Reassert DWM corner/material policy after Qt's native handler. Qt resets
+    // the frame margins and DWM_BB during window setup, including after
+    // composition changes, so the repair must restore both. The QObject context
+    // cancels this callback on teardown.
     QMetaObject::invokeMethod(
         this,
         [this] {

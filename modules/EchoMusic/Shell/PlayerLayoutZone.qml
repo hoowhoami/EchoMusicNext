@@ -12,6 +12,7 @@ Rectangle {
     required property string label
     property bool showLabel: true
     property bool resourceActive: true
+    property Item dragLayer: null
     implicitHeight: (showLabel ? 18 : 0) + 64 + 16
     color: Theme.elevated
     radius: Theme.itemRadius
@@ -74,6 +75,7 @@ Rectangle {
                     actionKey: slot.actionKey
                     glyph: slot.actionIcon
                     dragGroup: "playerbar-actions"
+                    dragLayer: pane.dragLayer
                     resourceActive: pane.resourceActive && !slot.pooled
                     foreground: chip.hovered || chip.visualFocus ? Theme.floatingAccentText : Theme.floatingText
                     iconOpacity: slot.actionEnabled ? 1 : 0.56

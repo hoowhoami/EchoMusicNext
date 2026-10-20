@@ -8,13 +8,20 @@ Item {
     // Callers supply their actual surface/state foreground, like currentColor.
     property color color: Theme.text
     property bool resourceActive: true
+    property alias asynchronous: image.asynchronous
     readonly property alias status: image.status
-    readonly property int rasterSize: Math.max(1, Math.ceil(Math.min(width, height) * Screen.devicePixelRatio))
+    readonly property int rasterSize: Math.max(1, metrics.pixelSize.width, metrics.pixelSize.height)
     function visualCenter(): point {
         return EchoIconSource.visualCenter(control.name, Qt.size(control.width, control.height));
     }
     implicitWidth: 20
     implicitHeight: 20
+    EchoImageMetrics {
+        id: metrics
+        item: control
+        active: control.resourceActive && control.visible
+        source: image.source
+    }
     Image {
         id: image
         objectName: "iconImage"

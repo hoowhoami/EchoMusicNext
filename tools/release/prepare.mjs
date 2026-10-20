@@ -63,3 +63,9 @@ for (const name of ['GPL-2.0-only', 'GPL-3.0-only', 'LGPL-3.0-only', 'Qt-GPL-exc
     `https://raw.githubusercontent.com/qt/qtbase/v6.12.0/LICENSES/${name}.txt`,
     path.join(licenses, `${name}.txt`),
   );
+
+// Packaging inventories cover the locked graph across platforms. Host-only
+// builds do not necessarily populate every license source used by metadata.
+const cargoFetch = spawnSync('cargo', ['fetch', '--locked'], { cwd: root, stdio: 'inherit' });
+if (cargoFetch.error) throw cargoFetch.error;
+if (cargoFetch.status !== 0) throw new Error('Cannot prepare locked Cargo license sources');

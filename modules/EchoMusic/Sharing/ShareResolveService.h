@@ -25,6 +25,8 @@ class ShareResolveService final : public QObject
     Q_PROPERTY(QString heading READ heading NOTIFY changed)
     Q_PROPERTY(QString explanation READ explanation NOTIFY changed)
 public:
+    /// Explicit UI composition; construction alone does not register pages.
+    void registerRoutes(RouteController &router);
     ShareResolveService(ApiClient &, SharingCommands &, RouteController &, ShellController &,
                         WindowController &, bool network = true, QObject *parent = nullptr);
     ~ShareResolveService() override;

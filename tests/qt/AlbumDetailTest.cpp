@@ -145,6 +145,9 @@ private slots:
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         AlbumDetailService service(api, playback, router, false);
+        QVERIFY(!router.available("album-detail"));
+        service.registerRoutes(router);
+        QVERIFY(router.available("album-detail"));
         QVERIFY(router.navigate("album-detail", {}, "960399"));
         auto *context = service.contextFor(router.current());
         QVERIFY(context);
@@ -187,6 +190,7 @@ private slots:
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         AlbumDetailService service(api, playback, router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("album-detail", {}, "960399"));
         auto *context = service.contextFor(router.current());
         AlbumDetailContextTestAccess::seed(*context, "魔杰座");
@@ -218,6 +222,7 @@ private slots:
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         AlbumDetailService service(api, playback, router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("album-detail", {}, "960399"));
         auto *context = service.contextFor(router.current());
         AlbumDetailContextTestAccess::seed(*context, "魔杰座");
@@ -258,6 +263,7 @@ private slots:
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         AlbumDetailService service(api, playback, router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("album-detail", {}, "960399"));
         auto *context = service.contextFor(router.current());
         AlbumDetailContextTestAccess::seed(*context, "魔杰座");
@@ -288,6 +294,7 @@ private slots:
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"), &network);
         RouteController router;
         AlbumDetailService service(api, playback, router, false);
+        service.registerRoutes(router);
         ThemeStore theme(prefs);
         ShellSettings shell(prefs);
         QQmlEngine engine;

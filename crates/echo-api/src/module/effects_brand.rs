@@ -40,14 +40,7 @@ pub async fn execute(
         .await?;
     request::encode(&convert(&bytes, query.page, query.page_size)?)
 }
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    errcode: i64,
-    data: serde_json::Value,
-}
+type Wire = crate::util::response::ErrcodeEnvelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
     #[serde(deserialize_with = "crate::util::response::list")]

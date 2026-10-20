@@ -17,14 +17,6 @@ ExploreService::ExploreService(ApiClient &api, PlaybackService &playback, RouteC
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_categoryLabel = tr("全部");
     m_newActions.setQueueContext(tr("新歌速递"), "queue:explore:new-songs");
-    router.registerPage({"explore",
-                         "/main/explore",
-                         QUrl("qrc:/qt/qml/EchoMusic/Discovery/ExplorePage.qml"),
-                         {"tab"},
-                         true,
-                         true,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
     connect(&router, &RouteController::pageActivated, this, &ExploreService::activate);
     connect(&api, &ApiClient::succeeded, this, &ExploreService::accept);
     connect(&api, &ApiClient::failed, this,
@@ -420,5 +412,20 @@ void ExploreService::projectCards()
     }
     if (m_tab != 1 && m_tab != 3)
         m_cards.replaceCards(values);
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void ExploreService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"explore",
+                         "/main/explore",
+                         QUrl("qrc:/qt/qml/EchoMusic/Discovery/ExplorePage.qml"),
+                         {"tab"},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

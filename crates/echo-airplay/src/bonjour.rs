@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader};
 use std::net::IpAddr;
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 

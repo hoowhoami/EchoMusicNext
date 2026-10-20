@@ -4,8 +4,8 @@ use crate::shared::{
     AudioOutputStats, AudioSampleFormat, DecodedAudioChunk, DecodedAudioData, DecodedAudioFormat,
     MixFormat,
 };
-use crate::tempo::{TempoProcessor, MAX_SPEED, MIN_SPEED};
-use ffmpeg_audio::{sys, SwrContext};
+use crate::tempo::{MAX_SPEED, MIN_SPEED, TempoProcessor};
+use ffmpeg_audio::{SwrContext, sys};
 use std::{mem, ptr};
 
 pub struct AudioFilterGraph {
@@ -1146,11 +1146,13 @@ mod tests {
         let actual_frames = output.len() / MIX_CHANNELS;
         assert!(actual_frames.abs_diff(expected_frames) <= 2);
         assert!(output.iter().all(|sample| sample.is_finite()));
-        assert!(output
-            .iter()
-            .skip(MIX_CHANNELS * 64)
-            .take(MIX_CHANNELS * 256)
-            .all(|sample| (*sample - 0.25).abs() < 0.001));
+        assert!(
+            output
+                .iter()
+                .skip(MIX_CHANNELS * 64)
+                .take(MIX_CHANNELS * 256)
+                .all(|sample| (*sample - 0.25).abs() < 0.001)
+        );
     }
 
     #[test]
@@ -1281,9 +1283,11 @@ mod tests {
                 AudioFilterNodeKind::Limiter,
             ]
         );
-        assert!(nodes
-            .iter()
-            .all(|node| node.channels == ChannelRequirement::Preserve));
+        assert!(
+            nodes
+                .iter()
+                .all(|node| node.channels == ChannelRequirement::Preserve)
+        );
         assert_eq!(nodes[0].flush, FilterFlushMode::Drain);
         assert_eq!(nodes[1].flush, FilterFlushMode::Reset);
         assert_eq!(nodes[3].flush, FilterFlushMode::Drain);

@@ -49,6 +49,16 @@ ListView {
     onModelChanged: invalidateExtent()
     onVisibleChanged: if (visible)
         invalidateExtent()
+    // The estimated contentHeight need not change when the last incubated
+    // delegate becomes ready. Observe native mounting and viewport readiness
+    // as well, keeping the scan bounded by the actually mounted children.
+    onHeightChanged: Qt.callLater(measureExtent)
+    property Connections mountedRows: Connections {
+        target: view.contentItem
+        function onChildrenChanged() {
+            Qt.callLater(view.measureExtent);
+        }
+    }
     onContentHeightChanged: Qt.callLater(measureExtent)
     Component.onCompleted: invalidateExtent()
 }

@@ -9,14 +9,7 @@ use crate::{
 use reqwest::Method;
 use serde::Deserialize;
 use std::collections::BTreeMap;
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    errcode: i64,
-    data: serde_json::Value,
-}
+type Wire = crate::util::response::ErrcodeEnvelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
     #[serde(deserialize_with = "crate::util::response::list")]

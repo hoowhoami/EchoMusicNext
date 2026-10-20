@@ -1,4 +1,5 @@
 #include "HistoryService.h"
+#include "NativeWindow.h"
 #include "NetworkPreferences.h"
 #include "PlaybackRepository.h"
 #include "PlaybackService.h"
@@ -124,6 +125,7 @@ private slots:
         SongMetadataService metadata(api);
         RouteController router;
         HistoryService service(api, playback, metadata, router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("history"));
         auto *repository = PlaybackServiceTestAccess::repository(playback);
         auto original = historyTrack("1", "原歌曲");
@@ -219,6 +221,7 @@ private slots:
         SongMetadataService metadata(api);
         RouteController router;
         HistoryService service(api, playback, metadata, router, true);
+        service.registerRoutes(router);
         QVERIFY(router.registerPage({"other", "/main/other", QUrl("qrc:/not-instantiated.qml")}));
         QVERIFY(router.navigate("history"));
         const QJsonArray entries{QJsonObject{{"key", "1:history"},
@@ -280,6 +283,7 @@ private slots:
         RouteController router;
         SongMetadataService songMetadata(api);
         HistoryService service(api, playback, songMetadata, router, false);
+        service.registerRoutes(router);
         QVERIFY(router.available("history"));
         QSignalSpy notices(&service, &HistoryService::notice);
         auto *repository = PlaybackServiceTestAccess::repository(playback);
@@ -336,6 +340,7 @@ private slots:
         RouteController router;
         SongMetadataService songMetadata(api);
         HistoryService service(api, playback, songMetadata, router, false);
+        service.registerRoutes(router);
         auto *repository = PlaybackServiceTestAccess::repository(playback);
         repository->record(100, historyTrack("song-1", "历史歌曲一"), 12000);
         repository->record(100, historyTrack("song-2", "历史歌曲二"), 5000);
@@ -376,9 +381,7 @@ Window {
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window);
-        window->requestActivate();
-        if (QGuiApplication::platformName() != "offscreen")
-            QVERIFY(QTest::qWaitForWindowActive(window));
+        QVERIFY(Test::prepareNativeInput(window));
         QVERIFY(router.navigate("history"));
         QTRY_VERIFY(historyVisual(window->contentItem(), "historyPage"));
         QTRY_COMPARE_WITH_TIMEOUT(service.songs()->count(), 2, 5000);
@@ -479,9 +482,16 @@ Window {
                         QTRY_COMPARE(chart->property("spacing").toReal(),
                                      logicalWidth <= 640 ? 6. : 10.);
                         if (logicalWidth > 980) {
-                            const auto expectedTime =
-                                qMax(260., (activityGrid->width() - 14) * .9 / 2.35);
-                            QTRY_VERIFY(qAbs(time->width() - expectedTime) <= 1.);
+                            // Both widths change during the resize polish. Do
+                            // not freeze the previous grid width before waiting.
+                            QTRY_VERIFY2(
+                                qAbs(time->width() -
+                                     qMax(260., (activityGrid->width() - 14) * .9 / 2.35)) <= 1.,
+                                qPrintable(QString("time=%1 grid=%2 viewport=%3 sidebar=%4")
+                                               .arg(time->width())
+                                               .arg(activityGrid->width())
+                                               .arg(logicalWidth)
+                                               .arg(sidebarWidth)));
                             QTRY_COMPARE(week->y(), time->y());
                             QTRY_COMPARE(week->height(), time->height());
                             QTRY_VERIFY(qAbs(week->width() + time->width() + 14 -

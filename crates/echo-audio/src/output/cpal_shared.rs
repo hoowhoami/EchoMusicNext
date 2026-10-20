@@ -9,8 +9,8 @@ use crate::events::PlayerEvent;
 use crate::exclusive::ExclusiveGuard;
 #[cfg(not(target_os = "windows"))]
 use crate::output::{
-    build_output_stats, output_buffer_mode_for_frames, output_start_was_cancelled,
-    OutputStartSender, OutputStopToken,
+    OutputStartSender, OutputStopToken, build_output_stats, output_buffer_mode_for_frames,
+    output_start_was_cancelled,
 };
 #[cfg(not(target_os = "windows"))]
 use crate::output::{report_output_start, report_output_start_failure};
@@ -22,11 +22,11 @@ use cpal::{
     BufferSize, ErrorKind, OutputCallbackInfo, SampleFormat, Stream, StreamConfig,
     SupportedBufferSize,
 };
-use ffmpeg_audio::{sys, SwrContext};
+use ffmpeg_audio::{SwrContext, sys};
 use std::collections::VecDeque;
-use std::sync::atomic::Ordering;
 #[cfg(not(target_os = "windows"))]
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 #[cfg(not(target_os = "windows"))]
 use std::thread;
 #[cfg(not(target_os = "windows"))]
@@ -1093,7 +1093,7 @@ fn map_channels_to_output(
 mod tests {
     use super::*;
     use crate::dsp::DspSettings;
-    use crate::shared::{MixFormat, MIX_CHANNELS};
+    use crate::shared::{MIX_CHANNELS, MixFormat};
 
     #[test]
     fn output_resampler_converts_engine_rate_to_device_rate() {
@@ -1217,9 +1217,11 @@ mod tests {
         let mut output = vec![0.0; 512 * 4];
         resampler.fill_output(&mut output, 4, &shared);
 
-        assert!(output
-            .chunks_exact(4)
-            .any(|frame| frame[0].abs() > 0.001 || frame[1].abs() > 0.001));
+        assert!(
+            output
+                .chunks_exact(4)
+                .any(|frame| frame[0].abs() > 0.001 || frame[1].abs() > 0.001)
+        );
         assert!(output.chunks_exact(4).all(|frame| frame[2] == 0.0));
         assert!(output.chunks_exact(4).all(|frame| frame[3] == 0.0));
     }
@@ -1542,9 +1544,11 @@ mod tests {
         shared.set_effect_limiter_active_for_test(true);
         let mut output = [1.5, -1.5];
         process_output_signal(&mut output, 2, 48_000, 1.0, &shared);
-        assert!(output
-            .iter()
-            .all(|sample| sample.is_finite() && sample.abs() <= 1.0));
+        assert!(
+            output
+                .iter()
+                .all(|sample| sample.is_finite() && sample.abs() <= 1.0)
+        );
     }
 
     #[test]

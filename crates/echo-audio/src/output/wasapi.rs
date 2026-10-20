@@ -1,15 +1,15 @@
-use super::cpal_shared::{fill_output_reusing, OutputResampler};
+use super::cpal_shared::{OutputResampler, fill_output_reusing};
 use crate::device::platform_windows::{
+    ComApartment, WasapiOutputFormat, WasapiResolvedFormat, WasapiSampleFormat,
     activate_wasapi_audio_client, choose_wasapi_output_format, choose_wasapi_shared_output_format,
     is_wasapi_buffer_size_not_aligned, is_wasapi_device_in_use, resolve_wasapi_output_device,
     wasapi_client_error_message, wasapi_duration_from_frames, wasapi_exclusive_buffer_duration,
-    ComApartment, WasapiOutputFormat, WasapiResolvedFormat, WasapiSampleFormat,
 };
 use crate::events::{PlayerErrorCode, PlayerEvent};
 use crate::output::{
-    build_output_stats, output_buffer_mode_for_frames, output_start_was_cancelled,
-    report_output_start, report_output_start_failure, service_wasapi_event, OutputStartSender,
-    OutputStopToken,
+    OutputStartSender, OutputStopToken, build_output_stats, output_buffer_mode_for_frames,
+    output_start_was_cancelled, report_output_start, report_output_start_failure,
+    service_wasapi_event,
 };
 use crate::platform_qos;
 use crate::shared::SharedAudio;
@@ -18,10 +18,10 @@ use std::slice;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use windows::core::HRESULT;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::Media::Audio;
 use windows::Win32::System::Threading;
+use windows::core::HRESULT;
 
 const WASAPI_EVENT_WAIT_MS: u32 = 10;
 const WASAPI_EXCLUSIVE_DEVICE_RELEASE_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -377,7 +377,9 @@ fn run_wasapi_output(
             "info",
             format!(
                 "WASAPI {} output started: requested='{device_name}', sample_rate={}, engine_sample_rate={}",
-                share_mode.label(), output_format.sample_rate, shared.mix_format.sample_rate
+                share_mode.label(),
+                output_format.sample_rate,
+                shared.mix_format.sample_rate
             ),
         ));
         while !stop.should_stop(&shared) {

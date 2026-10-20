@@ -42,3 +42,7 @@ qt_add_shaders(
 target_compile_definitions(
     echo_theme PRIVATE ECHO_THEME_WORKER_PATH="$<TARGET_FILE:echo-theme-image-worker>"
 )
+
+target_link_libraries(echo-theme-image-worker PRIVATE echo_settings_keys)
+
+target_link_libraries(echo_theme PRIVATE echo_settings_keys)

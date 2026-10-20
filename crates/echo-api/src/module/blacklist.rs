@@ -17,13 +17,7 @@ pub struct Query {
     pub mix_song_id: Option<String>,
     pub remove: bool,
 }
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-}
+type Wire = crate::util::response::AckEnvelope;
 #[derive(Serialize)]
 pub struct Acknowledgement {
     pub updated: bool,

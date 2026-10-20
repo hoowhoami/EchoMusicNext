@@ -8,15 +8,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-    #[serde(default)]
-    data: serde_json::Value,
-}
+type Wire = crate::util::response::DefaultDataEnvelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
     #[serde(default, deserialize_with = "crate::util::response::optional")]

@@ -37,6 +37,7 @@ find_package(
                Network
                Concurrent
                Test
+               LinguistTools
 )
 if(UNIX AND NOT APPLE)
     # Requiring this SDK module prevents an X11-only SDK silently satisfying the
@@ -68,3 +69,31 @@ add_subdirectory(app)
 if(BUILD_TESTING)
     add_subdirectory(tests/qt)
 endif()
+
+# Collect only owned production directories: FetchContent dependencies and
+# test fixtures must never become application translation contexts.
+set(echo_translation_targets)
+foreach(echo_translation_directory IN ITEMS app services modules)
+    qt_collect_translation_source_targets(
+        echo_directory_translation_targets DIRECTORY
+        "${PROJECT_SOURCE_DIR}/${echo_translation_directory}"
+    )
+    list(APPEND echo_translation_targets ${echo_directory_translation_targets})
+endforeach()
+list(REMOVE_DUPLICATES echo_translation_targets)
+# Catalog extraction excludes tests and third-party sources. lrelease embeds
+# committed catalogs; lupdate is an explicit development target, never a build mutation.
+qt_add_translations(
+    echomusicnext
+    SOURCE_TARGETS
+    ${echo_translation_targets}
+    LUPDATE_TARGET
+    echomusicnext_lupdate
+    TS_FILES
+    translations/echomusicnext_zh_CN.ts
+    NO_GENERATE_PLURALS_TS_FILE
+    LUPDATE_OPTIONS
+    -no-obsolete
+    -source-language
+    zh_CN
+)

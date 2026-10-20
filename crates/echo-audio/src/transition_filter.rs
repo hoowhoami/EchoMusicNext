@@ -251,10 +251,12 @@ mod tests {
             .unwrap();
         active.process_decoded(&b, &settings, &mut actual).unwrap();
         assert_eq!(actual.len(), expected.len());
-        assert!(actual
-            .iter()
-            .zip(&expected)
-            .all(|(a, b)| (a - b).abs() < 1e-5));
+        assert!(
+            actual
+                .iter()
+                .zip(&expected)
+                .all(|(a, b)| (a - b).abs() < 1e-5)
+        );
     }
 }
 
@@ -325,10 +327,17 @@ impl IncomingDeckFilter {
             ));
             self.metered = [false; 2];
             self.speed = request.speed;
-            crate::decoder::emit_decode_info(shared, &format!(
-                "transition DSP separated: request={} generation={} provider_enabled={} speed={:.3} a_state=retained b_state=new gain_stage=post-deck-dsp init_ms={:.3}",
-                request.request_id, request.generation, settings.provider_path.is_some(), request.speed, started.elapsed().as_secs_f64() * 1000.0,
-            ));
+            crate::decoder::emit_decode_info(
+                shared,
+                &format!(
+                    "transition DSP separated: request={} generation={} provider_enabled={} speed={:.3} a_state=retained b_state=new gain_stage=post-deck-dsp init_ms={:.3}",
+                    request.request_id,
+                    request.generation,
+                    settings.provider_path.is_some(),
+                    request.speed,
+                    started.elapsed().as_secs_f64() * 1000.0,
+                ),
+            );
         }
         let incoming = &mut self.graph.as_mut().expect("incoming graph initialized").1;
         if incoming.process_format()
@@ -338,9 +347,13 @@ impl IncomingDeckFilter {
             || incoming.provider_resource_identity() != settings.provider_resource_json.as_deref()
         {
             incoming.reset(shared.mix_format, &settings)?;
-            crate::decoder::emit_decode_info(shared, &format!(
-                "transition DSP reconfigured: request={} deck=B reason=structural-settings-change", request.request_id,
-            ));
+            crate::decoder::emit_decode_info(
+                shared,
+                &format!(
+                    "transition DSP reconfigured: request={} deck=B reason=structural-settings-change",
+                    request.request_id,
+                ),
+            );
         }
         let mut output = Vec::new();
         match &request.operation {
@@ -364,11 +377,17 @@ impl IncomingDeckFilter {
                         .sum::<f64>()
                         / output.len() as f64)
                         .sqrt();
-                    crate::decoder::emit_decode_info(shared, &format!(
-                        "transition loudness deck: request={} deck={} frames={} dsp_peak={peak:.6} dsp_rms={rms:.6} dsp_latency_ms={:.3} processing_ms={:.3}",
-                        request.request_id, if *is_incoming { "B" } else { "A" }, output.len() / shared.mix_format.channels.max(1),
-                        graph.latency_secs() * 1000.0, started.elapsed().as_secs_f64() * 1000.0,
-                    ));
+                    crate::decoder::emit_decode_info(
+                        shared,
+                        &format!(
+                            "transition loudness deck: request={} deck={} frames={} dsp_peak={peak:.6} dsp_rms={rms:.6} dsp_latency_ms={:.3} processing_ms={:.3}",
+                            request.request_id,
+                            if *is_incoming { "B" } else { "A" },
+                            output.len() / shared.mix_format.channels.max(1),
+                            graph.latency_secs() * 1000.0,
+                            started.elapsed().as_secs_f64() * 1000.0,
+                        ),
+                    );
                     self.metered[deck_index] = true;
                 }
             }
@@ -381,10 +400,13 @@ impl IncomingDeckFilter {
             DeckFilterOperation::Promote => {
                 *active = self.graph.take().expect("incoming graph initialized").1;
                 active.update_settings(&shared.dsp_settings())?;
-                crate::decoder::emit_decode_info(shared, &format!(
-                    "transition DSP handoff: request={} generation={} b_state=retained mixed_dsp_passes=0",
-                    request.request_id, request.generation,
-                ));
+                crate::decoder::emit_decode_info(
+                    shared,
+                    &format!(
+                        "transition DSP handoff: request={} generation={} b_state=retained mixed_dsp_passes=0",
+                        request.request_id, request.generation,
+                    ),
+                );
             }
         }
         Ok(output)

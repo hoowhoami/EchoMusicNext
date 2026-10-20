@@ -3,17 +3,17 @@
 
 use super::*;
 use crate::control::{
-    armed_transition_from_prepared, prepare_transition_audio, PreparationCancellation,
-    PreparedTransitionInputs,
+    PreparationCancellation, PreparedTransitionInputs, armed_transition_from_prepared,
+    prepare_transition_audio,
 };
-use crate::decoder::{spawn_decode_worker, DecodeCommand, DecoderData};
+use crate::decoder::{DecodeCommand, DecoderData, spawn_decode_worker};
 use crate::dsp::DspSettings;
 use crate::filter::spawn_filter_thread;
 use crate::shared::{MixFormat, PlaybackSignal, SharedAudio, TrackSwitchInfo};
 use crate::transition::{TransitionMode, TransitionSettings};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, sync_channel};
 use std::time::{Duration, Instant};
 
 static TEST_FILE_ID: AtomicU64 = AtomicU64::new(0);
@@ -233,10 +233,12 @@ fn source_switch_catchup_handoff_keeps_output_samples_continuous() {
         .unwrap();
     let (actual, _) = rig.drain(8.0);
     rig.stop();
-    assert!(received
-        .recv_timeout(Duration::from_secs(1))
-        .unwrap()
-        .is_ok());
+    assert!(
+        received
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .is_ok()
+    );
     assert_eq!(
         actual.len(),
         expected.len(),
@@ -271,11 +273,13 @@ fn source_switch_empty_buffer_falls_back_to_uninterrupted_old_source() {
         .unwrap();
     let (actual, _) = rig.drain(8.0);
     rig.stop();
-    assert!(received
-        .recv_timeout(Duration::from_secs(1))
-        .unwrap()
-        .unwrap_err()
-        .contains("insufficient prepared audio"));
+    assert!(
+        received
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .unwrap_err()
+            .contains("insufficient prepared audio")
+    );
     assert_eq!(
         actual, expected,
         "rejected switch must not alter the old source output"
@@ -696,9 +700,10 @@ fn automix_pro_layered_filter_survives_host_json_features_and_switches_tracks() 
     assert_eq!(info.transition.as_ref().unwrap().mode, "automix-pro");
     assert!(info.transition.as_ref().unwrap().overlap_secs > 0.0);
     assert_eq!(rig.shared.current_track_seq(), 2);
-    assert!(out
-        .iter()
-        .all(|sample| sample.is_finite() && sample.abs() <= 1.0));
+    assert!(
+        out.iter()
+            .all(|sample| sample.is_finite() && sample.abs() <= 1.0)
+    );
     let second = SR as usize * 2;
     assert!(at_samples > second && out.len() > at_samples + second * 2);
     assert!(rms(&out[at_samples - second..at_samples]) > 0.01);
@@ -929,10 +934,12 @@ fn stale_seek_does_not_disarm_a_newer_transition() {
     // Unlike a real seek, a stale command does not reset the queue. Keep consuming
     // audio so the worker can leave its queue-capacity wait and handle the command.
     let (out, switch) = rig.drain(50.0);
-    assert!(result
-        .recv_timeout(Duration::from_secs(2))
-        .expect("stale reply")
-        .is_err());
+    assert!(
+        result
+            .recv_timeout(Duration::from_secs(2))
+            .expect("stale reply")
+            .is_err()
+    );
     assert_eq!(switch.expect("new transition survived").0.seq, 2);
     let secs = out.len() as f64 / 2.0 / f64::from(SR);
     assert!((secs - 45.0).abs() < 0.4, "audio after seek: {secs}s");

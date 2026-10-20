@@ -103,6 +103,9 @@ Item {
                 Layout.preferredWidth: 56
                 Layout.preferredHeight: 56
                 source: bar.playback ? bar.playback.cover : ""
+                // The same current-track artwork supplies the playback-page
+                // flight. Decode for its maximum 380 DIP destination once.
+                minimumDecodeSize: 380
                 colors: bar.colors
                 placeholderColor: bar.colors.mutedSurface
                 placeholderGlyphSize: 24

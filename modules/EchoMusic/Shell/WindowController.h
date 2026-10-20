@@ -139,6 +139,7 @@ private:
     bool eventFilter(QObject *watched, QEvent *event) override;
     void setBackground(bool background);
     void popupTrayMenu();
+    void installTrayMenuModel();
     QMenu *createTrayMenu();
     QMenu *createDockMenu();
     void addPlaybackMenuActions(QMenu *menu);
@@ -165,6 +166,9 @@ private:
     QString m_appearanceError;
     QString m_systemError;
     std::unique_ptr<QSystemTrayIcon> m_tray;
+    // Linux exports this command model for the panel's GetLayout/cache lifetime.
+    // It is separate from a locally tracked, transient QWidget popup.
+    std::unique_ptr<QMenu> m_trayMenuModel;
     QPointer<QMenu> m_trayMenu;
     QPointer<PlaybackService> m_playback;
     std::unique_ptr<TrayIconTheme> m_trayTheme;

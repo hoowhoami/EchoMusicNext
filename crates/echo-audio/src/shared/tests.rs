@@ -1,5 +1,5 @@
 use super::*;
-use std::sync::mpsc::{sync_channel, Receiver, TryRecvError};
+use std::sync::mpsc::{Receiver, TryRecvError, sync_channel};
 use std::thread;
 use std::time::Duration;
 
@@ -135,19 +135,25 @@ fn transition_reference_does_not_boost_a_inside_a_callback_spanning_both_markers
     assert!(shared.push_samples(&[0.5; 16]));
     let mut output = [0.0; 48];
     assert_eq!(shared.pop_into(&mut output), 24);
-    assert!(output[..32]
-        .iter()
-        .all(|sample| (*sample - 0.5 * a_gain).abs() < 1e-6));
+    assert!(
+        output[..32]
+            .iter()
+            .all(|sample| (*sample - 0.5 * a_gain).abs() < 1e-6)
+    );
     let b_gain = 10.0f32.powf(-6.0 / 20.0);
-    assert!(output[32..]
-        .iter()
-        .all(|sample| (*sample - 0.5 * b_gain).abs() < 1e-6));
+    assert!(
+        output[32..]
+            .iter()
+            .all(|sample| (*sample - 0.5 * b_gain).abs() < 1e-6)
+    );
     assert!((shared.normalization_gain() - b_gain).abs() < 1e-6);
     assert!(shared.push_samples(&[0.5; 16]));
     assert_eq!(shared.pop_into(&mut output[..16]), 8);
-    assert!(output[..16]
-        .iter()
-        .all(|sample| (*sample - 0.5 * b_gain).abs() < 1e-6));
+    assert!(
+        output[..16]
+            .iter()
+            .all(|sample| (*sample - 0.5 * b_gain).abs() < 1e-6)
+    );
 }
 
 #[test]
@@ -174,10 +180,11 @@ fn playback_reset_cancels_a_waiting_transition_dsp_request() {
     let request = shared.pop_decoded_for_filter(shared.current_filter_generation());
     assert!(matches!(request, FilterInput::Deck(_)));
     shared.reset_for_decode_resume(2.0, &DspSettings::default());
-    assert!(rx
-        .recv_timeout(Duration::from_secs(1))
-        .expect("cancelled without filter reply")
-        .is_err());
+    assert!(
+        rx.recv_timeout(Duration::from_secs(1))
+            .expect("cancelled without filter reply")
+            .is_err()
+    );
     worker.join().unwrap();
 }
 
@@ -237,9 +244,11 @@ fn manual_track_boundary_fades_old_tail_out_and_new_head_in() {
     let left: Vec<f32> = samples.chunks_exact(2).map(|frame| frame[0]).collect();
     assert_eq!(&left[..4], &[1.0, 0.75, 0.5, 0.25]);
     assert_eq!(&left[4..], &[0.25, 0.5, 0.75, 1.0]);
-    assert!(samples
-        .chunks_exact(2)
-        .all(|frame| (frame[0] - frame[1]).abs() < f32::EPSILON));
+    assert!(
+        samples
+            .chunks_exact(2)
+            .all(|frame| (frame[0] - frame[1]).abs() < f32::EPSILON)
+    );
 }
 
 #[test]
@@ -700,9 +709,11 @@ fn signal_sender_rejects_duplicate_binding() {
     let (second_control, _second_control_rx) = sync_channel(1);
     let (second_telemetry, _second_telemetry_rx) = sync_channel(1);
 
-    assert!(shared
-        .bind_signal_senders(first_control, first_telemetry)
-        .is_ok());
+    assert!(
+        shared
+            .bind_signal_senders(first_control, first_telemetry)
+            .is_ok()
+    );
     assert_eq!(
         shared.bind_signal_senders(second_control, second_telemetry),
         Err("playback signal sender is already bound"),
@@ -805,9 +816,11 @@ fn ao_state_writer_contention_preserves_the_inflight_snapshot() {
         sequence.wrapping_add(1)
     );
     assert!(shared.pending_ao_state_paused.load(Ordering::Relaxed));
-    assert!(!shared
-        .pending_ao_state_reason_is_underrun
-        .load(Ordering::Relaxed));
+    assert!(
+        !shared
+            .pending_ao_state_reason_is_underrun
+            .load(Ordering::Relaxed)
+    );
     assert_eq!(
         shared
             .pending_ao_state_buffering_state_bits

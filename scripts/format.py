@@ -105,7 +105,13 @@ def format_sources(qmlformat, check):
     cmake = [Path("CMakeLists.txt"), *[p for p in files if p.name == "CMakeLists.txt"]]
     cmake.extend(sorted(p.relative_to(ROOT) for p in (ROOT / "cmake").rglob("*.cmake")))
     python = [p for p in files if p.suffix == ".py"]
-    js = [p for p in files if p.suffix in {".mjs", ".js", ".ts", ".html"}]
+    # Qt Linguist catalogs share .ts with TypeScript but are lupdate-owned XML.
+    js = [
+        p
+        for p in files
+        if p.suffix in {".mjs", ".js", ".ts", ".html"}
+        and not (p.suffix == ".ts" and (ROOT / p).read_text().lstrip().startswith("<?xml"))
+    ]
     configs = [
         Path("CMakePresets.json"),
         Path(".cmake-format.json"),
@@ -163,6 +169,10 @@ def format_sources(qmlformat, check):
             *[part for package in packages for part in ("--package", package)],
             *(["--check"] if check else []),
         ],
+    )
+    batch(
+        "Rust fuzz targets",
+        ["cargo", "fmt", "--manifest-path", "fuzz/Cargo.toml", *(["--check"] if check else [])],
     )
     batch(
         "CMake",

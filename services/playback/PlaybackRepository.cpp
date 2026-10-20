@@ -1,4 +1,4 @@
-#include "PlaybackRepository.h"
+#include "PlaybackRepository_p.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QSqlQuery>

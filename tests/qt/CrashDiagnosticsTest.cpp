@@ -9,6 +9,8 @@
 #include <QTemporaryDir>
 #include <QRegularExpression>
 #include <QtTest>
+#include "client/crash_report_database.h"
+#include <vector>
 class CrashDiagnosticsTest : public QObject
 {
     Q_OBJECT
@@ -61,6 +63,24 @@ private slots:
             QVERIFY(bytes.contains("qt_fatal_message"));
             QVERIFY(bytes.contains("redacted"));
         }
+        // Crashpad writes a dump in its staging directory before registering
+        // it as pending. File existence alone is not a completed capture.
+        const auto databaseDirectory = directory.path() + "/crashes/database";
+#ifdef Q_OS_WIN
+        const base::FilePath databasePath(databaseDirectory.toStdWString());
+#else
+        const base::FilePath databasePath(QFile::encodeName(databaseDirectory).toStdString());
+#endif
+        auto database = crashpad::CrashReportDatabase::Initialize(databasePath);
+        QVERIFY(database);
+        QTRY_VERIFY(([&] {
+            std::vector<crashpad::CrashReportDatabase::Report> pending, completed;
+            return database->GetPendingReports(&pending) ==
+                       crashpad::CrashReportDatabase::kNoError &&
+                   database->GetCompletedReports(&completed) ==
+                       crashpad::CrashReportDatabase::kNoError &&
+                   pending.size() + completed.size() == 1;
+        })());
         QStringList dumps;
         QDirIterator iterator(directory.path() + "/crashes", {"*.dmp"}, QDir::Files,
                               QDirIterator::Subdirectories);

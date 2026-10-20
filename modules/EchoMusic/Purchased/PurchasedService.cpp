@@ -12,14 +12,6 @@ PurchasedService::PurchasedService(ApiClient &api, PlaybackService &playback,
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_actions.setQueueContext(tr("已购音乐"), "queue:purchased");
-    router.registerPage({"purchased",
-                         "/main/purchased",
-                         QUrl("qrc:/qt/qml/EchoMusic/Purchased/PurchasedPage.qml"),
-                         {"tab"},
-                         true,
-                         true,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
     connect(&router, &RouteController::pageActivated, this, &PurchasedService::activate);
     connect(&api, &ApiClient::succeeded, this, &PurchasedService::accept);
     connect(&api, &ApiClient::failed, this,
@@ -209,5 +201,20 @@ void PurchasedService::shutdown()
     m_closed = true;
     cancelAll();
     emit changed();
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void PurchasedService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"purchased",
+                         "/main/purchased",
+                         QUrl("qrc:/qt/qml/EchoMusic/Purchased/PurchasedPage.qml"),
+                         {"tab"},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

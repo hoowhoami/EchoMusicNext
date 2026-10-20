@@ -27,7 +27,7 @@ Windows 使用对应版本的 `python`。Python 工具安装到 `build/format-ve
 
 ## 范围
 
-入口检查应用、服务、QML 模块、Qt / tooling 测试、脚本、工具以及 CMake 和 CI 配置，包括未跟踪的新源码。Rust 只格式化根 manifest 显式列出的宿主包。
+入口检查应用、服务、QML 模块、Qt / tooling 测试、脚本、工具以及 CMake 和 CI 配置，包括未跟踪的新源码。Rust 格式化根 manifest 显式列出的宿主包与独立 fuzz manifest；不重排 vendor。Qt Linguist 的 `.ts` XML 目录由 lupdate 管理，不作为 TypeScript 输入 Prettier。
 
 第三方 vendor、生成头、锁文件和测试数据保留来源或生成器格式；不遍历 build、target、node_modules 或 Python 缓存。`include/echo_ffi.h` 使用 `cargo run --locked -p ffi-header -- --check` 验证。
 

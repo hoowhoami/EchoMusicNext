@@ -2,8 +2,8 @@
 license = "GPL-3.0-only"
 name = "echo-airplay"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.87"
+edition.workspace = true
+rust-version.workspace = true
 description = "EchoMusic AirPlay sender. ALAC 44100 Hz 16-bit from post-DSP i16 PCM."
 
 [lib]
@@ -19,3 +19,6 @@ airplay-audio = { path = "../echo-upnp/vendor/airplay2-rs/crates/airplay-audio" 
 airplay-discovery = { path = "../echo-upnp/vendor/airplay2-rs/crates/airplay-discovery" }
 airplay-core = { path = "../echo-upnp/vendor/airplay2-rs/crates/airplay-core" }
 
+
+[lints]
+workspace = true

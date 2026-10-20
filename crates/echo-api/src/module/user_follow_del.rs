@@ -7,15 +7,9 @@ use crate::{
         request::{self, ApiClient, Endpoint, Identity},
     },
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::BTreeMap;
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-}
+type Wire = crate::util::response::AckEnvelope;
 #[derive(Debug, Serialize)]
 pub struct FollowChange {
     pub following: bool,

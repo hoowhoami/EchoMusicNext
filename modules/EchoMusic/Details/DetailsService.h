@@ -15,6 +15,8 @@ class DetailsService final : public QObject
     QML_UNCREATABLE("Owned by the application")
     Q_PROPERTY(EchoMusic::PlaybackDiscussion *playbackDiscussion READ playbackDiscussion CONSTANT)
 public:
+    /// Explicit UI composition; construction alone does not register pages.
+    void registerRoutes(RouteController &router);
     DetailsService(ApiClient &, PlaybackService &, RouteController &, bool network = true,
                    QObject *parent = nullptr, CommentAuthorService *authors = nullptr,
                    WindowController *window = nullptr);
@@ -40,6 +42,7 @@ private:
     QMetaObject::Connection m_entryConnection;
     std::optional<PlaybackTrack> m_entryTrack;
     quint64 m_entrySession = 0;
+    WindowController *m_window;
     CommentAuthorService *m_authors;
     ApiClient &m_api;
     PlaybackService &m_playback;

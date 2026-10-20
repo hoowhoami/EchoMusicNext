@@ -9,14 +9,14 @@
 //! filter worker processes A and B through independent, continuous DSP graphs before
 //! the mixer applies deck gains and transition envelopes. Mixed chunks bypass DSP.
 
-use crate::decoder::{decoded_chunk_end_secs, DecoderData};
+use crate::decoder::{DecoderData, decoded_chunk_end_secs};
 use crate::shared::{
     AudioSampleFormat, DecodedAudioChunk, DecodedAudioData, DecodedAudioFormat, MixFormat,
     SharedAudio, TrackSwitchInfo,
 };
+use crate::transition::TransitionMode;
 use crate::transition::decide::TransitionPlan;
 use crate::transition::mixer::{DeckInput, MixerConfig, TransitionMixer};
-use crate::transition::TransitionMode;
 use crate::transition_filter::DeckFilterOperation;
 
 /// Frames rendered per mixer call.

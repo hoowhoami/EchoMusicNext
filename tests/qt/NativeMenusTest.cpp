@@ -52,6 +52,13 @@ public:
     {
         window.activateTray(int(reason));
     }
+    static QSystemTrayIcon *installTrayMenuModel(WindowController &window)
+    {
+        window.m_tray = std::make_unique<QSystemTrayIcon>();
+        window.m_tray->setIcon(TrayIconTheme::icon());
+        window.installTrayMenuModel();
+        return window.m_tray.get();
+    }
 };
 } // namespace EchoMusic
 namespace
@@ -73,6 +80,75 @@ class NativeMenusTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void exportedTrayModelSurvivesRemoteCloseAndKeepsActionsCurrent()
+    {
+        QTemporaryDir dir;
+        QSettings settings(dir.filePath("exported-menu.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"));
+        playback.setStartupHeld(true);
+        WindowController window(settings, false);
+        window.attachPlayback(playback);
+        QQuickWindow main;
+        window.attach(&main);
+        auto *tray = NativeMenusTestAccess::installTrayMenuModel(window);
+        QPointer<QMenu> model = tray->contextMenu();
+        QVERIFY(model);
+        // The initial export must already contain the complete tree: a panel
+        // can fetch GetLayout without sending AboutToShow or activated(Context).
+        QVERIFY(find(model, "打开主窗口"));
+        QVERIFY(find(model, "播放"));
+        QPointer<QMenu> modes = find(model, "播放模式")->menu();
+        QCOMPARE(modes->actions().size(), 4);
+        const auto actions = model->actions();
+        QSignalSpy opening(&window, &WindowController::nativeMenuOpening);
+        QSignalSpy quitting(&window, &WindowController::quitRequested);
+        for (int cycle = 0; cycle < 4; ++cycle) {
+            main.hide();
+            NativeMenusTestAccess::activate(window, QSystemTrayIcon::Context);
+            QVERIFY(!main.isVisible());
+            QVERIFY(!NativeMenusTestAccess::menu(window));
+            QVERIFY(!model->isVisible());
+            QVERIFY(!model->testAttribute(Qt::WA_WState_Created));
+            QVERIFY(QMetaObject::invokeMethod(model, "aboutToShow", Qt::DirectConnection));
+            QCOMPARE(opening.size(), cycle + 1);
+            playback.setVolume(40);
+            find(model, "增大音量")->trigger();
+            QCOMPARE(playback.volume(), 45.);
+            QVERIFY(find(model, "音量 45%"));
+            PlaybackServiceTestAccess::setPlaying(playback, true);
+            QVERIFY(find(model, "暂停"));
+            find(modes, "随机播放")->trigger();
+            QCOMPARE(playback.playMode(), PlaybackService::Shuffle);
+            QVERIFY(find(modes, "随机播放")->isChecked());
+            // Qt maps a D-BusMenu root 'closed' event to aboutToHide. Remote
+            // close must not invalidate the panel's cached action IDs/model.
+            QVERIFY(QMetaObject::invokeMethod(model, "aboutToHide", Qt::DirectConnection));
+            deferredDeletes();
+            QCOMPARE(tray->contextMenu(), model.data());
+            QCOMPARE(model->actions(), actions);
+            QVERIFY(modes);
+            PlaybackServiceTestAccess::setPlaying(playback, false);
+            playback.setPlayMode(PlaybackService::ListLoop);
+            QVERIFY(find(model, "播放"));
+            QVERIFY(find(modes, "列表循环")->isChecked());
+            NativeMenusTestAccess::activate(window, QSystemTrayIcon::Trigger);
+            QVERIFY(main.isVisible());
+        }
+        find(model, "退出")->trigger();
+        QCOMPARE(quitting.size(), 1);
+        window.shutdown();
+        QVERIFY(!tray->contextMenu());
+        QVERIFY(!model);
+        QVERIFY(!modes);
+        NativeMenusTestAccess::activate(window, QSystemTrayIcon::Context);
+        QVERIFY(!NativeMenusTestAccess::menu(window));
+        QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
+        playback.shutdown();
+        api.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(apiClosed.size(), 1, 15000);
+    }
     void cocoaDockUsesFreshStateAndReleasesRecipes()
     {
 #ifdef Q_OS_MACOS
@@ -250,8 +326,9 @@ private slots:
             QCOMPARE(quitting.size(), cycle + 1);
             QPointer<QMenu> submenu = modes;
             menu->close();
-            deferredDeletes();
-            QVERIFY(!menu);
+            // Cocoa retires after queued native commands have reached QAction.
+            // Observe completion instead of assuming one event pass suffices.
+            QTRY_VERIFY(!menu);
             QVERIFY(!submenu);
             QVERIFY(!NativeMenusTestAccess::menu(window));
         }

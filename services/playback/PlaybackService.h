@@ -40,6 +40,9 @@
 #include <QTimer>
 namespace EchoMusic
 {
+class PlaybackQueueController;
+class PlaybackOutputController;
+class PlaybackSessionController;
 class PlaybackRecoveryController;
 class PlaybackFailureController;
 /// One GUI-thread playback authority. Requests bind both session and track
@@ -447,6 +450,9 @@ signals:
 private:
     friend class PersonalFmController;
     friend class ListenTogetherController;
+    friend class PlaybackQueueController;
+    friend class PlaybackOutputController;
+    friend class PlaybackSessionController;
     friend class DiscoverQueueController;
     friend class TrackTransitionController;
     friend class PlaybackRecoveryController;
@@ -496,6 +502,9 @@ private:
     bool tryMvFallback(const QString &reason);
     bool m_mvRecovery = false;
     QString m_sourceKind = "catalog", m_sourcePreference, m_sourceFailure, m_mvFailure;
+    std::unique_ptr<PlaybackQueueController> m_queueController;
+    std::unique_ptr<PlaybackOutputController> m_outputController;
+    std::unique_ptr<PlaybackSessionController> m_sessionController;
     std::unique_ptr<TrackTransitionController> m_transition;
     std::unique_ptr<PlaybackRecoveryController> m_recovery;
     std::unique_ptr<PlaybackFailureController> m_failure;

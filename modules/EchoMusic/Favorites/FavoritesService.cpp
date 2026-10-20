@@ -35,14 +35,6 @@ FavoritesService::FavoritesService(ApiClient &api, PlaybackService &playback,
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_actions.setQueueContext(tr("我最喜爱"), "queue:favorites");
-    router.registerPage({"favorites",
-                         "/main/favorites",
-                         QUrl("qrc:/qt/qml/EchoMusic/Favorites/FavoritesPage.qml"),
-                         {"tab"},
-                         true,
-                         true,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
     connect(&router, &RouteController::pageActivated, this, &FavoritesService::activate);
     connect(&api, &ApiClient::succeeded, this, &FavoritesService::accept);
     connect(&api, &ApiClient::failed, this,
@@ -664,5 +656,20 @@ void FavoritesService::shutdown()
     m_closed = true;
     cancelAll();
     emit changed();
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void FavoritesService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"favorites",
+                         "/main/favorites",
+                         QUrl("qrc:/qt/qml/EchoMusic/Favorites/FavoritesPage.qml"),
+                         {"tab"},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

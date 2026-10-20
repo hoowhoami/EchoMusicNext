@@ -180,11 +180,16 @@ private slots:
         PlaylistMutationService mutations(api);
         PlaylistOrderModel order(api, mutations);
         PlaylistDetailService playlists(api, playback, lists, mutations, order, metadata, router);
+        playlists.registerRoutes(router);
         AlbumDetailService albums(api, playback, router);
+        albums.registerRoutes(router);
         ArtistDetailService artists(api, playback, router, settings);
+        artists.registerRoutes(router);
         DetailsService details(api, playback, router);
+        details.registerRoutes(router);
         details.attachShell(shell);
         ShareResolveService shares(api, commands, router, shell, windowController);
+        shares.registerRoutes(router);
         ThemeStore theme(prefs);
         QQmlEngine engine;
         theme.attachToEngine(engine);
@@ -328,7 +333,9 @@ Window {
         shell.attachPlayback(playback);
         WindowController windowController(prefs, false);
         HistoryService history(api, playback, metadata, router, false);
+        history.registerRoutes(router);
         ShareResolveService shares(api, commands, router, shell, windowController, false);
+        shares.registerRoutes(router);
         ThemeStore theme(prefs);
         ShellSettings settings(prefs);
         QQmlEngine engine;

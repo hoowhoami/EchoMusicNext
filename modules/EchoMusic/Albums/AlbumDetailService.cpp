@@ -2,21 +2,13 @@
 #include <QQmlEngine>
 namespace EchoMusic
 {
-AlbumDetailService::AlbumDetailService(ApiClient &api, PlaybackService &playback,
-                                       RouteController &router, bool networkEnabled,
-                                       QObject *parent, CommentAuthorService *authors)
+AlbumDetailService::AlbumDetailService(ApiClient &api, PlaybackService &playback, RouteController &,
+                                       bool networkEnabled, QObject *parent,
+                                       CommentAuthorService *authors)
     : QObject(parent), m_authors(authors), m_api(api), m_playback(playback),
       m_network(networkEnabled)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
-    router.registerPage({"album-detail",
-                         "/main/album/:id",
-                         QUrl("qrc:/qt/qml/EchoMusic/Albums/AlbumDetailPage.qml"),
-                         {"tab"},
-                         true,
-                         true,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
 }
 AlbumDetailService::~AlbumDetailService()
 {
@@ -48,5 +40,20 @@ void AlbumDetailService::shutdown()
     for (const auto &context : std::as_const(m_contexts))
         if (context)
             context->shutdown();
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void AlbumDetailService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"album-detail",
+                         "/main/album/:id",
+                         QUrl("qrc:/qt/qml/EchoMusic/Albums/AlbumDetailPage.qml"),
+                         {"tab"},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

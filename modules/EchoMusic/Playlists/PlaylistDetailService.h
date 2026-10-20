@@ -15,6 +15,8 @@ class PlaylistDetailService final : public QObject
     QML_UNCREATABLE("Owned by the application")
     Q_PROPERTY(EchoMusic::PlaylistOrderModel *order READ order CONSTANT)
 public:
+    /// Explicit UI composition; construction alone does not register pages.
+    void registerRoutes(RouteController &router);
     void attachCollections(LibraryCollectionService &service)
     {
         m_collections = &service;

@@ -75,6 +75,7 @@ struct Session
     RecognitionService service{api, playback, capture, preferences, router};
     Session()
     {
+        service.registerRoutes(router);
         theme.setMotionEnabled(false);
         settings.setMotionEnabled(false);
     }
@@ -323,6 +324,7 @@ private slots:
         FakeCapture capture;
         RouteController router;
         RecognitionService recognition(api, playback, capture, settings, router);
+        recognition.registerRoutes(router);
         recognition.setAvailable(true);
         RecognitionServiceTestAccess::complete(recognition, domain());
         const auto track = recognition.matches()->track("339415062");

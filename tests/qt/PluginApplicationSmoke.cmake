@@ -18,3 +18,20 @@ foreach(marker "Plugin application fixture activated" "Plugin application fixtur
         message(FATAL_ERROR "Plugin application smoke did not execute: ${marker}")
     endif()
 endforeach()
+
+# Verify the production composition executes dependency stages in order and
+# completes asynchronous shutdown after real plugin deactivation.
+set(previous -1)
+foreach(marker
+        "Bootstrap phase: createShell" "Bootstrap phase: createNetworkPlayback"
+        "Bootstrap phase: createAccount" "Bootstrap phase: createPages"
+        "Bootstrap phase: createPlugins" "Bootstrap phase: registerRoutes" "Bootstrap phase: wireShutdown"
+        "Bootstrap phase: wireSmoke" "Bootstrap phase: mountUi"
+        "Application shutdown started" "Plugin application fixture deactivated"
+        "Application shutdown complete")
+    string(FIND "${transcript}" "${marker}" position)
+    if(position LESS_EQUAL previous)
+        message(FATAL_ERROR "Composition lifecycle marker missing/out of order: ${marker}")
+    endif()
+    set(previous ${position})
+endforeach()

@@ -5,6 +5,7 @@
 #include "HttpProxyRequest.h"
 #include "NetworkSocketBuffer.h"
 #include <QFutureWatcher>
+#include <QCoreApplication>
 #include <QHostInfo>
 #include <QNetworkProxy>
 #include <QSet>
@@ -482,6 +483,7 @@ private:
 } // namespace
 class NetworkTransportWorker final : public QObject
 {
+    Q_DECLARE_TR_FUNCTIONS(EchoMusic::NetworkTransportWorker)
 public:
     explicit NetworkTransportWorker(std::function<void(QString, int)> rejected)
         : m_mediaNetwork(this), m_rejected(std::move(rejected))

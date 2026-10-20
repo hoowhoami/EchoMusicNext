@@ -1,7 +1,7 @@
-use crate::audio_graph::{process_format_for_output, AudioFilterGraph};
+use crate::audio_graph::{AudioFilterGraph, process_format_for_output};
 use crate::shared::{FilterGraphUpdate, FilterInput, SharedAudio};
 use crate::work::{Command, Work};
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
@@ -291,8 +291,8 @@ mod tests {
     use super::*;
     use crate::dsp::DspSettings;
     use crate::shared::{
-        AudioSampleFormat, DecodedAudioChunk, DecodedAudioData, DecodedAudioFormat, MixFormat,
-        MIX_CHANNELS,
+        AudioSampleFormat, DecodedAudioChunk, DecodedAudioData, DecodedAudioFormat, MIX_CHANNELS,
+        MixFormat,
     };
     use std::sync::atomic::Ordering;
     use std::time::Duration;

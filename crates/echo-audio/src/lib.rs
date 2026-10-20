@@ -28,25 +28,25 @@ mod transition_runner;
 #[cfg(test)]
 mod transition_tests;
 
-use control::{
-    armed_transition_from_prepared, attach_restarted_decoder, handle_output_device_list_change,
-    handle_playback_output_device_event, mark_seek_plan_failed, open_decoder_at_position,
-    prepare_dsp_settings_for_mix_rate, prepare_transition_audio, request_output_recovery,
-    restart_output_for_runtime, schedule_idle_output_release_for_runtime, PreparationCancellation,
-    PreparedTransitionInputs, SeekPlan,
-};
 pub use control::{
-    cancel_fade, configure_spectrum, fade, get_audio_devices, get_audio_graph,
-    get_spectrum_snapshot, get_spectrum_status, get_transition_diagnostics,
-    get_transition_settings, inspect_dsp_provider, pause_with_fade, play_with_fade,
-    set_audio_effect, set_audio_graph_parameter, set_audio_graph_plan, set_audio_output,
-    set_equalizer, set_http_proxies, set_http_proxy, set_network_timeout, set_normalization_gain,
-    set_pause_on_device_disconnect, set_speed, set_stall_timeout, set_transition_settings,
     GetAudioDevicesTask, GetSpectrumSnapshotTask, SetAudioEffectTask, SetAudioGraphParameterTask,
     SetAudioGraphPlanTask, SetAudioOutputTask, SetEqualizerTask, SetNormalizationGainTask,
-    SetSpeedTask, TransitionSettingsOptions, TransitionSettingsSnapshot,
+    SetSpeedTask, TransitionSettingsOptions, TransitionSettingsSnapshot, cancel_fade,
+    configure_spectrum, fade, get_audio_devices, get_audio_graph, get_spectrum_snapshot,
+    get_spectrum_status, get_transition_diagnostics, get_transition_settings, inspect_dsp_provider,
+    pause_with_fade, play_with_fade, set_audio_effect, set_audio_graph_parameter,
+    set_audio_graph_plan, set_audio_output, set_equalizer, set_http_proxies, set_http_proxy,
+    set_network_timeout, set_normalization_gain, set_pause_on_device_disconnect, set_speed,
+    set_stall_timeout, set_transition_settings,
 };
-pub use control::{seek, SeekTask};
+use control::{
+    PreparationCancellation, PreparedTransitionInputs, SeekPlan, armed_transition_from_prepared,
+    attach_restarted_decoder, handle_output_device_list_change,
+    handle_playback_output_device_event, mark_seek_plan_failed, open_decoder_at_position,
+    prepare_dsp_settings_for_mix_rate, prepare_transition_audio, request_output_recovery,
+    restart_output_for_runtime, schedule_idle_output_release_for_runtime,
+};
+pub use control::{SeekTask, seek};
 
 pub use crate::config::PlayerConfigOptions;
 use crate::config::{GaplessAudioPolicy, PlayerConfig, SpectrumConfig};
@@ -55,11 +55,11 @@ use crate::decoder::{
     open_decoder_with_interrupt,
 };
 use crate::dispatcher::{
-    call_core_command, call_core_command_blocking, clear_event_callback, dispatch_core_command,
-    reset_event_ids, send_event, send_events, set_event_callback, start_core_dispatcher,
-    start_event_dispatcher, stop_core_dispatcher, stop_event_dispatcher, EventCallback,
+    EventCallback, call_core_command, call_core_command_blocking, clear_event_callback,
+    dispatch_core_command, reset_event_ids, send_event, send_events, set_event_callback,
+    start_core_dispatcher, start_event_dispatcher, stop_core_dispatcher, stop_event_dispatcher,
 };
-use crate::dsp::{prepare_spatial_effect, DspSettings, EQ_BAND_COUNT};
+use crate::dsp::{DspSettings, EQ_BAND_COUNT, prepare_spatial_effect};
 use crate::events::{
     AudioDevice, PlayerEvent, PlayerState, SpectrumFrame, SpectrumOptions, SpectrumStatus,
     TrackInfo,
@@ -68,7 +68,7 @@ use crate::shared::{MixFormat, PlaybackSession, PlaybackSignal, SharedAudio, Tra
 use audio_graph::AudioGraphSnapshot;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender, TryRecvError, TrySendError};
+use std::sync::mpsc::{RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -2399,7 +2399,10 @@ impl Command for PrepareNextSourceTask {
                     "info",
                     format!(
                         "gapless prepared next source: url='{}', predecoded_chunks={}, transition={}, request={}, elapsed_ms={}",
-                        url_for_log, predecoded_chunks, has_transition, request_id,
+                        url_for_log,
+                        predecoded_chunks,
+                        has_transition,
+                        request_id,
                         preparation_started.elapsed().as_millis()
                     ),
                 ),

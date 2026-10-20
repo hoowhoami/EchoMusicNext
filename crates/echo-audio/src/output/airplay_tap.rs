@@ -5,7 +5,7 @@
 use std::io::Write;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -252,7 +252,9 @@ mod tests {
     fn tap_bytes_match_the_airplay_decoder() {
         assert_eq!(
             encode(1, 44_100, &[1, -1]),
-            vec![1, 0, 0, 0, 0, 0, 0, 0, 0x44, 0xAC, 0, 0, 2, 0, 2, 0, 0, 0, 1, 0, 0xFF, 0xFF]
+            vec![
+                1, 0, 0, 0, 0, 0, 0, 0, 0x44, 0xAC, 0, 0, 2, 0, 2, 0, 0, 0, 1, 0, 0xFF, 0xFF
+            ]
         );
     }
 }

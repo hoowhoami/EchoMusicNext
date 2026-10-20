@@ -1,3 +1,53 @@
+set_directory_properties(PROPERTIES QT_EXCLUDE_FROM_TRANSLATION ON)
+qt_add_executable(echo-translation-test TranslationTest.cpp)
+target_link_libraries(echo-translation-test PRIVATE echo_platform Qt6::Qml Qt6::Test)
+qt_add_translations(
+    echo-translation-test
+    LUPDATE_TARGET
+    echo_translation_fixture_lupdate
+    SOURCE_TARGETS
+    echo-translation-test
+    TS_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/fixture_en_US.ts"
+    RESOURCE_PREFIX
+    /test-i18n
+    NO_GENERATE_PLURALS_TS_FILE
+)
+add_test(NAME translations COMMAND echo-translation-test)
+set_tests_properties(translations PROPERTIES TIMEOUT 15)
+
+qt_add_executable(echo-application-lifecycle-test ApplicationLifecycleTest.cpp)
+target_include_directories(echo-application-lifecycle-test PRIVATE ${PROJECT_SOURCE_DIR}/app)
+target_link_libraries(echo-application-lifecycle-test PRIVATE Qt6::Test echo_build_options)
+add_test(NAME application-lifecycle COMMAND echo-application-lifecycle-test)
+set_tests_properties(application-lifecycle PROPERTIES TIMEOUT 15)
+option(ECHO_BUILD_LIFECYCLE_SANITIZER_TEST "Build the focused lifecycle ASan/UBSan probe" OFF)
+if(ECHO_BUILD_LIFECYCLE_SANITIZER_TEST)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        message(FATAL_ERROR "The focused sanitizer probe requires Clang or GCC")
+    endif()
+    qt_add_executable(echo-application-lifecycle-sanitized-test ApplicationLifecycleTest.cpp)
+    target_include_directories(
+        echo-application-lifecycle-sanitized-test PRIVATE ${PROJECT_SOURCE_DIR}/app
+    )
+    target_compile_options(
+        echo-application-lifecycle-sanitized-test PRIVATE -fsanitize=address,undefined
+                                                          -fno-omit-frame-pointer
+    )
+    target_link_options(
+        echo-application-lifecycle-sanitized-test PRIVATE -fsanitize=address,undefined
+    )
+    target_link_libraries(
+        echo-application-lifecycle-sanitized-test PRIVATE Qt6::Test echo_build_options
+    )
+    set_target_properties(
+        echo-application-lifecycle-sanitized-test
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/architecture-validation"
+    )
+    add_test(NAME application-lifecycle-sanitized COMMAND echo-application-lifecycle-sanitized-test)
+    set_tests_properties(application-lifecycle-sanitized PROPERTIES TIMEOUT 20)
+endif()
+
 qt_add_executable(echo-foundation-test FoundationTest.cpp)
 qt_add_executable(echo-back-to-top-test BackToTopTest.cpp)
 qt_add_qml_module(echo-back-to-top-test URI EchoMusic.BackToTopTests QML_FILES BackToTopHarness.qml)
@@ -131,6 +181,17 @@ echo_copy_rust_runtime(echo-foundation-test)
 echo_copy_rust_runtime(echo-playlist-mutation-test)
 
 qt_add_executable(echo-controls-ui-test ControlsUiTest.cpp)
+target_include_directories(echo-controls-ui-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_sources(
+    echo-controls-ui-test
+    PRIVATE controls/ControlsUiTest.h
+            controls/ControlsUiTestFixture.h
+            controls/ControlsUiInputs.cpp
+            controls/ControlsUiPopups.cpp
+            controls/ControlsUiTypography.cpp
+            controls/ControlsUiEffects.cpp
+            controls/ControlsUiBehavior.cpp
+)
 qt_add_executable(echo-tab-count-alignment-test TabCountAlignmentTest.cpp)
 qt_add_executable(echo-background-banding-test BackgroundBandingTest.cpp)
 target_link_libraries(
@@ -170,12 +231,68 @@ target_link_libraries(
     echo-controls-ui-test PRIVATE echo_controls echo_controlsplugin echo_theme Qt6::Quick
                                   Qt6::QuickControls2 Qt6::Test
 )
-add_test(NAME controls-ui COMMAND echo-controls-ui-test)
+set(ECHO_CONTROLS_TEST_GROUPS controls-ui-inputs controls-ui-popups controls-ui-typography
+                              controls-ui-effects controls-ui-behavior
+)
+add_test(
+    NAME controls-ui-inputs
+    COMMAND
+        echo-controls-ui-test continuousAngleWheelPreservesDistanceAndPixelInput
+        wheelCancellationAndMotionPreferences pageWheelRegionsPreserveNativeEvents
+        imageDensityTracksScaleWithoutTrackingScroll
+        selectProjectionKeepsTypedValuesAndTracksModelChanges
+        selectSearchMultiKeyboardPlacementAndVirtualization
+        numberInputCommitsAndClampsAcrossAllInputPaths
+)
+add_test(
+    NAME controls-ui-popups
+    COMMAND
+        echo-controls-ui-test scaledPopupTextKeepsNativePixelResolution
+        floatingPanelEdgesAndMenuHeight menusDrawersAndFileDialogsReleaseAfterClose
+        businessPopupsAreCreatedOnDemandAndDestroyedAfterExit
+        tooltipPopupsExistOnlyDuringTheirTrigger
+        nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover dialogHeaderBodyAndFooterShareInsets
+        drawerFixedActionsSurviveLongTitlesAndVisibilityChanges
+        hintsAvoidTriggersAndWindowEdgesAcrossZoom popupsCancelVisibleAndPendingHints
+        popupAndPageTracksShareRightInsetAndRetainDragMapping
+)
+add_test(
+    NAME controls-ui-typography
+    COMMAND
+        echo-controls-ui-test badgeIconAndCountUseSameInkCenter
+        textTagAlignmentAcrossProductionRecipes badgesAndTagsKeepDistinctContracts
+        globalTypographyRetainsFallbackAndLocalStyles centeredContentAcrossSizesAndPadding
+        iconTextContentCentersRenderedInk allBundledGlyphsTintAndPreserveAlpha
+)
+add_test(
+    NAME controls-ui-effects
+    COMMAND
+        echo-controls-ui-test scrollContentCannotPaintOverRoundedCornersOrBorder
+        frostedCornersRetainAntialiasCoverage colorPresetsKeepVisibleEdgesInBothThemes
+        backdropSourceIsWindowLocalAndReleasedWhenHidden backdropSamplerTracksBothItemTrees
+        floatingSurfaceMatchesRendererCapabilities floatingFrostSamplesTheSceneAndStopsOnHide
+        floatingEffectsAreOwnedByVisibleSurfaces floatingBorderCompositesOverItsOwnFill
+        themeCustomColorHoverAndRenderedPixels sourceActionSurfacesAndSelectStates
+)
+add_test(
+    NAME controls-ui-behavior
+    COMMAND
+        echo-controls-ui-test coverKeepsNativeResolutionUnderAncestorZoom coverCropAndRoundedPixels
+        iconRasterTracksZoomAndReleasesWhenHidden clearActionIsOneUserEditButProgrammaticClearIsNot
+        boundedListAutoHeightSurvivesReopenAndVariableRows progressClimaxTicksAndWaitPreview
+        playPauseTransitionKeepsEndpointsAndInterrupts progressBusyRendersAndRetiresNativeAnimation
+        sourcePauseKeepsComparableInkToPlay disabledIconHoverIsOptInAndNeverActivates
+        shadowsReleaseTheirNativeMaterials
+        sourceControlRolesKeepOrdinaryActionsAndLargeFormsDistinct
+)
+
 target_compile_definitions(
     echo-controls-ui-test
     PRIVATE ECHO_ICON_SOURCE_DIR="${PROJECT_SOURCE_DIR}/modules/EchoMusic/Controls/icons"
 )
-set_tests_properties(controls-ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+set_tests_properties(
+    ${ECHO_CONTROLS_TEST_GROUPS} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45
+)
 add_test(
     NAME controls-backdrop-software
     COMMAND
@@ -368,6 +485,23 @@ set_tests_properties(
 echo_copy_rust_runtime(echo-verification-ui-test)
 
 qt_add_executable(echo-desktop-pages-test DesktopPagesTest.cpp)
+target_include_directories(echo-desktop-pages-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_sources(
+    echo-desktop-pages-test
+    PRIVATE desktop/DesktopPagesTest.h
+            desktop/DesktopPagesTestFixture.h
+            desktop/DesktopPagesSettings1.cpp
+            desktop/DesktopPagesSettings2.cpp
+            desktop/DesktopPagesPlayback1.cpp
+            desktop/DesktopPagesPlayback2.cpp
+            desktop/DesktopPagesPlayback3.cpp
+            desktop/DesktopPagesNavigation1.cpp
+            desktop/DesktopPagesNavigation2.cpp
+            desktop/DesktopPagesPresentation1.cpp
+            desktop/DesktopPagesPresentation2.cpp
+            desktop/DesktopPagesPopups.cpp
+            desktop/DesktopPagesLibrary.cpp
+)
 if(APPLE)
     target_sources(echo-desktop-pages-test PRIVATE NativeWindowAppearanceProbe.mm)
     target_link_libraries(echo-desktop-pages-test PRIVATE "-framework Cocoa")
@@ -433,8 +567,99 @@ target_link_libraries(
             Qt6::QuickControls2
             Qt6::Test
 )
-add_test(NAME desktop-pages COMMAND echo-desktop-pages-test)
-set_tests_properties(desktop-pages PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+set(ECHO_DESKTOP_TEST_GROUPS desktop-pages-settings desktop-pages-playback desktop-pages-navigation
+                             desktop-pages-presentation desktop-pages-popups desktop-pages-library
+)
+add_test(
+    NAME desktop-pages-settings
+    COMMAND
+        echo-desktop-pages-test startupUsesRealFailuresAndReleasesItsEntirePage
+        recoveryStartupWindowRetriesAndExitsWithoutBusinessOwners
+        settingsSearchClearRestoresCategoriesAndKeepsFocus
+        lyricFontSettingsApplyToProductionWindows
+        lyricVariantSettingUsesProductionSelectAndReleasesPopup miniWidthPreferencesClampAndRestore
+        lyricSettingsShareCoverPickerAndExcludeTaskbar fullscreenShortcutReachesModalPlaybackPage
+        productionExperimentalIdentitySettings productionExperimentalLoggingSettings
+        productionNetworkSettingsDraftApplyResetAndTheme
+        productionPlayerEngineSettingsDecimalInputAndLifecycle
+        productionVariableDialogSizingReopens settingsDefaultsAndSourceEffectFileManager
+        playbackZoomShortcutsFollowSharedScale windowSettingsNeverHideWithoutNativeRecovery
+        startupEntryEscapesBothDesktopParsingLayers
+        sidebarLayoutPersistsAndKeepsGroupsAndOneShortcut sidebarShortcutCollapseFrames
+        sidebarShortcutHoverDragAcrossThemesAndScales sidebarShortcutHoverDragAndFocus
+        signedOutAccountPopoverAndOddShortcutWidths remainingSettingsProductionSections
+        settingsFilterAndUnsupportedProviderNeverLoadStub
+        globalFontUsesInstalledFamilyAndRestoresPreference
+        productionProfileSettingsAndSidebarOverlays
+)
+add_test(
+    NAME desktop-pages-playback
+    COMMAND
+        echo-desktop-pages-test playbackFallbackControlsUseProductionUi
+        floatingLyricsFollowRealAudioAndStopMotionOnPause
+        miniProgressVolumeBackdropFavoriteAndDesktopBadge
+        floatingPreferencesAndFilteredTimelineKeepIdentity
+        desktopLyricsMatchSourceChromeAndHoverUnlock
+        nativeFloatingWindowsShareStateAndReleaseAcrossCycles
+        nativePlaybackSurvivesRepeatedAppearanceUpdates
+        productionHeaderWindowActionsStayAtRightEdge playbackQueueEmptyIndicatorAndCloseIcon
+        playbackChromeMatchesSource playbackLoadingRevealsFinalPlayPauseIcon
+        playbackToolbarsMatchSourceAcrossWidths productionPlaybackPopoverSpacingAndEffectMarkers
+        productionEmbeddedLyricsFromActualReader productionLyricPreviewKeepsSymmetricInsets
+        productionLyricKeywordSearchFromLiveNativeApi
+        productionLyricAutomaticFallbackFromLiveNativeApi productionLyricSelectionFromLiveNativeApi
+        realPlaybackSurfacesAndBoundedFiftyThousandQueue
+)
+add_test(
+    NAME desktop-pages-navigation
+    COMMAND
+        echo-desktop-pages-test productionPopupsFollowRequestOwnership
+        playerMetadataLinksUseProductionRoutes profileWritesRejectInvalidDraftAndCancelOlderRead
+        avatarUploadRejectsInvalidFilesAndIgnoresOldAccountCompletion
+        productionCollectionAndSocialEntrypoints socialAndDeviceCachesBelongToAccountAndTab
+        productionSidebarImportEntranceAndModes productionSidebarOrderEditor
+        sidebarHomeAndDragTransaction sidebarHistoryNavigationRevealsPlaylistSection
+        productionSidebarScrollbar productionSidebarCardsMenusAndLayout
+        accountProfileAndGradeRejectOldAccountResult
+        fixedProfileSocialAndSidebarActionsKeepIntrinsicWidths productionProfileNameTagsStayAligned
+        productionProfileFieldsAndMembershipDates productionAccountSurfacesAndAnchors
+        profileEditorKeepsEqualColumnsAndDateActionsClear
+        profileEditorValidationFeedbackStaysVisibleWithoutScrolling
+        profileDevicesKeepInlineStatusAndBoundedViewport profileRelatedScrollBarsUseNativeMapping
+)
+add_test(
+    NAME desktop-pages-presentation
+    COMMAND
+        echo-desktop-pages-test audibleTransitionPublishesOneToastThroughShell
+        nativeOutputDeviceSelectHasOneDefaultChoice committedTrackClimaxFromLiveNativeApi
+        productionEffectPanelAlignmentAndCompactContentTabs
+        productionResolvedQualityMarksPickerAndToolbar productionAddToReopenStableHeight
+        productionAddToHeaderAlignment preferencesPreserveUnknownTagsValidateAndKeepFailedDraft
+        missingMembershipCodesKeepProductsWithoutInventingKnownRights
+        missingPreferenceFactsDoNotBecomeExplicitClears liveSameAvatarThroughQtService
+        screenshotTargetSnapshotAndDuplicateConfirmation
+        incompleteAndRepeatedLibraryIdsKeepEveryRow
+        libraryConsumersAcceptPageEchoAndCountVariations identityProjectionAndSessionIsolation
+        productionIdentitySummaryAndAvatarCorners liveContentBlacklistThroughQtService
+        contentBlacklistPaginationRemovalAndSessionIsolation
+        productionContentBlacklistKeepsPreferencesDraftAndVirtualScroll
+        deviceRemovalRequiresConfirmationRefreshAndCurrentSession
+)
+add_test(NAME desktop-pages-popups COMMAND echo-desktop-pages-test
+                                           productionQualityPopupContainsAndScrollsAllOptions
+)
+add_test(
+    NAME desktop-pages-library
+    COMMAND
+        echo-desktop-pages-test livePlaylistImportsThroughQtService
+        playlistImportBackgroundResultsStopAndSessionIsolation
+        playlistOrderKeepsFixedSlotsAndRejectsChangedVersions
+        songMenuBlacklistUsesIndexLoadAndSharedWriteChannel
+)
+
+set_tests_properties(
+    ${ECHO_DESKTOP_TEST_GROUPS} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45
+)
 echo_copy_rust_runtime(echo-desktop-pages-test)
 
 qt_add_executable(echo-logging-test LoggingTest.cpp)
@@ -449,7 +674,7 @@ echo_copy_rust_runtime(echo-crash-probe)
 echo_copy_crash_runtime(echo-crash-probe)
 qt_add_executable(echo-crash-diagnostics-test CrashDiagnosticsTest.cpp)
 target_link_libraries(
-    echo-crash-diagnostics-test PRIVATE echo_crash_diagnostics Qt6::Core Qt6::Test
+    echo-crash-diagnostics-test PRIVATE echo_crash_diagnostics Qt6::Core Qt6::Test crashpad::client
 )
 add_dependencies(echo-crash-diagnostics-test echo-crash-probe)
 add_test(NAME crash-diagnostics COMMAND echo-crash-diagnostics-test)
@@ -471,6 +696,18 @@ target_link_libraries(echo-toast-service-test PRIVATE echo_shell Qt6::Test)
 add_test(NAME toast-service COMMAND echo-toast-service-test)
 set_tests_properties(toast-service PROPERTIES TIMEOUT 15)
 qt_add_executable(echo-plugin-runtime-test PluginRuntimeTest.cpp)
+target_include_directories(echo-plugin-runtime-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_sources(
+    echo-plugin-runtime-test
+    PRIVATE plugins/PluginRuntimeTest.h
+            plugins/PluginRuntimeTestFixture.h
+            plugins/PluginRuntimeManagement1.cpp
+            plugins/PluginRuntimeManagement2.cpp
+            plugins/PluginRuntimeRuntime.cpp
+            plugins/PluginRuntimeShutdown.cpp
+            plugins/PluginRuntimeDependencies.cpp
+            plugins/PluginRuntimeCapabilities.cpp
+)
 target_link_libraries(
     echo-plugin-runtime-test
     PRIVATE echo_platform
@@ -482,8 +719,55 @@ target_link_libraries(
             Qt6::Widgets
             Qt6::Network
 )
-add_test(NAME plugin-runtime COMMAND echo-plugin-runtime-test)
-set_tests_properties(plugin-runtime PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90)
+set(ECHO_PLUGINS_TEST_GROUPS
+    plugin-runtime-management plugin-runtime-runtime plugin-runtime-shutdown
+    plugin-runtime-dependencies plugin-runtime-capabilities
+)
+add_test(
+    NAME plugin-runtime-management
+    COMMAND
+        echo-plugin-runtime-test sharedPluginVersionWarnings
+        sharedPluginPagePresentationAndRedirect catalogInstallationSourceIsNotCompatibility
+        rootDirectoryDiscoveryUpdatesAndRemovesOwnedInput
+        rootDiscoverySkipsStoresAndContinuesPastInvalidInput
+        refreshReloadsAllInstalledPluginsAndPreservesDisabledState
+        directoryActionOpensTheDisplayedRoot managementUpdateRollsBackPackageAndPrivateData
+        localBatchContinuesAfterInvalidPackage arrivingInstallFilesCompleteDependencyBatch
+        qtFileOpenQueuesBeforeServiceInitialization githubMirrorFallbackAndPostShareUnifiedProxy
+        sourceCatalogNetworkCacheAndOfficialProtection managementHeaderAndLoadingContentStayAligned
+        managementPageUsesProductionModelsAndDialogs
+        marketplaceInstallsActualPackageAndRejectsTampering
+)
+add_test(NAME plugin-runtime-runtime
+         COMMAND echo-plugin-runtime-test packageIntegrityAndCompatibility
+                 reloadUsesNewCodeUrlAndIdentity actualHttpAndCancellation
+)
+add_test(
+    NAME plugin-runtime-shutdown
+    COMMAND
+        echo-plugin-runtime-test dependencyGraphAndVersionFailuresNeverExecuteCode
+        metadataCommitFailureRetiresNewCodeAndRetainsRecoverySnapshot
+        backupBarrierDrainsScopesWithoutChangingEnabledPreference realActivationSdkAndRetirement
+        failureRollsBackAndPendingActivationCancels applicationQuitDrainsPluginIoFixture
+        applicationQuitDrainsPluginIo ioDestructionJoinsAcceptedStorageWrites
+        interruptedProcessFixture killedProcessRecovery promiseCanceledBeforeCommit
+        rejectedPromiseAndLifecycleTimeout persistedInstallAndSafeMode
+)
+add_test(NAME plugin-runtime-dependencies
+         COMMAND echo-plugin-runtime-test dependentServicesActivationCancellationAndProviderReload
+                 optionalDependencyAndServiceLeasePreserveOwnership
+)
+add_test(
+    NAME plugin-runtime-capabilities
+    COMMAND
+        echo-plugin-runtime-test settingsContributionRetiresWithScope
+        statisticsUseSampledWireAndRejectInvalidNumbers spectrumCapabilityAndOwnerLifetime
+        builtAuthorPackageCommands
+)
+
+set_tests_properties(
+    ${ECHO_PLUGINS_TEST_GROUPS} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90
+)
 echo_copy_rust_runtime(echo-plugin-runtime-test)
 
 add_test(
@@ -1011,14 +1295,34 @@ set_tests_properties(
 )
 echo_copy_rust_runtime(echo-sharing-ui-test)
 
+# Pixel/mask/input contracts need the production scene graph. Keep the
+# explicit controls-backdrop-software fallback test independent.
+set(ECHO_RENDERED_TEST_GROUPS
+    history
+    sharing-ui
+    song-playback-ui
+    shell
+    playback-page
+    discovery
+    details
+    ${ECHO_DESKTOP_TEST_GROUPS}
+    ${ECHO_CONTROLS_TEST_GROUPS}
+)
 if(APPLE)
-    # These cases assert native rendered artwork/bitmap pixels. The offscreen
-    # software scene graph does not paint the production MultiEffect masks.
-    # Run the same assertions on Cocoa rather than dropping the pixel checks.
-    set_tests_properties(
-        history sharing-ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa" RUN_SERIAL TRUE
-    )
+    set(echo_test_platform cocoa)
+elseif(WIN32)
+    set(echo_test_platform windows)
+else()
+    # CI supplies Xvfb for xcb. This uses RHI rather than offscreen software.
+    set(echo_test_platform xcb)
 endif()
+set_tests_properties(
+    ${ECHO_RENDERED_TEST_GROUPS} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=${echo_test_platform}"
+                                            RUN_SERIAL TRUE
+)
+set_tests_properties(${ECHO_DESKTOP_TEST_GROUPS} playback-page PROPERTIES TIMEOUT 240)
+set_tests_properties(${ECHO_CONTROLS_TEST_GROUPS} PROPERTIES TIMEOUT 120)
+set_tests_properties(discovery details PROPERTIES TIMEOUT 180)
 
 add_test(
     NAME share-application-smoke
@@ -1065,3 +1369,89 @@ set_tests_properties(
     experimental-settings PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
 )
 echo_copy_rust_runtime(echo-experimental-settings-test)
+
+if(APPLE)
+    add_library(echo_native_test_support STATIC NativeWindowTestSupport.mm)
+    target_link_libraries(echo_native_test_support PRIVATE "-framework AppKit")
+    foreach(
+        echo_test_target IN
+        ITEMS echo-song-playback-ui-test
+              echo-controls-ui-test
+              echo-tab-count-alignment-test
+              echo-background-banding-test
+              echo-shell-test
+              echo-window-resize-test
+              echo-search-ui-test
+              echo-theme-test
+              echo-desktop-pages-test
+              echo-mac-floating-test
+              echo-plugin-runtime-test
+              echo-playback-page-test
+              echo-discovery-test
+              echo-history-test
+              echo-details-test
+              echo-playback-discussion-test
+              echo-listen-together-ui-test
+              echo-sharing-ui-test
+    )
+        target_link_libraries(${echo_test_target} PRIVATE echo_native_test_support)
+    endforeach()
+endif()
+
+if(APPLE)
+    foreach(echo_native_ui_target IN ITEMS echo-controls-ui-test echo-desktop-pages-test)
+        set_target_properties(
+            ${echo_native_ui_target}
+            PROPERTIES MACOSX_BUNDLE TRUE
+                       MACOSX_BUNDLE_GUI_IDENTIFIER
+                       "io.github.hoowhoami.echomusicnext.tests.${echo_native_ui_target}"
+                       MACOSX_BUNDLE_BUNDLE_NAME "${echo_native_ui_target}"
+        )
+    endforeach()
+endif()
+
+# Direct SQL consumers declare their own compile/link requirements.
+target_link_libraries(echo-settings-backup-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-account-persistence-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-library-pages-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-playback-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-dsp-provider-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-network-transport-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-discovery-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-startup-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-details-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-personal-fm-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-playback-discussion-test PRIVATE Qt6::Sql)
+target_link_libraries(echo-listen-together-test PRIVATE Qt6::Sql)
+
+# QTEST_MAIN chooses QApplication from QT_WIDGETS_LIB. These fixtures formerly
+# obtained it through the playback facade; declare the test application choice
+# explicitly so PRIVATE service dependencies cannot silently change the harness.
+foreach(
+    echo_qapplication_test IN
+    ITEMS echo-share-resolve-test
+          echo-window-resize-test
+          echo-personal-fm-test
+          echo-sharing-ui-test
+          echo-library-pages-test
+          echo-dsp-provider-test
+          echo-details-test
+          echo-artist-detail-test
+          echo-listen-together-test
+          echo-discovery-test
+          echo-experimental-settings-test
+          echo-plugin-runtime-test
+          echo-recognition-test
+          echo-listen-together-ui-test
+          echo-playback-discussion-test
+          echo-playlist-detail-test
+          echo-account-persistence-test
+          echo-album-detail-test
+          echo-history-test
+          echo-queue-semantics-test
+          echo-startup-test
+          echo-playback-test
+          echo-shell-actions-test
+)
+    target_link_libraries(${echo_qapplication_test} PRIVATE Qt6::Widgets)
+endforeach()

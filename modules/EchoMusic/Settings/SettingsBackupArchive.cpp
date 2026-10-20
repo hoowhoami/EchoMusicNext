@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "SettingsBackupArchive.h"
 #include "PluginDataTransaction.h"
 #include <QCryptographicHash>
@@ -91,33 +92,41 @@ bool SettingsBackupArchive::portableKey(const QString &key)
         return false;
     // Positive application preference scopes. Never archive account sessions,
     // device IDs, grants, proxy secrets, filesystem bindings or runtime catalogs.
-    static const QStringList scopes{"interface/",     "navigation/",        "typography/",
-                                    "shortcuts/",     "updates/",           "playback/",
-                                    "video/barrage/", "lyrics/appearance/", "playerEngine/",
-                                    "sidebar/",       "shell/titlebar/",    "shell/playerbar/"};
-    static const QSet<QString> individual{"video/barrageEnabled",
-                                          "appearance/preferences",
-                                          "search/defaultEnabled",
-                                          "lyrics/conversion",
-                                          "lyrics/globalOffsetMs",
-                                          "lyrics/offsetStep",
-                                          "lyrics/wantRomanization",
-                                          "lyrics/wantTranslation",
-                                          "network/githubProxyUrl",
-                                          "network/localPolicy",
-                                          "audio/equalizer",
-                                          "audio/normalization",
-                                          "audio/referenceLufs",
-                                          "recognition/source",
-                                          "logging/level",
-                                          "logging/apiResponseBody",
-                                          "cast/enabled",
-                                          "window/rememberSize",
-                                          "window/closeToTray",
-                                          "window/hideDockInBackground",
-                                          "window/hideMenuBarInBackground",
-                                          "window/startMinimized",
-                                          "audio/pauseOnDisconnect"};
+    static const QStringList scopes{EchoMusic::SettingsKeys::Interface::Prefix,
+                                    EchoMusic::SettingsKeys::Navigation::Prefix,
+                                    EchoMusic::SettingsKeys::Typography::Prefix,
+                                    EchoMusic::SettingsKeys::Shortcuts::Prefix,
+                                    EchoMusic::SettingsKeys::Updates::Prefix,
+                                    EchoMusic::SettingsKeys::Playback::Prefix,
+                                    EchoMusic::SettingsKeys::Video::BarragePrefix,
+                                    EchoMusic::SettingsKeys::Lyrics::AppearancePrefix,
+                                    EchoMusic::SettingsKeys::PlayerEngine::Prefix,
+                                    EchoMusic::SettingsKeys::Sidebar::Prefix,
+                                    EchoMusic::SettingsKeys::Shell::TitlebarPrefix,
+                                    EchoMusic::SettingsKeys::Shell::PlayerbarPrefix};
+    static const QSet<QString> individual{EchoMusic::SettingsKeys::Video::BarrageEnabled,
+                                          EchoMusic::SettingsKeys::Appearance::Preferences,
+                                          EchoMusic::SettingsKeys::Search::DefaultEnabled,
+                                          EchoMusic::SettingsKeys::Lyrics::Conversion,
+                                          EchoMusic::SettingsKeys::Lyrics::GlobalOffsetMs,
+                                          EchoMusic::SettingsKeys::Lyrics::OffsetStep,
+                                          EchoMusic::SettingsKeys::Lyrics::WantRomanization,
+                                          EchoMusic::SettingsKeys::Lyrics::WantTranslation,
+                                          EchoMusic::SettingsKeys::Network::GithubProxyUrl,
+                                          EchoMusic::SettingsKeys::Network::LocalPolicy,
+                                          EchoMusic::SettingsKeys::Audio::Equalizer,
+                                          EchoMusic::SettingsKeys::Audio::Normalization,
+                                          EchoMusic::SettingsKeys::Audio::ReferenceLufs,
+                                          EchoMusic::SettingsKeys::Recognition::Source,
+                                          EchoMusic::SettingsKeys::Logging::Level,
+                                          EchoMusic::SettingsKeys::Logging::ApiResponseBody,
+                                          EchoMusic::SettingsKeys::Cast::Enabled,
+                                          EchoMusic::SettingsKeys::Window::RememberSize,
+                                          EchoMusic::SettingsKeys::Window::CloseToTray,
+                                          EchoMusic::SettingsKeys::Window::HideDockInBackground,
+                                          EchoMusic::SettingsKeys::Window::HideMenuBarInBackground,
+                                          EchoMusic::SettingsKeys::Window::StartMinimized,
+                                          EchoMusic::SettingsKeys::Audio::PauseOnDisconnect};
     if (individual.contains(key))
         return true;
     for (const auto &scope : scopes)
@@ -133,7 +142,7 @@ QJsonObject SettingsBackupArchive::encodePreferences(const QVariantMap &values)
             continue;
         const auto &value = it.value();
         QJsonObject entry;
-        if (it.key() == "network/localPolicy") {
+        if (it.key() == EchoMusic::SettingsKeys::Network::LocalPolicy) {
             const auto network = value.toMap();
             result.insert(
                 it.key(),
@@ -194,7 +203,7 @@ QVariantMap SettingsBackupArchive::decodePreferences(const QJsonObject &values, 
         const auto entry = it.value().toObject();
         const auto type = entry.value("type").toString();
         const auto value = entry.value("value");
-        if (it.key() == "network/localPolicy") {
+        if (it.key() == EchoMusic::SettingsKeys::Network::LocalPolicy) {
             const auto timeouts = value.toObject();
             const auto api = timeouts.value("apiSeconds"), player = timeouts.value("playerSeconds");
             if (type != "timeouts" || timeouts.size() != 2 || !api.isDouble() ||
@@ -253,7 +262,7 @@ QVariantMap SettingsBackupArchive::decodePreferences(const QJsonObject &values, 
 void SettingsBackupArchive::applyPreferences(QSettings &settings, const QVariantMap &values)
 {
     for (auto it = values.begin(); it != values.end(); ++it) {
-        if (it.key() == "network/localPolicy") {
+        if (it.key() == EchoMusic::SettingsKeys::Network::LocalPolicy) {
             // Restore deadlines without replacing this machine's applied route,
             // username or local password record ID with another device's state.
             auto current = settings.value(it.key()).toMap();
@@ -328,7 +337,7 @@ SettingsBackupArchive::create(const QString &destination, const QString &staging
             if (cancelled)
                 return {"Backup cancelled", {}};
             const auto plugin = plugins[i].toMap();
-            const auto prefix = QString("plugins/%1").arg(i);
+            const auto prefix = QString(EchoMusic::SettingsKeys::Plugins::EntryFormat).arg(i);
             error = copyTree(plugin.value("root").toString(), staging + '/' + prefix + "/package",
                              cancelled);
             if (!error.isEmpty())
@@ -450,7 +459,8 @@ SettingsBackupResult SettingsBackupArchive::inspect(const QString &source, const
         if (!safePath(path) || names.contains(path) || names.size() >= fileLimit || !validSize ||
             size < 0 || (total += size) > byteLimit || size > input.bytesAvailable())
             return {"Invalid backup file entry", {}};
-        if (!path.startsWith("plugins/") && !path.startsWith("theme-images/") &&
+        if (!path.startsWith(EchoMusic::SettingsKeys::Plugins::Prefix) &&
+            !path.startsWith("theme-images/") &&
             !(entry.value("directory").toBool() && (path == "plugins" || path == "theme-images")))
             return {"Unsupported backup asset", {}};
         names.insert(path);

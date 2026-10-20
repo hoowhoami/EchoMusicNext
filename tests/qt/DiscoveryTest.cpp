@@ -1,3 +1,4 @@
+#include "PlaybackRepository_p.h"
 #include "SongCatalogModel.h"
 #include "ArtistDirectorySliceModel.h"
 #include "DiscoveryService.h"
@@ -24,6 +25,8 @@
 #include <QJsonArray>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQmlContext>
+#include <QQmlProperty>
 #include <QQuickWindow>
 #include <QWheelEvent>
 #include <QQuickItem>
@@ -1024,8 +1027,13 @@ Window {
         QVERIFY2(maxHeight - minHeight < 1,
                  "Scrolling changed the height of unchanged home content");
         QVERIFY(maxCards < 160);
-        // An independently completed request must not reset the page position.
+        // Isolate late data completion from the preceding wheel gesture.
+        // cancelFlick alone does not wait for the shared wheel animation.
         QMetaObject::invokeMethod(view, "cancelFlick");
+        const QQmlProperty wheelRunning(view, "EchoWheelScroll.running", qmlContext(view));
+        QVERIFY(wheelRunning.isValid());
+        QTRY_VERIFY(!wheelRunning.read().toBool());
+        QTRY_VERIFY(!view->property("moving").toBool());
         view->setProperty("contentY", 1500.);
         QTest::qWait(30);
         const auto position = view->property("contentY").toReal();
@@ -2043,6 +2051,7 @@ Window {
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         ExploreService service(api, playback, router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("explore"));
         const auto instance = router.current()->instanceId();
         ExploreServiceTestAccess::complete(
@@ -2128,6 +2137,7 @@ Window {
         shell.acceptUserAgreement(); // These scenarios start after first-run consent.
         RouteController router;
         ExploreService service(api, playback, router, false);
+        service.registerRoutes(router);
         QQmlEngine engine;
         theme.attachToEngine(engine);
         QStringList errors;
@@ -2385,6 +2395,7 @@ Window {
         shell.acceptUserAgreement(); // These scenarios start after first-run consent.
         RouteController router;
         ExploreService service(api, playback, router, true);
+        service.registerRoutes(router);
         QQmlEngine engine;
         theme.attachToEngine(engine);
         QStringList errors;

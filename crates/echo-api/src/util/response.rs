@@ -8,6 +8,44 @@ use serde::{
 use serde_json::Value;
 
 type Error = serde_json::Error;
+
+/// Shared wire shapes retain required/default data and error-key distinctions.
+/// Endpoint-specific proofs and optional-error envelopes remain local types.
+#[derive(Deserialize)]
+pub struct Envelope<T> {
+    #[serde(deserialize_with = "scalar")]
+    pub status: u32,
+    #[serde(deserialize_with = "scalar")]
+    pub error_code: i64,
+    pub data: T,
+}
+
+#[derive(Deserialize)]
+pub struct DefaultDataEnvelope<T: Default> {
+    #[serde(deserialize_with = "scalar")]
+    pub status: u32,
+    #[serde(deserialize_with = "scalar")]
+    pub error_code: i64,
+    #[serde(default)]
+    pub data: T,
+}
+
+#[derive(Deserialize)]
+pub struct ErrcodeEnvelope<T> {
+    #[serde(deserialize_with = "scalar")]
+    pub status: u32,
+    #[serde(deserialize_with = "scalar")]
+    pub errcode: i64,
+    pub data: T,
+}
+
+#[derive(Deserialize)]
+pub struct AckEnvelope {
+    #[serde(deserialize_with = "scalar")]
+    pub status: u32,
+    #[serde(deserialize_with = "scalar")]
+    pub error_code: i64,
+}
 pub fn scalar<'de, D: Deserializer<'de>, T: DeserializeOwned>(d: D) -> Result<T, D::Error> {
     from_value(Value::deserialize(d)?).map_err(de::Error::custom)
 }

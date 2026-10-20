@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "SettingsDataService.h"
 #include "PluginRuntime.h"
 #include "SettingsBackupRestore.h"
@@ -287,7 +288,7 @@ void SettingsDataService::finishShutdown(std::function<void(QString)> complete)
     }
     const QJsonObject previous{{"values", SettingsBackupArchive::encodePreferences(oldValues)},
                                {"absent", absent}};
-    const auto catalog = m_settings.value("plugins/installations").toList();
+    const auto catalog = m_settings.value(EchoMusic::SettingsKeys::Plugins::Installations).toList();
     auto watcher = new QFutureWatcher<SettingsRestoreResult>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, values, complete] {
         auto result = watcher->result();
@@ -295,7 +296,8 @@ void SettingsDataService::finishShutdown(std::function<void(QString)> complete)
         if (result.error.isEmpty()) {
             SettingsBackupArchive::applyPreferences(m_settings, values);
             if (m_restorePlugins)
-                m_settings.setValue("plugins/installations", result.catalog);
+                m_settings.setValue(EchoMusic::SettingsKeys::Plugins::Installations,
+                                    result.catalog);
             m_settings.sync();
             if (m_settings.status() != QSettings::NoError)
                 result.error = tr("无法提交恢复后的设置");

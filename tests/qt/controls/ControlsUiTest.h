@@ -1,0 +1,56 @@
+#pragma once
+#include <QObject>
+
+class ControlsUiTest : public QObject
+{
+    Q_OBJECT
+private slots:
+    void continuousAngleWheelPreservesDistanceAndPixelInput();
+    void wheelCancellationAndMotionPreferences();
+    void pageWheelRegionsPreserveNativeEvents();
+    void scaledPopupTextKeepsNativePixelResolution();
+    void badgeIconAndCountUseSameInkCenter();
+    void scrollContentCannotPaintOverRoundedCornersOrBorder();
+    void imageDensityTracksScaleWithoutTrackingScroll();
+    void coverKeepsNativeResolutionUnderAncestorZoom();
+    void iconRasterTracksZoomAndReleasesWhenHidden();
+    void coverCropAndRoundedPixels();
+    void frostedCornersRetainAntialiasCoverage();
+    void floatingPanelEdgesAndMenuHeight();
+    void clearActionIsOneUserEditButProgrammaticClearIsNot();
+    void colorPresetsKeepVisibleEdgesInBothThemes();
+    void boundedListAutoHeightSurvivesReopenAndVariableRows();
+    void progressClimaxTicksAndWaitPreview();
+    void playPauseTransitionKeepsEndpointsAndInterrupts();
+    void progressBusyRendersAndRetiresNativeAnimation();
+    void sourcePauseKeepsComparableInkToPlay();
+    void disabledIconHoverIsOptInAndNeverActivates();
+    void shadowsReleaseTheirNativeMaterials();
+    void sourceControlRolesKeepOrdinaryActionsAndLargeFormsDistinct();
+    void selectProjectionKeepsTypedValuesAndTracksModelChanges();
+    void selectSearchMultiKeyboardPlacementAndVirtualization();
+    void backdropSourceIsWindowLocalAndReleasedWhenHidden();
+    void backdropSamplerTracksBothItemTrees();
+    void floatingSurfaceMatchesRendererCapabilities();
+    void floatingFrostSamplesTheSceneAndStopsOnHide();
+    void floatingEffectsAreOwnedByVisibleSurfaces();
+    void menusDrawersAndFileDialogsReleaseAfterClose();
+    void businessPopupsAreCreatedOnDemandAndDestroyedAfterExit();
+    void tooltipPopupsExistOnlyDuringTheirTrigger();
+    void nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover();
+    void numberInputCommitsAndClampsAcrossAllInputPaths();
+    void dialogHeaderBodyAndFooterShareInsets();
+    void drawerFixedActionsSurviveLongTitlesAndVisibilityChanges();
+    void textTagAlignmentAcrossProductionRecipes();
+    void hintsAvoidTriggersAndWindowEdgesAcrossZoom();
+    void popupsCancelVisibleAndPendingHints();
+    void badgesAndTagsKeepDistinctContracts();
+    void globalTypographyRetainsFallbackAndLocalStyles();
+    void floatingBorderCompositesOverItsOwnFill();
+    void popupAndPageTracksShareRightInsetAndRetainDragMapping();
+    void centeredContentAcrossSizesAndPadding();
+    void iconTextContentCentersRenderedInk();
+    void allBundledGlyphsTintAndPreserveAlpha();
+    void themeCustomColorHoverAndRenderedPixels();
+    void sourceActionSurfacesAndSelectStates();
+};

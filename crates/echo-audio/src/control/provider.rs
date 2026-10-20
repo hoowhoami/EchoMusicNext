@@ -1,6 +1,6 @@
+use crate::Result;
 use crate::dsp::provider::{NativeDspProvider, PROVIDER_MODE_SPEAKER};
 use crate::work::{Command, Work};
-use crate::Result;
 use std::path::Path;
 
 #[derive(serde::Serialize)]

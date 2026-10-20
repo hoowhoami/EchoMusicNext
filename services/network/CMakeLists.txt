@@ -61,3 +61,7 @@ if(UNIX AND NOT APPLE)
     )
     target_link_libraries(echo_network PRIVATE PkgConfig::Libproxy PkgConfig::Gio)
 endif()
+
+target_link_libraries(echo_device_identity PRIVATE echo_settings_keys)
+
+target_link_libraries(echo_network PRIVATE echo_settings_keys)

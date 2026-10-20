@@ -1,0 +1,43 @@
+name: Protocol security checks
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: protocol-security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  properties:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v5
+      - name: Pinned Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Public protocol and property tests
+        run: cargo test --locked -p echo-api
+  fuzz-address-sanitizer:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/fuzz
+      FUZZ_TOOLCHAIN: nightly-2026-10-20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fuzz toolchain and runner
+        run: |
+          rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
+          cargo +"$FUZZ_TOOLCHAIN" install cargo-fuzz --version 0.13.2 --locked
+      - name: Bounded decoder and FFI ingress fuzzing under ASan
+        run: |
+          cargo +"$FUZZ_TOOLCHAIN" fuzz run protocol_decoders --sanitizer address -- -max_total_time=60 -max_len=8192
+          cargo +"$FUZZ_TOOLCHAIN" fuzz run ffi_request_decode --sanitizer address -- -max_total_time=60 -max_len=8192
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: protocol-fuzz-failures
+          path: fuzz/artifacts/

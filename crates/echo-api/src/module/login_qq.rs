@@ -8,15 +8,7 @@ use crate::{
     },
 };
 use serde::Deserialize;
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-    #[serde(default)]
-    data: serde_json::Value,
-}
+type Wire = crate::util::response::DefaultDataEnvelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct WireAccount {
     #[serde(default)]

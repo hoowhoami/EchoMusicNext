@@ -23,6 +23,8 @@ ApplicationWindow {
         y: window.height - 80
         width: 56
         height: 56
+        // This source sits outside the scaled page in the harness.
+        minimumDecodeSize: 380 * window.surfaceScale
         source: window.playback.cover
         opacity: page.coverMoving ? 0 : 1
     }

@@ -152,6 +152,7 @@ private slots:
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         ArtistDetailService service(api, playback, router, shell, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("artist-detail", {}, "3520"));
         auto *first = service.contextFor(router.current());
         QCOMPARE(first->sort(), QString("new"));
@@ -229,6 +230,7 @@ private slots:
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         ArtistDetailService service(api, playback, router, shell, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("artist-detail", {}, "3520"));
         auto *context = service.contextFor(router.current());
         if (stage[0] == "write") {
@@ -257,6 +259,7 @@ private slots:
         RouteController router;
         ShellSettings shell(prefs);
         ArtistDetailService service(api, playback, router, shell, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("artist-detail", {}, "3520"));
         auto *context = service.contextFor(router.current());
         QVERIFY(context);
@@ -310,6 +313,7 @@ private slots:
         RouteController router;
         ShellSettings shell(prefs);
         ArtistDetailService service(api, playback, router, shell, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("artist-detail", {}, "3520"));
         auto *context = service.contextFor(router.current());
         ArtistDetailContextTestAccess::seed(*context, "周杰伦");
@@ -341,6 +345,7 @@ private slots:
         RouteController router;
         ShellSettings shell(prefs);
         ArtistDetailService service(api, playback, router, shell, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("artist-detail", {}, "3520"));
         auto *context = service.contextFor(router.current());
         // A failed detail is the page error while no album metadata exists.
@@ -376,6 +381,7 @@ private slots:
         RouteController router;
         ShellSettings shell(prefs);
         ArtistDetailService service(api, playback, router, shell, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("artist-detail", {}, "3520"));
         auto *context = service.contextFor(router.current());
         ArtistDetailContextTestAccess::seed(*context, "周杰伦");
@@ -442,6 +448,7 @@ private slots:
         RouteController router;
         ShellSettings shell(prefs);
         ArtistDetailService service(api, playback, router, shell, false);
+        service.registerRoutes(router);
         ThemeStore theme(prefs);
         QQmlEngine engine;
         theme.attachToEngine(engine);

@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "RecognitionService.h"
 #include "PlaybackLibraryActions.h"
 #include <QQmlEngine>
@@ -13,18 +14,10 @@ RecognitionService::RecognitionService(ApiClient &api, PlaybackService &playback
       m_actions(m_matches, playback, this)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
-    m_source = settings.value("recognition/source", "system").toString();
+    m_source = settings.value(EchoMusic::SettingsKeys::Recognition::Source, "system").toString();
     if (m_source != "mic")
         m_source = "system";
     m_actions.setQueueContext(tr("听歌识曲"), "recognize");
-    router.registerPage({"recognize",
-                         "/main/recognize",
-                         QUrl("qrc:/qt/qml/EchoMusic/Discovery/RecognizePage.qml"),
-                         {},
-                         true,
-                         true,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
     connect(&router, &RouteController::pageActivated, this, [this](RouteContext *context) {
         if (context->name() != "recognize")
             setAvailable(false);
@@ -90,7 +83,7 @@ void RecognitionService::setSource(const QString &value)
     if (busy() || (value != "system" && value != "mic") || m_source == value)
         return;
     m_source = value;
-    m_settings.setValue("recognition/source", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Recognition::Source, value);
     emit changed();
 }
 void RecognitionService::setAvailable(bool value)
@@ -218,5 +211,20 @@ void RecognitionService::failCapture(const QString &error)
         m_error = microphone ? tr("无法访问麦克风，请检查输入设备和系统权限")
                              : tr("无法捕获系统音频，请检查默认输出设备并关闭独占模式后重试");
     emit changed();
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void RecognitionService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"recognize",
+                         "/main/recognize",
+                         QUrl("qrc:/qt/qml/EchoMusic/Discovery/RecognizePage.qml"),
+                         {},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

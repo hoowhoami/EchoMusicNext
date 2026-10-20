@@ -1,0 +1,30 @@
+[package]
+name = "echo-protocol-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+echo-api = { path = "../crates/echo-api" }
+serde_json = "1"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "protocol_decoders"
+path = "fuzz_targets/protocol_decoders.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ffi_request_decode"
+path = "fuzz_targets/ffi_request_decode.rs"
+test = false
+doc = false
+bench = false

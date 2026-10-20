@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "ShortcutService.h"
 #include <QGuiApplication>
 #include <QKeyEvent>
@@ -98,9 +99,12 @@ QString displayShortcut(const QKeySequence &sequence)
 } // namespace
 ShortcutService::ShortcutService(QSettings &settings, bool nativeRegistration, QObject *parent)
     : QAbstractListModel(parent), m_settings(settings), m_nativeRegistration(nativeRegistration),
-      m_globalEnabled(settings.value("shortcuts/globalEnabled", false).toBool()),
-      m_conflictPrompt(settings.value("shortcuts/conflictPrompt", true).toBool()),
-      m_suppressDefault(settings.value("shortcuts/suppressDefault", true).toBool())
+      m_globalEnabled(
+          settings.value(EchoMusic::SettingsKeys::Shortcuts::GlobalEnabled, false).toBool()),
+      m_conflictPrompt(
+          settings.value(EchoMusic::SettingsKeys::Shortcuts::ConflictPrompt, true).toBool()),
+      m_suppressDefault(
+          settings.value(EchoMusic::SettingsKeys::Shortcuts::SuppressDefault, true).toBool())
 {
     struct Definition
     {
@@ -139,13 +143,13 @@ ShortcutService::ShortcutService(QSettings &settings, bool nativeRegistration, Q
             QKeySequence(QString::fromLatin1(definition.global), QKeySequence::PortableText);
         entry.local =
             QKeySequence(settings
-                             .value("shortcuts/local/" + entry.key,
+                             .value(EchoMusic::SettingsKeys::Shortcuts::LocalPrefix + entry.key,
                                     entry.defaultLocal.toString(QKeySequence::PortableText))
                              .toString(),
                          QKeySequence::PortableText);
         entry.global =
             QKeySequence(settings
-                             .value("shortcuts/global/" + entry.key,
+                             .value(EchoMusic::SettingsKeys::Shortcuts::GlobalPrefix + entry.key,
                                     entry.defaultGlobal.toString(QKeySequence::PortableText))
                              .toString(),
                          QKeySequence::PortableText);
@@ -267,9 +271,9 @@ bool ShortcutService::recordKey(int key, Qt::KeyboardModifiers modifiers, bool r
 void ShortcutService::persist(int row)
 {
     const auto &entry = m_entries.at(row);
-    m_settings.setValue("shortcuts/local/" + entry.key,
+    m_settings.setValue(EchoMusic::SettingsKeys::Shortcuts::LocalPrefix + entry.key,
                         entry.local.toString(QKeySequence::PortableText));
-    m_settings.setValue("shortcuts/global/" + entry.key,
+    m_settings.setValue(EchoMusic::SettingsKeys::Shortcuts::GlobalPrefix + entry.key,
                         entry.global.toString(QKeySequence::PortableText));
     emit dataChanged(index(row), index(row));
 }
@@ -330,7 +334,7 @@ void ShortcutService::setGlobalEnabled(bool value)
     if (m_globalEnabled == value)
         return;
     m_globalEnabled = value;
-    m_settings.setValue("shortcuts/globalEnabled", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Shortcuts::GlobalEnabled, value);
     if (m_recordingRow >= 0)
         stopRecording();
     else
@@ -341,7 +345,7 @@ void ShortcutService::setConflictPrompt(bool value)
     if (m_conflictPrompt == value)
         return;
     m_conflictPrompt = value;
-    m_settings.setValue("shortcuts/conflictPrompt", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Shortcuts::ConflictPrompt, value);
     emit changed();
 }
 void ShortcutService::setSuppressDefault(bool value)
@@ -349,7 +353,7 @@ void ShortcutService::setSuppressDefault(bool value)
     if (m_suppressDefault == value)
         return;
     m_suppressDefault = value;
-    m_settings.setValue("shortcuts/suppressDefault", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Shortcuts::SuppressDefault, value);
     emit changed();
 }
 bool ShortcutService::editableFocus() const

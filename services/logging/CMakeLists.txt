@@ -29,3 +29,7 @@ target_link_libraries(
     PRIVATE echo_build_options echo_ffi
 )
 qt_extract_metatypes(echo_logging)
+
+target_link_libraries(echo_crash_diagnostics PRIVATE echo_settings_keys)
+
+target_link_libraries(echo_logging PRIVATE echo_settings_keys)

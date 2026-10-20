@@ -12,6 +12,8 @@ class ArtistDetailService final : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by the application")
 public:
+    /// Explicit UI composition; construction alone does not register pages.
+    void registerRoutes(RouteController &router);
     void attachProfile(ProfileService &profile)
     {
         m_profile = &profile;

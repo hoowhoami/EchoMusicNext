@@ -3,17 +3,17 @@ use crate::shared::{
     AudioSampleFormat, DecodedAudioChunk, DecodedAudioData, DecodedAudioFormat,
     PacketCacheSeekableRange, PacketCacheStats, SharedAudio,
 };
-use crate::stream::{open_stream, ReadSeek, StreamOptions};
+use crate::stream::{ReadSeek, StreamOptions, open_stream};
 use crate::transition_runner::{
-    split_chunk_at, AbortedTransition, ArmedTransition, RunnerStep, TransitionRunner,
+    AbortedTransition, ArmedTransition, RunnerStep, TransitionRunner, split_chunk_at,
 };
 use crate::work::{Command, Work};
-use ffmpeg_audio::{sys, AudioError, AudioReader, PacketCacheOptions, RawAudioData, SeekMode};
+use ffmpeg_audio::{AudioError, AudioReader, PacketCacheOptions, RawAudioData, SeekMode, sys};
 use std::collections::VecDeque;
-use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TryRecvError};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TryRecvError, sync_channel};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -1906,9 +1906,12 @@ fn activate_pending_source_switch(
         }
         return false;
     }
-    emit_decode_info(shared, &format!(
-        "source switch buffer ready: position={handoff_position:.3}, buffered_secs={buffered_secs:.3}"
-    ));
+    emit_decode_info(
+        shared,
+        &format!(
+            "source switch buffer ready: position={handoff_position:.3}, buffered_secs={buffered_secs:.3}"
+        ),
+    );
     let mut decoder = pending
         .decoder
         .take()
@@ -2262,11 +2265,13 @@ mod tests {
             assert!(!activate_pending_source_switch(
                 &mut data, &shared, &mut state
             ));
-            assert!(received
-                .try_recv()
-                .unwrap()
-                .unwrap_err()
-                .contains("insufficient prepared audio"));
+            assert!(
+                received
+                    .try_recv()
+                    .unwrap()
+                    .unwrap_err()
+                    .contains("insufficient prepared audio")
+            );
             assert!(state.pending_source_switch.is_none());
             assert!(Arc::ptr_eq(&data.interrupt, &old_interrupt));
             assert!(!old_interrupt.load(Ordering::Acquire));
@@ -2368,10 +2373,10 @@ mod tests {
     #[test]
     fn source_switch_releases_active_blend_and_never_replaces_outgoing_decoder() {
         use crate::shared::{MixFormat, TrackSwitchInfo};
+        use crate::transition::TransitionMode;
         use crate::transition::decide::{
             DecisionStrategy, SpeedType, TransitionPlan, TransitionTrigger,
         };
-        use crate::transition::TransitionMode;
         let shared = Arc::new(SharedAudio::new(
             MixFormat::stereo_f32(48_000),
             8.0,
@@ -2438,11 +2443,12 @@ mod tests {
             },
             &mut state,
         );
-        assert!(rx
-            .try_recv()
-            .unwrap()
-            .unwrap_err()
-            .contains("track changed"));
+        assert!(
+            rx.try_recv()
+                .unwrap()
+                .unwrap_err()
+                .contains("track changed")
+        );
         let (tx, rx) = sync_channel(1);
         handle_decode_command(
             &mut data,

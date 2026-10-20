@@ -183,6 +183,7 @@ private slots:
         ShellSettings settings(prefs);
         ThemeStore theme(prefs);
         ListenTogetherUi service(api, player, library, metadata, router, true);
+        service.registerRoutes(router);
         QQmlEngine engine;
         theme.attachToEngine(engine);
         QStringList warnings;
@@ -368,6 +369,7 @@ private slots:
         ThemeStore theme(prefs);
         SongMetadataService metadata(api);
         ListenTogetherUi service(api, player, library, metadata, router, false);
+        service.registerRoutes(router);
         QQmlEngine engine;
         theme.attachToEngine(engine);
         QStringList warnings;

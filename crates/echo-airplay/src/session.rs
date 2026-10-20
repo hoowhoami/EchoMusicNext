@@ -944,11 +944,9 @@ impl Worker {
                     status.error = last_error;
                     status.feed_stats = None;
                 });
-                echo_log::warn(
-                    format!(
-                        "AirPlay 1 native START_LIVE 失败: name={device_name}, id={device_id}, error={err}"
-                    ),
-                );
+                echo_log::warn(format!(
+                    "AirPlay 1 native START_LIVE 失败: name={device_name}, id={device_id}, error={err}"
+                ));
                 let _ = connection.disconnect().await;
                 return fail(
                     &self
@@ -1209,12 +1207,15 @@ impl Worker {
             let _ = feed.handle.join();
         }
         if self.connected {
-            if let Some(mut raop) = self.raop.take() {
-                let _ = raop.stop().await;
-                let _ = raop.disconnect().await;
-            } else {
-                let _ = client.stop().await;
-                let _ = client.disconnect().await;
+            match self.raop.take() {
+                Some(mut raop) => {
+                    let _ = raop.stop().await;
+                    let _ = raop.disconnect().await;
+                }
+                _ => {
+                    let _ = client.stop().await;
+                    let _ = client.disconnect().await;
+                }
             }
         }
         self.connected = false;

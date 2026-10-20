@@ -1475,7 +1475,13 @@ private slots:
         QTest::mouseMove(window, dragStart + QPoint(10, 0), 20);
         QTest::mouseMove(window, dragStart + QPoint(20, 0), 20);
         QTRY_VERIFY(item("host/quality")); // Real Drag source is active before crossing zones.
+        // The ghost must escape the per-zone ListView/ScrollView clips while the
+        // pointer travels between targets; only the drop used to be visible.
+        auto *dragGhost = item("host/quality");
+        QVERIFY(dragGhost && dragGhost->isVisible());
+        QCOMPARE(dragGhost->parentItem(), item("playerLayoutBoard"));
         QTest::mouseMove(window, dragEnd, 40);
+        QVERIFY(dragGhost->isVisible());
         QCoreApplication::processEvents();
         QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, dragEnd);
         QTRY_COMPARE(moreZone->property("count").toInt(), 2);
@@ -1742,14 +1748,15 @@ private slots:
             Test::moveNativePointer(window, point);
             QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
         };
-        const auto nativePopups = [&] {
+        const auto nativePopups = [&](bool includeHints = false) {
             QSet<QObject *> visited;
             QList<QObject *> found;
             const auto visit = [&](auto &&self, QObject *object) -> void {
                 if (!object || visited.contains(object))
                     return;
                 visited.insert(object);
-                if (object->inherits("QQuickPopup"))
+                if (object->inherits("QQuickPopup") &&
+                    (includeHints || !object->inherits("QQuickToolTip")))
                     found.append(object);
                 for (auto *child : object->children())
                     self(self, child);
@@ -1814,7 +1821,8 @@ private slots:
                                  before == "eye" ? QString("eye-off") : QString("eye"));
                     }
                 }
-                // A held pointer must not start a delayed hint after the burst.
+                // Pure icon controls may show their required hint after a fresh hover.
+                // The business editor itself must remain a single stable instance.
                 QTest::qWait(600);
                 disconnect(watch);
                 qInfo() << "sidebar_visibility" << mode << shell.uiScale() << "frames" << samples
@@ -1825,7 +1833,7 @@ private slots:
                 QCOMPARE(rect(), start);
                 QVERIFY(QMetaObject::invokeMethod(popup, "close"));
                 QTRY_VERIFY(!popup);
-                QTRY_COMPARE(nativePopups().size(), 0);
+                QTRY_COMPARE(nativePopups(true).size(), 0);
             }
         QCOMPARE(replaced, 0);
         QCOMPARE(warnings.size(), 0);

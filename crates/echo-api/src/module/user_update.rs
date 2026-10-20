@@ -20,13 +20,7 @@ pub struct Query {
     pub province: Option<String>,
     pub city: Option<String>,
 }
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-}
+type Wire = crate::util::response::AckEnvelope;
 #[derive(Serialize)]
 pub struct Acknowledgement {
     pub updated: bool,

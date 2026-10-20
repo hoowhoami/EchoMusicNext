@@ -9,6 +9,9 @@ Item {
     required property string glyph
     objectName: "shellDragHandle-" + actionKey
     property string dragGroup: "titlebar-actions"
+    // Optional unclipped layer in the same popup scene. Scrolling/list clips
+    // would otherwise hide the ghost between drop targets.
+    property Item dragLayer: null
     property bool resourceActive: true
     property bool gestureArmed: false
     property color foreground: Theme.floatingText
@@ -39,8 +42,9 @@ Item {
         property string actionKey: ""
         objectName: actionKey
         // Stay in the handle's popup delivery scene. Reparenting to a different
-        // Overlay can make it invisible and exclude that popup's DropAreas.
-        parent: handle
+        // Overlay can make it invisible and exclude that popup's DropAreas; a
+        // same-popup drag layer only lifts the ghost above list clipping.
+        parent: handle.dragLayer ? handle.dragLayer : handle
         width: 24
         height: 24
         z: 10000

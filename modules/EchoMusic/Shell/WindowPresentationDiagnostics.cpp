@@ -1,6 +1,8 @@
 #include "WindowPresentationDiagnostics.h"
 #include <QGuiApplication>
 #include <QLoggingCategory>
+#include <QScreen>
+#include <QFontInfo>
 #include <atomic>
 #include <chrono>
 #include <utility>
@@ -84,6 +86,9 @@ WindowPresentationDiagnostics::WindowPresentationDiagnostics(QQuickWindow *windo
                         << "Presentation heartbeat: frames=" << counters->frames.load()
                         << "max-gui-interval-ms=" << maximumGui / 1000.0
                         << "graphics-api=" << window->rendererInterface()->graphicsApi()
+                        << "qpa=" << QGuiApplication::platformName()
+                        << "effective-dpr=" << window->effectiveDevicePixelRatio()
+                        << "ui-scale=" << window->property("uiScale")
                         << "visible=" << window->isVisible() << "exposed=" << window->isExposed()
                         << "active=" << window->isActive()
                         << "app-state=" << QGuiApplication::applicationState();
@@ -100,6 +105,21 @@ WindowPresentationDiagnostics::WindowPresentationDiagnostics(QQuickWindow *windo
                 qCInfo(presentationLog) << "Application state=" << state;
             });
     qCInfo(presentationLog) << "Presentation diagnostics enabled; no backend/frame policy changes";
+    const auto *screen = window->screen();
+    qCInfo(presentationLog) << "Display configuration: qpa=" << QGuiApplication::platformName()
+                            << "session=" << qEnvironmentVariable("XDG_SESSION_TYPE")
+                            << "screen=" << (screen ? screen->name() : QString())
+                            << "geometry=" << (screen ? screen->geometry() : QRect())
+                            << "screen-dpr=" << (screen ? screen->devicePixelRatio() : 0.)
+                            << "effective-dpr=" << window->effectiveDevicePixelRatio()
+                            << "logical-dpi=" << (screen ? screen->logicalDotsPerInch() : 0.)
+                            << "ui-scale=" << window->property("uiScale")
+                            << "default-text-renderer=" << QQuickWindow::textRenderType()
+                            << "font=" << QFontInfo(QGuiApplication::font()).family()
+                            << "QT_SCALE_FACTOR=" << qEnvironmentVariable("QT_SCALE_FACTOR")
+                            << "QT_SCREEN_SCALE_FACTORS="
+                            << qEnvironmentVariable("QT_SCREEN_SCALE_FACTORS")
+                            << "QT_FONT_DPI=" << qEnvironmentVariable("QT_FONT_DPI");
     m_poll.start();
 }
 } // namespace EchoMusic

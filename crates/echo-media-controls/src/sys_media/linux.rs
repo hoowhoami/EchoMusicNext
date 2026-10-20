@@ -4,7 +4,7 @@ use image::ImageFormat;
 use mpris_server::{Metadata, PlaybackStatus, Player, Time, TrackId, Uri};
 use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 /// 通过回调发送媒体控制事件
 fn emit_event(callback: &Arc<Mutex<Option<EventCallback>>>, event: MediaControlEvent) {

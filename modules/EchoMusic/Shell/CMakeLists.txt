@@ -140,3 +140,7 @@ qt_add_shaders(
     FILES
     shaders/mini-lyric-backdrop.frag
 )
+
+target_link_libraries(echo_window_resize PRIVATE echo_settings_keys)
+
+target_link_libraries(echo_shell PRIVATE echo_settings_keys)

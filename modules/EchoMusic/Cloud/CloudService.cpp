@@ -22,14 +22,6 @@ CloudService::CloudService(ApiClient &api, PlaybackService &playback, SongMetada
     });
     connect(&m_upload, &CloudUploadService::notice, this, &CloudService::notice);
     m_actions.setQueueContext(tr("云盘音乐"), "queue:cloud");
-    router.registerPage({"cloud",
-                         "/main/cloud",
-                         QUrl("qrc:/qt/qml/EchoMusic/Cloud/CloudPage.qml"),
-                         {},
-                         true,
-                         true,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
     connect(&router, &RouteController::pageActivated, this, &CloudService::activate);
     connect(&api, &ApiClient::succeeded, this, &CloudService::accept);
     connect(&api, &ApiClient::failed, this,
@@ -412,5 +404,20 @@ void CloudService::shutdown()
     m_closed = true;
     cancelAll();
     emit changed();
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void CloudService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"cloud",
+                         "/main/cloud",
+                         QUrl("qrc:/qt/qml/EchoMusic/Cloud/CloudPage.qml"),
+                         {},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

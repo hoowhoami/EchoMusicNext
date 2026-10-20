@@ -35,6 +35,8 @@ class CloudService final : public QObject
     Q_PROPERTY(qint64 storageAvailableBytes READ storageAvailableBytes NOTIFY changed)
     Q_PROPERTY(qint64 storageCapacityBytes READ storageCapacityBytes NOTIFY changed)
 public:
+    /// Explicit UI composition; construction alone does not register pages.
+    void registerRoutes(RouteController &router);
     CloudService(ApiClient &, PlaybackService &, SongMetadataService &, RouteController &,
                  bool networkEnabled, QObject *parent = nullptr);
     ~CloudService() override;

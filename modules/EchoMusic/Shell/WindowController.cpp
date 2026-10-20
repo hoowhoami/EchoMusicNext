@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "WindowController.h"
 #include "WindowPresentationDiagnostics.h"
 #include "WindowResizeSync.h"
@@ -59,11 +60,14 @@ WindowController::WindowController(QSettings &settings, bool persist, QObject *p
             &WindowController::updateIncubationController, Qt::QueuedConnection);
     connect(&m_floating, &FloatingPlayerController::presentationWindowChanged, this,
             &WindowController::updateIncubationController, Qt::QueuedConnection);
-    m_remember = settings.value("window/rememberSize", true).toBool();
-    m_closeToTray = settings.value("window/closeToTray", true).toBool();
-    m_hideDock = settings.value("window/hideDockInBackground", false).toBool();
-    m_hideMenu = settings.value("window/hideMenuBarInBackground", false).toBool();
-    m_startMinimized = settings.value("window/startMinimized", false).toBool();
+    m_remember = settings.value(EchoMusic::SettingsKeys::Window::RememberSize, true).toBool();
+    m_closeToTray = settings.value(EchoMusic::SettingsKeys::Window::CloseToTray, true).toBool();
+    m_hideDock =
+        settings.value(EchoMusic::SettingsKeys::Window::HideDockInBackground, false).toBool();
+    m_hideMenu =
+        settings.value(EchoMusic::SettingsKeys::Window::HideMenuBarInBackground, false).toBool();
+    m_startMinimized =
+        settings.value(EchoMusic::SettingsKeys::Window::StartMinimized, false).toBool();
     connect(&m_backdrop, &WindowBackdrop::completed, this, [this](const QString &error) {
         if (m_appearanceError == error)
             return;
@@ -76,6 +80,10 @@ WindowController::WindowController(QSettings &settings, bool persist, QObject *p
 }
 WindowController::~WindowController()
 {
+    if (m_tray) {
+        m_tray->hide();
+        m_tray->setContextMenu(nullptr);
+    }
     // A tray menu is top-level, not a QWidget child of this QObject owner.
     delete m_trayMenu.data();
 }
@@ -136,10 +144,14 @@ void WindowController::attach(QQuickWindow *window)
         m_tray->setIcon(TrayIconTheme::icon());
         m_tray->setToolTip("EchoMusicNext");
         // Never bind a context menu on Cocoa: AppKit then intercepts BOTH mouse
-        // buttons, so left activation would also open a menu. SNI ContextMenu
-        // emits Context even without an exported menu (Qt 6.12 adaptor).
+        // buttons, so left activation would also open a menu.
         connect(m_tray.get(), &QSystemTrayIcon::activated, this,
                 [this](QSystemTrayIcon::ActivationReason reason) { activateTray(int(reason)); });
+#ifdef Q_OS_LINUX
+        // SNI panels may fetch/cache GetLayout before any Context activation.
+        // Bind before registration so Qt exports /MenuBar, not /NO_DBUSMENU.
+        installTrayMenuModel();
+#endif
 #ifdef Q_OS_MACOS
         if (QGuiApplication::platformName() == "cocoa") {
             m_applicationMenu.reset(createMacApplicationMenu(this));
@@ -161,7 +173,9 @@ void WindowController::attach(QQuickWindow *window)
     auto *primary = QGuiApplication::primaryScreen();
     if (primary) {
         const auto saved =
-            m_remember && m_persist ? m_settings.value("window/normalGeometry").toRect() : QRect{};
+            m_remember && m_persist
+                ? m_settings.value(EchoMusic::SettingsKeys::Window::NormalGeometry).toRect()
+                : QRect{};
         if (QGuiApplication::platformName().startsWith("wayland")) {
             window->setMinimumSize({1100, 650});
             window->resize({qMax(1100, saved.isValid() ? saved.width() : 1150),
@@ -318,7 +332,9 @@ void WindowController::addLyricsMenuActions(QMenu *menu)
 }
 void WindowController::popupTrayMenu()
 {
-    if (m_shuttingDown || m_trayMenu)
+    // The SNI host owns placement, focus and dismissal of its remote menu.
+    // XEmbed also uses Qt's bound context menu; never open a second popup here.
+    if (m_shuttingDown || m_trayMenuModel || m_trayMenu)
         return;
     emit nativeMenuOpening();
     auto *menu = createTrayMenu();
@@ -345,6 +361,16 @@ void WindowController::popupTrayMenu()
 #endif
     connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
     menu->popup(QCursor::pos());
+}
+void WindowController::installTrayMenuModel()
+{
+    Q_ASSERT(m_tray && !m_trayMenuModel);
+    // A complete, stable command model is needed even while the panel is closed:
+    // GetLayout need not be preceded by AboutToShow, and hosts cache action IDs.
+    // QMenu is only the Qt exporter recipe; no local QWidget popup is shown for SNI.
+    m_trayMenuModel.reset(createTrayMenu());
+    connect(m_trayMenuModel.get(), &QMenu::aboutToShow, this, &WindowController::nativeMenuOpening);
+    m_tray->setContextMenu(m_trayMenuModel.get());
 }
 void WindowController::updateIncubationController()
 {
@@ -401,14 +427,14 @@ void WindowController::captureNormalGeometry()
 void WindowController::save()
 {
     if (m_persist && m_remember && m_normal.isValid())
-        m_settings.setValue("window/normalGeometry", m_normal);
+        m_settings.setValue(EchoMusic::SettingsKeys::Window::NormalGeometry, m_normal);
 }
 void WindowController::setRememberSize(bool remember)
 {
     if (m_remember == remember)
         return;
     m_remember = remember;
-    m_settings.setValue("window/rememberSize", remember);
+    m_settings.setValue(EchoMusic::SettingsKeys::Window::RememberSize, remember);
     emit changed();
 }
 void WindowController::minimize()
@@ -508,7 +534,7 @@ void WindowController::setCloseToTray(bool value)
     if (m_closeToTray == value)
         return;
     m_closeToTray = value;
-    m_settings.setValue("window/closeToTray", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Window::CloseToTray, value);
     if (!value && m_background)
         showWindow();
     emit changed();
@@ -518,7 +544,7 @@ void WindowController::setHideDockInBackground(bool value)
     if (m_hideDock == value)
         return;
     m_hideDock = value;
-    m_settings.setValue("window/hideDockInBackground", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Window::HideDockInBackground, value);
     if (m_background)
         setBackground(true);
     emit changed();
@@ -528,7 +554,7 @@ void WindowController::setHideMenuBarInBackground(bool value)
     if (m_hideMenu == value)
         return;
     m_hideMenu = value;
-    m_settings.setValue("window/hideMenuBarInBackground", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Window::HideMenuBarInBackground, value);
     if (m_background)
         setBackground(true);
     emit changed();
@@ -538,7 +564,7 @@ void WindowController::setStartMinimized(bool value)
     if (m_startMinimized == value)
         return;
     m_startMinimized = value;
-    m_settings.setValue("window/startMinimized", value);
+    m_settings.setValue(EchoMusic::SettingsKeys::Window::StartMinimized, value);
     emit changed();
 }
 void WindowController::setAutoLaunch(bool value)
@@ -627,8 +653,11 @@ void WindowController::shutdown()
     m_floating.shutdown();
     m_saveTimer.stop();
     save();
-    if (m_tray)
+    if (m_tray) {
         m_tray->hide();
+        m_tray->setContextMenu(nullptr);
+    }
+    m_trayMenuModel.reset();
     m_backdrop.attach(nullptr);
     if (m_window)
         m_window->close();

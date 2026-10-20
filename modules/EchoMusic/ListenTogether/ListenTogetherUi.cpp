@@ -278,14 +278,6 @@ ListenTogetherUi::ListenTogetherUi(ApiClient &api, PlaybackService &playback,
                                    RouteController &router, bool network, QObject *parent)
     : QObject(parent), m_api(api), m_playback(playback), m_library(library), m_metadata(metadata)
 {
-    router.registerPage({"listen-together",
-                         "/main/listen-together",
-                         QUrl("qrc:/qt/qml/EchoMusic/ListenTogether/ListenTogetherPage.qml"),
-                         {},
-                         true,
-                         true,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
     connect(&router, &RouteController::pageActivated, this, [this, network](RouteContext *context) {
         const bool active = context->name() == "listen-together";
         const auto roomId = context->query().value("roomId").toString().trimmed();
@@ -315,5 +307,20 @@ ListenSongPicker *ListenTogetherUi::createPicker(QObject *owner)
     auto *picker = new ListenSongPicker(m_api, m_playback, m_library, m_metadata, *room(), owner);
     QQmlEngine::setObjectOwnership(picker, QQmlEngine::CppOwnership);
     return picker;
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void ListenTogetherUi::registerRoutes(RouteController &router)
+{
+    router.registerPage({"listen-together",
+                         "/main/listen-together",
+                         QUrl("qrc:/qt/qml/EchoMusic/ListenTogether/ListenTogetherPage.qml"),
+                         {},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

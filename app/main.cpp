@@ -1,3 +1,4 @@
+#include "ApplicationTranslations.h"
 #include "Application.h"
 #include "NetworkBootstrap.h"
 #include "ApplicationUrlHandler.h"
@@ -40,6 +41,8 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     // Qt Widgets supplies native tray menus; the application UI stays Qt Quick.
     QApplication app(argc, argv);
+    EchoMusic::ApplicationTranslations translations;
+    translations.load(QLocale::system());
     EchoMusic::ApplicationUrlHandler urlHandler;
     EchoMusic::configureUiTypography();
     // Use the publisher identity: Qt app-data paths are <publisher>/<application>.

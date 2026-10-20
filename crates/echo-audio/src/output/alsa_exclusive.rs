@@ -2,12 +2,12 @@ use super::cpal_shared::OutputResampler;
 use crate::device::platform_linux::resolve_alsa_exclusive_device_name;
 use crate::events::{PlayerErrorCode, PlayerEvent};
 use crate::output::{
-    build_output_stats, emit_output_runtime_error, fill_output_reusing,
-    output_buffer_mode_for_frames, output_start_was_cancelled, report_output_start,
-    report_output_start_failure, OutputStartSender, OutputStopToken,
+    OutputStartSender, OutputStopToken, build_output_stats, emit_output_runtime_error,
+    fill_output_reusing, output_buffer_mode_for_frames, output_start_was_cancelled,
+    report_output_start, report_output_start_failure,
 };
-use crate::shared::{AudioSampleFormat, SharedAudio, MIX_CHANNELS};
-use alsa::pcm::{Access, Format, HwParams, State, PCM};
+use crate::shared::{AudioSampleFormat, MIX_CHANNELS, SharedAudio};
+use alsa::pcm::{Access, Format, HwParams, PCM, State};
 use alsa::{Direction, Error, ValueOr};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};

@@ -57,7 +57,8 @@ QtObject {
         const surface = item;
         const token = revision;
         Qt.callLater(function () {
-            if (surface && owner.item === surface && token === owner.revision && !surface.visible) {
+            // The host can be destroyed before this queued close completes.
+            if (owner && surface && owner.item === surface && token === owner.revision && !surface.visible) {
                 owner.item = null;
                 surface.destroy();
             }

@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "SettingsBackupRestore.h"
 #include "SettingsBackupArchive.h"
 #include "PluginDataTransaction.h"
@@ -57,7 +58,7 @@ SettingsRestoreResult SettingsBackupRestore::prepare(const QString &staging,
         const auto entries = manifest.value("plugins").toArray();
         for (int i = 0; i < entries.size(); ++i) {
             const auto entry = entries[i].toObject();
-            const auto prefix = QString("plugins/%1").arg(i);
+            const auto prefix = QString(EchoMusic::SettingsKeys::Plugins::EntryFormat).arg(i);
             if (entry.value("prefix").toString() != prefix)
                 return {"Invalid backup plugin path", {}, {}};
             const auto origin = entry.value("origin").toObject().toVariantMap();
@@ -190,7 +191,7 @@ void SettingsBackupRestore::restorePreferences(QSettings &settings, const QJsonO
         if (SettingsBackupArchive::portableKey(value.toString()))
             settings.remove(value.toString());
     if (journal.value("includesPlugins").toBool())
-        settings.setValue("plugins/installations",
+        settings.setValue(EchoMusic::SettingsKeys::Plugins::Installations,
                           journal.value("oldCatalog").toArray().toVariantList());
     settings.sync();
 }

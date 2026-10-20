@@ -64,3 +64,5 @@ target_link_libraries(
             Qt6::QuickControls2
 )
 target_include_directories(echo_discovery PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(echo_discovery PRIVATE echo_settings_keys)

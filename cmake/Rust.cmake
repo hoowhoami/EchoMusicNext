@@ -7,8 +7,8 @@ if(APPLE)
     )
 endif()
 set(ECHO_CARGO_DIR
-    "${CMAKE_BINARY_DIR}/rust"
-    CACHE PATH "Cargo-managed native artifact directory"
+    "${PROJECT_SOURCE_DIR}/target"
+    CACHE PATH "Cargo-managed native artifact directory (serialize builds sharing this cache)"
 )
 # Match CMake's selected build configuration, including multi-config generators.
 # RelWithDebInfo/MinSizeRel use Cargo's optimized release profile; Debug and an

@@ -1,4 +1,4 @@
-#include "DspProviderRegistry.h"
+#include "DspProviderRegistry_p.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>

@@ -1,0 +1,21 @@
+name: Architecture checks
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: architecture-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  boundaries:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Architecture constraints and mutation tests
+        run: |
+          python tools/verification/check-architecture.py
+          python -m unittest discover -s tests/tooling -p test_architecture.py -v

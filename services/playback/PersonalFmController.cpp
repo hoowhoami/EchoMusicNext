@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "PersonalFmController.h"
 #include "PlaybackService.h"
 #include "PlaybackFailureController.h"
@@ -18,8 +19,8 @@ PersonalFmController::PersonalFmController(PlaybackService &playback, ApiClient 
                                            QSettings &settings)
     : QObject(&playback), m_playback(playback), m_api(api), m_settings(settings)
 {
-    m_mode = qBound(0, settings.value("personalFm/mode", 0).toInt(), 3);
-    m_pool = qBound(0, settings.value("personalFm/songPool", 0).toInt(), 2);
+    m_mode = qBound(0, settings.value(EchoMusic::SettingsKeys::PersonalFm::Mode, 0).toInt(), 3);
+    m_pool = qBound(0, settings.value(EchoMusic::SettingsKeys::PersonalFm::SongPool, 0).toInt(), 2);
     connect(&api, &ApiClient::succeeded, this, &PersonalFmController::succeeded);
     connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &bytes) {
         failed(id, QJsonDocument::fromJson(bytes).object().value("message").toString(
@@ -146,8 +147,8 @@ bool PersonalFmController::currentPlaying() const
 }
 void PersonalFmController::savePreferences()
 {
-    m_settings.setValue("personalFm/mode", m_mode);
-    m_settings.setValue("personalFm/songPool", m_pool);
+    m_settings.setValue(EchoMusic::SettingsKeys::PersonalFm::Mode, m_mode);
+    m_settings.setValue(EchoMusic::SettingsKeys::PersonalFm::SongPool, m_pool);
 }
 void PersonalFmController::setPageActive(bool visible, bool networkEnabled)
 {

@@ -24,6 +24,8 @@ class RecognitionService final : public QObject
     Q_PROPERTY(EchoMusic::SongCatalogActions *actions READ actions CONSTANT)
     Q_PROPERTY(EchoMusic::PlaybackAudioControls *audio READ audio CONSTANT)
 public:
+    /// Explicit UI composition; construction alone does not register pages.
+    void registerRoutes(RouteController &router);
     enum State
     {
         Idle,

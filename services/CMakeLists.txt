@@ -1,3 +1,4 @@
+add_subdirectory(settings)
 add_subdirectory(credentials)
 add_subdirectory(network)
 add_subdirectory(bridge)

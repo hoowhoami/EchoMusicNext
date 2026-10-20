@@ -26,6 +26,8 @@
 #include <QJsonDocument>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQmlContext>
+#include <QQmlProperty>
 #include <QQmlIncubationController>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -315,9 +317,18 @@ QQuickItem *visualInBounds(QQuickItem *item, const QString &name, const QRectF &
 }
 void click(QQuickWindow *window, QQuickItem *item)
 {
+    QPointer<QQuickItem> target(item);
+    QVERIFY2(target, "Native click target must be mounted");
     QVERIFY(Test::prepareNativeInput(window));
-    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-                      item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint());
+    QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+    window->requestUpdate();
+    QTRY_VERIFY(!frames.isEmpty());
+    QVERIFY2(target, "Native click target was retired during window activation");
+    QTRY_VERIFY(target && target->width() > 0 && target->height() > 0);
+    const auto point =
+        target->mapToScene(QPointF(target->width() / 2, target->height() / 2)).toPoint();
+    Test::moveNativePointer(window, point);
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
 }
 QList<QObject *> popups(QObject *host)
 {
@@ -391,6 +402,7 @@ private slots:
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("song-detail", {}, "32042818"));
         auto *c = service.songFor(router.current())->comments();
         QAbstractItemModelTester tester(c->model(),
@@ -441,6 +453,7 @@ private slots:
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
         QVERIFY(router.navigate("song-detail", {{"mixSongId", "32042818"}}, "32042818"));
         auto *c = service.songFor(router.current());
         QVERIFY(c);
@@ -512,6 +525,7 @@ private slots:
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
         ShellController commands(prefs, router);
         auto track = PlaybackTrack::fromDomain(
             {{"id", "1"},
@@ -583,6 +597,7 @@ private slots:
         PlaybackService playback(api, preferences, nullptr, directory.filePath("playback.sqlite"));
         RouteController router;
         DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
         ShellSettings settings(preferences);
         settings.setMvBarrageEnabled(false);
         ThemeStore theme(preferences);
@@ -730,6 +745,7 @@ Window {
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
         ThemeStore theme(prefs);
         QVERIFY(router.navigate("song-detail", {{"tab", "comment"}}, "32042818"));
         auto *song = service.songFor(router.current());
@@ -805,6 +821,7 @@ Window {
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
         ShellSettings shell(prefs);
         ThemeStore theme(prefs);
         theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
@@ -980,6 +997,10 @@ Window {
                 expanded = entry.value("content_expanded").toBool();
         }
         QVERIFY(expanded);
+        const QQmlProperty wheelRunning(list, "EchoWheelScroll.running", qmlContext(list));
+        QVERIFY(wheelRunning.isValid());
+        QTRY_VERIFY(!wheelRunning.read().toBool());
+        QTRY_VERIFY(!list->property("moving").toBool());
         QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtEnd"));
         QQuickItem *lastRow = nullptr;
         QTRY_VERIFY(QMetaObject::invokeMethod(list, "rowItemAt",
@@ -1017,16 +1038,20 @@ Window {
         RouteController router;
         WindowController windows(prefs, false);
         DetailsService service(api, playback, router, false, nullptr, nullptr, &windows);
+        service.registerRoutes(router);
         service.setNetworkPreferences(&network);
         AlbumDetailService albums(api, playback, router, false);
+        albums.registerRoutes(router);
         ShellSettings shell(prefs);
         ArtistDetailService artistCatalog(api, playback, router, shell, false);
+        artistCatalog.registerRoutes(router);
         UserPlaylistModel library(api);
         PlaylistMutationService mutations(api);
         PlaylistOrderModel order(api, mutations);
         SongMetadataService songMetadata(api);
         PlaylistDetailService playlists(api, playback, library, mutations, order, songMetadata,
                                         router, false);
+        playlists.registerRoutes(router);
         ShellController commands(prefs, router);
         commands.attachPlayback(playback);
         ThemeStore theme(prefs);
@@ -1381,14 +1406,27 @@ Window {
                                    ? albums.contextFor(router.current())->comments()
                                    : playlists.contextFor(router.current())->comments();
             DetailsTestAccess::comments(*controller, 30);
-            QTRY_VERIFY(visual(window->contentItem(), "commentDraft"));
-            auto *catalog = visual(window->contentItem(), "songCatalogView");
-            QVERIFY(catalog);
+            // RouteHost retains a bounded LRU. Wait for this active context's
+            // page and its incubated tab delegates, not a retired page's ids.
+            QQuickItem *activePage = nullptr;
+            QTRY_VERIFY((activePage = visual(window->contentItem(), route == "album-detail"
+                                                                        ? "albumDetailPage"
+                                                                        : "playlistDetailPage")) &&
+                        activePage->property("context").value<RouteContext *>() ==
+                            router.current());
+            QQuickItem *catalog = nullptr;
+            QTRY_VERIFY((catalog = visual(activePage, "songCatalogView")));
+            QTRY_VERIFY(visual(catalog, "commentDraft"));
             QCOMPARE(catalog->property("toolbarHeight").toReal(), 56.);
             QTRY_VERIFY(visual(window->contentItem(), "detailTabIndicator"));
             QTRY_VERIFY(visual(window->contentItem(), "detailTabIndicator")->width() > 0);
-            QPointer<QQuickItem> editor = visual(window->contentItem(), "commentDraft");
-            click(window, visual(window->contentItem(), "detailTab-0"));
+            QPointer<QQuickItem> editor = visual(catalog, "commentDraft");
+            QQuickItem *songsTab = nullptr;
+            QTRY_VERIFY((songsTab = visual(catalog, "detailTab-0")));
+            QTRY_VERIFY(songsTab->isEnabled());
+            QSignalSpy tabClicked(songsTab, SIGNAL(clicked()));
+            click(window, songsTab);
+            QTRY_COMPARE(tabClicked.size(), 1);
             QTRY_COMPARE(router.current()->query().value("tab").toString(), QString("songs"));
             QTRY_VERIFY(!editor);
             auto *songs = route == "album-detail" ? albums.contextFor(router.current())->songs()
@@ -1632,6 +1670,7 @@ Window {
         WindowController windows(prefs, false);
         CommentAuthorService authors(api, true);
         DetailsService service(api, playback, router, true, nullptr, &authors, &windows);
+        service.registerRoutes(router);
         service.setNetworkPreferences(&network);
         ShellController commands(prefs, router);
         commands.attachPlayback(playback);

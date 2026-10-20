@@ -5,22 +5,13 @@ namespace EchoMusic
 PlaylistDetailService::PlaylistDetailService(
     ApiClient &api, PlaybackService &playback, UserPlaylistModel &library,
     PlaylistMutationService &mutations, PlaylistOrderModel &order, SongMetadataService &metadata,
-    RouteController &router, bool networkEnabled, QObject *parent, CommentAuthorService *authors)
+    RouteController &, bool networkEnabled, QObject *parent, CommentAuthorService *authors)
     : QObject(parent), m_authors(authors), m_api(api), m_playback(playback), m_library(library),
       m_mutations(mutations), m_order(order), m_metadata(metadata), m_network(networkEnabled)
 {
     // QML borrows this application-owned object, including explicit invokable
     // returns. GC and engine teardown must never delete a C++ member/context.
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
-
-    router.registerPage({"playlist-detail",
-                         "/main/playlist/:id",
-                         QUrl("qrc:/qt/qml/EchoMusic/Playlists/PlaylistDetailPage.qml"),
-                         {"tab"},
-                         true,
-                         true,
-                         false,
-                         {{"service", QVariant::fromValue(this)}}});
 }
 PlaylistDetailService::~PlaylistDetailService()
 {
@@ -56,5 +47,20 @@ void PlaylistDetailService::shutdown()
     for (const auto &context : std::as_const(m_contexts))
         if (context)
             context->shutdown();
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void PlaylistDetailService::registerRoutes(RouteController &router)
+{
+    router.registerPage({"playlist-detail",
+                         "/main/playlist/:id",
+                         QUrl("qrc:/qt/qml/EchoMusic/Playlists/PlaylistDetailPage.qml"),
+                         {"tab"},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
 }
 } // namespace EchoMusic

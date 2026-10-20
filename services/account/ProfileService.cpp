@@ -431,9 +431,10 @@ void ProfileService::saveProfile(const QString &name, int gender, const QString 
 {
     if (!current() || m_save)
         return;
-    auto reject = [this](const QString &message) {
+    auto reject = [this](const QString &message, int tone = 2) {
         m_editorError = message;
         emit changed();
+        emit editNotice(message, tone);
     };
     const auto nickname = name.trimmed(), p = province.trimmed(), c = city.trimmed(),
                b = birthday.trimmed();
@@ -478,14 +479,18 @@ void ProfileService::saveProfile(const QString &name, int gender, const QString 
         patch.city = c;
     if (!patch.nickname && !patch.gender && !patch.birthday && !patch.signature &&
         !patch.province && !patch.city) {
-        reject(tr("资料没有变化"));
+        reject(tr("资料没有变化"), 0);
         return;
     }
     m_patch = patch;
     m_editorError.clear();
     m_save = m_api.updateUserProfile(patch);
-    if (!m_save)
+    if (!m_save) {
         m_editorError = tr("个人资料保存失败，请稍后重试");
+        emit changed();
+        emit editNotice(m_editorError, 3);
+        return;
+    }
     emit changed();
 }
 void ProfileService::succeeded(quint64 id, const QByteArray &payload)
@@ -667,6 +672,7 @@ void ProfileService::succeeded(quint64 id, const QByteArray &payload)
         if (!document.object().value("updated").toBool()) {
             m_editorError = tr("个人资料保存失败，请稍后重试");
             emit changed();
+            emit editNotice(m_editorError, 3);
             return;
         }
         const auto revision = m_revision;
@@ -675,8 +681,10 @@ void ProfileService::succeeded(quint64 id, const QByteArray &payload)
         if (!current() || revision != m_revision)
             return;
         emit changed();
-        if (!m_save)
+        if (!m_save) {
             emit profileSaved();
+            emit editNotice(tr("个人资料已更新"), 1);
+        }
     }
 }
 void ProfileService::failed(quint64 id, const QByteArray &payload)
@@ -752,6 +760,7 @@ void ProfileService::failed(quint64 id, const QByteArray &payload)
         m_patch = {};
         m_editorError = tr("个人资料保存失败，请稍后重试");
         emit changed();
+        emit editNotice(m_editorError, 3);
     }
 }
 } // namespace EchoMusic

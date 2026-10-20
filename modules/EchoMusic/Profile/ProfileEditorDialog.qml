@@ -193,14 +193,6 @@ EchoDialog {
                         }
                     }
                 }
-                Label {
-                    visible: dialog.profile.editorError.length > 0
-                    Layout.fillWidth: true
-                    text: dialog.profile.editorError
-                    color: "#ef4444"
-                    font: Theme.font(12, Theme.regularWeight)
-                    wrapMode: Text.Wrap
-                }
             }
         }
     }

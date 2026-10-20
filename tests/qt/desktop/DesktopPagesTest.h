@@ -1,0 +1,115 @@
+#pragma once
+#include <QObject>
+#include <QNetworkProxy>
+#include <QFont>
+
+class DesktopPagesTest : public QObject
+{
+    Q_OBJECT
+private:
+    QNetworkProxy m_initialProxy;
+    QFont m_initialFont;
+    bool m_initialSystemProxy = false;
+private slots:
+    void initTestCase();
+    void cleanup();
+    void startupUsesRealFailuresAndReleasesItsEntirePage();
+    void recoveryStartupWindowRetriesAndExitsWithoutBusinessOwners();
+    void settingsSearchClearRestoresCategoriesAndKeepsFocus();
+    void playbackFallbackControlsUseProductionUi();
+    void lyricFontSettingsApplyToProductionWindows();
+    void lyricVariantSettingUsesProductionSelectAndReleasesPopup();
+    void productionPopupsFollowRequestOwnership();
+    void floatingLyricsFollowRealAudioAndStopMotionOnPause();
+    void miniWidthPreferencesClampAndRestore_data();
+    void miniWidthPreferencesClampAndRestore();
+    void miniProgressVolumeBackdropFavoriteAndDesktopBadge_data();
+    void miniProgressVolumeBackdropFavoriteAndDesktopBadge();
+    void lyricSettingsShareCoverPickerAndExcludeTaskbar();
+    void floatingPreferencesAndFilteredTimelineKeepIdentity();
+    void desktopLyricsMatchSourceChromeAndHoverUnlock();
+    void nativeFloatingWindowsShareStateAndReleaseAcrossCycles();
+    void audibleTransitionPublishesOneToastThroughShell();
+    void nativePlaybackSurvivesRepeatedAppearanceUpdates();
+    void productionHeaderWindowActionsStayAtRightEdge();
+    void fullscreenShortcutReachesModalPlaybackPage();
+    void productionExperimentalIdentitySettings_data();
+    void productionExperimentalIdentitySettings();
+    void productionExperimentalLoggingSettings_data();
+    void productionExperimentalLoggingSettings();
+    void productionNetworkSettingsDraftApplyResetAndTheme_data();
+    void productionNetworkSettingsDraftApplyResetAndTheme();
+    void productionPlayerEngineSettingsDecimalInputAndLifecycle();
+    void productionVariableDialogSizingReopens();
+    void settingsDefaultsAndSourceEffectFileManager();
+    void nativeOutputDeviceSelectHasOneDefaultChoice();
+    void playbackQueueEmptyIndicatorAndCloseIcon();
+    void committedTrackClimaxFromLiveNativeApi();
+    void playbackZoomShortcutsFollowSharedScale();
+    void playbackChromeMatchesSource();
+    void playbackLoadingRevealsFinalPlayPauseIcon();
+    void playbackToolbarsMatchSourceAcrossWidths();
+    void productionPlaybackPopoverSpacingAndEffectMarkers();
+    void productionEffectPanelAlignmentAndCompactContentTabs();
+    void productionResolvedQualityMarksPickerAndToolbar();
+    void productionQualityPopupContainsAndScrollsAllOptions();
+    void productionEmbeddedLyricsFromActualReader();
+    void productionLyricPreviewKeepsSymmetricInsets();
+    void productionLyricKeywordSearchFromLiveNativeApi();
+    void productionLyricAutomaticFallbackFromLiveNativeApi();
+    void productionLyricSelectionFromLiveNativeApi();
+    void productionAddToReopenStableHeight();
+    void productionAddToHeaderAlignment();
+    void playerMetadataLinksUseProductionRoutes();
+    void realPlaybackSurfacesAndBoundedFiftyThousandQueue();
+    void preferencesPreserveUnknownTagsValidateAndKeepFailedDraft();
+    void missingMembershipCodesKeepProductsWithoutInventingKnownRights();
+    void missingPreferenceFactsDoNotBecomeExplicitClears();
+    void profileWritesRejectInvalidDraftAndCancelOlderRead();
+    void liveSameAvatarThroughQtService();
+    void avatarUploadRejectsInvalidFilesAndIgnoresOldAccountCompletion();
+    void productionCollectionAndSocialEntrypoints();
+    void socialAndDeviceCachesBelongToAccountAndTab();
+    void windowSettingsNeverHideWithoutNativeRecovery();
+    void startupEntryEscapesBothDesktopParsingLayers();
+    void livePlaylistImportsThroughQtService();
+    void playlistImportBackgroundResultsStopAndSessionIsolation();
+    void screenshotTargetSnapshotAndDuplicateConfirmation();
+    void productionSidebarImportEntranceAndModes();
+    void incompleteAndRepeatedLibraryIdsKeepEveryRow();
+    void libraryConsumersAcceptPageEchoAndCountVariations();
+    void playlistOrderKeepsFixedSlotsAndRejectsChangedVersions();
+    void productionSidebarOrderEditor();
+    void sidebarLayoutPersistsAndKeepsGroupsAndOneShortcut();
+    void sidebarHomeAndDragTransaction();
+    void sidebarShortcutCollapseFrames_data();
+    void sidebarShortcutCollapseFrames();
+    void sidebarShortcutHoverDragAcrossThemesAndScales_data();
+    void sidebarShortcutHoverDragAcrossThemesAndScales();
+    void sidebarShortcutHoverDragAndFocus();
+    void sidebarHistoryNavigationRevealsPlaylistSection_data();
+    void sidebarHistoryNavigationRevealsPlaylistSection();
+    void productionSidebarScrollbar();
+    void productionSidebarCardsMenusAndLayout();
+    void signedOutAccountPopoverAndOddShortcutWidths();
+    void remainingSettingsProductionSections();
+    void settingsFilterAndUnsupportedProviderNeverLoadStub();
+    void accountProfileAndGradeRejectOldAccountResult();
+    void identityProjectionAndSessionIsolation();
+    void productionIdentitySummaryAndAvatarCorners();
+    void globalFontUsesInstalledFamilyAndRestoresPreference();
+    void fixedProfileSocialAndSidebarActionsKeepIntrinsicWidths();
+    void productionProfileNameTagsStayAligned();
+    void productionProfileFieldsAndMembershipDates();
+    void productionAccountSurfacesAndAnchors();
+    void profileEditorKeepsEqualColumnsAndDateActionsClear();
+    void profileEditorValidationFeedbackStaysVisibleWithoutScrolling();
+    void liveContentBlacklistThroughQtService();
+    void songMenuBlacklistUsesIndexLoadAndSharedWriteChannel();
+    void contentBlacklistPaginationRemovalAndSessionIsolation();
+    void productionContentBlacklistKeepsPreferencesDraftAndVirtualScroll();
+    void deviceRemovalRequiresConfirmationRefreshAndCurrentSession();
+    void profileDevicesKeepInlineStatusAndBoundedViewport();
+    void profileRelatedScrollBarsUseNativeMapping();
+    void productionProfileSettingsAndSidebarOverlays();
+};

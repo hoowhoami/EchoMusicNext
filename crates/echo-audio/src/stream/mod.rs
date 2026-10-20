@@ -3,8 +3,8 @@ mod http;
 mod url;
 
 use std::io::{Read, Seek};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 pub trait ReadSeek: Read + Seek + Send {}

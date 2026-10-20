@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "DeviceIdentity.h"
 #include <QCryptographicHash>
 #include <QRegularExpression>
@@ -17,9 +18,12 @@ QString createDeviceGuid()
 }
 void removeDevicePreferences(QSettings &settings)
 {
-    for (const auto *key :
-         {"network/registeredDevice", "network/deviceGuid", "network/deviceFingerprint",
-          "network/deviceMac", "network/deviceUuid", "network/renderFingerprint"})
+    for (const auto key :
+         {EchoMusic::SettingsKeys::Network::RegisteredDevice,
+          EchoMusic::SettingsKeys::Network::DeviceGuid,
+          EchoMusic::SettingsKeys::Network::DeviceFingerprint,
+          EchoMusic::SettingsKeys::Network::DeviceMac, EchoMusic::SettingsKeys::Network::DeviceUuid,
+          EchoMusic::SettingsKeys::Network::RenderFingerprint})
         settings.remove(QLatin1String(key));
 }
 } // namespace
@@ -27,7 +31,7 @@ bool DeviceIdentity::resetOnRestart(QSettings &settings)
 {
     // A registration writer may already hold an old immutable snapshot. The marker
     // survives that write; load() clears it again only after the old process drained.
-    settings.setValue(QStringLiteral("network/resetDeviceIdentity"), true);
+    settings.setValue(EchoMusic::SettingsKeys::Network::ResetDeviceIdentity, true);
     removeDevicePreferences(settings);
     settings.sync();
     return settings.status() == QSettings::NoError;
@@ -71,7 +75,7 @@ bool DeviceIdentity::saveRegistration(QSettings &settings, const DeviceIdentity 
         device.uuid.isEmpty() || device.renderFingerprint.isEmpty())
         return false;
     // One value preserves the DFID/GUID association as a complete preference snapshot.
-    settings.setValue(QStringLiteral("network/registeredDevice"),
+    settings.setValue(EchoMusic::SettingsKeys::Network::RegisteredDevice,
                       QVariantMap{{"guid", device.guid},
                                   {"dfid", device.dfid},
                                   {"mid", device.mid},
@@ -83,12 +87,13 @@ bool DeviceIdentity::saveRegistration(QSettings &settings, const DeviceIdentity 
 }
 DeviceIdentity DeviceIdentity::load(QSettings &settings)
 {
-    if (settings.value(QStringLiteral("network/resetDeviceIdentity")).toBool()) {
+    if (settings.value(EchoMusic::SettingsKeys::Network::ResetDeviceIdentity).toBool()) {
         removeDevicePreferences(settings);
-        settings.remove(QStringLiteral("network/resetDeviceIdentity"));
+        settings.remove(EchoMusic::SettingsKeys::Network::ResetDeviceIdentity);
         settings.sync();
     }
-    const auto registered = settings.value(QStringLiteral("network/registeredDevice")).toMap();
+    const auto registered =
+        settings.value(EchoMusic::SettingsKeys::Network::RegisteredDevice).toMap();
     const auto guidValue = registered.value("guid").toString();
     const auto dfidValue = registered.value("dfid").toString();
     if (QRegularExpression(QStringLiteral("^[0-9a-f]{32}$")).match(guidValue).hasMatch() &&
@@ -106,14 +111,15 @@ DeviceIdentity DeviceIdentity::load(QSettings &settings)
                 registered.value("renderFingerprint").toString()};
     }
 
-    QString guid = settings.value(QStringLiteral("network/deviceGuid")).toString();
+    QString guid = settings.value(EchoMusic::SettingsKeys::Network::DeviceGuid).toString();
     if (!QRegularExpression(QStringLiteral("^[0-9a-f]{32}$")).match(guid).hasMatch()) {
         guid = createDeviceGuid();
-        settings.setValue(QStringLiteral("network/deviceGuid"), guid);
-        settings.remove(QStringLiteral("network/deviceFingerprint"));
+        settings.setValue(EchoMusic::SettingsKeys::Network::DeviceGuid, guid);
+        settings.remove(EchoMusic::SettingsKeys::Network::DeviceFingerprint);
     }
     QString fingerprint =
-        settings.value(QStringLiteral("network/deviceFingerprint"), QStringLiteral("-")).toString();
+        settings.value(EchoMusic::SettingsKeys::Network::DeviceFingerprint, QStringLiteral("-"))
+            .toString();
     if (fingerprint.isEmpty())
         fingerprint = QStringLiteral("-");
     auto value = [&settings](const QString &key, const QString &fallback) {
@@ -129,10 +135,10 @@ DeviceIdentity DeviceIdentity::load(QSettings &settings)
     return {midForGuid(guid),
             fingerprint,
             guid,
-            value(QStringLiteral("network/deviceMac"), QStringLiteral("02:00:00:00:00:00")),
+            value(EchoMusic::SettingsKeys::Network::DeviceMac, QStringLiteral("02:00:00:00:00:00")),
             QStringLiteral("EchoMusicNext"),
-            value(QStringLiteral("network/deviceUuid"), QStringLiteral("-")),
-            value(QStringLiteral("network/renderFingerprint"),
+            value(EchoMusic::SettingsKeys::Network::DeviceUuid, QStringLiteral("-")),
+            value(EchoMusic::SettingsKeys::Network::RenderFingerprint,
                   QString::number(QRandomGenerator::global()->generate64()))};
 }
 } // namespace EchoMusic

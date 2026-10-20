@@ -127,11 +127,13 @@ mod tests {
             );
             assert_eq!(text.chars().count(), result.chars().count());
         }
-        assert!(convert_batch(vec![], "s2t-variants".into())
-            .unwrap()
-            .execute()
-            .unwrap()
-            .is_empty());
+        assert!(
+            convert_batch(vec![], "s2t-variants".into())
+                .unwrap()
+                .execute()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

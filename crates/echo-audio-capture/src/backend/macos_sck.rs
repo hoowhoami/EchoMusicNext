@@ -3,7 +3,7 @@ use block2::RcBlock;
 use dispatch2::{DispatchQueue, DispatchRetained};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, AnyProtocol, Bool, ClassBuilder, NSObject, Sel};
-use objc2::{msg_send, sel, ClassType};
+use objc2::{ClassType, msg_send, sel};
 use objc2_foundation::{NSMutableArray, NSString};
 use std::ffi::{c_char, c_void};
 use std::ptr::{self, NonNull};
@@ -54,7 +54,7 @@ struct AudioBufferList {
 }
 
 #[link(name = "CoreMedia", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     fn CMSampleBufferGetDataBuffer(sample_buffer: CMSampleBufferRef) -> CMBlockBufferRef;
     fn CMSampleBufferGetFormatDescription(
         sample_buffer: CMSampleBufferRef,
@@ -89,12 +89,12 @@ extern "C" {
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     fn CFRelease(cf: CFTypeRef);
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     fn CGPreflightScreenCaptureAccess() -> bool;
     fn CGRequestScreenCaptureAccess() -> bool;
 }
@@ -260,89 +260,91 @@ unsafe fn build_and_start_stream(
     last_error: Arc<Mutex<Option<String>>>,
     waiter: StartWaiter,
 ) -> Result<(), String> {
-    if !error.is_null() {
-        return Err(format!(
-            "ScreenCaptureKit content request failed: {}",
-            ns_error(error)
-        ));
-    }
-    if content.is_null() {
-        return Err("ScreenCaptureKit returned no shareable content".to_string());
-    }
-
-    let displays: *mut AnyObject = msg_send![content, displays];
-    if displays.is_null() {
-        return Err("ScreenCaptureKit returned no display list".to_string());
-    }
-    let display_count: usize = msg_send![displays, count];
-    if display_count == 0 {
-        return Err("ScreenCaptureKit found no capturable display".to_string());
-    }
-    let display: *mut AnyObject = msg_send![displays, objectAtIndex: 0usize];
-    if display.is_null() {
-        return Err("ScreenCaptureKit display is null".to_string());
-    }
-
-    let config = make_stream_configuration()?;
-    let filter = make_content_filter(display)?;
-    let output = make_output(callback_state)?;
-    let queue = DispatchQueue::new("com.echomusic.spectrum.sck-audio", None);
-    let stream = make_stream(&filter, &config, &output)?;
-
-    let mut add_error: *mut AnyObject = ptr::null_mut();
-    let added: Bool = msg_send![
-        &*stream,
-        addStreamOutput: &*output,
-        type: SC_STREAM_OUTPUT_TYPE_AUDIO,
-        sampleHandlerQueue: &*queue,
-        error: &mut add_error
-    ];
-    if !added.as_bool() {
-        return Err(format!(
-            "ScreenCaptureKit add audio output failed: {}",
-            ns_error(add_error)
-        ));
-    }
-
-    let stream_raw = Retained::into_raw(stream) as usize;
-    let output_raw = Retained::into_raw(output) as usize;
-    let queue_raw = DispatchRetained::into_raw(queue).as_ptr() as usize;
-    let sample_rate = DEFAULT_SAMPLE_RATE;
-    let waiter_for_start = waiter.clone();
-
-    let start_block = RcBlock::new(move |start_error: *mut AnyObject| {
-        if start_error.is_null() {
-            complete_waiter(
-                &waiter_for_start,
-                Ok(StartedObjects {
-                    stream: stream_raw,
-                    output: output_raw,
-                    queue: queue_raw,
-                    sample_rate,
-                }),
-            );
-        } else {
-            unsafe {
-                release_raw_objects(stream_raw, output_raw, queue_raw);
-            }
-            complete_waiter(
-                &waiter_for_start,
-                Err(format!(
-                    "ScreenCaptureKit start capture failed: {}",
-                    ns_error(start_error)
-                )),
-            );
+    unsafe {
+        if !error.is_null() {
+            return Err(format!(
+                "ScreenCaptureKit content request failed: {}",
+                ns_error(error)
+            ));
         }
-    });
+        if content.is_null() {
+            return Err("ScreenCaptureKit returned no shareable content".to_string());
+        }
 
-    let stream_ref = &*(stream_raw as *mut AnyObject);
-    let _: () = msg_send![stream_ref, startCaptureWithCompletionHandler: &*start_block];
+        let displays: *mut AnyObject = msg_send![content, displays];
+        if displays.is_null() {
+            return Err("ScreenCaptureKit returned no display list".to_string());
+        }
+        let display_count: usize = msg_send![displays, count];
+        if display_count == 0 {
+            return Err("ScreenCaptureKit found no capturable display".to_string());
+        }
+        let display: *mut AnyObject = msg_send![displays, objectAtIndex: 0usize];
+        if display.is_null() {
+            return Err("ScreenCaptureKit display is null".to_string());
+        }
 
-    if let Ok(mut guard) = last_error.lock() {
-        *guard = None;
+        let config = make_stream_configuration()?;
+        let filter = make_content_filter(display)?;
+        let output = make_output(callback_state)?;
+        let queue = DispatchQueue::new("com.echomusic.spectrum.sck-audio", None);
+        let stream = make_stream(&filter, &config, &output)?;
+
+        let mut add_error: *mut AnyObject = ptr::null_mut();
+        let added: Bool = msg_send![
+            &*stream,
+            addStreamOutput: &*output,
+            type: SC_STREAM_OUTPUT_TYPE_AUDIO,
+            sampleHandlerQueue: &*queue,
+            error: &mut add_error
+        ];
+        if !added.as_bool() {
+            return Err(format!(
+                "ScreenCaptureKit add audio output failed: {}",
+                ns_error(add_error)
+            ));
+        }
+
+        let stream_raw = Retained::into_raw(stream) as usize;
+        let output_raw = Retained::into_raw(output) as usize;
+        let queue_raw = DispatchRetained::into_raw(queue).as_ptr() as usize;
+        let sample_rate = DEFAULT_SAMPLE_RATE;
+        let waiter_for_start = waiter.clone();
+
+        let start_block = RcBlock::new(move |start_error: *mut AnyObject| {
+            if start_error.is_null() {
+                complete_waiter(
+                    &waiter_for_start,
+                    Ok(StartedObjects {
+                        stream: stream_raw,
+                        output: output_raw,
+                        queue: queue_raw,
+                        sample_rate,
+                    }),
+                );
+            } else {
+                unsafe {
+                    release_raw_objects(stream_raw, output_raw, queue_raw);
+                }
+                complete_waiter(
+                    &waiter_for_start,
+                    Err(format!(
+                        "ScreenCaptureKit start capture failed: {}",
+                        ns_error(start_error)
+                    )),
+                );
+            }
+        });
+
+        let stream_ref = &*(stream_raw as *mut AnyObject);
+        let _: () = msg_send![stream_ref, startCaptureWithCompletionHandler: &*start_block];
+
+        if let Ok(mut guard) = last_error.lock() {
+            *guard = None;
+        }
+
+        Ok(())
     }
-
-    Ok(())
 }
 
 fn wait_for_start(waiter: &StartWaiter, timeout: Duration) -> Result<StartResult, String> {
@@ -376,32 +378,32 @@ unsafe fn make_stream_configuration() -> Result<Retained<AnyObject>, String> {
     let config_class = class("SCStreamConfiguration")?;
     let config: Retained<AnyObject> = msg_send![config_class, new];
 
-    if responds_to(&config, sel!(setWidth:)) {
+    if unsafe { responds_to(&config, sel!(setWidth:)) } {
         let _: () = msg_send![&*config, setWidth: 2usize];
     }
-    if responds_to(&config, sel!(setHeight:)) {
+    if unsafe { responds_to(&config, sel!(setHeight:)) } {
         let _: () = msg_send![&*config, setHeight: 2usize];
     }
-    if responds_to(&config, sel!(setQueueDepth:)) {
+    if unsafe { responds_to(&config, sel!(setQueueDepth:)) } {
         let _: () = msg_send![&*config, setQueueDepth: 1isize];
     }
-    if responds_to(&config, sel!(setShowsCursor:)) {
+    if unsafe { responds_to(&config, sel!(setShowsCursor:)) } {
         let _: () = msg_send![&*config, setShowsCursor: Bool::NO];
     }
-    if responds_to(&config, sel!(setCapturesAudio:)) {
+    if unsafe { responds_to(&config, sel!(setCapturesAudio:)) } {
         let _: () = msg_send![&*config, setCapturesAudio: Bool::YES];
     }
-    if responds_to(&config, sel!(setExcludesCurrentProcessAudio:)) {
+    if unsafe { responds_to(&config, sel!(setExcludesCurrentProcessAudio:)) } {
         let _: () = msg_send![&*config, setExcludesCurrentProcessAudio: Bool::NO];
     }
-    if responds_to(&config, sel!(setSampleRate:)) {
+    if unsafe { responds_to(&config, sel!(setSampleRate:)) } {
         let _: () = msg_send![&*config, setSampleRate: DEFAULT_SAMPLE_RATE as isize];
     }
-    if responds_to(&config, sel!(setChannelCount:)) {
+    if unsafe { responds_to(&config, sel!(setChannelCount:)) } {
         let _: () = msg_send![&*config, setChannelCount: 2isize];
     }
 
-    if !responds_to(&config, sel!(setCapturesAudio:)) {
+    if !unsafe { responds_to(&config, sel!(setCapturesAudio:)) } {
         return Err(
             "ScreenCaptureKit audio capture is not available on this macOS version".to_string(),
         );
@@ -428,7 +430,7 @@ unsafe fn make_content_filter(display: *mut AnyObject) -> Result<Retained<AnyObj
         ]
     };
 
-    Retained::from_raw(filter_ptr)
+    unsafe { Retained::from_raw(filter_ptr) }
         .ok_or_else(|| "failed to create ScreenCaptureKit content filter".to_string())
 }
 
@@ -441,7 +443,7 @@ unsafe fn make_stream(
     let stream_alloc: *mut AnyObject = msg_send![stream_class, alloc];
     let stream_ptr: *mut AnyObject =
         msg_send![stream_alloc, initWithFilter: filter, configuration: config, delegate: output];
-    Retained::from_raw(stream_ptr)
+    unsafe { Retained::from_raw(stream_ptr) }
         .ok_or_else(|| "failed to create ScreenCaptureKit stream".to_string())
 }
 
@@ -453,7 +455,9 @@ unsafe fn make_output(
         .class()
         .instance_variable(c"callbackState")
         .ok_or_else(|| "ScreenCaptureKit output class missing callback state ivar".to_string())?;
-    *ivar.load_ptr::<*mut c_void>(&output) = Arc::as_ptr(&callback_state) as *mut c_void;
+    unsafe {
+        *ivar.load_ptr::<*mut c_void>(&output) = Arc::as_ptr(&callback_state) as *mut c_void;
+    }
     Ok(output)
 }
 
@@ -532,63 +536,65 @@ fn callback_state_from_output(this: &AnyObject) -> Option<&'static MacCallbackSt
 }
 
 unsafe fn process_sample_buffer(state: &MacCallbackState, sample_buffer: CMSampleBufferRef) {
-    let format_desc = CMSampleBufferGetFormatDescription(sample_buffer);
-    if format_desc.is_null() {
-        return;
-    }
-    let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format_desc);
-    if asbd.is_null() {
-        return;
-    }
-    let asbd = *asbd;
-    if asbd.sample_rate.is_finite() && asbd.sample_rate > 0.0 {
-        state
-            .sample_rate
-            .store(asbd.sample_rate.round() as u32, Ordering::Release);
-    }
+    unsafe {
+        let format_desc = CMSampleBufferGetFormatDescription(sample_buffer);
+        if format_desc.is_null() {
+            return;
+        }
+        let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format_desc);
+        if asbd.is_null() {
+            return;
+        }
+        let asbd = *asbd;
+        if asbd.sample_rate.is_finite() && asbd.sample_rate > 0.0 {
+            state
+                .sample_rate
+                .store(asbd.sample_rate.round() as u32, Ordering::Release);
+        }
 
-    if asbd.format_id != K_AUDIO_FORMAT_LINEAR_PCM {
-        state.set_error_once("ScreenCaptureKit delivered non-PCM audio");
-        return;
-    }
-    if push_audio_buffer_list(state, sample_buffer, asbd) {
-        return;
-    }
+        if asbd.format_id != K_AUDIO_FORMAT_LINEAR_PCM {
+            state.set_error_once("ScreenCaptureKit delivered non-PCM audio");
+            return;
+        }
+        if push_audio_buffer_list(state, sample_buffer, asbd) {
+            return;
+        }
 
-    let block = CMSampleBufferGetDataBuffer(sample_buffer);
-    if block.is_null() {
-        return;
-    }
+        let block = CMSampleBufferGetDataBuffer(sample_buffer);
+        if block.is_null() {
+            return;
+        }
 
-    let data_len = CMBlockBufferGetDataLength(block);
-    if data_len == 0 || data_len > 1_048_576 {
-        return;
-    }
+        let data_len = CMBlockBufferGetDataLength(block);
+        if data_len == 0 || data_len > 1_048_576 {
+            return;
+        }
 
-    let mut length_at_offset = 0usize;
-    let mut total_length = 0usize;
-    let mut data_pointer: *mut c_char = ptr::null_mut();
-    let pointer_status = CMBlockBufferGetDataPointer(
-        block,
-        0,
-        &mut length_at_offset,
-        &mut total_length,
-        &mut data_pointer,
-    );
-    if pointer_status == 0
-        && !data_pointer.is_null()
-        && length_at_offset >= data_len
-        && total_length >= data_len
-    {
-        let data = std::slice::from_raw_parts(data_pointer.cast::<u8>(), data_len);
-        push_pcm_bytes(state, asbd, data);
-        return;
-    }
+        let mut length_at_offset = 0usize;
+        let mut total_length = 0usize;
+        let mut data_pointer: *mut c_char = ptr::null_mut();
+        let pointer_status = CMBlockBufferGetDataPointer(
+            block,
+            0,
+            &mut length_at_offset,
+            &mut total_length,
+            &mut data_pointer,
+        );
+        if pointer_status == 0
+            && !data_pointer.is_null()
+            && length_at_offset >= data_len
+            && total_length >= data_len
+        {
+            let data = std::slice::from_raw_parts(data_pointer.cast::<u8>(), data_len);
+            push_pcm_bytes(state, asbd, data);
+            return;
+        }
 
-    let mut data = vec![0u8; data_len];
-    let status = CMBlockBufferCopyDataBytes(block, 0, data_len, data.as_mut_ptr().cast());
-    if status == 0 {
-        push_pcm_bytes(state, asbd, &data);
+        let mut data = vec![0u8; data_len];
+        let status = CMBlockBufferCopyDataBytes(block, 0, data_len, data.as_mut_ptr().cast());
+        if status == 0 {
+            push_pcm_bytes(state, asbd, &data);
+        }
     }
 }
 
@@ -597,46 +603,48 @@ unsafe fn push_audio_buffer_list(
     sample_buffer: CMSampleBufferRef,
     asbd: AudioStreamBasicDescription,
 ) -> bool {
-    let mut needed_size = 0usize;
-    let probe_status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-        sample_buffer,
-        &mut needed_size,
-        ptr::null_mut(),
-        0,
-        ptr::null(),
-        ptr::null(),
-        0,
-        ptr::null_mut(),
-    );
-    if probe_status != 0 || needed_size == 0 || needed_size > 1_048_576 {
-        return false;
-    }
+    unsafe {
+        let mut needed_size = 0usize;
+        let probe_status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sample_buffer,
+            &mut needed_size,
+            ptr::null_mut(),
+            0,
+            ptr::null(),
+            ptr::null(),
+            0,
+            ptr::null_mut(),
+        );
+        if probe_status != 0 || needed_size == 0 || needed_size > 1_048_576 {
+            return false;
+        }
 
-    let mut storage = vec![0u8; needed_size];
-    let list = storage.as_mut_ptr().cast::<AudioBufferList>();
-    let mut retained_block: CMBlockBufferRef = ptr::null_mut();
-    let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-        sample_buffer,
-        &mut needed_size,
-        list,
-        storage.len(),
-        ptr::null(),
-        ptr::null(),
-        0,
-        &mut retained_block,
-    );
-    if status != 0 {
+        let mut storage = vec![0u8; needed_size];
+        let list = storage.as_mut_ptr().cast::<AudioBufferList>();
+        let mut retained_block: CMBlockBufferRef = ptr::null_mut();
+        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sample_buffer,
+            &mut needed_size,
+            list,
+            storage.len(),
+            ptr::null(),
+            ptr::null(),
+            0,
+            &mut retained_block,
+        );
+        if status != 0 {
+            if !retained_block.is_null() {
+                CFRelease(retained_block.cast());
+            }
+            return false;
+        }
+
+        let pushed = push_audio_buffers(state, asbd, &*list);
         if !retained_block.is_null() {
             CFRelease(retained_block.cast());
         }
-        return false;
+        pushed
     }
-
-    let pushed = push_audio_buffers(state, asbd, &*list);
-    if !retained_block.is_null() {
-        CFRelease(retained_block.cast());
-    }
-    pushed
 }
 
 unsafe fn push_audio_buffers(
@@ -644,32 +652,36 @@ unsafe fn push_audio_buffers(
     asbd: AudioStreamBasicDescription,
     list: &AudioBufferList,
 ) -> bool {
-    let buffer_count = list.number_buffers as usize;
-    if buffer_count == 0 || buffer_count > 64 {
-        return false;
-    }
+    unsafe {
+        let buffer_count = list.number_buffers as usize;
+        if buffer_count == 0 || buffer_count > 64 {
+            return false;
+        }
 
-    let first = list.buffers.as_ptr();
-    let buffers = std::slice::from_raw_parts(first, buffer_count);
-    if buffers
-        .iter()
-        .any(|buffer| buffer.data.is_null() || buffer.data_byte_size == 0)
-    {
-        return false;
-    }
+        let first = list.buffers.as_ptr();
+        let buffers = std::slice::from_raw_parts(first, buffer_count);
+        if buffers
+            .iter()
+            .any(|buffer| buffer.data.is_null() || buffer.data_byte_size == 0)
+        {
+            return false;
+        }
 
-    let non_interleaved = asbd.format_flags & K_AUDIO_FORMAT_FLAG_IS_NON_INTERLEAVED != 0;
-    if !non_interleaved && buffer_count == 1 {
-        let buffer = buffers[0];
-        let data =
-            std::slice::from_raw_parts(buffer.data.cast::<u8>(), buffer.data_byte_size as usize);
-        let channels = buffer.number_channels.max(asbd.channels_per_frame).max(1) as usize;
-        let bytes_per_frame = asbd.bytes_per_frame.max(1) as usize;
-        push_pcm_bytes_with_layout(state, asbd, data, channels, bytes_per_frame);
-        return true;
-    }
+        let non_interleaved = asbd.format_flags & K_AUDIO_FORMAT_FLAG_IS_NON_INTERLEAVED != 0;
+        if !non_interleaved && buffer_count == 1 {
+            let buffer = buffers[0];
+            let data = std::slice::from_raw_parts(
+                buffer.data.cast::<u8>(),
+                buffer.data_byte_size as usize,
+            );
+            let channels = buffer.number_channels.max(asbd.channels_per_frame).max(1) as usize;
+            let bytes_per_frame = asbd.bytes_per_frame.max(1) as usize;
+            push_pcm_bytes_with_layout(state, asbd, data, channels, bytes_per_frame);
+            return true;
+        }
 
-    push_non_interleaved_pcm(state, asbd, buffers)
+        push_non_interleaved_pcm(state, asbd, buffers)
+    }
 }
 
 fn push_pcm_bytes(state: &MacCallbackState, asbd: AudioStreamBasicDescription, data: &[u8]) {
@@ -737,29 +749,32 @@ fn push_non_interleaved_pcm(
         return false;
     }
 
-    if let Ok(mut ring) = state.ring.try_lock() {
-        for frame_index in 0..frame_count {
-            for buffer in buffers {
-                let channel_count = buffer.number_channels.max(1) as usize;
-                let frame_stride = bytes_per_sample * channel_count;
-                let data = unsafe {
-                    std::slice::from_raw_parts(
-                        buffer.data.cast::<u8>(),
-                        buffer.data_byte_size as usize,
-                    )
-                };
-                let frame_offset = frame_index * frame_stride;
-                for channel in 0..channel_count {
-                    let offset = frame_offset + channel * bytes_per_sample;
-                    if let Some(sample) = read_pcm_sample(data, offset, bits, is_float, is_signed) {
-                        ring.push(sample);
+    match state.ring.try_lock() {
+        Ok(mut ring) => {
+            for frame_index in 0..frame_count {
+                for buffer in buffers {
+                    let channel_count = buffer.number_channels.max(1) as usize;
+                    let frame_stride = bytes_per_sample * channel_count;
+                    let data = unsafe {
+                        std::slice::from_raw_parts(
+                            buffer.data.cast::<u8>(),
+                            buffer.data_byte_size as usize,
+                        )
+                    };
+                    let frame_offset = frame_index * frame_stride;
+                    for channel in 0..channel_count {
+                        let offset = frame_offset + channel * bytes_per_sample;
+                        if let Some(sample) =
+                            read_pcm_sample(data, offset, bits, is_float, is_signed)
+                        {
+                            ring.push(sample);
+                        }
                     }
                 }
             }
+            true
         }
-        true
-    } else {
-        false
+        _ => false,
     }
 }
 
@@ -853,15 +868,17 @@ unsafe fn responds_to(object: &AnyObject, selector: Sel) -> bool {
 }
 
 unsafe fn release_raw_objects(stream: usize, output: usize, queue: usize) {
-    if stream != 0 {
-        drop(Retained::<AnyObject>::from_raw(stream as *mut AnyObject));
-    }
-    if output != 0 {
-        drop(Retained::<AnyObject>::from_raw(output as *mut AnyObject));
-    }
-    if queue != 0 {
-        if let Some(queue) = NonNull::new(queue as *mut DispatchQueue) {
-            drop(DispatchRetained::<DispatchQueue>::from_raw(queue));
+    unsafe {
+        if stream != 0 {
+            drop(Retained::<AnyObject>::from_raw(stream as *mut AnyObject));
+        }
+        if output != 0 {
+            drop(Retained::<AnyObject>::from_raw(output as *mut AnyObject));
+        }
+        if queue != 0 {
+            if let Some(queue) = NonNull::new(queue as *mut DispatchQueue) {
+                drop(DispatchRetained::<DispatchQueue>::from_raw(queue));
+            }
         }
     }
 }
@@ -877,9 +894,8 @@ unsafe fn ns_error(error: *mut AnyObject) -> String {
     }
 
     let desc: *mut NSString = msg_send![error, localizedDescription];
-    if let Some(desc) = Retained::<NSString>::retain(desc) {
-        desc.to_string()
-    } else {
-        "unknown error".to_string()
+    match unsafe { Retained::<NSString>::retain(desc) } {
+        Some(desc) => desc.to_string(),
+        _ => "unknown error".to_string(),
     }
 }

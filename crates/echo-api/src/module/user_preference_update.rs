@@ -16,13 +16,7 @@ pub struct Query {
     pub styles: Option<String>,
     pub recommendation: Option<String>,
 }
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-}
+type Wire = crate::util::response::AckEnvelope;
 #[derive(Serialize)]
 pub struct Acknowledgement {
     pub updated: bool,

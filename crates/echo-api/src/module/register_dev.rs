@@ -9,14 +9,7 @@ use crate::{
     },
 };
 use serde::{Deserialize, Serialize};
-#[derive(Deserialize)]
-struct Wire {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    error_code: i64,
-    data: serde_json::Value,
-}
+type Wire = crate::util::response::Envelope<serde_json::Value>;
 pub fn convert(bytes: &[u8]) -> Result<RegisteredDevice, ApiError> {
     let wire: Wire = request::decode(bytes)?;
     request::success(wire.status, wire.error_code)?;

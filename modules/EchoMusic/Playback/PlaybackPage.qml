@@ -326,6 +326,9 @@ Popup {
                 }
                 EchoTextTagRow {
                     objectName: "playbackPageTitle"
+                    // Single-line metadata keeps its final line box even when
+                    // empty text has no Flow width during the first layout.
+                    Layout.preferredHeight: lineHeight
                     opacity: motion.hostOpacity * motion.contentOpacity
                     transform: Translate {
                         y: motion.contentOffset
@@ -346,6 +349,7 @@ Popup {
                 }
                 EchoTextTagRow {
                     objectName: "playbackPageArtist"
+                    Layout.preferredHeight: lineHeight
                     opacity: motion.hostOpacity * motion.contentOpacity
                     transform: Translate {
                         y: motion.contentOffset

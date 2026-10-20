@@ -1,7 +1,7 @@
 use super::limiter::LinkedLimiter;
-use super::provider::{NativeDspProvider, ProviderDescriptor, PROVIDER_MODE_SPEAKER};
+use super::provider::{NativeDspProvider, PROVIDER_MODE_SPEAKER, ProviderDescriptor};
 use ffmpeg_audio::{AudioReader, ResampleOptions};
-use rustfft::{num_complex::Complex32, Fft, FftPlanner};
+use rustfft::{Fft, FftPlanner, num_complex::Complex32};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::sync::Arc;
@@ -1667,9 +1667,11 @@ mod tests {
         spatial.process_interleaved(&mut samples);
 
         let delayed_frame = (EARLY_CONVOLUTION_BLOCK_SIZE - 1) * 2;
-        assert!(samples[..delayed_frame]
-            .iter()
-            .all(|sample| sample.abs() < 0.00001));
+        assert!(
+            samples[..delayed_frame]
+                .iter()
+                .all(|sample| sample.abs() < 0.00001)
+        );
         assert!((samples[delayed_frame] - 0.3).abs() < 0.00001);
         assert!((samples[delayed_frame + 1] + 0.15).abs() < 0.00001);
     }
@@ -1738,9 +1740,11 @@ mod tests {
             .process_interleaved(&mut samples)
             .expect("basic DSP should process");
 
-        assert!(samples[..output_frame * 2]
-            .iter()
-            .all(|sample| sample.abs() < 0.00001));
+        assert!(
+            samples[..output_frame * 2]
+                .iter()
+                .all(|sample| sample.abs() < 0.00001)
+        );
         assert!((samples[output_frame * 2] - 0.5).abs() < 0.00001);
         assert!((samples[output_frame * 2 + 1] + 0.25).abs() < 0.00001);
     }
@@ -1761,9 +1765,11 @@ mod tests {
         spatial.process_interleaved(&mut samples);
 
         let expected_frame = EARLY_CONVOLUTION_FRAMES + EARLY_CONVOLUTION_BLOCK_SIZE - 1;
-        assert!(samples[..expected_frame * 2]
-            .iter()
-            .all(|sample| sample.abs() < 0.00001));
+        assert!(
+            samples[..expected_frame * 2]
+                .iter()
+                .all(|sample| sample.abs() < 0.00001)
+        );
         assert!((samples[expected_frame * 2] - 0.75).abs() < 0.00001);
         assert!((samples[expected_frame * 2 + 1] + 0.5).abs() < 0.00001);
     }

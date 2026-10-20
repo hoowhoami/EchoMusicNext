@@ -9,8 +9,9 @@ namespace EchoMusic
 class SingleInstance;
 class ApplicationUrlHandler;
 class LogService;
-/// Composition root. Services live for the event loop; the QML engine is
-/// destroyed before its injected services, and asynchronous workers drain on exit.
+/// Composition root. Services live for the event loop; QML
+/// roots are released before injected services; the engine outlives plugin runtimes.
+/// Asynchronous workers drain before the context and its callbacks are destroyed.
 class Application final
 {
 public:

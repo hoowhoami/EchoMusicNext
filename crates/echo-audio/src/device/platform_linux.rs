@@ -1,11 +1,11 @@
 use crate::device::selection::{
-    device_display_name, device_name_matches_key, is_default_device_name, parse_device_key,
-    DEVICE_KEY_SEPARATOR,
+    DEVICE_KEY_SEPARATOR, device_display_name, device_name_matches_key, is_default_device_name,
+    parse_device_key,
 };
 use crate::events::AudioDevice;
 use cpal::traits::{DeviceTrait, HostTrait};
 use std::collections::{HashMap, HashSet};
-use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread::{self, ThreadId};
 

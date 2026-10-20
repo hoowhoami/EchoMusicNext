@@ -9,6 +9,8 @@ class AlbumDetailService final : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by the application")
 public:
+    /// Explicit UI composition; construction alone does not register pages.
+    void registerRoutes(RouteController &router);
     void attachCollections(LibraryCollectionService &service)
     {
         m_collections = &service;

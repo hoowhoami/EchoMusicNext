@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "ShellActionModel.h"
 #include <QSet>
 #include <QThread>
@@ -28,12 +29,13 @@ QHash<int, QByteArray> actionRoles()
 } // namespace
 ShellActionModel::ShellActionModel(QSettings &preferences, Surface surface, QObject *parent)
     : QAbstractListModel(parent), m_preferences(preferences), m_surface(surface),
-      m_prefix(surface == Titlebar ? "shell/titlebar/" : "shell/playerbar/")
+      m_prefix(surface == Titlebar ? EchoMusic::SettingsKeys::Shell::TitlebarPrefix
+                                   : EchoMusic::SettingsKeys::Shell::PlayerbarPrefix)
 {
-    m_order = preferences.value(m_prefix + "order").toStringList();
+    m_order = preferences.value(m_prefix + SettingsKeys::ShellFields::Order).toStringList();
     m_order.removeDuplicates();
-    m_placements = preferences.value(m_prefix + "placements").toMap();
-    m_badges = preferences.value(m_prefix + "badges").toMap();
+    m_placements = preferences.value(m_prefix + SettingsKeys::ShellFields::Placements).toMap();
+    m_badges = preferences.value(m_prefix + SettingsKeys::ShellFields::Badges).toMap();
     for (const auto zone : {Toolbar, Left, Center, Right})
         m_capacity.insert(zone, 0);
 }
@@ -227,9 +229,9 @@ void ShellActionModel::resolve()
 }
 void ShellActionModel::persist()
 {
-    m_preferences.setValue(m_prefix + "order", m_order);
-    m_preferences.setValue(m_prefix + "placements", m_placements);
-    m_preferences.setValue(m_prefix + "badges", m_badges);
+    m_preferences.setValue(m_prefix + SettingsKeys::ShellFields::Order, m_order);
+    m_preferences.setValue(m_prefix + SettingsKeys::ShellFields::Placements, m_placements);
+    m_preferences.setValue(m_prefix + SettingsKeys::ShellFields::Badges, m_badges);
 }
 bool ShellActionModel::setPlacement(const QString &key, Zone zone)
 {

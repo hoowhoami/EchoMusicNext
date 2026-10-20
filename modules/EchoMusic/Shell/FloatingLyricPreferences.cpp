@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "FloatingLyricPreferences.h"
 #include <QColor>
 namespace EchoMusic
@@ -5,7 +6,9 @@ namespace EchoMusic
 FloatingLyricPreferences::FloatingLyricPreferences(QSettings &settings, bool desktop,
                                                    QObject *parent)
     : QObject(parent), m_settings(settings),
-      m_prefix(desktop ? "floating/desktop/" : "floating/mini/"), m_mini(!desktop)
+      m_prefix(desktop ? EchoMusic::SettingsKeys::Floating::DesktopPrefix
+                       : EchoMusic::SettingsKeys::Floating::MiniPrefix),
+      m_mini(!desktop)
 {
     m_alwaysOnTop = true;
     m_showUnlockButton = true;
@@ -23,32 +26,58 @@ FloatingLyricPreferences::FloatingLyricPreferences(QSettings &settings, bool des
     m_lineGap = 2;
     m_fontWeight = 780;
     m_backgroundBlur = true;
-    setAlwaysOnTop(settings.value(m_prefix + "alwaysOnTop", m_alwaysOnTop).toBool());
-    setShowUnlockButton(settings.value(m_prefix + "showUnlockButton", m_showUnlockButton).toBool());
-    setLayout(settings.value(m_prefix + "layout", m_layout).toString());
-    setAlignment(settings.value(m_prefix + "alignment", m_alignment).toString());
-    setShadowStrength(settings.value(m_prefix + "shadowStrength", m_shadowStrength).toString());
-    setBold(settings.value(m_prefix + "bold", m_bold).toBool());
-    setShowNextLinePreview(
-        settings.value(m_prefix + "showNextLinePreview", m_showNextLinePreview).toBool());
-    setPlayedColor(settings.value(m_prefix + "playedColor", m_playedColor).toString());
-    setUnplayedColor(settings.value(m_prefix + "unplayedColor", m_unplayedColor).toString());
-    setFollowCoverColor(settings.value(m_prefix + "followCoverColor", m_followCoverColor).toBool());
+    setAlwaysOnTop(
+        settings.value(m_prefix + SettingsKeys::FloatingFields::AlwaysOnTop, m_alwaysOnTop)
+            .toBool());
+    setShowUnlockButton(
+        settings
+            .value(m_prefix + SettingsKeys::FloatingFields::ShowUnlockButton, m_showUnlockButton)
+            .toBool());
+    setLayout(settings.value(m_prefix + SettingsKeys::FloatingFields::Layout, m_layout).toString());
+    setAlignment(
+        settings.value(m_prefix + SettingsKeys::FloatingFields::Alignment, m_alignment).toString());
+    setShadowStrength(
+        settings.value(m_prefix + SettingsKeys::FloatingFields::ShadowStrength, m_shadowStrength)
+            .toString());
+    setBold(settings.value(m_prefix + SettingsKeys::FloatingFields::Bold, m_bold).toBool());
+    setShowNextLinePreview(settings
+                               .value(m_prefix + SettingsKeys::FloatingFields::ShowNextLinePreview,
+                                      m_showNextLinePreview)
+                               .toBool());
+    setPlayedColor(
+        settings.value(m_prefix + SettingsKeys::FloatingFields::PlayedColor, m_playedColor)
+            .toString());
+    setUnplayedColor(
+        settings.value(m_prefix + SettingsKeys::FloatingFields::UnplayedColor, m_unplayedColor)
+            .toString());
+    setFollowCoverColor(
+        settings
+            .value(m_prefix + SettingsKeys::FloatingFields::FollowCoverColor, m_followCoverColor)
+            .toBool());
     setUnplayedFollowCoverColor(
-        settings.value(m_prefix + "unplayedFollowCoverColor", m_unplayedFollowCoverColor).toBool());
-    setFontSize(settings.value(m_prefix + "fontSize", m_fontSize).toInt());
+        settings
+            .value(m_prefix + SettingsKeys::FloatingFields::UnplayedFollowCoverColor,
+                   m_unplayedFollowCoverColor)
+            .toBool());
+    setFontSize(
+        settings.value(m_prefix + SettingsKeys::FloatingFields::FontSize, m_fontSize).toInt());
     setSecondaryFontSize(
-        settings.value(m_prefix + "secondaryFontSize", m_secondaryFontSize).toInt());
-    setLineGap(settings.value(m_prefix + "lineGap", m_lineGap).toInt());
-    setFontWeight(settings.value(m_prefix + "fontWeight", m_fontWeight).toInt());
-    setBackgroundBlur(settings.value(m_prefix + "backgroundBlur", m_backgroundBlur).toBool());
+        settings
+            .value(m_prefix + SettingsKeys::FloatingFields::SecondaryFontSize, m_secondaryFontSize)
+            .toInt());
+    setLineGap(settings.value(m_prefix + SettingsKeys::FloatingFields::LineGap, m_lineGap).toInt());
+    setFontWeight(
+        settings.value(m_prefix + SettingsKeys::FloatingFields::FontWeight, m_fontWeight).toInt());
+    setBackgroundBlur(
+        settings.value(m_prefix + SettingsKeys::FloatingFields::BackgroundBlur, m_backgroundBlur)
+            .toBool());
 }
 void FloatingLyricPreferences::setAlwaysOnTop(bool value)
 {
     if (m_alwaysOnTop == value)
         return;
     m_alwaysOnTop = value;
-    m_settings.setValue(m_prefix + "alwaysOnTop", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::AlwaysOnTop, value);
     emit changed();
 }
 void FloatingLyricPreferences::setShowUnlockButton(bool value)
@@ -56,7 +85,7 @@ void FloatingLyricPreferences::setShowUnlockButton(bool value)
     if (m_showUnlockButton == value)
         return;
     m_showUnlockButton = value;
-    m_settings.setValue(m_prefix + "showUnlockButton", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::ShowUnlockButton, value);
     emit changed();
 }
 void FloatingLyricPreferences::setLayout(QString value)
@@ -66,7 +95,7 @@ void FloatingLyricPreferences::setLayout(QString value)
     if (m_layout == value)
         return;
     m_layout = value;
-    m_settings.setValue(m_prefix + "layout", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::Layout, value);
     emit changed();
 }
 void FloatingLyricPreferences::setAlignment(QString value)
@@ -76,7 +105,7 @@ void FloatingLyricPreferences::setAlignment(QString value)
     if (m_alignment == value)
         return;
     m_alignment = value;
-    m_settings.setValue(m_prefix + "alignment", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::Alignment, value);
     emit changed();
 }
 void FloatingLyricPreferences::setShadowStrength(QString value)
@@ -86,7 +115,7 @@ void FloatingLyricPreferences::setShadowStrength(QString value)
     if (m_shadowStrength == value)
         return;
     m_shadowStrength = value;
-    m_settings.setValue(m_prefix + "shadowStrength", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::ShadowStrength, value);
     emit changed();
 }
 void FloatingLyricPreferences::setBold(bool value)
@@ -94,7 +123,7 @@ void FloatingLyricPreferences::setBold(bool value)
     if (m_bold == value)
         return;
     m_bold = value;
-    m_settings.setValue(m_prefix + "bold", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::Bold, value);
     emit changed();
 }
 void FloatingLyricPreferences::setShowNextLinePreview(bool value)
@@ -102,7 +131,7 @@ void FloatingLyricPreferences::setShowNextLinePreview(bool value)
     if (m_showNextLinePreview == value)
         return;
     m_showNextLinePreview = value;
-    m_settings.setValue(m_prefix + "showNextLinePreview", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::ShowNextLinePreview, value);
     emit changed();
 }
 void FloatingLyricPreferences::setPlayedColor(QString value)
@@ -114,7 +143,7 @@ void FloatingLyricPreferences::setPlayedColor(QString value)
     if (m_playedColor == value)
         return;
     m_playedColor = value;
-    m_settings.setValue(m_prefix + "playedColor", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::PlayedColor, value);
     emit changed();
 }
 void FloatingLyricPreferences::setUnplayedColor(QString value)
@@ -126,7 +155,7 @@ void FloatingLyricPreferences::setUnplayedColor(QString value)
     if (m_unplayedColor == value)
         return;
     m_unplayedColor = value;
-    m_settings.setValue(m_prefix + "unplayedColor", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::UnplayedColor, value);
     emit changed();
 }
 void FloatingLyricPreferences::setFollowCoverColor(bool value)
@@ -134,7 +163,7 @@ void FloatingLyricPreferences::setFollowCoverColor(bool value)
     if (m_followCoverColor == value)
         return;
     m_followCoverColor = value;
-    m_settings.setValue(m_prefix + "followCoverColor", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::FollowCoverColor, value);
     emit changed();
 }
 void FloatingLyricPreferences::setUnplayedFollowCoverColor(bool value)
@@ -142,7 +171,7 @@ void FloatingLyricPreferences::setUnplayedFollowCoverColor(bool value)
     if (m_unplayedFollowCoverColor == value)
         return;
     m_unplayedFollowCoverColor = value;
-    m_settings.setValue(m_prefix + "unplayedFollowCoverColor", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::UnplayedFollowCoverColor, value);
     emit changed();
 }
 void FloatingLyricPreferences::setFontSize(int value)
@@ -151,7 +180,7 @@ void FloatingLyricPreferences::setFontSize(int value)
     if (m_fontSize == value)
         return;
     m_fontSize = value;
-    m_settings.setValue(m_prefix + "fontSize", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::FontSize, value);
     emit changed();
 }
 void FloatingLyricPreferences::setSecondaryFontSize(int value)
@@ -160,7 +189,7 @@ void FloatingLyricPreferences::setSecondaryFontSize(int value)
     if (m_secondaryFontSize == value)
         return;
     m_secondaryFontSize = value;
-    m_settings.setValue(m_prefix + "secondaryFontSize", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::SecondaryFontSize, value);
     emit changed();
 }
 void FloatingLyricPreferences::setLineGap(int value)
@@ -169,7 +198,7 @@ void FloatingLyricPreferences::setLineGap(int value)
     if (m_lineGap == value)
         return;
     m_lineGap = value;
-    m_settings.setValue(m_prefix + "lineGap", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::LineGap, value);
     emit changed();
 }
 void FloatingLyricPreferences::setFontWeight(int value)
@@ -179,7 +208,7 @@ void FloatingLyricPreferences::setFontWeight(int value)
     if (m_fontWeight == value)
         return;
     m_fontWeight = value;
-    m_settings.setValue(m_prefix + "fontWeight", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::FontWeight, value);
     emit changed();
 }
 void FloatingLyricPreferences::setBackgroundBlur(bool value)
@@ -187,7 +216,7 @@ void FloatingLyricPreferences::setBackgroundBlur(bool value)
     if (m_backgroundBlur == value)
         return;
     m_backgroundBlur = value;
-    m_settings.setValue(m_prefix + "backgroundBlur", value);
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::BackgroundBlur, value);
     emit changed();
 }
 void FloatingLyricPreferences::resetColors()

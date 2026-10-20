@@ -115,7 +115,11 @@ ApplicationWindow {
     Shortcut {
         sequence: "F11"
         autoRepeat: false
-        enabled: !mainWindow.windowService.macOS
+        // Window context stops matching while a modal popup such as the playback
+        // page owns focus. Keep it application-scoped but gate on the main
+        // window so Mini and desktop lyrics do not toggle the shell.
+        context: Qt.ApplicationShortcut
+        enabled: mainWindow.active && !mainWindow.windowService.macOS
         onActivated: mainWindow.windowService.toggleFullscreen()
     }
     Shortcut {

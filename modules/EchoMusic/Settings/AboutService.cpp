@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "AboutService.h"
 #include <QCoreApplication>
 #include <QDesktopServices>
@@ -35,9 +36,9 @@ QString installKind()
 } // namespace
 AboutService::AboutService(QSettings &settings, NetworkPreferences &network, QObject *parent)
     : QObject(parent), m_settings(settings), m_policy(network), m_network(this),
-      m_autoCheck(settings.value("updates/autoCheck", true).toBool()),
-      m_prerelease(settings.value("updates/prerelease", false).toBool()),
-      m_silent(settings.value("updates/silent", true).toBool())
+      m_autoCheck(settings.value(EchoMusic::SettingsKeys::Updates::AutoCheck, true).toBool()),
+      m_prerelease(settings.value(EchoMusic::SettingsKeys::Updates::Prerelease, false).toBool()),
+      m_silent(settings.value(EchoMusic::SettingsKeys::Updates::Silent, true).toBool())
 {
     m_distribution = ECHO_DISTRIBUTION_BUILD;
     m_packageKind = installKind();
@@ -100,7 +101,7 @@ void AboutService::setAutoCheck(bool enabled)
     if (m_autoCheck == enabled)
         return;
     m_autoCheck = enabled;
-    m_settings.setValue("updates/autoCheck", enabled);
+    m_settings.setValue(EchoMusic::SettingsKeys::Updates::AutoCheck, enabled);
     emit changed();
 }
 void AboutService::setPrerelease(bool enabled)
@@ -109,7 +110,7 @@ void AboutService::setPrerelease(bool enabled)
         return;
     cancelDownload();
     m_prerelease = enabled;
-    m_settings.setValue("updates/prerelease", enabled);
+    m_settings.setValue(EchoMusic::SettingsKeys::Updates::Prerelease, enabled);
     ++m_revision;
     if (m_reply)
         m_reply->abort();
@@ -127,7 +128,7 @@ void AboutService::setSilentUpdate(bool enabled)
     if (m_silent == enabled)
         return;
     m_silent = enabled;
-    m_settings.setValue("updates/silent", enabled);
+    m_settings.setValue(EchoMusic::SettingsKeys::Updates::Silent, enabled);
     emit changed();
 }
 bool AboutService::manualDownload() const

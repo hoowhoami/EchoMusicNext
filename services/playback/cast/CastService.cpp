@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "CastService.h"
 #include "PlaybackService.h"
 #include <QJsonDocument>
@@ -8,7 +9,7 @@ namespace EchoMusic
 {
 CastService::CastService(NativeBridge &native, PlaybackService &playback, QSettings &settings)
     : m_native(native), m_playback(playback), m_settings(settings), m_media(native, this),
-      m_enabled(settings.value("cast/enabled", false).toBool())
+      m_enabled(settings.value(EchoMusic::SettingsKeys::Cast::Enabled, false).toBool())
 {
     connect(this, &QAbstractItemModel::rowsInserted, this, &CastService::deviceCountChanged);
     connect(this, &QAbstractItemModel::rowsRemoved, this, &CastService::deviceCountChanged);
@@ -20,9 +21,10 @@ CastService::CastService(NativeBridge &native, PlaybackService &playback, QSetti
             return;
         m_volume = volume;
         m_playback.applyOutputVolume(volume);
-        m_settings.setValue("cast/volumes/" + QString::fromLatin1(m_active.toUtf8().toBase64(
-                                                  QByteArray::Base64UrlEncoding)),
-                            volume);
+        m_settings.setValue(
+            EchoMusic::SettingsKeys::Cast::VolumesPrefix +
+                QString::fromLatin1(m_active.toUtf8().toBase64(QByteArray::Base64UrlEncoding)),
+            volume);
     });
     connect(&m_media, &DlnaSession::connected, this, [this](int volume) {
         if (m_closed)
@@ -31,7 +33,7 @@ CastService::CastService(NativeBridge &native, PlaybackService &playback, QSetti
         if (m_active.isEmpty())
             return;
         const auto key =
-            "cast/volumes/" +
+            EchoMusic::SettingsKeys::Cast::VolumesPrefix +
             QString::fromLatin1(m_active.toUtf8().toBase64(QByteArray::Base64UrlEncoding));
         if (!m_settings.contains(key) && volume >= 0)
             m_connectVolume = volume;
@@ -205,7 +207,7 @@ void CastService::setEnabled(bool enabled)
     if (m_enabled == enabled)
         return;
     m_enabled = enabled;
-    m_settings.setValue("cast/enabled", enabled);
+    m_settings.setValue(EchoMusic::SettingsKeys::Cast::Enabled, enabled);
     if (!enabled)
         useLocal();
     syncPolicy();
@@ -310,7 +312,7 @@ void CastService::connectTarget(const QString &id, const QString &pin)
     m_error.clear();
     const double volume =
         m_settings
-            .value("cast/volumes/" +
+            .value(EchoMusic::SettingsKeys::Cast::VolumesPrefix +
                        QString::fromLatin1(id.toUtf8().toBase64(QByteArray::Base64UrlEncoding)),
                    m_playback.volume())
             .toDouble();
@@ -370,7 +372,7 @@ void CastService::clearRecords()
 {
     if (busy())
         return;
-    m_settings.remove("cast/volumes");
+    m_settings.remove(EchoMusic::SettingsKeys::Cast::Volumes);
     if (remote())
         useLocal();
     enqueueNative(NativeBridge::AirplayClear);
@@ -387,9 +389,10 @@ void CastService::syncPlayback()
         else
             enqueueNative(NativeBridge::AirplayVolume, qBound(0., m_volume, 100.));
         if (!remoteMedia())
-            m_settings.setValue("cast/volumes/" + QString::fromLatin1(m_active.toUtf8().toBase64(
-                                                      QByteArray::Base64UrlEncoding)),
-                                qBound(0., m_volume, 100.));
+            m_settings.setValue(
+                EchoMusic::SettingsKeys::Cast::VolumesPrefix +
+                    QString::fromLatin1(m_active.toUtf8().toBase64(QByteArray::Base64UrlEncoding)),
+                qBound(0., m_volume, 100.));
     }
     if (!remoteMedia() && m_playing != m_playback.playing()) {
         m_playing = m_playback.playing();

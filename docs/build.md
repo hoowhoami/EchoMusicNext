@@ -6,7 +6,7 @@
 - Rust 1.99.0，工具链由 `rust-toolchain.toml` 固定，依赖由 `Cargo.lock` 固定。
 - Python 3.12+；格式工具另需 Node.js / npm。
 - Windows：MSVC 2022 开发环境；macOS：Xcode Command Line Tools。
-- Linux：编译器、OpenGL/EGL、X11/XCB、Wayland、字体、音频和桌面集成开发库，完整软件包列表见 [CI 配置](../.github/workflows/build.yml)。
+- Linux：编译器、OpenGL/EGL、X11/XCB、Wayland、字体、音频和桌面集成开发库，完整软件包列表见 [共享依赖清单](../tools/qt/linux-packages.txt)。
 
 目标系统基线为 Windows 10 1809+ x64 / Windows 11 x64、ARM64，macOS 14.4+ Intel、Apple Silicon，以及 Ubuntu 22.04+ 或等价 glibc 2.35+ 的 Linux x64、ARM64（X11 / Wayland）。这些是构建与适配目标，不代表全部组合已完成实机验证。
 
@@ -21,7 +21,7 @@ python3.12 scripts/install-qt.py --check
 
 Windows 使用对应版本的 `python`。Windows/macOS 安装官方预编译 SDK；Linux 为匹配 glibc 2.35 基线独立构建源码 SDK。安装工具及其依赖固定在 `tools/qt/requirements.txt`，仅用于开发。
 
-默认 SDK 位于 `build/qt-official/6.12.0/<kit>` 或 `build/qt-sdk/6.12.0`。也可通过 Qt 官方安装器安装相同版本和所需模块，随后传入 `--qt-prefix /path/to/Qt/6.12.0/kit`。脚本会检查 SDK 版本及 Core、Gui、Widgets、Qml、Quick、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql、ShaderTools 等所需模块。
+默认 SDK 位于 `build/qt-official/6.12.0/<kit>` 或 `build/qt-sdk/6.12.0`。也可通过 Qt 官方安装器安装相同版本和所需模块，随后传入 `--qt-prefix /path/to/Qt/6.12.0/kit`。脚本会检查 SDK 版本及 Core、Gui、Widgets、Qml、Quick、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql、ShaderTools、LinguistTools 等所需模块。
 
 需要源码 SDK 时显式运行 `python3.12 scripts/install-qt.py --source`。日常构建和启动不会下载或重新构建 Qt。
 
@@ -58,7 +58,7 @@ ctest --preset release
 - Windows：`build/release/app/echomusicnext.exe`。
 - Linux：`build/release/app/echomusicnext`。
 
-并发构建使用各自的 CMake 构建目录。默认 Cargo 目录相互独立；需要复用时显式配置 `ECHO_CARGO_DIR`，并在链接完成后运行依赖该产物的应用或测试。
+Cargo 默认复用仓库根 `target/`，可通过 `ECHO_CARGO_DIR` 显式指定其它缓存。共享缓存的构建、链接及依赖动态库的测试必须串行；不要在应用仍映射旧库时覆盖或清理它。CMake 默认复用 `build/release`，只有确有需要时才建立临时隔离树。
 
 ### 开发产物管理
 
@@ -82,11 +82,12 @@ Linux 还需要 `libproxy-dev` 和 `libglib2.0-dev`。系统代理与 PAC 功能
 python3.12 scripts/format.py --install
 python3.12 scripts/format.py --check
 python3.12 -m unittest discover -s tests/tooling -v
-cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo test --locked --workspace
+node tools/release/rust-check.mjs lint
+node tools/release/rust-check.mjs test
+python3.12 tools/verification/check-architecture.py
 cargo run --locked -p ffi-header -- --check
 ctest --preset release
-cmake --build --preset lint
+cmake --build build/release --target all_qmllint
 ```
 
 格式规则见[代码格式与检查](formatting.md)。ABI 修改后使用 `cargo run --locked -p ffi-header -- --write` 生成头文件，再检查差异并重新构建。普通构建只校验生成头，不修改源码。
@@ -97,7 +98,7 @@ cmake --build --preset lint
 
 默认自动检查离线运行；显式在线测试依赖网络和服务状态。自动检查通过不替代原生窗口、音频设备、最低系统及安装包验证。
 
-`lint` 预设使用 Debug 配置；仅需 QML lint 时先运行 `python3.12 scripts/build.py --preset debug --configure-only`，再执行对应 lint 命令，无需编译完整 Debug 应用。检查结束后同样清理 `build/debug/`。
+QML lint 复用已配置的 Release 树，无需额外 Debug 配置。`lint` 预设是按需使用的 Debug 入口，使用后仍需清理其完整编译树。
 
 ## 分发构建
 
@@ -137,3 +138,25 @@ Rust 检查只覆盖项目自有 workspace 包，不整理 vendor：格式检查
 Windows 使用 NSIS 更新，静默选项控制安装向导；AppImage 在应用退出后替换并重新启动，无法创建新进程时恢复原文件；DEB/RPM/Arch 包经系统授权交给相应包管理器。独立安装助手等待原进程正常退出，不强制终止播放与存储服务。系统拒绝授权或安装失败时保留原安装并提示重新检查更新。macOS 的临时签名发行版与 tar.gz 使用手动下载替换。
 
 本机检查不代表 Windows、Linux、最低系统或全部架构已验收；发行验证应使用对应平台的真实安装、更新与卸载流程。
+
+## 架构、安全与质量报告
+
+`architecture.yml` 在 PR 上运行无 SDK 的依赖方向、设置键、Rust 元数据与违规注入回归；发布构建的标签/手动触发策略保持独立。CMake 源图检查保守合并平台分支，不代替实际配置和链接。
+
+`protocol-security.yml` 在 PR/手动运行属性回归和两个 ASan fuzz 目标。本地复现：
+
+```sh
+CARGO_INCREMENTAL=0 cargo test --locked -p echo-api --test response_properties
+CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/fuzz cargo +nightly-2026-10-20 fuzz run protocol_decoders --sanitizer address -- -runs=10000
+CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/fuzz cargo +nightly-2026-10-20 fuzz run ffi_request_decode --sanitizer address -- -runs=10000
+```
+
+需先安装对应 nightly 与 cargo-fuzz 0.13.2。fuzz 只调用生产解码器，不随机解引用原生指针；FFI 指针所有权另由 FFI 测试验证。公开回归不包含本地私有报文。
+
+`quality-reports.yml` 手动运行 Linux C++ ASan/UBSan 和 services/modules 覆盖率，以及 echo-api 的 LLVM 覆盖率。CMake 选项 `ECHO_ENABLE_SANITIZERS`、`ECHO_ENABLE_COVERAGE` 默认关闭；echo-api 公开回归排除本地 src/bin 调试探针后，以实测 20.82% 行覆盖率建立 20% 初始下限；services/modules 先采集报告，再以对应平台的实际基线设置门槛。只检查启动/排空协调器时可开启 `ECHO_BUILD_LIFECYCLE_SANITIZER_TEST`，无需重编整个依赖栈。
+
+翻译目录为 `translations/echomusicnext_zh_CN.ts`，使用 `echomusicnext_lupdate` 更新，普通构建编译并嵌入 QM，启动按系统区域加载。当前只交付中文；增加其它语言须提供经过审核的目录。测试用英文目录只用于验证加载和释放。
+
+磁盘审计默认只读：`python3.12 tools/verification/development-disk.py`。清理需明确指定允许的缓存路径和已保留证据目录，先检查 Git、符号链接、打开文件与活动进程。
+
+分发材料额外包含锁定 Cargo 图的 CycloneDX 1.6 SBOM 和 vendor 来源/归档 SHA-256 清单。它包括开发、构建和平台条件依赖，Qt SPDX 单独附带；清单不表示全部依赖在当前平台加载，也不代替许可证人工审查。

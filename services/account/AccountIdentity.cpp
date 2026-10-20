@@ -33,19 +33,19 @@ QVariantList AccountIdentity::badges(bool student) const
         seen.insert(label);
         result.append(QVariantMap{{"label", label}, {"kind", kind}});
     };
-    const auto tr = [](const char *label) {
+    const auto translated = [](const char *label) {
         return QCoreApplication::translate("AccountIdentity", label);
     };
     if (student)
-        add(tr("学生"), "student");
+        add(translated(QT_TRANSLATE_NOOP("AccountIdentity", "学生")), "student");
     if (actor)
-        add(tr("演员"), "identity");
+        add(translated(QT_TRANSLATE_NOOP("AccountIdentity", "演员")), "identity");
     if (business)
-        add(tr("认证"), "identity");
+        add(translated(QT_TRANSLATE_NOOP("AccountIdentity", "认证")), "identity");
     if (star)
-        add(tr("明星"), "identity");
+        add(translated(QT_TRANSLATE_NOOP("AccountIdentity", "明星")), "identity");
     if (singer)
-        add(tr("歌手"), "identity");
+        add(translated(QT_TRANSLATE_NOOP("AccountIdentity", "歌手")), "identity");
     bool hasTalentDescription = !talentAuthorizations.isEmpty();
     for (const auto &label : authorizations)
         for (const auto &term : {"达人", "主播", "调音师", "酷狗号", "专栏作家"})
@@ -55,22 +55,35 @@ QVariantList AccountIdentity::badges(bool student) const
             add(label, "auth");
     // Official category bit order; 11 and 12 are reserved. Descriptive
     // authorization replaces category expansion, as in the reference UI.
-    constexpr const char *categories[]{"歌单达人", "评论达人",     "调音师",   "酷狗号",
-                                       "问答达人", "歌词制作达人", "音频主播", "直播达人",
-                                       "K歌达人",  "短视频达人",   "鱼声主播", "",
-                                       "",         "专栏作家",     "视频达人", "音乐画报达人"};
+    constexpr const char *categories[]{QT_TRANSLATE_NOOP("AccountIdentity", "歌单达人"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "评论达人"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "调音师"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "酷狗号"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "问答达人"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "歌词制作达人"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "音频主播"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "直播达人"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "K歌达人"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "短视频达人"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "鱼声主播"),
+                                       "",
+                                       "",
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "专栏作家"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "视频达人"),
+                                       QT_TRANSLATE_NOOP("AccountIdentity", "音乐画报达人")};
     if (!hasTalentDescription)
         for (int bit = 0; bit < 16; ++bit)
             if (talentBits & (1u << bit))
-                add(tr(categories[bit]), "talent");
+                add(translated(categories[bit]), "talent");
     bool hasTalentBadge = false;
     for (const auto &value : result) {
         const auto badge = value.toMap();
-        hasTalentBadge |=
-            badge["kind"] == "talent" || badge["label"].toString().contains(tr("达人"));
+        hasTalentBadge |= badge["kind"] == "talent" ||
+                          badge["label"].toString().contains(
+                              translated(QT_TRANSLATE_NOOP("AccountIdentity", "达人")));
     }
     if (talentBits && !hasTalentBadge)
-        add(tr("达人"), "talent");
+        add(translated(QT_TRANSLATE_NOOP("AccountIdentity", "达人")), "talent");
     return result;
 }
 QString AccountIdentity::avatarKind() const

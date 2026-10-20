@@ -1,3 +1,4 @@
+#include "SettingsKeys.h"
 #include "ExperimentalSettingsService.h"
 #include <QClipboard>
 #include <QGuiApplication>
@@ -78,5 +79,13 @@ void ExperimentalSettingsService::finishLogout()
         m_relaunch.restart();
     else
         emit notice(tr("设备身份已清除，请手动重启应用后再登录"), false);
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+bool ExperimentalSettingsService::resetPending() const
+{
+    return m_settings.value(SettingsKeys::Network::ResetDeviceIdentity).toBool();
 }
 } // namespace EchoMusic

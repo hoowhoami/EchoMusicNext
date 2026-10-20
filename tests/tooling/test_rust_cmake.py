@@ -104,7 +104,7 @@ class RustCMakeTest(unittest.TestCase):
                             if config in ("Release", "RelWithDebInfo", "MinSizeRel")
                             else "debug"
                         )
-                        self.assertIn(f"/rust/{profile}/", imported.replace("\\", "/"))
+                        self.assertEqual(Path(imported.strip()).parent, source / "target" / profile)
 
 
 if __name__ == "__main__":
