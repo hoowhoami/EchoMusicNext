@@ -276,9 +276,12 @@ void PlaybackLibraryActions::favoritePage(quint64 id, const QByteArray &bytes)
 void PlaybackLibraryActions::failFavoriteRead(const QString &message)
 {
     m_favoritesReady = false;
+    const bool requested = m_favoriteIntent.has_value();
     m_favoriteIntent.reset();
     m_readFavorites.clear();
     m_error = message;
+    if (requested)
+        emit notice(message, true);
     emit changed();
 }
 void PlaybackLibraryActions::resumeFavorite()
@@ -326,6 +329,7 @@ void PlaybackLibraryActions::toggleFavoriteTrack(const PlaybackTrack &song, bool
     if (!accepted) {
         m_error = m_writer.errorMessage().isEmpty() ? tr("歌单正在处理中，请稍后重试")
                                                     : m_writer.errorMessage();
+        emit notice(m_error, true);
         emit changed();
         return;
     }
@@ -444,6 +448,8 @@ void PlaybackLibraryActions::submitSelection()
 }
 void PlaybackLibraryActions::nextWrite()
 {
+    if (!m_busy)
+        return;
     if (m_revision != m_api.sessionRevision()) {
         reset();
         return;
@@ -458,6 +464,11 @@ void PlaybackLibraryActions::nextWrite()
         if (m_pending.isEmpty()) {
             m_busy = false;
             notifyRows();
+            int failed = 0;
+            for (const auto &result : std::as_const(m_results))
+                failed += result.failed.size();
+            emit notice(failed ? tr("添加完成，%1 首添加失败").arg(failed) : tr("添加成功"),
+                        failed > 0);
             if (!hasFailures())
                 emit completed();
             return;
@@ -525,8 +536,11 @@ void PlaybackLibraryActions::writeCompleted(const QByteArray &bytes)
                 m_favorites.insert(
                     key, quint64(outcomes.first().toObject().value("file_id").toInteger()));
             emit favoriteWritten(m_writeSongs.first(), !m_removing);
-        } else
+            emit notice(m_removing ? tr("已取消收藏") : tr("收藏成功"), false);
+        } else {
             m_error = tr("音乐服务未接受收藏操作");
+            emit notice(m_error, true);
+        }
         m_favoriteWrite = m_busy = false;
         m_removing = false;
         m_favoritesReady = false;
@@ -546,6 +560,7 @@ void PlaybackLibraryActions::writeCompleted(const QByteArray &bytes)
 void PlaybackLibraryActions::writeFailed(const QString &message)
 {
     m_error = message;
+    emit notice(message, true);
     m_ownedWrite = false;
     if (!m_currentTarget.isEmpty()) {
         m_failed.append(m_remaining);

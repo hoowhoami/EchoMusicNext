@@ -35,6 +35,7 @@ private slots:
     void shapedClustersKeepCompleteInk();
     void nativeGpuClustersMatchWholeQtInk();
     void lyricRowsMoveIndependentlyAndSettle();
+    void lyricRowBoxClearsRightSideTools();
     void presentationScheduleMatchesUnmodifiedAmll();
     void scaleSpringMatchesUnmodifiedAmll();
     void springRetargetKeepsMovingDuringStagger();

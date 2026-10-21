@@ -173,6 +173,7 @@ void PluginRuntime::refresh()
 {
     if (m_closing || m_maintenance || loading())
         return;
+    m_refreshNotice = true;
     discoverRoot(true);
 }
 void PluginRuntime::discoverRoot(bool reloadInstalled)
@@ -258,5 +259,7 @@ void PluginRuntime::advanceRefresh()
     m_refreshing = false;
     queueReconcile();
     emit loadingChanged();
+    if (std::exchange(m_refreshNotice, false))
+        emit notice(tr("插件已刷新"), false);
 }
 } // namespace EchoMusic

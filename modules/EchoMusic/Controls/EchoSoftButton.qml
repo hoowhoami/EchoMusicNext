@@ -5,6 +5,28 @@ import EchoMusic.Theme
 
 Button {
     id: button
+    readonly property EchoUiPart publicPart: EchoUiPart {
+        target: button
+        role: "control.button"
+        key: button.objectName
+        properties: ["foreground", "background", "borderColor", "borderWidth", "radius", "font", "fontSize", "fontWeight", "letterSpacing"]
+        actions: ["activate"]
+        replaceable: true
+        baseValues: ({
+                foreground: button.foreground,
+                font: button.font
+            })
+        onActionRequested: (action, arguments) => {
+            if (action === "activate")
+                button.clicked();
+        }
+    }
+    Connections {
+        target: button
+        function onClicked(): void {
+            button.publicPart.publish("activated");
+        }
+    }
     property int size: EchoControlSize.Standard
     property string glyph: ""
     property real glyphSize: 16
@@ -36,22 +58,24 @@ Button {
     }
     Accessible.name: text
     contentItem: EchoButtonContent {
+        visible: !button.publicPart.replaced
         spacing: button.size === EchoControlSize.Small ? 6 : 8
         glyph: button.glyph
         glyphSize: button.glyphSize
         loading: button.loading
         text: button.text
-        color: button.foreground
-        font: button.font
+        color: button.publicPart.value("foreground", button.foreground)
+        font: button.publicPart.styledFont(button.font)
     }
     background: EchoActionBackground {
+        publicPart: button.publicPart
         colors: button.colors
         accent: button.accent
         danger: button.danger
-        visible: !button.plain || button.visualFocus
+        visible: !button.publicPart.replaced && (!button.plain || button.visualFocus)
         pressed: button.down
         highlighted: button.enabled && (button.hovered || button.visualFocus)
-        border.width: button.visualFocus ? 2 : 0
-        border.color: Theme.accent
+        border.width: button.publicPart.value("borderWidth", button.visualFocus ? 2 : 0)
+        border.color: button.publicPart.value("borderColor", Theme.accent)
     }
 }

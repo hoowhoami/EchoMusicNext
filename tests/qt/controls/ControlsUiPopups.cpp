@@ -527,6 +527,19 @@ void ControlsUiTest::tooltipPopupsExistOnlyDuringTheirTrigger()
     host->setParent(session.root.data());
     host->setParentItem(session.window->contentItem());
     phase("configured-500");
+    int coldRecipes = 0, coldTimers = 0;
+    for (auto *anchor : host->childItems()) {
+        auto *recipe = anchor->property("hint").value<QObject *>();
+        if (!recipe)
+            continue;
+        ++coldRecipes;
+        QVERIFY(!recipe->property("session").value<QObject *>());
+        for (auto *object : recipe->findChildren<QObject *>())
+            coldTimers += object->inherits("QQmlTimer");
+    }
+    QCOMPARE(coldRecipes, 500);
+    QCOMPARE(coldTimers, 0);
+    qInfo() << "500 cold tooltip recipes have no hover timers or native popups";
     const auto idleCount = nativeTips().size();
     QObject *hint = nullptr;
     for (auto *anchor : host->childItems()) {
@@ -669,7 +682,14 @@ void ControlsUiTest::dialogHeaderBodyAndFooterShareInsets()
                     QVERIFY(qAbs(bounds(close).top() -
                                  (panel->property("y").toReal() +
                                   panel->property("topPadding").toReal() * scale)) < 0.5);
-                    QTRY_VERIFY(qAbs(bounds(body).right() - right) < 0.5);
+                    QTRY_VERIFY2(
+                        qAbs(bounds(body).right() - right) < 0.5,
+                        qPrintable(QString("body right=%1 expected=%2 mode=%3 scale=%4 flush=%5")
+                                       .arg(bounds(body).right())
+                                       .arg(right)
+                                       .arg(int(mode))
+                                       .arg(scale)
+                                       .arg(flush)));
                     QTRY_VERIFY(qAbs(bounds(footer).right() - right) < 0.5);
                     QTRY_VERIFY(qAbs(bounds(title).left() - bounds(body).left()) < 0.5);
                     if (withActions) {
@@ -754,9 +774,9 @@ void ControlsUiTest::drawerFixedActionsSurviveLongTitlesAndVisibilityChanges()
                             QVERIFY(secondary);
                             QCOMPARE(secondary->isVisible(), loading);
                             auto *spinner = findVisual(refresh, "buttonSpinner");
-                            QVERIFY(spinner);
-                            QCOMPARE(spinner->isVisible(), loading);
+                            QCOMPARE(spinner != nullptr, loading);
                             if (loading) {
+                                QVERIFY(spinner->isVisible());
                                 QTRY_VERIFY(qAbs(spinner->mapToItem(refresh, {8, 8}).y() - 16) <
                                             .5);
                             }
@@ -929,6 +949,9 @@ void ControlsUiTest::popupsCancelVisibleAndPendingHints()
     auto *defaultTip = button->findChild<QObject *>("iconButtonToolTip");
     QVERIFY(defaultTip);
     QCOMPARE(defaultTip->property("text").toString(), QString("Favorite"));
+    QVERIFY(!defaultTip->property("session").value<QObject *>());
+    for (auto *child : defaultTip->findChildren<QObject *>())
+        QVERIFY(!child->inherits("QQmlTimer"));
     QVERIFY(!defaultTip->property("popup").value<QObject *>());
     button->setProperty("tooltipText", QStringLiteral("Favorite explanation"));
     auto *tip = button->findChild<QObject *>("iconButtonToolTip");

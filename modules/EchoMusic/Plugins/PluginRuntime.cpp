@@ -50,6 +50,12 @@ PluginRuntime::PluginRuntime(QQmlEngine &engine, QSettings &preferences, PluginH
 {
     connect(this, &PluginRuntime::loadingChanged, this, &PluginRuntime::advanceRefresh,
             Qt::QueuedConnection);
+    connect(this, &PluginRuntime::pluginFailed, this, [this] { m_refreshNotice = false; });
+    connect(this, &PluginRuntime::managementFinished, this,
+            [this](const QString &, bool success, const QString &) {
+                if (!success)
+                    m_refreshNotice = false;
+            });
 }
 PluginRuntime::~PluginRuntime()
 {
@@ -181,8 +187,10 @@ bool PluginRuntime::setEnabled(const QString &installation, bool enabled)
             .toBool() ||
         entry->state == Discovered || entry->state == Invalid || entry->state == Incompatible ||
         entry->mutation != Entry::None || entry->state == Deactivating ||
-        (enabled && entry->state == Activating))
+        (enabled && entry->state == Activating)) {
+        emit notice(tr("插件启停失败，请稍后重试"), true);
         return false;
+    }
     entry->enabled = enabled;
     if (!enabled && !entry->context && entry->state == Blocked) {
         entry->state = Disabled;
@@ -200,6 +208,7 @@ bool PluginRuntime::setEnabled(const QString &installation, bool enabled)
         }
         queueReconcile();
     }
+    emit notice(enabled ? tr("插件已启用") : tr("插件已禁用"), false);
     return true;
 }
 bool PluginRuntime::reload(const QString &installation)
@@ -306,6 +315,7 @@ bool PluginRuntime::setSafeMode(bool enabled)
         changed(*entry);
     }
     emit safeModeChanged();
+    emit notice(enabled ? tr("插件安全模式已开启") : tr("插件安全模式已关闭"), false);
     return true;
 }
 void PluginRuntime::shutdown()

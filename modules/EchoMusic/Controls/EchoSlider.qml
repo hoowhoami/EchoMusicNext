@@ -5,6 +5,13 @@ import EchoMusic.Theme
 
 Slider {
     id: control
+    EchoUiPart {
+        id: formPart
+        target: control
+        role: "control.slider"
+        key: control.objectName
+        properties: ["foreground", "background", "accent", "borderColor", "borderWidth", "radius"]
+    }
     property ThemeColors colors: Theme.colors
     property bool showValue: false
     // Progress handles appear on hover, drag or keyboard focus.
@@ -46,8 +53,8 @@ Slider {
         y: control.topPadding + (control.horizontal ? control.availableHeight / 2 - 2 : 0)
         width: control.horizontal ? control.availableWidth : 4
         height: control.horizontal ? 4 : control.availableHeight
-        radius: 2
-        color: Theme.withAlpha(control.colors.text, control.hovered ? 0.24 : 0.18)
+        radius: formPart.value("radius", 2)
+        color: formPart.value("background", Theme.withAlpha(control.colors.text, control.hovered ? 0.24 : 0.18))
         // Markers sit behind the played range and extend 1px above and below it.
         Repeater {
             model: control.progress && control.horizontal ? control.markers : null
@@ -85,7 +92,7 @@ Slider {
             x: control.horizontal && control.invertedRange ? parent.width - width : 0
             y: control.horizontal || control.invertedRange ? 0 : parent.height - height
             radius: 2
-            color: control.colors.accent
+            color: formPart.value("accent", control.colors.accent)
             Loader {
                 anchors.fill: parent
                 active: control.progress && control.busy && control.horizontal
@@ -108,8 +115,8 @@ Slider {
         implicitWidth: 12
         implicitHeight: 12
         radius: 6
-        color: "white"
-        border.width: control.visualFocus ? 1 : 0.5
-        border.color: Theme.withAlpha(control.colors.text, 0.24)
+        color: formPart.value("foreground", "white")
+        border.width: formPart.value("borderWidth", control.visualFocus ? 1 : 0.5)
+        border.color: formPart.value("borderColor", Theme.withAlpha(control.colors.text, 0.24))
     }
 }

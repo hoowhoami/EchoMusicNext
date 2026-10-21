@@ -199,13 +199,20 @@ bool SavedAccountModel::switchAccount(quint64 userId)
 }
 bool SavedAccountModel::forgetAccount(quint64 userId)
 {
-    if (!m_ready || m_closing || busy() || userId == m_account.userId())
+    if (m_closing)
+        return false;
+    if (userId == m_account.userId()) {
+        emit notice(tr("当前登录账号不能移除，请先切换账号"), true);
+        return false;
+    }
+    if (!m_ready || m_closing || busy())
         return false;
     const auto *record = find(userId);
     if (!record)
         return false;
     Operation op;
     op.kind = Kind::Remove;
+    op.explicitRemoval = true;
     op.record = *record;
     enqueue(std::move(op));
     return true;
@@ -292,6 +299,10 @@ void SavedAccountModel::pump()
                 fail();
                 return;
             }
+            // Adoption advances the account generation itself. Bind feedback
+            // to that new identity; later explicit login/logout still retires it.
+            if (m_account.userId() == current.record.userId)
+                current.generation = m_generation;
             current.record.lastUsedAt = QDateTime::currentMSecsSinceEpoch();
             m_storage.saveAccount(id, current.record, true);
         });
@@ -323,13 +334,24 @@ void SavedAccountModel::sqlReady(quint64 id, const StoredAccounts &accounts, qui
         return;
     publish(accounts);
     auto &op = *m_operation;
-    if (op.kind == Kind::Switch && !op.restoring)
+    const auto name =
+        op.record.nickname.isEmpty() ? QString::number(op.record.userId) : op.record.nickname;
+    const bool currentNotice = !m_closing && op.generation == m_generation;
+    if (op.kind == Kind::Switch && !op.restoring) {
         emit switched();
+        if (currentNotice)
+            emit notice(tr("已切换至 %1").arg(name), false);
+    } else if (currentNotice && op.kind == Kind::Remove && op.explicitRemoval)
+        emit notice(tr("已移除账号"), false);
     finish();
 }
 void SavedAccountModel::fail()
 {
     m_error = tr("无法保存或读取本地账号，请重试");
+    if (!m_closing && m_operation && m_operation->generation == m_generation &&
+        ((m_operation->kind == Kind::Switch && !m_operation->restoring) ||
+         m_operation->explicitRemoval))
+        emit notice(m_error, true);
     finish();
 }
 void SavedAccountModel::finish()

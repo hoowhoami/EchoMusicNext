@@ -83,6 +83,7 @@ public:
 signals:
     void changed();
     void copied();
+    void notice(const QString &message);
 
 private:
     void updateFilter();

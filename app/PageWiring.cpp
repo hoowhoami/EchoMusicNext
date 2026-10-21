@@ -66,6 +66,13 @@ void AppContext::createPages()
     auto &collections = *m_collections;
     auto &accountController = *m_accountController;
     auto &libraryController = *m_libraryController;
+    const auto showNotice = [&shellController](const QString &message, bool warning) {
+        shellController.toasts()->show(message,
+                                       warning ? ToastService::Warning : ToastService::Success);
+    };
+    bind(&libraryController, &LibraryController::notice, &shellController, showNotice);
+    bind(libraryController.importer(), &PlaylistImportService::notice, &shellController,
+         showNotice);
     auto &search = *m_search;
     m_commentAuthors = std::make_unique<CommentAuthorService>(api, !smoke);
     auto &commentAuthors = *m_commentAuthors;
@@ -80,6 +87,7 @@ void AppContext::createPages()
     m_favorites = std::make_unique<FavoritesService>(
         api, playback, userPlaylists, *libraryController.order(), songMetadata, router, !smoke);
     auto &favorites = *m_favorites;
+    bind(&favorites, &FavoritesService::notice, &shellController, showNotice);
     bind(libraryController.order(), &EchoMusic::PlaylistOrderModel::notice, &shellController,
          [&](const QString &message, bool warning) {
              shellController.toasts()->show(message, warning ? EchoMusic::ToastService::Warning
@@ -90,6 +98,9 @@ void AppContext::createPages()
     m_cloud = std::make_unique<CloudService>(api, playback, songMetadata, router, !smoke);
     auto &cloud = *m_cloud;
     cloud.upload()->attachTasks(*shellController.tasks(), router);
+    bind(cloud.upload(), &CloudUploadService::cancelled, &shellController, [&shellController] {
+        shellController.toasts()->show(QObject::tr("已取消上传"), ToastService::Info);
+    });
     cloud.upload()->setProperty(
         "backgroundReminderMuted",
         settings.value(EchoMusic::SettingsKeys::Cloud::UploadBackgroundReminderMuted, false));
@@ -131,6 +142,7 @@ void AppContext::createPages()
          [&](const QString &, bool) { favorites.invalidateVideos(); });
     m_artistDetails = std::make_unique<ArtistDetailService>(api, playback, router, shell, !smoke);
     auto &artistDetails = *m_artistDetails;
+    bind(&artistDetails, &ArtistDetailService::notice, &shellController, showNotice);
     artistDetails.attachProfile(profile);
     bind(&profile, &EchoMusic::ProfileService::notice, &shellController, detailNotice);
     // The editor form scrolls; validation and save feedback use the shared toast
@@ -164,6 +176,7 @@ void AppContext::createPages()
     m_recognition =
         std::make_unique<RecognitionService>(api, playback, recognitionCapture, settings, router);
     m_explore = std::make_unique<ExploreService>(api, playback, router, !smoke);
+    bind(m_explore.get(), &ExploreService::notice, &shellController, showNotice);
     m_discoveryRoutes = std::make_unique<DiscoveryRouteCoordinator>(discovery, router, !smoke);
     m_togetherUi = std::make_unique<ListenTogetherUi>(api, playback, userPlaylists, songMetadata,
                                                       router, !smoke);

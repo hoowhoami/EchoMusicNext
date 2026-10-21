@@ -1,6 +1,62 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
 
+void DesktopPagesTest::playbackQueueLocationSkipsVisibleCurrentSong()
+{
+    Session session;
+    PlaybackService playback(session.api, session.preferences);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&session] {
+        session.root.reset();
+        session.window = nullptr;
+    });
+    PlaybackTracks tracks;
+    for (int i = 0; i < 1000; ++i) {
+        PlaybackTrack track;
+        track.id = QString::number(i + 1);
+        track.localPath = QStringLiteral("/ui-test/locate-%1.wav").arg(i);
+        track.title = QStringLiteral("定位歌曲 %1").arg(i);
+        tracks.append(track);
+    }
+    playback.appendTracks(tracks);
+    playback.queue()->setCurrent(10);
+    session.theme.setMotionEnabled(false);
+    for (auto mode : {ThemeStore::Light, ThemeStore::Dark})
+        for (bool zoom : {false, true}) {
+            session.theme.setMode(mode);
+            session.shell.resetZoom();
+            if (zoom)
+                for (int i = 0; i < 5; ++i)
+                    session.shell.zoomIn();
+            QPointer<QObject> drawer = session.openPlayerPopup("queue", "playbackQueueDrawer");
+            QVERIFY(drawer);
+            QTRY_VERIFY(drawer->property("opened").toBool());
+            auto *list = visual(session.window->contentItem(), "playbackQueueList");
+            auto *button = visual(session.window->contentItem(), "queueLocateButton");
+            QVERIFY(list && button);
+            QTRY_COMPARE(list->property("count").toInt(), 1000);
+            list->setProperty("contentY", 504.); // Current row is at y=56, away from the center.
+            QVERIFY(session.settleScene());
+            QSignalSpy changes(list, SIGNAL(contentYChanged()));
+            QVERIFY(session.clickItem(button));
+            QCOMPARE(changes.count(), 0);
+            QCOMPARE(list->property("contentY").toReal(), 504.);
+            // Cached row above the viewport is not visible.
+            list->setProperty("contentY", 616.);
+            QVERIFY(session.settleScene());
+            QVERIFY(session.clickItem(button));
+            QVERIFY(list->property("contentY").toReal() < 560.);
+            const qreal located = list->property("contentY").toReal();
+            changes.clear();
+            QVERIFY(session.clickItem(button));
+            QCOMPARE(changes.count(), 0);
+            QCOMPARE(list->property("contentY").toReal(), located);
+            QVERIFY(visualAll(list, "queueRow").size() < 80);
+            QVERIFY(QMetaObject::invokeMethod(drawer, "close"));
+            QTRY_VERIFY(drawer.isNull());
+        }
+}
+
 void DesktopPagesTest::playbackQueueEmptyIndicatorAndCloseIcon()
 {
     const auto cursorPosition = QCursor::pos();

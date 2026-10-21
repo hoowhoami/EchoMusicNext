@@ -73,5 +73,7 @@ void SleepTimer::executionFinished(const QString &error)
     m_executing = false;
     m_error = error;
     emit changed();
+    if (!error.isEmpty())
+        emit executionFailed(error);
 }
 } // namespace EchoMusic

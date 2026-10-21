@@ -173,6 +173,9 @@ void LyricTextController::adjustTrackOffset(int direction)
     m_trackOffset = qBound(-20000, m_trackOffset + qRound(m_step * 1000) * direction, 20000);
     m_settings.setValue(offsetKey(m_track), m_trackOffset);
     publish();
+    emit notice(tr("单曲歌词偏移: %1%2s")
+                    .arg(m_trackOffset > 0 ? "+" : "")
+                    .arg(double(m_trackOffset) / 1000, 0, 'f', 1));
 }
 void LyricTextController::resetTrackOffset()
 {
@@ -181,6 +184,7 @@ void LyricTextController::resetTrackOffset()
     m_trackOffset = 0;
     m_settings.remove(offsetKey(m_track));
     publish();
+    emit notice(tr("单曲歌词偏移已重置"));
 }
 void LyricTextController::copyLyrics()
 {

@@ -130,6 +130,7 @@ public:
 signals:
     void changed();
     void reminderChanged();
+    void notice(const QString &message, bool warning);
     void started();
     void showRequested();
     void duplicateConfirmationRequested();

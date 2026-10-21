@@ -18,7 +18,7 @@ ItemDelegate {
     opacity: enabled ? 1 : 0.5
     Accessible.role: Accessible.CheckBox
     Accessible.checked: selected
-    contentItem: EchoTextTagRow {
+    contentItem: EchoTextLine {
         id: label
         text: option.text
         color: option.selected ? Theme.floating.accentText : Theme.floating.text
@@ -50,6 +50,6 @@ ItemDelegate {
     EchoToolTip {
         parent: option
         text: option.text
-        requestedVisible: option.hovered && label.truncated && !option.wrap
+        requestedVisible: option.hovered && label.isTruncated() && !option.wrap
     }
 }

@@ -431,6 +431,24 @@ Window {
                      "Song rows expose their context actions through right click and keyboard");
         Test::moveNativePointer(window, QPoint(window->width() - 4, window->height() - 4));
         QTRY_VERIFY(!row->property("hovered").toBool());
+        // Transparent row actions keep their native button identity and tab
+        // target, but not an icon tree. Keyboard focus recreates it immediately.
+        auto *mv = find(row, "songMvAction");
+        QVERIFY(mv);
+        QTRY_VERIFY(!mv->property("visualContentActive").toBool());
+        QVERIFY(!find(mv, "iconImage"));
+        mv->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY(mv->hasActiveFocus());
+        QTRY_VERIFY(mv->property("visualContentActive").toBool());
+        QTRY_VERIFY(find(mv, "iconImage"));
+        QPointer<QObject> retiredIcon = find(mv, "iconImage");
+        otherRow->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(!mv->hasActiveFocus());
+        QTRY_VERIFY(!mv->property("visualContentActive").toBool());
+        QTRY_VERIFY(retiredIcon.isNull());
+        auto *inactivePlay = otherRow->findChild<QQuickItem *>("songIndexPlay");
+        QVERIFY(inactivePlay);
+        QVERIFY(!inactivePlay->property("visualContentActive").toBool());
         QVERIFY(play->isVisible());
         QCOMPARE(play->property("glyph").toString(), QString("pause"));
         QCOMPARE(play->property("text").toString(), QString("暂停"));

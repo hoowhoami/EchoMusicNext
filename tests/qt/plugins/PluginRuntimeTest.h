@@ -5,6 +5,11 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void uiStyleLayersRestoreLiveBindings();
+    void uiPartsIdentityObservationAndPublicActions();
+    void uiPartMountsReplaceAndRetire();
+    void uiPartsProductionPlaybackAndMini();
+    void uiPartInstanceStylesAndLeasesStayBounded();
     void sharedPluginVersionWarnings_data();
     void sharedPluginVersionWarnings();
     void sharedPluginPagePresentationAndRedirect();

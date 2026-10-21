@@ -2,6 +2,7 @@
 #include "EchoPluginUi.h"
 #include "EchoPluginIo.h"
 #include "EchoPluginPromise.h"
+#include "EchoUiPartRegistry.h"
 #include "ThemeStore.h"
 #include "PlaybackService.h"
 #include "AccountService.h"
@@ -35,6 +36,8 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     });
     const auto invalidate = [this] {
         ++m_accountEpoch;
+        if (auto *registry = EchoUiPartRegistry::forEngine(m_engine))
+            registry->requestSessionReset();
         const auto operations = m_operations;
         for (const auto &op : operations)
             if (op)

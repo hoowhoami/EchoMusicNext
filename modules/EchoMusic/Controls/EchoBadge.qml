@@ -35,6 +35,7 @@ Item {
     Accessible.name: count === undefined || count === null ? "" : String(count)
     EchoLabelSurface {
         id: surface
+        partRole: "control.badge"
         anchors.fill: parent
         pill: badge.pill
         labelFont: badge.font
@@ -50,8 +51,8 @@ Item {
             glyphSize: 12
             spacing: 6
             text: badge.displayText
-            font: badge.font
-            color: surface.foreground
+            font: surface.paintedFont
+            color: surface.paintedForeground
         }
     }
 }

@@ -11,7 +11,7 @@ RowLayout {
     required property string heading
     required property string text
     spacing: 8
-    EchoTextTagRow {
+    EchoTextLine {
         objectName: "legalSectionTitle"
         Layout.alignment: Qt.AlignTop
         Layout.fillHeight: false
@@ -20,7 +20,7 @@ RowLayout {
         lineHeight: 24
         color: Theme.floatingText
     }
-    EchoTextTagRow {
+    EchoTextLine {
         objectName: "legalSectionContent"
         Layout.alignment: Qt.AlignTop
         Layout.fillWidth: true

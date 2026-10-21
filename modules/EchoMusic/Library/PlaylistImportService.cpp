@@ -330,6 +330,7 @@ void PlaylistImportService::fail(const QString &message)
     m_error = message;
     m_label = tr("导入失败");
     emit changed();
+    emit notice(message, true);
 }
 void PlaylistImportService::stop()
 {
@@ -344,6 +345,8 @@ void PlaylistImportService::stop()
     m_label = m_task ? tr("已停止查看进度，导入任务仍会继续处理")
                      : tr("已停止导入；已提交请求的结果请刷新歌单确认");
     emit changed();
+    if (m_task)
+        emit notice(m_label, true);
 }
 void PlaylistImportService::dismiss()
 {
@@ -358,6 +361,7 @@ void PlaylistImportService::complete()
     m_images.clear();
     m_source.reload();
     emit changed();
+    emit notice(tr("导入完成：成功 %1 / %2").arg(m_imported).arg(m_total), false);
 }
 void PlaylistImportService::succeed(quint64 request, const QByteArray &payload)
 {

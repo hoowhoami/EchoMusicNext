@@ -286,6 +286,8 @@ void ExploreService::fail(quint64 id, const QByteArray &bytes)
         QJsonDocument::fromJson(bytes).object()["message"].toString(tr("内容加载失败"));
     if (p.part == RankCatalog)
         request(RankFallback);
+    else if (p.part == Categories || p.part == RankFallback || p.part == RankSongs)
+        emit notice(m_errors[p.part], true);
     emit changed();
 }
 void ExploreService::selectCategory(const QString &id)

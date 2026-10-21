@@ -76,9 +76,11 @@ QVariantMap PluginManager::entry(const QString &key) const
 }
 bool PluginManager::openDirectory()
 {
-    if (!QDir().mkpath(m_runtime.directory()))
-        return false;
-    return QDesktopServices::openUrl(QUrl::fromLocalFile(m_runtime.directory()));
+    const bool opened = QDir().mkpath(m_runtime.directory()) &&
+                        QDesktopServices::openUrl(QUrl::fromLocalFile(m_runtime.directory()));
+    if (!opened)
+        emit notice(tr("打开插件目录失败"), true);
+    return opened;
 }
 bool PluginManager::openRepository(const QString &key)
 {

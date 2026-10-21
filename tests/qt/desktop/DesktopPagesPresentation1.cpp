@@ -63,6 +63,64 @@ void DesktopPagesTest::audibleTransitionPublishesOneToastThroughShell()
     QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
 }
 
+void DesktopPagesTest::nativePlaybackFailurePublishesVisibleToast()
+{
+    Session session;
+    const auto path = session.directory.filePath("invalid-audio.wav");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("This is deliberately invalid audio data.");
+    file.close();
+    PlaybackTrack track;
+    track.id = path;
+    track.localPath = path;
+    track.title = "播放失败测试 · 长标题 ABC";
+    PlaybackService playback(session.api, session.preferences);
+    playback.setVolume(0);
+    playback.preferences()->setAutoNext(true);
+    QVERIFY(session.create(&playback));
+    session.theme.setMotionEnabled(false);
+    auto *toasts = session.commands.toasts();
+    const auto capture = qEnvironmentVariable("ECHO_TOAST_CAPTURE_DIR");
+    if (!capture.isEmpty())
+        QVERIFY(QDir().mkpath(capture));
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const auto zoomed : {false, true}) {
+            session.shell.resetZoom();
+            if (zoomed)
+                for (int step = 0; step < 5; ++step)
+                    session.shell.zoomIn();
+            playback.playTracks({track}, 0, "Failure notification", "native-failure");
+            QTRY_VERIFY_WITH_TIMEOUT(toasts->visible(), 15000);
+            QCOMPARE(toasts->tone(), ToastService::Danger);
+            QCOMPARE(toasts->title(), QString("播放失败 · %1").arg(track.title));
+            QVERIFY(!toasts->message().contains("尝试下一首")); // Single song: no scheduled skip.
+            QCOMPARE(toasts->repetitions(), 1);
+            auto *message = visual(session.window->contentItem(), "toastMessage");
+            auto *card = visual(session.window->contentItem(), "toastCard");
+            QVERIFY(message && card);
+            QTRY_VERIFY(card->isVisible());
+            QVERIFY(card->height() >= 48);
+            QCOMPARE(message->property("text").toString(), toasts->message());
+            if (!capture.isEmpty()) {
+                QTest::qWait(150);
+                const auto image = session.window->grabWindow();
+                QVERIFY(!image.isNull());
+                QVERIFY(image.save(capture + QString("/playback-failure-%1-%2.png")
+                                                 .arg(mode == ThemeStore::Light ? "light" : "dark")
+                                                 .arg(zoomed ? 125 : 100)));
+            }
+            toasts->dismiss(toasts->noticeId());
+        }
+    }
+    session.root.reset();
+    session.window = nullptr;
+    QSignalSpy closed(&playback, &PlaybackService::closed);
+    playback.shutdown();
+    QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+}
+
 void DesktopPagesTest::nativeOutputDeviceSelectHasOneDefaultChoice()
 {
     Session session;

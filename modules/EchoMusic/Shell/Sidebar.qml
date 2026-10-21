@@ -10,6 +10,25 @@ import EchoMusic.Library
 
 Item {
     id: sidebar
+    EchoUiPart {
+        id: publicSurface
+        target: sidebar
+        role: "shell.sidebar"
+        key: "shell.sidebar"
+        properties: ["background", "borderColor", "borderWidth", "radius", "opacity"]
+    }
+    opacity: publicSurface.value("opacity", 1)
+    Loader {
+        anchors.fill: parent
+        z: -0.5
+        active: sidebar.visible && sidebar.Window.window !== null && sidebar.Window.window.visible && sidebar.Window.window.visibility !== Window.Minimized && Object.keys(publicSurface.overrides).some(name => name !== "opacity")
+        sourceComponent: Rectangle {
+            color: publicSurface.value("background", "transparent")
+            radius: publicSurface.value("radius", 0)
+            border.color: publicSurface.value("borderColor", "transparent")
+            border.width: publicSurface.value("borderWidth", 0)
+        }
+    }
     required property RouteController router
     required property ShellSettings settings
     required property real uiScale

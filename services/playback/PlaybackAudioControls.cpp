@@ -108,6 +108,7 @@ PlaybackAudioControls::PlaybackAudioControls(AudioEngine &engine, NativeBridge &
             m_settings.value(EchoMusic::SettingsKeys::Audio::ProviderPreset).toString();
         applyEffect();
     });
+    connect(&m_providers, &DspProviderRegistry::notice, this, &PlaybackAudioControls::fileNotice);
     connect(&m_providers, &DspProviderRegistry::imported, this, [this](const QString &id) {
         // EchoMusic's explicit import selects speaker context and original
         // sound, rather than replaying a preset from a different binary version.
@@ -116,6 +117,7 @@ PlaybackAudioControls::PlaybackAudioControls(AudioEngine &engine, NativeBridge &
         m_targetProvider = id;
         m_targetPreset.clear();
         m_targetMode = "speaker";
+        m_providerNotice = tr("音效引擎已导入并启用");
         applyEffect();
     });
     connect(&m_providers, &DspProviderRegistry::changed, this, &PlaybackAudioControls::changed);
@@ -306,6 +308,7 @@ void PlaybackAudioControls::handleEvent(const QJsonObject &event)
             quint64(event.value("effect_revision").toInteger()) != m_effectRevision)
             return;
         m_effectPending = false;
+        const bool removing = !m_removingProvider.isEmpty();
         if (kind == "effect-applied") {
             if (m_providerId != m_targetProvider || m_providerMode != m_targetMode)
                 m_editingPreset.clear();
@@ -327,7 +330,13 @@ void PlaybackAudioControls::handleEvent(const QJsonObject &event)
             m_targetPreset = m_providerPreset;
             m_targetMode = m_providerMode;
             m_removingProvider.clear();
-            m_error = event.value("message").toString();
+            m_error = event.value("message").toString(tr("音效引擎操作失败"));
+        }
+        if (!m_providerNotice.isEmpty()) {
+            const auto message = std::exchange(m_providerNotice, {});
+            if (kind != "effect-applied" || !removing)
+                emit fileNotice(kind == "effect-applied" ? message : m_error,
+                                kind == "effect-applied");
         }
         emit changed();
         return;
@@ -580,6 +589,10 @@ void PlaybackAudioControls::applyEffect()
         return;
     if (m_irsEnabled && !QFileInfo(m_irs).isReadable()) {
         m_error = tr("脉冲响应文件不可读取");
+        if (!m_providerNotice.isEmpty()) {
+            m_providerNotice.clear();
+            emit fileNotice(m_error, false);
+        }
         emit changed();
         return;
     }
@@ -590,6 +603,10 @@ void PlaybackAudioControls::applyEffect()
     if (!m_targetProvider.isEmpty()) {
         if (record.isEmpty()) {
             m_error = tr("音效引擎不可用");
+            if (!m_providerNotice.isEmpty()) {
+                m_providerNotice.clear();
+                emit fileNotice(m_error, false);
+            }
             emit changed();
             return;
         }
@@ -620,6 +637,7 @@ void PlaybackAudioControls::activateProvider(const QString &id)
     if (m_effectPending || m_providers.record(id).isEmpty())
         return;
     m_targetProvider = id;
+    m_providerNotice = tr("已启用“%1”").arg(m_providers.record(id).value("name").toString());
     m_targetPreset = id == m_providerId ? m_providerPreset : QString();
     applyEffect();
 }
@@ -627,6 +645,8 @@ void PlaybackAudioControls::deactivateProvider()
 {
     if (m_effectPending)
         return;
+    if (m_removingProvider.isEmpty())
+        m_providerNotice = tr("已停用“%1”").arg(providerName());
     m_targetProvider.clear();
     m_targetPreset.clear();
     applyEffect();
@@ -637,6 +657,7 @@ void PlaybackAudioControls::removeProvider(const QString &id)
         return;
     if (id == m_providerId) {
         m_removingProvider = id;
+        m_providerNotice = tr("音效引擎已删除");
         deactivateProvider();
     } else
         m_providers.remove(id);

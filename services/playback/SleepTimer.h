@@ -70,6 +70,7 @@ public:
     void executionFinished(const QString &error = {});
 signals:
     void changed();
+    void executionFailed(const QString &message);
     void actionRequested(const QString &action);
 
 private:

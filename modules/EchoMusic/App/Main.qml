@@ -211,6 +211,18 @@ ApplicationWindow {
         Component.onCompleted: mainWindow.shellSettings.updateViewport(width)
         ThemeBackground {
             id: windowArtwork
+            EchoUiPart {
+                id: backgroundPart
+                target: windowArtwork
+                role: "background.window"
+                key: "main"
+                surface: "main"
+                properties: ["background"]
+                baseValues: ({
+                        background: Theme.shell
+                    })
+            }
+            baseColor: backgroundPart.value("background", Theme.shell)
             objectName: "themeWindowBackground"
             anchors.fill: parent
             visible: !mainWindow.playbackCoversShell

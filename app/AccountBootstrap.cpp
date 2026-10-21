@@ -11,6 +11,7 @@
 #include "PlaylistImportTaskCoordinator.h"
 #include "PlaylistMutationService.h"
 #include "ProfileService.h"
+#include "ListeningPreferencesService.h"
 #include "QrLoginService.h"
 #include "RouteController.h"
 #include "SavedAccountModel.h"
@@ -53,6 +54,10 @@ void AppContext::createAccount()
     auto &account = *m_account;
     m_profile = std::make_unique<ProfileService>(api, account);
     auto &profile = *m_profile;
+    bind(profile.preferences(), &ListeningPreferencesService::saved, &shellController,
+         [&shellController] {
+             shellController.toasts()->show(QObject::tr("听歌偏好已保存"), ToastService::Success);
+         });
     bind(&profile, &EchoMusic::ProfileService::deviceRemovalFinished, &shellController,
          [&](bool success, const QString &message) {
              shellController.toasts()->show(message, success ? EchoMusic::ToastService::Success
@@ -85,6 +90,11 @@ void AppContext::createAccount()
     userPlaylists.attachStorage(storage);
     m_savedAccounts = std::make_unique<SavedAccountModel>(api, account, storage);
     auto &savedAccounts = *m_savedAccounts;
+    bind(&savedAccounts, &SavedAccountModel::notice, &shellController,
+         [&shellController](const QString &message, bool warning) {
+             shellController.toasts()->show(message, warning ? ToastService::Warning
+                                                             : ToastService::Success);
+         });
     m_startup = std::make_unique<StartupController>(
         storage, api, deviceRegistration, playback, network, savedAccounts,
         applicationData + QStringLiteral("/music.sqlite"));

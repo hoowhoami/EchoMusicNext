@@ -1,6 +1,9 @@
 #include "PluginSdkContract.h"
 #include "EchoPluginContext.h"
 #include "EchoPluginTask.h"
+#include "EchoPluginUiParts.h"
+#include "EchoPluginUiStyles.h"
+#include "EchoUiPartMount.h"
 #include <QJsonArray>
 #include <QMetaMethod>
 #include <QMetaProperty>
@@ -46,7 +49,12 @@ QJsonObject describe(const QMetaObject &meta)
 QJsonObject pluginSdkContract()
 {
     QJsonObject types;
-    const QMetaObject *publicTypes[] = {&EchoPluginContext::staticMetaObject,
+    const QMetaObject *publicTypes[] = {&EchoPluginUiParts::staticMetaObject,
+                                        &EchoPluginUiStyles::staticMetaObject,
+                                        &EchoUiPartRef::staticMetaObject,
+                                        &EchoUiStyleRule::staticMetaObject,
+                                        &EchoUiPartMount::staticMetaObject,
+                                        &EchoPluginContext::staticMetaObject,
                                         &EchoPluginPlayer::staticMetaObject,
                                         &EchoPluginReadModel::staticMetaObject,
                                         &EchoPluginUi::staticMetaObject,

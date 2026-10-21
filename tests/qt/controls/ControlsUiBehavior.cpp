@@ -1,6 +1,106 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
 
+void ControlsUiTest::listLocationPreservesVisibleRowsAndChecksOcclusion()
+{
+    ControlsSession session;
+    QVERIFY(session.create());
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+Item {
+    width: 400; height: 340
+    property bool pageMode: true
+    property int positioningMode: ListView.Center
+    function locate(index: int): void {
+        EchoListPositioning.positionIfNeeded(list, index, positioningMode, pageMode ? page : null);
+    }
+    function rowAvailable(index: int): bool { return list.itemAtIndex(index) !== null; }
+    EchoPageScrollContainer {
+        id: page
+        anchors.fill: parent
+        scrollView: list
+        stickyHeaders: [header]
+        hideBackToTop: true
+        EchoPageStickyHeader { id: header; container: page; height: 80 }
+        ListView {
+            id: list
+            objectName: "locationList"
+            y: 20; width: 400; height: 300
+            topMargin: 200
+            model: 1000
+            reuseItems: true
+            cacheBuffer: 600
+            clip: true
+            delegate: Item { required property int index; width: 400; height: 60 }
+        }
+    }
+})",
+                      QUrl());
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto *host = qobject_cast<QQuickItem *>(object.data());
+    host->setParentItem(session.window->contentItem());
+    auto *list = findVisual(host, "locationList");
+    QVERIFY(list);
+    QTRY_COMPARE(list->property("count").toInt(), 1000);
+    QVERIFY(QMetaObject::invokeMethod(list, "forceLayout"));
+    for (qreal scale : {1., 1.25}) {
+        host->setScale(scale);
+        const auto locate = [&](int index) {
+            return QMetaObject::invokeMethod(host, "locate", Q_ARG(int, index));
+        };
+        const auto setPosition = [&](qreal y) {
+            list->setProperty("contentY", y);
+            return QMetaObject::invokeMethod(list, "forceLayout");
+        };
+        const auto rowAvailable = [&](int index) {
+            bool available = false;
+            return QMetaObject::invokeMethod(host, "rowAvailable", Q_RETURN_ARG(bool, available),
+                                             Q_ARG(int, index)) &&
+                   available;
+        };
+        host->setProperty("pageMode", true);
+        QVERIFY(setPosition(600));
+        QTRY_VERIFY(rowAvailable(11) && rowAvailable(14));
+        // Visible boundaries are y=60..300 in the list's coordinates.
+        QSignalSpy changes(list, SIGNAL(contentYChanged()));
+        for (int index : {11, 12, 14, -1, 1000}) {
+            QVERIFY(locate(index));
+            QCOMPARE(list->property("contentY").toReal(), 600.);
+        }
+        QCOMPARE(changes.count(), 0);
+        // These rows are cached but hidden by the sticky header or below
+        // the viewport. Partially clipped rows must still be located.
+        for (const auto &[index, y] :
+             {std::pair{10, 600.}, {15, 600.}, {11, 601.}, {14, 599.}, {900, 600.}}) {
+            QVERIFY(setPosition(y));
+            QVERIFY(locate(index));
+            QVERIFY(list->property("contentY").toReal() != y);
+        }
+        // Queue and Mini have no page header. Keep their original Center
+        // and Contain modes, including rows exactly on either boundary.
+        host->setProperty("pageMode", false);
+        for (int mode : {1, 4}) { // ListView.Center / ListView.Contain
+            host->setProperty("positioningMode", mode);
+            QVERIFY(setPosition(600));
+            // A distant jump refills virtual delegates on the next polish.
+            // Wait for painted rows before asserting that they are visible.
+            QTRY_VERIFY(rowAvailable(10) && rowAvailable(14));
+            changes.clear();
+            for (int index : {10, 12, 14})
+                QVERIFY(locate(index));
+            QCOMPARE(changes.count(), 0);
+            QVERIFY(locate(900));
+            QVERIFY(list->property("contentY").toReal() > 50000);
+        }
+        host->setProperty("positioningMode", 1);
+    }
+    QCOMPARE(warnings.count(), 0);
+}
+
 void ControlsUiTest::iconRasterTracksZoomAndReleasesWhenHidden()
 {
     ControlsSession session;
@@ -717,6 +817,10 @@ void ControlsUiTest::disabledIconHoverIsOptInAndNeverActivates()
     auto *background = button->property("background").value<QQuickItem *>();
     auto *icon = button->property("contentItem").value<QQuickItem *>();
     QVERIFY(background && icon);
+    const auto backgroundAlpha = [&] {
+        auto *paint = background->property("item").value<QObject *>();
+        return paint ? paint->property("color").value<QColor>().alpha() : 0;
+    };
     QSignalSpy clicks(button, SIGNAL(clicked()));
     const auto capture = qEnvironmentVariable("ECHO_DISABLED_HOVER_CAPTURE_DIR");
     if (!capture.isEmpty())
@@ -729,11 +833,11 @@ void ControlsUiTest::disabledIconHoverIsOptInAndNeverActivates()
             button->setProperty("hoverWhenDisabled", false);
             Test::moveNativePointer(session.window, button->mapToScene({20, 18}).toPoint());
             QTRY_VERIFY(button->property("hovered").toBool());
-            QCOMPARE(background->property("color").value<QColor>().alpha(), 0);
+            QCOMPARE(backgroundAlpha(), 0);
             const auto before = session.window->grabWindow();
             button->setProperty("hoverWhenDisabled", true);
             QTRY_VERIFY(button->property("hoverHighlighted").toBool());
-            QTRY_VERIFY(background->property("color").value<QColor>().alpha() > 0);
+            QTRY_VERIFY(backgroundAlpha() > 0);
             const auto after = session.window->grabWindow();
             const auto point = button->mapToScene({3, 18}) * after.devicePixelRatio();
             QVERIFY(before.pixelColor(point.toPoint()) != after.pixelColor(point.toPoint()));
@@ -747,7 +851,7 @@ void ControlsUiTest::disabledIconHoverIsOptInAndNeverActivates()
             // A login/modal shield disables an ancestor, not just this action.
             button->parentItem()->setEnabled(false);
             QTRY_VERIFY(!button->property("hoverHighlighted").toBool());
-            QCOMPARE(background->property("color").value<QColor>().alpha(), 0);
+            QCOMPARE(backgroundAlpha(), 0);
             button->parentItem()->setEnabled(true);
         }
     }

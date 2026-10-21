@@ -130,6 +130,7 @@ public:
     void attachTasks(TaskCenterModel &, RouteController &);
     void shutdown();
 signals:
+    void cancelled();
     void changed();
     void reminderChanged();
     void cloudChanged();

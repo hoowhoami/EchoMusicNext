@@ -180,7 +180,14 @@ echo_copy_rust_runtime(echo-search-model-test)
 echo_copy_rust_runtime(echo-foundation-test)
 echo_copy_rust_runtime(echo-playlist-mutation-test)
 
+# Private binding enumeration is an opt-in diagnostic, not a regular test dependency.
+option(ECHO_ENABLE_QML_BINDING_PROBE "Enable Qt-private QML binding diagnostics" OFF)
 qt_add_executable(echo-controls-ui-test ControlsUiTest.cpp)
+if(ECHO_ENABLE_QML_BINDING_PROBE)
+    find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS QmlPrivate)
+    target_link_libraries(echo-controls-ui-test PRIVATE Qt6::QmlPrivate)
+    target_compile_definitions(echo-controls-ui-test PRIVATE ECHO_ENABLE_QML_BINDING_PROBE=1)
+endif()
 target_include_directories(echo-controls-ui-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(
     echo-controls-ui-test
@@ -189,6 +196,7 @@ target_sources(
             controls/ControlsUiInputs.cpp
             controls/ControlsUiPopups.cpp
             controls/ControlsUiTypography.cpp
+            controls/ControlsUiMemory.cpp
             controls/ControlsUiEffects.cpp
             controls/ControlsUiBehavior.cpp
 )
@@ -260,7 +268,8 @@ add_test(
     NAME controls-ui-typography
     COMMAND
         echo-controls-ui-test badgeIconAndCountUseSameInkCenter
-        textTagAlignmentAcrossProductionRecipes badgesAndTagsKeepDistinctContracts
+        textTagAlignmentAcrossProductionRecipes plainTextRetainsInkWithoutTagLayouts
+        sharedControlsRetireUnusedContent badgesAndTagsKeepDistinctContracts
         globalTypographyRetainsFallbackAndLocalStyles centeredContentAcrossSizesAndPadding
         iconTextContentCentersRenderedInk allBundledGlyphsTintAndPreserveAlpha
 )
@@ -277,7 +286,8 @@ add_test(
 add_test(
     NAME controls-ui-behavior
     COMMAND
-        echo-controls-ui-test coverKeepsNativeResolutionUnderAncestorZoom coverCropAndRoundedPixels
+        echo-controls-ui-test listLocationPreservesVisibleRowsAndChecksOcclusion
+        coverKeepsNativeResolutionUnderAncestorZoom coverCropAndRoundedPixels
         iconRasterTracksZoomAndReleasesWhenHidden clearActionIsOneUserEditButProgrammaticClearIsNot
         boundedListAutoHeightSurvivesReopenAndVariableRows progressClimaxTicksAndWaitPreview
         playPauseTransitionKeepsEndpointsAndInterrupts progressBusyRendersAndRetiresNativeAnimation
@@ -595,8 +605,8 @@ add_test(
 add_test(
     NAME desktop-pages-playback
     COMMAND
-        echo-desktop-pages-test playbackFallbackControlsUseProductionUi
-        floatingLyricsFollowRealAudioAndStopMotionOnPause
+        echo-desktop-pages-test playbackQueueLocationSkipsVisibleCurrentSong
+        playbackFallbackControlsUseProductionUi floatingLyricsFollowRealAudioAndStopMotionOnPause
         miniProgressVolumeBackdropFavoriteAndDesktopBadge
         floatingPreferencesAndFilteredTimelineKeepIdentity
         desktopLyricsMatchSourceChromeAndHoverUnlock
@@ -631,8 +641,8 @@ add_test(
     NAME desktop-pages-presentation
     COMMAND
         echo-desktop-pages-test audibleTransitionPublishesOneToastThroughShell
-        nativeOutputDeviceSelectHasOneDefaultChoice committedTrackClimaxFromLiveNativeApi
-        productionEffectPanelAlignmentAndCompactContentTabs
+        nativePlaybackFailurePublishesVisibleToast nativeOutputDeviceSelectHasOneDefaultChoice
+        committedTrackClimaxFromLiveNativeApi productionEffectPanelAlignmentAndCompactContentTabs
         productionResolvedQualityMarksPickerAndToolbar productionAddToReopenStableHeight
         productionAddToHeaderAlignment preferencesPreserveUnknownTagsValidateAndKeepFailedDraft
         missingMembershipCodesKeepProductsWithoutInventingKnownRights
@@ -707,6 +717,7 @@ target_sources(
             plugins/PluginRuntimeShutdown.cpp
             plugins/PluginRuntimeDependencies.cpp
             plugins/PluginRuntimeCapabilities.cpp
+            plugins/PluginRuntimeUiParts.cpp
 )
 target_link_libraries(
     echo-plugin-runtime-test
@@ -721,7 +732,7 @@ target_link_libraries(
 )
 set(ECHO_PLUGINS_TEST_GROUPS
     plugin-runtime-management plugin-runtime-runtime plugin-runtime-shutdown
-    plugin-runtime-dependencies plugin-runtime-capabilities
+    plugin-runtime-dependencies plugin-runtime-capabilities plugin-runtime-ui-parts
 )
 add_test(
     NAME plugin-runtime-management
@@ -763,6 +774,14 @@ add_test(
         echo-plugin-runtime-test settingsContributionRetiresWithScope
         statisticsUseSampledWireAndRejectInvalidNumbers spectrumCapabilityAndOwnerLifetime
         builtAuthorPackageCommands
+)
+
+add_test(
+    NAME plugin-runtime-ui-parts
+    COMMAND
+        echo-plugin-runtime-test uiStyleLayersRestoreLiveBindings
+        uiPartsIdentityObservationAndPublicActions uiPartMountsReplaceAndRetire
+        uiPartsProductionPlaybackAndMini uiPartInstanceStylesAndLeasesStayBounded
 )
 
 set_tests_properties(

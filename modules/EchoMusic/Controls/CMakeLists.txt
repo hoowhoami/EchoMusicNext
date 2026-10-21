@@ -1,13 +1,20 @@
 set_source_files_properties(EchoLabelSurface.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
+set_source_files_properties(EchoContentLoader.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
+set_source_files_properties(EchoControlContent.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(EchoToolTipPopup.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
 set_source_files_properties(EchoPopupCoordinator.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(EchoControlSize.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(EchoListPositioning.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(
     echo_controls
     STATIC
     URI
     EchoMusic.Controls
     SOURCES
+    EchoUiPartRegistration.h
+    EchoUiPartRegistration.cpp
+    EchoUiPartRegistry.h
+    EchoUiPartRegistry.cpp
     EchoBackdropRoot.h
     EchoBackdropRoot.cpp
     EchoEffectOwnership.h
@@ -33,6 +40,8 @@ qt_add_qml_module(
     EchoTextInkMetrics.h
     EchoTextInkMetrics.cpp
     QML_FILES
+    EchoUiPart.qml
+    EchoUiPartHost.qml
     EchoBoundedListView.qml
     EchoSpinner.qml
     EchoControlSize.qml
@@ -60,6 +69,7 @@ qt_add_qml_module(
     EchoMenuEntry.qml
     EchoMenuSeparator.qml
     EchoPageScrollContainer.qml
+    EchoListPositioning.qml
     EchoBackToTop.qml
     EchoVirtualGridSection.qml
     EchoPageStickyHeader.qml
@@ -72,6 +82,7 @@ qt_add_qml_module(
     EchoBadge.qml
     EchoTag.qml
     EchoTextTagRow.qml
+    EchoTextLine.qml
     EchoLegalSection.qml
     EchoPopupCoordinator.qml
     EchoPopupLoader.qml
@@ -80,6 +91,8 @@ qt_add_qml_module(
     EchoPopupLifecycle.qml
     EchoPopupContentClip.qml
     EchoLabelSurface.qml
+    EchoControlContent.qml
+    EchoContentLoader.qml
     EchoSelectionBadge.qml
     EchoActionBackground.qml
     EchoAnchoredPopup.qml

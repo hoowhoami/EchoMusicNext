@@ -8,6 +8,14 @@ qt_add_qml_module(
     DEPENDENCIES
     EchoMusic.Shell
     SOURCES
+    EchoUiPartRef.h
+    EchoUiPartRef.cpp
+    EchoPluginUiParts.h
+    EchoPluginUiParts.cpp
+    EchoUiPartMount.h
+    EchoUiPartMount.cpp
+    EchoPluginUiStyles.h
+    EchoPluginUiStyles.cpp
     EchoPluginAudio.h
     EchoPluginAudio.cpp
     EchoPluginOperation.h
@@ -35,7 +43,13 @@ qt_add_qml_module(
 target_include_directories(echo_plugin_sdk PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
     echo_plugin_sdk
-    PUBLIC Qt6::Qml echo_plugin_packages echo_shell echo_theme echo_playback_service echo_account
+    PUBLIC Qt6::Qml
+           echo_controls
+           echo_plugin_packages
+           echo_shell
+           echo_theme
+           echo_playback_service
+           echo_account
     PRIVATE Qt6::Sql Qt6::Network echo_build_options
 )
 

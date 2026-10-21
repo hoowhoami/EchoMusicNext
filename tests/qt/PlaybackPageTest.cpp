@@ -2592,6 +2592,30 @@ void PlaybackPageTest::pageSkinLifecycleAndBoundedDelegates()
     QTRY_VERIFY(!session.page()->property("visible").toBool());
     QVERIFY(warnings.isEmpty());
 }
+void PlaybackPageTest::lyricRowBoxClearsRightSideTools()
+{
+    Session session;
+    QVERIFY(session.create());
+    session.theme.setMotionEnabled(false);
+    PlaybackServiceTestAccess::seed(session.playback, 500, 7000);
+    PlaybackServiceTestAccess::position(session.playback, 500);
+    session.page()->setProperty("renderTime", 500.);
+    auto *tools = session.item("playbackLyricTools");
+    QTRY_VERIFY(tools);
+    QQuickItem *row = nullptr;
+    QTRY_VERIFY((row = session.item("lyricTextRow11")));
+    auto *box = row->findChild<QQuickItem *>("lyricRowBackground");
+    QTRY_VERIFY(box && box->width() > 0);
+    auto *content = session.page()->property("contentItem").value<QQuickItem *>();
+    QVERIFY(content);
+    const auto reserve = session.page()->property("lyricOverlayReserve").toReal();
+    QVERIFY2(reserve >= 12., qPrintable(QString::number(reserve)));
+    const auto boxRight = box->mapToItem(content, QPointF(box->width(), 0)).x();
+    const auto toolsLeft = tools->mapToItem(content, QPointF(0, 0)).x();
+    // The hover/press box must stop before the page-anchored lyric tools.
+    QVERIFY2(boxRight + 12. <= toolsLeft + .5,
+             qPrintable(QString("box=%1 tools=%2").arg(boxRight).arg(toolsLeft)));
+}
 void PlaybackPageTest::manualScrollRecoversAndLargeSeeksRemainVirtualized()
 {
     Session session;

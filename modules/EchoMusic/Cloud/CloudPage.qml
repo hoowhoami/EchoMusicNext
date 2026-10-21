@@ -281,7 +281,7 @@ RoutePage {
                         onClicked: {
                             const index = page.service.songs.indexOf(page.service.actions.currentTrackId);
                             if (index >= 0)
-                                songList.listView.positionViewAtIndex(index, ListView.Center);
+                                EchoListPositioning.positionIfNeeded(songList.listView, index, ListView.Center, songList.pageContainer);
                         }
                     }
                 }

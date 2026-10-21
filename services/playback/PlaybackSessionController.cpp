@@ -17,6 +17,7 @@ void PlaybackSessionController::invalidate()
     m_playback.publishProgressStatus();
     m_playback.m_resolvedQuality.clear();
     m_playback.m_failure->cancel();
+    m_playback.m_failure->sourceAdopted();
     m_playback.m_recovery->cancel();
     m_playback.m_transition->clear();
     ++m_playback.m_sequence;

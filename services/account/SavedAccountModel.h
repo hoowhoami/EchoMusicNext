@@ -63,6 +63,7 @@ public:
 signals:
     void changed();
     void switched();
+    void notice(const QString &message, bool warning);
     void closed();
 
 private:
@@ -80,7 +81,7 @@ private:
         Kind kind = Kind::Save;
         StoredAccount record;
         QByteArray session;
-        bool restoring = false;
+        bool restoring = false, explicitRemoval = false;
     };
     void enqueue(Operation operation);
     void pump();

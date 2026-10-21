@@ -13,6 +13,8 @@ class PlaybackFailureController final : public QObject
 public:
     explicit PlaybackFailureController(PlaybackService &playback);
     void failed();
+    void sourceOperation(const QString &title);
+    void sourceAdopted();
     void cancel(bool resetAttempts = false);
     void started(bool preserveFailureChain);
     void succeeded();
@@ -23,5 +25,7 @@ private:
     quint64 m_sequence = 0, m_revision = 0;
     QString m_trackKey;
     int m_attempts = 0;
+    QString m_noticeKey, m_operationTitle;
+    quint64 m_noticeSequence = 0, m_noticeSession = 0, m_noticeGeneration = 0;
 };
 } // namespace EchoMusic

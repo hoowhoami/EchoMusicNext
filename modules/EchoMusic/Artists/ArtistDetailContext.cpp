@@ -417,6 +417,7 @@ void ArtistDetailContext::fail(quint64 id, const QByteArray &bytes)
             QJsonDocument::fromJson(bytes).object()["message"].toString(tr("歌手专辑加载失败"));
         finishAlbumPage(pending.page, {}, message);
         emit changed();
+        emit notice(message, true);
         return;
     }
     if (!m_requests.contains(id))
@@ -433,5 +434,6 @@ void ArtistDetailContext::fail(quint64 id, const QByteArray &bytes)
         m_detailError = message;
     }
     emit changed();
+    emit notice(message, true);
 }
 } // namespace EchoMusic

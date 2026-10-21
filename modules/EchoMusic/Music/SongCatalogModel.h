@@ -102,15 +102,16 @@ signals:
 private:
     struct Entry
     {
-        PlaybackTrack track;
+        // Keep one immutable domain payload. Full playback metadata is assembled
+        // only when a command exports a track, not for every cached catalog row.
         QJsonObject domainSong;
         QString id, title, artist, album, cover, extra;
         QString titleSort, artistSort, albumSort;
         QVariantList badges;
         QString quality;
         QVariantList qualityTags;
-        QJsonObject cardMetadata;
-        bool playable = true;
+        quint64 albumId = 0, durationMs = 0;
+        bool playable = true, trackPlayable = false, original = false;
     };
     static Entry songEntry(const QJsonObject &song);
     void rebuild(bool resetStarted = false);

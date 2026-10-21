@@ -5,6 +5,20 @@ import EchoMusic.Theme
 
 Item {
     id: floatingSurface
+    EchoUiPart {
+        id: publicSurface
+        target: floatingSurface
+        role: "panel.floating"
+        key: floatingSurface.objectName
+        active: floatingSurface.resourceActive
+        properties: ["background", "radius"]
+        baseValues: ({
+                background: floatingSurface.color,
+                radius: floatingSurface.radius
+            })
+    }
+    readonly property color paintedColor: publicSurface.value("background", color)
+    readonly property real paintedRadius: publicSurface.value("radius", radius)
     property real radius: Theme.popoverRadius
     property color color: Theme.elevated
     property bool dialogShadow: false
@@ -50,8 +64,8 @@ Item {
         Rectangle {
             anchors.fill: parent
             z: -0.5
-            color: floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.color, floatingSurface.color.a * floatingSurface.backdropFillOpacity) : floatingSurface.color
-            radius: floatingSurface.radius
+            color: floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor
+            radius: floatingSurface.paintedRadius
             antialiasing: floatingSurface.antialiasing
         }
         Rectangle {
@@ -59,7 +73,7 @@ Item {
             anchors.fill: parent
             z: -0.4
             color: "transparent"
-            radius: floatingSurface.radius
+            radius: floatingSurface.paintedRadius
             antialiasing: floatingSurface.antialiasing
             border.width: 1
             border.color: Theme.floating.surfaceOutline
@@ -97,7 +111,7 @@ Item {
                 y: floatingSurface.blurPadding
                 width: floatingSurface.width
                 height: floatingSurface.height
-                radius: floatingSurface.radius
+                radius: floatingSurface.paintedRadius
                 color: "white"
                 antialiasing: true
             }
@@ -161,7 +175,7 @@ Item {
                 visible: floatingSurface.shadowEnabled
                 surface: floatingSurface
                 z: -1
-                radius: floatingSurface.radius
+                radius: floatingSurface.paintedRadius
                 blur: floatingSurface.dialogShadow ? 72 : 38.4
                 offset: Qt.vector2d(0, floatingSurface.dialogShadow ? 24 : 12)
                 color: Qt.rgba(0, 0, 0, floatingSurface.dialogShadow ? Theme.dark ? 0.42 : 0.22 : Theme.dark ? 0.36 : 0.12)
@@ -170,7 +184,7 @@ Item {
                 anchors.fill: parent
                 surface: floatingSurface
                 z: -1
-                radius: floatingSurface.radius
+                radius: floatingSurface.paintedRadius
                 visible: floatingSurface.shadowEnabled && !floatingSurface.dialogShadow
                 blur: 7.2
                 offset: Qt.vector2d(0, 2)

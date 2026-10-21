@@ -8,7 +8,18 @@ LibraryController::LibraryController(ApiClient &api, UserPlaylistModel &source,
       m_importer(api, source, mutations, this)
 {
     connect(&source, &UserPlaylistModel::changed, this, &LibraryController::changed);
-    connect(&mutations, &PlaylistMutationService::changed, this, &LibraryController::changed);
+    connect(&mutations, &PlaylistMutationService::changed, this, [this] {
+        const auto state = m_mutations.state();
+        if (m_command != Command::None && !m_mutations.errorMessage().isEmpty() &&
+            (state == PlaylistMutationService::State::Ready ||
+             state == PlaylistMutationService::State::OutcomeUnknown ||
+             state == PlaylistMutationService::State::RefreshRequired)) {
+            m_command = Command::None;
+            m_removing.clear();
+            emit notice(m_mutations.errorMessage(), true);
+        }
+        emit changed();
+    });
     connect(&api, &ApiClient::sessionChanged, this, [this] {
         m_command = Command::None;
         m_error.clear();
@@ -21,10 +32,12 @@ LibraryController::LibraryController(ApiClient &api, UserPlaylistModel &source,
         if (command == Command::Create) {
             setTab(0);
             emit created();
+            emit notice(tr("创建歌单成功"), false);
         } else if (command == Command::Remove) {
             const auto id = m_removing;
             m_removing.clear();
             emit removed(id);
+            emit notice(m_removingOwned ? tr("已删除歌单") : tr("已取消收藏"), false);
         }
     });
 }
@@ -88,6 +101,9 @@ bool LibraryController::create(const QString &title, bool isPrivate)
     m_command = Command::Create;
     if (!m_mutations.create(title.trimmed(), isPrivate)) {
         m_command = Command::None;
+        emit notice(m_mutations.errorMessage().isEmpty() ? tr("歌单操作未能开始，请稍后重试")
+                                                         : m_mutations.errorMessage(),
+                    true);
         return false;
     }
     return true;
@@ -106,6 +122,7 @@ bool LibraryController::remove(quint64 cloudId)
         return false;
     const bool owned =
         index.data(UserPlaylistModel::KindRole).toString() == QStringLiteral("owned");
+    m_removingOwned = owned;
     m_removing =
         index.data(owned ? UserPlaylistModel::GlobalIdRole : UserPlaylistModel::CreatorGlobalIdRole)
             .toString();
@@ -113,6 +130,9 @@ bool LibraryController::remove(quint64 cloudId)
     m_error.clear();
     if (!m_mutations.remove(*id)) {
         m_command = Command::None;
+        emit notice(m_mutations.errorMessage().isEmpty() ? tr("歌单操作未能开始，请稍后重试")
+                                                         : m_mutations.errorMessage(),
+                    true);
         return false;
     }
     return true;

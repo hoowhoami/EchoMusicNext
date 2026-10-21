@@ -1,6 +1,10 @@
 #include "ShellActionModel.h"
 #include "TaskCenterModel.h"
 #include "ShellController.h"
+#include "PlaybackService.h"
+#include "PlaybackFailureController.h"
+#include <QJsonArray>
+#include <QScopeGuard>
 #include "EchoPopupAnchor.h"
 #include <QAbstractItemModelTester>
 #include <QQuickWindow>
@@ -8,6 +12,48 @@
 #include <QTemporaryDir>
 #include <QtTest>
 using namespace EchoMusic;
+namespace EchoMusic
+{
+class PlaybackServiceTestAccess
+{
+public:
+    static void prepare(PlaybackService &player, int count = 1)
+    {
+        // Observe production final-failure handling independently of device I/O.
+        QObject::disconnect(&player.m_engine, &AudioEngine::eventReceived, &player,
+                            &PlaybackService::onEvent);
+        player.invalidate();
+        PlaybackTracks tracks;
+        for (int i = 0; i < count; ++i) {
+            PlaybackTrack track;
+            track.id = QString::number(i + 1);
+            track.title = "Notification song";
+            track.localPath = QString("/domain-only-not-opened-%1.wav").arg(i);
+            tracks.append(track);
+        }
+        player.m_sourceKey = "notification-test";
+        player.m_catalog.activate(player.m_sourceKey, "test", tracks, 0);
+        player.m_track = tracks.first();
+        player.m_autoplay = true;
+        player.m_playing = player.m_loading = false;
+        player.m_error.clear();
+    }
+    static void fail(PlaybackService &player, const QString &reason)
+    {
+        player.m_error = reason;
+        player.m_failure->failed();
+    }
+    static void sourceOperation(PlaybackService &player)
+    {
+        player.m_failure->sourceOperation("音质切换失败");
+    }
+    static void recover(PlaybackService &player)
+    {
+        player.m_error.clear();
+        player.m_failure->succeeded();
+    }
+};
+} // namespace EchoMusic
 namespace
 {
 using M = ShellActionModel;
@@ -44,6 +90,126 @@ class ShellActionTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void playbackFailuresRespectEpochDeduplicationAndActualSkipScheduling()
+    {
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService player(api, settings);
+        RouteController router;
+        ShellController shell(settings, router);
+        shell.attachPlayback(player);
+        QSignalSpy closed(&player, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
+        auto cleanup = qScopeGuard([&] {
+            shell.shutdown();
+            player.shutdown();
+            api.shutdown();
+            const bool drained =
+                QTest::qWaitFor([&] { return closed.size() == 1 && apiClosed.size() == 1; }, 15000);
+            QVERIFY(drained);
+        });
+        auto *toasts = shell.toasts();
+        player.preferences()->setAutoNext(true);
+        PlaybackServiceTestAccess::prepare(player);
+        PlaybackServiceTestAccess::fail(player, "网络连接失败");
+        PlaybackServiceTestAccess::fail(player, "网络连接失败");
+        QTRY_VERIFY(toasts->visible());
+        QCOMPARE(toasts->tone(), ToastService::Danger);
+        QCOMPARE(toasts->title(), QString("播放失败 · Notification song"));
+        QCOMPARE(toasts->message(), QString("网络连接失败\n请检查网络后重试"));
+        QCOMPARE(toasts->repetitions(), 1);
+        toasts->dismiss(toasts->noticeId());
+        PlaybackServiceTestAccess::fail(player, "网络连接失败");
+        QCoreApplication::processEvents();
+        QVERIFY(!toasts->visible());
+
+        PlaybackServiceTestAccess::prepare(player, 2);
+        PlaybackServiceTestAccess::fail(player, "解码失败");
+        QTRY_VERIFY(toasts->visible());
+        QVERIFY(toasts->message().contains("秒后尝试下一首"));
+        toasts->dismiss(toasts->noticeId());
+        PlaybackServiceTestAccess::recover(player);
+
+        PlaybackServiceTestAccess::prepare(player);
+        PlaybackServiceTestAccess::fail(player, "当前歌曲需要 VIP 权限");
+        QTRY_VERIFY(toasts->visible());
+        QCOMPARE(toasts->message(), QString("当前歌曲需要 VIP 权限"));
+        toasts->dismiss(toasts->noticeId());
+        PlaybackServiceTestAccess::recover(player);
+        PlaybackServiceTestAccess::fail(player, "当前歌曲需要 VIP 权限");
+        QTRY_VERIFY(toasts->visible()); // Recovery allows a new failure on the same song.
+        toasts->dismiss(toasts->noticeId());
+        PlaybackServiceTestAccess::prepare(player);
+        PlaybackServiceTestAccess::fail(player, "decoder: invalid data");
+        QTRY_VERIFY(toasts->visible());
+        QCOMPARE(toasts->message(), QString("音频解码失败"));
+        toasts->dismiss(toasts->noticeId());
+        PlaybackServiceTestAccess::prepare(player);
+        PlaybackServiceTestAccess::sourceOperation(player);
+        PlaybackServiceTestAccess::fail(player, "所选音质需要 VIP 权限");
+        PlaybackServiceTestAccess::recover(player); // Continued audio must not swallow the warning.
+        QCOMPARE(toasts->tone(), ToastService::Warning);
+        QCOMPARE(toasts->title(), QString("音质切换失败 · Notification song"));
+        QCOMPARE(toasts->message(), QString("所选音质需要 VIP 权限"));
+        toasts->dismiss(toasts->noticeId());
+        PlaybackServiceTestAccess::prepare(player);
+        PlaybackServiceTestAccess::fail(player, "obsolete error");
+        PlaybackServiceTestAccess::prepare(player); // Switch before post-flush dispatch.
+        QCoreApplication::processEvents();
+        QVERIFY(!toasts->visible());
+        PlaybackServiceTestAccess::fail(player, "transient error");
+        PlaybackServiceTestAccess::recover(player);
+        QCoreApplication::processEvents();
+        QVERIFY(!toasts->visible());
+        PlaybackServiceTestAccess::fail(player, "shutdown error");
+        player.shutdown();
+        QCoreApplication::processEvents();
+        QVERIFY(!toasts->visible());
+    }
+    void sharedPlaybackCommandsPublishFeedbackWithoutPageObservers()
+    {
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService player(api, settings);
+        RouteController router;
+        ShellController shell(settings, router);
+        shell.attachPlayback(player);
+        shell.attachPlayback(player); // Reattachment must not double notifications.
+        QSignalSpy closed(&player, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
+        auto cleanup = qScopeGuard([&] {
+            shell.shutdown();
+            player.shutdown();
+            api.shutdown();
+            const bool drained =
+                QTest::qWaitFor([&] { return closed.size() == 1 && apiClosed.size() == 1; }, 15000);
+            QVERIFY(drained);
+        });
+        auto *toasts = shell.toasts();
+        QVERIFY(player.lyricText()->replace(
+            {{"lines", QJsonArray{QJsonObject{{"text", "歌词正文"},
+                                              {"start_ms", 0},
+                                              {"duration_ms", 1000},
+                                              {"words", QJsonArray{}}}}}},
+            "track"));
+        player.lyricText()->adjustTrackOffset(1);
+        QCOMPARE(toasts->message(), QString("单曲歌词偏移: +0.1s"));
+        QCOMPARE(toasts->repetitions(), 1);
+        toasts->dismiss(toasts->noticeId());
+        player.lyricText()->resetTrackOffset();
+        QCOMPARE(toasts->message(), QString("单曲歌词偏移已重置"));
+        toasts->dismiss(toasts->noticeId());
+        player.lyricText()->copyLyrics();
+        QCOMPARE(toasts->message(), QString("歌词已复制"));
+        toasts->dismiss(toasts->noticeId());
+        player.sleepTimer()->executionFinished("系统拒绝关机");
+        QCOMPARE(toasts->message(), QString("系统拒绝关机"));
+        QCOMPARE(toasts->tone(), ToastService::Danger);
+        toasts->dismiss(toasts->noticeId());
+        player.effectCatalog()->useDownloaded("removed-effect");
+        QCOMPARE(toasts->message(), QString("音效文件已移除，请重新下载"));
+        QCOMPARE(toasts->tone(), ToastService::Warning);
+    }
     void restoreDefaultsRetainsActionIdentity()
     {
         QTemporaryDir directory;

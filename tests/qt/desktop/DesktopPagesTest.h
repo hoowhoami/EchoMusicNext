@@ -30,6 +30,7 @@ private slots:
     void desktopLyricsMatchSourceChromeAndHoverUnlock();
     void nativeFloatingWindowsShareStateAndReleaseAcrossCycles();
     void audibleTransitionPublishesOneToastThroughShell();
+    void nativePlaybackFailurePublishesVisibleToast();
     void nativePlaybackSurvivesRepeatedAppearanceUpdates();
     void productionHeaderWindowActionsStayAtRightEdge();
     void fullscreenShortcutReachesModalPlaybackPage();
@@ -44,6 +45,7 @@ private slots:
     void settingsDefaultsAndSourceEffectFileManager();
     void nativeOutputDeviceSelectHasOneDefaultChoice();
     void playbackQueueEmptyIndicatorAndCloseIcon();
+    void playbackQueueLocationSkipsVisibleCurrentSong();
     void committedTrackClimaxFromLiveNativeApi();
     void playbackZoomShortcutsFollowSharedScale();
     void playbackChromeMatchesSource();

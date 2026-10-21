@@ -15,6 +15,8 @@ Item {
     property bool resourceActive: visible
     property real pageWidth: width
     property real pageHeight: height
+    // Right overlay (lyric tools) reserve so a row's hover/press box clears it.
+    property real overlayRightReserve: 0
     property font baseFont: Theme.store.lyricBaseFont
     property int textWeight: appearance.fontWeight
     readonly property LyricAppearance appearance: playback.lyricAppearance
@@ -380,9 +382,10 @@ Item {
                     y: lines.following ? lines.contentY - line.scrollY : 0
                 }
                 Rectangle {
+                    objectName: "lyricRowBackground"
                     anchors.fill: parent
                     anchors.leftMargin: 0
-                    anchors.rightMargin: 0
+                    anchors.rightMargin: viewport.overlayRightReserve
                     radius: viewport.fontSize * .25
                     color: Theme.withAlpha(viewport.textColor, tap.pressed ? .03 : hover.hovered ? .07 : 0)
                 }
@@ -429,6 +432,20 @@ Item {
                     }
                     LyricLine {
                         id: lyric
+                        EchoUiPart {
+                            id: lyricPart
+                            target: lyric
+                            role: "lyrics.line"
+                            key: String(line.startMs) + ":" + String(line.index)
+                            surface: "playback"
+                            active: viewport.resourceActive && !line.pooled
+                            properties: ["foreground", "secondaryForeground", "font", "fontSize", "fontWeight", "letterSpacing"]
+                            actions: ["seek"]
+                            onActionRequested: (action, arguments) => {
+                                if (action === "seek")
+                                    viewport.playback.seek(Math.max(0, Math.round(line.startMs)));
+                            }
+                        }
                         x: -paintPadding
                         y: -paintPadding
                         width: parent.width + 2 * viewport.fontSize
@@ -455,9 +472,9 @@ Item {
                         }
                         current: line.active || highlightAmount > .001
                         timeMs: (line.active || highlightAmount > .001) && line.inViewport && viewport.resourceActive ? viewport.renderTime - viewport.playback.lyrics.offsetMs : -1
-                        font: Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false)
-                        playedColor: viewport.textColor
-                        unplayedColor: viewport.unplayedColor
+                        font: lyricPart.styledFont(Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false))
+                        playedColor: lyricPart.value("foreground", viewport.textColor)
+                        unplayedColor: lyricPart.value("secondaryForeground", viewport.unplayedColor)
                         fadeWidth: viewport.wordFade
                         animateWords: viewport.scaleEnabled && Theme.store.motionEnabled
                     }

@@ -6,13 +6,19 @@ import EchoMusic.Theme
 // Transparent fills must not expose the shadow inside the surface.
 Rectangle {
     id: actionSurface
+    property EchoUiPart publicPart: null
+    function visual(name: string, fallback: var): var {
+        return publicPart ? publicPart.value(name, fallback) : fallback;
+    }
     property ThemeColors colors: Theme.colors
     property bool accent: false
     property bool danger: false
     property bool pressed: false
     property bool highlighted: false
-    radius: Theme.controlRadius
-    color: danger ? Theme.withAlpha(colors.danger, pressed ? 0.16 : highlighted ? 0.12 : 0.08) : accent ? Theme.withAlpha(colors.accent, pressed ? 0.22 : highlighted ? 0.18 : 0.12) : pressed ? colors.neutralPressed : highlighted ? colors.hover : colors.mutedSurface
+    radius: visual("radius", Theme.controlRadius)
+    color: visual("background", danger ? Theme.withAlpha(colors.danger, pressed ? 0.16 : highlighted ? 0.12 : 0.08) : accent ? Theme.withAlpha(colors.accent, pressed ? 0.22 : highlighted ? 0.18 : 0.12) : pressed ? colors.neutralPressed : highlighted ? colors.hover : colors.mutedSurface)
+    border.width: visual("borderWidth", 0)
+    border.color: visual("borderColor", "transparent")
     Behavior on color {
         ColorAnimation {
             duration: Theme.fastDuration

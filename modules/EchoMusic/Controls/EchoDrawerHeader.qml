@@ -78,7 +78,7 @@ Control {
     }
     Component {
         id: defaultTitle
-        EchoTextTagRow {
+        EchoTextLine {
             objectName: "drawerHeadingTitle"
             text: header.heading
             font: header.headingFont
@@ -89,7 +89,7 @@ Control {
     }
     Component {
         id: defaultDescription
-        EchoTextTagRow {
+        EchoTextLine {
             text: header.description
             font: Theme.font(12, Theme.regularWeight)
             color: Theme.floatingSecondaryText

@@ -7,6 +7,25 @@ import EchoMusic.Controls
 
 ItemDelegate {
     id: row
+    EchoUiPart {
+        id: publicRow
+        target: row
+        role: "song.row"
+        key: row.resourceId
+        active: row.resourceActive
+        properties: ["foreground", "secondaryForeground", "background", "radius", "borderColor", "borderWidth", "font", "fontSize", "fontWeight", "letterSpacing"]
+        actions: ["play", "details", "favorite", "album"]
+        onActionRequested: (action, arguments) => {
+            if (action === "play" && row.playbackAvailable)
+                row.playRequested(row.resourceId);
+            else if (action === "details")
+                row.detailsRequested(row.resourceId);
+            else if (action === "favorite" && row.actionsAvailable)
+                row.favoriteRequested(row.resourceId);
+            else if (action === "album" && row.albumId.length)
+                row.albumRequested(row.albumId);
+        }
+    }
     objectName: "songDelegate"
     required property int index
     required property SongListGeometry geometry
@@ -52,6 +71,7 @@ ItemDelegate {
         }
     }
     component RowAction: EchoIconButton {
+        visualContentActive: row.resourceActive && row.visible && (opacity > 0 || activeFocus)
         foreground: hovered ? Theme.accentText : Theme.secondaryText
         scale: hovered && enabled && row.resourceActive && Theme.store.motionEnabled ? 1.1 : 1
         Behavior on scale {
@@ -69,8 +89,10 @@ ItemDelegate {
     Accessible.selected: active
     Accessible.name: (index + 1) + " " + title + " " + artistText
     background: Rectangle {
-        radius: Theme.controlRadius
-        color: row.contextTarget ? Theme.colors.hover : row.active ? Theme.selected : row.hovered || row.visualFocus ? Theme.rowHover : "transparent"
+        radius: publicRow.value("radius", Theme.controlRadius)
+        color: publicRow.value("background", row.contextTarget ? Theme.colors.hover : row.active ? Theme.selected : row.hovered || row.visualFocus ? Theme.rowHover : "transparent")
+        border.color: publicRow.value("borderColor", "transparent")
+        border.width: publicRow.value("borderWidth", 0)
     }
     contentItem: RowLayout {
         spacing: 0
@@ -88,12 +110,13 @@ ItemDelegate {
                 anchors.verticalCenter: parent.verticalCenter
                 text: row.index + 1
                 textFormat: Text.PlainText
-                color: Theme.secondaryText
-                font: row.geometry.numberFont
+                color: publicRow.value("secondaryForeground", Theme.secondaryText)
+                font: publicRow.styledFont(row.geometry.numberFont)
                 visible: !row.hovered && !row.visualFocus && !row.active
             }
             EchoIconButton {
                 objectName: "songIndexPlay"
+                visualContentActive: row.resourceActive && visible
                 hoverBackground: false
                 x: 1
                 anchors.verticalCenter: parent.verticalCenter
@@ -129,8 +152,8 @@ ItemDelegate {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     text: row.title
-                    font: Theme.spacedFont(13, Theme.semiboldWeight, -0.2)
-                    color: row.active ? Theme.accentText : Theme.text
+                    font: publicRow.styledFont(Theme.spacedFont(13, Theme.semiboldWeight, -0.2))
+                    color: publicRow.value("foreground", row.active ? Theme.accentText : Theme.text)
                     spacing: 6
                     Repeater {
                         model: row.privilegeTags
@@ -168,8 +191,8 @@ ItemDelegate {
                     textObjectName: "songArtistText"
                     artists: row.artistLinks
                     onArtistRequested: id => row.artistRequested(id)
-                    color: row.active ? Theme.accentText : Theme.secondaryText
-                    font: Theme.font(12, Theme.mediumWeight)
+                    color: publicRow.value("secondaryForeground", row.active ? Theme.accentText : Theme.secondaryText)
+                    font: publicRow.styledFont(Theme.font(12, Theme.mediumWeight))
                 }
             }
             RowLayout {
@@ -237,8 +260,8 @@ ItemDelegate {
                 objectName: "songAlbumText"
                 text: albumLink.text
                 textFormat: Text.PlainText
-                color: row.active || albumLink.hovered || albumLink.visualFocus ? Theme.accentText : Theme.secondaryText
-                font: Theme.font(13, Theme.regularWeight)
+                color: publicRow.value("secondaryForeground", row.active || albumLink.hovered || albumLink.visualFocus ? Theme.accentText : Theme.secondaryText)
+                font: publicRow.styledFont(Theme.font(13, Theme.regularWeight))
                 elide: Text.ElideRight
             }
             HoverHandler {
@@ -252,8 +275,8 @@ ItemDelegate {
             Layout.preferredWidth: row.geometry.durationWidth
             leftPadding: 8
             text: row.durationText
-            color: row.active ? Theme.accentText : Theme.secondaryText
-            font: Theme.font(12, Theme.regularWeight)
+            color: publicRow.value("secondaryForeground", row.active ? Theme.accentText : Theme.secondaryText)
+            font: publicRow.styledFont(Theme.font(12, Theme.regularWeight))
         }
     }
 }

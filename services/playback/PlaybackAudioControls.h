@@ -211,6 +211,7 @@ private:
     QString m_providerId, m_targetProvider, m_providerMode = "speaker", m_targetMode = "speaker";
     QString m_providerPreset, m_targetPreset, m_removingProvider;
     QString m_editingPreset;
+    QString m_providerNotice;
     quint64 m_effectRevision = 0;
     bool m_effectPending = false;
     QList<double> m_gains;

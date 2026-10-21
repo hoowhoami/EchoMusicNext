@@ -224,6 +224,40 @@ void ShellController::attachPlayback(PlaybackService &service)
     if (m_closed || m_playback)
         return;
     m_playback = &service;
+    connect(&service, &PlaybackService::failureNotice, this,
+            [this](const QString &message, const QString &title) {
+                m_toasts.show(message, ToastService::Danger, 6000, ToastService::Standard, title);
+            });
+    connect(&service, &PlaybackService::sourceOperationFailed, this,
+            [this](const QString &message, const QString &title) {
+                m_toasts.show(message, ToastService::Warning, 6000, ToastService::Standard, title);
+            });
+    connect(&service, &PlaybackService::notice, this, [this](const QString &message, int tone) {
+        m_toasts.show(message, ToastService::Tone(tone));
+    });
+    connect(service.sleepTimer(), &SleepTimer::executionFailed, this,
+            [this](const QString &message) { m_toasts.show(message, ToastService::Danger, 8000); });
+    connect(service.lyricText(), &LyricTextController::copied, this,
+            [this] { m_toasts.show(tr("歌词已复制"), ToastService::Success); });
+    connect(service.lyricText(), &LyricTextController::notice, this,
+            [this](const QString &message) { m_toasts.show(message, ToastService::Success); });
+    auto *catalog = service.effectCatalog();
+    connect(catalog, &AudioEffectCatalog::notice, this,
+            [this](const QString &message, bool warning) {
+                m_toasts.show(message, warning ? ToastService::Warning : ToastService::Success);
+            });
+    connect(catalog, &AudioEffectCatalog::downloaded, this,
+            [this, catalog](const QString &identity, const QString &name) {
+                m_toasts.showAction(
+                    *catalog, tr("“%1”已下载").arg(name), tr("使用"),
+                    [catalog, identity] { catalog->useDownloaded(identity); },
+                    ToastService::Success);
+            });
+    connect(service.cast(), &CastService::notice, this,
+            [this](const QString &message) { m_toasts.show(message, ToastService::Info); });
+    connect(
+        service.audioControls(), &PlaybackAudioControls::selectedOutputDisconnected, this,
+        [this] { m_toasts.show(tr("音频输出设备已断开，已暂停播放"), ToastService::Info, 4200); });
     connect(service.songCommands(), &SongCommands::artistRequested, this,
             [this](const QString &id) { m_router.navigate("artist-detail", {}, id); });
     connect(service.songCommands(), &SongCommands::albumRequested, this,
@@ -274,6 +308,10 @@ void ShellController::attachPlayback(PlaybackService &service)
     connect(service.cast(), &CastService::changed, this, updateCast);
     updateCast();
     if (auto *actions = service.libraryActions()) {
+        connect(actions, &PlaybackLibraryActions::notice, this,
+                [this](const QString &message, bool warning) {
+                    m_toasts.show(message, warning ? ToastService::Warning : ToastService::Success);
+                });
         bindPlayerAction(*actions, Favorite, [actions] { actions->toggleFavorite(); });
         bindPlayerAction(*actions, AddToPlaylist, [actions] { actions->prepareCurrent(); });
         const auto updateLibrary = [this, &service, actions] {

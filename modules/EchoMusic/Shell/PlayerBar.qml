@@ -8,6 +8,25 @@ import EchoMusic.Playback
 
 Item {
     id: bar
+    EchoUiPart {
+        id: publicSurface
+        target: bar
+        role: "shell.playerbar"
+        key: "shell.playerbar"
+        properties: ["background", "borderColor", "borderWidth", "radius", "opacity"]
+    }
+    opacity: publicSurface.value("opacity", 1)
+    Loader {
+        anchors.fill: parent
+        z: -0.5
+        active: bar.visible && bar.Window.window !== null && bar.Window.window.visible && bar.Window.window.visibility !== Window.Minimized && Object.keys(publicSurface.overrides).some(name => name !== "opacity")
+        sourceComponent: Rectangle {
+            color: publicSurface.value("background", "transparent")
+            radius: publicSurface.value("radius", 0)
+            border.color: publicSurface.value("borderColor", "transparent")
+            border.width: publicSurface.value("borderWidth", 0)
+        }
+    }
     objectName: "playerbar"
     required property ShellController controller
     required property RouteController router

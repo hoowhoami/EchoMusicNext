@@ -3,9 +3,8 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQml.Models
 
-// Trigger configuration only: no native Popup, Text, anchor observer or effect
-// exists until this anchor actively requests its explanation. Instantiator is
-// non-visual, so declarations inside layouts never add an extra layout item.
+// Cold anchors retain only the recipe. Timers, window/overlay attached objects,
+// cancellation subscriptions and the native Popup belong to one hover session.
 QtObject {
     id: tip
     required property Item parent
@@ -15,12 +14,13 @@ QtObject {
     property int delay: 500
     property real anchorPosition: 0.5
     property bool dismissedUntilHoverEnds: false
-    readonly property var hostWindow: parent ? parent.Window.window : null
-    readonly property Item overlayItem: parent ? parent.Overlay.overlay : null
-    readonly property bool eligible: requestedVisible && parent !== null && parent.visible && parent.enabled && hostWindow !== null && hostWindow.visible && hostWindow.visibility !== Window.Minimized && (description.length > 0 || text.length > 0)
+    readonly property HoverSession session: requests.count > 0 ? requests.objectAt(0) as HoverSession : null
+    readonly property var hostWindow: session ? session.hostWindow : null
+    readonly property Item overlayItem: session ? session.overlayItem : null
+    readonly property bool eligible: session !== null && session.eligible
     readonly property bool triggered: eligible && !dismissedUntilHoverEnds
     property bool delayElapsed: false
-    readonly property EchoToolTipPopup popup: instance.count > 0 ? instance.objectAt(0) as EchoToolTipPopup : null
+    readonly property EchoToolTipPopup popup: session ? session.popup : null
     readonly property bool visible: popup !== null && popup.visible
     onRequestedVisibleChanged: {
         if (!requestedVisible)
@@ -31,35 +31,52 @@ QtObject {
             delayElapsed = false;
     }
     onDelayChanged: delayElapsed = false
-    property Timer requestDelay: Timer {
-        interval: Math.max(1, tip.delay)
-        running: tip.triggered && tip.delay > 0 && !tip.delayElapsed
-        onTriggered: tip.delayElapsed = true
-    }
-    property Instantiator instance: Instantiator {
+    // Stop the creation chain before window/overlay teardown changes bindings.
+    Component.onDestruction: requests.active = false
+    property Instantiator requests: Instantiator {
         model: 1
-        active: tip.triggered && (tip.delay <= 0 || tip.delayElapsed)
-        delegate: EchoToolTipPopup {
+        active: tip.requestedVisible && tip.parent !== null && tip.parent.visible && tip.parent.enabled && (tip.description.length > 0 || tip.text.length > 0)
+        delegate: HoverSession {
             controller: tip
-            parent: tip.parent
-            text: tip.text
-            description: tip.description
-            anchorPosition: tip.anchorPosition
         }
     }
-    property Connections popupEvents: Connections {
-        target: tip.eligible ? EchoPopupCoordinator : null
-        function onNativeMenuOpening() {
-            tip.dismissedUntilHoverEnds = true;
+    component HoverSession: QtObject {
+        id: hover
+        required property EchoToolTip controller
+        readonly property var hostWindow: controller.parent ? controller.parent.Window.window : null
+        readonly property Item overlayItem: controller.parent ? controller.parent.Overlay.overlay : null
+        readonly property bool eligible: hostWindow !== null && hostWindow.visible && hostWindow.visibility !== Window.Minimized
+        readonly property EchoToolTipPopup popup: instance.count > 0 ? instance.objectAt(0) as EchoToolTipPopup : null
+        property Timer requestDelay: Timer {
+            interval: Math.max(1, hover.controller.delay)
+            running: hover.controller.triggered && hover.controller.delay > 0 && !hover.controller.delayElapsed
+            onTriggered: hover.controller.delayElapsed = true
         }
-        function onHintOpening(surface, overlay) {
-            const hint = surface as EchoToolTipPopup;
-            if ((!hint || hint.controller !== tip) && overlay === tip.overlayItem)
-                tip.dismissedUntilHoverEnds = true;
+        property Instantiator instance: Instantiator {
+            model: 1
+            active: hover.controller.triggered && (hover.controller.delay <= 0 || hover.controller.delayElapsed)
+            delegate: EchoToolTipPopup {
+                controller: hover.controller
+                parent: controller.parent
+                text: controller.text
+                description: controller.description
+                anchorPosition: controller.anchorPosition
+            }
         }
-        function onPopupOpening(surface, overlay) {
-            if (overlay && overlay === tip.overlayItem)
-                tip.dismissedUntilHoverEnds = true;
+        property Connections popupEvents: Connections {
+            target: hover.controller.eligible ? EchoPopupCoordinator : null
+            function onNativeMenuOpening() {
+                hover.controller.dismissedUntilHoverEnds = true;
+            }
+            function onHintOpening(surface, overlay) {
+                const hint = surface as EchoToolTipPopup;
+                if ((!hint || hint.controller !== hover.controller) && overlay === hover.overlayItem)
+                    hover.controller.dismissedUntilHoverEnds = true;
+            }
+            function onPopupOpening(surface, overlay) {
+                if (overlay && overlay === hover.overlayItem)
+                    hover.controller.dismissedUntilHoverEnds = true;
+            }
         }
     }
 }

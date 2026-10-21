@@ -131,6 +131,14 @@ void AppContext::createPlugins()
     bind(&plugins, &PluginRuntime::pluginFailed, &shellController,
          [&](const QString &id, const QString &message) {
              qWarning().noquote() << "Plugin" << id << message;
+             shellController.toasts()->show(message, ToastService::Danger, 6000,
+                                            ToastService::Standard,
+                                            QObject::tr("插件异常 · %1").arg(id));
+         });
+    bind(&plugins, &PluginRuntime::notice, &shellController,
+         [&shellController](const QString &message, bool warning) {
+             shellController.toasts()->show(message, warning ? ToastService::Warning
+                                                             : ToastService::Success);
          });
     visibleUserId = account.userId();
     bind(&account, &EchoMusic::AccountService::changed, &router, [&] {

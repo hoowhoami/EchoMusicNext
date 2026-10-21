@@ -10,6 +10,8 @@ namespace EchoMusic
 {
 /// Select the same FFmpeg audio ordinal for live and preloaded sources.
 qint64 effectAudioTrack(const QJsonArray &tracks, const QString &effect);
+/// Shared artist projection for catalog rows and retained playback tracks.
+QVariantList catalogArtistLinks(const QJsonArray &refs, const QString &fallbackArtist);
 /// Host-owned catalog identity, not an upstream DTO or signed stream URL.
 struct PlaybackTrack
 {

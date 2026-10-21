@@ -35,7 +35,10 @@ PlaylistDetailContext *PlaylistDetailService::contextFor(RouteContext *route)
         m_collections->ensureLoaded();
     }
     m_contexts.insert(route, context);
+    connect(context, &PlaylistDetailContext::notice, this, &PlaylistDetailService::notice);
     connect(context->comments(), &CommentsController::notice, this, &PlaylistDetailService::notice);
+    connect(context->comments(), &CommentsController::readFailed, this,
+            [this](const QString &message) { emit notice(message, true); });
     connect(route, &QObject::destroyed, this, [this, route] { m_contexts.remove(route); });
     return context;
 }

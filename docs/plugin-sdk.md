@@ -29,3 +29,31 @@
 ## 依赖与协作
 
 通过 `ctx.plugins` 查询依赖、注册服务，使用 `pluginService<Contract>()` 调用服务。对应的能力声明为 `plugins.dependencies` 和 `plugins.services`。
+
+## 公开界面区域与样式
+
+`ctx.ui.parts`提供类型化区域引用的`query/queryAll/observe/mount`；`ctx.ui.styles.registerRule(id, selector, values, priority)`注册逐属性视觉规则，返回可更新、调整优先级及撤销的句柄。manifest以`ui.parts`、`ui.styles`协商能力，SDK版本保持1.0.0。
+
+区域以role/key/surface/window或具体实例id选择，不查询宿主私有对象。样式在原有绑定中解析，较高priority优先，同级按插件ID与规则ID确定；停用、失败、重载和卸载恢复下一层或宿主当前基础值。精确实例规则随实例失效撤销。布局/业务状态不属于样式字段。
+
+当前公开目录：
+
+| role | 区域 | 主要视觉属性 |
+| --- | --- | --- |
+| control.button / control.iconButton | 共享图文、图标按钮 | foreground、background、radius、borderColor/borderWidth；图文按钮另含完整字体及字号/字重/字距 |
+| control.tag / control.badge | 共享身份/状态标签及计数 | foreground、background、radius、borderColor/borderWidth、完整字体及字号/字重/字距 |
+| control.textField | 文本输入框默认背景 | background、radius、borderColor/borderWidth |
+| control.select | 共享选择器 | foreground、background、radius、borderColor/borderWidth、字体 |
+| control.slider / control.switch / control.checkbox | 滑杆、开关及复选框 | foreground、background、accent、radius、borderColor/borderWidth（以实例properties为准） |
+| panel.floating | 共享浮层材质 | background、radius |
+| shell.titlebar / shell.sidebar / shell.playerbar | 主壳区域 | background、radius、borderColor/borderWidth、opacity |
+| background.window | 主窗口主题底色 | background |
+| page.content | 活动路由页 | background、radius、borderColor/borderWidth、opacity；可replace正文 |
+| song.row | 共享歌曲行 | foreground、secondaryForeground、background、radius、边框及字体；公开原播放/详情/收藏/专辑动作 |
+| lyrics.line | 当前封面歌词页原生行 | foreground、secondaryForeground及完整字体/字号/字重/字距，原seek动作 |
+| playback.page | 完整播放页正文 | background、opacity；可replace全部页面视觉，公开关闭/设置/换肤动作 |
+| mini.panel | Mini完整卡片正文 | background、radius、borderColor/borderWidth、opacity；可replace并保留原播放及窗口命令 |
+
+`EchoUiPartRef`只有公开描述、几何/视觉快照与明确动作，不返回宿主Item。委托key变化、池化/离页、账号或窗口世代变化使旧引用失效。挂载支持append/prepend/before/after/replace及background/foreground；插入位置使用Qt原生子项/布局语义。替换仲裁保留业务命令，只有成功构造的组件才隐藏原正文。隐藏、最小化或完全离开窗口/祖先裁剪区域时释放完整组件树，恢复按需创建；失效/停用后不接受晚到组件。
+
+完整作者签名及用法见[作者仓库ui.parts文档](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/ui-parts.md)。主题中心候选与完整播放页皮肤/Mini统一主题还具有独立选择及配置协议，不能把本节的局部扩展基础当作这些产品能力的完成证明。

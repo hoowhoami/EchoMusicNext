@@ -9,7 +9,11 @@
 #include <QJsonObject>
 namespace EchoMusic
 {
-EchoPluginUi::EchoPluginUi(EchoPluginContext &scope) : QObject(&scope), m_scope(scope) {}
+EchoPluginUi::EchoPluginUi(EchoPluginContext &scope)
+    : QObject(&scope), m_parts(new EchoPluginUiParts(scope)),
+      m_styles(new EchoPluginUiStyles(scope)), m_scope(scope)
+{
+}
 bool EchoPluginUi::setState(const QVariantMap &values)
 {
     if (!m_scope.active() ||

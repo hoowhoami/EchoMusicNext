@@ -77,6 +77,7 @@ signals:
     void favoriteWritten(const EchoMusic::PlaybackTrack &track, bool favorite);
     void dialogRequested();
     void completed();
+    void notice(const QString &message, bool warning);
     void loginRequested();
 
 private:

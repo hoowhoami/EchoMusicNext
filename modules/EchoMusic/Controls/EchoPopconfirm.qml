@@ -41,7 +41,7 @@ EchoAnchoredPopup {
                 Layout.topMargin: 1
                 radius: 10
                 color: Theme.floating.warning
-                EchoTextTagRow {
+                EchoTextLine {
                     anchors.fill: parent
                     text: "!"
                     font: Theme.font(13, Theme.extraBoldWeight)
@@ -55,7 +55,7 @@ EchoAnchoredPopup {
                 Layout.minimumWidth: 0
                 Layout.fillHeight: false
                 spacing: 6
-                EchoTextTagRow {
+                EchoTextLine {
                     Layout.fillWidth: true
                     wrap: true
                     text: popup.title

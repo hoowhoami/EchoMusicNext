@@ -62,10 +62,16 @@ QVariant SongCatalogModel::data(const QModelIndex &index, int role) const
         return entry.title;
     case ArtistText:
         return entry.artist;
-    case ArtistLinks:
-        return entry.track.artistLinks();
+    case ArtistLinks: {
+        const auto refs =
+            entry.domainSong.contains("artists")
+                ? entry.domainSong.value("artists").toArray()
+                : entry.domainSong.value("metadata").toObject().value("artist_refs").toArray();
+        return catalogArtistLinks(refs, entry.domainSong.value("artists").isArray() ? entry.artist
+                                                                                    : QString());
+    }
     case AlbumId:
-        return entry.track.albumId ? QString::number(entry.track.albumId) : QString();
+        return entry.albumId ? QString::number(entry.albumId) : QString();
     case AlbumText:
         return entry.album;
     case CoverUrl:
@@ -75,11 +81,11 @@ QVariant SongCatalogModel::data(const QModelIndex &index, int role) const
     case ResourceId:
         return entry.id;
     case DurationMs:
-        return QVariant::fromValue(entry.track.durationMs);
+        return QVariant::fromValue(entry.durationMs);
     case DurationText: {
         if (!entry.domainSong.value("duration_ms").isDouble())
             return QString();
-        const auto seconds = entry.track.durationMs / 1000;
+        const auto seconds = entry.durationMs / 1000;
         return QString("%1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QLatin1Char('0'));
     }
     case Selected:
@@ -93,7 +99,7 @@ QVariant SongCatalogModel::data(const QModelIndex &index, int role) const
     case CatalogPlayable:
         return entry.playable;
     case Original:
-        return entry.track.catalogMetadata.value("originality_code").toInt() > 0;
+        return entry.original;
     default:
         return {};
     }
@@ -121,14 +127,17 @@ QVariantMap SongCatalogModel::sourceItem(int row) const
             {"qualityLabel", e.quality},
             {"qualityTags", e.qualityTags},
             {"catalogPlayable", e.playable},
-            {"original", e.track.catalogMetadata.value("originality_code").toInt() > 0}};
+            {"original", e.original}};
 }
 SongCatalogModel::Entry SongCatalogModel::songEntry(const QJsonObject &song)
 {
     const auto track = PlaybackTrack::fromDomain(song);
     Entry entry;
     entry.domainSong = song;
-    entry.track = track;
+    entry.albumId = track.albumId;
+    entry.durationMs = track.durationMs;
+    entry.trackPlayable = track.playable();
+    entry.original = track.catalogMetadata.value("originality_code").toInt() > 0;
     entry.id = track.id;
     entry.title = track.title;
     entry.artist = track.artist;
@@ -150,7 +159,7 @@ void SongCatalogModel::applyPresentations(const QJsonArray &presentations)
     QSet<int> changed;
     QMultiHash<QString, int> sources;
     for (int source = 0; source < m_entries.size(); ++source)
-        sources.insert(m_entries[source].track.id, source);
+        sources.insert(m_entries[source].domainSong.value("id").toString(), source);
     for (const auto &value : presentations) {
         const auto p = value.toObject();
         const auto id = p["id"].toString();
@@ -183,13 +192,15 @@ QStringList SongCatalogModel::incompletePresentationIds() const
     QStringList ids;
     for (const auto &entry : m_entries)
         if (SongMetadataService::needsCompletion(entry.domainSong))
-            ids.append(entry.track.id);
+            ids.append(entry.domainSong.value("id").toString());
     return ids;
 }
 std::optional<PlaybackTrack> SongCatalogModel::track(const QString &id) const
 {
     const auto it = m_indices.constFind(id);
-    return it == m_indices.cend() ? std::nullopt : std::optional(m_entries[*it].track);
+    return it == m_indices.cend()
+               ? std::nullopt
+               : std::optional(PlaybackTrack::fromDomain(m_entries[*it].domainSong));
 }
 bool SongCatalogModel::catalogPlayable(const QString &id) const
 {
@@ -277,12 +288,11 @@ void SongCatalogModel::replaceCards(const QJsonArray &cards)
         entry.cover = o["cover_url"].toString();
         if (o["extra_text"].isString())
             entry.extra = o["extra_text"].toString();
-        entry.cardMetadata = o["metadata"].toObject();
         // Card rows may carry a duration; project it for the shared card badge.
         // Missing durations remain unknown.
         const auto duration = o["duration_ms"];
         if (duration.isDouble() && duration.toInteger() > 0) {
-            entry.track.durationMs = quint64(duration.toInteger());
+            entry.durationMs = quint64(duration.toInteger());
             entry.domainSong = QJsonObject{{"duration_ms", duration}};
         }
         m_entries.append(std::move(entry));
@@ -360,9 +370,7 @@ void SongCatalogModel::rebuild(bool resetStarted)
                 comparison = m_collator.compare(x.albumSort, y.albumSort);
                 break;
             case 5:
-                comparison = x.track.durationMs < y.track.durationMs   ? -1
-                             : x.track.durationMs > y.track.durationMs ? 1
-                                                                       : 0;
+                comparison = x.durationMs < y.durationMs ? -1 : x.durationMs > y.durationMs ? 1 : 0;
                 break;
             }
             return m_sortDirection == 2 ? comparison > 0 : comparison < 0;
@@ -382,13 +390,13 @@ PlaybackTracks SongCatalogModel::tracks(bool selectedOnly) const
     PlaybackTracks result;
     if (selectedOnly) {
         for (const auto &e : m_entries)
-            if (e.playable && e.track.playable() && m_selected.contains(e.id))
-                result.append(e.track);
+            if (e.playable && e.trackPlayable && m_selected.contains(e.id))
+                result.append(PlaybackTrack::fromDomain(e.domainSong));
     } else
         for (int index : m_order) {
             const auto &e = m_entries[index];
-            if (e.playable && e.track.playable())
-                result.append(e.track);
+            if (e.playable && e.trackPlayable)
+                result.append(PlaybackTrack::fromDomain(e.domainSong));
         }
     return result;
 }

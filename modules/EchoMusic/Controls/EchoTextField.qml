@@ -5,6 +5,13 @@ import EchoMusic.Theme
 
 TextField {
     id: control
+    EchoUiPart {
+        id: formPart
+        target: control
+        role: "control.textField"
+        key: control.objectName
+        properties: ["background", "borderColor", "borderWidth", "radius"]
+    }
     property int size: EchoControlSize.Standard
     property bool clearable: false
     property ThemeColors colors: Theme.colors
@@ -42,8 +49,9 @@ TextField {
         }
     }
     background: Rectangle {
-        color: Theme.withAlpha(control.colors.tone, control.activeFocus ? 0.07 : 0.05)
-        radius: Theme.controlRadius
-        border.width: 0
+        color: formPart.value("background", Theme.withAlpha(control.colors.tone, control.activeFocus ? 0.07 : 0.05))
+        radius: formPart.value("radius", Theme.controlRadius)
+        border.width: formPart.value("borderWidth", 0)
+        border.color: formPart.value("borderColor", "transparent")
     }
 }

@@ -237,17 +237,19 @@ void AudioEffectCatalog::activate(int row)
     }
     const auto downloaded = m_controls.downloadedImpulseResponse(identity(effect));
     if (!downloaded.isEmpty()) {
-        m_controls.selectImpulseResponse(downloaded);
+        useDownloaded(identity(effect));
         return;
     }
     if (!effect.value("unavailable_reason").toString().isEmpty()) {
         m_error = effect.value("unavailable_reason").toString();
         emit changed();
+        emit notice(m_error, true);
         return;
     }
     if (!effect.value("vpf_urls").toList().isEmpty()) {
         m_error = tr("此音效需要支持 VPF 的音效引擎");
         emit changed();
+        emit notice(m_error, true);
         return;
     }
     m_urls.clear();
@@ -259,6 +261,7 @@ void AudioEffectCatalog::activate(int row)
     if (m_urls.isEmpty()) {
         m_error = tr("此音效没有可用的脉冲响应资源");
         emit changed();
+        emit notice(m_error, true);
         return;
     }
     m_downloading = effect;
@@ -268,14 +271,38 @@ void AudioEffectCatalog::activate(int row)
     m_installer.install(++m_downloadGeneration, m_urls, m_destination);
     emit changed();
 }
+void AudioEffectCatalog::useDownloaded(const QString &key)
+{
+    if (m_closing)
+        return;
+    if (m_controls.effectPending()) {
+        emit notice(tr("音效正在处理中，请稍后重试"), true);
+        return;
+    }
+    const auto path = m_controls.downloadedImpulseResponse(key);
+    if (path.isEmpty()) {
+        emit notice(tr("音效文件已移除，请重新下载"), true);
+        return;
+    }
+    m_controls.selectImpulseResponse(path);
+    if (m_controls.impulseResponse() != path || !m_controls.impulseEnabled())
+        emit notice(m_controls.errorMessage().isEmpty() ? tr("音效暂时无法使用")
+                                                        : m_controls.errorMessage(),
+                    true);
+    else
+        emit notice(tr("已使用音效"), false);
+}
 void AudioEffectCatalog::finishDownload(bool success, const QString &error)
 {
     if (success) {
         m_controls.registerImpulseResponse(m_destination, m_downloading.value("name").toString(),
                                            identity(m_downloading));
         m_error.clear();
-    } else
-        m_error = error;
+        emit downloaded(identity(m_downloading), m_downloading.value("name").toString());
+    } else {
+        m_error = error.isEmpty() ? tr("音效下载失败") : error;
+        emit notice(m_error, true);
+    }
     m_downloading = {};
     m_urls.clear();
     m_progress = 0;

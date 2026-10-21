@@ -6,6 +6,13 @@ import EchoMusic.Theme
 
 Control {
     id: control
+    EchoUiPart {
+        id: formPart
+        target: control
+        role: "control.select"
+        key: control.objectName
+        properties: ["foreground", "secondaryForeground", "background", "borderColor", "borderWidth", "radius", "font", "fontSize", "fontWeight", "letterSpacing"]
+    }
     property int size: EchoControlSize.Standard
     property ThemeColors colors: Theme.colors
     property var options: undefined
@@ -29,7 +36,7 @@ Control {
     readonly property var visibleTags: selectedTags.slice(0, Math.max(0, maxTagCount))
     readonly property int overflowCount: Math.max(0, selectedTags.length - Math.max(0, maxTagCount))
     readonly property bool showClear: clearable && hovered && (multiple ? multiValues.length > 0 : value !== undefined ? value !== "" : currentIndex >= 0 && currentValue !== "")
-    readonly property color foreground: popupActive ? colors.accentText : colors.text
+    readonly property color foreground: formPart.value("foreground", popupActive ? colors.accentText : colors.text)
     readonly property alias optionModel: projection
     implicitHeight: EchoControlSize.heightFor(size)
     implicitWidth: 160
@@ -149,7 +156,7 @@ Control {
         valueRole: control.valueRole
         available: Array.from(control.availableOptions)
         query: control.filterable ? control.searchTerm : ""
-        font: control.font
+        font: formPart.styledFont(control.font)
         onChanged: {
             control.navigationActive = false;
             if (control.optionList) {
@@ -175,8 +182,8 @@ Control {
                     Text {
                         Layout.preferredWidth: Math.min(80, implicitWidth)
                         text: selectedTag.modelData.label
-                        color: control.colors.accentText
-                        font: Theme.font(11, Theme.semiboldWeight)
+                        color: formPart.value("foreground", control.colors.accentText)
+                        font: formPart.styledFont(Theme.font(11, Theme.semiboldWeight))
                         elide: Text.ElideRight
                     }
                     Button {
@@ -193,7 +200,7 @@ Control {
                         }
                         contentItem: EchoIcon {
                             name: "x"
-                            color: control.colors.accentText
+                            color: formPart.value("foreground", control.colors.accentText)
                         }
                     }
                 }
@@ -215,10 +222,10 @@ Control {
             text: control.searchTerm
             padding: 0
             selectByMouse: true
-            font: control.font
-            color: control.colors.text
+            font: formPart.styledFont(control.font)
+            color: formPart.value("foreground", control.colors.text)
             placeholderText: control.multiple ? (control.selectedTags.length === 0 ? control.placeholder : "") : control.displayText || control.placeholder
-            placeholderTextColor: control.colors.secondaryText
+            placeholderTextColor: formPart.value("secondaryForeground", control.colors.secondaryText)
             background: null
             Accessible.name: control.Accessible.name || qsTr("搜索选项")
             onTextEdited: {
@@ -231,13 +238,13 @@ Control {
                 control.openPopup()
             Keys.onPressed: event => control.keyboard(event)
         }
-        EchoTextTagRow {
+        EchoTextLine {
             id: triggerLabel
             Layout.fillWidth: true
             visible: !control.filterable && (!control.multiple || control.selectedTags.length === 0)
             text: control.multiple ? control.placeholder : control.displayText || control.placeholder
-            color: (!control.multiple && control.displayText.length > 0) ? control.colors.text : control.colors.secondaryText
-            font: control.font
+            color: (!control.multiple && control.displayText.length > 0) ? formPart.value("foreground", control.colors.text) : formPart.value("secondaryForeground", control.colors.secondaryText)
+            font: formPart.styledFont(control.font)
             fillTextWidth: true
         }
     }
@@ -249,7 +256,7 @@ Control {
     EchoToolTip {
         parent: control
         text: control.multiple ? control.selectedTags.map(t => t.label).join("、") : control.displayText || control.placeholder
-        requestedVisible: !control.popupActive && control.hovered && !control.searchTerm.length && (control.multiple ? control.overflowCount > 0 : control.filterable ? searchPlaceholderMetrics.advanceWidth > searchInput.width : triggerLabel.truncated)
+        requestedVisible: !control.popupActive && control.hovered && !control.searchTerm.length && (control.multiple ? control.overflowCount > 0 : control.filterable ? searchPlaceholderMetrics.advanceWidth > searchInput.width : triggerLabel.isTruncated())
     }
     Button {
         objectName: "selectIndicatorAction"
@@ -267,7 +274,7 @@ Control {
         }
         contentItem: EchoIcon {
             name: control.showClear ? "x" : "chevron-down"
-            color: control.colors.secondaryText
+            color: formPart.value("secondaryForeground", control.colors.secondaryText)
             rotation: !control.showClear && control.popupActive ? 180 : 0
             Behavior on rotation {
                 NumberAnimation {
@@ -277,6 +284,7 @@ Control {
         }
     }
     background: EchoActionBackground {
+        publicPart: formPart
         colors: control.colors
         accent: control.popupActive
         highlighted: !control.popupActive && control.enabled && (control.hovered || control.visualFocus)
@@ -364,7 +372,7 @@ Control {
                         visible: projection.count === 0
                         text: qsTr("无匹配项")
                         color: Theme.floating.secondaryText
-                        font: control.font
+                        font: formPart.styledFont(control.font)
                     }
                     Keys.onPressed: event => control.keyboard(event)
                 }

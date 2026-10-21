@@ -30,6 +30,8 @@ SongDetailContext::SongDetailContext(ApiClient &a, PlaybackService &p, RouteCont
     connect(&r, &RouteContext::activeChanged, this, &SongDetailContext::activate);
     connect(&r, &RouteContext::queryChanged, this, &SongDetailContext::changed);
     connect(&m_comments, &CommentsController::notice, this, &SongDetailContext::notice);
+    connect(&m_comments, &CommentsController::readFailed, this,
+            [this](const QString &message) { emit notice(message, true); });
     connect(&m_comments, &CommentsController::initialFinished, this, [this] {
         if (!m_network || !m_route.active() || m_headerStatsRequested)
             return;

@@ -434,6 +434,10 @@ public:
     void setStartupHeld(bool held);
     void shutdown();
 signals:
+    /// Final failure only; source retries never notify the UI independently.
+    void failureNotice(const QString &message, const QString &title);
+    void sourceOperationFailed(const QString &message, const QString &title);
+    void notice(const QString &message, int tone);
     void sharingChanged();
     void engineInitializationChanged();
     void sleepActionRequested(const QString &action);

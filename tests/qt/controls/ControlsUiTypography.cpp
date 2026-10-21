@@ -240,7 +240,11 @@ void ControlsUiTest::textTagAlignmentAcrossProductionRecipes()
     auto *box = row->property("textBox").value<QQuickItem *>();
     QTRY_COMPARE(row->implicitWidth(), box->width());
     session.root->setProperty("showTags", true);
-    QTRY_VERIFY(row->implicitWidth() > box->width() + 8);
+    QTRY_VERIFY2(row->implicitWidth() > box->width() + 8,
+                 qPrintable(QString("tags restored: row=%1 text=%2 tag=%3")
+                                .arg(row->implicitWidth())
+                                .arg(box->width())
+                                .arg(findVisual(row, "alignmentTag")->implicitWidth())));
     QVERIFY(verifyInk());
     // Flex labels keep their tags at the far edge when shortened, elided,
     // or asynchronously hidden; the other production recipes stay natural.
@@ -471,8 +475,9 @@ void ControlsUiTest::centeredContentAcrossSizesAndPadding()
                     glyph->mapToItem(content, QPointF(glyph->width(), 0)).x());
     }
     session.root->setProperty("label", QStringLiteral("中文与 Latin 长按钮文字，必须省略"));
-    auto *label = findVisual(session.item("accentButton"), "buttonLabel");
-    QTRY_VERIFY(label->property("truncated").toBool());
+    auto *content = session.item("accentButton")->property("contentItem").value<QQuickItem *>();
+    QVERIFY(content);
+    QTRY_VERIFY(content->property("truncated").toBool());
     QCOMPARE(warnings.count(), 0);
 }
 

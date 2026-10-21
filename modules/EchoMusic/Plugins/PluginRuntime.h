@@ -126,6 +126,7 @@ signals:
     void managementFinished(const QString &installation, bool success, const QString &error);
     void loadingChanged();
     void pluginFailed(const QString &id, const QString &message);
+    void notice(const QString &message, bool warning);
 
 private:
     struct Entry
@@ -181,6 +182,7 @@ private:
     QString m_root, m_sdkError;
     bool m_safeMode = false, m_started = false, m_closing = false, m_closed = false;
     bool m_loadingNotification = false, m_refreshing = false, m_startScanPending = false;
+    bool m_refreshNotice = false;
     bool m_reconcileQueued = false;
     QStringList m_refreshSources, m_refreshInstallations;
     int m_imports = 0;

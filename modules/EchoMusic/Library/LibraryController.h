@@ -64,6 +64,7 @@ public:
     Q_INVOKABLE bool openPlaylist(quint64 cloudId);
 signals:
     void changed();
+    void notice(const QString &message, bool warning);
     void created();
     void removed(const QString &resourceId);
     void playlistRequested(const QString &resourceId, quint64 cloudId, bool owned);
@@ -84,5 +85,6 @@ private:
     int m_tab = 0;
     Command m_command = Command::None;
     QString m_error, m_removing;
+    bool m_removingOwned = false;
 };
 } // namespace EchoMusic

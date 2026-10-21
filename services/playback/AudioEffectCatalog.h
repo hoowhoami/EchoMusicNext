@@ -83,10 +83,13 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void activate(int row);
+    void useDownloaded(const QString &identity);
     void shutdown();
 signals:
     void changed();
     void closed();
+    void notice(const QString &message, bool warning);
+    void downloaded(const QString &identity, const QString &name);
 
 private:
     friend class AudioEffectCatalogTestAccess;

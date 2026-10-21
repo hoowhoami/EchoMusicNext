@@ -577,7 +577,12 @@ Window {
                              content->height() / 2) < 0.6);
             auto *label = findVisual(row, "buttonLabel");
             auto *glyph = findVisual(row, "buttonGlyph");
-            QVERIFY(label && glyph);
+            QVERIFY(label);
+            if (content->property("glyph").toString().isEmpty()) {
+                QVERIFY(!glyph); // Text-only buttons do not retain a hidden icon.
+                continue;
+            }
+            QTRY_VERIFY((glyph = findVisual(row, "buttonGlyph")));
             if (!label->isVisible() || !glyph->isVisible())
                 continue;
             QTRY_VERIFY(qAbs(label->mapToItem(content, QPointF(0, label->height() / 2)).y() -

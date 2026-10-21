@@ -1907,6 +1907,41 @@ Window {
         }
         QSqlDatabase::removeDatabase(connection);
     }
+    void catalogExportsFullMetadataOnlyAtActionBoundary()
+    {
+        auto song = domainSong(901, "状态保留 Metadata");
+        song["duration_ms"] = QJsonValue::Null;
+        song["artists"] = QJsonArray{QJsonObject{{"id", "42"}, {"name", "歌手 Artist"}}};
+        song["metadata"] = QJsonObject{
+            {"resources", QJsonArray{QJsonObject{{"quality", "hi_res"}, {"hash", "lossless"}}}},
+            {"cloud_source", QJsonObject{{"song_id", 12345}, {"opaque", "preserve"}}},
+            {"originality_code", 1},
+            {"unknown", QJsonValue::Null}};
+        const auto expected = PlaybackTrack::fromDomain(song);
+        SongCatalogModel catalog;
+        catalog.replaceSongs({song});
+        catalog.toggleSelected(expected.id);
+        catalog.setQuery("Metadata");
+        catalog.toggleSort(2);
+        const auto links = catalog.data(catalog.index(0), SongCatalogModel::ArtistLinks).toList();
+        QCOMPARE(links, expected.artistLinks());
+        QVERIFY(catalog.data(catalog.index(0), SongCatalogModel::Original).toBool());
+        QVERIFY(
+            catalog.data(catalog.index(0), SongCatalogModel::DurationText).toString().isEmpty());
+        const auto exported = catalog.track(expected.id);
+        QVERIFY(exported);
+        QCOMPARE(exported->toDomain(), expected.toDomain());
+        QCOMPARE(catalog.tracks().first().toDomain(), expected.toDomain());
+        QCOMPARE(catalog.tracks(true).first().toDomain(), expected.toDomain());
+        // Exporting does not replace the cached page's sorting/filter/selection.
+        QCOMPARE(catalog.query(), QString("Metadata"));
+        QCOMPARE(catalog.sortField(), 2);
+        QCOMPARE(catalog.selectedCount(), 1);
+        catalog.replaceCards(
+            {QJsonObject{{"id", 1}, {"creator", "Creator"}, {"duration_ms", 1200}}});
+        QVERIFY(catalog.data(catalog.index(0), SongCatalogModel::ArtistLinks).toList().isEmpty());
+        QVERIFY(catalog.tracks().isEmpty());
+    }
     void incompleteAndRepeatedCatalogIdsKeepEveryRow()
     {
         auto song = domainSong(1);

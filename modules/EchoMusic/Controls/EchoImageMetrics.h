@@ -3,11 +3,13 @@
 #include <QPointer>
 #include <QQuickItem>
 #include <QSize>
+#include <QSharedPointer>
 #include <QUrl>
 #include <QtQml/qqmlregistration.h>
 
 namespace EchoMusic
 {
+class EchoImageTransformObserver;
 // Artwork density follows the native item scale chain, not scrolling positions.
 // Keep one bounded high-water resolution per visible source to avoid decoding
 // smaller copies at every step of a collapsing header.
@@ -65,9 +67,8 @@ signals:
 private:
     void rebuild();
     void updateSize();
-    bool eventFilter(QObject *object, QEvent *event) override;
     QPointer<QQuickItem> m_item;
-    QPointer<QQuickWindow> m_window;
+    QSharedPointer<EchoImageTransformObserver> m_observer;
     QList<QMetaObject::Connection> m_connections;
     QUrl m_source;
     QSize m_pixels, m_decodePixels;

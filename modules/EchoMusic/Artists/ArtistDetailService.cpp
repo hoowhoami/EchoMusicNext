@@ -29,6 +29,7 @@ ArtistDetailContext *ArtistDetailService::contextFor(RouteContext *route)
     if (m_profile)
         context->attachProfile(*m_profile);
     m_contexts.insert(route, context);
+    connect(context, &ArtistDetailContext::notice, this, &ArtistDetailService::notice);
     connect(route, &QObject::destroyed, this, [this, route] { m_contexts.remove(route); });
     return context;
 }

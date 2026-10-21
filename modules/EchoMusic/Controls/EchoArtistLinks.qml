@@ -21,6 +21,11 @@ Item {
     implicitWidth: names.implicitWidth
     implicitHeight: lineHeight
     clip: true
+    TextMetrics {
+        id: separatorMetrics
+        font: links.font
+        text: "/"
+    }
     Row {
         id: names
         height: links.height
@@ -32,8 +37,8 @@ Item {
                 required property var modelData
                 required property int index
                 readonly property bool hasSeparator: index < links.artists.length - 1
-                readonly property bool showSeparator: hasSeparator && x + button.implicitWidth + slash.implicitWidth + links.separatorSpacing * 2 < links.width
-                implicitWidth: button.implicitWidth + (hasSeparator ? slash.implicitWidth + links.separatorSpacing : 0)
+                readonly property bool showSeparator: hasSeparator && x + button.implicitWidth + separatorMetrics.advanceWidth + links.separatorSpacing * 2 < links.width
+                implicitWidth: button.implicitWidth + (hasSeparator ? separatorMetrics.advanceWidth + links.separatorSpacing : 0)
                 height: links.height
                 Row {
                     height: entry.height
@@ -46,11 +51,11 @@ Item {
                         focusPolicy: enabled ? Qt.StrongFocus : Qt.NoFocus
                         hoverEnabled: true
                         padding: 0
-                        width: Math.max(0, Math.min(label.implicitWidth, links.width - entry.x - (entry.showSeparator ? slash.implicitWidth + links.separatorSpacing * 2 : 0)))
+                        width: Math.max(0, Math.min(label.implicitWidth, links.width - entry.x - (entry.showSeparator ? separatorMetrics.advanceWidth + links.separatorSpacing * 2 : 0)))
                         height: links.height
                         implicitWidth: label.implicitWidth
                         background: null
-                        contentItem: EchoTextTagRow {
+                        contentItem: EchoTextLine {
                             id: label
                             textItem.objectName: entry.index === 0 ? links.textObjectName : ""
                             text: button.text
@@ -64,15 +69,17 @@ Item {
                         }
                         onClicked: links.artistRequested(entry.modelData.id)
                     }
-                    EchoTextTagRow {
-                        id: slash
-                        visible: entry.showSeparator
-                        width: implicitWidth
+                    Loader {
+                        active: entry.showSeparator
+                        visible: active
+                        width: separatorMetrics.advanceWidth
                         height: links.height
-                        lineHeight: links.lineHeight
-                        text: "/"
-                        color: links.color
-                        font: links.font
+                        sourceComponent: EchoTextLine {
+                            lineHeight: links.lineHeight
+                            text: "/"
+                            color: links.color
+                            font: links.font
+                        }
                     }
                 }
             }

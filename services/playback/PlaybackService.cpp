@@ -1007,6 +1007,7 @@ void PlaybackService::setQuality(const QString &quality)
         if (!hasTrack() || m_cloudSources.source(m_track).isEmpty())
             return;
         m_sourcePreference = "cloud";
+        m_failure->sourceOperation(tr("音源切换失败"));
         refreshCurrentSource();
         return;
     }
@@ -1019,6 +1020,7 @@ void PlaybackService::setQuality(const QString &quality)
     m_sourcePreference = "catalog";
     m_quality = quality;
     if (hasTrack()) {
+        m_failure->sourceOperation(tr("音质切换失败"));
         refreshCurrentSource();
     }
     emit changed();

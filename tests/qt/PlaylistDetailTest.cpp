@@ -22,6 +22,16 @@
 using namespace EchoMusic;
 namespace EchoMusic
 {
+class PlaybackServiceTestAccess
+{
+public:
+    // Canonical current-song presentation without audio/network authorization.
+    static void present(PlaybackService &playback, const PlaybackTrack &track)
+    {
+        playback.m_track = track;
+        emit playback.changed();
+    }
+};
 class UserPlaylistModelTestAccess
 {
 public:
@@ -1105,6 +1115,32 @@ Window {
                     QTRY_COMPARE(surface->property("color").value<QColor>(), theme.mutedSurface());
                     list->setProperty("contentY", 500);
                     QTRY_COMPARE(header->property("progress").toReal(), 1.);
+                    if (!live) {
+                        const auto tracks = context->songs()->tracks();
+                        QVERIFY(tracks.size() > 12);
+                        PlaybackServiceTestAccess::present(playback, tracks[12]);
+                        const auto clickLocate = [&] {
+                            const auto point = locate->mapToScene({18, 18}).toPoint();
+                            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
+                        };
+                        QVERIFY(QMetaObject::invokeMethod(list, "forceLayout"));
+                        QSignalSpy movements(list, SIGNAL(contentYChanged()));
+                        clickLocate();
+                        QCOMPARE(movements.count(), 0);
+                        QCOMPARE(list->property("contentY").toReal(), 500.);
+                        // At contentY=720 the current row is behind the sticky
+                        // toolbar even though ListView still owns its delegate.
+                        list->setProperty("contentY", 720.);
+                        QVERIFY(QMetaObject::invokeMethod(list, "forceLayout"));
+                        clickLocate();
+                        QVERIFY(list->property("contentY").toReal() < 720.);
+                        const auto located = list->property("contentY").toReal();
+                        movements.clear();
+                        clickLocate();
+                        QCOMPARE(movements.count(), 0);
+                        QCOMPARE(list->property("contentY").toReal(), located);
+                        list->setProperty("contentY", 500.);
+                    }
                     auto *cover = playlistVisual(header, "songDetailCoverSlot");
                     auto *title = playlistVisual(header, "songDetailTitleRow");
                     QVERIFY(cover && title);

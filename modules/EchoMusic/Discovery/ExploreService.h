@@ -149,6 +149,7 @@ public:
     Q_INVOKABLE void retry();
     void shutdown();
 signals:
+    void notice(const QString &message, bool warning);
     void changed();
 
 private:

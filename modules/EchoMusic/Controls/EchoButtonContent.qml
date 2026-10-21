@@ -23,7 +23,7 @@ Item {
     property bool glyphAfterText: false
     property bool wrap: false
     property bool glyphAtFirstLine: false
-    readonly property bool truncated: label.truncated
+    readonly property bool truncated: label.isTruncated()
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
     RowLayout {
@@ -36,44 +36,50 @@ Item {
         height: implicitHeight
         spacing: content.spacing
         layoutDirection: content.glyphAfterText ? Qt.RightToLeft : Qt.LeftToRight
-        Item {
+        Loader {
             anchors.alignWhenCentered: false
+            active: content.loading && content.visible
             visible: content.loading
             Layout.preferredWidth: 16
             Layout.preferredHeight: 16
             Layout.fillHeight: true
-            EchoSpinner {
-                objectName: "buttonSpinner"
-                anchors.centerIn: parent
-                anchors.alignWhenCentered: false
-                width: 16
-                height: 16
-                resourceActive: content.loading && content.visible
-                color: content.color
+            sourceComponent: Item {
+                EchoSpinner {
+                    objectName: "buttonSpinner"
+                    anchors.centerIn: parent
+                    anchors.alignWhenCentered: false
+                    width: 16
+                    height: 16
+                    resourceActive: content.loading && content.visible
+                    color: content.color
+                }
             }
         }
         // RowLayout rounds direct-child positions to logical pixels. Keep its
         // sizing responsibility, but center the glyph inside the full-height
         // slot so half-pixel text line boxes retain the same visual center.
-        Item {
+        Loader {
             anchors.alignWhenCentered: false
+            active: content.glyph.length > 0 && content.visible
             visible: content.glyph.length > 0
             Layout.preferredWidth: content.glyphSize
             Layout.preferredHeight: content.glyphSize
             Layout.fillHeight: true
-            EchoIcon {
-                id: glyphIcon
-                objectName: "buttonGlyph"
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: content.glyphAtFirstLine && content.wrap ? label.y + label.firstLineInkCenter - parent.y - glyphIcon.visualCenter().y : (parent.height - height) / 2
-                anchors.alignWhenCentered: false
-                width: content.glyphSize
-                height: content.glyphSize
-                name: content.glyph
-                color: content.iconColor
+            sourceComponent: Item {
+                EchoIcon {
+                    id: glyphIcon
+                    objectName: "buttonGlyph"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: content.glyphAtFirstLine && content.wrap ? label.y + label.firstLineInkCenter() - parent.y - glyphIcon.visualCenter().y : (parent.height - height) / 2
+                    anchors.alignWhenCentered: false
+                    width: content.glyphSize
+                    height: content.glyphSize
+                    name: content.glyph
+                    color: content.iconColor
+                }
             }
         }
-        EchoTextTagRow {
+        EchoTextLine {
             id: label
             objectName: "buttonLabel"
             visible: content.text.length > 0

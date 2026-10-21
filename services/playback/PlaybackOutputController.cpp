@@ -125,6 +125,7 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
          quint64(event.value("seq").toDouble()) == m_playback.m_audioSequence))
         m_playback.requestEmbeddedMetadata();
     if (kind == "source-switched") {
+        m_playback.m_failure->sourceAdopted();
         m_playback.m_progress.reset();
         m_playback.m_audioControls.setTrackLoudness(m_playback.m_pendingLoudness);
         m_playback.m_loading = false;
@@ -148,6 +149,7 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
     } else if (kind == "file-loaded") {
         if (quint64(event.value("seq").toDouble()) != m_playback.m_audioSequence)
             return;
+        m_playback.m_failure->sourceAdopted();
         m_playback.m_audioControls.setTrackLoudness(m_playback.m_pendingLoudness);
         m_playback.m_loading = false;
         m_playback.m_loaded = true;

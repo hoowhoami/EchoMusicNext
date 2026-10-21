@@ -5,6 +5,28 @@ import EchoMusic.Theme
 
 Button {
     id: control
+    readonly property EchoUiPart publicPart: EchoUiPart {
+        target: control
+        role: "control.button"
+        key: control.objectName
+        properties: ["foreground", "background", "borderColor", "borderWidth", "radius", "font", "fontSize", "fontWeight", "letterSpacing"]
+        actions: ["activate"]
+        replaceable: true
+        baseValues: ({
+                foreground: control.foreground,
+                font: control.font
+            })
+        onActionRequested: (action, arguments) => {
+            if (action === "activate")
+                control.clicked();
+        }
+    }
+    Connections {
+        target: control
+        function onClicked(): void {
+            control.publicPart.publish("activated");
+        }
+    }
 
     // Public Qt component names used by shipped author QML; geometry has one
     // owner in EchoControlSize (xs is compact, ordinary sm/md are standard).
@@ -36,16 +58,19 @@ Button {
     topPadding: 0
 
     background: EchoActionBackground {
+        publicPart: control.publicPart
+        visible: !control.publicPart.replaced
         accent: control.accent
-        border.color: Theme.accent
-        border.width: control.visualFocus ? 2 : 0
+        border.color: control.publicPart.value("borderColor", Theme.accent)
+        border.width: control.publicPart.value("borderWidth", control.visualFocus ? 2 : 0)
         colors: control.colors
         highlighted: control.enabled && (control.hovered || control.visualFocus)
         pressed: control.down
     }
     contentItem: EchoButtonContent {
-        color: control.foreground
-        font: control.font
+        visible: !control.publicPart.replaced
+        color: control.publicPart.value("foreground", control.foreground)
+        font: control.publicPart.styledFont(control.font)
         glyph: control.glyph
         loading: control.loading
         spacing: control.size === EchoControlSize.Small ? 6 : control.glyphSpacing

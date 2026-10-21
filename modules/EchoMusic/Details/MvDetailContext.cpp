@@ -304,6 +304,7 @@ void MvDetailContext::openPlayer(const QString &url)
             [this](QMediaPlayer::Error, const QString &) {
                 m_error = tr("视频解码失败，请切换其他片源");
                 emit changed();
+                emit notice(m_error, true);
             });
     if (m_playback.playing())
         m_playback.pause();
@@ -345,9 +346,10 @@ void MvDetailContext::accept(quint64 id, const QByteArray &bytes)
     auto doc = QJsonDocument::fromJson(bytes);
     if (p.kind == Source) {
         const auto url = doc.object().value("url").toString();
-        if (url.isEmpty())
+        if (url.isEmpty()) {
             m_error = tr("当前视频暂时无法播放");
-        else
+            emit notice(m_error, true);
+        } else
             openPlayer(url);
     } else if (p.kind == Versions) {
         m_versions = doc.array();
@@ -394,11 +396,12 @@ void MvDetailContext::fail(quint64 id, const QByteArray &bytes)
         return;
     auto p = m_pending.take(id);
     if (p.epoch != m_epoch || p.session != m_api.sessionRevision() ||
-        (p.kind == Source && p.selection != m_selection))
+        (p.kind == Source && p.selection != m_selection) || m_closed || !m_route.active())
         return;
     m_error = QJsonDocument::fromJson(bytes).object().value("message").toString();
     if (m_error.isEmpty())
         m_error = tr("当前视频暂时无法播放");
     emit changed();
+    emit notice(m_error, true);
 }
 } // namespace EchoMusic

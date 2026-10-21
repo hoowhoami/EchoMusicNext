@@ -648,6 +648,8 @@ void FavoritesService::fail(quint64 id, const QByteArray &bytes)
                                                        : tr("收藏歌曲加载失败");
     m_awaitingLibrary = false;
     emit changed();
+    if (m_active && (pending.kind == PendingKind::Follow || pending.kind == PendingKind::Video))
+        emit notice(m_error, true);
 }
 void FavoritesService::shutdown()
 {

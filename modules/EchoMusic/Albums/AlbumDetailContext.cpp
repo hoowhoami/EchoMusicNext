@@ -258,6 +258,7 @@ void AlbumDetailContext::fail(quint64 id, const QByteArray &bytes)
         m_detailError = message;
     }
     emit changed();
+    emit notice(message, true);
 }
 } // namespace EchoMusic
 

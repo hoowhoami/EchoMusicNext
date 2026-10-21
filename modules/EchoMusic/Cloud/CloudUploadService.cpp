@@ -96,6 +96,7 @@ CloudUploadService::CloudUploadService(ApiClient &api, bool network, QObject *pa
                 m_tasks->remove(m_task);
             m_task = {};
             notify();
+            emit notice(m_error, true);
             return;
         }
         if (m_manual && m_files.first().state == "failed") {
@@ -103,6 +104,7 @@ CloudUploadService::CloudUploadService(ApiClient &api, bool network, QObject *pa
             m_step = "progress";
             m_error = m_files.first().error;
             notify();
+            emit notice(m_error, true);
             return;
         }
         if (m_manual) {
@@ -114,6 +116,8 @@ CloudUploadService::CloudUploadService(ApiClient &api, bool network, QObject *pa
             notify();
             return;
         }
+        if (failed() > 0)
+            emit notice(tr("%1 个文件被跳过（超出大小限制或读取失败）").arg(failed()), true);
         m_index = 0;
         m_phase = "matching";
         notify();
@@ -514,6 +518,8 @@ void CloudUploadService::applyLookup(const QJsonObject &response)
     if (kind == Manual) {
         m_candidates = response.value("page").toObject().value("items").toArray();
         notify();
+        if (m_candidates.isEmpty())
+            emit notice(tr("未找到匹配的歌曲，请修改搜索条件重试"), true);
         return;
     }
     if (m_index >= m_files.size())
@@ -853,6 +859,8 @@ void CloudUploadService::stop()
     cancelPending();
     m_phase = "stopped";
     m_error.clear();
+    if (!m_closed)
+        emit cancelled();
     for (auto &f : m_files)
         if (f.state != "success" && f.state != "failed")
             f.state = "cancelled";
@@ -929,8 +937,8 @@ void CloudUploadService::shutdown()
 {
     if (m_closed)
         return;
-    stop();
     m_closed = true;
+    stop();
     ++m_run;
     cancelPending();
     if (m_tasks)

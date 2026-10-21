@@ -20,7 +20,7 @@ Popup {
     signal addToPlaylistRequested
     function locateCurrent() {
         if (viewedQueue && viewedQueue.currentIndex >= 0)
-            list.positionViewAtIndex(viewedQueue.currentIndex, ListView.Center);
+            EchoListPositioning.positionIfNeeded(list, viewedQueue.currentIndex, ListView.Center, null);
     }
     parent: Overlay.overlay
     width: Math.max(0, Math.min(380, parent ? parent.width / uiScale - (narrow ? 16 : 24) : 380))

@@ -341,6 +341,60 @@ void ControlsUiTest::imageDensityTracksScaleWithoutTrackingScroll()
     QVERIFY(transition.decodeSize().isEmpty());
 }
 
+void ControlsUiTest::imageDensitySharesAncestorsAndReleasesInactiveObservers()
+{
+    class ScaleItem : public QQuickItem
+    {
+    public:
+        using QQuickItem::QQuickItem;
+        int scaleListeners() const
+        {
+            return receivers(SIGNAL(scaleChanged()));
+        }
+    };
+    QQuickWindow window;
+    ScaleItem ancestor(window.contentItem());
+    ScaleItem alternative(window.contentItem());
+    QQuickItem branch(&ancestor);
+    const int baseline = ancestor.scaleListeners();
+    std::vector<std::unique_ptr<QQuickItem>> items;
+    std::vector<std::unique_ptr<EchoImageMetrics>> metrics;
+    for (int n = 0; n < 64; ++n) {
+        auto item = std::make_unique<QQuickItem>(&branch);
+        item->setSize({40, 40});
+        auto metric = std::make_unique<EchoImageMetrics>();
+        metric->setItem(item.get());
+        items.push_back(std::move(item));
+        metrics.push_back(std::move(metric));
+    }
+    QCOMPARE(ancestor.scaleListeners(), baseline + 1);
+    ancestor.setScale(2);
+    for (const auto &metric : metrics)
+        QVERIFY(metric->pixelSize().width() >= 80 * window.effectiveDevicePixelRatio());
+    branch.setParentItem(&alternative);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCOMPARE(ancestor.scaleListeners(), baseline);
+    alternative.setScale(4);
+    for (const auto &metric : metrics)
+        QVERIFY(metric->pixelSize().width() >= 160 * window.effectiveDevicePixelRatio());
+    for (const auto &metric : metrics)
+        metric->setActive(false);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCOMPARE(alternative.scaleListeners(), baseline);
+    for (const auto &metric : metrics) {
+        QVERIFY(metric->pixelSize().isEmpty());
+        metric->setActive(true);
+    }
+    QCOMPARE(alternative.scaleListeners(), baseline + 1);
+    items.clear();
+    for (const auto &metric : metrics)
+        QVERIFY(metric->pixelSize().isEmpty());
+    metrics.clear();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCOMPARE(alternative.scaleListeners(), baseline);
+    qInfo() << "Image density: 64 subscribers share one ancestor scale connection";
+}
+
 void ControlsUiTest::selectProjectionKeepsTypedValuesAndTracksModelChanges()
 {
     EchoSelectModel model;

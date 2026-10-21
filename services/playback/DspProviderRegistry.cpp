@@ -267,6 +267,10 @@ DspProviderRegistry::DspProviderRegistry(NativeBridge &native, const QString &di
             m_restored = true;
             emit restored();
         }
+        if (!m_removing.isEmpty()) {
+            m_removing.clear();
+            emit notice(tr("音效引擎已删除，文件将在引擎释放后完成清理"), true);
+        }
         if (!m_importing.isEmpty()) {
             const auto id = std::exchange(m_importing, {});
             emit imported(id);
@@ -379,6 +383,7 @@ void DspProviderRegistry::remove(const QString &id)
     if (m_busy || record(id).isEmpty())
         return;
     m_busy = true;
+    m_removing = id;
     emit changed();
     QMetaObject::invokeMethod(m_store, [store = m_store, id] { store->remove(id); });
 }
@@ -391,6 +396,9 @@ void DspProviderRegistry::fail(const QString &message)
     m_importing.clear();
     m_busy = false;
     m_error = message;
+    m_removing.clear();
     emit changed();
+    if (m_restored)
+        emit notice(message, false);
 }
 } // namespace EchoMusic

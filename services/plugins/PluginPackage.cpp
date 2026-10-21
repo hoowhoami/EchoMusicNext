@@ -57,7 +57,9 @@ QStringList PluginPackage::supportedFeatures()
             "plugins.services",
             "audio.spectrum",
             "ui.surfaces",
-            "ui.state"};
+            "ui.state",
+            "ui.parts",
+            "ui.styles"};
 }
 QStringList PluginPackage::supportedCapabilities()
 {

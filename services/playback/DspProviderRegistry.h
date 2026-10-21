@@ -41,6 +41,7 @@ signals:
     void changed();
     void restored();
     void imported(const QString &id);
+    void notice(const QString &message, bool success);
 
 private:
     void fail(const QString &message);
@@ -49,7 +50,7 @@ private:
     DspProviderStore *m_store;
     QVariantList m_rows;
     QVariantMap m_candidate;
-    QString m_error, m_importing;
+    QString m_error, m_importing, m_removing;
     quint64 m_probe = 0;
     bool m_busy = true, m_restored = false;
 };

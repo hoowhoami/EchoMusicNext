@@ -4,6 +4,7 @@ import QtQuick
 Item {
     id: background
     property Component surfaceEffects: null
+    property color baseColor: Theme.shell
     clip: true
     // CSS layout-skin opacity composites the finished skin once. Qt Item
     // opacity alone attenuates each overlapping child independently.
@@ -11,7 +12,7 @@ Item {
     Rectangle {
         objectName: "themeBaseSurface"
         anchors.fill: parent
-        color: Theme.shell
+        color: background.baseColor
     }
     Item {
         anchors.fill: parent

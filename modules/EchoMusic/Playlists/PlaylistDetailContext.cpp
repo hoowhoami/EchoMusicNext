@@ -395,7 +395,8 @@ void PlaylistDetailContext::fail(quint64 id, const QByteArray &bytes)
     if (!m_requests.contains(id))
         return;
     const auto pending = m_requests.take(id);
-    if (pending.session != m_api.sessionRevision() || pending.generation != m_generation)
+    if (m_closed || !m_route.active() || pending.session != m_api.sessionRevision() ||
+        pending.generation != m_generation)
         return;
     const auto message =
         QJsonDocument::fromJson(bytes).object()["message"].toString(tr("歌单加载失败"));
@@ -404,6 +405,7 @@ void PlaylistDetailContext::fail(quint64 id, const QByteArray &bytes)
         return;
     }
     m_pageErrors.insert(pending.page, message);
+    emit notice(message, true);
     if (m_requests.isEmpty())
         consumeBatch();
     emit changed();
@@ -429,6 +431,8 @@ void PlaylistDetailContext::failMessage(const QString &message)
     cancel();
     m_error = message;
     emit changed();
+    if (!m_closed && m_route.active())
+        emit notice(message, true);
 }
 } // namespace EchoMusic
 

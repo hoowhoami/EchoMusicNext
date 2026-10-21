@@ -360,6 +360,7 @@ private slots:
         AccountService account(api);
         StorageService storage;
         SavedAccountModel model(api, account, storage);
+        QSignalSpy notices(&model, &SavedAccountModel::notice);
         QAbstractItemModelTester tester(&model,
                                         QAbstractItemModelTester::FailureReportingMode::QtTest);
         tester.setUseFetchMore(false);
@@ -372,19 +373,28 @@ private slots:
         QVERIFY(account.adoptQrAuthorization(authorization(2)));
         QTRY_VERIFY(!model.busy());
         QCOMPARE(model.count(), 2);
+        QCOMPARE(notices.size(), 0); // Login persistence is not an explicit account switch.
         QVERIFY(model.switchAccount(1));
         QTRY_VERIFY(!model.busy());
         QCOMPARE(account.userId(), quint64(1));
         QCOMPARE(model.data(model.index(0, 0), SavedAccountModel::UserIdRole).toULongLong(),
                  quint64(1));
+        QCOMPARE(notices.size(), 1);
+        QVERIFY(notices.last()[0].toString().startsWith("已切换至 "));
+        QCOMPARE(notices.last()[1].toBool(), false);
         QVERIFY(!model.forgetAccount(1));
+        QCOMPARE(notices.size(), 2);
+        QCOMPARE(notices.last()[1].toBool(), true);
         QVERIFY(model.forgetAccount(2));
         QTRY_VERIFY(!model.busy());
         QCOMPARE(model.count(), 1);
+        QCOMPARE(notices.size(), 3);
+        QCOMPARE(notices.last()[0].toString(), QString("已移除账号"));
         model.logout();
         QTRY_VERIFY(!model.busy());
         QCOMPARE(account.userId(), quint64(0));
         QCOMPARE(model.count(), 0);
+        QCOMPARE(notices.size(), 3); // Logout does not claim an explicit removal.
         QSignalSpy drained(&model, &SavedAccountModel::closed);
         model.shutdown();
         QTRY_COMPARE(drained.size(), 1);

@@ -24,6 +24,9 @@ public:
     Q_INVOKABLE EchoMusic::ArtistDetailContext *contextFor(EchoMusic::RouteContext *route);
     void shutdown();
 
+signals:
+    void notice(const QString &message, bool warning);
+
 private:
     ProfileService *m_profile = nullptr;
     ApiClient &m_api;

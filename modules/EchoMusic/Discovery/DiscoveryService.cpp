@@ -503,6 +503,8 @@ void DiscoveryService::failed(quint64 id, const QString &error)
     }
     m_states[pending.part] = Error;
     m_errors[pending.part] = error;
+    if (pending.part == DiscoverFlow && !pending.append && m_activePage == "discover-flow")
+        emit notice(tr("推荐歌曲加载失败，请稍后重试"), 2);
     if (pending.part == Style)
         m_styleSongs.clear();
     if (pending.part == FreeListen)

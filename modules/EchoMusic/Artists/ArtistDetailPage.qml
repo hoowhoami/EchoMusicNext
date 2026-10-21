@@ -276,7 +276,7 @@ RoutePage {
                         onClicked: {
                             const index = page.detail.songs.indexOf(page.detail.actions.currentTrackId);
                             if (index >= 0)
-                                songList.listView.positionViewAtIndex(index, ListView.Center);
+                                EchoListPositioning.positionIfNeeded(songList.listView, index, ListView.Center, songList.pageContainer);
                         }
                     }
                     EchoTextField {

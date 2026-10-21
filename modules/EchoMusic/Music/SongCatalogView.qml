@@ -206,7 +206,7 @@ Item {
                         onClicked: {
                             const index = page.collection.indexOf(page.activeTrackId);
                             if (index >= 0)
-                                songList.listView.positionViewAtIndex(index, ListView.Center);
+                                EchoListPositioning.positionIfNeeded(songList.listView, index, ListView.Center, songList.pageContainer);
                         }
                     }
                 }

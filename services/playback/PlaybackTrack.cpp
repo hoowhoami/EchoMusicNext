@@ -29,10 +29,9 @@ qint64 effectAudioTrack(const QJsonArray &tracks, const QString &effect)
     return preferred || !first ? selected : first;
 }
 
-QVariantList PlaybackTrack::artistLinks() const
+QVariantList catalogArtistLinks(const QJsonArray &refs, const QString &fallbackArtist)
 {
     QVariantList result;
-    const auto refs = catalogMetadata.value("artist_refs").toArray();
     for (const auto &value : refs) {
         const auto ref = value.toObject();
         const auto id = ref.value("id").toVariant().toString().toULongLong();
@@ -40,12 +39,17 @@ QVariantList PlaybackTrack::artistLinks() const
                                   {"id", id ? QString::number(id) : QString()}});
     }
     if (refs.isEmpty()) {
-        const auto names = artist.split(QRegularExpression("[,/，]"), Qt::SkipEmptyParts);
+        const auto names = fallbackArtist.split(QRegularExpression("[,/，]"), Qt::SkipEmptyParts);
         for (const auto &name : names)
             if (!name.trimmed().isEmpty())
                 result.append(QVariantMap{{"name", name.trimmed()}, {"id", QString()}});
     }
     return result;
+}
+
+QVariantList PlaybackTrack::artistLinks() const
+{
+    return catalogArtistLinks(catalogMetadata.value("artist_refs").toArray(), artist);
 }
 
 PlaybackTrack PlaybackTrack::fromDomain(const QJsonObject &s)

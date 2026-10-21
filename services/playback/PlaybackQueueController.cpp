@@ -90,12 +90,19 @@ void PlaybackQueueController::appendTracksImpl(const PlaybackTracks &tracks, boo
         if (!target)
             target = m_playback.m_catalog.modelForKey("default");
     }
+    const auto before = target ? target->rowCount() : 0;
     if (target)
         target->append(tracks, next,
                        m_playback.m_track.id.isEmpty() ? m_playback.m_track.key()
                                                        : m_playback.m_track.id,
                        sequential);
+    const auto message = target && !tracks.isEmpty() ? target->rowCount() > before
+                                                           ? QObject::tr("已添加到队列")
+                                                           : QObject::tr("歌曲已在队列中")
+                                                     : QString();
     emit m_playback.changed();
+    if (!message.isEmpty())
+        emit m_playback.notice(message, 1);
 }
 
 void PlaybackQueueController::playIndex(int index)

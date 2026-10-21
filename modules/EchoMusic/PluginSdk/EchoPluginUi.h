@@ -2,6 +2,8 @@
 #include "EchoPluginOperation.h"
 #include "EchoPluginRegistration.h"
 #include "EchoPluginTask.h"
+#include "EchoPluginUiParts.h"
+#include "EchoPluginUiStyles.h"
 #include <QJSValue>
 #include <QUrl>
 namespace EchoMusic
@@ -13,12 +15,22 @@ class EchoPluginTask;
 class EchoPluginUi final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(EchoMusic::EchoPluginUiParts *parts READ parts CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginUiStyles *styles READ styles CONSTANT)
     Q_PROPERTY(QVariantMap state READ state NOTIFY stateChanged)
     Q_PROPERTY(QUrl settingsComponent READ settingsComponent NOTIFY settingsChanged)
     QML_ELEMENT
     QML_UNCREATABLE("Owned by EchoPluginContext")
 public:
     explicit EchoPluginUi(EchoPluginContext &scope);
+    EchoPluginUiParts *parts() const
+    {
+        return m_parts;
+    }
+    EchoPluginUiStyles *styles() const
+    {
+        return m_styles;
+    }
     QUrl settingsComponent() const
     {
         return m_settingsComponent;
@@ -49,6 +61,8 @@ signals:
     void stateChanged();
 
 private:
+    EchoPluginUiParts *m_parts;
+    EchoPluginUiStyles *m_styles;
     QUrl m_settingsComponent;
     QVariantMap m_state;
     EchoPluginRegistration *action(bool playerbar, const QString &id, const QString &title,

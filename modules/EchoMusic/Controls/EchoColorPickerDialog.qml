@@ -246,7 +246,7 @@ EchoDialog {
                         Layout.fillWidth: true
                         Layout.fillHeight: false
                         spacing: 0
-                        EchoTextTagRow {
+                        EchoTextLine {
                             objectName: "colorDynamicTitle"
                             Layout.fillWidth: true
                             text: picker.dynamicLabel
@@ -254,7 +254,7 @@ EchoDialog {
                             lineHeight: 19.5
                             color: Theme.floating.text
                         }
-                        EchoTextTagRow {
+                        EchoTextLine {
                             objectName: "colorDynamicDescription"
                             Layout.fillWidth: true
                             text: qsTr("自动使用当前封面提取色")

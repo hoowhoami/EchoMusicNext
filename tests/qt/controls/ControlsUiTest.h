@@ -5,6 +5,7 @@ class ControlsUiTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void listLocationPreservesVisibleRowsAndChecksOcclusion();
     void continuousAngleWheelPreservesDistanceAndPixelInput();
     void wheelCancellationAndMotionPreferences();
     void pageWheelRegionsPreserveNativeEvents();
@@ -12,6 +13,7 @@ private slots:
     void badgeIconAndCountUseSameInkCenter();
     void scrollContentCannotPaintOverRoundedCornersOrBorder();
     void imageDensityTracksScaleWithoutTrackingScroll();
+    void imageDensitySharesAncestorsAndReleasesInactiveObservers();
     void coverKeepsNativeResolutionUnderAncestorZoom();
     void iconRasterTracksZoomAndReleasesWhenHidden();
     void coverCropAndRoundedPixels();
@@ -42,6 +44,10 @@ private slots:
     void dialogHeaderBodyAndFooterShareInsets();
     void drawerFixedActionsSurviveLongTitlesAndVisibilityChanges();
     void textTagAlignmentAcrossProductionRecipes();
+    void plainTextRetainsInkWithoutTagLayouts();
+    void sharedLabelMatchesSavedPixels();
+    void sharedControlsRetireUnusedContent();
+    void sharedControlsBindingFootprint();
     void hintsAvoidTriggersAndWindowEdgesAcrossZoom();
     void popupsCancelVisibleAndPendingHints();
     void badgesAndTagsKeepDistinctContracts();
