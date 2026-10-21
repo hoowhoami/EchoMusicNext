@@ -118,6 +118,12 @@ private:
     void completeSongs(const QList<QJsonObject> &items);
     void acceptMetadata(quint64 ticket, const QJsonArray &values);
     void cancelMetadata();
+    /// Corrected facts from the playing file's tags reach the cloud row for
+    /// the same upload, so masked provider names stop shadowing real ones.
+    void applyPlaybackFacts(const QJsonObject &facts);
+    /// Merge corrected file facts into one cloud song snapshot (source level);
+    /// returns whether the song changed.
+    bool applyFactsToSong(QJsonObject &song, const QJsonObject &facts) const;
     ApiClient &m_api;
     PlaybackService &m_playback;
     SongMetadataService &m_metadata;

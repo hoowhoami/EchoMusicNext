@@ -17,6 +17,8 @@ public:
         return m_request != 0;
     }
     QJsonObject source(const PlaybackTrack &) const;
+    /// Cloud file record (with presentation facts) for an audio hash.
+    QJsonObject byHash(const QString &hash) const;
     static QJsonObject fromRow(const QJsonObject &);
 signals:
     void settled();

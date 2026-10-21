@@ -8,6 +8,7 @@
 #include "PlaylistMutationService.h"
 #include "RouteController.h"
 #include "SongMetadataService.h"
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QMap>
 namespace EchoMusic
@@ -136,6 +137,16 @@ private:
     void consumeBatch();
     void completePage(const QJsonArray &songs);
     void publishCover();
+    /// Fill presentation facts stripped by the provider (cloud playlist entries
+    /// only keep title + hash) from the cloud file index, matched by hash.
+    bool enrichEntry(QJsonObject &entry);
+    bool enrichCloudEntries();
+    /// Merge corrected playing-file facts into one playlist entry; appends the
+    /// matching presentation when projected is given.
+    bool applyFactsToEntry(QJsonObject &entry, const QJsonObject &facts,
+                           QJsonArray *projected = nullptr);
+    /// Corrected playing-file tags refresh the matching cloud playlist entry.
+    void applyPlaybackFacts(const QJsonObject &facts);
     LibraryCollectionService *m_collections = nullptr;
     ApiClient &m_api;
     PlaybackService &m_playback;

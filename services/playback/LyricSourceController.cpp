@@ -137,7 +137,7 @@ QString LyricSourceController::preferenceKey() const
 {
     return EchoMusic::SettingsKeys::Lyrics::SourcesPrefix +
            QString::fromLatin1(
-               QCryptographicHash::hash(m_track.key().toUtf8(), QCryptographicHash::Sha256)
+               QCryptographicHash::hash(m_track.stableKey().toUtf8(), QCryptographicHash::Sha256)
                    .toHex());
 }
 void LyricSourceController::notifyRows()
@@ -192,13 +192,16 @@ void LyricSourceController::load(const PlaybackTrack &track)
     clear();
     m_selectionOpen = m_openAfterAuto = reopen;
     m_track = track;
-    if (m_cacheTrack != track.key()) {
+    // Cache and update guards key on the stable identity so a mid-play view-id
+    // upgrade (legacy "0" snapshot adopting "cloud:<hash>") cannot orphan the
+    // already-fetched embedded lyrics.
+    if (m_cacheTrack != track.stableKey()) {
         m_cache.clear();
         m_cacheOrder.clear();
-        m_cacheTrack = track.key();
+        m_cacheTrack = track.stableKey();
     }
     resetSearchFields();
-    if (!track.key().isEmpty()) {
+    if (!track.stableKey().isEmpty()) {
         m_manualId = m_settings.value(preferenceKey()).toString();
         m_savedKeywords = m_manualId.isEmpty()
                               ? QString()
@@ -366,7 +369,7 @@ QJsonObject LyricSourceController::cachedLyrics(const QString &id) const
 void LyricSourceController::updateEmbedded(const QString &trackKey, const QString &title,
                                            const QString &artist, const QJsonObject &lyrics)
 {
-    if (trackKey != m_track.key() || m_revision != m_api.sessionRevision())
+    if (trackKey != m_track.stableKey() || m_revision != m_api.sessionRevision())
         return;
     const bool pristine = m_searchTitle == unmask(m_track.title, m_embeddedTitle) &&
                           m_searchArtist == unmask(m_track.artist, m_embeddedArtist);
@@ -413,7 +416,7 @@ void LyricSourceController::updateEmbedded(const QString &trackKey, const QStrin
         // changing the song. Refresh its lyrics without cancelling dialog browsing.
         if (selected() && selected()->id == "embedded")
             m_preview.replace(lyrics);
-        emit activated(lyrics, m_track.key());
+        emit activated(lyrics, m_track.stableKey());
     }
     if (m_manualId == "embedded" && m_currentId.isEmpty() &&
         !lyrics.value("lines").toArray().isEmpty()) {
@@ -654,7 +657,7 @@ void LyricSourceController::activatePreview()
     m_currentId = c->id;
     m_state = m_preview.rowCount() ? "ready" : "empty";
     m_activatePending = m_applyPending = m_restorePending = false;
-    emit activated(cachedLyrics(c->id), m_track.key());
+    emit activated(cachedLyrics(c->id), m_track.stableKey());
     notifyRows();
     if (explicitApply) {
         emit notice(restored ? tr("已改为智能推荐") : tr("歌词版本已应用"), true);

@@ -67,6 +67,21 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
                 if (m_complete && m_metadataRequests.isEmpty())
                     publishCover();
             });
+    connect(&m_playback, &PlaybackService::trackFactsApplied, this,
+            &PlaylistDetailContext::applyPlaybackFacts);
+    connect(m_playback.cloudSources(), &CloudAudioIndex::settled, this, [this] {
+        if (m_closed || !m_cloud || !m_route.active() || !enrichCloudEntries())
+            return;
+        QJsonArray songs;
+        for (const auto &entry : std::as_const(m_cloudEntries)) {
+            auto song = entry["song"].toObject();
+            song.insert("metadata", entry["metadata"]);
+            songs.append(song);
+        }
+        m_songs.replaceSongs(songs, true);
+        if (m_complete)
+            publishCover();
+    });
     connect(&mutations, &PlaylistMutationService::tracksInvalidated, this, [this](quint64 id) {
         if (m_cloud && m_cloud->value == id)
             reload();
@@ -316,13 +331,45 @@ void PlaylistDetailContext::consumeBatch()
             // array order. Sorting inside each page is insufficient; merge all
             // loaded entries below before replacing only if their order differs.
             for (const auto &v : items) {
-                const auto entry = v.toObject();
+                auto entry = v.toObject();
+                // Unmatched uploads reach playlists with id "0" and most facts
+                // stripped. The audio hash is the only identity shared with the
+                // cloud file list, so it becomes the view id here as well.
+                auto song = entry["song"].toObject();
+                bool idOk = false;
+                const auto albumAudioId = song["id"].toString().toULongLong(&idOk);
+                if (!idOk || !albumAudioId) {
+                    const auto hash = song["hash"].toString().trimmed().toLower();
+                    if (!hash.isEmpty()) {
+                        song["id"] = QStringLiteral("cloud:%1").arg(hash);
+                        entry["song"] = song;
+                    }
+                }
+                // The play may predate this page load; replay the corrected
+                // file facts first (authoritative), then let the cloud file
+                // index fill whatever the tags did not carry.
+                const auto entryHash =
+                    entry["song"].toObject()["hash"].toString().toLower();
+                const auto facts = m_playback.playbackFacts(entryHash);
+                if (!facts.isEmpty())
+                    applyFactsToEntry(entry, facts);
+                enrichEntry(entry);
                 const auto id = entry["song"].toObject()["id"].toString();
                 if (!m_cloudEntryIds.contains(id)) {
                     m_cloudEntryIds.insert(id);
                     m_cloudEntries.append(entry);
                 }
             }
+            // Facts may still be missing while the cloud file index loads; the
+            // settled() handler enriches and re-projects those rows once.
+            const auto sparse = std::any_of(
+                m_cloudEntries.cbegin(), m_cloudEntries.cend(), [](const auto &value) {
+                    const auto song = value["song"].toObject();
+                    return song["duration_ms"].toInteger() <= 0 ||
+                           song["cover_url"].toString().trimmed().isEmpty();
+                });
+            if (sparse)
+                m_playback.cloudSources()->ensure();
             std::stable_sort(m_cloudEntries.begin(), m_cloudEntries.end(),
                              [](const auto &a, const auto &b) {
                                  return a["sort_index"].toInteger() < b["sort_index"].toInteger();
@@ -389,6 +436,120 @@ void PlaylistDetailContext::publishCover()
         }
     }
     m_library.publishAutoCover(*m_cloud, *m_revision, cover, m_api.sessionRevision());
+}
+bool PlaylistDetailContext::enrichEntry(QJsonObject &entry)
+{
+    auto song = entry["song"].toObject();
+    const auto hash = song["hash"].toString().trimmed();
+    if (hash.isEmpty())
+        return false;
+    // Masked provider names ("***") are placeholders, not facts.
+    bool hasArtist = false;
+    for (const auto &value : song["artists"].toArray()) {
+        const auto name = value.toObject()["name"].toString().trimmed();
+        if (!name.isEmpty() && !SongMetadataService::maskedName(name)) {
+            hasArtist = true;
+            break;
+        }
+    }
+    const auto cover = song["cover_url"].toString().trimmed();
+    const auto album = song["album_title"].toString().trimmed();
+    if (hasArtist && song["duration_ms"].toInteger() > 0 && !cover.isEmpty() && !album.isEmpty())
+        return false;
+    // Cloud playlist entries keep only title + hash; the cloud file index knows
+    // the same audio by hash and carries the remaining presentation facts.
+    const auto cloud = m_playback.cloudSources()->byHash(hash);
+    if (cloud.isEmpty())
+        return false;
+    bool changed = false;
+    if (!hasArtist) {
+        bool usable = false;
+        for (const auto &value : cloud["artists"].toArray()) {
+            const auto name = value.toObject()["name"].toString().trimmed();
+            if (!name.isEmpty() && !SongMetadataService::maskedName(name)) {
+                usable = true;
+                break;
+            }
+        }
+        if (usable) {
+            song["artists"] = cloud["artists"];
+            changed = true;
+        }
+    }
+    if (song["duration_ms"].toInteger() <= 0 && cloud["duration_ms"].toInteger() > 0) {
+        song["duration_ms"] = cloud["duration_ms"];
+        changed = true;
+    }
+    if (cover.isEmpty() && !cloud["cover_url"].toString().trimmed().isEmpty()) {
+        song["cover_url"] = cloud["cover_url"];
+        changed = true;
+    }
+    if (album.isEmpty() && !cloud["album"].toString().trimmed().isEmpty()) {
+        song["album_title"] = cloud["album"].toString().trimmed();
+        changed = true;
+    }
+    if (song["title"].toString().trimmed().isEmpty() &&
+        !cloud["title"].toString().trimmed().isEmpty()) {
+        song["title"] = cloud["title"];
+        changed = true;
+    }
+    if (changed)
+        entry["song"] = song;
+    return changed;
+}
+bool PlaylistDetailContext::enrichCloudEntries()
+{
+    bool changed = false;
+    for (auto &entry : m_cloudEntries)
+        changed = enrichEntry(entry) || changed;
+    return changed;
+}
+bool PlaylistDetailContext::applyFactsToEntry(QJsonObject &entry, const QJsonObject &facts,
+                                              QJsonArray *projected)
+{
+    const auto song = entry["song"].toObject();
+    auto presentation = QJsonObject{{"id", song["id"]},
+                                    {"title", facts.value("title")},
+                                    {"album_title", facts.value("album")},
+                                    {"duration_ms", facts.value("duration_ms")},
+                                    {"cover_url", facts.value("cover_url")}};
+    const auto albumId = facts.value("album_id").toString().trimmed();
+    if (!albumId.isEmpty() && albumId != "0")
+        presentation["album_id"] = albumId;
+    const auto refs = SongMetadataService::artistRefs(facts.value("artist").toString());
+    if (!refs.isEmpty())
+        presentation["artists"] = refs;
+    auto updated = SongMetadataService::completeSong(song, presentation);
+    if (updated == song)
+        return false;
+    updated.remove("metadata");
+    entry["song"] = updated;
+    if (projected)
+        projected->append(presentation);
+    return true;
+}
+void PlaylistDetailContext::applyPlaybackFacts(const QJsonObject &facts)
+{
+    if (m_closed || !m_cloud)
+        return;
+    const auto cloud = facts.value("cloud_source").toObject();
+    const auto fileId = quint64(cloud.value("file_id").toInteger());
+    const auto cloudHash = cloud.value("hash").toString().trimmed();
+    if (!fileId && cloudHash.isEmpty())
+        return;
+    QJsonArray projected;
+    for (auto &entry : m_cloudEntries) {
+        const auto rowFile = quint64(entry.value("file_id").toInteger());
+        const auto rowHash = entry["song"].toObject()["hash"].toString();
+        const auto same = (fileId && rowFile == fileId) ||
+                          (!cloudHash.isEmpty() &&
+                           rowHash.compare(cloudHash, Qt::CaseInsensitive) == 0);
+        if (!same)
+            continue;
+        applyFactsToEntry(entry, facts, &projected);
+    }
+    if (!projected.isEmpty())
+        m_songs.applyPresentations(projected);
 }
 void PlaylistDetailContext::fail(quint64 id, const QByteArray &bytes)
 {

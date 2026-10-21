@@ -20,6 +20,10 @@ public:
     void shutdown();
     static bool needsCompletion(const QJsonObject &song);
     static QJsonObject completeSong(QJsonObject song, const QJsonObject &presentation);
+    /// Artist reference objects for a tag string whose names join with "/".
+    static QJsonArray artistRefs(const QString &artist);
+    /// Provider policies censor some artist names with asterisk runs ("***").
+    static bool maskedName(const QString &value);
 signals:
     void completed(quint64 ticket, const QJsonArray &presentations);
 

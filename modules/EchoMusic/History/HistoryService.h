@@ -64,6 +64,12 @@ private:
     void fail(const QString &message);
     void completeSongs();
     void acceptMetadata(quint64 ticket, const QJsonArray &values);
+    /// Corrected playing-file tags refresh matching history rows in place.
+    void applyPlaybackFacts(const QJsonObject &facts);
+    void reapplyPlaybackFacts();
+    /// Merge one facts snapshot into a history track row; appends the matching
+    /// presentation when the row changed.
+    bool applyFactsToRow(const QJsonObject &facts, QJsonObject &track, QJsonArray &projected);
     void cancelMetadata();
     ApiClient &m_api;
     PlaybackService &m_playback;

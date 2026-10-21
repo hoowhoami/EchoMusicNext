@@ -1,4 +1,6 @@
 #include "PlaybackQueueModel.h"
+#include "SongMetadataService.h"
+#include <algorithm>
 namespace EchoMusic
 {
 void PlaybackQueueModel::restoreNext(const QStringList &keys)
@@ -55,14 +57,50 @@ void PlaybackQueueModel::replace(PlaybackTracks tracks, int current)
 {
     const QString selected =
         current >= 0 && current < tracks.size() ? tracks[current].key() : QString();
+    const QString selectedHash =
+        current >= 0 && current < tracks.size() ? tracks[current].hash.toLower() : QString();
     PlaybackTracks clean;
     QSet<QString> seen, ids;
-    for (auto &t : tracks)
-        if (t.playable() && !seen.contains(t.key()) && (t.id.isEmpty() || !ids.contains(t.id))) {
-            seen.insert(t.key());
-            ids.insert(t.id);
-            clean.append(std::move(t));
+    // One upload may queue under a superseded identity ("0" snapshots from
+    // older sessions) and its file-scoped identity. Fold those on the audio
+    // hash and keep the snapshot with the richer, more current facts.
+    const auto score = [](const PlaybackTrack &t) {
+        int value = 0;
+        if (!t.id.isEmpty() && t.id != "0")
+            value += 4;
+        if (!t.catalogMetadata.value("cloud_source").toObject().isEmpty())
+            value += 2;
+        if (t.durationMs)
+            value += 2;
+        if (!t.cover.isEmpty())
+            value += 1;
+        return value;
+    };
+    for (auto &t : tracks) {
+        if (!t.playable() || seen.contains(t.key()) ||
+            (!t.id.isEmpty() && ids.contains(t.id)))
+            continue;
+        if (t.songId == 0 && !t.hash.isEmpty()) {
+            auto existing = std::find_if(clean.begin(), clean.end(), [&](const auto &row) {
+                return row.songId == 0 && !row.hash.isEmpty() &&
+                       row.hash.compare(t.hash, Qt::CaseInsensitive) == 0;
+            });
+            if (existing != clean.end()) {
+                if (score(t) >= score(*existing))
+                    *existing = t;
+                // Register the surviving identity too so a later duplicate of
+                // the winner's view id still folds instead of stacking.
+                seen.insert(t.key());
+                if (!t.id.isEmpty())
+                    ids.insert(t.id);
+                continue;
+            }
         }
+        seen.insert(t.key());
+        if (!t.id.isEmpty())
+            ids.insert(t.id);
+        clean.append(std::move(t));
+    }
     bool appendOnly = clean.size() >= m_tracks.size();
     for (int i = 0; appendOnly && i < m_tracks.size(); ++i)
         appendOnly = clean[i].id == m_tracks[i].id;
@@ -88,7 +126,80 @@ void PlaybackQueueModel::replace(PlaybackTracks tracks, int current)
     for (int i = 0; i < m_tracks.size(); ++i)
         if (m_tracks[i].key() == selected)
             m_current = i;
+    if (m_current < 0 && !selectedHash.isEmpty())
+        for (int i = 0; i < m_tracks.size(); ++i)
+            if (m_tracks[i].songId == 0 && !m_tracks[i].hash.isEmpty() &&
+                m_tracks[i].hash.compare(selectedHash, Qt::CaseInsensitive) == 0) {
+                m_current = i;
+                break;
+            }
     endResetModel();
+    emit changed();
+}
+void PlaybackQueueModel::updateFacts(const QString &id, const QString &title,
+                                     const QString &artist, const QString &album,
+                                     const QString &cover, quint64 durationMs)
+{
+    if (id.isEmpty() ||
+        (title.isEmpty() && artist.isEmpty() && album.isEmpty() && cover.isEmpty() && !durationMs))
+        return;
+    int target = -1;
+    for (int i = 0; i < m_tracks.size(); ++i)
+        if (m_tracks[i].id == id) {
+            target = i;
+            break;
+        }
+    if (target < 0)
+        return;
+    auto &row = m_tracks[target];
+    bool changed = false;
+    // Masked provider names ("***") are censored identities, not facts; embedded
+    // tags carry the real value and replace empty or masked presentation only.
+    const auto adoptable = [](const QString &value) {
+        return value.trimmed().isEmpty() || SongMetadataService::maskedName(value);
+    };
+    if (!artist.isEmpty() && adoptable(row.artist) && row.artist != artist) {
+        row.artist = artist;
+        changed = true;
+    }
+    if (!title.isEmpty() && adoptable(row.title) && row.title != title) {
+        row.title = title;
+        changed = true;
+    }
+    if (!album.isEmpty() && adoptable(row.album) && row.album != album) {
+        row.album = album;
+        changed = true;
+    }
+    // An embedded cover is a local extraction artifact; only a missing
+    // placeholder adopts it.
+    if (!cover.isEmpty() && row.cover.trimmed().isEmpty() && row.cover != cover) {
+        row.cover = cover;
+        changed = true;
+    }
+    // The demuxed duration is authoritative for uploads without provider data.
+    if (durationMs && !row.durationMs) {
+        row.durationMs = durationMs;
+        changed = true;
+    }
+    if (changed)
+        emit dataChanged(index(target), index(target),
+                         {Title, ArtistText, AlbumText, CoverUrl, DurationText});
+}
+void PlaybackQueueModel::adoptIdentity(int row, const PlaybackTrack &track)
+{
+    if (row < 0 || row >= m_tracks.size())
+        return;
+    auto &current = m_tracks[row];
+    if (current.id == track.id &&
+        current.catalogMetadata.value("cloud_source") ==
+            track.catalogMetadata.value("cloud_source") &&
+        current.durationMs == track.durationMs)
+        return;
+    current.id = track.id;
+    current.catalogMetadata = track.catalogMetadata;
+    if (track.durationMs && current.durationMs != track.durationMs)
+        current.durationMs = track.durationMs;
+    emit dataChanged(index(row), index(row));
     emit changed();
 }
 void PlaybackQueueModel::setCurrent(int row)

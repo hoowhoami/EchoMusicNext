@@ -279,6 +279,8 @@ HistoryService::HistoryService(ApiClient &api, PlaybackService &playback,
     connect(&playback, &PlaybackService::historyLoaded, this, &HistoryService::accept);
     connect(&playback, &PlaybackService::historyFailed, this, &HistoryService::fail);
     connect(&metadata, &SongMetadataService::completed, this, &HistoryService::acceptMetadata);
+    connect(&playback, &PlaybackService::trackFactsApplied, this,
+            &HistoryService::applyPlaybackFacts);
     connect(&api, &ApiClient::sessionChanged, this, &HistoryService::cancelMetadata);
     connect(&api, &ApiClient::closed, this, &HistoryService::shutdown);
     connect(&router, &RouteController::pageActivated, this, [this](RouteContext *context) {
@@ -345,6 +347,9 @@ void HistoryService::accept(const QJsonArray &entries)
     m_songs.replaceSongs(songs, true);
     m_loading = false;
     m_error.clear();
+    // A page load may arrive after its facts: replay session corrections
+    // instead of letting the repository snapshot reset them.
+    reapplyPlaybackFacts();
     completeSongs();
     emit changed();
 }
@@ -406,6 +411,87 @@ void HistoryService::cancelMetadata()
     m_metadataRequests.clear();
     for (const auto ticket : tickets)
         m_metadata.cancel(ticket);
+}
+bool HistoryService::applyFactsToRow(const QJsonObject &facts, QJsonObject &track,
+                                     QJsonArray &projected)
+{
+    auto presentation = QJsonObject{{"id", track["id"]},
+                                    {"title", facts.value("title")},
+                                    {"album_title", facts.value("album")},
+                                    {"duration_ms", facts.value("duration_ms")}};
+    const auto cover = facts.value("cover_url").toString().trimmed();
+    if (!cover.isEmpty())
+        presentation["cover_url"] = cover;
+    const auto refs = SongMetadataService::artistRefs(facts.value("artist").toString());
+    if (!refs.isEmpty())
+        presentation["artists"] = refs;
+    // Keep the source snapshot aligned for rebuilds and stats.
+    const auto original = historyTrackSong(track);
+    auto completed = SongMetadataService::completeSong(original, presentation);
+    if (completed == original)
+        return false;
+    const auto song = PlaybackTrack::fromDomain(completed).toDomain();
+    for (const auto &key : {"title", "artist", "album", "cover", "metadata"})
+        if (song.value(key) != QJsonValue::Undefined)
+            track[key] = song.value(key);
+    projected.append(presentation);
+    return true;
+}
+void HistoryService::applyPlaybackFacts(const QJsonObject &facts)
+{
+    if (m_closed)
+        return;
+    const auto hash = facts.value("hash").toString().trimmed();
+    if (hash.isEmpty())
+        return;
+    // Corrections live in the playback service's session memory; this only
+    // refreshes the already-loaded rows (accept() replays via lookup).
+    QJsonArray projected;
+    bool touched = false;
+    for (qsizetype i = 0; i < m_entries.size(); ++i) {
+        auto entry = m_entries[i].toObject();
+        auto track = entry["track"].toObject();
+        if (hash.compare(track["hash"].toString(), Qt::CaseInsensitive) != 0)
+            continue;
+        if (!applyFactsToRow(facts, track, projected))
+            continue;
+        entry["track"] = track;
+        m_entries[i] = entry;
+        touched = true;
+    }
+    if (projected.isEmpty())
+        return;
+    m_songs.applyPresentations(projected);
+    if (touched) {
+        m_stats = buildStats(m_entries);
+        emit this->changed();
+    }
+}
+void HistoryService::reapplyPlaybackFacts()
+{
+    if (m_closed || m_entries.isEmpty())
+        return;
+    QJsonArray projected;
+    bool touched = false;
+    for (qsizetype i = 0; i < m_entries.size(); ++i) {
+        auto entry = m_entries[i].toObject();
+        auto track = entry["track"].toObject();
+        const auto found = m_playback.playbackFacts(track["hash"].toString());
+        if (found.isEmpty())
+            continue;
+        if (!applyFactsToRow(found, track, projected))
+            continue;
+        entry["track"] = track;
+        m_entries[i] = entry;
+        touched = true;
+    }
+    if (projected.isEmpty())
+        return;
+    m_songs.applyPresentations(projected);
+    if (touched) {
+        m_stats = buildStats(m_entries);
+        emit this->changed();
+    }
 }
 void HistoryService::fail(const QString &message)
 {

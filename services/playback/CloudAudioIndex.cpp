@@ -75,7 +75,20 @@ QJsonObject CloudAudioIndex::fromRow(const QJsonObject &row)
             {"song_id", song.value("id").toVariant().toLongLong()},
             {"audio_id", row.value("audio_id")},
             {"file_id", row.value("file_id")},
-            {"name", row.value("source_file_name")}};
+            {"name", row.value("source_file_name")},
+            // Presentation facts for surfaces whose provider snapshot stripped
+            // them (cloud playlist entries keep only title + hash).
+            {"title", song.value("title")},
+            {"artists", song.value("artists")},
+            {"duration_ms", song.value("duration_ms")},
+            {"album", song.value("album_title")},
+            {"cover_url", song.value("cover_url")}};
+}
+QJsonObject CloudAudioIndex::byHash(const QString &hash) const
+{
+    if (!m_ready)
+        return {};
+    return m_index.value(hashKey("hash:", hash));
 }
 void CloudAudioIndex::accept(quint64 id, const QByteArray &bytes)
 {
