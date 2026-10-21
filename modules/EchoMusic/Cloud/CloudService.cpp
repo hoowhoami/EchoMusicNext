@@ -1,6 +1,7 @@
 #include "CloudService.h"
 #include "CloudAudioIndex.h"
 #include "PlaybackService.h"
+#include "SongMetadataService.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QQmlEngine>
@@ -29,6 +30,8 @@ CloudService::CloudService(ApiClient &api, PlaybackService &playback, SongMetada
     connect(&api, &ApiClient::sessionChanged, this, &CloudService::reset);
     connect(&api, &ApiClient::closed, this, &CloudService::shutdown);
     connect(&metadata, &SongMetadataService::completed, this, &CloudService::acceptMetadata);
+    connect(&playback, &PlaybackService::trackFactsApplied, this,
+            &CloudService::applyPlaybackFacts);
 }
 CloudService::~CloudService()
 {
@@ -174,11 +177,24 @@ void CloudService::project()
         metadata.insert("cloud_source", CloudAudioIndex::fromRow(item));
         metadata.insert("source_kind", "cloud");
         song.insert("metadata", metadata);
+        // The play may have happened before this page loaded; replay the
+        // corrected file facts so masked/missing rows do not resurface.
+        const auto hash = song.value("hash").toString().trimmed().toLower();
+        const auto facts = m_playback.playbackFacts(hash);
+        if (!facts.isEmpty())
+            applyFactsToSong(song, facts);
         const auto fileId = quint64(item.value("file_id").toInteger());
-        const auto albumAudioId = song.value("id").toString().toULongLong();
-        QString id = song.value("id").toString();
-        // Keep the existing file-scoped fallback for missing/conflicting
-        // presentation IDs; deletion always uses the provider file identity.
+        // Provider semantics: id "0" (and unparsable values) mean the upload
+        // matched no catalog song. The audio hash is then the only stable
+        // identity shared with playlists (which strip file ids) and history;
+        // file-scoped ids remain the fallback for duplicate uploads.
+        bool idOk = false;
+        const auto albumAudioId = song.value("id").toString().toULongLong(&idOk);
+        QString id;
+        if (idOk && albumAudioId)
+            id = song.value("id").toString();
+        else if (!hash.isEmpty())
+            id = QStringLiteral("cloud:%1").arg(hash);
         if (id.isEmpty() || used.contains(id)) {
             id = fileId ? QStringLiteral("cloud-file:%1").arg(fileId)
                         : QStringLiteral("cloud-file:%1")
@@ -304,6 +320,94 @@ void CloudService::cancelMetadata()
     m_metadataRequests.clear();
     for (const auto ticket : tickets)
         m_metadata.cancel(ticket);
+}
+bool CloudService::applyFactsToSong(QJsonObject &song, const QJsonObject &facts) const
+{
+    const auto original = song;
+    // Masked provider names ("***") are censored identities; embedded tags
+    // carry the real value and replace empty or masked presentation only.
+    const auto artists = SongMetadataService::artistRefs(facts.value("artist").toString());
+    bool needsArtist = artists.isEmpty();
+    for (const auto &value : song.value("artists").toArray()) {
+        const auto name = value.toObject().value("name").toString().trimmed();
+        if (name.isEmpty() || SongMetadataService::maskedName(name))
+            needsArtist = true;
+    }
+    if (!facts.value("artist").toString().isEmpty() && needsArtist && !artists.isEmpty()) {
+        song["artists"] = artists;
+        auto metadata = song.value("metadata").toObject();
+        metadata["artists"] = artists;
+        metadata.remove("filename_artist_name");
+        song["metadata"] = metadata;
+    }
+    const auto album = facts.value("album").toString().trimmed();
+    const auto albumId = facts.value("album_id").toString().trimmed();
+    if (song.value("album_title").toString().trimmed().isEmpty() && !album.isEmpty() &&
+        album != song.value("album_title").toString())
+        song["album_title"] = album;
+    if (song.value("album_id").toString().trimmed().isEmpty() && !albumId.isEmpty() &&
+        albumId != "0")
+        song["album_id"] = albumId;
+    const auto coverFact = facts.value("cover_url").toString().trimmed();
+    if (song.value("cover_url").toString().trimmed().isEmpty() && !coverFact.isEmpty())
+        song["cover_url"] = coverFact;
+    if (song.value("duration_ms").toDouble() <= 0 && facts.value("duration_ms").toDouble() > 0)
+        song["duration_ms"] = facts.value("duration_ms");
+    return song != original;
+}
+void CloudService::applyPlaybackFacts(const QJsonObject &facts)
+{
+    if (m_closed)
+        return;
+    const auto cloud = facts.value("cloud_source").toObject();
+    const auto fileId = quint64(cloud.value("file_id").toInteger());
+    const auto hash = cloud.value("hash").toString().trimmed();
+    if (!fileId && hash.isEmpty())
+        return;
+    const auto factsArtists = SongMetadataService::artistRefs(facts.value("artist").toString());
+    const auto factsAlbumId = facts.value("album_id").toString().trimmed();
+    // One pass: merge the facts into the source snapshots (so later pages and
+    // deletions keep projecting the corrected presentation) and collect the
+    // matching file ids for the live presentation channel. Match by file id or
+    // audio hash so legacy snapshots without a cloud file record still heal.
+    QSet<quint64> matchedFiles;
+    for (auto &item : m_items) {
+        const auto rowCloud = item.value("metadata").toObject().value("cloud_source").toObject();
+        const auto itemHash = item.value("song").toObject().value("hash").toString();
+        const auto same = (fileId && quint64(rowCloud.value("file_id").toInteger()) == fileId) ||
+                          (!hash.isEmpty() &&
+                           (itemHash.compare(hash, Qt::CaseInsensitive) == 0 ||
+                            rowCloud.value("hash").toString().compare(hash,
+                                                                      Qt::CaseInsensitive) == 0));
+        if (!same)
+            continue;
+        matchedFiles.insert(quint64(item.value("file_id").toInteger()));
+        auto song = item.value("song").toObject();
+        if (applyFactsToSong(song, facts))
+            item["song"] = song;
+    }
+    // Apply to the live rows through the existing presentation channel; the
+    // domain song of an unmatched upload keeps id "0", which completeSong now
+    // accepts as "no catalog identity yet".
+    QJsonArray projected;
+    for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it) {
+        if (!matchedFiles.contains(it->kvId))
+            continue;
+        // The row presentation carries the facts; completeSong merges masked
+        // and missing values only.
+        auto presentation = QJsonObject{{"id", it.key()},
+                                        {"title", facts.value("title")},
+                                        {"album_title", facts.value("album")},
+                                        {"duration_ms", facts.value("duration_ms")},
+                                        {"cover_url", facts.value("cover_url")}};
+        if (!factsAlbumId.isEmpty() && factsAlbumId != "0")
+            presentation["album_id"] = factsAlbumId;
+        if (!factsArtists.isEmpty())
+            presentation["artists"] = factsArtists;
+        projected.append(presentation);
+    }
+    if (!projected.isEmpty())
+        m_songs.applyPresentations(projected);
 }
 void CloudService::finishDelete(const QByteArray &bytes)
 {

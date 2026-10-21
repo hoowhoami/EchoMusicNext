@@ -172,6 +172,12 @@ public:
     {
         return m_track.id;
     }
+    /// Corrected file facts (embedded tags) observed for an audio hash this
+    /// session, so lists loaded after the play can replay them.
+    QJsonObject playbackFacts(const QString &hash) const
+    {
+        return m_playbackFacts.value(hash.toLower());
+    }
     const PlaybackTrack &currentTrack() const
     {
         return m_track;
@@ -448,6 +454,10 @@ signals:
     void timelineReset();
     void historyLoaded(const QJsonArray &entries);
     void historyFailed(const QString &message);
+    /// Corrected identity facts from the playing file's own tags. Identity is
+    /// the track id the surfaces already know; consumers merge masked/missing
+    /// presentation values only, never overwrite valid provider facts.
+    void trackFactsApplied(const QJsonObject &facts);
     void closed();
     void listeningReportsDrained();
 
@@ -468,6 +478,10 @@ private:
     void startIndex(int index, bool preserveFailureChain);
     void appendTracksImpl(const PlaybackTracks &tracks, bool next, bool sequential);
     void startTrack(const PlaybackTrack &track, int index, bool preserveFailureChain);
+    /// Legacy "0" snapshots of unmatched cloud uploads adopt the file identity
+    /// ("cloud:<hash>" + cloud file record + duration) once the index knows the
+    /// audio hash. No-op for local files and catalog songs.
+    bool adoptCloudIdentity(PlaybackTrack &track) const;
     void resolve();
     void loadNextUrl();
     void refreshCurrentSource();
@@ -537,6 +551,7 @@ private:
     LyricTextController m_lyricText;
     LyricSourceController m_lyricSource;
     PlaybackTrack m_track;
+    QHash<QString, QJsonObject> m_playbackFacts;
     QString m_resolvedQuality;
     QString m_initializationError;
     bool m_startupHeld = false;

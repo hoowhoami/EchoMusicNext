@@ -5,6 +5,7 @@
 #include <QSqlError>
 #include <QUuid>
 #include <QDateTime>
+#include <QHash>
 #include <QMap>
 #include <QJsonDocument>
 namespace EchoMusic
@@ -275,7 +276,7 @@ void PlaybackStorageWorker::record(quint64 account, const PlaybackTrack &track, 
               "listened_ms,play_count=playback_history.play_count+1,track_snapshot=excluded.track_"
               "snapshot,title=excluded.title,artist=excluded.artist,cover=excluded.cover");
     for (const auto &v :
-         QVariantList{QString::number(account), track.key(),
+         QVariantList{QString::number(account), historyKey(track),
                       track.id.isNull() ? QStringLiteral("") : track.id,
                       track.hash.isNull() ? QStringLiteral("") : track.hash,
                       track.title.isNull() ? QStringLiteral("") : track.title,
@@ -287,6 +288,13 @@ void PlaybackStorageWorker::record(quint64 account, const PlaybackTrack &track, 
     if (!q.exec())
         emit failed(q.lastError().text());
 }
+QString PlaybackStorageWorker::historyKey(const PlaybackTrack &track)
+{
+    // Unmatched cloud uploads queue under view identities that changed over
+    // time ("0" before; "cloud:<hash>" now). The stable key converges on the
+    // audio hash so equal hashes share one row.
+    return track.stableKey();
+}
 void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
 {
     if (!m_valid) {
@@ -294,14 +302,26 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
         return;
     }
     QSqlQuery q(m_database);
-    q.prepare("SELECT track_key,played_at,listened_ms,play_count,track_snapshot "
-              "FROM playback_history WHERE account_id=? ORDER BY played_at DESC LIMIT 500");
+    q.prepare("SELECT track_key,played_at,listened_ms,play_count,track_snapshot,rowid "
+              "FROM playback_history WHERE account_id=? ORDER BY played_at DESC, rowid DESC "
+              "LIMIT 1000");
     q.addBindValue(QString::number(account));
     if (!q.exec()) {
         emit historyFailed(q.lastError().text());
         return;
     }
-    QJsonArray entries;
+    // Rows recorded under a superseded identity (view id changes) may share
+    // one hash. Merge those unmatched-upload rows into the newest one so
+    // repeats count on a single line; catalog rows never merge.
+    struct Row
+    {
+        QString key;
+        qint64 playedAt = 0, listenedMs = 0, playCount = 0;
+    };
+    QList<Row> rows;
+    QList<QJsonObject> snapshots;
+    QHash<QString, int> canonical;
+    QStringList dropRowids;
     while (q.next()) {
         QJsonParseError error;
         const auto snapshot = QJsonDocument::fromJson(q.value(4).toByteArray(), &error);
@@ -309,12 +329,43 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
             emit historyFailed(tr("播放历史的曲目资料已损坏"));
             return;
         }
-        entries.append(QJsonObject{{"key", q.value(0).toString()},
-                                   {"played_at", q.value(1).toLongLong()},
-                                   {"listened_ms", q.value(2).toLongLong()},
-                                   {"play_count", q.value(3).toLongLong()},
-                                   {"track", snapshot.object()}});
+        Row row{q.value(0).toString(), q.value(1).toLongLong(), q.value(2).toLongLong(),
+                q.value(3).toLongLong()};
+        const auto object = snapshot.object();
+        const auto hash = object.value("hash").toString().toLower();
+        bool numeric = false;
+        const auto catalogId = object.value("id").toString().toULongLong(&numeric);
+        const auto mergeable = !hash.isEmpty() && !(numeric && catalogId);
+        const auto known = mergeable ? canonical.constFind(hash) : canonical.cend();
+        if (known == canonical.cend()) {
+            if (mergeable)
+                canonical.insert(hash, int(rows.size()));
+            rows.append(row);
+            snapshots.append(object);
+            continue;
+        }
+        // Older duplicate: disappear, and hand its totals to the newest row.
+        auto &first = rows[*known];
+        first.listenedMs += row.listenedMs;
+        first.playCount += row.playCount;
+        dropRowids.append(q.value(5).toString());
     }
+    if (!dropRowids.isEmpty()) {
+        QSqlQuery cleanup(m_database);
+        cleanup.prepare(QStringLiteral("DELETE FROM playback_history WHERE account_id=? AND "
+                                       "rowid IN (%1)")
+                            .arg(dropRowids.join(u',')));
+        cleanup.addBindValue(QString::number(account));
+        if (!cleanup.exec())
+            emit failed(cleanup.lastError().text());
+    }
+    QJsonArray entries;
+    for (int i = 0; i < rows.size(); ++i)
+        entries.append(QJsonObject{{"key", rows[i].key},
+                                   {"played_at", rows[i].playedAt},
+                                   {"listened_ms", rows[i].listenedMs},
+                                   {"play_count", rows[i].playCount},
+                                   {"track", snapshots[i]}});
     emit historyLoaded(account, revision, entries);
 }
 void PlaybackStorageWorker::removeHistory(quint64 account, const QStringList &keys)

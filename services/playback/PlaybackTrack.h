@@ -34,6 +34,17 @@ struct PlaybackTrack
     {
         return localPath.isEmpty() ? id + "/" + hash : localPath;
     }
+    /// Identity that survives view-id renames of one audio (legacy "0"
+    /// snapshots vs "cloud:<hash>"): the local path, else the audio hash for
+    /// unmatched uploads, else id + hash.
+    QString stableKey() const
+    {
+        if (!localPath.isEmpty())
+            return localPath;
+        if (!songId && !hash.isEmpty())
+            return QStringLiteral("unmatched:") + hash;
+        return id + "/" + hash;
+    }
     static PlaybackTrack fromDomain(const QJsonObject &song);
     QJsonObject toDomain() const;
     /// Typed catalog projection for a view following a live queue. The storage

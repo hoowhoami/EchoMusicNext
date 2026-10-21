@@ -6,6 +6,7 @@
 #include "TrackTransitionController.h"
 #include "PlaybackRecoveryController.h"
 #include "PlaybackFailureController.h"
+#include "SongMetadataService.h"
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QFileDialog>
@@ -208,7 +209,7 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
     });
     connect(&m_lyricSource, &LyricSourceController::activated, this,
             [this](const QJsonObject &lyrics, const QString &trackKey) {
-                if (m_closing || trackKey != m_track.key())
+                if (m_closing || trackKey != m_track.stableKey())
                     return;
                 if (!m_lyricText.replace(lyrics, trackKey))
                     m_lyricState = "error";
@@ -226,6 +227,23 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
     m_quality = m_preferences.defaultQuality();
     m_startupAutoPlayPending = m_preferences.autoPlayOnLaunch();
     connect(&m_cloudSources, &CloudAudioIndex::settled, this, &PlaybackService::changed);
+    connect(&m_cloudSources, &CloudAudioIndex::settled, this, [this] {
+        // The index may complete after playback started from a legacy snapshot
+        // (id "0"); re-adopt the file identity so every surface highlights the
+        // same song. The stable key keeps fetched embedded lyrics attached.
+        if (!hasTrack() || m_closing)
+            return;
+        auto adopted = m_track;
+        if (!adoptCloudIdentity(adopted) || adopted.key() == m_track.key())
+            return;
+        const auto row = queue()->currentIndex();
+        const auto *rowTrack = row >= 0 ? queue()->at(row) : nullptr;
+        if (rowTrack && rowTrack->stableKey() == adopted.stableKey())
+            queue()->adoptIdentity(row, adopted);
+        m_track = adopted;
+        publishMedia();
+        emit changed();
+    });
     connect(&m_preferences, &PlaybackPreferences::mvPolicyChanged, this, [this] {
         if (!m_preferences.mvAudioFallbackEnabled()) {
             m_source.disableMv();
@@ -258,8 +276,12 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                 const auto title = metadata.value("title").toString();
                 const auto artist = metadata.value("artist").toString();
                 const auto album = metadata.value("album").toString();
+                // Provider policies mask sensitive artist names with asterisks
+                // (e.g. "***"); embedded tags carry the real identity. Treat a
+                // masked value as missing so it can adopt the embedded fact.
                 const auto missing = [](const QString &value, const QStringList &unknown) {
-                    return value.trimmed().isEmpty() || unknown.contains(value.trimmed().toLower());
+                    return value.trimmed().isEmpty() || unknown.contains(value.trimmed().toLower()) ||
+                           SongMetadataService::maskedName(value);
                 };
                 if (!title.isEmpty() &&
                     (missing(m_track.title, {"未知歌曲", "unknown title", "unknown"}) ||
@@ -267,8 +289,16 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                       m_track.title == QFileInfo(m_track.localPath).completeBaseName())))
                     m_track.title = title;
                 if (!artist.isEmpty() && missing(m_track.artist, {"未知歌手", "未知艺术家",
-                                                                  "unknown artist", "unknown"}))
+                                                                  "unknown artist", "unknown"})) {
                     m_track.artist = artist;
+                    // The bar renders artistLinks from retained refs; a masked
+                    // provider snapshot must not shadow the file's own tags.
+                    const auto refs = SongMetadataService::artistRefs(artist);
+                    if (!refs.isEmpty()) {
+                        m_track.catalogMetadata["artist_refs"] = refs;
+                        m_track.catalogMetadata.remove("filename_artist_name");
+                    }
+                }
                 if (!album.isEmpty() &&
                     missing(m_track.album, {"未知专辑", "unknown album", "unknown"}))
                     m_track.album = album;
@@ -281,8 +311,36 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                         m_artwork.load(m_embeddedCover, m_sequence);
                     }
                 }
-                m_lyricSource.updateEmbedded(m_track.key(), title, artist,
+                m_lyricSource.updateEmbedded(m_track.stableKey(), title, artist,
                                              metadata.value("lyrics").toObject());
+                // Unmatched uploads often lack a provider duration; the
+                // demuxed stream the engine reports is authoritative.
+                if (!m_track.durationMs && m_duration > 0)
+                    m_track.durationMs = quint64(m_duration);
+                // Queue copies and catalog pages under the same file join the
+                // presentation once the file itself identified its own facts.
+                const auto coverFact =
+                    m_track.cover.isEmpty() ? m_embeddedCover : m_track.cover;
+                const auto facts = QJsonObject
+                {
+                    {"id", m_track.id},
+                    {"hash", m_track.hash},
+                    {"hash_std", m_track.catalogMetadata.value("hash_std")},
+                    {"title", m_track.title},
+                    {"artist", m_track.artist},
+                    {"album", m_track.album},
+                    {"album_id", m_track.albumId ? QString::number(m_track.albumId) : QString()},
+                    {"duration_ms", m_track.durationMs ? QJsonValue(qint64(m_track.durationMs))
+                                                       : QJsonValue()},
+                    {"cover_url", coverFact},
+                    {"cloud_source", m_track.catalogMetadata.value("cloud_source")}};
+                queue()->updateFacts(m_track.id, m_track.title, m_track.artist, m_track.album,
+                                     coverFact, m_track.durationMs);
+                // Session memory keyed by audio hash: lists loaded after the
+                // play replay these corrections at projection time.
+                if (!m_track.hash.isEmpty())
+                    m_playbackFacts.insert(m_track.hash.toLower(), facts);
+                emit trackFactsApplied(facts);
                 publishMedia();
                 emit changed();
                 return;
@@ -551,25 +609,50 @@ void PlaybackService::startIndex(int index, bool preserveFailureChain)
     startTrack(*track, index, preserveFailureChain);
 }
 
+bool PlaybackService::adoptCloudIdentity(PlaybackTrack &track) const
+{
+    // Unmatched cloud uploads persisted by older versions carry the placeholder
+    // id "0" without a file identity. The audio hash is the identity shared by
+    // cloud lists, playlists and history, so adopt it (plus the file record and
+    // duration for source resolution and display) and every surface highlights
+    // one song instead of two. Local files never adopt a cloud identity even if
+    // the same audio exists there.
+    if (track.localPath.isEmpty() && track.songId == 0 && !track.hash.isEmpty()) {
+        const auto cloud = m_cloudSources.source(track);
+        if (!cloud.isEmpty()) {
+            if (track.catalogMetadata.value("cloud_source").toObject().isEmpty())
+                track.catalogMetadata["cloud_source"] = cloud;
+            if (!track.durationMs)
+                track.durationMs = quint64(cloud.value("duration_ms").toDouble());
+            track.id = QStringLiteral("cloud:%1").arg(track.hash.toLower());
+            return true;
+        }
+    }
+    return false;
+}
 void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
                                  bool preserveFailureChain)
 {
+    auto resolved = snapshot;
+    adoptCloudIdentity(resolved);
     m_failure->started(preserveFailureChain);
     finishHistory();
-    if (snapshot.key() != m_track.key())
+    if (resolved.key() != m_track.key())
         m_quality = m_preferences.defaultQuality();
     m_startupAutoPlayPending = false;
     invalidate();
     m_engine.command(AudioEngine::Stop);
-    if (index >= 0)
+    if (index >= 0) {
         queue()->setCurrent(index);
+        queue()->adoptIdentity(index, resolved);
+    }
     m_mvRecovery = false;
     m_sourcePreference.clear();
     m_sourceFailure.clear();
     m_mvFailure.clear();
     m_sourceKind = "catalog";
-    m_track = snapshot;
-    queue()->consumePlayedPriority(snapshot.id.isEmpty() ? snapshot.key() : snapshot.id);
+    m_track = resolved;
+    queue()->consumePlayedPriority(resolved.id.isEmpty() ? resolved.key() : resolved.id);
     m_pendingLoudness = {};
     m_audioControls.setTrackLoudness({});
     m_coverColor = {};
@@ -583,7 +666,7 @@ void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
     m_effectError.clear();
     m_resumePosition = -1;
     m_position = 0;
-    m_duration = qint64(snapshot.durationMs);
+    m_duration = qint64(resolved.durationMs);
     m_error.clear();
     m_playing = false;
     publishMedia();
@@ -602,7 +685,11 @@ void PlaybackService::resolve()
 {
     if (!hasTrack() || m_closing)
         return;
-    if (!m_track.localPath.isEmpty())
+    // Local files, cloud files (including legacy snapshots that lost their
+    // file record: unmatched uploads keep songId 0) carry their own identity
+    // complete; catalog plays start lyrics once privileges exist.
+    if (!m_track.localPath.isEmpty() || m_track.songId == 0 ||
+        !m_track.catalogMetadata.value("cloud_source").toObject().isEmpty())
         requestLyrics();
     m_source.resolve(m_track, apiQuality(), apiEffect(), {}, m_preferences.compatibilityMode(),
                      m_preferences.viperQualityEnabled(),

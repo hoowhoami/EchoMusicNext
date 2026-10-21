@@ -1,5 +1,6 @@
 #include "SongMetadataService.h"
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <algorithm>
 namespace EchoMusic
 {
@@ -9,7 +10,8 @@ bool hasArtistName(const QJsonValue &value)
 {
     const auto artists = value.toArray();
     return std::any_of(artists.begin(), artists.end(), [](const QJsonValue &artist) {
-        return !artist.toObject().value("name").toString().trimmed().isEmpty();
+        const auto name = artist.toObject().value("name").toString().trimmed();
+        return !name.isEmpty() && !SongMetadataService::maskedName(name);
     });
 }
 bool needsArtistCompletion(const QJsonObject &song)
@@ -18,6 +20,23 @@ bool needsArtistCompletion(const QJsonObject &song)
            !song["metadata"].toObject()["filename_artist_name"].toString().isEmpty();
 }
 } // namespace
+QJsonArray SongMetadataService::artistRefs(const QString &artist)
+{
+    QJsonArray refs;
+    const auto names = artist.split(QRegularExpression(QStringLiteral("\\s*/\\s*")),
+                                    Qt::SkipEmptyParts);
+    for (const auto &name : names)
+        if (!name.trimmed().isEmpty())
+            refs.append(QJsonObject{{"name", name.trimmed()}, {"id", {}}});
+    return refs;
+}
+bool SongMetadataService::maskedName(const QString &value)
+{
+    // Provider policies censor some artist names with asterisk runs (e.g.
+    // "***"); those are placeholders rather than usable facts.
+    static const QRegularExpression masked(QStringLiteral("^\\*+$"));
+    return masked.match(value.trimmed()).hasMatch();
+}
 SongMetadataService::SongMetadataService(ApiClient &api, QObject *parent)
     : QObject(parent), m_api(api)
 {
@@ -42,7 +61,11 @@ bool SongMetadataService::needsCompletion(const QJsonObject &s)
 }
 QJsonObject SongMetadataService::completeSong(QJsonObject s, const QJsonObject &p)
 {
-    if (s["id"] != p["id"])
+    // Presentations address rows by view id; an unmatched cloud upload keeps
+    // the raw id "0" (or an empty one) in its domain song until a catalog
+    // identity appears, so those songs accept file-scoped facts.
+    const auto id = s["id"].toString();
+    if (id != p["id"] && id != "0" && !id.isEmpty())
         return s;
     if (needsArtistCompletion(s) && hasArtistName(p["artists"])) {
         s["artists"] = p["artists"];
@@ -57,6 +80,10 @@ QJsonObject SongMetadataService::completeSong(QJsonObject s, const QJsonObject &
         s["album_title"] = p["album_title"];
     if (s["cover_url"].toString().isEmpty())
         s["cover_url"] = p["cover_url"];
+    // A missing duration is a display gap, not a conflict; the playing file's
+    // parsed duration is authoritative for the same audio.
+    if (s["duration_ms"].toDouble() <= 0 && p["duration_ms"].toDouble() > 0)
+        s["duration_ms"] = p["duration_ms"];
     auto meta = s["metadata"].toObject();
     if (hasArtistName(p["artists"]))
         meta.remove("filename_artist_name");
