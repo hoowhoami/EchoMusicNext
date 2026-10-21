@@ -4,6 +4,7 @@
 #include "EchoPluginTask.h"
 #include "EchoPluginUiParts.h"
 #include "EchoPluginUiStyles.h"
+#include "EchoPluginAppearance.h"
 #include <QJSValue>
 #include <QUrl>
 namespace EchoMusic
@@ -15,6 +16,7 @@ class EchoPluginTask;
 class EchoPluginUi final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(EchoMusic::EchoPluginAppearance *lyricsPage READ lyricsPage CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginUiParts *parts READ parts CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginUiStyles *styles READ styles CONSTANT)
     Q_PROPERTY(QVariantMap state READ state NOTIFY stateChanged)
@@ -23,6 +25,7 @@ class EchoPluginUi final : public QObject
     QML_UNCREATABLE("Owned by EchoPluginContext")
 public:
     explicit EchoPluginUi(EchoPluginContext &scope);
+    EchoPluginAppearance *lyricsPage() const;
     EchoPluginUiParts *parts() const
     {
         return m_parts;
@@ -37,7 +40,7 @@ public:
     }
     QVariantMap state() const
     {
-        return m_state;
+        return m_scopeState();
     }
     Q_INVOKABLE bool setState(const QVariantMap &values);
     Q_INVOKABLE EchoMusic::EchoPluginRegistration *
@@ -61,6 +64,7 @@ signals:
     void stateChanged();
 
 private:
+    QVariantMap m_scopeState() const;
     EchoPluginUiParts *m_parts;
     EchoPluginUiStyles *m_styles;
     QUrl m_settingsComponent;

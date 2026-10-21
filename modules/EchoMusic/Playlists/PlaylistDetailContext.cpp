@@ -348,8 +348,7 @@ void PlaylistDetailContext::consumeBatch()
                 // The play may predate this page load; replay the corrected
                 // file facts first (authoritative), then let the cloud file
                 // index fill whatever the tags did not carry.
-                const auto entryHash =
-                    entry["song"].toObject()["hash"].toString().toLower();
+                const auto entryHash = entry["song"].toObject()["hash"].toString().toLower();
                 const auto facts = m_playback.playbackFacts(entryHash);
                 if (!facts.isEmpty())
                     applyFactsToEntry(entry, facts);
@@ -362,8 +361,8 @@ void PlaylistDetailContext::consumeBatch()
             }
             // Facts may still be missing while the cloud file index loads; the
             // settled() handler enriches and re-projects those rows once.
-            const auto sparse = std::any_of(
-                m_cloudEntries.cbegin(), m_cloudEntries.cend(), [](const auto &value) {
+            const auto sparse =
+                std::any_of(m_cloudEntries.cbegin(), m_cloudEntries.cend(), [](const auto &value) {
                     const auto song = value["song"].toObject();
                     return song["duration_ms"].toInteger() <= 0 ||
                            song["cover_url"].toString().trimmed().isEmpty();
@@ -541,9 +540,9 @@ void PlaylistDetailContext::applyPlaybackFacts(const QJsonObject &facts)
     for (auto &entry : m_cloudEntries) {
         const auto rowFile = quint64(entry.value("file_id").toInteger());
         const auto rowHash = entry["song"].toObject()["hash"].toString();
-        const auto same = (fileId && rowFile == fileId) ||
-                          (!cloudHash.isEmpty() &&
-                           rowHash.compare(cloudHash, Qt::CaseInsensitive) == 0);
+        const auto same =
+            (fileId && rowFile == fileId) ||
+            (!cloudHash.isEmpty() && rowHash.compare(cloudHash, Qt::CaseInsensitive) == 0);
         if (!same)
             continue;
         applyFactsToEntry(entry, facts, &projected);

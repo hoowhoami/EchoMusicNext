@@ -57,8 +57,8 @@ void PlaybackQueueModel::replace(PlaybackTracks tracks, int current)
 {
     const QString selected =
         current >= 0 && current < tracks.size() ? tracks[current].key() : QString();
-    const QString selectedHash =
-        current >= 0 && current < tracks.size() ? tracks[current].hash.toLower() : QString();
+    const QString selectedStable =
+        current >= 0 && current < tracks.size() ? tracks[current].stableKey() : QString();
     PlaybackTracks clean;
     QSet<QString> seen, ids;
     // One upload may queue under a superseded identity ("0" snapshots from
@@ -76,9 +76,11 @@ void PlaybackQueueModel::replace(PlaybackTracks tracks, int current)
             value += 1;
         return value;
     };
+    // "0" is the provider placeholder, not a view identity: several unmatched
+    // uploads may share it until each adopts cloud:<hash>.
+    const auto hasViewId = [](const PlaybackTrack &t) { return !t.id.isEmpty() && t.id != "0"; };
     for (auto &t : tracks) {
-        if (!t.playable() || seen.contains(t.key()) ||
-            (!t.id.isEmpty() && ids.contains(t.id)))
+        if (!t.playable() || seen.contains(t.key()) || (hasViewId(t) && ids.contains(t.id)))
             continue;
         if (t.songId == 0 && !t.hash.isEmpty()) {
             auto existing = std::find_if(clean.begin(), clean.end(), [&](const auto &row) {
@@ -91,33 +93,33 @@ void PlaybackQueueModel::replace(PlaybackTracks tracks, int current)
                 // Register the surviving identity too so a later duplicate of
                 // the winner's view id still folds instead of stacking.
                 seen.insert(t.key());
-                if (!t.id.isEmpty())
+                if (hasViewId(t))
                     ids.insert(t.id);
                 continue;
             }
         }
         seen.insert(t.key());
-        if (!t.id.isEmpty())
+        if (hasViewId(t))
             ids.insert(t.id);
         clean.append(std::move(t));
     }
     bool appendOnly = clean.size() >= m_tracks.size();
     for (int i = 0; appendOnly && i < m_tracks.size(); ++i)
-        appendOnly = clean[i].id == m_tracks[i].id;
-    QStringList nextIds;
+        appendOnly = clean[i].stableKey() == m_tracks[i].stableKey();
+    QStringList nextStable;
     if (appendOnly)
         for (const auto &key : m_next)
             for (const auto &track : m_tracks)
                 if (track.key() == key)
-                    nextIds.append(track.id);
+                    nextStable.append(track.stableKey());
     beginResetModel();
     ++m_revision;
     m_tracks = std::move(clean);
     m_next.clear();
     m_nextSet.clear();
-    for (const auto &id : nextIds)
+    for (const auto &stable : nextStable)
         for (const auto &track : m_tracks)
-            if (track.id == id) {
+            if (track.stableKey() == stable) {
                 m_next.append(track.key());
                 m_nextSet.insert(track.key());
                 break;
@@ -126,29 +128,35 @@ void PlaybackQueueModel::replace(PlaybackTracks tracks, int current)
     for (int i = 0; i < m_tracks.size(); ++i)
         if (m_tracks[i].key() == selected)
             m_current = i;
-    if (m_current < 0 && !selectedHash.isEmpty())
+    if (m_current < 0 && !selectedStable.isEmpty())
         for (int i = 0; i < m_tracks.size(); ++i)
-            if (m_tracks[i].songId == 0 && !m_tracks[i].hash.isEmpty() &&
-                m_tracks[i].hash.compare(selectedHash, Qt::CaseInsensitive) == 0) {
+            if (m_tracks[i].stableKey() == selectedStable) {
                 m_current = i;
                 break;
             }
     endResetModel();
     emit changed();
 }
-void PlaybackQueueModel::updateFacts(const QString &id, const QString &title,
+void PlaybackQueueModel::updateFacts(const QString &id, const QString &hash, const QString &title,
                                      const QString &artist, const QString &album,
                                      const QString &cover, quint64 durationMs)
 {
-    if (id.isEmpty() ||
+    if ((id.isEmpty() && hash.isEmpty()) ||
         (title.isEmpty() && artist.isEmpty() && album.isEmpty() && cover.isEmpty() && !durationMs))
         return;
+    const bool hasViewId = !id.isEmpty() && id != "0";
     int target = -1;
-    for (int i = 0; i < m_tracks.size(); ++i)
-        if (m_tracks[i].id == id) {
+    for (int i = 0; i < m_tracks.size(); ++i) {
+        const auto &row = m_tracks[i];
+        // Legacy "0" and file-scoped snapshots of one upload share the audio
+        // hash; fall back to it so facts cannot land on an unrelated upload.
+        const bool sameAudio = row.localPath.isEmpty() && !hash.isEmpty() && row.songId == 0 &&
+                               row.hash.compare(hash, Qt::CaseInsensitive) == 0;
+        if ((hasViewId && row.id == id) || sameAudio) {
             target = i;
             break;
         }
+    }
     if (target < 0)
         return;
     auto &row = m_tracks[target];
@@ -160,6 +168,13 @@ void PlaybackQueueModel::updateFacts(const QString &id, const QString &title,
     };
     if (!artist.isEmpty() && adoptable(row.artist) && row.artist != artist) {
         row.artist = artist;
+        // The bar renders artistLinks from retained refs; keep the queue copy
+        // from re-exposing the masked provider identities later.
+        const auto refs = SongMetadataService::artistRefs(artist);
+        if (!refs.isEmpty()) {
+            row.catalogMetadata["artist_refs"] = refs;
+            row.catalogMetadata.remove("filename_artist_name");
+        }
         changed = true;
     }
     if (!title.isEmpty() && adoptable(row.title) && row.title != title) {

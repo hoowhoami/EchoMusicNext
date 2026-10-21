@@ -10,7 +10,8 @@ ColumnLayout {
     id: settings
     required property LyricAppearance appearance
     property color coverColor: "#0071e3"
-    readonly property color resolvedTextColor: appearance.useCoverColor ? coverColor : appearance.textColor.length ? appearance.textColor : appearance.followCoverColor ? coverColor : appearance.playedColor || "#ffffff"
+    readonly property color resolvedPlayedColor: LyricColors.played(appearance, coverColor)
+    readonly property color resolvedUnplayedColor: LyricColors.unplayed(appearance, coverColor)
     property real uiScale: 1
     spacing: 18
     // The bounded settings form uses native stacking and shared controls.
@@ -174,6 +175,34 @@ ColumnLayout {
             }
         }
     }
+    component ColorRow: SettingRow {
+        id: colorRow
+        property color swatchColor
+        property string actionObjectName
+        signal openPicker
+        action: Component {
+            EchoSoftButton {
+                objectName: colorRow.actionObjectName
+                implicitHeight: 32
+                font: Theme.font(11, Theme.mediumWeight)
+                text: qsTr("更改")
+                colors: Theme.floating
+                rightPadding: 36
+                onClicked: colorRow.openPicker()
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 24
+                    height: 24
+                    radius: Theme.controlRadius
+                    color: colorRow.swatchColor
+                    border.width: 1
+                    border.color: Theme.floating.strongBorder
+                }
+            }
+        }
+    }
     SkinSection {
         heading: qsTr("歌词显示")
         RangeRow {
@@ -193,29 +222,32 @@ ColumnLayout {
             checked: settings.appearance.hidePassedLines
             onToggled: value => settings.appearance.hidePassedLines = value
         }
+        ColorRow {
+            heading: qsTr("已播字色")
+            hint: qsTr("歌曲已播放部分与逐字高亮；未设置时继承全局已播字色")
+            actionObjectName: "lyricSkinColorAction"
+            swatchColor: settings.resolvedPlayedColor
+            onOpenPicker: playedColorPicker.open()
+        }
+        ColorRow {
+            heading: qsTr("未播字色")
+            hint: qsTr("未播放歌词；未设置时继承全局未播字色，默认灰白色")
+            actionObjectName: "lyricSkinUnplayedColorAction"
+            swatchColor: settings.resolvedUnplayedColor
+            onOpenPicker: unplayedColorPicker.open()
+        }
         SettingRow {
-            heading: qsTr("歌词颜色")
-            hint: qsTr("主文字与逐字高亮的基础颜色")
+            heading: qsTr("颜色覆盖")
+            hint: qsTr("清除皮肤颜色后重新继承全局设置")
             action: Component {
                 EchoSoftButton {
-                    objectName: "lyricSkinColorAction"
+                    objectName: "resetLyricSkinColors"
                     implicitHeight: 32
                     font: Theme.font(11, Theme.mediumWeight)
-                    text: qsTr("更改")
+                    text: qsTr("恢复继承")
                     colors: Theme.floating
-                    rightPadding: 36
-                    onClicked: colorPickerOwner.open()
-                    Rectangle {
-                        anchors.right: parent.right
-                        anchors.rightMargin: 8
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 24
-                        height: 24
-                        radius: Theme.controlRadius
-                        color: settings.resolvedTextColor
-                        border.width: 1
-                        border.color: Theme.floating.strongBorder
-                    }
+                    enabled: settings.appearance.textColor.length > 0 || settings.appearance.useCoverColor || settings.appearance.unplayedTextColor.length > 0 || settings.appearance.unplayedUseCoverColor
+                    onClicked: settings.appearance.resetSkinColors()
                 }
             }
         }
@@ -303,33 +335,63 @@ ColumnLayout {
         }
     }
     EchoPopupLoader {
-        id: colorPickerOwner
+        id: playedColorPicker
         objectName: "lyricSkinColorPickerOwner"
         hostItem: settings
         sourceComponent: Component {
             EchoColorPickerDialog {
                 id: colorPicker
                 objectName: "lyricSkinColorPicker"
-                title: qsTr("选择歌词颜色")
+                title: qsTr("选择已播字色")
                 uiScale: settings.uiScale
-                value: settings.resolvedTextColor.toString()
+                value: LyricColors.opaqueHex(settings.resolvedPlayedColor)
                 dynamicLabel: qsTr("封面主题色")
                 dynamicColor: settings.coverColor
                 dynamicSelected: settings.appearance.useCoverColor
                 presets: ["#ffffff", "#31cfa1", "#0071e3", "#ffcc00", "#ff6b6b", "#ec4899", "#8b5cf6", "#3b82f6", "#14b8a6", "#f97316", "#a3e635", "#94a3b8"]
                 onDynamicConfirmed: {
+                    settings.appearance.textColor = "";
                     settings.appearance.useCoverColor = true;
                     close();
                 }
                 onConfirmed: color => {
-                    settings.appearance.textColor = color;
                     settings.appearance.useCoverColor = false;
+                    settings.appearance.textColor = color;
+                    close();
+                }
+            }
+        }
+    }
+    EchoPopupLoader {
+        id: unplayedColorPicker
+        objectName: "lyricSkinUnplayedColorPickerOwner"
+        hostItem: settings
+        sourceComponent: Component {
+            EchoColorPickerDialog {
+                id: colorPicker
+                objectName: "lyricSkinUnplayedColorPicker"
+                title: qsTr("选择未播字色")
+                uiScale: settings.uiScale
+                value: LyricColors.opaqueHex(settings.resolvedUnplayedColor)
+                dynamicLabel: qsTr("封面主题色")
+                dynamicColor: settings.coverColor
+                dynamicSelected: settings.appearance.unplayedUseCoverColor
+                presets: ["#ffffff", "#b9b9b9", "#31cfa1", "#0071e3", "#ffcc00", "#ff6b6b", "#ec4899", "#8b5cf6", "#3b82f6", "#14b8a6", "#f97316", "#94a3b8"]
+                onDynamicConfirmed: {
+                    settings.appearance.unplayedTextColor = "";
+                    settings.appearance.unplayedUseCoverColor = true;
+                    close();
+                }
+                onConfirmed: color => {
+                    settings.appearance.unplayedUseCoverColor = false;
+                    settings.appearance.unplayedTextColor = color;
                     close();
                 }
             }
         }
     }
     function closePopups(): void {
-        colorPickerOwner.close();
+        playedColorPicker.close();
+        unplayedColorPicker.close();
     }
 }

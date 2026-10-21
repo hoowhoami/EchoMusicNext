@@ -18,7 +18,7 @@
 
 ## 界面与频谱
 
-现有接口支持页面、设置、标题栏及播放栏贡献，以及播放命令、私有存储、网络、任务、依赖和插件间服务。任意宿主 UI 替换、完整主题与歌词皮肤注册、部分高级文件和网络扩展尚未全部提供，具体可用性以宿主导出契约为准。
+现有接口支持页面、设置、标题栏及播放栏贡献，以及播放命令、私有存储、网络、任务、依赖和插件间服务。公开区域的局部样式/结构扩展、主题中心候选与完整播放页皮肤使用不同的注册协议；文件、网络和其它扩展的可用性以宿主导出契约为准。
 
 `ctx.ui.setState` 发布最多 1 MiB 的 JSON 对象，供同一插件的设置和绘制组件共享只读界面状态。`registerSurface(id, target, packageRelativeQml)` 支持 `playerbar.background`、`mini.background` 和 `lyrics.aboveControls`。宿主隐藏、最小化或插件停用时销毁挂载实例，恢复显示时按需创建。
 
@@ -57,3 +57,11 @@
 `EchoUiPartRef`只有公开描述、几何/视觉快照与明确动作，不返回宿主Item。委托key变化、池化/离页、账号或窗口世代变化使旧引用失效。挂载支持append/prepend/before/after/replace及background/foreground；插入位置使用Qt原生子项/布局语义。替换仲裁保留业务命令，只有成功构造的组件才隐藏原正文。隐藏、最小化或完全离开窗口/祖先裁剪区域时释放完整组件树，恢复按需创建；失效/停用后不接受晚到组件。
 
 完整作者签名及用法见[作者仓库ui.parts文档](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/ui-parts.md)。主题中心候选与完整播放页皮肤/Mini统一主题还具有独立选择及配置协议，不能把本节的局部扩展基础当作这些产品能力的完成证明。
+
+## 主题、完整皮肤与浮窗上下文
+
+`ctx.theme.registerTheme`与`ctx.ui.lyricsPage.registerSkin`将候选加入正式主题中心和换肤抽屉，注册不会自动选中。主题支持分类、默认显示模式、深浅配色、独立浮层/Mini配色、包内背景媒体和QML装饰、区域透明度、强调色渐变及页面过渡；整页皮肤可分别关闭宿主标题栏和歌词工具，完整接管正文与播放控制布局。Mini跟随同一主题，可使用专属背景或完整组件。
+
+注入组件的`plugin/page/configuration`均有明确作用域。可见实例独立撤销注册、样式、订阅、任务和异步命令；共享`ui.state`与宿主唯一的播放器、歌词、ThemeStore。隐藏、最小化、替换或账号变化释放呈现树。配置代理共用安装私有数据中的单一持久化队列，验证整个JSON后原子写入，更新/停用先排空已接受写入。
+
+`player.snapshot/lyricsInfo/lyricSnapshot/on/control`提供曲目、模式、质量、音效、收藏、FM和歌词时间上下文；`appearance.snapshot/fonts`提供语义外观和完整字体链。`windows.snapshot/command`调用现有浮窗控制器；共享`EchoPluginPlaybackControls/EchoPluginProgress/EchoPluginLyricsView`可用于整页皮肤及Mini。作者签名与例子见[外观文档](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/appearance.md)，执行证据与平台边界见[本轮记录](internal/verification/2026-10-21-plugin-p0.md)。

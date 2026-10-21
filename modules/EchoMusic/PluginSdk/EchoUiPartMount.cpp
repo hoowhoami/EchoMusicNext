@@ -110,8 +110,8 @@ void EchoUiPartMount::reconcile()
         if (!registry)
             return;
         m_constructing = true;
-        registry->putReplacement(m_token, m_identity, m_owner->scope().id(), m_id, m_priority,
-                                 m_position);
+        registry->putReplacement(m_token, m_identity, m_owner->scope().id(),
+                                 m_owner->scope().contextId() + ":" + m_id, m_priority, m_position);
         m_constructing = false;
         if (m_position == "replace" && m_part->replacementCandidate() != m_token &&
             m_part->replacement() != m_token) {

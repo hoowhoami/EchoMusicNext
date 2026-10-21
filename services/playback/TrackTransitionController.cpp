@@ -43,7 +43,7 @@ TrackTransitionController::TrackTransitionController(PlaybackService &playback, 
     connect(&m_source, &PlaybackSourceRequest::resolved, this,
             [this](const PlaybackTrack &track, const QJsonObject &privileges,
                    const QJsonObject &source, bool fallback, const QString &resolvedQuality) {
-                if (!stillValid() || track.key() != m_targetKey)
+                if (!stillValid() || track.stableKey() != m_targetKey)
                     return;
                 m_target = track;
                 m_privileges = privileges;
@@ -141,7 +141,7 @@ QString TrackTransitionController::contextKey() const
 {
     const auto &p = m_playback;
     return QString::number(m_api.sessionRevision()) + "/" + QString::number(p.m_sequence) + "/" +
-           p.m_track.key() + "/" + p.m_sourceKey + "/" + p.m_quality + "/" +
+           p.m_track.stableKey() + "/" + p.m_sourceKey + "/" + p.m_quality + "/" +
            p.m_preferences.defaultQuality() + "/" + p.m_songEffect + "/" +
            QString::number(p.m_preferences.compatibilityMode()) + "/" +
            QString::number(p.m_preferences.viperQualityEnabled()) + "/" +
@@ -295,7 +295,7 @@ bool TrackTransitionController::stillValid()
         return false;
     const auto index = nextIndex();
     const auto track = nextTrack();
-    if (!track || track->key() != m_targetKey)
+    if (!track || track->stableKey() != m_targetKey)
         return false;
     m_targetIndex = index;
     return true;
@@ -355,7 +355,7 @@ void TrackTransitionController::tick()
     const auto track = nextTrack();
     if (!track)
         return;
-    const auto context = contextKey(), key = track->key();
+    const auto context = contextKey(), key = track->stableKey();
     if (m_failedContext == context + "/" + key)
         return;
     // Release native EOF wait two seconds before expiry.
@@ -530,7 +530,7 @@ bool TrackTransitionController::handleEvent(const QJsonObject &event)
             else {
                 const QStringList qualities{"standard",   "higher",      "flac",       "hi_res",
                                             "viper_tape", "viper_clear", "viper_atmos"};
-                m_nextQuality = m_targetKey == m_playback.m_track.key()
+                m_nextQuality = m_targetKey == m_playback.m_track.stableKey()
                                     ? m_playback.m_quality
                                     : m_playback.m_preferences.defaultQuality();
                 m_source.resolve(

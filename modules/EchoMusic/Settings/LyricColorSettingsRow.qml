@@ -11,8 +11,8 @@ SettingsRow {
     id: row
     property real uiScale: 1
     property color coverColor: "#31cfa1"
-    property color playedColor: "#31cfa1"
-    property color unplayedColor: "#ffffff"
+    property color playedColor: "#ffffff"
+    property color unplayedColor: LyricColors.defaultUnplayedColor
     property bool followsCover: false
     property bool unplayedFollowsCover: false
     property bool customized: true
@@ -72,7 +72,7 @@ SettingsRow {
             id: picker
             uiScale: row.uiScale
             title: row.editingUnplayed ? qsTr("选择未播字色") : qsTr("选择已播字色")
-            value: (row.editingUnplayed ? row.unplayedColor : row.playedColor).toString()
+            value: LyricColors.opaqueHex(row.editingUnplayed ? row.unplayedColor : row.playedColor)
             dynamicLabel: qsTr("跟随封面取色")
             dynamicColor: row.resolvedCover
             dynamicSelected: row.editingUnplayed ? row.unplayedFollowsCover : row.followsCover

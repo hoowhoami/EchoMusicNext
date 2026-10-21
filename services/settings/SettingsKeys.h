@@ -9,7 +9,9 @@ namespace EchoMusic::SettingsKeys
 namespace Appearance
 {
 inline constexpr QLatin1StringView Preferences{"appearance/preferences"};
-}
+inline constexpr QLatin1StringView ExtensionTheme{"appearance/extensionTheme"};
+inline constexpr QLatin1StringView ExtensionSkin{"appearance/extensionSkin"};
+} // namespace Appearance
 namespace Artists
 {
 inline constexpr QLatin1StringView AlbumSort{"artists/albumSort"};
@@ -114,6 +116,10 @@ inline constexpr QLatin1StringView AppearanceHidePassedLines{"lyrics/appearance/
 inline constexpr QLatin1StringView AppearanceHighRefreshRate{"lyrics/appearance/highRefreshRate"};
 inline constexpr QLatin1StringView AppearancePrefix{"lyrics/appearance/"};
 inline constexpr QLatin1StringView AppearanceTextColor{"lyrics/appearance/textColor"};
+inline constexpr QLatin1StringView AppearanceUnplayedTextColor{
+    "lyrics/appearance/unplayedTextColor"};
+inline constexpr QLatin1StringView AppearanceUnplayedUseCoverColor{
+    "lyrics/appearance/unplayedUseCoverColor"};
 inline constexpr QLatin1StringView AppearanceUseCoverColor{"lyrics/appearance/useCoverColor"};
 inline constexpr QLatin1StringView AppearanceWordFadeWidth{"lyrics/appearance/wordFadeWidth"};
 inline constexpr QLatin1StringView BarrageEnabled{"lyrics/barrageEnabled"};

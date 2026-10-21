@@ -10,6 +10,12 @@ import EchoMusic.Library
 
 Item {
     id: sidebar
+    AppearanceHost {
+        anchors.fill: parent
+        entry: Theme.store.extensions.theme
+        placement: "sidebar"
+        z: 0
+    }
     EchoUiPart {
         id: publicSurface
         target: sidebar

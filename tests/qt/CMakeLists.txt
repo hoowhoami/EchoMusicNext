@@ -718,10 +718,13 @@ target_sources(
             plugins/PluginRuntimeDependencies.cpp
             plugins/PluginRuntimeCapabilities.cpp
             plugins/PluginRuntimeUiParts.cpp
+            plugins/PluginRuntimeAppearance.cpp
 )
 target_link_libraries(
     echo-plugin-runtime-test
-    PRIVATE echo_platform
+    PRIVATE echo_themes
+            echo_themesplugin
+            echo_platform
             echo_plugins
             echo_pluginsplugin
             echo_plugin_sdkplugin
@@ -731,8 +734,13 @@ target_link_libraries(
             Qt6::Network
 )
 set(ECHO_PLUGINS_TEST_GROUPS
-    plugin-runtime-management plugin-runtime-runtime plugin-runtime-shutdown
-    plugin-runtime-dependencies plugin-runtime-capabilities plugin-runtime-ui-parts
+    plugin-runtime-management
+    plugin-runtime-runtime
+    plugin-runtime-shutdown
+    plugin-runtime-dependencies
+    plugin-runtime-capabilities
+    plugin-runtime-ui-parts
+    plugin-runtime-appearance
 )
 add_test(
     NAME plugin-runtime-management
@@ -782,6 +790,14 @@ add_test(
         echo-plugin-runtime-test uiStyleLayersRestoreLiveBindings
         uiPartsIdentityObservationAndPublicActions uiPartMountsReplaceAndRetire
         uiPartsProductionPlaybackAndMini uiPartInstanceStylesAndLeasesStayBounded
+)
+
+add_test(
+    NAME plugin-runtime-appearance
+    COMMAND
+        echo-plugin-runtime-test appearanceCatalogConfigurationAndRetirement
+        appearanceProductionThemeSkinAndMini appearanceErrorsAndActivationRollback
+        playbackPresentationAndFloatingSdk
 )
 
 set_tests_properties(

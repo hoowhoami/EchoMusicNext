@@ -123,6 +123,9 @@ QVariantMap nativeFloatingAppearance(QWindow *window)
 QVariantMap nativeMacApplicationPresentation()
 {
     return {{"activationPolicy", qint64(NSApp.activationPolicy)},
+            {"active", bool(NSApp.active)},
+            {"frontmostPid",
+             qint64(NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier)},
             {"runningApplicationPolicy",
              qint64(NSRunningApplication.currentApplication.activationPolicy)}};
 }

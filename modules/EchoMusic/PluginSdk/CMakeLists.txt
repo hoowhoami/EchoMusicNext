@@ -16,6 +16,10 @@ qt_add_qml_module(
     EchoUiPartMount.cpp
     EchoPluginUiStyles.h
     EchoPluginUiStyles.cpp
+    EchoPluginAppearance.h
+    EchoPluginAppearance.cpp
+    EchoPluginViewContext.h
+    EchoPluginViewContext.cpp
     EchoPluginAudio.h
     EchoPluginAudio.cpp
     EchoPluginOperation.h
@@ -27,6 +31,7 @@ qt_add_qml_module(
     EchoPluginPlayer.cpp
     EchoPluginContext.h
     EchoPluginContext.cpp
+    EchoPluginPresentation.cpp
     EchoPluginUi.h
     EchoPluginUi.cpp
     EchoPluginIo.h
@@ -39,6 +44,9 @@ qt_add_qml_module(
     PluginSdkContract.cpp
     QML_FILES
     EchoPluginPage.qml
+    EchoPluginPlaybackControls.qml
+    EchoPluginProgress.qml
+    EchoPluginLyricsView.qml
 )
 target_include_directories(echo_plugin_sdk PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(

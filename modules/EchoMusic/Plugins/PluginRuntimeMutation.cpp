@@ -1,5 +1,6 @@
 #include "SettingsKeys.h"
 #include "PluginRuntime.h"
+#include "ThemeStore.h"
 #include "PluginDataTransaction.h"
 #include <QCryptographicHash>
 #include <QFutureWatcher>
@@ -299,6 +300,7 @@ bool PluginRuntime::uninstall(const QString &installation, bool removeData)
 void PluginRuntime::removeEntry(Entry &entry)
 {
     const auto installation = entry.package.installationId;
+    m_host.theme.extensions()->removeInstallation(installation);
     // Atomically detach the catalog after all JS leases and SQL jobs have drained.
     // Package reclamation can fail independently without restoring executable state.
     int row = 0;

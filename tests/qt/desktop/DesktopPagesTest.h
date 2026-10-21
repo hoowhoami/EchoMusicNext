@@ -25,6 +25,8 @@ private slots:
     void miniWidthPreferencesClampAndRestore();
     void miniProgressVolumeBackdropFavoriteAndDesktopBadge_data();
     void miniProgressVolumeBackdropFavoriteAndDesktopBadge();
+    void miniVolumeDismissesAcrossHost_data();
+    void miniVolumeDismissesAcrossHost();
     void lyricSettingsShareCoverPickerAndExcludeTaskbar();
     void floatingPreferencesAndFilteredTimelineKeepIdentity();
     void desktopLyricsMatchSourceChromeAndHoverUnlock();

@@ -134,20 +134,26 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
             &AudioEngine::stallTimeout);
     connect(&m_source, &PlaybackSourceRequest::privilegesReady, this,
             [this](const PlaybackTrack &track, const QJsonObject &privileges) {
-                if (m_closing || track.key() != m_track.key())
+                if (m_closing || track.stableKey() != m_track.stableKey())
                     return;
-                m_track = track;
+                // The index may have upgraded m_track.id while this request was
+                // in flight; re-adopt instead of reverting to the legacy id.
+                const auto accepted = mergeResolvedTrack(track);
+                m_track = accepted;
                 m_privileges = privileges;
-                m_artwork.load(track.cover, m_sequence);
+                m_artwork.load(accepted.cover, m_sequence);
                 requestLyrics();
                 emit changed();
             });
     connect(&m_source, &PlaybackSourceRequest::resolved, this,
             [this](const PlaybackTrack &track, const QJsonObject &privileges,
                    const QJsonObject &source, bool fallback, const QString &resolvedQuality) {
-                if (m_closing || track.key() != m_track.key())
+                if (m_closing || track.stableKey() != m_track.stableKey())
                     return;
-                m_track = track;
+                // Keep the canonical view id adopted by the settled index; the
+                // asynchronous source snapshot still carries the legacy one.
+                const auto accepted = mergeResolvedTrack(track);
+                m_track = accepted;
                 m_privileges = privileges;
                 m_sourceKind = source.value("source_kind")
                                    .toString(track.localPath.isEmpty() ? "catalog" : "local");
@@ -280,7 +286,8 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                 // (e.g. "***"); embedded tags carry the real identity. Treat a
                 // masked value as missing so it can adopt the embedded fact.
                 const auto missing = [](const QString &value, const QStringList &unknown) {
-                    return value.trimmed().isEmpty() || unknown.contains(value.trimmed().toLower()) ||
+                    return value.trimmed().isEmpty() ||
+                           unknown.contains(value.trimmed().toLower()) ||
                            SongMetadataService::maskedName(value);
                 };
                 if (!title.isEmpty() &&
@@ -319,10 +326,8 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                     m_track.durationMs = quint64(m_duration);
                 // Queue copies and catalog pages under the same file join the
                 // presentation once the file itself identified its own facts.
-                const auto coverFact =
-                    m_track.cover.isEmpty() ? m_embeddedCover : m_track.cover;
-                const auto facts = QJsonObject
-                {
+                const auto coverFact = m_track.cover.isEmpty() ? m_embeddedCover : m_track.cover;
+                const auto facts = QJsonObject{
                     {"id", m_track.id},
                     {"hash", m_track.hash},
                     {"hash_std", m_track.catalogMetadata.value("hash_std")},
@@ -330,12 +335,12 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                     {"artist", m_track.artist},
                     {"album", m_track.album},
                     {"album_id", m_track.albumId ? QString::number(m_track.albumId) : QString()},
-                    {"duration_ms", m_track.durationMs ? QJsonValue(qint64(m_track.durationMs))
-                                                       : QJsonValue()},
+                    {"duration_ms",
+                     m_track.durationMs ? QJsonValue(qint64(m_track.durationMs)) : QJsonValue()},
                     {"cover_url", coverFact},
                     {"cloud_source", m_track.catalogMetadata.value("cloud_source")}};
-                queue()->updateFacts(m_track.id, m_track.title, m_track.artist, m_track.album,
-                                     coverFact, m_track.durationMs);
+                queue()->updateFacts(m_track.id, m_track.hash, m_track.title, m_track.artist,
+                                     m_track.album, coverFact, m_track.durationMs);
                 // Session memory keyed by audio hash: lists loaded after the
                 // play replay these corrections at projection time.
                 if (!m_track.hash.isEmpty())
@@ -359,7 +364,7 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
         });
     m_mediaTimer.setInterval(1000);
     connect(&m_mediaTimer, &QTimer::timeout, this, [this] {
-        m_sleepTimer.tick(hasTrack() ? m_track.key() : QString(), m_playing);
+        m_sleepTimer.tick(hasTrack() ? m_track.stableKey() : QString(), m_playing);
         m_transition->tick();
         if (m_ready && hasTrack())
             m_engine.mediaTimeline(m_position, m_duration, m_playing, speed());
@@ -630,6 +635,19 @@ bool PlaybackService::adoptCloudIdentity(PlaybackTrack &track) const
     }
     return false;
 }
+PlaybackTrack PlaybackService::mergeResolvedTrack(const PlaybackTrack &track) const
+{
+    auto merged = track;
+    adoptCloudIdentity(merged);
+    if (merged.id.isEmpty() || merged.id == "0")
+        merged.id = m_track.id;
+    if (!merged.durationMs)
+        merged.durationMs = m_track.durationMs;
+    const auto cloud = m_track.catalogMetadata.value("cloud_source").toObject();
+    if (!cloud.isEmpty() && merged.catalogMetadata.value("cloud_source").toObject().isEmpty())
+        merged.catalogMetadata["cloud_source"] = cloud;
+    return merged;
+}
 void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
                                  bool preserveFailureChain)
 {
@@ -637,7 +655,7 @@ void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
     adoptCloudIdentity(resolved);
     m_failure->started(preserveFailureChain);
     finishHistory();
-    if (resolved.key() != m_track.key())
+    if (resolved.stableKey() != m_track.stableKey())
         m_quality = m_preferences.defaultQuality();
     m_startupAutoPlayPending = false;
     invalidate();

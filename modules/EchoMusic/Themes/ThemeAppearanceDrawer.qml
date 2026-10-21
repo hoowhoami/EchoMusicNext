@@ -107,6 +107,39 @@ Popup {
                 width: scroll.availableWidth
                 spacing: 0
                 ColumnLayout {
+                    visible: Theme.store.extensions.theme !== null
+                    Layout.fillWidth: true
+                    Layout.margins: 24
+                    spacing: 12
+                    Label {
+                        Layout.fillWidth: true
+                        text: Theme.store.extensions.theme ? qsTr("%1 设置").arg(Theme.store.extensions.theme.title) : ""
+                        color: Theme.floatingText
+                        font: Theme.font(14, Theme.semiboldWeight)
+                    }
+                    AppearanceHost {
+                        objectName: "themeAppearanceSettingsHost"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.max(1, implicitHeight)
+                        entry: Theme.store.extensions.theme
+                        placement: "settings"
+                        resourceActive: drawer.visible
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: Theme.store.extensions.theme ? Theme.store.extensions.theme.configuration.errorMessage : ""
+                        visible: text.length > 0
+                        color: Theme.floating.dangerText
+                        wrapMode: Text.Wrap
+                        font: Theme.font(12, Theme.regularWeight)
+                    }
+                    EchoSoftButton {
+                        text: qsTr("恢复主题默认")
+                        onClicked: if (Theme.store.extensions.theme)
+                            Theme.store.extensions.theme.configuration.reset()
+                    }
+                }
+                ColumnLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: 24
                     Layout.rightMargin: 24

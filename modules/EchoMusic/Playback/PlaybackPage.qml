@@ -35,12 +35,13 @@ Popup {
     readonly property bool enteringPage: motion.entering
     property Component discussionComponent: null
     readonly property alias discussionHost: discussion.item
-    readonly property bool discussionActive: resourceActive && (opened || enteringPage)
+    readonly property bool discussionActive: presentationActive && (opened || enteringPage)
     property Component controlsComponent: null
     property Component windowActions: null
     property rect nativeWindowControlsBounds: Qt.rect(0, 0, 0, 0)
     readonly property bool hasNativeWindowControls: Qt.platform.os === "osx" && nativeWindowControlsBounds.width > 0
-    readonly property bool resourceActive: visible && !playbackPart.replaced && (!contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized))
+    readonly property bool presentationActive: visible && !playbackPart.replaced && (!contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized))
+    readonly property bool resourceActive: presentationActive && !skinHost.loaded
     readonly property real lyricToolsMargin: 16
     // The lyric viewport reaches the centered body's right edge, so a row's
     // hover/press box would sit under the page-anchored lyric tools. Reserve
@@ -52,6 +53,9 @@ Popup {
         skinsOwner.open({
             showSettings: false
         });
+    }
+    function openSources(): void {
+        sourceDialogOwner.open();
     }
     signal titleDragRequested
     signal titleDoubleClickRequested
@@ -250,10 +254,19 @@ Popup {
         samplingActive: page.visible
         readonly property string echoUiSurface: "playback"
         opacity: playbackPart.value("opacity", 1)
+        AppearanceHost {
+            id: skinHost
+            objectName: "pluginPlaybackSkinHost"
+            anchors.fill: parent
+            z: 20
+            entry: Theme.store.extensions.skin
+            placement: "playback"
+            resourceActive: page.presentationActive
+        }
         Item {
             objectName: "nativePlaybackContents"
             anchors.fill: parent
-            visible: !playbackPart.replaced
+            visible: !playbackPart.replaced && !skinHost.loaded
 
             PlaybackBackground {
                 id: pageBackground
@@ -276,6 +289,9 @@ Popup {
             // application control follows the same zoom as the playback content.
             Item {
                 id: windowChrome
+                parent: page.contentItem
+                z: 30
+                visible: !playbackPart.replaced && (!skinHost.loaded || Theme.store.extensions.skin.titlebar === "host")
                 objectName: "playbackWindowChrome"
                 width: parent.width
                 height: Math.max(46, 35 / page.uiScale)
@@ -441,6 +457,7 @@ Popup {
             }
             Loader {
                 id: discussion
+                parent: page.contentItem
                 opacity: motion.hostOpacity
                 anchors.fill: parent
                 z: 5
@@ -449,6 +466,9 @@ Popup {
             }
             PlaybackLyricTools {
                 id: lyricTools
+                parent: page.contentItem
+                z: 30
+                visible: !playbackPart.replaced && (!skinHost.loaded || Theme.store.extensions.skin.tools === "host")
                 x: parent.width - width - page.lyricToolsMargin
                 y: Math.max(104, 35 / page.uiScale + 58)
                 height: Math.max(0, parent.height - y - 112)

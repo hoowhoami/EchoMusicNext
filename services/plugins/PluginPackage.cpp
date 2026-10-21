@@ -59,11 +59,17 @@ QStringList PluginPackage::supportedFeatures()
             "ui.surfaces",
             "ui.state",
             "ui.parts",
-            "ui.styles"};
+            "ui.styles",
+            "appearance.themes",
+            "appearance.snapshot",
+            "appearance.fonts",
+            "ui.lyricsPage",
+            "windows.floating",
+            "playback.context"};
 }
 QStringList PluginPackage::supportedCapabilities()
 {
-    return {"unrestrictedNetwork", "audioSpectrum"};
+    return {"unrestrictedNetwork", "audioSpectrum", "theme", "lyricsPage"};
 }
 namespace
 {

@@ -8,7 +8,10 @@ Rectangle {
     id: preview
     required property bool solid
     required property color seed
-    readonly property var previewColors: Theme.store.previewPalette(Theme.dark, seed, solid)
+    property var paletteOverride: ({})
+    readonly property var previewColors: Object.assign({}, Theme.store.previewPalette(Theme.dark, seed, solid), paletteOverride, paletteOverride.secondaryText !== undefined ? {
+        secondary: paletteOverride.secondaryText
+    } : {})
     implicitHeight: width / 1.6
     color: previewColors.shell
     radius: 10

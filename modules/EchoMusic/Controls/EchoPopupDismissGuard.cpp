@@ -1,10 +1,13 @@
 #include "EchoPopupDismissGuard.h"
 #include <QMouseEvent>
 #include <QTimer>
+#include <QGuiApplication>
 namespace EchoMusic
 {
 EchoPopupDismissGuard::~EchoPopupDismissGuard()
 {
+    if (qGuiApp)
+        qGuiApp->removeEventFilter(this);
     if (m_window)
         m_window->removeEventFilter(this);
 }
@@ -34,6 +37,7 @@ void EchoPopupDismissGuard::setEnabled(bool enabled)
     if (m_enabled == enabled)
         return;
     m_enabled = enabled;
+    syncApplicationFilter();
     ++m_generation;
     emit changed();
 }
@@ -46,10 +50,49 @@ void EchoPopupDismissGuard::attachWindow()
     if (m_window)
         m_window->installEventFilter(this);
 }
+void EchoPopupDismissGuard::setDismissOnWindowPress(bool value)
+{
+    if (m_dismissOnWindowPress == value)
+        return;
+    m_dismissOnWindowPress = value;
+    syncApplicationFilter();
+    ++m_generation;
+    emit changed();
+}
+void EchoPopupDismissGuard::syncApplicationFilter()
+{
+    if (!qGuiApp)
+        return;
+    qGuiApp->removeEventFilter(this);
+    if (m_enabled && m_dismissOnWindowPress)
+        qGuiApp->installEventFilter(this);
+}
 bool EchoPopupDismissGuard::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched != m_window || !m_enabled || !m_overlay || !m_dimmer ||
+    if (m_enabled && m_dismissOnWindowPress && m_window &&
+        event->type() == QEvent::MouseButtonPress) {
+        auto *target = qobject_cast<QWindow *>(watched);
+        if (!target)
+            return false;
+        auto *host = target;
+        while (host && host != m_window)
+            host = host->transientParent();
+        const auto point = static_cast<QMouseEvent *>(event)->globalPosition().toPoint();
+        // Qt can redirect an outside host press to the native popup first.
+        // Observe that window too, while leaving its actual contents alone.
+        if (host == m_window && m_window->geometry().contains(point) &&
+            (target == m_window || !target->geometry().contains(point))) {
+            emit outsidePressed();
+            return true;
+        }
+        return false;
+    }
+    if (watched != m_window || !m_enabled || !m_overlay ||
         event->type() != QEvent::MouseButtonPress)
+        return false;
+    if (m_dismissOnWindowPress)
+        return false;
+    if (!m_dimmer)
         return false;
     const auto *mouse = static_cast<QMouseEvent *>(event);
     if (mouse->button() != Qt::LeftButton)

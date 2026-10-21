@@ -65,7 +65,7 @@ QtObject {
         elevated: Theme.elevated
         card: Theme.floatingCard
         border: Theme.floatingBorder
-        accent: Theme.accent
+        accent: Theme.store.floatingAccent
         accentText: Theme.floatingAccentText
     }
     readonly property color text: store.text

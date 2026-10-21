@@ -49,8 +49,8 @@ public:
     void adoptIdentity(int row, const PlaybackTrack &track);
     /// Merge corrected identity facts (embedded tags) into the matching row so
     /// queue copies stay aligned with the playing track's presentation.
-    void updateFacts(const QString &id, const QString &title, const QString &artist,
-                     const QString &album, const QString &cover = {},
+    void updateFacts(const QString &id, const QString &hash, const QString &title,
+                     const QString &artist, const QString &album, const QString &cover = {},
                      quint64 durationMs = 0);
     void append(const PlaybackTracks &tracks, bool next, const QString &currentTrackId = {},
                 bool sequential = false);

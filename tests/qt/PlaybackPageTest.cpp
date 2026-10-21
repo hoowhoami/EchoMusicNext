@@ -3,6 +3,7 @@
 #include "PlaybackService.h"
 #include "PlaybackRepository.h"
 #include "LyricLine.h"
+#include "LyricAppearance.h"
 #include "BackgroundMesh.h"
 #include "LyricClock.h"
 #include "LyricSpring.h"
@@ -1379,13 +1380,74 @@ void PlaybackPageTest::preferencesValidateAndPersistWithoutResettingGlobalBackgr
     QCOMPARE(first.fontWeight(), 700);
     QVERIFY(first.textColor().isEmpty());
     first.setTextColor("#123456");
+    first.setUnplayedTextColor("#654321");
     first.setBackgroundBlur(true);
     LyricAppearance reopened(settings);
     QCOMPARE(reopened.textColor(), QString("#123456"));
+    QCOMPARE(reopened.unplayedTextColor(), QString("#654321"));
     QCOMPARE(reopened.fontWeight(), 700);
     reopened.resetSkin();
     QVERIFY(!reopened.customized());
+    QVERIFY(reopened.unplayedTextColor().isEmpty());
+    QVERIFY(!reopened.unplayedUseCoverColor());
     QVERIFY(reopened.backgroundBlur());
+}
+void PlaybackPageTest::lyricColorLayersResolvePerSlotInQml()
+{
+    Session session;
+    QVERIFY(session.create());
+    session.theme.setMotionEnabled(false);
+    QTRY_VERIFY(session.item("playbackLyricViewport"));
+    auto *viewport = session.item("playbackLyricViewport");
+    auto *appearance = session.playback.lyricAppearance();
+    appearance->resetColors();
+    appearance->resetSkinColors();
+    const auto played = [viewport] { return viewport->property("textColor").value<QColor>(); };
+    const auto unplayed = [viewport] {
+        return viewport->property("unplayedColor").value<QColor>();
+    };
+    QTRY_COMPARE(played(), QColor(Qt::white));
+    QTRY_COMPARE(unplayed(), QColor("#b9b9b9"));
+
+    appearance->setPlayedColor("#ff0000");
+    QTRY_COMPARE(played(), QColor("#ff0000"));
+    QTRY_COMPARE(unplayed(), QColor("#b9b9b9"));
+
+    appearance->setUnplayedColor("#00ff00");
+    QTRY_COMPARE(unplayed(), QColor("#00ff00"));
+
+    appearance->setTextColor("#0000ff");
+    QTRY_COMPARE(played(), QColor("#0000ff"));
+    QTRY_COMPARE(unplayed(), QColor("#00ff00"));
+    // Each skin slot inherits its own global slot. Clearing only the global
+    // unplayed override restores neutral grey, independent of either played ink.
+    appearance->setUnplayedColor("");
+    QTRY_COMPARE(unplayed(), QColor("#b9b9b9"));
+    appearance->setUnplayedFollowCoverColor(true);
+    const auto inheritedAccent = viewport->property("coverAccent").value<QColor>();
+    QTRY_COMPARE(unplayed(), inheritedAccent);
+    appearance->setUnplayedFollowCoverColor(false);
+    QTRY_COMPARE(unplayed(), QColor("#b9b9b9"));
+
+    appearance->setUnplayedTextColor("#ffff00");
+    QTRY_COMPARE(unplayed(), QColor("#ffff00"));
+    QVERIFY(appearance->customized());
+
+    appearance->setTextColor("");
+    appearance->setUseCoverColor(true);
+    const auto accent = viewport->property("coverAccent").value<QColor>();
+    QTRY_COMPARE(played(), accent);
+    QTRY_COMPARE(unplayed(), QColor("#ffff00"));
+
+    appearance->setUnplayedTextColor("");
+    appearance->setUnplayedUseCoverColor(true);
+    QTRY_COMPARE(unplayed(), accent);
+
+    appearance->resetColors();
+    appearance->resetSkinColors();
+    QTRY_COMPARE(played(), QColor(Qt::white));
+    QTRY_COMPARE(unplayed(), QColor("#b9b9b9"));
+    QVERIFY(!appearance->customized());
 }
 void PlaybackPageTest::optionalArtworkCancelsStaleTrackAndRestoresBoundedMemoryCache()
 {
@@ -2555,6 +2617,12 @@ void PlaybackPageTest::pageSkinLifecycleAndBoundedDelegates()
     QVERIFY(QMetaObject::invokeMethod(session.item("colorDynamicAction"), "clicked"));
     QVERIFY(QMetaObject::invokeMethod(session.item("colorConfirmAction"), "clicked"));
     QTRY_VERIFY(session.playback.lyricAppearance()->useCoverColor());
+    QTRY_VERIFY(picker.isNull());
+    QVERIFY(session.item("lyricSkinUnplayedColorAction"));
+    QVERIFY(QMetaObject::invokeMethod(session.item("lyricSkinUnplayedColorAction"), "clicked"));
+    QTRY_VERIFY((picker = session.page()->findChild<QObject *>("lyricSkinUnplayedColorPicker")));
+    QTRY_VERIFY(picker->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(session.item("colorCancelAction"), "clicked"));
     QTRY_VERIFY(picker.isNull());
     QVERIFY(QMetaObject::invokeMethod(session.item("lyricSkinColorAction"), "clicked"));
     QTRY_VERIFY((picker = session.page()->findChild<QObject *>("lyricSkinColorPicker")));

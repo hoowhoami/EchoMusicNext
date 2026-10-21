@@ -21,8 +21,9 @@ Item {
     property int textWeight: appearance.fontWeight
     readonly property LyricAppearance appearance: playback.lyricAppearance
     property real fontSize: (pageWidth <= 768 ? Math.max(12, pageWidth * .08) : Math.max(12, pageHeight * .05, pageWidth * .025)) * appearance.fontScale
-    property color textColor: appearance.useCoverColor ? Theme.store.lyricAccent(playback.coverColor) : appearance.textColor.length ? appearance.textColor : appearance.followCoverColor ? Theme.store.lyricAccent(playback.coverColor) : appearance.playedColor || "#ffffff"
-    property color unplayedColor: Theme.withAlpha(appearance.textColor.length || appearance.useCoverColor ? textColor : appearance.unplayedFollowCoverColor ? Theme.store.lyricAccent(playback.coverColor) : appearance.unplayedColor || "#ffffff", .2)
+    readonly property color coverAccent: Theme.store.lyricAccent(playback.coverColor)
+    property color textColor: LyricColors.played(appearance, coverAccent)
+    property color unplayedColor: LyricColors.unplayed(appearance, coverAccent)
     property int horizontalAlignment: Qt.AlignLeft
     property real secondaryFontSize: Math.max(10, fontSize * .5)
     property real secondaryGap: fontSize * .3

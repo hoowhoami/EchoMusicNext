@@ -5,6 +5,10 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void appearanceCatalogConfigurationAndRetirement();
+    void appearanceProductionThemeSkinAndMini();
+    void appearanceErrorsAndActivationRollback();
+    void playbackPresentationAndFloatingSdk();
     void uiStyleLayersRestoreLiveBindings();
     void uiPartsIdentityObservationAndPublicActions();
     void uiPartMountsReplaceAndRetire();

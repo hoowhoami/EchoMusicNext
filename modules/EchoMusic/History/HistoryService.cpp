@@ -41,6 +41,28 @@ QJsonObject historySong(const QJsonObject &entry)
     song["metadata"] = metadata;
     return song;
 }
+/// Unmatched uploads were stored under the provider placeholder id "0" before
+/// the canonical cloud:<hash> identity existed. Presentations address rows by
+/// this id, so every loaded history row must use the same canonical id as the
+/// cloud/playlist surfaces or facts would fan out across unrelated uploads.
+QJsonObject normalizeHistoryEntry(QJsonObject entry)
+{
+    auto track = entry["track"].toObject();
+    const auto id = track["id"].toString();
+    bool numeric = false;
+    const auto catalogId = id.toULongLong(&numeric);
+    if ((numeric && catalogId) || !track["local_path"].toString().isEmpty())
+        return entry;
+    const auto hash = track["hash"].toString().trimmed().toLower();
+    if (hash.isEmpty())
+        return entry;
+    const auto canonical = QStringLiteral("cloud:%1").arg(hash);
+    if (track["id"].toString() == canonical)
+        return entry;
+    track["id"] = canonical;
+    entry["track"] = track;
+    return entry;
+}
 QString compact(qint64 value)
 {
     return QLocale(QLocale::Chinese, QLocale::China).toString(value);
@@ -341,9 +363,12 @@ void HistoryService::accept(const QJsonArray &entries)
     cancelMetadata();
     m_entries = entries;
     QJsonArray songs;
-    for (const auto &value : entries)
-        songs.append(historySong(value.toObject()));
-    m_stats = buildStats(entries);
+    for (qsizetype i = 0; i < m_entries.size(); ++i) {
+        const auto entry = normalizeHistoryEntry(m_entries[i].toObject());
+        m_entries[i] = entry;
+        songs.append(historySong(entry));
+    }
+    m_stats = buildStats(m_entries);
     m_songs.replaceSongs(songs, true);
     m_loading = false;
     m_error.clear();
@@ -431,7 +456,7 @@ bool HistoryService::applyFactsToRow(const QJsonObject &facts, QJsonObject &trac
     if (completed == original)
         return false;
     const auto song = PlaybackTrack::fromDomain(completed).toDomain();
-    for (const auto &key : {"title", "artist", "album", "cover", "metadata"})
+    for (const auto &key : {"title", "artist", "album", "cover", "duration_ms", "metadata"})
         if (song.value(key) != QJsonValue::Undefined)
             track[key] = song.value(key);
     projected.append(presentation);

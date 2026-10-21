@@ -112,7 +112,8 @@ bool EchoUiStyleRule::publish()
         return false;
     auto *registry = m_owner->registry();
     return active() && registry &&
-           registry->putStyle(m_token, m_owner->scope().id(), m_id, m_priority, m_selector,
+           registry->putStyle(m_token, m_owner->scope().id(),
+                              m_owner->scope().contextId() + ":" + m_id, m_priority, m_selector,
                               m_values);
 }
 bool EchoUiStyleRule::update(const QVariantMap &input)

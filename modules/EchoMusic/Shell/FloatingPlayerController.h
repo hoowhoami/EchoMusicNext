@@ -80,6 +80,9 @@ public:
     Q_INVOKABLE void updateMiniWidthResize(int globalX);
     Q_INVOKABLE void endMiniWidthResize();
     QQuickWindow *presentationWindow() const;
+    QVariantMap miniBounds() const;
+    QVariantMap desktopBounds() const;
+    bool setPluginBounds(const QString &target, const QVariantMap &bounds);
     void shutdown();
     static QRect fitBounds(QRect saved, const QList<QRect> &areas, const QRect &fallback,
                            QSize size);

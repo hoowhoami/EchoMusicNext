@@ -584,6 +584,42 @@ ApplicationWindow {
             anchorItem: playbackPageLoader.item && (playbackPageLoader.item as PlaybackPage).visible ? (playbackPageLoader.item as PlaybackPage).toastAnchor : playerBar
         }
         Connections {
+            target: Theme.store.extensions
+            function onRequestRaised(action) {
+                if (action === "themes") {
+                    mainWindow.windowService.floating.showMain();
+                    mainWindow.router.navigate("themes");
+                    return;
+                }
+                if (action === "closePlayback") {
+                    playbackPageLoader.close();
+                    return;
+                }
+                if (action === "settings") {
+                    mainWindow.router.navigate("settings");
+                    return;
+                }
+                if (action === "playback") {
+                    playbackPageLoader.open();
+                    return;
+                }
+                if (action === "skins" || action === "source" || action === "comments" || action === "barrage") {
+                    playbackPageLoader.open();
+                    Qt.callLater(function () {
+                        const page = playbackPageLoader.item as PlaybackPage;
+                        if (!page)
+                            return;
+                        if (action === "skins")
+                            page.openSkins();
+                        else if (action === "source")
+                            page.openSources();
+                        else
+                            mainWindow.shellController.playbackPopupRequested(action);
+                    });
+                }
+            }
+        }
+        Connections {
             target: mainWindow.shellController
             function onPlaybackPopupRequested(kind) {
                 if (kind === "lyric-skins" && playbackPageLoader.item) {

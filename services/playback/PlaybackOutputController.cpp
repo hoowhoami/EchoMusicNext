@@ -206,8 +206,10 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         if (kind == "seeked")
             m_playback.m_listenTogether->nativeSeekCompleted();
         m_playback.m_lyricText.setPosition(m_playback.m_position);
-        if (kind == "seeked")
+        if (kind == "seeked") {
             emit m_playback.timelineReset();
+            emit m_playback.seekCompleted();
+        }
         emit m_playback.positionChanged();
     } else if (kind == "state-change") {
         m_playback.m_listening.resetPosition();
@@ -224,6 +226,7 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
     } else if (kind == "playback-end") {
         if (event.value("reason").toString() != "eof")
             return;
+        emit m_playback.playbackEnded();
         m_playback.m_listening.flush(true);
         m_playback.m_playing = false;
         if (!m_playback.m_sleepTimer.trackEnded())

@@ -102,6 +102,7 @@ qt_add_qml_module(
     EchoDialogCloseButton.qml
     EchoDetailTabs.qml
     EchoEnter.qml
+    EchoAppearanceSettingsDialog.qml
     EchoDialog.qml
     EchoTextDialog.qml
     EchoOptionPicker.qml

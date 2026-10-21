@@ -14,8 +14,20 @@ EchoPluginUi::EchoPluginUi(EchoPluginContext &scope)
       m_styles(new EchoPluginUiStyles(scope)), m_scope(scope)
 {
 }
+EchoPluginAppearance *EchoPluginUi::lyricsPage() const
+{
+    return m_scope.appearance();
+}
+QVariantMap EchoPluginUi::m_scopeState() const
+{
+    const auto root = m_scope.activationContext();
+    return root != &m_scope ? root->ui()->state() : m_state;
+}
 bool EchoPluginUi::setState(const QVariantMap &values)
 {
+    if (m_scope.activationContext() != &m_scope) {
+        return m_scope.active() && m_scope.activationContext()->ui()->setState(values);
+    }
     if (!m_scope.active() ||
         QJsonDocument(QJsonObject::fromVariantMap(values)).toJson(QJsonDocument::Compact).size() >
             1024 * 1024)
@@ -105,7 +117,7 @@ EchoPluginRegistration *EchoPluginUi::registerPage(const QString &id, const QStr
 }
 EchoPluginOperation *EchoPluginUi::navigate(const QString &id, const QVariantMap &query)
 {
-    const auto route = m_scope.id() + ":page:" + id;
+    const auto route = m_scope.registrationKey("page", id);
     auto *op = m_scope.operation();
     if (op->finished())
         return op;

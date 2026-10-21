@@ -92,16 +92,14 @@ StorageResult accessValues(const QString &directory, const QString &key, const Q
 } // namespace
 EchoPluginIo::EchoPluginIo(EchoPluginContext &scope, QString dataPath)
     : QObject(&scope), m_scope(scope), m_dataPath(std::move(dataPath)), m_network(this),
-      m_worker(new QObject)
+      m_worker(new QObject(this))
 {
-    m_worker->moveToThread(&m_thread);
     connect(&m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
     connect(&m_thread, &QThread::finished, this, [this] {
         m_drained = true;
         emit drained();
     });
     m_thread.setObjectName("PluginValues-" + scope.installationId());
-    m_thread.start();
 }
 EchoPluginIo::~EchoPluginIo()
 {
@@ -197,6 +195,11 @@ EchoPluginOperation *EchoPluginIo::storage(const QString &key, const QVariant &v
     op->start([canceled] { canceled->store(true); });
     const QPointer<EchoPluginOperation> guard(op);
     const auto directory = m_dataPath;
+    if (!m_thread.isRunning()) {
+        m_worker->setParent(nullptr);
+        m_worker->moveToThread(&m_thread);
+        m_thread.start();
+    }
     QMetaObject::invokeMethod(
         m_worker,
         [this, directory, key, bytes, command, guard] {
@@ -233,6 +236,11 @@ void EchoPluginIo::shutdown()
     if (m_closed)
         return;
     m_closed = true;
+    if (!m_thread.isRunning()) {
+        m_drained = true;
+        emit drained();
+        return;
+    }
     // The serial barrier follows every queued database write. The GUI never waits.
     QMetaObject::invokeMethod(
         m_worker, [thread = &m_thread] { thread->quit(); }, Qt::QueuedConnection);

@@ -1,3 +1,4 @@
+set_source_files_properties(LyricColors.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(
     echo_playback
     STATIC
@@ -29,12 +30,14 @@ qt_add_qml_module(
     BackgroundArtwork.qml
     PlaybackAlbumCover.qml
     CoverLyricViewport.qml
+    LyricColors.qml
     FloatingLyricViewport.qml
     FloatingLyricContent.qml
     LyricRubyLine.qml
     LyricVerticalLine.qml
     InterludeDots.qml
     LyricSkinSettings.qml
+    LyricSkinCard.qml
     LyricSkinDrawer.qml
     PlaybackLyricTools.qml
     LyricSourceDialog.qml

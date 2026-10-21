@@ -5,6 +5,12 @@ namespace EchoMusic
 {
 /// GUI-thread, application-owned cover lyric preferences. Only the implemented
 /// cover skin is exposed; no old provider IDs, schema import or mutable QML copy.
+///
+/// Colors have two layers: page colors are the global baseline and the active
+/// skin may override either slot. Resolution is per slot, so an unset skin
+/// value keeps inheriting the global one instead of disabling the whole layer.
+/// Without any explicit unplayed color the unplayed slot follows the resolved
+/// played color at 20% alpha.
 class LyricAppearance final : public QObject
 {
     Q_OBJECT
@@ -30,6 +36,10 @@ class LyricAppearance final : public QObject
     Q_PROPERTY(bool followCoverColor READ followCoverColor WRITE setFollowCoverColor NOTIFY changed)
     Q_PROPERTY(bool unplayedFollowCoverColor READ unplayedFollowCoverColor WRITE
                    setUnplayedFollowCoverColor NOTIFY changed)
+    Q_PROPERTY(
+        QString unplayedTextColor READ unplayedTextColor WRITE setUnplayedTextColor NOTIFY changed)
+    Q_PROPERTY(bool unplayedUseCoverColor READ unplayedUseCoverColor WRITE setUnplayedUseCoverColor
+                   NOTIFY changed)
 public:
     QString playedColor() const
     {
@@ -47,11 +57,22 @@ public:
     {
         return m_unplayedFollowCoverColor;
     }
+    QString unplayedTextColor() const
+    {
+        return m_unplayedTextColor;
+    }
+    bool unplayedUseCoverColor() const
+    {
+        return m_unplayedUseCoverColor;
+    }
     void setPlayedColor(const QString &);
     void setUnplayedColor(const QString &);
     void setFollowCoverColor(bool);
     void setUnplayedFollowCoverColor(bool);
+    void setUnplayedTextColor(const QString &);
+    void setUnplayedUseCoverColor(bool);
     Q_INVOKABLE void resetColors();
+    Q_INVOKABLE void resetSkinColors();
     explicit LyricAppearance(QSettings &settings, QObject *parent = nullptr);
     QString skinKey() const
     {
@@ -136,6 +157,8 @@ private:
     QSettings &m_settings;
     QString m_playedColor, m_unplayedColor;
     bool m_followCoverColor = false, m_unplayedFollowCoverColor = false;
+    QString m_unplayedTextColor;
+    bool m_unplayedUseCoverColor = false;
     double m_alignPosition = 0.5;
     bool m_enableSpring = true;
     bool m_highRefreshRate = false;

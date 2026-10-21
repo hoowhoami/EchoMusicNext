@@ -55,8 +55,7 @@ void PlaybackQueueController::queueAndPlayTrack(const PlaybackTrack &track, cons
         merged.append(track);
     }
     const bool current =
-        m_playback.hasTrack() && (!track.id.isEmpty() ? m_playback.m_track.id == track.id
-                                                      : m_playback.m_track.key() == track.key());
+        m_playback.hasTrack() && m_playback.m_track.stableKey() == track.stableKey();
     if (current) {
         // Adopt context without restarting or pausing current audio.
         // Row play/pause toggles use a separate command.
@@ -158,8 +157,8 @@ void PlaybackQueueController::removeViewedIndex(int index)
     auto *model = m_playback.m_catalog.viewModel();
     if (!model || !model->at(index))
         return;
-    const bool active =
-        model == m_playback.queue() && model->at(index)->key() == m_playback.m_track.key();
+    const bool active = model == m_playback.queue() &&
+                        model->at(index)->stableKey() == m_playback.m_track.stableKey();
     const bool wasPlaying = m_playback.m_playing;
     model->remove(index);
     if (active && model->rowCount()) {

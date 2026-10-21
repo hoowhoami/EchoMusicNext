@@ -7,7 +7,9 @@
 #include <QDateTime>
 #include <QHash>
 #include <QMap>
+#include <QSet>
 #include <QJsonDocument>
+#include <utility>
 namespace EchoMusic
 {
 PlaybackStorageWorker::~PlaybackStorageWorker()
@@ -315,12 +317,13 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
     // repeats count on a single line; catalog rows never merge.
     struct Row
     {
-        QString key;
+        QString key, rowid;
         qint64 playedAt = 0, listenedMs = 0, playCount = 0;
     };
     QList<Row> rows;
     QList<QJsonObject> snapshots;
     QHash<QString, int> canonical;
+    QSet<int> mergedRows;
     QStringList dropRowids;
     while (q.next()) {
         QJsonParseError error;
@@ -329,8 +332,8 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
             emit historyFailed(tr("播放历史的曲目资料已损坏"));
             return;
         }
-        Row row{q.value(0).toString(), q.value(1).toLongLong(), q.value(2).toLongLong(),
-                q.value(3).toLongLong()};
+        Row row{q.value(0).toString(), q.value(5).toString(), q.value(1).toLongLong(),
+                q.value(2).toLongLong(), q.value(3).toLongLong()};
         const auto object = snapshot.object();
         const auto hash = object.value("hash").toString().toLower();
         bool numeric = false;
@@ -348,16 +351,40 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
         auto &first = rows[*known];
         first.listenedMs += row.listenedMs;
         first.playCount += row.playCount;
-        dropRowids.append(q.value(5).toString());
+        mergedRows.insert(*known);
+        dropRowids.append(row.rowid);
     }
     if (!dropRowids.isEmpty()) {
-        QSqlQuery cleanup(m_database);
-        cleanup.prepare(QStringLiteral("DELETE FROM playback_history WHERE account_id=? AND "
-                                       "rowid IN (%1)")
-                            .arg(dropRowids.join(u',')));
-        cleanup.addBindValue(QString::number(account));
-        if (!cleanup.exec())
-            emit failed(cleanup.lastError().text());
+        // The kept row must carry the merged totals before the duplicates are
+        // removed; otherwise a restart would silently drop their plays. Both
+        // writes stay in one transaction so a failed delete cannot leave the
+        // totals counted twice.
+        bool ok = m_database.transaction();
+        if (ok) {
+            QSqlQuery update(m_database);
+            update.prepare("UPDATE playback_history SET listened_ms=?,play_count=? "
+                           "WHERE account_id=? AND rowid=?");
+            for (const auto index : std::as_const(mergedRows)) {
+                update.bindValue(0, rows[index].listenedMs);
+                update.bindValue(1, rows[index].playCount);
+                update.bindValue(2, QString::number(account));
+                update.bindValue(3, rows[index].rowid);
+                ok = update.exec() && ok;
+                update.finish();
+            }
+            QSqlQuery cleanup(m_database);
+            cleanup.prepare(QStringLiteral("DELETE FROM playback_history WHERE account_id=? AND "
+                                           "rowid IN (%1)")
+                                .arg(dropRowids.join(u',')));
+            cleanup.addBindValue(QString::number(account));
+            ok = cleanup.exec() && ok;
+            if (!ok || !m_database.commit()) {
+                m_database.rollback();
+                ok = false;
+            }
+        }
+        if (!ok)
+            emit failed(m_database.lastError().text());
     }
     QJsonArray entries;
     for (int i = 0; i < rows.size(); ++i)

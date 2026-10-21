@@ -13,8 +13,13 @@ RoutePage {
     readonly property ThemeAppearanceDrawer appearanceDrawer: adjustmentsOwner.item
     property WindowController windowService: null
     property int tab: 0
-    Component.onCompleted: tab = Theme.store.themeKey === "custom" ? 2 : Theme.store.themeKey === "solid" ? 1 : 0
-    Component.onDestruction: Theme.store.endBackgroundPreview()
+    Component.onCompleted: {
+        tab = Theme.store.extensions.theme ? 0 : Theme.store.themeKey === "custom" ? 2 : Theme.store.themeKey === "solid" ? 1 : 0;
+    }
+    Component.onDestruction: {
+        Theme.store.endBackgroundPreview();
+        Theme.store.extensions.cancelPreview();
+    }
     onTabChanged: {
         if (tab === 2)
             Theme.store.previewBackground();
@@ -25,6 +30,8 @@ RoutePage {
     onPageActiveChanged: {
         if (!pageActive) {
             Theme.store.endBackgroundPreview();
+            Theme.store.extensions.cancelPreview();
+            extensionSettingsOwner.close();
             adjustmentsOwner.close();
             skinPickerOwner.close();
         }
@@ -61,7 +68,7 @@ RoutePage {
                         color: Theme.accent
                     }
                     Label {
-                        text: (Theme.store.backgroundPreview ? qsTr("预览中 · ") : qsTr("正在使用 · ")) + (Theme.store.themeKey === "echo" ? "Echo" : Theme.store.themeKey === "solid" ? qsTr("纯色") : qsTr("自定义"))
+                        text: ((Theme.store.backgroundPreview || Theme.store.extensions.previewing) ? qsTr("预览中 · ") : qsTr("正在使用 · ")) + (Theme.store.extensions.theme ? Theme.store.extensions.theme.title : Theme.store.themeKey === "echo" ? "Echo" : Theme.store.themeKey === "solid" ? qsTr("纯色") : qsTr("自定义"))
                         color: Theme.secondaryText
                         font: Theme.font(12, Theme.regularWeight)
                     }
@@ -103,9 +110,9 @@ RoutePage {
             pageActive: page.pageActive
             scrollView: page.tab === 0 ? catalog : paletteScroll
             resetViews: [catalog, paletteScroll]
-            GridView {
+            Flickable {
                 id: catalog
-                objectName: "themeCatalog"
+                objectName: "themeCatalogScroll"
                 x: 32
                 y: 2
                 width: Math.max(0, parent.width - 64)
@@ -113,37 +120,70 @@ RoutePage {
                 visible: page.tab === 0
                 interactive: visible && page.pageActive
                 clip: true
-                reuseItems: true
-                cacheBuffer: height
-                readonly property int columns: Math.max(1, Math.floor((width + 18) / 218))
-                cellWidth: (width + 18) / columns
-                cellHeight: (cellWidth - 38) / 1.6 + 20 + 10 + 20 + 4 + 38.4 + 24
-                header: Item {
+                contentWidth: width
+                contentHeight: groups.height
+                boundsBehavior: Flickable.StopAtBounds
+                Column {
+                    id: groups
                     width: catalog.width
-                    height: headingRow.implicitHeight + 14
-                    RowLayout {
-                        id: headingRow
-                        width: parent.width
-                        spacing: 16
-                        Label {
-                            text: qsTr("静态")
-                            color: Theme.text
-                            font: Theme.font(14, Theme.semiboldWeight)
-                        }
-                        Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: 1
-                            color: Theme.subtleBorder
+                    spacing: 24
+                    Repeater {
+                        model: ["default", "solid", "dynamic"]
+                        delegate: Column {
+                            id: group
+                            required property string modelData
+                            readonly property AppearanceListModel candidates: Theme.store.extensions.themeGroup(modelData)
+                            width: groups.width
+                            visible: candidates.count > 0
+                            spacing: 14
+                            RowLayout {
+                                width: parent.width
+                                spacing: 16
+                                Label {
+                                    text: group.modelData === "default" ? qsTr("静态") : group.modelData === "solid" ? qsTr("纯色") : qsTr("动态")
+                                    color: Theme.text
+                                    font: Theme.font(14, Theme.semiboldWeight)
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 1
+                                    color: Theme.subtleBorder
+                                }
+                            }
+                            EchoVirtualGridSection {
+                                id: section
+                                width: group.width + 18
+                                columns: Math.max(1, Math.floor(width / 218))
+                                cellHeight: (cellWidth - 38) / 1.6 + 20 + 10 + 20 + 4 + 38.4 + 24
+                                scrollView: catalog
+                                contentTop: group.y + y
+                                resourceActive: catalog.visible && page.pageActive
+                                model: group.candidates
+                                itemCount: group.candidates.count
+                                onViewChanged: if (view)
+                                    view.objectName = group.modelData === "default" ? "themeCatalog" : "themeCatalog-" + group.modelData
+                                delegate: ThemeCatalogCard {
+                                    required property string entryKey
+                                    required property string title
+                                    required property var model
+                                    required property url preview
+                                    required property AppearanceEntry entry
+                                    width: section.cellWidth - 18
+                                    description: model.description
+                                    themeName: title
+                                    previewSource: preview
+                                    variants: model.variants || ({})
+                                    extension: entry !== null
+                                    selected: entryKey === "echo" ? Theme.store.themeKey === "echo" && Theme.store.extensions.selectedTheme.length === 0 : Theme.store.extensions.selectedTheme === entryKey
+                                    onChosen: entryKey === "echo" ? Theme.store.selectEcho() : Theme.store.extensions.chooseTheme(entryKey)
+                                    onPreviewRequested: Theme.store.extensions.previewTheme(entryKey)
+                                    onSettingsRequested: extensionSettingsOwner.open({
+                                        entry: entry
+                                    })
+                                }
+                            }
                         }
                     }
-                }
-                model: 1
-                delegate: ThemeCatalogCard {
-                    width: catalog.cellWidth - 18
-                    themeName: "Echo"
-                    description: qsTr("简约清爽，让音乐成为主角。")
-                    selected: Theme.store.themeKey === "echo"
-                    onChosen: Theme.store.selectEcho()
                 }
                 ScrollBar.vertical: EchoPageScrollBar {
                     view: catalog
@@ -211,6 +251,15 @@ RoutePage {
                 value: Theme.store.seedColor.toString()
                 presets: ["#7da3ce", "#6eafb7", "#bd97bb", "#ce929c", "#bcaa81", "#87a793", "#9293bf", "#6b7180", "#0071e3", "#ef4444", "#ec4899", "#8b5cf6", "#6366f1", "#0ea5e9", "#14b8a6", "#22c55e", "#f59e0b", "#f97316"]
                 onConfirmed: color => Theme.store.selectSolid(color)
+            }
+        }
+    }
+    EchoPopupLoader {
+        id: extensionSettingsOwner
+        hostItem: page
+        sourceComponent: Component {
+            EchoAppearanceSettingsDialog {
+                uiScale: page.settings.uiScale
             }
         }
     }

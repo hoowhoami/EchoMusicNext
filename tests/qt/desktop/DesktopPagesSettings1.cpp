@@ -655,6 +655,42 @@ void DesktopPagesTest::lyricSettingsShareCoverPickerAndExcludeTaskbar()
     };
     auto fields = visualAll(section, "lyricPlayedColor");
     QCOMPARE(fields.size(), 3);
+    auto *appearance = playback.lyricAppearance();
+    appearance->setPlayedColor("#ef476f");
+    appearance->setUnplayedColor("#22c55e");
+    appearance->setTextColor("#0071e3");
+    appearance->setUnplayedTextColor("#ffcc00");
+    auto *globalRow = fields.first()->parentItem();
+    while (globalRow && !globalRow->property("playedColor").isValid())
+        globalRow = globalRow->parentItem();
+    QVERIFY(globalRow);
+    QTRY_COMPARE(globalRow->property("playedColor").value<QColor>(), QColor("#ef476f"));
+    QTRY_COMPARE(globalRow->property("unplayedColor").value<QColor>(), QColor("#22c55e"));
+    // Confirm through both real pickers with conflicting skin overrides. The
+    // global preview and persisted value must change without editing the skin.
+    for (bool unplayed : {false, true}) {
+        const auto name = unplayed ? "lyricUnplayedColor" : "lyricPlayedColor";
+        auto *field = visualAll(section, name).first();
+        QVERIFY(QMetaObject::invokeMethod(field, "clicked"));
+        QQuickItem *preset = nullptr;
+        QTRY_VERIFY((preset = visibleItem(unplayed ? "colorPreset-5" : "colorPreset-3")));
+        QVERIFY(QMetaObject::invokeMethod(preset, "clicked"));
+        auto *confirm = visibleItem("colorConfirmAction");
+        QVERIFY(confirm);
+        QVERIFY(QMetaObject::invokeMethod(confirm, "clicked"));
+        const auto expected = unplayed ? "#118ab2" : "#ffd166";
+        QTRY_COMPARE(unplayed ? appearance->unplayedColor() : appearance->playedColor(),
+                     QString(expected));
+        QTRY_COMPARE(
+            globalRow->property(unplayed ? "unplayedColor" : "playedColor").value<QColor>(),
+            QColor(expected));
+        QTRY_VERIFY(!visibleItem("colorConfirmAction"));
+    }
+    QCOMPARE(appearance->textColor(), QString("#0071e3"));
+    QCOMPARE(appearance->unplayedTextColor(), QString("#ffcc00"));
+    appearance->resetColors();
+    appearance->resetSkinColors();
+    QTRY_COMPARE(globalRow->property("unplayedColor").value<QColor>(), QColor("#b9b9b9"));
     QList<QObject *> owners{playback.lyricAppearance(), session.windows.floating()->desktop(),
                             session.windows.floating()->mini()};
     const auto capture = qEnvironmentVariable("ECHO_FLOATING_CAPTURE_DIR");

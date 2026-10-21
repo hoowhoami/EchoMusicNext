@@ -209,6 +209,7 @@ ItemDelegate {
                     Layout.preferredWidth: 28
                     Layout.preferredHeight: 28
                     padding: 6
+                    hoverBackground: false
                     visible: Number(row.resourceId) > 0
                     opacity: row.hovered || row.visualFocus || rowActions.focusWithin ? 1 : 0
                     onClicked: row.mvRequested(row.resourceId)
@@ -222,6 +223,7 @@ ItemDelegate {
                     Layout.preferredWidth: 28
                     Layout.preferredHeight: 28
                     padding: 6
+                    hoverBackground: false
                     enabled: row.resourceId.length > 0
                     opacity: row.hovered || row.visualFocus || rowActions.focusWithin ? 1 : 0
                     onClicked: row.detailsRequested(row.resourceId)

@@ -80,8 +80,8 @@ void PlaybackRecoveryController::recover(bool stall)
     auto &p = m_playback;
     if (p.m_closing || !p.hasTrack() || p.m_loading || !p.m_autoplay)
         return;
-    if (m_attemptTrack != p.m_track.key()) {
-        m_attemptTrack = p.m_track.key();
+    if (m_attemptTrack != p.m_track.stableKey()) {
+        m_attemptTrack = p.m_track.stableKey();
         m_attempts = 0;
     }
     if (stall && m_attempts >= p.m_enginePreferences.playbackStallMaxAttempts()) {

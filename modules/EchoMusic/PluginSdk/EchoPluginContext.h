@@ -7,6 +7,8 @@
 #include "EchoPluginIo.h"
 #include "EchoPluginRegistry.h"
 #include "EchoPluginAudio.h"
+#include "EchoPluginAppearance.h"
+#include "EchoPluginViewContext.h"
 #include <QJSValue>
 #include <QQmlEngine>
 #include <QPointer>
@@ -23,6 +25,7 @@ class ShellController;
 class RouteController;
 class AccountService;
 class ApiClient;
+class FloatingPlayerController;
 struct PluginHost
 {
     PlaybackService &playback;
@@ -31,6 +34,7 @@ struct PluginHost
     RouteController &router;
     AccountService &account;
     ApiClient &api;
+    FloatingPlayerController *floating = nullptr;
 };
 /// One activation's GUI-thread scope. No raw host object is exposed to JS/QML.
 /// beginRetire invalidates delivery before cleanup, then waits for SQL drain.
@@ -39,6 +43,10 @@ class EchoPluginContext final : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Created by the plugin runtime")
+    Q_PROPERTY(EchoMusic::EchoPluginAppearance *theme READ appearance CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginAppearance *appearance READ appearance CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginFonts *fonts READ fonts CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginWindows *windows READ windows CONSTANT)
     Q_PROPERTY(QString id READ id CONSTANT)
     Q_PROPERTY(QString installationId READ installationId CONSTANT)
     Q_PROPERTY(QString activationGeneration READ activationGeneration CONSTANT)
@@ -54,8 +62,27 @@ class EchoPluginContext final : public QObject
     Q_PROPERTY(bool dark READ dark NOTIFY appearanceChanged)
 public:
     EchoPluginContext(PluginPackage package, quint64 generation, QQmlEngine &engine,
-                      PluginHost host, QString dataPath, QObject *parent);
+                      PluginHost host, QString dataPath, QObject *parent,
+                      EchoPluginContext *activation = nullptr, QString contextId = "main");
     ~EchoPluginContext() override;
+    EchoPluginContext *activationContext() const
+    {
+        return m_activation ? m_activation.data() : const_cast<EchoPluginContext *>(this);
+    }
+    EchoPluginContext *createPresentation(QObject *owner, const QString &surface);
+    QString registrationKey(const QString &kind, const QString &id) const;
+    EchoPluginAppearance *appearance() const
+    {
+        return m_appearance;
+    }
+    EchoPluginFonts *fonts() const
+    {
+        return m_fonts;
+    }
+    EchoPluginWindows *windows() const
+    {
+        return m_windows;
+    }
     QString id() const
     {
         return m_package.id;
@@ -70,7 +97,7 @@ public:
     }
     QString contextId() const
     {
-        return "main";
+        return m_contextId;
     }
     bool active() const
     {
@@ -136,6 +163,10 @@ public:
     {
         return m_host;
     }
+    QString dataPath() const
+    {
+        return m_dataPath;
+    }
     quint64 accountEpoch() const
     {
         return m_accountEpoch;
@@ -146,11 +177,23 @@ signals:
     void resourcesDrained();
     void callbackFailed(const QString &message);
 
+protected:
+    bool eventFilter(QObject *, QEvent *) override;
+
 private:
+    QPointer<EchoPluginContext> m_activation;
+    QPointer<QObject> m_presentationOwner;
+    QString m_contextId;
+    QList<QPointer<EchoPluginContext>> m_presentations;
+    quint64 m_presentationSequence = 0;
+    QString m_dataPath;
     PluginPackage m_package;
     quint64 m_generation, m_revision = 0, m_accountEpoch = 0;
     QQmlEngine &m_engine;
     PluginHost m_host;
+    EchoPluginAppearance *m_appearance;
+    EchoPluginFonts *m_fonts;
+    EchoPluginWindows *m_windows;
     EchoPluginAudio *m_audio;
     EchoPluginPlayer *m_player;
     EchoPluginUi *m_ui;

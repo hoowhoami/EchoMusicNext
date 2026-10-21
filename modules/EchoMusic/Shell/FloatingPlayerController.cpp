@@ -580,4 +580,59 @@ void FloatingPlayerController::shutdown()
         if (window)
             window->hide();
 }
+namespace
+{
+QVariantMap publicBounds(QQuickWindow *window)
+{
+    if (!window)
+        return {};
+    const auto r = window->geometry();
+    return {{"x", r.x()}, {"y", r.y()}, {"width", r.width()}, {"height", r.height()}};
+}
+} // namespace
+QVariantMap FloatingPlayerController::miniBounds() const
+{
+    return publicBounds(m_miniWindow);
+}
+QVariantMap FloatingPlayerController::desktopBounds() const
+{
+    return publicBounds(m_desktopWindow);
+}
+bool FloatingPlayerController::setPluginBounds(const QString &target, const QVariantMap &values)
+{
+    auto *window = target == "mini"      ? m_miniWindow.data()
+                   : target == "desktop" ? m_desktopWindow.data()
+                                         : nullptr;
+    if (!window || !window->isVisible() || values.isEmpty())
+        return false;
+    auto r = window->geometry();
+    for (auto it = values.begin(); it != values.end(); ++it) {
+        bool ok = false;
+        const auto value = it.value().toInt(&ok);
+        if (!ok || value < -100000 || value > 100000)
+            return false;
+        if (it.key() == "x")
+            r.moveLeft(value);
+        else if (it.key() == "y")
+            r.moveTop(value);
+        else if (it.key() == "width" && value >= window->minimumWidth() &&
+                 value <= window->maximumWidth())
+            r.setWidth(value);
+        else if (it.key() == "height" && value >= window->minimumHeight() &&
+                 value <= window->maximumHeight())
+            r.setHeight(value);
+        else
+            return false;
+    }
+    QList<QRect> areas;
+    for (auto screen : QGuiApplication::screens())
+        areas << screen->availableGeometry();
+    window->setGeometry(fitBounds(r, areas, window->geometry(), r.size()));
+    if (target == "mini")
+        saveMini();
+    else
+        saveDesktop();
+    emit changed();
+    return true;
+}
 } // namespace EchoMusic

@@ -16,7 +16,7 @@ Item {
     }
     Item {
         anchors.fill: parent
-        visible: Theme.store.themeKey === "custom" && Theme.store.backgroundImage.toString() !== ""
+        visible: Theme.store.extensions.theme === null && Theme.store.themeKey === "custom" && Theme.store.backgroundImage.toString() !== ""
         Image {
             id: artwork
             objectName: "themeBackgroundImage"
@@ -42,6 +42,29 @@ Item {
             anchors.fill: parent
             color: Theme.shell
             opacity: Theme.store.backgroundShade / 100
+        }
+    }
+    Loader {
+        anchors.fill: parent
+        active: background.visible && background.opacity > 0 && background.Window.window !== null && background.Window.window.visible && background.Window.window.visibility !== Window.Minimized && Object.keys(Theme.store.extensionAppearance.background || {}).length > 0
+        sourceComponent: ExtensionBackground {
+            entry: Theme.store.extensions.theme
+            recipe: Theme.store.extensionAppearance.background || {}
+        }
+    }
+    AppearanceHost {
+        anchors.fill: parent
+        entry: Theme.store.extensions.theme
+        placement: "background"
+        resourceActive: background.opacity > 0
+    }
+    Loader {
+        width: parent.width
+        height: parent.height * ((Theme.store.extensionAppearance.accentGradient || {}).height || 70) / 100
+        opacity: (Theme.store.extensionAppearance.accentGradient || {}).opacity === undefined ? 1 : Theme.store.extensionAppearance.accentGradient.opacity
+        active: background.visible && background.opacity > 0 && background.Window.window !== null && background.Window.window.visible && background.Window.window.visibility !== Window.Minimized && Object.keys(Theme.store.extensionAppearance.accentGradient || {}).length > 0
+        sourceComponent: ExtensionGradient {
+            recipe: Theme.store.extensionAppearance.accentGradient || {}
         }
     }
     Loader {

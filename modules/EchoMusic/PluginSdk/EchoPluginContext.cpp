@@ -15,15 +15,20 @@
 namespace EchoMusic
 {
 EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, QQmlEngine &engine,
-                                     PluginHost host, QString dataPath, QObject *parent)
-    : QObject(parent), m_package(std::move(package)), m_generation(generation), m_engine(engine),
-      m_host(host)
+                                     PluginHost host, QString dataPath, QObject *parent,
+                                     EchoPluginContext *activation, QString contextId)
+    : QObject(parent), m_activation(activation), m_contextId(std::move(contextId)),
+      m_package(std::move(package)), m_generation(generation), m_engine(engine), m_host(host)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
+    m_appearance = new EchoPluginAppearance(*this);
+    m_fonts = new EchoPluginFonts(*this);
+    m_windows = new EchoPluginWindows(*this);
     m_audio = new EchoPluginAudio(*this);
     m_player = new EchoPluginPlayer(*this, host.playback);
     m_ui = new EchoPluginUi(*this);
     m_plugins = new EchoPluginRegistry(*this);
+    m_dataPath = dataPath;
     m_io = new EchoPluginIo(*this, std::move(dataPath));
     connect(m_io, &EchoPluginIo::drained, this, &EchoPluginContext::resourcesDrained);
     connect(&host.theme, &ThemeStore::changed, this, [this] {
@@ -36,6 +41,9 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     });
     const auto invalidate = [this] {
         ++m_accountEpoch;
+        if (m_activation)
+            beginRetire();
+        m_host.theme.extensions()->invalidatePresentations();
         if (auto *registry = EchoUiPartRegistry::forEngine(m_engine))
             registry->requestSessionReset();
         const auto operations = m_operations;
@@ -128,7 +136,7 @@ EchoPluginRegistration *EchoPluginContext::registration(const QString &kind, con
         else
             ++it;
     }
-    const auto key = m_package.id + ':' + kind + ':' + id;
+    const auto key = registrationKey(kind, id);
     if (auto old = m_registrations.value(key))
         old->dispose();
     auto *lease = new EchoPluginRegistration(key, ++m_revision, this);
@@ -251,7 +259,7 @@ EchoPluginOperation *EchoPluginContext::executeCommand(const QString &id,
     if (!m_commands.contains(id))
         return rejected("Unavailable", "Command is not registered");
     return invokeRegistered(m_commands.value(id),
-                            m_registrations.value(m_package.id + ":command:" + id), arguments);
+                            m_registrations.value(registrationKey("command", id)), arguments);
 }
 EchoPluginOperation *EchoPluginContext::invokeRegistered(const QJSValue &callback,
                                                          QPointer<EchoPluginRegistration> lease,
@@ -305,11 +313,15 @@ void EchoPluginContext::beginRetire()
         return;
     m_retiring = true;
     m_accepting = false;
+    for (auto child : m_presentations)
+        if (child)
+            child->beginRetire();
     ++m_accountEpoch;
     emit activeChanged();
     // Executable/UI contributions disappear before arbitrary cleanup callbacks.
     for (auto it = m_resources.crbegin(); it != m_resources.crend(); ++it)
-        if (*it && !(*it)->key().contains(":cleanup:"))
+        if (*it && !((*it)->key().contains(":cleanup:") ||
+                     (*it)->key().contains(":cleanup.presentation.")))
             (*it)->dispose();
     const auto operations = m_operations;
     for (const auto &op : operations)
@@ -317,12 +329,18 @@ void EchoPluginContext::beginRetire()
             op->cancel();
     m_io->shutdown();
     for (auto it = m_resources.crbegin(); it != m_resources.crend(); ++it)
-        if (*it && (*it)->key().contains(":cleanup:"))
+        if (*it &&
+            ((*it)->key().contains(":cleanup:") || (*it)->key().contains(":cleanup.presentation.")))
             (*it)->dispose();
     m_commands.clear();
 }
 bool EchoPluginContext::drained() const
 {
-    return m_io->isDrained();
+    if (m_activation && m_presentationOwner)
+        return false;
+    for (auto child : m_presentations)
+        if (child && !child->drained())
+            return false;
+    return m_io->isDrained() && m_appearance->drained();
 }
 } // namespace EchoMusic

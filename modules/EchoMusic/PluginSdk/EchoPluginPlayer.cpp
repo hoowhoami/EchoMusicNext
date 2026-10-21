@@ -1,7 +1,10 @@
 #include "EchoPluginPlayer.h"
 #include "EchoPluginContext.h"
 #include "PlaybackService.h"
+#include "EchoPluginViewContext.h"
 #include <cmath>
+#include <QTimer>
+#include <QMetaMethod>
 namespace EchoMusic
 {
 EchoPluginReadModel::EchoPluginReadModel(QAbstractItemModel &source, QObject *parent)
@@ -41,7 +44,24 @@ EchoPluginPlayer::EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &ho
     : QObject(&scope), m_scope(scope), m_host(host), m_queue(*host.queue(), this),
       m_lyrics(*host.lyrics(), this)
 {
-    connect(&host, &PlaybackService::changed, this, &EchoPluginPlayer::changed);
+    m_previous = snapshot();
+    publishStateEvents();
+    connect(host.personalFm(), &PersonalFmController::changed, this, &EchoPluginPlayer::changed);
+    connect(&host, &PlaybackService::changed, this, [this] {
+        publishStateEvents();
+        emit changed();
+    });
+    connect(host.lyrics(), &LyricModel::changed, this, &EchoPluginPlayer::lyricChanged);
+    connect(host.lyrics(), &LyricModel::currentChanged, this, &EchoPluginPlayer::lyricChanged);
+    connect(host.lyricText(), &LyricTextController::changed, this, &EchoPluginPlayer::lyricChanged);
+    connect(&host, &PlaybackService::positionChanged, this, [this] {
+        if (isSignalConnected(QMetaMethod::fromSignal(&EchoPluginPlayer::eventOccurred)))
+            emit eventOccurred("timeupdate", snapshot());
+    });
+    connect(&host, &PlaybackService::playbackEnded, this,
+            [this] { emit eventOccurred("ended", snapshot()); });
+    connect(&host, &PlaybackService::seekCompleted, this,
+            [this] { emit eventOccurred("seek", snapshot()); });
     connect(&host, &PlaybackService::positionChanged, this, &EchoPluginPlayer::positionChanged);
 }
 QString EchoPluginPlayer::title() const
@@ -151,5 +171,167 @@ EchoPluginOperation *EchoPluginPlayer::move(int from, int to)
 EchoPluginOperation *EchoPluginPlayer::clear()
 {
     return command([this] { m_host.queue()->clear(); });
+}
+QVariantMap EchoPluginReadModel::row(int row) const
+{
+    if (row < 0 || row >= rowCount())
+        return {};
+    QVariantMap values;
+    const auto roles = roleNames();
+    for (auto it = roles.begin(); it != roles.end(); ++it)
+        values.insert(QString::fromUtf8(it.value()), data(index(row), it.key()));
+    return values;
+}
+QString EchoPluginPlayer::revision() const
+{
+    return QString::number(m_host.sourceRevision());
+}
+QVariantMap EchoPluginPlayer::lyricsInfo() const
+{
+    auto *lyrics = m_host.lyrics();
+    auto *text = m_host.lyricText();
+    return {{"count", lyrics->rowCount()},
+            {"currentIndex", lyrics->currentIndex()},
+            {"offsetMs", lyrics->offsetMs()},
+            {"scrollable", lyrics->scrollable()},
+            {"hasTranslation", lyrics->hasTranslation()},
+            {"hasRomanization", lyrics->hasRomanization()},
+            {"translation", text->wantTranslation()},
+            {"romanization", text->wantRomanization()},
+            {"conversion", text->conversion()},
+            {"globalOffsetMs", text->globalOffsetMs()},
+            {"trackOffsetMs", text->trackOffsetMs()},
+            {"offsetStep", text->offsetStep()},
+            {"state", m_host.lyricState()},
+            {"currentLine", lyrics->lineAt(lyrics->currentIndex())}};
+}
+QVariantMap EchoPluginPlayer::lyricSnapshot() const
+{
+    auto result = lyricsInfo();
+    QVariantList lines;
+    auto *model = m_host.lyrics();
+    for (int i = 0; i < model->rowCount(); ++i)
+        lines << model->lineAt(i);
+    result.insert("lines", lines);
+    result.insert("revision", revision());
+    return result;
+}
+QVariantMap EchoPluginPlayer::snapshot() const
+{
+    const auto &track = m_host.currentTrack();
+    return {{"revision", revision()},
+            {"track", QVariantMap{{"id", track.id},
+                                  {"hash", track.hash},
+                                  {"title", track.title},
+                                  {"artist", track.artist},
+                                  {"artistLinks", track.artistLinks()},
+                                  {"album", track.album},
+                                  {"albumId", QString::number(track.albumId)},
+                                  {"songId", QString::number(track.songId)},
+                                  {"cover", track.cover},
+                                  {"durationMs", QVariant::fromValue(track.durationMs)}}},
+            {"title", title()},
+            {"artist", artist()},
+            {"album", album()},
+            {"cover", coverUrl()},
+            {"coverColor", m_host.coverColor()},
+            {"playing", playing()},
+            {"loading", loading()},
+            {"hasTrack", hasTrack()},
+            {"positionMs", positionMs()},
+            {"durationMs", durationMs()},
+            {"volume", volume()},
+            {"speed", speed()},
+            {"playMode", int(m_host.playMode())},
+            {"quality", m_host.quality()},
+            {"effectiveQuality", m_host.effectiveQuality()},
+            {"resolvedQuality", m_host.resolvedQuality()},
+            {"effect", m_host.songEffect()},
+            {"appliedEffect", m_host.appliedSongEffect()},
+            {"sourceKind", m_host.sourceKind()},
+            {"sourceNotice", m_host.sourceNotice()},
+            {"favorite", m_host.libraryActions() && m_host.libraryActions()->favorite()},
+            {"favoriteBusy", m_host.libraryActions() && m_host.libraryActions()->favoriteLoading()},
+            {"personalFm", m_host.personalFm()->active()},
+            {"fm", QVariantMap{{"signedIn", m_host.personalFm()->signedIn()},
+                               {"busy", m_host.personalFm()->busy()},
+                               {"mode", m_host.personalFm()->mode()},
+                               {"songPool", m_host.personalFm()->songPool()},
+                               {"current", m_host.personalFm()->current()},
+                               {"sideTracks", m_host.personalFm()->sideTracks()},
+                               {"currentPlaying", m_host.personalFm()->currentPlaying()},
+                               {"errorMessage", m_host.personalFm()->errorMessage()}}},
+            {"errorMessage", errorMessage()},
+            {"lyrics", lyricsInfo()}};
+}
+void EchoPluginPlayer::publishStateEvents()
+{
+    const auto state = snapshot();
+    if (m_library != m_host.libraryActions()) {
+        disconnect(m_libraryConnection);
+        m_library = m_host.libraryActions();
+        if (m_library)
+            m_libraryConnection = connect(m_host.libraryActions(), &PlaybackLibraryActions::changed,
+                                          this, &EchoPluginPlayer::changed);
+    }
+    if (state.value("revision") != m_previous.value("revision"))
+        emit eventOccurred("trackchange", state);
+    if (state.value("playing") != m_previous.value("playing"))
+        emit eventOccurred(playing() ? "play" : "pause", state);
+    if (state.value("loading") != m_previous.value("loading") ||
+        state.value("playing") != m_previous.value("playing"))
+        emit eventOccurred("statechange", state);
+    if (!errorMessage().isEmpty() &&
+        state.value("errorMessage") != m_previous.value("errorMessage"))
+        emit eventOccurred("error", state);
+    m_previous = state;
+}
+EchoPluginOperation *EchoPluginPlayer::control(const QString &action, const QVariantMap &args)
+{
+    auto *view = new EchoPluginViewContext(m_scope, "main", nullptr);
+    auto *op = view->command(action, args);
+    if (op) {
+        connect(op, &EchoPluginOperation::completed, view, [this, view, op] {
+            op->setParent(&m_scope);
+            view->deleteLater();
+        });
+        if (op->finished()) {
+            op->setParent(&m_scope);
+            view->deleteLater();
+        }
+    } else
+        view->deleteLater();
+    return op;
+}
+EchoPluginRegistration *EchoPluginPlayer::on(const QString &id, const QString &event,
+                                             const QJSValue &callback, bool immediate)
+{
+    if (!callback.isCallable() || !QStringList{"trackchange", "statechange", "play", "pause",
+                                               "ended", "seek", "error", "timeupdate"}
+                                       .contains(event))
+        return nullptr;
+    auto *lease = m_scope.registration("playbackEvent", id);
+    if (!lease)
+        return nullptr;
+    auto connection = std::make_shared<QMetaObject::Connection>();
+    const auto deliver = [this, lease, callback](const QVariantMap &value) {
+        if (lease->active() && m_scope.active())
+            m_scope.call(callback, {m_scope.engine().toScriptValue(value)});
+    };
+    lease->stage(
+        [this, lease, event, deliver, immediate, connection] {
+            *connection = connect(this, &EchoPluginPlayer::eventOccurred, lease,
+                                  [event, deliver](const QString &name, const QVariantMap &value) {
+                                      if (event == name)
+                                          deliver(value);
+                                  });
+            if (immediate && (event != "play" || playing()))
+                QTimer::singleShot(0, lease, [this, deliver] { deliver(snapshot()); });
+            return true;
+        },
+        [connection] { QObject::disconnect(*connection); });
+    if (m_scope.committed() && !lease->commit())
+        lease->dispose();
+    return lease;
 }
 } // namespace EchoMusic

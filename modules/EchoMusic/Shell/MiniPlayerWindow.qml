@@ -16,6 +16,17 @@ Window {
     required property PlaybackService playback
     readonly property FloatingLyricPreferences style: service.mini
     readonly property bool showControls: hover.hovered || activeFocusItem !== null && activeFocusItem !== contentItem
+    readonly property var miniThemeColors: Theme.store.extensionAppearance.mini || {}
+    readonly property ThemeColors miniColors: ThemeColors {
+        tone: Theme.floating.tone
+        text: window.miniThemeColors.text || Theme.floatingText
+        secondaryText: window.miniThemeColors.secondaryText || Theme.floatingSecondaryText
+        elevated: window.miniThemeColors.background || Theme.floating.elevated
+        card: window.miniThemeColors.card || Theme.floatingCard
+        border: window.miniThemeColors.border || Theme.floatingBorder
+        accent: Theme.store.customAccent || Theme.store.accentSource === "cover" ? Theme.accent : window.miniThemeColors.accent || Theme.floating.accent
+        accentText: window.miniThemeColors.accentText || Theme.floatingAccentText
+    }
     readonly property bool live: visible && visibility !== Window.Minimized
     onLiveChanged: if (!live)
         volumePopupOwner.close()
@@ -68,9 +79,9 @@ Window {
         width: parent.width
         height: 64 + 296 * expansion
         radius: miniPart.value("radius", 16)
-        color: miniPart.replaced ? "transparent" : miniPart.value("background", Theme.floating.elevated)
-        border.width: miniPart.replaced ? 0 : miniPart.value("borderWidth", 1)
-        border.color: miniPart.value("borderColor", Theme.floatingBorder)
+        color: (miniPart.replaced || miniTheme.loaded) ? "transparent" : miniPart.value("background", (Theme.store.extensionAppearance.mini || {}).background || Theme.floating.elevated)
+        border.width: (miniPart.replaced || miniTheme.loaded) ? 0 : miniPart.value("borderWidth", 1)
+        border.color: miniPart.value("borderColor", window.miniColors.border)
         clip: true
         Behavior on expansion {
             NumberAnimation {
@@ -78,9 +89,24 @@ Window {
                 easing.type: Easing.OutCubic
             }
         }
+        AppearanceHost {
+            id: miniTheme
+            objectName: "pluginMiniThemeHost"
+            anchors.fill: parent
+            z: 1
+            entry: Theme.store.extensions.theme
+            placement: "mini"
+            resourceActive: window.live && !miniPart.replaced
+        }
+        AppearanceHost {
+            anchors.fill: parent
+            entry: Theme.store.extensions.theme
+            placement: "mini.background"
+            resourceActive: window.live && !miniPart.replaced && !miniTheme.loaded
+        }
         Item {
             anchors.fill: parent
-            visible: !miniPart.replaced
+            visible: !miniPart.replaced && !miniTheme.loaded
             PluginSurfaceHost {
                 anchors.left: parent.left
                 anchors.right: parent.right
@@ -130,14 +156,14 @@ Window {
                         text: window.service.panel === "queue" ? window.playback.queueTitle : qsTr("歌词")
                         textFormat: Text.PlainText
                         font: Theme.font(12, 600)
-                        color: Theme.floatingSecondaryText
+                        color: window.miniColors.secondaryText
                         elide: Text.ElideRight
                     }
                     EchoSoftButton {
                         visible: window.service.panel === "lyric"
                         size: EchoControlSize.Small
                         text: qsTr("译")
-                        colors: Theme.floating
+                        colors: window.miniColors
                         enabled: window.playback.lyrics.hasTranslation
                         accent: window.playback.lyricText.wantTranslation
                         onClicked: window.playback.lyricText.wantTranslation = !window.playback.lyricText.wantTranslation
@@ -146,7 +172,7 @@ Window {
                         visible: window.service.panel === "lyric"
                         size: EchoControlSize.Small
                         text: qsTr("音")
-                        colors: Theme.floating
+                        colors: window.miniColors
                         enabled: window.playback.lyrics.hasRomanization
                         accent: window.playback.lyricText.wantRomanization
                         onClicked: window.playback.lyricText.wantRomanization = !window.playback.lyricText.wantRomanization
@@ -159,7 +185,7 @@ Window {
                         padding: 7
                         glyph: "dots"
                         text: qsTr("歌词操作")
-                        colors: Theme.floating
+                        colors: window.miniColors
                         onClicked: lyricMenuOwner.popup(lyricMenuAction, 0, lyricMenuAction.height)
                     }
                     EchoIconButton {
@@ -168,7 +194,7 @@ Window {
                         padding: 7
                         glyph: "settings"
                         text: qsTr("歌词设置")
-                        colors: Theme.floating
+                        colors: window.miniColors
                         onClicked: window.service.openSettings()
                     }
                     EchoIconButton {
@@ -177,7 +203,7 @@ Window {
                         padding: 7
                         glyph: "chevron-down"
                         text: qsTr("收起面板")
-                        colors: Theme.floating
+                        colors: window.miniColors
                         onClicked: window.service.setPanel("")
                     }
                 }
@@ -223,13 +249,13 @@ Window {
                         baseFont: Theme.store.miniLyricBaseFont
                         anchors.fill: parent
                         playback: window.playback
-                        colors: Theme.floating
+                        colors: window.miniColors
                         renderTime: timeline.renderTime
                         resourceActive: timeline.visible && window.live
                         fontSize: window.style.fontSize
                         textWeight: window.style.fontWeight
                         textColor: window.style.followCoverColor ? Theme.store.lyricAccent(window.playback.coverColor) : window.style.playedColor || Theme.accentText
-                        unplayedColor: window.style.unplayedFollowCoverColor ? Theme.store.lyricAccent(window.playback.coverColor) : window.style.unplayedColor || Theme.floatingSecondaryText
+                        unplayedColor: window.style.unplayedFollowCoverColor ? Theme.store.lyricAccent(window.playback.coverColor) : window.style.unplayedColor || window.miniColors.secondaryText
                         secondaryFontSize: window.style.secondaryFontSize
                         secondaryGap: window.style.lineGap
                         horizontalAlignment: window.style.alignment === "left" ? Qt.AlignLeft : window.style.alignment === "right" ? Qt.AlignRight : Qt.AlignHCenter
@@ -246,7 +272,7 @@ Window {
                     anchors.centerIn: parent
                     visible: window.service.panel === "queue" && (!window.playback.queue || window.playback.queue.count === 0)
                     text: qsTr("播放队列为空")
-                    color: Theme.floatingSecondaryText
+                    color: window.miniColors.secondaryText
                     font: Theme.font(12, Theme.regularWeight)
                 }
                 ListView {
@@ -291,7 +317,7 @@ Window {
                                     Layout.preferredWidth: 30
                                     Layout.preferredHeight: 30
                                     resourceActive: window.live && queue.visible
-                                    colors: Theme.floating
+                                    colors: window.miniColors
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -299,7 +325,7 @@ Window {
                                     textFormat: Text.PlainText
                                     elide: Text.ElideRight
                                     font: Theme.font(12, song.current ? 600 : 400)
-                                    color: song.current ? Theme.accentText : Theme.floatingText
+                                    color: song.current ? Theme.accentText : window.miniColors.text
                                 }
                                 EchoIcon {
                                     visible: song.current
@@ -334,7 +360,7 @@ Window {
                             implicitWidth: 18
                             implicitHeight: 20
                             padding: 3
-                            colors: Theme.floating
+                            colors: window.miniColors
                             glyph: "x"
                             text: qsTr("关闭 Mini")
                             onClicked: window.service.closeMini()
@@ -343,7 +369,7 @@ Window {
                             implicitWidth: 18
                             implicitHeight: 20
                             padding: 3
-                            colors: Theme.floating
+                            colors: window.miniColors
                             glyph: "square"
                             text: qsTr("回到主窗口")
                             tooltipText: text
@@ -362,7 +388,7 @@ Window {
                             objectName: "miniPlayerCover"
                             source: window.playback.cover
                             resourceActive: window.live
-                            colors: Theme.floating
+                            colors: window.miniColors
                             cornerRadius: Theme.mediaRadius
                         }
                         onClicked: window.service.setPanel(window.service.panel === "lyric" ? "" : "lyric")
@@ -390,7 +416,7 @@ Window {
                                 lineHeight: 18
                                 text: window.playback.title
                                 font: Theme.font(13, 700)
-                                color: Theme.floatingText
+                                color: window.miniColors.text
                             }
                             EchoTextTagRow {
                                 objectName: "miniPlayerArtist"
@@ -399,7 +425,7 @@ Window {
                                 lineHeight: 15
                                 text: window.playback.artist || "EchoMusic"
                                 font: Theme.font(11, 600)
-                                color: Theme.floatingSecondaryText
+                                color: window.miniColors.secondaryText
                             }
                         }
                         RowLayout {
@@ -416,7 +442,7 @@ Window {
                                 implicitWidth: 28
                                 implicitHeight: 30
                                 padding: 7
-                                colors: Theme.floating
+                                colors: window.miniColors
                                 glyph: "player-skip-back"
                                 text: qsTr("上一首")
                                 onClicked: window.playback.previous()
@@ -426,7 +452,7 @@ Window {
                                 implicitWidth: 30
                                 implicitHeight: 32
                                 padding: 7
-                                colors: Theme.floating
+                                colors: window.miniColors
                                 glyph: window.playback.playing ? "pause" : "play"
                                 animatePlayPause: true
                                 text: window.playback.playing ? qsTr("暂停") : qsTr("播放")
@@ -436,7 +462,7 @@ Window {
                                 implicitWidth: 28
                                 implicitHeight: 30
                                 padding: 7
-                                colors: Theme.floating
+                                colors: window.miniColors
                                 glyph: "player-skip-forward"
                                 text: qsTr("下一首")
                                 onClicked: window.playback.next()
@@ -450,13 +476,13 @@ Window {
                             implicitWidth: 24
                             implicitHeight: 30
                             padding: 4
-                            colors: Theme.floating
+                            colors: window.miniColors
                             glyph: "pinned"
                             text: window.style.alwaysOnTop ? qsTr("取消置顶") : qsTr("窗口置顶")
                             tooltipText: text
                             checkable: true
                             checked: window.style.alwaysOnTop
-                            foreground: checked ? Theme.accentText : Theme.floatingSecondaryText
+                            foreground: checked ? Theme.accentText : window.miniColors.secondaryText
                             onClicked: window.style.alwaysOnTop = !window.style.alwaysOnTop
                         }
                         EchoIconButton {
@@ -464,7 +490,7 @@ Window {
                             implicitWidth: 24
                             implicitHeight: 30
                             padding: 4
-                            colors: Theme.floating
+                            colors: window.miniColors
                             foreground: window.playback.libraryActions && window.playback.libraryActions.favorite ? "#ef4444" : hoverHighlighted ? Theme.floating.accentText : Theme.floating.iconMain
                             glyph: window.playback.libraryActions && window.playback.libraryActions.favorite ? "heart-filled" : "heart"
                             text: qsTr("收藏当前歌曲")
@@ -476,22 +502,32 @@ Window {
                             implicitWidth: 24
                             implicitHeight: 30
                             padding: 4
-                            colors: Theme.floating
+                            colors: window.miniColors
                             glyph: "list"
                             text: qsTr("播放队列")
-                            foreground: window.service.panel === "queue" ? Theme.accentText : Theme.floatingText
+                            foreground: window.service.panel === "queue" ? Theme.accentText : window.miniColors.text
                             onClicked: window.service.setPanel(window.service.panel === "queue" ? "" : "queue")
                         }
                         EchoIconButton {
                             implicitWidth: 24
                             implicitHeight: 30
                             padding: 4
-                            colors: Theme.floating
+                            colors: window.miniColors
                             glyph: "typography"
                             objectName: "miniPlayerDesktopLyric"
                             text: qsTr("桌面歌词")
-                            foreground: window.service.desktopEnabled ? Theme.accentText : Theme.floatingText
+                            foreground: window.service.desktopEnabled ? Theme.accentText : window.miniColors.text
                             onClicked: window.service.toggleDesktop()
+                        }
+                        EchoIconButton {
+                            objectName: "miniPlayerThemeAction"
+                            implicitWidth: 24
+                            implicitHeight: 30
+                            padding: 4
+                            colors: window.miniColors
+                            glyph: "palette"
+                            text: qsTr("主题")
+                            onClicked: Theme.store.extensions.request("themes")
                         }
                         EchoIconButton {
                             id: volumeAction
@@ -499,7 +535,7 @@ Window {
                             implicitWidth: 24
                             implicitHeight: 30
                             padding: 4
-                            colors: Theme.floating
+                            colors: window.miniColors
                             glyph: window.playback.volume > 0 ? "volume" : "volume-off"
                             text: qsTr("音量")
                             onClicked: volumePopupOwner.visible ? volumePopupOwner.close() : volumePopupOwner.open()
@@ -520,7 +556,7 @@ Window {
                     playback: window.playback
                     compact: true
                     edgeToEdge: true
-                    colors: Theme.floating
+                    colors: window.miniColors
                 }
             }
         }
@@ -578,6 +614,14 @@ Window {
             onReleased: window.service.endMiniWidthResize()
             onCanceled: window.service.endMiniWidthResize()
         }
+    }
+    // Nonactivating panels need an explicit host-press dismissal. Filter before
+    // Qt's overlay so a trigger click closes once instead of closing/reopening.
+    EchoPopupDismissGuard {
+        overlay: window.contentItem
+        enabled: volumePopupOwner.visible
+        dismissOnWindowPress: true
+        onOutsidePressed: volumePopupOwner.close()
     }
     EchoPopupLoader {
         id: volumePopupOwner

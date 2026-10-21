@@ -8,6 +8,12 @@ import EchoMusic.Playback
 
 Item {
     id: bar
+    AppearanceHost {
+        anchors.fill: parent
+        entry: Theme.store.extensions.theme
+        placement: "playerbar"
+        z: 0
+    }
     EchoUiPart {
         id: publicSurface
         target: bar

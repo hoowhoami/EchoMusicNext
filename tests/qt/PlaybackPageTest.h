@@ -23,6 +23,7 @@ private slots:
     void clearingCurrentQueueClearsLyrics();
     void lyricResourcesReleaseAcrossPageCycles();
     void preferencesValidateAndPersistWithoutResettingGlobalBackground();
+    void lyricColorLayersResolvePerSlotInQml();
     void optionalArtworkCancelsStaleTrackAndRestoresBoundedMemoryCache();
     void interludeMotionMatchesObservedReference();
     void interludeHasIndependentRowAndNativePixels();

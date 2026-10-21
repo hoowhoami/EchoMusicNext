@@ -61,14 +61,16 @@ void EchoPluginRegistry::setResolver(std::function<EchoPluginContext *(const QSt
 }
 EchoPluginContext *EchoPluginRegistry::provider(const QString &pluginId) const
 {
-    if (!m_scope.active() || !m_resolver)
+    if (!m_scope.active() || (!m_resolver && m_scope.activationContext() == &m_scope))
         return nullptr;
     const auto &package = m_scope.package();
     const auto range =
         package.dependencies.value(pluginId, package.optionalDependencies.value(pluginId));
     if (range.isEmpty())
         return nullptr;
-    auto *scope = m_resolver(pluginId);
+    auto *scope = m_scope.activationContext() != &m_scope
+                      ? m_scope.activationContext()->plugins()->provider(pluginId)
+                      : m_resolver(pluginId);
     return scope && scope->active() && scope->committed() &&
                    PluginPackage::versionMatches(range, scope->package().version)
                ? scope
@@ -92,6 +94,8 @@ EchoPluginRegistration *EchoPluginRegistry::registerService(const QString &id,
                                                             const QString &version,
                                                             const QJSValue &methods)
 {
+    if (m_scope.contextId() != "main")
+        return nullptr;
     if (!PluginPackage::versionMatches("=" + version, version) || !methods.isObject() ||
         methods.isArray())
         return nullptr;

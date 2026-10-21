@@ -23,8 +23,8 @@ bool needsArtistCompletion(const QJsonObject &song)
 QJsonArray SongMetadataService::artistRefs(const QString &artist)
 {
     QJsonArray refs;
-    const auto names = artist.split(QRegularExpression(QStringLiteral("\\s*/\\s*")),
-                                    Qt::SkipEmptyParts);
+    const auto names =
+        artist.split(QRegularExpression(QStringLiteral("\\s*/\\s*")), Qt::SkipEmptyParts);
     for (const auto &name : names)
         if (!name.trimmed().isEmpty())
             refs.append(QJsonObject{{"name", name.trimmed()}, {"id", {}}});

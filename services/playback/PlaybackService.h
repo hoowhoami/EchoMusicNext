@@ -452,6 +452,8 @@ signals:
     void progressBusyReasonChanged();
     /// Track/source changes and seek confirmation reset presentation interpolation.
     void timelineReset();
+    void playbackEnded();
+    void seekCompleted();
     void historyLoaded(const QJsonArray &entries);
     void historyFailed(const QString &message);
     /// Corrected identity facts from the playing file's own tags. Identity is
@@ -482,6 +484,9 @@ private:
     /// ("cloud:<hash>" + cloud file record + duration) once the index knows the
     /// audio hash. No-op for local files and catalog songs.
     bool adoptCloudIdentity(PlaybackTrack &track) const;
+    /// Re-apply the live identity to an asynchronous source snapshot that may
+    /// still carry the legacy view id observed when the request started.
+    PlaybackTrack mergeResolvedTrack(const PlaybackTrack &track) const;
     void resolve();
     void loadNextUrl();
     void refreshCurrentSource();

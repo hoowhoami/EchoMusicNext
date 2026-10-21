@@ -1,4 +1,5 @@
 #pragma once
+#include "AppearanceCatalog.h"
 #include <QColor>
 #include <atomic>
 #include <memory>
@@ -26,6 +27,8 @@ class ThemeStore final : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_SINGLETON
+    Q_PROPERTY(EchoMusic::AppearanceCatalog *extensions READ extensions CONSTANT)
+    Q_PROPERTY(QVariantMap extensionAppearance READ extensionAppearance NOTIFY changed)
     Q_PROPERTY(bool motionEnabled READ motionEnabled NOTIFY changed)
     Q_PROPERTY(QFont applicationFont READ applicationFont NOTIFY fontChanged)
     Q_PROPERTY(QString globalFont READ globalFont WRITE setGlobalFont NOTIFY fontChanged)
@@ -72,6 +75,7 @@ class ThemeStore final : public QObject
     Q_PROPERTY(QColor floatingCard READ floatingCard NOTIFY changed)
     Q_PROPERTY(QColor floatingBorder READ floatingBorder NOTIFY changed)
     Q_PROPERTY(QColor floatingAccentText READ floatingAccentText NOTIFY changed)
+    Q_PROPERTY(QColor floatingAccent READ floatingAccent NOTIFY changed)
     Q_PROPERTY(QString accentSource READ accentSource NOTIFY changed)
     Q_PROPERTY(bool coverAtmosphere READ coverAtmosphere WRITE setCoverAtmosphere NOTIFY changed)
     Q_PROPERTY(int atmosphereHeight READ atmosphereHeight WRITE setAtmosphereHeight NOTIFY changed)
@@ -91,11 +95,20 @@ class ThemeStore final : public QObject
     Q_PROPERTY(bool imageImporting READ imageImporting NOTIFY changed)
     Q_PROPERTY(QString imageError READ imageError NOTIFY changed)
 public:
+    AppearanceCatalog *extensions() const
+    {
+        return m_extensions;
+    }
+    QVariantMap extensionAppearance() const
+    {
+        return m_extensionAppearance;
+    }
     enum Mode
     {
         System,
         Light,
-        Dark
+        Dark,
+        ThemeDefault
     };
     Q_ENUM(Mode)
     Q_INVOKABLE QFont styledFont(const QFont &base, qreal pixelSize, int weight,
@@ -149,6 +162,12 @@ public:
     }
     bool dark() const
     {
+        if (m_mode == ThemeDefault) {
+            auto entry = m_extensions ? m_extensions->theme() : nullptr;
+            if (entry && entry->defaultMode != "system")
+                return entry->defaultMode == "dark";
+            return m_systemDark;
+        }
         return m_mode == Dark || (m_mode == System && m_systemDark);
     }
     QString themeKey() const
@@ -203,27 +222,27 @@ public:
     }
     QColor shell() const
     {
-        return m_palette.shell;
+        return extensionSurface("shell", m_palette.shell);
     }
     QColor sidebar() const
     {
-        return m_palette.sidebar;
+        return extensionSurface("sidebar", m_palette.sidebar);
     }
     QColor main() const
     {
-        return m_palette.main;
+        return extensionSurface("main", m_palette.main);
     }
     QColor player() const
     {
-        return m_palette.player;
+        return extensionSurface("player", m_palette.player);
     }
     QColor card() const
     {
-        return m_palette.card;
+        return extensionSurface("card", m_palette.card);
     }
     QColor elevated() const
     {
-        return m_palette.elevated;
+        return extensionSurface("elevated", m_palette.elevated);
     }
     QColor text() const
     {
@@ -261,6 +280,12 @@ public:
     QColor floatingBorder() const
     {
         return m_floatingBorder;
+    }
+    QColor floatingAccent() const
+    {
+        const QColor value(
+            m_extensionAppearance.value("floating").toMap().value("accent").toString());
+        return !m_customAccent && !m_coverAccent && value.isValid() ? value : m_accent;
     }
     QColor floatingAccentText() const
     {
@@ -387,6 +412,7 @@ private:
     QString m_miniLyricFont = QStringLiteral("follow");
     void setLyricFontPreference(QString &preference, const QString &key, const QString &family);
     QFont resolvedLyricFont(const QString &family) const;
+    QColor extensionSurface(const QString &, const QColor &) const;
     void resolve();
     void save();
     QJsonObject backgroundDraft() const;
@@ -395,8 +421,10 @@ private:
     void scheduleImageSample();
     void cleanImages();
     QSettings &m_settings;
+    AppearanceCatalog *m_extensions = nullptr;
+    QVariantMap m_extensionAppearance;
     ThemePalette m_palette;
-    Mode m_mode = System;
+    Mode m_mode = ThemeDefault;
     bool m_motion = true, m_systemDark = false, m_customAccent = false;
     QString m_key = "echo";
     QColor m_seed = QColor("#6b9bd1"), m_selectedAccent = QColor("#0071e3"), m_accent, m_accentText;

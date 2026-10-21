@@ -374,11 +374,11 @@ void CloudService::applyPlaybackFacts(const QJsonObject &facts)
     for (auto &item : m_items) {
         const auto rowCloud = item.value("metadata").toObject().value("cloud_source").toObject();
         const auto itemHash = item.value("song").toObject().value("hash").toString();
-        const auto same = (fileId && quint64(rowCloud.value("file_id").toInteger()) == fileId) ||
-                          (!hash.isEmpty() &&
-                           (itemHash.compare(hash, Qt::CaseInsensitive) == 0 ||
-                            rowCloud.value("hash").toString().compare(hash,
-                                                                      Qt::CaseInsensitive) == 0));
+        const auto same =
+            (fileId && quint64(rowCloud.value("file_id").toInteger()) == fileId) ||
+            (!hash.isEmpty() &&
+             (itemHash.compare(hash, Qt::CaseInsensitive) == 0 ||
+              rowCloud.value("hash").toString().compare(hash, Qt::CaseInsensitive) == 0));
         if (!same)
             continue;
         matchedFiles.insert(quint64(item.value("file_id").toInteger()));

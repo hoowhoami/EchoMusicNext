@@ -1,6 +1,127 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
 
+#ifdef Q_OS_MACOS
+QVariantMap nativeMacApplicationPresentation();
+#endif
+
+void DesktopPagesTest::miniVolumeDismissesAcrossHost_data()
+{
+    QTest::addColumn<bool>("pinned");
+    QTest::newRow("unpinned") << false;
+    QTest::newRow("pinned") << true;
+}
+
+void DesktopPagesTest::miniVolumeDismissesAcrossHost()
+{
+    QFETCH(bool, pinned);
+    Session session;
+    session.theme.setMotionEnabled(false);
+    PlaybackService playback(session.api, session.preferences);
+    session.theme.attachToEngine(session.engine);
+    const auto cleanup = qScopeGuard([&session] {
+        session.router.shutdown();
+        session.commands.shutdown();
+        session.windows.shutdown();
+        session.root.reset();
+        session.window = nullptr;
+    });
+    auto *floating = session.windows.floating();
+    floating->mini()->setAlwaysOnTop(pinned);
+    floating->showMini();
+    QQmlComponent component(&session.engine,
+                            QUrl("qrc:/qt/qml/EchoMusic/Shell/MiniPlayerWindow.qml"));
+    session.root.reset(
+        component.createWithInitialProperties({{"service", QVariant::fromValue(floating)},
+                                               {"playback", QVariant::fromValue(&playback)}}));
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    auto *mini = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(mini);
+    QVERIFY(Test::prepareNativeInput(mini));
+    auto *volume = visual(mini->contentItem(), "miniPlayerVolume");
+    QVERIFY(volume);
+    auto *owner = mini->findChild<QObject *>("miniPlayerVolumePopupOwner");
+    QVERIFY(owner);
+    bool activationLost = false;
+    const auto activationConnection = connect(
+        qGuiApp, &QGuiApplication::applicationStateChanged, mini,
+        [&](Qt::ApplicationState state) { activationLost |= state != Qt::ApplicationActive; });
+    const auto disconnectActivation = qScopeGuard([&] { disconnect(activationConnection); });
+    for (const QString panel : {QString(), QString("lyric"), QString("queue")}) {
+        floating->setPanel(panel);
+        QTRY_COMPARE(mini->height(), panel.isEmpty() ? 64 : 360);
+        // Include the resize handles, ordinary controls, and the expanded card.
+        for (int target = 0; target < 5; ++target) {
+            QVERIFY(!owner->property("item").value<QObject *>());
+            QSignalSpy hostFrames(mini, &QQuickWindow::frameSwapped);
+            mini->update();
+            QTRY_VERIFY(!hostFrames.isEmpty());
+            QVERIFY(volume->isVisible() && volume->width() > 0);
+            const auto volumePoint =
+                volume->mapToScene({volume->width() / 2, volume->height() / 2}).toPoint();
+#ifdef Q_OS_MACOS
+            const auto beforeOpening = QGuiApplication::platformName() == "cocoa"
+                                           ? nativeMacApplicationPresentation()
+                                           : QVariantMap();
+#endif
+            activationLost = false;
+            Test::moveNativePointer(mini, volumePoint);
+            QTest::mouseClick(mini, Qt::LeftButton, Qt::NoModifier, volumePoint);
+            QPointer<QObject> popup;
+            QTRY_VERIFY((popup = owner->property("item").value<QObject *>()));
+            QTRY_VERIFY(popup->property("opened").toBool());
+            QVERIFY(!popup->property("modal").toBool());
+            auto *content = popup->property("contentItem").value<QQuickItem *>();
+            QVERIFY(content && content->window());
+            auto *popupWindow = content->window();
+            QCOMPARE(popupWindow->modality(), Qt::NonModal);
+            QSignalSpy frames(popupWindow, &QQuickWindow::frameSwapped);
+            popupWindow->update();
+            QTRY_VERIFY(!frames.isEmpty());
+            // Do not reactivate Mini after opening: doing so would conceal the
+            // reported activation handoff to another application.
+#ifdef Q_OS_MACOS
+            if (QGuiApplication::platformName() == "cocoa") {
+                const auto state = nativeMacApplicationPresentation();
+                QCOMPARE(state.value("active"), beforeOpening.value("active"));
+                QCOMPARE(state.value("frontmostPid"), beforeOpening.value("frontmostPid"));
+                if (beforeOpening.value("active").toBool())
+                    QVERIFY(!activationLost);
+            }
+#endif
+            if (panel.isEmpty() && target == 0) {
+                auto *slider = visual(content, "playbackVolumeSlider");
+                auto *mute = visual(content, "playbackVolumeMute");
+                QVERIFY(slider && mute);
+                QTest::mouseClick(
+                    popupWindow, Qt::LeftButton, Qt::NoModifier,
+                    slider->mapToScene({slider->width() * .8, slider->height() / 2}).toPoint());
+                QTRY_VERIFY(playback.volume() > 70);
+                const auto mutePoint =
+                    mute->mapToScene({mute->width() / 2, mute->height() / 2}).toPoint();
+                QTest::mouseClick(popupWindow, Qt::LeftButton, Qt::NoModifier, mutePoint);
+                QTRY_COMPARE(playback.volume(), 0.);
+                QTest::mouseClick(popupWindow, Qt::LeftButton, Qt::NoModifier, mutePoint);
+                QTRY_VERIFY(playback.volume() > 70);
+            }
+            const QPoint point = target == 0   ? QPoint(2, 30)
+                                 : target == 1 ? QPoint(mini->width() - 2, 30)
+                                 : target == 2 ? volumePoint
+                                               : QPoint(mini->width() / 2, mini->height() / 2);
+            const auto bounds = mini->geometry();
+            if (target == 4) {
+                QTest::keyClick(popupWindow, Qt::Key_Escape);
+            } else {
+                Test::moveNativePointer(mini, point);
+                QTest::mouseClick(mini, Qt::LeftButton, Qt::NoModifier, point);
+            }
+            QTRY_VERIFY(popup.isNull());
+            QCOMPARE(mini->geometry(), bounds);
+            QCOMPARE(floating->panel(), panel);
+        }
+    }
+}
+
 void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
 {
     Session session;
@@ -428,6 +549,7 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
     QCOMPARE(volumeSlider->property("orientation").toInt(), int(Qt::Horizontal));
     popupWindow = volumeSlider->window();
     QVERIFY(popupWindow);
+    QCOMPARE(popupWindow->modality(), Qt::NonModal);
     if (QGuiApplication::platformName() != "offscreen") {
         QVERIFY(popupWindow != mini);
         QTRY_VERIFY(QTest::qWaitForWindowExposed(popupWindow));
@@ -444,6 +566,7 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
                 QTRY_VERIFY(volumeOpened());
                 popupWindow = volumeSlider->window();
                 QVERIFY(popupWindow);
+                QCOMPARE(popupWindow->modality(), Qt::NonModal);
                 QCOMPARE(popupWindow->transientParent(), mini);
                 mini->raise();
                 const auto hostNumber =
@@ -457,7 +580,15 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
                 if (!pinned)
                     QVERIFY(nativeFloatingAppearance(popupWindow).value("level").toLongLong() <
                             1000);
+                Test::moveNativePointer(mini, {16, 55});
+                QTest::mouseClick(mini, Qt::LeftButton, Qt::NoModifier, {16, 55});
+                QTRY_VERIFY(popup.isNull());
             }
+            click(mini, volume);
+            QTRY_VERIFY(volumeOpened());
+            popupWindow = volumeSlider->window();
+            QVERIFY(popupWindow);
+            QCOMPARE(popupWindow->modality(), Qt::NonModal);
         }
 #endif
     }

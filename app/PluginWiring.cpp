@@ -55,9 +55,18 @@ void AppContext::createPlugins()
                : QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)) +
         QStringLiteral("/plugins");
     m_plugins = std::make_unique<PluginRuntime>(
-        engine, settings, PluginHost{playback, theme, shellController, router, account, api},
+        engine, settings,
+        PluginHost{playback, theme, shellController, router, account, api, window.floating()},
         pluginRoot, m_pluginSafeMode);
     auto &plugins = *m_plugins;
+    bind(theme.extensions(), &AppearanceCatalog::contributionFailed, &shellController,
+         [&theme, &shellController](const QString &key, const QString &message) {
+             auto *entry = theme.extensions()->find(key);
+             const auto title = entry ? entry->title : QObject::tr("插件外观");
+             qWarning().noquote() << "Appearance" << key << message;
+             shellController.toasts()->show(QObject::tr("%1 加载失败").arg(title),
+                                            ToastService::Warning, 6000);
+         });
     m_pluginManager = std::make_unique<PluginManager>(plugins, settings);
     auto &pluginManager = *m_pluginManager;
     pluginManager.attachSharing(shareCommands);

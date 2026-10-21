@@ -46,7 +46,7 @@ PlaybackFailureController::PlaybackFailureController(PlaybackService &playback)
     connect(&m_timer, &QTimer::timeout, this, [this] {
         auto &p = m_playback;
         if (p.m_closing || m_sequence != p.m_sequence || m_revision != p.m_api.sessionRevision() ||
-            m_trackKey != p.m_track.key() || p.m_playing || p.m_loading || !p.m_autoplay ||
+            m_trackKey != p.m_track.stableKey() || p.m_playing || p.m_loading || !p.m_autoplay ||
             !p.m_preferences.autoNext() || m_attempts >= p.m_preferences.autoNextMaxAttempts())
             return;
         if (p.m_personalFm->active()) {
@@ -132,7 +132,7 @@ void PlaybackFailureController::failed()
     if (scheduled) {
         m_sequence = sequence;
         m_revision = session;
-        m_trackKey = p.m_track.key();
+        m_trackKey = p.m_track.stableKey();
         m_timer.start(p.m_preferences.autoNextDelaySeconds() * 1000);
     }
     if (key == m_noticeKey && sequence == m_noticeSequence && session == m_noticeSession)

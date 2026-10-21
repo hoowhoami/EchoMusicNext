@@ -1444,6 +1444,7 @@ Window {
                     window, button->mapToScene(QPointF(button->width() / 2, button->height() / 2))
                                 .toPoint());
                 QTRY_VERIFY(button->opacity() > .9);
+                QCOMPARE(button->property("hoverBackground").toBool(), false);
                 click(window, button);
                 QCOMPARE(router.current()->name(), entry == "songDetailsAction"
                                                        ? QString("song-detail")

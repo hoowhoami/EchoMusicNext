@@ -35,7 +35,7 @@ public:
     }
     bool hasContext(const PlaybackTrack &track) const
     {
-        return m_context && m_track.key() == track.key();
+        return m_context && m_track.stableKey() == track.stableKey();
     }
     static bool mediaError(const QJsonObject &event);
     static QStringList mvHashes(const QJsonArray &videos);

@@ -1,5 +1,8 @@
 #pragma once
 #include "EchoPluginOperation.h"
+#include "EchoPluginRegistration.h"
+#include <QJSValue>
+#include <QPointer>
 #include <QAbstractListModel>
 #include <QVariantMap>
 #include <QUrl>
@@ -19,6 +22,7 @@ public:
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
+    Q_INVOKABLE QVariantMap row(int index) const;
 
 private:
     QAbstractItemModel &m_source;
@@ -28,6 +32,9 @@ class EchoPluginPlayer final : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Owned by EchoPluginContext")
+    Q_PROPERTY(QVariantMap snapshot READ snapshot NOTIFY changed)
+    Q_PROPERTY(QVariantMap lyricsInfo READ lyricsInfo NOTIFY lyricChanged)
+    Q_PROPERTY(QString revision READ revision NOTIFY changed)
     Q_PROPERTY(QString title READ title NOTIFY changed)
     Q_PROPERTY(QString artist READ artist NOTIFY changed)
     Q_PROPERTY(QString album READ album NOTIFY changed)
@@ -44,6 +51,14 @@ class EchoPluginPlayer final : public QObject
     Q_PROPERTY(EchoMusic::EchoPluginReadModel *lyrics READ lyrics CONSTANT)
 public:
     EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &host);
+    QVariantMap snapshot() const;
+    QVariantMap lyricsInfo() const;
+    QString revision() const;
+    Q_INVOKABLE QVariantMap lyricSnapshot() const;
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *control(const QString &action,
+                                                        const QVariantMap &arguments = {});
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *
+    on(const QString &id, const QString &event, const QJSValue &callback, bool immediate = false);
     QString title() const;
     QString artist() const;
     QString album() const;
@@ -78,11 +93,17 @@ public:
     Q_INVOKABLE EchoMusic::EchoPluginOperation *move(int from, int to);
     Q_INVOKABLE EchoMusic::EchoPluginOperation *clear();
 signals:
+    void lyricChanged();
+    void eventOccurred(const QString &event, const QVariantMap &payload);
     void changed();
     void positionChanged();
 
 private:
     EchoPluginOperation *command(std::function<void()> invoke);
+    void publishStateEvents();
+    QVariantMap m_previous;
+    QPointer<QObject> m_library;
+    QMetaObject::Connection m_libraryConnection;
     EchoPluginContext &m_scope;
     PlaybackService &m_host;
     EchoPluginReadModel m_queue, m_lyrics;

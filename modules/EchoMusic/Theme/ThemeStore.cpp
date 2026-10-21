@@ -159,7 +159,7 @@ ThemeStore::ThemeStore(QSettings &settings, QObject *parent, const QString &imag
     const auto version = object.value("version").toInt();
     if (version >= 1 && version <= 3) {
         const auto mode = object.value("mode").toInt();
-        if (mode >= System && mode <= Dark)
+        if (mode >= System && mode <= ThemeDefault)
             m_mode = Mode(mode);
         if (object.value("theme").toString() == "solid")
             m_key = "solid";
@@ -201,6 +201,8 @@ ThemeStore::ThemeStore(QSettings &settings, QObject *parent, const QString &imag
     auto *hints = QGuiApplication::styleHints();
     m_systemDark = hints->colorScheme() == Qt::ColorScheme::Dark;
     connect(hints, &QStyleHints::colorSchemeChanged, this, &ThemeStore::adoptSystemScheme);
+    m_extensions = new AppearanceCatalog(m_settings, this);
+    connect(m_extensions, &AppearanceCatalog::themeChanged, this, &ThemeStore::resolve);
     resolve();
     if (!m_imageId.isEmpty())
         m_sampleTimer.start();
@@ -347,7 +349,8 @@ QColor ThemeStore::panelColor() const
 }
 QColor ThemeStore::panelBackdrop() const
 {
-    const auto artwork = m_key == "custom" && !m_imageId.isEmpty() && m_imageSample.isValid()
+    const auto artwork = (!m_extensions || !m_extensions->theme()) && m_key == "custom" &&
+                                 !m_imageId.isEmpty() && m_imageSample.isValid()
                              ? mix(m_imageSample, m_palette.shell, m_imageShade / 100.0)
                              : m_palette.shell;
     return mix(artwork, m_palette.main, m_panelOpacity / 100.0);
@@ -361,10 +364,19 @@ void ThemeStore::setPanelOpacity(int opacity)
     save();
     resolve();
 }
+QColor ThemeStore::extensionSurface(const QString &name, const QColor &base) const
+{
+    auto color = base;
+    const auto values = m_extensionAppearance.value("surface").toMap();
+    if (values.contains(name))
+        color.setAlphaF(base.alphaF() * values.value(name).toDouble());
+    return color;
+}
 void ThemeStore::resolve()
 {
-    m_palette = m_key == "solid" ? fromSeed(m_seed, dark()) : neutral(dark());
-    if (m_key == "custom") {
+    const bool extensionSelected = m_extensions && m_extensions->theme();
+    m_palette = !extensionSelected && m_key == "solid" ? fromSeed(m_seed, dark()) : neutral(dark());
+    if (!extensionSelected && m_key == "custom") {
         if (m_imageSample.isValid()) {
             const auto imagePalette = fromSeed(m_imageSample, dark());
             m_palette.shell = imagePalette.shell;
@@ -374,12 +386,32 @@ void ThemeStore::resolve()
         m_palette.text = m_imageText;
         m_palette.secondary = mix(m_imageText, neutral(dark()).secondary, 0.25);
     }
-    const bool artworkReady = m_key == "custom" && !m_imageId.isEmpty() && m_imageSample.isValid();
+    m_extensionAppearance =
+        m_extensions ? m_extensions->resolveTheme(
+                           {{"dark", dark()}, {"coverColor", m_coverColor.name(QColor::HexArgb)}})
+                     : QVariantMap();
+    const auto palette = m_extensionAppearance.value("palette").toMap();
+    auto applyColor = [](QColor &target, const QVariantMap &values, const QString &key) {
+        const QColor value(values.value(key).toString());
+        if (value.isValid())
+            target = value;
+    };
+    applyColor(m_palette.shell, palette, "shell");
+    applyColor(m_palette.sidebar, palette, "sidebar");
+    applyColor(m_palette.main, palette, "main");
+    applyColor(m_palette.player, palette, "player");
+    applyColor(m_palette.card, palette, "card");
+    applyColor(m_palette.elevated, palette, "elevated");
+    applyColor(m_palette.text, palette, "text");
+    applyColor(m_palette.secondary, palette, "secondaryText");
+    applyColor(m_palette.border, palette, "border");
+    const bool artworkReady =
+        !extensionSelected && m_key == "custom" && !m_imageId.isEmpty() && m_imageSample.isValid();
     const auto artwork =
         artworkReady ? mix(m_imageSample, m_palette.shell, m_imageShade / 100.0) : m_palette.shell;
     const bool accentDark =
         artworkReady ? contrast(artwork, Qt::black) < contrast(artwork, Qt::white)
-                     : (m_key == "custom" && !m_imageId.isEmpty()
+                     : (!extensionSelected && m_key == "custom" && !m_imageId.isEmpty()
                             ? contrast(m_imageText, Qt::black) >= contrast(m_imageText, Qt::white)
                             : dark());
     // Keep the chosen hex unchanged in preferences/swatch selection. Normalize
@@ -388,9 +420,12 @@ void ThemeStore::resolve()
         m_coverAccent ? normalizeAccent(m_coverColor, accentDark)
         : m_customAccent
             ? (m_key == "custom" ? m_selectedAccent : normalizeAccent(m_selectedAccent, accentDark))
-        : m_key == "custom" ? m_imageAccent
-        : m_key == "solid"  ? m_seed
-                            : QColor("#00cc65");
+        : !extensionSelected && m_key == "custom" ? m_imageAccent
+        : !extensionSelected && m_key == "solid"  ? m_seed
+                                                  : QColor("#00cc65");
+    if (!m_customAccent && !m_coverAccent)
+        applyColor(m_accent, palette, "accent");
+    applyColor(m_palette.elevated, m_extensionAppearance.value("floating").toMap(), "background");
     // Floating colors form a separate readable pair;
     // artwork text colors must not leak into menus or search popovers.
     const auto neutralColors = neutral(dark());
@@ -410,7 +445,13 @@ void ThemeStore::resolve()
         contrast(m_floatingSecondary, m_floatingCard) < 4.5)
         m_floatingSecondary = m_floatingText;
     m_floatingBorder = mix(m_palette.elevated, m_floatingText, 0.2);
-    m_floatingAccentText = readableText(m_accent, {m_palette.elevated, m_floatingCard});
+    m_floatingAccentText = readableText(floatingAccent(), {m_palette.elevated, m_floatingCard});
+    const auto floating = m_extensionAppearance.value("floating").toMap();
+    applyColor(m_floatingText, floating, "text");
+    applyColor(m_floatingSecondary, floating, "secondaryText");
+    applyColor(m_floatingCard, floating, "card");
+    applyColor(m_floatingBorder, floating, "border");
+    applyColor(m_floatingAccentText, floating, "accentText");
     const QColor tone = dark() ? Qt::white : Qt::black;
     QList<QColor> bases{panelBackdrop(), artwork};
     if (m_coverAtmosphere) {
@@ -467,12 +508,12 @@ void ThemeStore::adoptSystemScheme(Qt::ColorScheme scheme)
     if (m_systemDark == dark)
         return;
     m_systemDark = dark;
-    if (m_mode == System)
+    if (m_mode == System || m_mode == ThemeDefault)
         resolve();
 }
 void ThemeStore::setMode(Mode mode)
 {
-    if (mode < System || mode > Dark || mode == m_mode)
+    if (mode < System || mode > ThemeDefault || mode == m_mode)
         return;
     m_mode = mode;
     save();
@@ -480,6 +521,8 @@ void ThemeStore::setMode(Mode mode)
 }
 void ThemeStore::selectEcho()
 {
+    if (m_extensions)
+        m_extensions->clearTheme();
     endBackgroundPreview();
     if (m_key == "echo")
         return;
@@ -489,6 +532,10 @@ void ThemeStore::selectEcho()
 }
 void ThemeStore::selectSolid(const QColor &seed)
 {
+    if (!opaque(seed))
+        return;
+    if (m_extensions)
+        m_extensions->clearTheme();
     endBackgroundPreview();
     if (!opaque(seed) || (m_key == "solid" && m_seed == seed))
         return;

@@ -34,6 +34,12 @@ LyricAppearance::LyricAppearance(QSettings &settings, QObject *parent)
             .toBool());
     setTextColor(
         settings.value(EchoMusic::SettingsKeys::Lyrics::AppearanceTextColor, QString()).toString());
+    setUnplayedTextColor(
+        settings.value(EchoMusic::SettingsKeys::Lyrics::AppearanceUnplayedTextColor, QString())
+            .toString());
+    setUnplayedUseCoverColor(
+        settings.value(EchoMusic::SettingsKeys::Lyrics::AppearanceUnplayedUseCoverColor, false)
+            .toBool());
     setUseCoverColor(
         settings.value(EchoMusic::SettingsKeys::Lyrics::AppearanceUseCoverColor, false).toBool());
     setFontScale(
@@ -82,6 +88,24 @@ void LyricAppearance::setUnplayedFollowCoverColor(bool value)
     m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::PageUnplayedFollowCoverColor, value);
     emit changed();
 }
+void LyricAppearance::setUnplayedTextColor(const QString &value)
+{
+    if (!value.isEmpty() && !QColor(value).isValid())
+        return;
+    if (m_unplayedTextColor == value)
+        return;
+    m_unplayedTextColor = value;
+    m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::AppearanceUnplayedTextColor, value);
+    emit changed();
+}
+void LyricAppearance::setUnplayedUseCoverColor(bool value)
+{
+    if (m_unplayedUseCoverColor == value)
+        return;
+    m_unplayedUseCoverColor = value;
+    m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::AppearanceUnplayedUseCoverColor, value);
+    emit changed();
+}
 void LyricAppearance::resetColors()
 {
     setPlayedColor("");
@@ -89,12 +113,20 @@ void LyricAppearance::resetColors()
     setFollowCoverColor(false);
     setUnplayedFollowCoverColor(false);
 }
+void LyricAppearance::resetSkinColors()
+{
+    setTextColor(QString());
+    setUseCoverColor(false);
+    setUnplayedTextColor(QString());
+    setUnplayedUseCoverColor(false);
+}
 bool LyricAppearance::customized() const
 {
     return m_alignPosition != 0.5 || m_enableSpring != true || m_highRefreshRate != false ||
            m_enableBlur != true || m_enableScale != true || m_hidePassedLines != false ||
            m_wordFadeWidth != 0.5 || m_dynamicAlbumCover != false || m_textColor != QString() ||
-           m_useCoverColor != false || m_fontScale != 1. || m_fontWeight != 900;
+           m_useCoverColor != false || m_unplayedTextColor != QString() ||
+           m_unplayedUseCoverColor != false || m_fontScale != 1. || m_fontWeight != 900;
 }
 void LyricAppearance::resetSkin()
 {
@@ -106,8 +138,7 @@ void LyricAppearance::resetSkin()
     setHidePassedLines(false);
     setWordFadeWidth(0.5);
     setDynamicAlbumCover(false);
-    setTextColor(QString());
-    setUseCoverColor(false);
+    resetSkinColors();
     setFontScale(1.);
     setFontWeight(900);
 }

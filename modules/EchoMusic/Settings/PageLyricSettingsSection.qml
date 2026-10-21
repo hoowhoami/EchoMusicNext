@@ -13,25 +13,24 @@ SettingsSection {
     required property PlaybackService playback
     heading: qsTr("播放页")
     glyph: "play"
+    readonly property color lyricAccent: Theme.store.lyricAccent(section.playback.coverColor)
     LyricColorSettingsRow {
         uiScale: section.uiScale
-        heading: qsTr("歌词颜色")
-        description: qsTr("播放页皮肤未单独设置颜色时使用的已播与未播字色")
+        heading: qsTr("全局歌词颜色")
+        description: qsTr("皮肤未单独设置时使用的已播与未播字色；未播默认为灰白色")
         coverColor: section.playback.coverColor
-        playedColor: section.playback.lyricAppearance.playedColor || "#ffffff"
-        unplayedColor: section.playback.lyricAppearance.unplayedColor || "#ffffff"
+        playedColor: LyricColors.globalPlayed(section.playback.lyricAppearance, section.lyricAccent)
+        unplayedColor: LyricColors.globalUnplayed(section.playback.lyricAppearance, section.lyricAccent)
         followsCover: section.playback.lyricAppearance.followCoverColor
         unplayedFollowsCover: section.playback.lyricAppearance.unplayedFollowCoverColor
         customized: section.playback.lyricAppearance.playedColor.length > 0 || section.playback.lyricAppearance.unplayedColor.length > 0 || followsCover || unplayedFollowsCover
         onColorChosen: (unplayed, value, follow) => {
             if (unplayed) {
                 section.playback.lyricAppearance.unplayedFollowCoverColor = follow;
-                if (!follow)
-                    section.playback.lyricAppearance.unplayedColor = value;
+                section.playback.lyricAppearance.unplayedColor = follow ? "" : value;
             } else {
                 section.playback.lyricAppearance.followCoverColor = follow;
-                if (!follow)
-                    section.playback.lyricAppearance.playedColor = value;
+                section.playback.lyricAppearance.playedColor = follow ? "" : value;
             }
         }
         onResetRequested: section.playback.lyricAppearance.resetColors()

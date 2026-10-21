@@ -16,6 +16,10 @@ EchoAnchoredPopup {
     readonly property real tipHeight: 9
     readonly property real tipX: Math.max(28, Math.min((anchorRect.x + anchorRect.width / 2 - x) / uiScale, width - 28))
     popupType: Popup.Window
+    // An application-modal window blocks the Mini underneath and can let macOS
+    // hand activation to another app while the pinned Mini is nonactivating.
+    // Shared popup grabs still close this surface on outside presses.
+    modal: false
     screenBounded: true
     preferredWidth: 176
     implicitHeight: bodyHeight + tipHeight

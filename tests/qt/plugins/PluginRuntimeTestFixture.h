@@ -118,10 +118,11 @@ struct Host
     ThemeStore theme{settings};
     RouteController router;
     ShellController shell{settings, router};
+    FloatingPlayerController floating{settings, false};
     QQmlEngine engine;
     PluginRuntime runtime{engine,
                           settings,
-                          {playback, theme, shell, router, account, api},
+                          {playback, theme, shell, router, account, api, &floating},
                           temporary.path() + "/plugins"};
     explicit Host(const std::function<void(const QString &)> &prepareRoot = {})
     {

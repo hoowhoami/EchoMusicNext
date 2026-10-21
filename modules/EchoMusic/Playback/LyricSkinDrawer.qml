@@ -24,7 +24,7 @@ EchoDrawer {
         EchoDrawerHeader {
             Layout.fillWidth: true
             heading: drawer.showSettings ? qsTr("皮肤设置") : qsTr("换肤")
-            description: drawer.showSettings ? qsTr("封面歌词") : ""
+            description: drawer.showSettings ? (Theme.store.extensions.skin ? Theme.store.extensions.skin.title : qsTr("封面歌词")) : ""
             headingFont: Theme.font(16, 800)
             closeLabel: qsTr("关闭皮肤设置")
             onCloseRequested: drawer.close()
@@ -61,8 +61,45 @@ EchoDrawer {
             implicitHeight: 1
             color: Theme.floatingBorder
         }
+        GridView {
+            id: catalog
+            objectName: "lyricSkinCatalog"
+            visible: !drawer.showSettings
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.margins: 16
+            clip: true
+            reuseItems: true
+            cacheBuffer: height
+            cellWidth: width / 2
+            cellHeight: (cellWidth - 30) * 9 / 16 + 58
+            model: Theme.store.extensions.skins
+            delegate: LyricSkinCard {
+                required property var model
+                width: catalog.cellWidth - 8
+                entryKey: model.entryKey
+                title: model.title
+                preview: model.preview
+                selected: Theme.store.extensions.selectedSkin === entryKey
+                onChosen: {
+                    if (cardSelected())
+                        drawer.showSettings = true;
+                    else
+                        Theme.store.extensions.chooseSkin(entryKey);
+                }
+                function cardSelected(): bool {
+                    return Theme.store.extensions.selectedSkin === entryKey;
+                }
+            }
+            ScrollBar.vertical: EchoPopupScrollBar {
+                surface: drawer
+                view: catalog
+                resourceActive: drawer.visible && catalog.visible
+            }
+        }
         ScrollView {
             id: scroll
+            visible: drawer.showSettings
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 0
@@ -71,144 +108,54 @@ EchoDrawer {
             ScrollBar.vertical: EchoPopupScrollBar {
                 surface: drawer
                 view: scroll
-                resourceActive: drawer.visible
+                resourceActive: drawer.visible && scroll.visible
             }
             ColumnLayout {
                 width: scroll.availableWidth
                 spacing: 12
-                ColumnLayout {
-                    visible: !drawer.showSettings
-                    Layout.fillWidth: true
-                    Layout.margins: 16
-                    Layout.bottomMargin: 24
-                    spacing: 8
-                    EchoTextTagRow {
-                        text: qsTr("内置")
-                        font: Theme.spacedFont(11, Theme.boldWeight, .66)
-                        color: Theme.floatingSecondaryText
-                    }
-                    Button {
-                        id: card
-                        objectName: "coverLyricSkinCard"
-                        Layout.preferredWidth: Math.max(120, (scroll.availableWidth - 44) / 2)
-                        implicitHeight: (width - 22) * 9 / 16 + 7 + 19.5 + 22
-                        padding: 11
-                        hoverEnabled: true
-                        Accessible.name: qsTr("封面歌词，已选中，点击打开皮肤设置")
-                        Accessible.checked: true
-                        onClicked: drawer.showSettings = true
-                        background: Rectangle {
-                            radius: Theme.cardRadius
-                            color: card.hovered ? Theme.floating.hover : Theme.floatingCard
-                            border.width: 1
-                            border.color: Theme.accent
-                        }
-                        contentItem: ColumnLayout {
-                            spacing: 7
-                            Rectangle {
-                                objectName: "coverSkinPreview"
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                radius: Theme.controlRadius
-                                gradient: Gradient {
-                                    orientation: Gradient.Horizontal
-                                    GradientStop {
-                                        position: 0
-                                        color: "#1b1f27"
-                                    }
-                                    GradientStop {
-                                        position: 1
-                                        color: "#101216"
-                                    }
-                                }
-                                Rectangle {
-                                    x: 12
-                                    y: (parent.height - height) / 2
-                                    width: 34
-                                    height: width
-                                    radius: Theme.mediaRadius
-                                    gradient: Gradient {
-                                        GradientStop {
-                                            position: 0
-                                            color: "#5b8def"
-                                        }
-                                        GradientStop {
-                                            position: .55
-                                            color: "#8b5cf6"
-                                        }
-                                        GradientStop {
-                                            position: 1
-                                            color: "#ec4899"
-                                        }
-                                    }
-                                }
-                                Column {
-                                    x: 56
-                                    y: (parent.height - height) / 2
-                                    width: parent.width - 68
-                                    spacing: 5
-                                    Repeater {
-                                        model: [.8, .55, .65]
-                                        Rectangle {
-                                            required property real modelData
-                                            width: parent.width * modelData
-                                            height: 4
-                                            radius: Theme.microRadius
-                                            color: Theme.withAlpha("white", modelData === .55 ? .4 : .22)
-                                        }
-                                    }
-                                }
-                                EchoSelectionBadge {
-                                    objectName: "coverSkinSelectionBadge"
-                                    z: 2
-                                    visible: !card.hovered
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.margins: 8
-                                }
-                                Rectangle {
-                                    z: 2
-                                    visible: card.hovered
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.margins: 8
-                                    width: 20
-                                    height: 20
-                                    radius: Theme.detailRadius
-                                    color: Theme.elevated
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        radius: parent.radius
-                                        color: Theme.selected
-                                    }
-                                    EchoIcon {
-                                        anchors.centerIn: parent
-                                        width: 14
-                                        height: 14
-                                        name: "settings"
-                                        color: Theme.accentText
-                                    }
-                                }
-                            }
-                            EchoTextTagRow {
-                                Layout.fillWidth: true
-                                text: qsTr("封面歌词")
-                                font: Theme.font(13, Theme.semiboldWeight)
-                                lineHeight: 19.5
-                                color: Theme.floatingText
-                            }
-                        }
-                    }
-                }
                 LyricSkinSettings {
                     id: skinSettings
-                    visible: drawer.showSettings
+                    visible: drawer.showSettings && Theme.store.extensions.skin === null
                     Layout.fillWidth: true
                     Layout.margins: 16
                     Layout.bottomMargin: 24
                     appearance: drawer.playback.lyricAppearance
                     coverColor: Theme.store.lyricAccent(drawer.playback.coverColor)
                     uiScale: drawer.uiScale
+                }
+                AppearanceHost {
+                    id: skinSettingsHost
+                    objectName: "pluginSkinSettingsHost"
+                    visible: drawer.showSettings && Theme.store.extensions.skin !== null
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(1, implicitHeight)
+                    Layout.margins: 16
+                    entry: Theme.store.extensions.skin
+                    placement: "settings"
+                    resourceActive: drawer.visible && drawer.showSettings
+                }
+                Label {
+                    Layout.fillWidth: true
+                    Layout.margins: 16
+                    visible: drawer.showSettings && Theme.store.extensions.skin !== null && !skinSettingsHost.available
+                    text: qsTr("此皮肤未提供专属设置")
+                    color: Theme.floatingSecondaryText
+                    font: Theme.font(13, Theme.regularWeight)
+                }
+                Label {
+                    Layout.fillWidth: true
+                    Layout.margins: 16
+                    text: Theme.store.extensions.skin ? Theme.store.extensions.skin.configuration.errorMessage : ""
+                    visible: drawer.showSettings && text.length > 0
+                    color: Theme.floating.dangerText
+                    font: Theme.font(12, Theme.regularWeight)
+                    wrapMode: Text.Wrap
+                }
+                EchoSoftButton {
+                    visible: drawer.showSettings && Theme.store.extensions.skin !== null
+                    Layout.margins: 16
+                    text: qsTr("恢复默认")
+                    onClicked: Theme.store.extensions.skin.configuration.reset()
                 }
             }
         }
