@@ -319,14 +319,6 @@ EchoAnchoredPopup {
                         }
                         Accessible.name: modelData.label
                     }
-                    Rectangle {
-                        visible: popup.kind === "quality" && optionRow.modelData.value === "cloud"
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 1
-                        Layout.topMargin: 8
-                        Layout.bottomMargin: 8
-                        color: Theme.floating.border
-                    }
                 }
             }
         }
