@@ -42,7 +42,7 @@ ApplicationWindow {
     QVERIFY(session.window && Test::prepareNativeInput(session.window));
     if (session.window->rendererInterface()->graphicsApi() == QSGRendererInterface::Software)
         QSKIP("Text pixels require native RHI");
-    for (qreal scale : {1., 1.25, 1.5}) {
+    for (qreal scale : {1., 1.25, 1.5, 2.}) {
         session.root->setProperty("zoom", scale);
         QVERIFY(QMetaObject::invokeMethod(session.root.data(), "showPanel"));
         QPointer<QObject> panel = session.root->property("panel").value<QObject *>();

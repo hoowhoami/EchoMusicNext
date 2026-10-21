@@ -6,7 +6,7 @@
 
 namespace EchoMusic
 {
-/// Opt-in public-Qt timing probe. Never schedules frames or selects a backend.
+/// Opt-in public-Qt timing, density and font probe. Never schedules frames or selects a backend.
 /// Render callbacks own only shared atomic counters; window state is read on
 /// the GUI thread so diagnostics cannot introduce scene-graph races.
 class WindowPresentationDiagnostics final : public QObject
