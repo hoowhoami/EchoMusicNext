@@ -33,6 +33,12 @@ qt_add_qml_module(
     FloatingPlayerController.cpp
     FloatingLyricPreferences.h
     FloatingLyricPreferences.cpp
+    TaskbarLyricPreferences.h
+    TaskbarLyricPreferences.cpp
+    TaskbarLyricController.h
+    TaskbarLyricController.cpp
+    TaskbarLyricGeometry.h
+    TaskbarLyricGeometry.cpp
     WindowController.h
     WindowController.cpp
     TrayIconTheme.h
@@ -58,6 +64,10 @@ qt_add_qml_module(
     DesktopLyricButton.qml
     DesktopLyricTextToggles.qml
     DesktopLyricWindow.qml
+    TaskbarLyricWindow.qml
+    TaskbarLyricLine.qml
+    TaskbarLyricControls.qml
+    TaskbarLyricSeekBar.qml
     DesktopLyricUnlockWindow.qml
     MiniLyricBackdrop.qml
     MiniVolumePopup.qml

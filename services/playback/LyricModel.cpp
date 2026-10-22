@@ -277,6 +277,14 @@ int LyricModel::indexAt(qint64 positionMs) const
                                      [](auto time, const auto &line) { return time < line.start; });
     return int(it - m_lines.cbegin()) - 1;
 }
+int LyricModel::visibleIndexAt(qint64 positionMs) const
+{
+    // Unsynced lyrics (a plain text lyric, or one without timelines) have no
+    // playhead to follow; the first line is what the strip shows then.
+    if (!m_scrollable)
+        return nextVisible(-1);
+    return visibleIndex(indexAt(positionMs));
+}
 void LyricModel::setPosition(qint64 positionMs)
 {
     const int index = indexAt(positionMs);

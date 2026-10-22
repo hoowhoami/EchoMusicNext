@@ -5,6 +5,7 @@ EchoMusicNext 采用 GPL-3.0-only。第三方代码、库和资源保留各自�
 | 组件或资源 | 使用与来源 | 许可材料 |
 | --- | --- | --- |
 | EchoMusic / hoowhoami | 原生核心、主题与调色算法、均衡器曲线、等级星球插画、应用与托盘图标、验证加载环及刷新图形；各原生模块来源见 `crates/*/SOURCE.json` | Copyright (c) 2026 hoowhoami；GPL-3.0-only，见[项目许可](../LICENSE) |
+| PeriTray / oneday5799 | 任务栏子窗口挂载顺序（先改 WS_CHILD 再 SetParent）、SetParent 返回值双判、UIA 占用区与空闲区布局的判据参考；来源 revision `aee4ea69a1019431138bc312f447222fd82d6a5e` 的 `src-tauri/src/taskbar_layout.rs`、`src-tauri/src/taskbar_widget.rs`，本项目在 Qt/C++ 中重写并保留来源注释 | Copyright (c) 2026 oneday5799；GPL-3.0-only，见[上游许可](https://github.com/oneday5799/PeriTray/blob/main/LICENSE) |
 | KugouMusicApi / MakcRe、Lines 等 | 请求地址、参数、协议常量、签名和加密协议参考 | Copyright (c) 2023 MakcRe；[MIT 原文](licenses/kugou-music-api-MIT.txt) |
 | Qt 6.12.0 / The Qt Company Ltd. 及贡献者 | 实际链接的 Core、Gui、Widgets、Qml、Quick、QuickShapes、QuickEffects、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql 等模块；Test 用于测试，ShaderTools 用于构建 | 各模块自带版权、GPL/LGPL 和第三方许可；[Qt 许可说明](https://doc.qt.io/qt-6/licensing.html) |
 | Qt RectangularShadow shader | `Controls/shaders/action-shadow.vert` / `.frag` 基于 Qt 6.11.2 `qtdeclarative/src/effects/data/shaders/rectangularshadow`，增加阴影内部剔除并保留 uniform 布局 | Copyright (C) 2024 The Qt Company Ltd.；保留原 SPDX：LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only；本项目选 GPL-3.0-only 分支 |
@@ -25,6 +26,8 @@ EchoMusicNext 采用 GPL-3.0-only。第三方代码、库和资源保留各自�
 EchoMusic 派生资源包括 `Profile.vue` 等级星球插画、平台应用图标、`build/icons` 托盘资产、验证加载环，以及 `components/ui/RefreshIcon.vue` 刷新图形。`crates/echo-log` 的日志桥来源为 `native/echo-native-log/src/lib.rs`；其它原生模块的文件与哈希记录保存在各自 `SOURCE.json`。这些资源与代码保留 GPL-3.0-only 来源，不能按通用图标许可重新标注。
 
 [applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics)（参考 revision `86200dead453bb067e554e989110cbadca8d4756`）用于歌词行为与视觉研究。未复制其源码、样式或资产，未安装或链接其 AGPL-3.0 运行时。离线对照数据不包含该项目实现；原生歌词实现使用 Qt 文本、布局与场景图能力。
+
+任务栏歌词条（`services/platform/WindowsTaskbarLyric.*`、`modules/EchoMusic/Shell/TaskbarLyricController.*`、`TaskbarLyricGeometry.*`、`TaskbarLyricWindow.qml`、`TaskbarLyricLine.qml`）的挂载判据、空闲区布局与行渲染参考 EchoMusic revision `2267607d9ddd09eb8d4613a7d892c94768315dc3`（`src/shared/taskbar.ts`、`native/echo-platform-adaptor/src/windows/taskbar/*`、`src/renderer/taskbarPlayer/*`、`docs/taskbar-child-window-pitfalls.md`、`docs/taskbar-explorer-investigation.md`）与 PeriTray revision `aee4ea69a1019431138bc312f447222fd82d6a5e`，在 Qt/C++ 与 QML 中重写，来源保留在各文件注释中。这些来源与项目同为 GPL-3.0，不引入新的许可义务。
 
 验证码 SDK 由系统浏览器从官方地址动态加载，不随应用打包。产品不包含 Qt WebEngine。开发安装与格式工具不进入应用运行时。
 
