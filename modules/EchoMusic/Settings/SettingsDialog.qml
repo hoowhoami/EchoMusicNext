@@ -117,6 +117,7 @@ Popup {
                 objectName: "settingsSearchTrigger"
                 glyph: "search"
                 text: qsTr("搜索设置")
+                tooltipText: ""
                 colors: Theme.floating
                 implicitWidth: 30
                 implicitHeight: 30
@@ -153,6 +154,7 @@ Popup {
                 objectName: "settingsClose"
                 glyph: "x"
                 text: qsTr("关闭设置")
+                tooltipText: ""
                 colors: Theme.floating
                 implicitWidth: 30
                 implicitHeight: 30

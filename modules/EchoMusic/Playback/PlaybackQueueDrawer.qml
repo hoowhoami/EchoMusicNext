@@ -102,6 +102,7 @@ Popup {
                         colors: Theme.floating
                         glyph: "x"
                         text: qsTr("关闭")
+                        tooltipText: ""
                         implicitWidth: 32
                         implicitHeight: 32
                         padding: 6

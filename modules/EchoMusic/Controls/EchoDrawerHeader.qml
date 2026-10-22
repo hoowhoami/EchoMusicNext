@@ -70,6 +70,7 @@ Control {
                 padding: 9
                 glyph: "x"
                 text: header.closeLabel
+                tooltipText: ""
                 colors: Theme.floating
                 enabled: !header.closeDisabled
                 onClicked: header.closeRequested()

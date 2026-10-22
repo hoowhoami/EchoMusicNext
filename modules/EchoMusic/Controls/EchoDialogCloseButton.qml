@@ -11,5 +11,6 @@ EchoIconButton {
     padding: 9
     glyph: "x"
     text: qsTr("关闭")
+    tooltipText: ""
     colors: Theme.floating
 }

@@ -49,6 +49,7 @@ EchoDrawer {
                     padding: 9
                     glyph: "x"
                     text: qsTr("关闭评论")
+                    tooltipText: ""
                     onClicked: drawer.close()
                 }
             }

@@ -73,6 +73,7 @@ EchoAnchoredPopup {
                     padding: 5
                     glyph: "x"
                     text: qsTr("关闭弹幕面板")
+                    tooltipText: ""
                     onClicked: popup.close()
                 }
             }
