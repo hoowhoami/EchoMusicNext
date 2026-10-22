@@ -670,6 +670,16 @@ ApplicationWindow {
             }
         }
     }
+    // Right clicks that no one above accepts would otherwise travel out of the
+    // QML scene: Qt hands the unconsumed WM_CONTEXTMENU back to the shell, which
+    // pops the window system menu over the app. This layer sits behind the shell
+    // and swallows them; areas that do use the right button (the song lists'
+    // context menus, text fields) still win because they are above it.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.RightButton
+        onPressed: mouse => mouse.accepted = true
+    }
     Loader {
         id: shellLoader
         objectName: "mainShellLoader"
