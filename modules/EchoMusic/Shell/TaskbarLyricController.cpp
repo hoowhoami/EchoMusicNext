@@ -24,6 +24,8 @@ TaskbarLyricController::TaskbarLyricController(QSettings &settings, QObject *par
 #ifdef Q_OS_WIN
     connect(&m_session, &WindowsTaskbarLyric::layoutChanged, this,
             &TaskbarLyricController::applyLayout);
+    connect(&m_session, &WindowsTaskbarLyric::stripRightClicked, this,
+            &TaskbarLyricController::onStripRightClicked);
 #endif
     m_fullscreenPoll.setInterval(1000);
     connect(&m_fullscreenPoll, &QTimer::timeout, this, &TaskbarLyricController::refreshFullscreen);
@@ -140,6 +142,14 @@ void TaskbarLyricController::applyLayout(const TaskbarLayout &layout)
     present();
     if (m_dark != wasDark)
         emit stateChanged();
+}
+
+void TaskbarLyricController::onStripRightClicked(int globalX, int globalY)
+{
+    // The platform reports the cursor in physical pixels; the menu is placed in
+    // Qt's logical coordinates, so the window scale has to be divided out.
+    const qreal scale = m_layout.scaleFactor > 0 ? m_layout.scaleFactor : 1.0;
+    emit menuRequested(globalX / scale, globalY / scale);
 }
 
 void TaskbarLyricController::dragBegin()

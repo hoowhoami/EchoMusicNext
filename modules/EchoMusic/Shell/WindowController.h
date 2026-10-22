@@ -53,6 +53,10 @@ public:
     void attachPlayback(PlaybackService &playback);
     void restoreWindow();
     void showMiniWindow();
+    /// Shows the taskbar lyric context menu at a global position.
+    void showTaskbarLyricMenu(qreal globalX, qreal globalY);
+    /// Opens the settings page on the taskbar lyric section.
+    Q_INVOKABLE void openTaskbarLyricSettings();
     FloatingPlayerController *floating()
     {
         return &m_floating;
