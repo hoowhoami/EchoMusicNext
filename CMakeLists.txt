@@ -1,4 +1,14 @@
 cmake_minimum_required(VERSION 3.28)
+if(CMAKE_HOST_APPLE
+   AND NOT CMAKE_OSX_SYSROOT
+   AND "$ENV{SDKROOT}" STREQUAL ""
+)
+    # Resolve the active Xcode SDK by name; never pin a machine-specific path.
+    set(CMAKE_OSX_SYSROOT
+        "macosx"
+        CACHE STRING "macOS SDK" FORCE
+    )
+endif()
 if(CMAKE_HOST_APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET
         "14.4"
@@ -44,7 +54,7 @@ if(UNIX AND NOT APPLE)
     # declared Linux baseline. Actual X11/Wayland sessions still need acceptance.
     find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS WaylandClient DBus)
 endif()
-qt_standard_project_setup(REQUIRES 6.12)
+qt_standard_project_setup(REQUIRES 6.12 I18N_SOURCE_LANGUAGE zh_CN)
 set(QT_QML_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml")
 include(CTest)
 include(cmake/Rust.cmake)
@@ -90,7 +100,7 @@ qt_add_translations(
     LUPDATE_TARGET
     echomusicnext_lupdate
     TS_FILES
-    translations/echomusicnext_zh_CN.ts
+    "${PROJECT_SOURCE_DIR}/translations/echomusicnext_zh_CN.ts"
     NO_GENERATE_PLURALS_TS_FILE
     LUPDATE_OPTIONS
     -no-obsolete

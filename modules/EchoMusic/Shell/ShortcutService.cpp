@@ -215,6 +215,10 @@ void ShortcutService::attach(QQuickWindow *window)
 {
     m_window = window;
 }
+void ShortcutService::attachMini(QQuickWindow *window)
+{
+    m_miniWindow = window;
+}
 void ShortcutService::beginRecording(int row, bool global)
 {
     if (m_closed || row < 0 || row >= m_entries.size() || (global && !m_globalEnabled))
@@ -356,9 +360,9 @@ void ShortcutService::setSuppressDefault(bool value)
     m_settings.setValue(EchoMusic::SettingsKeys::Shortcuts::SuppressDefault, value);
     emit changed();
 }
-bool ShortcutService::editableFocus() const
+bool ShortcutService::editableFocus(QQuickWindow *window) const
 {
-    auto item = m_window ? m_window->activeFocusItem() : nullptr;
+    auto item = window ? window->activeFocusItem() : nullptr;
     // Input-method capability covers Qt text input/edit and editable controls
     // without importing private Quick text classes or guessing object names.
     for (; item; item = item->parentItem())
@@ -368,23 +372,23 @@ bool ShortcutService::editableFocus() const
 }
 bool ShortcutService::eventFilter(QObject *watched, QEvent *event)
 {
-    Q_UNUSED(watched)
     if (m_closed)
         return false;
     if (event->type() == QEvent::ApplicationDeactivate)
         stopRecording();
     if (event->type() != QEvent::ShortcutOverride && event->type() != QEvent::KeyPress)
         return false;
-    if (watched != m_window)
+    auto *window = qobject_cast<QQuickWindow *>(watched);
+    if (!window || (window != m_window && window != m_miniWindow))
         return false;
     auto key = static_cast<QKeyEvent *>(event);
-    if (m_recordingRow >= 0) {
+    if (m_recordingRow >= 0 && window == m_window) {
         if (event->type() == QEvent::KeyPress)
             recordKey(key->key(), key->modifiers(), key->isAutoRepeat());
         key->accept();
         return true;
     }
-    if (!m_window || !m_window->isActive() || editableFocus() || key->isAutoRepeat())
+    if (m_recordingRow >= 0 || !window->isActive() || editableFocus(window) || key->isAutoRepeat())
         return false;
     const auto sequence = normalizedShortcut(QKeySequence(key->keyCombination()));
     for (int row = 0; row < m_entries.size(); ++row) {

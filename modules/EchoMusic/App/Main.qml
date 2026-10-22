@@ -31,6 +31,11 @@ ApplicationWindow {
     readonly property real uiScale: shellSettings.uiScale
     property NetworkPreferences networkPreferences: null
     property ShortcutService shortcutService: null
+    Binding {
+        target: mainWindow.windowService.floating
+        property: "miniScale"
+        value: mainWindow.shellSettings.uiScale
+    }
     property AboutService aboutService: null
     property ExperimentalSettingsService experimentalSettingsService: null
     property SettingsDataService settingsDataService: null

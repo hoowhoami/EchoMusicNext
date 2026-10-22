@@ -1,9 +1,314 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
+#include "ShortcutActions.h"
 
 #ifdef Q_OS_MACOS
 QVariantMap nativeMacApplicationPresentation();
 #endif
+
+void DesktopPagesTest::miniScaleAndMenuUseProductionSurfaces()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    PlaybackService playback(session.api, session.preferences);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&session] {
+        session.router.shutdown();
+        session.commands.shutdown();
+        session.windows.shutdown();
+        session.root.reset();
+        session.window = nullptr;
+    });
+    auto *floating = session.windows.floating();
+    floating->showMini();
+    QPointer<QQuickWindow> mini;
+    QTRY_VERIFY((mini = floating->miniWindow()));
+    QVERIFY(Test::prepareNativeInput(mini));
+    ShortcutService shortcuts(session.preferences, false);
+    shortcuts.attach(session.window);
+    shortcuts.attachMini(mini);
+    ShortcutActions shortcutActions(shortcuts, playback, session.shell, session.windows,
+                                    session.commands);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    const auto captures = qEnvironmentVariable("ECHO_MINI_UI_CAPTURES");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    auto *owner = mini->findChild<QObject *>("miniPlayerLyricMenuOwner");
+    QVERIFY(owner);
+    QVERIFY(!owner->property("item").value<QObject *>());
+    for (auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (qreal scale : {1., 1.25}) {
+            session.shell.resetZoom();
+            while (session.shell.uiScale() < scale - .001)
+                session.shell.zoomIn();
+            QTRY_COMPARE(floating->miniScale(), scale);
+            floating->setPanel("");
+            QTRY_COMPARE(mini->height(), qRound(64 * scale));
+            mini->setWidth(qRound(480 * scale));
+            QCOMPARE(mini->minimumWidth(), qRound(360 * scale));
+            QCOMPARE(mini->maximumWidth(), qRound(560 * scale));
+            for (bool up : {false, true}) {
+                floating->setPanel("");
+                QTRY_COMPARE(mini->height(), qRound(64 * scale));
+                const auto area = mini->screen()->availableGeometry();
+                mini->setPosition(area.x() + 80,
+                                  up ? area.bottom() - qRound(80 * scale) : area.y() + 80);
+                floating->setPanel("lyric");
+                QTRY_COMPARE(mini->height(), qRound(360 * scale));
+                QCOMPARE(mini->width(), qRound(480 * scale));
+                QCOMPARE(floating->expandsUp(), up);
+                floating->mini()->setAlwaysOnTop(up);
+                QVERIFY(Test::prepareNativeInput(mini));
+                if (QGuiApplication::platformName() == "offscreen")
+                    mini->requestActivate();
+                QTRY_VERIFY(mini->isActive());
+                const int volume = playback.volume();
+                QTest::keyClick(mini, Qt::Key_Up, Qt::ControlModifier);
+                QTRY_COMPARE(playback.volume(), volume + 5);
+                QTest::keyClick(mini, Qt::Key_Down, Qt::ControlModifier);
+                QTRY_COMPARE(playback.volume(), volume);
+                auto *scene = visual(mini->contentItem(), "miniPlayerCard");
+                QVERIFY(scene);
+                QCOMPARE(scene->scale(), scale);
+                QJsonArray lyrics{QJsonObject{{"text", "等待前一行 Lyrics"},
+                                              {"start_ms", 0},
+                                              {"duration_ms", 1000},
+                                              {"words", QJsonArray{}}},
+                                  QJsonObject{{"text", "下一行 Lyrics"},
+                                              {"start_ms", 18000},
+                                              {"duration_ms", 2000},
+                                              {"words", QJsonArray{}}}};
+                QVERIFY(playback.lyricText()->replace({{"lines", lyrics}}, "mini-ui-presentation"));
+                PlaybackServiceTestAccess::position(playback, 7000);
+                auto *viewport = visual(mini->contentItem(), "miniLyricViewport");
+                QVERIFY(viewport);
+                QQuickItem *dots = nullptr;
+                QTRY_VERIFY((dots = visual(viewport, "lyricInterludeDots")) && dots->isVisible());
+                QTRY_VERIFY(qAbs(dots->mapToScene({dots->width() / 2, 0}).x() -
+                                 viewport->mapToScene({viewport->width() / 2, 0}).x()) < .1);
+                auto *button = visual(mini->contentItem(), "miniPlayerLyricMenuAction");
+                QVERIFY(button);
+                auto *collapse = visual(mini->contentItem(), "miniPlayerCollapsePanelAction");
+                QVERIFY(collapse && collapse->isVisible());
+                QCOMPARE(collapse->property("glyph").toString(),
+                         up ? QString("chevron-down") : QString("chevron-up"));
+                for (const auto name :
+                     {"miniPlayerTranslationAction", "miniPlayerRomanizationAction",
+                      "miniPlayerLyricMenuAction", "miniPlayerLyricSettingsAction"}) {
+                    auto *action = visual(mini->contentItem(), name);
+                    QVERIFY(action && action->isVisible());
+                }
+                QSignalSpy rendered(mini, &QQuickWindow::frameSwapped);
+                mini->update();
+                QVERIFY(rendered.wait(1000));
+                PlaybackServiceTestAccess::position(playback, 8000, false);
+                QTRY_VERIFY(dots->opacity() > .1);
+                if (!captures.isEmpty())
+                    QVERIFY(mini->grabWindow().save(
+                        captures + QString("/mini-%1-%2-%3.png")
+                                       .arg(mode == ThemeStore::Dark ? "dark" : "light")
+                                       .arg(scale)
+                                       .arg(up ? "up" : "down")));
+                playback.lyricText()->setRomanizationAsRuby(true);
+                const auto point =
+                    button->mapToScene({button->width() / 2, button->height() / 2}).toPoint();
+                Test::moveNativePointer(mini, point);
+                QTest::mouseClick(mini, Qt::LeftButton, Qt::NoModifier, point);
+                QPointer<QObject> menu;
+                QTRY_VERIFY((menu = owner->property("item").value<QObject *>()));
+                QTRY_VERIFY(menu->property("opened").toBool());
+                QCOMPARE(menu->property("uiScale").toReal(), scale);
+                QVERIFY(menu->property("width").toReal() >= 180 * scale);
+                auto *content = menu->property("contentItem").value<QQuickItem *>();
+                QVERIFY(content);
+                auto *check = visual(content, "menuEntryCheck");
+                QVERIFY(check && check->isVisible());
+                auto *entry = check->parentItem();
+                QTRY_VERIFY(entry->height() <= 36 * scale + .1);
+                auto *body = entry->property("contentItem").value<QQuickItem *>();
+                QVERIFY(body);
+                QVERIFY(body->mapRectToScene(body->boundingRect()).right() <
+                        check->mapRectToScene(check->boundingRect()).left());
+                auto *popupWindow = content->window();
+                QVERIFY(popupWindow && popupWindow != mini);
+                QSignalSpy popupFrame(popupWindow, &QQuickWindow::frameSwapped);
+                popupWindow->update();
+                QVERIFY(popupFrame.wait(1000));
+                const auto image = popupWindow->grabWindow();
+                QVERIFY(!image.isNull());
+                if (!captures.isEmpty())
+                    QVERIFY(
+                        image.save(captures + QString("/menu-%1-%2-%3.png")
+                                                  .arg(mode == ThemeStore::Dark ? "dark" : "light")
+                                                  .arg(scale)
+                                                  .arg(up ? "up" : "down")));
+                for (const auto p :
+                     {QPoint(0, 0), QPoint(image.width() - 1, 0), QPoint(0, image.height() - 1),
+                      QPoint(image.width() - 1, image.height() - 1)})
+                    QVERIFY2(image.pixelColor(p).alpha() < 50,
+                             "Native menu corners must remain transparent");
+                const auto pick =
+                    entry->mapToScene({entry->width() / 2, entry->height() / 2}).toPoint();
+                Test::moveNativePointer(popupWindow, pick);
+                QTest::mouseClick(popupWindow, Qt::LeftButton, Qt::NoModifier, pick);
+                QTRY_VERIFY(!playback.lyricText()->romanizationAsRuby());
+                QTRY_VERIFY(menu.isNull());
+                auto *volumeOwner = mini->findChild<QObject *>("miniPlayerVolumePopupOwner");
+                auto *volumeButton = visual(mini->contentItem(), "miniPlayerVolume");
+                QVERIFY(volumeOwner && volumeButton);
+                const auto volumePoint =
+                    volumeButton
+                        ->mapToScene({volumeButton->width() / 2, volumeButton->height() / 2})
+                        .toPoint();
+                Test::moveNativePointer(mini, volumePoint);
+                QTest::mouseClick(mini, Qt::LeftButton, Qt::NoModifier, volumePoint);
+                QPointer<QObject> volumePopup;
+                QTRY_VERIFY((volumePopup = volumeOwner->property("item").value<QObject *>()));
+                QTRY_VERIFY(volumePopup->property("opened").toBool());
+                QCOMPARE(volumePopup->property("width").toReal(), 176 * scale);
+                auto *volumeContent = volumePopup->property("contentItem").value<QQuickItem *>();
+                auto *slider = visual(volumeContent, "playbackVolumeSlider");
+                QVERIFY(slider);
+                const auto sliderBounds = slider->mapRectToScene(slider->boundingRect());
+                QVERIFY(QRectF(QPointF(), volumeContent->window()->size()).contains(sliderBounds));
+                if (!captures.isEmpty())
+                    QVERIFY(volumeContent->window()->grabWindow().save(
+                        captures + QString("/volume-%1-%2-%3.png")
+                                       .arg(mode == ThemeStore::Dark ? "dark" : "light")
+                                       .arg(scale)
+                                       .arg(up ? "up" : "down")));
+                QVERIFY(QMetaObject::invokeMethod(volumePopup, "close"));
+                QTRY_VERIFY(volumePopup.isNull());
+                // Switching away from lyrics hides its complete toolbar and
+                // destroys any open lyric menu, while keeping collapse usable.
+                QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+                QTRY_VERIFY((menu = owner->property("item").value<QObject *>()));
+                floating->setPanel("queue");
+                QTRY_VERIFY(menu.isNull());
+                for (const auto name :
+                     {"miniPlayerTranslationAction", "miniPlayerRomanizationAction",
+                      "miniPlayerLyricMenuAction", "miniPlayerLyricSettingsAction"}) {
+                    auto *action = visual(mini->contentItem(), name);
+                    QVERIFY(action && !action->isVisible());
+                }
+                QVERIFY(collapse->isVisible());
+                QCOMPARE(collapse->property("glyph").toString(),
+                         up ? QString("chevron-down") : QString("chevron-up"));
+                if (!captures.isEmpty()) {
+                    QSignalSpy queueFrame(mini, &QQuickWindow::frameSwapped);
+                    mini->update();
+                    QVERIFY(queueFrame.wait(1000));
+                    QVERIFY(mini->grabWindow().save(
+                        captures + QString("/queue-%1-%2-%3.png")
+                                       .arg(mode == ThemeStore::Dark ? "dark" : "light")
+                                       .arg(scale)
+                                       .arg(up ? "up" : "down")));
+                }
+                QVERIFY(QMetaObject::invokeMethod(collapse, "clicked"));
+                QTRY_VERIFY(floating->panel().isEmpty());
+                QTRY_COMPARE(mini->height(), qRound(64 * scale));
+            }
+        }
+    }
+    QCOMPARE(warnings.size(), 0);
+}
+
+void DesktopPagesTest::miniQueueRendersAndScrolls()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    PlaybackService playback(session.api, session.preferences);
+    PlaybackTracks tracks;
+    for (int i = 0; i < 1000; ++i) {
+        PlaybackTrack track;
+        track.id = QString::number(i + 1);
+        track.localPath = QStringLiteral("/ui-test/mini-queue-%1.wav").arg(i);
+        track.title = QStringLiteral("Mini 歌曲 Title %1").arg(i);
+        track.artist = QStringLiteral("歌手 Artist %1").arg(i);
+        tracks.append(track);
+    }
+    playback.appendTracks(tracks);
+    playback.queue()->setCurrent(0);
+    session.theme.attachToEngine(session.engine);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    const auto cleanup = qScopeGuard([&session] {
+        session.windows.shutdown();
+        session.root.reset();
+    });
+    auto *floating = session.windows.floating();
+    floating->showMini();
+    QQmlComponent component(&session.engine,
+                            QUrl("qrc:/qt/qml/EchoMusic/Shell/MiniPlayerWindow.qml"));
+    session.root.reset(
+        component.createWithInitialProperties({{"service", QVariant::fromValue(floating)},
+                                               {"playback", QVariant::fromValue(&playback)}}));
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    auto *mini = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(mini);
+    QVERIFY(Test::prepareNativeInput(mini));
+    const auto captures = qEnvironmentVariable("ECHO_MINI_QUEUE_CAPTURES");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    auto *list = visual(mini->contentItem(), "miniPlayerQueue");
+    QVERIFY(list);
+    const auto frame = [&] {
+        QSignalSpy rendered(mini, &QQuickWindow::frameSwapped);
+        mini->update();
+        return rendered.wait(1000);
+    };
+    for (auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (int width : {360, 560}) {
+            mini->setWidth(width);
+            for (bool up : {false, true}) {
+                floating->setPanel("");
+                QTRY_COMPARE(mini->height(), 64);
+                const auto area = mini->screen()->availableGeometry();
+                mini->setPosition(area.x() + 80, up ? area.bottom() - 80 : area.y() + 80);
+                floating->setPanel("queue");
+                QTRY_COMPARE(mini->height(), 360);
+                QTRY_COMPARE(floating->expandsUp(), up);
+                QTRY_COMPARE(list->property("count").toInt(), 1000);
+                QVERIFY(frame());
+                // A ListView can report count/contentHeight even when every delegate fails.
+                auto rows = visualAll(list, "miniPlayerQueueRow");
+                QVERIFY(!rows.isEmpty());
+                QVERIFY(rows.size() < 24);
+                list->setProperty("contentY", 0.);
+                QVERIFY(frame());
+                QQuickItem *row = nullptr;
+                QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                                  Q_RETURN_ARG(QQuickItem *, row), Q_ARG(int, 0)));
+                QVERIFY(row);
+                auto *first = visual(row, "miniPlayerQueueTitle");
+                QVERIFY(first && first->isVisible());
+                QVERIFY(first->width() > 100 && first->height() > 0);
+                QTRY_COMPARE(first->property("text").toString(), tracks[0].title);
+                QVERIFY(row->property("isCurrent").toBool());
+                playback.queue()->setCurrent(1);
+                QTRY_VERIFY(!row->property("isCurrent").toBool());
+                QCOMPARE(first->property("text").toString(), tracks[0].title);
+                playback.queue()->setCurrent(0);
+                const auto point = list->mapToScene({list->width() / 2, list->height() / 2});
+                QWheelEvent wheel(point, mini->mapToGlobal(point.toPoint()), QPoint(),
+                                  QPoint(0, -480), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase,
+                                  false);
+                QCoreApplication::sendEvent(mini, &wheel);
+                QTRY_VERIFY(list->property("contentY").toReal() > 0);
+                QVERIFY(frame());
+                QVERIFY(!visualAll(list, "miniPlayerQueueTitle").isEmpty());
+                if (!captures.isEmpty())
+                    QVERIFY(mini->grabWindow().save(
+                        captures + QStringLiteral("/mini-queue-%1-%2-%3.png")
+                                       .arg(mode == ThemeStore::Dark ? "dark" : "light")
+                                       .arg(width)
+                                       .arg(up ? "up" : "down")));
+            }
+        }
+    }
+    QCOMPARE(warnings.size(), 0);
+}
 
 void DesktopPagesTest::miniVolumeDismissesAcrossHost_data()
 {

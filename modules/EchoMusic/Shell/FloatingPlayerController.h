@@ -22,6 +22,7 @@ class FloatingPlayerController final : public QObject
     Q_PROPERTY(bool miniActive READ miniActive NOTIFY changed)
     Q_PROPERTY(QString panel READ panel NOTIFY changed)
     Q_PROPERTY(bool expandsUp READ expandsUp NOTIFY changed)
+    Q_PROPERTY(qreal miniScale READ miniScale WRITE setMiniScale NOTIFY miniScaleChanged)
     Q_PROPERTY(bool wayland READ wayland CONSTANT)
     Q_PROPERTY(bool unlockAvailable READ unlockAvailable NOTIFY changed)
     Q_PROPERTY(bool unlockVisible READ unlockVisible NOTIFY unlockVisibilityChanged)
@@ -55,6 +56,15 @@ public:
     {
         return m_up;
     }
+    qreal miniScale() const
+    {
+        return m_miniScale;
+    }
+    void setMiniScale(qreal scale);
+    QQuickWindow *miniWindow() const
+    {
+        return m_miniWindow;
+    }
     bool wayland() const;
     bool unlockAvailable() const;
     bool unlockVisible() const;
@@ -86,8 +96,9 @@ public:
     void shutdown();
     static QRect fitBounds(QRect saved, const QList<QRect> &areas, const QRect &fallback,
                            QSize size);
-    static bool chooseUp(const QRect &anchor, const QRect &area);
+    static bool chooseUp(const QRect &anchor, const QRect &area, int expansionHeight = 296);
 signals:
+    void miniScaleChanged();
     void presentationWindowChanged();
     void changed();
     void unlockVisibilityChanged();
@@ -116,6 +127,7 @@ private:
     QPointer<QQuickItem> m_unlockButton;
     QList<QMetaObject::Connection> m_unlockGeometryConnections;
     QRect m_anchor;
+    qreal m_requestedMiniScale = 1, m_miniScale = 1;
     QRect m_miniResizeBounds;
     int m_miniResizeEdge = 0, m_miniResizeX = 0;
     QString m_panel;

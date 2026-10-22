@@ -1613,6 +1613,11 @@ void PlaybackPageTest::interludeHasIndependentRowAndNativePixels()
         QTest::qWait(100);
         auto *dot = session.item("lyricInterludeDot0");
         QVERIFY(dot);
+        auto *viewport = list->parentItem();
+        const int originalAlignment = viewport->property("horizontalAlignment").toInt();
+        QVERIFY(viewport->setProperty("horizontalAlignment", int(Qt::AlignHCenter)));
+        QTRY_VERIFY(qAbs(center(dots).x() - center(row).x()) < .1);
+        QVERIFY(viewport->setProperty("horizontalAlignment", originalAlignment));
         const auto fontSize = dots->property("fontSize").toReal();
         QVERIFY(qAbs(dot->width() - fontSize * .3) < .01);
         QVERIFY(qAbs(row->height() - fontSize * 2.1) < .1);

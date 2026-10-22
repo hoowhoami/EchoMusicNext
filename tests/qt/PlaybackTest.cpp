@@ -99,6 +99,33 @@ public:
         playback.m_resolvedQuality = quality;
         emit playback.changed();
     }
+    static void advanceListening(PlaybackService &playback, const QString &sourceKind, double time)
+    {
+        PlaybackTrack track;
+        track.id = QStringLiteral("1");
+        track.hash = QString(32, 'a');
+        track.songId = 1;
+        track.durationMs = 60000;
+        playback.m_track = track;
+        playback.m_sourceKind = sourceKind;
+        playback.m_ready = true;
+        playback.m_loaded = true;
+        playback.m_loading = false;
+        playback.m_playing = true;
+        playback.m_error.clear();
+        playback.consumeOutputEvent({{"event", "time-update"}, {"time", time}});
+    }
+    static void offerBackupUrl(PlaybackService &playback, const QString &url)
+    {
+        playback.m_urls = {url};
+        playback.m_urlIndex = 0;
+        playback.m_loaded = true;
+        playback.m_seamless = false;
+    }
+    static void outputEvent(PlaybackService &playback, const QJsonObject &event)
+    {
+        playback.consumeOutputEvent(event);
+    }
 };
 class PlaybackAudioControlsTestAccess
 {
@@ -328,6 +355,83 @@ private slots:
         report.shutdown();
         QCOMPARE(drained.size(), 1);
         api.shutdown();
+    }
+    void listeningScopeIsOnlineCatalogOnly()
+    {
+        QTcpServer transport;
+        QVERIFY(transport.listen(QHostAddress::LocalHost));
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath("listening.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(transport.serverPort()));
+        QVERIFY(api.setAccount(900001, "protocol-test-only"));
+        PlaybackService playback(api, settings);
+        auto &report = PlaybackServiceTestAccess::listening(playback);
+        using A = ListeningReporterTestAccess;
+        for (const auto &kind : {QString("cloud"), QString("mv")}) {
+            PlaybackServiceTestAccess::advanceListening(playback, kind, 0);
+            PlaybackServiceTestAccess::advanceListening(playback, kind, 1);
+            QCOMPARE(A::duration(report), qint64(0));
+            QCOMPARE(A::eventRequest(report), quint64(0));
+            QCOMPARE(A::queued(report), 0);
+        }
+        PlaybackServiceTestAccess::advanceListening(playback, "catalog", 2);
+        QVERIFY(A::eventRequest(report));
+    }
+    void recoverableMediaErrorKeepsListeningSegment()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("backup.wav");
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QDataStream stream(&file);
+        stream.setByteOrder(QDataStream::LittleEndian);
+        constexpr quint32 bytes = 48000 * 2 * 2;
+        stream.writeRawData("RIFF", 4);
+        stream << quint32(36 + bytes);
+        stream.writeRawData("WAVEfmt ", 8);
+        stream << quint32(16) << quint16(1) << quint16(2) << quint32(48000) << quint32(192000)
+               << quint16(4) << quint16(16);
+        stream.writeRawData("data", 4);
+        stream << bytes;
+        stream.writeRawData(QByteArray(bytes, 0).constData(), int(bytes));
+        file.close();
+        QTcpServer transport;
+        QVERIFY(transport.listen(QHostAddress::LocalHost));
+        QSettings settings(directory.filePath("listening.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(transport.serverPort()));
+        QVERIFY(api.setAccount(900001, "protocol-test-only"));
+        PlaybackService playback(api, settings);
+        playback.setVolume(0);
+        auto &report = PlaybackServiceTestAccess::listening(playback);
+        using A = ListeningReporterTestAccess;
+        A::tick(report, 0, 0);
+        A::tick(report, 1000, 1000);
+        QCOMPARE(A::duration(report), qint64(1000));
+        PlaybackServiceTestAccess::offerBackupUrl(playback, path);
+        PlaybackServiceTestAccess::outputEvent(
+            playback, {{"event", "error"}, {"message", "decode"}, {"error_code", "decode"}});
+        QCOMPARE(A::duration(report), qint64(1000));
+    }
+    void listeningGradeWindowAnchorsToSixtyListenedSeconds()
+    {
+        QTcpServer transport;
+        QVERIFY(transport.listen(QHostAddress::LocalHost));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(transport.serverPort()));
+        QVERIFY(api.setAccount(900001, "protocol-test-only"));
+        ListeningReporter report(api);
+        using A = ListeningReporterTestAccess;
+        // Playback starts after the reporter exists, so the construction-time
+        // grade window is not aligned to the first full minute of listening.
+        for (int time = 500; time <= 60000; time += 500)
+            A::tick(report, time, time);
+        QCOMPARE(A::pending(report), 59500);
+        QVERIFY(!A::gradeRequest(report));
+        A::tick(report, 60500, 60500);
+        QCOMPARE(A::pending(report), 60000);
+        QVERIFY(A::gradeRequest(report));
     }
     void listeningMinuteLedgerSeparatesGradeAndDropsUncertainWrites()
     {

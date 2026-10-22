@@ -48,6 +48,8 @@ Window {
     }
     Rectangle {
         id: card
+        scale: window.service.miniScale
+        transformOrigin: Item.TopLeft
         readonly property string echoUiSurface: "mini"
         EchoUiPart {
             id: miniPart
@@ -75,8 +77,8 @@ Window {
         objectName: "miniPlayerCard"
         property real expansion: window.service.panel.length ? 1 : 0
         x: 0
-        y: window.service.expandsUp ? window.height - height : 0
-        width: parent.width
+        y: window.service.expandsUp ? window.height - height * window.service.miniScale : 0
+        width: window.width / window.service.miniScale
         height: 64 + 296 * expansion
         radius: miniPart.value("radius", 16)
         color: (miniPart.replaced || miniTheme.loaded) ? "transparent" : miniPart.value("background", (Theme.store.extensionAppearance.mini || {}).background || Theme.floating.elevated)
@@ -160,6 +162,7 @@ Window {
                         elide: Text.ElideRight
                     }
                     EchoSoftButton {
+                        objectName: "miniPlayerTranslationAction"
                         visible: window.service.panel === "lyric"
                         size: EchoControlSize.Small
                         text: qsTr("译")
@@ -169,6 +172,7 @@ Window {
                         onClicked: window.playback.lyricText.wantTranslation = !window.playback.lyricText.wantTranslation
                     }
                     EchoSoftButton {
+                        objectName: "miniPlayerRomanizationAction"
                         visible: window.service.panel === "lyric"
                         size: EchoControlSize.Small
                         text: qsTr("音")
@@ -180,6 +184,9 @@ Window {
                     EchoIconButton {
                         id: lyricMenuAction
                         objectName: "miniPlayerLyricMenuAction"
+                        visible: window.service.panel === "lyric"
+                        onVisibleChanged: if (!visible && lyricMenuOwner)
+                            lyricMenuOwner.close()
                         implicitWidth: 28
                         implicitHeight: 28
                         padding: 7
@@ -189,6 +196,8 @@ Window {
                         onClicked: lyricMenuOwner.popup(lyricMenuAction, 0, lyricMenuAction.height)
                     }
                     EchoIconButton {
+                        objectName: "miniPlayerLyricSettingsAction"
+                        visible: window.service.panel === "lyric"
                         implicitWidth: 28
                         implicitHeight: 28
                         padding: 7
@@ -198,10 +207,11 @@ Window {
                         onClicked: window.service.openSettings()
                     }
                     EchoIconButton {
+                        objectName: "miniPlayerCollapsePanelAction"
                         implicitWidth: 28
                         implicitHeight: 28
                         padding: 7
-                        glyph: "chevron-down"
+                        glyph: window.service.expandsUp ? "chevron-down" : "chevron-up"
                         text: qsTr("收起面板")
                         colors: window.miniColors
                         onClicked: window.service.setPanel("")
@@ -284,7 +294,10 @@ Window {
                     width: parent.width
                     height: parent.height - 42
                     model: visible && window.live ? window.playback.queue : null
-                    reuseItems: true
+                    // With Qt 6.12, pooling across this null-model detach can
+                    // retain another row's roles on reopen. Keep virtualization
+                    // without retaining delegates across inactive panels.
+                    reuseItems: false
                     cacheBuffer: 84
                     clip: true
                     spacing: 0
@@ -292,11 +305,12 @@ Window {
                         EchoListPositioning.positionIfNeeded(queue, window.playback.queue.currentIndex, ListView.Contain, null)
                     delegate: Item {
                         id: song
+                        objectName: "miniPlayerQueueRow"
                         required property int index
                         required property string title
                         required property string artistText
                         required property string coverUrl
-                        required property bool current
+                        required property bool isCurrent
                         width: queue.width
                         height: 42
                         Button {
@@ -308,7 +322,7 @@ Window {
                             onClicked: window.playback.playIndex(song.index)
                             background: Rectangle {
                                 radius: 8
-                                color: song.current ? Theme.withAlpha(Theme.accent, .12) : queueAction.hovered ? Theme.floating.hover : "transparent"
+                                color: song.isCurrent ? Theme.withAlpha(Theme.accent, .12) : queueAction.hovered ? Theme.floating.hover : "transparent"
                             }
                             contentItem: RowLayout {
                                 spacing: 8
@@ -320,15 +334,16 @@ Window {
                                     colors: window.miniColors
                                 }
                                 Label {
+                                    objectName: "miniPlayerQueueTitle"
                                     Layout.fillWidth: true
                                     text: song.title
                                     textFormat: Text.PlainText
                                     elide: Text.ElideRight
-                                    font: Theme.font(12, song.current ? 600 : 400)
-                                    color: song.current ? Theme.accentText : window.miniColors.text
+                                    font: Theme.font(12, song.isCurrent ? 600 : 400)
+                                    color: song.isCurrent ? Theme.accentText : window.miniColors.text
                                 }
                                 EchoIcon {
-                                    visible: song.current
+                                    visible: song.isCurrent
                                     name: "music"
                                     color: Theme.accentText
                                     Layout.preferredWidth: 14
@@ -520,16 +535,6 @@ Window {
                             onClicked: window.service.toggleDesktop()
                         }
                         EchoIconButton {
-                            objectName: "miniPlayerThemeAction"
-                            implicitWidth: 24
-                            implicitHeight: 30
-                            padding: 4
-                            colors: window.miniColors
-                            glyph: "palette"
-                            text: qsTr("主题")
-                            onClicked: Theme.store.extensions.request("themes")
-                        }
-                        EchoIconButton {
                             id: volumeAction
                             objectName: "miniPlayerVolume"
                             implicitWidth: 24
@@ -569,8 +574,9 @@ Window {
             EchoMenu {
                 id: lyricMenu
                 objectName: "miniPlayerLyricMenu"
-                implicitHeight: count * 36 + topPadding + bottomPadding
+                implicitHeight: count * 36 * uiScale + topPadding + bottomPadding
                 popupType: Popup.Window
+                uiScale: window.service.miniScale
                 Action {
                     text: qsTr("注音样式")
                     checkable: true
@@ -602,9 +608,9 @@ Window {
             required property int modelData
             objectName: "miniPlayerResize-" + modelData
             x: modelData === Qt.LeftEdge ? 0 : window.width - width
-            y: 12
-            width: 5
-            height: window.height - 24
+            y: 12 * window.service.miniScale
+            width: 5 * window.service.miniScale
+            height: window.height - 24 * window.service.miniScale
             cursorShape: Qt.SizeHorCursor
             onPressed: mouse => window.service.resizeMiniWidth(modelData, mapToGlobal(mouse.x, mouse.y).x)
             onPositionChanged: mouse => {
@@ -633,6 +639,7 @@ Window {
                 objectName: "miniPlayerVolumePopup"
                 playback: window.playback
                 anchorItem: volumeAction
+                contentScale: window.service.miniScale
             }
         }
     }

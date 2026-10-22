@@ -49,7 +49,10 @@ Item {
             Item {
                 id: textSlot
 
-                width: Math.max(0, Math.min(row.fillTextWidth && !row.wrap ? row.width : ink.naturalWidth, row.wrap ? row.width : row.width - (tagRow.implicitWidth > 0 ? row.textTagSpacing + tagRow.implicitWidth : 0)))
+                // Use the available width for a tag-free wrapped label too;
+                // metric natural width can be narrower than rendered glyphs.
+                // Tagged flows keep their intrinsic text/tag wrapping behavior.
+                width: Math.max(0, Math.min(row.fillTextWidth && (!row.wrap || tagRow.implicitWidth === 0) ? row.width : ink.naturalWidth, row.wrap ? row.width : row.width - (tagRow.implicitWidth > 0 ? row.textTagSpacing + tagRow.implicitWidth : 0)))
                 height: Math.max(row.lineHeight * Math.max(1, label.lineCount), tagRow.implicitHeight)
                 Text {
                     id: label

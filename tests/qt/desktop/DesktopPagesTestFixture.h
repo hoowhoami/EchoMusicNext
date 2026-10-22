@@ -169,6 +169,15 @@ public:
 class PlaybackServiceTestAccess
 {
 public:
+    // Paused presentation input, independent of native playback/clock accuracy.
+    static void position(PlaybackService &playback, qint64 value, bool reset = true)
+    {
+        playback.m_position = value;
+        playback.lyricText()->setPosition(value);
+        if (reset)
+            emit playback.timelineReset();
+        emit playback.positionChanged();
+    }
     static void sourcePresentation(PlaybackService &p, const QString &kind)
     {
         quality(p, "standard");

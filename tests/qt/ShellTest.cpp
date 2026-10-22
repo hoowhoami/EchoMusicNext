@@ -16,6 +16,7 @@
 #include <QFont>
 #include <QDir>
 #include <QPointer>
+#include <QScopeGuard>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -1173,6 +1174,135 @@ private slots:
         search.shutdown();
         api.shutdown();
         window->close();
+    }
+    void moreListsKeepShortLabelsWholeAndLongLabelsBounded()
+    {
+        QTemporaryDir temp;
+        QSettings preferences(temp.filePath("settings.ini"), QSettings::IniFormat);
+        ThemeStore theme(preferences);
+        ShellSettings shell(preferences);
+        shell.setMotionEnabled(false);
+        WindowController windows(preferences, false);
+        ApiClient api(DeviceIdentity::temporary());
+        Test::AccountUiFixture accounts{api};
+        SearchModel search(api);
+        RouteController routes;
+        ShellController controller(preferences, routes);
+        routes.navigate("profile");
+        QObject provider;
+        const QString shortKey = "test/more-short", longKey = "test/more-long";
+        QHash<ShellActionModel *, ShellActionModel::Handle> shortHandles;
+        for (auto *model : {controller.titlebarActions(), controller.playerbarActions()}) {
+            for (bool longLabel : {false, true}) {
+                ShellActionModel::Contribution entry;
+                entry.key = longLabel ? longKey : shortKey;
+                entry.id = entry.key;
+                entry.title =
+                    longLabel ? QStringLiteral(
+                                    "较长的菜单名称 Long menu title，用来检查真实可用宽度与边界")
+                              : QStringLiteral("注音样式");
+                entry.icon = "music";
+                entry.enabled = true;
+                entry.order = longLabel ? -19 : -20;
+                entry.invoke = [] {};
+                const auto handle = model->registerAction(provider, entry);
+                if (!longLabel)
+                    shortHandles.insert(model, handle);
+            }
+        }
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"libraryController", QVariant::fromValue(&accounts.library)},
+             {"accountController", QVariant::fromValue(&accounts.controller)},
+             {"shellController", QVariant::fromValue(&controller)},
+             {"shellSettings", QVariant::fromValue(&shell)},
+             {"router", QVariant::fromValue(&routes)},
+             {"windowService", QVariant::fromValue(&windows)},
+             {"searchService", QVariant::fromValue(&search)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        windows.attach(window);
+        const auto cleanup = qScopeGuard([&] {
+            routes.shutdown();
+            controller.shutdown();
+            windows.shutdown();
+            root.reset();
+        });
+        const auto frames = [&] {
+            QSignalSpy rendered(window, &QQuickWindow::frameSwapped);
+            window->update();
+            return rendered.wait(1000);
+        };
+        const auto captures = qEnvironmentVariable("ECHO_MORE_LABEL_CAPTURES");
+        if (!captures.isEmpty())
+            QVERIFY(QDir().mkpath(captures));
+        for (auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (qreal scale : {1., 1.25}) {
+                shell.resetZoom();
+                while (shell.uiScale() < scale - .001)
+                    shell.zoomIn();
+                for (int width : {850, 1250}) {
+                    window->resize(width, 900);
+                    QVERIFY(Test::prepareNativeInput(window));
+                    for (const QString kind : {QString("titlebar"), QString("playerbar")}) {
+                        QVERIFY(frames());
+                        QQuickItem *trigger = nullptr;
+                        QTRY_VERIFY((trigger = findVisibleVisual(window->contentItem(),
+                                                                 kind + "MoreAction")));
+                        const auto point =
+                            trigger->mapToScene({trigger->width() / 2, trigger->height() / 2})
+                                .toPoint();
+                        Test::moveNativePointer(window, point);
+                        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
+                        QPointer<QObject> menu;
+                        QTRY_VERIFY((menu = root->findChild<QObject *>(kind + "MorePopup")));
+                        QTRY_VERIFY(menu->property("opened").toBool());
+                        QVERIFY(frames());
+                        auto *content = menu->property("contentItem").value<QQuickItem *>();
+                        QVERIFY(content);
+                        auto *shortLabel = findVisual(content, kind + "MoreLabel-" + shortKey);
+                        auto *longLabel = findVisual(content, kind + "MoreLabel-" + longKey);
+                        QVERIFY(shortLabel && longLabel);
+                        auto *shortText = shortLabel->property("textItem").value<QQuickItem *>();
+                        auto *longText = longLabel->property("textItem").value<QQuickItem *>();
+                        QVERIFY(shortText && longText);
+                        auto *actions = kind == "titlebar" ? controller.titlebarActions()
+                                                           : controller.playerbarActions();
+                        for (const QString title :
+                             {QStringLiteral("注音样式"), QStringLiteral("任务中心"),
+                              QStringLiteral("EchoMusicNext"), QStringLiteral("下载管理 Downloads"),
+                              QStringLiteral("歌词设置 Lyrics")}) {
+                            QVERIFY(actions->setPresentation(shortHandles.value(actions), title,
+                                                             "music"));
+                            QVERIFY(frames());
+                            QCOMPARE(shortText->property("text").toString(), title);
+                            QCOMPARE(shortText->property("lineCount").toInt(), 1);
+                        }
+                        if (kind == "titlebar")
+                            QVERIFY(longText->property("lineCount").toInt() > 1);
+                        else {
+                            QCOMPARE(longText->property("lineCount").toInt(), 1);
+                            QVERIFY(longLabel->property("truncated").toBool());
+                        }
+                        QVERIFY(content->mapRectToScene(content->boundingRect())
+                                    .contains(longText->mapRectToScene(longText->boundingRect())));
+                        if (!captures.isEmpty())
+                            QVERIFY(window->grabWindow().save(
+                                captures + QString("/%1-%2-%3-%4.png")
+                                               .arg(kind)
+                                               .arg(mode == ThemeStore::Dark ? "dark" : "light")
+                                               .arg(scale)
+                                               .arg(width)));
+                        QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+                        QTRY_VERIFY(menu.isNull());
+                    }
+                }
+            }
+        }
     }
     void productionTitlebarPinningTasksAndVirtualization()
     {

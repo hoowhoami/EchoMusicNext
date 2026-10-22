@@ -362,6 +362,7 @@ Item {
                         objectName: "lyricInterludeRow"
                         InterludeDots {
                             objectName: "lyricInterludeDots"
+                            x: viewport.horizontalAlignment === Qt.AlignHCenter ? (parent.width - width) / 2 : viewport.horizontalAlignment === Qt.AlignRight ? parent.width - width : 0
                             y: viewport.fontSize * .4
                             width: implicitWidth
                             height: implicitHeight

@@ -72,29 +72,32 @@ void EchoTextInkMetrics::measure()
     QTextOption option;
     option.setUseDesignMetrics(true); // Qt Quick's default distance-field Text layout.
     option.setWrapMode(wrap_ ? QTextOption::WrapAtWordBoundaryOrAnywhere : QTextOption::NoWrap);
-    if (!wrap_ && !displayText_.contains(u'\n')) {
-        auto bounds = fm.tightBoundingRect(displayText_, option);
+    const auto lineBounds = [&](const QString &text) {
+        auto bounds = fm.tightBoundingRect(text, option);
         // Native font metrics can include a descender pixel absent from the
         // visible Latin/digit outline. Qt shapes this entire line; no custom
         // glyph walk or per-entry correction. Color/fallback text keeps its
         // existing metrics (including emoji with no vector outline).
-        const bool outlineLine =
-            std::all_of(displayText_.cbegin(), displayText_.cend(), [](QChar c) {
-                return (c.unicode() >= 32 && c.unicode() < 127) || c == QChar(0x2026);
-            });
+        const bool outlineLine = std::all_of(text.cbegin(), text.cend(), [](QChar c) {
+            return (c.unicode() >= 32 && c.unicode() < 127) || c == QChar(0x2026);
+        });
         if (outlineLine) {
-            // Cache only the last measured string/bounds. Unchanged text on
-            // resize does not create paths or repeat QTextLayout; temporary
-            // outline data is released immediately after measuring.
-            if (outlineText_ != displayText_) {
+            // Cache only the last measured line/bounds, including the common
+            // one-line wrap case. Temporary outline data is released after
+            // measuring; multiline layout does not retain a path per line.
+            if (outlineText_ != text) {
                 QPainterPath outline;
-                outline.addText(QPointF(), font_, displayText_);
-                outlineText_ = displayText_;
+                outline.addText(QPointF(), font_, text);
+                outlineText_ = text;
                 outlineBounds_ = outline.boundingRect();
             }
             if (!outlineBounds_.isEmpty())
                 bounds = outlineBounds_;
         }
+        return bounds;
+    };
+    if (!wrap_ && !displayText_.contains(u'\n')) {
+        const auto bounds = lineBounds(displayText_);
         hasInk_ = !bounds.isEmpty();
         inkCenter_ = hasInk_ ? bounds.center().y() : 0;
         firstLineInkCenter_ = inkCenter_;
@@ -114,11 +117,11 @@ void EchoTextInkMetrics::measure()
             break;
         line.setLineWidth(wrap_ ? std::max(qreal(1), width_) : 1e9);
         line.setPosition({0, y});
-        // Qt's native tight bounds include shaping and font fallback. Only
-        // wrapping/line spacing needs QTextLayout; do not walk individual glyphs
-        // or reconstruct their outlines to implement ordinary UI alignment.
+        // Use the same shaped bounds as the no-wrap path, even when wrapping
+        // is enabled but only one visual line fits. QTextLayout owns line
+        // breaks and baselines; no per-glyph reconstruction or row offsets.
         const auto lineText = layout.text().mid(line.textStart(), line.textLength());
-        const auto bounds = fm.tightBoundingRect(lineText, option);
+        const auto bounds = lineBounds(lineText);
         if (first) {
             firstBaseline = line.ascent();
             firstLineInkCenter_ = bounds.isEmpty() ? 0 : bounds.center().y();

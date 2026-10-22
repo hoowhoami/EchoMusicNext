@@ -616,7 +616,8 @@ add_test(
     COMMAND
         echo-desktop-pages-test playbackQueueLocationSkipsVisibleCurrentSong
         playbackFallbackControlsUseProductionUi floatingLyricsFollowRealAudioAndStopMotionOnPause
-        miniProgressVolumeBackdropFavoriteAndDesktopBadge
+        miniProgressVolumeBackdropFavoriteAndDesktopBadge miniQueueRendersAndScrolls
+        miniScaleAndMenuUseProductionSurfaces miniVolumeDismissesAcrossHost
         floatingPreferencesAndFilteredTimelineKeepIdentity
         desktopLyricsMatchSourceChromeAndHoverUnlock
         nativeFloatingWindowsShareStateAndReleaseAcrossCycles

@@ -58,7 +58,7 @@ ctest --preset release
 - Windows：`build/release/app/echomusicnext.exe`。
 - Linux：`build/release/app/echomusicnext`。
 
-Cargo 默认复用仓库根 `target/`，可通过 `ECHO_CARGO_DIR` 显式指定其它缓存。共享缓存的构建、链接及依赖动态库的测试必须串行；不要在应用仍映射旧库时覆盖或清理它。CMake 默认复用 `build/release`，只有确有需要时才建立临时隔离树。
+Cargo 默认复用仓库根 `target/`，可通过 `ECHO_CARGO_DIR` 显式指定其它缓存。共享缓存的构建、链接及依赖动态库的测试必须串行；不要在应用仍映射旧库时覆盖或清理它。CMake 默认复用 `build/release`，只有确有需要时才建立临时隔离树。同一构建目录一次只运行一路配置/构建；多个 Ninja 同时写入会导致生成依赖反复变新并循环重新配置。启动脚本会先构建，运行它时不要再从另一个终端或工具启动同目录构建。
 
 ### 开发产物管理
 

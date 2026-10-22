@@ -591,6 +591,10 @@ void DesktopPagesTest::miniWidthPreferencesClampAndRestore()
         QTRY_COMPARE(mini.height(), 64);
         QCOMPARE(mini.width(), expectedWidth);
         mini.setWidth(500);
+        floating.setMiniScale(1.25);
+        QCOMPARE(mini.size(), QSize(625, 80));
+        floating.setPanel("queue");
+        QCOMPARE(mini.size(), QSize(625, 450));
         floating.attachMini(nullptr);
         floating.shutdown();
     }
@@ -598,10 +602,15 @@ void DesktopPagesTest::miniWidthPreferencesClampAndRestore()
     {
         QQuickWindow mini;
         FloatingPlayerController floating(settings, true);
+        floating.setMiniScale(1.25);
         floating.toggleMini();
         floating.attachMini(&mini);
-        QTRY_COMPARE(mini.width(), 500);
-        QCOMPARE(mini.height(), 64);
+        QTRY_COMPARE(mini.size(), QSize(625, 80));
+        floating.setMiniScale(1);
+        QCOMPARE(mini.size(), QSize(500, 64));
+        floating.setMiniScale(100);
+        floating.setPanel("lyric");
+        QVERIFY(area.contains(mini.geometry()));
         floating.attachMini(nullptr);
         floating.shutdown();
     }

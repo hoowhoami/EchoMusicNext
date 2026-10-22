@@ -84,6 +84,7 @@ public:
     void setConflictPrompt(bool value);
     void setSuppressDefault(bool value);
     void attach(QQuickWindow *window);
+    void attachMini(QQuickWindow *window);
     Q_INVOKABLE void beginRecording(int row, bool global);
     Q_INVOKABLE void stopRecording();
     Q_INVOKABLE void clearBinding(int row, bool global);
@@ -110,10 +111,10 @@ private:
     };
     void persist(int row);
     void registerGlobal();
-    bool editableFocus() const;
+    bool editableFocus(QQuickWindow *window) const;
     QSettings &m_settings;
     QList<Entry> m_entries;
-    QPointer<QQuickWindow> m_window;
+    QPointer<QQuickWindow> m_window, m_miniWindow;
     GlobalShortcuts m_global;
     bool m_nativeRegistration, m_globalEnabled, m_conflictPrompt, m_suppressDefault;
     bool m_recordingGlobal = false, m_closed = false;

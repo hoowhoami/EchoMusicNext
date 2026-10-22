@@ -32,7 +32,9 @@ Item {
         x: content.horizontalAlignment === Qt.AlignLeft ? 0 : content.horizontalAlignment === Qt.AlignRight ? content.width - width : (content.width - width) / 2
         anchors.verticalCenter: parent.verticalCenter
         anchors.alignWhenCentered: false
-        width: Math.max(0, Math.min(implicitWidth, content.width))
+        // Wrapped labels need the available width, not an intrinsic width
+        // rounded down by RowLayout (which can wrap the final short glyph).
+        width: Math.max(0, content.wrap ? content.width : Math.min(implicitWidth, content.width))
         height: implicitHeight
         spacing: content.spacing
         layoutDirection: content.glyphAfterText ? Qt.RightToLeft : Qt.LeftToRight

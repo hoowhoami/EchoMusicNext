@@ -10,8 +10,15 @@ Menu {
     EchoPopupLifecycle {
         surface: menu
     }
-    padding: 6
-    margins: 12
+    padding: 6 * uiScale
+    margins: 12 * uiScale
+    property real uiScale: 1
+    // Native popup windows size themselves from width/height, not Popup.scale.
+    // Scale the recipe's dimensions so its native bounds include every row.
+    // Basic's default modeless dimmer is rectangular, including the native
+    // popup's transparent corners. Menus need no separate dimming layer.
+    Overlay.modal: Item {}
+    Overlay.modeless: Item {}
     /// SongContextMenu clamps its open point using an 8px viewport inset
     /// and 96px bottom reserve. Floating hosts can use anchored placement instead.
     property bool clampToWindow: false
@@ -21,7 +28,7 @@ Menu {
     // after delegate creation, but aboutToShow already needs the placement bounds.
     property real measuredHeight: 40
     function refreshMeasuredSize() {
-        let widest = 168;
+        let widest = 168 * menu.uiScale;
         let height = 0;
         // Popup-derived Menu exposes contentData, not Item.data.
         const children = menu.contentData;
@@ -39,20 +46,21 @@ Menu {
             const isAction = typeof item.text === "string" && item.implicitHeight === undefined;
             if (!isAction && item.implicitHeight === undefined)
                 continue;
-            height += isAction ? 36 : item.implicitHeight;
+            height += isAction ? 36 * menu.uiScale : item.implicitHeight;
             if (typeof item.text !== "string" || item.text.length === 0)
                 continue;
             measure.text = item.text;
-            widest = Math.max(widest, measure.advanceWidth + (isAction ? 20 : item.leftPadding + item.rightPadding) + (item.checkable === true ? 22 : 0));
+            widest = Math.max(widest, measure.advanceWidth + (isAction ? (20 + (item.checkable === true ? 22 : 0)) * menu.uiScale : item.leftPadding + item.rightPadding));
         }
-        const cap = menu.hostWindow ? menu.hostWindow.width - 16 : 100000;
-        menu.measuredWidth = Math.min(Math.max(180, widest + menu.leftPadding + menu.rightPadding), Math.max(96, cap));
-        const heightCap = menu.hostWindow ? Math.max(96, menu.hostWindow.height - 104) : 100000;
-        menu.measuredHeight = Math.min(Math.max(40, height + menu.topPadding + menu.bottomPadding), heightCap);
+        const cap = menu.hostWindow ? menu.hostWindow.width - 16 * menu.uiScale : 100000;
+        menu.measuredWidth = Math.min(Math.max(180 * menu.uiScale, widest + menu.leftPadding + menu.rightPadding), Math.max(96 * menu.uiScale, cap));
+        const heightCap = menu.hostWindow ? Math.max(96 * menu.uiScale, menu.hostWindow.height - 104 * menu.uiScale) : 100000;
+        menu.measuredHeight = Math.min(Math.max(40 * menu.uiScale, height + menu.topPadding + menu.bottomPadding), heightCap);
     }
     implicitWidth: menu.measuredWidth
     implicitHeight: menu.measuredHeight
     onCountChanged: menu.refreshMeasuredSize()
+    onUiScaleChanged: menu.refreshMeasuredSize()
     onAboutToShow: {
         menu.refreshMeasuredSize();
         if (!menu.clampToWindow || !menu.hostWindow)
@@ -79,14 +87,16 @@ Menu {
     }
     background: EchoFloatingSurface {
         color: Theme.elevated
-        radius: Theme.popoverRadius
-        border.width: 0.5
+        radius: Theme.popoverRadius * menu.uiScale
+        border.width: 0.5 * menu.uiScale
         border.color: Theme.floating.subtleBorder
     }
-    delegate: EchoMenuEntry {}
+    delegate: EchoMenuEntry {
+        uiScale: menu.uiScale
+    }
     TextMetrics {
         id: measure
         objectName: "echoMenuMeasure"
-        font: Theme.font(13, Theme.semiboldWeight)
+        font: Theme.font(13 * menu.uiScale, Theme.semiboldWeight)
     }
 }

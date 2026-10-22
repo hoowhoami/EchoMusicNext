@@ -722,6 +722,9 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
         const auto kind = error.value("kind").toString();
         if (!kind.isEmpty())
             summary += QStringLiteral(" kind=%1").arg(kind);
+        const auto transport = error.value("transport").toString();
+        if (!transport.isEmpty())
+            summary += QStringLiteral(" transport=%1").arg(transport);
         if (code.isDouble())
             summary += QStringLiteral(" code=%1").arg(code.toInteger());
     }

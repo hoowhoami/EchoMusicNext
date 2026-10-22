@@ -130,6 +130,8 @@ void AppContext::createAccount()
          });
     m_shortcuts = std::make_unique<ShortcutService>(settings, !smoke);
     auto &shortcuts = *m_shortcuts;
+    bind(window.floating(), &FloatingPlayerController::presentationWindowChanged, &shortcuts,
+         [&] { shortcuts.attachMini(window.floating()->miniWindow()); });
     bind(&shortcuts, &EchoMusic::ShortcutService::notice, &shellController,
          [&](const QString &message) {
              shellController.toasts()->show(message, EchoMusic::ToastService::Warning);

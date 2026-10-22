@@ -14,6 +14,46 @@ class ShortcutServiceTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void miniUsesSharedBindingsAndItsOwnEditorGate()
+    {
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath("mini.ini"), QSettings::IniFormat);
+        ShortcutService service(settings, false);
+        QQuickWindow main, mini, other;
+        service.attach(&main);
+        service.attachMini(&mini);
+        main.show();
+        mini.show();
+        mini.requestActivate();
+        QTRY_VERIFY(mini.isActive());
+        QSignalSpy actions(&service, &ShortcutService::triggered);
+        for (const auto key : {Qt::Key_Up, Qt::Key_Right, Qt::Key_I, Qt::Key_M}) {
+            QTest::keyClick(&mini, key, Qt::ControlModifier);
+            QCOMPARE(actions.size(), 1);
+            actions.clear();
+        }
+        QQuickItem editor(mini.contentItem());
+        editor.setFlag(QQuickItem::ItemAcceptsInputMethod);
+        editor.forceActiveFocus();
+        QTest::keyClick(&mini, Qt::Key_Right, Qt::ControlModifier);
+        QVERIFY(actions.isEmpty());
+        mini.contentItem()->forceActiveFocus();
+        service.beginRecording(ShortcutService::NextTrack, false);
+        QTest::keyClick(&mini, Qt::Key_Right, Qt::ControlModifier);
+        QVERIFY(actions.isEmpty());
+        QCOMPARE(service.recordingRow(), int(ShortcutService::NextTrack));
+        service.stopRecording();
+        other.show();
+        other.requestActivate();
+        QTRY_VERIFY(other.isActive());
+        QTest::keyClick(&other, Qt::Key_Right, Qt::ControlModifier);
+        QVERIFY(actions.isEmpty());
+        service.attachMini(nullptr);
+        mini.requestActivate();
+        QTRY_VERIFY(mini.isActive());
+        QTest::keyClick(&mini, Qt::Key_Right, Qt::ControlModifier);
+        QVERIFY(actions.isEmpty());
+    }
     void macArrowEventsMatchBindings()
     {
 #if defined(Q_OS_MACOS)
@@ -23,6 +63,10 @@ private slots:
         QQuickWindow window;
         service.attach(&window);
         window.show();
+        // A preceding tool-window test can leave the process in the background.
+        // Cocoa's requestActivate alone does not foreground the application.
+        if (QGuiApplication::platformName() == "cocoa")
+            window.raise();
         window.requestActivate();
         QTRY_VERIFY(window.isActive());
         QSignalSpy actions(&service, &ShortcutService::triggered);

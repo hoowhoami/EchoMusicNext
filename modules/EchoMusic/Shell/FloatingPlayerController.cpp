@@ -77,7 +77,9 @@ FloatingPlayerController::FloatingPlayerController(QSettings &settings, bool per
         }
         if (m_miniWindow && !wayland()) {
             const QScopedValueRollback restoring(m_restoring, true);
-            m_anchor = fitBounds(m_anchor, workAreas(), primaryArea(), {360, 64});
+            setMiniScale(m_requestedMiniScale);
+            m_anchor = fitBounds(m_anchor, workAreas(), primaryArea(),
+                                 {qRound(360 * m_miniScale), qRound(64 * m_miniScale)});
             resizeMini(!m_panel.isEmpty());
         }
     });
@@ -137,10 +139,39 @@ QRect FloatingPlayerController::fitBounds(QRect saved, const QList<QRect> &areas
     saved.moveTop(qBound(area.top(), saved.y(), area.bottom() - saved.height() + 1));
     return saved;
 }
-bool FloatingPlayerController::chooseUp(const QRect &anchor, const QRect &area)
+bool FloatingPlayerController::chooseUp(const QRect &anchor, const QRect &area, int expansionHeight)
 {
     const int below = area.bottom() - anchor.bottom(), above = anchor.top() - area.top();
-    return below < 296 && (above >= 296 || above > below);
+    return below < expansionHeight && (above >= expansionHeight || above > below);
+}
+void FloatingPlayerController::setMiniScale(qreal scale)
+{
+    if (!qIsFinite(scale) || scale <= 0)
+        return;
+    m_requestedMiniScale = scale;
+    const auto area = m_miniWindow && m_miniWindow->isVisible()
+                          ? m_miniWindow->screen()->availableGeometry()
+                      : m_anchor.isValid() ? nearestArea(m_anchor)
+                                           : primaryArea();
+    // Keep the full expanded Mini reachable even at the largest app zoom.
+    scale = qMin(scale, qMin(area.width() / 360., area.height() / 360.));
+    if (qFuzzyCompare(scale, m_miniScale))
+        return;
+    saveMini();
+    const auto oldScale = m_miniScale;
+    m_miniScale = scale;
+    m_miniResizeEdge = 0;
+    if (m_anchor.isValid()) {
+        m_anchor.setSize({qRound(m_anchor.width() / oldScale * scale), qRound(64 * scale)});
+        m_anchor = fitBounds(m_anchor, workAreas(), area, m_anchor.size());
+    }
+    if (m_miniWindow) {
+        const QScopedValueRollback restoring(m_restoring, true);
+        m_miniWindow->setMinimumWidth(qRound(360 * scale));
+        m_miniWindow->setMaximumWidth(qRound(560 * scale));
+        resizeMini(!m_panel.isEmpty());
+    }
+    emit miniScaleChanged();
 }
 void FloatingPlayerController::setDesktopEnabled(bool value)
 {
@@ -301,16 +332,22 @@ void FloatingPlayerController::attachMini(QQuickWindow *window)
     }
     window->setTransientParent(nullptr);
     // Expansion changes only the Mini window height, preserving its bounded width.
-    window->setMinimumWidth(360);
-    window->setMaximumWidth(560);
+    setMiniScale(m_requestedMiniScale);
+    window->setMinimumWidth(qRound(360 * m_miniScale));
+    window->setMaximumWidth(qRound(560 * m_miniScale));
     window->installEventFilter(this);
-    auto saved = m_anchor.isValid() ? m_anchor
+    const bool nativeAnchor = m_anchor.isValid();
+    auto saved = nativeAnchor ? m_anchor
                  : m_persist
                      ? m_settings.value(EchoMusic::SettingsKeys::Floating::MiniAnchor).toRect()
                      : QRect{};
-    if (saved.isValid())
-        saved.setSize({qBound(360, saved.width(), 560), 64});
-    m_anchor = fitBounds(saved, workAreas(), primaryArea(), {360, 64});
+    if (saved.isValid()) {
+        const auto logicalWidth = nativeAnchor ? saved.width() / m_miniScale : saved.width();
+        saved.setSize(
+            {qRound(qBound(360., logicalWidth, 560.) * m_miniScale), qRound(64 * m_miniScale)});
+    }
+    m_anchor = fitBounds(saved, workAreas(), primaryArea(),
+                         {qRound(360 * m_miniScale), qRound(64 * m_miniScale)});
     {
         const QScopedValueRollback restoring(m_restoring, true);
         resizeMini(false);
@@ -320,6 +357,7 @@ void FloatingPlayerController::attachMini(QQuickWindow *window)
             if (!m_restoring)
                 m_miniSave.start();
         });
+    connect(window, &QWindow::screenChanged, this, [this] { setMiniScale(m_requestedMiniScale); });
     applyMini();
     if (QGuiApplication::platformName() != "offscreen") {
         window->raise();
@@ -442,11 +480,18 @@ void FloatingPlayerController::resizeMini(bool expanded)
     if (!m_restoring && m_miniWindow->isVisible())
         saveMini();
     if (expanded)
-        m_up = chooseUp(m_anchor, nearestArea(m_anchor));
+        m_up = chooseUp(m_anchor, nearestArea(m_anchor), qRound(296 * m_miniScale));
     auto bounds = m_anchor;
-    bounds.setHeight(expanded ? 360 : 64);
+    bounds.setHeight(qRound((expanded ? 360 : 64) * m_miniScale));
     if (expanded && m_up)
-        bounds.moveTop(m_anchor.y() - 296);
+        bounds.moveTop(m_anchor.y() - bounds.height() + qRound(64 * m_miniScale));
+    if (!wayland()) {
+        bounds = fitBounds(bounds, workAreas(), nearestArea(m_anchor), bounds.size());
+        m_anchor =
+            QRect(bounds.topLeft() +
+                      QPoint(0, expanded && m_up ? bounds.height() - qRound(64 * m_miniScale) : 0),
+                  QSize(bounds.width(), qRound(64 * m_miniScale)));
+    }
     const QScopedValueRollback restoring(m_restoring, true);
     if (wayland())
         m_miniWindow->resize(bounds.size());
@@ -471,14 +516,21 @@ void FloatingPlayerController::saveMini()
     if (!m_miniWindow || m_restoring)
         return;
     auto bounds = m_miniWindow->geometry();
-    if (bounds.height() > 64 && m_up)
-        bounds.moveTop(bounds.y() + bounds.height() - 64);
-    bounds.setSize({qBound(360, bounds.width(), 560), 64});
+    const int barHeight = qRound(64 * m_miniScale);
+    if (bounds.height() > barHeight && m_up)
+        bounds.moveTop(bounds.y() + bounds.height() - barHeight);
+    bounds.setSize(
+        {qBound(qRound(360 * m_miniScale), bounds.width(), qRound(560 * m_miniScale)), barHeight});
     if (wayland())
         bounds.moveTopLeft(m_anchor.topLeft());
     m_anchor = bounds;
-    if (m_persist)
-        m_settings.setValue(EchoMusic::SettingsKeys::Floating::MiniAnchor, bounds);
+    if (m_persist) {
+        // Screen position is native Qt DIP; width is saved in unscaled UI units
+        // so closing/reopening never compounds application zoom.
+        auto saved = bounds;
+        saved.setSize({qRound(bounds.width() / m_miniScale), 64});
+        m_settings.setValue(EchoMusic::SettingsKeys::Floating::MiniAnchor, saved);
+    }
 }
 void FloatingPlayerController::moveDesktop()
 {

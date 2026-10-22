@@ -193,8 +193,10 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         const auto position = qint64(event.value("time").toDouble() * 1000);
         if (kind == "seeked")
             m_playback.m_listening.resetPosition();
+        // Only the resolved online catalog source is reported. Cloud files and
+        // MV audio keep their own source kind and must not become CSCC plays.
         m_playback.m_listening.tick(m_playback.m_track.key(), m_playback.m_track.songId,
-                                    m_playback.m_track.localPath.isEmpty(),
+                                    m_playback.m_sourceKind == "catalog",
                                     m_playback.m_playing && !m_playback.m_loading &&
                                         m_playback.progressBusyReason() ==
                                             PlaybackService::ProgressReady,
@@ -232,7 +234,6 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         if (!m_playback.m_sleepTimer.trackEnded())
             m_playback.next(true);
     } else if (kind == "error") {
-        m_playback.m_listening.flush();
         if (!m_playback.m_ready) {
             m_playback.m_initializationError = event.value("message").toString();
             emit m_playback.engineInitializationChanged();
@@ -253,6 +254,10 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         } else if (mediaFailure && m_playback.recoverSource(m_playback.m_error)) {
             emit m_playback.changed();
         } else {
+            // Recoverable URL/source fallbacks keep the wall-clock segment
+            // open. Only a terminal failure actually ends this listen.
+            if (!m_playback.m_seamless)
+                m_playback.m_listening.flush();
             m_playback.m_loading = false;
             m_playback.m_failure->failed();
             emit m_playback.changed();

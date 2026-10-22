@@ -10,6 +10,9 @@ pub struct ApiError {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub challenge: Option<crate::util::verification::Challenge>,
+    /// Safe transport failure class for diagnostics; never carries URLs or bodies.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport: Option<&'static str>,
 }
 
 impl std::fmt::Debug for ApiError {
@@ -29,6 +32,7 @@ impl ApiError {
             message: message.into(),
             retry_after_seconds: None,
             challenge: None,
+            transport: None,
         }
     }
     pub fn business(code: i64) -> Self {
@@ -38,6 +42,7 @@ impl ApiError {
             message: "音乐服务拒绝了请求".into(),
             retry_after_seconds: None,
             challenge: None,
+            transport: None,
         }
     }
     pub fn decode() -> Self {
@@ -59,6 +64,7 @@ impl ApiError {
             message: "账号认证无效，请重新登录".into(),
             retry_after_seconds: None,
             challenge: None,
+            transport: None,
         }
     }
     pub fn challenge(challenge: crate::util::verification::Challenge) -> Self {
@@ -68,6 +74,7 @@ impl ApiError {
             message: "需要完成账号安全验证".into(),
             retry_after_seconds: None,
             challenge: Some(challenge),
+            transport: None,
         }
     }
 }

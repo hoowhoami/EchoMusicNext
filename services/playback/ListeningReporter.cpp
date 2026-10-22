@@ -85,12 +85,13 @@ void ListeningReporter::tickAt(const QString &track, quint64 songId, bool eligib
     }
     m_sampleTime = now;
     m_position = positionMs;
-    if (now - m_lastGrade >= 60000) {
+    // Do not advance the window when fewer than 60 listened seconds are
+    // available. Real engine ticks always leave the first sample short of a
+    // nominal minute; advancing here delayed that minute to the next window.
+    if (!m_gradeRequest && m_pendingMs >= 60000 && now - m_lastGrade >= 60000) {
         m_lastGrade = now;
-        if (m_pendingMs >= 60000 && !m_gradeRequest) {
-            m_gradeWriting = false;
-            m_gradeRequest = m_api.userGradeInfo({}, false);
-        }
+        m_gradeWriting = false;
+        m_gradeRequest = m_api.userGradeInfo({}, false);
     }
 }
 void ListeningReporter::flush(bool completed)

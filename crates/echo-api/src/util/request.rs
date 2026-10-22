@@ -133,14 +133,29 @@ pub enum Origin {
     VideoCollect,
 }
 pub(crate) fn transport_error(error: reqwest::Error, fallback: &'static str) -> ApiError {
-    ApiError::new(
-        "transport",
-        if error.is_timeout() {
-            "网络请求超时"
-        } else {
-            fallback
-        },
-    )
+    if error.is_timeout() {
+        let mut failure = ApiError::new("transport", "网络请求超时");
+        failure.transport = Some("timeout");
+        return failure;
+    }
+    let class = if error.is_connect() {
+        "connect"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_decode() {
+        "decode"
+    } else if error.is_request() {
+        "request"
+    } else if error.is_redirect() {
+        "redirect"
+    } else if error.is_builder() {
+        "builder"
+    } else {
+        "other"
+    };
+    let mut failure = ApiError::new("transport", fallback);
+    failure.transport = Some(class);
+    failure
 }
 impl ApiClient {
     /// Comment count uses the reference web signature, retaining the lite defaults.
@@ -889,6 +904,7 @@ mod tests {
         };
         assert_eq!(error.kind, "transport");
         assert_eq!(error.message, "网络请求超时");
+        assert_eq!(error.transport, Some("timeout"));
         let unbounded =
             client.apply_timeout(client.http().get(format!("http://{address}/unbounded")));
         let response = client.receive(unbounded, BTreeMap::new()).await.unwrap();
@@ -905,6 +921,27 @@ mod tests {
             .build()
             .unwrap();
         assert_eq!(upload.timeout(), Some(&Duration::from_secs(30)));
+    }
+    #[tokio::test]
+    async fn closed_endpoint_reports_a_safe_connect_class() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let client = ApiClient::new().unwrap();
+        let error = match client
+            .receive(
+                client.http().get(format!("http://{address}/probe")),
+                BTreeMap::new(),
+            )
+            .await
+        {
+            Ok(_) => panic!("closed endpoint unexpectedly returned a response"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind, "transport");
+        assert_eq!(error.transport, Some("connect"));
+        assert!(!error.message.contains(&address.to_string()));
     }
     #[test]
     fn image_upload_has_only_its_fixed_origin_query_and_raw_body() {

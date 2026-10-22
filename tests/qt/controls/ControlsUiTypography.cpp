@@ -1,5 +1,7 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
+#include <QFontMetricsF>
+#include <QPainterPath>
 
 void ControlsUiTest::badgeIconAndCountUseSameInkCenter()
 {
@@ -155,8 +157,19 @@ void ControlsUiTest::textTagAlignmentAcrossProductionRecipes()
             const qreal expected = box->mapToScene({0, box->height() / 2}).y();
             const qreal tolerance = 1.0 * session.root->property("sampleScale").toReal();
             if (qAbs(actual - expected) > tolerance) {
+                const auto font = label->property("font").value<QFont>();
+                const auto text = label->property("text").toString();
+                QPainterPath outline;
+                outline.addText(QPointF(), font, text);
                 qWarning() << "ink alignment" << index << label->property("text") << "actual"
-                           << actual << "expected" << expected;
+                           << actual << "expected" << expected << "scale"
+                           << session.root->property("sampleScale") << "mode"
+                           << session.theme.mode() << "DPR" << ratio << "font" << font << "metrics"
+                           << QFontMetricsF(font).tightBoundingRect(text) << "outline"
+                           << outline.boundingRect() << "label y" << label->y() << "baseline"
+                           << label->property("baselineOffset");
+                if (!capture.isEmpty())
+                    image.save(capture + QStringLiteral("/failure.png"));
                 return false;
             }
             if (tag->isVisible()) {
@@ -221,6 +234,22 @@ void ControlsUiTest::textTagAlignmentAcrossProductionRecipes()
                     session.root->setProperty("sampleText", text);
                     QVERIFY2(verifyInk(), qPrintable(family + " / " + text));
                 }
+            }
+        }
+    }
+    // The same Latin ink bounds apply to a fitting wrapped line, actual soft
+    // wraps and explicit newlines, without altering the CJK/fallback path.
+    session.root->setProperty("availableWidth", 200);
+    for (const qreal scale : {1.0, 1.25}) {
+        session.root->setProperty("sampleScale", scale);
+        for (const auto &text : {QStringLiteral("EchoMusic EchoMusic EchoMusic"),
+                                 QStringLiteral("EchoMusic\ngyp 123")}) {
+            session.root->setProperty("sampleText", text);
+            QVERIFY2(verifyInk(), qPrintable(text));
+            for (const auto index : {0, 4}) {
+                auto *row = session.item(QString("alignmentRow-%1").arg(index));
+                auto *label = row->property("textItem").value<QQuickItem *>();
+                QVERIFY(label->property("lineCount").toInt() > 1);
             }
         }
     }

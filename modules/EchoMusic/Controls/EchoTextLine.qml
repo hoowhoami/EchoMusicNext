@@ -37,7 +37,7 @@ Item {
     }
     Text {
         id: label
-        width: Math.max(0, line.fillTextWidth && !line.wrap ? line.width : Math.min(line.width, ink.naturalWidth))
+        width: Math.max(0, line.fillTextWidth ? line.width : Math.min(line.width, ink.naturalWidth))
         height: implicitHeight
         y: ink.hasInk ? line.height / 2 - baselineOffset - ink.inkCenterFromBaseline : (line.height - height) / 2
         text: ink.displayText
