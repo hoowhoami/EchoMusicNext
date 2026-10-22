@@ -38,6 +38,7 @@ void ListeningReporter::reset()
     m_ledger = 0;
     m_sampleTime = -1;
     m_gradeWriting = false;
+    m_gradeRetried = false;
     m_revision = m_api.sessionRevision();
     m_lastGrade = m_clock.elapsed();
     if (m_closing)
@@ -91,6 +92,7 @@ void ListeningReporter::tickAt(const QString &track, quint64 songId, bool eligib
     if (!m_gradeRequest && m_pendingMs >= 60000 && now - m_lastGrade >= 60000) {
         m_lastGrade = now;
         m_gradeWriting = false;
+        m_gradeRetried = false;
         m_gradeRequest = m_api.userGradeInfo({}, false);
     }
 }
@@ -164,12 +166,22 @@ void ListeningReporter::fail(quint64 id, const QByteArray &bytes)
     } else if (id && id == m_gradeRequest) {
         m_gradeRequest = 0;
         const auto kind = QJsonDocument::fromJson(bytes).object().value("kind").toString();
-        // Only a definite business rejection can retain this minute for the
-        // next periodic window. Timeout/decode/HTTP may already have committed.
+        // A baseline query is read-only and may fail only because reqwest reused
+        // an idle connection the upstream had already closed. Retry that query
+        // once on a fresh connection; never replay the write after uncertainty.
+        if (!m_gradeWriting && !m_gradeRetried && kind == "transport") {
+            m_gradeRetried = true;
+            m_gradeRequest = m_api.userGradeInfo({}, false);
+            qWarning("Listening grade baseline request failed; retrying once");
+            return;
+        }
+        // Only a definite write rejection can retain this minute for the next
+        // periodic window. Timeout/decode/HTTP may already have committed.
         if (m_gradeWriting && kind != "business" && kind != "authentication" && kind != "challenge")
             m_pendingMs = std::max<qint64>(0, m_pendingMs - 60000);
+        const auto phase = m_gradeWriting ? "write" : "baseline";
         m_gradeWriting = false;
-        qWarning("Listening grade request failed");
+        qWarning("Listening grade request failed phase=%s", phase);
         finishDrain();
     }
 }

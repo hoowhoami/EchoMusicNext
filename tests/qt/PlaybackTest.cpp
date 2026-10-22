@@ -433,6 +433,32 @@ private slots:
         QCOMPARE(A::pending(report), 60000);
         QVERIFY(A::gradeRequest(report));
     }
+    void listeningGradeBaselineTransportRetriesOncePerWindow()
+    {
+        QTcpServer transport;
+        QVERIFY(transport.listen(QHostAddress::LocalHost));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(transport.serverPort()));
+        QVERIFY(api.setAccount(900001, "protocol-test-only"));
+        ListeningReporter report(api);
+        using A = ListeningReporterTestAccess;
+        for (int i = 0; i <= 60; ++i)
+            A::tick(report, i * 1000, i * 1000);
+        const auto first = A::gradeRequest(report);
+        QVERIFY(first);
+        A::fail(report, first, "transport");
+        QCOMPARE(A::pending(report), 60000); // baseline failure keeps the minute
+        const auto retry = A::gradeRequest(report);
+        QVERIFY(retry);
+        QVERIFY(retry != first);
+        A::fail(report, retry, "transport");
+        QCOMPARE(A::pending(report), 60000);
+        QCOMPARE(A::gradeRequest(report), quint64(0)); // only one free retry
+        for (int i = 61; i <= 120; ++i)
+            A::tick(report, i * 1000, i * 1000);
+        QVERIFY(A::gradeRequest(report)); // next window can retry again
+        api.shutdown();
+    }
     void listeningMinuteLedgerSeparatesGradeAndDropsUncertainWrites()
     {
         QTcpServer transport;

@@ -46,6 +46,6 @@ private:
     qint64 m_duration = 0, m_pendingMs = 0, m_sampleTime = -1, m_position = 0;
     qint64 m_lastEvent = -3000, m_lastGrade = 0;
     quint64 m_ledger = 0;
-    bool m_gradeWriting = false, m_closing = false, m_drained = false;
+    bool m_gradeWriting = false, m_gradeRetried = false, m_closing = false, m_drained = false;
 };
 } // namespace EchoMusic
