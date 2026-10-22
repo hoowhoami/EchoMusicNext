@@ -122,6 +122,10 @@ public:
     Q_INVOKABLE void dragBegin();
     Q_INVOKABLE void dragUpdate();
     Q_INVOKABLE void dragEnd();
+    /// The strip was right-clicked; the shell shows the context menu at the
+    /// cursor. The argument is the screen position in PHYSICAL pixels as the
+    /// platform reports it.
+    void onStripRightClicked(int globalX, int globalY);
 
 signals:
     void enabledChanged();
@@ -130,6 +134,9 @@ signals:
     void settingsChanged();
     /// The lyric surface was clicked; the shell decides what "open main" is.
     void openMainRequested();
+    /// The strip was right-clicked at the given global position; the shell
+    /// shows its context menu.
+    void menuRequested(qreal globalX, qreal globalY);
 
 private:
     void applyLayout(const TaskbarLayout &layout);

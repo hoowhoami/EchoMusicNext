@@ -212,6 +212,11 @@ Window {
     }
     Component.onDestruction: controller.detach()
 
+    // A right click on the strip opens the shell's context menu. It is NOT
+    // handled here: the taskbar area gives the right button to the shell's
+    // XAML island, so the platform interposes on the strip's window procedure
+    // and reports the click back through the controller.
+
     Rectangle {
         id: content
         // The window keeps the full region size; the content only takes the
