@@ -7,9 +7,12 @@
 #include <optional>
 #include <memory>
 #include <QSortFilterProxyModel>
+#include <QPointer>
 
 namespace EchoMusic
 {
+class LyricExtensions;
+class NativeBridge;
 /// Candidate keys remain in this GUI-owned service, never in QML or SQLite.
 /// Preview and active lyrics share the typed API but have separate request
 /// lifecycles, so browsing a source cannot replace the playing lyric.
@@ -36,7 +39,8 @@ class LyricSourceController final : public QAbstractListModel
     Q_PROPERTY(QString searchArtist READ searchArtist WRITE setSearchArtist NOTIFY changed)
     Q_PROPERTY(bool canSearch READ canSearch NOTIFY changed)
 public:
-    LyricSourceController(ApiClient &, QSettings &, QObject *parent = nullptr);
+    LyricSourceController(ApiClient &, QSettings &, QObject *parent = nullptr,
+                          NativeBridge *native = nullptr);
     ~LyricSourceController() override;
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &, int role) const override;
@@ -55,15 +59,17 @@ public:
     }
     QString currentId() const
     {
-        return m_currentId;
+        return m_manualId.isEmpty() && !m_writes.isEmpty() ? m_writes.last().key : m_currentId;
     }
     QString state() const
     {
-        return m_state;
+        return m_manualId.isEmpty() && !m_writes.isEmpty()
+                   ? (m_writes.last().lyrics.value("lines").toArray().isEmpty() ? "empty" : "ready")
+                   : m_state;
     }
     bool loading() const
     {
-        return m_search != 0 || m_defaultSearch != 0;
+        return m_search != 0 || m_defaultSearch != 0 || !m_extensionJob.isNull();
     }
     bool previewLoading() const
     {
@@ -100,6 +106,24 @@ public:
     }
     void setSearchTitle(const QString &);
     void setSearchArtist(const QString &);
+    LyricExtensions *extensions() const
+    {
+        return m_extensions.get();
+    }
+    quint64 generation() const
+    {
+        return m_generation;
+    }
+    quint64 choiceRevision() const
+    {
+        return m_choiceRevision;
+    }
+    void suspend();
+    QString activeSource() const;
+    void reload(bool preserveCurrent = true);
+    bool installWrite(const QString &key, const QString &revision, const QString &source,
+                      const QJsonObject &lyrics);
+    void removeWrite(const QString &key, const QString &revision);
     void load(const PlaybackTrack &);
     void clear();
     void updateEmbedded(const QString &trackKey, const QString &title, const QString &artist,
@@ -145,6 +169,28 @@ private:
     QString trackKeywords() const;
     QString nextAutomaticKeywords();
     void includeEmbedded(QList<Candidate> &) const;
+    void includePlugin(QList<Candidate> &) const;
+    void beginAutomatic(bool force = false, bool preserveCurrent = false);
+    void cancelExtension();
+    bool hasTrack() const
+    {
+        return !m_track.id.isEmpty() || !m_track.hash.isEmpty() || !m_track.localPath.isEmpty();
+    }
+    void extensionsChanged();
+    void publishEffective();
+    struct Write
+    {
+        QString key, revision, source;
+        QJsonObject lyrics;
+    };
+    QList<Write> m_writes;
+    std::unique_ptr<LyricExtensions> m_extensions;
+    QPointer<QObject> m_extensionJob;
+    quint64 m_generation = 0, m_choiceRevision = 0;
+    std::optional<Candidate> m_pluginCandidate;
+    QString m_pluginRevision;
+    QJsonObject m_pluginLyrics, m_baseLyrics;
+
     QJsonObject cachedLyrics(const QString &id) const;
     QString m_embeddedTitle, m_embeddedArtist;
     QJsonObject m_embeddedLyrics;

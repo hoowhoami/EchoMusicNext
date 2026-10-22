@@ -177,6 +177,9 @@ pub fn parse_krc(text: &str) -> Result<Lyrics, ApiError> {
     Ok(result)
 }
 // contenttype=1/2 retain fmt=krc but contain base64 UTF-8, not encrypted KRC.
+pub fn parse_lrc_document(text: &str) -> Result<Lyrics, ApiError> {
+    parse_lrc(text, true, true)
+}
 pub fn parse_text(text: &str, scrollable: bool) -> Result<Lyrics, ApiError> {
     parse_lrc(text, scrollable, false)
 }

@@ -104,9 +104,10 @@ void GlobalShortcuts::replace(const QList<Binding> &bindings)
             }
         }
         const int id = 0x4540 + binding.command;
-        if (key && RegisterHotKey(nullptr, id, flags, key))
+        if (key && RegisterHotKey(nullptr, id, flags, key)) {
             m_impl->keys.insert(id);
-        else
+            emit registered(binding.command);
+        } else
             emit registrationFailed(
                 binding.command,
                 tr("系统未能注册此快捷键（%1），可能已被占用").arg(GetLastError()));

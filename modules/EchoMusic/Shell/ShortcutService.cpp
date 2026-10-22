@@ -158,11 +158,39 @@ ShortcutService::ShortcutService(QSettings &settings, bool nativeRegistration, Q
         m_entries.append(entry);
     }
     connect(&m_global, &GlobalShortcuts::activated, this, [this](int command) {
+        if (command >= 1000) {
+            const auto bindings = m_plugins.values();
+            for (const auto &b : bindings)
+                if (b.command == command && b.owner && !m_closed && m_recordingRow < 0 &&
+                    b.global && m_globalEnabled && b.error.isEmpty() && b.invoke)
+                    b.invoke();
+            return;
+        }
         if (!m_closed && m_recordingRow < 0 && command >= 0 && command < m_entries.size())
             emit triggered(Command(command));
     });
+    connect(&m_global, &GlobalShortcuts::registered, this, [this](int command) {
+        if (m_closed || m_recordingRow >= 0 || !m_nativeRegistration || !m_globalEnabled)
+            return;
+        for (auto &b : m_plugins)
+            if (b.command == command && b.owner) {
+                b.registered = true;
+                b.error.clear();
+                emit pluginRegistrationChanged(b.key, b.generation, true, {});
+                break;
+            }
+    });
     connect(&m_global, &GlobalShortcuts::registrationFailed, this,
             [this](int row, const QString &reason) {
+                if (row >= 1000) {
+                    for (auto &b : m_plugins)
+                        if (b.command == row) {
+                            b.registered = false;
+                            b.error = reason;
+                            emit pluginRegistrationChanged(b.key, b.generation, false, reason);
+                        }
+                    return;
+                }
                 if (row < 0 || row >= m_entries.size())
                     return;
                 m_entries[row].error = reason;
@@ -229,6 +257,10 @@ void ShortcutService::beginRecording(int row, bool global)
     m_recordingGlobal = global;
     // OS registrations must not consume keys while the user is recording them.
     m_global.replace({});
+    for (const auto &binding : m_plugins)
+        if (binding.global)
+            emit pluginRegistrationChanged(binding.key, binding.generation, false,
+                                           tr("正在录制快捷键"));
     emit recordingChanged();
 }
 void ShortcutService::stopRecording()
@@ -258,6 +290,11 @@ bool ShortcutService::recordKey(int key, Qt::KeyboardModifiers modifiers, bool r
     }
     const auto sequence =
         normalizedShortcut(QKeySequence(QKeyCombination(modifiers, Qt::Key(key))));
+    for (const auto &binding : m_plugins)
+        if (binding.owner && binding.global == m_recordingGlobal && binding.sequence == sequence) {
+            emit notice(tr("该快捷键已由插件使用"));
+            return false;
+        }
     for (int row = 0; row < m_entries.size(); ++row) {
         if (row != m_recordingRow &&
             sequence == (m_recordingGlobal ? m_entries[row].global : m_entries[row].local)) {
@@ -330,7 +367,20 @@ void ShortcutService::registerGlobal()
             bindings.append({row, m_entries[row].global, m_entries[row].title});
     }
     emit dataChanged(index(0), index(m_entries.size() - 1), {GlobalError});
+    for (auto &b : m_plugins)
+        if (b.global) {
+            b.registered = false;
+            b.error = !m_globalEnabled        ? tr("全局快捷键已关闭")
+                      : !m_nativeRegistration ? tr("当前运行环境不提供全局快捷键")
+                                              : QString();
+            if (b.error.isEmpty() && b.owner)
+                bindings.append({b.command, b.sequence, b.key});
+        }
     m_global.replace(bindings);
+    for (const auto &b : m_plugins)
+        if (b.global)
+            emit pluginRegistrationChanged(b.key, b.generation,
+                                           b.owner && b.registered && b.error.isEmpty(), b.error);
     emit changed();
 }
 void ShortcutService::setGlobalEnabled(bool value)
@@ -402,7 +452,57 @@ bool ShortcutService::eventFilter(QObject *watched, QEvent *event)
         }
         return false;
     }
+    const auto bindings = m_plugins.values();
+    for (const auto &binding : bindings)
+        if (binding.owner && !binding.global && binding.sequence == sequence) {
+            if (event->type() == QEvent::KeyPress && binding.invoke)
+                binding.invoke();
+            key->accept();
+            return true;
+        }
     return false;
+}
+quint64 ShortcutService::registerPlugin(PluginBinding binding, QString &error)
+{
+    if (m_closed || !binding.owner || binding.key.isEmpty() ||
+        (!m_plugins.contains(binding.key) && m_plugins.size() >= 128)) {
+        error = tr("快捷键服务不可用或注册已满");
+        return 0;
+    }
+    binding.sequence = normalizedShortcut(binding.sequence);
+    if (binding.sequence.isEmpty() || binding.sequence.count() != 1 ||
+        binding.sequence[0].key() == Qt::Key_unknown ||
+        binding.sequence[0].keyboardModifiers() == Qt::NoModifier) {
+        error = tr("快捷键必须包含修饰键和一个按键");
+        return 0;
+    }
+    for (const auto &entry : m_entries)
+        if ((binding.global ? entry.global : entry.local) == binding.sequence) {
+            error = tr("该快捷键已分配给“%1”").arg(entry.title);
+            return 0;
+        }
+    for (const auto &entry : m_plugins)
+        if (entry.key != binding.key && entry.global == binding.global &&
+            entry.sequence == binding.sequence) {
+            error = tr("该快捷键已由其他插件使用");
+            return 0;
+        }
+    binding.generation = ++m_pluginGeneration;
+    binding.command = ++m_pluginCommand;
+    const auto key = binding.key;
+    const auto generation = binding.generation;
+    connect(binding.owner, &QObject::destroyed, this,
+            [this, key, generation] { unregisterPlugin(key, generation); });
+    m_plugins.insert(key, std::move(binding));
+    registerGlobal();
+    return generation;
+}
+void ShortcutService::unregisterPlugin(const QString &key, quint64 generation)
+{
+    if (m_plugins.value(key).generation == generation) {
+        m_plugins.remove(key);
+        registerGlobal();
+    }
 }
 void ShortcutService::shutdown()
 {
@@ -411,6 +511,7 @@ void ShortcutService::shutdown()
     m_closed = true;
     m_recordingRow = -1;
     m_global.replace({});
+    m_plugins.clear();
     qGuiApp->removeEventFilter(this);
 }
 } // namespace EchoMusic

@@ -3,8 +3,20 @@
 #include "EchoPluginOperation.h"
 #include "EchoPluginRegistration.h"
 #include "EchoPluginPlayer.h"
+#include "EchoPluginPlaylist.h"
+#include "EchoPluginLyrics.h"
+#include "EchoPluginFiles.h"
+#include "EchoPluginDownloads.h"
+#include "EchoPluginTasks.h"
+#include "EchoPluginShortcuts.h"
+#include "EchoPluginToast.h"
+#include "EchoPluginScroll.h"
+#include "EchoPluginLyricEffects.h"
+#include "EchoPluginKugou.h"
 #include "EchoPluginUi.h"
 #include "EchoPluginIo.h"
+#include "EchoPluginSqlite.h"
+#include "EchoPluginNetwork.h"
 #include "EchoPluginRegistry.h"
 #include "EchoPluginAudio.h"
 #include "EchoPluginAppearance.h"
@@ -25,6 +37,9 @@ class ShellController;
 class RouteController;
 class AccountService;
 class ApiClient;
+class SidebarLayoutModel;
+class ShortcutService;
+class VerificationService;
 class FloatingPlayerController;
 struct PluginHost
 {
@@ -35,6 +50,10 @@ struct PluginHost
     AccountService &account;
     ApiClient &api;
     FloatingPlayerController *floating = nullptr;
+    PluginFileService *files = nullptr;
+    SidebarLayoutModel *sidebar = nullptr;
+    ShortcutService *shortcuts = nullptr;
+    VerificationService *verification = nullptr;
 };
 /// One activation's GUI-thread scope. No raw host object is exposed to JS/QML.
 /// beginRetire invalidates delivery before cleanup, then waits for SQL drain.
@@ -53,9 +72,21 @@ class EchoPluginContext final : public QObject
     Q_PROPERTY(QString contextId READ contextId CONSTANT)
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
     Q_PROPERTY(EchoMusic::EchoPluginAudio *audio READ audio CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginLyrics *lyrics READ lyrics CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginFiles *files READ files CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginDownloads *downloads READ downloads CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginPlaylist *playlist READ playlist CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginPlayer *player READ player CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginUi *ui READ ui CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginShortcuts *shortcuts READ shortcuts CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginToast *toast READ toast CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginKugou *kugou READ kugou CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginLyricEffects *lyricEffects READ lyricEffects CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginScroll *scroll READ scroll CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginTasks *tasks READ tasks CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginSqlite *sqlite READ sqlite CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginIo *io READ io CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginNetwork *net READ net CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginRegistry *plugins READ plugins CONSTANT)
     Q_PROPERTY(QFont font READ font NOTIFY appearanceChanged)
     Q_PROPERTY(QColor accent READ accent NOTIFY appearanceChanged)
@@ -65,6 +96,14 @@ public:
                       PluginHost host, QString dataPath, QObject *parent,
                       EchoPluginContext *activation = nullptr, QString contextId = "main");
     ~EchoPluginContext() override;
+    EchoPluginFiles *files() const
+    {
+        return m_files;
+    }
+    EchoPluginDownloads *downloads() const
+    {
+        return m_downloads;
+    }
     EchoPluginContext *activationContext() const
     {
         return m_activation ? m_activation.data() : const_cast<EchoPluginContext *>(this);
@@ -111,6 +150,14 @@ public:
     {
         return m_audio;
     }
+    EchoPluginLyrics *lyrics()
+    {
+        return m_lyrics;
+    }
+    EchoPluginPlaylist *playlist()
+    {
+        return m_playlist;
+    }
     EchoPluginPlayer *player()
     {
         return m_player;
@@ -118,6 +165,38 @@ public:
     EchoPluginUi *ui()
     {
         return m_ui;
+    }
+    EchoPluginNetwork *net() const
+    {
+        return m_net;
+    }
+    EchoPluginShortcuts *shortcuts() const
+    {
+        return m_shortcuts;
+    }
+    EchoPluginToast *toast() const
+    {
+        return m_toast;
+    }
+    EchoPluginKugou *kugou() const
+    {
+        return m_kugou;
+    }
+    EchoPluginLyricEffects *lyricEffects() const
+    {
+        return m_lyricEffects;
+    }
+    EchoPluginScroll *scroll() const
+    {
+        return m_scroll;
+    }
+    EchoPluginTasks *tasks() const
+    {
+        return m_tasks;
+    }
+    EchoPluginSqlite *sqlite() const
+    {
+        return m_sqlite;
     }
     EchoPluginIo *io()
     {
@@ -196,8 +275,20 @@ private:
     EchoPluginWindows *m_windows;
     EchoPluginAudio *m_audio;
     EchoPluginPlayer *m_player;
+    EchoPluginPlaylist *m_playlist;
+    EchoPluginFiles *m_files = nullptr;
+    EchoPluginDownloads *m_downloads = nullptr;
+    EchoPluginLyrics *m_lyrics;
     EchoPluginUi *m_ui;
+    EchoPluginTasks *m_tasks;
+    EchoPluginShortcuts *m_shortcuts;
+    EchoPluginToast *m_toast;
+    EchoPluginKugou *m_kugou;
+    EchoPluginLyricEffects *m_lyricEffects;
+    EchoPluginScroll *m_scroll;
     EchoPluginIo *m_io;
+    EchoPluginSqlite *m_sqlite;
+    EchoPluginNetwork *m_net;
     EchoPluginRegistry *m_plugins;
     bool m_accepting = true, m_committed = false, m_retiring = false;
     QList<QPointer<EchoPluginOperation>> m_operations;

@@ -26,7 +26,7 @@ void PluginRuntimeTest::packageIntegrityAndCompatibility()
     QVERIFY(!PluginPackage::importDirectory(source, directory.path() + "/packages", "identity")
                  .error.isEmpty());
     QFile::remove(source + "/qmldir");
-    package(directory.path(), "throw new Error('must not execute');", {"playback.audioSource"});
+    package(directory.path(), "throw new Error('must not execute');", {"graphics.compute"});
     QVERIFY(PluginPackage::importDirectory(source, directory.path() + "/packages", "identity")
                 .incompatible);
 }
@@ -64,15 +64,15 @@ void PluginRuntimeTest::actualHttpAndCancellation()
         connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
     });
     host.runtime.importDirectory(package(host.temporary.path(), "export function activate(ctx) {}",
-                                         {"net.http"}, {"unrestrictedNetwork"}));
+                                         {"net.request"}, {"unrestrictedNetwork"}));
     QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Active);
-    auto *io = host.runtime.context(host.installation())->io();
+    auto *io = host.runtime.context(host.installation())->net();
     const auto url = QUrl("http://127.0.0.1:" + QString::number(server.serverPort()) + "/test");
-    auto *request = io->get(url);
+    auto *request = io->request({{"url", url}, {"responseType", "arrayBuffer"}});
     QTRY_COMPARE(request->state(), EchoPluginOperation::Succeeded);
     QCOMPARE(request->result().toMap().value("status").toInt(), 200);
-    QCOMPARE(request->result().toMap().value("body").toByteArray(), QByteArray("real"));
-    auto *canceled = io->get(url);
+    QCOMPARE(request->result().toMap().value("data").toByteArray(), QByteArray("real"));
+    auto *canceled = io->request({{"url", url}, {"responseType", "arrayBuffer"}});
     QSignalSpy completed(canceled, &EchoPluginOperation::completed);
     canceled->cancel();
     QTRY_COMPARE(completed.count(), 1);

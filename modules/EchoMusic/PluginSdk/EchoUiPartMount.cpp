@@ -1,6 +1,7 @@
 #include "EchoUiPartMount.h"
 #include "EchoPluginUiParts.h"
 #include "EchoPluginContext.h"
+#include <QQmlContext>
 #include "EchoUiPartRegistration.h"
 #include "EchoUiPartRegistry.h"
 #include <QTimer>
@@ -68,6 +69,14 @@ void EchoUiPartMount::release()
     ++m_loadGeneration;
     // Destroy the complete QML component and render-owned item tree. Never
     // retain hidden shaders, images, timers or popup recipes on an inactive part.
+    auto *presentation = m_presentation.data();
+    m_presentation = nullptr;
+    if (presentation)
+        presentation->beginRetire();
+    if (m_viewOwner) {
+        delete m_viewOwner.data();
+        m_viewOwner = nullptr;
+    }
     if (m_item) {
         auto *item = m_item.data();
         m_item = nullptr;
@@ -129,63 +138,91 @@ void EchoUiPartMount::construct()
 {
     const auto generation = ++m_loadGeneration;
     m_component = new QQmlComponent(&m_owner->scope().engine(), this);
-    connect(m_component, &QQmlComponent::statusChanged, this,
-            [this, generation](QQmlComponent::Status status) {
-                if (generation != m_loadGeneration || !m_component)
-                    return;
-                if (status == QQmlComponent::Error) {
-                    const auto errors = m_component->errorString();
-                    // QQmlComponent may be delivering its signal; destroy at the next
-                    // queued turn, guarded by the mount's lease and identity.
-                    QTimer::singleShot(0, this, [this, errors, generation] {
-                        if (generation == m_loadGeneration && active())
-                            fail(errors);
-                    });
-                } else if (status == QQmlComponent::Ready) {
-                    QTimer::singleShot(0, this, [this, generation] {
-                        if (generation != m_loadGeneration)
-                            return;
-                        if (!active() || !m_ref->visible() || !m_component || m_item) {
-                            reconcile();
-                            return;
-                        }
-                        if (m_position == "replace" && m_part->replacementCandidate() != m_token) {
-                            reconcile();
-                            return;
-                        }
-                        m_constructing = true;
-                        const auto keepAlive = m_owner->scope().engine().newQObject(this);
-                        const QPointer<QQmlComponent> component = m_component;
-                        auto *object = component->createWithInitialProperties(
-                            {{"plugin", QVariant::fromValue(&m_owner->scope())},
-                             {"part", QVariant::fromValue(m_ref)}});
-                        auto *item = qobject_cast<QQuickItem *>(object);
+    connect(
+        m_component, &QQmlComponent::statusChanged, this,
+        [this, generation](QQmlComponent::Status status) {
+            if (generation != m_loadGeneration || !m_component)
+                return;
+            if (status == QQmlComponent::Error) {
+                const auto errors = m_component->errorString();
+                // QQmlComponent may be delivering its signal; destroy at the next
+                // queued turn, guarded by the mount's lease and identity.
+                QTimer::singleShot(0, this, [this, errors, generation] {
+                    if (generation == m_loadGeneration && active())
+                        fail(errors);
+                });
+            } else if (status == QQmlComponent::Ready) {
+                QTimer::singleShot(0, this, [this, generation] {
+                    if (generation != m_loadGeneration)
+                        return;
+                    if (!active() || !m_ref->visible() || !m_component || m_item) {
+                        reconcile();
+                        return;
+                    }
+                    if (m_position == "replace" && m_part->replacementCandidate() != m_token) {
+                        reconcile();
+                        return;
+                    }
+                    m_constructing = true;
+                    const auto keepAlive = m_owner->scope().engine().newQObject(this);
+                    const QPointer<QQmlComponent> component = m_component;
+                    m_viewOwner = new QObject(this);
+                    m_presentation =
+                        m_owner->scope().createPresentation(m_viewOwner, m_part->surface());
+                    if (!m_presentation) {
                         m_constructing = false;
-                        if (generation != m_loadGeneration || !active() || !m_ref->visible()) {
-                            if (object)
-                                object->deleteLater();
-                            return;
-                        }
-                        if (!item) {
-                            const auto message = component ? component->errorString() : QString();
-                            delete object;
-                            fail(message.isEmpty() ? "Part component must have an Item root and "
-                                                     "typed plugin/part properties"
-                                                   : message);
-                            return;
-                        }
+                        fail("Presentation scope limit exceeded");
+                        return;
+                    }
+                    auto *viewPart = new EchoUiPartRef(*m_presentation, *m_part, m_viewOwner);
+                    auto *page =
+                        new EchoPluginViewContext(*m_presentation, m_part->surface(), m_viewOwner);
+                    QQmlEngine::setObjectOwnership(viewPart, QQmlEngine::CppOwnership);
+                    connect(m_presentation, &EchoPluginContext::callbackFailed, this,
+                            [this](const QString &message) { fail(message); });
+                    connect(m_presentation, &EchoPluginContext::activeChanged, this, [this] {
+                        if (m_presentation && !m_presentation->active())
+                            release();
+                    });
+                    auto *object = component->beginCreate(m_owner->scope().engine().rootContext());
+                    auto *item = qobject_cast<QQuickItem *>(object);
+                    if (item) {
                         QQmlEngine::setObjectOwnership(item, QQmlEngine::CppOwnership);
                         item->setParent(this);
-                        item->setProperty("_echoPartMountToken", m_token);
                         m_item = item;
+                        item->setProperty("_echoPartMountToken", m_token);
                         place();
-                        if (auto *registry = m_registry.data())
-                            registry->setMountReady(m_token, true);
-                        emit changed();
-                        reconcile();
-                    });
-                }
-            });
+                        QVariantMap initial{{"plugin", QVariant::fromValue(m_presentation.data())},
+                                            {"part", QVariant::fromValue(viewPart)}};
+                        if (item->metaObject()->indexOfProperty("page") >= 0)
+                            initial.insert("page", QVariant::fromValue(page));
+                        component->setInitialProperties(item, initial);
+                    }
+                    component->completeCreate();
+                    m_constructing = false;
+                    if (generation != m_loadGeneration || !active() || !m_ref->visible()) {
+                        if (object)
+                            object->deleteLater();
+                        return;
+                    }
+                    if (!item || component->isError()) {
+                        const auto message = component ? component->errorString() : QString();
+                        delete object;
+                        fail(message.isEmpty() ? "Part component must have an Item root and "
+                                                 "typed plugin/part properties"
+                                               : message);
+                        return;
+                    }
+                    item->setProperty("_echoPartMountToken", m_token);
+                    m_item = item;
+                    place();
+                    if (auto *registry = m_registry.data())
+                        registry->setMountReady(m_token, true);
+                    emit changed();
+                    reconcile();
+                });
+            }
+        });
     m_component->loadUrl(QUrl::fromLocalFile(m_path), QQmlComponent::Asynchronous);
 }
 void EchoUiPartMount::place()

@@ -1,5 +1,6 @@
 #include "SettingsKeys.h"
 #include "LyricSourceController.h"
+#include "LyricExtensions.h"
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include <algorithm>
@@ -29,10 +30,16 @@ public:
 } // namespace
 namespace EchoMusic
 {
-LyricSourceController::LyricSourceController(ApiClient &api, QSettings &settings, QObject *parent)
+LyricSourceController::LyricSourceController(ApiClient &api, QSettings &settings, QObject *parent,
+                                             NativeBridge *native)
     : QAbstractListModel(parent), m_api(api), m_settings(settings), m_preview(this),
       m_previewRows(std::make_unique<PreviewRows>(m_preview))
 {
+    if (native) {
+        m_extensions = std::make_unique<LyricExtensions>(*native, this);
+        connect(m_extensions.get(), &LyricExtensions::changed, this,
+                &LyricSourceController::extensionsChanged);
+    }
     connect(&api, &ApiClient::succeeded, this, &LyricSourceController::succeeded);
     connect(&api, &ApiClient::failed, this, &LyricSourceController::failed);
     connect(&api, &ApiClient::sessionChanged, this, &LyricSourceController::clear);
@@ -44,6 +51,7 @@ LyricSourceController::LyricSourceController(ApiClient &api, QSettings &settings
 }
 LyricSourceController::~LyricSourceController()
 {
+    cancelExtension();
     if (m_search)
         m_api.cancel(m_search);
     if (m_download)
@@ -90,7 +98,7 @@ QVariant LyricSourceController::data(const QModelIndex &i, int role) const
     case Qt::UserRole + 9:
         return c.scrollable;
     case Qt::UserRole + 10:
-        return c.id == m_currentId;
+        return c.id == currentId();
     case Qt::UserRole + 11:
         return automaticSearch() && c.id == m_recommendedId;
     case Qt::UserRole + 12:
@@ -148,6 +156,12 @@ void LyricSourceController::notifyRows()
 }
 void LyricSourceController::clear()
 {
+    ++m_choiceRevision;
+    cancelExtension();
+    m_writes.clear();
+    m_pluginCandidate.reset();
+    m_pluginLyrics = m_baseLyrics = {};
+    m_pluginRevision.clear();
     if (m_search)
         m_api.cancel(m_search);
     if (m_download)
@@ -188,6 +202,11 @@ void LyricSourceController::clear()
 }
 void LyricSourceController::load(const PlaybackTrack &track)
 {
+    if (m_extensions && hasTrack() && m_track.stableKey() == track.stableKey()) {
+        m_track = track;
+        beginAutomatic(false, true);
+        return;
+    }
     const bool reopen = m_selectionOpen;
     clear();
     m_selectionOpen = m_openAfterAuto = reopen;
@@ -201,13 +220,13 @@ void LyricSourceController::load(const PlaybackTrack &track)
         m_cacheTrack = track.stableKey();
     }
     resetSearchFields();
-    if (!track.stableKey().isEmpty()) {
+    if (hasTrack()) {
         m_manualId = m_settings.value(preferenceKey()).toString();
         m_savedKeywords = m_manualId.isEmpty()
                               ? QString()
                               : m_settings.value(preferenceKey() + "/keywords").toString();
         if (m_manualId != "embedded")
-            startSearch(!m_manualId.isEmpty(), true, m_savedKeywords);
+            beginAutomatic();
     }
 }
 void LyricSourceController::openSelection()
@@ -277,7 +296,7 @@ void LyricSourceController::closeSelection()
 }
 void LyricSourceController::refresh()
 {
-    if (m_track.key().isEmpty() || m_applyPending)
+    if (!hasTrack() || m_applyPending)
         return;
     m_cache.clear();
     m_cacheOrder.clear();
@@ -349,6 +368,7 @@ QString LyricSourceController::nextAutomaticKeywords()
 }
 void LyricSourceController::includeEmbedded(QList<Candidate> &list) const
 {
+    includePlugin(list);
     if (m_embeddedLyrics.value("lines").toArray().isEmpty() ||
         std::any_of(list.cbegin(), list.cend(),
                     [](const Candidate &c) { return c.id == "embedded"; }))
@@ -364,7 +384,9 @@ void LyricSourceController::includeEmbedded(QList<Candidate> &list) const
 }
 QJsonObject LyricSourceController::cachedLyrics(const QString &id) const
 {
-    return id == "embedded" ? m_embeddedLyrics : m_cache.value(id);
+    return id == "embedded"                                   ? m_embeddedLyrics
+           : m_pluginCandidate && m_pluginCandidate->id == id ? m_pluginLyrics
+                                                              : m_cache.value(id);
 }
 void LyricSourceController::updateEmbedded(const QString &trackKey, const QString &title,
                                            const QString &artist, const QJsonObject &lyrics)
@@ -416,7 +438,8 @@ void LyricSourceController::updateEmbedded(const QString &trackKey, const QStrin
         // changing the song. Refresh its lyrics without cancelling dialog browsing.
         if (selected() && selected()->id == "embedded")
             m_preview.replace(lyrics);
-        emit activated(lyrics, m_track.stableKey());
+        m_baseLyrics = lyrics;
+        publishEffective();
     }
     if (m_manualId == "embedded" && m_currentId.isEmpty() &&
         !lyrics.value("lines").toArray().isEmpty()) {
@@ -437,7 +460,7 @@ void LyricSourceController::updateEmbedded(const QString &trackKey, const QStrin
 }
 void LyricSourceController::search()
 {
-    if (!m_selectionOpen || m_track.key().isEmpty() || m_applyPending || !canSearch())
+    if (!m_selectionOpen || !hasTrack() || m_applyPending || !canSearch())
         return;
     QStringList words;
     if (!m_searchArtist.trimmed().isEmpty())
@@ -454,6 +477,7 @@ void LyricSourceController::search()
 }
 void LyricSourceController::startSearch(bool allCandidates, bool activate, const QString &keywords)
 {
+    cancelExtension();
     if (m_search)
         m_api.cancel(m_search);
     if (m_defaultSearch)
@@ -487,7 +511,7 @@ void LyricSourceController::startSearch(bool allCandidates, bool activate, const
     QList<Candidate> embeddedRows;
     includeEmbedded(embeddedRows);
     if (!embeddedRows.isEmpty()) {
-        beginInsertRows({}, 0, 0);
+        beginInsertRows({}, 0, embeddedRows.size() - 1);
         m_candidates = embeddedRows;
         if (m_currentId == "embedded" || m_manualId == "embedded")
             m_selected = 0;
@@ -592,7 +616,7 @@ void LyricSourceController::commitCandidates(const QString &recommendedId)
 void LyricSourceController::select(int row)
 {
     if (row < 0 || row >= rowCount() || m_applyPending ||
-        (loading() && m_candidates[row].id != "embedded"))
+        (loading() && cachedLyrics(m_candidates[row].id).isEmpty()))
         return;
     m_selected = row;
     m_activatePending = false;
@@ -657,7 +681,8 @@ void LyricSourceController::activatePreview()
     m_currentId = c->id;
     m_state = m_preview.rowCount() ? "ready" : "empty";
     m_activatePending = m_applyPending = m_restorePending = false;
-    emit activated(cachedLyrics(c->id), m_track.stableKey());
+    m_baseLyrics = cachedLyrics(c->id);
+    publishEffective();
     notifyRows();
     if (explicitApply) {
         emit notice(restored ? tr("已改为智能推荐") : tr("歌词版本已应用"), true);
@@ -674,9 +699,17 @@ void LyricSourceController::activatePreview()
 }
 void LyricSourceController::applySelected()
 {
-    if (!selected() || m_applyPending || (loading() && selected()->id != "embedded"))
+    if (!selected() || m_applyPending ||
+        ((m_search || m_defaultSearch) && selected()->id != "embedded" &&
+         !cachedLyrics(selected()->id).contains("lines")))
         return;
-    if (selected()->id == "embedded") {
+    ++m_choiceRevision;
+    cancelExtension();
+    if (!m_writes.isEmpty()) {
+        m_writes.clear();
+        publishEffective();
+    }
+    if (!cachedLyrics(selected()->id).isEmpty()) {
         if (m_search)
             m_api.cancel(m_search);
         if (m_defaultSearch)
@@ -693,10 +726,15 @@ void LyricSourceController::applySelected()
 }
 void LyricSourceController::restoreAuto()
 {
-    if (m_track.key().isEmpty() || m_applyPending)
+    if (!hasTrack() || m_applyPending)
         return;
+    ++m_choiceRevision;
     m_restorePending = m_applyPending = true;
-    startSearch(false, true);
+    if (!m_writes.isEmpty()) {
+        m_writes.clear();
+        publishEffective();
+    }
+    beginAutomatic(true, true);
 }
 void LyricSourceController::succeeded(quint64 id, const QByteArray &bytes)
 {

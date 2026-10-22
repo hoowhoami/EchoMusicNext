@@ -26,9 +26,25 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     m_windows = new EchoPluginWindows(*this);
     m_audio = new EchoPluginAudio(*this);
     m_player = new EchoPluginPlayer(*this, host.playback);
+    m_playlist = new EchoPluginPlaylist(*this);
+    m_lyrics = new EchoPluginLyrics(*this);
+    m_files = new EchoPluginFiles(*this);
+    m_downloads = new EchoPluginDownloads(*m_files);
+    connect(m_files, &EchoPluginFiles::drained, this, &EchoPluginContext::resourcesDrained);
+    m_tasks = new EchoPluginTasks(*this);
+    m_shortcuts = new EchoPluginShortcuts(*this);
+    m_toast = new EchoPluginToast(*this);
+    m_kugou = new EchoPluginKugou(*this);
+    m_lyricEffects = new EchoPluginLyricEffects(*this);
+    m_scroll = new EchoPluginScroll(*this);
+    m_scroll->setParent(this);
     m_ui = new EchoPluginUi(*this);
     m_plugins = new EchoPluginRegistry(*this);
     m_dataPath = dataPath;
+    m_net = new EchoPluginNetwork(*this);
+    connect(m_net, &EchoPluginNetwork::drained, this, &EchoPluginContext::resourcesDrained);
+    m_sqlite = new EchoPluginSqlite(*this, dataPath + "/databases");
+    connect(m_sqlite, &EchoPluginSqlite::drained, this, &EchoPluginContext::resourcesDrained);
     m_io = new EchoPluginIo(*this, std::move(dataPath));
     connect(m_io, &EchoPluginIo::drained, this, &EchoPluginContext::resourcesDrained);
     connect(&host.theme, &ThemeStore::changed, this, [this] {
@@ -299,11 +315,25 @@ bool EchoPluginContext::commit()
 {
     if (!m_accepting)
         return false;
-    // Copy: a registration callback may register another resource or retire us.
-    const auto resources = m_resources;
-    for (const auto &lease : resources)
-        if (!m_accepting || (lease && !lease->commit()))
-            return false;
+    // Composite APIs may stage child resources while publishing. Drain those
+    // children in the same activation transaction; never leave unpublished leases.
+    QSet<QString> processed;
+    for (;;) {
+        bool advanced = false;
+        const auto resources = m_resources;
+        for (const auto &lease : resources) {
+            if (!lease || processed.contains(lease->revision()))
+                continue;
+            if (!m_accepting || processed.size() >= 4096)
+                return false;
+            processed.insert(lease->revision());
+            advanced = true;
+            if (!lease->commit())
+                return false;
+        }
+        if (!advanced)
+            break;
+    }
     m_committed = true;
     return true;
 }
@@ -327,7 +357,10 @@ void EchoPluginContext::beginRetire()
     for (const auto &op : operations)
         if (op)
             op->cancel();
+    m_files->shutdown();
+    m_net->shutdown();
     m_io->shutdown();
+    m_sqlite->shutdown();
     for (auto it = m_resources.crbegin(); it != m_resources.crend(); ++it)
         if (*it &&
             ((*it)->key().contains(":cleanup:") || (*it)->key().contains(":cleanup.presentation.")))
@@ -341,6 +374,7 @@ bool EchoPluginContext::drained() const
     for (auto child : m_presentations)
         if (child && !child->drained())
             return false;
-    return m_io->isDrained() && m_appearance->drained();
+    return m_net->isDrained() && m_io->isDrained() && m_sqlite->isDrained() &&
+           m_appearance->drained() && m_files->isDrained();
 }
 } // namespace EchoMusic

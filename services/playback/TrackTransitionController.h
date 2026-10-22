@@ -17,6 +17,7 @@ class TrackTransitionController final : public QObject
     Q_PROPERTY(int fadeSeconds READ fadeSeconds WRITE setFadeSeconds NOTIFY changed)
     Q_PROPERTY(bool matchTempo READ matchTempo WRITE setMatchTempo NOTIFY changed)
 public:
+    bool containsSource(const QUrl &url) const;
     TrackTransitionController(PlaybackService &playback, ApiClient &api, QSettings &settings);
     QString mode() const
     {
@@ -66,6 +67,7 @@ private:
     PlaybackTrack m_target;
     QJsonObject m_privileges, m_resolved;
     QStringList m_urls;
+    QList<qint64> m_urlAudioTracks;
     QString m_resolvedQuality;
     QString m_context, m_failedContext, m_targetKey, m_nextQuality = "standard",
                                                      m_mode = "automix-pro";

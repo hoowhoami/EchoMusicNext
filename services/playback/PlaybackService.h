@@ -186,6 +186,10 @@ public:
     {
         return m_catalog.activeModel();
     }
+    PlaybackSourceExtensions *sourceExtensions()
+    {
+        return &m_sourceExtensions;
+    }
     PlaybackQueueCatalog *queueCatalog()
     {
         return &m_catalog;
@@ -319,6 +323,7 @@ public:
     }
     /// Opening the lyric page may precede the first audio load after queue restoration.
     Q_INVOKABLE void ensureLyrics();
+    void revokePluginMedia(const QUrl &url);
     QString queueTitle() const
     {
         return m_queueTitle;
@@ -334,6 +339,10 @@ public:
     CloudAudioIndex *cloudSources()
     {
         return &m_cloudSources;
+    }
+    QString sourceNoticeCode() const
+    {
+        return m_sourceNoticeCode;
     }
     QString sourceKind() const
     {
@@ -475,7 +484,7 @@ private:
     friend class PlaybackFailureController;
     friend class PlaybackServiceTestAccess;
     void tryStartupAutoPlay();
-    void invalidate();
+    void invalidate(bool preserveLyrics = false);
     void cancelTrackProbe();
     void startIndex(int index, bool preserveFailureChain);
     void appendTracksImpl(const PlaybackTracks &tracks, bool next, bool sequential);
@@ -520,10 +529,13 @@ private:
     AudioEngine m_engine;
     PlayerSpectrum m_spectrum;
     CloudAudioIndex m_cloudSources;
+    QList<qint64> m_urlAudioTracks;
+    PlaybackSourceExtensions m_sourceExtensions;
     PlaybackSourceRequest m_source;
     bool recoverSource(const QString &reason);
     bool tryMvFallback(const QString &reason);
     bool m_mvRecovery = false;
+    QString m_sourceEffect = "none", m_sourceNoticeCode;
     QString m_sourceKind = "catalog", m_sourcePreference, m_sourceFailure, m_mvFailure;
     std::unique_ptr<PlaybackQueueController> m_queueController;
     std::unique_ptr<PlaybackOutputController> m_outputController;

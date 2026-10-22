@@ -3,14 +3,19 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Effects
 import EchoMusic.Theme
+import EchoMusic.Controls
 import EchoMusic.Playback
 
 Item {
     id: content
+    property string effectHostId: ""
+    property real followOffset: -1
+    signal followRequested(real position, real maximum)
     required property PlaybackService playback
     property bool resourceActive: true
     property string shadowStrength: "normal"
     property real arrival: 0
+    property real baseOpacity: 1
     property int textAlignment: Qt.AlignLeft
     property bool vertical: false
     property real fontSize: 40
@@ -35,10 +40,43 @@ Item {
     anchors.fill: parent
     anchors.margins: Math.min(contentInset, parent ? parent.height * .12 : contentInset)
 
-    scale: 1 - content.arrival * .015
+    EchoUiPart {
+        id: linePart
+        target: content
+        role: "lyrics.line"
+        key: content.playback.trackId + ":" + String(content.line.startMs || 0)
+        surface: "desktop"
+        active: content.resourceActive && content.effectHostId !== ""
+        properties: ["foreground", "secondaryForeground", "font", "fontSize", "fontWeight", "letterSpacing", "opacity", "scale", "translateX", "translateY"]
+        baseValues: observed ? ({
+                foreground: content.playedColor,
+                secondaryForeground: content.unplayedColor,
+                font: content.textFont,
+                opacity: 1,
+                scale: 1 - content.arrival * .015,
+                translateX: 0,
+                translateY: content.vertical ? 0 : content.arrival * 7
+            }) : ({})
+        state: observed ? ({
+                scope: "desktop",
+                text: content.line.lineText || content.playback.title,
+                words: content.line.words || [],
+                rubyUnits: content.rubyUnits,
+                verticalUnits: content.verticalUnits,
+                timelineMs: content.renderTime,
+                startMs: content.line.startMs || 0,
+                durationMs: content.line.durationMs || 0,
+                current: true,
+                reducedMotion: !Theme.store.motionEnabled,
+                glyphs: main.item && main.item.glyphSnapshot !== undefined ? main.item.glyphSnapshot : []
+            }) : ({})
+    }
+    opacity: linePart.value("opacity", 1) * baseOpacity
+    scale: linePart.value("scale", 1 - content.arrival * .015)
     transformOrigin: content.textAlignment === Qt.AlignRight ? Item.Right : content.textAlignment === Qt.AlignHCenter ? Item.Center : Item.Left
     transform: Translate {
-        y: content.vertical ? 0 : content.arrival * 7
+        x: linePart.value("translateX", 0)
+        y: linePart.value("translateY", content.vertical ? 0 : content.arrival * 7)
     }
     layer.enabled: content.resourceActive && content.shadowStrength !== "none"
     layer.effect: MultiEffect {
@@ -71,11 +109,21 @@ Item {
         id: horizontalText
         Item {
             id: horizontalViewport
+            readonly property var glyphSnapshot: mainInk.glyphs
             implicitHeight: mainInk.textHeight
             clip: true
-            readonly property real scrollOffset: Math.max(0, Math.min(mainInk.textWidth - width, mainInk.readingPosition(content.renderTime - content.playback.lyrics.offsetMs) - content.textFont.pixelSize - width * .6))
+            readonly property real defaultScrollOffset: Math.max(0, Math.min(mainInk.textWidth - width, mainInk.readingPosition(content.renderTime - content.playback.lyrics.offsetMs) - content.textFont.pixelSize - width * .6))
+            readonly property real scrollOffset: content.followOffset >= 0 ? content.followOffset : defaultScrollOffset
+            onDefaultScrollOffsetChanged: if (content.effectHostId !== "")
+                content.followRequested(defaultScrollOffset, Math.max(0, mainInk.textWidth - width))
             LyricLine {
                 id: mainInk
+                EchoLyricInkPart {
+                    runKey: content.playback.trackId + ":" + String(content.line.startMs || 0)
+                    renderer: mainInk
+                    surface: "desktop"
+                    active: content.effectHostId !== "" && content.resourceActive
+                }
                 x: -content.textFont.pixelSize - horizontalViewport.scrollOffset
                 wrap: false
                 y: -content.textFont.pixelSize
@@ -87,8 +135,8 @@ Item {
                 durationMs: content.line.durationMs || 0
                 current: content.line.lineText !== undefined
                 timeMs: content.renderTime - content.playback.lyrics.offsetMs
-                font: content.textFont
-                playedColor: content.playedColor
+                font: linePart.styledFont(content.textFont)
+                playedColor: linePart.value("foreground", content.playedColor)
                 unplayedColor: content.line.lineText === undefined ? content.playedColor : content.unplayedColor
                 alignment: content.textAlignment
                 animateWords: content.resourceActive && Theme.store.motionEnabled
@@ -98,26 +146,32 @@ Item {
     Component {
         id: rubyText
         LyricRubyLine {
+            effectSurface: content.effectHostId !== "" ? "desktop" : ""
+            followOverride: content.followOffset
+            onFollowRequested: (position, maximum) => content.followRequested(position, maximum)
             wrap: false
             alignment: content.textAlignment
             units: content.rubyUnits
-            font: content.textFont
+            font: linePart.styledFont(content.textFont)
             timeMs: content.renderTime - content.playback.lyrics.offsetMs
             current: true
-            playedColor: content.playedColor
-            unplayedColor: content.unplayedColor
+            playedColor: linePart.value("foreground", content.playedColor)
+            unplayedColor: linePart.value("secondaryForeground", content.unplayedColor)
             animateWords: content.resourceActive && Theme.store.motionEnabled
         }
     }
     Component {
         id: verticalText
         LyricVerticalLine {
+            effectSurface: content.effectHostId !== "" ? "desktop" : ""
+            followOverride: content.followOffset
+            onFollowRequested: (position, maximum) => content.followRequested(position, maximum)
             alignment: content.textAlignment === Qt.AlignRight ? Qt.AlignBottom : content.textAlignment === Qt.AlignHCenter ? Qt.AlignVCenter : Qt.AlignTop
             units: content.line.lineText !== undefined ? content.verticalUnits : content.playback.lyrics.verticalText(content.playback.title)
-            font: content.textFont
+            font: linePart.styledFont(content.textFont)
             timeMs: content.renderTime - content.playback.lyrics.offsetMs
             current: true
-            playedColor: content.playedColor
+            playedColor: linePart.value("foreground", content.playedColor)
             unplayedColor: content.line.lineText !== undefined ? content.unplayedColor : content.playedColor
         }
     }
@@ -130,8 +184,8 @@ Item {
             alignment: content.textAlignment === Qt.AlignLeft && content.alignment === "both" ? Qt.AlignBottom : Qt.AlignTop
             units: content.nextVerticalUnits
             font: Theme.store.styledFont(content.baseFont, content.fontSize * .8, content.bold ? 700 : 400, 0, false, false)
-            playedColor: content.playedColor
-            unplayedColor: content.unplayedColor
+            playedColor: linePart.value("foreground", content.playedColor)
+            unplayedColor: linePart.value("secondaryForeground", content.unplayedColor)
         }
     }
     Column {
@@ -172,8 +226,8 @@ Item {
             units: content.playback.lyrics.verticalText(content.secondary)
             font: Theme.store.styledFont(content.baseFont, content.fontSize * .64, content.bold ? 700 : 400, 0, false, false)
             alignment: content.textAlignment === Qt.AlignRight ? Qt.AlignBottom : content.textAlignment === Qt.AlignHCenter ? Qt.AlignVCenter : Qt.AlignTop
-            playedColor: content.playedColor
-            unplayedColor: content.playedColor
+            playedColor: linePart.value("foreground", content.playedColor)
+            unplayedColor: linePart.value("foreground", content.playedColor)
             opacity: .72
         }
     }

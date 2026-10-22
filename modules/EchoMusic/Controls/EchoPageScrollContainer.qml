@@ -8,6 +8,34 @@ import EchoMusic.Theme
 EchoWheelForwarder {
     id: page
     default property alias contentData: contentSurface.data
+    property string publicScrollKey: objectName.length > 0 ? objectName : "page-scroll"
+    EchoUiPart {
+        target: page
+        role: "scroll.container"
+        key: page.publicScrollKey
+        active: page.pageActive && page.scrollView !== null
+        actions: ["scrollTo", "scrollBy", "top", "bottom"]
+        state: observed ? ({
+                position: page.scrollTop,
+                minimum: 0,
+                maximum: page.scrollView ? Math.max(0, page.lastY(page.scrollView) - page.firstY(page.scrollView)) : 0,
+                viewportHeight: page.height,
+                contentHeight: page.scrollView ? page.scrollView.contentHeight : 0,
+                moving: page.scrollView ? page.scrollView.moving : false,
+                atTop: page.scrollView ? page.scrollView.atYBeginning : true,
+                atBottom: page.scrollView ? page.scrollView.atYEnd : true
+            }) : ({})
+        onActionRequested: (action, args) => {
+            if (action === "scrollTo")
+                page.scrollTo(args.position);
+            else if (action === "scrollBy")
+                page.scrollBy(args.position);
+            else if (action === "top")
+                page.scrollTo(0);
+            else if (action === "bottom" && page.scrollView)
+                page.scrollTo(page.lastY(page.scrollView) - page.firstY(page.scrollView));
+        }
+    }
     property Flickable scrollView: null
     property bool pageActive: true
     property bool hideScrollbar: false

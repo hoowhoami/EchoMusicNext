@@ -23,6 +23,7 @@ public:
     {
         return m_revision;
     }
+    Q_INVOKABLE QVariantMap pluginMenuContext(const QString &id) const;
     Q_INVOKABLE void play(const QString &id = {}, bool replaceContext = true,
                           bool selectedOnly = false);
     QString currentTrackId() const

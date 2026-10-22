@@ -72,13 +72,13 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
       m_preferences(settings, this), m_enginePreferences(settings, this),
       m_networkPreferences(network), m_membership(api, this),
       m_engine(nullptr, engineStartupOptions(m_enginePreferences, network)),
-      m_spectrum(*this, m_engine), m_cloudSources(api, this),
-      m_source(api, m_membership, this, &m_cloudSources),
+      m_spectrum(*this, m_engine), m_cloudSources(api, this), m_sourceExtensions(this),
+      m_source(api, m_membership, this, &m_cloudSources, &m_sourceExtensions),
       m_audioControls(m_engine, m_native, settings, this),
       m_effectCatalog(api, m_audioControls, this), m_catalog(this), m_lyrics(this),
       m_climax(api, this), m_listening(api, this), m_lyricAppearance(settings, this),
       m_dynamicCover(api, this), m_lyricText(m_lyrics, m_native, settings, this),
-      m_lyricSource(api, settings, this)
+      m_lyricSource(api, settings, this, &m_native)
 {
     m_sessionController = std::make_unique<PlaybackSessionController>(*this);
     m_outputController = std::make_unique<PlaybackOutputController>(*this);
@@ -157,6 +157,8 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                 m_privileges = privileges;
                 m_sourceKind = source.value("source_kind")
                                    .toString(track.localPath.isEmpty() ? "catalog" : "local");
+                m_sourceEffect = source.value("effect").toString(fallback ? "none" : m_songEffect);
+                m_sourceNoticeCode = source.value("notice_code").toString();
                 if (m_sourceKind != "mv") {
                     m_sourceFailure.clear();
                     m_mvFailure.clear();
@@ -183,13 +185,18 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                                      {"peak", source.value("peak")},
                                      {"gain", source.value("gain")}};
                 m_urls.clear();
+                m_urlAudioTracks.clear();
                 m_urlIndex = 0;
-                for (const auto &v : source.value("urls").toArray())
-                    if (v.isString() && !v.toString().isEmpty())
-                        m_urls.append(v.toString());
-                for (const auto &v : source.value("backup_urls").toArray())
-                    if (v.isString() && !v.toString().isEmpty() && !m_urls.contains(v.toString()))
-                        m_urls.append(v.toString());
+                for (const auto &v : source.value("sources").toArray()) {
+                    const auto item = v.toObject();
+                    m_urls.append(item.value("url").toString());
+                    m_urlAudioTracks.append(item.value("audioTrackId").toInteger());
+                }
+                for (const auto &url : PlaybackSourceRequest::usableUrls(source))
+                    if (!m_urls.contains(url)) {
+                        m_urls.append(url);
+                        m_urlAudioTracks.append(0);
+                    }
                 if (!m_loaded)
                     m_duration = qint64(source.value("duration_ms").toDouble());
                 loadNextUrl();
@@ -354,7 +361,7 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                 return;
             m_trackProbe = 0;
             m_audioTrack = effectAudioTrack(
-                success ? QJsonDocument::fromJson(bytes).array() : QJsonArray{}, m_songEffect);
+                success ? QJsonDocument::fromJson(bytes).array() : QJsonArray{}, m_sourceEffect);
             if (m_seamless)
                 m_engine.switchSource(m_probedSource, m_audioSequence, m_audioTrack,
                                       m_sourceRevision);
@@ -426,6 +433,8 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
             stop();
             m_track = {};
             m_sourceKind = "catalog";
+            m_sourceNoticeCode.clear();
+            m_sourceEffect = "none";
             m_sourcePreference.clear();
             m_sourceFailure.clear();
             m_mvFailure.clear();
@@ -566,9 +575,9 @@ void PlaybackService::publishProgressStatus()
         emit progressBusyReasonChanged();
     }
 }
-void PlaybackService::invalidate()
+void PlaybackService::invalidate(bool preserveLyrics)
 {
-    m_sessionController->invalidate();
+    m_sessionController->invalidate(preserveLyrics);
 }
 void PlaybackService::playTracks(const PlaybackTracks &tracks, int index, const QString &title,
                                  const QString &sourceKey)
@@ -669,6 +678,8 @@ void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
     m_sourceFailure.clear();
     m_mvFailure.clear();
     m_sourceKind = "catalog";
+    m_sourceNoticeCode.clear();
+    m_sourceEffect = "none";
     m_track = resolved;
     queue()->consumePlayedPriority(resolved.id.isEmpty() ? resolved.key() : resolved.id);
     m_pendingLoudness = {};
@@ -729,6 +740,7 @@ void PlaybackService::loadNextUrl()
         emit changed();
         return;
     }
+    m_audioTrack = m_urlAudioTracks.value(m_urlIndex);
     const auto source = m_urls[m_urlIndex++];
     m_cast->prepareTransportCommand();
     if (m_cast->remoteMedia()) {
@@ -738,13 +750,13 @@ void PlaybackService::loadNextUrl()
         return;
     }
     if (!m_audioTrack && !m_effectFallback &&
-        (m_songEffect == "vocal" || m_songEffect == "accompaniment") &&
+        (m_sourceEffect == "vocal" || m_sourceEffect == "accompaniment") &&
         QUrl(source).path().endsWith(".mkv", Qt::CaseInsensitive)) {
         m_probedSource = source;
         m_trackProbe = m_native.submit(NativeBridge::AudioTracks, source, m_sequence);
         if (m_trackProbe)
             return;
-        m_audioTrack = m_songEffect == "vocal" ? 2 : 1;
+        m_audioTrack = m_sourceEffect == "vocal" ? 2 : 1;
     }
     m_progress.reset();
     publishProgressStatus();
@@ -752,6 +764,15 @@ void PlaybackService::loadNextUrl()
         m_engine.switchSource(source, m_audioSequence, m_audioTrack, ++m_sourceRevision);
     else
         m_engine.load(source, (m_audioSequence = ++m_audioSerial), m_audioTrack);
+}
+void PlaybackService::revokePluginMedia(const QUrl &url)
+{
+    if (m_transition->containsSource(url))
+        m_transition->clear();
+    if (m_urlIndex > 0 && m_urlIndex <= m_urls.size() && QUrl(m_urls[m_urlIndex - 1]) == url) {
+        stop();
+        emit notice(tr("媒体文件的访问已结束"), false);
+    }
 }
 void PlaybackService::ensureLyrics()
 {
@@ -849,7 +870,7 @@ void PlaybackService::stop()
         m_cast->stopMedia();
     finishHistory();
     m_loaded = false;
-    invalidate();
+    invalidate(true);
     m_autoplay = false;
     m_playing = m_loading = false;
     m_position = 0;
@@ -1083,7 +1104,7 @@ void PlaybackService::refreshCurrentSource()
                      m_preferences.compatibilityMode(), m_preferences.viperQualityEnabled(),
                      m_listenTogether->roomSourceAllowed(m_track) ? m_listenTogether->roomId()
                                                                   : QString(),
-                     m_sourcePreference, m_audioControls.volumeNormalization());
+                     m_sourcePreference, m_audioControls.volumeNormalization(), true);
     emit changed();
 }
 ApiClient::SoundEffect PlaybackService::apiEffect() const

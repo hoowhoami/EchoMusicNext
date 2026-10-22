@@ -43,6 +43,10 @@ public:
     explicit ToastService(QObject *parent = nullptr);
     quint64 show(QString message, Tone tone = Info, int duration = 2600,
                  Presentation presentation = Auto, QString title = {});
+    quint64 showOwned(QObject &provider, QString message, Tone tone = Info, int duration = 2600,
+                      Presentation presentation = Auto, QString title = {});
+    bool containsNotice(quint64 id) const;
+    void dismissProvider(QObject *provider);
     quint64 showAction(QObject &provider, QString message, QString label,
                        std::function<void()> action, Tone tone = Info, int duration = 8000,
                        QString title = {});

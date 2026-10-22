@@ -113,6 +113,20 @@ QJsonObject PlaybackTrack::toDomain() const
             {"metadata", catalogMetadata},
             {"privilege", catalogMetadata.value("catalog_privilege")}};
 }
+QVariantMap PlaybackTrack::publicValue() const
+{
+    return {{"id", id},
+            {"hash", hash},
+            {"title", title},
+            {"artist", artist},
+            {"album", album},
+            {"cover", cover},
+            {"albumId", QString::number(albumId)},
+            {"songId", QString::number(songId)},
+            {"durationMs", double(durationMs)},
+            {"sourceId", catalogMetadata.value("plugin_source").toString()},
+            {"data", catalogMetadata.value("plugin_data").toObject().toVariantMap()}};
+}
 QJsonObject PlaybackTrack::toCatalog() const
 {
     auto artists = catalogMetadata.value("artist_refs").toArray();

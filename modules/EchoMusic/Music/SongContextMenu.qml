@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls.Basic
 import EchoMusic.Controls
 
 // Shared context menu for song lists. Playback and library actions precede
@@ -22,6 +23,36 @@ EchoMenu {
     /// that check; other page actions remain enabled by default.
     property bool removeEnabled: true
     signal removeTriggered
+    property var pluginContext: ({})
+    property var pluginItems: []
+    onAboutToShow: {
+        pluginContext = root.ready && typeof root.commands.pluginMenuContext === "function" ? root.commands.pluginMenuContext(root.songId) : ({});
+        pluginItems = EchoSongMenuRegistry.entries(pluginContext);
+    }
+    Connections {
+        target: EchoSongMenuRegistry
+        function onChanged() {
+            if (root.visible)
+                root.pluginItems = EchoSongMenuRegistry.entries(root.pluginContext);
+        }
+    }
+    Instantiator {
+        model: root.pluginItems
+        delegate: Action {
+            required property var modelData
+            objectName: "pluginSongMenuAction-" + modelData.key
+            text: modelData.text
+            enabled: modelData.enabled
+            property bool danger: modelData.danger
+            onTriggered: {
+                const current = root.commands.pluginMenuContext(root.songId);
+                if (JSON.stringify(current) === JSON.stringify(root.pluginContext))
+                    EchoSongMenuRegistry.invoke(modelData.key, modelData.token, current);
+            }
+        }
+        onObjectAdded: (index, object) => root.insertAction(Math.max(0, root.count - 3), object)
+        onObjectRemoved: (index, object) => root.removeAction(object)
+    }
     clampToWindow: true
     readonly property bool ready: root.commands !== undefined && root.commands !== null
     // SearchModel names its immediate playback entry playSong; SongCatalogActions

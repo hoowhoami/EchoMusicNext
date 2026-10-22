@@ -55,6 +55,8 @@ private:
     int m_priority;
     quint64 m_loadGeneration = 0;
     bool m_started = false, m_constructing = false;
+    QPointer<EchoPluginContext> m_presentation;
+    QPointer<QObject> m_viewOwner;
     QPointer<QQmlComponent> m_component;
     QPointer<QQuickItem> m_item;
 };

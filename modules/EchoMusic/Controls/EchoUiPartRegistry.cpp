@@ -16,13 +16,15 @@ EchoUiPartRegistry *EchoUiPartRegistry::forEngine(QQmlEngine &engine)
 }
 void EchoUiPartRegistry::requestSessionReset()
 {
+    for (auto i = m_parts.begin(); i != m_parts.end(); ++i)
+        m_sessionResetParts.insert(i.key());
     if (std::exchange(m_sessionResetPending, true))
         return;
     QTimer::singleShot(0, this, [this] {
         m_sessionResetPending = false;
-        const auto parts = m_parts.values();
-        for (auto part : parts)
-            if (part) {
+        const auto ids = std::exchange(m_sessionResetParts, {});
+        for (const auto &id : ids)
+            if (auto *part = find(id)) {
                 detach(part);
                 attach(part);
             }
@@ -36,6 +38,7 @@ void EchoUiPartRegistry::attach(EchoUiPartRegistration *part)
         part->role().isEmpty())
         return;
     part->m_identity = QString::number(++m_sequence);
+    emit part->identityChanged();
     m_parts.insert(part->identity(), part);
     resolve(part);
     emit added(part);
@@ -46,6 +49,7 @@ void EchoUiPartRegistry::detach(EchoUiPartRegistration *part)
     if (id.isEmpty())
         return;
     m_parts.remove(id);
+    emit part->identityChanged();
     part->setResolved({});
     part->setReplacement({});
     emit removed(id);
@@ -106,8 +110,9 @@ bool EchoUiPartRegistry::normalize(QVariantMap &values, QString &error)
     const QStringList colors{"foreground", "secondaryForeground", "background", "borderColor",
                              "accent"};
     const QHash<QString, QPair<double, double>> numbers{
-        {"radius", {0, 512}},   {"borderWidth", {0, 32}},  {"opacity", {0, 1}},
-        {"fontSize", {1, 256}}, {"fontWeight", {1, 1000}}, {"letterSpacing", {-20, 100}}};
+        {"scale", {0, 8}},      {"translateX", {-4096, 4096}}, {"translateY", {-4096, 4096}},
+        {"radius", {0, 512}},   {"borderWidth", {0, 32}},      {"opacity", {0, 1}},
+        {"fontSize", {1, 256}}, {"fontWeight", {1, 1000}},     {"letterSpacing", {-20, 100}}};
     if (values.size() > 32) {
         error = "Too many visual properties";
         return false;

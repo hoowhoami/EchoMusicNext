@@ -1734,7 +1734,7 @@ private slots:
         sources.load(track);
         sources.updateEmbedded("old-track", "Wrong", "Wrong", lyric);
         QCOMPARE(sources.rowCount(), 0);
-        sources.updateEmbedded(track.key(), "Embedded title", "Embedded artist", lyric);
+        sources.updateEmbedded(track.stableKey(), "Embedded title", "Embedded artist", lyric);
         QCOMPARE(sources.rowCount(), 1);
         QVERIFY(sources.loading());
         finish(search(), "[]");
@@ -1761,7 +1761,7 @@ private slots:
         sources.load(track);
         QCOMPARE(search(), 0ULL);
         QVERIFY(sources.manual());
-        sources.updateEmbedded(track.key(), "Embedded title", "Embedded artist", lyric);
+        sources.updateEmbedded(track.stableKey(), "Embedded title", "Embedded artist", lyric);
         QCOMPARE(sources.currentId(), QString("embedded"));
         QVERIFY(!sources.loading());
         sources
@@ -1778,13 +1778,13 @@ private slots:
         QCOMPARE(sources.currentId(), QString("embedded"));
         sources.clear();
         QCOMPARE(sources.rowCount(), 0);
-        sources.updateEmbedded(track.key(), "Stale", "Stale", lyric);
+        sources.updateEmbedded(track.stableKey(), "Stale", "Stale", lyric);
         QCOMPARE(sources.rowCount(), 0);
         PlaybackTrack masked = track;
         masked.title = "***";
         masked.artist = "*****";
         sources.load(masked);
-        sources.updateEmbedded(masked.key(), "Actual title", "Actual artist", lyric);
+        sources.updateEmbedded(masked.stableKey(), "Actual title", "Actual artist", lyric);
         QCOMPARE(sources.searchTitle(), QString("Actual title"));
         QCOMPARE(sources.searchArtist(), QString("Actual artist"));
         finish(search(), "[]");
@@ -1807,7 +1807,7 @@ private slots:
                                          {"words", QJsonArray{}}});
         plain["lines"] = plainRows;
         plain["scrollable"] = false;
-        sources.updateEmbedded(local.key(), {}, {}, plain);
+        sources.updateEmbedded(local.stableKey(), {}, {}, plain);
         QCOMPARE(sources.currentId(), QString("embedded"));
         QCOMPARE(sources.preview()->rowCount(), 23);
         QCOMPARE(sources.previewRows()->rowCount(), 18);

@@ -28,6 +28,14 @@ EchoUiPartRef::EchoUiPartRef(EchoPluginContext &scope, EchoUiPartRegistration &p
                 notify();
         });
     watchAncestors();
+    part.acquireState();
+}
+EchoUiPartRef::~EchoUiPartRef()
+{
+    if (m_part) {
+        disconnect(m_part, nullptr, this, nullptr);
+        m_part->releaseState();
+    }
 }
 bool EchoUiPartRef::valid() const
 {
@@ -49,6 +57,10 @@ bool EchoUiPartRef::visible() const
 QRectF EchoUiPartRef::geometry() const
 {
     return valid() ? m_part->geometry() : QRectF();
+}
+QVariantMap EchoUiPartRef::state() const
+{
+    return valid() ? m_part->state() : QVariantMap();
 }
 QVariantMap EchoUiPartRef::visuals() const
 {
@@ -72,6 +84,8 @@ void EchoUiPartRef::notify()
             disconnect(m_scope, nullptr, this, nullptr);
         if (m_registry)
             disconnect(m_registry, nullptr, this, nullptr);
+        if (m_part)
+            m_part->releaseState();
         m_part = nullptr;
         emit invalidated();
     }

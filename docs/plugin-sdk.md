@@ -65,3 +65,27 @@
 注入组件的`plugin/page/configuration`均有明确作用域。可见实例独立撤销注册、样式、订阅、任务和异步命令；共享`ui.state`与宿主唯一的播放器、歌词、ThemeStore。隐藏、最小化、替换或账号变化释放呈现树。配置代理共用安装私有数据中的单一持久化队列，验证整个JSON后原子写入，更新/停用先排空已接受写入。
 
 `player.snapshot/lyricsInfo/lyricSnapshot/on/control`提供曲目、模式、质量、音效、收藏、FM和歌词时间上下文；`appearance.snapshot/fonts`提供语义外观和完整字体链。`windows.snapshot/command`调用现有浮窗控制器；共享`EchoPluginPlaybackControls/EchoPluginProgress/EchoPluginLyricsView`可用于整页皮肤及Mini。作者签名与例子见[外观文档](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/appearance.md)，执行证据与平台边界见[本轮记录](internal/verification/2026-10-21-plugin-p0.md)。
+
+音源解析/转换（playback.audioSource）与多队列（playback.queues）已接入正常播放、预加载及宿主队列目录。作者用法见[音源与队列](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/audio-sources-and-queues.md)。
+
+`ctx.lyrics`支持LRC/KRC/YRC resolver、来源预览、类型化快照与临时写入。手动来源优先，切歌/账号取消，停用撤回写入与来源结果；作者用法见[歌词接口](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/lyrics.md)。
+
+## 文件、媒体与网络
+
+`ctx.files`接入原生选择、持久/临时授权及worker文件读写；插件管理页授权入口可重新授权、撤销和移除记录。文件引用绑定安装与授权revision；`openMedia`提供支持Range的可撤销本地HTTP租约，曲目/账号/scope结束时回收。
+
+`ctx.downloads`提供流式下载、任务中心进度/取消、暂停续传、SHA-256及冲突提交、历史与重新附着。撤销授权或停用关闭传输，不发布半截目标文件。
+
+普通HTTP统一为`ctx.net.request(options)`，不保留受限网络接口或get/post别名；支持方法、头部、正文、响应解码及TLS选项，沿用宿主代理并随操作实际取消。`ctx.io`保留私有存储职责。作者签名、预算与生命周期见[文件、媒体与网络](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/files-and-network.md)。
+
+## 业务、入口、任务与歌词动效
+
+`ctx.kugou`公开96个固定类型化业务命令与验证；调用宿主同一ApiClient/VerificationService，账号由宿主绑定，业务ID使用十进制字符串。插件取消只撤销本请求的验证等待，宿主验证界面的取消仍关闭当前共享验证；账号切换或停用取消请求，登录确认不跨账号续跑插件操作。登录仍由宿主账号入口管理。
+
+`ui.registerSidebarItem/registerShortcutCard/registerSongMenuItem`接入原侧栏、添加卡片/布局设置和共享歌曲菜单。`shortcuts`复用本地/系统快捷键冲突、输入焦点和录制门控；`toast`使用原通知视口；`scroll`只提供活动原生页面的公开引用/快照/滚动动作。`tasks`接入原任务中心的完整状态、图标/优先级patch、动作/明细和保留策略，代际替换、账号切换与停用均回收。
+
+`lyricEffects`对页面和桌面歌词提供样式、包内QML装饰和自动滚动接管，公开视口/行/run快照及Qt实际字形簇几何。逐属性样式与自动滚动优先级确定，用户浏览让权，减少动态效果保持原语义。装饰挂载拥有独立呈现scope；隐藏/裁剪、切账号或停用时撤销组件内的请求、定时器和注册。
+
+签名、预算、时间轴及用法见[作者扩展接口](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/ecosystem.md)，执行证据与尚未覆盖范围见[本轮验证](internal/verification/2026-10-22-plugin-ecosystem-p0.md)。
+
+插件结构化数据使用 `ctx.sqlite`，声明 `storage.sqlite` / `sqlite`；完整参数、迁移和事务见作者仓库 [SQLite 指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/sqlite.md)。

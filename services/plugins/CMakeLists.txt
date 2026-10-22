@@ -1,5 +1,7 @@
 add_library(
     echo_plugin_packages STATIC
+    PluginDatabaseWorker.h
+    PluginDatabaseWorker.cpp
     PluginPackage.h
     PluginPackage.cpp
     PluginDataTransaction.h

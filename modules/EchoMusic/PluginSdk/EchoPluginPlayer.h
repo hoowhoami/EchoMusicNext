@@ -1,6 +1,7 @@
 #pragma once
 #include "EchoPluginOperation.h"
 #include "EchoPluginRegistration.h"
+#include "EchoPluginAudioSource.h"
 #include <QJSValue>
 #include <QPointer>
 #include <QAbstractListModel>
@@ -32,6 +33,7 @@ class EchoPluginPlayer final : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Owned by EchoPluginContext")
+    Q_PROPERTY(EchoMusic::EchoPluginAudioSource *audioSource READ audioSource CONSTANT)
     Q_PROPERTY(QVariantMap snapshot READ snapshot NOTIFY changed)
     Q_PROPERTY(QVariantMap lyricsInfo READ lyricsInfo NOTIFY lyricChanged)
     Q_PROPERTY(QString revision READ revision NOTIFY changed)
@@ -51,6 +53,10 @@ class EchoPluginPlayer final : public QObject
     Q_PROPERTY(EchoMusic::EchoPluginReadModel *lyrics READ lyrics CONSTANT)
 public:
     EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &host);
+    EchoPluginAudioSource *audioSource()
+    {
+        return &m_audioSource;
+    }
     QVariantMap snapshot() const;
     QVariantMap lyricsInfo() const;
     QString revision() const;
@@ -106,6 +112,7 @@ private:
     QMetaObject::Connection m_libraryConnection;
     EchoPluginContext &m_scope;
     PlaybackService &m_host;
+    EchoPluginAudioSource m_audioSource;
     EchoPluginReadModel m_queue, m_lyrics;
 };
 } // namespace EchoMusic

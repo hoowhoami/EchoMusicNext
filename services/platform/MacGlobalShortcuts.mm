@@ -180,9 +180,10 @@ void GlobalShortcuts::replace(const QList<Binding> &bindings)
                 : RegisterEventHotKey(key, nativeModifiers,
                                       EventHotKeyID{'EcNk', UInt32(binding.command)},
                                       GetApplicationEventTarget(), 0, &reference);
-        if (status == noErr)
+        if (status == noErr) {
             m_impl->keys.insert(binding.command, reference);
-        else
+            emit registered(binding.command);
+        } else
             emit registrationFailed(binding.command,
                                     tr("系统未能注册此快捷键（%1），可能已被占用").arg(status));
     }

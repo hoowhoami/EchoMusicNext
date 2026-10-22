@@ -18,6 +18,31 @@ quint64 ToastService::show(QString message, Tone tone, int duration, Presentatio
         (presentation == Auto && (message.contains('\n') || message.toUcs4().size() > 30));
     return enqueue({0, message, title, {}, tone, duration, 1, standard, {}, {}});
 }
+quint64 ToastService::showOwned(QObject &provider, QString message, Tone tone, int duration,
+                                Presentation presentation, QString title)
+{
+    const bool standard =
+        !title.isEmpty() || presentation == Standard ||
+        (presentation == Auto && (message.contains('\n') || message.toUcs4().size() > 30));
+    return enqueue(
+        {0, message.trimmed(), title.trimmed(), {}, tone, duration, 1, standard, &provider, {}});
+}
+bool ToastService::containsNotice(quint64 id) const
+{
+    for (const auto &v : m_items)
+        if (v.id == id)
+            return true;
+    return false;
+}
+void ToastService::dismissProvider(QObject *provider)
+{
+    QList<quint64> ids;
+    for (const auto &n : m_items)
+        if (n.provider == provider)
+            ids.append(n.id);
+    for (auto id : ids)
+        dismiss(id);
+}
 quint64 ToastService::showAction(QObject &provider, QString message, QString label,
                                  std::function<void()> action, Tone tone, int duration,
                                  QString title)
@@ -34,7 +59,8 @@ quint64 ToastService::enqueue(Notice notice)
         return 0;
     for (auto &item : m_items) {
         if (item.message != notice.message || item.title != notice.title ||
-            item.tone != notice.tone || item.label != notice.label)
+            item.tone != notice.tone || item.label != notice.label ||
+            item.provider != notice.provider)
             continue;
         ++item.count;
         item.duration = notice.duration;

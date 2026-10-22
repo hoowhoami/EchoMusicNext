@@ -1,4 +1,5 @@
 #include "LyricLine.h"
+#include <QTextBoundaryFinder>
 #include "LyricMaterial.h"
 #include <QSGGeometryNode>
 #include <QEasingCurve>
@@ -236,6 +237,82 @@ void LyricLine::setAnimateWords(bool value)
     m_animateWords = value;
     update();
     emit colorsChanged();
+}
+QVariantList LyricLine::glyphs() const
+{
+    if (m_publicGlyphRevision == m_maskRevision)
+        return m_publicGlyphs;
+    m_publicGlyphRevision = m_maskRevision;
+    m_publicGlyphs.clear();
+    QTextBoundaryFinder boundaries(QTextBoundaryFinder::Grapheme, m_text);
+    int start = 0;
+    while (start < m_text.size()) {
+        boundaries.setPosition(start);
+        int end = boundaries.toNextBoundary();
+        if (end < 0)
+            end = m_text.size();
+        while (end < m_text.size()) {
+            const auto runs = m_layout.glyphRuns(start, end - start);
+            const bool split = !m_layout.isValidCursorPosition(end) ||
+                               std::any_of(runs.cbegin(), runs.cend(), [](const QGlyphRun &r) {
+                                   return r.flags().testFlag(QGlyphRun::SplitLigature);
+                               });
+            if (!split)
+                break;
+            boundaries.setPosition(end);
+            const int next = boundaries.toNextBoundary();
+            if (next <= end)
+                break;
+            end = next;
+        }
+        QRectF bounds;
+        for (int i = 0; i < m_layout.lineCount(); ++i) {
+            auto line = m_layout.lineAt(i);
+            if (start >= line.textStart() + line.textLength() || end <= line.textStart())
+                continue;
+            const int a = qMax(start, line.textStart()),
+                      b = qMin(end, line.textStart() + line.textLength());
+            const qreal x1 = line.cursorToX(a), x2 = line.cursorToX(b);
+            bounds = bounds.united(QRectF(line.x() + qMin(x1, x2), line.y(),
+                                          qMax<qreal>(.01, qAbs(x2 - x1)), line.height()));
+        }
+        QRectF ink;
+        bool rtl = false;
+        for (const auto &run : m_layout.glyphRuns(start, end - start)) {
+            ink = ink.united(run.boundingRect());
+            rtl = rtl || run.flags().testFlag(QGlyphRun::RightToLeft);
+        }
+        QVariantList wordIndices;
+        int word = -1;
+        qint64 time = m_start, duration = m_duration;
+        for (int i = 0; i < m_timeline.size(); ++i) {
+            const auto &w = m_timeline[i];
+            if (start < w.start + w.length && end > w.start) {
+                wordIndices.append(i);
+                if (word < 0) {
+                    word = i;
+                    time = w.time;
+                    duration = w.duration;
+                } else {
+                    const auto finish = qMax(time + duration, w.time + w.duration);
+                    time = qMin(time, w.time);
+                    duration = finish - time;
+                }
+            }
+        }
+        m_publicGlyphs.append(QVariantMap{{"text", m_text.mid(start, end - start)},
+                                          {"utf16Start", start},
+                                          {"utf16Length", end - start},
+                                          {"rect", bounds},
+                                          {"wordIndex", word},
+                                          {"wordIndices", wordIndices},
+                                          {"inkRect", ink},
+                                          {"rtl", rtl},
+                                          {"startMs", time},
+                                          {"durationMs", duration}});
+        start = end;
+    }
+    return m_publicGlyphs;
 }
 void LyricLine::layout()
 {

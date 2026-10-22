@@ -163,6 +163,8 @@ private slots:
         for (const auto &entry : std::as_const(m_bindings))
             if (!ids.contains(QString::number(entry.command)))
                 emit m_owner.registrationFailed(entry.command, tr("此快捷键未获系统授权"));
+            else
+                emit m_owner.registered(entry.command);
     }
     void activated(const QDBusObjectPath &session, const QString &id, qulonglong,
                    const QVariantMap &)
@@ -344,9 +346,10 @@ void GlobalShortcuts::replace(const QList<Binding> &bindings)
                 if (valid)
                     installed.append({code, quint16(flags | lock), entry.command});
             }
-            if (valid)
+            if (valid) {
                 m_impl->grabs.append(installed);
-            else {
+                emit registered(entry.command);
+            } else {
                 for (const auto &grab : installed)
                     xcb_ungrab_key(m_impl->connection, grab.key, m_impl->root, grab.modifiers);
                 emit registrationFailed(entry.command, tr("系统未能注册此快捷键，可能已被占用"));

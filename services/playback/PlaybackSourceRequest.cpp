@@ -12,8 +12,10 @@
 namespace EchoMusic
 {
 PlaybackSourceRequest::PlaybackSourceRequest(ApiClient &api, MembershipService &membership,
-                                             QObject *parent, CloudAudioIndex *cloud)
-    : QObject(parent), m_cloud(cloud), m_api(api), m_membership(membership)
+                                             QObject *parent, CloudAudioIndex *cloud,
+                                             PlaybackSourceExtensions *extensions)
+    : QObject(parent), m_extensions(extensions), m_cloud(cloud), m_api(api),
+      m_membership(membership)
 {
     if (m_cloud)
         connect(m_cloud, &CloudAudioIndex::settled, this, [this] {
@@ -29,6 +31,10 @@ PlaybackSourceRequest::PlaybackSourceRequest(ApiClient &api, MembershipService &
 void PlaybackSourceRequest::cancel()
 {
     ++m_generation;
+    delete m_extensionJob.data();
+    m_extensionJob = nullptr;
+    m_beforeTried = m_afterTried = m_finalTried = false;
+    m_pluginStage.clear();
     m_context = false;
     m_waitingCloud = false;
     m_cloudTried = m_catalogStarted = m_exhausted = m_mvTried = false;
@@ -57,7 +63,8 @@ void PlaybackSourceRequest::cancel()
 void PlaybackSourceRequest::resolve(const PlaybackTrack &track, ApiClient::PlaybackQuality quality,
                                     ApiClient::SoundEffect effect, const QJsonObject &known,
                                     bool compatibility, bool viperEnabled, const QString &roomId,
-                                    const QString &preference, bool normalization)
+                                    const QString &preference, bool normalization, bool forceReload,
+                                    bool preloading)
 {
     cancel();
     m_revision = m_api.sessionRevision();
@@ -65,6 +72,8 @@ void PlaybackSourceRequest::resolve(const PlaybackTrack &track, ApiClient::Playb
     m_context = true;
     m_preference = preference;
     m_normalize = normalization;
+    m_forceReload = forceReload;
+    m_preloading = preloading;
     const auto cloud = track.catalogMetadata.value("cloud_source").toObject();
     m_catalogHash = track.catalogMetadata.value("source_kind").toString() == "cloud"
                         ? cloud.value("hash_std").toString()
@@ -116,11 +125,16 @@ void PlaybackSourceRequest::startCatalog()
         cancel();
         return;
     }
+    if (m_extensions && !m_beforeTried) {
+        m_beforeTried = true;
+        runExtension("before-catalog", [this] { startCatalog(); });
+        return;
+    }
     m_catalogStarted = true;
     if (m_cloud && m_track.catalogMetadata.value("cloud_source").toObject().isEmpty())
         m_cloud->ensure();
     if (m_catalogHash.isEmpty()) {
-        startCloud();
+        afterCatalog();
         return;
     }
     m_waitingPrivileges = m_privileges.isEmpty();
@@ -164,7 +178,7 @@ void PlaybackSourceRequest::requestSource()
             return;
         m_lastError = tr("无法发起播放地址请求");
     }
-    startCloud();
+    afterCatalog();
 }
 void PlaybackSourceRequest::succeed(quint64 id, const QByteArray &bytes)
 {
@@ -349,13 +363,36 @@ QStringList EchoMusic::PlaybackSourceRequest::usableUrls(const QJsonObject &sour
 void EchoMusic::PlaybackSourceRequest::publish(QJsonObject source, const QString &kind,
                                                const QString &quality)
 {
-    m_active = false;
-    m_kind = kind;
-    source.insert("source_kind", kind);
-    const auto fallback = m_effect != ApiClient::SoundEffect::None &&
-                          (kind != "catalog" || m_candidates.value(m_candidateIndex).effect ==
-                                                    ApiClient::SoundEffect::None);
-    emit resolved(m_track, m_privileges, source, fallback, quality);
+    source.insert("source_kind", source.value("source_kind").toString(kind));
+    source.insert("quality", source.value("quality").toString(quality));
+    const QStringList effects{"none",      "piano",   "vocal",  "accompaniment",
+                              "subwoofer", "ancient", "surnay", "dj"};
+    const auto nativeEffect = kind == "catalog" ? m_candidates.value(m_candidateIndex).effect
+                                                : ApiClient::SoundEffect::None;
+    source.insert("effect",
+                  source.value("effect").toString(effects.value(int(nativeEffect), "none")));
+    const auto complete = [this, kind, quality](QJsonObject candidate) {
+        m_extensionJob = nullptr;
+        if (candidate.isEmpty()) {
+            if (kind == "catalog")
+                requestSource();
+            else if (kind == "cloud" && !m_catalogStarted)
+                startCatalog();
+            else
+                finishFailure();
+            return;
+        }
+        m_active = false;
+        m_kind = kind;
+        const auto fallback = candidate.value("effect").toString("none") !=
+                              extensionContext().value("effect").toString();
+        emit resolved(m_track, m_privileges, candidate, fallback,
+                      candidate.value("quality").toString(quality));
+    };
+    if (m_extensions && (kind == "catalog" || kind == "cloud"))
+        m_extensionJob = m_extensions->transform(kind, extensionContext(), source, this, complete);
+    else
+        complete(source);
 }
 void EchoMusic::PlaybackSourceRequest::startCloud()
 {
@@ -395,6 +432,11 @@ void EchoMusic::PlaybackSourceRequest::startCloud()
 }
 void EchoMusic::PlaybackSourceRequest::finishFailure()
 {
+    if (m_extensions && !m_finalTried && !m_mvTried) {
+        m_finalTried = true;
+        runExtension("final-fallback", [this] { finishFailure(); });
+        return;
+    }
     m_active = false;
     m_exhausted = true;
     m_waitingCloud = false;
@@ -412,6 +454,13 @@ bool EchoMusic::PlaybackSourceRequest::continueAfterFailure()
     if (m_roomResolved) {
         m_roomResolved = false;
         startCatalog();
+    } else if (m_kind == "plugin") {
+        if (m_pluginStage == "before-catalog")
+            startCatalog();
+        else if (m_pluginStage == "after-catalog")
+            startCloud();
+        else
+            finishFailure();
     } else if (m_kind == "cloud") {
         if (!m_catalogStarted)
             startCatalog();
@@ -566,4 +615,60 @@ void EchoMusic::PlaybackSourceRequest::ensureCatalogRights(const PlaybackTrack &
     m_privilegeRequest = m_api.songPrivileges({{m_catalogHash, track.albumId}});
     if (!m_privilegeRequest)
         m_waitingPrivileges = false;
+}
+
+QVariantMap EchoMusic::PlaybackSourceRequest::extensionContext() const
+{
+    return {{"track",
+             QVariantMap{
+                 {"id", m_track.id},
+                 {"hash", m_track.hash},
+                 {"title", m_track.title},
+                 {"artist", m_track.artist},
+                 {"album", m_track.album},
+                 {"cover", m_track.cover},
+                 {"albumId", QString::number(m_track.albumId)},
+                 {"songId", QString::number(m_track.songId)},
+                 {"durationMs", double(m_track.durationMs)},
+                 {"data", m_track.catalogMetadata.value("plugin_data").toObject().toVariantMap()},
+                 {"sourceId", m_track.catalogMetadata.value("plugin_source").toString()}}},
+            {"quality", PlaybackSourcePlan::qualityKey(m_quality)},
+            {"effect", QStringList{"none", "piano", "vocal", "accompaniment", "subwoofer",
+                                   "ancient", "surnay", "dj"}
+                           .value(int(m_effect), "none")},
+            {"forceReload", m_forceReload},
+            {"preloading", m_preloading}};
+}
+void EchoMusic::PlaybackSourceRequest::runExtension(const QString &stage,
+                                                    std::function<void()> fallback)
+{
+    const auto generation = m_generation;
+    m_extensionJob = m_extensions->resolve(
+        stage, extensionContext(), this,
+        [this, generation, stage, fallback = std::move(fallback)](QJsonObject source) {
+            if (generation != m_generation || m_revision != m_api.sessionRevision())
+                return;
+            m_extensionJob = nullptr;
+            if (source.isEmpty()) {
+                fallback();
+                return;
+            }
+            m_pluginStage = stage;
+            m_kind = "plugin";
+            m_active = false;
+            if (!source.contains("duration_ms") || source.value("duration_ms").toDouble() <= 0)
+                source["duration_ms"] = double(m_track.durationMs);
+            const auto effect = source.value("effect").toString("none");
+            emit resolved(m_track, m_privileges, source,
+                          effect != extensionContext().value("effect").toString(),
+                          source.value("quality").toString());
+        });
+}
+void EchoMusic::PlaybackSourceRequest::afterCatalog()
+{
+    if (m_extensions && !m_afterTried) {
+        m_afterTried = true;
+        runExtension("after-catalog", [this] { startCloud(); });
+    } else
+        startCloud();
 }

@@ -23,12 +23,14 @@ struct PlaybackTrack
     bool operator==(const PlaybackTrack &) const = default;
     bool playable() const
     {
-        return !localPath.isEmpty() || (hash.size() == 32 && !id.isEmpty() &&
-                                        std::all_of(hash.cbegin(), hash.cend(), [](QChar c) {
-                                            const auto n = c.unicode();
-                                            return (n >= '0' && n <= '9') ||
-                                                   (n >= 'a' && n <= 'f') || (n >= 'A' && n <= 'F');
-                                        }));
+        return (!id.isEmpty() && !catalogMetadata.value("plugin_source").toString().isEmpty()) ||
+               !localPath.isEmpty() ||
+               (hash.size() == 32 && !id.isEmpty() &&
+                std::all_of(hash.cbegin(), hash.cend(), [](QChar c) {
+                    const auto n = c.unicode();
+                    return (n >= '0' && n <= '9') || (n >= 'a' && n <= 'f') ||
+                           (n >= 'A' && n <= 'F');
+                }));
     }
     QString key() const
     {
@@ -50,6 +52,7 @@ struct PlaybackTrack
     /// Typed catalog projection for a view following a live queue. The storage
     /// snapshot above has different presentation field names.
     QJsonObject toCatalog() const;
+    QVariantMap publicValue() const;
     /// UI links from retained domain identities; text-only artists never acquire an ID.
     QVariantList artistLinks() const;
 };

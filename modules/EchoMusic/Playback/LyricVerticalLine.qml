@@ -5,6 +5,9 @@ import EchoMusic.Playback
 
 Item {
     id: root
+    property string effectSurface: ""
+    property real followOverride: -1
+    signal followRequested(real position, real maximum)
     property var units: []
     property font font: Theme.bodyFont
     property real timeMs: -1
@@ -14,7 +17,10 @@ Item {
     property color unplayedColor: "gray"
     property size arrangedSize: Qt.size(0, 0)
     property VerticalUnit activeUnit: null
-    readonly property real scrollY: activeUnit && activeUnit.height > height ? Math.max(0, Math.min(Math.max(0, arrangedSize.height - height), activeUnit.y + activeUnit.sweepY - height * .6)) : 0
+    readonly property real defaultScrollY: activeUnit && activeUnit.height > height ? Math.max(0, Math.min(Math.max(0, arrangedSize.height - height), activeUnit.y + activeUnit.sweepY - height * .6)) : 0
+    readonly property real scrollY: followOverride >= 0 ? followOverride : defaultScrollY
+    onDefaultScrollYChanged: if (effectSurface === "desktop")
+        followRequested(defaultScrollY, Math.max(0, arrangedSize.height - height))
     property real scrollShift: 0
     property bool animateScroll: false
     property int focusedIndex: -1
@@ -106,6 +112,12 @@ Item {
         height: unit.modelData.sideways ? extent : root.font.pixelSize * 1.2
         LyricLine {
             id: ink
+            EchoLyricInkPart {
+                runKey: String(unit.modelData.start_ms) + ":" + String(unit.index)
+                renderer: ink
+                surface: root.effectSurface
+                active: root.effectSurface !== ""
+            }
             // Each piece is shaped by Qt; a Latin run rotates together, while CJK
             // remains upright. Sweep fractions are presentation coordinates, not new lyric times.
             x: unit.modelData.sideways ? (unit.width - unit.extent) / 2 - root.font.pixelSize : -root.font.pixelSize

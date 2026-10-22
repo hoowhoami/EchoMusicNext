@@ -8,6 +8,9 @@ import EchoMusic.Playback
 // retains legibility and follows the native word cursor without changing times.
 Item {
     id: root
+    property string effectSurface: ""
+    property real followOverride: -1
+    signal followRequested(real position, real maximum)
     property var units: []
     property font font: Theme.bodyFont
     property real timeMs: -1
@@ -34,7 +37,7 @@ Item {
     implicitHeight: wrap ? flow.implicitHeight : row.implicitHeight
     clip: !wrap
     readonly property real maximumScroll: Math.max(0, row.implicitWidth - width)
-    readonly property real scrollOffset: {
+    readonly property real defaultScrollOffset: {
         if (!current || !units.length || timeMs < units[0].start_ms)
             return 0;
         const last = units[units.length - 1];
@@ -42,6 +45,9 @@ Item {
             return maximumScroll;
         return activeUnit ? Math.max(0, Math.min(maximumScroll, activeUnit.x + activeUnit.sweepX - width * .6)) : 0;
     }
+    readonly property real scrollOffset: followOverride >= 0 ? followOverride : defaultScrollOffset
+    onDefaultScrollOffsetChanged: if (effectSurface === "desktop")
+        followRequested(defaultScrollOffset, maximumScroll)
     Flow {
         id: flow
         visible: root.wrap
@@ -70,6 +76,7 @@ Item {
     component RubyUnit: Item {
         id: unit
         required property var modelData
+        required property int index
         readonly property real rubyHeight: root.font.pixelSize * .8
         readonly property real naturalWidth: Math.max(baseMetrics.advanceWidth, rubyMetrics.advanceWidth) + 2
         readonly property real sweepX: base.readingPosition(root.timeMs) - root.font.pixelSize
@@ -104,6 +111,12 @@ Item {
         }
         LyricLine {
             id: base
+            EchoLyricInkPart {
+                runKey: String(unit.modelData.start_ms) + ":" + String(unit.index)
+                renderer: base
+                surface: root.effectSurface
+                active: root.effectSurface !== ""
+            }
             x: -root.font.pixelSize
             y: unit.rubyHeight - root.font.pixelSize
             width: parent.width + root.font.pixelSize * 2

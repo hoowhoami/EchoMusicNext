@@ -22,6 +22,7 @@ pub mod playlist_tracks_add;
 pub mod playlist_tracks_del;
 pub mod playlist_tracks_sort;
 pub mod playlist_update;
+pub mod plugin_lyrics;
 pub mod privilege_lite;
 pub mod register_dev;
 pub mod search;

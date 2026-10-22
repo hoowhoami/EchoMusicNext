@@ -18,6 +18,21 @@
 
 namespace EchoMusic
 {
+QVariantMap SearchModel::pluginMenuContext(const QString &id) const
+{
+    if (m_kind != Kind::Song && m_kind != Kind::Lyric)
+        return {};
+    for (const auto &row : active().rows)
+        if (row.id == id)
+            return {{"track", row.track.publicValue()},
+                    {"selectedTracks", QVariantList{}},
+                    {"selectionCount", 0},
+                    {"truncated", false},
+                    {"sourceId", "search"},
+                    {"revision", QString::number(active().revision)}};
+    return {};
+}
+
 namespace
 {
 constexpr quint32 PageSize = 30;

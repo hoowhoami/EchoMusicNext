@@ -178,13 +178,8 @@ EchoPluginRegistration *EchoPluginUi::registerPlayerbarAction(const QString &id,
 }
 EchoPluginTask *EchoPluginUi::createTask(const QString &id, const QString &title)
 {
-    if (title.isEmpty() || title.size() > 256)
-        return nullptr;
-    auto *lease = m_scope.registration("task", id);
-    if (!lease)
-        return nullptr;
-    auto *task = new EchoPluginTask(m_scope, *lease, title);
-    QQmlEngine::setObjectOwnership(task, QQmlEngine::CppOwnership);
-    return task;
+    auto definition = m_scope.engine().newObject();
+    definition.setProperty("name", title);
+    return m_scope.tasks()->registerTask(id, definition);
 }
 } // namespace EchoMusic

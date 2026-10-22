@@ -91,8 +91,7 @@ StorageResult accessValues(const QString &directory, const QString &key, const Q
 }
 } // namespace
 EchoPluginIo::EchoPluginIo(EchoPluginContext &scope, QString dataPath)
-    : QObject(&scope), m_scope(scope), m_dataPath(std::move(dataPath)), m_network(this),
-      m_worker(new QObject(this))
+    : QObject(&scope), m_scope(scope), m_dataPath(std::move(dataPath)), m_worker(new QObject(this))
 {
     connect(&m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
     connect(&m_thread, &QThread::finished, this, [this] {
@@ -108,71 +107,6 @@ EchoPluginIo::~EchoPluginIo()
     // SQL writes still precede the worker's quit barrier.
     shutdown();
     m_thread.wait();
-}
-EchoPluginOperation *EchoPluginIo::get(const QUrl &url)
-{
-    return request(url, {}, {}, false);
-}
-EchoPluginOperation *EchoPluginIo::post(const QUrl &url, const QByteArray &body,
-                                        const QString &contentType)
-{
-    return request(url, body, contentType, true);
-}
-EchoPluginOperation *EchoPluginIo::request(const QUrl &url, const QByteArray &body,
-                                           const QString &contentType, bool post)
-{
-    if (!m_scope.package().capabilities.contains("unrestrictedNetwork"))
-        return m_scope.rejected("CapabilityDenied", "unrestrictedNetwork is required");
-    if ((url.scheme() != "http" && url.scheme() != "https") || url.host().isEmpty() ||
-        !url.userInfo().isEmpty() || body.size() > 10 * 1024 * 1024 || contentType.contains('\r') ||
-        contentType.contains('\n'))
-        return m_scope.rejected("InvalidArgument", "Invalid HTTP request");
-    auto *op = m_scope.operation();
-    if (op->finished())
-        return op;
-    QNetworkRequest request(url);
-    request.setTransferTimeout(30000);
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
-    if (post)
-        request.setHeader(QNetworkRequest::ContentTypeHeader, contentType);
-    auto *reply = post ? m_network.post(request, body) : m_network.get(request);
-    auto bytes = std::make_shared<QByteArray>();
-    op->start([guard = QPointer<QNetworkReply>(reply)] {
-        if (guard)
-            guard->abort();
-    });
-    connect(reply, &QNetworkReply::readyRead, op, [reply, op, bytes] {
-        if (reply->isOpen())
-            bytes->append(reply->readAll());
-        if (bytes->size() > 10 * 1024 * 1024) {
-            op->fail("ResponseTooLarge", "HTTP response exceeds 10 MiB");
-            reply->abort();
-        }
-    });
-    connect(reply, &QNetworkReply::finished, op, [reply, op, bytes] {
-        if (reply->isOpen())
-            bytes->append(reply->readAll());
-        if (!op->finished()) {
-            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            if (bytes->size() > 10 * 1024 * 1024)
-                op->fail("ResponseTooLarge", "HTTP response exceeds 10 MiB");
-            else if (!status && reply->error() != QNetworkReply::NoError)
-                op->fail("NetworkError", reply->errorString());
-            else {
-                QVariantMap headers;
-                for (const auto &name : reply->rawHeaderList())
-                    headers.insert(QString::fromLatin1(name),
-                                   QString::fromLatin1(reply->rawHeader(name)));
-                op->succeed(QVariantMap{{"status", status},
-                                        {"headers", headers},
-                                        {"body", *bytes},
-                                        {"url", reply->url()}});
-            }
-        }
-        reply->deleteLater();
-    });
-    return op;
 }
 EchoPluginOperation *EchoPluginIo::storage(const QString &key, const QVariant &value, int command)
 {

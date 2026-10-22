@@ -9,6 +9,8 @@
 #include "PlaybackService.h"
 #include "PluginManager.h"
 #include "PluginRuntime.h"
+#include "AccountController.h"
+#include "ShellSettings.h"
 #include "QQmlApplicationEngine"
 #include "RelaunchService.h"
 #include "RouteController.h"
@@ -18,7 +20,6 @@
 #include "ShareTarget.h"
 #include "SharingCommands.h"
 #include "ShellController.h"
-#include "ShellSettings.h"
 #include "ThemeStore.h"
 #include "ToastService.h"
 #include "WindowController.h"
@@ -56,7 +57,9 @@ void AppContext::createPlugins()
         QStringLiteral("/plugins");
     m_plugins = std::make_unique<PluginRuntime>(
         engine, settings,
-        PluginHost{playback, theme, shellController, router, account, api, window.floating()},
+        PluginHost{playback, theme, shellController, router, account, api, window.floating(),
+                   nullptr, m_shell->sidebarLayout(), m_shortcuts.get(),
+                   m_accountController->verification()},
         pluginRoot, m_pluginSafeMode);
     auto &plugins = *m_plugins;
     bind(theme.extensions(), &AppearanceCatalog::contributionFailed, &shellController,

@@ -5,6 +5,32 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void ecosystemTasksActionsRetentionAndAccountLifetime();
+    void ecosystemSidebarSongMenuAndPresentation();
+    void ecosystemShortcutsToastAndScroll();
+    void ecosystemLyricsNativeContextsStylesAndReclamation();
+    void ecosystemBusinessRequestsAndSharedVerification();
+    void fileGrantLedgerPersistenceAndIsolation();
+    void mediaLeaseFeedsPlaybackAndRevocationStopsIt();
+    void fileDownloadTrackRevocationAndAccountCancellation();
+    void fileGrantManagementDialogUsesRealLedger();
+    void unifiedNetworkRequestOptionsAndCancellation();
+    void sqliteBindingsMigrationsAndTransactions();
+    void sqliteValidationReadOnlyAndRollback();
+    void sqliteIsolationCancellationAndRetirement();
+    void sqliteUpdateFailureRestoresManagedDatabase();
+    void fileSelectionReadWriteAndIsolation();
+    void mediaLeaseRangesAndLifecycle();
+    void downloadsResumeChecksumAndRetirement();
+    void lyricResolversFormatsAndManualPriority();
+    void lyricWritesLayersCancellationAndRetirement();
+    void lyricResolverCancellationAbortsLinkedTransport();
+    void lyricResolverErrorsContinueAndLateResultsAreDiscarded();
+    void audioSourceStagesTransformsAndRetirement();
+    void audioSourceTransformReturnSemantics();
+    void audioSourceErrorsCancellationAndValidation();
+    void audioSourceCancellationAbortsLinkedTransport();
+    void pluginQueuesDriveRealPlaybackAndRejectStaleCommands();
     void appearanceCatalogConfigurationAndRetirement();
     void appearanceProductionThemeSkinAndMini();
     void appearanceErrorsAndActivationRollback();

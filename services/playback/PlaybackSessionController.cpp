@@ -10,7 +10,7 @@
 
 namespace EchoMusic
 {
-void PlaybackSessionController::invalidate()
+void PlaybackSessionController::invalidate(bool preserveLyrics)
 {
     m_playback.m_climax.clear();
     m_playback.m_progress.reset();
@@ -26,7 +26,10 @@ void PlaybackSessionController::invalidate()
     m_playback.m_engine.cancelSourceReplacement();
     m_playback.m_artwork.cancel();
     m_playback.m_embeddedCover.clear();
-    m_playback.m_lyricSource.clear();
+    if (preserveLyrics)
+        m_playback.m_lyricSource.suspend();
+    else
+        m_playback.m_lyricSource.clear();
     m_playback.m_source.cancel();
     m_playback.m_urls.clear();
     m_playback.m_urlIndex = 0;

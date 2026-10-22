@@ -53,14 +53,14 @@ Item {
     Button {
         id: activate
         anchors.fill: parent
-        enabled: card.router.available(card.routeName)
+        enabled: card.layout.isPlugin(card.entryKey) ? card.layout.entryEnabled(card.entryKey) : card.router.available(card.routeName)
         Accessible.name: card.title + (card.entryIndex === 0 ? qsTr("（首页）") : "")
         leftPadding: 8
         rightPadding: 8
         topPadding: 4
         bottomPadding: 4
         background: null
-        onClicked: if (!card.dragging)
+        onClicked: if (!card.dragging && !card.layout.activate(card.entryKey))
             card.router.navigate(card.routeName)
         Keys.onEscapePressed: card.cancelDrag()
         // Window navigation shortcuts run before ordinary key handlers.

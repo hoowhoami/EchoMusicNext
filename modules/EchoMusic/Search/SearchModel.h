@@ -166,6 +166,7 @@ public:
     Q_INVOKABLE void search(const QString &keyword, Kind kind = Kind::Song);
     Q_INVOKABLE void setKind(Kind kind);
     Q_INVOKABLE void loadMore();
+    Q_INVOKABLE QVariantMap pluginMenuContext(const QString &id) const;
     Q_INVOKABLE void playSong(const QString &id);
     Q_INVOKABLE void playNow(const QString &id);
     Q_INVOKABLE void playAll();

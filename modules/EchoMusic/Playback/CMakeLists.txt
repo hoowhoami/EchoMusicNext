@@ -33,6 +33,7 @@ qt_add_qml_module(
     LyricColors.qml
     FloatingLyricViewport.qml
     FloatingLyricContent.qml
+    EchoLyricInkPart.qml
     LyricRubyLine.qml
     LyricVerticalLine.qml
     InterludeDots.qml

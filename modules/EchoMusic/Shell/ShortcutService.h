@@ -4,6 +4,8 @@
 #include <QPointer>
 #include <QQuickWindow>
 #include <QSettings>
+#include <functional>
+#include <QHash>
 #include <QtQml/qqmlregistration.h>
 
 namespace EchoMusic
@@ -92,12 +94,27 @@ public:
     Q_INVOKABLE void resetAll();
     /// Records Qt's logical key, preserving platform modifier semantics.
     bool recordKey(int key, Qt::KeyboardModifiers modifiers, bool repeat = false);
+    struct PluginBinding
+    {
+        QString key;
+        QKeySequence sequence;
+        bool global = false, registered = false;
+        QPointer<QObject> owner;
+        std::function<void()> invoke;
+        quint64 generation = 0;
+        int command = 0;
+        QString error;
+    };
+    quint64 registerPlugin(PluginBinding binding, QString &error);
+    void unregisterPlugin(const QString &key, quint64 generation);
     void shutdown();
 signals:
     void changed();
     void recordingChanged();
     void triggered(EchoMusic::ShortcutService::Command command);
     void notice(const QString &message);
+    void pluginRegistrationChanged(const QString &key, quint64 generation, bool registered,
+                                   const QString &error);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -120,5 +137,8 @@ private:
     bool m_recordingGlobal = false, m_closed = false;
     int m_recordingRow = -1;
     QString m_registrationError;
+    QHash<QString, PluginBinding> m_plugins;
+    quint64 m_pluginGeneration = 0;
+    int m_pluginCommand = 1000;
 };
 } // namespace EchoMusic

@@ -794,15 +794,30 @@ bool ApiClient::awaitLoginVerification(quint64 requestId)
     if (requestId != m_activeVerification || !m_suspended.contains(requestId) ||
         !m_loginConfirmation.isEmpty())
         return false;
+    QList<quint64> sessionBound;
+    const auto revision = m_revision;
     const auto event = m_suspended.value(requestId).eventId;
     for (const auto id : m_suspended.keys())
         if (m_suspended.value(id).eventId == event) {
-            m_loginConfirmation.insert(id, m_suspended.take(id));
+            auto pending = m_suspended.take(id);
+            if (pending.sessionBound) {
+                m_verificationQueue.removeAll(id);
+                sessionBound.append(id);
+                continue;
+            }
+            m_loginConfirmation.insert(id, std::move(pending));
             m_verificationQueue.removeAll(id);
         }
     m_activeVerification = 0;
     emit verificationDismissed();
     presentNextVerification();
+    for (auto id : sessionBound) {
+        if (m_revision != revision || m_closing)
+            break;
+        emit failed(id, EchoStatus::Cancelled,
+                    QByteArrayLiteral(
+                        "{\"kind\":\"login_required\",\"message\":\"请登录后重试该插件操作\"}"));
+    }
     return true;
 }
 void ApiClient::cancelLoginVerification()
@@ -811,6 +826,43 @@ void ApiClient::cancelLoginVerification()
     for (const auto &pending : confirmations)
         emit failed(pending.logicalId, EchoStatus::Cancelled,
                     QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
+}
+void ApiClient::bindRequestToSession(quint64 id)
+{
+    for (auto &p : m_pending)
+        if (p.logicalId == id)
+            p.sessionBound = true;
+    if (m_suspended.contains(id))
+        m_suspended[id].sessionBound = true;
+}
+quint64 ApiClient::requestVerification(const QString &eventId)
+{
+    if (m_closing || !m_runtime || eventId.trimmed().isEmpty() || eventId.size() > 512 ||
+        m_suspended.size() >= 128)
+        return 0;
+    Pending p;
+    p.revision = m_revision;
+    p.logicalId = ++m_externalVerificationSequence;
+    p.externalVerification = true;
+    p.eventId = eventId;
+    p.request = {{"operation", "plugin_verification"},
+                 {"identity", QJsonObject{{"userid", qint64(m_userId)},
+                                          {"token", m_token},
+                                          {"t1", m_t1},
+                                          {"mid", m_device.mid},
+                                          {"dfid", m_device.dfid},
+                                          {"guid", m_device.guid},
+                                          {"mac", m_device.mac},
+                                          {"uuid", m_device.uuid},
+                                          {"device_name", m_device.deviceName},
+                                          {"render_fingerprint", m_device.renderFingerprint},
+                                          {"authentication", "current_account"}}}};
+    const auto id = p.logicalId;
+    m_suspended.insert(id, std::move(p));
+    m_verificationQueue.append(id);
+    // Defer UI and transport until the caller has installed its operation ownership.
+    QMetaObject::invokeMethod(this, [this] { presentNextVerification(); }, Qt::QueuedConnection);
+    return id;
 }
 quint64 ApiClient::verificationInfo(quint64 requestId)
 {
@@ -861,6 +913,11 @@ void ApiClient::retryVerifiedEvent(const QString &eventId)
         auto pending = m_suspended.take(id);
         pending.retried = true;
         m_verificationQueue.removeAll(id);
+        if (pending.externalVerification) {
+            emit succeeded(id, QJsonDocument(QJsonObject{{"eventId", event}, {"verified", true}})
+                                   .toJson(QJsonDocument::Compact));
+            continue;
+        }
         if (!pending.replayAfterVerification) {
             emit failed(id, EchoStatus::ApiFailure,
                         QByteArrayLiteral("{\"kind\":\"verification_complete\",\"message\":"
@@ -912,6 +969,63 @@ bool ApiClient::cancel(quint64 requestId)
             m_verificationQueue.removeAll(id);
             cancelled.append(id);
         }
+        for (const auto id : m_pending.keys()) {
+            if (cancelled.contains(m_pending.value(id).verifiesRequest)) {
+                echo_runtime_cancel(m_runtime, id);
+                cancelled.append(m_pending.value(id).logicalId);
+                m_pending.remove(id); // Late success cannot resume cancelled requests.
+            }
+        }
+        if (dismissActive) {
+            m_activeVerification = 0;
+            emit verificationDismissed();
+            presentNextVerification();
+        }
+        for (const auto id : cancelled) {
+            if (m_closing || m_revision != cancellationRevision)
+                break;
+            emit failed(id, EchoStatus::Cancelled, QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
+        }
+        return true;
+    }
+    for (auto it = m_pending.cbegin(); it != m_pending.cend(); ++it)
+        if (it->logicalId == requestId) {
+            const auto nativeId = it.key();
+            const auto revision = it->revision;
+            // Rust may already have completed while its GUI callback is queued.
+            // The Qt logical request is still cancellable: invalidate it before
+            // that callback runs, independently of the worker's cancellation result.
+            m_pending.remove(nativeId);
+            (void)echo_runtime_cancel(m_runtime, nativeId);
+            QMetaObject::invokeMethod(
+                this,
+                [this, requestId, revision] {
+                    if (!m_closing && revision == m_revision)
+                        emit failed(requestId, EchoStatus::Cancelled,
+                                    QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
+                },
+                Qt::QueuedConnection);
+            return true;
+        }
+    return false;
+}
+
+bool ApiClient::cancelRequest(quint64 requestId)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (m_closing)
+        return false;
+    // Type-38 transfers ownership from the old page/QR service to the login
+    // confirmation UI. Its teardown must not cancel the continuation; explicit
+    // dismissal uses cancelLoginVerification(). Session changes still discard it.
+    if (m_loginConfirmation.contains(requestId))
+        return false;
+    if (m_suspended.contains(requestId)) {
+        const auto cancellationRevision = m_revision;
+        const bool dismissActive = m_activeVerification == requestId;
+        QList<quint64> cancelled{requestId};
+        m_suspended.remove(requestId);
+        m_verificationQueue.removeAll(requestId);
         for (const auto id : m_pending.keys()) {
             if (cancelled.contains(m_pending.value(id).verifiesRequest)) {
                 echo_runtime_cancel(m_runtime, id);

@@ -50,6 +50,7 @@ enum Request {
     CaptureCancel,
     CaptureStatus,
     AudioTracks(String),
+    ParseLyrics(echo_api::module::plugin_lyrics::Document),
     InspectDsp(String),
     EmbeddedMetadata { seq: u64, cover_cache_dir: String },
     AirplayTap { port: u32, enabled: bool },
@@ -84,6 +85,7 @@ impl Sink {
 pub struct EchoCapabilities {
     control: CapabilityWorker,
     descriptions: Mutex<Option<CapabilityWorker>>,
+    lyric_parser: Mutex<Option<CapabilityWorker>>,
     sink: Sink,
     next: AtomicU64,
     closing: Arc<AtomicBool>,
@@ -312,6 +314,9 @@ fn execute(
             }
             Ok(value)
         }
+        Request::ParseLyrics(document) => echo_api::module::plugin_lyrics::parse(document)
+            .map(|v| json!(v))
+            .map_err(|e| e.message),
         Request::InspectDsp(path) => echo_audio::inspect_dsp_provider(path)
             .execute()
             .map(|v| json!(v))
@@ -346,6 +351,7 @@ pub unsafe extern "C" fn echo_capabilities_create(
             Box::into_raw(Box::new(EchoCapabilities {
                 control,
                 descriptions: Mutex::new(None),
+                lyric_parser: Mutex::new(None),
                 sink,
                 next: AtomicU64::new(0),
                 closing,
@@ -425,6 +431,7 @@ fn parse(kind: u32, data: &[u8]) -> Option<Request> {
                 cover_cache_dir: path.into(),
             })
         }
+        34 => Some(Request::ParseLyrics(serde_json::from_value(v).ok()?)),
         32 => {
             let path = v.as_str()?;
             if path.len() > 4096 || !std::path::Path::new(path).is_absolute() {
@@ -477,7 +484,26 @@ pub unsafe extern "C" fn echo_capabilities_submit(
             request,
             cancelled,
         };
-        let accepted = if matches!(&job.request, Request::Device(_)) {
+        let accepted = if matches!(&job.request, Request::ParseLyrics(_)) {
+            let mut parser = native
+                .lyric_parser
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if parser.is_none() {
+                *parser = spawn_worker(
+                    "echo-lyric-parser",
+                    8,
+                    native.pending.clone(),
+                    native.closing.clone(),
+                    native.sink,
+                    false,
+                )
+                .ok();
+            }
+            parser
+                .as_ref()
+                .is_some_and(|worker| worker.sender.try_send(job).is_ok())
+        } else if matches!(&job.request, Request::Device(_)) {
             // A dead SSDP endpoint must not hold playback/PIN/volume behind its
             // description timeout. Read-only metadata starts on first use;
             // control commands retain their original serial ordering.
@@ -571,6 +597,14 @@ pub unsafe extern "C" fn echo_capabilities_destroy(native: *mut EchoCapabilities
             .take();
         if let Some(worker) = descriptions {
             worker.close();
+        }
+        if let Some(parser) = native
+            .lyric_parser
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+        {
+            parser.close();
         }
         native.control.close();
     }));

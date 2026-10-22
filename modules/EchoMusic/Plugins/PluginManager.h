@@ -20,6 +20,7 @@ class PluginManager final : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by the application")
     Q_PROPERTY(EchoMusic::PluginRuntime *runtime READ runtime CONSTANT)
+    Q_PROPERTY(EchoMusic::PluginFileService *fileGrants READ fileGrants CONSTANT)
     Q_PROPERTY(EchoMusic::PluginListModel *catalog READ catalog CONSTANT)
     Q_PROPERTY(EchoMusic::PluginListModel *sources READ sources CONSTANT)
     Q_PROPERTY(bool catalogLoading READ catalogLoading NOTIFY changed)
@@ -48,6 +49,10 @@ public:
     PluginManager(PluginRuntime &runtime, QSettings &preferences, QObject *parent = nullptr);
     void setNetworkPreferences(NetworkPreferences *network);
     ~PluginManager() override;
+    PluginFileService *fileGrants()
+    {
+        return m_runtime.fileService();
+    }
     PluginRuntime *runtime()
     {
         return &m_runtime;
@@ -199,5 +204,16 @@ private:
     qint64 m_statsAt = 0, m_statsRetryAt = 0;
     int m_statsFailures = 0, m_batchTotal = 0, m_batchDone = 0;
     bool m_batch = false;
+};
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+struct PluginFileGrantsForeign
+{
+    Q_GADGET
+    QML_FOREIGN(PluginFileService)
+    QML_NAMED_ELEMENT(PluginFileGrants)
+    QML_UNCREATABLE("Owned by PluginRuntime")
 };
 } // namespace EchoMusic

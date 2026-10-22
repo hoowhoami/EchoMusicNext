@@ -146,7 +146,8 @@ QHash<int, QByteArray> TaskCenterModel::roleNames() const
             {DetailsRole, "taskDetails"},
             {DismissibleRole, "taskDismissible"},
             {ProgressLabelRole, "taskProgressLabel"},
-            {HasProgressRole, "taskHasProgress"}};
+            {HasProgressRole, "taskHasProgress"},
+            {IconRole, "taskIcon"}};
 }
 QVariant TaskCenterModel::data(const QModelIndex &index, int role) const
 {
@@ -160,6 +161,8 @@ QVariant TaskCenterModel::data(const QModelIndex &index, int role) const
         return t.id;
     case TokenRole:
         return QString::number(e.generation);
+    case IconRole:
+        return c.icon;
     case NameRole:
         return c.name;
     case StatusRole:
@@ -268,14 +271,31 @@ void TaskCenterModel::applyContent(Entry &entry, Content content)
     entry.details->replace(content.items);
     entry.task.content = std::move(content);
 }
-bool TaskCenterModel::update(const Handle &handle, Content content)
+bool TaskCenterModel::update(const Handle &handle, Content content, std::optional<int> priority)
 {
     Q_ASSERT(QThread::currentThread() == thread());
     const auto row = rowFor(handle);
     if (m_closed || row < 0 || !validContent(content))
         return false;
     applyContent(*m_entries[row], std::move(content));
-    emit dataChanged(index(row), index(row));
+    int destination = row;
+    if (priority && *priority != m_entries[row]->task.priority) {
+        m_entries[row]->task.priority = *priority;
+        destination = 0;
+        for (int i = 0; i < count(); ++i)
+            if (i != row && (m_entries[i]->task.priority > *priority ||
+                             (m_entries[i]->task.priority == *priority &&
+                              m_entries[i]->generation > m_entries[row]->generation)))
+                ++destination;
+        if (destination != row) {
+            beginMoveRows({}, row, row, {}, destination > row ? destination + 1 : destination);
+            auto moved = std::move(m_entries[row]);
+            m_entries.erase(m_entries.begin() + row);
+            m_entries.insert(m_entries.begin() + destination, std::move(moved));
+            endMoveRows();
+        }
+    }
+    emit dataChanged(index(destination), index(destination));
     return true;
 }
 bool TaskCenterModel::start(const Handle &handle)
@@ -323,6 +343,8 @@ bool TaskCenterModel::finish(const Handle &handle, Status terminal, Content cont
 void TaskCenterModel::removeAt(int row)
 {
     auto &entry = *m_entries[row];
+    const auto removedId = entry.task.id;
+    const auto removedToken = QString::number(entry.generation);
     auto cancel = entry.owner && (entry.task.status == Running || entry.task.status == Pending)
                       ? entry.task.cancel
                       : std::function<void()>();
@@ -344,7 +366,9 @@ void TaskCenterModel::removeAt(int row)
             qWarning("Task cancellation callback failed");
         }
     }
+    emit taskRemoved(removedId, removedToken);
 }
+
 bool TaskCenterModel::remove(const Handle &handle)
 {
     Q_ASSERT(QThread::currentThread() == thread());

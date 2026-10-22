@@ -45,6 +45,9 @@ add_library(
     LyricTextController.cpp
     LyricSourceController.h
     LyricSourceController.cpp
+    LyricSourcePlugins.cpp
+    LyricExtensions.h
+    LyricExtensions.cpp
     LyricModel.cpp
     LyricModel.h
     PlaybackClimaxModel.h
@@ -69,6 +72,8 @@ add_library(
     PlaybackService.h
     CloudAudioIndex.h
     CloudAudioIndex.cpp
+    PlaybackSourceExtensions.h
+    PlaybackSourceExtensions.cpp
     PlaybackSourceRequest.h
     PlaybackSourceRequest.cpp
     PlaybackSourcePlan.h

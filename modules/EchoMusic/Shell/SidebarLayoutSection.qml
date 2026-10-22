@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls.Basic
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Shell
@@ -10,7 +11,7 @@ Rectangle {
     required property SidebarLayoutModel layout
     property bool resourceActive: true
     objectName: "sidebarEditorSection-" + sectionData.key
-    height: 16 + header.height + (entries.count ? 6 + entriesColumn.height : 0)
+    height: 16 + header.height + (entries.count ? 6 + entries.implicitHeight : 0)
     radius: Theme.cardRadius
     color: Theme.withAlpha(Theme.main, sectionData.hidden ? 0.38 : 0.64)
     border.color: Theme.withAlpha(Theme.floatingText, sectionData.hidden ? 0.1 : 0.07)
@@ -94,7 +95,7 @@ Rectangle {
         x: 8
         y: header.y + header.height + 6
         width: section.width - 16
-        height: entriesColumn.height
+        height: entries.implicitHeight
         visible: entries.count > 0
         Rectangle {
             x: 13
@@ -104,89 +105,93 @@ Rectangle {
             radius: Theme.microRadius
             color: Theme.withAlpha(Theme.floatingText, 0.08)
         }
-        Column {
-            id: entriesColumn
+        EchoBoundedListView {
+            id: entries
             x: 33
             width: parent.width - 33
+            maximumViewportHeight: 240
+            clip: true
+            reuseItems: true
+            cacheBuffer: 32
             spacing: 3
-            Repeater {
-                id: entries
-                // Three built-in menus and at most two real pinned playlists.
-                model: section.sectionData.items
-                delegate: Rectangle {
-                    id: entry
-                    required property var rowData
-                    readonly property var modelData: rowData
-                    objectName: "sidebarEditorItem-" + modelData.key
-                    width: entriesColumn.width
-                    height: 32
+            model: section.sectionData.items
+            ScrollBar.vertical: EchoPageScrollBar {
+                view: entries
+                viewActive: section.resourceActive
+            }
+            delegate: Rectangle {
+                id: entry
+                required property var rowData
+                readonly property var modelData: rowData
+                objectName: "sidebarEditorItem-" + modelData.key
+                width: entries.width
+                height: 32
+                radius: Theme.itemRadius
+                color: modelData.hidden ? Theme.withAlpha(Theme.floatingText, 0.03) : hover.hovered ? Theme.withAlpha(Theme.floatingText, 0.05) : "transparent"
+                HoverHandler {
+                    id: hover
+                }
+                DropArea {
+                    anchors.fill: parent
+                    enabled: !entry.modelData.lockedOrder
+                    keys: ["sidebar-menu-" + section.sectionData.key]
+                    onDropped: event => {
+                        const key = event.source.objectName;
+                        const target = entry.modelData.key;
+                        const after = event.y > height / 2;
+                        const layout = section.layout;
+                        Qt.callLater(() => layout.moveBefore(key, target, after));
+                        event.acceptProposedAction();
+                    }
+                }
+                Rectangle {
+                    x: 3
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 26
+                    height: 26
                     radius: Theme.itemRadius
-                    color: modelData.hidden ? Theme.withAlpha(Theme.floatingText, 0.03) : hover.hovered ? Theme.withAlpha(Theme.floatingText, 0.05) : "transparent"
-                    HoverHandler {
-                        id: hover
+                    color: Theme.withAlpha(Theme.floatingText, 0.05)
+                    ShellActionDragHandle {
+                        anchors.centerIn: parent
+                        width: 16
+                        height: 16
+                        visible: !entry.modelData.cover
+                        actionKey: entry.modelData.key
+                        glyph: entry.modelData.glyph
+                        dragGroup: "sidebar-menu-" + section.sectionData.key
+                        resourceActive: section.resourceActive && !entry.modelData.lockedOrder
+                        foreground: Theme.iconMain
                     }
-                    DropArea {
-                        anchors.fill: parent
-                        enabled: !entry.modelData.lockedOrder
-                        keys: ["sidebar-menu-" + section.sectionData.key]
-                        onDropped: event => {
-                            const key = event.source.objectName;
-                            const target = entry.modelData.key;
-                            const after = event.y > height / 2;
-                            const layout = section.layout;
-                            Qt.callLater(() => layout.moveBefore(key, target, after));
-                            event.acceptProposedAction();
-                        }
+                    EchoCover {
+                        anchors.centerIn: parent
+                        width: 22
+                        height: 22
+                        visible: !!entry.modelData.cover
+                        source: entry.modelData.cover || ""
+                        resourceActive: section.resourceActive
                     }
-                    Rectangle {
-                        x: 3
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 26
-                        height: 26
-                        radius: Theme.itemRadius
-                        color: Theme.withAlpha(Theme.floatingText, 0.05)
-                        ShellActionDragHandle {
-                            anchors.centerIn: parent
-                            width: 16
-                            height: 16
-                            visible: !entry.modelData.cover
-                            actionKey: entry.modelData.key
-                            glyph: entry.modelData.glyph
-                            dragGroup: "sidebar-menu-" + section.sectionData.key
-                            resourceActive: section.resourceActive && !entry.modelData.lockedOrder
-                            foreground: Theme.iconMain
-                        }
-                        EchoCover {
-                            anchors.centerIn: parent
-                            width: 22
-                            height: 22
-                            visible: !!entry.modelData.cover
-                            source: entry.modelData.cover || ""
-                            resourceActive: section.resourceActive
-                        }
-                    }
-                    EchoTextTagRow {
-                        x: 36
-                        width: parent.width - x - 35
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: entry.modelData.title
-                        color: entry.modelData.hidden ? Theme.floatingSecondaryText : Theme.floatingText
-                        font: Theme.font(12.5, Theme.regularWeight)
-                        lineHeight: 18.75
-                        fillTextWidth: true
-                    }
-                    EchoIconButton {
-                        objectName: "sidebarVisibility-" + entry.modelData.key
-                        x: parent.width - width
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 28
-                        height: 28
-                        padding: 7
-                        glyph: entry.modelData.hidden ? "eye-off" : "eye"
-                        text: entry.modelData.hidden ? qsTr("显示入口") : qsTr("隐藏入口")
-                        colors: Theme.floating
-                        onClicked: section.layout.toggleHidden(entry.modelData.key)
-                    }
+                }
+                EchoTextTagRow {
+                    x: 36
+                    width: parent.width - x - 35
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: entry.modelData.title
+                    color: entry.modelData.hidden ? Theme.floatingSecondaryText : Theme.floatingText
+                    font: Theme.font(12.5, Theme.regularWeight)
+                    lineHeight: 18.75
+                    fillTextWidth: true
+                }
+                EchoIconButton {
+                    objectName: "sidebarVisibility-" + entry.modelData.key
+                    x: parent.width - width
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 28
+                    height: 28
+                    padding: 7
+                    glyph: entry.modelData.hidden ? "eye-off" : "eye"
+                    text: entry.modelData.hidden ? qsTr("显示入口") : qsTr("隐藏入口")
+                    colors: Theme.floating
+                    onClicked: section.layout.toggleHidden(entry.modelData.key)
                 }
             }
         }

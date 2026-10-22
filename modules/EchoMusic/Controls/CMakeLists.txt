@@ -13,6 +13,10 @@ qt_add_qml_module(
     SOURCES
     EchoUiPartRegistration.h
     EchoUiPartRegistration.cpp
+    EchoLyricEffectRegistry.h
+    EchoLyricEffectRegistry.cpp
+    EchoSongMenuRegistry.h
+    EchoSongMenuRegistry.cpp
     EchoUiPartRegistry.h
     EchoUiPartRegistry.cpp
     EchoBackdropRoot.h

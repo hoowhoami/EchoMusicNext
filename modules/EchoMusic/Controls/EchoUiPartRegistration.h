@@ -23,6 +23,9 @@ class EchoUiPartRegistration : public QObject, public QQmlParserStatus
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY declarationChanged)
     Q_PROPERTY(bool replaceable READ replaceable WRITE setReplaceable NOTIFY declarationChanged)
     Q_PROPERTY(QVariantMap overrides READ overrides NOTIFY overridesChanged)
+    Q_PROPERTY(QString identity READ identity NOTIFY identityChanged)
+    Q_PROPERTY(bool observed READ observed NOTIFY observedChanged)
+    Q_PROPERTY(QVariantMap state READ state WRITE setState NOTIFY stateChanged)
     Q_PROPERTY(QVariantMap baseValues READ baseValues WRITE setBaseValues NOTIFY changed)
     Q_PROPERTY(bool replaced READ replaced NOTIFY replacementChanged)
 public:
@@ -76,6 +79,25 @@ public:
         return m_base;
     }
     void setBaseValues(const QVariantMap &);
+    bool observed() const
+    {
+        return m_readers > 0;
+    }
+    void acquireState()
+    {
+        if (++m_readers == 1)
+            emit observedChanged();
+    }
+    void releaseState()
+    {
+        if (m_readers > 0 && --m_readers == 0)
+            emit observedChanged();
+    }
+    QVariantMap state() const
+    {
+        return m_state;
+    }
+    void setState(const QVariantMap &v);
     bool replaced() const
     {
         return !m_replacement.isEmpty();
@@ -101,6 +123,9 @@ public:
     Q_INVOKABLE void publish(const QString &event, const QVariantMap &payload = {});
     bool invoke(const QString &action, const QVariantMap &arguments);
 signals:
+    void stateChanged();
+    void identityChanged();
+    void observedChanged();
     void declarationChanged();
     void overridesChanged();
     void replacementChanged();
@@ -117,8 +142,10 @@ private:
     QPointer<QQuickItem> m_target;
     QString m_role, m_key, m_surface, m_identity, m_replacement, m_candidate;
     QStringList m_properties, m_actions;
-    QVariantMap m_overrides, m_base;
+    QVariantMap m_overrides, m_base, m_state;
     QList<QMetaObject::Connection> m_connections;
+    bool m_stateNoticePending = false;
+    int m_readers = 0;
     bool m_active = true, m_complete = false, m_replaceable = false;
 };
 } // namespace EchoMusic

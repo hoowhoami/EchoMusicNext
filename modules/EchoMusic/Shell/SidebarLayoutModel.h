@@ -2,6 +2,8 @@
 #include <QAbstractListModel>
 #include <QSettings>
 #include <QPointer>
+#include <functional>
+#include <QHash>
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
 {
@@ -23,6 +25,7 @@ class SidebarLayoutModel final : public QAbstractListModel
     Q_PROPERTY(QAbstractItemModel *sectionModel READ sectionModel CONSTANT)
     Q_PROPERTY(QVariantList shortcuts READ shortcuts NOTIFY changed)
     Q_PROPERTY(QAbstractItemModel *shortcutModel READ shortcutModel CONSTANT)
+    Q_PROPERTY(QAbstractItemModel *navigationModel READ navigationModel CONSTANT)
     Q_PROPERTY(QVariantList shortcutCatalog READ shortcutCatalog NOTIFY changed)
 public:
     enum Role
@@ -52,6 +55,27 @@ public:
         return m_shortcuts;
     }
     QVariantList shortcutCatalog() const;
+    struct PluginEntry
+    {
+        QString key;
+        QVariantMap values;
+        bool shortcut = false;
+        QPointer<QObject> owner;
+        std::function<bool()> visible, enabled;
+        std::function<void()> invoke;
+        quint64 generation = 0;
+    };
+    quint64 registerPluginEntry(PluginEntry entry);
+    void unregisterPluginEntry(const QString &key, quint64 generation);
+    void refreshPlugins();
+    QAbstractItemModel *navigationModel() const
+    {
+        return m_navigation;
+    }
+    Q_INVOKABLE bool isPlugin(const QString &key) const;
+    Q_INVOKABLE bool entryEnabled(const QString &key) const;
+    Q_INVOKABLE bool activate(const QString &key);
+    Q_INVOKABLE void toggleCollapsed(const QString &section);
     /// Restored first card, including preference-key to application-route mapping.
     QString homeRoute() const;
     /// Transient reorder belongs to this model. Only a successful drag commits
@@ -76,6 +100,9 @@ private:
         QString key, title, glyph, group;
     };
     QVariantMap describe(const Entry &entry) const;
+    QVariantMap describePlugin(const PluginEntry &) const;
+    QVariantList pluginEntries(bool shortcut) const;
+    void addPluginSections(QVariantList &) const;
     void refreshSectionModel();
     void save();
     QSettings &m_preferences;
@@ -86,5 +113,11 @@ private:
     QList<Entry> m_entries, m_shortcutCatalog;
     QStringList m_hidden, m_hiddenGroups, m_pinned, m_dragOriginal;
     QString m_dragKey;
+    QHash<QString, PluginEntry> m_plugins;
+    QHash<QString, QAbstractItemModel *> m_pluginSectionModels;
+    QStringList m_pluginOrder, m_collapsedGroups;
+    QAbstractItemModel *m_navigation = nullptr;
+    quint64 m_pluginGeneration = 0;
+    bool m_pluginRefreshPending = false;
 };
 } // namespace EchoMusic

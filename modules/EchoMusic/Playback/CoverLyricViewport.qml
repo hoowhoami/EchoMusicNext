@@ -9,6 +9,51 @@ import EchoMusic.Playback
 
 Item {
     id: viewport
+    Connections {
+        target: EchoLyricEffectRegistry
+        function onChanged() {
+            viewport.scheduleUpdate(false, false, true);
+        }
+    }
+    EchoUiPart {
+        id: effectHost
+        target: viewport
+        role: "lyrics.viewport"
+        key: "page-lyrics"
+        surface: "playback"
+        active: viewport.resourceActive
+        actions: ["scrollTo", "resumeFollow"]
+        state: observed ? ({
+                scope: "page",
+                timelineMs: viewport.renderTime,
+                positionMs: viewport.playback.positionMs,
+                durationMs: viewport.playback.durationMs,
+                playbackRate: viewport.playback.speed,
+                playing: viewport.playback.playing,
+                appearance: {
+                    font: viewport.baseFont,
+                    playedColor: viewport.textColor,
+                    unplayedColor: viewport.unplayedColor
+                },
+                currentIndex: viewport.focusLine,
+                scrollIndex: lines.currentIndex,
+                lyricsMode: playback.lyricText.wantTranslation ? playback.lyricText.wantRomanization ? "both" : "translation" : playback.lyricText.wantRomanization ? "romanization" : "none",
+                lineCount: viewport.playback.lyrics.count,
+                following: lines.following,
+                browsing: !lines.following,
+                reducedMotion: !Theme.store.motionEnabled,
+                offsetMs: viewport.playback.lyrics.offsetMs
+            }) : ({})
+        onActionRequested: (action, args) => {
+            if (action === "resumeFollow") {
+                lines.following = true;
+                viewport.scheduleUpdate(false, false, true);
+            } else if (action === "scrollTo" && lines.following && Number.isFinite(args.position)) {
+                lines.cancelFlick();
+                lines.contentY = Math.max(lines.originY, Math.min(lines.originY + Math.max(0, lines.contentHeight - lines.height), args.position));
+            }
+        }
+    }
     required property PlaybackService playback
     required property ThemeColors colors
     required property real renderTime
@@ -146,6 +191,19 @@ Item {
         // estimated prefix while newly materialized wrapped rows settle.
         const anchor = viewport.interlude ? measured.headerHeight / 2 : measured.headerHeight + measured.textRowHeight / 2;
         const desired = measured.y + anchor - lines.focusCenter;
+        if (EchoLyricEffectRegistry.hasHandlers("page") && EchoLyricEffectRegistry.requestScroll(effectHost.identity, {
+            scope: "page",
+            index: target,
+            position: desired,
+            previous: previous,
+            smooth: animate,
+            browsing: !lines.following,
+            reducedMotion: !Theme.store.motionEnabled
+        })) {
+            lines.initialized = true;
+            lines.lastFollowIndex = timeline.ordinal(target);
+            return;
+        }
         lines.contentY = desired;
         lines.animateScroll = animate;
         // ListView owns virtualization and target geometry. Each materialized
@@ -393,13 +451,13 @@ Item {
                 }
                 Item {
                     id: visual
-                    x: viewport.fontSize
-                    y: viewport.fontSize * .4
+                    x: viewport.fontSize + lyricPart.value("translateX", 0)
+                    y: viewport.fontSize * .4 + lyricPart.value("translateY", 0)
                     width: parent.width - viewport.fontSize * 2
                     height: parent.height - viewport.fontSize * .8
-                    opacity: line.lineOpacity
+                    opacity: lyricPart.value("opacity", line.lineOpacity)
                     property real targetScale: viewport.scaleEnabled && viewport.playback.playing && !line.active ? 97 : 100
-                    scale: scaleMotion.value / 100
+                    scale: lyricPart.value("scale", scaleMotion.value / 100)
                     onTargetScaleChanged: scaleMotion.retargetScale(targetScale, line.inViewport && !line.freshPosition && viewport.resourceActive && viewport.springEnabled && Theme.store.motionEnabled)
                     Component.onCompleted: scaleMotion.snap(targetScale)
                     LyricSpring {
@@ -436,12 +494,36 @@ Item {
                         id: lyric
                         EchoUiPart {
                             id: lyricPart
-                            target: lyric
+                            target: visual
                             role: "lyrics.line"
-                            key: String(line.startMs) + ":" + String(line.index)
+                            key: viewport.playback.trackId + ":" + String(line.startMs) + ":" + String(line.index)
                             surface: "playback"
                             active: viewport.resourceActive && !line.pooled
-                            properties: ["foreground", "secondaryForeground", "font", "fontSize", "fontWeight", "letterSpacing"]
+                            properties: ["foreground", "secondaryForeground", "font", "fontSize", "fontWeight", "letterSpacing", "opacity", "scale", "translateX", "translateY"]
+                            baseValues: observed ? ({
+                                    foreground: viewport.textColor,
+                                    secondaryForeground: viewport.unplayedColor,
+                                    font: Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false),
+                                    opacity: line.lineOpacity,
+                                    scale: scaleMotion.value / 100,
+                                    translateX: 0,
+                                    translateY: 0
+                                }) : ({})
+                            state: observed ? ({
+                                    scope: "page",
+                                    index: line.index,
+                                    text: line.lineText,
+                                    words: line.words,
+                                    glyphs: lyric.visible ? lyric.glyphs : [],
+                                    rubyUnits: line.rubyUnits,
+                                    timelineMs: viewport.renderTime,
+                                    startMs: line.startMs,
+                                    durationMs: line.durationMs,
+                                    current: line.active,
+                                    distance: line.distance,
+                                    browsing: !lines.following,
+                                    reducedMotion: !Theme.store.motionEnabled
+                                }) : ({})
                             actions: ["seek"]
                             onActionRequested: (action, arguments) => {
                                 if (action === "seek")
@@ -485,13 +567,14 @@ Item {
                         active: line.ruby && !line.pooled && viewport.resourceActive
                         width: parent.width
                         sourceComponent: LyricRubyLine {
+                            effectSurface: "playback"
                             alignment: viewport.horizontalAlignment
                             units: line.rubyUnits
-                            font: Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false)
+                            font: lyricPart.styledFont(Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false))
                             timeMs: line.inViewport ? viewport.renderTime - viewport.playback.lyrics.offsetMs : -1
                             current: line.active
-                            playedColor: viewport.textColor
-                            unplayedColor: viewport.unplayedColor
+                            playedColor: lyricPart.value("foreground", viewport.textColor)
+                            unplayedColor: lyricPart.value("secondaryForeground", viewport.unplayedColor)
                             animateWords: Theme.store.motionEnabled
                         }
                     }

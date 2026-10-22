@@ -729,10 +729,19 @@ target_sources(
             plugins/PluginRuntimeCapabilities.cpp
             plugins/PluginRuntimeUiParts.cpp
             plugins/PluginRuntimeAppearance.cpp
+            plugins/PluginRuntimeEcosystemFixture.h
+            plugins/PluginRuntimeEcosystem.cpp
+            plugins/PluginRuntimeEffects.cpp
+            plugins/PluginRuntimeBusiness.cpp
+            plugins/PluginRuntimeSources.cpp
+            plugins/PluginRuntimeSqlite.cpp
+            plugins/PluginRuntimeFiles.cpp
+            plugins/PluginRuntimeLyrics.cpp
 )
 target_link_libraries(
     echo-plugin-runtime-test
-    PRIVATE echo_themes
+    PRIVATE echo_music
+            echo_themes
             echo_themesplugin
             echo_platform
             echo_plugins
@@ -751,6 +760,24 @@ set(ECHO_PLUGINS_TEST_GROUPS
     plugin-runtime-capabilities
     plugin-runtime-ui-parts
     plugin-runtime-appearance
+    plugin-runtime-files
+    plugin-runtime-sqlite
+    plugin-runtime-ecosystem
+)
+add_test(
+    NAME plugin-runtime-sqlite
+    COMMAND
+        echo-plugin-runtime-test sqliteBindingsMigrationsAndTransactions
+        sqliteValidationReadOnlyAndRollback sqliteIsolationCancellationAndRetirement
+        sqliteUpdateFailureRestoresManagedDatabase
+)
+add_test(
+    NAME plugin-runtime-ecosystem
+    COMMAND
+        echo-plugin-runtime-test ecosystemTasksActionsRetentionAndAccountLifetime
+        ecosystemSidebarSongMenuAndPresentation ecosystemShortcutsToastAndScroll
+        ecosystemLyricsNativeContextsStylesAndReclamation
+        ecosystemBusinessRequestsAndSharedVerification
 )
 add_test(
     NAME plugin-runtime-management
@@ -808,6 +835,15 @@ add_test(
         echo-plugin-runtime-test appearanceCatalogConfigurationAndRetirement
         appearanceProductionThemeSkinAndMini appearanceErrorsAndActivationRollback
         playbackPresentationAndFloatingSdk
+)
+
+add_test(
+    NAME plugin-runtime-files
+    COMMAND
+        echo-plugin-runtime-test fileSelectionReadWriteAndIsolation mediaLeaseRangesAndLifecycle
+        downloadsResumeChecksumAndRetirement unifiedNetworkRequestOptionsAndCancellation
+        fileGrantLedgerPersistenceAndIsolation mediaLeaseFeedsPlaybackAndRevocationStopsIt
+        fileDownloadTrackRevocationAndAccountCancellation fileGrantManagementDialogUsesRealLedger
 )
 
 set_tests_properties(

@@ -3,6 +3,7 @@
 #include "LibraryController.h"
 #include <algorithm>
 #include <utility>
+#include <QTimer>
 namespace EchoMusic
 {
 namespace
@@ -110,6 +111,9 @@ SidebarLayoutModel::SidebarLayoutModel(QSettings &preferences, QObject *parent)
         preferences.value(EchoMusic::SettingsKeys::Sidebar::HiddenGroups).toStringList();
     const auto order =
         preferences.value(EchoMusic::SettingsKeys::Sidebar::EntryOrder).toStringList();
+    m_pluginOrder = order;
+    m_collapsedGroups =
+        preferences.value(EchoMusic::SettingsKeys::Sidebar::CollapsedPluginGroups).toStringList();
     // Ignore removed/unknown entries and append newly introduced entries in their
     // source order. Reordering never permits one entry to leave its group.
     std::stable_sort(m_entries.begin(), m_entries.end(), [&order](const Entry &a, const Entry &b) {
@@ -121,14 +125,14 @@ SidebarLayoutModel::SidebarLayoutModel(QSettings &preferences, QObject *parent)
             .value(EchoMusic::SettingsKeys::Sidebar::Shortcuts, QStringList{"home", "explore"})
             .toStringList();
     for (const auto &key : pins)
-        if (std::any_of(m_shortcutCatalog.cbegin(), m_shortcutCatalog.cend(),
-                        [&key](const Entry &e) { return e.key == key; }) &&
-            !m_pinned.contains(key))
+        if (key.size() <= 256 && !m_pinned.contains(key))
             m_pinned.append(key);
     if (m_pinned.isEmpty())
         m_pinned = {"home"};
+    m_navigation = new SidebarProjectionModel({}, this, true);
     m_shortcuts = new SidebarProjectionModel(shortcuts(), this);
     connect(this, &SidebarLayoutModel::changed, this, &SidebarLayoutModel::refreshSectionModel);
+    refreshSectionModel();
 }
 int SidebarLayoutModel::rowCount(const QModelIndex &parent) const
 {
@@ -184,6 +188,7 @@ QVariantList SidebarLayoutModel::sections() const
                                   {"hidden", m_hiddenGroups.contains(key)},
                                   {"items", items}});
     }
+    addPluginSections(result);
     auto pinned = m_library ? m_library->pinnedLayoutEntries() : QVariantList{};
     for (auto &value : pinned) {
         auto entry = value.toMap();
@@ -212,14 +217,43 @@ QAbstractItemModel *SidebarLayoutModel::sectionModel()
 }
 void SidebarLayoutModel::refreshSectionModel()
 {
+    QVariantList navigation;
+    for (const auto &value : sections()) {
+        const auto section = value.toMap();
+        const auto key = section.value("key").toString();
+        if (key == "playlists" || section.value("hidden").toBool())
+            continue;
+        if (key != "library")
+            navigation.append(QVariantMap{{"key", "section:" + key},
+                                          {"section", key},
+                                          {"heading", true},
+                                          {"title", section.value("title")},
+                                          {"collapsible", section.value("collapsible", true)},
+                                          {"collapsed", m_collapsedGroups.contains(key)}});
+        if (m_collapsedGroups.contains(key))
+            continue;
+        for (const auto &item : section.value("items").toList())
+            if (!item.toMap().value("hidden").toBool())
+                navigation.append(item);
+    }
+    static_cast<SidebarProjectionModel *>(m_navigation)->reconcile(navigation);
+    static_cast<SidebarProjectionModel *>(m_shortcuts)->reconcile(shortcuts());
     if (!m_sections)
         return;
     QVariantList rows;
     for (const auto &value : sections()) {
         auto section = value.toMap();
         const auto entries = section.take("items").toList();
-        auto *items = static_cast<SidebarProjectionModel *>(
-            section.value("key") == QStringLiteral("library") ? m_menuItems : m_playlistItems);
+        const auto sectionKey = section.value("key").toString();
+        QAbstractItemModel *projection = sectionKey == "library" ? m_menuItems
+                                         : sectionKey == "playlists"
+                                             ? m_playlistItems
+                                             : m_pluginSectionModels.value(sectionKey);
+        if (!projection) {
+            projection = new SidebarProjectionModel({}, this, true);
+            m_pluginSectionModels.insert(sectionKey, projection);
+        }
+        auto *items = static_cast<SidebarProjectionModel *>(projection);
         items->reconcile(entries);
         const auto first = entries.isEmpty() ? QVariantMap{} : entries.first().toMap();
         section.insert("items", QVariant::fromValue<QAbstractItemModel *>(items));
@@ -233,21 +267,39 @@ void SidebarLayoutModel::refreshSectionModel()
         rows.append(section);
     }
     static_cast<SidebarProjectionModel *>(m_sections)->reconcile(rows);
+    QSet<QString> retained;
+    for (const auto &row : rows)
+        retained.insert(row.toMap().value("key").toString());
+    for (const auto &key : m_pluginSectionModels.keys())
+        if (!retained.contains(key)) {
+            auto *obsolete = m_pluginSectionModels.take(key);
+            obsolete->deleteLater();
+        }
 }
 QVariantList SidebarLayoutModel::shortcuts() const
 {
     QVariantList result;
-    for (const auto &key : m_pinned)
+    const auto plugins = pluginEntries(true);
+    for (const auto &key : m_pinned) {
         for (const auto &e : m_shortcutCatalog)
             if (e.key == key)
                 result.append(describe(e));
+        for (const auto &e : plugins)
+            if (e.toMap().value("key") == key && !e.toMap().value("hidden").toBool())
+                result.append(e);
+    }
+    if (result.isEmpty() && !m_shortcutCatalog.isEmpty())
+        result.append(describe(m_shortcutCatalog.first()));
     return result;
 }
 QString SidebarLayoutModel::homeRoute() const
 {
-    const auto entries = shortcuts();
-    return entries.isEmpty() ? QStringLiteral("home")
-                             : entries.first().toMap().value("route").toString();
+    for (const auto &value : shortcuts()) {
+        const auto route = value.toMap().value("route").toString();
+        if (!route.isEmpty())
+            return route;
+    }
+    return QStringLiteral("home");
 }
 bool SidebarLayoutModel::beginShortcutDrag(const QString &key)
 {
@@ -290,15 +342,24 @@ QVariantList SidebarLayoutModel::shortcutCatalog() const
         entry.insert("pinned", m_pinned.contains(e.key));
         result.append(entry);
     }
+    for (const auto &value : pluginEntries(true)) {
+        auto entry = value.toMap();
+        entry["pinned"] = m_pinned.contains(entry.value("key").toString());
+        if (!entry.value("hidden").toBool())
+            result.append(entry);
+    }
     return result;
 }
 void SidebarLayoutModel::save()
 {
     static_cast<SidebarProjectionModel *>(m_shortcuts)->reconcile(shortcuts());
-    QStringList order;
-    for (const auto &e : m_entries)
-        order.append(e.key);
+    QStringList order = m_pluginOrder;
+    for (const auto &entry : m_entries)
+        if (!order.contains(entry.key))
+            order.append(entry.key);
     m_preferences.setValue(EchoMusic::SettingsKeys::Sidebar::EntryOrder, order);
+    m_preferences.setValue(EchoMusic::SettingsKeys::Sidebar::CollapsedPluginGroups,
+                           m_collapsedGroups);
     m_preferences.setValue(EchoMusic::SettingsKeys::Sidebar::HiddenEntries, m_hidden);
     m_preferences.setValue(EchoMusic::SettingsKeys::Sidebar::HiddenGroups, m_hiddenGroups);
     // Other layout preferences may save during a drag. Never persist a preview.
@@ -309,6 +370,12 @@ void SidebarLayoutModel::save()
 }
 void SidebarLayoutModel::toggleHidden(const QString &key)
 {
+    if (isPlugin(key)) {
+        if (!m_hidden.removeOne(key))
+            m_hidden.append(key);
+        save();
+        return;
+    }
     if (key == "playlist:created:default" || key == "playlist:created:liked") {
         if (!m_hidden.removeOne(key))
             m_hidden.append(key);
@@ -327,7 +394,9 @@ void SidebarLayoutModel::toggleHidden(const QString &key)
 }
 void SidebarLayoutModel::toggleGroup(const QString &key)
 {
-    if (key != "library" && key != "playlists")
+    if (key != "library" && key != "playlists" &&
+        std::none_of(m_plugins.cbegin(), m_plugins.cend(),
+                     [&](const auto &e) { return e.values.value("section") == key; }))
         return;
     if (!m_hiddenGroups.removeOne(key))
         m_hiddenGroups.append(key);
@@ -336,11 +405,11 @@ void SidebarLayoutModel::toggleGroup(const QString &key)
 void SidebarLayoutModel::toggleShortcut(const QString &key)
 {
     endShortcutDrag(false);
-    if (std::none_of(m_shortcutCatalog.cbegin(), m_shortcutCatalog.cend(),
-                     [&key](const Entry &e) { return e.key == key; }))
+    if (!isPlugin(key) && std::none_of(m_shortcutCatalog.cbegin(), m_shortcutCatalog.cend(),
+                                       [&key](const Entry &e) { return e.key == key; }))
         return;
     if (m_pinned.contains(key)) {
-        if (m_pinned.size() == 1)
+        if (shortcuts().size() == 1)
             return;
         m_pinned.removeOne(key);
     } else
@@ -353,6 +422,27 @@ void SidebarLayoutModel::toggleShortcut(const QString &key)
 
 void SidebarLayoutModel::moveBefore(const QString &key, const QString &before, bool after)
 {
+    if (isPlugin(key) || isPlugin(before)) {
+        for (const auto &value : sections()) {
+            const auto items = value.toMap().value("items").toList();
+            QStringList order;
+            for (const auto &item : items)
+                order.append(item.toMap().value("key").toString());
+            const int from = order.indexOf(key), to = order.indexOf(before);
+            if (from < 0 || to < 0)
+                continue;
+            order.removeAt(from);
+            order.insert(qBound(0, to + (after ? 1 : 0) - (from < to ? 1 : 0), order.size()), key);
+            auto retained = m_pluginOrder;
+            for (const auto &item : items)
+                retained.removeAll(item.toMap().value("key").toString());
+            retained.append(order);
+            m_pluginOrder = retained;
+            save();
+            return;
+        }
+        return;
+    }
     int from = -1, to = -1;
     for (int i = 0; i < m_entries.size(); ++i) {
         if (m_entries.at(i).key == key)
@@ -368,6 +458,13 @@ void SidebarLayoutModel::moveBefore(const QString &key, const QString &before, b
         return;
     beginMoveRows({}, from, from, {}, insertion);
     m_entries.move(from, destination);
+    if (!m_pluginOrder.isEmpty()) {
+        m_pluginOrder.removeAll(key);
+        int target = m_pluginOrder.indexOf(before);
+        if (target < 0)
+            target = m_pluginOrder.size();
+        m_pluginOrder.insert(qMin(m_pluginOrder.size(), target + (after ? 1 : 0)), key);
+    }
     endMoveRows();
     save();
 }
@@ -440,6 +537,8 @@ void SidebarLayoutModel::restoreDefaults()
     });
     m_hidden.clear();
     m_hiddenGroups.clear();
+    m_pluginOrder.clear();
+    m_collapsedGroups.clear();
     endResetModel();
     save();
 }

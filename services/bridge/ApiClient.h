@@ -432,6 +432,7 @@ public:
     bool matchesAccountSnapshot(quint64 userId, const QString &token, const QString &t1) const;
     /// Verification operations inherit the suspended request snapshot, including
     /// anonymous/device-only policy. Acknowledgement permits exactly one retry.
+    quint64 requestVerification(const QString &eventId);
     quint64 verificationInfo(quint64 requestId);
     /// Type 38 explicitly authorizes a login transition, detached from ordinary
     /// SSA proof. Other session changes still discard every old request.
@@ -446,6 +447,9 @@ public:
     /// Cancel the GUI-owned logical request, including a finished native job
     /// whose callback is still queued. Its later result cannot resume verification.
     bool cancel(quint64 requestId);
+    /// Scope-owned cancellation preserves other waiters for a shared challenge.
+    bool cancelRequest(quint64 requestId);
+    void bindRequestToSession(quint64 requestId);
     void shutdown();
 
 signals:
@@ -480,6 +484,8 @@ private:
         bool automaticVerification = true;
         bool replayAfterVerification = true;
         bool retried = false;
+        bool externalVerification = false;
+        bool sessionBound = false;
         QString eventId;
         quint64 verifiesRequest = 0;
     };
@@ -496,6 +502,7 @@ private:
     QHash<quint64, Pending> m_suspended;
     QHash<quint64, Pending> m_loginConfirmation;
     QList<quint64> m_verificationQueue;
+    quint64 m_externalVerificationSequence = (quint64(1) << 63);
     quint64 m_activeVerification = 0;
     quint64 m_revision = 1;
     bool m_closing = false;

@@ -49,7 +49,17 @@ QJsonObject describe(const QMetaObject &meta)
 QJsonObject pluginSdkContract()
 {
     QJsonObject types;
-    const QMetaObject *publicTypes[] = {&AppearanceConfiguration::staticMetaObject,
+    const QMetaObject *publicTypes[] = {&EchoPluginKugou::staticMetaObject,
+                                        &EchoPluginLyricEffects::staticMetaObject,
+                                        &EchoPluginAudioSource::staticMetaObject,
+                                        &EchoPluginSourceRequest::staticMetaObject,
+                                        &EchoPluginPlaylist::staticMetaObject,
+                                        &EchoPluginLyrics::staticMetaObject,
+                                        &EchoPluginFiles::staticMetaObject,
+                                        &EchoPluginMediaLease::staticMetaObject,
+                                        &EchoPluginDownloads::staticMetaObject,
+                                        &EchoPluginDownload::staticMetaObject,
+                                        &AppearanceConfiguration::staticMetaObject,
                                         &EchoPluginAppearance::staticMetaObject,
                                         &EchoPluginAppearanceHandle::staticMetaObject,
                                         &EchoPluginFonts::staticMetaObject,
@@ -65,9 +75,17 @@ QJsonObject pluginSdkContract()
                                         &EchoPluginReadModel::staticMetaObject,
                                         &EchoPluginUi::staticMetaObject,
                                         &EchoPluginIo::staticMetaObject,
+                                        &EchoPluginSqlite::staticMetaObject,
+                                        &EchoPluginDatabase::staticMetaObject,
+                                        &EchoPluginNetwork::staticMetaObject,
                                         &EchoPluginOperation::staticMetaObject,
                                         &EchoPluginRegistration::staticMetaObject,
                                         &EchoPluginTask::staticMetaObject,
+                                        &EchoPluginTasks::staticMetaObject,
+                                        &EchoPluginShortcuts::staticMetaObject,
+                                        &EchoPluginShortcut::staticMetaObject,
+                                        &EchoPluginToast::staticMetaObject,
+                                        &EchoPluginScroll::staticMetaObject,
                                         &EchoPluginRegistry::staticMetaObject,
                                         &EchoPluginAudio::staticMetaObject,
                                         &EchoPluginSpectrum::staticMetaObject,
@@ -84,6 +102,7 @@ QJsonObject pluginSdkContract()
             {"contexts", QJsonArray{"main"}},
             {"features", QJsonArray::fromStringList(PluginPackage::supportedFeatures())},
             {"capabilities", QJsonArray::fromStringList(PluginPackage::supportedCapabilities())},
+            {"businessMethods", QJsonArray::fromStringList(EchoPluginKugou::methods())},
             {"types", types}};
 }
 } // namespace EchoMusic

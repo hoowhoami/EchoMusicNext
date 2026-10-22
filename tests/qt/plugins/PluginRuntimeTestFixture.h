@@ -22,6 +22,9 @@
 #include "ShellController.h"
 #include "ThemeStore.h"
 #include "ShellSettings.h"
+#include "SidebarLayoutModel.h"
+#include "ShortcutService.h"
+#include "VerificationService.h"
 #include "NetworkPreferences.h"
 #include <QNetworkProxy>
 #include <QScopeGuard>
@@ -119,10 +122,14 @@ struct Host
     RouteController router;
     ShellController shell{settings, router};
     FloatingPlayerController floating{settings, false};
+    SidebarLayoutModel sidebar{settings, nullptr};
+    ShortcutService shortcuts{settings, false};
+    VerificationService verification{api};
     QQmlEngine engine;
     PluginRuntime runtime{engine,
                           settings,
-                          {playback, theme, shell, router, account, api, &floating},
+                          {playback, theme, shell, router, account, api, &floating, nullptr,
+                           &sidebar, &shortcuts, &verification},
                           temporary.path() + "/plugins"};
     explicit Host(const std::function<void(const QString &)> &prepareRoot = {})
     {

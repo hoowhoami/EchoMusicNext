@@ -17,6 +17,7 @@ class LyricLine : public QQuickItem
     Q_PROPERTY(bool wrap READ wrap WRITE setWrap NOTIFY layoutChanged)
     Q_PROPERTY(qreal textWidth READ textWidth NOTIFY layoutChanged)
     Q_PROPERTY(QString text READ text WRITE setText NOTIFY layoutChanged)
+    Q_PROPERTY(QVariantList glyphs READ glyphs NOTIFY layoutChanged)
     Q_PROPERTY(QVariantList words READ words WRITE setWords NOTIFY layoutChanged)
     Q_PROPERTY(QFont font READ font WRITE setFont NOTIFY layoutChanged)
     Q_PROPERTY(qreal timeMs READ timeMs WRITE setTimeMs NOTIFY timeChanged)
@@ -76,6 +77,7 @@ public:
         return m_text;
     }
     void setText(const QString &);
+    QVariantList glyphs() const;
     QVariantList words() const
     {
         return m_words;
@@ -182,6 +184,8 @@ private:
     std::atomic<quint64> m_textureUploads{0};
     std::atomic<int> m_renderBatches{0};
     QList<QImage> m_atlases;
+    mutable QVariantList m_publicGlyphs;
+    mutable quint64 m_publicGlyphRevision = ~quint64(0);
     quint64 m_maskRevision = 0;
     Qt::Alignment m_alignment = Qt::AlignLeft;
     QString m_text;

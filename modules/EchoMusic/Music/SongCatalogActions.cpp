@@ -5,6 +5,26 @@
 #include <QRandomGenerator>
 namespace EchoMusic
 {
+QVariantMap SongCatalogActions::pluginMenuContext(const QString &id) const
+{
+    const auto track = m_model.track(id);
+    if (!track)
+        return {};
+    QVariantList selection;
+    const auto selected = m_model.selectedIds();
+    for (const auto &t : selected) {
+        if (selection.size() >= 500)
+            break;
+        if (auto value = m_model.track(t))
+            selection.append(value->publicValue());
+    }
+    return {{"track", track->publicValue()},
+            {"selectedTracks", selection},
+            {"selectionCount", m_model.selectedCount()},
+            {"truncated", m_model.selectedCount() > 500},
+            {"sourceId", m_key}};
+}
+
 SongCatalogActions::SongCatalogActions(SongCatalogModel &model, PlaybackService &playback,
                                        QObject *parent)
     : QObject(parent), m_model(model), m_playback(playback)

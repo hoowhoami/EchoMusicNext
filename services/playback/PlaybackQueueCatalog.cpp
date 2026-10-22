@@ -204,34 +204,7 @@ void PlaybackQueueCatalog::activateViewed()
 PlaybackQueueModel *PlaybackQueueCatalog::activate(const QString &key, const QString &title,
                                                    const PlaybackTracks &tracks, int current)
 {
-    int found = -1;
-    for (int i = 0; i < rowCount(); ++i)
-        if (m_entries[size_t(i)].key == key) {
-            found = i;
-            break;
-        }
-    if (found < 0) {
-        found = rowCount();
-        beginInsertRows({}, found, found);
-        Entry e{key, title, std::make_unique<PlaybackQueueModel>(this)};
-        auto *model = e.model.get();
-        m_entries.push_back(std::move(e));
-        endInsertRows();
-        connect(model, &PlaybackQueueModel::changed, this, [this, model] {
-            if (modelForKey("default") == model && model->rowCount())
-                materializeDefault();
-            for (int i = 0; i < rowCount(); ++i)
-                if (m_entries[size_t(i)].model.get() == model) {
-                    m_entries[size_t(i)].lastUsed = ++m_usage;
-                    emit dataChanged(index(i), index(i));
-                }
-            trimCapacity();
-            emit changed();
-        });
-        emit modelAdded(model);
-        trimCapacity();
-        found = rowCount() - 1;
-    }
+    int found = ensureQueue(key, title);
     if (key == "default" && !tracks.isEmpty()) {
         materializeDefault();
         trimCapacity();
@@ -412,3 +385,50 @@ void PlaybackQueueCatalog::removeInactiveRoomQueue()
     }
 }
 } // namespace EchoMusic
+
+int EchoMusic::PlaybackQueueCatalog::ensureQueue(const QString &key, const QString &title)
+{
+    int found = -1;
+    for (int i = 0; i < rowCount(); ++i)
+        if (m_entries[size_t(i)].key == key) {
+            found = i;
+            break;
+        }
+    if (found < 0) {
+        found = rowCount();
+        beginInsertRows({}, found, found);
+        Entry e{key, title, std::make_unique<PlaybackQueueModel>(this)};
+        auto *model = e.model.get();
+        m_entries.push_back(std::move(e));
+        endInsertRows();
+        connect(model, &PlaybackQueueModel::changed, this, [this, model] {
+            if (modelForKey("default") == model && model->rowCount())
+                materializeDefault();
+            for (int i = 0; i < rowCount(); ++i)
+                if (m_entries[size_t(i)].model.get() == model) {
+                    m_entries[size_t(i)].lastUsed = ++m_usage;
+                    emit dataChanged(index(i), index(i));
+                }
+            trimCapacity();
+            emit changed();
+        });
+        emit modelAdded(model);
+        trimCapacity();
+        found = rowCount() - 1;
+    }
+    return found;
+}
+EchoMusic::PlaybackQueueModel *EchoMusic::PlaybackQueueCatalog::retain(const QString &key,
+                                                                       const QString &title,
+                                                                       const PlaybackTracks &tracks)
+{
+    const int row = ensureQueue(key, title);
+    auto *model = m_entries[size_t(row)].model.get();
+    m_entries[size_t(row)].title = title;
+    // Replacing the active selection must retire its transport and lyrics too.
+    if (model == activeModel())
+        model->clear();
+    model->replace(tracks);
+    emit changed();
+    return model;
+}

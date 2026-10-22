@@ -10,6 +10,48 @@ namespace EchoMusic
 {
 namespace
 {
+bool managedDatabaseFile(const QString &relative)
+{
+    if (relative == "values.sqlite" || relative.startsWith("values.sqlite-"))
+        return true;
+    if (!relative.startsWith("databases/") || relative.mid(10).contains('/'))
+        return false;
+    return relative.endsWith(".sqlite") || relative.contains(".sqlite-");
+}
+QString snapshotDatabase(const QString &source, const QString &destination)
+{
+    const auto connection = QUuid::createUuid().toString();
+    QString error;
+    {
+        auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+        db.setDatabaseName(source);
+        db.setConnectOptions("QSQLITE_OPEN_READONLY;QSQLITE_BUSY_TIMEOUT=5000");
+        if (!db.open())
+            error = db.lastError().text();
+        else {
+            QSqlQuery query(db);
+            query.prepare("VACUUM INTO ?");
+            query.addBindValue(destination);
+            if (!query.exec())
+                error = query.lastError().text();
+        }
+        db.close();
+        if (error.isEmpty()) {
+            db.setDatabaseName(destination);
+            if (!db.open())
+                error = db.lastError().text();
+            else {
+                QSqlQuery query(db);
+                if (!query.exec("PRAGMA quick_check") || !query.next() ||
+                    query.value(0).toString() != "ok")
+                    error = "Plugin database snapshot integrity check failed";
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connection);
+    return error;
+}
 QString copyTree(const QString &source, const QString &destination, bool skipDatabase = false)
 {
     if (!QDir().mkpath(destination))
@@ -36,7 +78,7 @@ QString copyTree(const QString &source, const QString &destination, bool skipDat
         bytes += info.size();
         if (++count > 4096 || bytes > 512ll * 1024 * 1024)
             return "Plugin data exceeds snapshot limits (512 MiB/4096 files)";
-        if (skipDatabase && (relative == "values.sqlite" || relative.startsWith("values.sqlite-")))
+        if (skipDatabase && managedDatabaseFile(relative))
             continue;
         if (!QFile::copy(info.filePath(), target))
             return "Cannot copy plugin private data";
@@ -50,24 +92,15 @@ QString PluginDataTransaction::capture(const QString &data, const QString &backu
         return "Pending plugin rollback must be recovered first";
     const auto staging = backup + ".staging-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
     auto error = copyTree(data, staging, true);
-    if (error.isEmpty() && QFile::exists(data + "/values.sqlite")) {
-        const auto connection = QUuid::createUuid().toString();
-        {
-            auto database = QSqlDatabase::addDatabase("QSQLITE", connection);
-            database.setDatabaseName(data + "/values.sqlite");
-            database.setConnectOptions("QSQLITE_OPEN_READONLY;QSQLITE_BUSY_TIMEOUT=5000");
-            if (!database.open())
-                error = database.lastError().text();
-            else {
-                QSqlQuery query(database);
-                query.prepare("VACUUM INTO ?");
-                query.addBindValue(staging + "/values.sqlite");
-                if (!query.exec())
-                    error = query.lastError().text();
-                database.close();
-            }
-        }
-        QSqlDatabase::removeDatabase(connection);
+    QStringList databases;
+    if (QFile::exists(data + "/values.sqlite"))
+        databases.append("values.sqlite");
+    for (const auto &file : QDir(data + "/databases").entryList({"*.sqlite"}, QDir::Files))
+        databases.append("databases/" + file);
+    for (const auto &relative : databases) {
+        if (!error.isEmpty())
+            break;
+        error = snapshotDatabase(data + '/' + relative, staging + '/' + relative);
     }
     if (error.isEmpty() && !QDir().rename(staging, backup))
         error = "Cannot publish plugin data snapshot";

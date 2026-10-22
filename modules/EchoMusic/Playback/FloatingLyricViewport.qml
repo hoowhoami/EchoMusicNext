@@ -3,10 +3,70 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Effects
 import EchoMusic.Theme
+import EchoMusic.Controls
 import EchoMusic.Playback
 
 Item {
     id: root
+    property real effectFollowOffset: -1
+    property real effectFollowMaximum: 0
+    function requestEffectFollow(position: real, maximum: real): void {
+        effectFollowMaximum = maximum;
+        if (!EchoLyricEffectRegistry.hasHandlers("desktop") || !EchoLyricEffectRegistry.requestScroll(effectHost.identity, {
+            scope: "desktop",
+            index: currentIndex,
+            position: position,
+            maximum: maximum,
+            smooth: false,
+            browsing: false,
+            reducedMotion: !Theme.store.motionEnabled
+        }))
+            effectFollowOffset = -1;
+    }
+    Connections {
+        target: EchoLyricEffectRegistry
+        function onChanged() {
+            root.effectFollowOffset = -1;
+        }
+    }
+    EchoUiPart {
+        id: effectHost
+        target: root
+        role: "lyrics.viewport"
+        key: "desktop-lyrics"
+        surface: "desktop"
+        active: root.resourceActive
+        actions: ["scrollTo", "resumeFollow"]
+        onActionRequested: (action, args) => {
+            if (action === "resumeFollow")
+                root.effectFollowOffset = -1;
+            else if (action === "scrollTo" && Number.isFinite(args.position))
+                root.effectFollowOffset = Math.max(0, Math.min(root.effectFollowMaximum, args.position));
+        }
+        state: observed ? ({
+                scope: "desktop",
+                timelineMs: root.renderTime,
+                positionMs: root.playback.positionMs,
+                durationMs: root.playback.durationMs,
+                playbackRate: root.playback.speed,
+                playing: root.playback.playing,
+                appearance: {
+                    font: root.baseFont,
+                    playedColor: root.playedColor,
+                    unplayedColor: root.unplayedColor
+                },
+                currentIndex: root.currentIndex,
+                scrollIndex: root.currentIndex,
+                line: root.line,
+                nextLine: root.nextLine,
+                lineCount: root.playback.lyrics.count,
+                following: true,
+                browsing: false,
+                reducedMotion: !Theme.store.motionEnabled,
+                vertical: root.vertical,
+                offsetMs: root.playback.lyrics.offsetMs
+            }) : ({})
+    }
     required property PlaybackService playback
     property font baseFont: Theme.store.desktopLyricBaseFont
     property bool resourceActive: visible
@@ -20,7 +80,7 @@ Item {
     property string shadowStrength: "normal"
     property color playedColor: "#31cfa1"
     property color unplayedColor: "#7a7a7a"
-    property real renderTime: playback.positionMs
+    property real renderTime: playback ? playback.positionMs : 0
     property bool initialized: false
     property bool animateChange: false
     property int currentIndex: -1
@@ -33,6 +93,8 @@ Item {
     // Only refresh the bounded presentation slice when its row/model changes.
     // Frame samples update uniforms; they do not allocate new text/timing groups.
     function syncLines(force: bool): void {
+        if (!playback)
+            return;
         const index = playback.lyrics.scrollable ? playback.lyrics.visibleIndex(playback.lyrics.indexAt(renderTime)) : playback.lyrics.nextVisible(-1);
         if (!force && index === currentIndex)
             return;
@@ -56,6 +118,7 @@ Item {
             arrivalMotion.snap(0);
         if (index < 0)
             previous = ({});
+        effectFollowOffset = -1;
         currentIndex = index;
         line = playback.lyrics.lineAt(index);
         nextIndex = playback.lyrics.nextVisible(index);
@@ -85,6 +148,8 @@ Item {
         id: clock
     }
     function observe(reset: bool): void {
+        if (!playback)
+            return;
         clock.observe(playback.positionMs, playback.playing, playback.speed, reset);
         renderTime = clock.sample();
     }
@@ -182,11 +247,14 @@ Item {
         }
     }
     FloatingLyricContent {
+        effectHostId: effectHost.identity
+        followOffset: root.effectFollowOffset
+        onFollowRequested: (position, maximum) => root.requestEffectFollow(position, maximum)
         baseFont: root.baseFont
         anchors.fill: parent
         playback: root.playback
         resourceActive: root.resourceActive
-        opacity: Math.max(0, Math.min(1, 1 - root.arrival))
+        baseOpacity: Math.max(0, Math.min(1, 1 - root.arrival))
         arrival: root.arrival
         line: root.line
         nextLine: root.nextLine

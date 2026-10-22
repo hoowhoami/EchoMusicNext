@@ -22,7 +22,8 @@ inline QString identityKey(const QString &id, const QVariantMap &origin)
 }
 inline bool internalDirectory(const QString &name)
 {
-    return QStringList{"packages", "data", "transactions"}.contains(name, Qt::CaseInsensitive);
+    return QStringList{"packages", "data", "transactions", "resources", "cache"}.contains(
+        name, Qt::CaseInsensitive);
 }
 // Only a direct, non-symlink child belongs to the root's manual-install area.
 // External development sources and internal stores must never be deleted here.

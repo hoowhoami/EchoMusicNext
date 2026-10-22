@@ -4,6 +4,8 @@
 #include "PlaybackSourcePlan.h"
 #include "CloudAudioIndex.h"
 #include <QObject>
+#include <QPointer>
+#include "PlaybackSourceExtensions.h"
 
 namespace EchoMusic
 {
@@ -15,7 +17,8 @@ class PlaybackSourceRequest final : public QObject
     Q_OBJECT
 public:
     explicit PlaybackSourceRequest(ApiClient &api, MembershipService &membership,
-                                   QObject *parent = nullptr, CloudAudioIndex *cloud = nullptr);
+                                   QObject *parent = nullptr, CloudAudioIndex *cloud = nullptr,
+                                   PlaybackSourceExtensions *extensions = nullptr);
     ~PlaybackSourceRequest() override
     {
         cancel();
@@ -23,7 +26,8 @@ public:
     void resolve(const PlaybackTrack &track, ApiClient::PlaybackQuality quality,
                  ApiClient::SoundEffect effect, const QJsonObject &knownPrivileges = {},
                  bool compatibility = true, bool viperEnabled = true, const QString &roomId = {},
-                 const QString &preference = {}, bool normalization = false);
+                 const QString &preference = {}, bool normalization = false,
+                 bool forceReload = false, bool preloading = false);
     void cancel();
     bool fallbackFromRoom();
     void ensureCatalogRights(const PlaybackTrack &track);
@@ -49,6 +53,9 @@ signals:
 
 private:
     friend class PlaybackSourceRequestTestAccess;
+    QVariantMap extensionContext() const;
+    void runExtension(const QString &stage, std::function<void()> fallback);
+    void afterCatalog();
     void requestSource();
     void startCatalog();
     void startCloud();
@@ -60,6 +67,11 @@ private:
     void tryStart();
     void succeed(quint64 id, const QByteArray &bytes);
     void fail(quint64 id, const QByteArray &bytes);
+    PlaybackSourceExtensions *m_extensions = nullptr;
+    QPointer<QObject> m_extensionJob;
+    bool m_beforeTried = false, m_afterTried = false, m_finalTried = false;
+    bool m_forceReload = false, m_preloading = false;
+    QString m_pluginStage;
     CloudAudioIndex *m_cloud = nullptr;
     QString m_catalogHash, m_preference, m_kind;
     bool m_cloudTried = false, m_catalogStarted = false, m_waitingCloud = false,

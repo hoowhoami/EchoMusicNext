@@ -313,6 +313,7 @@ void PluginRuntime::removeEntry(Entry &entry)
             ? rootSource(entry.origin.value("file", entry.origin.value("directory")).toString(),
                          m_root)
             : QString();
+    m_fileService->forgetInstallation(installation);
     beginRemoveRows({}, row, row);
     m_entries.erase(m_entries.begin() + row);
     endRemoveRows();

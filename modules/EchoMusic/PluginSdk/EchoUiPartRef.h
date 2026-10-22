@@ -25,12 +25,14 @@ class EchoUiPartRef final : public QObject
     Q_PROPERTY(bool valid READ valid NOTIFY changed)
     Q_PROPERTY(bool visible READ visible NOTIFY changed)
     Q_PROPERTY(QRectF geometry READ geometry NOTIFY changed)
+    Q_PROPERTY(QVariantMap state READ state NOTIFY changed)
     Q_PROPERTY(QVariantMap visuals READ visuals NOTIFY changed)
     Q_PROPERTY(QStringList properties READ properties CONSTANT)
     Q_PROPERTY(QStringList actions READ actions CONSTANT)
     Q_PROPERTY(bool replaceable READ replaceable CONSTANT)
 public:
     EchoUiPartRef(EchoPluginContext &, EchoUiPartRegistration &, QObject *parent = nullptr);
+    ~EchoUiPartRef() override;
     QString id() const
     {
         return m_id;
@@ -55,6 +57,7 @@ public:
     bool visible() const;
     QRectF geometry() const;
     QVariantMap visuals() const;
+    QVariantMap state() const;
     QStringList properties() const
     {
         return m_properties;

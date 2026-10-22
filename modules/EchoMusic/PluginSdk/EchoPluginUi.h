@@ -42,6 +42,12 @@ public:
     {
         return m_scopeState();
     }
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *registerSidebarItem(const QString &id,
+                                                                       const QJSValue &definition);
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *registerShortcutCard(const QString &id,
+                                                                        const QJSValue &definition);
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *registerSongMenuItem(const QString &id,
+                                                                        const QJSValue &definition);
     Q_INVOKABLE bool setState(const QVariantMap &values);
     Q_INVOKABLE EchoMusic::EchoPluginRegistration *
     registerSurface(const QString &id, const QString &target, const QString &component);
@@ -64,6 +70,7 @@ signals:
     void stateChanged();
 
 private:
+    EchoPluginRegistration *sidebarEntry(const QString &, const QJSValue &, bool);
     QVariantMap m_scopeState() const;
     EchoPluginUiParts *m_parts;
     EchoPluginUiStyles *m_styles;

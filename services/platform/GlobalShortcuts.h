@@ -21,6 +21,7 @@ public:
     ~GlobalShortcuts() override;
     void replace(const QList<Binding> &bindings);
 signals:
+    void registered(int command);
     void activated(int command);
     void registrationFailed(int command, const QString &reason);
 

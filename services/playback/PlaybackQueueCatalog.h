@@ -47,6 +47,8 @@ public:
                 {Qt::UserRole + 3, "songCount"},
                 {Qt::UserRole + 4, "activeQueue"}};
     }
+    PlaybackQueueModel *retain(const QString &key, const QString &title,
+                               const PlaybackTracks &tracks);
     PlaybackQueueModel *activate(const QString &key, const QString &title,
                                  const PlaybackTracks &tracks, int current);
     PlaybackQueueModel *modelForKey(const QString &key) const;
@@ -105,6 +107,7 @@ signals:
     void transientQueueRemoved(const QString &key);
 
 private:
+    int ensureQueue(const QString &key, const QString &title);
     QList<int> previewRows() const;
     QStringList prioritySources(const QString &exclude) const;
     void removeInactiveTransient();

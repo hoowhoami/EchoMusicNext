@@ -12,5 +12,6 @@ add_subdirectory(logging)
 add_subdirectory(playback)
 
 add_subdirectory(plugins)
+add_subdirectory(pluginfiles)
 
 add_subdirectory(startup)

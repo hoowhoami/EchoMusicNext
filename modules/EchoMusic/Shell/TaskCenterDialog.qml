@@ -191,6 +191,7 @@ EchoDialog {
                 id: task
                 required property string taskId
                 required property string taskToken
+                required property string taskIcon
                 required property string taskName
                 required property int taskStatus
                 required property string taskProgressLabel
@@ -235,7 +236,7 @@ EchoDialog {
                                 anchors.centerIn: parent
                                 width: 20
                                 height: 20
-                                name: "clipboard-list"
+                                name: task.taskIcon.length ? task.taskIcon : "clipboard-list"
                                 color: Theme.floatingAccentText
                             }
                         }
@@ -316,10 +317,10 @@ EchoDialog {
                         id: detailToggle
                         objectName: "taskDetailsToggle-" + task.taskId
                         Layout.fillWidth: true
-                        visible: task.taskDetails.count > 0
+                        visible: task.taskDetails && task.taskDetails.count > 0
                         implicitHeight: 36
                         padding: 0
-                        text: qsTr("任务明细 %1 项").arg(task.taskDetails.count)
+                        text: qsTr("任务明细 %1 项").arg(task.taskDetails ? task.taskDetails.count : 0)
                         Accessible.role: Accessible.Button
                         Accessible.name: text
                         contentItem: RowLayout {

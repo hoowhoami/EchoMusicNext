@@ -532,17 +532,9 @@ Item {
         id: grantsOwner
         hostItem: page
         sourceComponent: Component {
-            EchoDialog {
-                id: grants
-                heading: qsTr("已授权文件与目录")
+            PluginGrantsDialog {
+                manager: page.manager
                 uiScale: page.settings.uiScale
-                body: Component {
-                    Label {
-                        text: qsTr("暂无已授权文件与目录")
-                        color: Theme.floatingSecondaryText
-                        font: Theme.font(13, Theme.regularWeight)
-                    }
-                }
             }
         }
     }

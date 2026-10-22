@@ -37,7 +37,16 @@ QVersionNumber PluginPackage::sdkVersion()
 }
 QStringList PluginPackage::supportedFeatures()
 {
-    return {"lifecycle",
+    return {"files.references",
+            "files.dialogs",
+            "files.io",
+            "files.media",
+            "net.downloads",
+            "lyrics.resolvers",
+            "lyrics.write",
+            "playback.audioSource",
+            "playback.queues",
+            "lifecycle",
             "operations",
             "playback.controls",
             "playback.queue",
@@ -50,8 +59,19 @@ QStringList PluginPackage::supportedFeatures()
             "ui.titlebar",
             "ui.playerbar",
             "tasks",
+            "tasks.full",
+            "ui.sidebar",
+            "ui.shortcuts",
+            "ui.songMenu",
+            "input.shortcuts",
+            "ui.toast",
+            "ui.scroll",
+            "lyrics.effects",
+            "kugou.api",
+            "kugou.verification",
             "storage",
-            "net.http",
+            "storage.sqlite",
+            "net.request",
             "ui.settings",
             "plugins.dependencies",
             "plugins.services",
@@ -69,7 +89,10 @@ QStringList PluginPackage::supportedFeatures()
 }
 QStringList PluginPackage::supportedCapabilities()
 {
-    return {"unrestrictedNetwork", "audioSpectrum", "theme", "lyricsPage"};
+    return {"localFiles",    "downloads",   "unrestrictedNetwork",
+            "audioSpectrum", "audioSource", "lyrics",
+            "lyricEffects",  "kugouApi",    "kugouVerification",
+            "sqlite",        "theme",       "lyricsPage"};
 }
 namespace
 {

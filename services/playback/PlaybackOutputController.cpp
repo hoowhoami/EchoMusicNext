@@ -130,8 +130,7 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         m_playback.m_audioControls.setTrackLoudness(m_playback.m_pendingLoudness);
         m_playback.m_loading = false;
         m_playback.m_loaded = true;
-        m_playback.m_appliedEffect =
-            m_playback.m_effectFallback ? QString("none") : m_playback.m_songEffect;
+        m_playback.m_appliedEffect = m_playback.m_sourceEffect;
         m_playback.m_seamless = false;
         m_playback.m_position = qint64(event.value("time").toDouble() * 1000);
         m_playback.m_duration = qint64(event.value("duration").toDouble() * 1000);
@@ -153,8 +152,7 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         m_playback.m_audioControls.setTrackLoudness(m_playback.m_pendingLoudness);
         m_playback.m_loading = false;
         m_playback.m_loaded = true;
-        m_playback.m_appliedEffect =
-            m_playback.m_effectFallback ? QString("none") : m_playback.m_songEffect;
+        m_playback.m_appliedEffect = m_playback.m_sourceEffect;
         m_playback.m_error.clear();
         publishMedia();
         if (m_playback.m_resumePosition >= 0) {

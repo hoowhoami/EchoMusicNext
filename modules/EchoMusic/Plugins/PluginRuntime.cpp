@@ -1,6 +1,8 @@
 #include "SettingsKeys.h"
 #include "PluginRuntime.h"
 #include "PluginDataTransaction.h"
+#include "EchoPluginFilePicker.h"
+#include "PlaybackService.h"
 #include <QCryptographicHash>
 #include <QFutureWatcher>
 #include <QtConcurrent>
@@ -48,6 +50,45 @@ PluginRuntime::PluginRuntime(QQmlEngine &engine, QSettings &preferences, PluginH
       m_safeMode(safeMode ||
                  preferences.value(EchoMusic::SettingsKeys::Plugins::SafeMode, false).toBool())
 {
+    m_fileService = new PluginFileService(m_root, this);
+    m_host.files = m_fileService;
+    connect(m_fileService, &PluginFileService::mediaRevoked, &m_host.playback,
+            &PlaybackService::revokePluginMedia);
+    connect(m_fileService, &PluginFileService::closed, this, &PluginRuntime::checkClosed);
+    connect(m_fileService, &PluginFileService::selectionRequested, this,
+            [this](const QVariantMap &grant) {
+                if (m_closing || m_maintenance)
+                    return;
+                if (EchoPluginFilePicker::busy()) {
+                    emit notice(tr("另一个文件选择窗口尚未关闭"), true);
+                    return;
+                }
+                const QVariantMap options{
+                    {"purpose", tr("重新授权 %1").arg(grant.value("name").toString())},
+                    {"access", grant.value("access")},
+                    {"persist", grant.value("persistent")},
+                    {"defaultPath", grant.value("displayPath")}};
+                auto *picker =
+                    new EchoPluginFilePicker(grant.value("pluginName").toString(),
+                                             grant.value("kind") == "directory", options, this);
+                connect(picker, &EchoPluginFilePicker::selected, this,
+                        [this, grant](const QStringList &paths) {
+                            if (m_closing || paths.isEmpty())
+                                return;
+                            PluginFileOwner owner{grant.value("installationId").toString(),
+                                                  grant.value("pluginId").toString(),
+                                                  grant.value("pluginName").toString(),
+                                                  {},
+                                                  {}};
+                            m_fileService->request(owner, "grant",
+                                                   {{"paths", paths},
+                                                    {"kind", grant.value("kind")},
+                                                    {"access", grant.value("access")},
+                                                    {"persist", grant.value("persistent")},
+                                                    {"replaceId", grant.value("id")}});
+                        });
+                picker->open();
+            });
     connect(this, &PluginRuntime::loadingChanged, this, &PluginRuntime::advanceRefresh,
             Qt::QueuedConnection);
     connect(this, &PluginRuntime::pluginFailed, this, [this] { m_refreshNotice = false; });
@@ -322,6 +363,8 @@ void PluginRuntime::shutdown()
 {
     if (std::exchange(m_closing, true))
         return;
+    for (auto *picker : findChildren<EchoPluginFilePicker *>())
+        picker->cancel();
     if (auto ready = std::exchange(m_maintenanceReady, {}))
         ready(false);
     for (const auto &entry : m_entries)
@@ -391,6 +434,11 @@ void PluginRuntime::checkClosed()
     for (const auto &entry : m_entries)
         if (entry->context)
             return;
+    if (!m_fileService->isClosed()) {
+        if (!std::exchange(m_fileShutdown, true))
+            m_fileService->shutdown();
+        return;
+    }
     m_closed = true;
     // One queued boundary releases pending page delegates/context deleteLater.
     QTimer::singleShot(0, this, [this] { emit closed(); });

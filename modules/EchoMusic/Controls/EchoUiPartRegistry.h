@@ -61,6 +61,7 @@ private:
     mutable QHash<QQuickWindow *, QString> m_windows;
     mutable quint64 m_windowSequence = 0;
     quint64 m_sequence = 0;
+    QSet<QString> m_sessionResetParts;
     bool m_sessionResetPending = false;
 };
 } // namespace EchoMusic

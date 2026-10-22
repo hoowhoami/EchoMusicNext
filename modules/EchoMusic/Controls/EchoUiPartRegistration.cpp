@@ -11,6 +11,22 @@ EchoUiPartRegistration::~EchoUiPartRegistration()
     if (m_registry)
         m_registry->detach(this);
 }
+void EchoUiPartRegistration::setState(const QVariantMap &v)
+{
+    if (m_state == v)
+        return;
+    m_state = v;
+    emit stateChanged();
+    if (std::exchange(m_stateNoticePending, true))
+        return;
+    QMetaObject::invokeMethod(
+        this,
+        [this] {
+            m_stateNoticePending = false;
+            emit changed();
+        },
+        Qt::QueuedConnection);
+}
 void EchoUiPartRegistration::componentComplete()
 {
     m_complete = true;

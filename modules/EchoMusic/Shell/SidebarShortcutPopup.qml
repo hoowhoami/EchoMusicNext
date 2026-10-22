@@ -8,6 +8,49 @@ import EchoMusic.Shell
 
 EchoDialog {
     id: popup
+    component ShortcutOption: Button {
+        id: option
+        required property var modelData
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        implicitHeight: Math.max(23, label.implicitHeight) + 30
+        padding: 15
+        enabled: modelData.pinned ? popup.layout.shortcuts.length > 1 : modelData.plugin ? popup.layout.entryEnabled(modelData.key) : popup.router.available(modelData.route)
+        hoverEnabled: true
+        Accessible.name: (modelData.pinned ? qsTr("移除") : qsTr("添加")) + modelData.title
+        Accessible.checkable: true
+        Accessible.checked: modelData.pinned
+        onClicked: popup.layout.toggleShortcut(modelData.key)
+        background: Rectangle {
+            radius: Theme.controlRadius
+            color: option.hovered && option.enabled ? Theme.floating.hover : Theme.floating.mutedSurface
+        }
+        contentItem: RowLayout {
+            spacing: 12
+            EchoIcon {
+                name: option.modelData.glyph
+                Layout.preferredWidth: 23
+                Layout.preferredHeight: 23
+                color: option.modelData.pinned || !option.enabled ? Theme.floatingSecondaryText : Theme.floatingText
+            }
+            EchoTextTagRow {
+                id: label
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: option.modelData.title
+                wrap: true
+                fillTextWidth: true
+                color: option.modelData.pinned || !option.enabled ? Theme.floatingSecondaryText : Theme.floatingText
+                font: Theme.font(14, Theme.regularWeight)
+            }
+            EchoIcon {
+                name: option.modelData.pinned ? "minus" : "plus"
+                Layout.preferredWidth: 18
+                Layout.preferredHeight: 18
+                color: option.modelData.pinned || !option.enabled ? Theme.floatingSecondaryText : Theme.floatingText
+            }
+        }
+    }
     objectName: "sidebarShortcutPopup"
     required property SidebarLayoutModel layout
     required property RouteController router
@@ -77,55 +120,36 @@ EchoDialog {
                         onClicked: popup.layout.restoreShortcuts()
                     }
                 }
-                GridLayout {
+                EchoBoundedListView {
+                    id: options
                     Layout.fillWidth: true
-                    columns: 2
-                    columnSpacing: 10
-                    rowSpacing: 10
-                    Repeater {
-                        // Nine fixed function entries, no resource catalog here.
-                        model: popup.layout.shortcutCatalog
-                        delegate: Button {
-                            id: option
-                            required property var modelData
+                    maximumViewportHeight: 320
+                    implicitWidth: 420
+                    clip: true
+                    cacheBuffer: 60
+                    reuseItems: true
+                    property var catalog: popup.layout.shortcutCatalog
+                    model: Math.ceil(catalog.length / 2)
+                    spacing: 10
+                    ScrollBar.vertical: EchoPageScrollBar {
+                        view: options
+                        viewActive: popup.visible
+                    }
+                    delegate: RowLayout {
+                        required property int index
+                        width: options.width
+                        spacing: 10
+                        uniformCellSizes: true
+                        ShortcutOption {
+                            modelData: options.catalog[parent.index * 2]
+                        }
+                        Loader {
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
-                            implicitHeight: Math.max(23, label.implicitHeight) + 30
-                            padding: 15
-                            enabled: modelData.pinned ? popup.layout.shortcuts.length > 1 : popup.router.available(modelData.route)
-                            hoverEnabled: true
-                            Accessible.name: (modelData.pinned ? qsTr("移除") : qsTr("添加")) + modelData.title
-                            Accessible.checkable: true
-                            Accessible.checked: modelData.pinned
-                            onClicked: popup.layout.toggleShortcut(modelData.key)
-                            background: Rectangle {
-                                radius: Theme.controlRadius
-                                color: option.hovered && option.enabled ? Theme.floating.hover : Theme.floating.mutedSurface
-                            }
-                            contentItem: RowLayout {
-                                spacing: 12
-                                EchoIcon {
-                                    name: option.modelData.glyph
-                                    Layout.preferredWidth: 23
-                                    Layout.preferredHeight: 23
-                                    color: option.modelData.pinned || !option.enabled ? Theme.floatingSecondaryText : Theme.floatingText
-                                }
-                                EchoTextTagRow {
-                                    id: label
-                                    Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    text: option.modelData.title
-                                    wrap: true
-                                    fillTextWidth: true
-                                    color: option.modelData.pinned || !option.enabled ? Theme.floatingSecondaryText : Theme.floatingText
-                                    font: Theme.font(14, Theme.regularWeight)
-                                }
-                                EchoIcon {
-                                    name: option.modelData.pinned ? "minus" : "plus"
-                                    Layout.preferredWidth: 18
-                                    Layout.preferredHeight: 18
-                                    color: option.modelData.pinned || !option.enabled ? Theme.floatingSecondaryText : Theme.floatingText
-                                }
+                            active: parent.index * 2 + 1 < options.catalog.length
+                            sourceComponent: ShortcutOption {
+                                modelData: options.catalog[parent.parent.index * 2 + 1]
+                                width: parent.width
                             }
                         }
                     }

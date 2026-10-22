@@ -104,7 +104,8 @@ public:
         DetailsRole,
         DismissibleRole,
         ProgressLabelRole,
-        HasProgressRole
+        HasProgressRole,
+        IconRole
     };
     struct Retention
     {
@@ -123,7 +124,7 @@ public:
     {
         // Producer summary (e.g. import phase / setProgress label); status
         // badges derive from Status and must not be replaced by this summary.
-        QString name, statusLabel, error;
+        QString name, statusLabel, error, icon;
         std::optional<double> percent;
         QList<TaskAction> actions;
         QList<TaskDetail> items;
@@ -155,7 +156,7 @@ public:
     QVariant data(const QModelIndex &, int) const override;
     QHash<int, QByteArray> roleNames() const override;
     Handle registerTask(QObject &owner, Registration registration);
-    bool update(const Handle &, Content content);
+    bool update(const Handle &, Content content, std::optional<int> priority = {});
     /// Frequent progress events do not rebuild item models or reset scrolling.
     bool updateProgress(const Handle &, std::optional<double> percent, QString label = {});
     bool start(const Handle &);
@@ -168,6 +169,7 @@ public:
     void shutdown();
 signals:
     void countChanged();
+    void taskRemoved(const QString &id, const QString &token);
     void closePanelRequested();
 
 private:

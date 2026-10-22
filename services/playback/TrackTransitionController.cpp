@@ -8,6 +8,17 @@
 
 namespace EchoMusic
 {
+bool TrackTransitionController::containsSource(const QUrl &url) const
+{
+    for (const auto &source : m_urls)
+        if (QUrl(source) == url)
+            return true;
+    for (const auto &source : m_resolved.value("urls").toArray())
+        if (QUrl(source.toString()) == url)
+            return true;
+    return false;
+}
+
 namespace
 {
 QString queueTrackId(const PlaybackTrack &track)
@@ -20,7 +31,8 @@ const QStringList modes{"automix-pro", "automix-basic", "fade", "gapless", "none
 TrackTransitionController::TrackTransitionController(PlaybackService &playback, ApiClient &api,
                                                      QSettings &settings)
     : QObject(&playback), m_playback(playback), m_api(api), m_settings(settings),
-      m_source(api, playback.m_membership, this, playback.cloudSources())
+      m_source(api, playback.m_membership, this, playback.cloudSources(),
+               playback.sourceExtensions())
 {
     const auto stored =
         settings.value(EchoMusic::SettingsKeys::Playback::TransitionMode, "automix-pro").toString();
@@ -38,6 +50,8 @@ TrackTransitionController::TrackTransitionController(PlaybackService &playback, 
         m_shufflePlayed.clear();
         m_shuffleHistory.clear();
     });
+    connect(playback.sourceExtensions(), &PlaybackSourceExtensions::changed, this,
+            [this] { clear(); });
     connect(&m_timeout, &QTimer::timeout, this, &TrackTransitionController::failAttempt);
     connect(&m_source, &PlaybackSourceRequest::failed, this, [this] { failAttempt(); });
     connect(&m_source, &PlaybackSourceRequest::resolved, this,
@@ -50,19 +64,26 @@ TrackTransitionController::TrackTransitionController(PlaybackService &playback, 
                 m_resolved = source;
                 m_resolvedQuality = resolvedQuality;
                 m_fallback = fallback;
-                for (const auto &value : source.value("urls").toArray())
-                    if (value.isString() && !value.toString().isEmpty())
-                        m_urls.append(value.toString());
-                for (const auto &value : source.value("backup_urls").toArray())
-                    if (value.isString() && !value.toString().isEmpty() &&
-                        !m_urls.contains(value.toString()))
-                        m_urls.append(value.toString());
+                m_urls.clear();
+                m_urlAudioTracks.clear();
+                for (const auto &value : source.value("sources").toArray()) {
+                    const auto item = value.toObject();
+                    m_urls.append(item.value("url").toString());
+                    m_urlAudioTracks.append(item.value("audioTrackId").toInteger());
+                }
+                for (const auto &url : PlaybackSourceRequest::usableUrls(source))
+                    if (!m_urls.contains(url)) {
+                        m_urls.append(url);
+                        m_urlAudioTracks.append(0);
+                    }
                 if (m_urls.isEmpty()) {
                     failAttempt();
                     return;
                 }
-                const auto effect = m_playback.m_songEffect;
-                if (!fallback && (effect == "vocal" || effect == "accompaniment") &&
+                const auto effect =
+                    source.value("effect").toString(fallback ? "none" : m_playback.m_songEffect);
+                if (!m_urlAudioTracks.value(0) && !fallback &&
+                    (effect == "vocal" || effect == "accompaniment") &&
                     QUrl(m_urls.first()).path().endsWith(".mkv", Qt::CaseInsensitive)) {
                     m_probe = m_playback.m_native.submit(NativeBridge::AudioTracks, m_urls.first(),
                                                          m_revision);
@@ -78,7 +99,7 @@ TrackTransitionController::TrackTransitionController(PlaybackService &playback, 
                 m_probe = 0;
                 const auto audioTrack = effectAudioTrack(
                     success ? QJsonDocument::fromJson(bytes).array() : QJsonArray{},
-                    m_playback.m_songEffect);
+                    m_resolved.value("effect").toString(m_playback.m_songEffect));
                 m_preparedGain = m_playback.m_audioControls.gainForSource(m_resolved);
                 m_playback.m_engine.prepareNext(m_urls.first(), audioTrack, m_sequence, m_requestId,
                                                 m_revision, m_preparedGain);
@@ -321,6 +342,7 @@ void TrackTransitionController::clear(bool allowRetry)
     m_context.clear();
     m_targetKey.clear();
     m_urls.clear();
+    m_urlAudioTracks.clear();
     m_resolved = {};
     m_privileges = {};
     m_target = {};
@@ -380,8 +402,8 @@ void TrackTransitionController::prepareSource()
         return;
     }
     m_preparedGain = m_playback.m_audioControls.gainForSource(m_resolved);
-    m_playback.m_engine.prepareNext(m_urls.first(), 0, m_sequence, m_requestId, m_revision,
-                                    m_preparedGain);
+    m_playback.m_engine.prepareNext(m_urls.first(), m_urlAudioTracks.value(0), m_sequence,
+                                    m_requestId, m_revision, m_preparedGain);
 }
 bool TrackTransitionController::commit(bool automatic)
 {
@@ -450,6 +472,7 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
     m_requestId = m_probe = m_sequence = 0;
     m_prepared = m_committing = false;
     m_urls.clear();
+    m_urlAudioTracks.clear();
     m_resolved = {};
     m_privileges = {};
     m_target = {};
@@ -464,6 +487,8 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
     p.m_track = track;
     p.m_quality = m_nextQuality;
     p.m_sourceKind = source.value("source_kind").toString("catalog");
+    p.m_sourceEffect = source.value("effect").toString(fallback ? "none" : p.m_songEffect);
+    p.m_sourceNoticeCode = source.value("notice_code").toString();
     p.m_sourcePreference.clear();
     p.m_sourceFailure.clear();
     p.m_mvFailure.clear();
@@ -473,6 +498,7 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
     p.m_trackProbe = 0;
     p.m_probedSource.clear();
     p.m_urls.clear();
+    p.m_urlAudioTracks.clear();
     p.m_urlIndex = 0;
     if (index >= 0) {
         p.queue()->setCurrent(index);
@@ -483,7 +509,7 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
                            {"gain", source.value("gain")}};
     p.m_audioControls.setTrackLoudness(p.m_pendingLoudness);
     p.m_effectFallback = fallback;
-    p.m_appliedEffect = fallback ? QString("none") : p.m_songEffect;
+    p.m_appliedEffect = p.m_sourceEffect;
     p.m_effectError = fallback ? tr("所选音效暂未生效，继续使用原声") : QString();
     p.m_position = qint64(event.value("time").toDouble() * 1000);
     p.m_duration = qint64(source.value("duration_ms").toDouble());
@@ -540,7 +566,7 @@ bool TrackTransitionController::handleEvent(const QJsonObject &event)
                     m_playback.listenTogether()->roomSourceAllowed(m_target)
                         ? m_playback.listenTogether()->roomId()
                         : QString(),
-                    {}, m_playback.m_audioControls.volumeNormalization());
+                    {}, m_playback.m_audioControls.volumeNormalization(), false, true);
             }
         } else if (kind == "next-source-prepared") {
             if (quint64(event.value("next_sequence").toInteger()) != m_sequence)
@@ -548,7 +574,17 @@ bool TrackTransitionController::handleEvent(const QJsonObject &event)
             m_prepared = event.value("prepared").toBool();
             if (m_prepared)
                 m_timeout.stop();
-            else
+            else if (PlaybackSourceRequest::mediaError(event)) {
+                if (!m_urls.isEmpty()) {
+                    m_urls.removeFirst();
+                    if (!m_urlAudioTracks.isEmpty())
+                        m_urlAudioTracks.removeFirst();
+                }
+                if (!m_urls.isEmpty())
+                    prepareSource();
+                else if (!m_source.continueAfterFailure())
+                    failAttempt();
+            } else
                 failAttempt();
         } else if (kind == "next-source-committed" && !event.value("committed").toBool()) {
             const auto automatic = m_commitAutomatic;

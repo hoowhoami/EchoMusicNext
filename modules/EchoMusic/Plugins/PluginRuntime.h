@@ -95,6 +95,10 @@ public:
         return m_root;
     }
     int enabledCount() const;
+    PluginFileService *fileService() const
+    {
+        return m_fileService;
+    }
     Q_INVOKABLE bool setSafeMode(bool enabled);
     /// Discovers direct root children, excluding internal stores, then serializes
     /// transactional local updates and reloads. Uninstall removes owned inputs.
@@ -179,6 +183,8 @@ private:
     QQmlEngine &m_engine;
     QSettings &m_preferences;
     PluginHost m_host;
+    PluginFileService *m_fileService = nullptr;
+    bool m_fileShutdown = false;
     QString m_root, m_sdkError;
     bool m_safeMode = false, m_started = false, m_closing = false, m_closed = false;
     bool m_loadingNotification = false, m_refreshing = false, m_startScanPending = false;

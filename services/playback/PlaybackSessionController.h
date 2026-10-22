@@ -12,7 +12,7 @@ class PlaybackSessionController final
 {
 public:
     explicit PlaybackSessionController(PlaybackService &owner) : m_playback(owner) {}
-    void invalidate();
+    void invalidate(bool preserveLyrics = false);
     void ensureLyrics();
     void requestLyrics();
     void requestEmbeddedMetadata();

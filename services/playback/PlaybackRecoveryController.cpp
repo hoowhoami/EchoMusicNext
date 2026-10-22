@@ -129,7 +129,7 @@ void PlaybackRecoveryController::recover(bool stall)
                 p.m_preferences.compatibilityMode(), p.m_preferences.viperQualityEnabled(),
                 p.m_listenTogether->roomSourceAllowed(p.m_track) ? p.m_listenTogether->roomId()
                                                                  : QString(),
-                p.m_sourcePreference, p.m_audioControls.volumeNormalization());
+                p.m_sourcePreference, p.m_audioControls.volumeNormalization(), true);
     }
     qInfo() << "Playback recovery" << (stall ? "stall" : "resume") << "attempt" << m_attempts
             << "position" << m_target;

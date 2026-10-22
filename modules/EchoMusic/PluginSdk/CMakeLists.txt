@@ -27,6 +27,19 @@ qt_add_qml_module(
     EchoPluginPromise.h
     EchoPluginRegistration.h
     EchoPluginRegistration.cpp
+    EchoPluginAudioSource.h
+    EchoPluginAudioSource.cpp
+    EchoPluginPlaylist.h
+    EchoPluginPlaylist.cpp
+    EchoPluginLyrics.h
+    EchoPluginLyrics.cpp
+    EchoPluginFiles.h
+    EchoPluginFiles.cpp
+    EchoPluginFileIo.cpp
+    EchoPluginFilePicker.h
+    EchoPluginFilePicker.cpp
+    EchoPluginDownloads.h
+    EchoPluginDownloads.cpp
     EchoPluginPlayer.h
     EchoPluginPlayer.cpp
     EchoPluginContext.h
@@ -34,10 +47,34 @@ qt_add_qml_module(
     EchoPluginPresentation.cpp
     EchoPluginUi.h
     EchoPluginUi.cpp
+    EchoPluginUiEntries.cpp
+    EchoPluginNetwork.h
+    EchoPluginNetwork.cpp
+    EchoPluginSqlite.h
+    EchoPluginSqlite.cpp
     EchoPluginIo.h
     EchoPluginIo.cpp
     EchoPluginRegistry.h
     EchoPluginRegistry.cpp
+    EchoPluginShortcuts.h
+    EchoPluginShortcuts.cpp
+    EchoPluginToast.h
+    EchoPluginToast.cpp
+    EchoPluginKugou.h
+    EchoPluginKugou.cpp
+    EchoPluginBusiness_p.h
+    EchoPluginBusinessArguments.cpp
+    EchoPluginBusinessCatalog.cpp
+    EchoPluginBusinessLibrary.cpp
+    EchoPluginBusinessSocial.cpp
+    EchoPluginBusinessAccount.cpp
+    EchoPluginBusinessMedia.cpp
+    EchoPluginLyricEffects.h
+    EchoPluginLyricEffects.cpp
+    EchoPluginScroll.h
+    EchoPluginScroll.cpp
+    EchoPluginTasks.h
+    EchoPluginTasks.cpp
     EchoPluginTask.h
     EchoPluginTask.cpp
     PluginSdkContract.h
@@ -58,7 +95,8 @@ target_link_libraries(
            echo_theme
            echo_playback_service
            echo_account
-    PRIVATE Qt6::Sql Qt6::Network echo_build_options
+    PUBLIC echo_plugin_files
+    PRIVATE Qt6::Sql Qt6::Network Qt6::Widgets echo_build_options
 )
 
 qt_add_resources(echo_plugin_sdk echo_plugin_js PREFIX "/echo/plugins" FILES sdk.mjs)

@@ -252,6 +252,7 @@ inline constexpr QLatin1StringView SuppressDefault{"shortcuts/suppressDefault"};
 namespace Sidebar
 {
 inline constexpr QLatin1StringView EntryOrder{"sidebar/entryOrder"};
+inline constexpr QLatin1StringView CollapsedPluginGroups{"sidebar/pluginCollapsed"};
 inline constexpr QLatin1StringView HiddenEntries{"sidebar/hiddenEntries"};
 inline constexpr QLatin1StringView HiddenGroups{"sidebar/hiddenGroups"};
 inline constexpr QLatin1StringView Prefix{"sidebar/"};
