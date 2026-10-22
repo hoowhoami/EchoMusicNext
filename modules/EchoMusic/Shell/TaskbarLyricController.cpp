@@ -1,4 +1,5 @@
 #include "TaskbarLyricController.h"
+#include <QDateTime>
 #include <QDebug>
 #include <QLoggingCategory>
 #include <optional>
@@ -31,12 +32,18 @@ TaskbarLyricController::TaskbarLyricController(QSettings &settings, QObject *par
     connect(&m_fullscreenPoll, &QTimer::timeout, this, &TaskbarLyricController::refreshFullscreen);
     m_mountWatch.setInterval(150);
     connect(&m_mountWatch, &QTimer::timeout, this, &TaskbarLyricController::watchMount);
-    // The re-parented window needs a fresh paint request to keep the scene
-    // graph presenting; once per frame is what the karaoke timing needs.
+    // The re-parented window loses its exposure, and without a paint request the
+    // scene graph stops presenting - so the strip freezes. Forcing that request
+    // on a fixed 60 Hz schedule instead makes the strip's parent (the shell's
+    // own taskbar window) redraw constantly, and the shell then swallows clicks
+    // meant for its own buttons: the taskbar's minimize toggle started failing
+    // intermittently with the strip enabled (measured 2/4 with the strip, 5/5
+    // without). Frames that flow need no help, so the request is only re-kicked
+    // once the scene graph has actually gone quiet.
     m_exposure.setInterval(16);
     connect(&m_exposure, &QTimer::timeout, this, [this] {
-        if (m_window && m_enabled && m_session.mounted())
-            m_session.refreshExposure();
+        if (m_enabled)
+            kickExposure();
     });
     connect(&m_settingsStore, &TaskbarLyricPreferences::changed, this,
             &TaskbarLyricController::present);
@@ -76,6 +83,13 @@ void TaskbarLyricController::attach(QQuickWindow *window)
     if (m_window == window)
         return;
     m_window = window;
+    // Frames that do arrive silence the exposure re-kick; see the m_exposure
+    // hookup for why the timer must not run unconditionally.
+    if (window) {
+        m_lastFrameMs = QDateTime::currentMSecsSinceEpoch();
+        connect(window, &QQuickWindow::frameSwapped, this,
+                [this] { m_lastFrameMs = QDateTime::currentMSecsSinceEpoch(); });
+    }
     syncMounted();
 }
 
@@ -303,6 +317,19 @@ void TaskbarLyricController::setStripAlpha(int alpha)
 #endif
 }
 
+void TaskbarLyricController::kickExposure()
+{
+    // Frames that flow need no help: a forced paint request is exactly what the
+    // strip's parent window - the shell's own taskbar - has to redraw, and the
+    // shell then swallows clicks meant for its own buttons (the taskbar's
+    // minimize toggle started failing intermittently with the strip enabled).
+    if (!m_window || !m_session.mounted())
+        return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_lastFrameMs > 0 && now - m_lastFrameMs < kFrameQuietMs)
+        return;
+    m_session.refreshExposure();
+}
 void TaskbarLyricController::watchMount()
 {
 #ifdef Q_OS_WIN
@@ -315,7 +342,7 @@ void TaskbarLyricController::watchMount()
     }
     // The cross process re-parent drops the toolkit exposure; without it the
     // scene graph stops presenting frames and the strip freezes.
-    m_session.refreshExposure();
+    kickExposure();
     // Native hover tracking: the control buttons grab the mouse, so a QML
     // hover would flip between expanded and collapsed while the pointer rests
     // on a button.

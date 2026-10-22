@@ -143,6 +143,9 @@ private:
     void present();
     void refreshFullscreen();
     void syncMounted();
+    /// Re-kicks the paint request that keeps the re-parented strip presenting,
+    /// but only when the scene graph has actually gone quiet.
+    void kickExposure();
     QSettings &m_settings;
     TaskbarLyricPreferences m_settingsStore;
     WindowsTaskbarLyric m_session;
@@ -151,6 +154,10 @@ private:
     QTimer m_fullscreenPoll;
     QTimer m_mountWatch;
     QTimer m_exposure;
+    /// Timestamp of the last presented frame. The exposure re-kick exists for
+    /// frames that stopped arriving, so a frame that did arrive silences it.
+    static constexpr qint64 kFrameQuietMs = 120;
+    qint64 m_lastFrameMs = 0;
     bool m_enabled = false;
     bool m_dark = false;
     bool m_hiddenByFullscreen = false;
