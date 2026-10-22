@@ -2,6 +2,7 @@
 #include "HyprlandWindowBackdrop.h"
 #ifdef Q_OS_WIN
 #include "WindowsWindowBackdrop.h"
+#include <QOperatingSystemVersion>
 #endif
 #include <QGuiApplication>
 #include <QWindow>
@@ -37,6 +38,16 @@ WindowBackdrop::~WindowBackdrop()
 {
 #ifdef Q_OS_MACOS
     releaseMacBackdrop(m_effect);
+#endif
+}
+Qt::WindowFlags WindowBackdrop::mainWindowFlags()
+{
+#ifdef Q_OS_WIN
+    return WindowsWindowBackdrop::windowFlags(QOperatingSystemVersion::current().microVersion());
+#elif defined(Q_OS_MACOS)
+    return Qt::Window | Qt::ExpandedClientAreaHint | Qt::NoTitleBarBackgroundHint;
+#else
+    return Qt::Window | Qt::FramelessWindowHint;
 #endif
 }
 void WindowBackdrop::attach(QWindow *window)

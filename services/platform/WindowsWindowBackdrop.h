@@ -15,6 +15,7 @@ class WindowsWindowBackdrop final : public QObject, public QAbstractNativeEventF
 public:
     WindowsWindowBackdrop();
     ~WindowsWindowBackdrop() override;
+    static Qt::WindowFlags windowFlags(int build);
     void attach(QWindow *window);
     bool supported() const;
     QString apply(bool enabled, bool dark);
@@ -27,7 +28,7 @@ private:
     void clear();
     bool accent(int state);
     bool material(bool enabled);
-    void applyCorners();
+    void applyWindowPolicy();
     void queueRepair();
     QMetaObject::Connection m_visibilityConnection;
     QPointer<QWindow> m_window;

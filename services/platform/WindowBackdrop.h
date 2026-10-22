@@ -18,6 +18,8 @@ class WindowBackdrop final : public QObject
 public:
     explicit WindowBackdrop(bool native);
     ~WindowBackdrop();
+    /// Select before native creation; appearance changes keep the same surface.
+    static Qt::WindowFlags mainWindowFlags();
     void attach(QWindow *window);
     bool supported() const;
     QString apply(bool enabled, bool dark, int transparency = 0);

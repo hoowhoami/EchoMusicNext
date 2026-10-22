@@ -74,6 +74,17 @@ WindowsWindowBackdrop::~WindowsWindowBackdrop()
         qApp->removeNativeEventFilter(this);
     clear();
 }
+Qt::WindowFlags WindowsWindowBackdrop::windowFlags(int build)
+{
+    if (build >= 22621) {
+        // Alpha + FramelessWindowHint makes Qt use WS_EX_LAYERED, which cannot
+        // receive the system backdrop. Keep the native frame and let the client
+        // occupy it; CustomizeWindowHint leaves caption painting to QML.
+        return Qt::Window | Qt::ExpandedClientAreaHint | Qt::NoTitleBarBackgroundHint |
+               Qt::CustomizeWindowHint | Qt::WindowSystemMenuHint;
+    }
+    return Qt::Window | Qt::FramelessWindowHint;
+}
 void WindowsWindowBackdrop::attach(QWindow *window)
 {
     const auto handle = window ? reinterpret_cast<HWND>(window->winId()) : nullptr;
@@ -86,12 +97,19 @@ void WindowsWindowBackdrop::attach(QWindow *window)
     if (window)
         m_visibilityConnection =
             connect(window, &QWindow::visibilityChanged, this, [this] { queueRepair(); });
-    applyCorners();
+    applyWindowPolicy();
 }
-void WindowsWindowBackdrop::applyCorners()
+void WindowsWindowBackdrop::applyWindowPolicy()
 {
     if (m_build < 22000 || !m_handle || !IsWindow(m_handle))
         return;
+    if (m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint) &&
+        m_window->flags().testFlag(Qt::CustomizeWindowHint)) {
+        // Qt disables SC_CLOSE when CustomizeWindowHint omits its native close
+        // button. The QML caption still needs the system menu and Alt+F4.
+        if (const auto menu = GetSystemMenu(m_handle, FALSE))
+            EnableMenuItem(menu, SC_CLOSE, MF_BYCOMMAND | MF_ENABLED);
+    }
     // Frameless Qt windows do not qualify for DWM's automatic heuristics.
     // This documented opt-in is independent of the user's Acrylic preference;
     // DWM still owns square maximized/snapped/full-screen corners.
@@ -113,8 +131,10 @@ bool WindowsWindowBackdrop::accent(int state)
     const auto api = compositionApi();
     if (!api)
         return state == 0;
-    // Use the default non-persistent Accent Acrylic tint while preserving Qt alpha composition.
-    AccentPolicy policy{state, 0, state == 4 ? DWORD(0x01000000) : DWORD(0), 0};
+    // Accent's ABGR tint needs real alpha on the legacy layered path. An almost
+    // transparent tint can leave only desktop transparency instead of Acrylic.
+    const DWORD tint = m_dark ? 0x8c545454 : 0x8cd3d3d3;
+    AccentPolicy policy{state, 0, state == 4 ? tint : DWORD(0), 0};
     CompositionAttribute data{19, &policy, sizeof(policy)};
     return api(m_handle, &data);
 }
@@ -135,10 +155,10 @@ QString WindowsWindowBackdrop::apply(bool enabled, bool dark)
     if (enabled == m_enabled && dark == m_dark)
         return m_error;
     const BOOL darkMode = dark;
+    m_dark = dark;
     // DWM's built-in tint follows the resolved light/dark variant.
     DwmSetWindowAttribute(m_handle, 20, &darkMode, sizeof(darkMode));
     const bool ok = m_build >= 22621 ? material(enabled) : accent(enabled && !m_suspended ? 4 : 0);
-    m_dark = dark;
     if (!ok) {
         if (m_build >= 22621)
             material(false);
@@ -156,24 +176,24 @@ QString WindowsWindowBackdrop::apply(bool enabled, bool dark)
 }
 bool WindowsWindowBackdrop::material(bool enabled)
 {
-    // Qt6.12 qwindowswindow.cpp enables DWM_BB for alpha-capable accelerated
-    // windows. That alpha description masks the system backdrop. D3D11 keeps
-    // its premultiplied DirectComposition swapchain, so suspend only DWM_BB
-    // while system Acrylic owns the backdrop and restore Qt's description on exit.
-    // A frameless window has no non-client frame for DWM to paint the material
-    // into, so the client area must extend the frame while the material is active.
+    // The main window is non-layered from creation on this OS path. Keep its
+    // alpha-capable swapchain, but suspend Qt's DWM_BB while Acrylic owns the
+    // extended frame. Restore the window's own frame policy when clearing it.
+    const bool expanded = m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint);
     if (enabled) {
+        if (GetWindowLongPtrW(m_handle, GWL_EXSTYLE) & WS_EX_LAYERED)
+            return false;
         if (!extendFrame(m_handle, true))
             return false;
         if (!alphaBehind(m_handle, false) || !systemMaterial(m_handle, 3)) {
-            extendFrame(m_handle, false);
+            extendFrame(m_handle, expanded);
             return false;
         }
         refreshFrame(m_handle);
         return true;
     }
     const bool cleared = systemMaterial(m_handle, 1);
-    const bool framed = extendFrame(m_handle, false);
+    const bool framed = extendFrame(m_handle, expanded);
     const bool restored = alphaBehind(m_handle, true);
     refreshFrame(m_handle);
     return cleared && framed && restored;
@@ -191,7 +211,7 @@ void WindowsWindowBackdrop::queueRepair()
         this,
         [this] {
             m_repairQueued = false;
-            applyCorners();
+            applyWindowPolicy();
             if (m_enabled && m_build >= 22621 && m_window && m_handle && IsWindow(m_handle)) {
                 if (material(true)) {
                     m_error.clear();

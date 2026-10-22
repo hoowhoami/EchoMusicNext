@@ -104,7 +104,7 @@ ApplicationWindow {
     minimumHeight: 650
     visible: true
     title: "EchoMusicNext"
-    flags: Qt.platform.os === "osx" ? Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint : Qt.Window | Qt.FramelessWindowHint
+    flags: windowService.mainWindowFlags
     topPadding: 0
     bottomPadding: 0
     leftPadding: 0

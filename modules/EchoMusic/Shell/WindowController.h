@@ -40,6 +40,7 @@ class WindowController final : public QObject
     Q_PROPERTY(bool supportsWindowFrost READ supportsWindowFrost NOTIFY changed)
     Q_PROPERTY(QString appearanceError READ appearanceError NOTIFY changed)
     Q_PROPERTY(bool macOS READ macOS CONSTANT)
+    Q_PROPERTY(Qt::WindowFlags mainWindowFlags READ mainWindowFlags CONSTANT)
     Q_PROPERTY(QRectF nativeCaptionBounds READ nativeCaptionBounds NOTIFY changed)
 public:
     WindowController(QSettings &settings, bool persist, QObject *parent = nullptr);
@@ -93,6 +94,10 @@ public:
         return m_systemError;
     }
     bool macOS() const;
+    Qt::WindowFlags mainWindowFlags() const
+    {
+        return WindowBackdrop::mainWindowFlags();
+    }
     bool supportsWindowFrost() const
     {
         return m_backdrop.supported();

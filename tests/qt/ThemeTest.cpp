@@ -42,6 +42,11 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
+#ifdef Q_OS_WIN
+#include "WindowsWindowBackdrop.h"
+#include <QOperatingSystemVersion>
+#include <dwmapi.h>
+#endif
 #ifdef Q_OS_MACOS
 QVariantMap nativeWindowAppearance(QWindow *window);
 QVariantList nativeSystemCaptionFrames(QWindow *window);
@@ -793,6 +798,96 @@ elif sys.argv[1] == 'dispatch':
                 }
             }
         }
+    }
+    void mainWindowCompositionFlags()
+    {
+        ThemeSession session;
+        QVERIFY(session.create());
+        QCOMPARE(session.window->flags(), session.windows.mainWindowFlags());
+#ifdef Q_OS_WIN
+        for (int build : {17763, 19045, 22000, 22620, 22621, 26100}) {
+            const auto flags = WindowsWindowBackdrop::windowFlags(build);
+            QCOMPARE(flags.testFlag(Qt::FramelessWindowHint), build < 22621);
+            QCOMPARE(flags.testFlag(Qt::ExpandedClientAreaHint), build >= 22621);
+            QCOMPARE(flags.testFlag(Qt::NoTitleBarBackgroundHint), build >= 22621);
+            QCOMPARE(flags.testFlag(Qt::CustomizeWindowHint), build >= 22621);
+            QVERIFY(!flags.testFlag(Qt::WindowCloseButtonHint));
+        }
+#elif defined(Q_OS_MACOS)
+        QVERIFY(session.window->flags().testFlag(Qt::ExpandedClientAreaHint));
+        QVERIFY(!session.window->flags().testFlag(Qt::CustomizeWindowHint));
+#else
+        QVERIFY(session.window->flags().testFlag(Qt::FramelessWindowHint));
+#endif
+    }
+    void windowsMainWindowMaterialKeepsNativeFrame()
+    {
+#ifndef Q_OS_WIN
+        QSKIP("Requires Windows 11 22H2+ and native DWM composition");
+#else
+        if (QGuiApplication::platformName() != "windows" ||
+            QOperatingSystemVersion::current().microVersion() < 22621)
+            QSKIP("Requires Windows 11 22H2+ and native DWM composition");
+        QQuickWindow window;
+        auto format = window.format();
+        format.setAlphaBufferSize(8);
+        window.setFormat(format);
+        window.setFlags(WindowBackdrop::mainWindowFlags());
+        window.setColor(Qt::transparent);
+        window.resize(480, 320);
+        window.show();
+        QVERIFY(Test::prepareNativeInput(&window));
+        WindowBackdrop backdrop(true);
+        backdrop.attach(&window);
+        QVERIFY(backdrop.supported());
+        const auto handle = reinterpret_cast<HWND>(window.winId());
+        const auto nonLayered = [&] {
+            return !(GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_LAYERED);
+        };
+        const auto hasFrame = [&] {
+            return (GetWindowLongPtrW(handle, GWL_STYLE) & WS_THICKFRAME) != 0;
+        };
+        const auto materialType = [&] {
+            int material = 0;
+            return SUCCEEDED(DwmGetWindowAttribute(handle, 38, &material, sizeof(material)))
+                       ? material
+                       : -1;
+        };
+        QVERIFY(nonLayered());
+        QVERIFY(hasFrame());
+        for (bool dark : {false, true}) {
+            for (bool enabled : {true, false, true, false}) {
+                QVERIFY2(backdrop.apply(enabled, dark).isEmpty(), "Native material rejected");
+                QCoreApplication::processEvents();
+                QCOMPARE(materialType(), enabled ? 3 : 1);
+                QVERIFY(nonLayered());
+                QVERIFY(hasFrame());
+                QCOMPARE(reinterpret_cast<HWND>(window.winId()), handle);
+                const auto menu = GetSystemMenu(handle, FALSE);
+                QVERIFY(menu);
+                const auto closeState = GetMenuState(menu, SC_CLOSE, MF_BYCOMMAND);
+                QVERIFY(closeState != UINT(-1));
+                QVERIFY(!(closeState & (MF_DISABLED | MF_GRAYED)));
+            }
+        }
+        QVERIFY(backdrop.apply(true, true).isEmpty());
+        // Qt reinitializes frame/alpha policy on native style changes.
+        window.setFlag(Qt::WindowStaysOnTopHint, true);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(materialType(), 3);
+        QVERIFY(nonLayered());
+        window.hide();
+        window.show();
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(materialType(), 3);
+        QVERIFY(nonLayered());
+        QVERIFY(hasFrame());
+        QCOMPARE(reinterpret_cast<HWND>(window.winId()), handle);
+        backdrop.attach(nullptr);
+        QCOMPARE(materialType(), 1);
+        QVERIFY(nonLayered());
+        QVERIFY(hasFrame());
+#endif
     }
     void nativeWindowMaterialKeepsQtWindowOwnership()
     {
