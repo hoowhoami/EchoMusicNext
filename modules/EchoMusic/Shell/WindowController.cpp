@@ -12,6 +12,8 @@
 #include <QScreen>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QLoggingCategory>
+#include <QQuickItem>
 #include <QSystemTrayIcon>
 #include <QMenu>
 #include <QIcon>
@@ -20,11 +22,36 @@ namespace EchoMusic
 {
 namespace
 {
+Q_LOGGING_CATEGORY(pointerLog, "echo.shell.pointer")
 Qt::WindowState restoreState(Qt::WindowStates states)
 {
     if (states.testFlag(Qt::WindowFullScreen))
         return Qt::WindowFullScreen;
     return states.testFlag(Qt::WindowMaximized) ? Qt::WindowMaximized : Qt::WindowNoState;
+}
+// After a click the window overlay can keep the mouse grab even though no button
+// is down and no popup is open. While the overlay holds that grab, Qt Quick stops
+// delivering hover events to the scene: every hover effect in the window freezes
+// until the window is hidden and shown again. Presses the scene does not claim
+// are routed to the overlay, and a release that the grabbed item consumes never
+// reaches it, so the grab is left behind. Drop it once the buttons are up and no
+// popup is actually open (an open popup is a visible child of the overlay).
+QQuickItem *staleOverlayGrabber(QQuickWindow *window)
+{
+    if (!window || QGuiApplication::mouseButtons() != Qt::NoButton)
+        return nullptr;
+    QQuickItem *grabber = window->mouseGrabberItem();
+    // QQuickOverlay is a private Qt Quick type; match it by name instead of
+    // pulling in private headers for a single runtime check.
+    const QLatin1String overlayClass("QQuickOverlay");
+    if (!grabber || QLatin1String(grabber->metaObject()->className()) != overlayClass)
+        return nullptr;
+    const auto children = grabber->childItems();
+    for (auto *child : children) {
+        if (child->isVisible())
+            return nullptr;
+    }
+    return grabber;
 }
 } // namespace
 #ifdef Q_OS_MACOS
@@ -633,6 +660,12 @@ void WindowController::applyStartupVisibility()
 }
 bool WindowController::eventFilter(QObject *watched, QEvent *event)
 {
+    if (watched == m_window && event->type() == QEvent::MouseMove) {
+        if (auto *grabber = staleOverlayGrabber(m_window)) {
+            grabber->ungrabMouse();
+            qCDebug(pointerLog) << "released stale overlay mouse grab";
+        }
+    }
     if (watched == m_window && event->type() == QEvent::Close && !m_shuttingDown && m_closeToTray &&
         trayAvailable()) {
         static_cast<QCloseEvent *>(event)->ignore();
