@@ -39,6 +39,14 @@ DoubleSpinBox {
         if (value !== previous)
             valueModified();
     }
+    // Commit and park the focus on an invisible scope of this control: the
+    // caret stops without moving focus back and forth against the spin box's
+    // own focus handling (a fight that spins the event loop). A press outside
+    // the text field (see SpinBoxCommitFilter) and Enter both commit this way.
+    function commitDraft(): void {
+        commit();
+        park.forceActiveFocus();
+    }
     property int size: EchoControlSize.Standard
     readonly property bool canIncrease: enabled && (wrap || (from < to ? value < to : value > to))
     readonly property bool canDecrease: enabled && (wrap || (from < to ? value > from : value < from))
@@ -56,7 +64,23 @@ DoubleSpinBox {
         objectName: "numberInputField"
         selectByMouse: true
         // Qt commits and emits valueModified for Return; consumers read after it.
-        onAccepted: Qt.callLater(() => control.accepted())
+        onAccepted: {
+            // Enter commits the draft and clears the caret.
+            control.commitDraft();
+            control.accepted();
+        }
+        onActiveFocusChanged: {
+            // Leaving the field commits the draft and restores the display
+            // binding for every spin box, so a typed number is never lost.
+            if (!activeFocus)
+                control.commit();
+        }
+        Keys.onEscapePressed: function (event) {
+            // Escape discards the draft and parks the focus.
+            text = Qt.binding(() => control.textFromValue(control.value, control.decimals, control.locale));
+            control.commitDraft();
+            event.accepted = true;
+        }
         text: control.textFromValue(control.value, control.decimals, control.locale)
         color: control.colors.text
         selectionColor: control.colors.accent
@@ -68,6 +92,16 @@ DoubleSpinBox {
         inputMethodHints: Qt.ImhFormattedNumbersOnly
         clip: true
     }
+    // Invisible focus target: a committed field parks here, so the caret
+    // stops blinking even though no other control took the focus.
+    FocusScope {
+        id: park
+        visible: true
+        opacity: 0
+        width: 0
+        height: 0
+    }
+
     Label {
         id: unit
         visible: control.suffix.length > 0
