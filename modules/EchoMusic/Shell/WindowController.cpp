@@ -38,9 +38,11 @@ QObject *createMacDockMenuOwner(WindowController *controller, std::function<QMen
 #endif
 WindowController::WindowController(QSettings &settings, bool persist, QObject *parent)
     : QObject(parent), m_settings(settings), m_floating(settings, persist, this),
-      m_persist(persist), m_startup(persist), m_backdrop(persist)
+      m_taskbar(settings, this), m_persist(persist), m_startup(persist), m_backdrop(persist)
 {
     connect(&m_floating, &FloatingPlayerController::mainRequested, this,
+            &WindowController::showWindow);
+    connect(&m_taskbar, &TaskbarLyricController::openMainRequested, this,
             &WindowController::showWindow);
     connect(&m_floating, &FloatingPlayerController::miniEntered, this, [this] {
         m_restoreMini = true;

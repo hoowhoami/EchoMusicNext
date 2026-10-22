@@ -39,6 +39,10 @@ public:
     Q_INVOKABLE int nextVisible(int index) const;
     void setFilter(bool enabled, const QString &pattern);
     Q_INVOKABLE int indexAt(qint64 positionMs) const;
+    /// The line a strip should show at this playback position: the visible line
+    /// under the playhead, or the first visible line when the lyric has no
+    /// timeline to follow. One call, so call sites never walk the model.
+    Q_INVOKABLE int visibleIndexAt(qint64 positionMs) const;
     Q_INVOKABLE qint64 startAt(int index) const;
     Q_INVOKABLE qint64 durationAt(int index) const;
     /// Latest ending among all rows through index, including the lyric offset.

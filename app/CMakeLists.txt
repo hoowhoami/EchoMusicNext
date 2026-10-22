@@ -32,7 +32,16 @@ if(NOT APPLE)
     else()
         set(ECHO_APP_ICON assets/linux-icon.png)
     endif()
-    qt_add_resources(echomusicnext echo_application_icon PREFIX /echo/app FILES ${ECHO_APP_ICON})
+    # The taskbar lyric strip falls back to qrc:/echo/app/linux-icon.png when
+    # nothing is playing, so that file has to be in the resource even where the
+    # app icon is something else. On Linux it already is the app icon: listing
+    # it twice would put a duplicate entry in the generated .qrc.
+    set(ECHO_APP_RESOURCES ${ECHO_APP_ICON})
+    if(NOT ECHO_APP_ICON STREQUAL "assets/linux-icon.png")
+        list(APPEND ECHO_APP_RESOURCES assets/linux-icon.png)
+    endif()
+    qt_add_resources(echomusicnext echo_application_icon
+        PREFIX /echo/app FILES ${ECHO_APP_RESOURCES})
     target_compile_definitions(
         echomusicnext PRIVATE ECHO_APP_ICON_PATH=":/echo/app/${ECHO_APP_ICON}"
     )
