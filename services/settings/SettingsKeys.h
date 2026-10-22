@@ -60,6 +60,20 @@ inline constexpr QLatin1StringView DesktopPrefix{"floating/desktop/"};
 inline constexpr QLatin1StringView MiniAnchor{"floating/mini/anchor"};
 inline constexpr QLatin1StringView MiniPrefix{"floating/mini/"};
 } // namespace Floating
+namespace Taskbar
+{
+inline constexpr QLatin1StringView Enabled{"taskbar/enabled"};
+inline constexpr QLatin1StringView Prefix{"taskbar/"};
+} // namespace Taskbar
+namespace TaskbarFields
+{
+inline constexpr QLatin1StringView Position{"position"};
+inline constexpr QLatin1StringView MaxWidth{"maxWidth"};
+inline constexpr QLatin1StringView FontSize{"fontSize"};
+inline constexpr QLatin1StringView ShowTranslation{"showTranslation"};
+inline constexpr QLatin1StringView WordByWord{"wordByWord"};
+inline constexpr QLatin1StringView DragOffsetX{"dragOffsetX"};
+} // namespace TaskbarFields
 namespace FloatingFields
 {
 inline constexpr QLatin1StringView Alignment{"alignment"};
