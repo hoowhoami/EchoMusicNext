@@ -109,6 +109,16 @@ void WindowsWindowBackdrop::applyWindowPolicy()
         // button. The QML caption still needs the system menu and Alt+F4.
         if (const auto menu = GetSystemMenu(m_handle, FALSE))
             EnableMenuItem(menu, SC_CLOSE, MF_BYCOMMAND | MF_ENABLED);
+        // Qt's flags leave the minimize/maximize buttons out (the QML caption
+        // draws its own), but the shell is stricter: it only toggles the window
+        // from its taskbar button when the native style carries WS_MINIMIZEBOX.
+        // Setting the bits on the native window only - without ever handing them
+        // to Qt - keeps the QML caption the sole painter, so no native buttons
+        // appear, while the taskbar toggle and the system menu entries work.
+        const LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_STYLE);
+        const LONG_PTR withButtons = style | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+        if (style != withButtons)
+            SetWindowLongPtrW(m_handle, GWL_STYLE, withButtons);
     }
     // Frameless Qt windows do not qualify for DWM's automatic heuristics.
     // This documented opt-in is independent of the user's Acrylic preference;
