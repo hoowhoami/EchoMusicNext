@@ -23,6 +23,7 @@ class EchoImageMetrics : public QObject
     Q_PROPERTY(QSizeF minimumSize READ minimumSize WRITE setMinimumSize NOTIFY minimumSizeChanged)
     Q_PROPERTY(QSize pixelSize READ pixelSize NOTIFY metricsChanged)
     Q_PROPERTY(QSize decodeSize READ decodeSize NOTIFY metricsChanged)
+    Q_PROPERTY(QSize deviceSize READ deviceSize NOTIFY metricsChanged)
     Q_PROPERTY(QUrl resolvedSource READ resolvedSource NOTIFY metricsChanged)
 public:
     explicit EchoImageMetrics(QObject *parent = nullptr) : QObject(parent) {}
@@ -42,6 +43,10 @@ public:
     QSize pixelSize() const
     {
         return m_pixels;
+    }
+    QSize deviceSize() const
+    {
+        return m_deviceSize;
     }
     QSizeF minimumSize() const
     {
@@ -71,7 +76,7 @@ private:
     QSharedPointer<EchoImageTransformObserver> m_observer;
     QList<QMetaObject::Connection> m_connections;
     QUrl m_source;
-    QSize m_pixels, m_decodePixels;
+    QSize m_pixels, m_decodePixels, m_deviceSize;
     QSizeF m_minimumSize;
     bool m_active = true;
 };
