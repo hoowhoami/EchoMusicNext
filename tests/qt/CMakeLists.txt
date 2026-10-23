@@ -129,6 +129,10 @@ qt_add_executable(echo-taskbar-lyric-preferences-test TaskbarLyricPreferencesTes
 target_link_libraries(echo-taskbar-lyric-preferences-test PRIVATE echo_shell Qt6::Test)
 add_test(NAME taskbar-lyric-preferences COMMAND echo-taskbar-lyric-preferences-test)
 set_tests_properties(taskbar-lyric-preferences PROPERTIES TIMEOUT 20)
+qt_add_executable(echo-taskbar-progress-state-test TaskbarProgressStateTest.cpp)
+target_link_libraries(echo-taskbar-progress-state-test PRIVATE echo_platform Qt6::Test)
+add_test(NAME taskbar-progress-state COMMAND echo-taskbar-progress-state-test)
+set_tests_properties(taskbar-progress-state PROPERTIES TIMEOUT 20)
 qt_add_executable(echo-cast-discovery-test CastDiscoveryTest.cpp)
 qt_add_executable(echo-cast-media-test CastMediaTest.cpp)
 target_link_libraries(

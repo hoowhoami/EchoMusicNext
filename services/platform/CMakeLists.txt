@@ -17,10 +17,22 @@ add_library(
     HyprlandWindowBackdrop.cpp
     BrowserWindowLauncher.h
     BrowserWindowLauncher.cpp
+    TaskbarProgressState.h
+    TaskbarProgressState.cpp
+    # Shared Win32 plumbing for the taskbar adapters (COM acquisition and GDI
+    # conversions); callers only exist inside Q_OS_WIN blocks.
+    WindowsTaskbarInterop.h
+    WindowsTaskbarInterop.cpp
     # Shell owns this adapter on every platform; its implementation supplies
     # non-Windows no-ops as well as the Windows mount.
     WindowsTaskbarLyric.h
     WindowsTaskbarLyric.cpp
+    WindowsTaskbarProgress.h
+    WindowsTaskbarProgress.cpp
+    WindowsTaskbarThumbar.h
+    WindowsTaskbarThumbar.cpp
+    WindowsTaskbarThumbnail.h
+    WindowsTaskbarThumbnail.cpp
 )
 target_compile_definitions(echo_platform PRIVATE ECHO_APPLICATION_ID="${ECHO_APPLICATION_ID}")
 qt_extract_metatypes(echo_platform)
