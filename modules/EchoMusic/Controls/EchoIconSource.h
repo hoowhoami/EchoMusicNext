@@ -32,6 +32,11 @@ public:
     // engine-local provider installation.
     explicit EchoIconSource(QObject *parent) : QObject(parent) {}
     static EchoIconSource *create(QQmlEngine *engine, QJSEngine *scriptEngine);
+    /// The bundled SVG resource for a glyph name, or empty when the name is not
+    /// a valid glyph or the file is missing. Native surfaces that cannot go
+    /// through the image provider (e.g. the taskbar toolbar) resolve the same
+    /// artwork through here.
+    static QString iconResourcePath(const QString &glyph);
     Q_INVOKABLE QUrl urlFor(const QString &glyph, const QColor &color) const;
     Q_INVOKABLE QPointF visualCenter(const QString &glyph, const QSizeF &size) const;
 };

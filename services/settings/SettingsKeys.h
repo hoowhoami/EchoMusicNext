@@ -303,6 +303,8 @@ inline constexpr QLatin1StringView HideMenuBarInBackground{"window/hideMenuBarIn
 inline constexpr QLatin1StringView NormalGeometry{"window/normalGeometry"};
 inline constexpr QLatin1StringView RememberSize{"window/rememberSize"};
 inline constexpr QLatin1StringView StartMinimized{"window/startMinimized"};
+inline constexpr QLatin1StringView TaskbarCoverPreview{"window/taskbarCoverPreview"};
+inline constexpr QLatin1StringView TaskbarProgress{"window/taskbarProgress"};
 } // namespace Window
 namespace Cloud
 {

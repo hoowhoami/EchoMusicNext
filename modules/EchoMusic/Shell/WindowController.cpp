@@ -65,7 +65,8 @@ QObject *createMacDockMenuOwner(WindowController *controller, std::function<QMen
 #endif
 WindowController::WindowController(QSettings &settings, bool persist, QObject *parent)
     : QObject(parent), m_settings(settings), m_floating(settings, persist, this),
-      m_taskbar(settings, this), m_persist(persist), m_startup(persist), m_backdrop(persist)
+      m_taskbar(settings, this), m_taskbarButton(settings, this), m_persist(persist),
+      m_startup(persist), m_backdrop(persist)
 {
     connect(&m_floating, &FloatingPlayerController::mainRequested, this,
             &WindowController::showWindow);
@@ -157,6 +158,7 @@ void WindowController::attach(QQuickWindow *window)
             emit mainWindowActivated();
     });
     m_backdrop.attach(window);
+    m_taskbarButton.attach(window);
     if (qEnvironmentVariableIntValue("ECHO_RENDER_DIAGNOSTICS") == 1)
         new WindowPresentationDiagnostics(window);
     window->installEventFilter(this);
@@ -247,6 +249,7 @@ void WindowController::attachPlayback(PlaybackService &playback)
 {
     Q_ASSERT(!m_playback);
     m_playback = &playback;
+    m_taskbarButton.attachPlayback(playback);
 }
 void WindowController::activateTray(int reason)
 {
@@ -495,6 +498,7 @@ void WindowController::setAppearance(bool frosted, bool dark, int transparency)
     m_frosted = frosted;
     m_dark = dark;
     m_transparency = qBound(0, transparency, 100);
+    m_taskbarButton.setDark(dark);
     const auto error = m_backdrop.apply(frosted, dark, m_transparency);
     if (m_appearanceError != error) {
         m_appearanceError = error;
