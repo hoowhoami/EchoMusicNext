@@ -48,6 +48,10 @@ public:
     {
         return window.createDockMenu();
     }
+    static QMenu *createTaskbarLyric(WindowController &window)
+    {
+        return window.createTaskbarLyricMenu();
+    }
     static void activate(WindowController &window, QSystemTrayIcon::ActivationReason reason)
     {
         window.activateTray(int(reason));
@@ -98,8 +102,17 @@ private slots:
         // can fetch GetLayout without sending AboutToShow or activated(Context).
         QVERIFY(find(model, "打开主窗口"));
         QVERIFY(find(model, "播放"));
-        QPointer<QMenu> modes = find(model, "播放模式")->menu();
-        QCOMPARE(modes->actions().size(), 4);
+        // The exported tray menu carries the playback modes as a titled group,
+        // not a submenu: the shell shows this menu as a native menu, and its
+        // converter hoists a submenu's items to the front of the parent, which
+        // would put them above the window commands.
+        QVERIFY(find(model, "播放模式"));
+        QVERIFY(!find(model, "播放模式")->menu());
+        QVERIFY(!find(model, "播放模式")->isEnabled());
+        for (const auto *label : {"顺序播放", "列表循环", "随机播放", "单曲循环"}) {
+            QVERIFY(find(model, label));
+            QVERIFY(find(model, label)->isCheckable());
+        }
         const auto actions = model->actions();
         QSignalSpy opening(&window, &WindowController::nativeMenuOpening);
         QSignalSpy quitting(&window, &WindowController::quitRequested);
@@ -118,29 +131,27 @@ private slots:
             QVERIFY(find(model, "音量 45%"));
             PlaybackServiceTestAccess::setPlaying(playback, true);
             QVERIFY(find(model, "暂停"));
-            find(modes, "随机播放")->trigger();
+            find(model, "随机播放")->trigger();
             QCOMPARE(playback.playMode(), PlaybackService::Shuffle);
-            QVERIFY(find(modes, "随机播放")->isChecked());
+            QVERIFY(find(model, "随机播放")->isChecked());
             // Qt maps a D-BusMenu root 'closed' event to aboutToHide. Remote
             // close must not invalidate the panel's cached action IDs/model.
             QVERIFY(QMetaObject::invokeMethod(model, "aboutToHide", Qt::DirectConnection));
             deferredDeletes();
             QCOMPARE(tray->contextMenu(), model.data());
             QCOMPARE(model->actions(), actions);
-            QVERIFY(modes);
             PlaybackServiceTestAccess::setPlaying(playback, false);
             playback.setPlayMode(PlaybackService::ListLoop);
             QVERIFY(find(model, "播放"));
-            QVERIFY(find(modes, "列表循环")->isChecked());
+            QVERIFY(find(model, "列表循环")->isChecked());
             NativeMenusTestAccess::activate(window, QSystemTrayIcon::Trigger);
             QVERIFY(main.isVisible());
         }
-        find(model, "退出")->trigger();
+        find(model, "退出EchoMusic")->trigger();
         QCOMPARE(quitting.size(), 1);
         window.shutdown();
         QVERIFY(!tray->contextMenu());
         QVERIFY(!model);
-        QVERIFY(!modes);
         NativeMenusTestAccess::activate(window, QSystemTrayIcon::Context);
         QVERIFY(!NativeMenusTestAccess::menu(window));
         QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
@@ -148,6 +159,32 @@ private slots:
         api.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
         QTRY_COMPARE_WITH_TIMEOUT(apiClosed.size(), 1, 15000);
+    }
+    void taskbarLyricMenuDisablesTheStripAboveQuit()
+    {
+        QTemporaryDir dir;
+        QSettings settings(dir.filePath("lyric-menu.ini"), QSettings::IniFormat);
+        WindowController window(settings, false);
+        window.taskbar()->setEnabled(true);
+        QSignalSpy quitting(&window, &WindowController::quitRequested);
+
+        QMenu *menu = NativeMenusTestAccess::createTaskbarLyric(window);
+        QVERIFY(menu);
+        // The strip's own menu: reach the app, reach its settings, then the two
+        // commands that take the strip away.
+        QStringList labels;
+        for (auto *action : menu->actions())
+            labels.append(action->isSeparator() ? QStringLiteral("-") : action->text());
+        QCOMPARE(labels, QStringList({QStringLiteral("打开主窗口"), QStringLiteral("打开设置页"),
+                                      QStringLiteral("-"), QStringLiteral("关闭任务栏歌词"),
+                                      QStringLiteral("退出EchoMusic")}));
+
+        find(menu, QStringLiteral("关闭任务栏歌词"))->trigger();
+        QVERIFY(!window.taskbar()->enabled());
+        find(menu, QStringLiteral("退出EchoMusic"))->trigger();
+        QCOMPARE(quitting.size(), 1);
+        menu->deleteLater();
+        deferredDeletes();
     }
     void cocoaDockUsesFreshStateAndReleasesRecipes()
     {
@@ -180,7 +217,7 @@ private slots:
             QVERIFY(labels.contains("下一首"));
             QVERIFY(labels.contains("音量 40%"));
             QVERIFY(!labels.contains("打开主窗口"));
-            QVERIFY(!labels.contains("退出"));
+            QVERIFY(!labels.contains("退出EchoMusic"));
             QVERIFY(!recipe && !submenu);
             QVERIFY(dispatchMacDockAction("增大音量"));
             QCOMPARE(playback.volume(), 45.);
@@ -237,22 +274,21 @@ private slots:
         for (int cycle = 0; cycle < 4; ++cycle) {
             playback.setVolume(40);
             QPointer<QMenu> menu = NativeMenusTestAccess::create(window);
-            QPointer<QMenu> submenu = find(menu, "播放模式")->menu();
             QVERIFY(dispatchMacMenuAction(menu, "增大音量"));
             retireMacMenu(menu);
             QTRY_COMPARE(playback.volume(), 45.);
             QTRY_VERIFY(!menu);
-            QVERIFY(!submenu);
             menu = NativeMenusTestAccess::create(window);
-            submenu = find(menu, "播放模式")->menu();
+            // The tray menu keeps the modes as a titled group, not a submenu.
+            QVERIFY(find(menu, "播放模式"));
+            QVERIFY(!find(menu, "播放模式")->menu());
             playback.setPlayMode(PlaybackService::ListLoop);
-            QVERIFY(dispatchMacMenuAction(submenu, "随机播放"));
+            QVERIFY(dispatchMacMenuAction(menu, "随机播放"));
             retireMacMenu(menu);
             QTRY_COMPARE(playback.playMode(), PlaybackService::Shuffle);
             QTRY_VERIFY(!menu);
-            QVERIFY(!submenu);
             menu = NativeMenusTestAccess::create(window);
-            QVERIFY(dispatchMacMenuAction(menu, "退出"));
+            QVERIFY(dispatchMacMenuAction(menu, "退出EchoMusic"));
             retireMacMenu(menu);
             QTRY_COMPARE(quitting.size(), cycle + 1);
             QTRY_VERIFY(!menu);
@@ -304,16 +340,19 @@ private slots:
             QCOMPARE(playback.volume(), 0.);
             find(menu, "静音 / 取消静音")->trigger();
             QCOMPARE(playback.volume(), 40.);
-            auto *modes = find(menu, "播放模式")->menu();
-            QCOMPARE(modes->actions().size(), 4);
-            for (auto *mode : modes->actions()) {
+            // The modes are a titled group here, not a submenu (see
+            // addPlaybackMenuActions), so they are addressed on the menu itself.
+            const QList<QAction *> modes{find(menu, "顺序播放"), find(menu, "列表循环"),
+                                         find(menu, "随机播放"), find(menu, "单曲循环")};
+            for (auto *mode : modes) {
+                QVERIFY(mode);
                 mode->trigger();
                 QCOMPARE(int(playback.playMode()), mode->data().toInt());
-                for (auto *other : modes->actions())
+                for (auto *other : modes)
                     QCOMPARE(other->isChecked(), other == mode);
             }
             playback.setPlayMode(PlaybackService::ListLoop);
-            QVERIFY(find(modes, "列表循环")->isChecked());
+            QVERIFY(find(menu, "列表循环")->isChecked());
             QVERIFY(!find(menu, "锁定桌面歌词")->isEnabled());
             window.floating()->setDesktopEnabled(true);
             QVERIFY(find(menu, "锁定桌面歌词")->isEnabled());
@@ -322,14 +361,12 @@ private slots:
             find(menu, "解锁桌面歌词")->trigger();
             QVERIFY(!window.floating()->locked());
             window.floating()->setDesktopEnabled(false);
-            find(menu, "退出")->trigger();
+            find(menu, "退出EchoMusic")->trigger();
             QCOMPARE(quitting.size(), cycle + 1);
-            QPointer<QMenu> submenu = modes;
             menu->close();
             // Cocoa retires after queued native commands have reached QAction.
             // Observe completion instead of assuming one event pass suffices.
             QTRY_VERIFY(!menu);
-            QVERIFY(!submenu);
             QVERIFY(!NativeMenusTestAccess::menu(window));
         }
         QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);

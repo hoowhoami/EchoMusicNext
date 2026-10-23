@@ -260,9 +260,9 @@ Window {
                 Layout.preferredWidth: window.coverWidth
                 Layout.preferredHeight: window.coverWidth
                 cornerRadius: 8
-                // 首次安装/数据清除（队列里没有任何曲目）时封面位显示软件
-                // 图标；有曲目但封面尚未就绪时保留 music 字形占位。
-                source: window.playback.cover || (window.playback.hasTrack ? "" : "qrc:/echo/app/linux-icon.png")
+                // 首次安装/数据清除（队列里没有任何曲目）时与有曲目但封面未就绪
+                // 一样，回退到兜底封面（EchoCover 的 music 字形占位）。
+                source: window.playback.cover
                 placeholderGlyph: "music"
                 placeholderGlyphSize: 14
                 placeholderColor: Qt.rgba(window.fg.r, window.fg.g, window.fg.b, 0.08)

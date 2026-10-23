@@ -164,7 +164,9 @@ private:
     void installTrayMenuModel();
     QMenu *createTrayMenu();
     QMenu *createDockMenu();
-    void addPlaybackMenuActions(QMenu *menu);
+    /// Built separately from the popup so the strip's menu is inspectable.
+    QMenu *createTaskbarLyricMenu();
+    void addPlaybackMenuActions(QMenu *menu, bool submenuModes = true);
     void addLyricsMenuActions(QMenu *menu);
     QSettings &m_settings;
     FloatingPlayerController m_floating;

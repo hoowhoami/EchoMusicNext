@@ -7600,8 +7600,13 @@
     </message>
     <message>
         <location filename="../modules/EchoMusic/Shell/WindowController.cpp" line="253"/>
-        <source>退出</source>
-        <translation>退出</translation>
+        <source>关闭任务栏歌词</source>
+        <translation>关闭任务栏歌词</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Shell/WindowController.cpp" line="253"/>
+        <source>退出EchoMusic</source>
+        <translation>退出EchoMusic</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Shell/WindowController.cpp" line="272"/>
