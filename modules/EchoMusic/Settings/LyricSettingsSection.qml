@@ -28,6 +28,10 @@ ColumnLayout {
         playback: section.playback
         uiScale: section.settings.uiScale
     }
+    TaskbarLyricSettingsSection {
+        Layout.fillWidth: true
+        windowService: section.windowService
+    }
     MiniLyricSettingsSection {
         Layout.fillWidth: true
         windowService: section.windowService

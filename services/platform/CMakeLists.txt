@@ -43,8 +43,14 @@ if(WIN32)
     target_sources(
         echo_platform PRIVATE WindowsWindowBackdrop.h WindowsWindowBackdrop.cpp
                               WindowsSystemSleepInhibitor.cpp WindowsGlobalShortcuts.cpp
+                              WindowsTaskbarLyric.h WindowsTaskbarLyric.cpp
     )
-    target_link_libraries(echo_platform PRIVATE dwmapi user32 gdi32 shlwapi)
+    # comctl32: the strip's window-procedure subclass (GetWindowSubclass &
+    # friends) for the taskbar context menu. The library is static, so CMake
+    # propagates these as link-only dependencies - consumers of echo_platform
+    # (app and the tests) get them transitively.
+    target_link_libraries(echo_platform PRIVATE dwmapi comctl32 user32 gdi32 shlwapi ole32
+                                                 oleaut32 uuid)
 endif()
 if(UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)

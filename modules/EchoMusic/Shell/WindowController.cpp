@@ -65,10 +65,14 @@ QObject *createMacDockMenuOwner(WindowController *controller, std::function<QMen
 #endif
 WindowController::WindowController(QSettings &settings, bool persist, QObject *parent)
     : QObject(parent), m_settings(settings), m_floating(settings, persist, this),
-      m_persist(persist), m_startup(persist), m_backdrop(persist)
+      m_taskbar(settings, this), m_persist(persist), m_startup(persist), m_backdrop(persist)
 {
     connect(&m_floating, &FloatingPlayerController::mainRequested, this,
             &WindowController::showWindow);
+    connect(&m_taskbar, &TaskbarLyricController::openMainRequested, this,
+            &WindowController::showWindow);
+    connect(&m_taskbar, &TaskbarLyricController::menuRequested, this,
+            &WindowController::showTaskbarLyricMenu);
     connect(&m_floating, &FloatingPlayerController::miniEntered, this, [this] {
         m_restoreMini = true;
         if (!m_window)
@@ -279,6 +283,35 @@ QMenu *WindowController::createTrayMenu()
     menu->addSeparator();
     menu->addAction(tr("退出"), this, &WindowController::quit);
     return menu;
+}
+
+void WindowController::showTaskbarLyricMenu(qreal globalX, qreal globalY)
+{
+    if (m_shuttingDown)
+        return;
+    // The shell coordinator must know a native menu is about to open, or the
+    // app's own popups keep fighting it for the foreground.
+    emit nativeMenuOpening();
+    auto *menu = new QMenu;
+    menu->setObjectName("taskbarLyricMenu");
+    menu->addAction(tr("打开主窗口"), this, &WindowController::showWindow);
+    menu->addAction(tr("打开设置页"), this, &WindowController::openTaskbarLyricSettings);
+    menu->addSeparator();
+    menu->addAction(tr("退出"), this, &WindowController::quit);
+    // The strip is a child of the taskbar, so the menu has to be shown at an
+    // explicit position and owns its own lifetime.
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    menu->popup(QPoint(qRound(globalX), qRound(globalY)));
+}
+
+void WindowController::openTaskbarLyricSettings()
+{
+    // The settings page lives inside the main window, so the window has to be
+    // brought up first: from the taskbar strip the app is often in the tray,
+    // and opening the page in a hidden window would look like nothing happened.
+    showWindow();
+    // The taskbar lyric section lives in the lyric settings page.
+    emit settingsRequested(QStringLiteral("lyric"));
 }
 QMenu *WindowController::createDockMenu()
 {

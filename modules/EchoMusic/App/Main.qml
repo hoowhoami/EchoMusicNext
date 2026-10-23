@@ -16,6 +16,20 @@ import EchoMusic.Details
 ApplicationWindow {
     id: mainWindow
     property StartupController startup: null
+    // The taskbar lyric strip window (created without a parent on purpose).
+    property var taskbarLyricWindow: null
+    // Create or destroy the strip so it matches the enabled preference.
+    function syncTaskbarLyricWindow(): void {
+        const controller = windowService.taskbar;
+        if (controller.enabled) {
+            if (!taskbarLyricWindow)
+                taskbarLyricWindow = taskbarLyricComponent.createObject(null);
+        } else if (taskbarLyricWindow) {
+            taskbarLyricWindow.destroy();
+            taskbarLyricWindow = null;
+        }
+    }
+    Component.onCompleted: syncTaskbarLyricWindow()
     readonly property bool startupPending: startup !== null && !startup.entered
     readonly property MainShell mainShell: shellLoader.item as MainShell
     property PluginManager pluginManager: null
@@ -69,6 +83,25 @@ ApplicationWindow {
             playback: mainWindow.playbackService
         }
     }
+    // The taskbar strip must be a real top-level window: a QML Window created
+    // inside the main window's object tree becomes its native child, and the
+    // toolkit then re-parents it over the taskbar mount. Creating it with a
+    // null parent keeps that from ever happening.
+    Component {
+        id: taskbarLyricComponent
+        TaskbarLyricWindow {
+            controller: mainWindow.windowService.taskbar
+            playback: mainWindow.playbackService
+        }
+    }
+    Connections {
+        target: mainWindow.windowService.taskbar
+        function onEnabledChanged(): void {
+            mainWindow.syncTaskbarLyricWindow();
+        }
+    }
+    // The cover's click is forwarded to WindowController in C++ (it owns the
+    // window operations); a second QML handler here called showWindow twice.
     Connections {
         target: mainWindow.windowService
         function onSettingsRequested(section: string): void {

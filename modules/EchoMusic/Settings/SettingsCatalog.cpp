@@ -23,7 +23,7 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
          tr("窗口行为 记住窗口大小 窗口位置 关闭行为 最小化 托盘 开机自启动"),
          "WindowSettingsSection"},
         {"font", tr("字体设置"), "typography",
-         tr("全局字体 播放页歌词字体 桌面歌词字体 Mini 歌词字体 系统默认 跟随全局"),
+         tr("全局字体 播放页歌词字体 桌面歌词字体 Mini 歌词字体 任务栏歌词字体 系统默认 跟随全局"),
          "FontSettingsSection"},
         {"playback", tr("播放体验"), "player-play",
          tr("音质 播放 音量 倍速 歌曲 收藏 过渡 淡入 音量均衡 LUFS 自动跳过错误 失败后切换延迟 "

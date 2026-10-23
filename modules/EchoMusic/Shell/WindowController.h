@@ -8,6 +8,7 @@
 #include <QtQml/qqmlregistration.h>
 #include "StartupIntegration.h"
 #include "FloatingPlayerController.h"
+#include "TaskbarLyricController.h"
 #include "WindowBackdrop.h"
 #include <memory>
 class QSystemTrayIcon;
@@ -24,6 +25,7 @@ class WindowController final : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by the application")
     Q_PROPERTY(EchoMusic::FloatingPlayerController *floating READ floating CONSTANT)
+    Q_PROPERTY(EchoMusic::TaskbarLyricController *taskbar READ taskbar CONSTANT)
     Q_PROPERTY(bool maximized READ maximized NOTIFY changed)
     Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY changed)
     Q_PROPERTY(bool rememberSize READ rememberSize WRITE setRememberSize NOTIFY changed)
@@ -51,9 +53,17 @@ public:
     void attachPlayback(PlaybackService &playback);
     void restoreWindow();
     void showMiniWindow();
+    /// Shows the taskbar lyric context menu at a global position.
+    void showTaskbarLyricMenu(qreal globalX, qreal globalY);
+    /// Opens the settings page on the taskbar lyric section.
+    Q_INVOKABLE void openTaskbarLyricSettings();
     FloatingPlayerController *floating()
     {
         return &m_floating;
+    }
+    TaskbarLyricController *taskbar()
+    {
+        return &m_taskbar;
     }
     /// Read-only system button bounds in Qt window coordinates; never moves them.
     QRectF nativeCaptionBounds() const;
@@ -151,6 +161,7 @@ private:
     void addLyricsMenuActions(QMenu *menu);
     QSettings &m_settings;
     FloatingPlayerController m_floating;
+    TaskbarLyricController m_taskbar;
     QPointer<QQuickWindow> m_window;
     QPointer<QObject> m_contentFullscreenOwner;
     QMetaObject::Connection m_contentFullscreenDestroyed;

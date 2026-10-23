@@ -6579,8 +6579,8 @@
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/SettingsCatalog.cpp" line="26"/>
-        <source>全局字体 播放页歌词字体 桌面歌词字体 Mini 歌词字体 系统默认 跟随全局</source>
-        <translation>全局字体 播放页歌词字体 桌面歌词字体 Mini 歌词字体 系统默认 跟随全局</translation>
+        <source>全局字体 播放页歌词字体 桌面歌词字体 Mini 歌词字体 任务栏歌词字体 系统默认 跟随全局</source>
+        <translation>全局字体 播放页歌词字体 桌面歌词字体 Mini 歌词字体 任务栏歌词字体 系统默认 跟随全局</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/SettingsCatalog.cpp" line="28"/>
@@ -8261,6 +8261,16 @@
         <location filename="../modules/EchoMusic/Settings/FontSettingsSection.qml" line="75"/>
         <source>Mini 歌词使用的字体，跟随全局或单独指定</source>
         <translation>Mini 歌词使用的字体，跟随全局或单独指定</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Settings/FontSettingsSection.qml" line="82"/>
+        <source>任务栏歌词字体</source>
+        <translation>任务栏歌词字体</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Settings/FontSettingsSection.qml" line="83"/>
+        <source>任务栏歌词条使用的字体，跟随全局或单独指定</source>
+        <translation>任务栏歌词条使用的字体，跟随全局或单独指定</translation>
     </message>
 </context>
 <context>
