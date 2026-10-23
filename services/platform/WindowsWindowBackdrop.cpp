@@ -109,6 +109,29 @@ void WindowsWindowBackdrop::applyWindowPolicy()
         // button. The QML caption still needs the system menu and Alt+F4.
         if (const auto menu = GetSystemMenu(m_handle, FALSE))
             EnableMenuItem(menu, SC_CLOSE, MF_BYCOMMAND | MF_ENABLED);
+        // Qt's flags leave the minimize/maximize buttons out (the QML caption
+        // draws its own), but the shell is stricter: it only toggles the window
+        // from its taskbar button when the native style carries WS_MINIMIZEBOX.
+        // Setting the bits on the native window only - without ever handing them
+        // to Qt - keeps the QML caption the sole painter, so no native buttons
+        // appear, while the taskbar toggle and the system menu entries work.
+        //
+        // WS_CAPTION is the same kind of native-only bit: DWM only animates
+        // minimize/restore for windows that carry a caption, and CustomizeWindowHint
+        // leaves it off, so without it the window disappears in a single frame
+        // instead of shrinking to the taskbar. The client still covers the frame
+        // (ExpandedClientAreaHint) and QML paints the whole caption, so the bit
+        // restores the animation without bringing back native chrome.
+        const LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_STYLE);
+        const LONG_PTR withFrame = style | WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+        if (style != withFrame) {
+            SetWindowLongPtrW(m_handle, GWL_STYLE, withFrame);
+            // The changed frame bits reach the window manager only after a
+            // recalculation; without it the client area keeps the old metrics.
+            SetWindowPos(m_handle, nullptr, 0, 0, 0, 0,
+                         SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                             SWP_NOACTIVATE);
+        }
     }
     // Frameless Qt windows do not qualify for DWM's automatic heuristics.
     // This documented opt-in is independent of the user's Acrylic preference;

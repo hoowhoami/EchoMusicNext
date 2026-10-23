@@ -14,7 +14,14 @@ class EchoUiPartRegistry final : public QObject
     QML_ELEMENT
     QML_SINGLETON
 public:
-    explicit EchoUiPartRegistry(QObject *parent = nullptr);
+    /// Per-engine registry, parented to its engine. A QML_SINGLETON built from
+    /// a default constructor goes through `QQmlElement<T>`, which derives from
+    /// T and therefore cannot wrap a `final` class; requiring the engine makes
+    /// Qt fall back to create() below (the same arrangement as ThemeStore).
+    explicit EchoUiPartRegistry(QQmlEngine &engine);
+    /// QML singleton entry point. The engine owns the instance, so C++ and
+    /// script always see exactly the object forEngine() hands out.
+    static EchoUiPartRegistry *create(QQmlEngine *engine, QJSEngine *scriptEngine);
     static EchoUiPartRegistry *forEngine(QQmlEngine &);
     void attach(EchoUiPartRegistration *);
     void requestSessionReset();

@@ -8,7 +8,11 @@
 #include <QTimer>
 namespace EchoMusic
 {
-EchoUiPartRegistry::EchoUiPartRegistry(QObject *parent) : QObject(parent) {}
+EchoUiPartRegistry::EchoUiPartRegistry(QQmlEngine &engine) : QObject(&engine) {}
+EchoUiPartRegistry *EchoUiPartRegistry::create(QQmlEngine *engine, QJSEngine *)
+{
+    return engine ? new EchoUiPartRegistry(*engine) : nullptr;
+}
 EchoUiPartRegistry *EchoUiPartRegistry::forEngine(QQmlEngine &engine)
 {
     return engine.singletonInstance<EchoUiPartRegistry *>("EchoMusic.Controls",

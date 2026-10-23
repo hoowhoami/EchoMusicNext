@@ -1,4 +1,13 @@
 set_directory_properties(PROPERTIES QT_EXCLUDE_FROM_TRANSLATION ON)
+
+# windows.h reaches many of these translation units through the platform and
+# shell headers, and its min/max macros swallow the std:: calls the code (and
+# Qt's own headers) write - an MSVC-only breakage the per-file guards used
+# elsewhere in the repo cannot scale to.
+if(MSVC)
+    add_compile_definitions(NOMINMAX)
+endif()
+
 qt_add_executable(echo-translation-test TranslationTest.cpp)
 target_link_libraries(echo-translation-test PRIVATE echo_platform Qt6::Qml Qt6::Test)
 qt_add_translations(
