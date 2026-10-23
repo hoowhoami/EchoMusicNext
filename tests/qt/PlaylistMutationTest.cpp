@@ -385,7 +385,7 @@ private slots:
                         QTest::qFail("Cleanup refused preexisting resource", __FILE__, __LINE__);
                         return;
                     }
-                targets.append({targetId});
+                targets.append(ApiClient::CloudPlaylistId{targetId});
             }
             if (targets.size() > 2) {
                 QTest::qFail("Cleanup ambiguous", __FILE__, __LINE__);
