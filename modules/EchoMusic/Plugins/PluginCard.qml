@@ -265,6 +265,22 @@ Rectangle {
             }
         }
         Flow {
+            Layout.fillWidth: true
+            Layout.preferredHeight: implicitHeight
+            spacing: 8
+            visible: !card.marketplace && (card.record.windows || []).length > 0
+            Repeater {
+                model: card.marketplace ? [] : card.record.windows || []
+                delegate: EchoSoftButton {
+                    required property var modelData
+                    objectName: "pluginOpenWindow-" + modelData.id
+                    text: modelData.title || modelData.id
+                    enabled: card.record.active && !card.busy
+                    onClicked: card.manager.runtime.openWindow(card.record.installationId, modelData.id)
+                }
+            }
+        }
+        Flow {
 
             Layout.fillWidth: true
             Layout.minimumHeight: 24

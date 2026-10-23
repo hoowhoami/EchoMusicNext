@@ -106,3 +106,21 @@ fn h5_signing_matches_legacy_vector_with_url_parameters() {
         "1e8faf77fa53393477ae940efe2e17f1"
     );
 }
+
+#[test]
+fn avatar_transport_and_account_submission_are_distinct_requests() {
+    use echo_api::Request;
+    let identity = serde_json::json!({"userid":17,"token":"test","mid":"test","dfid":"test"});
+    let upload = serde_json::json!({"operation":"user_avatar_upload","identity":identity,"query":{"image_base64":"AA==","local_date":"20261023"}});
+    assert!(matches!(
+        serde_json::from_value::<Request>(upload).unwrap(),
+        Request::UserAvatarUpload { .. }
+    ));
+    let update = serde_json::json!({"operation":"user_update_avatar","identity":identity,"query":{"file_name":"sample-cover.jpg"}});
+    assert!(matches!(
+        serde_json::from_value::<Request>(update).unwrap(),
+        Request::UserUpdateAvatar { .. }
+    ));
+    let combined = serde_json::json!({"operation":"user_update_avatar","identity":identity,"query":{"image_base64":"AA==","local_date":"20261023"}});
+    assert!(serde_json::from_value::<Request>(combined).is_err());
+}

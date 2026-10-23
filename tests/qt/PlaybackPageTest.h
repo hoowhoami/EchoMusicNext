@@ -44,6 +44,8 @@ private slots:
     void liveWickedWonderlandLineBeginnings();
     void skinSelectionBadgeIsAbovePreviewPixels();
     void pageSkinLifecycleAndBoundedDelegates();
+    void lyricLineDoubleClickSeeksSourceTime_data();
+    void lyricLineDoubleClickSeeksSourceTime();
     void manualScrollRecoversAndLargeSeeksRemainVirtualized();
     void renderThemesScaleAndNarrowViewport();
     void coverBackgroundRendersAndReleasesItsSource();

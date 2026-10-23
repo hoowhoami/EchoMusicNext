@@ -9,9 +9,11 @@ add_subdirectory(library)
 add_subdirectory(platform)
 
 add_subdirectory(logging)
+add_subdirectory(lyrics)
 add_subdirectory(playback)
 
 add_subdirectory(plugins)
 add_subdirectory(pluginfiles)
+add_subdirectory(backups)
 
 add_subdirectory(startup)

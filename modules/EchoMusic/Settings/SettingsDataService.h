@@ -3,6 +3,7 @@
 #include <QSharedPointer>
 #include "RelaunchService.h"
 #include "SettingsBackupArchive.h"
+#include "BackupHost.h"
 #include "NetworkPreferences.h"
 #include <QFutureWatcher>
 #include <QThreadPool>
@@ -14,11 +15,12 @@ namespace EchoMusic
 class PluginRuntime;
 /// Settings backup UI owns only choices. This service owns the private inspected
 /// input, bounded worker, plugin drain barrier and post-shutdown restore commit.
-class SettingsDataService final : public QObject
+class SettingsDataService final : public BackupHost
 {
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Application-owned backup service")
+    Q_PROPERTY(QVariantMap confirmation READ confirmation NOTIFY confirmationChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QVariantMap summary READ summary NOTIFY changed)
     Q_PROPERTY(bool canRestore READ canRestore NOTIFY changed)
@@ -36,12 +38,26 @@ public:
     {
         return m_staging && !m_manifest.isEmpty() && !m_busy;
     }
+    QVariantMap confirmation() const
+    {
+        return m_confirmation;
+    }
+    void createArchive(const QString &, const QVariantMap &, BackupCancel,
+                       BackupCompletion) override;
+    void inspectArchive(const QString &, const QByteArray &, BackupCancel,
+                        BackupCompletion) override;
+    void requestRestore(const QString &, const QString &, const QVariantMap &, BackupCancel,
+                        BackupCompletion) override;
+    void releaseOwner(const QString &) override;
+    Q_INVOKABLE void answerConfirmation(bool accepted, bool settings = true, bool plugins = true);
+    Q_INVOKABLE void adoptProviderInspection(const QString &token);
     Q_INVOKABLE void create(const QUrl &file, bool settings, bool plugins);
     Q_INVOKABLE void inspect(const QUrl &file);
     Q_INVOKABLE void releaseInspection();
     Q_INVOKABLE void restore(bool settings, bool plugins);
     Q_INVOKABLE void clearApplicationData();
     Q_INVOKABLE void cancel();
+    Q_INVOKABLE void cancelUi();
     void shutdown();
     void setInstanceLockFilePath(const QString &path)
     {
@@ -56,15 +72,37 @@ public:
     void finishShutdown(std::function<void(QString)> complete);
     static QString recover(const QString &root, QSettings &settings);
 signals:
+    void confirmationChanged();
     void changed();
     void notice(const QString &message, bool failure);
     void created();
     void inspected();
 
 private:
+    friend class SettingsBackupTestAccess;
+    struct Inspection
+    {
+        QString owner;
+        QSharedPointer<QTemporaryDir> staging;
+        QJsonObject manifest;
+        qint64 expires;
+    };
+    void completeApi(BackupResult result);
+    void clearToken(const QString &token);
     QVariantMap preferenceValues() const;
     void finishJob(const QString &error);
     void clearFiles(std::function<void(QString)> complete);
+    QHash<QString, Inspection> m_inspections;
+    QTimer m_tokenSweep;
+    QString m_inspectionOwner;
+    QString m_apiOwner, m_inspectionToken, m_confirmationToken;
+    BackupCompletion m_apiDone, m_confirmationDone;
+    BackupCancel m_confirmationCancel;
+    QVariantMap m_confirmation;
+    QSharedPointer<QTemporaryDir> m_transfer;
+    QByteArray m_inspectInput;
+    QTimer m_confirmationPoll;
+    quint64 m_job = 0;
     QSettings &m_settings;
     PluginRuntime &m_plugins;
     RelaunchService &m_relaunch;

@@ -74,6 +74,7 @@ void ProfileService::clear()
     requests.append(std::exchange(m_avatarRequest, 0));
     ++m_avatarGeneration;
     m_avatarReading = false;
+    m_avatarSubmitting = false;
     m_devicesLoaded = false;
     m_devices.replace({});
     m_devicesError.clear();
@@ -401,7 +402,8 @@ void ProfileService::uploadAvatar(const QUrl &file)
             emit avatarFinished(false, input.error);
             return;
         }
-        m_avatarRequest = m_api.updateUserAvatar(input.bytes);
+        m_avatarSubmitting = false;
+        m_avatarRequest = m_api.uploadUserAvatar(input.bytes);
         emit changed();
         if (!m_avatarRequest)
             emit avatarFinished(false, tr("头像上传失败，请稍后重试"));
@@ -600,6 +602,17 @@ void ProfileService::succeeded(quint64 id, const QByteArray &payload)
     if (id == m_avatarRequest) {
         m_avatarRequest = 0;
         const auto object = document.object();
+        if (!m_avatarSubmitting) {
+            const auto file = object.value("file_name").toString();
+            m_avatarSubmitting = true;
+            if (!file.isEmpty())
+                m_avatarRequest = m_api.updateUserAvatar(file);
+            const auto generation = m_avatarGeneration;
+            emit changed();
+            if (current() && generation == m_avatarGeneration && !m_avatarRequest)
+                emit avatarFinished(false, tr("图片已上传，但头像未能提交，请稍后重试"));
+            return;
+        }
         const auto avatar = object.value("avatar_url").toString();
         if (avatar.isEmpty()) {
             emit changed();

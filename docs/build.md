@@ -21,7 +21,7 @@ python3.12 scripts/install-qt.py --check
 
 Windows 使用对应版本的 `python`。Windows/macOS 安装官方预编译 SDK；Linux 为匹配 glibc 2.35 基线独立构建源码 SDK。安装工具及其依赖固定在 `tools/qt/requirements.txt`，仅用于开发。
 
-默认 SDK 位于 `build/qt-official/6.12.0/<kit>` 或 `build/qt-sdk/6.12.0`。也可通过 Qt 官方安装器安装相同版本和所需模块，随后传入 `--qt-prefix /path/to/Qt/6.12.0/kit`。脚本会检查 SDK 版本及 Core、Gui、Widgets、Qml、Quick、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql、ShaderTools、LinguistTools 等所需模块。
+默认 SDK 位于 `build/qt-official/6.12.0/<kit>` 或 `build/qt-sdk/6.12.0`。也可通过 Qt 官方安装器安装相同版本和所需模块，随后传入 `--qt-prefix /path/to/Qt/6.12.0/kit`。脚本会检查 SDK 版本及 Core、Gui、Widgets、Qml、Quick、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql、Network、WebSockets、ShaderTools、LinguistTools 等所需模块。
 
 需要源码 SDK 时显式运行 `python3.12 scripts/install-qt.py --source`。日常构建和启动不会下载或重新构建 Qt。
 

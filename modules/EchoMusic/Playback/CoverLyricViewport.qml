@@ -602,19 +602,30 @@ Item {
                 TapHandler {
                     id: tap
                     enabled: viewport.playback.lyrics.scrollable && line.lineOpacity > 0
-                    onTapped: {
-                        lines.following = true;
-                        resume.stop();
-                        viewport.playback.seek(Math.max(0, Math.round(line.startMs)));
-                        if (!viewport.playback.playing)
-                            viewport.playback.play();
-                        viewport.follow(false);
-                    }
+                    acceptedButtons: Qt.LeftButton
+                    gesturePolicy: TapHandler.DragThreshold
+                    onDoubleTapped: line.jumpToLine()
                 }
             }
-            Accessible.role: Accessible.Button
+            // Model row starts include display offsets; the presentation schedule
+            // also advances activation. Seek the immutable singing timestamp.
+            function jumpToLine(): void {
+                if (!viewport.resourceActive || line.pooled || !tap.enabled)
+                    return;
+                const sourceTime = line.wordTimed && line.words.length > 0 ? line.words[0].start_ms : line.startMs - viewport.playback.lyrics.offsetMs;
+                if (!Number.isFinite(sourceTime))
+                    return;
+                lines.cancelFlick();
+                lines.following = true;
+                resume.stop();
+                viewport.playback.seek(Math.max(0, Math.round(sourceTime)));
+                if (!viewport.playback.playing)
+                    viewport.playback.play();
+                viewport.follow(false);
+            }
+            Accessible.role: viewport.playback.lyrics.scrollable ? Accessible.Button : Accessible.StaticText
             Accessible.name: line.lineText
-            Accessible.onPressAction: tap.tapped(null, Qt.LeftButton)
+            Accessible.onPressAction: line.jumpToLine()
         }
     }
     Connections {

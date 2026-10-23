@@ -200,6 +200,59 @@ bool patchPreferences(QObject *object, const QVariantMap &values)
     return true;
 }
 } // namespace
+QVariantList EchoPluginWindows::list() const
+{
+    return m_scope.package().manifest.value("windows").toList();
+}
+EchoPluginWindow *EchoPluginWindows::get(const QString &id)
+{
+    if (!m_scope.active())
+        return nullptr;
+    if (m_scope.activationContext() != &m_scope)
+        return m_scope.activationContext()->windows()->get(id);
+    if (auto window = m_windows.value(id))
+        return window;
+    for (const auto &value : list()) {
+        auto definition = value.toMap();
+        if (definition.value("id").toString() == id) {
+            auto *window = new EchoPluginWindow(m_scope, definition);
+            m_windows.insert(id, window);
+            return window;
+        }
+    }
+    return nullptr;
+}
+EchoPluginOperation *EchoPluginWindows::show(const QString &id, const QVariantMap &options)
+{
+    auto *window = get(id);
+    if (!window)
+        return m_scope.rejected("Unavailable", "Plugin window is not declared");
+    if (m_scope.activationContext() == &m_scope)
+        return window->show(options);
+    auto *caller = m_scope.operation();
+    if (caller->finished())
+        return caller;
+    const QPointer<EchoPluginOperation> opened = window->show(options);
+    caller->start([opened] {
+        if (opened)
+            opened->cancel();
+    });
+    const auto settled = [caller, opened] {
+        if (caller->finished() || !opened)
+            return;
+        if (opened->state() == EchoPluginOperation::Succeeded)
+            caller->succeed(opened->result());
+        else if (opened->state() == EchoPluginOperation::Canceled)
+            caller->cancel();
+        else
+            caller->fail(opened->errorCode(), opened->errorMessage());
+    };
+    if (opened->finished())
+        settled();
+    else
+        connect(opened, &EchoPluginOperation::completed, caller, settled);
+    return caller;
+}
 QVariantMap EchoPluginWindows::snapshot() const
 {
     auto f = m_scope.host().floating;

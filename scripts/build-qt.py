@@ -18,6 +18,7 @@ prefix = source_prefix()
 modules = [
     "qtbase",
     "qtmultimedia",
+    "qtwebsockets",
     "qtshadertools",
     "qtsvg",
     "qtdeclarative",

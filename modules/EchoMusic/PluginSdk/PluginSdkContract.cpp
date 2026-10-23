@@ -49,7 +49,14 @@ QJsonObject describe(const QMetaObject &meta)
 QJsonObject pluginSdkContract()
 {
     QJsonObject types;
-    const QMetaObject *publicTypes[] = {&EchoPluginKugou::staticMetaObject,
+    const QMetaObject *publicTypes[] = {&PluginPermissionStore::staticMetaObject,
+                                        &EchoPluginPermissions::staticMetaObject,
+                                        &EchoPluginWindow::staticMetaObject,
+                                        &EchoPluginTcp::staticMetaObject,
+                                        &EchoPluginTcpConnection::staticMetaObject,
+                                        &EchoPluginWebServer::staticMetaObject,
+                                        &EchoPluginWebSocket::staticMetaObject,
+                                        &EchoPluginKugou::staticMetaObject,
                                         &EchoPluginLyricEffects::staticMetaObject,
                                         &EchoPluginAudioSource::staticMetaObject,
                                         &EchoPluginSourceRequest::staticMetaObject,
@@ -75,6 +82,8 @@ QJsonObject pluginSdkContract()
                                         &EchoPluginReadModel::staticMetaObject,
                                         &EchoPluginUi::staticMetaObject,
                                         &EchoPluginIo::staticMetaObject,
+                                        &EchoPluginBackups::staticMetaObject,
+                                        &EchoPluginBackupRequest::staticMetaObject,
                                         &EchoPluginSqlite::staticMetaObject,
                                         &EchoPluginDatabase::staticMetaObject,
                                         &EchoPluginNetwork::staticMetaObject,

@@ -70,6 +70,25 @@ void PluginRuntimeTest::ecosystemBusinessRequestsAndSharedVerification()
         host.api, id, R"({"kind":"songs","page":{"page":2,"page_size":20,"total":0,"items":[]}})");
     QCOMPARE(search->state(), EchoPluginOperation::Succeeded);
     QVERIFY(!search->result().toMap().contains("identity"));
+    auto *lyric =
+        scope->kugou()->request("lyric", {{"id", "fixture-lyric"}, {"accessKey", "fixture-key"}});
+    auto lyricRoot = host.engine.newQObject(lyric);
+    const auto lyricId = ApiClientTestAccess::pending(host.api, "lyric");
+    QVERIFY(lyricId);
+    ApiClientTestAccess::complete(
+        host.api, lyricId,
+        QJsonDocument(
+            QJsonObject{
+                {"format", "lrc"},
+                {"encoding", "base64"},
+                {"content", QString::fromLatin1(
+                                QByteArray("[00:01][00:03]Repeated\n[00:02]Verse").toBase64())}})
+            .toJson());
+    QTRY_COMPARE(lyric->state(), EchoPluginOperation::Succeeded);
+    const auto normalized = lyric->result().toMap();
+    QVERIFY(normalized.contains("scrollable"));
+    QCOMPARE(normalized.value("lines").toList().size(), 3);
+    QCOMPARE(normalized.value("lines").toList()[2].toMap().value("start_ms").toLongLong(), 3000);
     auto *metadata =
         scope->kugou()->request("songMetadata", {{"ids", QVariantList{"9007199254740993"}}});
     auto metadataRoot = host.engine.newQObject(metadata);

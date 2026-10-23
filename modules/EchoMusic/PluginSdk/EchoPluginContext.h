@@ -16,7 +16,10 @@
 #include "EchoPluginUi.h"
 #include "EchoPluginIo.h"
 #include "EchoPluginSqlite.h"
+#include "EchoPluginBackups.h"
 #include "EchoPluginNetwork.h"
+#include "EchoPluginPermissions.h"
+#include "EchoPluginWebServer.h"
 #include "EchoPluginRegistry.h"
 #include "EchoPluginAudio.h"
 #include "EchoPluginAppearance.h"
@@ -40,6 +43,7 @@ class ApiClient;
 class SidebarLayoutModel;
 class ShortcutService;
 class VerificationService;
+class BackupHost;
 class FloatingPlayerController;
 struct PluginHost
 {
@@ -54,6 +58,9 @@ struct PluginHost
     SidebarLayoutModel *sidebar = nullptr;
     ShortcutService *shortcuts = nullptr;
     VerificationService *verification = nullptr;
+    BackupHost *backups = nullptr;
+    PluginPermissionStore *permissions = nullptr;
+    std::function<void(QQuickWindow *)> attachPluginWindow = {};
 };
 /// One activation's GUI-thread scope. No raw host object is exposed to JS/QML.
 /// beginRetire invalidates delivery before cleanup, then waits for SQL drain.
@@ -84,9 +91,12 @@ class EchoPluginContext final : public QObject
     Q_PROPERTY(EchoMusic::EchoPluginLyricEffects *lyricEffects READ lyricEffects CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginScroll *scroll READ scroll CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginTasks *tasks READ tasks CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginBackups *backups READ backups CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginSqlite *sqlite READ sqlite CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginIo *io READ io CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginNetwork *net READ net CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginPermissions *permissions READ permissions CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginWebServer *webServer READ webServer CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginRegistry *plugins READ plugins CONSTANT)
     Q_PROPERTY(QFont font READ font NOTIFY appearanceChanged)
     Q_PROPERTY(QColor accent READ accent NOTIFY appearanceChanged)
@@ -194,6 +204,10 @@ public:
     {
         return m_tasks;
     }
+    EchoPluginBackups *backups() const
+    {
+        return m_backups;
+    }
     EchoPluginSqlite *sqlite() const
     {
         return m_sqlite;
@@ -205,6 +219,14 @@ public:
     EchoPluginRegistry *plugins() const
     {
         return m_plugins;
+    }
+    EchoPluginWebServer *webServer() const
+    {
+        return m_webServer;
+    }
+    EchoPluginPermissions *permissions() const
+    {
+        return m_permissions;
     }
     EchoPluginOperation *invokeRegistered(const QJSValue &callback,
                                           QPointer<EchoPluginRegistration> lease,
@@ -242,6 +264,15 @@ public:
     {
         return m_host;
     }
+    bool storageFrozen() const
+    {
+        return activationContext()->m_storageFrozen;
+    }
+    void freezeStorage(bool frozen)
+    {
+        activationContext()->m_storageFrozen = frozen;
+    }
+    void storageBarrier(std::function<void()> ready);
     QString dataPath() const
     {
         return m_dataPath;
@@ -288,8 +319,12 @@ private:
     EchoPluginScroll *m_scroll;
     EchoPluginIo *m_io;
     EchoPluginSqlite *m_sqlite;
+    EchoPluginBackups *m_backups;
     EchoPluginNetwork *m_net;
+    EchoPluginPermissions *m_permissions;
+    EchoPluginWebServer *m_webServer;
     EchoPluginRegistry *m_plugins;
+    bool m_storageFrozen = false;
     bool m_accepting = true, m_committed = false, m_retiring = false;
     QList<QPointer<EchoPluginOperation>> m_operations;
     QList<QPointer<EchoPluginRegistration>> m_resources;

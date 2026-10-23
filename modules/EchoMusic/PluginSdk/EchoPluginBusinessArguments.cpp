@@ -183,6 +183,11 @@ ApiClient::PlaylistUpdate parsePlaylistUpdate(const QVariantMap &values, bool &v
                                             : (a.used.insert("title"), std::optional<QString>()));
     out.description = a.text("description", "");
     out.tags = a.text("tags", "");
+    const auto kind = a.text("kind", "owned");
+    if (kind != "owned" && kind != "collected")
+        a.valid = false;
+    out.kind =
+        kind == "collected" ? ApiClient::PlaylistKind::Collected : ApiClient::PlaylistKind::Owned;
     out.coverReference = (a.values.contains("coverReference")
                               ? std::optional<QString>(a.text("coverReference", ""))
                               : (a.used.insert("coverReference"), std::optional<QString>()));

@@ -22,6 +22,7 @@ COMPONENTS = (
     "Svg",
     "Sql",
     "Network",
+    "WebSockets",
     "Concurrent",
     "Test",
 )

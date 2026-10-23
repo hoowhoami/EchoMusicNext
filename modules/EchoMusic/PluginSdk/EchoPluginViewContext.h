@@ -1,5 +1,6 @@
 #pragma once
 #include "EchoPluginPlayer.h"
+#include "EchoPluginWindow.h"
 #include <QPointer>
 namespace EchoMusic
 {
@@ -46,6 +47,10 @@ class EchoPluginWindows final : public QObject
     Q_PROPERTY(QVariantMap snapshot READ snapshot NOTIFY changed)
 public:
     explicit EchoPluginWindows(EchoPluginContext &);
+    Q_INVOKABLE QVariantList list() const;
+    Q_INVOKABLE EchoMusic::EchoPluginWindow *get(const QString &id);
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *show(const QString &id,
+                                                     const QVariantMap &options = {});
     QVariantMap snapshot() const;
     Q_INVOKABLE EchoMusic::EchoPluginOperation *
     command(const QString &target, const QString &action, const QVariantMap &arguments = {});
@@ -54,5 +59,6 @@ signals:
 
 private:
     EchoPluginContext &m_scope;
+    QHash<QString, QPointer<EchoPluginWindow>> m_windows;
 };
 } // namespace EchoMusic

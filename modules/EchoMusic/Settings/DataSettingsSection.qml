@@ -10,10 +10,23 @@ import EchoMusic.Settings
 
 SettingsSection {
     id: section
+    objectName: "backupDataSettings"
     required property ShellSettings settings
     required property WindowController windowService
     required property SettingsDataService dataService
     property LogService logging: null
+    property string exportProvider: "local"
+    property string restoreProvider: "local"
+    property string selectedBackupId: ""
+    readonly property var providerOptions: [
+        {
+            label: qsTr("本地文件"),
+            value: "local"
+        }
+    ].concat(dataService.providers.map(p => ({
+                label: p.name === p.pluginName ? p.name : p.name + " · " + p.pluginName,
+                value: p.key
+            })))
     property bool exportSettings: true
     property bool exportPlugins: true
     property bool importSettings: true
@@ -27,7 +40,7 @@ SettingsSection {
         EchoSoftButton {
             objectName: "settingsCreateBackup"
             text: qsTr("创建备份")
-            enabled: !section.dataService.busy
+            enabled: !section.dataService.busy && !section.dataService.providerBusy
             colors: Theme.floating
             onClicked: {
                 section.exportSettings = true;
@@ -38,7 +51,7 @@ SettingsSection {
         EchoSoftButton {
             objectName: "settingsRestoreBackup"
             text: qsTr("恢复备份")
-            enabled: !section.dataService.busy
+            enabled: !section.dataService.busy && !section.dataService.providerBusy
             colors: Theme.floating
             onClicked: sourceDialogOwner.open()
         }
@@ -62,7 +75,7 @@ SettingsSection {
             objectName: "settingsClearData"
             text: qsTr("立即清除")
             danger: true
-            enabled: !section.dataService.busy
+            enabled: !section.dataService.busy && !section.dataService.providerBusy
             colors: Theme.floating
             onClicked: clearDialogOwner.open()
         }
@@ -74,6 +87,7 @@ SettingsSection {
         sourceComponent: Component {
             EchoDialog {
                 id: exportDialog
+                onClosed: section.dataService.cancelProvider()
                 objectName: "settingsBackupExportDialog"
                 uiScale: section.settings.uiScale
                 preferredWidth: 520
@@ -92,13 +106,11 @@ SettingsSection {
                     }
                     EchoSelect {
                         Layout.fillWidth: true
-                        options: [
-                            {
-                                label: qsTr("本地文件"),
-                                value: "local"
-                            }
-                        ]
-                        value: "local"
+                        objectName: "backupExportLocation"
+                        options: section.providerOptions
+                        value: section.exportProvider
+                        enabled: !section.dataService.busy && !section.dataService.providerBusy
+                        onValueEdited: next => section.exportProvider = String(next)
                         colors: Theme.floating
                         Accessible.name: qsTr("备份保存位置")
                     }
@@ -107,7 +119,7 @@ SettingsSection {
                         description: qsTr("主题、播放和界面等可跨设备恢复的偏好")
                         EchoSwitch {
                             checked: section.exportSettings
-                            enabled: !section.dataService.busy
+                            enabled: !section.dataService.busy && !section.dataService.providerBusy
                             colors: Theme.floating
                             Accessible.name: qsTr("备份应用设置")
                             onToggled: section.exportSettings = checked
@@ -118,7 +130,7 @@ SettingsSection {
                         description: qsTr("已安装插件及其持久化数据")
                         EchoSwitch {
                             checked: section.exportPlugins
-                            enabled: !section.dataService.busy
+                            enabled: !section.dataService.busy && !section.dataService.providerBusy
                             colors: Theme.floating
                             Accessible.name: qsTr("备份插件与插件数据")
                             onToggled: section.exportPlugins = checked
@@ -143,11 +155,13 @@ SettingsSection {
                         onClicked: exportDialog.close()
                     }
                     EchoSoftButton {
-                        text: section.dataService.busy ? qsTr("创建中...") : qsTr("选择位置并创建")
+                        objectName: "backupCreateToStorage"
+                        loading: section.dataService.busy || section.dataService.providerBusy
+                        text: section.dataService.busy || section.dataService.providerBusy ? qsTr("创建中...") : section.exportProvider === "local" ? qsTr("选择位置并创建") : qsTr("创建并保存")
                         accent: true
-                        enabled: !section.dataService.busy && (section.exportSettings || section.exportPlugins)
+                        enabled: !section.dataService.busy && !section.dataService.providerBusy && (section.exportSettings || section.exportPlugins)
                         colors: Theme.floating
-                        onClicked: exportPickerOwner.open()
+                        onClicked: section.exportProvider === "local" ? exportPickerOwner.open() : section.dataService.saveToProvider(section.exportProvider, section.exportSettings, section.exportPlugins)
                     }
                 }
             }
@@ -159,34 +173,52 @@ SettingsSection {
         sourceComponent: Component {
             EchoDialog {
                 id: sourceDialog
+                objectName: "settingsBackupSourceDialog"
+                onClosed: section.dataService.cancelProvider()
                 uiScale: section.settings.uiScale
                 preferredWidth: 520
                 flushBody: true
                 windowHeightMargin: 80
                 heading: qsTr("选择备份")
-                description: qsTr("选择备份所在位置。")
+                description: qsTr("选择备份所在位置。插件存储会由对应插件列出和读取远端备份。")
                 closable: !section.dataService.busy
                 closePolicy: section.dataService.busy ? Popup.NoAutoClose : Popup.CloseOnEscape | Popup.CloseOnPressOutside
                 body: SettingsScrollBody {
                     surface: sourceDialog
                     EchoSelect {
                         Layout.fillWidth: true
-                        options: [
-                            {
-                                label: qsTr("本地文件"),
-                                value: "local"
-                            }
-                        ]
-                        value: "local"
+                        objectName: "backupRestoreLocation"
+                        options: section.providerOptions
+                        value: section.restoreProvider
+                        enabled: !section.dataService.busy && !section.dataService.providerBusy
+                        onValueEdited: next => {
+                            section.restoreProvider = String(next);
+                            section.selectedBackupId = "";
+                            if (section.restoreProvider !== "local")
+                                section.dataService.refreshProvider(section.restoreProvider);
+                        }
                         colors: Theme.floating
                         Accessible.name: qsTr("备份来源")
                     }
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("从本机选择一个 EchoMusicNext 备份文件")
+                        text: section.restoreProvider === "local" ? qsTr("从本机选择一个 EchoMusicNext 备份文件") : section.dataService.providers.find(p => p.key === section.restoreProvider)?.description || qsTr("由插件负责读取备份数据")
                         font: Theme.font(12, Theme.regularWeight)
                         color: Theme.floatingSecondaryText
                         wrapMode: Text.Wrap
+                    }
+                    Loader {
+                        id: providerList
+                        Layout.fillWidth: true
+                        active: section.restoreProvider !== "local"
+                        sourceComponent: Component {
+                            SettingsBackupProviderList {
+                                uiScale: section.settings.uiScale
+                                service: section.dataService
+                                providerKey: section.restoreProvider
+                                onSelectedIdChanged: section.selectedBackupId = selectedId
+                            }
+                        }
                     }
                 }
                 footerContent: RowLayout {
@@ -200,11 +232,13 @@ SettingsSection {
                         onClicked: sourceDialog.close()
                     }
                     EchoSoftButton {
-                        text: section.dataService.busy ? qsTr("读取中...") : qsTr("选择本地备份")
-                        enabled: !section.dataService.busy
+                        text: section.dataService.busy || section.dataService.providerBusy ? qsTr("读取中...") : section.restoreProvider === "local" ? qsTr("选择本地备份") : qsTr("读取所选备份")
                         accent: true
                         colors: Theme.floating
-                        onClicked: restorePickerOwner.open()
+                        objectName: "backupReadSelected"
+                        loading: section.dataService.busy
+                        enabled: !section.dataService.busy && !section.dataService.providerBusy && (section.restoreProvider === "local" || section.selectedBackupId !== "")
+                        onClicked: section.restoreProvider === "local" ? restorePickerOwner.open() : section.dataService.loadFromProvider(section.restoreProvider, section.selectedBackupId)
                     }
                 }
             }
@@ -241,7 +275,7 @@ SettingsSection {
                         description: qsTr("%1 项可恢复设置").arg(section.dataService.summary.settingCount || 0)
                         EchoSwitch {
                             checked: section.importSettings
-                            enabled: !section.dataService.busy && !!section.dataService.summary.settings
+                            enabled: !section.dataService.busy && !section.dataService.providerBusy && !!section.dataService.summary.settings
                             colors: Theme.floating
                             Accessible.name: qsTr("恢复应用设置")
                             onToggled: section.importSettings = checked
@@ -252,7 +286,7 @@ SettingsSection {
                         description: qsTr("%1 个插件").arg(section.dataService.summary.pluginCount || 0)
                         EchoSwitch {
                             checked: section.importPlugins
-                            enabled: !section.dataService.busy && !!section.dataService.summary.plugins
+                            enabled: !section.dataService.busy && !section.dataService.providerBusy && !!section.dataService.summary.plugins
                             colors: Theme.floating
                             Accessible.name: qsTr("恢复插件与插件数据")
                             onToggled: section.importPlugins = checked
@@ -344,6 +378,17 @@ SettingsSection {
             if (!section.dataService.canRestore && !section.dataService.busy && restoreDialogOwner.opened)
                 restoreDialogOwner.close();
         }
+        function onProvidersChanged(): void {
+            if (section.exportProvider !== "local" && !section.dataService.providers.some(p => p.key === section.exportProvider))
+                section.exportProvider = "local";
+            if (section.restoreProvider !== "local" && !section.dataService.providers.some(p => p.key === section.restoreProvider)) {
+                section.restoreProvider = "local";
+                section.selectedBackupId = "";
+            }
+        }
+        function onProviderSaved(): void {
+            exportDialogOwner.close();
+        }
         function onCreated(): void {
             exportDialogOwner.close();
         }
@@ -361,7 +406,8 @@ SettingsSection {
         sourceDialogOwner.close();
         restoreDialogOwner.close();
         clearDialogOwner.close();
-        if (dataService)
-            dataService.cancel();
+        if (dataService) {
+            dataService.cancelUi();
+        }
     }
 }

@@ -275,7 +275,12 @@ void DesktopPagesTest::avatarUploadRejectsInvalidFilesAndIgnoresOldAccountComple
     QVERIFY(!finished.last().at(0).toBool());
     const auto read = AccountServiceTestAccess::profileRequest(accountService, api);
     const auto upload = ProfileServiceTestAccess::avatarRequest(profile, api);
-    ProfileServiceTestAccess::complete(profile, upload,
+    ProfileServiceTestAccess::complete(profile, upload, R"({"file_name":"sample.jpg"})");
+    QVERIFY(profile.uploadingAvatar());
+    QCOMPARE(finished.size(), 2);
+    const auto submit = ProfileServiceTestAccess::avatarPending(profile);
+    QVERIFY(submit && submit != upload);
+    ProfileServiceTestAccess::complete(profile, submit,
                                        "{\"avatar_url\":\"http://c1.kgimg.com/v2/kugouicon/"
                                        "sample.jpg\",\"review_pending\":false}");
     QCOMPARE(finished.size(), 3);

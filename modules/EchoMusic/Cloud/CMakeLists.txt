@@ -13,6 +13,8 @@ qt_add_qml_module(
     CloudService.cpp
     CloudUploadService.h
     CloudUploadService.cpp
+    CloudUploadFile.h
+    CloudUploadFile.cpp
     QML_FILES
     CloudPage.qml
     CloudUploadDialog.qml

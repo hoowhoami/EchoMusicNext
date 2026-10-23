@@ -60,8 +60,10 @@ void UserPlaylistModel::attachStorage(StorageService &storage)
 }
 QString UserPlaylistModel::coverFor(const QString &global, const QString &fallback) const
 {
+    if (global.isEmpty())
+        return fallback;
     for (const auto &row : m_rows)
-        if (row.globalId == global) {
+        if (row.globalId == global || (row.collected && row.creatorGlobalId == global)) {
             if (row.customCover)
                 return row.cover;
             if (!row.collected && row.sourceCode == 1 && m_autoCovers.contains(row.cloudId.value))
@@ -69,6 +71,27 @@ QString UserPlaylistModel::coverFor(const QString &global, const QString &fallba
             break;
         }
     return fallback;
+}
+QJsonObject UserPlaylistModel::metadataFor(const QString &global) const
+{
+    if (global.isEmpty() || m_sessionRevision != m_api.sessionRevision())
+        return {};
+    for (const auto &row : m_rows) {
+        if (row.sourceCode == 2 || (row.kind != "owned" && row.kind != "collected") ||
+            (row.collected ? row.creatorGlobalId : row.globalId) != global)
+            continue;
+        QJsonObject result;
+        if (!row.title.isEmpty())
+            result["title"] = row.title;
+        if (row.descriptionPresent)
+            result["description"] = row.description;
+        if (row.tagsPresent)
+            result["tags"] = row.tags;
+        if (row.customCover)
+            result["cover_url"] = row.cover;
+        return result;
+    }
+    return {};
 }
 void UserPlaylistModel::publishAutoCover(ApiClient::CloudPlaylistId id, quint64 revision,
                                          const QString &cover, quint64 session)
@@ -334,6 +357,8 @@ void UserPlaylistModel::succeed(quint64 id, const QByteArray &payload)
         row.title = item.value("title").toString();
         row.description = item.value("description").toString();
         row.tags = item.value("tags").toString();
+        row.descriptionPresent = item.value("description_present").toBool();
+        row.tagsPresent = item.value("tags_present").toBool();
         row.cover = item.value("cover_url").toString();
         row.creatorName = item.value("creator_name").toString();
         row.sortIndex = item.value("sort_index").toInteger();

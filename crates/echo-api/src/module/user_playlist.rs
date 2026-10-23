@@ -33,10 +33,10 @@ struct Item {
     list_create_gid: String,
     #[serde(default, deserialize_with = "crate::util::response::text")]
     name: String,
-    #[serde(default, deserialize_with = "crate::util::response::text")]
-    intro: String,
-    #[serde(default, deserialize_with = "crate::util::response::text")]
-    tags: String,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    intro: Option<String>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    tags: Option<String>,
     #[serde(default, deserialize_with = "crate::util::response::text")]
     pic: String,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
@@ -88,6 +88,8 @@ pub struct UserPlaylist {
     pub global_id: String,
     pub creator_global_id: String,
     pub title: String,
+    pub description_present: bool,
+    pub tags_present: bool,
     pub description: String,
     pub tags: String,
     pub cover_url: String,
@@ -160,8 +162,10 @@ pub fn convert(bytes: &[u8], page: u32, page_size: u32) -> Result<UserPlaylists,
                 global_id: v.global_collection_id,
                 creator_global_id: v.list_create_gid,
                 title: v.name,
-                description: v.intro,
-                tags: v.tags,
+                description_present: v.intro.is_some(),
+                tags_present: v.tags.is_some(),
+                description: v.intro.unwrap_or_default(),
+                tags: v.tags.unwrap_or_default(),
                 cover_url: cover_url(v.pic),
                 creator_id: v.list_create_userid,
                 creator_name: v.list_create_username,

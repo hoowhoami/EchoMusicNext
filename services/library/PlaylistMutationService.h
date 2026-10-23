@@ -49,6 +49,8 @@ public:
     /// Exact editor flow: fresh version/ownership read, upload prepared PNG,
     /// version recheck, playlist_update.pic, canonical readback. No write replay.
     bool saveCover(const ApiClient::PlaylistUpdate &update, const QByteArray &png);
+    /// Metadata-only edit uses the same fresh ownership/version gate.
+    bool saveEdit(const ApiClient::PlaylistUpdate &update, const QByteArray &png = {});
     bool remove(ApiClient::CloudPlaylistId id);
     /// Only reissue reads after acknowledgement; never repeat an unknown write.
     Q_INVOKABLE bool reconcile();

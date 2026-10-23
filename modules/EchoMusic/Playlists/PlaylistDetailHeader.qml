@@ -8,6 +8,7 @@ import EchoMusic.Music
 SongDetailHeader {
     id: header
     required property PlaylistDetailContext detailContext
+    signal editRequested
     property string shareFallbackId: ""
     readonly property var info: detailContext.detail
     additionalActions: Component {
@@ -23,6 +24,13 @@ SongDetailHeader {
                 onClicked: header.detailContext.toggleCollection()
             }
 
+            EchoSoftButton {
+                objectName: "playlistEditButton"
+                visible: header.detailContext.editListId > 0
+                text: qsTr("编辑歌单")
+                glyph: "pencil"
+                onClicked: header.editRequested()
+            }
             EchoSoftButton {
                 objectName: "detailShareButton"
                 visible: !!header.detailContext.actions.sharing
@@ -46,6 +54,13 @@ SongDetailHeader {
                 onClicked: header.detailContext.toggleCollection()
             }
 
+            EchoIconButton {
+                objectName: "playlistEditCollapsed"
+                visible: header.detailContext.editListId > 0
+                text: qsTr("编辑歌单")
+                glyph: "pencil"
+                onClicked: header.editRequested()
+            }
             EchoIconButton {
                 objectName: "detailShareCollapsed"
                 visible: !!header.detailContext.actions.sharing

@@ -10,6 +10,7 @@ struct SettingsBackupResult
 {
     QString error;
     QJsonObject manifest;
+    QByteArray data;
 };
 /// New host format, deliberately independent of EchoMusic's old storage/schema.
 /// Worker-only streaming archive: fixed limits, SHA-256 per entry, no symlinks,

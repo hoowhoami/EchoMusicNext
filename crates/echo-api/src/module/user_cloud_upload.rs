@@ -1,6 +1,6 @@
 //! Cloud upload stages. Qt owns the queue and rate limiter; each stage is
 //! cancellable and writes are never retried here. Keep at most one 1 MiB part
-//! in memory, read on a blocking worker from the selected-file snapshot.
+//! in memory. Qt supplies validated bytes; this crate never receives a local path.
 use crate::{
     error::ApiError,
     util::{
@@ -9,12 +9,9 @@ use crate::{
         request::{self, ApiClient, Endpoint, Identity, Origin},
     },
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::BTreeMap,
-    io::{Read, Seek, SeekFrom},
-    time::UNIX_EPOCH,
-};
+use std::collections::BTreeMap;
 const BUCKET: &str = "musicclound";
 pub const PART_BYTES: u64 = 1024 * 1024;
 #[derive(Deserialize)]
@@ -31,7 +28,7 @@ pub enum Query {
     Part {
         hash: String,
         transfer: Transfer,
-        file: FileSnapshot,
+        data: String,
         part: u32,
     },
     Complete {
@@ -49,13 +46,6 @@ pub struct Transfer {
     pub host: String,
     pub authorization: String,
     pub upload_id: String,
-}
-#[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FileSnapshot {
-    pub path: String,
-    pub size: u64,
-    pub modified_ms: u64,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -186,37 +176,16 @@ fn add_transfer(
     params.insert("upload_id".into(), transfer.upload_id.clone());
     host(&transfer.host)
 }
-fn read_part(file: FileSnapshot, part: u32) -> Result<Vec<u8>, ApiError> {
-    if part == 0 || file.size == 0 || file.size > 100 * 1024 * 1024 {
-        return Err(ApiError::new("input", "上传文件大小无效"));
-    }
-    let mut input =
-        std::fs::File::open(file.path).map_err(|_| ApiError::new("file", "无法读取上传文件"))?;
-    let check = |input: &std::fs::File| -> Result<(), ApiError> {
-        let stat = input
-            .metadata()
-            .map_err(|_| ApiError::new("file", "无法读取上传文件信息"))?;
-        let modified = stat
-            .modified()
-            .ok()
-            .and_then(|v| v.duration_since(UNIX_EPOCH).ok())
-            .map(|v| v.as_millis() as u64);
-        if !stat.is_file() || stat.len() != file.size || modified != Some(file.modified_ms) {
-            return Err(ApiError::new("file", "上传文件已变化，请重新选择"));
-        }
-        Ok(())
-    };
-    check(&input)?;
-    let start = u64::from(part - 1) * PART_BYTES;
-    if start >= file.size {
+fn decode_part(data: &str, part: u32) -> Result<Vec<u8>, ApiError> {
+    if !(1..=100).contains(&part) || data.len() > (PART_BYTES as usize).div_ceil(3) * 4 {
         return Err(ApiError::new("input", "无效的上传分片"));
     }
-    let mut bytes = vec![0; (file.size - start).min(PART_BYTES) as usize];
-    input
-        .seek(SeekFrom::Start(start))
-        .and_then(|_| input.read_exact(&mut bytes))
-        .map_err(|_| ApiError::new("file", "读取上传分片失败"))?;
-    check(&input)?;
+    let bytes = STANDARD
+        .decode(data)
+        .map_err(|_| ApiError::new("input", "无效的上传分片编码"))?;
+    if bytes.is_empty() || bytes.len() > PART_BYTES as usize {
+        return Err(ApiError::new("input", "无效的上传分片大小"));
+    }
     Ok(bytes)
 }
 pub async fn execute(
@@ -319,16 +288,14 @@ pub async fn execute(
         Query::Part {
             hash,
             transfer,
-            file,
+            data,
             part,
         } => {
             let mut p = params(identity, &hash)?;
             let host = add_transfer(&mut p, &transfer)?;
             p.insert("partnumber".into(), part.to_string());
             p.insert("body_empty".into(), "1".into());
-            let body = tokio::task::spawn_blocking(move || read_part(file, part))
-                .await
-                .map_err(|_| ApiError::new("internal", "读取上传文件失败"))??;
+            let body = decode_part(&data, part)?;
             (
                 format!("{host}/v3/multipart/upload"),
                 reqwest::Method::POST,
@@ -437,30 +404,21 @@ mod tests {
         ));
     }
     #[test]
-    fn bounded_file_parts_reject_changed_snapshot() {
-        let path = std::env::temp_dir().join(format!("echo-cloud-parts-{}", std::process::id()));
-        let bytes = vec![7; PART_BYTES as usize + 13];
-        std::fs::write(&path, &bytes).unwrap();
-        let stat = std::fs::metadata(&path).unwrap();
-        let file = FileSnapshot {
-            path: path.to_str().unwrap().into(),
-            size: stat.len(),
-            modified_ms: stat
-                .modified()
-                .unwrap()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
-        };
+    fn bounded_binary_parts_and_untrusted_hosts() {
         assert_eq!(
-            read_part(file.clone(), 1).unwrap().len(),
-            PART_BYTES as usize
+            decode_part(&STANDARD.encode([7; 13]), 2).unwrap(),
+            vec![7; 13]
         );
-        assert_eq!(read_part(file.clone(), 2).unwrap(), vec![7; 13]);
-        assert!(read_part(file.clone(), 3).is_err());
-        std::fs::write(&path, [1, 2, 3]).unwrap();
-        assert!(read_part(file, 1).is_err());
-        std::fs::remove_file(path).unwrap();
+        for (data, part) in [
+            ("".to_string(), 1),
+            ("!".to_string(), 1),
+            (STANDARD.encode([1]), 0),
+            (STANDARD.encode([1]), 101),
+            (STANDARD.encode(vec![0; PART_BYTES as usize + 1]), 1),
+        ] {
+            assert!(decode_part(&data, part).is_err());
+        }
+        assert!(serde_json::from_value::<Query>(serde_json::json!({"stage":"part","hash":"0123456789abcdef0123456789abcdef","transfer":{"host":"bss.kugou.com","authorization":"x","upload_id":"x"},"part":1,"file":{"path":"/tmp/no","size":1,"modified_ms":0}})).is_err());
         assert!(host("https://kugou.com.attacker.invalid").is_err());
         assert!(host("https://user:password@x.kugou.com").is_err());
         assert!(host("https://bss.kugou.com/?token=x").is_err());

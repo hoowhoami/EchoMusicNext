@@ -408,6 +408,7 @@ target_link_libraries(
             echo_playbackplugin
             echo_library
             echo_libraryui
+            echo_libraryuiplugin
             echo_account
             echo_accountui
             echo_accountuiplugin
@@ -601,6 +602,7 @@ target_link_libraries(
             Qt6::Qml
             Qt6::Quick
             Qt6::QuickControls2
+            Qt6::Sql
             Qt6::Test
 )
 set(ECHO_DESKTOP_TEST_GROUPS desktop-pages-settings desktop-pages-playback desktop-pages-navigation
@@ -633,6 +635,7 @@ add_test(
     COMMAND
         echo-desktop-pages-test playbackQueueLocationSkipsVisibleCurrentSong
         playbackFallbackControlsUseProductionUi floatingLyricsFollowRealAudioAndStopMotionOnPause
+        desktopLyricsKeepRenderingUnderTranslucentOcclusion
         miniProgressVolumeBackdropFavoriteAndDesktopBadge miniQueueRendersAndScrolls
         miniScaleAndMenuUseProductionSurfaces miniVolumeDismissesAcrossHost
         floatingPreferencesAndFilteredTimelineKeepIdentity
@@ -751,13 +754,17 @@ target_sources(
             plugins/PluginRuntimeEffects.cpp
             plugins/PluginRuntimeBusiness.cpp
             plugins/PluginRuntimeSources.cpp
+            plugins/PluginRuntimeWindowNetwork.cpp
+            plugins/PluginRuntimeBackups.cpp
             plugins/PluginRuntimeSqlite.cpp
             plugins/PluginRuntimeFiles.cpp
             plugins/PluginRuntimeLyrics.cpp
 )
 target_link_libraries(
     echo-plugin-runtime-test
-    PRIVATE echo_music
+    PRIVATE echo_settings
+            echo_settingsplugin
+            echo_music
             echo_themes
             echo_themesplugin
             echo_platform
@@ -779,7 +786,23 @@ set(ECHO_PLUGINS_TEST_GROUPS
     plugin-runtime-appearance
     plugin-runtime-files
     plugin-runtime-sqlite
+    plugin-runtime-backups
+    plugin-runtime-window-network
     plugin-runtime-ecosystem
+)
+add_test(
+    NAME plugin-runtime-window-network
+    COMMAND
+        echo-plugin-runtime-test customWindowsRealEntryScopesAndRetirement
+        resourceAuthorizationDenialCancelAndIsolation
+        resourceAuthorizationDoesNotConsumeActivationDeadline
+        tcpRealBinaryCancellationAndRevocation tcpHalfCloseReceivesResponseAfterFin
+        localHttpRealRequestsChunkingAndErrors localWebSocketUpgradeBinaryPingAndLimits
+        resourceAccountAndDisableDrainRealTransports
+)
+add_test(NAME plugin-runtime-backups
+         COMMAND echo-plugin-runtime-test backupsCreateInspectTokensAndStorageBarrier
+                 backupsProvidersUseRealUiAndRetire backupsRestoreCommitAndRollback
 )
 add_test(
     NAME plugin-runtime-sqlite
@@ -1553,3 +1576,16 @@ foreach(
 )
     target_link_libraries(${echo_qapplication_test} PRIVATE Qt6::Widgets)
 endforeach()
+
+qt_add_executable(echo-lyric-parser-test LyricParserTest.cpp)
+target_link_libraries(echo-lyric-parser-test PRIVATE echo_lyrics Qt6::Test)
+target_compile_definitions(
+    echo-lyric-parser-test
+    PRIVATE
+        ECHO_LYRIC_CONFORMANCE="${PROJECT_SOURCE_DIR}/tests/fixtures/lyrics/parser-conformance.json"
+        ECHO_LYRIC_PRIVATE_CONFORMANCE="${PROJECT_SOURCE_DIR}/tests/fixtures/api/lyric/cpp-parser-conformance.json"
+)
+add_test(NAME lyric-parser COMMAND echo-lyric-parser-test)
+set_tests_properties(lyric-parser PROPERTIES TIMEOUT 45)
+
+target_link_libraries(echo-plugin-runtime-test PRIVATE Qt6::WebSockets)

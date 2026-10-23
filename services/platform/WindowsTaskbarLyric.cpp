@@ -132,7 +132,7 @@ struct Interval
 /// survey itself (EchoMusic counts on the same property instead of filtering).
 /// Everything is collected taskbar-client-relative, physical pixels.
 bool identityOccupied(IUIAutomation *automation, HWND shell, const POINT &origin, int barWidth,
-                  QList<Interval> &occupied, Interval &content, bool &hasStart, bool &complete)
+                      QList<Interval> &occupied, Interval &content, bool &hasStart, bool &complete)
 {
     if (!automation || !shell)
         return false;
@@ -510,9 +510,8 @@ bool computeLayout(IUIAutomation *automation, HWND shell, TaskbarLayout &layout,
     Interval content{INT_MAX, INT_MIN};
     bool hasStart = false;
     bool complete = true;
-    const bool scanned =
-        identityOccupied(automation, shell, bar->origin, barWidth, occupied, content, hasStart,
-                         complete);
+    const bool scanned = identityOccupied(automation, shell, bar->origin, barWidth, occupied,
+                                          content, hasStart, complete);
     const bool identityOk = scanned && complete && hasStart && content.start <= content.end;
     if (!identityOk) {
         // The identity scan needs the Win11 XAML islands (a classic Win10

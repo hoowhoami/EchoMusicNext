@@ -1,5 +1,6 @@
 #pragma once
 #include "EchoPluginOperation.h"
+#include "EchoPluginTcp.h"
 #include <QPointer>
 #include <QThread>
 #include <QHash>
@@ -14,14 +15,19 @@ class EchoPluginNetwork final : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Owned by EchoPluginContext")
+    Q_PROPERTY(EchoMusic::EchoPluginTcp *tcp READ tcp CONSTANT)
 public:
     explicit EchoPluginNetwork(EchoPluginContext &scope);
     ~EchoPluginNetwork() override;
     Q_INVOKABLE EchoMusic::EchoPluginOperation *request(const QVariantMap &options);
+    EchoPluginTcp *tcp() const
+    {
+        return m_tcp;
+    }
     void shutdown();
     bool isDrained() const
     {
-        return m_drained;
+        return m_drained && m_tcp->isDrained();
     }
 signals:
     void drained();
@@ -29,6 +35,7 @@ signals:
 private:
     friend class PluginNetworkWorker;
     EchoPluginContext &m_scope;
+    EchoPluginTcp *m_tcp;
     QThread m_thread;
     PluginNetworkWorker *m_worker;
     QHash<QString, QPointer<EchoPluginOperation>> m_pending;

@@ -80,7 +80,7 @@
 
 ## 业务、入口、任务与歌词动效
 
-`ctx.kugou`公开96个固定类型化业务命令与验证；调用宿主同一ApiClient/VerificationService，账号由宿主绑定，业务ID使用十进制字符串。插件取消只撤销本请求的验证等待，宿主验证界面的取消仍关闭当前共享验证；账号切换或停用取消请求，登录确认不跨账号续跑插件操作。登录仍由宿主账号入口管理。
+`ctx.kugou`公开97个固定类型化业务命令与验证；调用宿主同一ApiClient/VerificationService，账号由宿主绑定，业务ID使用十进制字符串。插件取消只撤销本请求的验证等待，宿主验证界面的取消仍关闭当前共享验证；账号切换或停用取消请求，登录确认不跨账号续跑插件操作。登录仍由宿主账号入口管理。
 
 `ui.registerSidebarItem/registerShortcutCard/registerSongMenuItem`接入原侧栏、添加卡片/布局设置和共享歌曲菜单。`shortcuts`复用本地/系统快捷键冲突、输入焦点和录制门控；`toast`使用原通知视口；`scroll`只提供活动原生页面的公开引用/快照/滚动动作。`tasks`接入原任务中心的完整状态、图标/优先级patch、动作/明细和保留策略，代际替换、账号切换与停用均回收。
 
@@ -89,3 +89,19 @@
 签名、预算、时间轴及用法见[作者扩展接口](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/ecosystem.md)，执行证据与尚未覆盖范围见[本轮验证](internal/verification/2026-10-22-plugin-ecosystem-p0.md)。
 
 插件结构化数据使用 `ctx.sqlite`，声明 `storage.sqlite` / `sqlite`；完整参数、迁移和事务见作者仓库 [SQLite 指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/sqlite.md)。
+
+`ctx.backups` 提供创建、检查、宿主确认恢复及存储提供者注册，接入设置中的备份位置。详见作者仓库[备份指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/backups.md)。
+
+歌词格式解析共用宿主的 C++ 服务；在线、内嵌与插件 resolver/写入使用相同实现，作者文档及公开 normalized DTO 不变。
+
+头像接口分为 `uploadUserAvatar({ image })`（仅上传，返回 `file_name`）与 `updateUserAvatar({ fileName })`（仅提交头像引用）。图片选择、处理、两步协调及账号状态更新由调用方负责，失败或取消不自动重放写入。歌单更新 `update.kind` 可为 `owned` 或 `collected`，目标始终使用当前账号目录中的 `id`。
+
+### 自定义窗口、TCP 与本地服务
+
+`ctx.windows.list/get/show` 管理 manifest 中声明的 QML 窗口，窗口组件接收 `plugin: EchoPluginContext` 与 `window: EchoPluginWindow`。插件管理卡片提供窗口入口，隐藏或关闭销毁组件和展示作用域；支持几何、置顶声明、输入穿透、前置及系统/指针拖动缩放。Wayland 对绝对定位的限制通过错误与能力状态反馈。
+
+`ctx.net.tcp.connect` 返回类型化连接，提供可取消的二进制 `read/write/end` 和 `close`；end 排空写入并发送 FIN，保留读取。TCP 直接连接，不套用 HTTP 代理或 TLS。
+
+`ctx.webServer` 提供 loopback 同端口 HTTP/WebSocket 服务：`onRequest/onUpgrade/onConnection` 注册、`listen/status/close` 生命周期，异步请求/升级决策、二进制消息、ping/pong、Origin/Host 检查及消息/连接/缓冲限额。
+
+三类资源分别声明 `windows/tcp/webServer` capability，首次使用由宿主确认授权，绑定安装和当前包内容。插件管理“插件授权”可撤销；取消、账号变化、窗口作用域退出或停用关闭资源并丢弃迟到结果。详细签名与窗口配方见作者 SDK 的 `docs/windows-network.md`。

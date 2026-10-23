@@ -45,7 +45,8 @@ TaskbarLyricPreferences::TaskbarLyricPreferences(QSettings &settings, QObject *p
     : QObject(parent), m_settings(settings)
 {
     m_position = positionFromKey(
-        settings.value(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::Position).toString());
+        settings.value(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::Position)
+            .toString());
     setMaxWidth(settings
                     .value(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::MaxWidth,
                            m_maxWidth)

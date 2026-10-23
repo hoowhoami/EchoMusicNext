@@ -1,4 +1,4 @@
-//! Owned list metadata, including observed custom cover references. Omitting
+//! Account-local list metadata, including observed custom cover references. Omitting
 //! cover_reference preserves the server cover; empty/path/URL guesses are rejected.
 use crate::{
     domain::LibraryPlaylistChange,
@@ -13,6 +13,8 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub struct Query {
     pub cloud_list_id: u64,
+    #[serde(default = "owned")]
+    pub kind: super::playlist_sort::Kind,
     pub total_revision: u64,
     pub sort_index: i64,
     pub title: Option<String>,
@@ -64,7 +66,7 @@ pub async fn execute(
 ) -> Result<Vec<u8>, ApiError> {
     cloudlist::account(identity)?;
     validate(&query)?;
-    let mut body = serde_json::json!({"listid":query.cloud_list_id,"total_ver":query.total_revision,"type":0,"sort":query.sort_index,"intro":query.description,"tags":query.tags});
+    let mut body = serde_json::json!({"listid":query.cloud_list_id,"total_ver":query.total_revision,"type":query.kind.wire(),"sort":query.sort_index,"intro":query.description,"tags":query.tags});
     if let Some(ref title) = query.title {
         body["name"] = title.clone().into();
     }
@@ -90,4 +92,8 @@ pub fn validate(query: &Query) -> Result<(), ApiError> {
         return Err(ApiError::new("input", "封面引用无效"));
     }
     Ok(())
+}
+
+fn owned() -> super::playlist_sort::Kind {
+    super::playlist_sort::Kind::Owned
 }

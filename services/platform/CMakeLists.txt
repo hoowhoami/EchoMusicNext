@@ -17,6 +17,10 @@ add_library(
     HyprlandWindowBackdrop.cpp
     BrowserWindowLauncher.h
     BrowserWindowLauncher.cpp
+    # Shell owns this adapter on every platform; its implementation supplies
+    # non-Windows no-ops as well as the Windows mount.
+    WindowsTaskbarLyric.h
+    WindowsTaskbarLyric.cpp
 )
 target_compile_definitions(echo_platform PRIVATE ECHO_APPLICATION_ID="${ECHO_APPLICATION_ID}")
 qt_extract_metatypes(echo_platform)
@@ -43,14 +47,22 @@ if(WIN32)
     target_sources(
         echo_platform PRIVATE WindowsWindowBackdrop.h WindowsWindowBackdrop.cpp
                               WindowsSystemSleepInhibitor.cpp WindowsGlobalShortcuts.cpp
-                              WindowsTaskbarLyric.h WindowsTaskbarLyric.cpp
     )
     # comctl32: the strip's window-procedure subclass (GetWindowSubclass &
     # friends) for the taskbar context menu. The library is static, so CMake
     # propagates these as link-only dependencies - consumers of echo_platform
     # (app and the tests) get them transitively.
-    target_link_libraries(echo_platform PRIVATE dwmapi comctl32 user32 gdi32 shlwapi ole32
-                                                 oleaut32 uuid)
+    target_link_libraries(
+        echo_platform
+        PRIVATE dwmapi
+                comctl32
+                user32
+                gdi32
+                shlwapi
+                ole32
+                oleaut32
+                uuid
+    )
 endif()
 if(UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)

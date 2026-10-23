@@ -5,6 +5,7 @@
 #include "PlaybackService.h"
 #include "PlaylistMutationService.h"
 #include "PlaylistOrderModel.h"
+#include "PlaylistEditModel.h"
 #include "PurchasedService.h"
 #include "RouteController.h"
 #include "SongCatalogModel.h"
@@ -290,6 +291,22 @@ public:
         model.succeed(id, payload);
     }
 };
+class PlaylistEditModelTestAccess
+{
+public:
+    static quint64 request(const PlaylistEditModel &model)
+    {
+        return model.m_request;
+    }
+    static void complete(PlaylistEditModel &model, const QByteArray &bytes)
+    {
+        model.accept(model.m_request, bytes);
+    }
+    static QByteArray png(const PlaylistEditModel &model)
+    {
+        return model.m_png;
+    }
+};
 class PlaylistMutationServiceTestAccess
 {
 public:
@@ -346,6 +363,18 @@ public:
                                    {"artists", QJsonArray{QJsonObject{{"name", "歌手 Artist"}}}}}};
         s.notify();
     }
+    static void readPart(CloudUploadService &service, int part = 1)
+    {
+        service.m_part = part;
+        service.m_transfer = {{"host", "http://bss.kugou.com"},
+                              {"authorization", "fixture-authorization"},
+                              {"upload_id", "fixture-upload"}};
+        service.readUploadPart();
+    }
+    static bool reading(const CloudUploadService &service)
+    {
+        return service.m_partRead.isRunning();
+    }
     static void acknowledge(CloudUploadService &s)
     {
         s.m_stage = ApiClient::CloudUploadStage::Add;
@@ -384,7 +413,9 @@ public:
     }
     static void complete(CloudUploadService &s, QJsonObject result)
     {
-        auto id = s.m_request;
+        // Part dispatch now includes an asynchronous host-owned file read.
+        QVERIFY(QTest::qWaitFor([&] { return s.m_request != 0; }, 5000));
+        const auto id = s.m_request;
         s.m_api.cancel(id);
         s.accept(id, QJsonDocument(result).toJson());
     }
@@ -453,6 +484,248 @@ class LibraryPagesTest : public QObject
 {
     Q_OBJECT
 private slots:
+
+    void playlistEditorPreservesMetadataGatesVersionAndPreparesCover()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "Original", 1, 0);
+        PlaylistMutationService mutations(api);
+        PlaylistEditModel editor(api, library, mutations);
+        const auto row = QJsonObject{{"cloud_list_id", 7},       {"global_id", "collection"},
+                                     {"creator_id", 100},        {"title", "Original"},
+                                     {"kind", "owned"},          {"source_code", 1},
+                                     {"sort_index", 3},          {"description_present", true},
+                                     {"tags_present", true},     {"tags", "保留标签"},
+                                     {"description", "保留简介"}};
+        const auto payload = [&row](int version) {
+            return QJsonDocument(
+                       QJsonObject{{"user_id", 100},
+                                   {"total_revision", version},
+                                   {"page", QJsonObject{{"total", 1}, {"items", QJsonArray{row}}}}})
+                .toJson();
+        };
+        editor.open(7);
+        QVERIFY(editor.loading());
+        PlaylistEditModelTestAccess::complete(editor, payload(9));
+        QVERIFY(editor.loaded());
+        QVERIFY(!editor.dirty());
+        editor.setTitle("Renamed");
+        editor.save();
+        QVERIFY(editor.saving());
+        const auto check = PlaylistMutationServiceTestAccess::request(mutations);
+        PlaylistMutationServiceTestAccess::complete(mutations, check, payload(10));
+        QVERIFY(!editor.saving());
+        QVERIFY(!editor.errorMessage().isEmpty());
+        QCOMPARE(editor.title(), QString("Renamed"));
+        QCOMPARE(editor.tags(), QString("保留标签"));
+        QCOMPARE(editor.description(), QString("保留简介"));
+        QCOMPARE(mutations.state(), PlaylistMutationService::State::Ready);
+        // Metadata-only saving must not upload or send a cover reference.
+        editor.reload();
+        PlaylistEditModelTestAccess::complete(editor, payload(9));
+        editor.setTitle("Renamed");
+        editor.save();
+        PlaylistMutationServiceTestAccess::complete(
+            mutations, PlaylistMutationServiceTestAccess::request(mutations), payload(9));
+        const auto write = PlaylistMutationServiceTestAccess::request(mutations);
+        const auto command = ApiClientTestAccess::request(api, write);
+        QCOMPARE(command["operation"].toString(), QString("playlist_update"));
+        const auto query = command["query"].toObject();
+        QVERIFY(!query.contains("cover_reference"));
+        QCOMPARE(query["tags"].toString(), QString("保留标签"));
+        QCOMPARE(query["description"].toString(), QString("保留简介"));
+        QSignalSpy saved(&editor, &PlaylistEditModel::saved);
+        PlaylistMutationServiceTestAccess::complete(
+            mutations, write,
+            R"({"user_id":100,"cloud_list_id":7,"total_revision":10,"playlist_count":1})");
+        PlaylistMutationServiceTestAccess::complete(
+            mutations, PlaylistMutationServiceTestAccess::request(mutations), payload(10));
+        QCOMPARE(saved.size(), 1);
+        QVERIFY(!editor.saving());
+        QVERIFY(!editor.dirty());
+        QTemporaryDir dir;
+        QImage image(800, 400, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(dir.filePath("cover.png")));
+        editor.selectCover(QUrl::fromLocalFile(dir.filePath("cover.png")));
+        QTRY_VERIFY(!editor.selectingCover());
+        const auto prepared = QImage::fromData(PlaylistEditModelTestAccess::png(editor));
+        QCOMPARE(prepared.size(), QSize(400, 400));
+        const auto stale = PlaylistEditModelTestAccess::request(editor);
+        editor.close();
+        QVERIFY(!editor.loaded());
+        QVERIFY(editor.coverUrl().isEmpty());
+        QVERIFY(PlaylistEditModelTestAccess::png(editor).isEmpty());
+        editor.open(7);
+        const auto request = PlaylistEditModelTestAccess::request(editor);
+        QVERIFY(request);
+        QVERIFY(api.setAccount(101, "next-account"));
+        emit api.succeeded(request, payload(9));
+        QVERIFY(!editor.loaded());
+        Q_UNUSED(stale);
+        api.shutdown();
+    }
+
+    void playlistEditorFillsAbsentFieldsAndKeepsCollectedIdentity()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "Original", 1, 0);
+        PlaylistMutationService mutations(api);
+        PlaylistEditModel editor(api, library, mutations);
+        editor.open(7);
+        const QByteArray page =
+            R"({"user_id":100,"total_revision":9,"page":{"total":1,"items":[{"cloud_list_id":7,"creator_global_id":"public-creator-id","title":"Original","kind":"collected","source_code":1,"sort_index":3,"description_present":false,"tags_present":false}]}})";
+        PlaylistEditModelTestAccess::complete(editor, page);
+        QVERIFY(!editor.loaded());
+        const auto detailRead = PlaylistEditModelTestAccess::request(editor);
+        QVERIFY(detailRead);
+        QCOMPARE(ApiClientTestAccess::request(api, detailRead)["operation"].toString(),
+                 QString("playlist_detail"));
+        PlaylistEditModelTestAccess::complete(
+            editor,
+            R"([{"global_id":"public-creator-id","description":"保留的公开简介","tags":"华语,流行"}])");
+        QVERIFY(editor.loaded());
+        QCOMPARE(editor.description(), QString("保留的公开简介"));
+        editor.setTitle("Personal name");
+        editor.save();
+        PlaylistMutationServiceTestAccess::complete(
+            mutations, PlaylistMutationServiceTestAccess::request(mutations), page);
+        const auto command = ApiClientTestAccess::request(
+            api, PlaylistMutationServiceTestAccess::request(mutations));
+        QCOMPARE(command["operation"].toString(), QString("playlist_update"));
+        const auto query = command["query"].toObject();
+        QCOMPARE(query["cloud_list_id"].toInteger(), qint64(7));
+        QCOMPARE(query["kind"].toString(), QString("collected"));
+        QCOMPARE(query["description"].toString(), QString("保留的公开简介"));
+        QCOMPARE(query["tags"].toString(), QString("华语,流行"));
+        mutations.cancel();
+        editor.close();
+        api.shutdown();
+    }
+
+    void playlistEditorProductionDialogLifecycle()
+    {
+        QTemporaryDir dir;
+        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        QTcpServer proxy;
+        QVERIFY(proxy.listen(QHostAddress::LocalHost));
+        ApiClient api(DeviceIdentity::temporary());
+        // Keep transport pending while the native window settles; canonical DTO
+        // injection below must not race a refused localhost connection.
+        QVERIFY(api.setNetworkTransport(proxy.serverPort()));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "Original", 1, 0);
+        PlaylistMutationService mutations(api);
+        PlaylistEditModel editor(api, library, mutations);
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const QList<QQmlError> &errors) {
+            for (const auto &e : errors)
+                warnings << e.toString();
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Library
+import EchoMusic.Controls
+ApplicationWindow {
+ required property PlaylistEditModel editor
+ visible: true; width: 900; height: 820
+ EchoPopupLoader {id: owner; objectName: "editOwner"; hostItem: contentItem; sourceComponent: Component {PlaylistEditDialog {cloudId: 7}}}
+ function showEditor() {owner.open({editor: editor, cloudId: 7})}
+ function hideEditor() {owner.close()}
+})",
+                          QUrl("qrc:/playlist-editor-test.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"editor", QVariant::fromValue(&editor)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *owner = root->findChild<QObject *>("editOwner");
+        QVERIFY(owner);
+        QVERIFY(!owner->property("item").value<QObject *>());
+        std::function<QQuickItem *(QQuickItem *, const QString &)> findVisual =
+            [&](QQuickItem *item, const QString &name) -> QQuickItem * {
+            if (item->objectName() == name)
+                return item;
+            for (auto *child : item->childItems())
+                if (auto *found = findVisual(child, name))
+                    return found;
+            return nullptr;
+        };
+        std::function<QPair<int, bool>(QQuickItem *)> iconState = [&](QQuickItem *item) {
+            QPair<int, bool> result{0, true};
+            if (!item->isVisible())
+                return result;
+            if (item->objectName() == "iconImage" && !item->property("source").toUrl().isEmpty()) {
+                result.first = 1;
+                result.second = item->property("status").toInt() == 1;
+            }
+            for (auto *child : item->childItems()) {
+                const auto state = iconState(child);
+                result.first += state.first;
+                result.second = result.second && state.second;
+            }
+            return result;
+        };
+        const auto artifacts = qEnvironmentVariable("ECHO_PLAYLIST_EDIT_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QDir().mkpath(artifacts);
+        for (auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (double zoom : {1., 1.25})
+                for (int viewportWidth : {900, 420}) {
+                    window->setWidth(viewportWidth);
+                    theme.setMode(mode);
+                    QVERIFY(QMetaObject::invokeMethod(root.data(), "showEditor"));
+                    QPointer<QObject> popup;
+                    QTRY_VERIFY((popup = owner->property("item").value<QObject *>()));
+                    popup->setProperty("uiScale", zoom);
+                    QTRY_VERIFY(popup->property("opened").toBool());
+                    QTRY_VERIFY(popup->property("x").toReal() >= 0 &&
+                                popup->property("x").toReal() +
+                                        popup->property("width").toReal() * zoom <=
+                                    viewportWidth + 1);
+                    QSignalSpy frame(window, &QQuickWindow::afterAnimating);
+                    window->requestUpdate();
+                    QTRY_VERIFY(!frame.isEmpty());
+                    PlaylistEditModelTestAccess::complete(
+                        editor,
+                        R"({"user_id":100,"total_revision":9,"page":{"total":1,"items":[{"cloud_list_id":7,"global_id":"collection","title":"我的测试歌单","kind":"owned","source_code":1,"sort_index":3,"description_present":true,"tags_present":true,"tags":"华语,流行","description":"测试简介"}]}})");
+                    QVERIFY(editor.loaded());
+                    QTRY_VERIFY(iconState(window->contentItem()).first >= 4 &&
+                                iconState(window->contentItem()).second);
+                    auto *descriptionScroll =
+                        findVisual(window->contentItem(), "playlistEditDescriptionScroll");
+                    QVERIFY(descriptionScroll);
+                    QTRY_VERIFY(descriptionScroll->property("contentHeight").toReal() <=
+                                descriptionScroll->height() + 1);
+                    if (!artifacts.isEmpty())
+                        QVERIFY(window->grabWindow().save(artifacts + QString("/edit-%1-%2-%3.png")
+                                                                          .arg(int(mode))
+                                                                          .arg(zoom)
+                                                                          .arg(viewportWidth)));
+                    editor.setDescription(
+                        QStringLiteral("很长的歌单简介 Long description\n").repeated(30));
+                    QTRY_VERIFY(descriptionScroll->property("contentHeight").toReal() >
+                                descriptionScroll->height());
+                    QVERIFY(QMetaObject::invokeMethod(root.data(), "hideEditor"));
+                    QTRY_VERIFY(popup.isNull());
+                    QVERIFY(!editor.loaded());
+                }
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        api.shutdown();
+    }
 
     void cloudMetadataCompletesEveryFileAndSurvivesPagination()
     {
@@ -970,6 +1243,92 @@ private slots:
                  QString("abcdef0123456789abcdef0123456789ab"));
         QCOMPARE(upload.data(upload.index(0), CloudUploadService::FileNameRole), name);
         QVERIFY(upload.data(upload.index(0), CloudUploadService::MatchedRole).toBool());
+    }
+    void cloudUploadPartsStayInHostAndRespectSnapshot()
+    {
+        QTemporaryDir temp;
+        const auto path = temp.filePath("part.wav");
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const QByteArray bytes(CloudUploadFile::PartBytes + 13, 'x');
+        QCOMPARE(file.write(bytes), bytes.size());
+        file.close();
+        const CloudUploadFile::Snapshot snapshot{
+            path, bytes.size(), QFileInfo(path).lastModified().toMSecsSinceEpoch()};
+        std::atomic_bool canceled{false};
+        auto first = CloudUploadFile::readPart(snapshot, 1, canceled);
+        QVERIFY2(first.error.isEmpty(), qPrintable(first.error));
+        QCOMPARE(QByteArray::fromBase64(first.encoded), bytes.left(CloudUploadFile::PartBytes));
+        QCOMPARE(QByteArray::fromBase64(CloudUploadFile::readPart(snapshot, 2, canceled).encoded),
+                 bytes.right(13));
+        QVERIFY(!CloudUploadFile::readPart(snapshot, 0, canceled).error.isEmpty());
+        QVERIFY(!CloudUploadFile::readPart(snapshot, 3, canceled).error.isEmpty());
+        canceled.store(true);
+        QVERIFY(CloudUploadFile::readPart(snapshot, 1, canceled).encoded.isEmpty());
+        canceled.store(false);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write("changed");
+        file.close();
+        QVERIFY(!CloudUploadFile::readPart(snapshot, 1, canceled).error.isEmpty());
+    }
+    void cloudUploadBinaryPartReachesApiWithoutLocalPath()
+    {
+        QTemporaryDir temp;
+        const auto path = temp.filePath("part.wav");
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const QByteArray payload(1024 * 1024, 'x');
+        QCOMPARE(file.write(payload), payload.size());
+        file.close();
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        QByteArray request;
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            auto *socket = server.nextPendingConnection();
+            connect(socket, &QTcpSocket::readyRead, &server,
+                    [&, socket] { request += socket->readAll(); });
+        });
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(server.serverPort()));
+        QVERIFY(api.initializeRuntime());
+        QVERIFY(api.setAccount(123, "fixture-token"));
+        CloudUploadService upload(api, true);
+        CloudUploadServiceTestAccess::seed(upload, 1, "uploading", path);
+        CloudUploadServiceTestAccess::readPart(upload);
+        QTRY_VERIFY_WITH_TIMEOUT(request.contains("\r\n\r\n") &&
+                                     request.size() - request.indexOf("\r\n\r\n") - 4 >=
+                                         payload.size(),
+                                 10000);
+        QCOMPARE(request.mid(request.indexOf("\r\n\r\n") + 4), payload);
+        QVERIFY(request.startsWith("POST "));
+        QVERIFY(!request.left(request.indexOf("\r\n\r\n")).contains(path.toUtf8()));
+        upload.stop();
+        QCOMPARE(CloudUploadServiceTestAccess::request(upload), quint64(0));
+    }
+    void cloudUploadPartCancellationAndAccountIsolation()
+    {
+        QTemporaryDir temp;
+        const auto path = temp.filePath("part.wav");
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(QByteArray(1024 * 1024, 'x'));
+        file.close();
+        ApiClient api;
+        CloudUploadService upload(api, false);
+        CloudUploadServiceTestAccess::seed(upload, 1, "uploading", path);
+        CloudUploadServiceTestAccess::readPart(upload);
+        upload.stop();
+        QTRY_VERIFY(!CloudUploadServiceTestAccess::reading(upload));
+        QTest::qWait(30);
+        QCOMPARE(CloudUploadServiceTestAccess::request(upload), quint64(0));
+        QCOMPARE(upload.succeeded(), 0);
+        CloudUploadServiceTestAccess::seed(upload, 1, "uploading", path);
+        CloudUploadServiceTestAccess::readPart(upload);
+        api.setAccount(123, "fixture-session");
+        QTRY_VERIFY(!CloudUploadServiceTestAccess::reading(upload));
+        QTest::qWait(30);
+        QCOMPARE(upload.total(), 0);
+        QCOMPARE(CloudUploadServiceTestAccess::request(upload), quint64(0));
     }
     void cloudUploadSuccessDoesNotRequireOptionalRows()
     {

@@ -224,6 +224,8 @@ inline constexpr QLatin1StringView Prefix{"playerEngine/"};
 } // namespace PlayerEngine
 namespace Plugins
 {
+inline constexpr QLatin1StringView ResourcePermissionsPrefix{"plugins/resourcePermissions/"};
+inline constexpr QLatin1StringView WindowBoundsPrefix{"plugins/windowBounds/"};
 inline constexpr QLatin1StringView EntryFormat{"plugins/%1"};
 inline constexpr QLatin1StringView FailuresPrefix{"plugins/failures/"};
 inline constexpr QLatin1StringView IdPrefix{"plugins/id/"};

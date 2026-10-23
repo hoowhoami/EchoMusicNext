@@ -49,6 +49,10 @@ public:
     }
     Q_INVOKABLE bool patch(const QVariantMap &);
     Q_INVOKABLE bool reset();
+    void setWriteGuard(std::function<bool()> guard)
+    {
+        m_writeGuard = std::move(guard);
+    }
     void publish();
     void retire();
     static bool isJson(const QVariantMap &);
@@ -60,7 +64,7 @@ signals:
 
 private:
     QPointer<AppearanceConfiguration> m_delegate;
-    std::function<bool()> m_guard;
+    std::function<bool()> m_guard, m_writeGuard;
     bool m_proxy = false;
     bool apply(const QVariantMap &);
     QString m_file, m_error;

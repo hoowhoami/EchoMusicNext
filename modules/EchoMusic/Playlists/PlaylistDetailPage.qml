@@ -18,6 +18,7 @@ RoutePage {
         introOwner.close();
         songMenuOwner.close();
         orderDialogOwner.close();
+        editDialogOwner.close();
     }
     // Open at the pointer or keyboard-reported row edge in scene coordinates.
     // Keep the target row highlighted until the menu closes.
@@ -75,6 +76,9 @@ RoutePage {
                 onPlayRequested: page.detail.actions.play()
                 onBatchRequested: batchOwner.open()
                 onIntroRequested: introOwner.open()
+                onEditRequested: editDialogOwner.open({
+                    cloudId: page.detail.editListId
+                })
             }
         }
     }
@@ -101,6 +105,17 @@ RoutePage {
                     tracksListId: page.orderTargetListId,
                     tracksTitle: page.detail.detail.title || ""
                 });
+            }
+        }
+    }
+    EchoPopupLoader {
+        id: editDialogOwner
+        objectName: "playlistEditDialogOwner"
+        hostItem: page
+        sourceComponent: Component {
+            PlaylistEditDialog {
+                editor: page.service.editor
+                uiScale: page.settings.uiScale
             }
         }
     }

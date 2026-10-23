@@ -1,5 +1,4 @@
 #include "LyricExtensions.h"
-#include "NativeBridge.h"
 #include <QJsonDocument>
 #include <QPointer>
 #include <QTimer>
@@ -10,54 +9,6 @@ namespace EchoMusic
 {
 namespace
 {
-class ParseJob final : public QObject
-{
-public:
-    ParseJob(NativeBridge &native, QVariantMap document, QObject *owner,
-             LyricExtensions::Parsed done)
-        : QObject(owner), m_native(native), m_document(std::move(document)), m_done(std::move(done))
-    {
-        QTimer::singleShot(0, this, [this] {
-            const auto error = LyricExtensions::validate(m_document);
-            if (!error.isEmpty()) {
-                finish({}, error);
-                return;
-            }
-            connect(&m_native, &NativeBridge::completed, this,
-                    [this](quint64 id, quint64, bool ok, const QByteArray &bytes) {
-                        if (!m_id || id != m_id)
-                            return;
-                        m_id = 0;
-                        const auto value = QJsonDocument::fromJson(bytes).object();
-                        finish(ok ? value : QJsonObject{},
-                               ok ? QString()
-                                  : value.value("message").toString("Lyric parsing failed"));
-                    });
-            m_id = m_native.submit(NativeBridge::ParseLyrics,
-                                   QJsonObject::fromVariantMap(m_document), 0);
-            if (!m_id)
-                finish({}, "Lyric parser is unavailable or busy");
-        });
-    }
-    ~ParseJob() override
-    {
-        if (m_id)
-            m_native.cancel(m_id);
-    }
-
-private:
-    void finish(QJsonObject value, QString error)
-    {
-        auto done = std::exchange(m_done, {});
-        deleteLater();
-        if (done)
-            done(std::move(value), std::move(error));
-    }
-    NativeBridge &m_native;
-    QVariantMap m_document;
-    LyricExtensions::Parsed m_done;
-    quint64 m_id = 0;
-};
 class ResolveJob final : public QObject
 {
 public:
@@ -171,10 +122,7 @@ private:
     qsizetype index = 0;
 };
 } // namespace
-LyricExtensions::LyricExtensions(NativeBridge &native, QObject *parent)
-    : QObject(parent), m_native(native)
-{
-}
+LyricExtensions::LyricExtensions(QObject *parent) : QObject(parent), m_parser(this) {}
 bool LyricExtensions::add(Resolver resolver)
 {
     if (m_resolvers.size() >= 128)
@@ -201,6 +149,12 @@ QObject *LyricExtensions::resolve(const PlaybackTrack &track, bool force, bool p
                                   const QString &only, QObject *owner,
                                   std::function<void(Result)> done)
 {
+    // An empty registry has no asynchronous work or resources to own. Preserve
+    // the normal host lookup path without manufacturing a resolver job.
+    if (m_resolvers.isEmpty()) {
+        done({});
+        return nullptr;
+    }
     QVariantMap context{
         {"track",
          QVariantMap{
@@ -239,6 +193,23 @@ QString LyricExtensions::validate(const QVariantMap &document)
 }
 QObject *LyricExtensions::parse(const QVariantMap &document, QObject *owner, Parsed done)
 {
-    return new ParseJob(m_native, document, owner, std::move(done));
+    return m_parser.submit(LyricParser::Source::Document, document, owner,
+                           [done = std::move(done)](LyricParser::Result result) {
+                               done(std::move(result.lyrics), std::move(result.error));
+                           });
+}
+QObject *LyricExtensions::parseDownloaded(const QVariantMap &document, QObject *owner, Parsed done)
+{
+    return m_parser.submit(LyricParser::Source::Downloaded, document, owner,
+                           [done = std::move(done)](LyricParser::Result result) {
+                               done(std::move(result.lyrics), std::move(result.error));
+                           });
+}
+QObject *LyricExtensions::parseEmbedded(const QString &text, QObject *owner, Parsed done)
+{
+    return m_parser.submit(LyricParser::Source::Embedded, {{"content", text}}, owner,
+                           [done = std::move(done)](LyricParser::Result result) {
+                               done(std::move(result.lyrics), std::move(result.error));
+                           });
 }
 } // namespace EchoMusic

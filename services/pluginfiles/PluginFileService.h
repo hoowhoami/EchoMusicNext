@@ -7,6 +7,7 @@
 #include <QVariantMap>
 #include <atomic>
 #include <memory>
+#include <functional>
 namespace EchoMusic
 {
 class PluginFileWorker;
@@ -40,6 +41,11 @@ public:
     void cancel(quint64 id);
     void closeScope(const QString &scope);
     void forgetInstallation(const QString &installation);
+    void snapshotBarrier(std::function<void(bool)> ready);
+    void freezeStorage(bool frozen)
+    {
+        m_snapshot = frozen;
+    }
     void shutdown();
     bool isClosed() const
     {
@@ -85,6 +91,7 @@ private:
     QHash<QString, DownloadControl> m_downloadControls;
     QHash<QString, std::shared_ptr<std::atomic_bool>> m_scopes;
     QHash<quint64, Pending> m_pending;
+    bool m_snapshot = false;
     bool m_closing = false, m_closed = false, m_loading = true;
 };
 } // namespace EchoMusic

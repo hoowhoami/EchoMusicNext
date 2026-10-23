@@ -102,7 +102,8 @@ target_include_directories(
 )
 target_link_libraries(
     echo_playback_service
-    PUBLIC echo_bridge
+    PUBLIC echo_lyrics
+           echo_bridge
            echo_network
            echo_account
            echo_sharing

@@ -99,7 +99,8 @@ struct ApiClient::SocialClient
     quint64 sendSocialMessage(quint64 target, const QString &tag, const QString &text,
                               const QString &nickname);
     quint64 updateUserProfile(const ProfilePatch &patch);
-    quint64 updateUserAvatar(const QByteArray &image);
+    quint64 uploadUserAvatar(const QByteArray &image);
+    quint64 updateUserAvatar(const QString &fileName);
     quint64 contentBlacklist(BlacklistKind kind, quint32 page, quint32 pageSize);
     quint64 editContentBlacklist(BlacklistKind kind, const QString &key, const QString &name,
                                  const QString &mixSongId, bool remove);

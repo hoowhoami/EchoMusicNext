@@ -455,9 +455,13 @@ quint64 ApiClient::updateUserProfile(const ProfilePatch &patch)
 {
     return m_social->updateUserProfile(patch);
 }
-quint64 ApiClient::updateUserAvatar(const QByteArray &image)
+quint64 ApiClient::uploadUserAvatar(const QByteArray &image)
 {
-    return m_social->updateUserAvatar(image);
+    return m_social->uploadUserAvatar(image);
+}
+quint64 ApiClient::updateUserAvatar(const QString &fileName)
+{
+    return m_social->updateUserAvatar(fileName);
 }
 quint64 ApiClient::contentBlacklist(BlacklistKind kind, quint32 page, quint32 pageSize)
 {

@@ -209,6 +209,28 @@ quint64 PlaylistDetailContext::orderListId() const
     }
     return 0;
 }
+quint64 PlaylistDetailContext::editListId() const
+{
+    const auto global = m_detail["global_id"].toString();
+    if (m_closed || global.isEmpty() || !m_api.currentAccountUserId())
+        return 0;
+    for (int row = 0; row < m_library.rowCount(); ++row) {
+        const auto index = m_library.index(row);
+        const auto kind = index.data(UserPlaylistModel::KindRole).toString();
+        const auto target = index
+                                .data(kind == "collected" ? UserPlaylistModel::CreatorGlobalIdRole
+                                                          : UserPlaylistModel::GlobalIdRole)
+                                .toString();
+        if (target != global || (kind != "owned" && kind != "collected") ||
+            index.data(UserPlaylistModel::SourceCodeRole).toUInt() == 2 ||
+            index.data(UserPlaylistModel::DefaultKindRole).toUInt())
+            continue;
+        const auto id = m_library.libraryIdAt(row);
+        if (id && id->value <= 9007199254740991ULL)
+            return id->value;
+    }
+    return 0;
+}
 void PlaylistDetailContext::resolveSource()
 {
     if (m_closed || !m_route.active() || !m_network || m_detail.isEmpty())
@@ -245,7 +267,7 @@ void PlaylistDetailContext::resolveSource()
     m_publicId = m_detail["creator_global_id"].toString();
     if (m_publicId.isEmpty())
         m_publicId = global;
-    m_actions.setQueueContext(m_detail["title"].toString(), "queue:playlist:" + global);
+    m_actions.setQueueContext(detail().value("title").toString(), "queue:playlist:" + global);
     requestPage(m_nextPage);
     emit changed();
 }

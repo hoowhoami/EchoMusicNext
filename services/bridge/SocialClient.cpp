@@ -262,20 +262,29 @@ quint64 ApiClient::SocialClient::updateUserProfile(const ProfilePatch &patch)
                       {AuthenticationMode::CurrentAccount, false});
 }
 
-quint64 ApiClient::SocialClient::updateUserAvatar(const QByteArray &image)
+quint64 ApiClient::SocialClient::uploadUserAvatar(const QByteArray &image)
 {
     if (!api.m_userId || image.isEmpty() || image.size() > 8 * 1024 * 1024)
         return 0;
     const auto id = api.submit(
-        {{"operation", "user_update_avatar"},
+        {{"operation", "user_avatar_upload"},
          {"query", QJsonObject{{"image_base64", QString::fromLatin1(image.toBase64())},
                                {"local_date", QDate::currentDate().toString("yyyyMMdd")}}}},
         true, {AuthenticationMode::CurrentAccount, false});
     // This write is never replayed, and the native runtime already owns its
     // serialized input. Do not retain another image/base64 in pending metadata.
     if (id)
-        api.m_pending[id].request = {{"operation", "user_update_avatar"}};
+        api.m_pending[id].request = {{"operation", "user_avatar_upload"}};
     return id;
+}
+
+quint64 ApiClient::SocialClient::updateUserAvatar(const QString &fileName)
+{
+    if (!api.m_userId || fileName.isEmpty())
+        return 0;
+    return api.submit(
+        {{"operation", "user_update_avatar"}, {"query", QJsonObject{{"file_name", fileName}}}},
+        true, {AuthenticationMode::CurrentAccount, false});
 }
 
 quint64 ApiClient::SocialClient::contentBlacklist(BlacklistKind kind, quint32 page,

@@ -432,6 +432,21 @@ void WindowController::installTrayMenuModel()
     connect(m_trayMenuModel.get(), &QMenu::aboutToShow, this, &WindowController::nativeMenuOpening);
     m_tray->setContextMenu(m_trayMenuModel.get());
 }
+void WindowController::attachPluginWindow(QQuickWindow *window)
+{
+    if (!window)
+        return;
+    m_pluginWindows.removeIf([](const auto &item) { return !item; });
+    if (m_pluginWindows.contains(window))
+        return;
+    m_pluginWindows.append(window);
+    connect(window, &QWindow::visibleChanged, this, &WindowController::updateIncubationController,
+            Qt::QueuedConnection);
+    connect(window, &QWindow::activeChanged, this, &WindowController::updateIncubationController,
+            Qt::QueuedConnection);
+    connect(window, &QObject::destroyed, this, &WindowController::updateIncubationController,
+            Qt::QueuedConnection);
+}
 void WindowController::updateIncubationController()
 {
     if (m_shuttingDown)
@@ -443,9 +458,21 @@ void WindowController::updateIncubationController()
                    : m_window && m_window->isVisible()  ? m_window.data()
                    : preferred                          ? preferred
                                                         : m_window.data();
-    if (window)
-        if (auto *engine = qmlEngine(window))
+    // A visible plugin window must keep asynchronous QML creation progressing
+    // while Main and Mini are hidden. The engine still has one controller owner.
+    m_pluginWindows.removeIf([](const auto &item) { return !item; });
+    for (auto plugin : m_pluginWindows)
+        if (plugin && plugin->isVisible() &&
+            (plugin->isActive() || !window || !window->isVisible())) {
+            window = plugin;
+            if (plugin->isActive())
+                break;
+        }
+    if (window) {
+        auto *engine = m_window ? qmlEngine(m_window) : qmlEngine(window);
+        if (engine)
             engine->setIncubationController(window->incubationController());
+    }
 }
 QRectF WindowController::nativeCaptionBounds() const
 {

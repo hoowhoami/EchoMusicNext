@@ -2,9 +2,16 @@
 #include "NetworkPreferences.h"
 #include "LogService.h"
 #include "RelaunchService.h"
+#include "BackupHost.h"
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
 {
+struct BackupHostRegistration
+{
+    Q_GADGET
+    QML_FOREIGN(BackupHost)
+    QML_ANONYMOUS
+};
 // Application-owned service metaobjects exposed to typed settings forms.
 struct NetworkPreferencesRegistration
 {

@@ -169,6 +169,10 @@ public:
 class PlaybackServiceTestAccess
 {
 public:
+    static AudioEngine &engine(PlaybackService &playback)
+    {
+        return playback.m_engine;
+    }
     // Paused presentation input, independent of native playback/clock accuracy.
     static void position(PlaybackService &playback, qint64 value, bool reset = true)
     {
@@ -425,6 +429,10 @@ public:
     {
         service.m_patch = patch;
         return service.m_save = api.capabilities();
+    }
+    static quint64 avatarPending(const ProfileService &service)
+    {
+        return service.m_avatarRequest;
     }
     static quint64 avatarRequest(ProfileService &service, ApiClient &api)
     {
@@ -740,7 +748,7 @@ struct Session
     QSettings preferences{directory.filePath("preferences.ini"), QSettings::IniFormat};
     ThemeStore theme{preferences};
     ShellSettings shell{preferences};
-    WindowController windows{preferences, false};
+    WindowController windows;
     ApiClient api{DeviceIdentity::temporary()};
     Test::AccountUiFixture accounts{api};
     ProfileService profile{api, accounts.account};
@@ -754,6 +762,9 @@ struct Session
     QScopedPointer<QObject> root;
     QQuickWindow *window = nullptr;
     QString initialRoute = QStringLiteral("profile");
+    // Native presentation tests opt in with temporary settings; ordinary
+    // fixtures retain their non-native window/backdrop/startup behavior.
+    explicit Session(bool nativeWindows = false) : windows(preferences, nativeWindows) {}
     bool settleScene()
     {
         // Zoom and capacity changes polish layouts and rebuild projections on

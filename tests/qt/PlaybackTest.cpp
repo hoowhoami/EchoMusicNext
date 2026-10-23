@@ -156,7 +156,12 @@ public:
     }
     static void succeed(LyricSourceController &sources, quint64 id, const QByteArray &bytes)
     {
-        sources.succeeded(id, bytes);
+        const auto object = QJsonDocument::fromJson(bytes).object();
+        if (id == sources.m_download && object.contains("lines")) {
+            sources.m_download = 0;
+            sources.acceptParsed(object);
+        } else
+            sources.succeeded(id, bytes);
     }
     static void seedCandidates(LyricSourceController &sources)
     {
@@ -1164,6 +1169,42 @@ private slots:
         QSignalSpy closed(&playback, &PlaybackService::closed);
         playback.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+    }
+    void downloadedAndEmbeddedLyricsUseCppParserAndCancel()
+    {
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath("lyrics.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        LyricSourceController sources(api, settings);
+        auto current = track(1);
+        LyricSourceControllerTestAccess::search(sources, api, current);
+        LyricSourceControllerTestAccess::seedCandidates(sources);
+        LyricSourceControllerTestAccess::seedPreview(sources, 999999, "a");
+        const auto document =
+            QJsonDocument(
+                QJsonObject{{"format", "lrc"},
+                            {"encoding", "base64"},
+                            {"content",
+                             QString::fromLatin1(
+                                 QByteArray("[00:01][00:03]Repeated\n[00:02]Verse").toBase64())}})
+                .toJson();
+        LyricSourceControllerTestAccess::succeed(sources, 999999, document);
+        QVERIFY(sources.previewLoading());
+        QTRY_VERIFY(!sources.previewLoading());
+        QCOMPARE(sources.preview()->rowCount(), 3);
+        LyricSourceControllerTestAccess::seedPreview(sources, 999998, "a");
+        LyricSourceControllerTestAccess::succeed(sources, 999998, document);
+        sources.closeSelection();
+        QTest::qWait(30);
+        QCOMPARE(sources.preview()->rowCount(), 0);
+        sources.updateEmbeddedDocument(current.stableKey(), "Embedded", "Artist",
+                                       "[00:01]Hello\n[00:01]你好\n[00:03]Goodbye\n[00:03]再见");
+        QTRY_VERIFY(sources.rowCount() > 2);
+        sources.updateEmbeddedDocument(current.stableKey(), "Embedded", "Artist", "[00:01]Stale");
+        sources.clear();
+        QTest::qWait(30);
+        QCOMPARE(sources.rowCount(), 0);
+        QCOMPARE(sources.preview()->rowCount(), 0);
     }
     void lyricCatalogOrderPreviewCloseAndFreshAutoSelection()
     {

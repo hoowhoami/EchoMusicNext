@@ -1,3 +1,4 @@
+#include <QTimer>
 #include "EchoPluginAppearance.h"
 #include "EchoPluginContext.h"
 #include "EchoPluginViewContext.h"
@@ -29,6 +30,27 @@ EchoPluginAppearance::EchoPluginAppearance(EchoPluginContext &s) : QObject(&s), 
     connect(&s.host().theme, &ThemeStore::changed, this, &EchoPluginAppearance::changed);
     connect(&s.host().theme, &ThemeStore::fontChanged, this, &EchoPluginAppearance::changed);
     connect(&s.host().theme, &ThemeStore::lyricFontsChanged, this, &EchoPluginAppearance::changed);
+}
+void EchoPluginAppearance::storageBarrier(std::function<void()> ready)
+{
+    if (drained()) {
+        ready();
+        return;
+    }
+    const auto completed = std::make_shared<bool>(false);
+    const auto check = [this, completed, ready] {
+        if (!*completed && drained()) {
+            *completed = true;
+            ready();
+        }
+    };
+    for (auto configuration : m_configurations) {
+        if (!configuration || !configuration->busy())
+            continue;
+        connect(configuration, &AppearanceConfiguration::drained, this, check,
+                Qt::SingleShotConnection);
+        connect(configuration, &QObject::destroyed, this, check, Qt::SingleShotConnection);
+    }
 }
 bool EchoPluginAppearance::drained() const
 {
@@ -286,6 +308,9 @@ EchoPluginAppearanceHandle *EchoPluginAppearance::add(const QJSValue &d, const Q
         return discard(validation);
     e->config = new AppearanceConfiguration(
         m_scope.dataPath() + "/appearance/" + kind + "/" + id + ".json", defaults, validate, e);
+    e->config->setWriteGuard([scope = QPointer<EchoPluginContext>(&m_scope)] {
+        return scope && scope->active() && !scope->storageFrozen();
+    });
     m_configurations.removeIf([](auto item) { return !item; });
     m_configurations.append(e->config);
     connect(e->config, &AppearanceConfiguration::drained, &m_scope,

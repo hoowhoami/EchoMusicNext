@@ -36,6 +36,25 @@ def workspace_contract(root):
     return errors
 
 
+def rust_domain_boundaries(root):
+    errors = []
+    # Only production code: local fixtures legitimately open files and sockets.
+    for path in (root / "crates/echo-api/src").rglob("*.rs"):
+        if "bin" in path.relative_to(root / "crates/echo-api/src").parts:
+            continue  # Explicit sampling executables are not the production API library.
+        production = re.split(r"#\[cfg\((?:all\()?test\b", path.read_text(), maxsplit=1)[0]
+        if re.search(
+            r"(?:std|tokio)::fs\b|\bFile::open\b|\bfn\s+parse_(?:embedded|lrc|krc|yrc)\s*\(",
+            production,
+        ):
+            errors.append(
+                f"{path.relative_to(root)}: document codecs and local file I/O must live outside echo-api"
+            )
+    if (root / "crates/echo-lyrics").exists():
+        errors.append("Lyrics codecs belong to services/lyrics in C++, not a Rust crate")
+    return errors
+
+
 def commands(source):
     """Read CMake commands, retaining quoted/bracket arguments and nested calls."""
     token = re.compile(
@@ -74,7 +93,7 @@ def strip_comments(source):
 
 def check(root):
     root = Path(root)
-    errors, owners, links = workspace_contract(root), {}, []
+    errors, owners, links = workspace_contract(root) + rust_domain_boundaries(root), {}, []
     cmake_files = [root / "CMakeLists.txt"]
     for folder in ("services", "modules", "app", "cmake"):
         base = root / folder

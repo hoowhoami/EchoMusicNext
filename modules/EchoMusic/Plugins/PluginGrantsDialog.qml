@@ -10,7 +10,7 @@ EchoDialog {
     id: dialog
     objectName: "pluginGrantsDialog"
     required property PluginManager manager
-    heading: qsTr("已授权文件与目录")
+    heading: qsTr("插件授权")
     preferredWidth: 760
     maximumHeight: 680
     windowHeightMargin: 100
@@ -19,6 +19,65 @@ EchoDialog {
     body: Component {
         ColumnLayout {
             spacing: 12
+            EchoTextLine {
+                Layout.fillWidth: true
+                text: qsTr("窗口与网络服务")
+                font: Theme.font(13, Theme.boldWeight)
+                color: Theme.floatingText
+            }
+            EchoBoundedListView {
+                id: resources
+                objectName: "pluginResourcePermissions"
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                maximumViewportHeight: 180
+                model: dialog.manager.runtime.permissions.records
+                spacing: 8
+                clip: true
+                reuseItems: true
+                ScrollBar.vertical: EchoPopupScrollBar {
+                    surface: dialog
+                    view: resources
+                    resourceActive: dialog.visible
+                }
+                delegate: Item {
+                    id: resourceRow
+                    required property var modelData
+                    width: resources.width
+                    height: 48
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.rightMargin: 24
+                        spacing: 12
+                        EchoTextLine {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            text: resourceRow.modelData.pluginName + " · " + resourceRow.modelData.name
+                            font: Theme.font(13, Theme.regularWeight)
+                            color: Theme.floatingText
+                        }
+                        EchoSoftButton {
+                            objectName: "pluginResourceRevoke-" + resourceRow.modelData.id
+                            text: qsTr("撤销")
+                            colors: Theme.floating
+                            onClicked: dialog.manager.runtime.permissions.revoke(resourceRow.modelData.id)
+                        }
+                    }
+                }
+            }
+            EchoTextLine {
+                Layout.fillWidth: true
+                visible: resources.count === 0
+                text: qsTr("暂无窗口与网络服务授权")
+                font: Theme.font(13, Theme.regularWeight)
+                color: Theme.floatingSecondaryText
+            }
+            EchoTextLine {
+                Layout.fillWidth: true
+                text: qsTr("文件与目录")
+                font: Theme.font(13, Theme.boldWeight)
+                color: Theme.floatingText
+            }
             EchoTextLine {
                 Layout.fillWidth: true
                 Layout.rightMargin: 24
@@ -42,7 +101,7 @@ EchoDialog {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.preferredHeight: implicitHeight
-                maximumViewportHeight: 480
+                maximumViewportHeight: 300
                 model: dialog.manager.fileGrants
                 reuseItems: true
                 cacheBuffer: 120

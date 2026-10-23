@@ -4,6 +4,12 @@
 
 #ifdef Q_OS_MACOS
 QVariantMap nativeMacApplicationPresentation();
+QVariantMap nativeFloatingAppearance(QWindow *);
+QVariantMap nativeMacComposition(QWindow *, qint64);
+namespace EchoMusic
+{
+void configureMacFloating(QQuickWindow *, bool, bool);
+}
 #endif
 
 void DesktopPagesTest::miniScaleAndMenuUseProductionSurfaces()
@@ -621,6 +627,203 @@ void DesktopPagesTest::floatingLyricsFollowRealAudioAndStopMotionOnPause()
     floating->setDesktopEnabled(false);
     playback.stop();
     QCOMPARE(warnings.size(), 0);
+}
+
+void DesktopPagesTest::desktopLyricsKeepRenderingUnderTranslucentOcclusion_data()
+{
+    QTest::addColumn<bool>("pinned");
+    QTest::addColumn<bool>("locked");
+    for (bool pinned : {false, true})
+        for (bool locked : {false, true})
+            QTest::newRow(qPrintable(QString("pinned-%1-locked-%2").arg(pinned).arg(locked)))
+                << pinned << locked;
+}
+
+void DesktopPagesTest::desktopLyricsKeepRenderingUnderTranslucentOcclusion()
+{
+    if (!qEnvironmentVariableIntValue("ECHO_NATIVE_DESKTOP_REFRESH") ||
+        QGuiApplication::platformName() == "offscreen" ||
+        QGuiApplication::platformName() == "minimal")
+        QSKIP("Opt in with ECHO_NATIVE_DESKTOP_REFRESH=1 on the real target QPA");
+    if (QGuiApplication::platformName().startsWith("wayland"))
+        QSKIP("Wayland overlap requires compositor-confirmed manual placement; no global "
+              "positioning proof");
+    QFETCH(bool, pinned);
+    QFETCH(bool, locked);
+    Session session(true);
+    PlaybackService playback(session.api, session.preferences, nullptr,
+                             session.directory.filePath("playback.sqlite"));
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&] {
+        session.router.shutdown();
+        session.commands.shutdown();
+        session.windows.shutdown();
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QTRY_VERIFY_WITH_TIMEOUT(playback.engineReady(), 15000);
+    const auto path = session.directory.filePath("desktop-occlusion.wav");
+    QVERIFY(writeFloatingTestWave(path));
+    PlaybackTrack track;
+    track.id = path;
+    track.localPath = path;
+    track.title = "Desktop lyric native refresh";
+    track.durationMs = 16000;
+    playback.setVolume(0);
+    playback.playTracks({track}, 0, "Native refresh", "desktop-refresh");
+    QTRY_VERIFY2_WITH_TIMEOUT(playback.playing(), qPrintable(playback.errorMessage()), 15000);
+    QJsonArray rows;
+    for (int i = 0; i < 16; ++i)
+        rows.append(QJsonObject{
+            {"text", QString("透明遮挡 歌词 %1").arg(i)},
+            {"start_ms", i * 1000},
+            {"duration_ms", 1000},
+            {"words",
+             QJsonArray{
+                 QJsonObject{{"text", "透明遮挡 "}, {"start_ms", i * 1000}, {"duration_ms", 500}},
+                 QJsonObject{{"text", QString("歌词 %1").arg(i)},
+                             {"start_ms", i * 1000 + 500},
+                             {"duration_ms", 500}}}}});
+    QVERIFY(playback.lyrics()->replace({{"lines", rows}}));
+    auto *floating = session.windows.floating();
+    floating->desktop()->setAlwaysOnTop(pinned);
+    floating->setLocked(locked);
+    floating->setDesktopEnabled(true);
+    QQuickWindow *desktop = nullptr;
+    QTRY_VERIFY(([&] {
+        for (auto *candidate : QGuiApplication::topLevelWindows())
+            if (candidate->objectName() == "desktopLyricWindow")
+                desktop = qobject_cast<QQuickWindow *>(candidate);
+        return desktop != nullptr;
+    })());
+    QTRY_VERIFY(desktop->isExposed());
+    auto *viewport = visual(desktop->contentItem(), "desktopLyricViewport");
+    QVERIFY(viewport);
+    auto *probe = new FloatingFrameProbe(desktop);
+    QSignalSpy swapped(desktop, &QQuickWindow::frameSwapped);
+    QTRY_VERIFY(probe->frames() > 3);
+#ifdef Q_OS_MACOS
+    const auto mainNumber =
+        nativeWindowAppearance(session.window).value("windowNumber").toLongLong();
+#endif
+    session.window->hide();
+    // Use a peer surface above the lyric even in pinned mode. No timer or
+    // grabWindow() may force frames during the measured occlusion interval.
+    QQuickWindow cover;
+    cover.setFlags(Qt::Tool | Qt::FramelessWindowHint |
+                   (pinned ? Qt::WindowStaysOnTopHint : Qt::WindowFlags{}));
+    cover.setColor(QColor("#88405060"));
+    cover.setGeometry(desktop->geometry());
+    cover.show();
+#ifdef Q_OS_MACOS
+    configureMacFloating(&cover, pinned, false);
+#endif
+    cover.raise();
+    QTRY_VERIFY(cover.isExposed());
+    QVERIFY(!desktop->isActive());
+#ifdef Q_OS_MACOS
+    const auto desktopState = nativeFloatingAppearance(desktop);
+    QVERIFY(!nativeFloatingAppearance(&cover).value("opaque").toBool());
+    // Qt visible changes before AppKit's native hide transition is retired.
+    // Measure only once our own main window has left the compositor's list.
+    QTRY_VERIFY(!nativeMacComposition(&cover, mainNumber).value("hostOnScreen").toBool());
+    QTRY_VERIFY(nativeMacComposition(&cover, desktopState.value("windowNumber").toLongLong())
+                    .value("aboveHost")
+                    .toBool());
+    QTRY_VERIFY(nativeFloatingAppearance(desktop).value("occlusionVisible").toBool());
+#endif
+    QTRY_VERIFY(desktop->isExposed());
+    const auto frames = probe->frames();
+    const auto swaps = swapped.size();
+    const auto time = viewport->property("renderTime").toReal();
+    QTest::qWait(800);
+    const auto rendered = probe->frames() - frames;
+    QVERIFY2(rendered > 3, "Visible lyrics stopped rendering beneath a translucent peer");
+    QVERIFY(swapped.size() > swaps + 3);
+    QVERIFY(viewport->property("renderTime").toReal() > time + 300);
+    qInfo() << "desktop translucent occlusion" << QGuiApplication::platformName()
+            << "pinned=" << pinned << "locked=" << locked << "frames=" << rendered
+            << "swaps=" << swapped.size() - swaps
+            << "timeline-ms=" << viewport->property("renderTime").toReal() - time;
+#ifdef Q_OS_MACOS
+    QVERIFY2(desktop->isExposed(),
+             qPrintable(
+                 QJsonDocument::fromVariant(
+                     nativeMacComposition(&cover, desktopState.value("windowNumber").toLongLong()))
+                     .toJson(QJsonDocument::Compact)));
+#else
+    QVERIFY(desktop->isExposed());
+#endif
+    // Captures follow the passive measurement; they are visual evidence only.
+    const auto capture = qEnvironmentVariable("ECHO_FLOATING_CAPTURE_DIR");
+    if (!capture.isEmpty()) {
+        QVERIFY(QDir().mkpath(capture));
+        QVERIFY(desktop->grabWindow().save(
+            capture + QString("/desktop-occlusion-%1-%2.png").arg(pinned).arg(locked)));
+    }
+    cover.hide();
+    if (!pinned) {
+        // The reported scenario uses the real translucent main shell. Exercise
+        // its ordinary-alpha and native-frost paths in addition to the peer.
+        session.window->setPosition(desktop->position() - QPoint(120, 100));
+        session.theme.setTransparency(50);
+        for (bool frosted : {false, true}) {
+            if (frosted && !session.windows.supportsWindowFrost())
+                continue;
+            session.theme.setWindowFrosted(frosted);
+            session.windows.setAppearance(frosted, false, 50);
+            QVERIFY2(session.windows.appearanceError().isEmpty(),
+                     qPrintable(session.windows.appearanceError()));
+            session.window->show();
+            QVERIFY(Test::prepareNativeInput(session.window));
+#ifdef Q_OS_MACOS
+            const auto mainState = nativeWindowAppearance(session.window);
+            QCOMPARE(mainState.value("applicationBackdropCount").toInt(), frosted ? 1 : 0);
+            QCOMPARE(mainState.value("backgroundAlpha").toDouble(), 0.);
+            QTRY_VERIFY(nativeMacComposition(session.window,
+                                             desktopState.value("windowNumber").toLongLong())
+                            .value("aboveHost")
+                            .toBool());
+#endif
+            const auto mainFrames = probe->frames();
+            const auto mainSwaps = swapped.size();
+            QTest::qWait(600);
+            const auto mainRendered = probe->frames() - mainFrames;
+#ifdef Q_OS_MACOS
+            qInfo() << "desktop main native state" << "frosted=" << frosted
+                    << "main-opaque=" << mainState.value("opaque") << "desktop-occlusion-visible="
+                    << nativeFloatingAppearance(desktop).value("occlusionVisible")
+                    << "desktop-exposed=" << desktop->isExposed();
+#endif
+            QVERIFY2(mainRendered > 3,
+                     "Lyrics stopped rendering beneath the production main shell");
+            QVERIFY(swapped.size() > mainSwaps + 3);
+            qInfo() << "desktop production main occlusion" << "frosted=" << frosted
+                    << "locked=" << locked << "frames=" << mainRendered
+                    << "swaps=" << swapped.size() - mainSwaps;
+        }
+        session.window->hide();
+    }
+    desktop->hide();
+    QTRY_VERIFY(!viewport->property("resourceActive").toBool());
+    QTest::qWait(180);
+    const auto hiddenFrames = probe->frames();
+    QTest::qWait(250);
+    QVERIFY(probe->frames() - hiddenFrames <= 1);
+    desktop->show();
+    QTRY_VERIFY(desktop->isExposed());
+    QTRY_VERIFY(viewport->property("resourceActive").toBool());
+    QTRY_VERIFY(probe->frames() > hiddenFrames + 3);
+    QVERIFY(qAbs(viewport->property("renderTime").toReal() - playback.positionMs()) < 350);
+    playback.pause();
+    QTRY_VERIFY(!playback.playing());
+    QTest::qWait(350);
+    const auto paused = viewport->property("renderTime").toReal();
+    QTest::qWait(150);
+    QVERIFY(qAbs(viewport->property("renderTime").toReal() - paused) < 1);
+    floating->setDesktopEnabled(false);
+    playback.stop();
 }
 
 void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge_data()

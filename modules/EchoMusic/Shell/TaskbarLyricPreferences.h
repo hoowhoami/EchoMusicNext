@@ -21,11 +21,11 @@ public:
     /// key of each mode lives in positionKey() only.
     enum class Position
     {
-        AutoLeft,  ///< prefer the left free area, fall back to the right one
-        AutoRight, ///< prefer the right free area, fall back to the left one
-        FixedLeft, ///< pin to the left edge of the whole taskbar
+        AutoLeft,   ///< prefer the left free area, fall back to the right one
+        AutoRight,  ///< prefer the right free area, fall back to the left one
+        FixedLeft,  ///< pin to the left edge of the whole taskbar
         FixedRight, ///< pin to the right edge of the whole taskbar
-        Drag,      ///< wherever the user dropped the strip (dragOffsetX)
+        Drag,       ///< wherever the user dropped the strip (dragOffsetX)
     };
     Q_ENUM(Position)
     Q_PROPERTY(Position position READ position WRITE setPosition NOTIFY changed)

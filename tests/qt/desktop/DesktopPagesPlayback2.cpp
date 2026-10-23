@@ -1,5 +1,7 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
+#include <QSqlDatabase>
+#include <QSqlQuery>
 
 void DesktopPagesTest::playbackQueueLocationSkipsVisibleCurrentSong()
 {
@@ -983,8 +985,16 @@ void DesktopPagesTest::productionPlaybackPopoverSpacingAndEffectMarkers()
     QCOMPARE(warnings.size(), 0);
 }
 
+void DesktopPagesTest::productionEmbeddedLyricsFromActualReader_data()
+{
+    QTest::addColumn<bool>("beforeReady");
+    QTest::newRow("before-engine-ready") << true;
+    QTest::newRow("after-engine-ready") << false;
+}
+
 void DesktopPagesTest::productionEmbeddedLyricsFromActualReader()
 {
+    QFETCH(bool, beforeReady);
     Session session;
     session.theme.setMotionEnabled(false);
     session.theme.setFloatingFrosted(false);
@@ -1001,15 +1011,44 @@ void DesktopPagesTest::productionEmbeddedLyricsFromActualReader()
         QString::fromLatin1(
             QCryptographicHash::hash(track.key().toUtf8(), QCryptographicHash::Sha256).toHex());
     session.preferences.setValue(key, "embedded");
-    PlaybackService playback(session.api, session.preferences);
+    const auto storagePath = session.directory.filePath("playback.sqlite");
+    PlaybackService playback(session.api, session.preferences, nullptr, storagePath);
+    QSignalSpy engineEvents(&PlaybackServiceTestAccess::engine(playback),
+                            &AudioEngine::eventReceived);
+    const auto diagnostic = [&] {
+        QJsonArray events;
+        for (const auto &args : engineEvents) {
+            const auto value = args.first().value<QJsonObject>();
+            const auto kind = value.value("event").toString();
+            if (kind == "ready" || kind == "error" || kind == "file-loaded")
+                events.append(value);
+        }
+        return QJsonDocument(
+                   QJsonObject{{"ready", playback.engineReady()},
+                               {"initializationError", playback.engineInitializationError()},
+                               {"playbackError", playback.errorMessage()},
+                               {"sourceError", playback.lyricSource()->errorMessage()},
+                               {"events", events}})
+            .toJson(QJsonDocument::Compact);
+    };
+    if (beforeReady) {
+        // No event loop has run: exercise a play request during startup rather
+        // than let QML creation decide this branch by incidental scheduling.
+        QVERIFY(!playback.engineReady());
+        playback.playTracks({track}, 0, "Embedded reader", "embedded-reader");
+    }
     QVERIFY(session.create(&playback));
     const auto cleanup = qScopeGuard([&session] {
         session.root.reset();
         session.window = nullptr;
     });
     QVERIFY(Test::prepareNativeInput(session.window));
-    playback.playTracks({track}, 0, "Embedded reader", "embedded-reader");
-    QTRY_COMPARE_WITH_TIMEOUT(playback.lyricSource()->currentId(), QString("embedded"), 15000);
+    if (!beforeReady) {
+        QTRY_VERIFY2_WITH_TIMEOUT(playback.engineReady(), diagnostic().constData(), 15000);
+        playback.playTracks({track}, 0, "Embedded reader", "embedded-reader");
+    }
+    QTRY_VERIFY2_WITH_TIMEOUT(playback.lyricSource()->currentId() == "embedded",
+                              diagnostic().constData(), 15000);
     QCOMPARE(playback.title(), QString("内嵌标题"));
     QCOMPARE(playback.artist(), QString("内嵌歌手"));
     QCOMPARE(playback.lyrics()->rowCount(), 1);
@@ -1025,9 +1064,15 @@ void DesktopPagesTest::productionEmbeddedLyricsFromActualReader()
     QCOMPARE(nativeSystemMediaInfo().value("album").toString(), QString("内嵌专辑"));
     QTRY_VERIFY_WITH_TIMEOUT(nativeSystemMediaInfo().value("artwork").toBool(), 10000);
 #endif
-    // Neither reader snapshots nor temporary artwork paths enter retained queues.
-    QCOMPARE(playback.queue()->at(0)->title, QString());
+    // Tags fill missing presentation fields; they must not invent catalog
+    // identity. Reader snapshots and temporary artwork remain playback-owned.
+    QCOMPARE(playback.queue()->at(0)->title, QString("内嵌标题"));
+    QCOMPARE(playback.queue()->at(0)->artist, QString("内嵌歌手"));
+    QCOMPARE(playback.queue()->at(0)->id, track.id);
+    QCOMPARE(playback.queue()->at(0)->songId, track.songId);
     QCOMPARE(playback.queue()->at(0)->cover, QString());
+    const auto temporaryCover = playback.cover();
+    QTRY_VERIFY_WITH_TIMEOUT(playback.positionMs() >= 200, 10000);
     // Freeze the short real fixture after its reader metadata is confirmed;
     // a repeating EOF must not replace lyrics while checking picker geometry.
     playback.pause();
@@ -1056,7 +1101,8 @@ void DesktopPagesTest::productionEmbeddedLyricsFromActualReader()
     if (!capture.isEmpty()) {
         QVERIFY(QDir().mkpath(capture));
         QTest::qWait(100);
-        QVERIFY(session.window->grabWindow().save(capture + "/embedded-selection.png"));
+        QVERIFY(session.window->grabWindow().save(
+            capture + QString("/embedded-selection-%1.png").arg(beforeReady)));
     }
     playback.lyricSource()->select(0);
     playback.lyricSource()->applySelected();
@@ -1067,13 +1113,44 @@ void DesktopPagesTest::productionEmbeddedLyricsFromActualReader()
     playback.playIndex(0);
     QTRY_COMPARE_WITH_TIMEOUT(playback.lyricSource()->currentId(), QString("embedded"), 15000);
     playback.stop();
-    QCOMPARE(playback.lyricSource()->rowCount(), 0);
+    // Ordinary Stop preserves the selected song and lyrics for replay. Queue
+    // removal/clear owns retiring them; Stop is not a substitute for clear.
+    QVERIFY(playback.hasTrack());
+    QCOMPARE(playback.trackId(), track.id);
+    QCOMPARE(playback.lyricSource()->currentId(), QString("embedded"));
+    QCOMPARE(playback.lyricSource()->rowCount(), 1);
+    QCOMPARE(playback.lyrics()->rowCount(), 1);
+    QVERIFY(!playback.playing() && !playback.loading());
     QSignalSpy closed(&playback, &PlaybackService::closed),
         apiClosed(&session.api, &ApiClient::closed);
     playback.shutdown();
     session.api.shutdown();
     QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
     QTRY_COMPARE_WITH_TIMEOUT(apiClosed.size(), 1, 15000);
+    // Read the drained repository, not only its GUI queue snapshot. A temporary
+    // cover can otherwise leak back into the next process through saved rows.
+    const auto connection = QUuid::createUuid().toString();
+    const auto removeConnection = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
+    auto database = QSqlDatabase::addDatabase("QSQLITE", connection);
+    database.setDatabaseName(storagePath);
+    database.setConnectOptions("QSQLITE_OPEN_READONLY");
+    QVERIFY(database.open());
+    QSqlQuery rows(database);
+    QVERIFY(rows.exec("SELECT title,artist,cover,catalog_metadata FROM playback_tracks"));
+    QVERIFY(rows.next());
+    QCOMPARE(rows.value(0).toString(), QString("内嵌标题"));
+    QCOMPARE(rows.value(1).toString(), QString("内嵌歌手"));
+    QCOMPARE(rows.value(2).toString(), QString());
+    QVERIFY(!rows.value(3).toByteArray().contains("内嵌歌词"));
+    QVERIFY(!rows.value(3).toByteArray().contains(temporaryCover.toUtf8()));
+    QVERIFY(rows.exec("SELECT cover,track_snapshot,listened_ms FROM playback_history"));
+    QVERIFY(rows.next());
+    QCOMPARE(rows.value(0).toString(), QString());
+    const auto snapshot = rows.value(1).toByteArray();
+    QCOMPARE(QJsonDocument::fromJson(snapshot).object().value("cover").toString(), QString());
+    QVERIFY(!snapshot.contains("内嵌歌词"));
+    QVERIFY(!snapshot.contains(temporaryCover.toUtf8()));
+    QVERIFY(rows.value(2).toLongLong() > 0);
 }
 
 void DesktopPagesTest::productionLyricPreviewKeepsSymmetricInsets()

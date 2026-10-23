@@ -276,6 +276,7 @@ quint64 ApiClient::LibraryClient::updatePlaylist(const PlaylistUpdate &update)
     QJsonObject query{{"cloud_list_id", qint64(update.id.value)},
                       {"total_revision", qint64(update.totalRevision)},
                       {"sort_index", update.sortIndex},
+                      {"kind", update.kind == PlaylistKind::Owned ? "owned" : "collected"},
                       {"description", update.description},
                       {"tags", update.tags}};
     if (update.title)

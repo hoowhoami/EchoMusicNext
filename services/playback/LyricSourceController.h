@@ -12,7 +12,6 @@
 namespace EchoMusic
 {
 class LyricExtensions;
-class NativeBridge;
 /// Candidate keys remain in this GUI-owned service, never in QML or SQLite.
 /// Preview and active lyrics share the typed API but have separate request
 /// lifecycles, so browsing a source cannot replace the playing lyric.
@@ -39,8 +38,7 @@ class LyricSourceController final : public QAbstractListModel
     Q_PROPERTY(QString searchArtist READ searchArtist WRITE setSearchArtist NOTIFY changed)
     Q_PROPERTY(bool canSearch READ canSearch NOTIFY changed)
 public:
-    LyricSourceController(ApiClient &, QSettings &, QObject *parent = nullptr,
-                          NativeBridge *native = nullptr);
+    LyricSourceController(ApiClient &, QSettings &, QObject *parent = nullptr);
     ~LyricSourceController() override;
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &, int role) const override;
@@ -73,7 +71,7 @@ public:
     }
     bool previewLoading() const
     {
-        return m_download != 0;
+        return m_download != 0 || !m_parseJob.isNull();
     }
     bool applying() const
     {
@@ -126,6 +124,8 @@ public:
     void removeWrite(const QString &key, const QString &revision);
     void load(const PlaybackTrack &);
     void clear();
+    void updateEmbeddedDocument(const QString &trackKey, const QString &title,
+                                const QString &artist, const QString &content);
     void updateEmbedded(const QString &trackKey, const QString &title, const QString &artist,
                         const QJsonObject &lyrics);
     void setDuration(qint64 durationMs)
@@ -162,6 +162,10 @@ private:
     void succeeded(quint64, const QByteArray &);
     void failed(quint64, int, const QByteArray &);
     void previewSelected();
+    void cancelParsing();
+    void acceptParsed(const QJsonObject &);
+    QPointer<QObject> m_parseJob, m_embeddedParse;
+    quint64 m_parseRevision = 0;
     void activatePreview();
     void notifyRows();
     void startSearch(bool allCandidates, bool activate, const QString &keywords = {});

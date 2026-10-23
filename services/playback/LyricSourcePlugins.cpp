@@ -7,6 +7,7 @@ namespace EchoMusic
 {
 void LyricSourceController::cancelExtension()
 {
+    cancelParsing();
     ++m_generation;
     delete m_extensionJob.data();
     m_extensionJob = nullptr;
@@ -83,7 +84,7 @@ void LyricSourceController::reload(bool preserveCurrent)
 void LyricSourceController::beginAutomatic(bool force, bool preserveCurrent)
 {
     cancelExtension();
-    if (!m_extensions ||
+    if (!m_extensions || (!m_extensions->hasResolvers() && !m_pluginCandidate) ||
         (!m_restorePending && !m_manualId.isEmpty() && !m_manualId.startsWith("plugin/"))) {
         if (m_manualId != "embedded" || m_restorePending)
             startSearch(!m_restorePending && !m_manualId.isEmpty(), true,

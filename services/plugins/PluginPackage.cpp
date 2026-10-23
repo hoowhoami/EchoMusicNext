@@ -13,6 +13,7 @@
 #include <QUuid>
 #include <QTemporaryDir>
 #include <QVersionNumber>
+#include <QSet>
 #include <algorithm>
 
 namespace EchoMusic
@@ -71,7 +72,14 @@ QStringList PluginPackage::supportedFeatures()
             "kugou.verification",
             "storage",
             "storage.sqlite",
+            "backups.operations",
+            "backups.providers",
             "net.request",
+            "net.tcp",
+            "net.webServer",
+            "net.webSocket",
+            "windows.custom",
+            "permissions.resources",
             "ui.settings",
             "plugins.dependencies",
             "plugins.services",
@@ -92,7 +100,9 @@ QStringList PluginPackage::supportedCapabilities()
     return {"localFiles",    "downloads",   "unrestrictedNetwork",
             "audioSpectrum", "audioSource", "lyrics",
             "lyricEffects",  "kugouApi",    "kugouVerification",
-            "sqlite",        "theme",       "lyricsPage"};
+            "backups",       "sqlite",      "theme",
+            "lyricsPage",    "tcp",         "webServer",
+            "windows"};
 }
 namespace
 {
@@ -177,6 +187,52 @@ PluginPackage PluginPackage::inspectManifest(const QByteArray &bytes)
         !result.entry.endsWith(".mjs") || QDir::isAbsolutePath(result.entry) ||
         result.entry.contains("..") || result.entry.contains('\\'))
         return fail("Invalid SDK v1 manifest fields");
+    if (object.contains("windows")) {
+        if (!object.value("windows").isArray() || object.value("windows").toArray().size() > 16)
+            return fail("Invalid plugin windows");
+        QSet<QString> ids;
+        for (const auto &value : object.value("windows").toArray()) {
+            if (!value.isObject())
+                return fail("Invalid window definition");
+            const auto window = value.toObject();
+            const auto id = window.value("id").toString();
+            const auto component = window.value("component").toString();
+            if (!QRegularExpression("^[a-z][a-z0-9.-]{0,63}$").match(id).hasMatch() ||
+                ids.contains(id) || component.isEmpty() || !component.endsWith(".qml") ||
+                component.contains("..") || component.contains('\\') ||
+                QDir::isAbsolutePath(component))
+                return fail("Invalid window id/component");
+            ids.insert(id);
+            for (auto it = window.begin(); it != window.end(); ++it) {
+                const auto key = it.key();
+                if (QStringList{"id", "component"}.contains(key))
+                    continue;
+                if (key == "title") {
+                    if (!it.value().isString() || it.value().toString().size() > 256)
+                        return fail("Invalid window title");
+                } else if (key == "position") {
+                    if (!QStringList{"center", "top-center"}.contains(it.value().toString()))
+                        return fail("Invalid window position");
+                } else if (QStringList{"transparent", "alwaysOnTop", "skipTaskbar", "resizable",
+                                       "movable", "rememberBounds", "allowOutsideWorkArea",
+                                       "acceptFirstMouse"}
+                               .contains(key)) {
+                    if (!it.value().isBool())
+                        return fail("Invalid window flag");
+                } else if (QStringList{"defaultWidth", "defaultHeight", "minWidth", "minHeight",
+                                       "maxWidth", "maxHeight"}
+                               .contains(key)) {
+                    if (!it.value().isDouble() || it.value().toDouble() < 32 ||
+                        it.value().toDouble() > 8192 || it.value().toDouble() != it.value().toInt())
+                        return fail("Invalid window dimensions");
+                } else
+                    return fail("Unknown window field: " + key);
+            }
+            if (window.value("minWidth").toInt(64) > window.value("maxWidth").toInt(8192) ||
+                window.value("minHeight").toInt(64) > window.value("maxHeight").toInt(8192))
+                return fail("Invalid window size range");
+        }
+    }
     const auto readDependencies = [&](const QString &key, QMap<QString, QString> &out) {
         if (!object.contains(key))
             return true;
@@ -227,6 +283,8 @@ PluginPackage PluginPackage::inspectManifest(const QByteArray &bytes)
     if (!strings(object.value("capabilities"), result.capabilities) ||
         !strings(requirements.value("features"), result.features))
         return fail("Capabilities and required features must be unique string arrays");
+    if (!object.value("windows").toArray().isEmpty() && !result.capabilities.contains("windows"))
+        return fail("Window declarations require windows capability");
     const auto contexts = object.value("contexts").toArray();
     if (contexts != QJsonArray{"main"}) {
         result.incompatible = true;
@@ -288,6 +346,9 @@ PluginPackage PluginPackage::importDirectory(const QString &source, const QStrin
         return result;
     if (result.resolve(result.entry).isEmpty())
         return fail("Missing package entry");
+    for (const auto &window : result.manifest.value("windows").toList())
+        if (result.resolve(window.toMap().value("component").toString()).isEmpty())
+            return fail("Missing window component");
     QStringList files;
     QDirIterator iterator(result.root,
                           QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot,

@@ -12,11 +12,20 @@ use util::request::{ApiClient, Identity};
 /// Decode the bounded, untrusted request bytes accepted by the C ABI. Keeping
 /// this safe function shared lets fuzzers exercise the production ingress
 /// without inventing invalid native pointers or constructing an audio runtime.
+pub const MAX_FFI_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub fn decode_ffi_request(input: &[u8]) -> Option<Request> {
-    if input.is_empty() || input.len() > 1024 * 1024 {
+    if input.is_empty() || input.len() > MAX_FFI_REQUEST_BYTES {
         return None;
     }
-    serde_json::from_slice(input).ok()
+    let request = serde_json::from_slice(input).ok()?;
+    // A selected 1 MiB upload part expands to 1,398,104 base64 bytes. Only this
+    // framed operation may exceed the ordinary 1 MiB JSON request budget.
+    if input.len() > 1024 * 1024
+        && !matches!(&request,Request::UserCloudUpload {query:module::user_cloud_upload::Query::Part { data,part,.. },..} if data.len() <= 1_398_104 && (1..=100).contains(part))
+    {
+        return None;
+    }
+    Some(request)
 }
 
 #[derive(Deserialize)]
@@ -295,6 +304,10 @@ pub enum Request {
     },
     UserUpdate {
         query: module::user_update::Query,
+        identity: Identity,
+    },
+    UserAvatarUpload {
+        query: module::user_avatar_upload::Query,
         identity: Identity,
     },
     UserUpdateAvatar {
@@ -737,6 +750,9 @@ pub async fn execute(request: Request, client: &ApiClient) -> Result<Vec<u8>, er
         Request::UserUpdate { query, identity } => {
             module::user_update::execute(client, &identity, query).await
         }
+        Request::UserAvatarUpload { query, identity } => {
+            module::user_avatar_upload::execute(client, &identity, query).await
+        }
         Request::UserUpdateAvatar { query, identity } => {
             module::user_update_avatar::execute(client, &identity, query).await
         }
@@ -917,5 +933,21 @@ pub async fn execute(request: Request, client: &ApiClient) -> Result<Vec<u8>, er
         Request::PrivilegeLite { query, identity } => {
             module::privilege_lite::execute(client, &identity, query).await
         }
+    }
+}
+
+#[cfg(test)]
+mod ingress_tests {
+    use super::*;
+    use base64::Engine;
+    #[test]
+    fn only_bounded_cloud_parts_receive_base64_framing_budget() {
+        let mut value = serde_json::json!({"operation":"user_cloud_upload","identity":{"mid":"fixture","dfid":"fixture"},"query":{"stage":"part","hash":"0123456789abcdef0123456789abcdef","transfer":{"host":"bss.kugou.com","authorization":"x","upload_id":"x"},"part":1,"data":base64::engine::general_purpose::STANDARD.encode(vec![7;1024*1024])}});
+        assert!(decode_ffi_request(&serde_json::to_vec(&value).unwrap()).is_some());
+        value["query"]["part"] = serde_json::json!(101);
+        assert!(decode_ffi_request(&serde_json::to_vec(&value).unwrap()).is_none());
+        let other = serde_json::json!({"operation":"search","query":{"keyword":"x".repeat(1024*1024),"kind":"song","page":1,"page_size":20},"identity":{"mid":"fixture","dfid":"fixture"}});
+        assert!(decode_ffi_request(&serde_json::to_vec(&other).unwrap()).is_none());
+        assert!(decode_ffi_request(&vec![0; MAX_FFI_REQUEST_BYTES + 1]).is_none());
     }
 }

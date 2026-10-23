@@ -45,6 +45,7 @@ find_package(
                Svg
                Sql
                Network
+               WebSockets
                Concurrent
                Test
                LinguistTools

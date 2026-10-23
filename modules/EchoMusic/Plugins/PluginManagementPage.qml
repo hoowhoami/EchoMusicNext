@@ -146,7 +146,7 @@ Item {
                         PluginActionButton {
                             iconOnly: true
                             glyph: "lock-open"
-                            text: qsTr("已授权文件与目录")
+                            text: qsTr("插件授权")
                             tooltipText: text
                             implicitWidth: 36
                             implicitHeight: 36

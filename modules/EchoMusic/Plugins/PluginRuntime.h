@@ -32,6 +32,7 @@ class PluginRuntime final : public QAbstractListModel
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Owned by the application")
+    Q_PROPERTY(EchoMusic::PluginPermissionStore *permissions READ permissions CONSTANT)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool safeMode READ safeMode NOTIFY safeModeChanged)
     Q_PROPERTY(QString directory READ directory CONSTANT)
@@ -95,6 +96,10 @@ public:
         return m_root;
     }
     int enabledCount() const;
+    PluginPermissionStore *permissions() const
+    {
+        return m_host.permissions;
+    }
     PluginFileService *fileService() const
     {
         return m_fileService;
@@ -115,12 +120,18 @@ public:
     {
         return context(installation);
     }
+    Q_INVOKABLE void openWindow(const QString &installation, const QString &windowId);
     Q_INVOKABLE bool clearFailure(const QString &installation);
     void shutdown();
     /// A reversible application-backup barrier. Retire contexts and drain SQL,
     /// jobs and external resources without changing the user's enabled flags.
+    bool beginBackupSnapshot(std::function<void(bool)> ready);
     bool beginMaintenance(std::function<void(bool)> ready);
     void endMaintenance();
+    void setBackupHost(BackupHost *host)
+    {
+        m_host.backups = host;
+    }
     QVariantList backupEntries() const;
 signals:
     void closed();

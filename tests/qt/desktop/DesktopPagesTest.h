@@ -21,6 +21,8 @@ private slots:
     void lyricVariantSettingUsesProductionSelectAndReleasesPopup();
     void productionPopupsFollowRequestOwnership();
     void floatingLyricsFollowRealAudioAndStopMotionOnPause();
+    void desktopLyricsKeepRenderingUnderTranslucentOcclusion_data();
+    void desktopLyricsKeepRenderingUnderTranslucentOcclusion();
     void miniWidthPreferencesClampAndRestore_data();
     void miniWidthPreferencesClampAndRestore();
     void miniProgressVolumeBackdropFavoriteAndDesktopBadge_data();
@@ -59,6 +61,7 @@ private slots:
     void productionEffectPanelAlignmentAndCompactContentTabs();
     void productionResolvedQualityMarksPickerAndToolbar();
     void productionQualityPopupContainsAndScrollsAllOptions();
+    void productionEmbeddedLyricsFromActualReader_data();
     void productionEmbeddedLyricsFromActualReader();
     void productionLyricPreviewKeepsSymmetricInsets();
     void productionLyricKeywordSearchFromLiveNativeApi();

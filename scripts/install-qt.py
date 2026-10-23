@@ -28,7 +28,14 @@ def installer_python():
     directory = ROOT / "build/qt-installer-venv"
     executable = directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     stamp = directory / ".requirements-sha256"
-    if not executable.is_file() or not stamp.is_file() or stamp.read_text() != digest:
+    runnable = (
+        executable.is_file()
+        and subprocess.run(
+            [str(executable), "--version"], capture_output=True, check=False
+        ).returncode
+        == 0
+    )
+    if not runnable or not stamp.is_file() or stamp.read_text() != digest:
         venv.EnvBuilder(with_pip=True, clear=True).create(directory)
         run([executable, "-m", "pip", "install", "--require-hashes", "-r", requirement])
         stamp.write_text(digest)
@@ -76,6 +83,7 @@ def main():
                     "--modules",
                     "qtshadertools",
                     "qtmultimedia",
+                    "qtwebsockets",
                     "--archives",
                     "qtbase",
                     "qtdeclarative",

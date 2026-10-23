@@ -230,7 +230,8 @@ void TaskbarLyricController::present()
         // the position mode or a narrower taskbar may clamp it.
         if (m_dragOffsetX < 0)
             m_dragOffsetX = m_settingsStore.dragOffsetX();
-        region = TaskbarLyricGeometry::resolveDragged(m_layout, Side::Left, maxWidth, m_dragOffsetX);
+        region =
+            TaskbarLyricGeometry::resolveDragged(m_layout, Side::Left, maxWidth, m_dragOffsetX);
         break;
     case TaskbarLyricPreferences::Position::FixedLeft:
         region = TaskbarLyricGeometry::resolveFixed(m_layout, Side::Left, maxWidth);

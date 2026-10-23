@@ -160,6 +160,8 @@ public:
 EchoPluginNetwork::EchoPluginNetwork(EchoPluginContext &scope)
     : QObject(&scope), m_scope(scope), m_worker(new PluginNetworkWorker(*this))
 {
+    m_tcp = new EchoPluginTcp(scope);
+    connect(m_tcp, &EchoPluginTcp::drained, this, &EchoPluginNetwork::drained);
     m_thread.setObjectName("PluginNetwork-" + scope.installationId());
     connect(&m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
     connect(&m_thread, &QThread::finished, this, [this] {
@@ -305,6 +307,7 @@ EchoPluginOperation *EchoPluginNetwork::request(const QVariantMap &options)
 }
 void EchoPluginNetwork::shutdown()
 {
+    m_tcp->shutdown();
     if (std::exchange(m_closed, true))
         return;
     if (!m_thread.isRunning()) {

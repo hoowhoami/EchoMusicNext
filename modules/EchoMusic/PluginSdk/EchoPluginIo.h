@@ -19,6 +19,7 @@ public:
     Q_INVOKABLE EchoMusic::EchoPluginOperation *writeValue(const QString &key,
                                                            const QVariant &value);
     Q_INVOKABLE EchoMusic::EchoPluginOperation *removeValue(const QString &key);
+    void storageBarrier(std::function<void()> ready);
     void shutdown();
     bool isDrained() const
     {

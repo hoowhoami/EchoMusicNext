@@ -2,6 +2,7 @@
 #include "SidebarPlaylistModel.h"
 #include "PlaylistMutationService.h"
 #include "PlaylistOrderModel.h"
+#include "PlaylistEditModel.h"
 #include "PlaylistImportService.h"
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
@@ -16,6 +17,7 @@ class LibraryController final : public QObject
     Q_PROPERTY(EchoMusic::SidebarPlaylistModel *playlists READ playlists CONSTANT)
     Q_PROPERTY(EchoMusic::PlaylistOrderModel *order READ order CONSTANT)
     Q_PROPERTY(EchoMusic::PlaylistImportService *importer READ importer CONSTANT)
+    Q_PROPERTY(EchoMusic::PlaylistEditModel *editor READ editor CONSTANT)
     Q_PROPERTY(int tab READ tab WRITE setTab NOTIFY changed)
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY changed)
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
@@ -27,6 +29,10 @@ public:
     SidebarPlaylistModel *playlists()
     {
         return &m_projection;
+    }
+    PlaylistEditModel *editor()
+    {
+        return &m_editor;
     }
     PlaylistOrderModel *order()
     {
@@ -81,6 +87,7 @@ private:
     PlaylistMutationService &m_mutations;
     SidebarPlaylistModel m_projection;
     PlaylistOrderModel m_order;
+    PlaylistEditModel m_editor;
     PlaylistImportService m_importer;
     int m_tab = 0;
     Command m_command = Command::None;

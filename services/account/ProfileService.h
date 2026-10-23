@@ -236,7 +236,7 @@ private:
     quint64 m_deviceKick = 0, m_deviceActivation = 0, m_kickActivation = 0;
     bool m_devicesActive = false, m_deviceKickRefresh = false;
     quint64 m_avatarRequest = 0, m_avatarGeneration = 0;
-    bool m_avatarReading = false;
+    bool m_avatarReading = false, m_avatarSubmitting = false;
     ApiClient::ProfilePatch m_patch;
 };
 } // namespace EchoMusic

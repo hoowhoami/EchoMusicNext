@@ -21,6 +21,10 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
       m_package(std::move(package)), m_generation(generation), m_engine(engine), m_host(host)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
+    m_permissions = new EchoPluginPermissions(*this);
+    m_webServer = new EchoPluginWebServer(*this);
+    connect(m_webServer, &EchoPluginWebServer::drained, this, &EchoPluginContext::resourcesDrained);
+    m_backups = new EchoPluginBackups(*this);
     m_appearance = new EchoPluginAppearance(*this);
     m_fonts = new EchoPluginFonts(*this);
     m_windows = new EchoPluginWindows(*this);
@@ -337,11 +341,30 @@ bool EchoPluginContext::commit()
     m_committed = true;
     return true;
 }
+void EchoPluginContext::storageBarrier(std::function<void()> ready)
+{
+    QList<QPointer<EchoPluginContext>> scopes{this};
+    for (auto child : m_presentations)
+        if (child)
+            scopes.append(child);
+    auto pending = std::make_shared<int>(scopes.size() * 3);
+    const auto arrive = [pending, ready] {
+        if (--*pending == 0)
+            ready();
+    };
+    for (auto scope : scopes) {
+        scope->m_appearance->storageBarrier(arrive);
+        scope->m_io->storageBarrier(arrive);
+        scope->m_sqlite->storageBarrier(arrive);
+    }
+}
 void EchoPluginContext::beginRetire()
 {
     if (m_retiring)
         return;
     m_retiring = true;
+    if (m_host.permissions)
+        m_host.permissions->cancelScope(this);
     m_accepting = false;
     for (auto child : m_presentations)
         if (child)
@@ -357,6 +380,7 @@ void EchoPluginContext::beginRetire()
     for (const auto &op : operations)
         if (op)
             op->cancel();
+    m_webServer->shutdown();
     m_files->shutdown();
     m_net->shutdown();
     m_io->shutdown();
@@ -374,7 +398,7 @@ bool EchoPluginContext::drained() const
     for (auto child : m_presentations)
         if (child && !child->drained())
             return false;
-    return m_net->isDrained() && m_io->isDrained() && m_sqlite->isDrained() &&
-           m_appearance->drained() && m_files->isDrained();
+    return m_webServer->isDrained() && m_net->isDrained() && m_io->isDrained() &&
+           m_sqlite->isDrained() && m_appearance->drained() && m_files->isDrained();
 }
 } // namespace EchoMusic

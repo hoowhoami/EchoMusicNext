@@ -37,9 +37,8 @@ class ThemeStore final : public QObject
                    lyricFontsChanged)
     Q_PROPERTY(
         QString miniLyricFont READ miniLyricFont WRITE setMiniLyricFont NOTIFY lyricFontsChanged)
-    Q_PROPERTY(
-        QString taskbarLyricFont READ taskbarLyricFont WRITE setTaskbarLyricFont NOTIFY
-            lyricFontsChanged)
+    Q_PROPERTY(QString taskbarLyricFont READ taskbarLyricFont WRITE setTaskbarLyricFont NOTIFY
+                   lyricFontsChanged)
     Q_PROPERTY(QFont lyricBaseFont READ lyricBaseFont NOTIFY lyricFontsChanged)
     Q_PROPERTY(QFont desktopLyricBaseFont READ desktopLyricBaseFont NOTIFY lyricFontsChanged)
     Q_PROPERTY(QFont miniLyricBaseFont READ miniLyricBaseFont NOTIFY lyricFontsChanged)

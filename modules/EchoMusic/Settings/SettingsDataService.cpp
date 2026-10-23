@@ -8,16 +8,37 @@
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QtConcurrent>
+#include <QUuid>
+#include <QDateTime>
 
 namespace EchoMusic
 {
 SettingsDataService::SettingsDataService(QSettings &settings, PluginRuntime &plugins,
                                          RelaunchService &relaunch, NetworkPreferences &network,
                                          QString root, QString version, QObject *parent)
-    : QObject(parent), m_settings(settings), m_plugins(plugins), m_relaunch(relaunch),
+    : BackupHost(parent), m_settings(settings), m_plugins(plugins), m_relaunch(relaunch),
       m_network(network), m_root(std::move(root)), m_version(std::move(version))
 {
     m_workers.setMaxThreadCount(1);
+    m_tokenSweep.setInterval(30000);
+    connect(&m_tokenSweep, &QTimer::timeout, this, [this] {
+        const auto now = QDateTime::currentMSecsSinceEpoch();
+        for (const auto &token : m_inspections.keys())
+            if (m_inspections[token].expires <= now)
+                clearToken(token);
+    });
+    connect(this, &BackupHost::providerNotice, this, &SettingsDataService::notice);
+    connect(this, &BackupHost::providerInspection, this, [this](const QVariantMap &result) {
+        adoptProviderInspection(result.value("token").toString());
+    });
+    m_confirmationPoll.setInterval(50);
+    connect(&m_confirmationPoll, &QTimer::timeout, this, [this] {
+        if (!m_confirmationCancel)
+            return;
+        if (m_confirmationCancel->load() || !m_inspections.contains(m_confirmationToken) ||
+            m_inspections.value(m_confirmationToken).expires < QDateTime::currentMSecsSinceEpoch())
+            answerConfirmation(false);
+    });
     m_instanceLock = m_root + "/instance.lock";
     m_expiry.setSingleShot(true);
     m_expiry.setInterval(10 * 60 * 1000);
@@ -32,8 +53,9 @@ SettingsDataService::SettingsDataService(QSettings &settings, PluginRuntime &plu
         if (!m_busy || m_work.isRunning())
             return;
         *m_cancel = true;
+        ++m_job;
         m_plugins.endMaintenance();
-        finishJob(tr("插件尚未释放全部资源，未创建备份，请稍后重试"));
+        finishJob(tr("插件存储仍在处理中，未创建备份，请稍后重试"));
     });
     connect(&m_relaunch, &RelaunchService::notice, this, [this](const QString &) {
         if (m_restore || m_clear) {
@@ -74,6 +96,8 @@ void SettingsDataService::finishJob(const QString &error)
     m_barrierDeadline.stop();
     m_busy = false;
     emit changed();
+    if (!error.isEmpty())
+        completeApi({{}, "BackupError", error});
     if (!m_closing && !error.isEmpty())
         emit notice(error, true);
 }
@@ -93,11 +117,20 @@ void SettingsDataService::create(const QUrl &file, bool settings, bool plugins)
     }
     staging->setAutoRemove(false);
     m_busy = true;
-    *m_cancel = false;
+    if (!m_apiDone)
+        m_cancel = std::make_shared<std::atomic_bool>(false);
     emit changed();
-    const auto start = [this, file, settings, plugins, staging](bool ready) {
+    const auto job = ++m_job;
+    const QPointer<SettingsDataService> guard(this);
+    const auto start = [this, guard, file, settings, plugins, staging, job](bool ready) {
+        if (!guard || job != m_job) {
+            (void)QtConcurrent::run([staging] { QDir(staging->path()).removeRecursively(); });
+            return;
+        }
         m_barrierDeadline.stop();
         if (!ready || m_closing || *m_cancel) {
+            if (plugins)
+                m_plugins.endMaintenance();
             (void)QtConcurrent::run(&m_workers,
                                     [staging] { QDir(staging->path()).removeRecursively(); });
             finishJob(tr("备份已取消"));
@@ -108,26 +141,55 @@ void SettingsDataService::create(const QUrl &file, bool settings, bool plugins)
         disconnect(&m_work, nullptr, this, nullptr);
         connect(&m_work, &QFutureWatcherBase::finished, this, [this, plugins] {
             const auto result = m_work.result();
+            const bool api = bool(m_apiDone);
             if (plugins && !m_closing)
                 m_plugins.endMaintenance();
+            m_busy = false;
+            if (result.error.isEmpty() && m_apiDone)
+                completeApi({QVariantMap{{"data", result.data},
+                                         {"fileName", "EchoMusicNext-" +
+                                                          QDateTime::currentDateTimeUtc().toString(
+                                                              "yyyyMMdd-HHmmss") +
+                                                          ".echonext-backup"},
+                                         {"summary",
+                                          [this, &result] {
+                                              const auto saved = m_manifest;
+                                              m_manifest = result.manifest;
+                                              const auto value = summary();
+                                              m_manifest = saved;
+                                              return value;
+                                          }()}},
+                             {},
+                             {}});
             finishJob(result.error);
-            if (result.error.isEmpty() && !m_closing) {
+            if (result.error.isEmpty() && !m_closing && !api) {
                 emit notice(tr("备份已创建"), false);
                 emit created();
             }
         });
-        m_work.setFuture(
-            QtConcurrent::run(&m_workers, [file, staging, settings, plugins, preferences, entries,
-                                           root = m_root, version = m_version, cancel = m_cancel] {
+        m_work.setFuture(QtConcurrent::run(
+            &m_workers, [file, staging, settings, plugins, preferences, entries, root = m_root,
+                         version = m_version, cancel = m_cancel, transfer = m_transfer] {
                 auto result = SettingsBackupArchive::create(
                     file.toLocalFile(), staging->path(), preferences, settings, entries, plugins,
                     root + "/plugins", root + "/theme-images", version, *cancel);
+                if (transfer) {
+                    if (result.error.isEmpty()) {
+                        QFile archive(file.toLocalFile());
+                        if (!archive.open(QIODevice::ReadOnly) ||
+                            archive.size() > 256ll * 1024 * 1024)
+                            result.error = "Backup byte transfer exceeds 256 MiB or cannot be read";
+                        else
+                            result.data = archive.readAll();
+                    }
+                    QDir(transfer->path()).removeRecursively();
+                }
                 QDir(staging->path()).removeRecursively();
                 return result;
             }));
     };
     if (plugins) {
-        if (!m_plugins.beginMaintenance(start)) {
+        if (!m_plugins.beginBackupSnapshot(start)) {
             (void)QtConcurrent::run(&m_workers,
                                     [staging] { QDir(staging->path()).removeRecursively(); });
             finishJob(tr("插件正在处理任务，请稍后创建备份"));
@@ -150,7 +212,8 @@ void SettingsDataService::inspect(const QUrl &file)
     }
     staging->setAutoRemove(false);
     m_busy = true;
-    *m_cancel = false;
+    if (!m_apiDone)
+        m_cancel = std::make_shared<std::atomic_bool>(false);
     emit changed();
     disconnect(&m_work, nullptr, this, nullptr);
     connect(&m_work, &QFutureWatcherBase::finished, this, [this, staging] {
@@ -163,12 +226,39 @@ void SettingsDataService::inspect(const QUrl &file)
         } else
             (void)QtConcurrent::run(&m_workers,
                                     [staging] { QDir(staging->path()).removeRecursively(); });
-        finishJob(result.error);
-        if (accepted)
-            emit inspected();
+        const auto publicSummary = summary();
+        const bool api = bool(m_apiDone);
+        if (accepted && api) {
+            const auto token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            m_inspections.insert(token, {m_apiOwner, m_staging, m_manifest,
+                                         QDateTime::currentMSecsSinceEpoch() + 10 * 60 * 1000});
+            m_tokenSweep.start();
+            m_staging.reset();
+            m_manifest = {};
+            m_expiry.stop();
+            m_busy = false;
+            completeApi({QVariantMap{{"token", token}, {"summary", publicSummary}}, {}, {}});
+            emit changed();
+        } else {
+            finishJob(accepted || !result.error.isEmpty() ? result.error : tr("备份检查已取消"));
+            if (accepted)
+                emit inspected();
+        }
     });
-    m_work.setFuture(QtConcurrent::run(&m_workers, [file, staging, cancel = m_cancel] {
+    const auto input = std::exchange(m_inspectInput, {});
+    m_work.setFuture(QtConcurrent::run(&m_workers, [file, staging, cancel = m_cancel, input,
+                                                    transfer = m_transfer] {
+        if (transfer) {
+            QSaveFile output(file.toLocalFile());
+            if (!output.open(QIODevice::WriteOnly) || output.write(input) != input.size() ||
+                !output.commit()) {
+                QDir(transfer->path()).removeRecursively();
+                return SettingsBackupResult{"Cannot stage backup input", {}, {}};
+            }
+        }
         auto result = SettingsBackupArchive::inspect(file.toLocalFile(), staging->path(), *cancel);
+        if (transfer)
+            QDir(transfer->path()).removeRecursively();
         if (!result.error.isEmpty())
             QDir(staging->path()).removeRecursively();
         return result;
@@ -180,6 +270,7 @@ void SettingsDataService::releaseInspection()
         return;
     m_expiry.stop();
     m_manifest = {};
+    m_inspectionOwner.clear();
     if (m_staging) {
         const auto path = m_staging->path();
         m_staging.reset();
@@ -232,6 +323,12 @@ void SettingsDataService::clearApplicationData()
 void SettingsDataService::shutdown()
 {
     m_closing = true;
+    shutdownProviders();
+    m_tokenSweep.stop();
+    answerConfirmation(false);
+    const auto tokens = m_inspections.keys();
+    for (const auto &token : tokens)
+        clearToken(token);
     m_expiry.stop();
     m_barrierDeadline.stop();
     if (!m_restore && !m_clear)

@@ -60,6 +60,8 @@ public:
     Q_INVOKABLE void reload();
     void attachStorage(StorageService &storage);
     QString coverFor(const QString &globalId, const QString &fallback) const;
+    /// Account-local editable metadata overlays public collection presentation.
+    QJsonObject metadataFor(const QString &globalId) const;
     void publishAutoCover(ApiClient::CloudPlaylistId id, quint64 revision, const QString &cover,
                           quint64 session);
     /// Return the exact account ID/type pair; callers never substitute public ID.
@@ -104,6 +106,7 @@ private:
         qint64 sortIndex = 0;
         std::optional<quint32> defaultKind;
         quint32 sourceCode = 0;
+        bool descriptionPresent = false, tagsPresent = false;
         bool editable = false, isPrivate = false, collected = false, customCover = false;
     };
     void resetState();

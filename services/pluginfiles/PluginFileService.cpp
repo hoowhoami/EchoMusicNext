@@ -76,7 +76,7 @@ quint64 PluginFileService::request(const PluginFileOwner &owner, const QString &
     const bool control = method == "revoke" || method == "removeGrant" ||
                          method == "downloadCancel" || method == "releaseMedia" ||
                          (method == "grant" && input.contains("replaceId"));
-    if (m_closing || m_pending.size() >= (control ? 40 : 32))
+    if ((m_snapshot && !control) || m_closing || m_pending.size() >= (control ? 40 : 32))
         return 0;
     std::function<QSet<QString>(const QVariant &)> references = [&](const QVariant &value) {
         QSet<QString> result;
@@ -117,6 +117,21 @@ quint64 PluginFileService::request(const PluginFileOwner &owner, const QString &
         worker->execute(id, owner, method, input, canceled);
     });
     return id;
+}
+void PluginFileService::snapshotBarrier(std::function<void(bool)> ready)
+{
+    if (m_closing) {
+        ready(false);
+        return;
+    }
+    QMetaObject::invokeMethod(
+        m_worker,
+        [this, ready] {
+            QMetaObject::invokeMethod(
+                this, [this, ready] { ready(!m_closing && m_downloadControls.isEmpty()); },
+                Qt::QueuedConnection);
+        },
+        Qt::QueuedConnection);
 }
 void PluginFileService::cancel(quint64 id)
 {

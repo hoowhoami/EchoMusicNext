@@ -65,6 +65,11 @@ bool AppearanceConfiguration::reset()
 }
 bool AppearanceConfiguration::apply(const QVariantMap &next)
 {
+    if (m_writeGuard && !m_writeGuard()) {
+        m_error = "Configuration storage is unavailable or taking a backup snapshot";
+        emit errorChanged();
+        return false;
+    }
     if (!m_active)
         return false;
     auto error = !isJson(next) ? QStringLiteral("Configuration must be JSON below 64 KiB")

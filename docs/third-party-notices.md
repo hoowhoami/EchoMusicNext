@@ -7,7 +7,7 @@ EchoMusicNext 采用 GPL-3.0-only。第三方代码、库和资源保留各自�
 | EchoMusic / hoowhoami | 原生核心、主题与调色算法、均衡器曲线、等级星球插画、应用与托盘图标、验证加载环及刷新图形；各原生模块来源见 `crates/*/SOURCE.json` | Copyright (c) 2026 hoowhoami；GPL-3.0-only，见[项目许可](../LICENSE) |
 | PeriTray / oneday5799 | 任务栏子窗口挂载顺序（先改 WS_CHILD 再 SetParent）、SetParent 返回值双判、UIA 占用区与空闲区布局的判据参考；来源 revision `aee4ea69a1019431138bc312f447222fd82d6a5e` 的 `src-tauri/src/taskbar_layout.rs`、`src-tauri/src/taskbar_widget.rs`，本项目在 Qt/C++ 中重写并保留来源注释 | Copyright (c) 2026 oneday5799；GPL-3.0-only，见[上游许可](https://github.com/oneday5799/PeriTray/blob/main/LICENSE) |
 | KugouMusicApi / MakcRe、Lines 等 | 请求地址、参数、协议常量、签名和加密协议参考 | Copyright (c) 2023 MakcRe；[MIT 原文](licenses/kugou-music-api-MIT.txt) |
-| Qt 6.12.0 / The Qt Company Ltd. 及贡献者 | 实际链接的 Core、Gui、Widgets、Qml、Quick、QuickShapes、QuickEffects、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql 等模块；Test 用于测试，ShaderTools 用于构建 | 各模块自带版权、GPL/LGPL 和第三方许可；[Qt 许可说明](https://doc.qt.io/qt-6/licensing.html) |
+| Qt 6.12.0 / The Qt Company Ltd. 及贡献者 | 实际链接的 Core、Gui、Widgets、Qml、Quick、QuickShapes、QuickEffects、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql、Network、WebSockets 等模块；Test 用于测试，ShaderTools 用于构建 | 各模块自带版权、GPL/LGPL 和第三方许可；[Qt 许可说明](https://doc.qt.io/qt-6/licensing.html) |
 | Qt RectangularShadow shader | `Controls/shaders/action-shadow.vert` / `.frag` 基于 Qt 6.11.2 `qtdeclarative/src/effects/data/shaders/rectangularshadow`，增加阴影内部剔除并保留 uniform 布局 | Copyright (C) 2024 The Qt Company Ltd.；保留原 SPDX：LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only；本项目选 GPL-3.0-only 分支 |
 | Tabler Icons / Paweł Kuna | `Controls/icons` 中的 Tabler SVG，以及内联的主题插图路径；来源 `@iconify/icons-tabler` 1.2.95、图标集 2.40.0 | Copyright (c) 2020-2023 Paweł Kuna；[MIT 原文](licenses/tabler-icons-MIT.txt)、[上游版本](https://github.com/tabler/tabler-icons/tree/v2.40.0)；各资源保留来源注释 |
 | FFmpeg / SoundTouch / CPAL 及音频依赖 | `echo-audio/vendor` 中实际构建的音频库；Qt Multimedia 后端另使用其部署的 FFmpeg 库 | 各目录的 LICENSE / COPYING 及对应构建配置；发布时附实际部署版本材料 |
@@ -32,3 +32,5 @@ EchoMusic 派生资源包括 `Profile.vue` 等级星球插画、平台应用图�
 验证码 SDK 由系统浏览器从官方地址动态加载，不随应用打包。产品不包含 Qt WebEngine。开发安装与格式工具不进入应用运行时。
 
 发布包须按实际目标、链接方式和构建选项附带第三方许可、版权以及适用的源码提供材料。完整依赖清单、SBOM 和部署许可核查仍需在分发前完成。
+
+歌词 KRC 解压使用 zlib：Windows 复用上述固定 revision 的 Chromium zlib 静态依赖与[许可](licenses/crashpad/chromium-zlib.txt)，macOS/Linux 使用系统 zlib；不新增另一份下载或运行库。

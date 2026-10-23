@@ -1,5 +1,6 @@
 #pragma once
 #include "ApiClient.h"
+#include "CloudUploadFile.h"
 #include "TaskCenterModel.h"
 #include <QAbstractListModel>
 #include <QElapsedTimer>
@@ -152,6 +153,7 @@ private:
     void dispatchLookup();
     void applyLookup(const QJsonObject &);
     void uploadNext();
+    void readUploadPart();
     void uploadStage(ApiClient::CloudUploadStage, QJsonObject);
     void accept(quint64, const QByteArray &);
     void reject(quint64, const QByteArray &);
@@ -165,6 +167,9 @@ private:
     ApiClient &m_api;
     QList<File> m_files;
     QFutureWatcher<QList<File>> m_scan;
+    QFutureWatcher<CloudUploadFile::Part> m_partRead;
+    quint64 m_partRun = 0;
+    std::shared_ptr<std::atomic_bool> m_partCancel;
     std::shared_ptr<std::atomic_bool> m_cancel;
     QTimer m_timer, m_cooldown;
     QElapsedTimer m_clock;

@@ -7,11 +7,13 @@ PlaylistDetailService::PlaylistDetailService(
     PlaylistMutationService &mutations, PlaylistOrderModel &order, SongMetadataService &metadata,
     RouteController &, bool networkEnabled, QObject *parent, CommentAuthorService *authors)
     : QObject(parent), m_authors(authors), m_api(api), m_playback(playback), m_library(library),
-      m_mutations(mutations), m_order(order), m_metadata(metadata), m_network(networkEnabled)
+      m_mutations(mutations), m_order(order), m_editor(api, library, mutations, this),
+      m_metadata(metadata), m_network(networkEnabled)
 {
     // QML borrows this application-owned object, including explicit invokable
     // returns. GC and engine teardown must never delete a C++ member/context.
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
+    connect(&m_editor, &PlaylistEditModel::notice, this, &PlaylistDetailService::notice);
 }
 PlaylistDetailService::~PlaylistDetailService()
 {
@@ -47,6 +49,7 @@ void PlaylistDetailService::shutdown()
     if (m_closed)
         return;
     m_closed = true;
+    m_editor.close();
     for (const auto &context : std::as_const(m_contexts))
         if (context)
             context->shutdown();

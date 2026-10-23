@@ -25,12 +25,18 @@ bool account(const QString &method, Arguments &a, ApiClient &api, std::function<
     if (method == "loginDevices") {
         command = [&api] { return api.loginDevices(); };
     }
-    if (method == "updateUserAvatar") {
+    if (method == "uploadUserAvatar") {
         if (!arguments.contains("image"))
             a.valid = false;
 
         auto image = a.bytes("image");
-        command = [&api, image] { return api.updateUserAvatar(image); };
+        command = [&api, image] { return api.uploadUserAvatar(image); };
+    }
+    if (method == "updateUserAvatar") {
+        if (!arguments.contains("fileName"))
+            a.valid = false;
+        auto fileName = a.text("fileName", {});
+        command = [&api, fileName] { return api.updateUserAvatar(fileName); };
     }
     if (method == "listeningPreferences") {
         command = [&api] { return api.listeningPreferences(); };

@@ -124,6 +124,8 @@ EchoPluginOperation *EchoPluginSqlite::deleteDatabase(const QString &name)
 EchoPluginOperation *EchoPluginSqlite::request(const QString &command, const QString &id,
                                                const QVariantMap &arguments)
 {
+    if (m_scope.storageFrozen())
+        return m_scope.rejected("Busy", "Plugin storage is taking a backup snapshot");
     if (!m_scope.package().capabilities.contains("sqlite"))
         return m_scope.rejected("CapabilityDenied", "Declare the sqlite capability");
     if (m_closed)
@@ -201,6 +203,23 @@ EchoPluginOperation *EchoPluginSqlite::request(const QString &command, const QSt
         },
         Qt::QueuedConnection);
     return operation;
+}
+void EchoPluginSqlite::storageBarrier(std::function<void()> ready)
+{
+    if (m_closed && !m_drained) {
+        connect(this, &EchoPluginSqlite::drained, this, std::move(ready), Qt::SingleShotConnection);
+        return;
+    }
+    if (!m_thread.isRunning()) {
+        ready();
+        return;
+    }
+    QMetaObject::invokeMethod(
+        m_dispatcher,
+        [this, ready = std::move(ready)] {
+            QMetaObject::invokeMethod(this, ready, Qt::QueuedConnection);
+        },
+        Qt::QueuedConnection);
 }
 void EchoPluginSqlite::shutdown()
 {

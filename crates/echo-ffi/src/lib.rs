@@ -272,7 +272,8 @@ pub unsafe extern "C" fn echo_runtime_submit(
     context: *mut c_void,
 ) -> u64 {
     catch_unwind(AssertUnwindSafe(|| {
-        if runtime.is_null() || input.is_null() || len == 0 || len > 1024 * 1024 {
+        if runtime.is_null() || input.is_null() || len == 0 || len > echo_api::MAX_FFI_REQUEST_BYTES
+        {
             return 0;
         }
         let Some(callback) = callback else { return 0 };

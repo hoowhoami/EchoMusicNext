@@ -5,6 +5,14 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void customWindowsRealEntryScopesAndRetirement();
+    void resourceAuthorizationDenialCancelAndIsolation();
+    void resourceAuthorizationDoesNotConsumeActivationDeadline();
+    void tcpRealBinaryCancellationAndRevocation();
+    void tcpHalfCloseReceivesResponseAfterFin();
+    void localHttpRealRequestsChunkingAndErrors();
+    void localWebSocketUpgradeBinaryPingAndLimits();
+    void resourceAccountAndDisableDrainRealTransports();
     void ecosystemTasksActionsRetentionAndAccountLifetime();
     void ecosystemSidebarSongMenuAndPresentation();
     void ecosystemShortcutsToastAndScroll();
@@ -15,6 +23,9 @@ private slots:
     void fileDownloadTrackRevocationAndAccountCancellation();
     void fileGrantManagementDialogUsesRealLedger();
     void unifiedNetworkRequestOptionsAndCancellation();
+    void backupsCreateInspectTokensAndStorageBarrier();
+    void backupsProvidersUseRealUiAndRetire();
+    void backupsRestoreCommitAndRollback();
     void sqliteBindingsMigrationsAndTransactions();
     void sqliteValidationReadOnlyAndRollback();
     void sqliteIsolationCancellationAndRetirement();

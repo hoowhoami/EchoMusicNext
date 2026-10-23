@@ -1,0 +1,1328 @@
+[
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "Echo",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "Echo",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 3000,
+          "text": "Again",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 3000,
+          "text": "Again",
+          "translation": "",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[00:01]Echo\n[00:01]Echo\n[00:03]Again\n[00:03]Again",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-0",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "One",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "一",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 3000,
+          "text": "Two",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 5000,
+          "text": "Three",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 7000,
+          "text": "Four",
+          "translation": "",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[00:01]One\n[00:01]一\n[00:03]Two\n[00:05]Three\n[00:07]Four",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-1",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "One",
+          "translation": "一",
+          "words": []
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 3000,
+          "text": "Two",
+          "translation": "二",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 5000,
+          "text": "Keep",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 5000,
+          "text": "New primary",
+          "translation": "",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[00:01]One\n[00:01]一\n[00:03]Two\n[00:03]二\n[00:05]Keep\n[00:05]\n[00:05]New primary",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-2",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 100,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 10000,
+          "text": "原词一",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 9900,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 10100,
+          "text": "原词二",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 10000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 20000,
+          "text": "原词三",
+          "translation": "译文三",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 30000,
+          "text": "原词四",
+          "translation": "译文四",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[00:10.00]原词一\n[00:10.00]<00:10.00>\n[00:10.10]原词二\n[00:20.00]原词三\n[00:20.00]译文三\n[00:30.00]原词四\n[00:30.00]译文四",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-3",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "prefixone",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 1000,
+              "start_ms": 1000,
+              "text": "prefix"
+            },
+            {
+              "duration_ms": 1000,
+              "start_ms": 2000,
+              "text": "one"
+            }
+          ]
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[00:01]prefix<00:02>one<00:03>",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-4",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "无逐字标签",
+          "translation": "",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[1000,2000]无逐字标签",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-5",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2500,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "第一行",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 1500,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 3500,
+          "text": "第一行",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 5000,
+          "text": "第二行",
+          "translation": "",
+          "words": []
+        }
+      ],
+      "offset_ms": 120,
+      "scrollable": true
+    },
+    "input": {
+      "content": "﻿[ti:内嵌]\n[offset:120]\n[00:01.00][00:03.50]第一行\n[00:05.00]第二行",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-6",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 0,
+          "text": "第一行",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 0,
+          "text": "Second line",
+          "translation": "",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": false
+    },
+    "input": {
+      "content": "[ar:Artist]\n第一行\nSecond line",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-7",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 500,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "内嵌歌词",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 250,
+              "start_ms": 1000,
+              "text": "内嵌"
+            },
+            {
+              "duration_ms": 250,
+              "start_ms": 1250,
+              "text": "歌词"
+            }
+          ]
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[1000,500]<0,250,0>内嵌<250,250,0>歌词",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-8",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "error": "decode"
+    },
+    "input": {
+      "content": "[offset:bad]",
+      "encoding": "text",
+      "format": "krc"
+    },
+    "name": "document-krc-9",
+    "source": "document"
+  },
+  {
+    "expected": {
+      "error": "numeric_overflow"
+    },
+    "input": {
+      "content": "[18446744073709551615,1]<1,1,0>word",
+      "encoding": "text",
+      "format": "krc"
+    },
+    "name": "document-krc-10",
+    "source": "document"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 200,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "AB",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 100,
+              "start_ms": 1000,
+              "text": "A"
+            },
+            {
+              "duration_ms": 100,
+              "start_ms": 1100,
+              "text": "B"
+            }
+          ]
+        }
+      ],
+      "offset_ms": -250,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[offset:-250]\n[1000,200]<0,100,0>A<100,100,0>B",
+      "encoding": "text",
+      "format": "krc"
+    },
+    "name": "document-krc-11",
+    "source": "document"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 4000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 2000,
+          "text": "Again",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 56345,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 6000,
+          "text": "Text [brackets]",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 62345,
+          "text": "Again",
+          "translation": "",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "WzAxOjAyLjM0NV1bMDA6MDJdWzAwOjAyXUFnYWluClswMDowNF1bMDA6MDVdClswMDowNl1UZXh0IFticmFja2V0c10=",
+      "encoding": "base64",
+      "format": "lrc"
+    },
+    "name": "downloaded-lrc-12",
+    "source": "downloaded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "prefixword",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 1000,
+              "start_ms": 1000,
+              "text": "prefix"
+            },
+            {
+              "duration_ms": 1000,
+              "start_ms": 2000,
+              "text": "word"
+            }
+          ]
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 5000,
+          "text": "prefixword",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 1000,
+              "start_ms": 5000,
+              "text": "prefix"
+            },
+            {
+              "duration_ms": 1000,
+              "start_ms": 6000,
+              "text": "word"
+            }
+          ]
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "WzAwOjAxXVswMDowNV1wcmVmaXg8MDA6MDI+d29yZDwwMDowMz4=",
+      "encoding": "base64",
+      "format": "lrc"
+    },
+    "name": "downloaded-lrc-13",
+    "source": "downloaded"
+  },
+  {
+    "expected": {
+      "error": "numeric_overflow"
+    },
+    "input": {
+      "content": "WzAwOjA1XVswMDowMF08MDA6MDE+dW5kZXJmbG93",
+      "encoding": "base64",
+      "format": "lrc"
+    },
+    "name": "downloaded-lrc-14",
+    "source": "downloaded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 1000,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 1000,
+          "text": "你好",
+          "translation": "Hello",
+          "words": [
+            {
+              "duration_ms": 500,
+              "start_ms": 1000,
+              "text": "你"
+            },
+            {
+              "duration_ms": 500,
+              "start_ms": 1500,
+              "text": "好"
+            }
+          ]
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "bye",
+          "romanization_segments": [
+            "bye"
+          ],
+          "start_ms": 3000,
+          "text": "Bye",
+          "translation": "Goodbye",
+          "words": []
+        },
+        {
+          "duration_ms": 1000,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 5000,
+          "text": "你好",
+          "translation": "Hello",
+          "words": [
+            {
+              "duration_ms": 500,
+              "start_ms": 5000,
+              "text": "你"
+            },
+            {
+              "duration_ms": 500,
+              "start_ms": 5500,
+              "text": "好"
+            }
+          ]
+        }
+      ],
+      "offset_ms": 120,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[language:eyJjb250ZW50IjpbeyJ0eXBlIjoxLCJseXJpY0NvbnRlbnQiOltbIkhlbGxvIl0sWyJHb29kYnllIl1dfSx7InR5cGUiOjAsImx5cmljQ29udGVudCI6W1sibmkiLCJoYW8iXSxbImJ5ZSJdXX1dfQ==]\n[offset:120]\n[00:05][00:01]<00:05>你<00:05.50>好<00:06>\n[00:03]Bye",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "document-lrc-15",
+    "source": "document"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 1000,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 1000,
+          "text": "你好",
+          "translation": "Hello",
+          "words": [
+            {
+              "duration_ms": 500,
+              "start_ms": 1000,
+              "text": "你"
+            },
+            {
+              "duration_ms": 500,
+              "start_ms": 1500,
+              "text": "好"
+            }
+          ]
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "bye",
+          "romanization_segments": [
+            "bye"
+          ],
+          "start_ms": 3000,
+          "text": "Bye",
+          "translation": "Goodbye",
+          "words": []
+        },
+        {
+          "duration_ms": 1000,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 5000,
+          "text": "你好",
+          "translation": "Hello",
+          "words": [
+            {
+              "duration_ms": 500,
+              "start_ms": 5000,
+              "text": "你"
+            },
+            {
+              "duration_ms": 500,
+              "start_ms": 5500,
+              "text": "好"
+            }
+          ]
+        }
+      ],
+      "offset_ms": 120,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[language:eyJjb250ZW50IjpbeyJ0eXBlIjoxLCJseXJpY0NvbnRlbnQiOltbIkhlbGxvIl0sWyJHb29kYnllIl1dfSx7InR5cGUiOjAsImx5cmljQ29udGVudCI6W1sibmkiLCJoYW8iXSxbImJ5ZSJdXX1dfQ==]\n[offset:120]\n[00:05][00:01]<00:05>你<00:05.50>好<00:06>\n[00:03]Bye",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-16",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 1000,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 1000,
+          "text": "你好",
+          "translation": "Hello",
+          "words": [
+            {
+              "duration_ms": 500,
+              "start_ms": 1000,
+              "text": "你"
+            },
+            {
+              "duration_ms": 500,
+              "start_ms": 1500,
+              "text": "好"
+            }
+          ]
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "bye",
+          "romanization_segments": [
+            "bye"
+          ],
+          "start_ms": 3000,
+          "text": "Bye",
+          "translation": "Goodbye",
+          "words": []
+        },
+        {
+          "duration_ms": 1000,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 5000,
+          "text": "你好",
+          "translation": "Hello",
+          "words": [
+            {
+              "duration_ms": 500,
+              "start_ms": 5000,
+              "text": "你"
+            },
+            {
+              "duration_ms": 500,
+              "start_ms": 5500,
+              "text": "好"
+            }
+          ]
+        }
+      ],
+      "offset_ms": 120,
+      "scrollable": true
+    },
+    "input": {
+      "content": "W2xhbmd1YWdlOmV5SmpiMjUwWlc1MElqcGJleUowZVhCbElqb3hMQ0pzZVhKcFkwTnZiblJsYm5RaU9sdGJJa2hsYkd4dklsMHNXeUpIYjI5a1lubGxJbDFkZlN4N0luUjVjR1VpT2pBc0lteDVjbWxqUTI5dWRHVnVkQ0k2VzFzaWJta2lMQ0pvWVc4aVhTeGJJbUo1WlNKZFhYMWRmUT09XQpbb2Zmc2V0OjEyMF0KWzAwOjA1XVswMDowMV08MDA6MDU+5L2gPDAwOjA1LjUwPuWlvTwwMDowNj4KWzAwOjAzXUJ5ZQ==",
+      "encoding": "base64",
+      "format": "lrc"
+    },
+    "name": "downloaded-lrc-17",
+    "source": "downloaded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 4000,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 1000,
+          "text": "LRC",
+          "translation": "Hello",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 5000,
+          "text": "LRC",
+          "translation": "Hello",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[language:eyJjb250ZW50IjpbeyJ0eXBlIjoxLCJseXJpY0NvbnRlbnQiOltbIkhlbGxvIl0sWyJHb29kYnllIl1dfSx7InR5cGUiOjAsImx5cmljQ29udGVudCI6W1sibmkiLCJoYW8iXSxbImJ5ZSJdXX1dfQ==]\n[00:05][00:01]LRC\n[3000,500]<0,500,0>KRC",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "document-lrc-18",
+    "source": "document"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 1000,
+          "text": "LRC",
+          "translation": "Hello",
+          "words": []
+        },
+        {
+          "duration_ms": 500,
+          "romanization": "bye",
+          "romanization_segments": [
+            "bye"
+          ],
+          "start_ms": 3000,
+          "text": "KRC",
+          "translation": "Goodbye",
+          "words": [
+            {
+              "duration_ms": 500,
+              "start_ms": 3000,
+              "text": "KRC"
+            }
+          ]
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 5000,
+          "text": "LRC",
+          "translation": "Hello",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[language:eyJjb250ZW50IjpbeyJ0eXBlIjoxLCJseXJpY0NvbnRlbnQiOltbIkhlbGxvIl0sWyJHb29kYnllIl1dfSx7InR5cGUiOjAsImx5cmljQ29udGVudCI6W1sibmkiLCJoYW8iXSxbImJ5ZSJdXX1dfQ==]\n[00:05][00:01]LRC\n[3000,500]<0,500,0>KRC",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-19",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 4000,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 1000,
+          "text": "LRC",
+          "translation": "Hello",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "nihao",
+          "romanization_segments": [
+            "ni",
+            "hao"
+          ],
+          "start_ms": 5000,
+          "text": "LRC",
+          "translation": "Hello",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "W2xhbmd1YWdlOmV5SmpiMjUwWlc1MElqcGJleUowZVhCbElqb3hMQ0pzZVhKcFkwTnZiblJsYm5RaU9sdGJJa2hsYkd4dklsMHNXeUpIYjI5a1lubGxJbDFkZlN4N0luUjVjR1VpT2pBc0lteDVjbWxqUTI5dWRHVnVkQ0k2VzFzaWJta2lMQ0pvWVc4aVhTeGJJbUo1WlNKZFhYMWRmUT09XQpbMDA6MDVdWzAwOjAxXUxSQwpbMzAwMCw1MDBdPDAsNTAwLDA+S1JD",
+      "encoding": "base64",
+      "format": "lrc"
+    },
+    "name": "downloaded-lrc-20",
+    "source": "downloaded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "Hello",
+          "translation": "你好",
+          "words": []
+        },
+        {
+          "duration_ms": 8000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 3000,
+          "text": "Goodbye",
+          "translation": "再见",
+          "words": []
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 11000,
+          "text": "Hello",
+          "translation": "你好",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 13000,
+          "text": "Goodbye",
+          "translation": "再见",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[00:01][00:11]Hello\n[00:01.04][00:11.04]你好\n[00:03][00:13]Goodbye\n[00:03][00:13]再见",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "document-lrc-21",
+    "source": "document"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "Hello",
+          "translation": "你好",
+          "words": []
+        },
+        {
+          "duration_ms": 8000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 3000,
+          "text": "Goodbye",
+          "translation": "再见",
+          "words": []
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 11000,
+          "text": "Hello",
+          "translation": "你好",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 13000,
+          "text": "Goodbye",
+          "translation": "再见",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[00:01][00:11]Hello\n[00:01.04][00:11.04]你好\n[00:03][00:13]Goodbye\n[00:03][00:13]再见",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-22",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 40,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "Hello",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 1960,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1040,
+          "text": "你好",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 3000,
+          "text": "Goodbye",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 8000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 3000,
+          "text": "再见",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 40,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 11000,
+          "text": "Hello",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 1960,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 11040,
+          "text": "你好",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 13000,
+          "text": "Goodbye",
+          "translation": "",
+          "words": []
+        },
+        {
+          "duration_ms": 0,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 13000,
+          "text": "再见",
+          "translation": "",
+          "words": []
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "WzAwOjAxXVswMDoxMV1IZWxsbwpbMDA6MDEuMDRdWzAwOjExLjA0XeS9oOWlvQpbMDA6MDNdWzAwOjEzXUdvb2RieWUKWzAwOjAzXVswMDoxM13lho3op4E=",
+      "encoding": "base64",
+      "format": "lrc"
+    },
+    "name": "downloaded-lrc-23",
+    "source": "downloaded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "prefixword",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 1000,
+              "start_ms": 1000,
+              "text": "prefix"
+            },
+            {
+              "duration_ms": 1000,
+              "start_ms": 2000,
+              "text": "word"
+            }
+          ]
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 5000,
+          "text": "prefixword",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 1000,
+              "start_ms": 5000,
+              "text": "prefix"
+            },
+            {
+              "duration_ms": 1000,
+              "start_ms": 6000,
+              "text": "word"
+            }
+          ]
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[00:01][00:05]prefix<00:02>word<00:03>",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "document-lrc-24",
+    "source": "document"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "prefixword",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 1000,
+              "start_ms": 1000,
+              "text": "prefix"
+            },
+            {
+              "duration_ms": 1000,
+              "start_ms": 2000,
+              "text": "word"
+            }
+          ]
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 5000,
+          "text": "prefixword",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 1000,
+              "start_ms": 5000,
+              "text": "prefix"
+            },
+            {
+              "duration_ms": 1000,
+              "start_ms": 6000,
+              "text": "word"
+            }
+          ]
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[00:01][00:05]prefix<00:02>word<00:03>",
+      "encoding": "text",
+      "format": "lrc"
+    },
+    "name": "embedded-lrc-25",
+    "source": "embedded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "prefixword",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 1000,
+              "start_ms": 1000,
+              "text": "prefix"
+            },
+            {
+              "duration_ms": 1000,
+              "start_ms": 2000,
+              "text": "word"
+            }
+          ]
+        },
+        {
+          "duration_ms": 2000,
+          "romanization": "",
+          "romanization_segments": [],
+          "start_ms": 5000,
+          "text": "prefixword",
+          "translation": "",
+          "words": [
+            {
+              "duration_ms": 1000,
+              "start_ms": 5000,
+              "text": "prefix"
+            },
+            {
+              "duration_ms": 1000,
+              "start_ms": 6000,
+              "text": "word"
+            }
+          ]
+        }
+      ],
+      "offset_ms": 0,
+      "scrollable": true
+    },
+    "input": {
+      "content": "WzAwOjAxXVswMDowNV1wcmVmaXg8MDA6MDI+d29yZDwwMDowMz4=",
+      "encoding": "base64",
+      "format": "lrc"
+    },
+    "name": "downloaded-lrc-26",
+    "source": "downloaded"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 2000,
+          "romanization": "ni hao",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "你 好（字）",
+          "translation": "Hello",
+          "words": [
+            {
+              "duration_ms": 500,
+              "start_ms": 1000,
+              "text": "你 "
+            },
+            {
+              "duration_ms": 1500,
+              "start_ms": 1500,
+              "text": "好（字）"
+            }
+          ]
+        }
+      ],
+      "offset_ms": 150,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[offset:150]\n[1000,2000](1000,500,0)你 (1500,1500,0)好（字）",
+      "format": "yrc",
+      "romanization": "[00:01]ni hao",
+      "translation": "[00:01]Hello"
+    },
+    "name": "document-yrc-27",
+    "source": "document"
+  },
+  {
+    "expected": {
+      "lines": [
+        {
+          "duration_ms": 200,
+          "romanization": "ni hao",
+          "romanization_segments": [],
+          "start_ms": 1000,
+          "text": "AB",
+          "translation": "Hello",
+          "words": [
+            {
+              "duration_ms": 100,
+              "start_ms": 1000,
+              "text": "A"
+            },
+            {
+              "duration_ms": 100,
+              "start_ms": 1100,
+              "text": "B"
+            }
+          ]
+        }
+      ],
+      "offset_ms": -250,
+      "scrollable": true
+    },
+    "input": {
+      "content": "[offset:-250]\n[1000,200]<0,100,0>A<100,100,0>B",
+      "format": "krc",
+      "romanization": "[00:01]ni hao",
+      "translation": "[00:01]Hello"
+    },
+    "name": "document-krc-28",
+    "source": "document"
+  }
+]

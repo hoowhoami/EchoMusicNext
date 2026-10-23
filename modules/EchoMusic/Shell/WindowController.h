@@ -48,6 +48,7 @@ public:
     WindowController(QSettings &settings, bool persist, QObject *parent = nullptr);
     ~WindowController() override;
     void attach(QQuickWindow *window);
+    void attachPluginWindow(QQuickWindow *window);
     bool mainWindowActive() const;
 
     void attachPlayback(PlaybackService &playback);
@@ -163,6 +164,7 @@ private:
     FloatingPlayerController m_floating;
     TaskbarLyricController m_taskbar;
     QPointer<QQuickWindow> m_window;
+    QList<QPointer<QQuickWindow>> m_pluginWindows;
     QPointer<QObject> m_contentFullscreenOwner;
     QMetaObject::Connection m_contentFullscreenDestroyed;
     bool m_contentEnteredFullscreen = false;

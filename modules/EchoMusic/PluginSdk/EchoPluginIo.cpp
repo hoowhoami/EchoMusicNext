@@ -1,6 +1,7 @@
 #include "EchoPluginIo.h"
 #include "EchoPluginContext.h"
 #include <QDir>
+#include <QTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
@@ -110,6 +111,8 @@ EchoPluginIo::~EchoPluginIo()
 }
 EchoPluginOperation *EchoPluginIo::storage(const QString &key, const QVariant &value, int command)
 {
+    if (m_scope.storageFrozen())
+        return m_scope.rejected("Busy", "Plugin storage is taking a backup snapshot");
     if (key.isEmpty() || key.size() > 512)
         return m_scope.rejected("InvalidArgument", "Storage key must contain 1..512 characters");
     const auto normalized = value.metaType() == QMetaType::fromType<QJSValue>()
@@ -164,6 +167,23 @@ EchoPluginOperation *EchoPluginIo::writeValue(const QString &key, const QVariant
 EchoPluginOperation *EchoPluginIo::removeValue(const QString &key)
 {
     return storage(key, {}, 2);
+}
+void EchoPluginIo::storageBarrier(std::function<void()> ready)
+{
+    if (m_closed && !m_drained) {
+        connect(this, &EchoPluginIo::drained, this, std::move(ready), Qt::SingleShotConnection);
+        return;
+    }
+    if (!m_thread.isRunning()) {
+        ready();
+        return;
+    }
+    QMetaObject::invokeMethod(
+        m_worker,
+        [this, ready = std::move(ready)] {
+            QMetaObject::invokeMethod(this, ready, Qt::QueuedConnection);
+        },
+        Qt::QueuedConnection);
 }
 void EchoPluginIo::shutdown()
 {

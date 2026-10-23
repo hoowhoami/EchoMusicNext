@@ -38,7 +38,6 @@ public:
         AudioTracks = 31,
         InspectDsp = 32,
         EmbeddedMetadata = 33,
-        ParseLyrics = 34,
         AirplayTap = 40,
         AirplayEpoch = 41,
         AirplayClear = 43

@@ -301,9 +301,8 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
                     .toPoint());
             QTRY_COMPARE(session.theme.globalFont(), QString("system-ui"));
             QTRY_VERIFY(!globalReset->isVisible());
-            for (const auto &name :
-                 {"settingsLyricFont", "settingsDesktopLyricFont", "settingsMiniLyricFont",
-                  "settingsTaskbarLyricFont"}) {
+            for (const auto &name : {"settingsLyricFont", "settingsDesktopLyricFont",
+                                     "settingsMiniLyricFont", "settingsTaskbarLyricFont"}) {
                 QQuickItem *select = nullptr;
                 QTRY_VERIFY((select = visual(session.window->contentItem(), name)));
                 QTRY_VERIFY(select->isVisible() && select->width() > 100);
@@ -342,8 +341,9 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
                                    .arg(mode == ThemeStore::Dark ? "dark" : "light")
                                    .arg(zoom)));
             }
-            for (const auto &name : {"settingsLyricFontReset", "settingsDesktopLyricFontReset",
-                                     "settingsMiniLyricFontReset", "settingsTaskbarLyricFontReset"}) {
+            for (const auto &name :
+                 {"settingsLyricFontReset", "settingsDesktopLyricFontReset",
+                  "settingsMiniLyricFontReset", "settingsTaskbarLyricFontReset"}) {
                 auto *reset = visual(session.window->contentItem(), name);
                 QVERIFY(reset && reset->isVisible());
                 auto *viewport = visual(session.window->contentItem(), "settingsContentViewport");

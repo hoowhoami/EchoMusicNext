@@ -48,10 +48,22 @@ qt_add_qml_module(
     EchoPluginUi.h
     EchoPluginUi.cpp
     EchoPluginUiEntries.cpp
+    EchoPluginWindow.h
+    EchoPluginWindow.cpp
+    EchoPluginTcp.h
+    EchoPluginTcp.cpp
+    EchoPluginWebServer.h
+    EchoPluginWebServer.cpp
+    PluginWebServerWorker_p.h
+    PluginWebServerWorker.cpp
+    EchoPluginPermissions.h
+    EchoPluginPermissions.cpp
     EchoPluginNetwork.h
     EchoPluginNetwork.cpp
     EchoPluginSqlite.h
     EchoPluginSqlite.cpp
+    EchoPluginBackups.h
+    EchoPluginBackups.cpp
     EchoPluginIo.h
     EchoPluginIo.cpp
     EchoPluginRegistry.h
@@ -96,7 +108,19 @@ target_link_libraries(
            echo_playback_service
            echo_account
     PUBLIC echo_plugin_files
-    PRIVATE Qt6::Sql Qt6::Network Qt6::Widgets echo_build_options
+    PRIVATE Qt6::Sql Qt6::Network Qt6::WebSockets Qt6::Widgets echo_build_options
 )
 
 qt_add_resources(echo_plugin_sdk echo_plugin_js PREFIX "/echo/plugins" FILES sdk.mjs)
+
+target_link_libraries(echo_plugin_sdk PUBLIC echo_backups)
+
+if(APPLE)
+    target_sources(echo_plugin_sdk PRIVATE MacPluginWindow.mm)
+    target_link_libraries(echo_plugin_sdk PRIVATE "-framework Cocoa")
+endif()
+if(WIN32)
+    target_link_libraries(echo_plugin_sdk PRIVATE ws2_32)
+endif()
+
+target_link_libraries(echo_plugin_sdk PRIVATE echo_settings_keys)

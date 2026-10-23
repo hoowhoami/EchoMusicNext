@@ -20,6 +20,7 @@ ItemDelegate {
     property bool resourceActive: true
     property bool busy: false
     signal openRequested(double cloudId)
+    signal editRequested(double cloudId)
     signal removeRequested(double cloudId, string title, bool owned)
     height: collapsed ? 42 : 40
     padding: collapsed ? 5 : 14
@@ -46,7 +47,7 @@ ItemDelegate {
             id: titleLabel
             visible: !row.collapsed
             Layout.fillWidth: true
-            Layout.rightMargin: removeAction.visible ? 32 : 0
+            Layout.rightMargin: removeAction.visible ? 64 : 0
             text: row.title
             color: row.selected ? Theme.accentText : Theme.text
             font: Theme.font(14, row.selected ? Theme.semiboldWeight : Theme.regularWeight)
@@ -54,8 +55,23 @@ ItemDelegate {
         }
     }
     EchoIconButton {
+        id: editAction
+        objectName: "sidebarPlaylistEdit"
+        visible: !row.collapsed && !row.defaultKind && (row.hovered || row.visualFocus || hovered || removeAction.hovered)
+        enabled: !row.busy
+        anchors.right: parent.right
+        anchors.rightMargin: 42
+        anchors.verticalCenter: parent.verticalCenter
+        width: 28
+        height: 28
+        padding: 7
+        glyph: "pencil"
+        text: qsTr("编辑歌单")
+        onClicked: row.editRequested(row.cloudListId)
+    }
+    EchoIconButton {
         id: removeAction
-        visible: !row.collapsed && !row.defaultKind && (row.hovered || row.visualFocus || hovered)
+        visible: !row.collapsed && !row.defaultKind && (row.hovered || row.visualFocus || hovered || editAction.hovered)
         enabled: !row.busy
         anchors.right: parent.right
         anchors.rightMargin: 10
@@ -66,6 +82,18 @@ ItemDelegate {
         glyph: "trash"
         text: row.kind === "owned" ? qsTr("删除歌单") : qsTr("取消收藏")
         onClicked: row.removeRequested(row.cloudListId, row.title, row.kind === "owned")
+    }
+    Keys.onPressed: event => {
+        if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
+            if (!row.defaultKind && !row.busy)
+                row.editRequested(row.cloudListId);
+            event.accepted = true;
+        }
+    }
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: if (!row.defaultKind && !row.busy)
+            row.editRequested(row.cloudListId)
     }
     EchoToolTip {
         parent: row

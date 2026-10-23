@@ -314,6 +314,7 @@ void PluginRuntime::removeEntry(Entry &entry)
                          m_root)
             : QString();
     m_fileService->forgetInstallation(installation);
+    m_host.permissions->forgetInstallation(installation);
     beginRemoveRows({}, row, row);
     m_entries.erase(m_entries.begin() + row);
     endRemoveRows();

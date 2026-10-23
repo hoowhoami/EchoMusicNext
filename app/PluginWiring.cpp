@@ -55,12 +55,22 @@ void AppContext::createPlugins()
         (smoke ? smokeDirectory.path()
                : QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)) +
         QStringLiteral("/plugins");
-    m_plugins = std::make_unique<PluginRuntime>(
-        engine, settings,
-        PluginHost{playback, theme, shellController, router, account, api, window.floating(),
-                   nullptr, m_shell->sidebarLayout(), m_shortcuts.get(),
-                   m_accountController->verification()},
-        pluginRoot, m_pluginSafeMode);
+    PluginHost pluginHost{playback,
+                          theme,
+                          shellController,
+                          router,
+                          account,
+                          api,
+                          window.floating(),
+                          nullptr,
+                          m_shell->sidebarLayout(),
+                          m_shortcuts.get(),
+                          m_accountController->verification()};
+    pluginHost.attachPluginWindow = [&window](QQuickWindow *surface) {
+        window.attachPluginWindow(surface);
+    };
+    m_plugins =
+        std::make_unique<PluginRuntime>(engine, settings, pluginHost, pluginRoot, m_pluginSafeMode);
     auto &plugins = *m_plugins;
     bind(theme.extensions(), &AppearanceCatalog::contributionFailed, &shellController,
          [&theme, &shellController](const QString &key, const QString &message) {
@@ -81,6 +91,11 @@ void AppContext::createPlugins()
     m_settingsData = std::make_unique<SettingsDataService>(settings, plugins, relaunch, network,
                                                            applicationData, about.version());
     auto &settingsData = *m_settingsData;
+    plugins.setBackupHost(&settingsData);
+    bind(&settingsData, &SettingsDataService::confirmationChanged, &window, [&] {
+        if (!settingsData.confirmation().isEmpty())
+            window.showWindow();
+    });
     m_experimentalSettings = std::make_unique<ExperimentalSettingsService>(
         api, account, savedAccounts, settings, relaunch);
     auto &experimentalSettings = *m_experimentalSettings;

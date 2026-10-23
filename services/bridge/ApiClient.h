@@ -252,7 +252,10 @@ public:
     };
     /// Account write: never automatic verification/replay after uncertain commit.
     quint64 updateUserProfile(const ProfilePatch &patch);
-    quint64 updateUserAvatar(const QByteArray &image);
+    /// Upload bytes only; callers own preparation and any subsequent profile write.
+    quint64 uploadUserAvatar(const QByteArray &image);
+    /// Submit a previously uploaded filename, without uploading or changing local state.
+    quint64 updateUserAvatar(const QString &fileName);
     struct PreferencePatch
     {
         std::optional<QString> mode, gender, age, languages, styles, recommendation;
@@ -354,6 +357,7 @@ public:
         std::optional<QString> title;
         QString description, tags;
         std::optional<QString> coverReference = {};
+        PlaylistKind kind = PlaylistKind::Owned;
     };
     quint64 sortPlaylists(quint64 totalRevision, const QList<PlaylistPosition> &positions);
     /// Account-free fixed image origin, never sends credentials/device fields.

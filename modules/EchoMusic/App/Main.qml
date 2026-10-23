@@ -29,7 +29,16 @@ ApplicationWindow {
             taskbarLyricWindow = null;
         }
     }
-    Component.onCompleted: syncTaskbarLyricWindow()
+    Component.onCompleted: {
+        syncTaskbarLyricWindow();
+        syncBackupConfirmation();
+    }
+    function syncBackupConfirmation(): void {
+        if (settingsDataService && settingsDataService.confirmation.summary)
+            backupConfirmationOwner.open();
+        else
+            backupConfirmationOwner.close();
+    }
     readonly property bool startupPending: startup !== null && !startup.entered
     readonly property MainShell mainShell: shellLoader.item as MainShell
     property PluginManager pluginManager: null
@@ -55,6 +64,22 @@ ApplicationWindow {
     property SettingsDataService settingsDataService: null
     property RelaunchService relaunchService: null
     property LogService logService: null
+    EchoPopupLoader {
+        id: backupConfirmationOwner
+        hostItem: mainWindow.contentItem
+        sourceComponent: Component {
+            SettingsBackupConfirmation {
+                service: mainWindow.settingsDataService
+                uiScale: mainWindow.shellSettings.uiScale
+            }
+        }
+    }
+    Connections {
+        target: mainWindow.settingsDataService
+        function onConfirmationChanged(): void {
+            mainWindow.syncBackupConfirmation();
+        }
+    }
     Connections {
         target: mainWindow.shortcutService
         function onTriggered(command: int): void {

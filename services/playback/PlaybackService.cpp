@@ -78,7 +78,7 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
       m_effectCatalog(api, m_audioControls, this), m_catalog(this), m_lyrics(this),
       m_climax(api, this), m_listening(api, this), m_lyricAppearance(settings, this),
       m_dynamicCover(api, this), m_lyricText(m_lyrics, m_native, settings, this),
-      m_lyricSource(api, settings, this, &m_native)
+      m_lyricSource(api, settings, this)
 {
     m_sessionController = std::make_unique<PlaybackSessionController>(*this);
     m_outputController = std::make_unique<PlaybackOutputController>(*this);
@@ -325,15 +325,17 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                         m_artwork.load(m_embeddedCover, m_sequence);
                     }
                 }
-                m_lyricSource.updateEmbedded(m_track.stableKey(), title, artist,
-                                             metadata.value("lyrics").toObject());
+                m_lyricSource.updateEmbeddedDocument(m_track.stableKey(), title, artist,
+                                                     metadata.value("lyric").toString());
                 // Unmatched uploads often lack a provider duration; the
                 // demuxed stream the engine reports is authoritative.
                 if (!m_track.durationMs && m_duration > 0)
                     m_track.durationMs = quint64(m_duration);
                 // Queue copies and catalog pages under the same file join the
                 // presentation once the file itself identified its own facts.
-                const auto coverFact = m_track.cover.isEmpty() ? m_embeddedCover : m_track.cover;
+                // Reader artwork belongs to this playback session. Publishing
+                // its temporary URL as a catalog fact would let queues and
+                // history retain it after the owning directory is destroyed.
                 const auto facts = QJsonObject{
                     {"id", m_track.id},
                     {"hash", m_track.hash},
@@ -344,10 +346,10 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                     {"album_id", m_track.albumId ? QString::number(m_track.albumId) : QString()},
                     {"duration_ms",
                      m_track.durationMs ? QJsonValue(qint64(m_track.durationMs)) : QJsonValue()},
-                    {"cover_url", coverFact},
+                    {"cover_url", m_track.cover},
                     {"cloud_source", m_track.catalogMetadata.value("cloud_source")}};
                 queue()->updateFacts(m_track.id, m_track.hash, m_track.title, m_track.artist,
-                                     m_track.album, coverFact, m_track.durationMs);
+                                     m_track.album, m_track.cover, m_track.durationMs);
                 // Session memory keyed by audio hash: lists loaded after the
                 // play replay these corrections at projection time.
                 if (!m_track.hash.isEmpty())

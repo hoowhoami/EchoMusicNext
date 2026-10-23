@@ -5,8 +5,9 @@ LibraryController::LibraryController(ApiClient &api, UserPlaylistModel &source,
                                      PlaylistMutationService &mutations, QObject *parent)
     : QObject(parent), m_api(api), m_source(source), m_mutations(mutations),
       m_projection(source, this), m_order(api, mutations, this),
-      m_importer(api, source, mutations, this)
+      m_editor(api, source, mutations, this), m_importer(api, source, mutations, this)
 {
+    connect(&m_editor, &PlaylistEditModel::notice, this, &LibraryController::notice);
     connect(&source, &UserPlaylistModel::changed, this, &LibraryController::changed);
     connect(&mutations, &PlaylistMutationService::changed, this, [this] {
         const auto state = m_mutations.state();

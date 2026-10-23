@@ -93,8 +93,13 @@ bool PlaylistMutationService::sortLibrary(quint64 totalRevision,
 bool PlaylistMutationService::saveCover(const ApiClient::PlaylistUpdate &update,
                                         const QByteArray &png)
 {
+    return !png.isEmpty() && saveEdit(update, png);
+}
+bool PlaylistMutationService::saveEdit(const ApiClient::PlaylistUpdate &update,
+                                       const QByteArray &png)
+{
     if (!ready() || !update.id.value || update.coverReference || png.size() > 8 * 1024 * 1024 ||
-        !png.startsWith(QByteArray::fromHex("89504e470d0a1a0a")))
+        (!png.isEmpty() && !png.startsWith(QByteArray::fromHex("89504e470d0a1a0a"))))
         return false;
     m_revision = m_api.sessionRevision();
     m_userId = m_api.currentAccountUserId();
@@ -178,18 +183,22 @@ void PlaylistMutationService::coverSucceeded(const QJsonObject &object)
         m_libraryReadIds.insert(*id);
         ++m_seen;
         if (*id == m_coverUpdate.id.value) {
-            if (row.value("kind").toString() != QStringLiteral("owned") ||
-                integer(row, "creator_id") != std::optional<quint64>(m_userId) ||
-                integer(row, "source_code") != std::optional<quint64>(1) ||
-                !row.value("editable").isBool() || !row.value("editable").toBool()) {
-                coverFailed(QStringLiteral("无法确认当前账号的可编辑自建歌单"));
+            const auto kind = m_coverUpdate.kind == ApiClient::PlaylistKind::Owned
+                                  ? QStringLiteral("owned")
+                                  : QStringLiteral("collected");
+            if (row.value("kind").toString() != kind ||
+                integer(row, "source_code") == std::optional<quint64>(2) ||
+                row.value("default_kind").toInt() > 0 ||
+                integer(row, "sort_index") !=
+                    std::optional<quint64>(quint64(m_coverUpdate.sortIndex))) {
+                coverFailed(QStringLiteral("无法确认当前账号的可编辑歌单"));
                 return;
             }
             m_found = true;
         }
     }
     if (m_seen > previousSeen &&
-        (total ? m_seen < *total : page.value("items").toArray().size() >= 200)) {
+        (total ? m_seen < *total : page.value("items").toArray().size() >= 100)) {
         ++m_page;
         readCoverLibrary();
         return;
@@ -198,7 +207,7 @@ void PlaylistMutationService::coverSucceeded(const QJsonObject &object)
         coverFailed(QStringLiteral("歌单已不存在"));
         return;
     }
-    if (m_coverStage == CoverStage::BeforeUpload) {
+    if (m_coverStage == CoverStage::BeforeUpload && !m_coverPng.isEmpty()) {
         m_request = m_api.uploadPlaylistCover(m_coverPng);
         m_coverPng.clear();
         if (!m_request) {

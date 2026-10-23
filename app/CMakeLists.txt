@@ -40,8 +40,9 @@ if(NOT APPLE)
     if(NOT ECHO_APP_ICON STREQUAL "assets/linux-icon.png")
         list(APPEND ECHO_APP_RESOURCES assets/linux-icon.png)
     endif()
-    qt_add_resources(echomusicnext echo_application_icon
-        PREFIX /echo/app FILES ${ECHO_APP_RESOURCES})
+    qt_add_resources(
+        echomusicnext echo_application_icon PREFIX /echo/app FILES ${ECHO_APP_RESOURCES}
+    )
     target_compile_definitions(
         echomusicnext PRIVATE ECHO_APP_ICON_PATH=":/echo/app/${ECHO_APP_ICON}"
     )

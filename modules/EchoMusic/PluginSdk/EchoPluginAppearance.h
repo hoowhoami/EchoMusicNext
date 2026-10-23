@@ -57,6 +57,7 @@ public:
         return m_error;
     }
     bool drained() const;
+    void storageBarrier(std::function<void()> ready);
     QVariantMap presentation(const QString &surface, QObject *owner, AppearanceConfiguration *,
                              AppearanceEntry *entry);
     static bool validateVisuals(const QVariantMap &, QString &error);

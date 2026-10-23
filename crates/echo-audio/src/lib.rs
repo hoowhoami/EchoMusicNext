@@ -2979,18 +2979,30 @@ pub fn pause() -> crate::Result<()> {
     })
 }
 
-pub fn stop() -> crate::Result<()> {
+pub struct StopTask;
+
+impl Command for StopTask {
+    type Output = ();
+
+    fn compute(&mut self) -> crate::Result<()> {
+        call_core_command("stop", |runtime| {
+            runtime.stop_session();
+            runtime.state.time_pos = 0.0;
+            update_runtime_audio_graph(runtime);
+            set_runtime_core_state(runtime, PlaybackCoreState::Idle, "stop");
+            emit_runtime_event(runtime, PlayerEvent::state_change(runtime.state.clone()));
+            Ok(())
+        })
+    }
+}
+
+/// Register cancellation when submitted, like load/seek. Executing an older
+/// queued stop must not invalidate a newer load's already registered generation.
+pub fn stop() -> Work<StopTask> {
     cancel_runtime_fade();
     invalidate_seek_requests();
     invalidate_source_open_requests();
-    call_core_command("stop", |runtime| {
-        runtime.stop_session();
-        runtime.state.time_pos = 0.0;
-        update_runtime_audio_graph(runtime);
-        set_runtime_core_state(runtime, PlaybackCoreState::Idle, "stop");
-        emit_runtime_event(runtime, PlayerEvent::state_change(runtime.state.clone()));
-        Ok(())
-    })
+    Work::new(StopTask)
 }
 
 pub fn set_volume(volume: f64) -> crate::Result<()> {

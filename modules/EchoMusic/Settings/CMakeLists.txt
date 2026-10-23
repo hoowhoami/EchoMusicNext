@@ -16,12 +16,9 @@ qt_add_qml_module(
     ReleaseManifest.cpp
     SettingsMarkdownRenderer.h
     SettingsMarkdownRenderer.cpp
-    SettingsBackupArchive.h
-    SettingsBackupArchive.cpp
-    SettingsBackupRestore.h
-    SettingsBackupRestore.cpp
     SettingsDataService.h
     SettingsDataService.cpp
+    SettingsDataPluginApi.cpp
     QML_FILES
     SettingsNotice.qml
     PlayerSettingsSection.qml
@@ -55,6 +52,8 @@ qt_add_qml_module(
     SettingsTextDialog.qml
     SettingsChangelogDialog.qml
     DataSettingsSection.qml
+    SettingsBackupProviderList.qml
+    SettingsBackupConfirmation.qml
     CastSettingsSection.qml
     SettingsScrollBody.qml
     SettingsDisclaimerDialog.qml
@@ -99,3 +98,5 @@ target_link_libraries(
 target_include_directories(echo_settings PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(echo_settings PRIVATE echo_settings_keys)
+
+target_link_libraries(echo_settings PUBLIC echo_backups)

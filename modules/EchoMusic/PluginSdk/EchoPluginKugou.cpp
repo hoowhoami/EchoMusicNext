@@ -4,6 +4,8 @@
 #include "AccountService.h"
 #include "EchoPluginBusiness_p.h"
 #include "VerificationService.h"
+#include "PlaybackService.h"
+#include "LyricExtensions.h"
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -63,7 +65,23 @@ EchoPluginKugou::EchoPluginKugou(EchoPluginContext &scope) : QObject(&scope), m_
                 auto doc = QJsonDocument::fromJson(payload, &e);
                 if (e.error != QJsonParseError::NoError)
                     op->fail("InvalidResponse", "Business response is invalid JSON");
-                else
+                else if (op->property("_lyricDocument").toBool()) {
+                    const QPointer<EchoPluginOperation> guard(op);
+                    const auto epoch = m_scope.accountEpoch();
+                    auto *job =
+                        m_scope.host().playback.lyricSource()->extensions()->parseDownloaded(
+                            doc.object().toVariantMap(), op,
+                            [this, guard, epoch](QJsonObject value, QString error) {
+                                if (!guard || guard->finished() || !m_scope.active() ||
+                                    epoch != m_scope.accountEpoch())
+                                    return;
+                                if (error.isEmpty())
+                                    guard->succeed(value.toVariantMap());
+                                else
+                                    guard->fail("InvalidResponse", error);
+                            });
+                    connect(op, &EchoPluginOperation::completed, job, &QObject::deleteLater);
+                } else
                     op->succeed(publicValue(doc.toVariant()));
             });
     connect(&scope.host().api, &ApiClient::failed, this,
@@ -194,6 +212,7 @@ QStringList EchoPluginKugou::methods()
             "submitPlaylistImportImage",
             "updateListeningPreferences",
             "updatePlaylist",
+            "uploadUserAvatar",
             "updateUserAvatar",
             "updateUserProfile",
             "uploadPlaylistCover",
@@ -229,6 +248,9 @@ EchoPluginOperation *EchoPluginKugou::request(const QString &method, const QVari
         return m_scope.rejected("UnknownMethod", "Unknown business method");
     if (!a.done())
         return m_scope.rejected("InvalidArgument", "Invalid or unknown business arguments");
-    return submit(command);
+    auto *op = submit(command);
+    if (method == "lyric")
+        op->setProperty("_lyricDocument", true);
+    return op;
 }
 } // namespace EchoMusic

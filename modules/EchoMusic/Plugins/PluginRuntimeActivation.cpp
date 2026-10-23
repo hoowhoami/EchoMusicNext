@@ -28,6 +28,25 @@ void PluginRuntime::settle(Entry &entry, const QJSValue &value,
     connect(&bridge->timeout, &QTimer::timeout, bridge,
             [bridge] { bridge->rejected("Plugin lifecycle Promise timed out (5 s)"); });
     bridge->timeout.start();
+    // User interaction is not plugin execution time. Keep the remaining budget
+    // while a native authorization is waiting, then resume the same deadline.
+    auto remaining = std::make_shared<int>(5000);
+    auto paused = std::make_shared<bool>(false);
+    const auto permissionWait = [this, bridge, remaining, paused,
+                                 installation = entry.package.installationId] {
+        if (m_host.permissions->waiting(installation)) {
+            if (!*paused) {
+                *remaining = qMax(1, bridge->timeout.remainingTime());
+                bridge->timeout.stop();
+                *paused = true;
+            }
+        } else if (*paused) {
+            *paused = false;
+            bridge->timeout.start(*remaining);
+        }
+    };
+    connect(m_host.permissions, &PluginPermissionStore::pendingChanged, bridge, permissionWait);
+    permissionWait();
     const auto attach = m_engine.evaluate(
         "(function(value, bridge) { Promise.resolve(value).then(function() { try { "
         "bridge.resolved(); } catch(ignored) {} }, "

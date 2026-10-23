@@ -82,6 +82,32 @@ CloudUploadService::CloudUploadService(ApiClient &api, bool network, QObject *pa
         if (id == m_request)
             pause(tr("请完成账号安全验证，再确认继续上传"), 60);
     });
+    connect(&m_partRead, &QFutureWatcher<CloudUploadFile::Part>::finished, this, [this] {
+        if (m_closed)
+            return;
+        if (m_partRun != m_run) {
+            if (m_phase == "uploading")
+                uploadNext();
+            return;
+        }
+        if (m_phase != "uploading" || m_session != m_api.sessionRevision() || !m_partCancel ||
+            m_partCancel->load())
+            return;
+        const auto result = m_partRead.result();
+        if (!result.error.isEmpty()) {
+            finishFile(false, result.error);
+            return;
+        }
+        if (result.encoded.isEmpty()) {
+            finishFile(false, tr("读取上传分片失败"));
+            return;
+        }
+        uploadStage(ApiClient::CloudUploadStage::Part,
+                    {{"hash", m_files[m_index].hash},
+                     {"transfer", m_transfer},
+                     {"part", m_part},
+                     {"data", QString::fromLatin1(result.encoded)}});
+    });
     connect(&m_scan, &QFutureWatcher<QList<File>>::finished, this, [this] {
         if (m_closed || m_scanRun != m_run)
             return;
@@ -128,6 +154,7 @@ CloudUploadService::~CloudUploadService()
 {
     shutdown();
     m_scan.waitForFinished();
+    m_partRead.waitForFinished();
 }
 QVariant CloudUploadService::data(const QModelIndex &index, int role) const
 {
@@ -613,7 +640,7 @@ void CloudUploadService::uploadMatch(int index)
 }
 void CloudUploadService::uploadNext()
 {
-    if (m_closed || m_phase != "uploading" || m_request)
+    if (m_closed || m_phase != "uploading" || m_request || m_partRead.isRunning())
         return;
     while (m_index < m_files.size() &&
            (m_files[m_index].state == "failed" || m_files[m_index].state == "success"))
@@ -644,6 +671,18 @@ void CloudUploadService::uploadNext()
     m_transfer = {};
     uploadStage(ApiClient::CloudUploadStage::Auth, {{"hash", f.hash}});
 }
+void CloudUploadService::readUploadPart()
+{
+    if (m_closed || m_partRead.isRunning() || m_index >= m_files.size())
+        return;
+    const auto &file = m_files[m_index];
+    const CloudUploadFile::Snapshot snapshot{file.path, file.size, file.modified};
+    m_partRun = m_run;
+    m_partCancel = std::make_shared<std::atomic_bool>(false);
+    m_partRead.setFuture(QtConcurrent::run([snapshot, part = m_part, cancel = m_partCancel] {
+        return CloudUploadFile::readPart(snapshot, part, *cancel);
+    }));
+}
 void CloudUploadService::uploadStage(ApiClient::CloudUploadStage stage, QJsonObject query)
 {
     m_stage = stage;
@@ -671,15 +710,9 @@ void CloudUploadService::accept(quint64 id, const QByteArray &bytes)
     if (m_index >= m_files.size() || m_phase != "uploading")
         return;
     auto &f = m_files[m_index];
-    auto nextPart = [this, &f] {
+    auto nextPart = [this] {
         ++m_part;
-        uploadStage(
-            ApiClient::CloudUploadStage::Part,
-            {{"hash", f.hash},
-             {"transfer", m_transfer},
-             {"part", m_part},
-             {"file",
-              QJsonObject{{"path", f.path}, {"size", f.size}, {"modified_ms", f.modified}}}});
+        readUploadPart();
     };
     auto add = [this, &f] {
         uploadStage(
@@ -840,6 +873,8 @@ void CloudUploadService::cancelPending()
     m_cooldown.stop();
     if (m_cancel)
         m_cancel->store(true);
+    if (m_partCancel)
+        m_partCancel->store(true);
     const auto request = m_request;
     m_request = 0; // Cancelling a suspended verification emits failure synchronously.
     if (request)

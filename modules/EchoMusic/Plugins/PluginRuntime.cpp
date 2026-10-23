@@ -50,6 +50,7 @@ PluginRuntime::PluginRuntime(QQmlEngine &engine, QSettings &preferences, PluginH
       m_safeMode(safeMode ||
                  preferences.value(EchoMusic::SettingsKeys::Plugins::SafeMode, false).toBool())
 {
+    m_host.permissions = new PluginPermissionStore(preferences, this);
     m_fileService = new PluginFileService(m_root, this);
     m_host.files = m_fileService;
     connect(m_fileService, &PluginFileService::mediaRevoked, &m_host.playback,
@@ -323,6 +324,7 @@ QVariantMap PluginRuntime::record(const QString &installation) const
     result.insert("dependencyBlocked", entry->state == Blocked);
     result.insert("error", entry->error);
     result.insert("failure", entry->failure);
+    result.insert("active", entry->state == Active);
     result.insert("settingsAvailable", entry->context && entry->context->active() &&
                                            !entry->context->ui()->settingsComponent().isEmpty());
     result.insert("sourceName", entry->origin.value("name", tr("本地安装")));
@@ -330,6 +332,23 @@ QVariantMap PluginRuntime::record(const QString &installation) const
     result.insert("iconUrl", QUrl::fromLocalFile(entry->package.resolve(
                                  entry->package.manifest.value("icon").toString())));
     return result;
+}
+void PluginRuntime::openWindow(const QString &installation, const QString &windowId)
+{
+    auto *scope = context(installation);
+    if (!scope || !scope->active() || !scope->committed()) {
+        emit notice(tr("请先启用插件"), true);
+        return;
+    }
+    auto *op = scope->windows()->show(windowId);
+    const auto done = [this, op] {
+        if (op->state() == EchoPluginOperation::Failed)
+            emit notice(op->errorMessage(), true);
+    };
+    if (op->finished())
+        done();
+    else
+        connect(op, &EchoPluginOperation::completed, this, done);
 }
 bool PluginRuntime::clearFailure(const QString &installation)
 {
@@ -372,6 +391,34 @@ void PluginRuntime::shutdown()
             retire(*entry, Disabled);
     checkClosed();
 }
+bool PluginRuntime::beginBackupSnapshot(std::function<void(bool)> ready)
+{
+    if (m_closing || m_maintenance || loading())
+        return false;
+    for (const auto &entry : m_entries)
+        if (entry->mutation != Entry::None)
+            return false;
+    m_maintenance = true;
+    emit loadingChanged();
+    m_fileService->freezeStorage(true);
+    QList<QPointer<EchoPluginContext>> scopes;
+    for (const auto &entry : m_entries)
+        if (entry->context) {
+            entry->context->freezeStorage(true);
+            scopes.append(entry->context);
+        }
+    const auto pending = std::make_shared<int>(scopes.size() + 1);
+    const auto valid = std::make_shared<bool>(true);
+    const auto arrive = [this, pending, valid, ready](bool ok) {
+        *valid = *valid && ok;
+        if (--*pending == 0)
+            ready(*valid && m_maintenance && !m_closing);
+    };
+    for (auto scope : scopes)
+        scope->storageBarrier([arrive] { arrive(true); });
+    m_fileService->snapshotBarrier(arrive);
+    return true;
+}
 bool PluginRuntime::beginMaintenance(std::function<void(bool)> ready)
 {
     if (m_closing || m_maintenance || loading())
@@ -403,6 +450,10 @@ void PluginRuntime::endMaintenance()
     if (!m_maintenance)
         return;
     m_maintenance = false;
+    m_fileService->freezeStorage(false);
+    for (const auto &entry : m_entries)
+        if (entry->context)
+            entry->context->freezeStorage(false);
     auto ready = std::exchange(m_maintenanceReady, {});
     if (ready)
         ready(false);
@@ -417,6 +468,8 @@ QVariantList PluginRuntime::backupEntries() const
         if (!entry->package.error.isEmpty() || entry->package.root.isEmpty())
             continue;
         auto origin = entry->origin;
+        if (!origin.contains("kind"))
+            origin.insert("kind", "local");
         origin.remove("directory");
         entries.append(QVariantMap{{"id", entry->package.id},
                                    {"name", entry->package.name},

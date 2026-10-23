@@ -14,6 +14,9 @@ use std::{
     thread::{self, JoinHandle},
 };
 static CLAIMED: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+#[path = "audio_tests.rs"]
+mod tests;
 type Action = Box<dyn FnOnce() -> echo_audio::Result<()> + Send>;
 #[derive(Clone, Copy)]
 enum JobKind {
@@ -430,7 +433,10 @@ pub unsafe extern "C" fn echo_audio_command(
                 Box::new(move || work.execute())
             }
             x if x == EchoAudioCommand::Pause as u32 => Box::new(echo_audio::pause),
-            x if x == EchoAudioCommand::Stop as u32 => Box::new(echo_audio::stop),
+            x if x == EchoAudioCommand::Stop as u32 => {
+                let work = echo_audio::stop();
+                Box::new(move || work.execute())
+            }
             x if x == EchoAudioCommand::Volume as u32 => {
                 Box::new(move || echo_audio::set_volume(value))
             }

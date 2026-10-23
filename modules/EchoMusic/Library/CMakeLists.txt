@@ -8,6 +8,8 @@ qt_add_qml_module(
     SidebarPlaylistModel.cpp
     LibraryController.h
     LibraryController.cpp
+    PlaylistEditModel.h
+    PlaylistEditModel.cpp
     PlaylistOrderModel.h
     PlaylistOrderModel.cpp
     PlaylistImportService.h
@@ -16,6 +18,8 @@ qt_add_qml_module(
     SidebarPlaylistRow.qml
     PlaylistCreateDialog.qml
     PlaylistRemoveDialog.qml
+    PlaylistEditDialog.qml
+    PlaylistEditTags.qml
     PlaylistOrderDialog.qml
     PlaylistImportDialog.qml
     PlaylistImportDraft.qml

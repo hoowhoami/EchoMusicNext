@@ -1,13 +1,13 @@
 #pragma once
 #include "PlaybackTrack.h"
+#include "LyricParser.h"
 #include <QObject>
 #include <QVariantMap>
 #include <functional>
 namespace EchoMusic
 {
-class NativeBridge;
-/// Neutral GUI-thread registry. The parser runs on NativeBridge's bounded
-/// worker; callback jobs and their I/O die with the requesting track/scope.
+/// GUI-thread resolver registry; the shared C++ parser owns its bounded worker.
+/// Callback jobs and their I/O die with the requesting track/scope.
 class LyricExtensions final : public QObject
 {
     Q_OBJECT
@@ -28,19 +28,25 @@ public:
         QString key, revision, source;
         QJsonObject lyrics;
     };
-    LyricExtensions(NativeBridge &native, QObject *parent);
+    explicit LyricExtensions(QObject *parent);
     bool add(Resolver resolver);
+    bool hasResolvers() const
+    {
+        return !m_resolvers.isEmpty();
+    }
     void remove(const QString &key, const QString &revision);
     bool contains(const QString &key, const QString &revision = {}) const;
     QObject *resolve(const PlaybackTrack &track, bool force, bool preserveCurrent,
                      const QString &only, QObject *owner, std::function<void(Result)> done);
     QObject *parse(const QVariantMap &document, QObject *owner, Parsed done);
+    QObject *parseDownloaded(const QVariantMap &, QObject *owner, Parsed done);
+    QObject *parseEmbedded(const QString &, QObject *owner, Parsed done);
     static QString validate(const QVariantMap &document);
 signals:
     void changed();
 
 private:
-    NativeBridge &m_native;
+    LyricParser m_parser;
     QList<Resolver> m_resolvers;
 };
 } // namespace EchoMusic

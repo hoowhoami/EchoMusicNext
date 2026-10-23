@@ -108,6 +108,7 @@ QVariantMap nativeFloatingAppearance(QWindow *window)
         {"ignoresMouseEvents", bool(native.ignoresMouseEvents)},
         {"titled", bool(native.styleMask & NSWindowStyleMaskTitled)},
         {"opaque", bool(native.opaque)},
+        {"occlusionVisible", bool(native.occlusionState & NSWindowOcclusionStateVisible)},
         {"level", qint64(native.level)},
         {"panel", bool([native isKindOfClass:NSPanel.class])},
         {"nonactivating", bool(native.styleMask & NSWindowStyleMaskNonactivatingPanel)},
@@ -146,12 +147,27 @@ QVariantMap nativeMacComposition(QWindow *window, qint64 hostWindow)
         if (number == hostWindow)
             hostIndex = NSInteger(i);
     }
+    QVariantList above;
+    for (NSInteger i = 0; i < hostIndex && i < 32; ++i) {
+        NSDictionary *entry = windows[NSUInteger(i)];
+        NSDictionary *bounds = entry[(id)kCGWindowBounds];
+        // Diagnostic geometry only; never capture other applications' titles.
+        above.append(QVariantMap{{"number", [entry[(id)kCGWindowNumber] longLongValue]},
+                                 {"pid", [entry[(id)kCGWindowOwnerPID] longLongValue]},
+                                 {"layer", [entry[(id)kCGWindowLayer] longLongValue]},
+                                 {"alpha", [entry[(id)kCGWindowAlpha] doubleValue]},
+                                 {"x", [bounds[@"X"] doubleValue]},
+                                 {"y", [bounds[@"Y"] doubleValue]},
+                                 {"width", [bounds[@"Width"] doubleValue]},
+                                 {"height", [bounds[@"Height"] doubleValue]}});
+    }
     if (list)
         CFRelease(list);
     return {{"onActiveSpace", bool(native.isOnActiveSpace)},
             {"overlayOnScreen", overlayIndex >= 0},
             {"hostOnScreen", hostIndex >= 0},
-            {"aboveHost", overlayIndex >= 0 && hostIndex >= 0 && overlayIndex < hostIndex}};
+            {"aboveHost", overlayIndex >= 0 && hostIndex >= 0 && overlayIndex < hostIndex},
+            {"windowsAboveHost", above}};
 }
 
 // Read the actual MPNowPlayingInfoCenter populated through the Rust media bridge.

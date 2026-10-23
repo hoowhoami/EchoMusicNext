@@ -29,6 +29,7 @@ class PlaylistDetailContext final : public QObject
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
     Q_PROPERTY(bool complete READ complete NOTIFY changed)
     Q_PROPERTY(bool owned READ owned NOTIFY changed)
+    Q_PROPERTY(quint64 editListId READ editListId NOTIFY changed)
     Q_PROPERTY(quint64 orderListId READ orderListId NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(quint64 total READ total NOTIFY changed)
@@ -80,8 +81,11 @@ public:
         if (m_detail.isEmpty())
             return {};
         auto value = m_detail.toVariantMap();
+        const auto metadata = m_library.metadataFor(m_detail["global_id"].toString());
+        for (auto it = metadata.begin(); it != metadata.end(); ++it)
+            value[it.key()] = it.value().toVariant();
         value["cover_url"] =
-            m_library.coverFor(m_detail["global_id"].toString(), m_detail["cover_url"].toString());
+            m_library.coverFor(m_detail["global_id"].toString(), value["cover_url"].toString());
         return value;
     }
     bool loading() const
@@ -99,6 +103,7 @@ public:
     /// Resolve the current account's writable listid from its canonical library.
     /// A public collection ID or the creator's listid is never a write target.
     quint64 orderListId() const;
+    quint64 editListId() const;
     QString errorMessage() const
     {
         return m_error;

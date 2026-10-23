@@ -73,6 +73,7 @@ public:
     Q_INVOKABLE EchoMusic::EchoPluginOperation *deleteDatabase(const QString &name);
     EchoPluginOperation *request(const QString &command, const QString &id,
                                  const QVariantMap &arguments);
+    void storageBarrier(std::function<void()> ready);
     void shutdown();
     bool isDrained() const
     {

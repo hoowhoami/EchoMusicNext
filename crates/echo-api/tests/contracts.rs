@@ -1366,7 +1366,8 @@ fn native_registration_success_maps_only_the_observed_dfid() {
 fn live_avatar_upload_and_membership_dates_keep_endpoint_owned_fields() {
     use echo_api::module::{user_update_avatar, user_vip_detail};
     let path = "user_update_avatar/same-current-avatar-profile-20261016.json";
-    let file = user_update_avatar::uploaded_file(&sample_response(path, 0)).unwrap();
+    let file =
+        echo_api::module::user_avatar_upload::uploaded_file(&sample_response(path, 0)).unwrap();
     let updated = user_update_avatar::convert(&sample_response(path, 1), &file).unwrap();
     assert!(updated.avatar_url.ends_with(&file));
     assert!(!updated.review_pending);
@@ -2451,19 +2452,6 @@ fn source_codes_extensions_and_social_counts_survive_ui_projections() {
         result.promotions.len(),
         wire["data"]["ads"].as_array().unwrap().len()
     );
-}
-
-#[test]
-fn lyrics_are_not_truncated_by_sampled_line_or_word_counts() {
-    use echo_api::module::lyric;
-    let lrc = (0..10001)
-        .map(|i| format!("[00:01.00]line-{i}\n"))
-        .collect::<String>();
-    let result = lyric::parse_text(&lrc, true).unwrap();
-    assert_eq!(result.lines.len(), 10001);
-    let krc = format!("[0,100000]{}", "<0,10,0>字".repeat(2049));
-    let result = lyric::parse_krc(&krc).unwrap();
-    assert_eq!(result.lines[0].words.len(), 2049);
 }
 
 #[test]

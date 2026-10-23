@@ -30,16 +30,13 @@ public:
 } // namespace
 namespace EchoMusic
 {
-LyricSourceController::LyricSourceController(ApiClient &api, QSettings &settings, QObject *parent,
-                                             NativeBridge *native)
+LyricSourceController::LyricSourceController(ApiClient &api, QSettings &settings, QObject *parent)
     : QAbstractListModel(parent), m_api(api), m_settings(settings), m_preview(this),
       m_previewRows(std::make_unique<PreviewRows>(m_preview))
 {
-    if (native) {
-        m_extensions = std::make_unique<LyricExtensions>(*native, this);
-        connect(m_extensions.get(), &LyricExtensions::changed, this,
-                &LyricSourceController::extensionsChanged);
-    }
+    m_extensions = std::make_unique<LyricExtensions>(this);
+    connect(m_extensions.get(), &LyricExtensions::changed, this,
+            &LyricSourceController::extensionsChanged);
     connect(&api, &ApiClient::succeeded, this, &LyricSourceController::succeeded);
     connect(&api, &ApiClient::failed, this, &LyricSourceController::failed);
     connect(&api, &ApiClient::sessionChanged, this, &LyricSourceController::clear);
@@ -202,7 +199,11 @@ void LyricSourceController::clear()
 }
 void LyricSourceController::load(const PlaybackTrack &track)
 {
-    if (m_extensions && hasTrack() && m_track.stableKey() == track.stableKey()) {
+    // Preserve a live plugin contribution across reader/view refreshes. Normal
+    // source loads still re-resolve remembered IDs with fresh access keys.
+    if (m_extensions &&
+        (m_extensions->hasResolvers() || m_pluginCandidate || !m_writes.isEmpty()) && hasTrack() &&
+        m_track.stableKey() == track.stableKey()) {
         m_track = track;
         beginAutomatic(false, true);
         return;
@@ -247,6 +248,9 @@ void LyricSourceController::openSelection()
             m_api.cancel(m_defaultSearch);
         if (m_download)
             m_api.cancel(m_download);
+        ++m_parseRevision;
+        delete m_parseJob.data();
+        m_parseJob = nullptr;
         m_search = m_defaultSearch = m_download = 0;
         m_pendingCandidates.clear();
         m_searchKeywords = m_autoKeywords;
@@ -288,6 +292,9 @@ void LyricSourceController::closeSelection()
         m_api.cancel(m_defaultSearch);
     if (m_download)
         m_api.cancel(m_download);
+    ++m_parseRevision;
+    delete m_parseJob.data();
+    m_parseJob = nullptr;
     m_search = m_defaultSearch = m_download = 0;
     m_applyPending = m_activatePending = m_restorePending = false;
     m_pendingCandidates.clear();
@@ -388,6 +395,32 @@ QJsonObject LyricSourceController::cachedLyrics(const QString &id) const
            : m_pluginCandidate && m_pluginCandidate->id == id ? m_pluginLyrics
                                                               : m_cache.value(id);
 }
+void LyricSourceController::cancelParsing()
+{
+    ++m_parseRevision;
+    delete m_parseJob.data();
+    m_parseJob = nullptr;
+    delete m_embeddedParse.data();
+    m_embeddedParse = nullptr;
+}
+void LyricSourceController::updateEmbeddedDocument(const QString &trackKey, const QString &title,
+                                                   const QString &artist, const QString &content)
+{
+    if (trackKey != m_track.stableKey() || m_revision != m_api.sessionRevision())
+        return;
+    delete m_embeddedParse.data();
+    m_embeddedParse = nullptr;
+    const auto generation = m_generation, session = m_api.sessionRevision();
+    m_embeddedParse = m_extensions->parseEmbedded(
+        content, this,
+        [this, generation, session, trackKey, title, artist](QJsonObject value, QString) {
+            if (generation != m_generation || session != m_api.sessionRevision() ||
+                trackKey != m_track.stableKey())
+                return;
+            m_embeddedParse = nullptr;
+            updateEmbedded(trackKey, title, artist, value);
+        });
+}
 void LyricSourceController::updateEmbedded(const QString &trackKey, const QString &title,
                                            const QString &artist, const QJsonObject &lyrics)
 {
@@ -449,6 +482,9 @@ void LyricSourceController::updateEmbedded(const QString &trackKey, const QStrin
             m_api.cancel(m_defaultSearch);
         if (m_download)
             m_api.cancel(m_download);
+        ++m_parseRevision;
+        delete m_parseJob.data();
+        m_parseJob = nullptr;
         m_search = m_defaultSearch = m_download = 0;
         m_selected = 0;
         m_activatePending = true;
@@ -484,6 +520,9 @@ void LyricSourceController::startSearch(bool allCandidates, bool activate, const
         m_api.cancel(m_defaultSearch);
     if (m_download)
         m_api.cancel(m_download);
+    ++m_parseRevision;
+    delete m_parseJob.data();
+    m_parseJob = nullptr;
     m_search = m_defaultSearch = m_download = 0;
     m_allCandidates = allCandidates;
     m_searchKeywords = keywords;
@@ -624,6 +663,9 @@ void LyricSourceController::select(int row)
 }
 void LyricSourceController::previewSelected()
 {
+    ++m_parseRevision;
+    delete m_parseJob.data();
+    m_parseJob = nullptr;
     if (m_download)
         m_api.cancel(m_download);
     m_download = 0;
@@ -815,9 +857,31 @@ void LyricSourceController::succeeded(quint64 id, const QByteArray &bytes)
     if (id != m_download)
         return;
     m_download = 0;
-    const auto object = QJsonDocument::fromJson(bytes).object();
     if (!selected() || selected()->id != m_downloadId)
         return;
+    const auto revision = ++m_parseRevision;
+    const auto generation = m_generation, session = m_api.sessionRevision();
+    m_parseJob = m_extensions->parseDownloaded(
+        QJsonDocument::fromJson(bytes).object().toVariantMap(), this,
+        [this, revision, generation, session](QJsonObject object, QString error) {
+            if (revision != m_parseRevision || generation != m_generation ||
+                session != m_api.sessionRevision())
+                return;
+            m_parseJob = nullptr;
+            if (!selected() || selected()->id != m_downloadId)
+                return;
+            if (!error.isEmpty()) {
+                m_error = error;
+                m_activatePending = m_applyPending = m_restorePending = false;
+                emit changed();
+                return;
+            }
+            acceptParsed(object);
+        });
+    emit changed();
+}
+void LyricSourceController::acceptParsed(const QJsonObject &object)
+{
     if (!m_preview.replace(object)) {
         m_error = tr("歌词预览数据无效");
         m_activatePending = m_applyPending = m_restorePending = false;
