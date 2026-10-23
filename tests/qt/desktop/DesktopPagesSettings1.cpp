@@ -302,7 +302,8 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
             QTRY_COMPARE(session.theme.globalFont(), QString("system-ui"));
             QTRY_VERIFY(!globalReset->isVisible());
             for (const auto &name :
-                 {"settingsLyricFont", "settingsDesktopLyricFont", "settingsMiniLyricFont"}) {
+                 {"settingsLyricFont", "settingsDesktopLyricFont", "settingsMiniLyricFont",
+                  "settingsTaskbarLyricFont"}) {
                 QQuickItem *select = nullptr;
                 QTRY_VERIFY((select = visual(session.window->contentItem(), name)));
                 QTRY_VERIFY(select->isVisible() && select->width() > 100);
@@ -333,6 +334,7 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
             QCOMPARE(session.theme.lyricFont(), family);
             QCOMPARE(session.theme.desktopLyricFont(), family);
             QCOMPARE(session.theme.miniLyricFont(), family);
+            QCOMPARE(session.theme.taskbarLyricFont(), family);
             if (!captures.isEmpty()) {
                 QTest::qWait(100);
                 QVERIFY(session.window->grabWindow().save(
@@ -341,7 +343,7 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
                                    .arg(zoom)));
             }
             for (const auto &name : {"settingsLyricFontReset", "settingsDesktopLyricFontReset",
-                                     "settingsMiniLyricFontReset"}) {
+                                     "settingsMiniLyricFontReset", "settingsTaskbarLyricFontReset"}) {
                 auto *reset = visual(session.window->contentItem(), name);
                 QVERIFY(reset && reset->isVisible());
                 auto *viewport = visual(session.window->contentItem(), "settingsContentViewport");
@@ -358,6 +360,7 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
             QCOMPARE(session.theme.lyricFont(), QString("follow"));
             QCOMPARE(session.theme.desktopLyricFont(), QString("follow"));
             QCOMPARE(session.theme.miniLyricFont(), QString("follow"));
+            QCOMPARE(session.theme.taskbarLyricFont(), QString("follow"));
             QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
             QTRY_VERIFY(dialog.isNull());
         }

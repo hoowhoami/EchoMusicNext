@@ -278,6 +278,7 @@ inline constexpr QLatin1StringView GlobalFont{"typography/globalFont"};
 inline constexpr QLatin1StringView LyricFont{"typography/lyricFont"};
 inline constexpr QLatin1StringView MiniLyricFont{"typography/miniLyricFont"};
 inline constexpr QLatin1StringView Prefix{"typography/"};
+inline constexpr QLatin1StringView TaskbarLyricFont{"typography/taskbarLyricFont"};
 } // namespace Typography
 namespace Updates
 {

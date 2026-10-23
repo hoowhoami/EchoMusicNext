@@ -108,7 +108,7 @@ Item {
     clip: true
 
     // Item has no font property: the children build theirs from these.
-    readonly property string fontFamily: Theme.store.desktopLyricBaseFont.family
+    readonly property string fontFamily: Theme.store.taskbarLyricBaseFont.family
     readonly property int fontPixelSize: root.fontSize
 
     onContentWidthChanged: naturalWidth(contentWidth)

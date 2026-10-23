@@ -77,4 +77,12 @@ SettingsSection {
         family: Theme.store.miniLyricFont
         onFamilySelected: selectedFamily => Theme.store.miniLyricFont = selectedFamily
     }
+    SettingsDivider {}
+    FontRow {
+        heading: qsTr("任务栏歌词字体")
+        description: qsTr("任务栏歌词条使用的字体，跟随全局或单独指定")
+        selectorName: "settingsTaskbarLyricFont"
+        family: Theme.store.taskbarLyricFont
+        onFamilySelected: selectedFamily => Theme.store.taskbarLyricFont = selectedFamily
+    }
 }

@@ -525,6 +525,7 @@ Window {
                             visible: window.roomForDetails
                             text: window.songTitle
                             color: window.fg
+                            font.family: Theme.store.taskbarLyricBaseFont.family
                             font.pixelSize: Math.min(window.fontSize, Math.max(11, (stripHeight - 21) / 1.9))
                             elide: Text.ElideRight
                             horizontalAlignment: window.anchorRight ? Text.AlignRight : Text.AlignLeft
@@ -534,6 +535,7 @@ Window {
                             visible: stripHeight > 44 && window.roomForDetails
                             text: window.artist
                             color: window.muted
+                            font.family: Theme.store.taskbarLyricBaseFont.family
                             font.pixelSize: Math.min(window.fontSize, Math.max(11, (stripHeight - 21) / 1.9)) * 0.82
                             elide: Text.ElideRight
                             horizontalAlignment: window.anchorRight ? Text.AlignRight : Text.AlignLeft

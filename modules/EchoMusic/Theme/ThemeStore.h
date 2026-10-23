@@ -37,9 +37,13 @@ class ThemeStore final : public QObject
                    lyricFontsChanged)
     Q_PROPERTY(
         QString miniLyricFont READ miniLyricFont WRITE setMiniLyricFont NOTIFY lyricFontsChanged)
+    Q_PROPERTY(
+        QString taskbarLyricFont READ taskbarLyricFont WRITE setTaskbarLyricFont NOTIFY
+            lyricFontsChanged)
     Q_PROPERTY(QFont lyricBaseFont READ lyricBaseFont NOTIFY lyricFontsChanged)
     Q_PROPERTY(QFont desktopLyricBaseFont READ desktopLyricBaseFont NOTIFY lyricFontsChanged)
     Q_PROPERTY(QFont miniLyricBaseFont READ miniLyricBaseFont NOTIFY lyricFontsChanged)
+    Q_PROPERTY(QFont taskbarLyricBaseFont READ taskbarLyricBaseFont NOTIFY lyricFontsChanged)
     Q_PROPERTY(QStringList fontFamilies READ fontFamilies CONSTANT)
     Q_PROPERTY(Mode mode READ mode NOTIFY changed)
     Q_PROPERTY(bool dark READ dark NOTIFY changed)
@@ -139,12 +143,18 @@ public:
     {
         return m_miniLyricFont;
     }
+    QString taskbarLyricFont() const
+    {
+        return m_taskbarLyricFont;
+    }
     void setLyricFont(const QString &family);
     void setDesktopLyricFont(const QString &family);
     void setMiniLyricFont(const QString &family);
+    void setTaskbarLyricFont(const QString &family);
     QFont lyricBaseFont() const;
     QFont desktopLyricBaseFont() const;
     QFont miniLyricBaseFont() const;
+    QFont taskbarLyricBaseFont() const;
     bool motionEnabled() const
     {
         return m_motion;
@@ -410,6 +420,7 @@ private:
     QString m_lyricFont = QStringLiteral("follow");
     QString m_desktopLyricFont = QStringLiteral("follow");
     QString m_miniLyricFont = QStringLiteral("follow");
+    QString m_taskbarLyricFont = QStringLiteral("follow");
     void setLyricFontPreference(QString &preference, const QString &key, const QString &family);
     QFont resolvedLyricFont(const QString &family) const;
     QColor extensionSurface(const QString &, const QColor &) const;

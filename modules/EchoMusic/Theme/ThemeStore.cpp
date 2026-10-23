@@ -196,6 +196,7 @@ ThemeStore::ThemeStore(QSettings &settings, QObject *parent, const QString &imag
     m_lyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::LyricFont);
     m_desktopLyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::DesktopLyricFont);
     m_miniLyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::MiniLyricFont);
+    m_taskbarLyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::TaskbarLyricFont);
     connect(this, &ThemeStore::fontChanged, this, &ThemeStore::lyricFontsChanged);
     qApp->installEventFilter(this);
     auto *hints = QGuiApplication::styleHints();
@@ -299,6 +300,11 @@ void ThemeStore::setMiniLyricFont(const QString &family)
     setLyricFontPreference(m_miniLyricFont, EchoMusic::SettingsKeys::Typography::MiniLyricFont,
                            family);
 }
+void ThemeStore::setTaskbarLyricFont(const QString &family)
+{
+    setLyricFontPreference(m_taskbarLyricFont,
+                           EchoMusic::SettingsKeys::Typography::TaskbarLyricFont, family);
+}
 QFont ThemeStore::resolvedLyricFont(const QString &family) const
 {
     return family == "follow" ? applicationFont() : uiFont(family);
@@ -314,6 +320,10 @@ QFont ThemeStore::desktopLyricBaseFont() const
 QFont ThemeStore::miniLyricBaseFont() const
 {
     return resolvedLyricFont(m_miniLyricFont);
+}
+QFont ThemeStore::taskbarLyricBaseFont() const
+{
+    return resolvedLyricFont(m_taskbarLyricFont);
 }
 bool ThemeStore::eventFilter(QObject *object, QEvent *event)
 {

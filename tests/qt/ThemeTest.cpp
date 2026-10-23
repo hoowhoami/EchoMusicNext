@@ -1364,13 +1364,16 @@ elif sys.argv[1] == 'dispatch':
         QCOMPARE(theme.lyricBaseFont(), theme.applicationFont());
         QCOMPARE(theme.desktopLyricBaseFont(), theme.applicationFont());
         QCOMPARE(theme.miniLyricBaseFont(), theme.applicationFont());
+        QCOMPARE(theme.taskbarLyricBaseFont(), theme.applicationFont());
         theme.setLyricFont("system-ui");
         theme.setDesktopLyricFont(selected);
         theme.setMiniLyricFont("system-ui");
+        theme.setTaskbarLyricFont(selected);
         theme.setGlobalFont("system-ui");
         QCOMPARE(theme.lyricBaseFont(), system);
         QCOMPARE(theme.desktopLyricBaseFont().families().first(), selected);
         QCOMPARE(theme.miniLyricBaseFont(), system);
+        QCOMPARE(theme.taskbarLyricBaseFont().families().first(), selected);
         theme.setGlobalFont(selected);
         QCOMPARE(theme.lyricBaseFont(), system);
         QCOMPARE(theme.miniLyricBaseFont(), system);
@@ -1380,14 +1383,17 @@ elif sys.argv[1] == 'dispatch':
             QCOMPARE(restored.lyricFont(), QString("system-ui"));
             QCOMPARE(restored.desktopLyricFont(), selected);
             QCOMPARE(restored.miniLyricFont(), QString("system-ui"));
+            QCOMPARE(restored.taskbarLyricFont(), selected);
             QCOMPARE(restored.desktopLyricBaseFont().families(), uiFont(selected).families());
         }
         theme.setLyricFont("follow");
         theme.setDesktopLyricFont("follow");
         theme.setMiniLyricFont("follow");
+        theme.setTaskbarLyricFont("follow");
         QCOMPARE(theme.lyricBaseFont(), theme.applicationFont());
         QCOMPARE(theme.desktopLyricBaseFont(), theme.applicationFont());
         QCOMPARE(theme.miniLyricBaseFont(), theme.applicationFont());
+        QCOMPARE(theme.taskbarLyricBaseFont(), theme.applicationFont());
         theme.setMiniLyricFont("EchoMissingFont-NotInstalled");
         QCOMPARE(theme.miniLyricFont(), QString("follow"));
         theme.setGlobalFont("system-ui");
