@@ -11,6 +11,11 @@ QtObject {
     required property Component sourceComponent
     property Item popupParent: hostItem ? hostItem.Overlay.overlay : null
     property bool requestedVisible: false
+    // A minimize is not a dismissal. Owners that opt in keep the surface (and
+    // its open intent) so it is still there when the window comes back; window
+    // hide still closes, because the host is really gone.
+    property bool keepOnMinimize: false
+    readonly property bool hostMinimized: hostWindow !== null && hostWindow.visible && hostWindow.visibility === Window.Minimized
     property T.Popup item: null
     readonly property bool visible: item !== null && item.visible
     readonly property bool opened: item !== null && item.opened
@@ -66,10 +71,12 @@ QtObject {
     }
     onRequestedVisibleChanged: requestedVisible ? open() : close()
     onAvailableChanged: {
-        if (!available)
-            close();
-        else if (requestedVisible)
+        if (!available) {
+            if (!(keepOnMinimize && hostMinimized))
+                close();
+        } else if (requestedVisible) {
             open();
+        }
     }
     Component.onCompleted: if (requestedVisible)
         open()

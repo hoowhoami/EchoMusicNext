@@ -21,6 +21,10 @@ add_library(
     # implementation is a no-op elsewhere.
     WindowsAppIdentity.h
     WindowsAppIdentity.cpp
+    # Re-delivers the pointer position so a surface that became interactive
+    # without pointer movement still gets hover; a no-op elsewhere.
+    PointerHoverRefresh.h
+    PointerHoverRefresh.cpp
     TaskbarProgressState.h
     TaskbarProgressState.cpp
     # Shared Win32 plumbing for the taskbar adapters (COM acquisition and GDI

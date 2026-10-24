@@ -140,6 +140,14 @@ public:
     // it restores the previous state without revealing a hidden/minimized host.
     Q_INVOKABLE void beginContentFullscreen(QObject *owner);
     Q_INVOKABLE void endContentFullscreen(QObject *owner);
+    /// Re-delivers the pointer's current position to the main window.
+    ///
+    /// Qt only updates hover while the pointer moves, so a surface that becomes
+    /// interactive after the pointer stopped moving - the playback page once its
+    /// entry transition is done - keeps whatever hover target the pointer had
+    /// before, which is none at all: no tooltips and no control highlights until
+    /// the pointer moves again.
+    Q_INVOKABLE void refreshPointerHover();
     Q_INVOKABLE void close();
     void shutdown();
     /// Pure placement rule, tested independently of a desktop/window manager.

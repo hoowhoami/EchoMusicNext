@@ -246,6 +246,14 @@ ApplicationWindow {
         id: frame
         objectName: "shellFrame"
         readonly property bool playbackCoversShell: playbackPageLoader.item !== null && (playbackPageLoader.item as PlaybackPage).visible && ((playbackPageLoader.item as PlaybackPage).opened || Theme.store.windowFrosted && (playbackPageLoader.item as PlaybackPage).enteringPage)
+        // Qt blocks input for the modal playback page only once the popup has
+        // finished entering, and a press during that window would otherwise be
+        // claimed by the shell surface under the pointer - the cover, or the
+        // title strip whose press starts a native move loop. Hand the shell no
+        // interactive surface at all while the page is up; it is fully covered
+        // anyway, and the page restores this the moment it hides.
+        readonly property bool playbackPagePresent: playbackPageLoader.item !== null && (playbackPageLoader.item as PlaybackPage).visible
+        enabled: !playbackPagePresent
         function focusSearch() {
             titleBar.focusSearch();
         }
@@ -513,6 +521,7 @@ ApplicationWindow {
             id: playbackPageLoader
             objectName: "playbackPageOwner"
             hostItem: mainWindow.contentItem
+            keepOnMinimize: true
             sourceComponent: PlaybackPage {
                 onGlobalSettingsRequested: {
                     preferencesOwner.open({
@@ -521,6 +530,13 @@ ApplicationWindow {
                 }
                 onTitleDragRequested: mainWindow.startSystemMove()
                 onTitleDoubleClickRequested: mainWindow.windowService.toggleMaximized()
+                // The page accepts pointer input once its entry transition is
+                // done. The pointer usually stopped moving before that, and Qt
+                // only updates hover while it moves: re-deliver the position so
+                // the control under the pointer gets its hover right away
+                // instead of after the next twitch of the mouse.
+                onAcceptingInputChanged: if (acceptingInput)
+                    mainWindow.windowService.refreshPointerHover()
                 nativeWindowControlsBounds: mainWindow.windowService.nativeCaptionBounds
                 windowActions: Component {
                     WindowActions {

@@ -3,6 +3,7 @@
 #include "WindowPresentationDiagnostics.h"
 #include "WindowResizeSync.h"
 #include "PlaybackService.h"
+#include "PointerHoverRefresh.h"
 #include "TrayIconTheme.h"
 #include <QMenuBar>
 #include <QActionGroup>
@@ -30,12 +31,18 @@ Qt::WindowState restoreState(Qt::WindowStates states)
     return states.testFlag(Qt::WindowMaximized) ? Qt::WindowMaximized : Qt::WindowNoState;
 }
 // After a click the window overlay can keep the mouse grab even though no button
-// is down and no popup is open. While the overlay holds that grab, Qt Quick stops
-// delivering hover events to the scene: every hover effect in the window freezes
-// until the window is hidden and shown again. Presses the scene does not claim
-// are routed to the overlay, and a release that the grabbed item consumes never
-// reaches it, so the grab is left behind. Drop it once the buttons are up and no
-// popup is actually open (an open popup is a visible child of the overlay).
+// is down. While the overlay holds that grab, Qt Quick stops delivering hover
+// events to the scene: every hover effect in the window freezes until the window
+// is hidden and shown again. Presses the scene does not claim are routed to the
+// overlay, and a release that the grabbed item consumes never reaches it, so the
+// grab is left behind.
+//
+// A visible popup does not make the grab legitimate. The playback page is a child
+// of the overlay, and a grab held for it is exactly what leaves the whole page
+// without hover after it opens - no tooltips, no control highlights - until the
+// user clicks inside it. Only a held button needs the grab: that is the drag a
+// popup is tracking. Hover, the popup's own item tracking and closing on an
+// outside press all keep working through the normal item tree.
 QQuickItem *staleOverlayGrabber(QQuickWindow *window)
 {
     if (!window || QGuiApplication::mouseButtons() != Qt::NoButton)
@@ -46,11 +53,6 @@ QQuickItem *staleOverlayGrabber(QQuickWindow *window)
     const QLatin1String overlayClass("QQuickOverlay");
     if (!grabber || QLatin1String(grabber->metaObject()->className()) != overlayClass)
         return nullptr;
-    const auto children = grabber->childItems();
-    for (auto *child : children) {
-        if (child->isVisible())
-            return nullptr;
-    }
     return grabber;
 }
 } // namespace
@@ -567,6 +569,10 @@ void WindowController::toggleMaximized()
         m_window->showNormal();
     else
         m_window->showMaximized();
+}
+void WindowController::refreshPointerHover()
+{
+    EchoMusic::refreshPointerHover(m_window);
 }
 void WindowController::toggleFullscreen()
 {
