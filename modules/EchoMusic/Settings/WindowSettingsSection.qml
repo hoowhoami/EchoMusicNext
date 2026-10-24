@@ -43,6 +43,33 @@ ColumnLayout {
     }
     SettingsSection {
         Layout.fillWidth: true
+        visible: section.windowService.taskbarButton.available
+        heading: qsTr("系统集成")
+        glyph: "settings"
+        SettingsRow {
+            heading: qsTr("任务栏封面预览")
+            description: qsTr("悬停任务栏图标时显示专辑封面")
+            EchoSwitch {
+                objectName: "settingsTaskbarCoverPreview"
+                checked: section.windowService.taskbarButton.coverPreviewEnabled
+                Accessible.name: qsTr("任务栏封面预览")
+                onToggled: section.windowService.taskbarButton.coverPreviewEnabled = checked
+            }
+        }
+        SettingsDivider {}
+        SettingsRow {
+            heading: qsTr("任务栏播放进度")
+            description: qsTr("在任务栏显示播放进度")
+            EchoSwitch {
+                objectName: "settingsTaskbarProgress"
+                checked: section.windowService.taskbarButton.progressEnabled
+                Accessible.name: qsTr("任务栏播放进度")
+                onToggled: section.windowService.taskbarButton.progressEnabled = checked
+            }
+        }
+    }
+    SettingsSection {
+        Layout.fillWidth: true
         visible: section.windowService.macOS
         heading: qsTr("系统集成")
         glyph: "settings"

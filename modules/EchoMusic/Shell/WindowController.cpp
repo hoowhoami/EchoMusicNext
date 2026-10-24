@@ -65,7 +65,8 @@ QObject *createMacDockMenuOwner(WindowController *controller, std::function<QMen
 #endif
 WindowController::WindowController(QSettings &settings, bool persist, QObject *parent)
     : QObject(parent), m_settings(settings), m_floating(settings, persist, this),
-      m_taskbar(settings, this), m_persist(persist), m_startup(persist), m_backdrop(persist)
+      m_taskbar(settings, this), m_taskbarButton(settings, this), m_persist(persist),
+      m_startup(persist), m_backdrop(persist)
 {
     connect(&m_floating, &FloatingPlayerController::mainRequested, this,
             &WindowController::showWindow);
@@ -157,6 +158,7 @@ void WindowController::attach(QQuickWindow *window)
             emit mainWindowActivated();
     });
     m_backdrop.attach(window);
+    m_taskbarButton.attach(window);
     if (qEnvironmentVariableIntValue("ECHO_RENDER_DIAGNOSTICS") == 1)
         new WindowPresentationDiagnostics(window);
     window->installEventFilter(this);
@@ -247,6 +249,17 @@ void WindowController::attachPlayback(PlaybackService &playback)
 {
     Q_ASSERT(!m_playback);
     m_playback = &playback;
+    m_taskbarButton.attachPlayback(playback);
+#ifdef Q_OS_WIN
+    // Windows tracks the bound menu as a native menu whose WM_COMMAND dispatch
+    // keys off the last tracked popup; rebinding a fresh menu per activation
+    // never dispatches (QWindowsSystemTrayIcon::updateMenu is a no-op, so the
+    // platform menu only exists through the persistent binding). Install one
+    // stable model here, once the playback commands exist - the same shape the
+    // SNI path uses on Linux.
+    if (m_tray && !m_trayMenuModel)
+        installTrayMenuModel();
+#endif
 }
 void WindowController::activateTray(int reason)
 {
@@ -278,10 +291,12 @@ QMenu *WindowController::createTrayMenu()
     menu->addAction(tr("打开主窗口"), this, &WindowController::showWindow);
     menu->addAction(tr("打开 Mini 窗口"), this, &WindowController::showMiniWindow);
     menu->addSeparator();
-    addPlaybackMenuActions(menu);
+    // The shell shows this menu as a native Windows menu, so the modes cannot
+    // ride in a submenu (see addPlaybackMenuActions).
+    addPlaybackMenuActions(menu, false);
     addLyricsMenuActions(menu);
     menu->addSeparator();
-    menu->addAction(tr("退出"), this, &WindowController::quit);
+    menu->addAction(tr("退出EchoMusic"), this, &WindowController::quit);
     return menu;
 }
 
@@ -292,16 +307,25 @@ void WindowController::showTaskbarLyricMenu(qreal globalX, qreal globalY)
     // The shell coordinator must know a native menu is about to open, or the
     // app's own popups keep fighting it for the foreground.
     emit nativeMenuOpening();
+    auto *menu = createTaskbarLyricMenu();
+    // The strip is a child of the taskbar, so the menu has to be shown at an
+    // explicit position and owns its own lifetime.
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    menu->popup(QPoint(qRound(globalX), qRound(globalY)));
+}
+QMenu *WindowController::createTaskbarLyricMenu()
+{
     auto *menu = new QMenu;
     menu->setObjectName("taskbarLyricMenu");
     menu->addAction(tr("打开主窗口"), this, &WindowController::showWindow);
     menu->addAction(tr("打开设置页"), this, &WindowController::openTaskbarLyricSettings);
     menu->addSeparator();
-    menu->addAction(tr("退出"), this, &WindowController::quit);
-    // The strip is a child of the taskbar, so the menu has to be shown at an
-    // explicit position and owns its own lifetime.
-    menu->setAttribute(Qt::WA_DeleteOnClose);
-    menu->popup(QPoint(qRound(globalX), qRound(globalY)));
+    // Disabling the strip is the counterpart of the lyric settings switch; it
+    // sits next to 退出 because both take away something the user is looking at.
+    menu->addAction(tr("关闭任务栏歌词"), this, [this] { m_taskbar.setEnabled(false); })
+        ->setObjectName("disableTaskbarLyric");
+    menu->addAction(tr("退出EchoMusic"), this, &WindowController::quit);
+    return menu;
 }
 
 void WindowController::openTaskbarLyricSettings()
@@ -323,7 +347,7 @@ QMenu *WindowController::createDockMenu()
     addLyricsMenuActions(menu);
     return menu;
 }
-void WindowController::addPlaybackMenuActions(QMenu *menu)
+void WindowController::addPlaybackMenuActions(QMenu *menu, bool submenuModes)
 {
     if (m_playback) {
         auto *playback = m_playback.data();
@@ -333,7 +357,20 @@ void WindowController::addPlaybackMenuActions(QMenu *menu)
             ->setObjectName("previous");
         menu->addAction(tr("下一首"), playback, [playback] { playback->next(); })
             ->setObjectName("next");
-        auto *modes = menu->addMenu(tr("播放模式"));
+        // The tray menu is handed to the shell as a native menu, and Windows'
+        // converter hoists a submenu's items to the front of its parent while
+        // keeping the submenu. There the modes become a titled group instead -
+        // the same shape as the 音量 row above the volume commands.
+        QMenu *modes = nullptr;
+        if (submenuModes) {
+            modes = menu->addMenu(tr("播放模式"));
+        } else {
+            menu->addSeparator();
+            auto *heading = menu->addAction(tr("播放模式"));
+            heading->setObjectName("playModeHeading");
+            heading->setEnabled(false);
+            modes = menu;
+        }
         auto *group = new QActionGroup(modes);
         struct ModeAction
         {
@@ -392,8 +429,9 @@ void WindowController::addLyricsMenuActions(QMenu *menu)
 }
 void WindowController::popupTrayMenu()
 {
-    // The SNI host owns placement, focus and dismissal of its remote menu.
-    // XEmbed also uses Qt's bound context menu; never open a second popup here.
+    // SNI hosts own placement, focus and dismissal of their remote menu, XEmbed
+    // and Windows both use Qt's bound context menu (Windows tracks it as a
+    // native menu, see attachPlayback). Never open a second popup here.
     if (m_shuttingDown || m_trayMenuModel || m_trayMenu)
         return;
     emit nativeMenuOpening();
@@ -406,19 +444,6 @@ void WindowController::popupTrayMenu()
         return;
     }
 #endif
-#ifdef Q_OS_WIN
-    // Qt 6.12 emits activated(Context) before testing its native menu pointer.
-    // Install it for this one native tracking cycle; Qt then supplies the tray
-    // HWND, foreground ownership, keyboard invocation and outside dismissal.
-    if (m_tray) {
-        connect(menu, &QMenu::aboutToHide, menu, [this, menu] {
-            m_tray->setContextMenu(nullptr);
-            menu->deleteLater();
-        });
-        m_tray->setContextMenu(menu);
-        return;
-    }
-#endif
     connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
     menu->popup(QCursor::pos());
 }
@@ -427,7 +452,9 @@ void WindowController::installTrayMenuModel()
     Q_ASSERT(m_tray && !m_trayMenuModel);
     // A complete, stable command model is needed even while the panel is closed:
     // GetLayout need not be preceded by AboutToShow, and hosts cache action IDs.
-    // QMenu is only the Qt exporter recipe; no local QWidget popup is shown for SNI.
+    // QMenu is only the Qt exporter recipe; no local QWidget popup is shown for
+    // SNI. Windows needs the same stability: its native menu dispatches
+    // WM_COMMAND through the popup tracked from this binding (see attachPlayback).
     m_trayMenuModel.reset(createTrayMenu());
     connect(m_trayMenuModel.get(), &QMenu::aboutToShow, this, &WindowController::nativeMenuOpening);
     m_tray->setContextMenu(m_trayMenuModel.get());
@@ -495,6 +522,7 @@ void WindowController::setAppearance(bool frosted, bool dark, int transparency)
     m_frosted = frosted;
     m_dark = dark;
     m_transparency = qBound(0, transparency, 100);
+    m_taskbarButton.setDark(dark);
     const auto error = m_backdrop.apply(frosted, dark, m_transparency);
     if (m_appearanceError != error) {
         m_appearanceError = error;

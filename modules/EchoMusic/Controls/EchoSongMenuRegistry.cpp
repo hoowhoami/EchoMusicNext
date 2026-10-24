@@ -2,6 +2,11 @@
 #include <algorithm>
 namespace EchoMusic
 {
+EchoSongMenuRegistry::EchoSongMenuRegistry(QQmlEngine &engine) : QObject(&engine) {}
+EchoSongMenuRegistry *EchoSongMenuRegistry::create(QQmlEngine *engine, QJSEngine *)
+{
+    return engine ? new EchoSongMenuRegistry(*engine) : nullptr;
+}
 EchoSongMenuRegistry *EchoSongMenuRegistry::forEngine(QQmlEngine &e)
 {
     return e.singletonInstance<EchoSongMenuRegistry *>("EchoMusic.Controls",

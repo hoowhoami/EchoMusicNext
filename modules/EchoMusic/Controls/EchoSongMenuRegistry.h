@@ -14,7 +14,15 @@ class EchoSongMenuRegistry final : public QObject
     QML_ELEMENT
     QML_SINGLETON
 public:
-    explicit EchoSongMenuRegistry(QObject *parent = nullptr) : QObject(parent) {}
+    /// Per-engine registry, parented to its engine. A QML_SINGLETON built from
+    /// a default constructor goes through `QQmlElement<T>`, which derives from
+    /// T and therefore cannot wrap a `final` class; requiring the engine makes
+    /// Qt fall back to create() below (the same arrangement as ThemeStore and
+    /// EchoUiPartRegistry).
+    explicit EchoSongMenuRegistry(QQmlEngine &engine);
+    /// QML singleton entry point. The engine owns the instance, so C++ and
+    /// script always see exactly the object forEngine() hands out.
+    static EchoSongMenuRegistry *create(QQmlEngine *engine, QJSEngine *scriptEngine);
     static EchoSongMenuRegistry *forEngine(QQmlEngine &engine);
     struct Entry
     {

@@ -10,7 +10,11 @@ Item {
     property bool resourceActive: true
     property alias asynchronous: image.asynchronous
     readonly property alias status: image.status
-    readonly property int rasterSize: Math.max(1, metrics.pixelSize.width, metrics.pixelSize.height)
+    // Rasterize glyphs 1:1 at device pixels: the artwork bucket floor (32px)
+    // would make a small icon render at ~2x its display size, and the bilinear
+    // downscale then aliases line-art strokes (circles and hearts read as
+    // staircases on a fractional-DPI screen).
+    readonly property int rasterSize: Math.max(1, metrics.deviceSize.width, metrics.deviceSize.height)
     function visualCenter(): point {
         return EchoIconSource.visualCenter(control.name, Qt.size(control.width, control.height));
     }

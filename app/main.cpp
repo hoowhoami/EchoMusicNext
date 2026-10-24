@@ -9,6 +9,7 @@
 #include "CrashDiagnostics.h"
 #include "SingleInstance.h"
 #include "RelaunchService.h"
+#include "WindowsAppIdentity.h"
 #include <QCommandLineParser>
 #include <QCommandLineOption>
 #include "UiTypography.h"
@@ -80,6 +81,9 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationName(QStringLiteral("hoowhoami"));
     QCoreApplication::setApplicationName(QStringLiteral("EchoMusicNext"));
     QCoreApplication::setApplicationVersion(QStringLiteral(ECHO_APP_VERSION));
+    // Publish the shell identity before the first window exists: Windows
+    // resolves the media panel label and the taskbar group from it.
+    EchoMusic::WindowsAppIdentity::publish();
     QString crashDirectory = EchoMusic::CrashDiagnostics::argumentLogDirectory(argc, argv);
     if (crashDirectory.isEmpty())
         crashDirectory = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) +
@@ -189,6 +193,11 @@ int main(int argc, char *argv[])
             return 1;
         }
     }
+    // Windows labels a media session by resolving its AppUserModelID through a
+    // Start Menu shortcut. Installed copies get one from the installer; a build
+    // run from its output directory does not, so keep the entry in place.
+    if (!smoke)
+        EchoMusic::WindowsAppIdentity::ensureStartMenuShortcut();
     // Outlives all application services, including Rust runtime destruction.
     // The writer drains only after run() exits its GUI event loop.
     QSettings logPreferences;

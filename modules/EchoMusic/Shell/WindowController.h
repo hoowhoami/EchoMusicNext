@@ -8,6 +8,7 @@
 #include <QtQml/qqmlregistration.h>
 #include "StartupIntegration.h"
 #include "FloatingPlayerController.h"
+#include "TaskbarButtonController.h"
 #include "TaskbarLyricController.h"
 #include "WindowBackdrop.h"
 #include <memory>
@@ -26,6 +27,7 @@ class WindowController final : public QObject
     QML_UNCREATABLE("Owned by the application")
     Q_PROPERTY(EchoMusic::FloatingPlayerController *floating READ floating CONSTANT)
     Q_PROPERTY(EchoMusic::TaskbarLyricController *taskbar READ taskbar CONSTANT)
+    Q_PROPERTY(EchoMusic::TaskbarButtonController *taskbarButton READ taskbarButton CONSTANT)
     Q_PROPERTY(bool maximized READ maximized NOTIFY changed)
     Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY changed)
     Q_PROPERTY(bool rememberSize READ rememberSize WRITE setRememberSize NOTIFY changed)
@@ -65,6 +67,10 @@ public:
     TaskbarLyricController *taskbar()
     {
         return &m_taskbar;
+    }
+    TaskbarButtonController *taskbarButton()
+    {
+        return &m_taskbarButton;
     }
     /// Read-only system button bounds in Qt window coordinates; never moves them.
     QRectF nativeCaptionBounds() const;
@@ -158,11 +164,14 @@ private:
     void installTrayMenuModel();
     QMenu *createTrayMenu();
     QMenu *createDockMenu();
-    void addPlaybackMenuActions(QMenu *menu);
+    /// Built separately from the popup so the strip's menu is inspectable.
+    QMenu *createTaskbarLyricMenu();
+    void addPlaybackMenuActions(QMenu *menu, bool submenuModes = true);
     void addLyricsMenuActions(QMenu *menu);
     QSettings &m_settings;
     FloatingPlayerController m_floating;
     TaskbarLyricController m_taskbar;
+    TaskbarButtonController m_taskbarButton;
     QPointer<QQuickWindow> m_window;
     QList<QPointer<QQuickWindow>> m_pluginWindows;
     QPointer<QObject> m_contentFullscreenOwner;

@@ -8,17 +8,6 @@
 
 namespace EchoMusic
 {
-namespace
-{
-QString resourceFor(const QString &glyph)
-{
-    static const QRegularExpression name(QStringLiteral("^[a-z0-9]+(?:-[a-z0-9]+)*$"));
-    if (!name.match(glyph).hasMatch())
-        return {};
-    const auto path = QStringLiteral(":/qt/qml/EchoMusic/Controls/icons/%1.svg").arg(glyph);
-    return QFile::exists(path) ? path : QString{};
-}
-} // namespace
 EchoIconImageProvider::EchoIconImageProvider()
     : QQuickImageProvider(Image, ForceAsynchronousImageLoading)
 {
@@ -32,7 +21,7 @@ QImage EchoIconImageProvider::requestImage(const QString &id, QSize *size,
     const auto fields = id.split('/');
     if (fields.size() != 2 || fields[1].size() != 8)
         return {};
-    const auto path = resourceFor(fields[0]);
+    const auto path = EchoIconSource::iconResourcePath(fields[0]);
     bool valid = false;
     const auto rgba = fields[1].toUInt(&valid, 16);
     if (path.isEmpty() || !valid)
@@ -65,9 +54,17 @@ EchoIconSource *EchoIconSource::create(QQmlEngine *engine, QJSEngine *)
     engine->addImageProvider(QStringLiteral("echo-icons"), new EchoIconImageProvider);
     return new EchoIconSource(engine);
 }
+QString EchoIconSource::iconResourcePath(const QString &glyph)
+{
+    static const QRegularExpression name(QStringLiteral("^[a-z0-9]+(?:-[a-z0-9]+)*$"));
+    if (!name.match(glyph).hasMatch())
+        return {};
+    const auto path = QStringLiteral(":/qt/qml/EchoMusic/Controls/icons/%1.svg").arg(glyph);
+    return QFile::exists(path) ? path : QString{};
+}
 QUrl EchoIconSource::urlFor(const QString &glyph, const QColor &color) const
 {
-    if (!color.isValid() || resourceFor(glyph).isEmpty())
+    if (!color.isValid() || iconResourcePath(glyph).isEmpty())
         return {};
     return QUrl(QStringLiteral("image://echo-icons/%1/%2")
                     .arg(glyph, QString::number(color.rgba(), 16).rightJustified(8, '0')));
@@ -75,7 +72,7 @@ QUrl EchoIconSource::urlFor(const QString &glyph, const QColor &color) const
 QPointF EchoIconSource::visualCenter(const QString &glyph, const QSizeF &size) const
 {
     const QPointF center(size.width() / 2, size.height() / 2);
-    const auto path = resourceFor(glyph);
+    const auto path = iconResourcePath(glyph);
     if (path.isEmpty() || size.isEmpty())
         return center;
     QSvgRenderer renderer(path);
