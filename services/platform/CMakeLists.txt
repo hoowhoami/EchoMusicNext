@@ -17,6 +17,10 @@ add_library(
     HyprlandWindowBackdrop.cpp
     BrowserWindowLauncher.h
     BrowserWindowLauncher.cpp
+    # Windows shell identity (AppUserModelID + its Start Menu shortcut); the
+    # implementation is a no-op elsewhere.
+    WindowsAppIdentity.h
+    WindowsAppIdentity.cpp
     TaskbarProgressState.h
     TaskbarProgressState.cpp
     # Shared Win32 plumbing for the taskbar adapters (COM acquisition and GDI
@@ -71,6 +75,8 @@ if(WIN32)
                 user32
                 gdi32
                 shlwapi
+                shell32
+                propsys
                 ole32
                 oleaut32
                 uuid
