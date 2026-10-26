@@ -16,8 +16,8 @@ constexpr UINT_PTR ThumbarSubclassId = 0x45434842;
 /// Menu command ids are allocated by the toolkit from 0x8000 upward; a private
 /// base keeps the thumbbar from colliding with a real command.
 constexpr int ThumbarIdBase = 0xec00;
-LRESULT CALLBACK thumbarSubclass(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
-                                 UINT_PTR, DWORD_PTR ref)
+LRESULT CALLBACK thumbarSubclass(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
+                                 DWORD_PTR ref)
 {
     auto *self = reinterpret_cast<WindowsTaskbarThumbar *>(ref);
     if (message == WM_NCDESTROY) {
@@ -143,8 +143,7 @@ void WindowsTaskbarThumbar::notifyClicked(int id)
 {
     // Deferred: the click is delivered inside the message dispatch, and the
     // receivers move the playback queue.
-    QMetaObject::invokeMethod(
-        this, [this, id] { emit buttonClicked(id); }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(this, [this, id] { emit buttonClicked(id); }, Qt::QueuedConnection);
 }
 #else
 WindowsTaskbarThumbar::WindowsTaskbarThumbar(QObject *parent) : QObject(parent) {}

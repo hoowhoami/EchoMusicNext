@@ -211,6 +211,9 @@ QString SettingsBackupRestore::recover(const QString &root, QSettings &settings)
     if (!file.open(QIODevice::ReadOnly) || file.size() > 4 * 1024 * 1024)
         return "Cannot read pending settings restore";
     const auto journal = QJsonDocument::fromJson(file.readAll()).object();
+    // discard() removes this path through another QFile; an open reader prevents
+    // that removal on Windows, leaving a stale journal after a successful recovery.
+    file.close();
     if (journal.value("version").toInt() != 1)
         return "Invalid settings restore journal";
     if (!journal.value("committed").toBool()) {

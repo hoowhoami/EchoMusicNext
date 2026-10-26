@@ -26,7 +26,8 @@ TaskbarProgressValue resolveTaskbarProgress(bool hasTrack, bool playing, qint64 
         value.ratio = 1;
         return value;
     }
-    const double ratio = clampRatio(static_cast<double>(positionMs) / static_cast<double>(durationMs));
+    const double ratio =
+        clampRatio(static_cast<double>(positionMs) / static_cast<double>(durationMs));
     if (playing) {
         value.mode = TaskbarProgressMode::Normal;
         value.ratio = ratio;

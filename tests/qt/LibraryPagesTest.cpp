@@ -833,7 +833,14 @@ ApplicationWindow {
         RouteController router;
         CloudService cloud(api, playback, metadata, router, false);
         cloud.registerRoutes(router);
-        QVERIFY(router.registerPage({"other", "/main/other", QUrl("qrc:/not-instantiated.qml")}));
+        QVERIFY(router.registerPage({"other",
+                                     "/main/other",
+                                     QUrl("qrc:/not-instantiated.qml"),
+                                     {},
+                                     true,
+                                     true,
+                                     false,
+                                     {}}));
         QVERIFY(router.navigate("cloud"));
         CloudServiceTestAccess::enableMetadata(cloud);
         const QJsonObject page{
@@ -988,7 +995,14 @@ ApplicationWindow {
         RouteController router;
         FavoritesService favorites(api, playback, library, order, metadata, router, false);
         favorites.registerRoutes(router);
-        QVERIFY(router.registerPage({"other", "/main/other", QUrl("qrc:/not-instantiated.qml")}));
+        QVERIFY(router.registerPage({"other",
+                                     "/main/other",
+                                     QUrl("qrc:/not-instantiated.qml"),
+                                     {},
+                                     true,
+                                     true,
+                                     false,
+                                     {}}));
         UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
         QVERIFY(router.navigate("favorites"));
         FavoritesServiceTestAccess::enablePaging(favorites);

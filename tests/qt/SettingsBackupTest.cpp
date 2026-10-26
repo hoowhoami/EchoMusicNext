@@ -179,6 +179,37 @@ private slots:
         QVERIFY(!preferences.contains("shortcuts/globalEnabled"));
         QCOMPARE(preferences.value("plugins/installations").toList(), catalog);
         QVERIFY(!QFile::exists(root + "/settings-restore.json"));
+        QVERIFY(!QDir(root + '/' + result.journal.value("transaction").toString()).exists());
+    }
+    void committedRestoreRecoveryKeepsCurrentStateAndRemovesJournal()
+    {
+        QTemporaryDir directory;
+        const auto root = directory.path();
+        const QString transaction = ".settings-restore-00000000000000000000000000000001";
+        writeFile(root + '/' + transaction + "/0/value.txt", "before");
+        writeFile(root + "/plugins/data/00000000-0000-0000-0000-000000000001/value.txt", "after");
+        const QJsonObject journal{
+            {"version", 1},
+            {"transaction", transaction},
+            {"committed", true},
+            {"previous", QJsonObject{{"values", SettingsBackupArchive::encodePreferences(
+                                                    {{"interface/uiScale", 1.0}})}}},
+            {"plugins",
+             QJsonArray{QJsonObject{{"installation", "00000000-0000-0000-0000-000000000001"},
+                                    {"backup", "0"}}}}};
+        QVERIFY(SettingsBackupRestore::writeJournal(root, journal));
+        QSettings preferences(root + "/preferences.ini", QSettings::IniFormat);
+        preferences.setValue("interface/uiScale", 1.5);
+        preferences.sync();
+
+        const auto error = SettingsBackupRestore::recover(root, preferences);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(preferences.value("interface/uiScale").toDouble(), 1.5);
+        QCOMPARE(readFile(root + "/plugins/data/00000000-0000-0000-0000-000000000001/value.txt"),
+                 QByteArray("after"));
+        QVERIFY(!QFile::exists(root + "/settings-restore.json"));
+        QVERIFY(!QDir(root + '/' + transaction).exists());
+        QVERIFY(SettingsBackupRestore::recover(root, preferences).isEmpty());
     }
     void clearRemovesLocalCredentialDatabases()
     {

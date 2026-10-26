@@ -48,8 +48,8 @@ QImage renderPreview(const QImage &cover, int side)
     painter.drawImage(QPoint((side - fitted.width()) / 2, (side - fitted.height()) / 2), fitted);
     return tile;
 }
-LRESULT CALLBACK thumbnailSubclass(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
-                                   UINT_PTR, DWORD_PTR ref)
+LRESULT CALLBACK thumbnailSubclass(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
+                                   DWORD_PTR ref)
 {
     auto *self = reinterpret_cast<WindowsTaskbarThumbnail *>(ref);
     if (message == WM_NCDESTROY) {

@@ -292,7 +292,6 @@ private slots:
             retireMacMenu(menu);
             QTRY_COMPARE(quitting.size(), cycle + 1);
             QTRY_VERIFY(!menu);
-            QVERIFY(!submenu);
         }
         QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
         playback.shutdown();

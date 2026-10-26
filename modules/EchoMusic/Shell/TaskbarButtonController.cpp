@@ -44,8 +44,7 @@ TaskbarButtonController::TaskbarButtonController(QSettings &settings, QObject *p
     : QObject(parent), m_settings(settings)
 {
     m_progressEnabled = m_settings.value(SettingsKeys::Window::TaskbarProgress, false).toBool();
-    m_coverEnabled =
-        m_settings.value(SettingsKeys::Window::TaskbarCoverPreview, false).toBool();
+    m_coverEnabled = m_settings.value(SettingsKeys::Window::TaskbarCoverPreview, false).toBool();
     m_clock.start();
     // Progress and thumbbar share the same shell object; one probe decides
     // whether the whole section is offered.
@@ -172,8 +171,8 @@ QImage TaskbarButtonController::icon(const QString &glyph, const QColor &tint, i
     const int pixels = size > 0 ? size : qMax(16, int(std::lround(16.0 * ratio)));
     // The toolbar has no theme of its own, so the silhouette follows the
     // resolved appearance unless the state carries its own colour.
-    const QColor color = tint.isValid() ? tint
-                                        : (m_dark ? QColor(Qt::white) : QColor(0x20, 0x20, 0x20));
+    const QColor color =
+        tint.isValid() ? tint : (m_dark ? QColor(Qt::white) : QColor(0x20, 0x20, 0x20));
     const QString key =
         glyph + QLatin1Char('@') + QString::number(pixels) + QLatin1Char('#') + color.name();
     const auto cached = m_icons.constFind(key);
@@ -212,9 +211,9 @@ QImage TaskbarButtonController::placeholderCover()
     QPainter painter(&tile);
     // EchoCover draws its placeholder glyph at placeholderOpacity.
     painter.setOpacity(0.3);
-    painter.drawImage(QPoint((PlaceholderCoverSize - glyphSize) / 2,
-                             (PlaceholderCoverSize - glyphSize) / 2),
-                      glyph);
+    painter.drawImage(
+        QPoint((PlaceholderCoverSize - glyphSize) / 2, (PlaceholderCoverSize - glyphSize) / 2),
+        glyph);
     return tile;
 }
 void TaskbarButtonController::refreshProgress()
@@ -255,8 +254,8 @@ void TaskbarButtonController::refreshCover()
     if (!m_playback)
         return;
     const QByteArray png = m_playback->coverPng();
-    const QString key = m_playback->trackId() + QLatin1Char('|') + m_playback->cover()
-        + QLatin1Char('|') + QString::number(png.size());
+    const QString key = m_playback->trackId() + QLatin1Char('|') + m_playback->cover() +
+                        QLatin1Char('|') + QString::number(png.size());
     if (m_previewApplied && key == m_coverKey)
         return;
     // A cover that cannot be decoded falls back to the placeholder cover, so
@@ -297,8 +296,8 @@ void TaskbarButtonController::refreshThumbar()
         else
             favorite = *m_favoriteIntent;
     }
-    if (m_thumbarBuilt && hasTrack == m_thumbarHasTrack && playing == m_thumbarPlaying
-        && favorite == m_thumbarFavorite)
+    if (m_thumbarBuilt && hasTrack == m_thumbarHasTrack && playing == m_thumbarPlaying &&
+        favorite == m_thumbarFavorite)
         return;
     m_thumbarHasTrack = hasTrack;
     m_thumbarPlaying = playing;
