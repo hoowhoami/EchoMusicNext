@@ -48,10 +48,10 @@ Item {
     onWidthChanged: updateCapacity()
     Component.onCompleted: updateCapacity()
     // Native move/resize keeps snap, multi-monitor and Wayland behavior in the OS.
-    MouseArea {
+    EchoWindowDragArea {
         anchors.fill: parent
-        onPressed: bar.window.startSystemMove()
-        onDoubleClicked: bar.windowService.toggleMaximized()
+        onMoveRequested: bar.window.startSystemMove()
+        onDoubleClickRequested: bar.windowService.toggleMaximized()
     }
     RowLayout {
         anchors.fill: parent
@@ -148,10 +148,10 @@ Item {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            MouseArea {
+            EchoWindowDragArea {
                 anchors.fill: parent
-                onPressed: bar.window.startSystemMove()
-                onDoubleClicked: bar.windowService.toggleMaximized()
+                onMoveRequested: bar.window.startSystemMove()
+                onDoubleClickRequested: bar.windowService.toggleMaximized()
             }
         }
         EchoIconButton {

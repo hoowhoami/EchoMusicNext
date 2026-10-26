@@ -189,7 +189,11 @@ Item {
             return;
         // Center the measured delegate. positionViewAtIndex can use an
         // estimated prefix while newly materialized wrapped rows settle.
-        const anchor = viewport.interlude ? measured.headerHeight / 2 : measured.headerHeight + measured.textRowHeight / 2;
+        // When a short window cannot fit the complete main/translation block,
+        // keep the singing text centered rather than centering the subtitles
+        // too and clipping the whole bright line above the visible area.
+        const textAnchor = lines.height < measured.textRowHeight ? viewport.fontSize * .4 + measured.mainHeight / 2 : measured.textRowHeight / 2;
+        const anchor = viewport.interlude ? measured.headerHeight / 2 : measured.headerHeight + textAnchor;
         const desired = measured.y + anchor - lines.focusCenter;
         if (EchoLyricEffectRegistry.hasHandlers("page") && EchoLyricEffectRegistry.requestScroll(effectHost.identity, {
             scope: "page",
@@ -384,7 +388,9 @@ Item {
             readonly property real lineOpacity: {
                 const revision = timeline.revision;
                 const passed = viewport.waiting ? timeline.nextRow(timeline.gapAnchor) : viewport.focusLine;
-                return viewport.hidePassed && viewport.playback.playing && timeline.ordinal(index) < timeline.ordinal(passed) && lines.following ? 0 : timeline.highlighted(index) ? .85 : timeline.dynamic ? 1 : .2;
+                // Resting ink already carries its opacity, including plain LRC.
+                // A second row fade would reduce the 20% default to 4%.
+                return viewport.hidePassed && viewport.playback.playing && timeline.ordinal(index) < timeline.ordinal(passed) && lines.following ? 0 : timeline.highlighted(index) ? .85 : 1;
             }
             readonly property string secondaryText: [viewport.playback.lyricText.wantTranslation ? translation : "", viewport.playback.lyricText.wantRomanization && !ruby ? romanization : ""].filter(value => value.length > 0).join("\n")
             width: lines.width

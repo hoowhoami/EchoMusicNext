@@ -45,6 +45,7 @@ qt_add_qml_module(
     EchoTextInkMetrics.cpp
     QML_FILES
     EchoUiPart.qml
+    EchoWindowDragArea.qml
     EchoUiPartHost.qml
     EchoBoundedListView.qml
     EchoSpinner.qml

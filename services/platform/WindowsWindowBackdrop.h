@@ -8,7 +8,8 @@ class QWindow;
 namespace EchoMusic
 {
 /// Qt owns HWND styles and its alpha swapchain. This adapter requests DWM material
-/// and native corner policy without replacing the window region or hit testing.
+/// and native corner policy. The custom expanded caption keeps client input in
+/// Qt Quick; only resize borders use native non-client hit testing.
 class WindowsWindowBackdrop final : public QObject, public QAbstractNativeEventFilter
 {
     Q_OBJECT
@@ -30,6 +31,7 @@ private:
     bool material(bool enabled);
     void applyWindowPolicy();
     void queueRepair();
+    bool hitTest(const MSG &event, qintptr *result) const;
     QMetaObject::Connection m_visibilityConnection;
     QPointer<QWindow> m_window;
     HWND m_handle = nullptr;

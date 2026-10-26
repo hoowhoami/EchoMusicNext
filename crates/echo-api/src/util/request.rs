@@ -1009,7 +1009,7 @@ mod tests {
                 .receive(
                     client
                         .http()
-                        .get(format!("http://{address}/risk/v2/r_register_dev")),
+                        .get(format!("http://{address}/risk/v3/r_register_dev")),
                     BTreeMap::new(),
                 )
                 .await

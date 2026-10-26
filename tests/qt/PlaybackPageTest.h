@@ -24,6 +24,7 @@ private slots:
     void lyricResourcesReleaseAcrossPageCycles();
     void preferencesValidateAndPersistWithoutResettingGlobalBackground();
     void lyricColorLayersResolvePerSlotInQml();
+    void playbackHoverTracksSourceBackgroundPalette();
     void optionalArtworkCancelsStaleTrackAndRestoresBoundedMemoryCache();
     void interludeMotionMatchesObservedReference();
     void interludeHasIndependentRowAndNativePixels();
@@ -37,6 +38,7 @@ private slots:
     void nativeGpuClustersMatchWholeQtInk();
     void lyricRowsMoveIndependentlyAndSettle();
     void lyricRowBoxClearsRightSideTools();
+    void lyricViewportClearsAboveControlsSurfaces();
     void presentationScheduleMatchesUnmodifiedAmll();
     void scaleSpringMatchesUnmodifiedAmll();
     void springRetargetKeepsMovingDuringStagger();

@@ -30,6 +30,7 @@ ApplicationWindow {
     }
     PlaybackPage {
         id: page
+        controlsTopReserve: (page.controlsItem as PlayerBar)?.aboveControlsHeight ?? 0
         sourceCover: smallCover
         playback: window.playback
         uiScale: window.surfaceScale

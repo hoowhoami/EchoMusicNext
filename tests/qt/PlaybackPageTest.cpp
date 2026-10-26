@@ -1408,11 +1408,12 @@ void PlaybackPageTest::lyricColorLayersResolvePerSlotInQml()
         return viewport->property("unplayedColor").value<QColor>();
     };
     QTRY_COMPARE(played(), QColor(Qt::white));
-    QTRY_COMPARE(unplayed(), QColor("#b9b9b9"));
+    const auto restingInk = QColor::fromRgbF(1, 1, 1, .2);
+    QTRY_COMPARE(unplayed(), restingInk);
 
     appearance->setPlayedColor("#ff0000");
     QTRY_COMPARE(played(), QColor("#ff0000"));
-    QTRY_COMPARE(unplayed(), QColor("#b9b9b9"));
+    QTRY_COMPARE(unplayed(), restingInk);
 
     appearance->setUnplayedColor("#00ff00");
     QTRY_COMPARE(unplayed(), QColor("#00ff00"));
@@ -1420,15 +1421,15 @@ void PlaybackPageTest::lyricColorLayersResolvePerSlotInQml()
     appearance->setTextColor("#0000ff");
     QTRY_COMPARE(played(), QColor("#0000ff"));
     QTRY_COMPARE(unplayed(), QColor("#00ff00"));
-    // Each skin slot inherits its own global slot. Clearing only the global
-    // unplayed override restores neutral grey, independent of either played ink.
+    // Explicit skin colors win per slot; otherwise use configured global ink
+    // before falling back to the skin's own default.
     appearance->setUnplayedColor("");
-    QTRY_COMPARE(unplayed(), QColor("#b9b9b9"));
+    QTRY_COMPARE(unplayed(), restingInk);
     appearance->setUnplayedFollowCoverColor(true);
     const auto inheritedAccent = viewport->property("coverAccent").value<QColor>();
     QTRY_COMPARE(unplayed(), inheritedAccent);
     appearance->setUnplayedFollowCoverColor(false);
-    QTRY_COMPARE(unplayed(), QColor("#b9b9b9"));
+    QTRY_COMPARE(unplayed(), restingInk);
 
     appearance->setUnplayedTextColor("#ffff00");
     QTRY_COMPARE(unplayed(), QColor("#ffff00"));
@@ -1447,9 +1448,63 @@ void PlaybackPageTest::lyricColorLayersResolvePerSlotInQml()
     appearance->resetColors();
     appearance->resetSkinColors();
     QTRY_COMPARE(played(), QColor(Qt::white));
-    QTRY_COMPARE(unplayed(), QColor("#b9b9b9"));
+    QTRY_COMPARE(unplayed(), restingInk);
     QVERIFY(!appearance->customized());
+    // Plain LRC must not multiply the resting ink by another 20% row fade.
+    session.playback.lyricText()->replace(
+        {{"offset_ms", 0},
+         {"lines", QJsonArray{QJsonObject{{"text", "Current LRC"},
+                                          {"start_ms", 0},
+                                          {"duration_ms", 3000},
+                                          {"words", QJsonArray{}}},
+                              QJsonObject{{"text", "Future LRC"},
+                                          {"start_ms", 4000},
+                                          {"duration_ms", 3000},
+                                          {"words", QJsonArray{}}}}}},
+        "plain-lrc-color");
+    PlaybackServiceTestAccess::position(session.playback, 1000);
+    session.theme.setMotionEnabled(false);
+    QTRY_VERIFY(session.item("lyricTextRow1"));
+    QTRY_COMPARE(session.item("lyricTextRow1")->parentItem()->property("lineOpacity").toReal(), 1.);
 }
+void PlaybackPageTest::playbackHoverTracksSourceBackgroundPalette()
+{
+    Session session;
+    QVERIFY(session.create());
+    session.theme.setMotionEnabled(false);
+    QTRY_VERIFY(session.page()->property("opened").toBool());
+    QImage cover(32, 32, QImage::Format_RGB32);
+    cover.fill(Qt::white);
+    const auto path = session.directory.filePath("hover-cover.png");
+    QVERIFY(cover.save(path));
+    PlaybackServiceTestAccess::cover(session.playback, QUrl::fromLocalFile(path).toString());
+    auto *appearance = session.playback.lyricAppearance();
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const bool blur : {false, true}) {
+            appearance->setBackgroundBlur(blur);
+            for (const auto accent : {QColor("#146cbe"), QColor("#bd3157")}) {
+                session.theme.setAccent(accent);
+                const auto base = blur
+                                      ? QColor(Qt::black)
+                                      : session.page()->property("backgroundColor").value<QColor>();
+                const auto expected = session.theme.lyricPalette(base, session.theme.accent())
+                                          .value("accentText")
+                                          .value<QColor>();
+                for (const auto &name : {"playerbar-action-lyric-skins", "playerbarMoreAction"}) {
+                    auto *button = session.item(name);
+                    QVERIFY(button && button->isEnabled());
+                    Test::moveNativePointer(
+                        session.window,
+                        button->mapToScene({button->width() / 2, button->height() / 2}).toPoint());
+                    QTRY_VERIFY(button->property("hovered").toBool());
+                    QTRY_COMPARE(button->property("foreground").value<QColor>(), expected);
+                }
+            }
+        }
+    }
+}
+
 void PlaybackPageTest::optionalArtworkCancelsStaleTrackAndRestoresBoundedMemoryCache()
 {
     ApiClient api;
@@ -2601,11 +2656,14 @@ void PlaybackPageTest::pageSkinLifecycleAndBoundedDelegates()
     QVERIFY(centerStrip->width() >= 200);
     auto *skinAction = session.item("playerbar-action-lyric-skins");
     QVERIFY(skinAction);
+    QTRY_VERIFY(session.page()->property("acceptingInput").toBool());
     QVERIFY(QMetaObject::invokeMethod(skinAction, "clicked"));
     QTRY_VERIFY(session.item("coverLyricSkinCard"));
     auto *card = session.item("coverLyricSkinCard");
     QVERIFY(QMetaObject::invokeMethod(card, "clicked"));
     QTRY_VERIFY(session.item("resetLyricSkin"));
+    QTRY_COMPARE(session.item("lyricSkinColorAction")->height(), 36.);
+    QTRY_COMPARE(session.item("lyricSkinUnplayedColorAction")->height(), 36.);
     QVERIFY(QMetaObject::invokeMethod(session.item("lyricSkinColorAction"), "clicked"));
     QPointer<QObject> picker = session.page()->findChild<QObject *>("lyricSkinColorPicker");
     QPointer<QObject> drawer = session.page()->findChild<QObject *>("lyricSkinDrawer");
@@ -2624,12 +2682,48 @@ void PlaybackPageTest::pageSkinLifecycleAndBoundedDelegates()
     QVERIFY(QMetaObject::invokeMethod(session.item("colorConfirmAction"), "clicked"));
     QTRY_VERIFY(session.playback.lyricAppearance()->useCoverColor());
     QTRY_VERIFY(picker.isNull());
-    QVERIFY(session.item("lyricSkinUnplayedColorAction"));
+    auto *appearance = session.playback.lyricAppearance();
+    appearance->setPlayedColor("#123456");
+    QTRY_COMPARE(session.item("resetLyricSkinPlayedColor")->height(), 36.);
+    QTRY_COMPARE(session.item("resetLyricSkinUnplayedColor")->height(), 36.);
+    QVERIFY(QMetaObject::invokeMethod(session.item("resetLyricSkinPlayedColor"), "clicked"));
+    QCOMPARE(QColor(appearance->textColor()), QColor(Qt::white));
+    QVERIFY(!appearance->useCoverColor());
+    QCOMPARE(appearance->playedColor(), QString("#123456"));
+    appearance->setUnplayedColor("#00ff00");
+    appearance->setUnplayedTextColor("#ff0000");
+    QVERIFY(QMetaObject::invokeMethod(session.item("resetLyricSkinUnplayedColor"), "clicked"));
+    const auto skinDefault = QColor::fromRgbF(1, 1, 1, .2);
+    QCOMPARE(QColor(appearance->unplayedTextColor()), skinDefault);
+    QCOMPARE(appearance->unplayedColor(), QString("#00ff00"));
     QVERIFY(QMetaObject::invokeMethod(session.item("lyricSkinUnplayedColorAction"), "clicked"));
     QTRY_VERIFY((picker = session.page()->findChild<QObject *>("lyricSkinUnplayedColorPicker")));
     QTRY_VERIFY(picker->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(session.item("colorPreset-2"), "clicked"));
     QVERIFY(QMetaObject::invokeMethod(session.item("colorCancelAction"), "clicked"));
     QTRY_VERIFY(picker.isNull());
+    QCOMPARE(QColor(appearance->unplayedTextColor()), skinDefault);
+    QVERIFY(QMetaObject::invokeMethod(session.item("lyricSkinUnplayedColorAction"), "clicked"));
+    QTRY_VERIFY((picker = session.page()->findChild<QObject *>("lyricSkinUnplayedColorPicker")));
+    QTRY_VERIFY(picker->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(session.item("colorPreset-2"), "clicked"));
+    QVERIFY(QMetaObject::invokeMethod(session.item("colorConfirmAction"), "clicked"));
+    QTRY_VERIFY(picker.isNull());
+    QCOMPARE(appearance->unplayedTextColor(), QString("#31cfa1"));
+    QVERIFY(QMetaObject::invokeMethod(session.item("resetLyricSkinUnplayedColor"), "clicked"));
+    appearance->setUnplayedColor("#0000ff");
+    QTRY_COMPARE(session.item("playbackLyricViewport")->property("unplayedColor").value<QColor>(),
+                 skinDefault);
+    QCOMPARE(appearance->unplayedColor(), QString("#0000ff"));
+    const auto colorCapture = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+    if (!colorCapture.isEmpty() && QGuiApplication::platformName() != "offscreen") {
+        QTRY_VERIFY(drawer->property("opened").toBool());
+        QSignalSpy frame(session.window, &QQuickWindow::frameSwapped);
+        session.window->requestUpdate();
+        QTRY_VERIFY(!frame.isEmpty());
+        QDir().mkpath(colorCapture);
+        QVERIFY(session.window->grabWindow().save(colorCapture + "/skin-color-defaults.png"));
+    }
     QVERIFY(QMetaObject::invokeMethod(session.item("lyricSkinColorAction"), "clicked"));
     QTRY_VERIFY((picker = session.page()->findChild<QObject *>("lyricSkinColorPicker")));
     QTRY_VERIFY(picker->property("visible").toBool());
@@ -2648,14 +2742,16 @@ void PlaybackPageTest::pageSkinLifecycleAndBoundedDelegates()
     PlaybackServiceTestAccess::position(session.playback, 50000);
     QTRY_VERIFY(session.item("lyricInterludeDots") &&
                 session.item("lyricInterludeDots")->isVisible());
+    QTRY_VERIFY(session.page()->property("acceptingInput").toBool());
     QVERIFY(QMetaObject::invokeMethod(session.item("lyricSourceAction"), "clicked"));
-    QPointer<QObject> source = session.page()->findChild<QObject *>("lyricSourceDialog");
-    QVERIFY(source);
+    QPointer<QObject> source;
+    QTRY_VERIFY((source = session.page()->findChild<QObject *>("lyricSourceDialog")));
     QTRY_VERIFY(source->property("visible").toBool());
     QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
     QTRY_VERIFY(source.isNull());
     QVERIFY(QMetaObject::invokeMethod(session.page(), "open"));
     QVERIFY(Test::prepareNativeInput(session.window));
+    QTRY_VERIFY(session.page()->property("acceptingInput").toBool());
     QVERIFY(QMetaObject::invokeMethod(session.page(), "openSkins"));
     QTRY_VERIFY((drawer = session.page()->findChild<QObject *>("lyricSkinDrawer")));
     QTRY_VERIFY(drawer->property("visible").toBool());
@@ -2690,6 +2786,86 @@ void PlaybackPageTest::lyricRowBoxClearsRightSideTools()
     QVERIFY2(boxRight + 12. <= toolsLeft + .5,
              qPrintable(QString("box=%1 tools=%2").arg(boxRight).arg(toolsLeft)));
 }
+void PlaybackPageTest::lyricViewportClearsAboveControlsSurfaces()
+{
+    QObject scope;
+    scope.setObjectName("0");
+    Session session;
+    session.theme.setMotionEnabled(false);
+    QVERIFY(session.create());
+    QTRY_VERIFY(session.page()->property("opened").toBool());
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    // Exercise the production contribution host, including async creation and
+    // live natural-height changes, without installing or changing a user plugin.
+    QFile recipe(session.directory.filePath("above-controls.qml"));
+    QVERIFY(recipe.open(QIODevice::WriteOnly));
+    recipe.write(R"(
+import QtQuick
+Item {
+    id: root
+    required property QtObject plugin
+    required property string placement
+    implicitHeight: Number(plugin.objectName)
+    Repeater {
+        model: 32
+        Rectangle {
+            required property int index
+            x: index * root.width / 32
+            y: root.height - height
+            width: root.width / 48
+            height: root.height * (0.3 + (index % 7) / 10)
+            color: "#5288c8"
+        }
+    }
+})");
+    recipe.close();
+    session.controller.pluginSurfaces()->insert("lyric-layout-test", "lyrics.aboveControls",
+                                                QUrl::fromLocalFile(recipe.fileName()), &scope);
+    auto *viewport = session.item("playbackLyricViewport");
+    auto *surface = session.item("playerbarAboveControls");
+    auto *cover = session.item("playbackPageCover");
+    QVERIFY(viewport && surface && cover);
+    for (const qreal scale : {1., 1.25}) {
+        session.root->setProperty("surfaceScale", scale);
+        for (const int width : {1200, 740}) {
+            session.window->resize(width, 800);
+            scope.setObjectName("0");
+            QTRY_COMPARE(session.page()->property("controlsTopReserve").toReal(), 0.);
+            // Cocoa delivers the real window resize after resize() returns.
+            // Wait for the correct layout mode before recording its cover.
+            if (width == 1200)
+                QTRY_VERIFY(cover->width() > 200);
+            else
+                QTRY_COMPARE(cover->width(), 160.);
+            const auto coverTop = cover->mapToScene({0, 0}).y();
+            for (const int height : {82, 140, 0}) {
+                scope.setObjectName(QString::number(height));
+                QTRY_COMPARE(session.page()->property("controlsTopReserve").toReal(),
+                             qreal(height));
+                const auto gap = (std::max(96, height + 16) - height) * scale;
+                QTRY_VERIFY(qAbs(viewport->mapToScene({0, viewport->height()}).y() + gap -
+                                 surface->mapToScene({0, 0}).y()) < .1);
+                if (width == 1200)
+                    QVERIFY2(qAbs(cover->mapToScene({0, 0}).y() - coverTop) < .1,
+                             qPrintable(QString("cover scale=%1 height=%2 before=%3 after=%4")
+                                            .arg(scale)
+                                            .arg(height)
+                                            .arg(coverTop)
+                                            .arg(cover->mapToScene({0, 0}).y())));
+                const auto capture = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+                if (!capture.isEmpty() && height == 82) {
+                    QDir().mkpath(capture);
+                    QVERIFY(session.window->grabWindow().save(
+                        capture + QString("/lyrics-spectrum-%1-%2.png").arg(width).arg(scale)));
+                }
+            }
+        }
+    }
+    session.controller.pluginSurfaces()->remove("lyric-layout-test");
+    QTRY_COMPARE(session.page()->property("controlsTopReserve").toReal(), 0.);
+    QVERIFY(warnings.isEmpty());
+}
+
 void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime_data()
 {
     QTest::addColumn<bool>("wordTimed");
@@ -2902,6 +3078,8 @@ void PlaybackPageTest::renderThemesScaleAndNarrowViewport()
                     }
                 QVERIFY2(backgroundPixels > pixels.width() * pixels.height() / 2,
                          "A blank white startup frame is not rendered lyric ink");
+                if (brightGlyphPixels <= 200 && !captureDir.isEmpty())
+                    frame.save(captureDir + "/lyric-ink-failure.png");
                 QVERIFY2(brightGlyphPixels > 200,
                          "Current shaped glyphs must actually be rendered");
                 auto *artist = session.item("playbackPageArtist");
@@ -3257,7 +3435,9 @@ void PlaybackPageTest::backgroundMeshReferenceAndCoverTransitions()
             const auto native = small.pixelColor(p[0].toInt(), p[1].toInt());
             const std::array<int, 3> rgb{native.red(), native.green(), native.blue()};
             for (int c = 0; c < 3; ++c) {
-                const int error = qAbs(rgb[c] - p[c + 2].toInt());
+                // The upstream fixture describes the raw mesh. EchoMusic adds
+                // its 50% black readability scrim in the final background quad.
+                const int error = qAbs(rgb[c] - qRound(p[c + 2].toInt() * .5));
                 totalError += error;
                 maxError = std::max(maxError, error);
             }

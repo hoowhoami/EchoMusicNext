@@ -2,12 +2,13 @@ pragma ComponentBehavior: Bound
 pragma Singleton
 import QtQuick
 
-// Page colors are the global baseline; the active skin overrides individual
-// slots and keeps inheriting every slot it leaves unset. Reads stay in QML so
-// bindings track each layer. Global previews never read skin overrides. The
-// neutral unplayed default stays independent of either layer's played ink.
+// Explicit skin colors win over explicit global colors. With neither set, the
+// cover skin owns its resting white ink. Global previews resolve their own
+// default independently. Reads stay in QML so every preference is observable.
 QtObject {
-    readonly property color defaultUnplayedColor: "#b9b9b9"
+    readonly property color defaultUnplayedColor: Qt.rgba(1, 1, 1, .2)
+    readonly property color defaultCoverPlayedColor: "#ffffff"
+    readonly property color defaultCoverUnplayedColor: Qt.rgba(1, 1, 1, .2)
     function globalPlayed(appearance: var, accent: color): color {
         if (appearance.followCoverColor)
             return accent;
@@ -32,7 +33,9 @@ QtObject {
             return appearance.unplayedTextColor;
         if (appearance.unplayedUseCoverColor)
             return accent;
-        return globalUnplayed(appearance, accent);
+        if (appearance.unplayedFollowCoverColor || appearance.unplayedColor.length > 0)
+            return globalUnplayed(appearance, accent);
+        return defaultCoverUnplayedColor;
     }
     // The shared picker accepts opaque #rgb/#rrggbb only; preview alpha at the
     // swatch instead of letting the picker normalize the derived color away.

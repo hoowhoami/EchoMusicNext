@@ -337,11 +337,11 @@ ApplicationWindow {
                 Layout.preferredWidth: mainWindow.shellSettings.sidebarCollapsed ? 80 : 230
                 Layout.fillHeight: true
                 color: "transparent"
-                MouseArea {
+                EchoWindowDragArea {
                     width: parent.width
                     height: Math.max(46, 35 / mainWindow.shellSettings.uiScale)
-                    onPressed: mainWindow.startSystemMove()
-                    onDoubleClicked: mainWindow.windowService.toggleMaximized()
+                    onMoveRequested: mainWindow.startSystemMove()
+                    onDoubleClickRequested: mainWindow.windowService.toggleMaximized()
                 }
                 Behavior on Layout.preferredWidth {
                     enabled: mainWindow.shellSettings.motionEnabled
@@ -509,13 +509,13 @@ ApplicationWindow {
             visible: mainWindow.accountController.loginOpen && !mainWindow.windowService.macOS && !mainWindow.windowService.fullscreen
             service: mainWindow.windowService
         }
-        MouseArea {
+        EchoWindowDragArea {
             z: 101
             visible: mainWindow.accountController.loginOpen
             width: parent.width
             height: 46
-            onPressed: mainWindow.startSystemMove()
-            onDoubleClicked: mainWindow.windowService.toggleMaximized()
+            onMoveRequested: mainWindow.startSystemMove()
+            onDoubleClickRequested: mainWindow.windowService.toggleMaximized()
         }
         EchoPopupLoader {
             id: playbackPageLoader
@@ -523,6 +523,8 @@ ApplicationWindow {
             hostItem: mainWindow.contentItem
             keepOnMinimize: true
             sourceComponent: PlaybackPage {
+                id: nativePlaybackPage
+                controlsTopReserve: (nativePlaybackPage.controlsItem as PlayerBar)?.aboveControlsHeight ?? 0
                 onGlobalSettingsRequested: {
                     preferencesOwner.open({
                         initialSection: "lyric"
@@ -774,7 +776,7 @@ ApplicationWindow {
             height: verticalEdge ? 6 : mainWindow.height - 12
             x: modelData & Qt.RightEdge ? mainWindow.width - width : horizontalEdge ? 0 : 6
             y: modelData & Qt.BottomEdge ? mainWindow.height - height : verticalEdge ? 0 : 6
-            enabled: !mainWindow.windowService.maximized && !mainWindow.windowService.fullscreen
+            visible: !mainWindow.windowService.maximized && !mainWindow.windowService.fullscreen
             cursorShape: horizontalEdge && verticalEdge ? ((modelData === (Qt.LeftEdge | Qt.TopEdge) || modelData === (Qt.RightEdge | Qt.BottomEdge)) ? Qt.SizeFDiagCursor : Qt.SizeBDiagCursor) : horizontalEdge ? Qt.SizeHorCursor : Qt.SizeVerCursor
             onPressed: mainWindow.startSystemResize(modelData)
         }

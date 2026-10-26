@@ -1345,21 +1345,22 @@ fn registration_acknowledgement_without_identity_is_never_registered() {
 
 #[test]
 fn native_registration_success_maps_only_the_observed_dfid() {
-    let device = echo_api::module::register_dev::convert(&sample(
+    for path in [
         "register_dev/native-independent-device.json",
-    ))
-    .unwrap();
-    assert_eq!(device.dfid, "[REDACTED]");
-    let mut malformed: Value =
-        serde_json::from_slice(&sample("register_dev/native-independent-device.json")).unwrap();
-    malformed["data"]["dfid"] = "-".into();
-    assert_eq!(
-        echo_api::module::register_dev::convert(&serde_json::to_vec(&malformed).unwrap())
-            .err()
-            .unwrap()
-            .kind,
-        "authentication"
-    );
+        "register_dev/native-independent-device-v3-20261026.json",
+    ] {
+        let device = echo_api::module::register_dev::convert(&sample(path)).unwrap();
+        assert_eq!(device.dfid, "[REDACTED]");
+        let mut malformed: Value = serde_json::from_slice(&sample(path)).unwrap();
+        malformed["data"]["dfid"] = "-".into();
+        assert_eq!(
+            echo_api::module::register_dev::convert(&serde_json::to_vec(&malformed).unwrap())
+                .err()
+                .unwrap()
+                .kind,
+            "authentication"
+        );
+    }
 }
 
 #[test]

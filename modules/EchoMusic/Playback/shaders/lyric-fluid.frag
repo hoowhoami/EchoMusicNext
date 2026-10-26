@@ -15,9 +15,13 @@ layout(binding = 2) uniform sampler2D previous;
 void main()
 {
     vec4 art = texture(source, qt_TexCoord0);
+    // EchoMusic's lyric-blur-bg-overlay dims artwork by 50%. Keep the scrim
+    // inside the existing final quad, below lyrics, controls and plugin spectra.
+    art.rgb *= 0.5;
     vec4 background = art;
     if (blend < 1.0) {
-        vec4 old = hasPrevious > 0.5 ? texture(previous, qt_TexCoord0) : baseColor;
+        vec4 old = hasPrevious > 0.5 ? texture(previous, qt_TexCoord0) * vec4(0.5, 0.5, 0.5, 1.0)
+                                     : baseColor;
         background = mix(old, art, blend);
     }
     background += baseColor * (1.0 - background.a);

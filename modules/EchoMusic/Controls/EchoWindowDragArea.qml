@@ -1,0 +1,30 @@
+pragma ComponentBehavior: Bound
+import QtQuick
+
+MouseArea {
+    id: area
+    signal moveRequested
+    signal doubleClickRequested
+    property point pressPosition
+    property bool moveStarted: false
+    acceptedButtons: Qt.LeftButton
+    onPressed: mouse => {
+        pressPosition = mapToItem(null, mouse.x, mouse.y);
+        moveStarted = false;
+        // Windows' modal system-move loop consumes the click sequence if it
+        // starts on press. Wait for a real drag so double clicks reach QML.
+        if (Qt.platform.os !== "windows")
+            moveRequested();
+    }
+    onPositionChanged: mouse => {
+        if (Qt.platform.os !== "windows" || !pressed || moveStarted)
+            return;
+        const position = mapToItem(null, mouse.x, mouse.y);
+        const distance = Math.hypot(position.x - pressPosition.x, position.y - pressPosition.y);
+        if (distance >= Qt.styleHints.startDragDistance) {
+            moveStarted = true;
+            moveRequested();
+        }
+    }
+    onDoubleClicked: doubleClickRequested()
+}

@@ -147,7 +147,7 @@ Rectangle {
                     required property var modelData
                     required property int index
                     readonly property bool stacked: body.width <= 680 && body.width > 440
-                    readonly property real inset: body.width <= 680 ? 16 : 20
+                    readonly property real inset: 12
                     readonly property bool first: index % (body.width <= 440 ? 2 : 4) === 0
                     readonly property bool last: index % (body.width <= 440 ? 2 : 4) === (body.width <= 440 ? 1 : 3)
                     readonly property color tone: modelData.kind === "super" ? "#f97316" : modelData.kind === "deluxe" ? "#e8a317" : modelData.kind === "concept" ? "#8b5cf6" : "#10b981"
@@ -199,7 +199,7 @@ Rectangle {
                                 wrapMode: Text.WrapAnywhere
                             }
                             RowLayout {
-                                Layout.maximumWidth: parent.width
+                                Layout.fillWidth: true
                                 Layout.minimumWidth: 0
                                 Layout.alignment: Qt.AlignLeft
                                 spacing: 8
@@ -208,7 +208,8 @@ Rectangle {
                                     text: member.membership ? member.membership.expires : qsTr("未开通")
                                     color: Theme.secondaryText
                                     font: Theme.font(12, Theme.regularWeight)
-                                    wrapMode: Text.WrapAnywhere
+                                    wrapMode: Text.NoWrap
+                                    elide: Text.ElideRight
                                 }
                                 EchoIconButton {
                                     id: expiryInfo

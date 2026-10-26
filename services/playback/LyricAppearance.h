@@ -6,11 +6,10 @@ namespace EchoMusic
 /// GUI-thread, application-owned cover lyric preferences. Only the implemented
 /// cover skin is exposed; no old provider IDs, schema import or mutable QML copy.
 ///
-/// Colors have two layers: page colors are the global baseline and the active
-/// skin may override either slot. Resolution is per slot, so an unset skin
-/// value keeps inheriting the global one instead of disabling the whole layer.
-/// Without any explicit unplayed color the unplayed slot follows the resolved
-/// played color at 20% alpha.
+/// Explicit skin colors take priority over explicit global colors, per slot.
+/// Each view resolves its own defaults when neither layer is configured.
+/// Selecting the cover skin's default ink is an explicit skin color, so it
+/// can override a customized global color without clearing that global slot.
 class LyricAppearance final : public QObject
 {
     Q_OBJECT

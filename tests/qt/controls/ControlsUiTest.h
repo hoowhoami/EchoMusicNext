@@ -5,6 +5,7 @@ class ControlsUiTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void windowCaptionSeparatesDoubleClickFromDrag();
     void listLocationPreservesVisibleRowsAndChecksOcclusion();
     void continuousAngleWheelPreservesDistanceAndPixelInput();
     void wheelCancellationAndMotionPreferences();

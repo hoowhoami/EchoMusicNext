@@ -46,6 +46,7 @@
 #include "WindowsWindowBackdrop.h"
 #include <QOperatingSystemVersion>
 #include <dwmapi.h>
+#include <thread>
 #endif
 #ifdef Q_OS_MACOS
 QVariantMap nativeWindowAppearance(QWindow *window);
@@ -855,6 +856,42 @@ elif sys.argv[1] == 'dispatch':
         };
         QVERIFY(nonLayered());
         QVERIFY(hasFrame());
+        const auto hit = [&](int x, int y) {
+            RECT bounds{};
+            GetWindowRect(handle, &bounds);
+            return SendMessageW(handle, WM_NCHITTEST, 0,
+                                MAKELPARAM(bounds.left + x, bounds.top + y));
+        };
+        QCOMPARE(hit(200, 20), LRESULT(HTCLIENT));
+        QCOMPARE(hit(200, 150), LRESULT(HTCLIENT));
+        QCOMPARE(hit(0, 0), LRESULT(HTTOPLEFT));
+        QCOMPARE(hit(0, 150), LRESULT(HTLEFT));
+        window.showMaximized();
+        QTRY_VERIFY(window.windowStates().testFlag(Qt::WindowMaximized));
+        QCoreApplication::processEvents();
+        QCOMPARE(hit(0, 0), LRESULT(HTCLIENT));
+        window.showFullScreen();
+        QTRY_VERIFY(window.windowStates().testFlag(Qt::WindowFullScreen));
+        // Drain queued style repair: it must not restore the caption bits that
+        // Qt deliberately removed for fullscreen or break its state detection.
+        QCoreApplication::processEvents();
+        QVERIFY(!(GetWindowLongPtrW(handle, GWL_STYLE) & WS_CAPTION));
+        QVERIFY(!hasFrame());
+        QCOMPARE(hit(0, 0), LRESULT(HTCLIENT));
+        RECT fullscreenBounds{};
+        QVERIFY(GetWindowRect(handle, &fullscreenBounds));
+        MONITORINFO monitor{sizeof(MONITORINFO)};
+        QVERIFY(GetMonitorInfoW(MonitorFromWindow(handle, MONITOR_DEFAULTTONEAREST), &monitor));
+        QCOMPARE(fullscreenBounds.left, monitor.rcMonitor.left);
+        QCOMPARE(fullscreenBounds.top, monitor.rcMonitor.top);
+        QCOMPARE(fullscreenBounds.right, monitor.rcMonitor.right);
+        QCOMPARE(fullscreenBounds.bottom, monitor.rcMonitor.bottom);
+        window.showNormal();
+        QTRY_COMPARE(window.windowStates(), Qt::WindowStates(Qt::WindowNoState));
+        QCoreApplication::processEvents();
+        QVERIFY(GetWindowLongPtrW(handle, GWL_STYLE) & WS_CAPTION);
+        QVERIFY(hasFrame());
+        QCOMPARE(hit(0, 0), LRESULT(HTTOPLEFT));
         for (bool dark : {false, true}) {
             for (bool enabled : {true, false, true, false}) {
                 QVERIFY2(backdrop.apply(enabled, dark).isEmpty(), "Native material rejected");
@@ -887,6 +924,144 @@ elif sys.argv[1] == 'dispatch':
         QCOMPARE(materialType(), 1);
         QVERIFY(nonLayered());
         QVERIFY(hasFrame());
+#endif
+    }
+    void windowsCustomCaptionKeepsNativeMouseHover()
+    {
+#ifndef Q_OS_WIN
+        QSKIP("Requires Windows native input delivery");
+#else
+        if (QGuiApplication::platformName() != "windows" ||
+            QOperatingSystemVersion::current().microVersion() < 22621)
+            QSKIP("Requires Windows 11 22H2+ native input delivery");
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        ThemeStore theme(settings);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import EchoMusic.Controls
+            import EchoMusic.Shell
+            Window {
+                id: host
+                width: 480; height: 320; color: "#202020"
+                property int captionDoubleClicks: 0
+                EchoWindowDragArea {
+                    width: parent.width; height: 60
+                    onMoveRequested: host.startSystemMove()
+                    onDoubleClickRequested: {
+                        host.captionDoubleClicks++;
+                        if (host.visibility === Window.Maximized)
+                            host.showNormal();
+                        else
+                            host.showMaximized();
+                    }
+                }
+                EchoIconButton {
+                    objectName: "nativeHoverAction"
+                    x: 180; y: 140; glyph: "play"; text: "Native pointer hint"
+                }
+                ShellActionDragHandle {
+                    objectName: "nativeDragTarget"
+                    actionKey: "native-drag-probe"; glyph: "play"
+                    x: 70; y: 220; width: 40; height: 40
+                }
+            }
+        )",
+                          QUrl());
+        QScopedPointer<QObject> owner(component.create());
+        QVERIFY2(owner, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(owner.data());
+        QVERIFY(window);
+        window->setFlags(WindowBackdrop::mainWindowFlags());
+        WindowBackdrop backdrop(true);
+        backdrop.attach(window);
+        window->show();
+        QVERIFY(Test::prepareNativeInput(window));
+        auto *button = visual(window->contentItem(), "nativeHoverAction");
+        QVERIFY(button);
+        const auto handle = reinterpret_cast<HWND>(window->winId());
+        const QPoint savedCursor = QCursor::pos();
+        const auto cleanup = qScopeGuard([&] {
+            INPUT release{};
+            release.type = INPUT_MOUSE;
+            release.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            SendInput(1, &release, sizeof(INPUT));
+            QCursor::setPos(savedCursor);
+        });
+        const auto nativePoint = [&](QPoint local) {
+            RECT rect{};
+            GetClientRect(handle, &rect);
+            POINT point{MulDiv(local.x(), rect.right, window->width()),
+                        MulDiv(local.y(), rect.bottom, window->height())};
+            ClientToScreen(handle, &point);
+            return point;
+        };
+        // Use user32 delivery: QTest::mouseClick bypasses WM_NCHITTEST and
+        // cannot reproduce Qt's expanded-caption synthetic button sequence.
+        const auto empty = nativePoint({80, 80});
+        SetCursorPos(empty.x, empty.y);
+        for (DWORD action : {DWORD(MOUSEEVENTF_LEFTDOWN), DWORD(MOUSEEVENTF_LEFTUP)}) {
+            INPUT input{};
+            input.type = INPUT_MOUSE;
+            input.mi.dwFlags = action;
+            QCOMPARE(SendInput(1, &input, sizeof(INPUT)), UINT(1));
+            QTest::qWait(30);
+        }
+        QTRY_COMPARE(QGuiApplication::mouseButtons(), Qt::MouseButtons(Qt::NoButton));
+        QVERIFY(!window->mouseGrabberItem());
+        const auto target =
+            nativePoint(button->mapToScene(button->boundingRect().center()).toPoint());
+        SetCursorPos(target.x, target.y);
+        QTRY_VERIFY(button->property("hovered").toBool());
+        auto *hint = button->findChild<QObject *>("iconButtonToolTip");
+        QVERIFY(hint);
+        QTRY_VERIFY(hint->property("popup").value<QObject *>());
+        QTRY_VERIFY(hint->property("popup").value<QObject *>()->property("visible").toBool());
+        SetCursorPos(empty.x, empty.y);
+        QTRY_VERIFY(!button->property("hovered").toBool());
+        // Real held-button motion checks both Quick drag handlers and user32's
+        // modal move loop. Release must arrive even while that loop is running.
+        const auto startDrag = [](POINT start) {
+            return std::thread([start] {
+                SetCursorPos(start.x, start.y);
+                Sleep(80);
+                INPUT input{};
+                input.type = INPUT_MOUSE;
+                input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+                SendInput(1, &input, sizeof(INPUT));
+                Sleep(80);
+                for (int step = 1; step <= 6; ++step) {
+                    SetCursorPos(start.x + step * 8, start.y + step * 12);
+                    Sleep(40);
+                }
+                input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+                SendInput(1, &input, sizeof(INPUT));
+            });
+        };
+        auto *targetItem = visual(window->contentItem(), "nativeDragTarget");
+        QVERIFY(targetItem);
+        {
+            auto itemDrag = startDrag(nativePoint(targetItem->mapToScene({20, 20}).toPoint()));
+            const auto joinItemDrag = qScopeGuard([&] { itemDrag.join(); });
+            QQuickItem *ghost = nullptr;
+            QTRY_VERIFY_WITH_TIMEOUT((ghost = visual(window->contentItem(), "native-drag-probe")) &&
+                                         ghost->isVisible(),
+                                     5000);
+            QTRY_COMPARE(QGuiApplication::mouseButtons(), Qt::MouseButtons(Qt::NoButton));
+            QTRY_VERIFY(!ghost->isVisible());
+        }
+        window->showMaximized();
+        QTRY_VERIFY(window->windowStates().testFlag(Qt::WindowMaximized));
+        QCoreApplication::processEvents();
+        auto drag = startDrag(nativePoint({window->width() / 2, 25}));
+        const auto joinDrag = qScopeGuard([&] { drag.join(); });
+        QTRY_VERIFY_WITH_TIMEOUT(!window->windowStates().testFlag(Qt::WindowMaximized), 5000);
+        QTRY_COMPARE(QGuiApplication::mouseButtons(), Qt::MouseButtons(Qt::NoButton));
+        QVERIFY(window->width() < window->screen()->geometry().width());
+        QCOMPARE(window->property("captionDoubleClicks").toInt(), 0);
 #endif
     }
     void nativeWindowMaterialKeepsQtWindowOwnership()

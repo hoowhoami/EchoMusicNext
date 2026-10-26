@@ -401,7 +401,7 @@ public:
     Q_INVOKABLE QVariantMap previewPalette(bool dark, const QColor &seed, bool solid) const;
     Q_INVOKABLE QColor lyricAccent(const QColor &cover) const;
     Q_INVOKABLE QColor lyricBackground(const QColor &cover) const;
-    Q_INVOKABLE QVariantMap lyricPalette(const QColor &background) const;
+    Q_INVOKABLE QVariantMap lyricPalette(const QColor &background, const QColor &accent) const;
     static ThemePalette neutral(bool dark);
     static ThemePalette fromSeed(const QColor &seed, bool dark);
     static qreal contrast(const QColor &a, const QColor &b);

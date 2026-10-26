@@ -93,14 +93,14 @@ QColor ThemeStore::lyricBackground(const QColor &cover) const
     return QColor::fromHslF(normalized.hslHueF(), qMin(.6, normalized.hslSaturationF() * .8),
                             qBound(.12, normalized.lightnessF() * .45, .22));
 }
-QVariantMap ThemeStore::lyricPalette(const QColor &background) const
+QVariantMap ThemeStore::lyricPalette(const QColor &background, const QColor &accent) const
 {
     const auto n = neutral(true);
     const QList<QColor> surfaces{background, mix(background, n.text, .1)};
     return {{"text", n.text},
             {"secondary", readableText(n.secondary, surfaces, n.text)},
             {"border", n.border},
-            {"accentText", readableText(m_accent, surfaces)}};
+            {"accentText", readableText(accent, surfaces)}};
 }
 qreal ThemeStore::contrast(const QColor &a, const QColor &b)
 {

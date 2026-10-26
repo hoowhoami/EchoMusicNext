@@ -41,6 +41,9 @@ Item {
     readonly property alias coverItem: playerCover
     property Item lastActionAnchor: bar
     property bool lyricStyle: false
+    // Decorations above the bar occupy page space even though they render
+    // outside its fixed control geometry. The composition root forwards this.
+    readonly property real aboveControlsHeight: lyricStyle ? aboveControls.height : 0
     property bool manageCapacity: true
     property bool retiring: false
     property ThemeColors colors: Theme.colors
@@ -90,6 +93,8 @@ Item {
         clip: true
     }
     PluginSurfaceHost {
+        id: aboveControls
+        objectName: "playerbarAboveControls"
         anchors.bottom: parent.top
         width: parent.width
         height: implicitHeight

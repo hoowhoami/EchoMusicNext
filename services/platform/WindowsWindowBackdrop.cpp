@@ -104,7 +104,8 @@ void WindowsWindowBackdrop::applyWindowPolicy()
     if (m_build < 22000 || !m_handle || !IsWindow(m_handle))
         return;
     if (m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint) &&
-        m_window->flags().testFlag(Qt::CustomizeWindowHint)) {
+        m_window->flags().testFlag(Qt::CustomizeWindowHint) &&
+        !m_window->windowStates().testFlag(Qt::WindowFullScreen)) {
         // Qt disables SC_CLOSE when CustomizeWindowHint omits its native close
         // button. The QML caption still needs the system menu and Alt+F4.
         if (const auto menu = GetSystemMenu(m_handle, FALSE))
@@ -248,11 +249,53 @@ void WindowsWindowBackdrop::queueRepair()
         },
         Qt::QueuedConnection);
 }
-bool WindowsWindowBackdrop::nativeEventFilter(const QByteArray &, void *message, qintptr *)
+bool WindowsWindowBackdrop::hitTest(const MSG &event, qintptr *result) const
+{
+    if (!result || !m_window || !m_window->flags().testFlag(Qt::ExpandedClientAreaHint) ||
+        !m_window->flags().testFlag(Qt::CustomizeWindowHint))
+        return false;
+    // Qt 6.12's expanded/custom-caption hit test synthesizes mouse events from
+    // GetAsyncKeyState across the entire client area, including releases with
+    // the old button mask. That corrupts Quick's button/grab/hover state. Keep
+    // ordinary input on WM_MOUSE* and leave caption gestures to the QML owner.
+    *result = HTCLIENT;
+    if (m_window->windowStates().testAnyFlags(Qt::WindowFullScreen | Qt::WindowMaximized) ||
+        IsZoomed(m_handle))
+        return true;
+    RECT bounds{};
+    if (!GetWindowRect(m_handle, &bounds))
+        return true;
+    // LPARAM is signed screen coordinates in physical pixels, also on monitors
+    // left/above the primary screen. Never mix these with QML's scaled geometry.
+    const int x = static_cast<short>(LOWORD(event.lParam));
+    const int y = static_cast<short>(HIWORD(event.lParam));
+    const UINT dpi = GetDpiForWindow(m_handle);
+    const int padding = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    const int borderX = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + padding;
+    const int borderY = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + padding;
+    const bool resizeX = m_window->minimumWidth() < m_window->maximumWidth();
+    const bool resizeY = m_window->minimumHeight() < m_window->maximumHeight();
+    const bool left = resizeX && x >= bounds.left && x < bounds.left + borderX;
+    const bool right = resizeX && x < bounds.right && x >= bounds.right - borderX;
+    const bool top = resizeY && y >= bounds.top && y < bounds.top + borderY;
+    const bool bottom = resizeY && y < bounds.bottom && y >= bounds.bottom - borderY;
+    if (left)
+        *result = top ? HTTOPLEFT : bottom ? HTBOTTOMLEFT : HTLEFT;
+    else if (right)
+        *result = top ? HTTOPRIGHT : bottom ? HTBOTTOMRIGHT : HTRIGHT;
+    else if (top)
+        *result = HTTOP;
+    else if (bottom)
+        *result = HTBOTTOM;
+    return true;
+}
+bool WindowsWindowBackdrop::nativeEventFilter(const QByteArray &, void *message, qintptr *result)
 {
     const auto *event = static_cast<MSG *>(message);
     if (!event || event->hwnd != m_handle)
         return false;
+    if (event->message == WM_NCHITTEST && hitTest(*event, result))
+        return true;
     if (event->message == WM_NCDESTROY) {
         m_handle = nullptr;
         m_enabled = m_suspended = false;
@@ -274,7 +317,7 @@ bool WindowsWindowBackdrop::nativeEventFilter(const QByteArray &, void *message,
                 qWarning("Failed to restore window Acrylic");
         }
     }
-    // Observe only: Qt continues processing activation, hit testing and ownership.
+    // All other messages retain Qt's activation, state and ownership handling.
     return false;
 }
 } // namespace EchoMusic

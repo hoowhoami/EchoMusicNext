@@ -37,6 +37,8 @@ Popup {
     readonly property alias discussionHost: discussion.item
     readonly property bool discussionActive: presentationActive && (opened || enteringPage)
     property Component controlsComponent: null
+    readonly property alias controlsItem: transport.item
+    property real controlsTopReserve: 0
     property Component windowActions: null
     property rect nativeWindowControlsBounds: Qt.rect(0, 0, 0, 0)
     readonly property bool hasNativeWindowControls: Qt.platform.os === "osx" && nativeWindowControlsBounds.width > 0
@@ -60,7 +62,12 @@ Popup {
     signal titleDragRequested
     signal titleDoubleClickRequested
     readonly property color backgroundColor: playbackPart.value("background", Theme.store.lyricBackground(playback.coverColor))
-    readonly property var lyricPalette: Theme.store.lyricPalette(backgroundColor)
+    // Match EchoMusic's LyricPage backgroundStyle -> lyricPageColorVariables:
+    // artwork uses a black base; the solid mode uses the cover-derived color.
+    // Hover ink still follows the current accent and its readability adjustment.
+    readonly property color paletteBackground: playback.lyricAppearance.backgroundBlur && playback.cover.toString().length > 0 ? "#000000" : backgroundColor
+    // Explicit inputs keep both background and accent changes observable to QML.
+    readonly property var lyricPalette: Theme.store.lyricPalette(paletteBackground, Theme.accent)
     readonly property ThemeColors colors: ThemeColors {
         tone: "white"
         text: page.lyricPalette.text
@@ -315,10 +322,11 @@ Popup {
                 objectName: "playbackWindowChrome"
                 width: parent.width
                 height: Math.max(46, 35 / page.uiScale)
-                MouseArea {
+                EchoWindowDragArea {
+                    objectName: "playbackTitleDragArea"
                     anchors.fill: parent
-                    onPressed: page.titleDragRequested()
-                    onDoubleClicked: page.titleDoubleClickRequested()
+                    onMoveRequested: page.titleDragRequested()
+                    onDoubleClickRequested: page.titleDoubleClickRequested()
                 }
                 Loader {
                     objectName: "playbackWindowActionsLoader"
@@ -451,27 +459,32 @@ Popup {
                         Layout.fillHeight: true
                     }
                 }
-                Loader {
-                    opacity: motion.hostOpacity * motion.contentOpacity
-                    transform: Translate {
-                        y: motion.contentOffset
-                    }
-                    // Destroy the view's native delegate pool on close/minimize.
-                    // A null ListView model alone can retain pooled glyph resources.
-                    active: page.resourceActive
+                Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumWidth: 0
                     Layout.minimumHeight: 0
-                    sourceComponent: CoverLyricViewport {
-                        objectName: "playbackLyricViewport"
-                        playback: page.playback
-                        colors: page.colors
-                        renderTime: page.renderTime
-                        resourceActive: page.resourceActive
-                        pageWidth: page.width
-                        pageHeight: page.height
-                        overlayRightReserve: page.lyricOverlayReserve
+                    Loader {
+                        anchors.fill: parent
+                        // Keep the lower page clear without letting the reserve
+                        // alter the GridLayout row or the cover's geometry.
+                        anchors.bottomMargin: Math.max(96, page.controlsTopReserve + 16)
+                        opacity: motion.hostOpacity * motion.contentOpacity
+                        transform: Translate {
+                            y: motion.contentOffset
+                        }
+                        // Destroy the native delegate pool on close/minimize.
+                        active: page.resourceActive
+                        sourceComponent: CoverLyricViewport {
+                            objectName: "playbackLyricViewport"
+                            playback: page.playback
+                            colors: page.colors
+                            renderTime: page.renderTime
+                            resourceActive: page.resourceActive
+                            pageWidth: page.width
+                            pageHeight: page.height
+                            overlayRightReserve: page.lyricOverlayReserve
+                        }
                     }
                 }
             }

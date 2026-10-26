@@ -157,7 +157,7 @@ pub async fn request_wire(
             &anonymous,
             Endpoint {
                 origin: Origin::Registration,
-                path: "/risk/v2/r_register_dev",
+                path: "/risk/v3/r_register_dev",
                 router: None,
                 method: reqwest::Method::POST,
                 params: std::collections::BTreeMap::from([

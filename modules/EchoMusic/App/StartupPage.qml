@@ -261,10 +261,10 @@ Rectangle {
     Item {
         width: parent.width
         height: Math.max(46, 35 / page.settings.uiScale)
-        MouseArea {
+        EchoWindowDragArea {
             anchors.fill: parent
-            onPressed: page.window.startSystemMove()
-            onDoubleClicked: page.windowService.toggleMaximized()
+            onMoveRequested: page.window.startSystemMove()
+            onDoubleClickRequested: page.windowService.toggleMaximized()
         }
         WindowActions {
             objectName: "startupWindowActions"

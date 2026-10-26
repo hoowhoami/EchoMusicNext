@@ -17,7 +17,7 @@ SettingsSection {
     LyricColorSettingsRow {
         uiScale: section.uiScale
         heading: qsTr("全局歌词颜色")
-        description: qsTr("皮肤未单独设置时使用的已播与未播字色；未播默认为灰白色")
+        description: qsTr("默认歌词颜色；皮肤中单独设置的颜色优先")
         coverColor: section.playback.coverColor
         playedColor: LyricColors.globalPlayed(section.playback.lyricAppearance, section.lyricAccent)
         unplayedColor: LyricColors.globalUnplayed(section.playback.lyricAppearance, section.lyricAccent)

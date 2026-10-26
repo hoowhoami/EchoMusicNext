@@ -1,5 +1,47 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
+#include <QOperatingSystemVersion>
+
+void ControlsUiTest::windowCaptionSeparatesDoubleClickFromDrag()
+{
+    ControlsSession session;
+    QVERIFY(session.create());
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+        import QtQuick
+        import EchoMusic.Controls
+        EchoWindowDragArea { width: 300; height: 60; scale: 1.25 }
+    )",
+                      QUrl());
+    QScopedPointer<QObject> owner(component.create());
+    QVERIFY2(owner, qPrintable(component.errorString()));
+    auto *area = qobject_cast<QQuickItem *>(owner.data());
+    QVERIFY(area);
+    area->setParentItem(session.window->contentItem());
+    area->setZ(1000);
+    QSignalSpy move(area, SIGNAL(moveRequested()));
+    QSignalSpy doubleClick(area, SIGNAL(doubleClickRequested()));
+    const QPoint start(50, 25);
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, start);
+    if (QOperatingSystemVersion::currentType() == QOperatingSystemVersion::Windows)
+        QCOMPARE(move.count(), 0);
+    QTest::mouseDClick(session.window, Qt::LeftButton, Qt::NoModifier, start);
+    QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, start);
+    QCOMPARE(doubleClick.count(), 1);
+    move.clear();
+    QTest::qWait(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 10);
+    QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, start);
+    QTest::mouseMove(session.window, start + QPoint(1, 0));
+    if (QOperatingSystemVersion::currentType() == QOperatingSystemVersion::Windows)
+        QCOMPARE(move.count(), 0);
+    const auto dragged = start + QPoint(QGuiApplication::styleHints()->startDragDistance() + 5, 0);
+    QTest::mouseMove(session.window, dragged);
+    QCOMPARE(move.count(), 1);
+    QTest::mouseMove(session.window, dragged + QPoint(10, 0));
+    QCOMPARE(move.count(), 1);
+    QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, dragged);
+    QCOMPARE(doubleClick.count(), 1);
+}
 
 void ControlsUiTest::listLocationPreservesVisibleRowsAndChecksOcclusion()
 {
