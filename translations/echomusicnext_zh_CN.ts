@@ -7336,6 +7336,40 @@
     </message>
 </context>
 <context>
+    <name>EchoMusic::TaskbarButtonController</name>
+    <message>
+        <location filename="../modules/EchoMusic/Shell/TaskbarButtonController.cpp" line="227"/>
+        <source>上一曲</source>
+        <translation>上一曲</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Shell/TaskbarButtonController.cpp" line="228"/>
+        <source>暂停</source>
+        <translation>暂停</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Shell/TaskbarButtonController.cpp" line="228"/>
+        <source>播放</source>
+        <translation>播放</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Shell/TaskbarButtonController.cpp" line="230"/>
+        <source>下一曲</source>
+        <translation>下一曲</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Shell/TaskbarButtonController.cpp" line="231"/>
+        <source>取消收藏</source>
+        <translation>取消收藏</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Shell/TaskbarButtonController.cpp" line="231"/>
+        <source>收藏</source>
+        <translation>收藏</translation>
+    </message>
+</context>
+
+<context>
     <name>EchoMusic::ThemeStore</name>
     <message>
         <location filename="../modules/EchoMusic/Theme/ThemeStore.cpp" line="665"/>
@@ -7566,8 +7600,13 @@
     </message>
     <message>
         <location filename="../modules/EchoMusic/Shell/WindowController.cpp" line="253"/>
-        <source>退出</source>
-        <translation>退出</translation>
+        <source>关闭任务栏歌词</source>
+        <translation>关闭任务栏歌词</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Shell/WindowController.cpp" line="253"/>
+        <source>退出EchoMusic</source>
+        <translation>退出EchoMusic</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Shell/WindowController.cpp" line="272"/>
@@ -16668,6 +16707,28 @@
         <location filename="../modules/EchoMusic/Settings/WindowSettingsSection.qml" line="47"/>
         <source>系统集成</source>
         <translation>系统集成</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Settings/WindowSettingsSection.qml" line="50"/>
+        <location filename="../modules/EchoMusic/Settings/WindowSettingsSection.qml" line="55"/>
+        <source>任务栏封面预览</source>
+        <translation>任务栏封面预览</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Settings/WindowSettingsSection.qml" line="51"/>
+        <source>悬停任务栏图标时显示专辑封面</source>
+        <translation>悬停任务栏图标时显示专辑封面</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Settings/WindowSettingsSection.qml" line="61"/>
+        <location filename="../modules/EchoMusic/Settings/WindowSettingsSection.qml" line="66"/>
+        <source>任务栏播放进度</source>
+        <translation>任务栏播放进度</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Settings/WindowSettingsSection.qml" line="62"/>
+        <source>在任务栏显示播放进度</source>
+        <translation>在任务栏显示播放进度</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/WindowSettingsSection.qml" line="50"/>

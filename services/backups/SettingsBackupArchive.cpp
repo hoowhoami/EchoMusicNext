@@ -126,6 +126,8 @@ bool SettingsBackupArchive::portableKey(const QString &key)
                                           EchoMusic::SettingsKeys::Window::HideDockInBackground,
                                           EchoMusic::SettingsKeys::Window::HideMenuBarInBackground,
                                           EchoMusic::SettingsKeys::Window::StartMinimized,
+                                          EchoMusic::SettingsKeys::Window::TaskbarCoverPreview,
+                                          EchoMusic::SettingsKeys::Window::TaskbarProgress,
                                           EchoMusic::SettingsKeys::Audio::PauseOnDisconnect};
     if (individual.contains(key))
         return true;

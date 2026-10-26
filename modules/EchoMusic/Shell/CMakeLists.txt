@@ -38,6 +38,8 @@ qt_add_qml_module(
     TaskbarLyricPreferences.cpp
     TaskbarLyricController.h
     TaskbarLyricController.cpp
+    TaskbarButtonController.h
+    TaskbarButtonController.cpp
     TaskbarLyricGeometry.h
     TaskbarLyricGeometry.cpp
     WindowController.h
@@ -116,6 +118,7 @@ target_link_libraries(
             echo_libraryui
             echo_libraryuiplugin
             Qt6::QuickControls2
+            Qt6::Svg
             Qt6::Widgets
 )
 

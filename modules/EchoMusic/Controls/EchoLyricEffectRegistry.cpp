@@ -2,6 +2,11 @@
 #include <algorithm>
 namespace EchoMusic
 {
+EchoLyricEffectRegistry::EchoLyricEffectRegistry(QQmlEngine &engine) : QObject(&engine) {}
+EchoLyricEffectRegistry *EchoLyricEffectRegistry::create(QQmlEngine *engine, QJSEngine *)
+{
+    return engine ? new EchoLyricEffectRegistry(*engine) : nullptr;
+}
 EchoLyricEffectRegistry *EchoLyricEffectRegistry::forEngine(QQmlEngine &e)
 {
     return e.singletonInstance<EchoLyricEffectRegistry *>("EchoMusic.Controls",

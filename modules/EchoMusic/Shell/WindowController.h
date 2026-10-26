@@ -8,6 +8,7 @@
 #include <QtQml/qqmlregistration.h>
 #include "StartupIntegration.h"
 #include "FloatingPlayerController.h"
+#include "TaskbarButtonController.h"
 #include "TaskbarLyricController.h"
 #include "WindowBackdrop.h"
 #include <memory>
@@ -26,6 +27,7 @@ class WindowController final : public QObject
     QML_UNCREATABLE("Owned by the application")
     Q_PROPERTY(EchoMusic::FloatingPlayerController *floating READ floating CONSTANT)
     Q_PROPERTY(EchoMusic::TaskbarLyricController *taskbar READ taskbar CONSTANT)
+    Q_PROPERTY(EchoMusic::TaskbarButtonController *taskbarButton READ taskbarButton CONSTANT)
     Q_PROPERTY(bool maximized READ maximized NOTIFY changed)
     Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY changed)
     Q_PROPERTY(bool rememberSize READ rememberSize WRITE setRememberSize NOTIFY changed)
@@ -65,6 +67,10 @@ public:
     TaskbarLyricController *taskbar()
     {
         return &m_taskbar;
+    }
+    TaskbarButtonController *taskbarButton()
+    {
+        return &m_taskbarButton;
     }
     /// Read-only system button bounds in Qt window coordinates; never moves them.
     QRectF nativeCaptionBounds() const;
@@ -134,6 +140,14 @@ public:
     // it restores the previous state without revealing a hidden/minimized host.
     Q_INVOKABLE void beginContentFullscreen(QObject *owner);
     Q_INVOKABLE void endContentFullscreen(QObject *owner);
+    /// Re-delivers the pointer's current position to the main window.
+    ///
+    /// Qt only updates hover while the pointer moves, so a surface that becomes
+    /// interactive after the pointer stopped moving - the playback page once its
+    /// entry transition is done - keeps whatever hover target the pointer had
+    /// before, which is none at all: no tooltips and no control highlights until
+    /// the pointer moves again.
+    Q_INVOKABLE void refreshPointerHover();
     Q_INVOKABLE void close();
     void shutdown();
     /// Pure placement rule, tested independently of a desktop/window manager.
@@ -158,11 +172,14 @@ private:
     void installTrayMenuModel();
     QMenu *createTrayMenu();
     QMenu *createDockMenu();
-    void addPlaybackMenuActions(QMenu *menu);
+    /// Built separately from the popup so the strip's menu is inspectable.
+    QMenu *createTaskbarLyricMenu();
+    void addPlaybackMenuActions(QMenu *menu, bool submenuModes = true);
     void addLyricsMenuActions(QMenu *menu);
     QSettings &m_settings;
     FloatingPlayerController m_floating;
     TaskbarLyricController m_taskbar;
+    TaskbarButtonController m_taskbarButton;
     QPointer<QQuickWindow> m_window;
     QList<QPointer<QQuickWindow>> m_pluginWindows;
     QPointer<QObject> m_contentFullscreenOwner;

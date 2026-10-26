@@ -148,6 +148,7 @@ void EchoImageMetrics::setItem(QQuickItem *item)
     m_item = item;
     m_pixels = {};
     m_decodePixels = {};
+    m_deviceSize = {};
     rebuild();
     emit itemChanged();
     emit metricsChanged();
@@ -160,6 +161,7 @@ void EchoImageMetrics::setActive(bool active)
     if (!active) {
         m_pixels = {};
         m_decodePixels = {};
+        m_deviceSize = {};
     }
     rebuild();
     emit activeChanged();
@@ -257,12 +259,23 @@ void EchoImageMetrics::updateSize()
     const QSize requested(
         bucket(qMax(m_item->width(), m_minimumSize.width()) * std::hypot(x.x(), x.y()) * dpr),
         bucket(qMax(m_item->height(), m_minimumSize.height()) * std::hypot(y.x(), y.y()) * dpr));
+    // Glyph rasters need the un-bucketed device-pixel size: the artwork bucket
+    // floor (32px) makes a small icon rasterize at ~2x its display size, and
+    // the bilinear downscale then aliases line-art strokes.
+    const auto glyphAxis = [](qreal itemPixels, qreal transformLength, qreal ratio) {
+        const qreal devicePixels =
+            qIsFinite(itemPixels) ? itemPixels * transformLength * ratio : 0.;
+        return devicePixels > 0 ? qCeil(devicePixels) : 1;
+    };
+    const QSize device(glyphAxis(m_item->width(), std::hypot(x.x(), x.y()), dpr),
+                       glyphAxis(m_item->height(), std::hypot(y.x(), y.y()), dpr));
     const auto size = m_pixels.expandedTo(display);
     const auto decoded = m_decodePixels.expandedTo(requested);
-    if (size == m_pixels && decoded == m_decodePixels)
+    if (size == m_pixels && decoded == m_decodePixels && device == m_deviceSize)
         return;
     m_pixels = size;
     m_decodePixels = decoded;
+    m_deviceSize = device;
     emit metricsChanged();
 }
 } // namespace EchoMusic

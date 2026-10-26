@@ -36,7 +36,11 @@ RowLayout {
         implicitWidth: controls.controlSize
         implicitHeight: controls.controlSize
         radius: 6
-        color: fillColor
+        // Hover stays declarative on purpose: assigning color imperatively in
+        // onEntered/onExited would break the fillColor binding, so a fill that
+        // follows the accent (the play/pause key) would keep the stale song's
+        // color until the next hover cycle.
+        color: area.containsMouse ? hoverColor : fillColor
         EchoIcon {
             anchors.centerIn: parent
             name: button.glyph
@@ -45,11 +49,10 @@ RowLayout {
             color: button.glyphColor
         }
         MouseArea {
+            id: area
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onEntered: button.color = button.hoverColor
-            onExited: button.color = button.fillColor
             onClicked: button.clicked()
         }
     }

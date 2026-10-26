@@ -96,8 +96,27 @@ Popup {
         syncClock(true);
         playback.ensureLyrics();
     }
-    onOpened: motion.finish()
-    onClosed: motion.finish()
+    // The page only accepts pointer input once it has finished entering: until
+    // then the layout is still moving, so one click can be split across two
+    // surfaces (press on one item, release on another). A split click leaves the
+    // window's pointer state stuck - no control reports hover any more and a
+    // press on the progress row seeks by accident.
+    property bool acceptingInput: false
+    onOpened: {
+        motion.finish();
+        acceptingInput = true;
+    }
+    onClosed: {
+        motion.finish();
+        acceptingInput = false;
+    }
+    // Fallback for an interrupted entry transition: never leave the page
+    // without interaction.
+    Timer {
+        interval: 700
+        running: page.visible && page.enteringPage && !page.acceptingInput
+        onTriggered: page.acceptingInput = true
+    }
     onAboutToHide: {
         skinsOwner.close();
         sourceDialogOwner.close();
@@ -251,6 +270,7 @@ Popup {
     }
     contentItem: EchoBackdropRoot {
         objectName: "playbackBackdropScene"
+        enabled: page.acceptingInput
         samplingActive: page.visible
         readonly property string echoUiSurface: "playback"
         opacity: playbackPart.value("opacity", 1)
