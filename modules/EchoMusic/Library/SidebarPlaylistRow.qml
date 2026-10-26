@@ -19,6 +19,7 @@ ItemDelegate {
     property bool selected: false
     property bool resourceActive: true
     property bool busy: false
+    readonly property bool canEdit: kind === "owned" && !defaultKind
     signal openRequested(double cloudId)
     signal editRequested(double cloudId)
     signal removeRequested(double cloudId, string title, bool owned)
@@ -43,11 +44,14 @@ ItemDelegate {
             source: row.coverUrl
             resourceActive: row.resourceActive
         }
-        EchoTextTagRow {
+        EchoTextLine {
             id: titleLabel
+            objectName: "sidebarPlaylistTitle"
             visible: !row.collapsed
             Layout.fillWidth: true
-            Layout.rightMargin: removeAction.visible ? 64 : 0
+            Layout.minimumWidth: 0
+            Layout.alignment: Qt.AlignVCenter
+            Layout.rightMargin: (editAction.visible ? 32 : 0) + (removeAction.visible ? 32 : 0)
             text: row.title
             color: row.selected ? Theme.accentText : Theme.text
             font: Theme.font(14, row.selected ? Theme.semiboldWeight : Theme.regularWeight)
@@ -57,7 +61,7 @@ ItemDelegate {
     EchoIconButton {
         id: editAction
         objectName: "sidebarPlaylistEdit"
-        visible: !row.collapsed && !row.defaultKind && (row.hovered || row.visualFocus || hovered || removeAction.hovered)
+        visible: !row.collapsed && row.canEdit && (row.hovered || row.visualFocus || hovered || removeAction.hovered)
         enabled: !row.busy
         anchors.right: parent.right
         anchors.rightMargin: 42
@@ -71,6 +75,7 @@ ItemDelegate {
     }
     EchoIconButton {
         id: removeAction
+        objectName: "sidebarPlaylistRemove"
         visible: !row.collapsed && !row.defaultKind && (row.hovered || row.visualFocus || hovered || editAction.hovered)
         enabled: !row.busy
         anchors.right: parent.right
@@ -83,21 +88,9 @@ ItemDelegate {
         text: row.kind === "owned" ? qsTr("删除歌单") : qsTr("取消收藏")
         onClicked: row.removeRequested(row.cloudListId, row.title, row.kind === "owned")
     }
-    Keys.onPressed: event => {
-        if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
-            if (!row.defaultKind && !row.busy)
-                row.editRequested(row.cloudListId);
-            event.accepted = true;
-        }
-    }
-    TapHandler {
-        acceptedButtons: Qt.RightButton
-        onTapped: if (!row.defaultKind && !row.busy)
-            row.editRequested(row.cloudListId)
-    }
     EchoToolTip {
         parent: row
-        requestedVisible: row.hovered && (row.collapsed || titleLabel.truncated)
+        requestedVisible: row.hovered && (row.collapsed || titleLabel.isTruncated())
         text: row.title
     }
 }

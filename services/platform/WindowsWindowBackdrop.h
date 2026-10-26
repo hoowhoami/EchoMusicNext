@@ -30,6 +30,7 @@ private:
     bool accent(int state);
     bool material(bool enabled);
     void applyWindowPolicy();
+    void applyFullscreenGeometry();
     void queueRepair();
     bool hitTest(const MSG &event, qintptr *result) const;
     QMetaObject::Connection m_visibilityConnection;

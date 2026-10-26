@@ -926,6 +926,84 @@ elif sys.argv[1] == 'dispatch':
         QVERIFY(hasFrame());
 #endif
     }
+    void windowsFullscreenCoversMonitorAcrossNativeTransitions()
+    {
+#ifndef Q_OS_WIN
+        QSKIP("Requires Windows native geometry and state transitions");
+#else
+        if (QGuiApplication::platformName() != "windows" ||
+            QOperatingSystemVersion::current().microVersion() < 22621)
+            QSKIP("Requires Windows 11 22H2+ expanded client area");
+        ThemeSession session;
+        QVERIFY(session.create());
+        auto &window = *session.window;
+        window.resize(1150, 750);
+        window.show();
+        QVERIFY(Test::prepareNativeInput(&window));
+        WindowBackdrop backdrop(true);
+        backdrop.attach(&window);
+        const auto handle = reinterpret_cast<HWND>(window.winId());
+        const auto normalStyle = GetWindowLongPtrW(handle, GWL_STYLE);
+        // Reproduce the native half of Qt's transition before QWindow has
+        // published FullScreen. Drain the adapter repair at that exact point.
+        const auto nativeFullscreenStyle =
+            normalStyle &
+            ~LONG_PTR(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_MAXIMIZE);
+        SetWindowLongPtrW(handle, GWL_STYLE, nativeFullscreenStyle);
+        QCoreApplication::processEvents();
+        QVERIFY(!window.windowStates().testFlag(Qt::WindowFullScreen));
+        QVERIFY(!(GetWindowLongPtrW(handle, GWL_STYLE) & WS_CAPTION));
+        SetWindowLongPtrW(handle, GWL_STYLE, normalStyle);
+        QCoreApplication::processEvents();
+        const auto coversMonitor = [&] {
+            MONITORINFO monitor{sizeof(MONITORINFO)};
+            RECT bounds{}, client{};
+            POINT origin{};
+            if (!GetMonitorInfoW(MonitorFromWindow(handle, MONITOR_DEFAULTTONEAREST), &monitor) ||
+                !GetWindowRect(handle, &bounds) || !GetClientRect(handle, &client) ||
+                !ClientToScreen(handle, &origin))
+                return false;
+            return EqualRect(&bounds, &monitor.rcMonitor) && origin.x == bounds.left &&
+                   origin.y == bounds.top && client.right == bounds.right - bounds.left &&
+                   client.bottom == bounds.bottom - bounds.top;
+        };
+        for (bool maximized : {false, true}) {
+            window.showNormal();
+            QCoreApplication::processEvents();
+            const auto normal = window.geometry();
+            if (maximized)
+                window.showMaximized();
+            window.showFullScreen();
+            QTRY_VERIFY(window.windowStates().testFlag(Qt::WindowFullScreen));
+            QCoreApplication::processEvents();
+            QTRY_VERIFY(coversMonitor());
+            QVERIFY(!(GetWindowLongPtrW(handle, GWL_STYLE) & (WS_CAPTION | WS_THICKFRAME)));
+            auto *content = window.property("contentItem").value<QQuickItem *>();
+            QVERIFY(content);
+            QCOMPARE(content->mapRectToScene(content->boundingRect()),
+                     QRectF(QPointF(), QSizeF(window.size())));
+            window.hide();
+            window.show();
+            QCoreApplication::processEvents();
+            QTRY_VERIFY(coversMonitor());
+            window.setWindowStates(Qt::WindowFullScreen | Qt::WindowMinimized);
+            QCoreApplication::processEvents();
+            QVERIFY(IsIconic(handle));
+            window.setWindowStates(Qt::WindowFullScreen);
+            QCoreApplication::processEvents();
+            QTRY_VERIFY(coversMonitor());
+            if (maximized)
+                window.showMaximized();
+            else
+                window.showNormal();
+            QCoreApplication::processEvents();
+            QCOMPARE(window.windowState(), maximized ? Qt::WindowMaximized : Qt::WindowNoState);
+            QVERIFY(GetWindowLongPtrW(handle, GWL_STYLE) & WS_THICKFRAME);
+            if (!maximized)
+                QCOMPARE(window.geometry(), normal);
+        }
+#endif
+    }
     void windowsCustomCaptionKeepsNativeMouseHover()
     {
 #ifndef Q_OS_WIN

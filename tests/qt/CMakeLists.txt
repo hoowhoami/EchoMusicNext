@@ -497,6 +497,13 @@ if(WIN32)
         windows-window-material PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows" TIMEOUT 45
                                            RUN_SERIAL TRUE
     )
+    add_test(NAME windows-window-fullscreen
+             COMMAND echo-theme-test windowsFullscreenCoversMonitorAcrossNativeTransitions
+    )
+    set_tests_properties(
+        windows-window-fullscreen PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows" TIMEOUT 30
+                                             RUN_SERIAL TRUE
+    )
 endif()
 echo_copy_rust_runtime(echo-search-ui-test)
 echo_copy_rust_runtime(echo-theme-test)

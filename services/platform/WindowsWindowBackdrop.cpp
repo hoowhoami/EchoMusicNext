@@ -105,7 +105,12 @@ void WindowsWindowBackdrop::applyWindowPolicy()
         return;
     if (m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint) &&
         m_window->flags().testFlag(Qt::CustomizeWindowHint) &&
-        !m_window->windowStates().testFlag(Qt::WindowFullScreen)) {
+        !m_window->windowStates().testFlag(Qt::WindowFullScreen) &&
+        (GetWindowLongPtrW(m_handle, GWL_STYLE) & WS_THICKFRAME)) {
+        // QWindow publishes its new state only after the QPA transition. A
+        // queued repair can run during that transition, while QWindow still
+        // says Normal/Maximized but Qt has already removed the native frame.
+        // Never put the caption back onto that fullscreen-style HWND.
         // Qt disables SC_CLOSE when CustomizeWindowHint omits its native close
         // button. The QML caption still needs the system menu and Alt+F4.
         if (const auto menu = GetSystemMenu(m_handle, FALSE))
@@ -134,6 +139,7 @@ void WindowsWindowBackdrop::applyWindowPolicy()
                              SWP_NOACTIVATE);
         }
     }
+    applyFullscreenGeometry();
     // Frameless Qt windows do not qualify for DWM's automatic heuristics.
     // This documented opt-in is independent of the user's Acrylic preference;
     // DWM still owns square maximized/snapped/full-screen corners.
@@ -142,6 +148,40 @@ void WindowsWindowBackdrop::applyWindowPolicy()
                                               sizeof(preference));
     if (FAILED(result))
         qWarning("DWM rounded-corner request failed: HRESULT=0x%08lx", DWORD(result));
+}
+void WindowsWindowBackdrop::applyFullscreenGeometry()
+{
+    if (!m_window || !m_window->flags().testFlag(Qt::ExpandedClientAreaHint) ||
+        !m_window->windowStates().testFlag(Qt::WindowFullScreen) ||
+        m_window->windowStates().testFlag(Qt::WindowMinimized) || IsIconic(m_handle) ||
+        !IsWindowVisible(m_handle))
+        return;
+    MONITORINFO monitor{sizeof(MONITORINFO)};
+    RECT bounds{};
+    if (!GetMonitorInfoW(MonitorFromWindow(m_handle, MONITOR_DEFAULTTONEAREST), &monitor) ||
+        !GetWindowRect(m_handle, &bounds))
+        return;
+    // A caption/frame repaired during Qt's synchronous state transition can
+    // constrain the window to rcWork. Reconcile the completed fullscreen
+    // request with rcMonitor in native pixels, without replacing Qt's saved
+    // normal geometry, flags, activation or minimize/restore ownership.
+    const LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_STYLE);
+    // The inverse transition has the same ordering: Qt may still publish
+    // FullScreen after restoring its saved native frame. Do not undo that exit.
+    if (style & WS_THICKFRAME)
+        return;
+    const LONG_PTR fullscreenStyle = style & ~LONG_PTR(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX |
+                                                       WS_MAXIMIZEBOX | WS_MAXIMIZE);
+    const bool changed = style != fullscreenStyle;
+    if (changed)
+        SetWindowLongPtrW(m_handle, GWL_STYLE, fullscreenStyle);
+    const auto &screen = monitor.rcMonitor;
+    if (changed || !EqualRect(&bounds, &screen)) {
+        if (!SetWindowPos(m_handle, nullptr, screen.left, screen.top, screen.right - screen.left,
+                          screen.bottom - screen.top,
+                          SWP_NOZORDER | SWP_NOACTIVATE | (changed ? SWP_FRAMECHANGED : 0)))
+            qWarning("Fullscreen monitor geometry failed: error=%lu", GetLastError());
+    }
 }
 bool WindowsWindowBackdrop::supported() const
 {
@@ -300,7 +340,8 @@ bool WindowsWindowBackdrop::nativeEventFilter(const QByteArray &, void *message,
         m_handle = nullptr;
         m_enabled = m_suspended = false;
     } else if (m_build >= 22000 &&
-               (event->message == WM_DWMCOMPOSITIONCHANGED || event->message == WM_STYLECHANGED)) {
+               (event->message == WM_DWMCOMPOSITIONCHANGED || event->message == WM_STYLECHANGED ||
+                event->message == WM_DPICHANGED || event->message == WM_DISPLAYCHANGE)) {
         queueRepair();
     }
     if (m_enabled && m_build < 22621) {

@@ -217,11 +217,8 @@ quint64 PlaylistDetailContext::editListId() const
     for (int row = 0; row < m_library.rowCount(); ++row) {
         const auto index = m_library.index(row);
         const auto kind = index.data(UserPlaylistModel::KindRole).toString();
-        const auto target = index
-                                .data(kind == "collected" ? UserPlaylistModel::CreatorGlobalIdRole
-                                                          : UserPlaylistModel::GlobalIdRole)
-                                .toString();
-        if (target != global || (kind != "owned" && kind != "collected") ||
+        const auto target = index.data(UserPlaylistModel::GlobalIdRole).toString();
+        if (target != global || kind != "owned" ||
             index.data(UserPlaylistModel::SourceCodeRole).toUInt() == 2 ||
             index.data(UserPlaylistModel::DefaultKindRole).toUInt())
             continue;

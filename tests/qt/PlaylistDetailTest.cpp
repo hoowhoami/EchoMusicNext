@@ -35,6 +35,14 @@ public:
 class UserPlaylistModelTestAccess
 {
 public:
+    static void setKind(UserPlaylistModel &model, const QString &kind)
+    {
+        auto &row = model.m_rows[0];
+        row.kind = kind;
+        row.globalId = kind == "owned" ? "cover-playlist" : "local-collection";
+        row.creatorGlobalId = "cover-playlist";
+        emit model.changed();
+    }
     static void accept(UserPlaylistModel &model, ApiClient &api, const QJsonObject &payload)
     {
         model.m_request = 123;
@@ -1172,6 +1180,31 @@ Window {
         playback.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
         api.shutdown();
+    }
+    void playlistDetailEditEntryRequiresOwnedLibraryMembership()
+    {
+        QTemporaryDir dir;
+        QSettings preferences(dir.filePath("settings.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(100, "edit-ownership-fixture"));
+        PlaybackService playback(api, preferences, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api);
+        PlaylistMutationService mutations(api);
+        PlaylistOrderModel order(api, mutations);
+        RouteController router;
+        SongMetadataService metadata(api);
+        PlaylistDetailService service(api, playback, library, mutations, order, metadata, router,
+                                      false);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("playlist-detail", {}, "cover-playlist"));
+        auto *context = service.contextFor(router.current());
+        QVERIFY(context);
+        PlaylistDetailContextTestAccess::seed(*context, "Owner playlist");
+        UserPlaylistModelTestAccess::setKind(library, "owned");
+        QCOMPARE(context->editListId(), quint64(7));
+        UserPlaylistModelTestAccess::setKind(library, "collected");
+        QCOMPARE(context->editListId(), quint64(0));
     }
     void ownedPlaylistOrderPopupKeepsLocalTargetThroughInvalidation()
     {

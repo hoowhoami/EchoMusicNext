@@ -42,6 +42,12 @@ namespace EchoMusic
 class UserPlaylistModelTestAccess
 {
 public:
+    static void setKind(UserPlaylistModel &model, const QString &kind)
+    {
+        model.m_rows[0].kind = kind;
+        emit model.dataChanged(model.index(0), model.index(0), {UserPlaylistModel::KindRole});
+        emit model.changed();
+    }
     static void seed(UserPlaylistModel &model, ApiClient &api, const QString &title, quint64 source,
                      quint64 creatorListId, quint64 cloudId = 7)
     {
@@ -569,7 +575,7 @@ private slots:
         api.shutdown();
     }
 
-    void playlistEditorFillsAbsentFieldsAndKeepsCollectedIdentity()
+    void playlistEditorFillsAbsentFieldsAndKeepsOwnedIdentity()
     {
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
@@ -580,7 +586,7 @@ private slots:
         PlaylistEditModel editor(api, library, mutations);
         editor.open(7);
         const QByteArray page =
-            R"({"user_id":100,"total_revision":9,"page":{"total":1,"items":[{"cloud_list_id":7,"creator_global_id":"public-creator-id","title":"Original","kind":"collected","source_code":1,"sort_index":3,"description_present":false,"tags_present":false}]}})";
+            R"({"user_id":100,"total_revision":9,"page":{"total":1,"items":[{"cloud_list_id":7,"global_id":"collection","title":"Original","kind":"owned","source_code":1,"sort_index":3,"description_present":false,"tags_present":false}]}})";
         PlaylistEditModelTestAccess::complete(editor, page);
         QVERIFY(!editor.loaded());
         const auto detailRead = PlaylistEditModelTestAccess::request(editor);
@@ -589,7 +595,7 @@ private slots:
                  QString("playlist_detail"));
         PlaylistEditModelTestAccess::complete(
             editor,
-            R"([{"global_id":"public-creator-id","description":"保留的公开简介","tags":"华语,流行"}])");
+            R"([{"global_id":"collection","description":"保留的公开简介","tags":"华语,流行"}])");
         QVERIFY(editor.loaded());
         QCOMPARE(editor.description(), QString("保留的公开简介"));
         editor.setTitle("Personal name");
@@ -601,11 +607,40 @@ private slots:
         QCOMPARE(command["operation"].toString(), QString("playlist_update"));
         const auto query = command["query"].toObject();
         QCOMPARE(query["cloud_list_id"].toInteger(), qint64(7));
-        QCOMPARE(query["kind"].toString(), QString("collected"));
+        QCOMPARE(query["kind"].toString(), QString("owned"));
         QCOMPARE(query["description"].toString(), QString("保留的公开简介"));
         QCOMPARE(query["tags"].toString(), QString("华语,流行"));
         mutations.cancel();
         editor.close();
+        api.shutdown();
+    }
+
+    void collectedPlaylistsCannotEnterOrCompleteEditing()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "Original", 1, 0);
+        PlaylistMutationService mutations(api);
+        PlaylistEditModel editor(api, library, mutations);
+        QVERIFY(editor.canEdit(7));
+        editor.open(7);
+        PlaylistEditModelTestAccess::complete(
+            editor,
+            R"({"user_id":100,"total_revision":9,"page":{"total":1,"items":[{"cloud_list_id":7,"creator_global_id":"public-creator-id","title":"Original","kind":"collected","source_code":1,"sort_index":3,"description_present":true,"tags_present":true}]}})");
+        QVERIFY(!editor.loaded());
+        QVERIFY(!editor.errorMessage().isEmpty());
+        QCOMPARE(PlaylistEditModelTestAccess::request(editor), quint64(0));
+        UserPlaylistModelTestAccess::setKind(library, "collected");
+        QVERIFY(!editor.canEdit(7));
+        editor.open(7);
+        QVERIFY(!editor.loading());
+        QVERIFY(!editor.loaded());
+        editor.setTitle("Cannot write");
+        editor.save();
+        QCOMPARE(PlaylistEditModelTestAccess::request(editor), quint64(0));
+        QCOMPARE(PlaylistMutationServiceTestAccess::request(mutations), quint64(0));
         api.shutdown();
     }
 

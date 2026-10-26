@@ -27,8 +27,7 @@ QString normalizedTags(const QString &text)
 bool editable(const QJsonObject &row)
 {
     const auto kind = row["kind"].toString();
-    return (kind == "owned" || kind == "collected") && row["source_code"].toInt() != 2 &&
-           row["default_kind"].toInt() == 0;
+    return kind == "owned" && row["source_code"].toInt() != 2 && row["default_kind"].toInt() == 0;
 }
 } // namespace
 PlaylistEditModel::PlaylistEditModel(ApiClient &api, UserPlaylistModel &source,
@@ -76,8 +75,7 @@ bool PlaylistEditModel::canEdit(quint64 id) const
         const auto index = m_source.index(row);
         if (index.data(UserPlaylistModel::CloudListIdRole).toULongLong() == id) {
             const auto kind = index.data(UserPlaylistModel::KindRole).toString();
-            return (kind == "owned" || kind == "collected") &&
-                   index.data(UserPlaylistModel::SourceCodeRole).toUInt() != 2 &&
+            return kind == "owned" && index.data(UserPlaylistModel::SourceCodeRole).toUInt() != 2 &&
                    !index.data(UserPlaylistModel::DefaultKindRole).toUInt();
         }
     }
@@ -220,12 +218,9 @@ void PlaylistEditModel::accept(quint64 id, const QByteArray &bytes)
         }
         m_snapshot = row;
         m_update = {{m_id}, m_version, row["sort_index"].toInteger(), {}, {}, {}};
-        m_update.kind = row["kind"].toString() == "collected" ? ApiClient::PlaylistKind::Collected
-                                                              : ApiClient::PlaylistKind::Owned;
+        m_update.kind = ApiClient::PlaylistKind::Owned;
         if (!row["description_present"].toBool() || !row["tags_present"].toBool()) {
-            const auto global =
-                row[row["kind"].toString() == "collected" ? "creator_global_id" : "global_id"]
-                    .toString();
+            const auto global = row["global_id"].toString();
             if (global.isEmpty()) {
                 fail(tr("缺少完整歌单信息，请重新加载"));
                 return;

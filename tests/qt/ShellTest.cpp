@@ -129,6 +129,134 @@ private slots:
         QQuickStyle::setStyle("Basic");
         configureUiTypography();
     }
+    void sidebarLongPlaylistTitleKeepsItsLineOnHover()
+    {
+        QTemporaryDir directory;
+        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        ThemeStore theme(preferences);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import EchoMusic.Library
+            import EchoMusic.Theme
+            Window {
+                width: 360; height: 180; visible: true
+                color: Theme.shell
+                Item {
+                    objectName: "rowHost"; x: 20; y: 20
+                    SidebarPlaylistRow {
+                        width: 184
+                        title: "很长的中文歌单名称以及 English playlist title 0123456789"
+                        coverUrl: ""; cloudListId: 7; globalId: "probe"
+                        creatorGlobalId: "owner"; kind: "owned"; defaultKind: 0
+                    }
+                }
+            }
+        )",
+                          QUrl());
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        auto *host = findVisual(window->contentItem(), "rowHost");
+        auto *row = findVisual(host, "sidebarPlaylistRow");
+        auto *label = findVisual(row, "sidebarPlaylistTitle");
+        auto *edit = findVisual(row, "sidebarPlaylistEdit");
+        QVERIFY(row && label && edit);
+        auto *text = label->property("textItem").value<QQuickItem *>();
+        QVERIFY(text);
+        const auto render = [&] {
+            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            window->update();
+            return QTest::qWaitFor([&] { return !frames.isEmpty(); });
+        };
+        const auto inkCenter = [&] {
+            const auto projected = label->property("firstLineInkCenter");
+            double value = projected.toDouble();
+            if (!projected.isValid() && !QMetaObject::invokeMethod(label, "firstLineInkCenter",
+                                                                   Q_RETURN_ARG(double, value)))
+                return qQNaN();
+            return label->mapToScene({0, value}).y();
+        };
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (qreal scale : {1., 1.25}) {
+                host->setScale(scale);
+                for (const auto &title :
+                     {QStringLiteral("很长的中文歌单名称以及 English playlist title"),
+                      QStringLiteral("A very long playlist with gypq and 0123456789")}) {
+                    row->setProperty("title", title);
+                    for (int width : {166, 184, 200}) {
+                        row->setWidth(width);
+                        Test::moveNativePointer(window, {340, 160});
+                        QTRY_VERIFY(!row->property("hovered").toBool());
+                        QVERIFY(render());
+                        const auto height = label->height();
+                        const auto center = label->mapToScene({0, label->height() / 2}).y();
+                        const auto glyphCenter = inkCenter();
+                        QVERIFY(qIsFinite(glyphCenter));
+                        const auto textWidth = text->width();
+                        QCOMPARE(text->property("lineCount").toInt(), 1);
+                        Test::moveNativePointer(window, row->mapToScene({10, 20}).toPoint());
+                        QTRY_VERIFY(edit->isVisible());
+                        QVERIFY(render());
+                        QCOMPARE(label->height(), height);
+                        QVERIFY(qAbs(label->mapToScene({0, label->height() / 2}).y() - center) <
+                                .01);
+                        QVERIFY(qAbs(inkCenter() - glyphCenter) < .01);
+                        QCOMPARE(text->property("lineCount").toInt(), 1);
+                        QVERIFY(text->width() < textWidth);
+                        const auto textRight = text->mapToScene({text->width(), 0}).x();
+                        QVERIFY(textRight <= edit->mapToScene({0, 0}).x());
+                        const auto captures = qEnvironmentVariable("ECHO_SIDEBAR_ROW_CAPTURE_DIR");
+                        if (!captures.isEmpty() && width == 184) {
+                            QVERIFY(QDir().mkpath(captures));
+                            QVERIFY(window->grabWindow().save(
+                                captures + QString("/row-%1-%2-%3.png")
+                                               .arg(int(mode))
+                                               .arg(scale)
+                                               .arg(title.startsWith("A") ? "latin" : "mixed")));
+                        }
+                    }
+                }
+            }
+        }
+        auto *remove = findVisual(row, "sidebarPlaylistRemove");
+        QVERIFY(remove);
+        QSignalSpy edits(row, SIGNAL(editRequested(double)));
+        QSignalSpy removals(row, SIGNAL(removeRequested(double, QString, bool)));
+        host->setScale(1);
+        row->setWidth(184);
+        for (const auto &kind : {QStringLiteral("owned"), QStringLiteral("collected")}) {
+            row->setProperty("kind", kind);
+            Test::moveNativePointer(window, row->mapToScene({10, 20}).toPoint());
+            QVERIFY(render());
+            QCOMPARE(edit->isVisible(), kind == "owned");
+            QVERIFY(remove->isVisible());
+            QCOMPARE(remove->property("text").toString(),
+                     kind == "owned" ? QStringLiteral("删除歌单") : QStringLiteral("取消收藏"));
+            QTest::mouseClick(window, Qt::RightButton, Qt::NoModifier,
+                              row->mapToScene({10, 20}).toPoint());
+            row->forceActiveFocus(Qt::TabFocusReason);
+            QTest::keyClick(window, Qt::Key_Menu);
+            QTest::keyClick(window, Qt::Key_F10, Qt::ShiftModifier);
+            QCOMPARE(edits.count(), 0);
+            if (kind == "owned") {
+                QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                                  edit->mapToScene(edit->boundingRect().center()).toPoint());
+                QCOMPARE(edits.count(), 1);
+                edits.clear();
+            }
+        }
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          remove->mapToScene(remove->boundingRect().center()).toPoint());
+        QCOMPARE(removals.count(), 1);
+        QCOMPARE(removals.first().at(0).toDouble(), 7.);
+        QCOMPARE(removals.first().at(2).toBool(), false);
+        QCOMPARE(edits.count(), 0);
+    }
     void smsRequestsShareOneSubmissionLifetime()
     {
         ApiClient api(DeviceIdentity::temporary());
