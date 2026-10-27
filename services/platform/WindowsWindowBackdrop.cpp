@@ -2,11 +2,16 @@
 #include <QCoreApplication>
 #include <QOperatingSystemVersion>
 #include <QWindow>
+#include <QJsonDocument>
+#include <QLoggingCategory>
+#include <QColor>
 #include <dwmapi.h>
+#include <commctrl.h>
 namespace EchoMusic
 {
 namespace
 {
+Q_LOGGING_CATEGORY(windowLog, "echo.platform.windows.window")
 struct AccentPolicy
 {
     int state;
@@ -27,6 +32,13 @@ SetComposition compositionApi()
     const auto module = GetModuleHandleW(L"user32.dll");
     return module ? reinterpret_cast<SetComposition>(
                         GetProcAddress(module, "SetWindowCompositionAttribute"))
+                  : nullptr;
+}
+SetComposition compositionReadApi()
+{
+    const auto module = GetModuleHandleW(L"user32.dll");
+    return module ? reinterpret_cast<SetComposition>(
+                        GetProcAddress(module, "GetWindowCompositionAttribute"))
                   : nullptr;
 }
 bool alphaBehind(HWND handle, bool enabled)
@@ -73,6 +85,7 @@ WindowsWindowBackdrop::~WindowsWindowBackdrop()
     if (qApp)
         qApp->removeNativeEventFilter(this);
     clear();
+    releaseSurface();
 }
 Qt::WindowFlags WindowsWindowBackdrop::windowFlags(int build)
 {
@@ -88,16 +101,75 @@ Qt::WindowFlags WindowsWindowBackdrop::windowFlags(int build)
 void WindowsWindowBackdrop::attach(QWindow *window)
 {
     const auto handle = window ? reinterpret_cast<HWND>(window->winId()) : nullptr;
-    if (window && m_window == window && m_handle == handle)
+    if (window && m_window == window && m_handle == handle && m_subclassInstalled)
         return;
     clear();
+    releaseSurface();
     disconnect(m_visibilityConnection);
     m_window = window;
     m_handle = handle;
+    m_error.clear();
     if (window)
         m_visibilityConnection =
             connect(window, &QWindow::visibilityChanged, this, [this] { queueRepair(); });
+    if (m_handle) {
+        m_subclassInstalled =
+            SetWindowSubclass(m_handle, windowProcedure, reinterpret_cast<UINT_PTR>(this),
+                              reinterpret_cast<DWORD_PTR>(this));
+        if (!m_subclassInstalled)
+            qCWarning(windowLog) << "Window input/composition subclass failed" << GetLastError();
+        if (!configureSurface())
+            qCWarning(windowLog) << "Window composition surface setup failed" << GetLastError();
+    }
     applyWindowPolicy();
+    logState("attach");
+}
+bool WindowsWindowBackdrop::configureSurface()
+{
+    if (!m_window || !m_handle || !IsWindow(m_handle))
+        return false;
+    if (m_build < 22621 || m_window->surfaceType() != QSurface::Direct3DSurface ||
+        m_window->requestedFormat().alphaBufferSize() <= 0)
+        return true;
+    // Qt Quick's D3D swapchain already uses DirectComposition premultiplied
+    // alpha. Its HWND must not keep an opaque redirection bitmap underneath it.
+    // Apply only to this D3D HWND, never through the process-wide Qt environment
+    // switch (which would also affect OpenGL/software popups and other windows).
+    const LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_EXSTYLE);
+    if (style & WS_EX_LAYERED)
+        return false;
+    if (!(style & WS_EX_NOREDIRECTIONBITMAP)) {
+        if (!SetWindowLongPtrW(m_handle, GWL_EXSTYLE, style | WS_EX_NOREDIRECTIONBITMAP)) {
+            // A previous zero EXSTYLE is valid; distinguish it from an API error.
+            if (GetWindowLongPtrW(m_handle, GWL_EXSTYLE) != (style | WS_EX_NOREDIRECTIONBITMAP))
+                return false;
+        }
+        m_ownsNoRedirection = true;
+        refreshFrame(m_handle);
+    }
+    return (GetWindowLongPtrW(m_handle, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP) != 0;
+}
+void WindowsWindowBackdrop::releaseSurface()
+{
+    if (m_handle && IsWindow(m_handle)) {
+        if (m_subclassInstalled)
+            RemoveWindowSubclass(m_handle, windowProcedure, reinterpret_cast<UINT_PTR>(this));
+        if (m_ownsNoRedirection) {
+            const auto style = GetWindowLongPtrW(m_handle, GWL_EXSTYLE);
+            SetWindowLongPtrW(m_handle, GWL_EXSTYLE, style & ~LONG_PTR(WS_EX_NOREDIRECTIONBITMAP));
+            refreshFrame(m_handle);
+        }
+    }
+    m_subclassInstalled = m_ownsNoRedirection = false;
+}
+bool WindowsWindowBackdrop::fullscreen() const
+{
+    if (!m_window || !m_handle)
+        return false;
+    // The native frame disappears before QWindow publishes the entering state.
+    return m_window->windowStates().testFlag(Qt::WindowFullScreen) ||
+           (m_window->flags().testFlag(Qt::ExpandedClientAreaHint) &&
+            !(GetWindowLongPtrW(m_handle, GWL_STYLE) & WS_THICKFRAME));
 }
 void WindowsWindowBackdrop::applyWindowPolicy()
 {
@@ -187,17 +259,19 @@ bool WindowsWindowBackdrop::supported() const
 {
     BOOL compositing = FALSE;
     return m_window && m_handle && IsWindow(m_handle) &&
+           m_window->requestedFormat().alphaBufferSize() > 0 &&
            SUCCEEDED(DwmIsCompositionEnabled(&compositing)) && compositing &&
-           (m_build >= 22621 || compositionApi());
+           (m_build >= 22621 ? m_window->surfaceType() == QSurface::Direct3DSurface
+                             : compositionApi() != nullptr);
 }
 bool WindowsWindowBackdrop::accent(int state)
 {
     const auto api = compositionApi();
     if (!api)
         return state == 0;
-    // Accent's ABGR tint needs real alpha on the legacy layered path. An almost
-    // transparent tint can leave only desktop transparency instead of Acrylic.
-    const DWORD tint = m_dark ? 0x8c545454 : 0x8cd3d3d3;
+    // Match EchoMusic's ordinary legacy Acrylic mode. Its stronger theme tint
+    // belongs to the separate keep-on-blur feature, not the default backend.
+    const DWORD tint = 0x01000000;
     AccentPolicy policy{state, 0, state == 4 ? tint : DWORD(0), 0};
     CompositionAttribute data{19, &policy, sizeof(policy)};
     return api(m_handle, &data);
@@ -210,13 +284,18 @@ void WindowsWindowBackdrop::clear()
         else
             accent(0);
     }
-    m_enabled = m_suspended = false;
+    m_enabled = m_suspended = m_initialized = false;
 }
 QString WindowsWindowBackdrop::apply(bool enabled, bool dark)
 {
-    if (!supported())
-        return enabled ? QObject::tr("系统背景接口不可用，窗口毛玻璃未能应用") : QString();
-    if (enabled == m_enabled && dark == m_dark)
+    if (!m_window || !m_handle || !IsWindow(m_handle) || !m_subclassInstalled ||
+        !configureSurface() || (enabled && !supported())) {
+        m_error = tr("系统窗口合成接口不可用，窗口效果未能应用");
+        emit completed(m_error);
+        logState("setup-failed");
+        return m_error;
+    }
+    if (m_initialized && enabled == m_enabled && dark == m_dark)
         return m_error;
     const BOOL darkMode = dark;
     m_dark = dark;
@@ -231,11 +310,14 @@ QString WindowsWindowBackdrop::apply(bool enabled, bool dark)
         clear();
         m_error = tr("系统背景接口不可用，窗口毛玻璃未能应用");
         emit completed(m_error);
+        logState("apply-failed");
         return m_error;
     }
     m_enabled = enabled;
+    m_initialized = true;
     m_error.clear();
     emit completed({});
+    logState("apply");
     return {};
 }
 bool WindowsWindowBackdrop::material(bool enabled)
@@ -264,7 +346,7 @@ bool WindowsWindowBackdrop::material(bool enabled)
 }
 void WindowsWindowBackdrop::queueRepair()
 {
-    if (m_repairQueued || m_build < 22000)
+    if (m_repairQueued || !m_handle || !m_window)
         return;
     m_repairQueued = true;
     // Reassert DWM corner/material policy after Qt's native handler. Qt resets
@@ -275,23 +357,42 @@ void WindowsWindowBackdrop::queueRepair()
         this,
         [this] {
             m_repairQueued = false;
+            if (!m_window || !m_handle || !IsWindow(m_handle))
+                return;
+            const bool surfaceReady = configureSurface();
             applyWindowPolicy();
-            if (m_enabled && m_build >= 22621 && m_window && m_handle && IsWindow(m_handle)) {
-                if (material(true)) {
+            // Run after Qt's handler on both Win10 and Win11. Legacy Accent
+            // toggles leave Qt's layered alpha/margins intact; modern DWM must
+            // reclaim its alpha/frame policy after Qt composition resets.
+            if (m_initialized) {
+                const bool repaired =
+                    surfaceReady && (m_build >= 22621 ? material(m_enabled)
+                                                      : accent(m_enabled && !m_suspended ? 4 : 0));
+                if (repaired) {
                     m_error.clear();
                     emit completed({});
                 } else {
-                    material(false);
+                    if (m_build >= 22621)
+                        material(false);
+                    else
+                        accent(0);
                     m_error = tr("系统背景接口不可用，窗口毛玻璃未能恢复");
                     emit completed(m_error);
                 }
             }
+            logState("repair");
         },
         Qt::QueuedConnection);
 }
 bool WindowsWindowBackdrop::hitTest(const MSG &event, qintptr *result) const
 {
-    if (!result || !m_window || !m_window->flags().testFlag(Qt::ExpandedClientAreaHint) ||
+    if (!result || !m_window)
+        return false;
+    if (fullscreen()) {
+        *result = HTCLIENT;
+        return true;
+    }
+    if (!m_window->flags().testFlag(Qt::ExpandedClientAreaHint) ||
         !m_window->flags().testFlag(Qt::CustomizeWindowHint))
         return false;
     // Qt 6.12's expanded/custom-caption hit test synthesizes mouse events from
@@ -299,8 +400,7 @@ bool WindowsWindowBackdrop::hitTest(const MSG &event, qintptr *result) const
     // the old button mask. That corrupts Quick's button/grab/hover state. Keep
     // ordinary input on WM_MOUSE* and leave caption gestures to the QML owner.
     *result = HTCLIENT;
-    if (m_window->windowStates().testAnyFlags(Qt::WindowFullScreen | Qt::WindowMaximized) ||
-        IsZoomed(m_handle))
+    if (m_window->windowStates().testFlag(Qt::WindowMaximized) || IsZoomed(m_handle))
         return true;
     RECT bounds{};
     if (!GetWindowRect(m_handle, &bounds))
@@ -329,6 +429,128 @@ bool WindowsWindowBackdrop::hitTest(const MSG &event, qintptr *result) const
         *result = HTBOTTOM;
     return true;
 }
+LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT message, WPARAM wParam,
+                                                        LPARAM lParam, UINT_PTR id, DWORD_PTR data)
+{
+    auto *self = reinterpret_cast<WindowsWindowBackdrop *>(data);
+    if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(window, windowProcedure, id);
+        if (self->m_handle == window) {
+            self->m_handle = nullptr;
+            self->m_enabled = self->m_suspended = self->m_initialized = false;
+            self->m_subclassInstalled = self->m_ownsNoRedirection = false;
+        }
+        return DefSubclassProc(window, message, wParam, lParam);
+    }
+    if (self->fullscreen()) {
+        // Qt excludes synchronously sent WM_SYSCOMMAND / WM_SIZING / WM_MOVING
+        // from global native filters. Guard them on the real HWND subclass
+        // chain, including commands generated by QWindow::startSystemMove/Resize.
+        const auto command = wParam & 0xfff0;
+        if (message == WM_SYSCOMMAND && (command == SC_MOVE || command == SC_SIZE))
+            return 0;
+        if (message == WM_NCHITTEST)
+            return HTCLIENT;
+        if ((message == WM_NCLBUTTONDOWN || message == WM_NCLBUTTONDBLCLK) &&
+            (wParam == HTCAPTION || (wParam >= HTLEFT && wParam <= HTBOTTOMRIGHT) ||
+             wParam == HTBORDER))
+            return 0;
+        if ((message == WM_MOVING || message == WM_SIZING) && lParam) {
+            // Also stop a modal gesture that was already running on entry.
+            RECT bounds{};
+            if (GetWindowRect(window, &bounds))
+                *reinterpret_cast<RECT *>(lParam) = bounds;
+            return TRUE;
+        }
+    }
+    if (message == WM_ENTERSIZEMOVE && self->m_enabled && self->m_build < 22621) {
+        self->m_suspended = true;
+        if (!self->accent(0))
+            qCWarning(windowLog) << "Failed to suspend legacy Acrylic";
+        self->logState("move-size-enter");
+    }
+    const QPointer<WindowsWindowBackdrop> guard(self);
+    const auto result = DefSubclassProc(window, message, wParam, lParam);
+    if (!guard || self->m_handle != window)
+        return result;
+    if (message == WM_EXITSIZEMOVE || message == WM_CANCELMODE) {
+        self->m_suspended = false;
+        self->queueRepair();
+    } else if (message == WM_DWMCOMPOSITIONCHANGED || message == WM_STYLECHANGED ||
+               message == WM_DPICHANGED || message == WM_DISPLAYCHANGE ||
+               message == WM_SHOWWINDOW) {
+        self->queueRepair();
+    }
+    return result;
+}
+QVariantMap WindowsWindowBackdrop::diagnostics() const
+{
+    QVariantMap state{{"build", m_build},         {"frostEnabled", m_enabled},
+                      {"darkMode", m_dark},       {"initialized", m_initialized},
+                      {"suspended", m_suspended}, {"error", m_error}};
+    if (!m_window || !m_handle || !IsWindow(m_handle)) {
+        state.insert("attached", false);
+        return state;
+    }
+    const auto style = GetWindowLongPtrW(m_handle, GWL_STYLE);
+    const auto extended = GetWindowLongPtrW(m_handle, GWL_EXSTYLE);
+    DWORD_PTR data = 0;
+    state.insert("attached", true);
+    state.insert(
+        "subclassInstalled",
+        GetWindowSubclass(m_handle, windowProcedure, reinterpret_cast<UINT_PTR>(this), &data) != 0);
+    state.insert("style", QString::number(quintptr(style), 16));
+    state.insert("extendedStyle", QString::number(quintptr(extended), 16));
+    state.insert("layered", (extended & WS_EX_LAYERED) != 0);
+    state.insert("noRedirectionBitmap", (extended & WS_EX_NOREDIRECTIONBITMAP) != 0);
+    state.insert("surfaceType", int(m_window->surfaceType()));
+    state.insert("requestedAlphaBufferSize", m_window->requestedFormat().alphaBufferSize());
+    state.insert("alphaBufferSize", m_window->format().alphaBufferSize());
+    state.insert("windowState", m_window->windowStates().toInt());
+    state.insert("fullscreenInputLocked", fullscreen());
+    state.insert("windowColor", m_window->property("color").value<QColor>().name(QColor::HexArgb));
+    state.insert("devicePixelRatio", m_window->devicePixelRatio());
+    RECT bounds{};
+    MONITORINFO monitor{sizeof(MONITORINFO)};
+    if (GetWindowRect(m_handle, &bounds) &&
+        GetMonitorInfoW(MonitorFromWindow(m_handle, MONITOR_DEFAULTTONEAREST), &monitor)) {
+        state.insert("nativeBounds", QVariantList{int(bounds.left), int(bounds.top),
+                                                  int(bounds.right - bounds.left),
+                                                  int(bounds.bottom - bounds.top)});
+        state.insert("coversMonitor", EqualRect(&bounds, &monitor.rcMonitor) != FALSE);
+    }
+    state.insert("remoteSession", GetSystemMetrics(SM_REMOTESESSION) != 0);
+    BOOL composing = FALSE;
+    state.insert("compositionEnabled", SUCCEEDED(DwmIsCompositionEnabled(&composing))
+                                           ? QVariant(bool(composing))
+                                           : QVariant());
+    int materialType = 0;
+    state.insert("systemBackdrop",
+                 SUCCEEDED(DwmGetWindowAttribute(m_handle, 38, &materialType, sizeof(materialType)))
+                     ? QVariant(materialType)
+                     : QVariant());
+    QVariant accentState, accentColor;
+    if (const auto read = compositionReadApi()) {
+        AccentPolicy policy{};
+        CompositionAttribute attribute{19, &policy, sizeof(policy)};
+        if (read(m_handle, &attribute)) {
+            accentState = policy.state;
+            accentColor = QString::number(policy.color, 16);
+        }
+    }
+    state.insert("accentState", accentState);
+    state.insert("accentTint", accentColor);
+    return state;
+}
+void WindowsWindowBackdrop::logState(const char *reason)
+{
+    const auto state = diagnostics();
+    if (state == m_lastDiagnostics)
+        return;
+    m_lastDiagnostics = state;
+    qCInfo(windowLog).noquote() << reason
+                                << QJsonDocument::fromVariant(state).toJson(QJsonDocument::Compact);
+}
 bool WindowsWindowBackdrop::nativeEventFilter(const QByteArray &, void *message, qintptr *result)
 {
     const auto *event = static_cast<MSG *>(message);
@@ -339,24 +561,6 @@ bool WindowsWindowBackdrop::nativeEventFilter(const QByteArray &, void *message,
     if (event->message == WM_NCDESTROY) {
         m_handle = nullptr;
         m_enabled = m_suspended = false;
-    } else if (m_build >= 22000 &&
-               (event->message == WM_DWMCOMPOSITIONCHANGED || event->message == WM_STYLECHANGED ||
-                event->message == WM_DPICHANGED || event->message == WM_DISPLAYCHANGE)) {
-        queueRepair();
-    }
-    if (m_enabled && m_build < 22621) {
-        // Suspend expensive Accent Acrylic during the OS modal move/size loop,
-        // including stationary mouse pauses; ordinary geometry signals cannot do this.
-        if (event->message == WM_ENTERSIZEMOVE) {
-            m_suspended = true;
-            if (!accent(0))
-                qWarning("Failed to suspend window Acrylic");
-        } else if (event->message == WM_EXITSIZEMOVE ||
-                   (event->message == WM_DWMCOMPOSITIONCHANGED && !m_suspended)) {
-            m_suspended = false;
-            if (!accent(4))
-                qWarning("Failed to restore window Acrylic");
-        }
     }
     // All other messages retain Qt's activation, state and ownership handling.
     return false;

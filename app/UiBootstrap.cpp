@@ -112,9 +112,10 @@ void AppContext::mountUi()
         playback.setStartupHeld(false);
         startBusiness();
     });
+    // Store the initial appearance before the hidden Windows HWND is attached;
+    // attachment applies it before publishing first-presentation readiness.
+    window.setAppearance(theme.windowFrosted(), theme.dark(), theme.transparency());
     engine.loadFromModule(QStringLiteral("EchoMusic.App"), QStringLiteral("Main"));
-    if (!quitting && !useStartup)
-        startBusiness();
     if (!engine.rootObjects().isEmpty()) {
         window.attach(qobject_cast<QQuickWindow *>(engine.rootObjects().first()));
         shortcuts.attach(qobject_cast<QQuickWindow *>(engine.rootObjects().first()));
@@ -122,11 +123,12 @@ void AppContext::mountUi()
         // for frameSwapped: an occluded/tray launch may never render a frame.
         if (useStartup)
             QTimer::singleShot(0, &startup, &EchoMusic::StartupController::start);
-        window.setAppearance(theme.windowFrosted(), theme.dark(), theme.transparency());
         QTimer::singleShot(0, &window, [&] {
             if (!activatedDuringStartup)
                 window.applyStartupVisibility();
         });
+        if (!quitting && !useStartup)
+            startBusiness();
     }
 }
 } // namespace EchoMusic

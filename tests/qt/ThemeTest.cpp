@@ -47,6 +47,7 @@
 #include <QOperatingSystemVersion>
 #include <dwmapi.h>
 #include <thread>
+#include <atomic>
 #endif
 #ifdef Q_OS_MACOS
 QVariantMap nativeWindowAppearance(QWindow *window);
@@ -93,6 +94,7 @@ struct ThemeSession
     QQmlEngine engine;
     QScopedPointer<QObject> root;
     QQuickWindow *window = nullptr;
+    bool visibleBeforeAttach = false, firstShowReady = false;
     explicit ThemeSession(bool nativeWindow = false) : windows(preferences, nativeWindow) {}
     bool create()
     {
@@ -119,6 +121,12 @@ struct ThemeSession
             return false;
         }
         window = qobject_cast<QQuickWindow *>(root.data());
+        visibleBeforeAttach = window && window->isVisible();
+        if (window)
+            QObject::connect(window, &QWindow::visibleChanged, &windows, [this] {
+                if (window->isVisible())
+                    firstShowReady = windows.presentationReady();
+            });
         windows.attach(window);
         return window;
     }
@@ -806,6 +814,9 @@ elif sys.argv[1] == 'dispatch':
         QVERIFY(session.create());
         QCOMPARE(session.window->flags(), session.windows.mainWindowFlags());
 #ifdef Q_OS_WIN
+        QVERIFY(!session.visibleBeforeAttach);
+        QVERIFY(session.firstShowReady);
+        QVERIFY(session.windows.presentationReady());
         for (int build : {17763, 19045, 22000, 22620, 22621, 26100}) {
             const auto flags = WindowsWindowBackdrop::windowFlags(build);
             QCOMPARE(flags.testFlag(Qt::FramelessWindowHint), build < 22621);
@@ -836,12 +847,17 @@ elif sys.argv[1] == 'dispatch':
         window.setFlags(WindowBackdrop::mainWindowFlags());
         window.setColor(Qt::transparent);
         window.resize(480, 320);
+        const auto handle = reinterpret_cast<HWND>(window.winId());
+        const bool originalNoRedirection =
+            (GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP) != 0;
+        WindowsWindowBackdrop backdrop;
+        backdrop.attach(&window);
         window.show();
         QVERIFY(Test::prepareNativeInput(&window));
-        WindowBackdrop backdrop(true);
-        backdrop.attach(&window);
         QVERIFY(backdrop.supported());
-        const auto handle = reinterpret_cast<HWND>(window.winId());
+        QVERIFY(backdrop.diagnostics().value("subclassInstalled").toBool());
+        QVERIFY(backdrop.diagnostics().value("noRedirectionBitmap").toBool());
+        QVERIFY(backdrop.diagnostics().value("requestedAlphaBufferSize").toInt() > 0);
         const auto nonLayered = [&] {
             return !(GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_LAYERED);
         };
@@ -899,6 +915,7 @@ elif sys.argv[1] == 'dispatch':
                 QCOMPARE(materialType(), enabled ? 3 : 1);
                 QVERIFY(nonLayered());
                 QVERIFY(hasFrame());
+                QVERIFY(backdrop.diagnostics().value("noRedirectionBitmap").toBool());
                 QCOMPARE(reinterpret_cast<HWND>(window.winId()), handle);
                 const auto menu = GetSystemMenu(handle, FALSE);
                 QVERIFY(menu);
@@ -924,6 +941,61 @@ elif sys.argv[1] == 'dispatch':
         QCOMPARE(materialType(), 1);
         QVERIFY(nonLayered());
         QVERIFY(hasFrame());
+        QCOMPARE(bool(GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP),
+                 originalNoRedirection);
+#endif
+    }
+    void windowsLegacyAccentPreservesTransparentSurface()
+    {
+#ifndef Q_OS_WIN
+        QSKIP("Requires Windows 10 or Windows 11 21H2 native composition");
+#else
+        const auto build = QOperatingSystemVersion::current().microVersion();
+        if (QGuiApplication::platformName() != "windows" || build >= 22621)
+            QSKIP("Requires the legacy Windows Accent path");
+        QQuickWindow window;
+        auto format = window.format();
+        format.setAlphaBufferSize(8);
+        window.setFormat(format);
+        window.setFlags(WindowBackdrop::mainWindowFlags());
+        window.setColor(Qt::transparent);
+        window.resize(480, 320);
+        WindowsWindowBackdrop backdrop;
+        backdrop.attach(&window);
+        window.show();
+        QVERIFY(Test::prepareNativeInput(&window));
+        QVERIFY(backdrop.supported());
+        const auto handle = reinterpret_cast<HWND>(window.winId());
+        const auto style = GetWindowLongPtrW(handle, GWL_EXSTYLE);
+        QVERIFY(style & WS_EX_LAYERED);
+        QVERIFY(backdrop.diagnostics().value("subclassInstalled").toBool());
+        for (bool dark : {false, true}) {
+            for (bool enabled : {true, false, true}) {
+                QVERIFY(backdrop.apply(enabled, dark).isEmpty());
+                QCoreApplication::processEvents();
+                const auto state = backdrop.diagnostics();
+                qInfo() << "Legacy material diagnostics" << state;
+                if (!state.value("accentState").isValid())
+                    QSKIP("The system does not expose Accent readback");
+                QCOMPARE(state.value("accentState").toInt(), enabled ? 4 : 0);
+                QCOMPARE(GetWindowLongPtrW(handle, GWL_EXSTYLE), style);
+                QCOMPARE(reinterpret_cast<HWND>(window.winId()), handle);
+                QVERIFY(window.requestedFormat().alphaBufferSize() > 0);
+            }
+            SendMessageW(handle, WM_ENTERSIZEMOVE, 0, 0);
+            QVERIFY(backdrop.diagnostics().value("suspended").toBool());
+            QCOMPARE(backdrop.diagnostics().value("accentState").toInt(), 0);
+            SendMessageW(handle, WM_EXITSIZEMOVE, 0, 0);
+            QCoreApplication::processEvents();
+            QVERIFY(!backdrop.diagnostics().value("suspended").toBool());
+            QCOMPARE(backdrop.diagnostics().value("accentState").toInt(), 4);
+            SendMessageW(handle, WM_DWMCOMPOSITIONCHANGED, 0, 0);
+            QCoreApplication::processEvents();
+            QCOMPARE(backdrop.diagnostics().value("accentState").toInt(), 4);
+            QCOMPARE(GetWindowLongPtrW(handle, GWL_EXSTYLE), style);
+        }
+        backdrop.attach(nullptr);
+        QCOMPARE(GetWindowLongPtrW(handle, GWL_EXSTYLE), style);
 #endif
     }
     void windowsFullscreenCoversMonitorAcrossNativeTransitions()
@@ -931,9 +1003,9 @@ elif sys.argv[1] == 'dispatch':
 #ifndef Q_OS_WIN
         QSKIP("Requires Windows native geometry and state transitions");
 #else
-        if (QGuiApplication::platformName() != "windows" ||
-            QOperatingSystemVersion::current().microVersion() < 22621)
-            QSKIP("Requires Windows 11 22H2+ expanded client area");
+        if (QGuiApplication::platformName() != "windows")
+            QSKIP("Requires native Windows QPA");
+        const bool modern = QOperatingSystemVersion::current().microVersion() >= 22621;
         ThemeSession session;
         QVERIFY(session.create());
         auto &window = *session.window;
@@ -943,6 +1015,40 @@ elif sys.argv[1] == 'dispatch':
         WindowBackdrop backdrop(true);
         backdrop.attach(&window);
         const auto handle = reinterpret_cast<HWND>(window.winId());
+        struct NativeLoopObserver final : QAbstractNativeEventFilter
+        {
+            HWND handle = nullptr;
+            std::atomic_int entries = 0;
+            bool nativeEventFilter(const QByteArray &, void *message, qintptr *) override
+            {
+                const auto *event = static_cast<MSG *>(message);
+                if (event->hwnd == handle && event->message == WM_ENTERSIZEMOVE)
+                    ++entries;
+                return false;
+            }
+        } observer;
+        observer.handle = handle;
+        qApp->installNativeEventFilter(&observer);
+        const auto removeObserver = qScopeGuard([&] { qApp->removeNativeEventFilter(&observer); });
+        const auto sendWithoutHangingOnRegression = [&](UINT message, WPARAM wParam,
+                                                        LPARAM lParam) {
+            const auto before = observer.entries.load();
+            // A broken guard must fail the assertion, rather than leave the
+            // test blocked forever in user32's modal move/resize loop.
+            std::thread escape([&observer, before] {
+                Sleep(100);
+                if (observer.entries.load() > before) {
+                    INPUT input{};
+                    input.type = INPUT_KEYBOARD;
+                    input.ki.wVk = VK_ESCAPE;
+                    SendInput(1, &input, sizeof(INPUT));
+                    input.ki.dwFlags = KEYEVENTF_KEYUP;
+                    SendInput(1, &input, sizeof(INPUT));
+                }
+            });
+            const auto join = qScopeGuard([&] { escape.join(); });
+            return SendMessageW(handle, message, wParam, lParam);
+        };
         const auto normalStyle = GetWindowLongPtrW(handle, GWL_STYLE);
         // Reproduce the native half of Qt's transition before QWindow has
         // published FullScreen. Drain the adapter repair at that exact point.
@@ -982,6 +1088,44 @@ elif sys.argv[1] == 'dispatch':
             QVERIFY(content);
             QCOMPARE(content->mapRectToScene(content->boundingRect()),
                      QRectF(QPointF(), QSizeF(window.size())));
+            RECT fixed{};
+            QVERIFY(GetWindowRect(handle, &fixed));
+            for (Qt::Edges edges :
+                 {Qt::Edges(Qt::LeftEdge), Qt::Edges(Qt::RightEdge), Qt::Edges(Qt::TopEdge),
+                  Qt::Edges(Qt::BottomEdge), Qt::LeftEdge | Qt::TopEdge,
+                  Qt::RightEdge | Qt::TopEdge, Qt::LeftEdge | Qt::BottomEdge,
+                  Qt::RightEdge | Qt::BottomEdge}) {
+                auto *resize =
+                    session.item("mainWindowResizeHandle-" + QString::number(edges.toInt()));
+                QVERIFY(resize && !resize->isVisible());
+            }
+            for (const auto point :
+                 {POINT{fixed.left, fixed.top}, POINT{fixed.right - 1, fixed.top},
+                  POINT{fixed.left, fixed.bottom - 1}, POINT{fixed.right - 1, fixed.bottom - 1},
+                  POINT{fixed.left, (fixed.top + fixed.bottom) / 2},
+                  POINT{fixed.right - 1, (fixed.top + fixed.bottom) / 2},
+                  POINT{(fixed.left + fixed.right) / 2, fixed.top},
+                  POINT{(fixed.left + fixed.right) / 2, fixed.bottom - 1}})
+                QCOMPARE(SendMessageW(handle, WM_NCHITTEST, 0, MAKELPARAM(point.x, point.y)),
+                         LRESULT(HTCLIENT));
+            for (WPARAM command :
+                 {WPARAM(SC_MOVE), WPARAM(SC_MOVE | HTCAPTION), WPARAM(SC_SIZE | WMSZ_RIGHT)})
+                sendWithoutHangingOnRegression(WM_SYSCOMMAND, command, 0);
+            for (WPARAM hit :
+                 {WPARAM(HTCAPTION), WPARAM(HTLEFT), WPARAM(HTTOPRIGHT), WPARAM(HTBOTTOM)})
+                sendWithoutHangingOnRegression(WM_NCLBUTTONDOWN, hit,
+                                               MAKELPARAM(fixed.left, fixed.top));
+            QCOMPARE(observer.entries.load(), 0);
+            for (UINT message : {UINT(WM_MOVING), UINT(WM_SIZING)}) {
+                RECT proposed{fixed.left + 40, fixed.top + 30, fixed.right - 20, fixed.bottom - 10};
+                QVERIFY(
+                    SendMessageW(handle, message, WMSZ_RIGHT, reinterpret_cast<LPARAM>(&proposed)));
+                QVERIFY(EqualRect(&proposed, &fixed));
+            }
+            RECT afterCommands{};
+            QVERIFY(GetWindowRect(handle, &afterCommands));
+            QVERIFY(EqualRect(&fixed, &afterCommands));
+            QVERIFY(window.windowStates().testFlag(Qt::WindowFullScreen));
             window.hide();
             window.show();
             QCoreApplication::processEvents();
@@ -998,7 +1142,7 @@ elif sys.argv[1] == 'dispatch':
                 window.showNormal();
             QCoreApplication::processEvents();
             QCOMPARE(window.windowState(), maximized ? Qt::WindowMaximized : Qt::WindowNoState);
-            QVERIFY(GetWindowLongPtrW(handle, GWL_STYLE) & WS_THICKFRAME);
+            QCOMPARE(bool(GetWindowLongPtrW(handle, GWL_STYLE) & WS_THICKFRAME), modern);
             if (!maximized)
                 QCOMPARE(window.geometry(), normal);
         }

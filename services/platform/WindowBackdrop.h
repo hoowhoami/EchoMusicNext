@@ -11,7 +11,7 @@ class HyprlandWindowBackdrop;
 class WindowsWindowBackdrop;
 #endif
 /// GUI-thread platform presentation only. Preferences belong to ThemeStore.
-/// Keeps native effect ownership independent of the Qt Quick render backend.
+/// Owns native effects and checks the attached surface's backend capabilities.
 class WindowBackdrop final : public QObject
 {
     Q_OBJECT

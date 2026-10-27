@@ -136,6 +136,10 @@ ApplicationWindow {
         function onNativeMenuOpening(): void {
             EchoPopupCoordinator.nativeMenuOpening();
         }
+        function onPresentationReadyChanged(): void {
+            if (Qt.platform.os === "windows" && mainWindow.windowService.presentationReady && !mainWindow.windowService.background)
+                mainWindow.show();
+        }
     }
     Connections {
         target: mainWindow.windowService.floating
@@ -165,7 +169,10 @@ ApplicationWindow {
     height: 750
     minimumWidth: 1100
     minimumHeight: 650
-    visible: true
+    // On Windows native surface policy must precede the first DComp swapchain.
+    // A one-shot readiness signal shows the window; ordinary hide/restore stays
+    // with WindowController rather than a permanently bound visible=true.
+    visible: Qt.platform.os !== "windows"
     title: "EchoMusicNext"
     flags: windowService.mainWindowFlags
     topPadding: 0
@@ -770,6 +777,7 @@ ApplicationWindow {
         model: Qt.platform.os === "osx" ? [] : [Qt.LeftEdge, Qt.RightEdge, Qt.TopEdge, Qt.BottomEdge, Qt.LeftEdge | Qt.TopEdge, Qt.RightEdge | Qt.TopEdge, Qt.LeftEdge | Qt.BottomEdge, Qt.RightEdge | Qt.BottomEdge]
         delegate: MouseArea {
             required property int modelData
+            objectName: "mainWindowResizeHandle-" + modelData
             readonly property bool horizontalEdge: (modelData & (Qt.LeftEdge | Qt.RightEdge)) !== 0
             readonly property bool verticalEdge: (modelData & (Qt.TopEdge | Qt.BottomEdge)) !== 0
             width: horizontalEdge ? 6 : mainWindow.width - 12

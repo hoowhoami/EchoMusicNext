@@ -244,6 +244,9 @@ void WindowController::attach(QQuickWindow *window)
     connect(window, &QWindow::visibleChanged, this, &WindowController::updateIncubationController,
             Qt::QueuedConnection);
     updateIncubationController();
+    setAppearance(m_frosted, m_dark, m_transparency);
+    m_presentationReady = true;
+    emit presentationReadyChanged();
     // Native capability is known only after the QML window has been attached.
     emit changed();
 }
@@ -519,12 +522,18 @@ bool WindowController::fullscreen() const
 {
     return m_window && m_window->windowStates().testFlag(Qt::WindowFullScreen);
 }
+bool WindowController::presentationReady() const
+{
+    return m_window && m_presentationReady;
+}
 void WindowController::setAppearance(bool frosted, bool dark, int transparency)
 {
     m_frosted = frosted;
     m_dark = dark;
     m_transparency = qBound(0, transparency, 100);
     m_taskbarButton.setDark(dark);
+    if (!m_window)
+        return;
     const auto error = m_backdrop.apply(frosted, dark, m_transparency);
     if (m_appearanceError != error) {
         m_appearanceError = error;

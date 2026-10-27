@@ -7,6 +7,9 @@ MouseArea {
     signal doubleClickRequested
     property point pressPosition
     property bool moveStarted: false
+    // Fullscreen is a fixed presentation. Do not generate system move or
+    // double-click restore requests from any host caption surface.
+    enabled: area.Window.window !== null && area.Window.window.visibility !== Window.FullScreen
     acceptedButtons: Qt.LeftButton
     onPressed: mouse => {
         pressPosition = mapToItem(null, mouse.x, mouse.y);

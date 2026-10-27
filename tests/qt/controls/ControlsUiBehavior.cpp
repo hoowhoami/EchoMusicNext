@@ -41,6 +41,25 @@ void ControlsUiTest::windowCaptionSeparatesDoubleClickFromDrag()
     QCOMPARE(move.count(), 1);
     QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, dragged);
     QCOMPARE(doubleClick.count(), 1);
+    move.clear();
+    doubleClick.clear();
+    session.window->showFullScreen();
+    QTRY_COMPARE(session.window->visibility(), QWindow::FullScreen);
+    // MouseArea's event enable property is distinct from QQuickItem::isEnabled.
+    QTRY_VERIFY(!area->property("enabled").toBool());
+    QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, start);
+    QTest::mouseMove(session.window, dragged);
+    QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, dragged);
+    QTest::mouseDClick(session.window, Qt::LeftButton, Qt::NoModifier, start);
+    QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, start);
+    QCOMPARE(move.count(), 0);
+    QCOMPARE(doubleClick.count(), 0);
+    session.window->showNormal();
+    QTRY_VERIFY(area->property("enabled").toBool());
+    QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, start);
+    QTest::mouseMove(session.window, dragged);
+    QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, dragged);
+    QCOMPARE(move.count(), 1);
 }
 
 void ControlsUiTest::listLocationPreservesVisibleRowsAndChecksOcclusion()

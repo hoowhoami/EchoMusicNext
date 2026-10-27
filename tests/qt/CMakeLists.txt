@@ -489,9 +489,12 @@ target_link_libraries(
 add_test(NAME theme COMMAND echo-theme-test)
 set_tests_properties(theme PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
 if(WIN32)
-    add_test(NAME windows-window-material
-             COMMAND echo-theme-test windowsMainWindowMaterialKeepsNativeFrame
-                     windowsCustomCaptionKeepsNativeMouseHover
+    add_test(
+        NAME windows-window-material
+        COMMAND
+            echo-theme-test mainWindowCompositionFlags windowsMainWindowMaterialKeepsNativeFrame
+            windowsLegacyAccentPreservesTransparentSurface
+            windowsCustomCaptionKeepsNativeMouseHover
     )
     set_tests_properties(
         windows-window-material PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows" TIMEOUT 45

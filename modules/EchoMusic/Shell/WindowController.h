@@ -30,6 +30,7 @@ class WindowController final : public QObject
     Q_PROPERTY(EchoMusic::TaskbarButtonController *taskbarButton READ taskbarButton CONSTANT)
     Q_PROPERTY(bool maximized READ maximized NOTIFY changed)
     Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY changed)
+    Q_PROPERTY(bool presentationReady READ presentationReady NOTIFY presentationReadyChanged)
     Q_PROPERTY(bool rememberSize READ rememberSize WRITE setRememberSize NOTIFY changed)
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray NOTIFY changed)
     Q_PROPERTY(bool trayAvailable READ trayAvailable NOTIFY changed)
@@ -76,6 +77,8 @@ public:
     QRectF nativeCaptionBounds() const;
     bool maximized() const;
     bool fullscreen() const;
+    /// Initial native surface and appearance are configured before first show.
+    bool presentationReady() const;
     bool rememberSize() const
     {
         return m_remember;
@@ -154,6 +157,7 @@ public:
     static QRect restoreBounds(const QRect &saved, const QList<QRect> &areas, const QRect &primary);
 signals:
     void changed();
+    void presentationReadyChanged();
     void mainWindowActivated();
     void contentFullscreenExitRequested(QObject *owner);
     void quitRequested();
@@ -188,6 +192,7 @@ private:
     // Window mode intent outlives the Mini surface. Closing Mini releases its
     // complete UI; tray activation recreates that last mode as EchoMusic does.
     bool m_restoreMini = false;
+    bool m_presentationReady = false;
     QTimer m_saveTimer;
     QRect m_normal;
     bool m_persist, m_remember = true, m_restoring = false, m_wasMaximized = false;

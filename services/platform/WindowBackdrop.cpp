@@ -85,8 +85,12 @@ bool WindowBackdrop::supported() const
 QString WindowBackdrop::apply(bool enabled, bool dark, int transparency)
 {
 #ifdef Q_OS_WIN
-    if (m_windows)
+    if (m_windows) {
         m_windows->attach(m_window);
+        // Clear/transparency remains usable without the optional Accent API.
+        // The Windows adapter reports its own setup/material failures.
+        return m_windows->apply(enabled, dark);
+    }
 #endif
     if (!supported()) {
 #ifdef Q_OS_MACOS
@@ -98,7 +102,7 @@ QString WindowBackdrop::apply(bool enabled, bool dark, int transparency)
     return applyMacBackdrop(m_window, m_effect, enabled, dark, transparency);
 #elif defined(Q_OS_WIN)
     Q_UNUSED(transparency)
-    return m_windows->apply(enabled, dark);
+    return {};
 #else
     Q_UNUSED(dark)
     Q_UNUSED(transparency)
