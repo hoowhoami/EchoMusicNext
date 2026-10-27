@@ -21,7 +21,7 @@ public:
     static Qt::WindowFlags windowFlags(int build);
     void attach(QWindow *window);
     bool supported() const;
-    QString apply(bool enabled, bool dark);
+    QString apply(bool enabled, bool dark, int transparency = 0);
     QVariantMap diagnostics() const;
     bool nativeEventFilter(const QByteArray &type, void *message, qintptr *result) override;
 
@@ -29,10 +29,16 @@ signals:
     void completed(const QString &error);
 
 private:
+    enum class Applied
+    {
+        None,
+        Material,
+        LegacyAccent
+    };
     void clear();
     bool accent(int state);
-    bool material(bool enabled);
-    bool configureSurface();
+    bool material(bool enabled, int transparency);
+    bool applyMaterialState(bool enabled, bool dark, int transparency);
     void releaseSurface();
     bool fullscreen() const;
     void logState(const char *reason);
@@ -51,10 +57,15 @@ private:
     QString m_error;
     QVariantMap m_lastDiagnostics;
     int m_build = 0;
+    int m_transparency = 0;
+    // Last appearance request, kept across failed applies so the queued repair
+    // can retry the state once the native surface report is available.
+    int m_requestedEnabled = -1, m_requestedDark = -1, m_requestedTransparency = -1;
     bool m_enabled = false, m_dark = false, m_suspended = false, m_repairQueued = false;
     bool m_geometryQueued = false;
     bool m_restoreFullscreen = false;
     bool m_framelessForFullscreen = false;
-    bool m_initialized = false, m_subclassInstalled = false, m_ownsNoRedirection = false;
+    bool m_initialized = false, m_subclassInstalled = false;
+    Applied m_applied = Applied::None;
 };
 } // namespace EchoMusic

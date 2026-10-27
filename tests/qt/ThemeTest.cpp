@@ -142,7 +142,18 @@ struct ThemeSession
         api.shutdown();
         if (window)
             window->close();
+        // Asynchronous Loaders/incubations must settle before the engine dies:
+        // QML items deleted through posted events after engine destruction
+        // crash in QQmlIncubator::clear (upstream issue #13). Drain a bounded
+        // number of rounds, destroy the scene while the engine can still
+        // service it, then drain the deferred teardown events it queues.
+        for (int round = 0; round < 8; ++round) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        }
         root.reset();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCoreApplication::processEvents();
     }
 };
 void click(QQuickWindow *window, QQuickItem *item)
@@ -848,6 +859,9 @@ elif sys.argv[1] == 'dispatch':
         window.setColor(Qt::transparent);
         window.resize(480, 320);
         const auto handle = reinterpret_cast<HWND>(window.winId());
+        // The adapter must not touch the redirection surface policy: Qt owns it
+        // (a DirectComposition swapchain for alpha windows), and flipping the
+        // style after that swapchain exists leaves stale composition behind.
         const bool originalNoRedirection =
             (GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP) != 0;
         WindowsWindowBackdrop backdrop;
@@ -856,7 +870,8 @@ elif sys.argv[1] == 'dispatch':
         QVERIFY(Test::prepareNativeInput(&window));
         QVERIFY(backdrop.supported());
         QVERIFY(backdrop.diagnostics().value("subclassInstalled").toBool());
-        QVERIFY(backdrop.diagnostics().value("noRedirectionBitmap").toBool());
+        QCOMPARE(bool(GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP),
+                 originalNoRedirection);
         QVERIFY(backdrop.diagnostics().value("requestedAlphaBufferSize").toInt() > 0);
         const auto nonLayered = [&] {
             return !(GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_LAYERED);
@@ -915,7 +930,6 @@ elif sys.argv[1] == 'dispatch':
                 QCOMPARE(materialType(), enabled ? 3 : 1);
                 QVERIFY(nonLayered());
                 QVERIFY(hasFrame());
-                QVERIFY(backdrop.diagnostics().value("noRedirectionBitmap").toBool());
                 QCOMPARE(reinterpret_cast<HWND>(window.winId()), handle);
                 const auto menu = GetSystemMenu(handle, FALSE);
                 QVERIFY(menu);
@@ -924,6 +938,25 @@ elif sys.argv[1] == 'dispatch':
                 QVERIFY(!(closeState & (MF_DISABLED | MF_GRAYED)));
             }
         }
+        // Plain transparency keeps the desktop visible through the DComp
+        // swapchain without a blur material: DWM_BB's blur region renders one
+        // static snapshot on this OS, so the material stays off, and the frame
+        // is not extended because its glass fill would cover the desktop.
+        QVERIFY(backdrop.apply(false, false, 80).isEmpty());
+        QCoreApplication::processEvents();
+        QCOMPARE(materialType(), 1);
+        QVERIFY(nonLayered());
+        QVERIFY(hasFrame());
+        // The NCCALCSIZE override gives the client the whole window while the
+        // theme is translucent: no non-client strip may remain at the edges.
+        RECT windowRect{}, clientRect{};
+        QVERIFY(GetWindowRect(handle, &windowRect));
+        QVERIFY(GetClientRect(handle, &clientRect));
+        QCOMPARE(clientRect.right - clientRect.left, windowRect.right - windowRect.left);
+        QCOMPARE(clientRect.bottom - clientRect.top, windowRect.bottom - windowRect.top);
+        QVERIFY(backdrop.apply(false, false, 0).isEmpty());
+        QCoreApplication::processEvents();
+        QCOMPARE(materialType(), 1);
         QVERIFY(backdrop.apply(true, true).isEmpty());
         // Qt reinitializes frame/alpha policy on native style changes.
         window.setFlag(Qt::WindowStaysOnTopHint, true);
@@ -1073,12 +1106,14 @@ elif sys.argv[1] == 'dispatch':
                    origin.y == bounds.top && client.right == bounds.right - bounds.left &&
                    client.bottom == bounds.bottom - bounds.top;
         };
-        for (bool maximized : {false, true}) {
-            window.showNormal();
-            QCoreApplication::processEvents();
-            const auto normal = window.geometry();
-            if (maximized)
-                window.showMaximized();
+            for (bool maximized : {false, true}) {
+                window.showNormal();
+                QCoreApplication::processEvents();
+                const auto normal = window.geometry();
+                RECT normalNative{};
+                QVERIFY(GetWindowRect(handle, &normalNative));
+                if (maximized)
+                    window.showMaximized();
             window.showFullScreen();
             QTRY_VERIFY(window.windowStates().testFlag(Qt::WindowFullScreen));
             QCoreApplication::processEvents();
@@ -1143,8 +1178,20 @@ elif sys.argv[1] == 'dispatch':
             QCoreApplication::processEvents();
             QCOMPARE(window.windowState(), maximized ? Qt::WindowMaximized : Qt::WindowNoState);
             QCOMPARE(bool(GetWindowLongPtrW(handle, GWL_STYLE) & WS_THICKFRAME), modern);
-            if (!maximized)
-                QCOMPARE(window.geometry(), normal);
+            if (!maximized) {
+                // Qt restores fullscreen from the saved native frame geometry
+                // and re-derives DIP by DPR rounding; at fractional scaling the
+                // QWindow DIP rect drifts by one (upstream issue #16). The real
+                // contract is the native rectangle, verified exactly; the DIP
+                // geometry is held to a one-dip tolerance.
+                RECT restoredNative{};
+                QVERIFY(GetWindowRect(handle, &restoredNative));
+                QVERIFY(EqualRect(&normalNative, &restoredNative));
+                QVERIFY(qAbs(window.geometry().x() - normal.x()) <= 1);
+                QVERIFY(qAbs(window.geometry().y() - normal.y()) <= 1);
+                QVERIFY(qAbs(window.geometry().width() - normal.width()) <= 1);
+                QVERIFY(qAbs(window.geometry().height() - normal.height()) <= 1);
+            }
         }
 #endif
     }

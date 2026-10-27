@@ -12,6 +12,14 @@ namespace EchoMusic
 namespace
 {
 Q_LOGGING_CATEGORY(windowLog, "echo.platform.windows.window")
+// DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_BORDER_COLOR and their values are missing
+// from older SDK headers; pin the numbers this adapter relies on.
+constexpr int kAttrSystemBackdrop = 38;
+constexpr int kAttrBorderColor = 34;
+constexpr UINT kBorderDefault = 0xFFFFFFFF; // DWMWA_COLOR_DEFAULT
+constexpr UINT kBorderNone = 0xFFFFFFFE;    // DWMWA_COLOR_NONE
+constexpr int kBackdropNone = 1;            // DWMSBT_NONE
+constexpr int kBackdropAcrylic = 3;         // DWMSBT_TRANSIENTWINDOW
 struct AccentPolicy
 {
     int state;
@@ -41,22 +49,27 @@ SetComposition compositionReadApi()
                         GetProcAddress(module, "GetWindowCompositionAttribute"))
                   : nullptr;
 }
-bool alphaBehind(HWND handle, bool enabled)
+bool disableBlurBehind(HWND handle)
 {
+    // DWM_BB's blur region renders a single static snapshot on Windows 11
+    // 22H2+ that never updates; the system backdrop and the DirectComposition
+    // swapchain alpha replace it. Qt re-enables the region on window creation,
+    // flag and composition changes - the repair queue re-disables it after
+    // each of those.
     DWM_BLURBEHIND options{};
-    options.dwFlags = enabled ? DWM_BB_ENABLE | DWM_BB_BLURREGION : DWM_BB_ENABLE;
-    options.fEnable = enabled;
-    options.hRgnBlur = enabled ? CreateRectRgn(0, 0, -1, -1) : nullptr;
-    if (enabled && !options.hRgnBlur)
-        return false;
-    const bool ok = SUCCEEDED(DwmEnableBlurBehindWindow(handle, &options));
-    if (options.hRgnBlur)
-        DeleteObject(options.hRgnBlur);
-    return ok;
+    options.dwFlags = DWM_BB_ENABLE;
+    options.fEnable = FALSE;
+    return SUCCEEDED(DwmEnableBlurBehindWindow(handle, &options));
 }
 bool systemMaterial(HWND handle, int material)
 {
-    return SUCCEEDED(DwmSetWindowAttribute(handle, 38, &material, sizeof(material)));
+    return SUCCEEDED(DwmSetWindowAttribute(handle, kAttrSystemBackdrop, &material,
+                                           sizeof(material)));
+}
+bool frameBorder(HWND handle, UINT color)
+{
+    return SUCCEEDED(
+        DwmSetWindowAttribute(handle, kAttrBorderColor, &color, sizeof(color)));
 }
 bool extendFrame(HWND handle, bool enabled)
 {
@@ -103,8 +116,10 @@ void WindowsWindowBackdrop::attach(QWindow *window)
     const auto handle = window ? reinterpret_cast<HWND>(window->winId()) : nullptr;
     if (window && m_window == window && m_handle == handle && m_subclassInstalled)
         return;
-    // The frameless hint only lives for the duration of a fullscreen session,
-    // so never detach from a window while it still carries it.
+    // The fullscreen dance may have left the frameless hint behind when the
+    // previous session ended mid-fullscreen; translucent themes keep the hint
+    // (sticky, see applyWindowPolicy) and the repair re-adds it if needed, so
+    // only drop it when the dance owns it.
     if (m_framelessForFullscreen && m_window && m_window->flags().testFlag(Qt::FramelessWindowHint))
         m_window->setFlags(m_window->flags() & ~Qt::FramelessWindowHint);
     m_framelessForFullscreen = false;
@@ -148,49 +163,15 @@ void WindowsWindowBackdrop::attach(QWindow *window)
                               reinterpret_cast<DWORD_PTR>(this));
         if (!m_subclassInstalled)
             qCWarning(windowLog) << "Window input/composition subclass failed" << GetLastError();
-        if (!configureSurface())
-            qCWarning(windowLog) << "Window composition surface setup failed" << GetLastError();
     }
     applyWindowPolicy();
     logState("attach");
 }
-bool WindowsWindowBackdrop::configureSurface()
-{
-    if (!m_window || !m_handle || !IsWindow(m_handle))
-        return false;
-    if (m_build < 22621 || m_window->surfaceType() != QSurface::Direct3DSurface ||
-        m_window->requestedFormat().alphaBufferSize() <= 0)
-        return true;
-    // Qt Quick's D3D swapchain already uses DirectComposition premultiplied
-    // alpha. Its HWND must not keep an opaque redirection bitmap underneath it.
-    // Apply only to this D3D HWND, never through the process-wide Qt environment
-    // switch (which would also affect OpenGL/software popups and other windows).
-    const LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_EXSTYLE);
-    if (style & WS_EX_LAYERED)
-        return false;
-    if (!(style & WS_EX_NOREDIRECTIONBITMAP)) {
-        if (!SetWindowLongPtrW(m_handle, GWL_EXSTYLE, style | WS_EX_NOREDIRECTIONBITMAP)) {
-            // A previous zero EXSTYLE is valid; distinguish it from an API error.
-            if (GetWindowLongPtrW(m_handle, GWL_EXSTYLE) != (style | WS_EX_NOREDIRECTIONBITMAP))
-                return false;
-        }
-        m_ownsNoRedirection = true;
-        refreshFrame(m_handle);
-    }
-    return (GetWindowLongPtrW(m_handle, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP) != 0;
-}
 void WindowsWindowBackdrop::releaseSurface()
 {
-    if (m_handle && IsWindow(m_handle)) {
-        if (m_subclassInstalled)
-            RemoveWindowSubclass(m_handle, windowProcedure, reinterpret_cast<UINT_PTR>(this));
-        if (m_ownsNoRedirection) {
-            const auto style = GetWindowLongPtrW(m_handle, GWL_EXSTYLE);
-            SetWindowLongPtrW(m_handle, GWL_EXSTYLE, style & ~LONG_PTR(WS_EX_NOREDIRECTIONBITMAP));
-            refreshFrame(m_handle);
-        }
-    }
-    m_subclassInstalled = m_ownsNoRedirection = false;
+    if (m_handle && IsWindow(m_handle) && m_subclassInstalled)
+        RemoveWindowSubclass(m_handle, windowProcedure, reinterpret_cast<UINT_PTR>(this));
+    m_subclassInstalled = false;
 }
 bool WindowsWindowBackdrop::fullscreen() const
 {
@@ -205,10 +186,35 @@ void WindowsWindowBackdrop::applyWindowPolicy()
 {
     if (m_build < 22000 || !m_handle || !IsWindow(m_handle))
         return;
+    const bool translucent = m_enabled || m_transparency > 0;
+    // While the theme is translucent the window goes frameless: Qt then omits
+    // the frame margins (shouldOmitFrameAdjustment) and the swapchain covers
+    // the whole window - with the margins kept, Qt's geometry_sys shrinks the
+    // scene by them and the uncovered strip shows as a border ring on the
+    // right/bottom edges. WS_THICKFRAME is re-added below so the DWM shadow,
+    // native resize and taskbar snapping stay; Qt's own frameless
+    // WM_NCCALCSIZE branch keeps the client equal to the whole window.
+    // Frameless + alpha makes Qt apply WS_EX_LAYERED, which cannot host the
+    // system backdrop and breaks the frosted material - stripped right after,
+    // same as DWM_BB. The fullscreen dance owns the same hint while a
+    // fullscreen session is in flight (fullscreen() also covers the
+    // transition, where the window states have not been published yet).
+    const bool fullscreenActive = fullscreen();
+    const bool wantFrameless = translucent || fullscreenActive;
+    // The frameless hint is sticky: Qt's shouldOmitFrameAdjustment checks the
+    // flag dynamically, and removing it later would churn the geometry during
+    // state transitions (a maximize restore lost its state that way). An
+    // opaque theme works fine with the hint - its QML covers the whole window.
+    if (wantFrameless && m_window &&
+        !m_window->flags().testFlag(Qt::FramelessWindowHint) &&
+        !m_window->windowStates().testFlag(Qt::WindowFullScreen)) {
+        auto flags = m_window->flags();
+        flags.setFlag(Qt::FramelessWindowHint, true);
+        m_window->setFlags(flags);
+    }
     if (m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint) &&
         m_window->flags().testFlag(Qt::CustomizeWindowHint) &&
-        !m_window->windowStates().testFlag(Qt::WindowFullScreen) &&
-        (GetWindowLongPtrW(m_handle, GWL_STYLE) & WS_THICKFRAME)) {
+        !m_window->windowStates().testFlag(Qt::WindowFullScreen)) {
         // QWindow publishes its new state only after the QPA transition. A
         // queued repair can run during that transition, while QWindow still
         // says Normal/Maximized but Qt has already removed the native frame.
@@ -224,14 +230,32 @@ void WindowsWindowBackdrop::applyWindowPolicy()
         // to Qt - keeps the QML caption the sole painter, so no native buttons
         // appear, while the taskbar toggle and the system menu entries work.
         //
-        // WS_CAPTION is the same kind of native-only bit: DWM only animates
-        // minimize/restore for windows that carry a caption, and CustomizeWindowHint
-        // leaves it off, so without it the window disappears in a single frame
-        // instead of shrinking to the taskbar. The client still covers the frame
-        // (ExpandedClientAreaHint) and QML paints the whole caption, so the bit
-        // restores the animation without bringing back native chrome.
-        const LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_STYLE);
-        const LONG_PTR withFrame = style | WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+        // Translucent: the frameless presentation keeps the resize border
+        // (WS_THICKFRAME) for the DWM shadow, native resize and snapping, but
+        // never WS_CAPTION - DWM paints its native caption buttons underneath
+        // the client surface, and with the DirectComposition presentation (no
+        // redirection bitmap) they bleed through every translucent pixel of
+        // the custom caption. Opaque: the caption returns for the
+        // minimize/restore animation; the opaque QML covers the buttons.
+        LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_STYLE);
+        LONG_PTR withFrame;
+        if (wantFrameless) {
+            // The frameless presentation keeps the resize border
+            // (WS_THICKFRAME) for the DWM shadow, native resize and snapping,
+            // but never WS_CAPTION - DWM paints its native caption buttons
+            // underneath the client surface, and with the DirectComposition
+            // presentation (no redirection bitmap) they bleed through every
+            // translucent pixel of the custom caption.
+            withFrame = (style | WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX |
+                         WS_MAXIMIZEBOX) & ~LONG_PTR(WS_CAPTION);
+        } else if (!fullscreenActive) {
+            // Opaque windowed: the caption returns for the minimize/restore
+            // animation; the opaque QML covers the native caption buttons.
+            withFrame = style | WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+        } else {
+            // Opaque fullscreen: the dance below owns the style bits.
+            withFrame = style;
+        }
         if (style != withFrame) {
             SetWindowLongPtrW(m_handle, GWL_STYLE, withFrame);
             // The changed frame bits reach the window manager only after a
@@ -239,6 +263,19 @@ void WindowsWindowBackdrop::applyWindowPolicy()
             SetWindowPos(m_handle, nullptr, 0, 0, 0, 0,
                          SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
                              SWP_NOACTIVATE);
+        }
+        // Frameless + alpha makes Qt apply WS_EX_LAYERED (with an opaque
+        // LWA_ALPHA), and layered windows cannot host the system backdrop -
+        // the frosted material would silently disappear. Strip it; Qt re-applies
+        // it on the next initialize and the repair re-strips again.
+        if (wantFrameless) {
+            const LONG_PTR exStyle = GetWindowLongPtrW(m_handle, GWL_EXSTYLE);
+            if (exStyle & WS_EX_LAYERED) {
+                SetWindowLongPtrW(m_handle, GWL_EXSTYLE, exStyle & ~LONG_PTR(WS_EX_LAYERED));
+                SetWindowPos(m_handle, nullptr, 0, 0, 0, 0,
+                             SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                                 SWP_NOACTIVATE);
+            }
         }
     }
     applyFullscreenGeometry();
@@ -374,16 +411,30 @@ bool WindowsWindowBackdrop::accent(int state)
 }
 void WindowsWindowBackdrop::clear()
 {
-    if (m_handle && IsWindow(m_handle) && m_enabled) {
-        if (m_build >= 22621)
-            material(false);
-        else
+    if (m_handle && IsWindow(m_handle) && m_applied != Applied::None) {
+        if (m_build >= 22621) {
+            systemMaterial(m_handle, kBackdropNone);
+            frameBorder(m_handle, kBorderDefault);
+            disableBlurBehind(m_handle);
+            extendFrame(m_handle,
+                        m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint));
+        } else {
             accent(0);
+        }
+        refreshFrame(m_handle);
     }
+    m_applied = Applied::None;
     m_enabled = m_suspended = m_initialized = false;
 }
-QString WindowsWindowBackdrop::apply(bool enabled, bool dark)
+QString WindowsWindowBackdrop::apply(bool enabled, bool dark, int transparency)
 {
+    transparency = qBound(0, transparency, 100);
+    // Remember the request before any readiness gate: the first apply can race
+    // ahead of the surface report, and the queued repair then re-runs the state
+    // instead of waiting for the next theme change.
+    m_requestedEnabled = enabled ? 1 : 0;
+    m_requestedDark = dark ? 1 : 0;
+    m_requestedTransparency = transparency;
     if (!m_window || !m_handle || !IsWindow(m_handle) || !m_subclassInstalled ||
         (enabled && !supported())) {
         m_error = tr("系统窗口合成接口不可用，窗口效果未能应用");
@@ -391,59 +442,96 @@ QString WindowsWindowBackdrop::apply(bool enabled, bool dark)
         logState("setup-failed");
         return m_error;
     }
-    // WS_EX_NOREDIRECTIONBITMAP can only be honored while the HWND is created;
-    // Windows rejects it on existing windows. Keep it best-effort so the normal
-    // frame/material policy still applies instead of failing the whole surface.
-    if (!configureSurface())
-        qCWarning(windowLog) << "Window redirection surface policy unavailable" << GetLastError();
-    if (m_initialized && enabled == m_enabled && dark == m_dark)
+    if (m_initialized && enabled == m_enabled && dark == m_dark &&
+        transparency == m_transparency)
         return m_error;
-    const BOOL darkMode = dark;
-    m_dark = dark;
-    // DWM's built-in tint follows the resolved light/dark variant.
-    DwmSetWindowAttribute(m_handle, 20, &darkMode, sizeof(darkMode));
-    const bool ok = m_build >= 22621 ? material(enabled) : accent(enabled && !m_suspended ? 4 : 0);
-    if (!ok) {
-        if (m_build >= 22621)
-            material(false);
-        else
-            accent(0);
-        clear();
+    if (!applyMaterialState(enabled, dark, transparency)) {
         m_error = tr("系统背景接口不可用，窗口毛玻璃未能应用");
         emit completed(m_error);
         logState("apply-failed");
         return m_error;
     }
-    m_enabled = enabled;
-    m_initialized = true;
-    m_error.clear();
     emit completed({});
     logState("apply");
     return {};
 }
-bool WindowsWindowBackdrop::material(bool enabled)
+bool WindowsWindowBackdrop::applyMaterialState(bool enabled, bool dark, int transparency)
 {
-    // The main window is non-layered from creation on this OS path. Keep its
-    // alpha-capable swapchain, but suspend Qt's DWM_BB while Acrylic owns the
-    // extended frame. Restore the window's own frame policy when clearing it.
-    const bool expanded = m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint);
-    if (enabled) {
-        if (GetWindowLongPtrW(m_handle, GWL_EXSTYLE) & WS_EX_LAYERED)
-            return false;
-        if (!extendFrame(m_handle, true))
-            return false;
-        if (!alphaBehind(m_handle, false) || !systemMaterial(m_handle, 3)) {
-            extendFrame(m_handle, expanded);
-            return false;
-        }
-        refreshFrame(m_handle);
+    // The state lands first: the window policy (frameless hint, caption bits,
+    // LAYERED suppression) derives from it and must precede the material - the
+    // frameless toggle makes Qt re-run initialize, which re-enables DWM_BB and
+    // WS_EX_LAYERED behind the adapter's back.
+    m_enabled = enabled;
+    m_transparency = transparency;
+    m_dark = dark;
+    applyWindowPolicy();
+    // A fullscreen surface is opaque - the QML covers the monitor - and the
+    // temporary frameless hint Qt applies for its duration turns the window
+    // layered, which cannot host the system backdrop. Suspend the material
+    // for that state instead of reporting a failure the user cannot act on;
+    // the repair that runs after leaving fullscreen re-applies it.
+    if (fullscreen()) {
+        clear();
+        m_initialized = true;
+        m_error.clear();
+        m_applied = Applied::None;
         return true;
     }
-    const bool cleared = systemMaterial(m_handle, 1);
-    const bool framed = extendFrame(m_handle, expanded);
-    const bool restored = alphaBehind(m_handle, true);
+    if ((enabled || transparency > 0) && !supported()) {
+        clear();
+        return false;
+    }
+    // DWM's built-in tint follows the resolved light/dark variant.
+    const BOOL darkMode = dark;
+    DwmSetWindowAttribute(m_handle, 20, &darkMode, sizeof(darkMode));
+    const bool ok = m_build >= 22621 ? material(enabled, transparency)
+                                     : accent(enabled && !m_suspended ? 4 : 0);
+    if (!ok) {
+        clear();
+        return false;
+    }
+    m_applied = m_build >= 22621 ? ((enabled || transparency > 0) ? Applied::Material
+                                                                  : Applied::None)
+                                 : (enabled ? Applied::LegacyAccent : Applied::None);
+    m_initialized = true;
+    m_error.clear();
+    return true;
+}
+bool WindowsWindowBackdrop::material(bool enabled, int transparency)
+{
+    // The main window presents through DirectComposition (the process disables
+    // the GDI redirection surface, see main.cpp), so its premultiplied alpha
+    // composites over whatever DWM keeps behind the window. DWM_BB's blur
+    // region must never take part on this OS: it renders a single static
+    // snapshot of what was behind the window when it was first composed and
+    // never updates, so moving or resizing leaves that stale frame misaligned
+    // inside the window.
+    //
+    // Plain transparency must NOT extend the frame: the extended-frame glass
+    // fill is opaque (white in the light theme), and Qt's frozen frame margins
+    // (QTBUG-117704) keep the swapchain a few pixels smaller than the window -
+    // with the fill enabled that shortfall shows as a white ring on the
+    // right/bottom edges; without it the shortfall is transparent and
+    // seamless. Frosted owns the extended frame: the Acrylic material paints
+    // across the whole glass area, and its own tint matches the body. DWM
+    // paints a 1px frame around the Acrylic material that reads as a legacy
+    // window border - hide it while the theme is translucent.
+    const bool expanded = m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint);
+    if (GetWindowLongPtrW(m_handle, GWL_EXSTYLE) & WS_EX_LAYERED)
+        return false;
+    if (!extendFrame(m_handle, enabled || (transparency == 0 && expanded)))
+        return false;
+    const bool alpha = disableBlurBehind(m_handle);
+    const bool material = systemMaterial(m_handle, enabled ? kBackdropAcrylic : kBackdropNone);
+    const bool border = frameBorder(m_handle, transparency > 0 ? kBorderNone : kBorderDefault);
+    if (!alpha || !material) {
+        systemMaterial(m_handle, kBackdropNone);
+        frameBorder(m_handle, kBorderDefault);
+        extendFrame(m_handle, expanded);
+        return false;
+    }
     refreshFrame(m_handle);
-    return cleared && framed && restored;
+    return border;
 }
 void WindowsWindowBackdrop::queueRepair()
 {
@@ -460,8 +548,6 @@ void WindowsWindowBackdrop::queueRepair()
             m_repairQueued = false;
             if (!m_window || !m_handle || !IsWindow(m_handle))
                 return;
-            if (!configureSurface())
-                qCWarning(windowLog) << "Window redirection surface policy unavailable" << GetLastError();
             // A hidden fullscreen window loses the emulated state; restore it
             // once the show/minimize transition has completely settled.
             if (m_restoreFullscreen && m_window->isVisible()) {
@@ -469,25 +555,22 @@ void WindowsWindowBackdrop::queueRepair()
                 if (!m_window->windowStates().testFlag(Qt::WindowFullScreen))
                     m_window->showFullScreen();
             }
-            applyWindowPolicy();
-            // Run after Qt's handler on both Win10 and Win11. Legacy Accent
-            // toggles leave Qt's layered alpha/margins intact; modern DWM must
-            // reclaim its alpha/frame policy after Qt composition resets.
-            if (m_initialized) {
-                const bool repaired =
-                    m_build >= 22621 ? material(m_enabled)
-                                     : accent(m_enabled && !m_suspended ? 4 : 0);
-                if (repaired) {
-                    m_error.clear();
+            // Run after Qt's handler on both Win10 and Win11. Qt re-enables its
+            // blur behind (creation, flag and composition changes) and resets
+            // frame margins there; the repair reclaims the whole material state
+            // from the last request, which also retries an apply that raced
+            // ahead of the surface report. The window policy follows the state,
+            // so the native caption bits track the appearance change too.
+            if (m_requestedEnabled >= 0) {
+                if (applyMaterialState(m_requestedEnabled == 1, m_requestedDark == 1,
+                                       m_requestedTransparency)) {
                     emit completed({});
                 } else {
-                    if (m_build >= 22621)
-                        material(false);
-                    else
-                        accent(0);
                     m_error = tr("系统背景接口不可用，窗口毛玻璃未能恢复");
                     emit completed(m_error);
                 }
+            } else {
+                applyWindowPolicy();
             }
             logState("repair");
         },
@@ -547,20 +630,9 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
         if (self->m_handle == window) {
             self->m_handle = nullptr;
             self->m_enabled = self->m_suspended = self->m_initialized = false;
-            self->m_subclassInstalled = self->m_ownsNoRedirection = false;
+            self->m_subclassInstalled = false;
         }
         return DefSubclassProc(window, message, wParam, lParam);
-    }
-    if (message == WM_NCCALCSIZE && wParam && self->m_window &&
-        self->m_window->flags().testFlag(Qt::ExpandedClientAreaHint) && self->fullscreen() &&
-        !(GetWindowLongPtrW(window, GWL_STYLE) & WS_THICKFRAME)) {
-        // Qt insets the expanded client area by the 96-dpi resize border, also
-        // while a fullscreen transition is still in flight (before the state is
-        // published and the frameless hint applied), which would leave a frame
-        // around the monitor. Keep the proposed window rectangle so the client
-        // covers the screen from the first WM_NCCALCSIZE on; Qt's own frameless
-        // handling returns the same result once the hint is set.
-        return 0;
     }
     if (self->fullscreen()) {
         // Qt excludes synchronously sent WM_SYSCOMMAND / WM_SIZING / WM_MOVING
@@ -598,7 +670,8 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
         self->queueRepair();
     } else if (message == WM_DWMCOMPOSITIONCHANGED || message == WM_STYLECHANGED ||
                message == WM_DPICHANGED || message == WM_DISPLAYCHANGE ||
-               message == WM_SHOWWINDOW) {
+               message == WM_SHOWWINDOW || message == WM_THEMECHANGED ||
+               message == WM_SETTINGCHANGE) {
         self->queueRepair();
     }
     return result;
@@ -622,7 +695,6 @@ QVariantMap WindowsWindowBackdrop::diagnostics() const
     state.insert("style", QString::number(quintptr(style), 16));
     state.insert("extendedStyle", QString::number(quintptr(extended), 16));
     state.insert("layered", (extended & WS_EX_LAYERED) != 0);
-    state.insert("noRedirectionBitmap", (extended & WS_EX_NOREDIRECTIONBITMAP) != 0);
     state.insert("surfaceType", int(m_window->surfaceType()));
     state.insert("requestedAlphaBufferSize", m_window->requestedFormat().alphaBufferSize());
     state.insert("alphaBufferSize", m_window->format().alphaBufferSize());
@@ -646,9 +718,17 @@ QVariantMap WindowsWindowBackdrop::diagnostics() const
                                            : QVariant());
     int materialType = 0;
     state.insert("systemBackdrop",
-                 SUCCEEDED(DwmGetWindowAttribute(m_handle, 38, &materialType, sizeof(materialType)))
+                 SUCCEEDED(DwmGetWindowAttribute(m_handle, kAttrSystemBackdrop, &materialType,
+                                                 sizeof(materialType)))
                      ? QVariant(materialType)
                      : QVariant());
+    UINT borderColor = 0;
+    state.insert("frameBorder",
+                 SUCCEEDED(DwmGetWindowAttribute(m_handle, kAttrBorderColor, &borderColor,
+                                                 sizeof(borderColor)))
+                     ? QVariant(uint(borderColor))
+                     : QVariant());
+    state.insert("transparency", m_transparency);
     QVariant accentState, accentColor;
     if (const auto read = compositionReadApi()) {
         AccentPolicy policy{};
