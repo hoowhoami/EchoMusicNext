@@ -103,15 +103,45 @@ void WindowsWindowBackdrop::attach(QWindow *window)
     const auto handle = window ? reinterpret_cast<HWND>(window->winId()) : nullptr;
     if (window && m_window == window && m_handle == handle && m_subclassInstalled)
         return;
+    // The frameless hint only lives for the duration of a fullscreen session,
+    // so never detach from a window while it still carries it.
+    if (m_framelessForFullscreen && m_window && m_window->flags().testFlag(Qt::FramelessWindowHint))
+        m_window->setFlags(m_window->flags() & ~Qt::FramelessWindowHint);
+    m_framelessForFullscreen = false;
+    m_restoreFullscreen = false;
+    m_geometryQueued = false;
     clear();
     releaseSurface();
     disconnect(m_visibilityConnection);
+    disconnect(m_stateConnection);
+    disconnect(m_screenConnection);
     m_window = window;
     m_handle = handle;
     m_error.clear();
-    if (window)
-        m_visibilityConnection =
-            connect(window, &QWindow::visibilityChanged, this, [this] { queueRepair(); });
+    if (window) {
+        m_visibilityConnection = connect(window, &QWindow::visibilityChanged, this, [this] {
+            if (!m_window)
+                return;
+            if (m_window->visibility() == QWindow::Hidden ||
+                m_window->visibility() == QWindow::Minimized) {
+                // Qt emulates fullscreen with style/geometry only. Hiding or
+                // minimizing the window drops it, so remember the intent and
+                // re-apply it once the window is shown again.
+                if (m_window->windowStates().testFlag(Qt::WindowFullScreen))
+                    m_restoreFullscreen = true;
+            }
+            queueRepair();
+        });
+        // QWindow publishes WindowFullScreen only after the QPA transition, which
+        // is later than the WM_STYLECHANGED that starts it. Repair on the state
+        // signal so the fullscreen geometry is reconciled once Qt agrees.
+        m_stateConnection =
+            connect(window, &QWindow::windowStateChanged, this, [this] { queueRepair(); });
+        // Windows reports no DPI/display change when a fullscreen window follows
+        // the screen, so monitor geometry is re-reconciled here.
+        m_screenConnection =
+            connect(window, &QWindow::screenChanged, this, [this] { queueRepair(); });
+    }
     if (m_handle) {
         m_subclassInstalled =
             SetWindowSubclass(m_handle, windowProcedure, reinterpret_cast<UINT_PTR>(this),
@@ -214,8 +244,11 @@ void WindowsWindowBackdrop::applyWindowPolicy()
     applyFullscreenGeometry();
     // Frameless Qt windows do not qualify for DWM's automatic heuristics.
     // This documented opt-in is independent of the user's Acrylic preference;
-    // DWM still owns square maximized/snapped/full-screen corners.
-    const DWM_WINDOW_CORNER_PREFERENCE preference = DWMWCP_ROUND;
+    // DWM still owns square maximized/snapped/full-screen corners. A fullscreen
+    // surface has to reach the monitor corners, so rounding is turned off there
+    // and restored together with the windowed frame.
+    const DWM_WINDOW_CORNER_PREFERENCE preference =
+        fullscreen() ? DWMWCP_DONOTROUND : DWMWCP_ROUND;
     const auto result = DwmSetWindowAttribute(m_handle, DWMWA_WINDOW_CORNER_PREFERENCE, &preference,
                                               sizeof(preference));
     if (FAILED(result))
@@ -223,36 +256,99 @@ void WindowsWindowBackdrop::applyWindowPolicy()
 }
 void WindowsWindowBackdrop::applyFullscreenGeometry()
 {
-    if (!m_window || !m_window->flags().testFlag(Qt::ExpandedClientAreaHint) ||
-        !m_window->windowStates().testFlag(Qt::WindowFullScreen) ||
-        m_window->windowStates().testFlag(Qt::WindowMinimized) || IsIconic(m_handle) ||
-        !IsWindowVisible(m_handle))
+    // The queued repair can run inside Qt's synchronous state transition, before
+    // Qt finishes its own geometry bookkeeping. Reconciling the native frame at
+    // that point leaves QQuickWindow with the intermediate size, so defer it by
+    // one event-loop turn.
+    if (m_geometryQueued)
         return;
+    m_geometryQueued = true;
+    // The repair may outlive the adapter (window teardown), so keep a guard
+    // instead of dereferencing a destroyed receiver.
+    QPointer<WindowsWindowBackdrop> guard(this);
+    QMetaObject::invokeMethod(
+        this,
+        [guard] {
+            if (!guard)
+                return;
+            guard->m_geometryQueued = false;
+            guard->applyFullscreenGeometryNow();
+        },
+        Qt::QueuedConnection);
+}
+void WindowsWindowBackdrop::applyFullscreenGeometryNow()
+{
+    if (!m_window || !m_handle || IsIconic(m_handle) || !IsWindowVisible(m_handle))
+        return;
+    if (!m_window->windowStates().testFlag(Qt::WindowFullScreen) ||
+        m_window->windowStates().testFlag(Qt::WindowMinimized)) {
+        // Leaving fullscreen restores the framed window, so the temporary
+        // frameless hint has to go with it.
+        if (m_framelessForFullscreen) {
+            m_framelessForFullscreen = false;
+            m_window->setFlags(m_window->flags() & ~Qt::FramelessWindowHint);
+        }
+        return;
+    }
+    if (!m_window->flags().testFlag(Qt::ExpandedClientAreaHint))
+        return;
+    // Qt derives the fullscreen QWindow geometry from the frame margins of the
+    // expanded client area, and caches those margins for the lifetime of the
+    // window. Fractional scaling rounds them down, so the surface stays a few
+    // device-independent pixels smaller than the monitor (transparent strips on
+    // the right/bottom edge). A frameless window has no margins to subtract and
+    // covers the monitor exactly. Qt pairs the hint with WS_EX_LAYERED because
+    // the window has an alpha buffer; the fullscreen surface is opaque and uses
+    // no system backdrop, and the frame (and the regular surface policy) comes
+    // back together when the hint is dropped.
+    if (!m_window->flags().testFlag(Qt::FramelessWindowHint)) {
+        m_framelessForFullscreen = true;
+        m_window->setFlags(m_window->flags() | Qt::FramelessWindowHint);
+        return;
+    }
     MONITORINFO monitor{sizeof(MONITORINFO)};
     RECT bounds{};
     if (!GetMonitorInfoW(MonitorFromWindow(m_handle, MONITOR_DEFAULTTONEAREST), &monitor) ||
         !GetWindowRect(m_handle, &bounds))
         return;
-    // A caption/frame repaired during Qt's synchronous state transition can
-    // constrain the window to rcWork. Reconcile the completed fullscreen
-    // request with rcMonitor in native pixels, without replacing Qt's saved
-    // normal geometry, flags, activation or minimize/restore ownership.
+    // Qt may still publish FullScreen while it has already restored the saved
+    // native frame on the way out; never undo that exit.
     const LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_STYLE);
-    // The inverse transition has the same ordering: Qt may still publish
-    // FullScreen after restoring its saved native frame. Do not undo that exit.
     if (style & WS_THICKFRAME)
         return;
+    // A repair that ran before the frameless hint was applied can leave frame
+    // bits behind. Strip them without touching Qt's saved normal geometry,
+    // activation or minimize/restore ownership.
     const LONG_PTR fullscreenStyle = style & ~LONG_PTR(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX |
                                                        WS_MAXIMIZEBOX | WS_MAXIMIZE);
     const bool changed = style != fullscreenStyle;
     if (changed)
         SetWindowLongPtrW(m_handle, GWL_STYLE, fullscreenStyle);
+    // The window and its client area have to match the monitor in native pixels,
+    // including after a monitor or DPI change that Qt does not report.
+    RECT client{};
+    POINT origin{};
+    const bool clientCovered =
+        GetClientRect(m_handle, &client) && ClientToScreen(m_handle, &origin) &&
+        origin.x == bounds.left && origin.y == bounds.top &&
+        client.right == bounds.right - bounds.left && client.bottom == bounds.bottom - bounds.top;
     const auto &screen = monitor.rcMonitor;
-    if (changed || !EqualRect(&bounds, &screen)) {
+    if (changed || !EqualRect(&bounds, &screen) || !clientCovered) {
         if (!SetWindowPos(m_handle, nullptr, screen.left, screen.top, screen.right - screen.left,
                           screen.bottom - screen.top,
-                          SWP_NOZORDER | SWP_NOACTIVATE | (changed ? SWP_FRAMECHANGED : 0)))
+                          SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED))
             qWarning("Fullscreen monitor geometry failed: error=%lu", GetLastError());
+    }
+    // Qt does not always deliver the final resize to the scene, so the
+    // QQuickWindow root item can keep its pre-fullscreen size (a transparent
+    // strip at the right/bottom edge even though the window covers the monitor).
+    // Nudge the window by one pixel and back to make the scene geometry follow.
+    const auto *content = m_window->property("contentItem").value<QObject *>();
+    if (content && (content->property("width").toDouble() != m_window->width() ||
+                    content->property("height").toDouble() != m_window->height())) {
+        const QSize size = m_window->size();
+        m_window->resize(size - QSize(1, 1));
+        m_window->resize(size);
     }
 }
 bool WindowsWindowBackdrop::supported() const
@@ -289,12 +385,17 @@ void WindowsWindowBackdrop::clear()
 QString WindowsWindowBackdrop::apply(bool enabled, bool dark)
 {
     if (!m_window || !m_handle || !IsWindow(m_handle) || !m_subclassInstalled ||
-        !configureSurface() || (enabled && !supported())) {
+        (enabled && !supported())) {
         m_error = tr("系统窗口合成接口不可用，窗口效果未能应用");
         emit completed(m_error);
         logState("setup-failed");
         return m_error;
     }
+    // WS_EX_NOREDIRECTIONBITMAP can only be honored while the HWND is created;
+    // Windows rejects it on existing windows. Keep it best-effort so the normal
+    // frame/material policy still applies instead of failing the whole surface.
+    if (!configureSurface())
+        qCWarning(windowLog) << "Window redirection surface policy unavailable" << GetLastError();
     if (m_initialized && enabled == m_enabled && dark == m_dark)
         return m_error;
     const BOOL darkMode = dark;
@@ -359,15 +460,23 @@ void WindowsWindowBackdrop::queueRepair()
             m_repairQueued = false;
             if (!m_window || !m_handle || !IsWindow(m_handle))
                 return;
-            const bool surfaceReady = configureSurface();
+            if (!configureSurface())
+                qCWarning(windowLog) << "Window redirection surface policy unavailable" << GetLastError();
+            // A hidden fullscreen window loses the emulated state; restore it
+            // once the show/minimize transition has completely settled.
+            if (m_restoreFullscreen && m_window->isVisible()) {
+                m_restoreFullscreen = false;
+                if (!m_window->windowStates().testFlag(Qt::WindowFullScreen))
+                    m_window->showFullScreen();
+            }
             applyWindowPolicy();
             // Run after Qt's handler on both Win10 and Win11. Legacy Accent
             // toggles leave Qt's layered alpha/margins intact; modern DWM must
             // reclaim its alpha/frame policy after Qt composition resets.
             if (m_initialized) {
                 const bool repaired =
-                    surfaceReady && (m_build >= 22621 ? material(m_enabled)
-                                                      : accent(m_enabled && !m_suspended ? 4 : 0));
+                    m_build >= 22621 ? material(m_enabled)
+                                     : accent(m_enabled && !m_suspended ? 4 : 0);
                 if (repaired) {
                     m_error.clear();
                     emit completed({});
@@ -441,6 +550,17 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
             self->m_subclassInstalled = self->m_ownsNoRedirection = false;
         }
         return DefSubclassProc(window, message, wParam, lParam);
+    }
+    if (message == WM_NCCALCSIZE && wParam && self->m_window &&
+        self->m_window->flags().testFlag(Qt::ExpandedClientAreaHint) && self->fullscreen() &&
+        !(GetWindowLongPtrW(window, GWL_STYLE) & WS_THICKFRAME)) {
+        // Qt insets the expanded client area by the 96-dpi resize border, also
+        // while a fullscreen transition is still in flight (before the state is
+        // published and the frameless hint applied), which would leave a frame
+        // around the monitor. Keep the proposed window rectangle so the client
+        // covers the screen from the first WM_NCCALCSIZE on; Qt's own frameless
+        // handling returns the same result once the hint is set.
+        return 0;
     }
     if (self->fullscreen()) {
         // Qt excludes synchronously sent WM_SYSCOMMAND / WM_SIZING / WM_MOVING
