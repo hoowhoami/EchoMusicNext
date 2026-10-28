@@ -59,16 +59,25 @@ void PortraitController::setTrack(const PlaybackTrack &track)
 }
 void PortraitController::setActive(bool active)
 {
-    if (m_active == active)
+    setSurfaceActive(QStringLiteral("playback"), active);
+}
+void PortraitController::setSurfaceActive(const QString &surface, bool active)
+{
+    if (active)
+        m_surfaces.insert(surface);
+    else
+        m_surfaces.remove(surface);
+    const bool now = !m_surfaces.isEmpty();
+    if (m_active == now)
         return;
-    m_active = active;
-    if (!active) {
+    m_active = now;
+    if (!now) {
         cancel();
         m_urls.clear();
         m_index = 0;
     }
     publish();
-    if (active)
+    if (now)
         request();
 }
 void PortraitController::request()

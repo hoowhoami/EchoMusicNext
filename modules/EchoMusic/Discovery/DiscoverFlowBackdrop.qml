@@ -8,6 +8,9 @@ Item {
     id: backdrop
     property url source
     property bool resourceActive: true
+    // Carries the URL whose decode failed, so the owner can retire it from its
+    // own gallery (the artist-portrait controller drops it and rotates on).
+    signal failed(url imageUrl)
     property url firstSource: ""
     property url secondSource: ""
     property int currentSlot: -1
@@ -70,8 +73,10 @@ Item {
         }
     }
     function imageFailed(slot: int): void {
-        if (slot === pendingSlot)
-            clear();
+        if (slot !== pendingSlot)
+            return;
+        failed(pendingSlot === 0 ? firstSource : secondSource);
+        clear();
     }
     onSourceChanged: updateSource()
     onResourceActiveChanged: updateSource()

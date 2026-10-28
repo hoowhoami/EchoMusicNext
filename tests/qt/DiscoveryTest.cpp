@@ -344,21 +344,12 @@ Window {
             QVERIFY(next && play);
             QCOMPARE(next->size(), QSizeF(36, 36));
             QCOMPARE(play->size(), QSizeF(52, 52));
-            // A uniform source isolates the top entrance and adjusted scrim from cover
-            // content. Probe the stage gap, away from all foreground glyphs.
+            // A uniform source isolates the media from cover content. The
+            // artwork renders at full strength (no top entrance, no scrim);
+            // probe the stage gap, away from all foreground glyphs.
             if (QGuiApplication::platformName() != "offscreen") {
                 const auto ratio = image.width() / qreal(window->width());
                 const auto x = (page->width() - (narrow ? 80 : 100)) * zoom;
-                const auto mask = [](qreal t) {
-                    const QList<QPointF> stops{{0, 0},   {.05, .10}, {.12, .45}, {.20, .82},
-                                               {.28, 1}, {.58, 1},   {1, 1}};
-                    for (int i = 1; i < stops.size(); ++i)
-                        if (t <= stops[i].x()) {
-                            const auto a = stops[i - 1], b = stops[i];
-                            return a.y() + (b.y() - a.y()) * (t - a.x()) / (b.x() - a.x());
-                        }
-                    return 0.;
-                };
                 QList<qreal> ys;
                 for (const auto t : {0., .025, .05, .085, .12, .16, .20, .24, .28, .58})
                     ys.append(t * page->height());
@@ -369,11 +360,6 @@ Window {
                 for (const auto y : ys) {
                     const int py = qBound(0, qRound(y * zoom * ratio), image.height() - 1);
                     const auto logicalY = (py + .5) / (zoom * ratio);
-                    const auto distance = page->height() - logicalY;
-                    const auto scrim = distance >= 300   ? 0.
-                                       : distance >= 120 ? .45 * (300 - distance) / 180
-                                                         : .45 + .33 * (120 - distance) / 120;
-                    const auto alpha = mask(logicalY / page->height()) * (1 - scrim);
                     const auto pixel = image.pixelColor(qRound(x * ratio), py);
                     for (int channel = 0; channel < 3; ++channel) {
                         const auto c = [channel](const QColor &color) {
@@ -381,7 +367,7 @@ Window {
                                    : channel == 1 ? color.green()
                                                   : color.blue();
                         };
-                        const auto expected = qRound(c(base) * (1 - alpha) + c(coverColor) * alpha);
+                        const auto expected = c(coverColor);
                         QVERIFY2(
                             qAbs(c(pixel) - expected) <= 3,
                             qPrintable(QString("source alpha y=%1 channel=%2 actual=%3 expected=%4")
@@ -391,9 +377,10 @@ Window {
                                            .arg(expected)));
                     }
                 }
-                // Both media and scrim must leave the shell's rounded bottom
-                // corners clear. Check actual pixels at each scale and theme,
-                // including the inside of the arc, rather than just a radius property.
+                // The media must leave the shell's rounded bottom corners
+                // clear. Check actual pixels at each scale and theme,
+                // including the inside of the arc, rather than just a radius
+                // property.
                 for (const bool right : {false, true}) {
                     const int edgeX = right ? image.width() - 2 : 1;
                     const auto outside = image.pixelColor(edgeX, image.height() - 2);
@@ -438,13 +425,11 @@ Window {
                 const auto frame = window->grabWindow();
                 const auto dpr = frame.width() / qreal(window->width());
                 const qreal x = page->width() - 100, y = page->height() * .3;
-                // At y=.3 the top mask is fully opaque. Undo only the known
-                // bottom scrim before comparing the 35% vertical source crop.
-                const auto distance = page->height() - y;
-                const auto scrim = distance >= 300 ? 0. : .45 * (300 - distance) / 180;
+                // The media has no fades; compare the 35% vertical source crop
+                // directly against the rendered pixel.
                 const auto crop = page->height() / page->width();
                 const auto uv = (1 - crop) * .35 + (y / page->height()) * crop;
-                const auto expected = qRound(uv * 255 * (1 - scrim) + theme.main().red() * scrim);
+                const auto expected = qRound(uv * 255);
                 const auto pixel = frame.pixelColor(qRound(x * dpr), qRound(y * dpr));
                 QVERIFY2(qAbs(pixel.red() - expected) <= 3,
                          qPrintable(QString("35 percent crop actual=%1 expected=%2")
