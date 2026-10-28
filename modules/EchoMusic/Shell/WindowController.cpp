@@ -316,7 +316,14 @@ void WindowController::showTaskbarLyricMenu(qreal globalX, qreal globalY)
     // The strip is a child of the taskbar, so the menu has to be shown at an
     // explicit position and owns its own lifetime.
     menu->setAttribute(Qt::WA_DeleteOnClose);
+    // This QMenu paints through the raster backing store, which needs the GDI
+    // redirection bitmap that the process-wide DComp surface policy removes
+    // (see main.cpp). Its native window is created synchronously inside
+    // popup(), so lifting the policy for this call keeps every other window
+    // on the DirectComposition path.
+    qunsetenv("QT_QPA_DISABLE_REDIRECTION_SURFACE");
     menu->popup(QPoint(qRound(globalX), qRound(globalY)));
+    qputenv("QT_QPA_DISABLE_REDIRECTION_SURFACE", "1");
 }
 QMenu *WindowController::createTaskbarLyricMenu()
 {

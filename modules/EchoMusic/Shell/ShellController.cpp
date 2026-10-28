@@ -322,9 +322,13 @@ void ShellController::attachPlayback(PlaybackService &service)
             m_playerbar.setPresentation(m_playerHandles.value(Favorite),
                                         actions->favorite() ? tr("取消收藏") : tr("收藏"),
                                         actions->favorite() ? "heart-filled" : "heart");
-            // 只有已登录且存在当前曲目时才显示添加到歌单入口。
-            const bool canAdd = actions->signedIn() && service.hasTrack() && !actions->busy();
-            m_playerbar.setState(m_playerHandles.value(AddToPlaylist), canAdd, canAdd, false, {});
+            // 只有已登录且存在当前曲目时才显示添加到歌单入口；收藏/添加
+            // 请求期间 busy 只禁用按钮，不隐藏，避免动作栏跳动（上游
+            // issue #18）。
+            const bool canShowAdd = actions->signedIn() && service.hasTrack();
+            const bool canAdd = canShowAdd && !actions->busy();
+            m_playerbar.setState(m_playerHandles.value(AddToPlaylist), canAdd, canShowAdd, false,
+                                 {});
         };
         connect(actions, &PlaybackLibraryActions::changed, this, updateLibrary);
         updateLibrary();

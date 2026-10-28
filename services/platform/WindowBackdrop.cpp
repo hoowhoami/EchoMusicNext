@@ -89,7 +89,7 @@ QString WindowBackdrop::apply(bool enabled, bool dark, int transparency)
         m_windows->attach(m_window);
         // Clear/transparency remains usable without the optional Accent API.
         // The Windows adapter reports its own setup/material failures.
-        return m_windows->apply(enabled, dark);
+        return m_windows->apply(enabled, dark, transparency);
     }
 #endif
     if (!supported()) {
