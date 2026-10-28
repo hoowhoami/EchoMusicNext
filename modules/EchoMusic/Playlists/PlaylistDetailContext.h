@@ -169,6 +169,7 @@ private:
     QJsonObject m_detail;
     QList<QJsonObject> m_cloudEntries;
     QSet<QString> m_cloudEntryIds;
+    QHash<QString, int> m_cloudEntryRows;
     QHash<quint64, Pending> m_metadataRequests;
     quint64 m_received = 0;
     QString m_error, m_publicId;

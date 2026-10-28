@@ -166,9 +166,9 @@ void ListeningReporter::fail(quint64 id, const QByteArray &bytes)
     } else if (id && id == m_gradeRequest) {
         m_gradeRequest = 0;
         const auto kind = QJsonDocument::fromJson(bytes).object().value("kind").toString();
-        // A baseline query is read-only and may fail only because reqwest reused
-        // an idle connection the upstream had already closed. Retry that query
-        // once on a fresh connection; never replay the write after uncertainty.
+        // This read-only baseline permits one bounded repeat after a transport
+        // failure. The HTTP client owns connection recovery; a repeat does not
+        // imply a fresh socket. Never replay a write after an uncertain result.
         if (!m_gradeWriting && !m_gradeRetried && kind == "transport") {
             m_gradeRetried = true;
             m_gradeRequest = m_api.userGradeInfo({}, false);

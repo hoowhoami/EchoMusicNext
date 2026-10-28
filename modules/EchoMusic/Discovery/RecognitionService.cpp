@@ -93,6 +93,7 @@ void RecognitionService::setAvailable(bool value)
     if (m_available == value)
         return;
     m_available = value;
+    m_matches.setMetadataActive(value);
     if (!value && busy()) {
         cancel();
         m_state = Idle;

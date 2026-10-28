@@ -3,6 +3,7 @@
 #include "DeviceIdentity.h"
 #include "ListenTogetherApi.h"
 #include <QHash>
+#include <QElapsedTimer>
 #include <QJsonObject>
 #include <QList>
 #include <QObject>
@@ -484,6 +485,7 @@ private:
     {
         quint64 revision = 0;
         quint64 logicalId = 0;
+        QElapsedTimer attemptTimer;
         QJsonObject request;
         bool automaticVerification = true;
         bool replayAfterVerification = true;

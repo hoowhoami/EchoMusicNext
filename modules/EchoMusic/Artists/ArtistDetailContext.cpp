@@ -110,6 +110,7 @@ void ArtistDetailContext::cancelSongRequests()
 }
 void ArtistDetailContext::shutdown()
 {
+    m_songs.setMetadataActive(false);
     if (m_closed)
         return;
     m_closed = true;
@@ -120,6 +121,7 @@ void ArtistDetailContext::shutdown()
 }
 void ArtistDetailContext::activate()
 {
+    m_songs.setMetadataActive(!m_closed && m_network && m_route.active());
     if (m_closed)
         return;
     if (!m_route.active()) {

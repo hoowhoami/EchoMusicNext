@@ -29,6 +29,9 @@ SongCatalogActions::SongCatalogActions(SongCatalogModel &model, PlaybackService 
                                        QObject *parent)
     : QObject(parent), m_model(model), m_playback(playback)
 {
+    model.attachMetadata(playback.metadata());
+    connect(&playback, &PlaybackService::metadataServiceChanged, &model,
+            [&model, &playback] { model.attachMetadata(playback.metadata()); });
     // QML borrows this application-owned object, including explicit invokable
     // returns. GC and engine teardown must never delete a C++ member/context.
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);

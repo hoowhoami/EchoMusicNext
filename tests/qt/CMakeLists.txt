@@ -1608,3 +1608,32 @@ add_test(NAME lyric-parser COMMAND echo-lyric-parser-test)
 set_tests_properties(lyric-parser PROPERTIES TIMEOUT 45)
 
 target_link_libraries(echo-plugin-runtime-test PRIVATE Qt6::WebSockets)
+
+qt_add_executable(echo-unified-song-metadata-test UnifiedSongMetadataTest.cpp)
+target_link_libraries(echo-unified-song-metadata-test PRIVATE echo_music echo_search Qt6::Test)
+add_test(NAME unified-song-metadata COMMAND echo-unified-song-metadata-test)
+set_tests_properties(
+    unified-song-metadata PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
+)
+echo_copy_rust_runtime(echo-unified-song-metadata-test)
+
+qt_add_executable(echo-embedded-cover-cache-test EmbeddedCoverCacheTest.cpp)
+target_link_libraries(
+    echo-embedded-cover-cache-test
+    PRIVATE echo_music
+            echo_search
+            echo_settings_keys
+            echo_controls
+            echo_controlsplugin
+            echo_theme
+            echo_themeplugin
+            Qt6::Quick
+            Qt6::Sql
+            Qt6::Test
+)
+add_test(NAME embedded-cover-cache COMMAND echo-embedded-cover-cache-test)
+set_tests_properties(
+    embedded-cover-cache PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90 RUN_SERIAL
+                                    TRUE
+)
+echo_copy_rust_runtime(echo-embedded-cover-cache-test)

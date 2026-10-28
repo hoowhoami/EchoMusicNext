@@ -1,7 +1,8 @@
 //! Provider HTTP is separate from Kugou signing and account injection. URLs are
 //! endpoint-owned, redirects are explicit, and error text never includes URLs.
-use crate::error::ApiError;
+use crate::error::{ApiError, RequestDiagnostics};
 use reqwest::{Method, Url, header::HeaderMap};
+use std::time::Instant;
 pub struct Response {
     pub bytes: Vec<u8>,
     pub headers: HeaderMap,
@@ -41,22 +42,34 @@ impl super::request::ApiClient {
         for &(key, value) in headers {
             request = request.header(key, value);
         }
-        let mut response = request
-            .send()
-            .await
-            .map_err(|error| super::request::transport_error(error, "登录服务网络请求失败"))?;
+        let started = Instant::now();
+        let mut response = request.send().await.map_err(|error| {
+            super::request::transport_error(
+                error,
+                "登录服务网络请求失败",
+                RequestDiagnostics::capture("send", started, None, 0),
+            )
+        })?;
+        let status = response.status().as_u16();
+        let diagnostics =
+            |phase, bytes| RequestDiagnostics::capture(phase, started, Some(status), bytes);
         if !response.status().is_success() && !response.status().is_redirection() {
-            return Err(ApiError::new("http", "登录服务暂时不可用"));
+            return Err(ApiError::new("http", "登录服务暂时不可用")
+                .with_diagnostics(diagnostics("response_status", 0)));
         }
         let headers = response.headers().clone();
         let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|error| super::request::transport_error(error, "登录响应读取失败"))?
-        {
+        while let Some(chunk) = response.chunk().await.map_err(|error| {
+            super::request::transport_error(
+                error,
+                "登录响应读取失败",
+                diagnostics("response_body", bytes.len()),
+            )
+        })? {
             if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
-                return Err(ApiError::decode());
+                return Err(
+                    ApiError::decode().with_diagnostics(diagnostics("response_body", bytes.len()))
+                );
             }
             bytes.extend_from_slice(&chunk);
         }

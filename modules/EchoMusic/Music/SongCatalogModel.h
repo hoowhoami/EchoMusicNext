@@ -5,10 +5,13 @@
 #include <QJsonArray>
 #include <QSet>
 #include <QStringList>
+#include <QPointer>
+#include <QTimer>
 #include <QtQml/qqmlregistration.h>
 
 namespace EchoMusic
 {
+class SongMetadataService;
 /// A bounded page catalog. Filtering, ordering and batch selection belong here,
 /// never to a recycled delegate. Inputs are Rust domain data, not provider JSON.
 class SongCatalogModel final : public QAbstractListModel
@@ -76,6 +79,10 @@ public:
     /// these to page commands; selection stays owned by the model.
     Q_INVOKABLE QStringList selectedIds() const;
     void setQuery(const QString &query);
+    void attachMetadata(SongMetadataService *service);
+    void setMetadataActive(bool active);
+    /// Refresh only rows addressed by the shared identity index.
+    void refreshMetadata(const QStringList &rows);
     void replaceSongs(const QJsonArray &songs, bool preserveSelection = false);
     void appendSongs(const QJsonArray &songs);
     /// Update presentation fields in place; resource/rights/selection stay intact.
@@ -98,6 +105,7 @@ public:
 signals:
     void changed();
     void selectionChanged();
+    void presentationsApplied(const QStringList &rows);
 
 private:
     struct Entry
@@ -113,10 +121,19 @@ private:
         quint64 albumId = 0, durationMs = 0;
         bool playable = true, trackPlayable = false, original = false;
     };
+    void watchMetadata();
+    void notifyPresentations(const QSet<int> &changed, bool orderMayChange = true);
+    QPointer<SongMetadataService> m_metadata;
+    QTimer m_metadataRefresh;
+    QMetaObject::Connection m_metadataReset;
+    bool m_metadataActive = true, m_cards = false;
+    int m_metadataObservedCount = 0;
     static Entry songEntry(const QJsonObject &song);
     void rebuild(bool resetStarted = false);
     QList<Entry> m_entries;
     QHash<QString, int> m_indices;
+    QMultiHash<QString, int> m_domainIndices;
+    QList<int> m_viewRows;
     QList<int> m_order;
     QSet<QString> m_selected;
     QString m_query;

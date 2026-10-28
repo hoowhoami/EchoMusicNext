@@ -1269,7 +1269,8 @@ Window {
             QTRY_COMPARE(order.mode(), 1);
             QTRY_COMPARE(order.listId(), quint64(7));
             QCOMPARE(dialog->property("tracksListId").toULongLong(), quint64(7));
-            QCOMPARE(dialog->property("tracksTitle").toString(), QString("Owner playlist"));
+            QCOMPARE(dialog->property("tracksTitle").toString(),
+                     context->detail()["title"].toString());
             if (round < 2) {
                 QVERIFY(QMetaObject::invokeMethod(owner, "close"));
             } else {

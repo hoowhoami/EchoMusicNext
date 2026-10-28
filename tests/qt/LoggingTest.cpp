@@ -212,6 +212,13 @@ private slots:
             QVERIFY(logging.active());
             QCOMPARE(logging.level(), QString("warn"));
             qInfo("hidden-before-live-change");
+            {
+                ApiClient api(DeviceIdentity::temporary());
+                QVERIFY(api.setNetworkTransport(proxy.serverPort()));
+                QSignalSpy failed(&api, &ApiClient::failed);
+                QVERIFY(api.audioEffects(ApiClient::EffectCategory::Artist));
+                QTRY_COMPARE(failed.size(), 1);
+            }
             logging.setLevel("debug");
             qDebug("visible-after-live-change");
             logging.setLevel("invalid-level");
@@ -247,6 +254,11 @@ private slots:
         QVERIFY(bytes.contains("WARN  [echo.api."));
         QVERIFY(bytes.contains("Request failed"));
         QVERIFY(bytes.contains("status=api_failure"));
+        QVERIFY(bytes.count("phase=response_status") >= 2); // Includes default warn level.
+        QVERIFY(bytes.count("http_status=503") >= 2);
+        QVERIFY(bytes.contains("received_bytes="));
+        QVERIFY(bytes.contains("attempt_elapsed_ms="));
+        QVERIFY(bytes.contains("elapsed_ms="));
         for (const auto &secret : {"response-secret", "refresh-secret", "signed.invalid",
                                    "hidden-before-live-change", "hidden-after-diagnostics"})
             QVERIFY(!bytes.contains(secret));

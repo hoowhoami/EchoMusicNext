@@ -77,6 +77,7 @@ void AlbumDetailContext::cancelSongRequests()
 }
 void AlbumDetailContext::shutdown()
 {
+    m_songs.setMetadataActive(false);
     if (m_closed)
         return;
     m_closed = true;
@@ -87,6 +88,7 @@ void AlbumDetailContext::shutdown()
 }
 void AlbumDetailContext::activate()
 {
+    m_songs.setMetadataActive(!m_closed && m_network && m_route.active());
     if (m_closed)
         return;
     if (!m_route.active()) {

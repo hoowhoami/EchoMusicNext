@@ -15,6 +15,7 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
       m_mutations(mutations), m_route(route), m_actions(m_songs, playback, this),
       m_comments(api, route, networkEnabled, this, authors), m_network(networkEnabled)
 {
+    m_songs.attachMetadata(&metadata);
     // QML borrows this application-owned object, including explicit invokable
     // returns. GC and engine teardown must never delete a C++ member/context.
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
@@ -67,6 +68,37 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
                 if (m_complete && m_metadataRequests.isEmpty())
                     publishCover();
             });
+    connect(
+        &m_songs, &SongCatalogModel::presentationsApplied, this, [this](const QStringList &rows) {
+            // Source pages also follow cache replay from another consumer. Keep
+            // later pagination and automatic playlist covers on the same snapshot.
+            if (m_closed)
+                return;
+            for (const auto &id : rows) {
+                const auto found = m_cloudEntryRows.constFind(id);
+                const auto track = m_songs.track(id);
+                if (found == m_cloudEntryRows.cend() || !track)
+                    continue;
+                auto &entry = m_cloudEntries[*found];
+                auto song = entry["song"].toObject();
+                const auto presentation = track->toCatalog();
+                for (const auto &field :
+                     {"title", "artists", "album_id", "album_title", "cover_url", "duration_ms"})
+                    song[field] = presentation[field];
+                entry["song"] = song;
+                auto meta = entry["metadata"].toObject();
+                meta["artist_refs"] = track->catalogMetadata["artist_refs"];
+                if (track->catalogMetadata.contains("embedded_cover_url"))
+                    meta["embedded_cover_url"] = track->catalogMetadata["embedded_cover_url"];
+                else
+                    meta.remove("embedded_cover_url");
+                if (!track->catalogMetadata.contains("filename_artist_name"))
+                    meta.remove("filename_artist_name");
+                entry["metadata"] = meta;
+            }
+            if (m_complete)
+                publishCover();
+        });
     connect(&m_playback, &PlaybackService::trackFactsApplied, this,
             &PlaylistDetailContext::applyPlaybackFacts);
     connect(m_playback.cloudSources(), &CloudAudioIndex::settled, this, [this] {
@@ -123,6 +155,7 @@ void PlaylistDetailContext::cancelPageRequests()
 }
 void PlaylistDetailContext::shutdown()
 {
+    m_songs.setMetadataActive(false);
     if (m_closed)
         return;
     m_closed = true;
@@ -147,6 +180,7 @@ void PlaylistDetailContext::cancel()
 }
 void PlaylistDetailContext::activate()
 {
+    m_songs.setMetadataActive(!m_closed && m_network && m_route.active());
     if (m_closed)
         return;
     if (!m_route.active()) {
@@ -174,6 +208,7 @@ void PlaylistDetailContext::reload()
     cancel();
     m_metadataDirty = false;
     m_cloudEntries.clear();
+    m_cloudEntryRows.clear();
     m_cloudEntryIds.clear();
     m_songs.clear();
     m_detail = {};
@@ -393,7 +428,10 @@ void PlaylistDetailContext::consumeBatch()
                                  return a["sort_index"].toInteger() < b["sort_index"].toInteger();
                              });
             songs = {};
-            for (const auto &entry : m_cloudEntries) {
+            m_cloudEntryRows.clear();
+            for (int i = 0; i < m_cloudEntries.size(); ++i) {
+                const auto &entry = m_cloudEntries[i];
+                m_cloudEntryRows.insert(entry["song"].toObject()["id"].toString(), i);
                 auto song = entry["song"].toObject();
                 song.insert("metadata", entry["metadata"]);
                 songs.append(song);

@@ -4,6 +4,9 @@ add_library(
     LibraryCollectionService.h
     SongMetadataService.cpp
     SongMetadataService.h
+    EmbeddedCoverCache.cpp
+    EmbeddedCoverCache.h
+    EmbeddedCoverPresentation.h
     UserPlaylistModel.cpp
     UserPlaylistModel.h
     PlaylistMutationService.cpp

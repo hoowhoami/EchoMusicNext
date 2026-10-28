@@ -82,6 +82,7 @@ void PlaybackSessionController::shutdown()
     m_playback.m_listening.shutdown();
     m_playback.persist();
     m_playback.m_saveTimer.stop();
+    m_playback.m_playbackFacts.clear();
     m_playback.m_spectrum.stop();
     m_playback.m_mediaTimer.stop();
     invalidate();

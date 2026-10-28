@@ -29,6 +29,8 @@ private slots:
         drain.completed(S::Plugins);
         drain.completed(S::Storage);
         drain.completed(S::Storage);
+        QCOMPARE(events, (QStringList{"ingress", "business"}));
+        drain.completed(S::Metadata);
         QCOMPARE(events, (QStringList{"ingress", "business", "finished"}));
     }
     void synchronousCompletionIsReentrantAndFinishesOnce()
@@ -45,7 +47,8 @@ private slots:
                                                    ApplicationDrain::Service::Api,
                                                    ApplicationDrain::Service::DeviceRegistration,
                                                    ApplicationDrain::Service::Accounts,
-                                                   ApplicationDrain::Service::Storage})
+                                                   ApplicationDrain::Service::Storage,
+                                                   ApplicationDrain::Service::Metadata})
                                         owner->completed(s);
                                 },
                                 [&] { ++finishes; }});

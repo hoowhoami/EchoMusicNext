@@ -1,4 +1,7 @@
-use crate::{error::ApiError, util::signature};
+use crate::{
+    error::{ApiError, RequestDiagnostics},
+    util::signature,
+};
 use reqwest::{Client, Method};
 use serde::{Deserialize, de::DeserializeOwned};
 use std::{
@@ -7,7 +10,7 @@ use std::{
         RwLock,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 /// Caller-owned account/device snapshot. Intentionally no Debug/Serialize derive.
@@ -132,11 +135,38 @@ pub enum Origin {
     SumComment,
     VideoCollect,
 }
-pub(crate) fn transport_error(error: reqwest::Error, fallback: &'static str) -> ApiError {
+pub(crate) fn transport_error(
+    error: reqwest::Error,
+    fallback: &'static str,
+    mut diagnostics: RequestDiagnostics,
+) -> ApiError {
+    // Inspect typed causes, never format them: reqwest and TLS error strings
+    // can embed a signed URL or provider-controlled text.
+    let mut cause = std::error::Error::source(&error);
+    for _ in 0..16 {
+        let Some(source) = cause else { break };
+        if let Some(io) = source.downcast_ref::<std::io::Error>() {
+            use std::io::ErrorKind;
+            diagnostics.io_kind = Some(match io.kind() {
+                ErrorKind::ConnectionRefused => "connection_refused",
+                ErrorKind::ConnectionReset => "connection_reset",
+                ErrorKind::ConnectionAborted => "connection_aborted",
+                ErrorKind::NotConnected => "not_connected",
+                ErrorKind::BrokenPipe => "broken_pipe",
+                ErrorKind::TimedOut => "timed_out",
+                ErrorKind::UnexpectedEof => "unexpected_eof",
+                ErrorKind::PermissionDenied => "permission_denied",
+                ErrorKind::InvalidData => "invalid_data",
+                _ => "other",
+            });
+            break;
+        }
+        cause = source.source();
+    }
     if error.is_timeout() {
         let mut failure = ApiError::new("transport", "网络请求超时");
         failure.transport = Some("timeout");
-        return failure;
+        return failure.with_diagnostics(diagnostics);
     }
     let class = if error.is_connect() {
         "connect"
@@ -155,9 +185,23 @@ pub(crate) fn transport_error(error: reqwest::Error, fallback: &'static str) -> 
     };
     let mut failure = ApiError::new("transport", fallback);
     failure.transport = Some(class);
-    failure
+    failure.with_diagnostics(diagnostics)
 }
 impl ApiClient {
+    fn http_builder() -> reqwest::ClientBuilder {
+        Client::builder()
+            // Reuse connections for short request bursts without retaining a
+            // large idle pool. This is a local resource policy, not a claim
+            // about the upstream's idle timeout. Active requests are unaffected.
+            .pool_idle_timeout(Duration::from_secs(10))
+            .pool_max_idle_per_host(4)
+            // Retain the client's safe protocol recovery defaults; do not add
+            // a general transport/status retry that could replay a write.
+            // The Qt host is the sole route owner, including direct mode.
+            .no_proxy()
+            // Never forward signed credentials to another host on redirect.
+            .redirect(reqwest::redirect::Policy::none())
+    }
     /// Comment count uses the reference web signature, retaining the lite defaults.
     pub async fn request_comment_count(
         &self,
@@ -212,12 +256,7 @@ impl ApiClient {
             .bytes)
     }
     pub fn new() -> Result<Self, ApiError> {
-        let http = Client::builder()
-            // Default to direct routing and no global API deadline.
-            // Process environment proxies must not create a second routing policy.
-            .no_proxy()
-            // Avoid forwarding signed credentials to a different host via redirects.
-            .redirect(reqwest::redirect::Policy::none())
+        let http = Self::http_builder()
             .build()
             .map_err(|_| ApiError::new("transport", "Cannot initialize HTTP transport"))?;
         Ok(Self {
@@ -241,12 +280,7 @@ impl ApiClient {
         let Ok(proxy) = reqwest::Proxy::all(format!("http://127.0.0.1:{port}")) else {
             return false;
         };
-        let Ok(client) = Client::builder()
-            .no_proxy()
-            .proxy(proxy)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-        else {
+        let Ok(client) = Self::http_builder().proxy(proxy).build() else {
             return false;
         };
         *self.http.write().unwrap_or_else(|e| e.into_inner()) = client;
@@ -693,11 +727,18 @@ impl ApiClient {
         request: reqwest::RequestBuilder,
         parameters: BTreeMap<String, String>,
     ) -> Result<HttpResponse, ApiError> {
-        let mut response = request
-            .send()
-            .await
-            .map_err(|error| transport_error(error, "网络请求失败"))?;
+        let started = Instant::now();
+        let mut response = request.send().await.map_err(|error| {
+            transport_error(
+                error,
+                "网络请求失败",
+                RequestDiagnostics::capture("send", started, None, 0),
+            )
+        })?;
         let status = response.status();
+        let diagnostics = |phase, bytes| {
+            RequestDiagnostics::capture(phase, started, Some(status.as_u16()), bytes)
+        };
         let retry_after_seconds = response
             .headers()
             .get("retry-after")
@@ -714,16 +755,20 @@ impl ApiClient {
             .content_length()
             .is_some_and(|len| len > 16 * 1024 * 1024)
         {
-            return Err(ApiError::new("limit", "接口报文过大"));
+            return Err(ApiError::new("limit", "接口报文过大")
+                .with_diagnostics(diagnostics("response_body", 0)));
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|error| transport_error(error, "读取接口报文失败"))?
-        {
+        while let Some(chunk) = response.chunk().await.map_err(|error| {
+            transport_error(
+                error,
+                "读取接口报文失败",
+                diagnostics("response_body", bytes.len()),
+            )
+        })? {
             if chunk.len() > 16 * 1024 * 1024 - bytes.len() {
-                return Err(ApiError::new("limit", "接口报文过大"));
+                return Err(ApiError::new("limit", "接口报文过大")
+                    .with_diagnostics(diagnostics("response_body", bytes.len())));
             }
             bytes.extend_from_slice(&chunk);
         }
@@ -749,13 +794,13 @@ impl ApiClient {
             error.code = serde_json::from_slice::<serde_json::Value>(&bytes)
                 .ok()
                 .and_then(|v| v["error_code"].as_i64());
-            return Err(error);
+            return Err(error.with_diagnostics(diagnostics("response_status", bytes.len())));
         }
         if !status.is_success() {
             let mut error = ApiError::new("http", "音乐服务 HTTP 请求失败");
             error.code = Some(i64::from(status.as_u16()));
             error.retry_after_seconds = retry_after_seconds;
-            return Err(error);
+            return Err(error.with_diagnostics(diagnostics("response_status", bytes.len())));
         }
         Ok(HttpResponse {
             bytes,

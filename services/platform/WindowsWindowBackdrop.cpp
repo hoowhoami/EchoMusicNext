@@ -63,13 +63,12 @@ bool disableBlurBehind(HWND handle)
 }
 bool systemMaterial(HWND handle, int material)
 {
-    return SUCCEEDED(DwmSetWindowAttribute(handle, kAttrSystemBackdrop, &material,
-                                           sizeof(material)));
+    return SUCCEEDED(
+        DwmSetWindowAttribute(handle, kAttrSystemBackdrop, &material, sizeof(material)));
 }
 bool frameBorder(HWND handle, UINT color)
 {
-    return SUCCEEDED(
-        DwmSetWindowAttribute(handle, kAttrBorderColor, &color, sizeof(color)));
+    return SUCCEEDED(DwmSetWindowAttribute(handle, kAttrBorderColor, &color, sizeof(color)));
 }
 bool extendFrame(HWND handle, bool enabled)
 {
@@ -205,8 +204,7 @@ void WindowsWindowBackdrop::applyWindowPolicy()
     // flag dynamically, and removing it later would churn the geometry during
     // state transitions (a maximize restore lost its state that way). An
     // opaque theme works fine with the hint - its QML covers the whole window.
-    if (wantFrameless && m_window &&
-        !m_window->flags().testFlag(Qt::FramelessWindowHint) &&
+    if (wantFrameless && m_window && !m_window->flags().testFlag(Qt::FramelessWindowHint) &&
         !m_window->windowStates().testFlag(Qt::WindowFullScreen)) {
         auto flags = m_window->flags();
         flags.setFlag(Qt::FramelessWindowHint, true);
@@ -246,8 +244,8 @@ void WindowsWindowBackdrop::applyWindowPolicy()
             // underneath the client surface, and with the DirectComposition
             // presentation (no redirection bitmap) they bleed through every
             // translucent pixel of the custom caption.
-            withFrame = (style | WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX |
-                         WS_MAXIMIZEBOX) & ~LONG_PTR(WS_CAPTION);
+            withFrame = (style | WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) &
+                        ~LONG_PTR(WS_CAPTION);
         } else if (!fullscreenActive) {
             // Opaque windowed: the caption returns for the minimize/restore
             // animation; the opaque QML covers the native caption buttons.
@@ -284,8 +282,7 @@ void WindowsWindowBackdrop::applyWindowPolicy()
     // DWM still owns square maximized/snapped/full-screen corners. A fullscreen
     // surface has to reach the monitor corners, so rounding is turned off there
     // and restored together with the windowed frame.
-    const DWM_WINDOW_CORNER_PREFERENCE preference =
-        fullscreen() ? DWMWCP_DONOTROUND : DWMWCP_ROUND;
+    const DWM_WINDOW_CORNER_PREFERENCE preference = fullscreen() ? DWMWCP_DONOTROUND : DWMWCP_ROUND;
     const auto result = DwmSetWindowAttribute(m_handle, DWMWA_WINDOW_CORNER_PREFERENCE, &preference,
                                               sizeof(preference));
     if (FAILED(result))
@@ -442,8 +439,7 @@ QString WindowsWindowBackdrop::apply(bool enabled, bool dark, int transparency)
         logState("setup-failed");
         return m_error;
     }
-    if (m_initialized && enabled == m_enabled && dark == m_dark &&
-        transparency == m_transparency)
+    if (m_initialized && enabled == m_enabled && dark == m_dark && transparency == m_transparency)
         return m_error;
     if (!applyMaterialState(enabled, dark, transparency)) {
         m_error = tr("系统背景接口不可用，窗口毛玻璃未能应用");
@@ -490,9 +486,9 @@ bool WindowsWindowBackdrop::applyMaterialState(bool enabled, bool dark, int tran
         clear();
         return false;
     }
-    m_applied = m_build >= 22621 ? ((enabled || transparency > 0) ? Applied::Material
-                                                                  : Applied::None)
-                                 : (enabled ? Applied::LegacyAccent : Applied::None);
+    m_applied = m_build >= 22621
+                    ? ((enabled || transparency > 0) ? Applied::Material : Applied::None)
+                    : (enabled ? Applied::LegacyAccent : Applied::None);
     m_initialized = true;
     m_error.clear();
     return true;
@@ -723,11 +719,10 @@ QVariantMap WindowsWindowBackdrop::diagnostics() const
                      ? QVariant(materialType)
                      : QVariant());
     UINT borderColor = 0;
-    state.insert("frameBorder",
-                 SUCCEEDED(DwmGetWindowAttribute(m_handle, kAttrBorderColor, &borderColor,
-                                                 sizeof(borderColor)))
-                     ? QVariant(uint(borderColor))
-                     : QVariant());
+    state.insert("frameBorder", SUCCEEDED(DwmGetWindowAttribute(m_handle, kAttrBorderColor,
+                                                                &borderColor, sizeof(borderColor)))
+                                    ? QVariant(uint(borderColor))
+                                    : QVariant());
     state.insert("transparency", m_transparency);
     QVariant accentState, accentColor;
     if (const auto read = compositionReadApi()) {

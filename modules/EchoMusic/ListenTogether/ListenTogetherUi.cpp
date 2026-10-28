@@ -13,6 +13,7 @@ ListenSongPicker::ListenSongPicker(ApiClient &api, PlaybackService &player,
     : QObject(owner), m_api(api), m_playback(player), m_library(library), m_metadata(metadata),
       m_room(room)
 {
+    m_songs.attachMetadata(&metadata);
     connect(&api, &ApiClient::succeeded, this, &ListenSongPicker::accept);
     connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &bytes) {
         if (!m_request || id != m_request || m_session != m_api.sessionRevision())

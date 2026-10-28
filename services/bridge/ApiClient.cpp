@@ -110,6 +110,8 @@ quint64 ApiClient::submitPrepared(Pending pending)
     if (m_closing || !m_runtime || pending.revision != m_revision)
         return 0;
     const QByteArray bytes = QJsonDocument(pending.request).toJson(QJsonDocument::Compact);
+    // Reset on each native submission so verification wait time is excluded.
+    pending.attemptTimer.start();
     const auto id =
         echo_runtime_submit(m_runtime, reinterpret_cast<const uint8_t *>(bytes.constData()),
                             size_t(bytes.size()), pending.revision, callback, m_dispatcher);
@@ -715,6 +717,7 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
                       : status == EchoStatus::Cancelled ? QStringLiteral("Request cancelled")
                                                         : QStringLiteral("Request failed");
     summary += QStringLiteral(" request=%1 session=%2").arg(original).arg(revision);
+    summary += QStringLiteral(" attempt_elapsed_ms=%1").arg(pending.attemptTimer.elapsed());
     if (id != original)
         summary += QStringLiteral(" native_request=%1").arg(id);
     if (!routine) {
@@ -731,6 +734,19 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
             summary += QStringLiteral(" transport=%1").arg(transport);
         if (code.isDouble())
             summary += QStringLiteral(" code=%1").arg(code.toInteger());
+        const auto diagnostics = error.value("diagnostics").toObject();
+        // Only fixed protocol labels and counters, never arbitrary error text.
+        for (const auto &key : {"phase", "io_kind"}) {
+            const auto value = diagnostics.value(key).toString();
+            if (!value.isEmpty())
+                summary += QStringLiteral(" %1=%2").arg(QString::fromLatin1(key), value);
+        }
+        for (const auto &key : {"elapsed_ms", "http_status", "received_bytes"}) {
+            const auto value = diagnostics.value(key);
+            if (value.isDouble())
+                summary +=
+                    QStringLiteral(" %1=%2").arg(QString::fromLatin1(key)).arg(value.toInteger());
+        }
     }
     if (pending.retried)
         summary += QStringLiteral(" retried=true");

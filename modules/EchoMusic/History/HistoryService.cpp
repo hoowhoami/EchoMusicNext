@@ -22,6 +22,7 @@ QJsonObject historyTrackSong(const QJsonObject &track)
     }
     return {{"id", track["id"]},
             {"hash", track["hash"]},
+            {"local_path", track["local_path"]},
             {"title", track["title"]},
             {"artists", artists},
             {"album_id", track["album_id"]},
@@ -295,6 +296,8 @@ HistoryService::HistoryService(ApiClient &api, PlaybackService &playback,
     : QObject(parent), m_api(api), m_playback(playback), m_metadata(metadata),
       m_actions(m_songs, playback, this), m_statsShare(*this, playback, this), m_network(network)
 {
+    m_songs.attachMetadata(&metadata);
+    m_songs.setMetadataActive(false);
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     connect(&api, &ApiClient::sessionChanged, &m_statsShare, &HistoryStatsShare::cancel);
     m_actions.setQueueContext(tr("播放历史"), "queue:history");
@@ -309,6 +312,7 @@ HistoryService::HistoryService(ApiClient &api, PlaybackService &playback,
         if (m_closed)
             return;
         const bool active = context && context->name() == "history";
+        m_songs.setMetadataActive(active && m_network);
         if (!active || context->query().value("tab").toString() != "stats")
             m_statsShare.cancel();
         if (m_active == active)
@@ -528,6 +532,7 @@ void HistoryService::fail(const QString &message)
 }
 void HistoryService::shutdown()
 {
+    m_songs.setMetadataActive(false);
     if (m_closed)
         return;
     m_closed = true;

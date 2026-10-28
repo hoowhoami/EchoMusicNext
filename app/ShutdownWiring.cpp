@@ -144,6 +144,8 @@ void AppContext::wireShutdown()
     bind(&about, &AboutService::readyToQuit, &m_callbacks, beginShutdown);
     bind(&playback, &PlaybackService::listeningReportsDrained, &api, &ApiClient::shutdown);
     using Drain = ApplicationDrain::Service;
+    bind(&songMetadata, &SongMetadataService::closed, &m_callbacks,
+         [this] { m_drain->completed(Drain::Metadata); });
     bind(&plugins, &PluginRuntime::closed, &m_callbacks,
          [this] { m_drain->completed(Drain::Plugins); });
     QObject::disconnect(&engine, &QQmlEngine::quit, &app, nullptr);

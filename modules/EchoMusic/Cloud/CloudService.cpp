@@ -14,6 +14,8 @@ CloudService::CloudService(ApiClient &api, PlaybackService &playback, SongMetada
     : QObject(parent), m_api(api), m_playback(playback), m_metadata(metadata), m_router(router),
       m_upload(api, network, this), m_actions(m_songs, playback, this), m_network(network)
 {
+    m_songs.attachMetadata(&metadata);
+    m_songs.setMetadataActive(false);
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     connect(&m_upload, &CloudUploadService::cloudChanged, this, [this] {
         m_playback.cloudSources()->invalidate();
@@ -43,6 +45,7 @@ bool CloudService::hasMore() const
 }
 void CloudService::activate(RouteContext *context)
 {
+    m_songs.setMetadataActive(!m_closed && m_network && context && context->name() == "cloud");
     if (m_closed)
         return;
     if (!context || context->name() != "cloud") {
@@ -502,6 +505,7 @@ void CloudService::reset()
 }
 void CloudService::shutdown()
 {
+    m_songs.setMetadataActive(false);
     m_upload.shutdown();
     if (m_closed)
         return;

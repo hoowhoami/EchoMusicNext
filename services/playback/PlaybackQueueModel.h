@@ -2,8 +2,11 @@
 #include "PlaybackTrack.h"
 #include <QAbstractListModel>
 #include <QSet>
+#include <QPointer>
+#include <QTimer>
 namespace EchoMusic
 {
+class SongMetadataService;
 /// Stable song identities and next-priority flags are model state. Delegate
 /// reuse never changes order, selection or the active entry.
 class PlaybackQueueModel final : public QAbstractListModel
@@ -23,7 +26,8 @@ public:
         Current,
         QueuedNext
     };
-    explicit PlaybackQueueModel(QObject *parent) : QAbstractListModel(parent) {}
+    explicit PlaybackQueueModel(QObject *parent);
+    void attachMetadata(SongMetadataService *service);
     int rowCount(const QModelIndex &parent = {}) const override
     {
         return parent.isValid() ? 0 : int(m_tracks.size());
@@ -74,8 +78,14 @@ public:
 signals:
     void changed();
     void currentRemoved();
+    void presentationChanged();
 
 private:
+    void watchMetadata();
+    void refreshMetadata(const QStringList &rows);
+    QPointer<SongMetadataService> m_metadata;
+    QTimer m_metadataRefresh;
+    QMetaObject::Connection m_metadataReset;
     PlaybackTracks m_tracks;
     QStringList m_next;
     QSet<QString> m_nextSet;

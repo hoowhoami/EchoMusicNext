@@ -1,4 +1,5 @@
 #pragma once
+#include <QCache>
 #include <QTemporaryDir>
 #include "ApiClient.h"
 #include "PlaybackLibraryActions.h"
@@ -40,6 +41,7 @@
 #include <QTimer>
 namespace EchoMusic
 {
+class SongMetadataService;
 class PlaybackQueueController;
 class PlaybackOutputController;
 class PlaybackSessionController;
@@ -150,6 +152,8 @@ public:
                              const QString &storagePath = {},
                              NetworkPreferences *network = nullptr);
     ~PlaybackService() override;
+    void attachMetadata(SongMetadataService &metadata);
+    SongMetadataService *metadata() const;
     void attachLibrary(UserPlaylistModel &library, PlaylistMutationService &mutations);
     PlaybackLibraryActions *libraryActions()
     {
@@ -176,7 +180,8 @@ public:
     /// session, so lists loaded after the play can replay them.
     QJsonObject playbackFacts(const QString &hash) const
     {
-        return m_playbackFacts.value(hash.toLower());
+        const auto *facts = m_playbackFacts.object(hash.toLower());
+        return facts ? *facts : QJsonObject();
     }
     const PlaybackTrack &currentTrack() const
     {
@@ -475,6 +480,7 @@ signals:
     /// Corrected identity facts from the playing file's own tags. Identity is
     /// the track id the surfaces already know; consumers merge masked/missing
     /// presentation values only, never overwrite valid provider facts.
+    void metadataServiceChanged();
     void trackFactsApplied(const QJsonObject &facts);
     void closed();
     void listeningReportsDrained();
@@ -575,7 +581,8 @@ private:
     LyricTextController m_lyricText;
     LyricSourceController m_lyricSource;
     PlaybackTrack m_track;
-    QHash<QString, QJsonObject> m_playbackFacts;
+    QCache<QString, QJsonObject> m_playbackFacts{2000};
+    QPointer<SongMetadataService> m_metadata;
     QString m_resolvedQuality;
     QString m_initializationError;
     bool m_startupHeld = false;

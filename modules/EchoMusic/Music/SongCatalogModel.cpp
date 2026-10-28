@@ -20,6 +20,8 @@ QString baseSortText(const QString &text)
 } // namespace
 SongCatalogModel::SongCatalogModel(QObject *parent) : QAbstractListModel(parent)
 {
+    m_metadataRefresh.setSingleShot(true);
+    connect(&m_metadataRefresh, &QTimer::timeout, this, &SongCatalogModel::watchMetadata);
     // QML borrows this application-owned object, including explicit invokable
     // returns. GC and engine teardown must never delete a C++ member/context.
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
@@ -28,6 +30,109 @@ SongCatalogModel::SongCatalogModel(QObject *parent) : QAbstractListModel(parent)
     m_collator.setLocale(QLocale(QLocale::Chinese, QLocale::SimplifiedHanScript, QLocale::China));
     m_collator.setNumericMode(false);
     m_collator.setCaseSensitivity(Qt::CaseInsensitive);
+}
+void SongCatalogModel::attachMetadata(SongMetadataService *service)
+{
+    if (m_metadata == service)
+        return;
+    if (m_metadata)
+        m_metadata->unwatch(this);
+    disconnect(m_metadataReset);
+    m_metadata = service;
+    m_metadataObservedCount = 0;
+    m_metadataRefresh.stop();
+    if (service) {
+        m_metadataReset = connect(service, &SongMetadataService::cacheCleared, this, [this] {
+            m_metadataObservedCount = 0;
+            m_metadataRefresh.start();
+        });
+        QStringList rows;
+        for (const auto &entry : m_entries)
+            rows.append(entry.id);
+        refreshMetadata(rows);
+        m_metadataRefresh.start();
+    }
+}
+void SongCatalogModel::setMetadataActive(bool active)
+{
+    if (m_metadataActive == active)
+        return;
+    m_metadataActive = active;
+    m_metadataObservedCount = 0;
+    // Release the consumer immediately when a route hides; cached pages remain
+    // subscribed to immutable presentation updates without owning HTTP work.
+    watchMetadata();
+}
+void SongCatalogModel::watchMetadata()
+{
+    if (!m_metadata)
+        return;
+    if (m_metadataObservedCount && m_metadataObservedCount == m_entries.size())
+        return;
+    const bool append = m_metadataObservedCount > 0;
+    QList<SongMetadataService::Observation> songs;
+    if (!m_cards)
+        for (int i = m_metadataObservedCount; i < m_entries.size(); ++i) {
+            const auto &entry = m_entries[i];
+            songs.append({entry.id, entry.domainSong});
+        }
+    m_metadataObservedCount = m_entries.size();
+    QStringList rows;
+    for (const auto &entry : songs)
+        rows.append(entry.row);
+    refreshMetadata(rows);
+    m_metadata->watch(
+        this, songs, [this](const QStringList &rows) { refreshMetadata(rows); }, m_metadataActive,
+        append);
+}
+void SongCatalogModel::refreshMetadata(const QStringList &rows)
+{
+    if (!m_metadata || m_cards)
+        return;
+    QSet<int> changed;
+    bool orderMayChange = false;
+    for (const auto &id : rows) {
+        const auto found = m_indices.constFind(id);
+        if (found == m_indices.cend())
+            continue;
+        auto &entry = m_entries[*found];
+        const auto song = m_metadata->complete(entry.domainSong);
+        if (song == entry.domainSong)
+            continue;
+        auto next = songEntry(song);
+        orderMayChange |= entry.title != next.title || entry.artist != next.artist ||
+                          entry.album != next.album || entry.durationMs != next.durationMs;
+        entry = std::move(next);
+        entry.id = id;
+        changed.insert(*found);
+    }
+    notifyPresentations(changed, orderMayChange);
+}
+void SongCatalogModel::notifyPresentations(const QSet<int> &changed, bool orderMayChange)
+{
+    if (changed.isEmpty())
+        return;
+    QStringList identities;
+    for (const auto source : changed)
+        identities.append(m_entries[source].id);
+    emit presentationsApplied(identities);
+    if (orderMayChange && (!m_query.isEmpty() || m_sortField >= 2)) {
+        rebuild();
+        return;
+    }
+    QList<int> rows;
+    for (const auto source : changed)
+        if (source < m_viewRows.size() && m_viewRows[source] >= 0)
+            rows.append(m_viewRows[source]);
+    std::sort(rows.begin(), rows.end());
+    for (int i = 0; i < rows.size();) {
+        const auto first = rows[i];
+        auto last = first;
+        while (++i < rows.size() && rows[i] == last + 1)
+            last = rows[i];
+        emit dataChanged(index(first), index(last));
+    }
+    emit this->changed();
 }
 int SongCatalogModel::rowCount(const QModelIndex &parent) const
 {
@@ -157,15 +262,12 @@ SongCatalogModel::Entry SongCatalogModel::songEntry(const QJsonObject &song)
 void SongCatalogModel::applyPresentations(const QJsonArray &presentations)
 {
     QSet<int> changed;
-    QMultiHash<QString, int> sources;
-    for (int source = 0; source < m_entries.size(); ++source)
-        sources.insert(m_entries[source].domainSong.value("id").toString(), source);
     for (const auto &value : presentations) {
         const auto p = value.toObject();
         const auto id = p["id"].toString();
         if (id.isEmpty())
             continue;
-        const auto matches = sources.values(id);
+        const auto matches = m_domainIndices.values(id);
         for (const int source : matches) {
             const auto song = SongMetadataService::completeSong(m_entries[source].domainSong, p);
             if (song != m_entries[source].domainSong) {
@@ -176,16 +278,7 @@ void SongCatalogModel::applyPresentations(const QJsonArray &presentations)
             }
         }
     }
-    if (changed.isEmpty())
-        return;
-    if (!m_query.isEmpty() || (m_sortField >= 2 && m_sortField <= 4)) {
-        rebuild();
-        return;
-    }
-    for (int row = 0; row < m_order.size(); ++row)
-        if (changed.contains(m_order[row]))
-            emit dataChanged(index(row), index(row));
-    emit this->changed();
+    notifyPresentations(changed);
 }
 QStringList SongCatalogModel::incompletePresentationIds() const
 {
@@ -213,59 +306,95 @@ QStringList SongCatalogModel::selectedIds() const
 }
 void SongCatalogModel::appendSongs(const QJsonArray &songs)
 {
+    m_cards = false;
     QList<Entry> added;
+    QStringList completedRows;
     QSet<QString> seen;
     for (const auto &value : songs) {
-        auto entry = songEntry(value.toObject());
+        const auto original = value.toObject();
+        const auto song = m_metadata ? m_metadata->complete(original) : original;
+        auto entry = songEntry(song);
         if (entry.id.isEmpty() || m_indices.contains(entry.id) || seen.contains(entry.id))
             entry.id = QStringLiteral("catalog-row:%1:%2")
                            .arg(m_entries.size() + added.size())
                            .arg(entry.id);
         seen.insert(entry.id);
+        if (song != original)
+            completedRows.append(entry.id);
         added.append(std::move(entry));
     }
     if (added.isEmpty())
         return;
+    if (m_metadata)
+        m_metadataRefresh.start();
     const bool plain = m_query.trimmed().isEmpty() && !m_sortField;
     if (plain)
         beginInsertRows({}, count(), count() + added.size() - 1);
     for (auto &entry : added) {
         const int source = m_entries.size();
         m_indices.insert(entry.id, source);
+        m_domainIndices.insert(entry.domainSong["id"].toString(), source);
         m_entries.append(std::move(entry));
-        if (plain)
+        if (plain) {
+            m_viewRows.append(m_order.size());
             m_order.append(source);
+        }
     }
     if (plain) {
         endInsertRows();
         emit changed();
     } else
         rebuild();
+    if (!completedRows.isEmpty())
+        emit presentationsApplied(completedRows);
 }
 void SongCatalogModel::replaceSongs(const QJsonArray &songs, bool preserveSelection)
 {
+    m_cards = false;
+    m_metadataObservedCount = 0;
+    if (m_metadata)
+        m_metadata->unwatch(this);
+    if (m_metadata)
+        m_metadataRefresh.start();
     beginResetModel();
     m_entries.clear();
     m_indices.clear();
+    m_domainIndices.clear();
+    m_viewRows.clear();
     m_order.clear();
     if (!preserveSelection)
         m_selected.clear();
+    QStringList completedRows;
     for (const auto &value : songs) {
-        auto entry = songEntry(value.toObject());
+        const auto original = value.toObject();
+        const auto song = m_metadata ? m_metadata->complete(original) : original;
+        auto entry = songEntry(song);
         if (entry.id.isEmpty() || m_indices.contains(entry.id))
             entry.id = QStringLiteral("catalog-row:%1:%2").arg(m_entries.size()).arg(entry.id);
+        if (song != original)
+            completedRows.append(entry.id);
+        m_domainIndices.insert(entry.domainSong["id"].toString(), m_entries.size());
         m_indices.insert(entry.id, m_entries.size());
         m_entries.append(std::move(entry));
     }
     m_selected.removeIf([this](const QString &id) { return !m_indices.contains(id); });
     rebuild(true);
+    if (!completedRows.isEmpty())
+        emit presentationsApplied(completedRows);
     emit selectionChanged();
 }
 void SongCatalogModel::replaceCards(const QJsonArray &cards)
 {
+    m_cards = true;
+    m_metadataObservedCount = 0;
+    m_metadataRefresh.stop();
+    if (m_metadata)
+        m_metadata->unwatch(this);
     beginResetModel();
     m_entries.clear();
     m_indices.clear();
+    m_domainIndices.clear();
+    m_viewRows.clear();
     m_order.clear();
     m_selected.clear();
     for (const auto &value : cards) {
@@ -375,6 +504,9 @@ void SongCatalogModel::rebuild(bool resetStarted)
             }
             return m_sortDirection == 2 ? comparison > 0 : comparison < 0;
         });
+    m_viewRows.fill(-1, m_entries.size());
+    for (int row = 0; row < m_order.size(); ++row)
+        m_viewRows[m_order[row]] = row;
     endResetModel();
     emit changed();
 }

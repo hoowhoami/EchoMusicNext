@@ -1106,14 +1106,14 @@ elif sys.argv[1] == 'dispatch':
                    origin.y == bounds.top && client.right == bounds.right - bounds.left &&
                    client.bottom == bounds.bottom - bounds.top;
         };
-            for (bool maximized : {false, true}) {
-                window.showNormal();
-                QCoreApplication::processEvents();
-                const auto normal = window.geometry();
-                RECT normalNative{};
-                QVERIFY(GetWindowRect(handle, &normalNative));
-                if (maximized)
-                    window.showMaximized();
+        for (bool maximized : {false, true}) {
+            window.showNormal();
+            QCoreApplication::processEvents();
+            const auto normal = window.geometry();
+            RECT normalNative{};
+            QVERIFY(GetWindowRect(handle, &normalNative));
+            if (maximized)
+                window.showMaximized();
             window.showFullScreen();
             QTRY_VERIFY(window.windowStates().testFlag(Qt::WindowFullScreen));
             QCoreApplication::processEvents();

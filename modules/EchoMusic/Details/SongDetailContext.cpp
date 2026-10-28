@@ -1,4 +1,5 @@
 #include "SongDetailContext.h"
+#include "SongMetadataService.h"
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <algorithm>
@@ -41,6 +42,37 @@ SongDetailContext::SongDetailContext(ApiClient &a, PlaybackService &p, RouteCont
         if (!m_hash.isEmpty())
             request(m_api.commentCount(m_hash), CommentCount);
     });
+    if (auto *metadata = p.metadata())
+        connect(metadata, &SongMetadataService::completed, this,
+                [this](quint64 ticket, const QJsonArray &values) {
+                    if (!ticket || ticket != m_metadataTicket)
+                        return;
+                    m_metadataTicket = 0;
+                    if (!m_closed && m_route.active()) {
+                        applyMetadata(values);
+                        rankingsAndComments();
+                        emit changed();
+                    }
+                });
+    connect(&m_songs, &SongCatalogModel::presentationsApplied, this, [this] {
+        if (m_songs.totalCount() != 1)
+            return;
+        const auto track = m_songs.track(m_songs.sourceItem(0)["resourceId"].toString());
+        if (!track)
+            return;
+        const auto song = track->toCatalog();
+        m_track["metadata"] = track->catalogMetadata;
+        for (const auto &field : {"title", "artists", "album_title", "album_id", "cover_url"})
+            m_track[field] = song[field];
+        m_detail["title"] = track->title;
+        m_detail["artists"] = song["artists"];
+        m_detail["artist"] = track->artist;
+        m_detail["album"] = track->album;
+        m_detail["cover_url"] = track->cover;
+        if (!m_detail["album_id"].toVariant().toULongLong())
+            m_detail["album_id"] = song["album_id"];
+        emit changed();
+    });
     hydrate();
     activate();
 }
@@ -66,6 +98,8 @@ void SongDetailContext::hydrate()
     const auto &current = m_playback.currentTrack();
     if (current.songId == m_mix && m_mix) {
         m_track = current.toDomain();
+        m_track["metadata"] = current.catalogMetadata;
+        m_track["cover_url"] = current.cover;
         m_track["artists"] = current.catalogMetadata.value("artist_refs");
         m_track["album_title"] = current.album;
         if (m_hash.isEmpty())
@@ -101,6 +135,7 @@ void SongDetailContext::adoptEntryTrack(const PlaybackTrack &track)
         (!m_hash.isEmpty() && m_hash != track.hash))
         return;
     m_track = track.toDomain();
+    m_track["metadata"] = track.catalogMetadata;
     m_track["artists"] = track.catalogMetadata.value("artist_refs");
     m_track["album_title"] = track.album;
     m_track["cover_url"] = track.cover;
@@ -182,6 +217,8 @@ QString SongDetailContext::albumNavigationId() const
 }
 bool SongDetailContext::loading() const
 {
+    if (m_metadataTicket)
+        return true;
     for (const auto &p : m_pending)
         if (p.kind <= RankingDetails)
             return true;
@@ -197,6 +234,11 @@ void SongDetailContext::request(quint64 id, Kind kind)
 void SongDetailContext::cancel()
 {
     ++m_epoch;
+    if (m_metadataTicket) {
+        if (auto *metadata = m_playback.metadata())
+            metadata->cancel(m_metadataTicket);
+        m_metadataTicket = 0;
+    }
     auto ids = m_pending.keys();
     m_pending.clear();
     for (auto id : ids)
@@ -206,6 +248,7 @@ void SongDetailContext::cancel()
 }
 void SongDetailContext::shutdown()
 {
+    m_songs.setMetadataActive(false);
     if (m_closed)
         return;
     m_closed = true;
@@ -215,6 +258,9 @@ void SongDetailContext::shutdown()
 }
 void SongDetailContext::activate()
 {
+    const bool music = m_route.query().value("type", "music").toString() == "music";
+    m_songs.attachMetadata(music ? m_playback.metadata() : nullptr);
+    m_songs.setMetadataActive(!m_closed && m_network && m_route.active() && music);
     if (m_closed)
         return;
     if (!m_route.active()) {
@@ -336,40 +382,18 @@ void SongDetailContext::accept(quint64 id, const QByteArray &bytes)
             updateSong();
         }
         // Author and album IDs come from metadata, never from name guesses.
-        if (m_mix && !a.isEmpty())
-            request(m_api.songMetadata({m_mix}, {AuthenticationMode::CurrentAccount, true}),
-                    Metadata);
-        else
+        if (m_mix && !a.isEmpty()) {
+            if (auto *metadata = m_playback.metadata())
+                m_metadataTicket = metadata->request({QString::number(m_mix)});
+            else
+                request(m_api.songMetadata({m_mix}, {AuthenticationMode::CurrentAccount, true}),
+                        Metadata);
+        } else
             rankingsAndComments();
         break;
     }
     case Metadata: {
-        auto a = doc.array();
-        if (!a.isEmpty()) {
-            auto v = a[0].toObject();
-            for (const auto &key : {"title", "album_title", "album_id", "cover_url", "artists"})
-                if (!v.value(key).isNull() && !v.value(key).isUndefined())
-                    m_track[key] = v.value(key);
-            m_detail["title"] = m_track.value("title");
-            m_detail["album"] = m_track.value("album_title");
-            if (!m_detail.value("album_id").toVariant().toULongLong())
-                m_detail["album_id"] = m_track.value("album_id");
-            m_detail["cover_url"] = m_track.value("cover_url");
-            const auto artists = m_track.value("artists").toArray();
-            m_detail["artists"] = artists;
-            QStringList artistNames;
-            for (const auto &artist : artists) {
-                const auto name = artist.toObject().value("name").toString();
-                if (!name.isEmpty())
-                    artistNames.append(name);
-            }
-            if (m_route.query().value("artist").toString().trimmed().isEmpty() &&
-                !artistNames.isEmpty())
-                m_detail["artist"] = artistNames.join(" / ");
-            if (!m_detail.value("artist_id").toVariant().toULongLong() && !artists.isEmpty())
-                m_detail["artist_id"] = artists[0].toObject().value("id");
-            updateSong();
-        }
+        applyMetadata(doc.array());
         rankingsAndComments();
         break;
     }
@@ -396,6 +420,35 @@ void SongDetailContext::accept(quint64 id, const QByteArray &bytes)
     if (m_rankingsStarted && !loading())
         startComments();
     emit changed();
+}
+void SongDetailContext::applyMetadata(const QJsonArray &values)
+{
+    const auto &a = values;
+    if (!a.isEmpty()) {
+        auto v = a[0].toObject();
+        for (const auto &key : {"title", "album_title", "album_id", "cover_url", "artists"})
+            if (!v.value(key).isNull() && !v.value(key).isUndefined())
+                m_track[key] = v.value(key);
+        m_detail["title"] = m_track.value("title");
+        m_detail["album"] = m_track.value("album_title");
+        if (!m_detail.value("album_id").toVariant().toULongLong())
+            m_detail["album_id"] = m_track.value("album_id");
+        m_detail["cover_url"] = m_track.value("cover_url");
+        const auto artists = m_track.value("artists").toArray();
+        m_detail["artists"] = artists;
+        QStringList artistNames;
+        for (const auto &artist : artists) {
+            const auto name = artist.toObject().value("name").toString();
+            if (!name.isEmpty())
+                artistNames.append(name);
+        }
+        if (m_route.query().value("artist").toString().trimmed().isEmpty() &&
+            !artistNames.isEmpty())
+            m_detail["artist"] = artistNames.join(" / ");
+        if (!m_detail.value("artist_id").toVariant().toULongLong() && !artists.isEmpty())
+            m_detail["artist_id"] = artists[0].toObject().value("id");
+        updateSong();
+    }
 }
 void SongDetailContext::fail(quint64 id, const QByteArray &bytes)
 {

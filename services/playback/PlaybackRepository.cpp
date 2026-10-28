@@ -1,4 +1,5 @@
 #include "PlaybackRepository_p.h"
+#include "EmbeddedCoverPresentation.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QSqlQuery>
@@ -226,6 +227,8 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
         for (int row = 0; ok && row < s.tracks.size(); ++row) {
             const auto &t = s.tracks[row];
             const auto clean = [](const QString &v) { return v.isNull() ? QStringLiteral("") : v; };
+            auto metadata = t.catalogMetadata;
+            metadata.remove("embedded_cover_url");
             const QVariantList values{
                 user,
                 s.key,
@@ -235,13 +238,13 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
                 clean(t.title),
                 clean(t.artist),
                 clean(t.album),
-                clean(t.cover),
+                clean(hasEmbeddedCover(t.catalogMetadata, t.cover) ? QString() : t.cover),
                 clean(t.localPath),
                 QString::number(t.albumId),
                 QString::number(t.songId),
                 qint64(t.durationMs),
                 int(s.next.indexOf(t.key())),
-                QJsonDocument(t.catalogMetadata).toJson(QJsonDocument::Compact),
+                QJsonDocument(metadata).toJson(QJsonDocument::Compact),
                 t.catalogPrivilege};
             for (int v = 0; v < values.size(); ++v)
                 tracks.bindValue(v, values[v]);
@@ -283,7 +286,9 @@ void PlaybackStorageWorker::record(quint64 account, const PlaybackTrack &track, 
                       track.hash.isNull() ? QStringLiteral("") : track.hash,
                       track.title.isNull() ? QStringLiteral("") : track.title,
                       track.artist.isNull() ? QStringLiteral("") : track.artist,
-                      track.cover.isNull() ? QStringLiteral("") : track.cover,
+                      hasEmbeddedCover(track.catalogMetadata, track.cover) || track.cover.isNull()
+                          ? QStringLiteral("")
+                          : track.cover,
                       QDateTime::currentMSecsSinceEpoch(), listenedMs,
                       QJsonDocument(track.toDomain()).toJson(QJsonDocument::Compact)})
         q.addBindValue(v);

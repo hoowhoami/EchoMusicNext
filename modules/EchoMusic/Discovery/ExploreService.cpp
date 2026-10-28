@@ -30,6 +30,8 @@ ExploreService::~ExploreService()
 }
 void ExploreService::shutdown()
 {
+    m_newSongs.setMetadataActive(false);
+    m_rankSongs.setMetadataActive(false);
     if (m_closed)
         return;
     m_closed = true;
@@ -88,6 +90,9 @@ QString ExploreService::rankLabel() const
 }
 void ExploreService::activate(RouteContext *context)
 {
+    const bool active = !m_closed && m_network && context && context->name() == "explore";
+    m_newSongs.setMetadataActive(active);
+    m_rankSongs.setMetadataActive(active);
     if (m_closed)
         return;
     if (!context || context->name() != "explore") {

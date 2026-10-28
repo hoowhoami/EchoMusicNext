@@ -78,6 +78,12 @@ void AppContext::createPages()
     auto &commentAuthors = *m_commentAuthors;
     m_songMetadata = std::make_unique<SongMetadataService>(api);
     auto &songMetadata = *m_songMetadata;
+    if (!smoke)
+        songMetadata.enableCoverCache(
+            QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
+            "/embedded-covers-v1");
+    playback.attachMetadata(songMetadata);
+    search.attachMetadata(songMetadata, !smoke);
     playback.listenTogether()->attachMetadata(songMetadata);
     m_playlistDetails = std::make_unique<PlaylistDetailService>(
         api, playback, userPlaylists, playlistMutations, *libraryController.order(), songMetadata,

@@ -47,6 +47,8 @@ struct PlaybackTrack
             return QStringLiteral("unmatched:") + hash;
         return id + "/" + hash;
     }
+    /// Merge display fields only; audio identity, rights and source state stay owned here.
+    bool applyPresentation(const QJsonObject &song);
     static PlaybackTrack fromDomain(const QJsonObject &song);
     QJsonObject toDomain() const;
     /// Typed catalog projection for a view following a live queue. The storage

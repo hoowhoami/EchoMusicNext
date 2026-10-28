@@ -112,6 +112,7 @@ private:
     void commit(const PlaybackTrack &track);
     void playbackChanged();
     void merge(const PlaybackTracks &tracks);
+    void watchMetadata();
     void savePreferences();
     PlaybackService &m_playback;
     ApiClient &m_api;

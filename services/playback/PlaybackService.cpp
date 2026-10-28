@@ -7,6 +7,7 @@
 #include "PlaybackRecoveryController.h"
 #include "PlaybackFailureController.h"
 #include "SongMetadataService.h"
+#include "EmbeddedCoverPresentation.h"
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QFileDialog>
@@ -55,6 +56,75 @@ void PlaybackService::tryStartupAutoPlay()
         if (!m_closing && !m_startupHeld && sequence == m_sequence)
             play();
     });
+}
+SongMetadataService *PlaybackService::metadata() const
+{
+    return m_metadata;
+}
+void PlaybackService::attachMetadata(SongMetadataService &metadata)
+{
+    if (m_metadata == &metadata)
+        return;
+    m_metadata = &metadata;
+    const auto bindQueue = [this](PlaybackQueueModel *model) {
+        model->attachMetadata(m_metadata);
+        connect(model, &PlaybackQueueModel::presentationChanged, this, [this] {
+            if (!m_closing) {
+                m_saveTimer.start();
+                emit changed();
+            }
+        });
+    };
+    connect(&m_catalog, &PlaybackQueueCatalog::modelAdded, this, bindQueue);
+    QSet<PlaybackQueueModel *> models{queue()};
+    for (const auto &state : m_catalog.snapshot())
+        if (auto *model = m_catalog.modelForKey(state.key))
+            models.insert(model);
+    for (auto *model : models)
+        bindQueue(model);
+    connect(&m_api, &ApiClient::sessionChanged, this, [this] { m_playbackFacts.clear(); });
+    // Current-song presentation follows the same cache without restarting the
+    // audio/lyric/reporting state machines on a metadata-only correction.
+    const auto watchCurrent = [this] {
+        if (!m_metadata)
+            return;
+        if (m_closing || !hasTrack()) {
+            m_metadata->unwatch(this);
+            return;
+        }
+        const auto apply = [this](const QStringList &) {
+            if (!m_metadata || m_closing || !hasTrack())
+                return;
+            const auto beforeCover = cover();
+            if (!m_track.applyPresentation(m_metadata->complete(m_track.toCatalog())))
+                return;
+            if (const auto source = cover(); source != beforeCover) {
+                if (source.isEmpty()) {
+                    m_coverPng.clear();
+                    m_coverColor = QColor();
+                }
+                m_artwork.load(source, m_sequence);
+            }
+            publishMedia();
+            emit changed();
+        };
+        m_metadata->watch(this, {{"current", m_track.toCatalog()}}, apply);
+        apply({});
+    };
+    // Identity changes are sparse. Avoid rebuilding subscriptions on 250ms
+    // playback progress or ordinary playing/volume notifications.
+    auto last = std::make_shared<QString>(hasTrack() ? m_track.stableKey() : QString());
+    connect(this, &PlaybackService::changed, this, [this, last, watchCurrent] {
+        const auto key = m_closing || !hasTrack() ? QString() : m_track.stableKey();
+        if (*last != key) {
+            *last = key;
+            watchCurrent();
+        }
+    });
+    connect(&metadata, &SongMetadataService::cacheCleared, this, watchCurrent,
+            Qt::QueuedConnection);
+    watchCurrent();
+    emit metadataServiceChanged();
 }
 void PlaybackService::attachLibrary(UserPlaylistModel &library, PlaylistMutationService &mutations)
 {
@@ -317,10 +387,11 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                     missing(m_track.album, {"未知专辑", "unknown album", "unknown"}))
                     m_track.album = album;
                 const auto coverFile = metadata.value("cover_file").toString();
-                if (m_track.cover.isEmpty() && !coverFile.isEmpty() &&
-                    QFileInfo(coverFile).fileName() == coverFile) {
+                if (!coverFile.isEmpty() && QFileInfo(coverFile).fileName() == coverFile) {
                     const auto path = m_embeddedDirectory.filePath(coverFile);
-                    if (QFileInfo::exists(path)) {
+                    if (m_metadata)
+                        m_metadata->publishEmbeddedCover(m_track.toCatalog(), path);
+                    if (m_track.cover.isEmpty() && QFileInfo::exists(path)) {
                         m_embeddedCover = QUrl::fromLocalFile(path).toString();
                         m_artwork.load(m_embeddedCover, m_sequence);
                     }
@@ -336,6 +407,9 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                 // Reader artwork belongs to this playback session. Publishing
                 // its temporary URL as a catalog fact would let queues and
                 // history retain it after the owning directory is destroyed.
+                const auto durableCover = hasEmbeddedCover(m_track.catalogMetadata, m_track.cover)
+                                              ? QString()
+                                              : m_track.cover;
                 const auto facts = QJsonObject{
                     {"id", m_track.id},
                     {"hash", m_track.hash},
@@ -346,14 +420,27 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                     {"album_id", m_track.albumId ? QString::number(m_track.albumId) : QString()},
                     {"duration_ms",
                      m_track.durationMs ? QJsonValue(qint64(m_track.durationMs)) : QJsonValue()},
-                    {"cover_url", m_track.cover},
+                    {"cover_url", durableCover},
                     {"cloud_source", m_track.catalogMetadata.value("cloud_source")}};
                 queue()->updateFacts(m_track.id, m_track.hash, m_track.title, m_track.artist,
-                                     m_track.album, m_track.cover, m_track.durationMs);
+                                     m_track.album, durableCover, m_track.durationMs);
                 // Session memory keyed by audio hash: lists loaded after the
                 // play replay these corrections at projection time.
                 if (!m_track.hash.isEmpty())
-                    m_playbackFacts.insert(m_track.hash.toLower(), facts);
+                    m_playbackFacts.insert(
+                        m_track.hash.toLower(), new QJsonObject(facts),
+                        std::max(
+                            1, int((QJsonDocument(facts).toJson(QJsonDocument::Compact).size() * 2 +
+                                    1999) /
+                                   2000)));
+                if (m_metadata)
+                    m_metadata->publishEmbedded(
+                        {{"hash", m_track.hash},
+                         {"local_path", m_track.localPath},
+                         {"title", title},
+                         {"artists", SongMetadataService::artistRefs(artist)},
+                         {"album_title", album},
+                         {"duration_ms", m_duration > 0 ? QJsonValue(m_duration) : QJsonValue()}});
                 emit trackFactsApplied(facts);
                 publishMedia();
                 emit changed();

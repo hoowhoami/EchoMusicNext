@@ -3,6 +3,66 @@
 #include <algorithm>
 namespace EchoMusic
 {
+PlaybackQueueModel::PlaybackQueueModel(QObject *parent) : QAbstractListModel(parent)
+{
+    m_metadataRefresh.setSingleShot(true);
+    connect(&m_metadataRefresh, &QTimer::timeout, this, &PlaybackQueueModel::watchMetadata);
+    const auto schedule = [this] {
+        if (m_metadata)
+            m_metadataRefresh.start();
+    };
+    connect(this, &QAbstractItemModel::modelReset, this, schedule);
+    connect(this, &QAbstractItemModel::rowsInserted, this, schedule);
+    connect(this, &QAbstractItemModel::rowsRemoved, this, schedule);
+    connect(this, &QAbstractItemModel::rowsMoved, this, schedule);
+}
+void PlaybackQueueModel::attachMetadata(SongMetadataService *service)
+{
+    if (m_metadata == service)
+        return;
+    if (m_metadata)
+        m_metadata->unwatch(this);
+    disconnect(m_metadataReset);
+    m_metadata = service;
+    if (service)
+        m_metadataReset = connect(service, &SongMetadataService::cacheCleared, this,
+                                  [this] { m_metadataRefresh.start(); });
+    watchMetadata();
+}
+void PlaybackQueueModel::watchMetadata()
+{
+    if (!m_metadata)
+        return;
+    QList<SongMetadataService::Observation> songs;
+    QStringList rows;
+    for (int i = 0; i < m_tracks.size(); ++i) {
+        const auto row = QString::number(i);
+        songs.append({row, m_tracks[i].toCatalog()});
+        rows.append(row);
+    }
+    refreshMetadata(rows);
+    m_metadata->watch(this, songs,
+                      [this](const QStringList &changed) { refreshMetadata(changed); });
+}
+void PlaybackQueueModel::refreshMetadata(const QStringList &rows)
+{
+    if (!m_metadata)
+        return;
+    bool changed = false;
+    for (const auto &key : rows) {
+        const auto row = key.toInt();
+        if (row < 0 || row >= m_tracks.size())
+            continue;
+        auto &track = m_tracks[row];
+        if (track.applyPresentation(m_metadata->complete(track.toCatalog()))) {
+            emit dataChanged(index(row), index(row));
+            changed = true;
+        }
+    }
+    if (changed)
+        emit presentationChanged();
+}
+
 void PlaybackQueueModel::restoreNext(const QStringList &keys)
 {
     m_next.clear();

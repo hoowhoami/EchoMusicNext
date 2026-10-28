@@ -33,6 +33,8 @@ FavoritesService::FavoritesService(ApiClient &api, PlaybackService &playback,
       m_metadata(metadata), m_router(router), m_actions(m_songs, playback, this), m_singers(this),
       m_users(this), m_network(network)
 {
+    m_songs.attachMetadata(&metadata);
+    m_songs.setMetadataActive(false);
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_actions.setQueueContext(tr("我最喜爱"), "queue:favorites");
     connect(&router, &RouteController::pageActivated, this, &FavoritesService::activate);
@@ -120,6 +122,7 @@ void FavoritesService::selectTab(int tab)
 }
 void FavoritesService::activate(RouteContext *context)
 {
+    m_songs.setMetadataActive(!m_closed && m_network && context && context->name() == "favorites");
     if (m_closed)
         return;
     if (!context || context->name() != "favorites") {
@@ -653,6 +656,7 @@ void FavoritesService::fail(quint64 id, const QByteArray &bytes)
 }
 void FavoritesService::shutdown()
 {
+    m_songs.setMetadataActive(false);
     if (m_closed)
         return;
     m_closed = true;

@@ -60,6 +60,8 @@ void ListenTogetherController::attachMetadata(SongMetadataService &metadata)
 void ListenTogetherController::cancelMetadata()
 {
     if (m_metadata)
+        m_metadata->unwatch(this);
+    if (m_metadata)
         for (auto ticket : m_metadataRequests.keys())
             m_metadata->cancel(ticket);
     m_metadataRequests.clear();
@@ -68,16 +70,36 @@ void ListenTogetherController::completeSongs()
 {
     if (!m_metadata)
         return;
-    QStringList ids;
-    for (const auto &value : m_songPages) {
-        const auto song = value.toObject().value("song").toObject();
-        if (SongMetadataService::needsCompletion(song) && !song.value("id").toString().isEmpty())
-            ids.append(song.value("id").toString());
-    }
-    if (!ids.isEmpty()) {
-        const auto ticket = m_metadata->request(ids);
-        if (ticket)
-            m_metadataRequests.insert(ticket, m_songGeneration);
+    QList<SongMetadataService::Observation> songs;
+    for (int i = 0; i < m_songPages.size(); ++i)
+        songs.append({QString::number(i), m_songPages[i].toObject().value("song").toObject()});
+    m_metadata->watch(
+        this, songs,
+        [this](const QStringList &rows) {
+            if (!m_metadata || !joined())
+                return;
+            bool changed = false;
+            for (const auto &key : rows) {
+                const auto row = key.toInt();
+                if (row < 0 || row >= m_songPages.size())
+                    continue;
+                auto entry = m_songPages[row].toObject();
+                const auto before = entry["song"].toObject();
+                const auto song = m_metadata->complete(before);
+                if (song != before) {
+                    entry["song"] = song;
+                    m_songPages[row] = entry;
+                    changed = true;
+                }
+            }
+            if (changed)
+                publishSongs();
+        },
+        joined());
+    for (int i = 0; i < m_songPages.size(); ++i) {
+        auto entry = m_songPages[i].toObject();
+        entry["song"] = m_metadata->complete(entry["song"].toObject());
+        m_songPages[i] = entry;
     }
 }
 void ListenTogetherController::attachRepository(PlaybackRepository &repository)

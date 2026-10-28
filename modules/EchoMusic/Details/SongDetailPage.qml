@@ -67,6 +67,7 @@ RoutePage {
             uiScale: page.settings.uiScale
             detailContent: Component {
                 Column {
+                    id: detailSections
                     width: comments.listView.width
                     spacing: 16
                     Repeater {
@@ -83,7 +84,7 @@ RoutePage {
                         delegate: Column {
                             id: tagGroup
                             required property var modelData
-                            width: parent.width
+                            width: detailSections.width
                             visible: modelData.tags.length > 0
                             height: visible ? implicitHeight : 0
                             spacing: 12

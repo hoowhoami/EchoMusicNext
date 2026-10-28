@@ -7,11 +7,13 @@
 #include <QAbstractListModel>
 #include <array>
 #include <QPointer>
+#include <QTimer>
 #include <QtQml/qqmlregistration.h>
 
 namespace EchoMusic
 {
 class StorageService;
+class SongMetadataService;
 class PlaybackService;
 class PlaybackLibraryActions;
 /// Small, read-only discovery groups. Upstream URLs never become actions in QML.
@@ -99,6 +101,7 @@ public:
         QualityLabel
     };
     explicit SearchModel(ApiClient &api, QObject *parent = nullptr);
+    void attachMetadata(SongMetadataService &service, bool network = true);
     void attachPlayback(PlaybackService &playback);
     QString currentTrackId() const;
     bool playing() const;
@@ -248,6 +251,11 @@ private:
     void cancelRequests();
     void clearBuckets();
     void resetSession();
+    void watchMetadata();
+    void refreshMetadata(const QStringList &rows);
+    QPointer<SongMetadataService> m_metadata;
+    QTimer m_metadataRefresh;
+    bool m_metadataNetwork = true;
     ApiClient &m_api;
     QPointer<PlaybackService> m_playback;
     HotSearchModel m_hot;

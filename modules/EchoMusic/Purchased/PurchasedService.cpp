@@ -53,6 +53,7 @@ void PurchasedService::selectTab(int tab)
 }
 void PurchasedService::activate(RouteContext *context)
 {
+    m_songs.setMetadataActive(!m_closed && m_network && context && context->name() == "purchased");
     if (m_closed)
         return;
     if (!context || context->name() != "purchased") {
@@ -196,6 +197,7 @@ void PurchasedService::fail(quint64 id, const QByteArray &bytes)
 }
 void PurchasedService::shutdown()
 {
+    m_songs.setMetadataActive(false);
     if (m_closed)
         return;
     m_closed = true;

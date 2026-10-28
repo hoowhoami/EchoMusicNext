@@ -100,6 +100,7 @@ private:
     void rankingsAndComments();
     void startComments();
     void updateSong();
+    void applyMetadata(const QJsonArray &values);
     void request(quint64, Kind);
     void accept(quint64, const QByteArray &);
     void fail(quint64, const QByteArray &);
@@ -111,6 +112,7 @@ private:
     CommentsController m_comments;
     QJsonObject m_detail, m_track, m_ranking, m_rankingDetails;
     QHash<quint64, Pending> m_pending;
+    quint64 m_metadataTicket = 0;
     quint64 m_mix = 0, m_album = 0, m_epoch = 0;
     QString m_hash, m_error;
     QStringList m_qualities, m_effects;

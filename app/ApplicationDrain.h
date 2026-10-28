@@ -18,6 +18,7 @@ public:
         Api,
         Accounts,
         Storage,
+        Metadata,
         Count
     };
     struct Actions

@@ -3,6 +3,7 @@
 #include "PlaybackService.h"
 #include "SearchResultModel.h"
 #include "SongCommands.h"
+#include "SongMetadataService.h"
 #include "SongRowFacts.h"
 #include "StorageService.h"
 #include <QJsonArray>
@@ -125,11 +126,74 @@ void HotSearchModel::replace(QList<Group> groups)
 SearchModel::SearchModel(ApiClient &api, QObject *parent)
     : QAbstractListModel(parent), m_api(api), m_hot(this)
 {
+    m_metadataRefresh.setSingleShot(true);
+    connect(&m_metadataRefresh, &QTimer::timeout, this, &SearchModel::watchMetadata);
+    connect(this, &QAbstractItemModel::modelReset, this, [this] { m_metadataRefresh.start(); });
+    connect(this, &QAbstractItemModel::rowsInserted, this, [this] { m_metadataRefresh.start(); });
     m_results = new SearchResultModel(*this);
     m_suggestions = new SearchSuggestionModel(api, this);
     connect(&api, &ApiClient::succeeded, this, &SearchModel::succeeded);
     connect(&api, &ApiClient::failed, this, &SearchModel::failed);
     connect(&api, &ApiClient::sessionChanged, this, &SearchModel::resetSession);
+}
+void SearchModel::attachMetadata(SongMetadataService &service, bool network)
+{
+    m_metadata = &service;
+    m_metadataNetwork = network;
+    watchMetadata();
+}
+void SearchModel::watchMetadata()
+{
+    if (!m_metadata)
+        return;
+    QList<SongMetadataService::Observation> songs;
+    QStringList rows;
+    if (!m_closing)
+        for (auto kind : {Kind::Song, Kind::Lyric}) {
+            const auto &bucket = m_buckets[size_t(kind)];
+            for (int i = 0; i < bucket.rows.size(); ++i) {
+                const auto row = QString::number(int(kind)) + ":" + QString::number(i);
+                songs.append({row, bucket.rows[i].track.toCatalog()});
+                rows.append(row);
+            }
+        }
+    refreshMetadata(rows);
+    m_metadata->watch(
+        this, songs, [this](const QStringList &changed) { refreshMetadata(changed); },
+        m_metadataNetwork && m_pageActive);
+}
+void SearchModel::refreshMetadata(const QStringList &rows)
+{
+    if (!m_metadata || m_closing)
+        return;
+    bool changed = false;
+    for (const auto &key : rows) {
+        const auto pieces = key.split(':');
+        if (pieces.size() != 2)
+            continue;
+        const auto kind = Kind(pieces[0].toInt());
+        auto &bucket = m_buckets[size_t(kind)];
+        const auto i = pieces[1].toInt();
+        if (i < 0 || i >= bucket.rows.size())
+            continue;
+        auto &row = bucket.rows[i];
+        if (!row.track.applyPresentation(m_metadata->complete(row.track.toCatalog())))
+            continue;
+        row.title = row.track.title;
+        row.artists = row.track.artist;
+        row.album = row.track.album;
+        row.cover = row.track.cover;
+        row.durationMs = row.track.durationMs;
+        row.duration = durationText(row.track.toCatalog());
+        if (kind == m_kind) {
+            emit dataChanged(index(i), index(i),
+                             {Title, ArtistText, AlbumText, CoverUrl, DurationMs, DurationText,
+                              ArtistLinks, AlbumId});
+            changed = true;
+        }
+    }
+    if (changed)
+        emit this->changed();
 }
 void SearchModel::resetSession()
 {
@@ -300,6 +364,7 @@ void SearchModel::setPageActive(bool activePage)
     if (m_pageActive == activePage || m_closing)
         return;
     m_pageActive = activePage;
+    watchMetadata();
     if (!activePage) {
         cancelRequests();
         const auto hot = m_discoveryActive ? 0 : std::exchange(m_hotRequest, 0);
@@ -314,6 +379,9 @@ void SearchModel::shutdown()
 {
     if (std::exchange(m_closing, true))
         return;
+    m_metadataRefresh.stop();
+    if (m_metadata)
+        m_metadata->unwatch(this);
     m_suggestions->shutdown();
     cancelRequests();
     const auto hot = std::exchange(m_hotRequest, 0);
@@ -333,6 +401,8 @@ void SearchModel::cancelRequests()
 void SearchModel::clearBuckets()
 {
     cancelRequests();
+    if (m_metadata)
+        m_metadata->unwatch(this);
     QScopedValueRollback<bool> changing(m_changingRows, true);
     beginResetModel();
     m_buckets = {};
@@ -493,6 +563,8 @@ void SearchModel::succeeded(quint64 id, const QByteArray &payload)
             // Lyric hits keep the song summary separate from catalog facts.
             if (requestKind == Kind::Lyric && item.contains("metadata"))
                 song.insert("metadata", item.value("metadata"));
+            if (m_metadata)
+                song = m_metadata->complete(song);
             row = {song.value("title").toString(),
                    artistNames(song),
                    song.value("album_title").toString(),

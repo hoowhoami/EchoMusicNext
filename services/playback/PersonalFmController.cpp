@@ -2,6 +2,7 @@
 #include "PersonalFmController.h"
 #include "PlaybackService.h"
 #include "PlaybackFailureController.h"
+#include "SongMetadataService.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
@@ -19,6 +20,8 @@ PersonalFmController::PersonalFmController(PlaybackService &playback, ApiClient 
                                            QSettings &settings)
     : QObject(&playback), m_playback(playback), m_api(api), m_settings(settings)
 {
+    connect(&playback, &PlaybackService::metadataServiceChanged, this,
+            &PersonalFmController::watchMetadata);
     m_mode = qBound(0, settings.value(EchoMusic::SettingsKeys::PersonalFm::Mode, 0).toInt(), 3);
     m_pool = qBound(0, settings.value(EchoMusic::SettingsKeys::PersonalFm::SongPool, 0).toInt(), 2);
     connect(&api, &ApiClient::succeeded, this, &PersonalFmController::succeeded);
@@ -154,6 +157,7 @@ void PersonalFmController::setPageActive(bool visible, bool networkEnabled)
 {
     m_pageActive = visible;
     m_networkEnabled = networkEnabled;
+    watchMetadata();
     if (!visible) {
         if (const auto pending = m_requests.constFind(m_resetRequest);
             pending != m_requests.cend()) {
@@ -305,6 +309,7 @@ void PersonalFmController::abandonQueue(bool preserveReports)
     }
     ++m_epoch;
     m_buffer.clear();
+    watchMetadata();
     m_pendingTrack.reset();
     m_waiting = false;
     m_playAfterReset = false;
@@ -324,6 +329,38 @@ void PersonalFmController::merge(const PlaybackTracks &tracks)
             seen.insert(identity(track));
             m_buffer.append(track);
         }
+    watchMetadata();
+}
+void PersonalFmController::watchMetadata()
+{
+    auto *metadata = m_playback.metadata();
+    if (!metadata)
+        return;
+    QList<SongMetadataService::Observation> songs;
+    if (!m_closed)
+        for (int i = 0; i < m_buffer.size(); ++i) {
+            auto &track = m_buffer[i];
+            track.applyPresentation(metadata->complete(track.toCatalog()));
+            songs.append({QString::number(i), track.toCatalog()});
+        }
+    metadata->watch(
+        this, songs,
+        [this](const QStringList &rows) {
+            auto *service = m_playback.metadata();
+            if (!service || m_closed)
+                return;
+            bool changed = false;
+            for (const auto &key : rows) {
+                const auto row = key.toInt();
+                if (row >= 0 && row < m_buffer.size()) {
+                    auto &track = m_buffer[row];
+                    changed |= track.applyPresentation(service->complete(track.toCatalog()));
+                }
+            }
+            if (changed)
+                emit this->changed();
+        },
+        m_networkEnabled && (m_pageActive || active()));
 }
 void PersonalFmController::succeeded(quint64 id, const QByteArray &bytes)
 {
@@ -525,6 +562,7 @@ void PersonalFmController::commit(const PlaybackTrack &track)
         }
     m_buffer.removeIf(
         [&](const auto &candidate) { return identity(candidate) == identity(track); });
+    watchMetadata();
     m_pendingTrack.reset();
     m_committed = true;
     m_resetPending = false;
@@ -546,6 +584,7 @@ void PersonalFmController::playbackChanged()
         else if (!m_playback.loading() && !m_playback.errorMessage().isEmpty()) {
             const auto failedKey = identity(*m_pendingTrack);
             m_buffer.removeIf([&](const auto &track) { return identity(track) == failedKey; });
+            watchMetadata();
             if (auto *queue = model())
                 for (int row = queue->rowCount() - 1; row >= 0; --row)
                     if (row != queue->currentIndex() && identity(*queue->at(row)) == failedKey)
@@ -689,10 +728,12 @@ void PersonalFmController::shutdown()
     if (m_closed)
         return;
     m_closed = true;
+    watchMetadata();
     const auto ids = m_requests.keys();
     for (auto id : ids)
         cancel(id);
     m_buffer.clear();
+    watchMetadata();
     m_pendingTrack.reset();
 }
 } // namespace EchoMusic

@@ -155,6 +155,8 @@ void DiscoveryService::cancelAll()
 }
 void DiscoveryService::shutdown()
 {
+    for (auto *model : {&m_styleSongs, &m_dailySongs, &m_rankSongs, &m_freeListen, &m_discoverFlow})
+        model->setMetadataActive(false);
     if (m_closed)
         return;
     m_closed = true;
@@ -203,6 +205,11 @@ void DiscoveryService::setPage(const QString &name, const QString &instance, boo
     m_playback.personalFm()->setPageActive(name == "personal-fm", networkEnabled);
     m_activePage = name;
     m_networkEnabled = networkEnabled;
+    m_styleSongs.setMetadataActive(networkEnabled && name == "home");
+    m_dailySongs.setMetadataActive(networkEnabled && name == "recommend-songs");
+    m_rankSongs.setMetadataActive(networkEnabled && name == "ranking");
+    m_freeListen.setMetadataActive(networkEnabled && name == "free-listen");
+    m_discoverFlow.setMetadataActive(networkEnabled && name == "discover-flow");
     if (!m_instances.contains(name) || m_instances.value(name) != instance) {
         m_instances.insert(name, instance);
         if (name == "home") {
