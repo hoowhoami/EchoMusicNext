@@ -24,6 +24,7 @@ ItemDelegate {
     contentItem: ColumnLayout {
         spacing: 12
         EchoCover {
+            coverScope: "artist"
             objectName: "artistDirectoryAvatar"
             Layout.fillWidth: true
             Layout.preferredHeight: width

@@ -36,6 +36,9 @@ qt_add_qml_module(
     CommentListState.qml
     CommentsView.qml
     CommentRow.qml
+    CommentSurface.qml
+    CommentBody.qml
+    CommentQuote.qml
     CommentComposer.qml
     FloorReplyComposer.qml
     BarrageLayer.qml

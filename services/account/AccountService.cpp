@@ -37,6 +37,7 @@ AccountService::AccountService(ApiClient &api, QObject *parent, MembershipServic
             m_detail = m_identity = m_gradeRequest = 0;
             m_membershipPending = false;
             m_profileLoaded = false;
+            m_profileExtrasStarted = false;
             if (m_state == State::Refreshing)
                 m_state = State::SignedIn;
         } else {
@@ -61,6 +62,7 @@ void AccountService::resetProfile()
                                          std::exchange(m_gradeRequest, 0)};
     m_membershipPending = false;
     m_profileLoaded = false;
+    m_profileExtrasStarted = false;
     m_statistics.clear();
     m_memberships.clear();
     m_biography.clear();
@@ -107,9 +109,9 @@ bool AccountService::adoptQrAuthorization(const QByteArray &payload)
     auto object = QJsonDocument::fromJson(payload).object();
     return adopt(object, false);
 }
-bool AccountService::adoptStoredSession(const QByteArray &payload)
+bool AccountService::adoptStoredSession(const QByteArray &payload, const QJsonObject &profile)
 {
-    return adopt(QJsonDocument::fromJson(payload).object(), false);
+    return adopt(QJsonDocument::fromJson(payload).object(), false, profile);
 }
 QByteArray AccountService::storedSession() const
 {
@@ -123,7 +125,7 @@ QByteArray AccountService::storedSession() const
                                      {"avatar_url", m_avatar}})
         .toJson(QJsonDocument::Compact);
 }
-bool AccountService::adopt(const QJsonObject &value, bool complete)
+bool AccountService::adopt(const QJsonObject &value, bool complete, const QJsonObject &profile)
 {
     Q_ASSERT(QThread::currentThread() == thread());
     const auto id = value.value("user_id").toInteger();
@@ -159,6 +161,7 @@ bool AccountService::adopt(const QJsonObject &value, bool complete)
         m_detail = m_identity = m_gradeRequest = 0;
         m_membershipPending = false;
         m_profileLoaded = false;
+        m_profileExtrasStarted = false;
         m_statistics.clear();
         m_memberships.clear();
         m_biography.clear();
@@ -180,6 +183,8 @@ bool AccountService::adopt(const QJsonObject &value, bool complete)
     }
     m_nickname = value.value("nickname").toString();
     m_avatar = value.value("avatar_url").toString();
+    if (!profile.isEmpty())
+        applyProfile(profile);
     m_error.clear();
     m_state = State::SignedIn;
     emit changed();
@@ -210,6 +215,28 @@ void AccountService::signOut()
     m_api.setAccount(0, {}); // Invalidates every old request and verification flow.
     emit changed();
 }
+void AccountService::applyProfile(const QJsonObject &object)
+{
+    m_profileLoaded = true;
+    m_nickname = object.value("nickname").toString();
+    m_avatar = object.value("avatar_url").toString();
+    m_biography = object.value("biography").toString();
+    m_profileIdentity = AccountIdentity::fromDomain(object.value("identity").toObject());
+    m_gender = object.value("gender").toInt(2);
+    m_province = object.value("province").toString();
+    m_city = object.value("city").toString();
+    m_ipLocation = object.value("ip_location").toString().trimmed();
+    m_birthday = object.value("birthday").toString();
+    m_registeredSeconds = object.value("registered_at_seconds").toInteger();
+    m_visitors = object.value("visitors").toInteger();
+    m_grade = object.value("grade").toInt();
+    if (m_listeningSeconds < 0)
+        m_listeningSeconds = object.value("listening_minutes").toInteger() * 60;
+    m_statistics = {
+        QVariantMap{{"label", tr("好友")}, {"value", object.value("friends").toInteger()}},
+        QVariantMap{{"label", tr("关注")}, {"value", object.value("follows").toInteger()}},
+        QVariantMap{{"label", tr("粉丝")}, {"value", object.value("fans").toInteger()}}};
+}
 void AccountService::succeed(quint64 id, const QByteArray &payload)
 {
     if (id && m_revision == m_api.sessionRevision() &&
@@ -219,25 +246,7 @@ void AccountService::succeed(quint64 id, const QByteArray &payload)
             m_detail = 0;
             if (object.value("id").toInteger() != qint64(m_userId))
                 return;
-            m_profileLoaded = true;
-            m_nickname = object.value("nickname").toString();
-            m_avatar = object.value("avatar_url").toString();
-            m_biography = object.value("biography").toString();
-            m_profileIdentity = AccountIdentity::fromDomain(object.value("identity").toObject());
-            m_gender = object.value("gender").toInt(2);
-            m_province = object.value("province").toString();
-            m_city = object.value("city").toString();
-            m_ipLocation = object.value("ip_location").toString().trimmed();
-            m_birthday = object.value("birthday").toString();
-            m_registeredSeconds = object.value("registered_at_seconds").toInteger();
-            m_visitors = object.value("visitors").toInteger();
-            m_grade = object.value("grade").toInt();
-            if (m_listeningSeconds < 0)
-                m_listeningSeconds = object.value("listening_minutes").toInteger() * 60;
-            m_statistics = {
-                QVariantMap{{"label", tr("好友")}, {"value", object.value("friends").toInteger()}},
-                QVariantMap{{"label", tr("关注")}, {"value", object.value("follows").toInteger()}},
-                QVariantMap{{"label", tr("粉丝")}, {"value", object.value("fans").toInteger()}}};
+            applyProfile(object);
         } else if (id == m_gradeRequest) {
             m_gradeRequest = 0;
             if (object.value("user_id").toInteger() != qint64(m_userId))
@@ -295,10 +304,12 @@ void AccountService::fail(quint64 id, const QByteArray &payload)
 }
 void AccountService::loadProfileOnce()
 {
-    if (!m_userId || m_profileLoaded || m_detail || m_membershipPending || m_identity ||
-        m_revision != m_api.sessionRevision())
+    if (!m_userId || (m_profileLoaded && m_profileExtrasStarted) || m_detail ||
+        m_membershipPending || m_identity || m_revision != m_api.sessionRevision())
         return;
-    m_detail = m_api.userDetail();
+    if (!m_profileLoaded)
+        m_detail = m_api.userDetail();
+    m_profileExtrasStarted = true;
     m_membershipPending = true;
     m_membership->ensure(true);
     m_identity = m_api.userInfo();
@@ -311,6 +322,7 @@ void AccountService::reloadProfile()
         return;
     m_membershipPending = false;
     m_profileLoaded = false;
+    m_profileExtrasStarted = false;
     loadProfileOnce();
 }
 void AccountService::applySocialCountChange(int followsDelta, int friendsDelta)

@@ -7,6 +7,7 @@ import EchoMusic.Theme
 
 Item {
     id: root
+    objectName: "commentsView"
     required property CommentsController controller
     property EchoPageScrollContainer pageContainer: null
     property bool resourceActive: true
@@ -37,6 +38,7 @@ Item {
         controller: root.showComments ? root.controller : null
         active: root.resourceActive
         layoutWidth: list.width
+        viewportWidth: root.Window.window ? root.Window.window.width / root.uiScale : root.width
         bodyFont: Theme.font(root.compact ? 12 : 14, Theme.regularWeight)
         timeFont: Theme.font(10, Theme.regularWeight)
         quoteFont: Theme.font(12, Theme.regularWeight)
@@ -61,7 +63,7 @@ Item {
         flickableDirection: Flickable.VerticalFlick
         readonly property int count: rows
         readonly property real spacing: rowSpacing
-        rowSpacing: root.compact ? 8 : 12
+        rowSpacing: 0
         columnWidthProvider: column => width
         rowHeightProvider: row => extent.heightAt(row)
         contentWidth: width
@@ -166,8 +168,9 @@ Item {
             property bool pooled: false
             readonly property string extentKey: kind + "/" + rootId + "/" + String(entry && entry.id || "")
             function reportExtent(): void {
-                if (root.resourceActive && !pooled && item && item.implicitHeight > 0)
-                    extent.record(extentKey, item.implicitHeight);
+                const body = item as Item;
+                if (root.resourceActive && !pooled && body && body.implicitHeight > 0)
+                    extent.record(extentKey, body.implicitHeight);
             }
             // TableView owns the row extent while the body retires, including
             // the interval in which pooled roles are reassigned.
@@ -222,6 +225,7 @@ Item {
                 id: commentRow
                 CommentRow {
                     compact: root.compact
+                    uiScale: root.uiScale
                     entry: delegate.entry || ({})
                     rootId: delegate.rootId
                     controller: root.controller
@@ -237,9 +241,29 @@ Item {
             }
             Component {
                 id: inlineComposer
-                FloorReplyComposer {
-                    controller: root.controller
-                    target: delegate.entry || ({})
+                Item {
+                    id: composerRow
+                    readonly property bool nested: !!delegate.entry.reply_nested
+                    readonly property bool expanded: !!delegate.entry.thread_expanded
+                    implicitHeight: 12 + form.implicitHeight + (nested ? 28 : expanded ? 0 : 12 + composerSurface.cardPadding + composerSurface.cardGap)
+                    CommentSurface {
+                        id: composerSurface
+                        anchors.fill: parent
+                        compact: root.compact
+                        uiScale: root.uiScale
+                        part: "composer"
+                        nested: composerRow.nested
+                        threadExpanded: composerRow.expanded
+                    }
+                    FloorReplyComposer {
+                        id: form
+                        x: composerSurface.mainLeft + (composerRow.nested ? composerSurface.floorPadding + 30 + (root.Window.window && root.Window.window.width / root.uiScale <= 640 ? 8 : 12) : 0)
+                        y: 12
+                        width: Math.max(0, parent.width - x - composerSurface.rightInset - (composerRow.nested ? composerSurface.floorPadding : 0))
+                        controller: root.controller
+                        target: delegate.entry || ({})
+                        nested: composerRow.nested
+                    }
                 }
             }
             Component {
@@ -247,26 +271,72 @@ Item {
                 Item {
                     id: threadStateItem
                     readonly property var rowState: delegate.entry || ({})
-                    implicitHeight: 36
-                    RowLayout {
+                    readonly property bool heading: delegate.kind === "threadHeading"
+                    readonly property bool loading: !!rowState.loading
+                    readonly property bool error: String(rowState.error || "").length > 0
+                    readonly property real stateHeight: loading || error || rowState.empty ? 42 : rowState.hasMore ? 48 : 28.5
+                    implicitHeight: heading ? 12 + threadSurface.floorVerticalPadding + 20 : stateHeight + threadSurface.floorVerticalPadding + threadSurface.cardPadding + threadSurface.cardGap
+                    CommentSurface {
+                        id: threadSurface
                         anchors.fill: parent
-                        spacing: 12
+                        compact: root.compact
+                        uiScale: root.uiScale
+                        part: delegate.kind
+                    }
+                    RowLayout {
+                        objectName: "commentFloorHeading"
+                        visible: threadStateItem.heading
+                        x: threadSurface.mainLeft + threadSurface.floorPadding
+                        y: 12 + threadSurface.floorVerticalPadding
+                        width: Math.max(0, parent.width - x - threadSurface.rightInset - threadSurface.floorPadding)
+                        height: 18
+                        spacing: 8
                         Label {
-                            Layout.leftMargin: 68
-                            Layout.fillWidth: true
-                            text: delegate.kind === "threadHeading" ? qsTr("全部回复") : threadStateItem.rowState.loading ? qsTr("加载中…") : threadStateItem.rowState.error || (threadStateItem.rowState.empty ? qsTr("暂无回复") : threadStateItem.rowState.hasMore ? "" : qsTr("已加载全部回复"))
+                            text: threadStateItem.rowState.context ? qsTr("所在楼层的回复") : qsTr("全部回复")
+                            font: Theme.font(12, Theme.semiboldWeight)
+                            color: Theme.secondaryText
+                        }
+                        Label {
+                            objectName: "commentFloorCount"
+                            text: threadStateItem.rowState.count === undefined ? "" : String(threadStateItem.rowState.count)
                             font: Theme.font(11, Theme.semiboldWeight)
                             color: Theme.secondaryText
                         }
-                        EchoSoftButton {
-                            plain: true
-                            size: EchoControlSize.Small
-                            visible: delegate.kind === "threadHeading" || (!threadStateItem.rowState.loading && (threadStateItem.rowState.error || threadStateItem.rowState.hasMore))
-                            text: delegate.kind === "threadHeading" ? qsTr("收起回复") : threadStateItem.rowState.error ? qsTr("重试") : qsTr("加载更多回复")
-                            onClicked: if (delegate.kind === "threadHeading")
-                                root.controller.toggleThread(delegate.rootId)
-                            else
-                                root.controller.loadThread(delegate.rootId, !!threadStateItem.rowState.error)
+                        Item {
+                            Layout.fillWidth: true
+                        }
+                    }
+                    Item {
+                        visible: !threadStateItem.heading
+                        x: threadSurface.mainLeft + threadSurface.floorPadding
+                        width: Math.max(0, parent.width - x - threadSurface.rightInset - threadSurface.floorPadding)
+                        height: threadStateItem.stateHeight
+                        RowLayout {
+                            anchors.centerIn: parent
+                            spacing: 8
+                            EchoSpinner {
+                                visible: threadStateItem.loading
+                                Layout.preferredWidth: 14
+                                Layout.preferredHeight: 14
+                                resourceActive: root.resourceActive && visible
+                            }
+                            Label {
+                                visible: threadStateItem.loading || threadStateItem.error || threadStateItem.rowState.empty || !threadStateItem.rowState.hasMore
+                                text: threadStateItem.loading ? qsTr("加载中…") : threadStateItem.rowState.error || (threadStateItem.rowState.empty ? qsTr("暂无回复") : qsTr("已加载全部回复"))
+                                font: Theme.font(threadStateItem.loading || threadStateItem.error || threadStateItem.rowState.empty ? 12 : 11, Theme.semiboldWeight)
+                                color: Theme.secondaryText
+                            }
+                            EchoSoftButton {
+                                objectName: "commentFloorMore"
+                                plain: true
+                                size: EchoControlSize.Standard
+                                leftPadding: 12
+                                rightPadding: 12
+                                visible: !threadStateItem.loading && (threadStateItem.error || !!threadStateItem.rowState.hasMore)
+                                foreground: Theme.accentText
+                                text: threadStateItem.error ? qsTr("重试") : qsTr("加载更多回复")
+                                onClicked: root.controller.loadThread(delegate.rootId, threadStateItem.error)
+                            }
                         }
                     }
                 }

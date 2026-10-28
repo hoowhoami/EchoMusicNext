@@ -24,7 +24,10 @@ QHash<int, QByteArray> actionRoles()
             {M::BadgeVisibleRole, "badgeVisible"},
             {M::ActiveRole, "actionActive"},
             {M::BadgeSupportedRole, "badgeSupported"},
-            {M::BadgePreferredRole, "badgePreferred"}};
+            {M::BadgePreferredRole, "badgePreferred"},
+            {M::TooltipRole, "actionTooltip"},
+            {M::BadgeTitleRole, "badgeTitle"},
+            {M::HoverRole, "actionHover"}};
 }
 } // namespace
 ShellActionModel::ShellActionModel(QSettings &preferences, Surface surface, QObject *parent)
@@ -81,6 +84,12 @@ QVariant ShellActionModel::data(const QModelIndex &index, int role) const
         return entry.active;
     case BadgeSupportedRole:
         return a.supportsBadge || !entry.badge.isEmpty();
+    case TooltipRole:
+        return a.tooltip.isEmpty() ? a.title : a.tooltip;
+    case BadgeTitleRole:
+        return a.badgeTitle;
+    case HoverRole:
+        return a.hover;
     case BadgePreferredRole:
         return m_badges.value(a.key, a.badgeDefaultVisible).toBool();
     default:
@@ -165,6 +174,21 @@ bool ShellActionModel::unregisterAction(const Handle &handle)
     if (rowCount())
         emit dataChanged(index(0), index(rowCount() - 1), {EffectiveRole});
     emit layoutChanged();
+    return true;
+}
+bool ShellActionModel::setInteraction(const Handle &handle, const QString &tooltip,
+                                      const QString &badgeTitle, bool hover)
+{
+    const int row = rowFor(handle.key);
+    if (row < 0 || m_entries[row].generation != handle.generation)
+        return false;
+    auto &a = m_entries[row].action;
+    if (a.tooltip == tooltip && a.badgeTitle == badgeTitle && a.hover == hover)
+        return true;
+    a.tooltip = tooltip;
+    a.badgeTitle = badgeTitle;
+    a.hover = hover;
+    emit dataChanged(index(row), index(row), {TooltipRole, BadgeTitleRole, HoverRole});
     return true;
 }
 bool ShellActionModel::setState(const Handle &handle, bool enabled, bool visible, bool busy,

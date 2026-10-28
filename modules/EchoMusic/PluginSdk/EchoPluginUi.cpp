@@ -10,9 +10,13 @@
 namespace EchoMusic
 {
 EchoPluginUi::EchoPluginUi(EchoPluginContext &scope)
-    : QObject(&scope), m_parts(new EchoPluginUiParts(scope)),
-      m_styles(new EchoPluginUiStyles(scope)), m_scope(scope)
+    : QObject(&scope), m_navigation(new EchoPluginNavigation(scope)),
+      m_parts(new EchoPluginUiParts(scope)), m_styles(new EchoPluginUiStyles(scope)), m_scope(scope)
 {
+}
+EchoPluginCover *EchoPluginUi::cover() const
+{
+    return m_scope.cover();
 }
 EchoPluginAppearance *EchoPluginUi::lyricsPage() const
 {
@@ -134,33 +138,12 @@ EchoPluginRegistration *EchoPluginUi::action(bool playerbar, const QString &id,
                                              const QString &title, const QString &icon,
                                              const QJSValue &callback)
 {
-    if (title.isEmpty() || title.size() > 256 || !callback.isCallable())
-        return nullptr;
-    auto *lease = m_scope.registration(playerbar ? "playerbar" : "titlebar", id);
-    if (!lease)
-        return nullptr;
-    auto *model = playerbar ? m_scope.host().shell.playerbarActions()
-                            : m_scope.host().shell.titlebarActions();
-    auto handle = std::make_shared<ShellActionModel::Handle>();
-    lease->stage(
-        [this, model, handle, lease, id, title, icon, callback] {
-            ShellActionModel::Contribution contribution;
-            contribution.key = lease->key();
-            contribution.id = id;
-            contribution.title = title;
-            contribution.icon = icon;
-            contribution.enabled = true;
-            contribution.invoke = [this, lease, callback] {
-                if (m_scope.active() && lease->active())
-                    m_scope.call(callback);
-            };
-            *handle = model->registerAction(*lease, std::move(contribution));
-            return handle->generation != 0;
-        },
-        [model, handle] { model->unregisterAction(*handle); });
-    if (m_scope.committed() && !lease->commit())
-        lease->dispose();
-    return lease;
+    auto definition = m_scope.engine().newObject();
+    definition.setProperty("title", title);
+    definition.setProperty("icon", icon);
+    definition.setProperty("onClick", callback);
+    auto *handle = actionDefinition(playerbar, id, definition);
+    return handle ? handle->lease() : nullptr;
 }
 EchoPluginRegistration *EchoPluginUi::registerTitlebarAction(const QString &id,
                                                              const QString &title,

@@ -72,7 +72,7 @@ Control {
     }
     onValueChanged: syncValue()
     onOptionsChanged: Qt.callLater(syncValue)
-    onEnabledChanged: if (!enabled)
+    onEnabledChanged: if (!enabled && !EchoPopupCoordinator.interactionSuspended(control.Window.window))
         closePopup()
     onVisibleChanged: if (!visible)
         closePopup()

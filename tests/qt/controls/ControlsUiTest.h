@@ -39,6 +39,7 @@ private slots:
     void floatingEffectsAreOwnedByVisibleSurfaces();
     void menusDrawersAndFileDialogsReleaseAfterClose();
     void businessPopupsAreCreatedOnDemandAndDestroyedAfterExit();
+    void verificationCoverPreservesPopupInstancesAndDrafts();
     void tooltipPopupsExistOnlyDuringTheirTrigger();
     void nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover();
     void numberInputCommitsAndClampsAcrossAllInputPaths();

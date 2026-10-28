@@ -42,6 +42,10 @@ Rectangle {
             placeholderText: root.controller.signedIn ? qsTr("写下你的评论…") : qsTr("登录后即可发送")
             Accessible.name: root.label
             Accessible.description: qsTr("Enter 发送，Shift + Enter 换行")
+            CommentTextStyle {
+                document: editor.textDocument
+                lineHeight: 20
+            }
             onTextChanged: root.controller.draft = text
             Keys.onReturnPressed: event => {
                 if (inputMethodComposing || event.modifiers !== Qt.NoModifier)
@@ -62,12 +66,13 @@ Rectangle {
         }
         Label {
             Layout.alignment: Qt.AlignBottom
-            Layout.bottomMargin: 10
             text: root.characterCount + " / 200"
-            font: Theme.font(root.compact ? 12 : 10, Theme.regularWeight)
+            font: Theme.font(12, Theme.regularWeight)
+            lineHeightMode: Text.FixedHeight
+            lineHeight: 18
             color: root.characterCount > 200 ? Theme.colors.dangerText : Theme.secondaryText
         }
-        EchoSoftButton {
+        EchoButton {
             objectName: "commentSend"
             Layout.alignment: Qt.AlignBottom
             Layout.minimumWidth: 60

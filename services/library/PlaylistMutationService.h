@@ -63,7 +63,13 @@ signals:
     /// Inspect per-item resource codes; completion does not imply every track
     /// was accepted by the provider.
     void completed(const QByteArray &acknowledgement);
+    /// Directory membership/metadata/order changed; track-only writes use the
+    /// reconciled snapshot below so sidebar delegates remain intact.
     void libraryInvalidated();
+    /// Fresh readback facts for one account-local playlist. songCount == -1
+    /// means unknown; never derive a count from attempted/per-item writes.
+    void tracksReconciled(quint64 cloudListId, quint64 revision, qint64 songCount,
+                          quint64 sessionRevision);
     void tracksInvalidated(quint64 cloudListId);
 
 private:

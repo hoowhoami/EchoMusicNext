@@ -58,6 +58,10 @@ public:
     bool canFetchMore(const QModelIndex &parent) const override;
     void fetchMore(const QModelIndex &parent) override;
     Q_INVOKABLE void reload();
+    /// Apply confirmed track-read facts without resetting the directory. A
+    /// negative count preserves the previous count when upstream omitted it.
+    void applyTrackSnapshot(quint64 cloudListId, quint64 revision, qint64 songCount,
+                            quint64 sessionRevision);
     void attachStorage(StorageService &storage);
     QString coverFor(const QString &globalId, const QString &fallback) const;
     /// Account-local editable metadata overlays public collection presentation.

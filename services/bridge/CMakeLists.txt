@@ -3,7 +3,9 @@ add_library(
 )
 target_sources(
     echo_bridge
-    PRIVATE ApiDomains_p.h
+    PRIVATE ApiInterceptors.h
+            ApiInterceptors.cpp
+            ApiDomains_p.h
             AuthClient.cpp
             CatalogClient.cpp
             CloudClient.cpp

@@ -728,50 +728,89 @@ impl ApiClient {
         parameters: BTreeMap<String, String>,
     ) -> Result<HttpResponse, ApiError> {
         let started = Instant::now();
-        let mut response = request.send().await.map_err(|error| {
-            transport_error(
-                error,
-                "网络请求失败",
-                RequestDiagnostics::capture("send", started, None, 0),
-            )
-        })?;
-        let status = response.status();
-        let diagnostics = |phase, bytes| {
-            RequestDiagnostics::capture(phase, started, Some(status.as_u16()), bytes)
+        use base64::Engine;
+        let (client, built) = request.build_split();
+        let request = built.map_err(|_| ApiError::new("input", "无效接口请求"))?;
+        let diagnostic_path = request.url().path().to_owned();
+        let intercepted = super::interception::HOST_HOOK
+            .try_with(|_| true)
+            .unwrap_or(false);
+        let (bytes, status, headers) = match super::interception::begin(request).await? {
+            super::interception::Start::Mock(reply) => {
+                super::interception::finish(None, reply).await?
+            }
+            super::interception::Start::Forward(request, exchange) => {
+                let received = async {
+                    let mut response = client.execute(request).await.map_err(|error| {
+                        transport_error(
+                            error,
+                            "网络请求失败",
+                            RequestDiagnostics::capture("send", started, None, 0),
+                        )
+                    })?;
+                    let status = response.status();
+                    let response_headers = response.headers().clone();
+                    let diagnostics = |phase, bytes| {
+                        RequestDiagnostics::capture(phase, started, Some(status.as_u16()), bytes)
+                    };
+
+                    // Refuse arbitrarily large bodies. Decode errors do not expose raw account data.
+                    if response
+                        .content_length()
+                        .is_some_and(|len| len > 16 * 1024 * 1024)
+                    {
+                        return Err(ApiError::new("limit", "接口报文过大")
+                            .with_diagnostics(diagnostics("response_body", 0)));
+                    }
+                    let mut bytes = Vec::new();
+                    while let Some(chunk) = response.chunk().await.map_err(|error| {
+                        transport_error(
+                            error,
+                            "读取接口报文失败",
+                            diagnostics("response_body", bytes.len()),
+                        )
+                    })? {
+                        if chunk.len() > 16 * 1024 * 1024 - bytes.len() {
+                            return Err(ApiError::new("limit", "接口报文过大")
+                                .with_diagnostics(diagnostics("response_body", bytes.len())));
+                        }
+                        bytes.extend_from_slice(&chunk);
+                    }
+                    Ok::<_, ApiError>((bytes, status, response_headers))
+                }
+                .await;
+                match received {
+                    Err(error) => super::interception::fail(exchange, error).await?,
+                    Ok((bytes, status, response_headers)) => {
+                        if exchange.is_some() {
+                            super::interception::finish(
+                                exchange,
+                                super::interception::WireResponse {
+                                    status: status.as_u16(),
+                                    headers: super::interception::headers(&response_headers),
+                                    body_base64: base64::engine::general_purpose::STANDARD
+                                        .encode(&bytes),
+                                },
+                            )
+                            .await?
+                        } else {
+                            (bytes, status, response_headers)
+                        }
+                    }
+                }
+            }
         };
-        let retry_after_seconds = response
-            .headers()
+        let diagnostics = |phase, count| {
+            RequestDiagnostics::capture(phase, started, Some(status.as_u16()), count)
+        };
+        let retry_after_seconds = headers
             .get("retry-after")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.trim().parse::<u64>().ok());
-        let diagnostic_path = response.url().path().to_owned();
-        let event = response
-            .headers()
+        let event = headers
             .get("ssa-code")
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
-        // Refuse arbitrarily large bodies. Decode errors do not expose raw account data.
-        if response
-            .content_length()
-            .is_some_and(|len| len > 16 * 1024 * 1024)
-        {
-            return Err(ApiError::new("limit", "接口报文过大")
-                .with_diagnostics(diagnostics("response_body", 0)));
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|error| {
-            transport_error(
-                error,
-                "读取接口报文失败",
-                diagnostics("response_body", bytes.len()),
-            )
-        })? {
-            if chunk.len() > 16 * 1024 * 1024 - bytes.len() {
-                return Err(ApiError::new("limit", "接口报文过大")
-                    .with_diagnostics(diagnostics("response_body", bytes.len())));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
         // Handshake bodies contain session credentials even under generic data
         // keys. They must never enter response diagnostics.
         if !matches!(
@@ -783,7 +822,15 @@ impl ApiClient {
                 | "/v3/multipart/upload"
                 | "/v3/multipart/complete"
         ) {
-            super::response_logging::record(&bytes, status.as_u16(), &diagnostic_path);
+            if intercepted {
+                super::response_logging::record_intercepted(
+                    &bytes,
+                    status.as_u16(),
+                    &diagnostic_path,
+                );
+            } else {
+                super::response_logging::record(&bytes, status.as_u16(), &diagnostic_path);
+            }
         }
         // Inspect challenge metadata before HTTP/business converters. Headers
         // are case-insensitive; never discard the event or fabricate sid/edt.

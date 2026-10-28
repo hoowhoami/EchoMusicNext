@@ -79,6 +79,8 @@ void AppContext::createAccount()
     auto &playlistMutations = *m_playlistMutations;
     bind(&playlistMutations, &EchoMusic::PlaylistMutationService::libraryInvalidated,
          &userPlaylists, &EchoMusic::UserPlaylistModel::reload);
+    bind(&playlistMutations, &EchoMusic::PlaylistMutationService::tracksReconciled, &userPlaylists,
+         &EchoMusic::UserPlaylistModel::applyTrackSnapshot);
     m_collections =
         std::make_unique<LibraryCollectionService>(api, userPlaylists, playlistMutations);
     m_qrLogin = std::make_unique<QrLoginService>(api);

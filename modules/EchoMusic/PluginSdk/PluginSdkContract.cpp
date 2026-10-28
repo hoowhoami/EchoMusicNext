@@ -49,7 +49,14 @@ QJsonObject describe(const QMetaObject &meta)
 QJsonObject pluginSdkContract()
 {
     QJsonObject types;
-    const QMetaObject *publicTypes[] = {&PluginPermissionStore::staticMetaObject,
+    const QMetaObject *publicTypes[] = {&EchoPluginAction::staticMetaObject,
+                                        &EchoPluginCover::staticMetaObject,
+                                        &EchoPluginSettings::staticMetaObject,
+                                        &EchoPluginNavigation::staticMetaObject,
+                                        &EchoPluginProcess::staticMetaObject,
+                                        &EchoPluginServer::staticMetaObject,
+                                        &EchoPluginInterceptRequest::staticMetaObject,
+                                        &PluginPermissionStore::staticMetaObject,
                                         &EchoPluginPermissions::staticMetaObject,
                                         &EchoPluginWindow::staticMetaObject,
                                         &EchoPluginTcp::staticMetaObject,

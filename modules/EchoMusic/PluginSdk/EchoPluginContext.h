@@ -14,11 +14,15 @@
 #include "EchoPluginLyricEffects.h"
 #include "EchoPluginKugou.h"
 #include "EchoPluginUi.h"
+#include "EchoPluginHost.h"
+#include "EchoPluginCover.h"
 #include "EchoPluginIo.h"
 #include "EchoPluginSqlite.h"
 #include "EchoPluginBackups.h"
 #include "EchoPluginNetwork.h"
 #include "EchoPluginPermissions.h"
+#include "EchoPluginProcess.h"
+#include "EchoPluginServer.h"
 #include "EchoPluginWebServer.h"
 #include "EchoPluginRegistry.h"
 #include "EchoPluginAudio.h"
@@ -35,6 +39,7 @@ namespace EchoMusic
 class EchoPluginUi;
 class EchoPluginIo;
 class PlaybackService;
+class ShellSettings;
 class ThemeStore;
 class ShellController;
 class RouteController;
@@ -61,6 +66,7 @@ struct PluginHost
     BackupHost *backups = nullptr;
     PluginPermissionStore *permissions = nullptr;
     std::function<void(QQuickWindow *)> attachPluginWindow = {};
+    ShellSettings *settings = nullptr;
 };
 /// One activation's GUI-thread scope. No raw host object is exposed to JS/QML.
 /// beginRetire invalidates delivery before cleanup, then waits for SQL drain.
@@ -73,6 +79,8 @@ class EchoPluginContext final : public QObject
     Q_PROPERTY(EchoMusic::EchoPluginAppearance *appearance READ appearance CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginFonts *fonts READ fonts CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginWindows *windows READ windows CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginCover *cover READ cover CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginSettings *settings READ settings CONSTANT)
     Q_PROPERTY(QString id READ id CONSTANT)
     Q_PROPERTY(QString installationId READ installationId CONSTANT)
     Q_PROPERTY(QString activationGeneration READ activationGeneration CONSTANT)
@@ -95,6 +103,8 @@ class EchoPluginContext final : public QObject
     Q_PROPERTY(EchoMusic::EchoPluginSqlite *sqlite READ sqlite CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginIo *io READ io CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginNetwork *net READ net CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginProcess *process READ process CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginServer *server READ server CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginPermissions *permissions READ permissions CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginWebServer *webServer READ webServer CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginRegistry *plugins READ plugins CONSTANT)
@@ -106,6 +116,14 @@ public:
                       PluginHost host, QString dataPath, QObject *parent,
                       EchoPluginContext *activation = nullptr, QString contextId = "main");
     ~EchoPluginContext() override;
+    EchoPluginProcess *process() const
+    {
+        return m_process;
+    }
+    EchoPluginServer *server() const
+    {
+        return m_server;
+    }
     EchoPluginFiles *files() const
     {
         return m_files;
@@ -230,7 +248,16 @@ public:
     }
     EchoPluginOperation *invokeRegistered(const QJSValue &callback,
                                           QPointer<EchoPluginRegistration> lease,
-                                          const QVariantMap &arguments);
+                                          const QVariantMap &arguments,
+                                          bool reportRejection = false);
+    EchoPluginCover *cover() const
+    {
+        return m_cover;
+    }
+    EchoPluginSettings *settings() const
+    {
+        return m_settings;
+    }
     QFont font() const;
     QColor accent() const;
     bool dark() const;
@@ -282,6 +309,7 @@ public:
         return m_accountEpoch;
     }
 signals:
+    void sessionInvalidated();
     void activeChanged();
     void appearanceChanged();
     void resourcesDrained();
@@ -310,6 +338,8 @@ private:
     EchoPluginFiles *m_files = nullptr;
     EchoPluginDownloads *m_downloads = nullptr;
     EchoPluginLyrics *m_lyrics;
+    EchoPluginCover *m_cover;
+    EchoPluginSettings *m_settings;
     EchoPluginUi *m_ui;
     EchoPluginTasks *m_tasks;
     EchoPluginShortcuts *m_shortcuts;
@@ -322,6 +352,8 @@ private:
     EchoPluginBackups *m_backups;
     EchoPluginNetwork *m_net;
     EchoPluginPermissions *m_permissions;
+    EchoPluginProcess *m_process;
+    EchoPluginServer *m_server;
     EchoPluginWebServer *m_webServer;
     EchoPluginRegistry *m_plugins;
     bool m_storageFrozen = false;

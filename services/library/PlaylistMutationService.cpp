@@ -400,7 +400,10 @@ void PlaylistMutationService::succeed(quint64 request, const QByteArray &payload
     m_error.clear();
     m_acknowledgement.clear();
     QPointer<PlaylistMutationService> guard(this);
-    emit libraryInvalidated();
+    if (library)
+        emit libraryInvalidated();
+    else
+        emit tracksReconciled(id, *version, total ? qint64(*total) : -1, revision);
     if (!guard || revision != m_api.sessionRevision())
         return;
     if (!library)

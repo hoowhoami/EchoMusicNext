@@ -102,7 +102,128 @@ quint64 ApiClient::submit(QJsonObject request, bool includeIdentity, RequestOpti
     pending.request = std::move(request);
     pending.automaticVerification = options.automaticVerification;
     pending.replayAfterVerification = options.replayAfterVerification;
+    const auto operation = pending.request.value("operation").toString();
+    // Authentication and proof commands never expose credentials to middleware.
+    const bool protectedOperation = operation.startsWith("login") || operation == "register_dev" ||
+                                    operation.startsWith("captcha") || operation == "user_verify";
+    pending.transportIntercept = !m_transportInterceptors.isEmpty() && !m_pluginRequestDepth &&
+                                 !protectedOperation && includeIdentity;
+    if (!m_interceptors.isEmpty() && !m_pluginRequestDepth && !protectedOperation &&
+        includeIdentity) {
+        const auto id = ++m_interceptRequest;
+        const auto revision = m_revision;
+        pending.logicalId = id;
+        pending.sessionBound = true;
+        auto *chain = new ApiInterceptChain(m_interceptors.values(), this);
+        m_intercepted.insert(id, chain);
+        QTimer::singleShot(0, chain, [this, chain, pending, id, revision] {
+            if (m_closing || revision != m_revision || !m_intercepted.contains(id))
+                return;
+            chain->run(
+                pending.request,
+                [this, pending, id](QJsonObject request, ApiInterceptDone done) mutable {
+                    const auto original = pending.request;
+                    pending.request = std::move(request);
+                    m_interceptForward[id] = std::move(done);
+                    auto native = submitPrepared(pending);
+                    if (!native && pending.request != original) {
+                        pending.request = original;
+                        native = submitPrepared(pending);
+                    }
+                    if (!native)
+                        finishRequest(id, EchoStatus::Closed,
+                                      QByteArrayLiteral("{\"kind\":\"closed\"}"));
+                },
+                [this, id, revision](ApiInterceptReply reply) {
+                    auto chain = m_intercepted.take(id);
+                    m_interceptForward.remove(id);
+                    if (chain)
+                        chain->deleteLater();
+                    if (m_closing || revision != m_revision)
+                        return;
+                    if (reply.status == EchoStatus::Success)
+                        emit succeeded(id, reply.payload);
+                    else
+                        emit failed(id, reply.status, reply.payload);
+                });
+        });
+        return id;
+    }
     return submitPrepared(std::move(pending));
+}
+
+quint64 ApiClient::addInterceptor(double priority, decltype(ApiInterceptor::invoke) invoke,
+                                  bool transport)
+{
+    auto entry = std::make_shared<ApiInterceptor>();
+    entry->sequence = ++m_interceptSequence;
+    entry->priority = priority;
+    entry->invoke = std::move(invoke);
+    (transport ? m_transportInterceptors : m_interceptors).insert(entry->sequence, entry);
+    return entry->sequence;
+}
+void ApiClient::removeInterceptor(quint64 id)
+{
+    if (auto entry = m_interceptors.take(id))
+        entry->active = false;
+    if (auto entry = m_transportInterceptors.take(id))
+        entry->active = false;
+}
+quint64 ApiClient::pluginRequest(const std::function<quint64()> &start)
+{
+    ++m_pluginRequestDepth;
+    const auto id = start();
+    --m_pluginRequestDepth;
+    return id;
+}
+void ApiClient::finishRequest(quint64 id, int status, const QByteArray &payload)
+{
+    if (status == EchoStatus::Cancelled && cancelInterception(id))
+        return;
+    if (auto done = m_interceptForward.take(id))
+        done({status, payload});
+    else if ((id & (quint64(1) << 62)) && !(id & (quint64(1) << 63)))
+        return; // A middleware response already ended this logical request.
+    else if (status == EchoStatus::Success)
+        emit succeeded(id, payload);
+    else
+        emit failed(id, status, payload);
+}
+bool ApiClient::cancelInterception(quint64 id, bool sharedVerification)
+{
+    if (!m_intercepted.contains(id))
+        return false;
+    auto chain = m_intercepted.take(id);
+    m_interceptForward.remove(id);
+    if (chain) {
+        chain->cancel();
+        chain->deleteLater();
+    }
+    // Reuse the native/challenge cancellation path after detaching middleware.
+    if (sharedVerification)
+        (void)cancel(id);
+    else
+        (void)cancelRequest(id);
+    {
+        const auto revision = m_revision;
+        QTimer::singleShot(0, this, [this, id, revision] {
+            if (!m_closing && revision == m_revision)
+                emit failed(id, EchoStatus::Cancelled,
+                            QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
+        });
+    }
+    return true;
+}
+void ApiClient::clearInterceptions()
+{
+    const auto chains = std::exchange(m_intercepted, {});
+    m_interceptForward.clear();
+    clearTransport();
+    for (auto chain : chains)
+        if (chain) {
+            chain->cancel();
+            chain->deleteLater();
+        }
 }
 
 quint64 ApiClient::submitPrepared(Pending pending)
@@ -113,8 +234,12 @@ quint64 ApiClient::submitPrepared(Pending pending)
     // Reset on each native submission so verification wait time is excluded.
     pending.attemptTimer.start();
     const auto id =
-        echo_runtime_submit(m_runtime, reinterpret_cast<const uint8_t *>(bytes.constData()),
-                            size_t(bytes.size()), pending.revision, callback, m_dispatcher);
+        pending.transportIntercept
+            ? echo_runtime_submit_intercepted(
+                  m_runtime, reinterpret_cast<const uint8_t *>(bytes.constData()),
+                  size_t(bytes.size()), pending.revision, callback, interceptCallback, m_dispatcher)
+            : echo_runtime_submit(m_runtime, reinterpret_cast<const uint8_t *>(bytes.constData()),
+                                  size_t(bytes.size()), pending.revision, callback, m_dispatcher);
     if (id) {
         if (!pending.logicalId)
             pending.logicalId = id;
@@ -399,6 +524,29 @@ quint64 ApiClient::artistAlbums(quint64 artistId, quint32 page, quint32 pageSize
 {
     return m_catalog->artistAlbums(artistId, page, pageSize, sort, options);
 }
+quint64 ApiClient::validateAccount(quint64 userId, const QString &token, const QString &credential)
+{
+    if (!userId || userId > quint64(std::numeric_limits<qint64>::max()) || token.isEmpty())
+        return 0;
+    // This request belongs to the current operation revision, but authenticates
+    // only the candidate. Never install it as the application's current account.
+    const QJsonObject identity{{"userid", qint64(userId)},
+                               {"token", token},
+                               {"t1", credential},
+                               {"mid", m_device.mid},
+                               {"dfid", m_device.dfid},
+                               {"guid", m_device.guid},
+                               {"mac", m_device.mac},
+                               {"device_name", m_device.deviceName},
+                               {"uuid", m_device.uuid},
+                               {"render_fingerprint", m_device.renderFingerprint},
+                               {"authentication", "current_account"}};
+    const auto id = submit({{"operation", "user_detail"}, {"identity", identity}}, false);
+    if (id)
+        m_pending[id].isolatedVerification = true;
+    return id;
+}
+
 quint64 ApiClient::userDetail(RequestOptions options)
 {
     return m_social->userDetail(options);
@@ -658,8 +806,8 @@ bool ApiClient::setAccount(quint64 userId, QString token, QString t1)
                 const auto previous =
                     pending.request.value("identity").toObject().value("userid").toInteger();
                 if (previous > 0 && quint64(previous) != userId) {
-                    emit failed(pending.logicalId, EchoStatus::Cancelled,
-                                QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
+                    finishRequest(pending.logicalId, EchoStatus::Cancelled,
+                                  QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
                     continue;
                 }
                 pending.revision = revision;
@@ -673,11 +821,83 @@ bool ApiClient::setAccount(quint64 userId, QString token, QString t1)
                 }
                 pending.request.insert("identity", identity);
                 if (!submitPrepared(pending))
-                    emit failed(pending.logicalId, EchoStatus::Closed,
-                                QByteArrayLiteral("{\"kind\":\"closed\"}"));
+                    finishRequest(pending.logicalId, EchoStatus::Closed,
+                                  QByteArrayLiteral("{\"kind\":\"closed\"}"));
             }
         });
     return true;
+}
+
+void ApiClient::interceptCallback(void *context, uint64_t request, uint64_t revision,
+                                  uint64_t ticket, unsigned int stage, const uint8_t *data,
+                                  size_t length) noexcept
+{
+    auto *dispatcher = static_cast<Dispatcher *>(context);
+    const QByteArray bytes(reinterpret_cast<const char *>(data), qsizetype(length));
+    QMetaObject::invokeMethod(
+        dispatcher,
+        [dispatcher, request, revision, ticket, stage, bytes] {
+            if (dispatcher->receiver)
+                dispatcher->receiver->transportIntercept(request, revision, ticket, stage, bytes);
+        },
+        Qt::QueuedConnection);
+}
+void ApiClient::resumeTransport(quint64 ticket, const QJsonObject &command)
+{
+    if (!m_runtime || m_closing)
+        return;
+    const auto bytes = QJsonDocument(command).toJson(QJsonDocument::Compact);
+    (void)echo_runtime_intercept_resume(m_runtime, ticket,
+                                        reinterpret_cast<const uint8_t *>(bytes.constData()),
+                                        size_t(bytes.size()));
+}
+void ApiClient::clearTransport(quint64 nativeId)
+{
+    for (auto ticket : m_transportCalls.keys()) {
+        if (nativeId && m_transportCalls.value(ticket).nativeId != nativeId)
+            continue;
+        auto call = m_transportCalls.take(ticket);
+        if (call.chain) {
+            call.chain->cancel();
+            call.chain->deleteLater();
+        }
+    }
+}
+void ApiClient::transportIntercept(quint64 nativeId, quint64 revision, quint64 ticket,
+                                   unsigned int stage, const QByteArray &bytes)
+{
+    if (m_closing || revision != m_revision || !m_pending.contains(nativeId))
+        return;
+    if (stage == 1) {
+        auto it = m_transportCalls.find(ticket);
+        if (it != m_transportCalls.end()) {
+            auto done = std::exchange(it->next, {});
+            if (done)
+                done({EchoStatus::Success, bytes});
+        }
+        return;
+    }
+    if (m_transportCalls.contains(ticket))
+        return;
+    auto *chain = new ApiInterceptChain(m_transportInterceptors.values(), this);
+    m_transportCalls[ticket] = {nativeId, chain, {}};
+    chain->run(
+        QJsonDocument::fromJson(bytes).object(),
+        [this, ticket](QJsonObject request, ApiInterceptDone done) {
+            auto it = m_transportCalls.find(ticket);
+            if (it == m_transportCalls.end())
+                return;
+            it->next = std::move(done);
+            resumeTransport(ticket, {{"action", "forward"}, {"request", request}});
+        },
+        [this, ticket](ApiInterceptReply reply) {
+            auto call = m_transportCalls.take(ticket);
+            if (call.chain)
+                call.chain->deleteLater();
+            resumeTransport(ticket,
+                            {{"action", "respond"},
+                             {"response", QJsonDocument::fromJson(reply.payload).object()}});
+        });
 }
 
 void ApiClient::callback(void *context, const EchoResult *result) noexcept
@@ -704,6 +924,7 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
     Q_ASSERT(QThread::currentThread() == thread());
     if (!m_pending.contains(id) || m_closing || revision != m_revision)
         return;
+    clearTransport(id);
     auto pending = m_pending.take(id);
     const auto original = pending.logicalId;
     const auto error = QJsonDocument::fromJson(payload).object();
@@ -758,9 +979,9 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
     if (status == EchoStatus::ApiFailure && error.value("kind") == QStringLiteral("challenge") &&
         pending.automaticVerification && !pending.verifiesRequest) {
         if (pending.retried) {
-            emit failed(original, status,
-                        QByteArrayLiteral("{\"kind\":\"verification_retry_rejected\",\"message\":"
-                                          "\"验证后原请求仍被拒绝，请稍后重试\"}"));
+            finishRequest(original, status,
+                          QByteArrayLiteral("{\"kind\":\"verification_retry_rejected\",\"message\":"
+                                            "\"验证后原请求仍被拒绝，请稍后重试\"}"));
             return;
         }
         const auto eventId =
@@ -776,7 +997,7 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
     if (status == EchoStatus::Success && pending.verifiesRequest) {
         const auto target = m_suspended.constFind(pending.verifiesRequest);
         if (target != m_suspended.cend() && error.value("acknowledged").toBool())
-            retryVerifiedEvent(target->eventId);
+            retryVerifiedEvent(*target);
     }
     if (m_closing || revision != m_revision)
         return; // A direct signal may switch accounts.
@@ -784,15 +1005,19 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
         error.value("kind") == QStringLiteral("authentication") &&
         pending.request.value("identity").toObject().value("authentication") ==
             QStringLiteral("current_account") &&
-        m_userId) {
+        m_userId &&
+        matchesAccountSnapshot(
+            quint64(pending.request.value("identity").toObject().value("userid").toInteger()),
+            pending.request.value("identity").toObject().value("token").toString(),
+            pending.request.value("identity").toObject().value("t1").toString())) {
         emit authenticationExpired();
         if (m_closing || revision != m_revision)
             return;
     }
     if (status == EchoStatus::Success)
-        emit succeeded(original, payload);
+        finishRequest(original, EchoStatus::Success, payload);
     else
-        emit failed(original, status, payload);
+        finishRequest(original, status, payload);
 }
 
 void ApiClient::presentNextVerification()
@@ -816,9 +1041,9 @@ bool ApiClient::awaitLoginVerification(quint64 requestId)
         return false;
     QList<quint64> sessionBound;
     const auto revision = m_revision;
-    const auto event = m_suspended.value(requestId).eventId;
+    const auto original = m_suspended.value(requestId);
     for (const auto id : m_suspended.keys())
-        if (m_suspended.value(id).eventId == event) {
+        if (sameVerificationEvent(m_suspended.value(id), original)) {
             auto pending = m_suspended.take(id);
             if (pending.sessionBound) {
                 m_verificationQueue.removeAll(id);
@@ -834,9 +1059,9 @@ bool ApiClient::awaitLoginVerification(quint64 requestId)
     for (auto id : sessionBound) {
         if (m_revision != revision || m_closing)
             break;
-        emit failed(id, EchoStatus::Cancelled,
-                    QByteArrayLiteral(
-                        "{\"kind\":\"login_required\",\"message\":\"请登录后重试该插件操作\"}"));
+        finishRequest(id, EchoStatus::Cancelled,
+                      QByteArrayLiteral(
+                          "{\"kind\":\"login_required\",\"message\":\"请登录后重试该插件操作\"}"));
     }
     return true;
 }
@@ -844,8 +1069,8 @@ void ApiClient::cancelLoginVerification()
 {
     const auto confirmations = std::exchange(m_loginConfirmation, {});
     for (const auto &pending : confirmations)
-        emit failed(pending.logicalId, EchoStatus::Cancelled,
-                    QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
+        finishRequest(pending.logicalId, EchoStatus::Cancelled,
+                      QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
 }
 void ApiClient::bindRequestToSession(quint64 id)
 {
@@ -923,29 +1148,38 @@ quint64 ApiClient::submitVerification(quint64 requestId, quint32 verifyType, con
     return submitPrepared(std::move(pending));
 }
 
-void ApiClient::retryVerifiedEvent(const QString &eventId)
+bool ApiClient::sameVerificationEvent(const Pending &left, const Pending &right)
 {
-    // Copy before erasing: eventId may refer to an element of m_suspended.
-    const QString event = eventId;
+    return left.eventId == right.eventId &&
+           ((!left.isolatedVerification && !right.isolatedVerification) ||
+            left.request.value("identity") == right.request.value("identity"));
+}
+void ApiClient::retryVerifiedEvent(const Pending &original)
+{
+    // A candidate's challenge must not acknowledge/cancel current-account work
+    // even when the provider uses the same event ID for both accounts.
+    const auto snapshot = original;
+    const QString event = snapshot.eventId;
     for (const auto id : m_suspended.keys()) {
-        if (m_suspended.value(id).eventId != event)
+        if (!sameVerificationEvent(m_suspended.value(id), snapshot))
             continue;
         auto pending = m_suspended.take(id);
         pending.retried = true;
         m_verificationQueue.removeAll(id);
         if (pending.externalVerification) {
-            emit succeeded(id, QJsonDocument(QJsonObject{{"eventId", event}, {"verified", true}})
-                                   .toJson(QJsonDocument::Compact));
+            finishRequest(id, EchoStatus::Success,
+                          QJsonDocument(QJsonObject{{"eventId", event}, {"verified", true}})
+                              .toJson(QJsonDocument::Compact));
             continue;
         }
         if (!pending.replayAfterVerification) {
-            emit failed(id, EchoStatus::ApiFailure,
-                        QByteArrayLiteral("{\"kind\":\"verification_complete\",\"message\":"
-                                          "\"安全验证已完成，请确认后继续上传\"}"));
+            finishRequest(id, EchoStatus::ApiFailure,
+                          QByteArrayLiteral("{\"kind\":\"verification_complete\",\"message\":"
+                                            "\"安全验证已完成，请确认后继续上传\"}"));
             continue;
         }
         if (!submitPrepared(std::move(pending)))
-            emit failed(id, EchoStatus::Closed, QByteArrayLiteral("{\"kind\":\"closed\"}"));
+            finishRequest(id, EchoStatus::Closed, QByteArrayLiteral("{\"kind\":\"closed\"}"));
     }
     m_activeVerification = 0;
     emit verificationDismissed();
@@ -956,6 +1190,7 @@ void ApiClient::advanceSession()
 {
     Q_ASSERT(QThread::currentThread() == thread());
     ++m_revision;
+    clearInterceptions();
     for (auto id : m_pending.keys())
         echo_runtime_cancel(m_runtime, id);
     m_pending.clear();
@@ -972,6 +1207,8 @@ bool ApiClient::cancel(quint64 requestId)
     Q_ASSERT(QThread::currentThread() == thread());
     if (m_closing)
         return false;
+    if (cancelInterception(requestId, true))
+        return true;
     // Type-38 transfers ownership from the old page/QR service to the login
     // confirmation UI. Its teardown must not cancel the continuation; explicit
     // dismissal uses cancelLoginVerification(). Session changes still discard it.
@@ -979,11 +1216,12 @@ bool ApiClient::cancel(quint64 requestId)
         return false;
     if (m_suspended.contains(requestId)) {
         const auto cancellationRevision = m_revision;
-        const auto event = m_suspended.value(requestId).eventId;
-        const bool dismissActive = m_suspended.value(m_activeVerification).eventId == event;
+        const auto original = m_suspended.value(requestId);
+        const bool dismissActive =
+            sameVerificationEvent(m_suspended.value(m_activeVerification), original);
         QList<quint64> cancelled;
         for (const auto id : m_suspended.keys()) {
-            if (m_suspended.value(id).eventId != event)
+            if (!sameVerificationEvent(m_suspended.value(id), original))
                 continue;
             m_suspended.remove(id);
             m_verificationQueue.removeAll(id);
@@ -993,6 +1231,7 @@ bool ApiClient::cancel(quint64 requestId)
             if (cancelled.contains(m_pending.value(id).verifiesRequest)) {
                 echo_runtime_cancel(m_runtime, id);
                 cancelled.append(m_pending.value(id).logicalId);
+                clearTransport(id);
                 m_pending.remove(id); // Late success cannot resume cancelled requests.
             }
         }
@@ -1004,7 +1243,7 @@ bool ApiClient::cancel(quint64 requestId)
         for (const auto id : cancelled) {
             if (m_closing || m_revision != cancellationRevision)
                 break;
-            emit failed(id, EchoStatus::Cancelled, QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
+            finishRequest(id, EchoStatus::Cancelled, QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
         }
         return true;
     }
@@ -1015,14 +1254,15 @@ bool ApiClient::cancel(quint64 requestId)
             // Rust may already have completed while its GUI callback is queued.
             // The Qt logical request is still cancellable: invalidate it before
             // that callback runs, independently of the worker's cancellation result.
+            clearTransport(nativeId);
             m_pending.remove(nativeId);
             (void)echo_runtime_cancel(m_runtime, nativeId);
             QMetaObject::invokeMethod(
                 this,
                 [this, requestId, revision] {
                     if (!m_closing && revision == m_revision)
-                        emit failed(requestId, EchoStatus::Cancelled,
-                                    QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
+                        finishRequest(requestId, EchoStatus::Cancelled,
+                                      QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
                 },
                 Qt::QueuedConnection);
             return true;
@@ -1035,6 +1275,8 @@ bool ApiClient::cancelRequest(quint64 requestId)
     Q_ASSERT(QThread::currentThread() == thread());
     if (m_closing)
         return false;
+    if (cancelInterception(requestId))
+        return true;
     // Type-38 transfers ownership from the old page/QR service to the login
     // confirmation UI. Its teardown must not cancel the continuation; explicit
     // dismissal uses cancelLoginVerification(). Session changes still discard it.
@@ -1050,6 +1292,7 @@ bool ApiClient::cancelRequest(quint64 requestId)
             if (cancelled.contains(m_pending.value(id).verifiesRequest)) {
                 echo_runtime_cancel(m_runtime, id);
                 cancelled.append(m_pending.value(id).logicalId);
+                clearTransport(id);
                 m_pending.remove(id); // Late success cannot resume cancelled requests.
             }
         }
@@ -1061,7 +1304,7 @@ bool ApiClient::cancelRequest(quint64 requestId)
         for (const auto id : cancelled) {
             if (m_closing || m_revision != cancellationRevision)
                 break;
-            emit failed(id, EchoStatus::Cancelled, QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
+            finishRequest(id, EchoStatus::Cancelled, QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
         }
         return true;
     }
@@ -1072,14 +1315,15 @@ bool ApiClient::cancelRequest(quint64 requestId)
             // Rust may already have completed while its GUI callback is queued.
             // The Qt logical request is still cancellable: invalidate it before
             // that callback runs, independently of the worker's cancellation result.
+            clearTransport(nativeId);
             m_pending.remove(nativeId);
             (void)echo_runtime_cancel(m_runtime, nativeId);
             QMetaObject::invokeMethod(
                 this,
                 [this, requestId, revision] {
                     if (!m_closing && revision == m_revision)
-                        emit failed(requestId, EchoStatus::Cancelled,
-                                    QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
+                        finishRequest(requestId, EchoStatus::Cancelled,
+                                      QByteArrayLiteral("{\"kind\":\"cancelled\"}"));
                 },
                 Qt::QueuedConnection);
             return true;
@@ -1092,6 +1336,7 @@ void ApiClient::shutdown()
     Q_ASSERT(QThread::currentThread() == thread());
     if (std::exchange(m_closing, true))
         return;
+    clearInterceptions();
     auto runtime = std::exchange(m_runtime, nullptr);
     m_pending.clear();
     m_suspended.clear();

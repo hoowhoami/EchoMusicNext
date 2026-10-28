@@ -80,7 +80,7 @@ public:
     void shutdown();
 signals:
     void changed();
-    void loginRequested();
+    void loginRequested(quint64 requestId);
     /// A current browser proof has entered native submission. Composition owns
     /// foreground activation; this does not claim upstream acceptance/login.
     void returnToApplicationRequested();

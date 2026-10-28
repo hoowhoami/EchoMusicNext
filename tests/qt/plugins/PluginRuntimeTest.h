@@ -5,6 +5,12 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void hostNavigationRoutesHistoryCancellationAndAccount();
+    void hostSettingsPersistenceSubscriptionsAndRevocation();
+    void hostActionsDynamicAsyncAndLifecycle();
+    void hostActionsProductionHoverBadgeAndBusy();
+    void hostCoverFallbackPriorityErrorsThemeAndRetirement();
+    void hostAccessAuthorizationCancellationAndDisable();
     void customWindowsRealEntryScopesAndRetirement();
     void resourceAuthorizationDenialCancelAndIsolation();
     void resourceAuthorizationDoesNotConsumeActivationDeadline();
@@ -56,6 +62,12 @@ private slots:
     void sharedPluginPagePresentationAndRedirect();
     void catalogInstallationSourceIsNotCompatibility_data();
     void catalogInstallationSourceIsNotCompatibility();
+    void processAuthorizationOwnershipAndTreeRetirement();
+    void processCancellationAccountAndContentGrant();
+    void hostInterceptorsPriorityForwardOnceAndOrigin();
+    void hostInterceptorsCancellationRetirementAndErrors();
+    void hostInterceptorAuthorizationRevocationAndSessionIsolation();
+    void hostTransportMocksRecoveryAndCancellation();
     void initTestCase();
     void dependencyGraphAndVersionFailuresNeverExecuteCode();
     void dependentServicesActivationCancellationAndProviderReload();

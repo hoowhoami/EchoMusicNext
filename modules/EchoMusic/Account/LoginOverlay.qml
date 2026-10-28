@@ -68,6 +68,27 @@ Item {
                 }
             }
         }
+        Label {
+            objectName: "accountReloginPrompt"
+            visible: text.length > 0
+            Layout.fillWidth: true
+            text: page.service.loginPrompt
+            color: Theme.text
+            font: Theme.font(13, Theme.semiboldWeight)
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+        }
+        Label {
+            objectName: "loginAccountError"
+            visible: text.length > 0 && (page.service.method === 0 || page.service.method === 3 || page.service.method === 4)
+            Layout.fillWidth: true
+            text: page.service.errorMessage
+            textFormat: Text.PlainText
+            color: Theme.colors.dangerText
+            font: Theme.font(12, Theme.semiboldWeight)
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+        }
         EchoFloatingSurface {
             objectName: "loginCard"
             Layout.fillWidth: true

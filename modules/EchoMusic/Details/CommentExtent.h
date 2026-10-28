@@ -16,6 +16,8 @@ class CommentExtent : public QObject
     Q_PROPERTY(EchoMusic::CommentsController *controller READ controller WRITE setController NOTIFY
                    configurationChanged)
     Q_PROPERTY(qreal layoutWidth READ layoutWidth WRITE setLayoutWidth NOTIFY configurationChanged)
+    Q_PROPERTY(
+        qreal viewportWidth READ viewportWidth WRITE setViewportWidth NOTIFY configurationChanged)
     Q_PROPERTY(QFont bodyFont READ bodyFont WRITE setBodyFont NOTIFY configurationChanged)
     Q_PROPERTY(QFont timeFont READ timeFont WRITE setTimeFont NOTIFY configurationChanged)
     Q_PROPERTY(QFont quoteFont READ quoteFont WRITE setQuoteFont NOTIFY configurationChanged)
@@ -34,6 +36,11 @@ public:
         return m_width;
     }
     void setLayoutWidth(qreal);
+    qreal viewportWidth() const
+    {
+        return m_viewportWidth;
+    }
+    void setViewportWidth(qreal);
     QFont bodyFont() const
     {
         return m_bodyFont;
@@ -88,6 +95,7 @@ private:
     QFont m_bodyFont, m_timeFont, m_quoteFont;
     QTimer m_reflow;
     qreal m_width = 0, m_total = 0;
+    qreal m_viewportWidth = 1e9;
     bool m_pending = false, m_notifying = false;
     bool m_compact = false;
     bool m_active = true, m_dirty = false;

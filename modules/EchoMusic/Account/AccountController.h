@@ -30,6 +30,7 @@ class AccountController final : public QObject
     Q_PROPERTY(int method READ method WRITE setMethod NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
+    Q_PROPERTY(QString loginPrompt READ loginPrompt NOTIFY changed)
 public:
     AccountController(ApiClient &api, AccountService &account, SavedAccountModel &saved,
                       QrLoginService &qr, UserPlaylistModel &playlists, bool online = true,
@@ -90,7 +91,12 @@ public:
     {
         return m_error;
     }
+    QString loginPrompt() const
+    {
+        return m_loginPrompt;
+    }
     void setMethod(int method);
+    Q_INVOKABLE void reauthenticateAccount(quint64 userId);
     Q_INVOKABLE void openLogin();
     Q_INVOKABLE void closeLogin();
     Q_INVOKABLE void submitPassword(const QString &username, const QString &password);
@@ -105,6 +111,9 @@ signals:
 
 private:
     friend class AccountControllerTestAccess;
+    bool acceptAuthorization(const QByteArray &payload);
+    quint64 m_reauthenticationUser = 0;
+    QString m_loginPrompt;
     ApiClient &m_api;
     QrLoginService m_qq, m_wechat;
     VerificationService m_verification;

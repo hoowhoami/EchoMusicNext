@@ -129,6 +129,7 @@ Item {
             spacing: 12
             EchoCover {
                 id: playerCover
+                coverScope: "playerbar"
                 visible: !bar.lyricStyle
                 Layout.preferredWidth: 56
                 Layout.preferredHeight: 56

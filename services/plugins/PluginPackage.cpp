@@ -38,7 +38,14 @@ QVersionNumber PluginPackage::sdkVersion()
 }
 QStringList PluginPackage::supportedFeatures()
 {
-    return {"files.references",
+    return {"ui.navigation",
+            "settings.host",
+            "ui.actions",
+            "cover.themed",
+            "ui.cover",
+            "process.launch",
+            "server.intercept",
+            "files.references",
             "files.dialogs",
             "files.io",
             "files.media",
@@ -97,12 +104,13 @@ QStringList PluginPackage::supportedFeatures()
 }
 QStringList PluginPackage::supportedCapabilities()
 {
-    return {"localFiles",    "downloads",   "unrestrictedNetwork",
-            "audioSpectrum", "audioSource", "lyrics",
-            "lyricEffects",  "kugouApi",    "kugouVerification",
-            "backups",       "sqlite",      "theme",
-            "lyricsPage",    "tcp",         "webServer",
-            "windows"};
+    return {"localFiles",    "downloads",    "unrestrictedNetwork",
+            "audioSpectrum", "audioSource",  "lyrics",
+            "lyricEffects",  "kugouApi",     "kugouVerification",
+            "backups",       "sqlite",       "theme",
+            "lyricsPage",    "tcp",          "webServer",
+            "windows",       "process",      "serverIntercept",
+            "navigation",    "hostSettings", "cover"};
 }
 namespace
 {
@@ -369,6 +377,7 @@ PluginPackage PluginPackage::importDirectory(const QString &source, const QStrin
     std::sort(files.begin(), files.end());
     QCryptographicHash hash(QCryptographicHash::Sha256);
     QList<QByteArray> contents;
+    QList<QFileDevice::Permissions> modes;
     qint64 capturedBytes = 0;
     for (const auto &relative : files) {
         QFile file(result.root + '/' + relative);
@@ -390,6 +399,13 @@ PluginPackage PluginPackage::importDirectory(const QString &source, const QStrin
         hash.addData(QByteArray::number(data.size()));
         hash.addData(QByteArray(1, '\0'));
         hash.addData(data);
+        const auto executable =
+            file.permissions() & (QFile::ExeOwner | QFile::ExeGroup | QFile::ExeOther);
+        // Keep the established content hash for packages without executables.
+        // Execution permission is part of the authorization identity.
+        if (executable)
+            hash.addData(QByteArrayLiteral("\0executable"));
+        modes.append(executable);
         contents.append(data);
     }
     result.contentHash = QString::fromLatin1(hash.result().toHex());
@@ -410,7 +426,7 @@ PluginPackage PluginPackage::importDirectory(const QString &source, const QStrin
                 return fail("Cannot write installed package");
             }
             file.close();
-            file.setPermissions(QFile::ReadOwner | QFile::ReadGroup | QFile::ReadOther);
+            file.setPermissions(QFile::ReadOwner | QFile::ReadGroup | QFile::ReadOther | modes[i]);
         }
         if (!QDir().rename(staging, destination)) {
             QDir(staging).removeRecursively();

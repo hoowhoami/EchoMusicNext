@@ -10,6 +10,7 @@
 #include "RouteController.h"
 #include "SongCatalogModel.h"
 #include "UserPlaylistModel.h"
+#include "SidebarPlaylistModel.h"
 #include "ThemeStore.h"
 #include "ShellSettings.h"
 #include "RenderedInk.h"
@@ -467,9 +468,12 @@ public:
             QByteArrayLiteral(
                 "{\"kind\":\"challenge\",\"challenge\":{\"event_id\":\"local-fixture-event\"}}"));
     }
-    static void verified(ApiClient &api)
+    static void verified(ApiClient &api, quint64 id)
     {
-        api.retryVerifiedEvent("local-fixture-event");
+        QVERIFY(api.m_suspended.contains(id));
+        // Verification is bound to the challenged request's account snapshot.
+        const auto original = api.m_suspended.value(id);
+        api.retryVerifiedEvent(original);
     }
     static bool replayExists(const ApiClient &api, quint64 logical)
     {
@@ -490,6 +494,96 @@ class LibraryPagesTest : public QObject
 {
     Q_OBJECT
 private slots:
+
+    void trackWritesKeepSidebarRowsAndUpdateConfirmedCounts()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seedRows(library, api,
+                                              {{"我喜欢的音乐", 7}, {"Other playlist", 8}});
+        SidebarPlaylistModel sidebar(library);
+        PlaylistMutationService mutations(api);
+        connect(&mutations, &PlaylistMutationService::libraryInvalidated, &library,
+                &UserPlaylistModel::reload);
+        connect(&mutations, &PlaylistMutationService::tracksReconciled, &library,
+                &UserPlaylistModel::applyTrackSnapshot);
+        QSignalSpy invalidations(&mutations, &PlaylistMutationService::libraryInvalidated);
+        QSignalSpy tracks(&mutations, &PlaylistMutationService::tracksInvalidated);
+        QSignalSpy completed(&mutations, &PlaylistMutationService::completed);
+        QSignalSpy resets(&sidebar, &QAbstractItemModel::modelReset);
+        QSignalSpy removed(&sidebar, &QAbstractItemModel::rowsRemoved);
+        QSignalSpy inserted(&sidebar, &QAbstractItemModel::rowsInserted);
+        QSignalSpy changes(&library, &QAbstractItemModel::dataChanged);
+        const QPersistentModelIndex liked(sidebar.index(0, 0));
+        const QPersistentModelIndex other(sidebar.index(1, 0));
+        const auto session = api.sessionRevision();
+        for (int step = 0; step < 3; ++step) {
+            const quint64 version = quint64(step + 2);
+            const int count = step == 0 ? 1 : 0;
+            if (step == 0)
+                QVERIFY(
+                    mutations.addTracks({7}, {{"Song", "0123456789abcdef0123456789abcdef", 1, 1}}));
+            else if (step == 1)
+                QVERIFY(mutations.removeTracks({7}, {{99}}));
+            else
+                QVERIFY(mutations.sortTracks({7}, 3, {{{99}, 0}}));
+            const auto write = PlaylistMutationServiceTestAccess::request(mutations);
+            const QJsonObject acknowledgement{{"user_id", 100},
+                                              {"cloud_list_id", 7},
+                                              {"revision", qint64(version)},
+                                              {"song_count", count}};
+            PlaylistMutationServiceTestAccess::complete(mutations, write,
+                                                        QJsonDocument(acknowledgement).toJson());
+            QCOMPARE(mutations.state(), PlaylistMutationService::State::Reconciling);
+            // The acknowledgement alone cannot publish speculative counts.
+            QCOMPARE(changes.size(), step);
+            QJsonObject page{{"items", QJsonArray{}}};
+            if (step != 2)
+                page["total"] = count;
+            const QJsonObject readback{{"user_id", 100},
+                                       {"cloud_list_id", 7},
+                                       {"revision", qint64(version)},
+                                       {"page", page}};
+            PlaylistMutationServiceTestAccess::complete(
+                mutations, PlaylistMutationServiceTestAccess::request(mutations),
+                QJsonDocument(readback).toJson());
+            QCOMPARE(mutations.state(), PlaylistMutationService::State::Ready);
+            QCOMPARE(completed.size(), step + 1);
+            QCOMPARE(tracks.size(), step + 1);
+            QCOMPARE(changes.size(), step + 1);
+            QCOMPARE(liked.data(UserPlaylistModel::SongCountRole).toInt(), count);
+            QCOMPARE(liked.data(UserPlaylistModel::RevisionRole).toULongLong(), version);
+            QCOMPARE(other.data(UserPlaylistModel::RevisionRole).toULongLong(), quint64(1));
+            QVERIFY(liked.isValid());
+            QVERIFY(other.isValid());
+            QCOMPARE(sidebar.rowCount(), 2);
+            QVERIFY(invalidations.isEmpty());
+            QVERIFY(resets.isEmpty());
+            QVERIFY(removed.isEmpty());
+            QVERIFY(inserted.isEmpty());
+        }
+        // Late snapshots, unrelated IDs and repeated facts are all no-ops.
+        library.applyTrackSnapshot(7, 3, 99, session);
+        library.applyTrackSnapshot(99, 100, 99, session);
+        library.applyTrackSnapshot(7, 4, 0, session);
+        QCOMPARE(changes.size(), 3);
+        library.applyTrackSnapshot(7, 5, 3, session);
+        library.applyTrackSnapshot(7, 6, -1, session);
+        QCOMPARE(liked.data(UserPlaylistModel::SongCountRole).toInt(), 3);
+        QCOMPARE(liked.data(UserPlaylistModel::RevisionRole).toInt(), 6);
+        const auto countRoles = changes.at(3).at(2).value<QList<int>>();
+        QVERIFY(countRoles.contains(UserPlaylistModel::SongCountRole));
+        const auto versionRoles = changes.at(4).at(2).value<QList<int>>();
+        QCOMPARE(versionRoles, QList<int>{UserPlaylistModel::RevisionRole});
+        QVERIFY(api.setAccount(200, "other-offline-fixture"));
+        UserPlaylistModelTestAccess::seed(library, api, "New account", 1, 0);
+        library.applyTrackSnapshot(7, 100, 99, session);
+        QCOMPARE(library.index(0).data(UserPlaylistModel::RevisionRole).toInt(), 1);
+        QCOMPARE(library.index(0).data(UserPlaylistModel::SongCountRole).toInt(), 0);
+        api.shutdown();
+    }
 
     void playlistEditorPreservesMetadataGatesVersionAndPreparesCover()
     {
@@ -1217,7 +1311,7 @@ ApplicationWindow {
         ApiClientTestAccess::challenge(api, id);
         QVERIFY(upload.paused());
         QVERIFY(!upload.canResume());
-        ApiClientTestAccess::verified(api);
+        ApiClientTestAccess::verified(api, id);
         QVERIFY(upload.paused());
         QVERIFY(!ApiClientTestAccess::replayExists(api, id));
         QCOMPARE(CloudUploadServiceTestAccess::request(upload), quint64(0));
@@ -1261,7 +1355,7 @@ ApplicationWindow {
         const auto id = CloudUploadServiceTestAccess::request(upload);
         QVERIFY(id);
         ApiClientTestAccess::challenge(api, id);
-        ApiClientTestAccess::verified(api);
+        ApiClientTestAccess::verified(api, id);
         QVERIFY(upload.paused());
         QCOMPARE(upload.failed(), 0);
         QCOMPARE(CloudUploadServiceTestAccess::position(upload), 0);

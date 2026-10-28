@@ -51,6 +51,7 @@ ItemDelegate {
             Layout.fillWidth: true
             Layout.preferredHeight: width / (card.video ? 1.78 : 1)
             EchoCover {
+                coverScope: "card"
                 anchors.centerIn: parent
                 width: card.artist ? Math.min(parent.width * 0.82, 180) : parent.width
                 height: card.artist ? width : parent.height

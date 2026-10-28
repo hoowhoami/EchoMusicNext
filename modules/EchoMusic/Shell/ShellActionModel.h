@@ -44,7 +44,10 @@ public:
         BadgeVisibleRole,
         ActiveRole,
         BadgeSupportedRole,
-        BadgePreferredRole
+        BadgePreferredRole,
+        TooltipRole,
+        BadgeTitleRole,
+        HoverRole
     };
     struct Handle
     {
@@ -54,6 +57,8 @@ public:
     struct Contribution
     {
         QString key, id, title, icon;
+        QString tooltip, badgeTitle;
+        bool hover = false;
         Zone defaultZone = More;
         int order = 1000;
         bool visible = true, enabled = false, badgeDefaultVisible = true;
@@ -69,6 +74,8 @@ public:
     Handle registerAction(QObject &owner, Contribution contribution);
     bool unregisterAction(const Handle &handle);
     bool setPresentation(const Handle &handle, const QString &title, const QString &icon);
+    bool setInteraction(const Handle &, const QString &tooltip, const QString &badgeTitle,
+                        bool hover);
     bool setState(const Handle &handle, bool enabled, bool visible = true, bool busy = false,
                   const QString &badge = {}, bool active = false);
     Q_INVOKABLE bool activate(const QString &key);

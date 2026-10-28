@@ -13,27 +13,41 @@ namespace
 const QString prefix = SettingsKeys::Plugins::ResourcePermissionsPrefix;
 QString label(const QString &cap)
 {
+    if (cap == "navigation")
+        return QObject::tr("读取和操作宿主页面导航");
+    if (cap == "hostSettings")
+        return QObject::tr("读取和更改宿主设置");
+    if (cap == "cover")
+        return QObject::tr("更改宿主封面回退样式");
     if (cap == "tcp")
         return QObject::tr("连接 TCP 设备或服务");
     if (cap == "webServer")
         return QObject::tr("启动本机 HTTP / WebSocket 服务");
+    if (cap == "process")
+        return QObject::tr("运行插件附带的程序");
+    if (cap == "serverIntercept")
+        return QObject::tr("拦截并修改宿主 API 请求及响应");
     return QObject::tr("打开独立插件窗口");
 }
 bool supported(const QString &cap)
 {
-    return QStringList{"tcp", "webServer", "windows"}.contains(cap);
+    return QStringList{"tcp",        "webServer",    "windows", "process", "serverIntercept",
+                       "navigation", "hostSettings", "cover"}
+        .contains(cap);
 }
 } // namespace
 PluginPermissionStore::PluginPermissionStore(QSettings &s, QObject *parent)
     : QObject(parent), m_settings(s)
 {
 }
-QString PluginPermissionStore::key(const EchoPluginContext &scope, const QString &cap) const
+QString PluginPermissionStore::key(const EchoPluginContext &scope, const QString &cap,
+                                   const QString &resource) const
 {
     return QString::fromLatin1(
-        QCryptographicHash::hash(
-            (scope.installationId() + ':' + scope.package().contentHash + ':' + cap).toUtf8(),
-            QCryptographicHash::Sha256)
+        QCryptographicHash::hash((scope.installationId() + ':' + scope.package().contentHash + ':' +
+                                  cap + (resource.isEmpty() ? QString() : ':' + resource))
+                                     .toUtf8(),
+                                 QCryptographicHash::Sha256)
             .toHex());
 }
 QRect PluginPermissionStore::windowBounds(const QString &installation, const QString &id) const
@@ -47,10 +61,12 @@ void PluginPermissionStore::saveWindowBounds(const QString &installation, const 
     m_settings.setValue(SettingsKeys::Plugins::WindowBoundsPrefix + installation + '/' + id,
                         bounds);
 }
-bool PluginPermissionStore::granted(const EchoPluginContext &scope, const QString &cap) const
+bool PluginPermissionStore::granted(const EchoPluginContext &scope, const QString &cap,
+                                    const QString &resource) const
 {
     return supported(cap) && scope.package().capabilities.contains(cap) &&
-           (m_session.contains(key(scope, cap)) || m_settings.contains(prefix + key(scope, cap)));
+           (m_session.contains(key(scope, cap, resource)) ||
+            m_settings.contains(prefix + key(scope, cap, resource)));
 }
 bool PluginPermissionStore::waiting(const QString &installation) const
 {
@@ -93,8 +109,12 @@ void PluginPermissionStore::prunePrompts()
 }
 void PluginPermissionStore::authorize(EchoPluginContext &scope, const QString &cap,
                                       const QString &purpose, EchoPluginOperation *op,
-                                      std::function<void()> ready)
+                                      std::function<void()> ready, const QString &resource)
 {
+    if (cap == "process" && resource.isEmpty()) {
+        op->fail("InvalidArgument", "Use process.launch to authorize a specific executable");
+        return;
+    }
     if (!supported(cap) || !scope.package().capabilities.contains(cap)) {
         op->fail("CapabilityDenied", "Declare " + cap + " capability");
         return;
@@ -103,17 +123,17 @@ void PluginPermissionStore::authorize(EchoPluginContext &scope, const QString &c
         op->cancel();
         return;
     }
-    if (granted(scope, cap)) {
+    if (granted(scope, cap, resource)) {
         QPointer<EchoPluginContext> guard(&scope);
         const auto epoch = scope.accountEpoch();
-        QTimer::singleShot(0, op, [this, guard, epoch, cap, op, ready] {
+        QTimer::singleShot(0, op, [this, guard, epoch, cap, op, ready, resource] {
             if (op->finished())
                 return;
             if (!guard || !guard->active() || guard->accountEpoch() != epoch) {
                 op->cancel();
                 return;
             }
-            if (!granted(*guard, cap)) {
+            if (!granted(*guard, cap, resource)) {
                 op->fail("PermissionDenied", "Resource permission was revoked");
                 return;
             }
@@ -126,12 +146,15 @@ void PluginPermissionStore::authorize(EchoPluginContext &scope, const QString &c
         return;
     }
     const auto id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    const auto permissionKey = key(scope, cap);
+    const auto permissionKey = key(scope, cap, resource);
     const QVariantMap record{{"installationId", scope.installationId()},
                              {"pluginName", scope.package().name},
                              {"capability", cap},
-                             {"name", label(cap)},
-                             {"contentHash", scope.package().contentHash}};
+                             {"name", resource.isEmpty()
+                                          ? label(cap)
+                                          : label(cap) + " · " + resource.section(':', 0, -2)},
+                             {"contentHash", scope.package().contentHash},
+                             {"resource", resource}};
     m_pending.insert(id,
                      {&scope, op, permissionKey, record, scope.accountEpoch(), std::move(ready)});
     connect(op, &EchoPluginOperation::completed, this, [this, id] {
@@ -163,7 +186,11 @@ void PluginPermissionStore::authorize(EchoPluginContext &scope, const QString &c
     m_dialogs[id] = box;
     connect(box, &QMessageBox::finished, this,
             [this, id](int answer) { decide(id, answer == QMessageBox::Yes); });
-    box->open();
+    // The host uses QQuickWindow, not a QWidget parent. QDialog::open()
+    // requests a window-modal sheet, which Cocoa cannot present parentless.
+    // Keep authorization nonblocking and modal across the application's windows.
+    box->setWindowModality(Qt::ApplicationModal);
+    box->show();
 }
 void PluginPermissionStore::decide(const QString &id, bool allow)
 {
@@ -190,7 +217,8 @@ void PluginPermissionStore::decide(const QString &id, bool allow)
         for (const auto &value : records()) {
             const auto row = value.toMap();
             if (row.value("installationId") == record.value("installationId") &&
-                row.value("capability") == record.value("capability")) {
+                row.value("capability") == record.value("capability") &&
+                row.value("resource") == record.value("resource")) {
                 m_session.remove(row.value("id").toString());
                 m_settings.remove(prefix + row.value("id").toString());
             }
@@ -210,7 +238,8 @@ void PluginPermissionStore::decide(const QString &id, bool allow)
             p.operation->fail("PermissionDenied", "User denied resource permission");
             continue;
         }
-        if (!granted(*p.scope, p.record.value("capability").toString())) {
+        if (!granted(*p.scope, p.record.value("capability").toString(),
+                     p.record.value("resource").toString())) {
             p.operation->fail("PermissionDenied", "Resource permission was revoked");
             continue;
         }

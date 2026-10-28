@@ -283,7 +283,7 @@ add_test(
         echo-controls-ui-test scaledPopupTextKeepsNativePixelResolution
         floatingPanelEdgesAndMenuHeight menusDrawersAndFileDialogsReleaseAfterClose
         businessPopupsAreCreatedOnDemandAndDestroyedAfterExit
-        tooltipPopupsExistOnlyDuringTheirTrigger
+        verificationCoverPreservesPopupInstancesAndDrafts tooltipPopupsExistOnlyDuringTheirTrigger
         nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover dialogHeaderBodyAndFooterShareInsets
         drawerFixedActionsSurviveLongTitlesAndVisibilityChanges
         hintsAvoidTriggersAndWindowEdgesAcrossZoom popupsCancelVisibleAndPendingHints
@@ -699,7 +699,8 @@ add_test(
         screenshotTargetSnapshotAndDuplicateConfirmation
         incompleteAndRepeatedLibraryIdsKeepEveryRow
         libraryConsumersAcceptPageEchoAndCountVariations identityProjectionAndSessionIsolation
-        productionIdentitySummaryAndAvatarCorners liveContentBlacklistThroughQtService
+        productionIdentitySummaryAndAvatarCorners
+        transparentAvatarsRetireFallbackInCommentsAndSidebar liveContentBlacklistThroughQtService
         contentBlacklistPaginationRemovalAndSessionIsolation
         productionContentBlacklistKeepsPreferencesDraftAndVirtualScroll
         deviceRemovalRequiresConfirmationRefreshAndCurrentSession
@@ -754,7 +755,14 @@ qt_add_executable(echo-toast-service-test ToastServiceTest.cpp)
 target_link_libraries(echo-toast-service-test PRIVATE echo_shell Qt6::Test)
 add_test(NAME toast-service COMMAND echo-toast-service-test)
 set_tests_properties(toast-service PROPERTIES TIMEOUT 15)
+qt_add_executable(echo-plugin-process-fixture plugins/PluginProcessFixture.cpp)
+target_link_libraries(echo-plugin-process-fixture PRIVATE Qt6::Core)
 qt_add_executable(echo-plugin-runtime-test PluginRuntimeTest.cpp)
+add_dependencies(echo-plugin-runtime-test echo-plugin-process-fixture)
+target_compile_definitions(
+    echo-plugin-runtime-test
+    PRIVATE ECHO_PLUGIN_PROCESS_FIXTURE="$<TARGET_FILE:echo-plugin-process-fixture>"
+)
 target_include_directories(echo-plugin-runtime-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(
     echo-plugin-runtime-test
@@ -773,6 +781,8 @@ target_sources(
             plugins/PluginRuntimeEffects.cpp
             plugins/PluginRuntimeBusiness.cpp
             plugins/PluginRuntimeSources.cpp
+            plugins/PluginRuntimeHostAccess.cpp
+            plugins/PluginRuntimeProcessIntercept.cpp
             plugins/PluginRuntimeWindowNetwork.cpp
             plugins/PluginRuntimeBackups.cpp
             plugins/PluginRuntimeSqlite.cpp
@@ -808,6 +818,18 @@ set(ECHO_PLUGINS_TEST_GROUPS
     plugin-runtime-backups
     plugin-runtime-window-network
     plugin-runtime-ecosystem
+)
+add_test(
+    NAME plugin-runtime-process-intercept
+    COMMAND
+        echo-plugin-runtime-test processAuthorizationOwnershipAndTreeRetirement
+        processCancellationAccountAndContentGrant hostInterceptorsPriorityForwardOnceAndOrigin
+        hostInterceptorsCancellationRetirementAndErrors
+        hostInterceptorAuthorizationRevocationAndSessionIsolation
+        hostTransportMocksRecoveryAndCancellation
+)
+set_tests_properties(
+    plugin-runtime-process-intercept PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90
 )
 add_test(
     NAME plugin-runtime-window-network

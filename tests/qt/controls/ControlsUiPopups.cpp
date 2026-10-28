@@ -357,6 +357,147 @@ void ControlsUiTest::menusDrawersAndFileDialogsReleaseAfterClose()
     QCOMPARE(warnings.size(), 0);
 }
 
+void ControlsUiTest::verificationCoverPreservesPopupInstancesAndDrafts()
+{
+    ControlsSession session;
+    QVERIFY(session.create());
+    session.theme.setMotionEnabled(false);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Dialogs as NativeDialogs
+import EchoMusic.Controls
+Item {
+ id: host; width: 700; height: 600
+ property var originalWindow: host.Window.window
+ property alias dialogOwner: dialogOwner
+ property alias drawerOwner: drawerOwner
+ property alias fileOwner: fileOwner
+ property alias folderOwner: folderOwner
+ property alias verificationOwner: verificationOwner
+ property int businessClosed: 0
+ function cover(value: bool): void {
+  EchoPopupCoordinator.setInteractionSuspended(originalWindow, value);
+  host.enabled = !value;
+ }
+ Component.onDestruction: EchoPopupCoordinator.setInteractionSuspended(originalWindow, false)
+ EchoPopupLoader { id: dialogOwner; hostItem: host
+  sourceComponent: EchoDialog {
+   property bool allowed: true
+   enabled: allowed
+   heading: "保留草稿"
+   onClosed: host.businessClosed++
+   body: Column {
+    EchoTextField { objectName: "retainedDraft"; text: "未保存的内容"; width: 230 }
+    EchoSelect { objectName: "retainedSelect"; width: 230; options: [{ label: "选项", value: 1 }] }
+    EchoDatePicker { objectName: "retainedDate"; width: 230 }
+   }
+  }
+ }
+ EchoPopupLoader { id: drawerOwner; hostItem: host
+  sourceComponent: EchoDrawer { onClosed: host.businessClosed++; contentItem: Text { text: "抽屉" } }
+ }
+ EchoFileDialogLoader { id: fileOwner; hostItem: host
+  sourceComponent: NativeDialogs.FileDialog { options: NativeDialogs.FileDialog.DontUseNativeDialog }
+ }
+ EchoFolderDialogLoader { id: folderOwner; hostItem: host
+  sourceComponent: NativeDialogs.FolderDialog { options: NativeDialogs.FolderDialog.DontUseNativeDialog }
+ }
+ EchoPopupLoader { id: verificationOwner; hostItem: host.Window.window.contentItem
+  sourceComponent: EchoDialog { verificationSurface: true; heading: "安全验证"; body: Item { implicitHeight: 80 } }
+ }
+})",
+                      QUrl());
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *host = qobject_cast<QQuickItem *>(root.data());
+    QVERIFY(host);
+    host->setParentItem(session.window->contentItem());
+    host->setParent(session.root.data());
+    auto owner = [&](const char *name) { return root->property(name).value<QObject *>(); };
+    auto show = [&](QObject *value) {
+        return QMetaObject::invokeMethod(value, "open", Q_ARG(QVariant, QVariantMap{}));
+    };
+    QVERIFY(show(owner("dialogOwner")));
+    QPointer<QObject> dialog = owner("dialogOwner")->property("item").value<QObject *>();
+    QVERIFY(dialog);
+    QTRY_VERIFY(dialog->property("opened").toBool());
+    auto *content = dialog->property("contentItem").value<QQuickItem *>();
+    auto *draft = findVisual(content, "retainedDraft");
+    auto *select = findVisual(content, "retainedSelect");
+    auto *date = findVisual(content, "retainedDate");
+    QVERIFY(draft && select && date);
+    QVERIFY(QMetaObject::invokeMethod(select, "openPopup"));
+    QPointer<QObject> selectPopup = select->property("popup").value<QObject *>();
+    QVERIFY(selectPopup);
+    auto *calendarButton = findVisual(date, "dateCalendar");
+    QVERIFY(calendarButton);
+    QVERIFY(QMetaObject::invokeMethod(calendarButton, "clicked"));
+    QPointer<QObject> calendarPopup = date->findChild<QObject *>("datePickerCalendar");
+    QVERIFY(calendarPopup);
+    // A second independent business surface must survive the same cover.
+    QVERIFY(show(owner("drawerOwner")));
+    QPointer<QObject> drawer = owner("drawerOwner")->property("item").value<QObject *>();
+    QVERIFY(drawer);
+    const auto policy = dialog->property("closePolicy");
+    for (int cycle = 0; cycle < 2; ++cycle) {
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "cover", Q_ARG(bool, true)));
+        QVERIFY(show(owner("verificationOwner")));
+        QPointer<QObject> verification =
+            owner("verificationOwner")->property("item").value<QObject *>();
+        QVERIFY(verification);
+        QTRY_VERIFY(verification->property("opened").toBool());
+        QTRY_VERIFY(!dialog->property("enabled").toBool());
+        QVERIFY(drawer && selectPopup && calendarPopup);
+        QVERIFY(dialog->property("visible").toBool());
+        QVERIFY(drawer->property("visible").toBool());
+        QVERIFY(selectPopup->property("visible").toBool());
+        QVERIFY(calendarPopup->property("visible").toBool());
+        QCOMPARE(dialog->property("closePolicy").toInt(), 0);
+        QVERIFY(verification->property("enabled").toBool());
+        QCOMPARE(root->property("businessClosed").toInt(), 0);
+        QCOMPARE(draft->property("text").toString(), QString("未保存的内容"));
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "cover", Q_ARG(bool, false)));
+        QVERIFY(QMetaObject::invokeMethod(owner("verificationOwner"), "close"));
+        QTRY_VERIFY(verification.isNull());
+        QCOMPARE(owner("dialogOwner")->property("item").value<QObject *>(), dialog.data());
+        QCOMPARE(owner("drawerOwner")->property("item").value<QObject *>(), drawer.data());
+        QVERIFY(dialog->property("enabled").toBool());
+        QCOMPARE(dialog->property("closePolicy"), policy);
+        QCOMPARE(draft->property("text").toString(), QString("未保存的内容"));
+        QCOMPARE(root->property("businessClosed").toInt(), 0);
+    }
+    // Restore the caller's enabled binding rather than forcing enabled=true.
+    QVERIFY(QMetaObject::invokeMethod(root.data(), "cover", Q_ARG(bool, true)));
+    dialog->setProperty("allowed", false);
+    QVERIFY(QMetaObject::invokeMethod(root.data(), "cover", Q_ARG(bool, false)));
+    QVERIFY(!dialog->property("enabled").toBool());
+    dialog->setProperty("allowed", true);
+    QTRY_VERIFY(dialog->property("enabled").toBool());
+    for (const char *name : {"fileOwner", "folderOwner"}) {
+        QVERIFY(QMetaObject::invokeMethod(owner(name), "open"));
+        QPointer<QObject> native = owner(name)->property("item").value<QObject *>();
+        QVERIFY(native);
+        QTRY_VERIFY(native->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "cover", Q_ARG(bool, true)));
+        QVERIFY(native && native->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "cover", Q_ARG(bool, false)));
+        QCOMPARE(owner(name)->property("item").value<QObject *>(), native.data());
+        QVERIFY(QMetaObject::invokeMethod(owner(name), "close"));
+        QTRY_VERIFY(native.isNull());
+    }
+    // Suspension is not permission to keep a detached/hidden host alive.
+    QVERIFY(QMetaObject::invokeMethod(root.data(), "cover", Q_ARG(bool, true)));
+    host->setVisible(false);
+    QTRY_VERIFY(dialog.isNull());
+    QTRY_VERIFY(drawer.isNull());
+    QTRY_VERIFY(selectPopup.isNull());
+    QTRY_VERIFY(calendarPopup.isNull());
+    QCOMPARE(warnings.size(), 0);
+}
+
 void ControlsUiTest::businessPopupsAreCreatedOnDemandAndDestroyedAfterExit()
 {
     ControlsSession session;

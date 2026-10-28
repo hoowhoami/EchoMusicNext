@@ -56,6 +56,7 @@ ItemDelegate {
             color: row.selected ? Theme.accentText : Theme.text
             font: Theme.font(14, row.selected ? Theme.semiboldWeight : Theme.regularWeight)
             fillTextWidth: true
+            stableElisionBaseline: true
         }
     }
     EchoIconButton {
@@ -90,7 +91,8 @@ ItemDelegate {
     }
     EchoToolTip {
         parent: row
-        requestedVisible: row.hovered && (row.collapsed || titleLabel.isTruncated())
+        // The row stays hovered over child actions; their own hints take priority.
+        requestedVisible: row.hovered && !editAction.hovered && !removeAction.hovered && (row.collapsed || titleLabel.isTruncated())
         text: row.title
     }
 }

@@ -2,6 +2,7 @@
 #include "EchoPluginOperation.h"
 #include <QPointer>
 #include <QJSValue>
+#include <functional>
 namespace EchoMusic
 {
 /// Private bridge, not an SDK service. Terminal operations release it; the JS
@@ -10,8 +11,9 @@ class EchoPluginPromise final : public QObject
 {
     Q_OBJECT
 public:
-    EchoPluginPromise(EchoPluginOperation &operation, QObject *parent)
-        : QObject(parent), m_operation(&operation)
+    EchoPluginPromise(EchoPluginOperation &operation, QObject *parent,
+                      std::function<void(const QString &)> report = {})
+        : QObject(parent), m_operation(&operation), m_report(std::move(report))
     {
         connect(&operation, &EchoPluginOperation::completed, this, &QObject::deleteLater);
     }
@@ -22,11 +24,16 @@ public:
     }
     Q_INVOKABLE void reject(const QString &error)
     {
-        if (m_operation && !m_operation->finished())
-            m_operation->fail("PluginError", error);
+        if (m_operation && !m_operation->finished()) {
+            if (m_report)
+                m_report(error);
+            if (m_operation && !m_operation->finished())
+                m_operation->fail("PluginError", error);
+        }
     }
 
 private:
     QPointer<EchoPluginOperation> m_operation;
+    std::function<void(const QString &)> m_report;
 };
 } // namespace EchoMusic

@@ -6,6 +6,8 @@ import EchoMusic.Theme
 Item {
     id: control
     property url source
+    property string coverScope: "cover"
+    property string coverAlt: ""
     property bool circular: false
     property real cornerRadius: circular ? width / 2 : Theme.mediaRadius
     // Hide only artwork during a compositor flight; attached surfaces such as
@@ -33,12 +35,25 @@ Item {
     property color placeholderColor: colors.hover
     implicitWidth: 48
     implicitHeight: 48
+    EchoCoverSource {
+        id: coverSource
+        objectName: "coverSource"
+        source: control.source
+        active: control.resourceActive && control.visible
+        context: ({
+                scope: control.coverScope,
+                alt: control.coverAlt,
+                size: Math.ceil(Math.max(control.width, control.height) / 32) * 32,
+                accentColor: control.colors.accent.toString(),
+                accentColorRgb: [Math.round(control.colors.accent.r * 255), Math.round(control.colors.accent.g * 255), Math.round(control.colors.accent.b * 255)]
+            })
+    }
     EchoImageMetrics {
         id: metrics
         objectName: "coverMetrics"
         item: control
         active: control.resourceActive && control.visible
-        source: control.source
+        source: coverSource.resolvedSource
         minimumSize: Qt.size(control.minimumDecodeSize, control.minimumDecodeSize)
     }
     component CoverPlaceholder: Rectangle {
@@ -47,23 +62,32 @@ Item {
         property real glyphSize: control.placeholderGlyphSize
         property color glyphColor: control.colors.text
         property real glyphOpacity: control.placeholderOpacity
+        // Explicit flight placeholders keep their glyph independently of the
+        // source image status. The ordinary fallback opts out once decoded.
+        property bool glyphVisible: true
         color: control.placeholderColor
         EchoIcon {
+            objectName: "coverPlaceholderGlyph"
             // The small bundled glyph must exist on the first flight frame.
             asynchronous: !surface.synchronous
             anchors.centerIn: parent
             width: surface.glyphSize
             height: surface.glyphSize
             opacity: surface.glyphOpacity
+            visible: surface.glyphVisible
             color: surface.glyphColor
             name: control.placeholderGlyph
         }
     }
     CoverPlaceholder {
         id: placeholder
+        objectName: "coverPlaceholder"
         anchors.fill: parent
         radius: control.cornerRadius
         opacity: control.artworkOpacity
+        // Transparent pixels in a real avatar must not reveal a fallback user
+        // icon. Keep only the existing base surface beneath decoded artwork.
+        glyphVisible: cover.status !== Image.Ready
     }
     Image {
         id: cover
@@ -72,6 +96,10 @@ Item {
         source: metrics.resolvedSource
         asynchronous: true
         sourceSize: metrics.decodeSize
+        onStatusChanged: {
+            if (status === Image.Error)
+                coverSource.reject(metrics.source);
+        }
         fillMode: Image.PreserveAspectCrop
         visible: false
     }

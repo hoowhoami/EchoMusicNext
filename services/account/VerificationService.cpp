@@ -187,8 +187,9 @@ void VerificationService::beginLogin()
 {
     if (!m_request || m_type != 38 || m_info || m_submit)
         return;
-    if (m_api.awaitLoginVerification(m_request))
-        emit loginRequested();
+    const auto request = m_request;
+    if (m_api.awaitLoginVerification(request))
+        emit loginRequested(request);
 }
 void VerificationService::cancel()
 {

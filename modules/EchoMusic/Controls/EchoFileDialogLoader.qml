@@ -10,7 +10,8 @@ QtObject {
     required property Component sourceComponent
     property NativeDialogs.FileDialog item: null
     readonly property var hostWindow: hostItem ? hostItem.Window.window : null
-    readonly property bool available: hostItem && hostItem.visible && hostItem.enabled && hostWindow && hostWindow.visible && hostWindow.visibility !== Window.Minimized
+    readonly property bool hostAlive: hostItem !== null && hostItem.visible && hostWindow !== null && hostWindow.visible && hostWindow.visibility !== Window.Minimized
+    readonly property bool available: hostAlive && hostItem.enabled
     property int revision: 0
     function open(): void {
         if (!available || !sourceComponent)
@@ -48,6 +49,8 @@ QtObject {
                 owner.releaseAfterClose();
         }
     }
-    onAvailableChanged: if (!available)
+    onHostAliveChanged: if (!hostAlive)
+        close()
+    onAvailableChanged: if (!available && !(hostAlive && EchoPopupCoordinator.interactionSuspended(hostWindow)))
         close()
 }

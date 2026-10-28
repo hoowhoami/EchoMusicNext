@@ -900,8 +900,10 @@ Window {
             session.shell.zoomIn();
         QQuickItem *themePage = nullptr;
         QTRY_VERIFY((themePage = session.item("themeCenterPage")));
-        auto *catalog = session.item("themeCatalog");
-        QVERIFY(catalog);
+        // Wheel input belongs to the outer Flickable, not the virtual grid's
+        // bounded projection (which also exposes a scrollView property).
+        QQuickItem *catalog = nullptr;
+        QTRY_VERIFY((catalog = session.item("themeCatalogScroll")));
         auto *viewport = catalog->parentItem();
         while (viewport && !viewport->property("scrollView").isValid())
             viewport = viewport->parentItem();

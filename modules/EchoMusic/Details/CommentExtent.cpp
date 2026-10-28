@@ -108,6 +108,18 @@ void CommentExtent::setLayoutWidth(qreal value)
     }
     emit configurationChanged();
 }
+void CommentExtent::setViewportWidth(qreal value)
+{
+    if (qFuzzyCompare(m_viewportWidth, value))
+        return;
+    const bool breakpointChanged = (m_viewportWidth <= 640) != (value <= 640);
+    m_viewportWidth = value;
+    // Width reflow already has a debounce. Only the CSS breakpoint adds a
+    // distinct padding/gap change; ordinary resize ticks must not flush it.
+    if (breakpointChanged)
+        invalidate();
+    emit configurationChanged();
+}
 void CommentExtent::setBodyFont(const QFont &value)
 {
     if (m_bodyFont == value)
@@ -154,37 +166,60 @@ void CommentExtent::schedule()
 qreal CommentExtent::estimate(const QVariantMap &entry, const QString &kind) const
 {
     if (kind == "singerHeading")
-        return m_compact ? 12 + 13 * 1.5 + 8 - 8 : 18 + 13 * 1.5 + 10 - 12;
+        return m_compact ? 12 + 13 * 1.5 + 8 : 18 + 13 * 1.5 + 10;
     if (kind == "singerDivider")
-        return 9;
-    if (kind == "threadHeading" || kind == "threadFooter")
-        return 36;
-    if (kind == "composer")
-        return 28 + 32 + QFontMetricsF(m_quoteFont).height() + 80 + 36 + 30;
+        return m_compact ? 25 : 33;
+    const qreal outer = m_compact ? 0 : 12;
+    const qreal padding = m_compact ? 14 : 20;
+    const qreal gap = m_compact ? 8 : 12;
+    const qreal floorPadding = m_compact || m_viewportWidth <= 640 ? 12 : 18;
+    const qreal floorVertical = m_compact ? 10 : 16;
+    if (kind == "threadHeading")
+        return 12 + floorVertical + 20;
+    if (kind == "threadFooter") {
+        const bool loading = entry.value("loading").toBool();
+        const bool error = !entry.value("error").toString().isEmpty();
+        const qreal state = loading || error || entry.value("empty").toBool() ? 42
+                            : entry.value("hasMore").toBool()                 ? 48
+                                                                              : 28.5;
+        return state + floorVertical + padding + gap;
+    }
+    if (kind == "composer") {
+        const bool nested = entry.value("reply_nested").toBool();
+        const bool end = !nested && !entry.value("thread_expanded").toBool();
+        return 12 + 218 + (end ? 12 + padding + gap : nested ? 28 : 0);
+    }
     const bool reply = kind == "reply";
+    const qreal rootAvatar = m_compact ? 30 : 36;
     const qreal width =
-        qMax(1., m_width - (reply ? (m_compact ? 108 : 120) : (m_compact ? 70 : 88)));
+        qMax(1., m_width - 2 * outer - 2 * padding - rootAvatar - 12 -
+                     (reply ? 2 * floorPadding + 30 + (m_viewportWidth <= 640 ? 8 : 12) : 0));
     auto body = entry.value("body", entry.value("content")).toString();
     const auto points = body.toUcs4();
     const bool longBody = points.size() > 120;
     if (longBody && !entry.value("content_expanded").toBool())
         body = QString::fromStdU32String(std::u32string(points.cbegin(), points.cbegin() + 120)) +
-               QChar(0x2026);
-    // Estimate fixed controls and native line boxes. Replace the estimate
-    // with measured delegate height after wrapping and platform rounding.
-    qreal main = qMax(m_compact ? 23. : 29.,
-                      (m_compact ? 18 : 21) + 2 + std::ceil(QFontMetricsF(m_timeFont).height())) +
-                 (m_compact ? 8 : 12);
-    main += textHeight(body, m_bodyFont, width, m_bodyFont.pixelSize() * 1.75);
-    if (longBody)
-        main += 28;
+               QStringLiteral("... 展开");
+    else if (longBody)
+        body += QStringLiteral(" 收起");
+    auto font = m_bodyFont;
+    if (reply)
+        font.setPixelSize(m_compact ? 12 : 13);
+    qreal main = reply ? (m_compact ? 16.5 : 18) : (m_compact ? 35 : 38);
+    main += reply ? 4 : m_compact ? 8 : 12;
+    main += textHeight(body, font, width, font.pixelSize() * 1.75);
+    if (!reply && !entry.value("quote_name").toString().isEmpty())
+        main += 17;
     if (!entry.value("quote_name").toString().isEmpty())
-        main += 8 + 16 +
-                textHeight(entry.value("quote_name").toString() + QChar(0xff1a) +
-                               entry.value("quote_content").toString(),
-                           m_quoteFont, width - 16);
-    main += 8 + (m_controller && m_controller->canDelete(entry) ? 36 : 24);
-    return (reply ? 24 : m_compact ? 28 : 40) + qMax(reply ? 28. : 36., main);
+        main += 8 + qMin(96., 12 + textHeight(entry.value("quote_name").toString() + QChar(0xff1a) +
+                                                  entry.value("quote_content").toString(),
+                                              m_quoteFont, width - 22, 19.2));
+    const bool removable = m_controller && m_controller->canDelete(entry);
+    main += reply ? 8 + (removable ? 36 : 18) : 10 + (removable ? 36 : 24);
+    const bool continues =
+        entry.value("thread_expanded").toBool() || entry.value("reply_open").toBool();
+    return reply ? (entry.value("reply_open").toBool() ? 16 : 32) + qMax(30., main)
+                 : padding + qMax(rootAvatar, main) + (continues ? 0 : padding + gap);
 }
 void CommentExtent::sync()
 {
@@ -205,7 +240,6 @@ void CommentExtent::sync()
                 m_heights.insert(identity, {estimate(entry, kind)});
             total += m_heights[identity].value;
         }
-        total += qMax(0, model->rowCount() - 1) * (m_compact ? 8 : 12);
     }
     for (auto it = m_heights.begin(); it != m_heights.end();)
         if (!occurrences.contains(it.key()))

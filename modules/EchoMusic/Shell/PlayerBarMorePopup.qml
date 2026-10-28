@@ -80,9 +80,16 @@ EchoAnchoredPopup {
                 required property string actionKey
                 required property string actionTitle
                 required property string actionIcon
+                required property bool actionBusy
+                required property bool actionHover
+                required property string actionTooltip
+                required property string badgeTitle
                 required property bool actionEnabled
                 required property string actionBadge
                 required property bool badgeVisible
+                property bool pooled: false
+                ListView.onPooled: pooled = true
+                ListView.onReused: pooled = false
                 objectName: "playerbarMenuAction-" + actionKey
                 width: list.width
                 height: 38
@@ -92,6 +99,16 @@ EchoAnchoredPopup {
                 leftPadding: 10
                 rightPadding: 10
                 Accessible.name: actionTitle
+                HoverHandler {
+                    enabled: row.visible && !row.pooled
+                    onHoveredChanged: if (hovered && row.actionHover && row.enabled)
+                        menu.actions.activate(row.actionKey)
+                }
+                EchoToolTip {
+                    parent: row
+                    requestedVisible: !row.pooled && row.hovered && row.enabled && row.actionTooltip.length > 0
+                    text: row.actionTooltip + (row.badgeVisible && row.badgeTitle.length > 0 ? " · " + row.badgeTitle + ": " + row.actionBadge : "")
+                }
                 onClicked: {
                     if (menu.actions.activate(actionKey))
                         menu.close();
@@ -102,11 +119,23 @@ EchoAnchoredPopup {
                 }
                 contentItem: RowLayout {
                     spacing: 10
-                    EchoIcon {
-                        name: row.actionIcon
-                        color: row.hovered || row.visualFocus ? Theme.floatingAccentText : Theme.floatingSecondaryText
+                    Item {
                         Layout.preferredWidth: 22
                         Layout.preferredHeight: 19
+                        EchoIcon {
+                            anchors.fill: parent
+                            visible: !row.actionBusy
+                            name: row.actionIcon
+                            color: row.hovered || row.visualFocus ? Theme.floatingAccentText : Theme.floatingSecondaryText
+                        }
+                        Loader {
+                            anchors.fill: parent
+                            active: row.actionBusy && !row.pooled && menu.visible
+                            sourceComponent: EchoSpinner {
+                                anchors.fill: parent
+                                color: Theme.floatingAccentText
+                            }
+                        }
                     }
                     EchoTextTagRow {
                         objectName: "playerbarMoreLabel-" + row.actionKey

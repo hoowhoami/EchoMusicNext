@@ -70,6 +70,7 @@ FocusScope {
             EchoDialog {
                 id: dialog
                 objectName: "verificationDialog"
+                verificationSurface: true
                 uiScale: root.uiScale
                 preferredWidth: 360
                 heading: root.title

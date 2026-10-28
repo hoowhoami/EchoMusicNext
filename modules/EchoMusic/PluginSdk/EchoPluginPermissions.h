@@ -20,10 +20,10 @@ public:
     QVariantList records() const;
     QRect windowBounds(const QString &installation, const QString &id) const;
     void saveWindowBounds(const QString &installation, const QString &id, const QRect &bounds);
-    bool granted(const EchoPluginContext &, const QString &) const;
+    bool granted(const EchoPluginContext &, const QString &, const QString &resource = {}) const;
     bool waiting(const QString &installation) const;
     void authorize(EchoPluginContext &, const QString &, const QString &, EchoPluginOperation *,
-                   std::function<void()> ready);
+                   std::function<void()> ready, const QString &resource = {});
     Q_INVOKABLE bool revoke(const QString &id);
     Q_INVOKABLE void decide(const QString &requestId, bool allow);
     void cancelScope(EchoPluginContext *);
@@ -44,7 +44,7 @@ private:
         quint64 epoch;
         std::function<void()> ready;
     };
-    QString key(const EchoPluginContext &, const QString &) const;
+    QString key(const EchoPluginContext &, const QString &, const QString &resource = {}) const;
     void prunePrompts();
     QHash<QString, QString> m_promptKeys;
     QHash<QString, QPointer<QMessageBox>> m_dialogs;

@@ -24,6 +24,8 @@ EchoDialog {
         removalId = 0;
         service.savedAccounts.beginDurationQueries();
     }
+    onAboutToHide: service.savedAccounts.cancelSwitch()
+    Component.onDestruction: service.savedAccounts.cancelSwitch()
     onClosed: {
         managing = false;
         removalId = 0;
@@ -63,6 +65,9 @@ EchoDialog {
                 required property string avatarIdentityLabel
                 required property bool isCurrent
                 required property string listeningDuration
+                required property bool switchChecking
+                required property string switchError
+                required property bool loginExpired
                 required property bool durationLoading
                 property bool pooled: false
                 ListView.onPooled: pooled = true
@@ -131,10 +136,20 @@ EchoDialog {
                                 font: Theme.font(11, Theme.regularWeight)
                             }
                         }
+                        Label {
+                            objectName: "savedAccountSwitchError"
+                            Layout.fillWidth: true
+                            visible: text.length > 0
+                            text: row.switchError
+                            color: Theme.floating.dangerText
+                            font: Theme.font(11, Theme.regularWeight)
+                            wrapMode: Text.Wrap
+                        }
                     }
                     EchoSoftButton {
                         visible: !row.isCurrent
                         enabled: !dialog.service.savedAccounts.busy
+                        loading: row.switchChecking
                         implicitWidth: Math.max(56, contentItem.implicitWidth + 16)
                         implicitHeight: 32
                         leftPadding: 8
@@ -143,7 +158,7 @@ EchoDialog {
                         colors: Theme.floating
                         danger: dialog.managing
                         objectName: "savedAccountAction"
-                        text: dialog.managing ? qsTr("移除") : qsTr("切换")
+                        text: dialog.managing ? qsTr("移除") : row.switchChecking ? qsTr("正在验证…") : row.loginExpired ? qsTr("重新登录") : qsTr("切换")
                         onClicked: {
                             if (dialog.managing) {
                                 dialog.removalId = row.accountId;
@@ -152,6 +167,9 @@ EchoDialog {
                                 dialog.removalIdentityIcon = row.avatarIdentityIcon;
                                 dialog.removalIdentityLabel = row.avatarIdentityLabel;
                                 removalOwner.open();
+                            } else if (row.loginExpired) {
+                                dialog.close();
+                                dialog.service.reauthenticateAccount(row.accountId);
                             } else
                                 dialog.service.savedAccounts.switchAccount(row.accountId);
                         }
@@ -214,6 +232,13 @@ EchoDialog {
         target: dialog.service.savedAccounts
         function onSwitched() {
             dialog.close();
+        }
+    }
+    Connections {
+        target: dialog.service
+        function onChanged() {
+            if (dialog.service.loginOpen)
+                dialog.close();
         }
     }
     EchoPopupLoader {

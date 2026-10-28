@@ -120,6 +120,7 @@ struct Host
     PlaybackService playback{api, settings, nullptr, temporary.path() + "/playback.sqlite"};
     ThemeStore theme{settings};
     RouteController router;
+    ShellSettings shellSettings{settings};
     ShellController shell{settings, router};
     FloatingPlayerController floating{settings, false};
     SidebarLayoutModel sidebar{settings, nullptr};
@@ -128,8 +129,21 @@ struct Host
     QQmlEngine engine;
     PluginRuntime runtime{engine,
                           settings,
-                          {playback, theme, shell, router, account, api, &floating, nullptr,
-                           &sidebar, &shortcuts, &verification},
+                          {playback,
+                           theme,
+                           shell,
+                           router,
+                           account,
+                           api,
+                           &floating,
+                           nullptr,
+                           &sidebar,
+                           &shortcuts,
+                           &verification,
+                           nullptr,
+                           nullptr,
+                           {},
+                           &shellSettings},
                           temporary.path() + "/plugins"};
     explicit Host(const std::function<void(const QString &)> &prepareRoot = {})
     {

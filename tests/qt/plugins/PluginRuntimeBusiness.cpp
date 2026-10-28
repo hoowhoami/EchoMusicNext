@@ -38,7 +38,18 @@ public:
     }
     static void verified(ApiClient &api, const QString &event)
     {
-        api.retryVerifiedEvent(event);
+        const auto active = api.m_suspended.value(api.m_activeVerification);
+        if (active.eventId == event) {
+            api.retryVerifiedEvent(active);
+            return;
+        }
+        for (const auto &pending : std::as_const(api.m_suspended))
+            if (pending.eventId == event) {
+                const auto original = pending;
+                api.retryVerifiedEvent(original);
+                return;
+            }
+        qFatal("Verification fixture has no suspended request");
     }
 };
 } // namespace EchoMusic

@@ -327,6 +327,7 @@ Window {
                             contentItem: RowLayout {
                                 spacing: 8
                                 EchoCover {
+                                    coverScope: "mini"
                                     source: song.coverUrl
                                     Layout.preferredWidth: 30
                                     Layout.preferredHeight: 30
@@ -400,6 +401,7 @@ Window {
                         Accessible.checkable: true
                         Accessible.checked: window.service.panel === "lyric"
                         background: EchoCover {
+                            coverScope: "mini"
                             objectName: "miniPlayerCover"
                             source: window.playback.cover
                             resourceActive: window.live

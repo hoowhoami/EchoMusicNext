@@ -136,6 +136,7 @@ ItemDelegate {
             Layout.minimumWidth: 0
             spacing: 12
             EchoCover {
+                coverScope: "song"
                 objectName: "songCover"
                 Layout.preferredWidth: 46
                 Layout.preferredHeight: 46

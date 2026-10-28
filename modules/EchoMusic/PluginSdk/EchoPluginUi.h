@@ -5,6 +5,9 @@
 #include "EchoPluginUiParts.h"
 #include "EchoPluginUiStyles.h"
 #include "EchoPluginAppearance.h"
+#include "EchoPluginHost.h"
+#include "EchoPluginCover.h"
+#include "EchoPluginAction.h"
 #include <QJSValue>
 #include <QUrl>
 namespace EchoMusic
@@ -19,6 +22,8 @@ class EchoPluginUi final : public QObject
     Q_PROPERTY(EchoMusic::EchoPluginAppearance *lyricsPage READ lyricsPage CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginUiParts *parts READ parts CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginUiStyles *styles READ styles CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginCover *cover READ cover CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginNavigation *navigation READ navigation CONSTANT)
     Q_PROPERTY(QVariantMap state READ state NOTIFY stateChanged)
     Q_PROPERTY(QUrl settingsComponent READ settingsComponent NOTIFY settingsChanged)
     QML_ELEMENT
@@ -26,6 +31,11 @@ class EchoPluginUi final : public QObject
 public:
     explicit EchoPluginUi(EchoPluginContext &scope);
     EchoPluginAppearance *lyricsPage() const;
+    EchoPluginCover *cover() const;
+    EchoPluginNavigation *navigation() const
+    {
+        return m_navigation;
+    }
     EchoPluginUiParts *parts() const
     {
         return m_parts;
@@ -63,6 +73,10 @@ public:
     Q_INVOKABLE EchoMusic::EchoPluginRegistration *
     registerPlayerbarAction(const QString &id, const QString &title, const QString &icon,
                             const QJSValue &callback);
+    Q_INVOKABLE EchoMusic::EchoPluginAction *
+    registerTitlebarActionDefinition(const QString &id, const QJSValue &definition);
+    Q_INVOKABLE EchoMusic::EchoPluginAction *
+    registerPlayerbarActionDefinition(const QString &id, const QJSValue &definition);
     Q_INVOKABLE EchoMusic::EchoPluginTask *createTask(const QString &id, const QString &title);
 
 signals:
@@ -70,8 +84,10 @@ signals:
     void stateChanged();
 
 private:
+    EchoPluginAction *actionDefinition(bool, const QString &, const QJSValue &);
     EchoPluginRegistration *sidebarEntry(const QString &, const QJSValue &, bool);
     QVariantMap m_scopeState() const;
+    EchoPluginNavigation *m_navigation;
     EchoPluginUiParts *m_parts;
     EchoPluginUiStyles *m_styles;
     QUrl m_settingsComponent;

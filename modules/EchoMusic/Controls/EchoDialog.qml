@@ -9,7 +9,10 @@ Dialog {
     id: dialog
     EchoPopupLifecycle {
         surface: dialog
+        suspensionExempt: dialog.verificationSurface
     }
+    // Only the active security verification dialog may bypass the input cover.
+    property bool verificationSurface: false
     property real uiScale: 1
     property real preferredWidth: 420
     property int headingPixelSize: 18
@@ -52,7 +55,7 @@ Dialog {
     focus: true
     Shortcut {
         sequence: "Escape"
-        enabled: dialog.visible && dialog.managedDismiss && dialog.closable && dialog.activeFocus
+        enabled: dialog.enabled && dialog.visible && dialog.managedDismiss && dialog.closable && dialog.activeFocus
         onActivated: dialog.requestDismiss()
     }
     padding: 24
@@ -66,7 +69,7 @@ Dialog {
         EchoPopupDismissGuard {
             overlay: dimSurface.parent
             dimmer: dimSurface
-            enabled: dialog.visible && dialog.managedDismiss && dialog.closable
+            enabled: dialog.enabled && dialog.visible && dialog.managedDismiss && dialog.closable
             onOutsidePressed: dialog.requestDismiss()
         }
     }

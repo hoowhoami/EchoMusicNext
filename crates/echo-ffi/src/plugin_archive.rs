@@ -46,7 +46,8 @@ fn extract(archive: &Path, destination: &Path) -> Result<(), String> {
         if !names.insert(normalized) {
             return Err("Duplicate ZIP path".into());
         }
-        let mode = entry.unix_mode().unwrap_or(0) & 0o170000;
+        let permissions = entry.unix_mode().unwrap_or(0o644);
+        let mode = permissions & 0o170000;
         if mode != 0 && mode != 0o100000 && mode != 0o040000 {
             return Err("ZIP links/special files are not supported".into());
         }
@@ -64,7 +65,7 @@ fn extract(archive: &Path, destination: &Path) -> Result<(), String> {
         let mut output = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(target)
+            .open(&target)
             .map_err(|e| e.to_string())?;
         let expected = entry.size();
         let mut limited = (&mut entry).take(expected + 1);
@@ -73,6 +74,14 @@ fn extract(archive: &Path, destination: &Path) -> Result<(), String> {
             return Err("ZIP size mismatch".into());
         }
         output.flush().map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // Retain only execute bits; never grant setuid/setgid or writable packages.
+            output
+                .set_permissions(fs::Permissions::from_mode(0o644 | (permissions & 0o111)))
+                .map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }
@@ -120,6 +129,32 @@ pub unsafe extern "C" fn echo_plugin_extract_zip(
 mod tests {
     use super::*;
     use zip::{ZipWriter, write::SimpleFileOptions};
+    #[cfg(unix)]
+    #[test]
+    fn zip_preserves_execution_without_privilege_bits() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("echo-zip-execute-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("staging")).unwrap();
+        let mut zip = ZipWriter::new(fs::File::create(root.join("helper.echomod")).unwrap());
+        zip.start_file(
+            "helper",
+            SimpleFileOptions::default().unix_permissions(0o4755),
+        )
+        .unwrap();
+        zip.write_all(b"helper bytes").unwrap();
+        zip.finish().unwrap();
+        extract(&root.join("helper.echomod"), &root.join("staging")).unwrap();
+        assert_eq!(
+            fs::metadata(root.join("staging/helper"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777,
+            0o755
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn zip_rejects_duplicates_windows_paths_and_links() {
         for (case, names, mode) in [

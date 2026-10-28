@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DeviceIdentity.h"
+#include "ApiInterceptors.h"
 #include "ListenTogetherApi.h"
 #include <QHash>
 #include <QElapsedTimer>
@@ -51,6 +52,11 @@ public:
         return m_runtime != nullptr && !m_closing;
     }
     quint64 capabilities();
+    quint64 addInterceptor(double priority, decltype(ApiInterceptor::invoke) invoke,
+                           bool transport = false);
+    void removeInterceptor(quint64 id);
+    quint64 pluginRequest(const std::function<quint64()> &start);
+
     enum class SearchKind
     {
         Song,
@@ -212,6 +218,9 @@ public:
                          const QString &sort = QStringLiteral("hot"),
                          RequestOptions options = {AuthenticationMode::CurrentAccount, false});
     quint64 userDetail(RequestOptions options = {});
+    /// Validate saved credentials on the persistent device without changing the
+    /// current session or exposing the candidate credentials to plugin interceptors.
+    quint64 validateAccount(quint64 userId, const QString &token, const QString &credential);
     quint64 userInfo();
     quint64 userVipDetail();
     quint64 userGradeInfo(std::optional<quint64> userId = {}, bool automaticVerification = true);
@@ -487,20 +496,45 @@ private:
         quint64 logicalId = 0;
         QElapsedTimer attemptTimer;
         QJsonObject request;
+        bool transportIntercept = false;
         bool automaticVerification = true;
         bool replayAfterVerification = true;
         bool retried = false;
         bool externalVerification = false;
+        bool isolatedVerification = false;
         bool sessionBound = false;
         QString eventId;
         quint64 verifiesRequest = 0;
     };
     quint64 submit(QJsonObject request, bool includeIdentity = true, RequestOptions options = {});
     quint64 submitPrepared(Pending pending);
+    static void interceptCallback(void *, uint64_t, uint64_t, uint64_t, unsigned int,
+                                  const uint8_t *, size_t) noexcept;
+    void transportIntercept(quint64 nativeId, quint64 revision, quint64 ticket, unsigned int stage,
+                            const QByteArray &);
+    void clearTransport(quint64 nativeId = 0);
+    void resumeTransport(quint64 ticket, const QJsonObject &);
+    void finishRequest(quint64 id, int status, const QByteArray &payload);
+    bool cancelInterception(quint64 id, bool sharedVerification = false);
+    void clearInterceptions();
     void presentNextVerification();
-    void retryVerifiedEvent(const QString &eventId);
+    static bool sameVerificationEvent(const Pending &left, const Pending &right);
+    void retryVerifiedEvent(const Pending &original);
     static void callback(void *context, const EchoResult *result) noexcept;
     void deliver(quint64 id, quint64 revision, int status, const QByteArray &payload);
+    struct TransportCall
+    {
+        quint64 nativeId = 0;
+        QPointer<ApiInterceptChain> chain;
+        ApiInterceptDone next;
+    };
+    QHash<quint64, TransportCall> m_transportCalls;
+    QHash<quint64, std::shared_ptr<ApiInterceptor>> m_transportInterceptors;
+    QHash<quint64, std::shared_ptr<ApiInterceptor>> m_interceptors;
+    QHash<quint64, QPointer<ApiInterceptChain>> m_intercepted;
+    QHash<quint64, ApiInterceptDone> m_interceptForward;
+    quint64 m_interceptSequence = 0, m_interceptRequest = (quint64(1) << 62);
+    int m_pluginRequestDepth = 0;
     EchoRuntime *m_runtime = nullptr;
     QObject *m_dispatcher = nullptr;
     QThread *m_closer = nullptr;

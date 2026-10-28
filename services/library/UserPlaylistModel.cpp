@@ -316,6 +316,36 @@ void UserPlaylistModel::reload()
     resetState();
     fetchMore({});
 }
+void UserPlaylistModel::applyTrackSnapshot(quint64 cloudListId, quint64 revision, qint64 songCount,
+                                           quint64 sessionRevision)
+{
+    if (m_closed || m_mutating || !cloudListId || !m_api.currentAccountUserId() ||
+        sessionRevision != m_api.sessionRevision() || sessionRevision != m_sessionRevision)
+        return;
+    for (int row = 0; row < m_rows.size(); ++row) {
+        auto &item = m_rows[row];
+        if (item.cloudId.value != cloudListId || item.kind != QStringLiteral("owned") ||
+            item.sourceCode != 1 || item.creatorId != m_api.currentAccountUserId() ||
+            revision < item.revision)
+            continue;
+        QList<int> roles;
+        if (item.revision != revision) {
+            item.revision = revision;
+            roles.append(RevisionRole);
+        }
+        if (songCount >= 0 && item.songCount != quint64(songCount)) {
+            item.songCount = quint64(songCount);
+            roles.append(SongCountRole);
+        }
+        if (!roles.isEmpty()) {
+            QPointer<UserPlaylistModel> guard(this);
+            emit dataChanged(index(row), index(row), roles);
+            if (guard && sessionRevision == m_api.sessionRevision())
+                emit changed();
+        }
+        return;
+    }
+}
 void UserPlaylistModel::succeed(quint64 id, const QByteArray &payload)
 {
     if (!m_request || id != m_request || m_closed || m_sessionRevision != m_api.sessionRevision())

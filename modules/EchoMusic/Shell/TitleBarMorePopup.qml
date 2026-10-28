@@ -58,7 +58,13 @@ EchoAnchoredPopup {
                 required property string actionKey
                 required property string actionTitle
                 required property string actionIcon
+                required property bool actionBusy
+                required property bool actionHover
+                required property string actionTooltip
+                required property string badgeTitle
                 required property bool actionEnabled
+                required property string actionBadge
+                required property bool badgeVisible
                 required property int preferredZone
                 required property int index
                 property bool pooled: false
@@ -79,19 +85,48 @@ EchoAnchoredPopup {
                         hoverEnabled: true
                         Accessible.name: row.actionTitle
                         onClicked: menu.activate(row.actionKey)
+                        HoverHandler {
+                            enabled: !row.pooled && row.visible
+                            onHoveredChanged: if (hovered && row.actionHover && action.enabled)
+                                menu.actions.activate(row.actionKey)
+                        }
+                        EchoToolTip {
+                            parent: action
+                            requestedVisible: action.hovered && action.enabled && !row.pooled
+                            text: row.actionTooltip
+                        }
+                        EchoBadge {
+                            anchors.right: parent.right
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: row.badgeVisible
+                            count: row.actionBadge
+                            colors: Theme.floating
+                        }
                         padding: 0
                         background: Rectangle {
                             color: action.hovered || action.visualFocus ? Theme.floating.hover : "transparent"
                             radius: Theme.itemRadius
                         }
                         contentItem: Item {
+                            Loader {
+                                x: 10
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 20
+                                height: 20
+                                active: row.actionBusy && !row.pooled && menu.visible
+                                sourceComponent: EchoSpinner {
+                                    anchors.fill: parent
+                                    color: Theme.floatingAccentText
+                                }
+                            }
                             // The drag handle remains editable even for a command
                             // whose business provider has not become available.
                             EchoTextTagRow {
                                 id: itemLabel
                                 objectName: "titlebarMoreLabel-" + row.actionKey
                                 x: 40
-                                width: Math.max(0, parent.width - 50)
+                                width: Math.max(0, parent.width - (row.badgeVisible ? 90 : 50))
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: row.actionTitle
                                 color: action.hovered || action.visualFocus ? Theme.floatingAccentText : Theme.floatingText
@@ -132,7 +167,7 @@ EchoAnchoredPopup {
                     x: 10
                     y: (row.height - height) / 2
                     actionKey: row.actionKey
-                    glyph: row.actionIcon
+                    glyph: row.actionBusy ? "" : row.actionIcon
                     // Qt can retain a mouse-grabbing delegate offscreen instead of
                     // pooling it. Cancel its drag as soon as it leaves the viewport.
                     resourceActive: menu.visible && !row.pooled && row.y + row.height > list.contentY && row.y < list.contentY + list.height

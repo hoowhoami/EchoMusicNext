@@ -24,10 +24,10 @@ Rectangle {
         if (input)
             input.focus = false;
     }
-    // Login/verification are full-page surfaces rather than Popup objects.
-    // Their ancestor disables the titlebar; no hidden editor may retain focus.
+    // Explicit login dismisses search. A temporary verification cover keeps
+    // the same discovery/suggestion surface and query until it is dismissed.
     onEnabledChanged: {
-        if (!enabled)
+        if (!enabled && !EchoPopupCoordinator.interactionSuspended(box.window))
             dismissSearch();
     }
     onVisibleChanged: {
@@ -43,7 +43,7 @@ Rectangle {
         input.text = router.current && router.current.name === "search" ? (router.current.query.q || "") : "";
     }
     function dismissIfFocusOutside() {
-        if (!panelOwner.visible)
+        if (!panelOwner.visible || EchoPopupCoordinator.preservingFocus(box.window))
             return;
         // Cocoa may temporarily have no active item while delivering a native
         // focus event. Only a concrete outside target means the user left;
@@ -105,7 +105,7 @@ Rectangle {
     Connections {
         target: EchoPopupCoordinator
         function onPopupOpening(surface, overlay) {
-            if (surface !== panelOwner.item && overlay === box.Overlay.overlay) {
+            if (surface !== panelOwner.item && overlay === box.Overlay.overlay && !EchoPopupCoordinator.interactionSuspended(box.window)) {
                 box.dismissSearch();
             }
         }

@@ -1,5 +1,133 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
+#include <QBuffer>
+#include <QTcpServer>
+#include <QTcpSocket>
+
+void DesktopPagesTest::transparentAvatarsRetireFallbackInCommentsAndSidebar()
+{
+    Session session;
+    QVERIFY(session.create());
+    auto *sidebar = visual(session.window->contentItem(), "sidebarAccountAvatar");
+    QVERIFY(sidebar);
+    CommentsController comments(session.api, false, nullptr);
+    QQmlComponent component(&session.engine, QUrl("qrc:/qt/qml/EchoMusic/Details/CommentRow.qml"));
+    const QVariantMap entry{{"id", "avatar-probe"},
+                            {"user_name", "账号已注销"},
+                            {"created_at", "2023-08-26 01:02:38"},
+                            {"location", "湖南"}};
+    QScopedPointer<QObject> comment(
+        component.createWithInitialProperties({{"entry", entry},
+                                               {"rootId", "avatar-probe"},
+                                               {"controller", QVariant::fromValue(&comments)},
+                                               {"width", 420.0}}));
+    QVERIFY2(comment, qPrintable(component.errorString()));
+    auto *commentItem = qobject_cast<QQuickItem *>(comment.data());
+    QVERIFY(commentItem);
+    commentItem->setParentItem(session.window->contentItem());
+    commentItem->setPosition({360, 100});
+    commentItem->setZ(100);
+    auto *commentAvatar = visual(commentItem, "commentAvatar");
+    QVERIFY(commentAvatar);
+
+    // A decoded PNG with a transparent center must not reveal a second user
+    // silhouette. The opaque edge also proves a real image was decoded.
+    QImage alpha(64, 64, QImage::Format_ARGB32_Premultiplied);
+    alpha.fill(Qt::transparent);
+    for (int y = 0; y < alpha.height(); ++y)
+        for (int x = 0; x < 8; ++x)
+            alpha.setPixelColor(x, y, QColor("#35c9c0"));
+    QByteArray png;
+    QBuffer buffer(&png);
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QVERIFY(alpha.save(&buffer, "PNG"));
+    const auto alphaPath = session.directory.filePath("transparent-avatar.png");
+    QVERIFY(alpha.save(alphaPath));
+    QImage opaque(64, 64, QImage::Format_RGB32);
+    opaque.fill(QColor("#35c9c0"));
+    const auto opaquePath = session.directory.filePath("opaque-avatar.png");
+    QVERIFY(opaque.save(opaquePath));
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    int sequence = 0;
+    for (auto *avatar : {commentAvatar, sidebar}) {
+        auto *glyph = visual(avatar, "coverPlaceholderGlyph");
+        QVERIFY(glyph);
+        avatar->setProperty("source", QUrl());
+        QTRY_COMPARE(avatar->property("status").toInt(), 0);
+        QTRY_VERIFY(glyph->isVisible());
+        const QUrl delayed(
+            QString("http://127.0.0.1:%1/avatar-%2.png").arg(server.serverPort()).arg(++sequence));
+        avatar->setProperty("source", delayed);
+        QTRY_COMPARE(avatar->property("status").toInt(), 2);
+        QVERIFY(glyph->isVisible());
+        QTRY_VERIFY(server.hasPendingConnections());
+        QScopedPointer<QTcpSocket> socket(server.nextPendingConnection());
+        QVERIFY(socket);
+        QTRY_VERIFY(socket->bytesAvailable() > 0);
+        socket->readAll();
+        socket->write("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: " +
+                      QByteArray::number(png.size()) + "\r\nConnection: close\r\n\r\n");
+        socket->write(png);
+        socket->disconnectFromHost();
+        QTRY_COMPARE(avatar->property("status").toInt(), 1);
+        QTRY_VERIFY(!glyph->isVisible());
+        QTRY_COMPARE(glyph->property("status").toInt(), 0);
+
+        auto *recipe = avatar->property("transitionPlaceholder").value<QQmlComponent *>();
+        QVERIFY(recipe);
+        QScopedPointer<QObject> flight(recipe->create(recipe->creationContext()));
+        QVERIFY2(flight, qPrintable(recipe->errorString()));
+        auto *flightItem = qobject_cast<QQuickItem *>(flight.data());
+        QVERIFY(flightItem);
+        flightItem->setParentItem(session.window->contentItem());
+        flightItem->setPosition({800, 100});
+        flightItem->setSize({36, 36});
+        auto *flightGlyph = visual(flightItem, "coverPlaceholderGlyph");
+        QVERIFY(flightGlyph && flightGlyph->isVisible());
+
+        avatar->setProperty("source",
+                            QUrl::fromLocalFile(session.directory.filePath("missing-avatar.png")));
+        QTRY_COMPARE(avatar->property("status").toInt(), 3);
+        QTRY_VERIFY(glyph->isVisible());
+        avatar->setProperty("source", QUrl::fromLocalFile(opaquePath));
+        QTRY_COMPARE(avatar->property("status").toInt(), 1);
+        QTRY_VERIFY(!glyph->isVisible());
+        avatar->setProperty("resourceActive", false);
+        QTRY_COMPARE(avatar->property("status").toInt(), 0);
+        avatar->setProperty("resourceActive", true);
+        QTRY_COMPARE(avatar->property("status").toInt(), 1);
+        QTRY_VERIFY(!glyph->isVisible());
+        avatar->setProperty("source", QUrl::fromLocalFile(alphaPath));
+        QTRY_COMPARE(avatar->property("status").toInt(), 1);
+        QTRY_VERIFY(!glyph->isVisible());
+        if (QSGRendererInterface::isApiRhiBased(
+                session.window->rendererInterface()->graphicsApi())) {
+            QVERIFY(session.settleScene());
+            const auto frame = session.window->grabWindow();
+            const qreal dpr = frame.devicePixelRatio();
+            const auto area = avatar->mapRectToScene({avatar->width() * .3, avatar->height() * .3,
+                                                      avatar->width() * .4, avatar->height() * .4});
+            const auto pixels = QRectF(area.topLeft() * dpr, area.size() * dpr).toAlignedRect();
+            const auto reference = frame.pixelColor(pixels.center());
+            int difference = 0;
+            for (int y = pixels.top(); y <= pixels.bottom(); ++y)
+                for (int x = pixels.left(); x <= pixels.right(); ++x) {
+                    const auto c = frame.pixelColor(x, y);
+                    difference = qMax(difference, qMax(qAbs(c.red() - reference.red()),
+                                                       qMax(qAbs(c.green() - reference.green()),
+                                                            qAbs(c.blue() - reference.blue()))));
+                }
+            qInfo() << avatar->objectName() << "transparent-center pixel variation" << difference;
+            QVERIFY2(difference <= 2, "A loaded transparent avatar must not show a fallback glyph");
+        }
+    }
+    const auto captures = qEnvironmentVariable("ECHO_AVATAR_FALLBACK_CAPTURE_DIR");
+    if (!captures.isEmpty()) {
+        QVERIFY(QDir().mkpath(captures));
+        QVERIFY(session.window->grabWindow().save(captures + "/avatars.png"));
+    }
+}
 
 void DesktopPagesTest::audibleTransitionPublishesOneToastThroughShell()
 {
@@ -997,6 +1125,7 @@ void DesktopPagesTest::productionIdentitySummaryAndAvatarCorners()
         QTRY_VERIFY(tag->width() > 0);
     auto *profileAvatar = visual(session.window->contentItem(), "profileAccountAvatar");
     QVERIFY(profileAvatar);
+    QTRY_COMPARE(profileAvatar->size(), QSizeF(56, 56));
     QCOMPARE(profileAvatar->property("identityInset").toReal(), 3.0);
     QCOMPARE(profileAvatar->property("identityIcon").toUrl(),
              QUrl(session.accounts.account.avatarIdentityIcon()));
@@ -1057,6 +1186,13 @@ void DesktopPagesTest::productionIdentitySummaryAndAvatarCorners()
     auto *narrowSummary = visual(narrowItem, "profileIdentitySummary");
     auto *narrowAvatar = visual(narrowItem, "profileAccountAvatar");
     QVERIFY(narrowSummary && narrowAvatar);
+    auto *narrowAvatarButton = visual(narrowItem, "profileChangeAvatar");
+    QVERIFY(narrowAvatarButton);
+    for (int width : {220, 243, 320, 360}) {
+        narrowItem->setWidth(width);
+        QTRY_COMPARE(narrowAvatar->size(), QSizeF(56, 56));
+        QCOMPARE(narrowAvatarButton->size(), QSizeF(56, 56));
+    }
     QTRY_VERIFY(narrowSummary->height() > 50);
     QVERIFY(narrowSummary->mapToItem(narrowItem, QPointF()).y() <
             narrowAvatar->mapToItem(narrowItem, QPointF()).y());

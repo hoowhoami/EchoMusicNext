@@ -32,7 +32,14 @@ ListView {
         required property bool actionEnabled
         required property bool actionActive
         required property string actionBadge
+        required property bool actionBusy
+        required property bool actionHover
+        required property string actionTooltip
+        required property string badgeTitle
         required property bool badgeVisible
+        property bool pooled: false
+        ListView.onPooled: pooled = true
+        ListView.onReused: pooled = false
         width: button.implicitWidth
         height: strip.height
         ShellActionButton {
@@ -48,6 +55,11 @@ ListView {
             actionActive: slot.actionActive
             actionBadge: slot.actionBadge
             badgeVisible: slot.badgeVisible
+            actionBusy: slot.actionBusy
+            actionHover: slot.actionHover
+            actionTooltip: slot.actionTooltip
+            badgeTitle: slot.badgeTitle
+            visualContentActive: !slot.pooled
             projection: strip.zone
             player: true
             playbackLoading: strip.playbackLoading

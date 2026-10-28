@@ -3,6 +3,7 @@
 
 mod audio;
 mod capabilities;
+mod interception;
 mod logging;
 mod plugin_archive;
 
@@ -49,6 +50,7 @@ struct Job {
     id: u64,
     revision: u64,
     request: echo_api::Request,
+    hook: Option<Arc<echo_api::util::interception::Hook>>,
     cancel: CancellationToken,
     callback: EchoCallback,
     // Opaque host address: never dereferenced by Rust. Host guarantees it is valid
@@ -66,6 +68,7 @@ pub struct EchoRuntime {
     api: Arc<echo_api::util::request::ApiClient>,
     sender: mpsc::UnboundedSender<Command>,
     worker: Option<JoinHandle<()>>,
+    exchanges: Arc<interception::Exchanges>,
 }
 
 impl EchoRuntime {
@@ -111,6 +114,7 @@ impl EchoRuntime {
             api,
             sender,
             worker: Some(worker),
+            exchanges: Arc::default(),
         })
     }
 
@@ -120,6 +124,16 @@ impl EchoRuntime {
         revision: u64,
         callback: EchoCallback,
         context: usize,
+    ) -> u64 {
+        self.submit_hook(request, revision, callback, context, None)
+    }
+    fn submit_hook(
+        &self,
+        request: echo_api::Request,
+        revision: u64,
+        callback: EchoCallback,
+        context: usize,
+        hook: Option<(interception::HookCallback, String)>,
     ) -> u64 {
         let Ok(mut state) = self.state.lock() else {
             return 0;
@@ -137,6 +151,10 @@ impl EchoRuntime {
                 id,
                 revision,
                 request,
+                hook: hook.map(|(callback, operation)| {
+                    self.exchanges
+                        .hook(id, revision, operation, callback, context)
+                }),
                 cancel,
                 callback,
                 context,
@@ -185,7 +203,15 @@ async fn run_job(job: Job, state: Arc<Mutex<State>>, api: Arc<echo_api::util::re
         format!("request={} revision={} started", job.id, job.revision),
     );
     // Run protocol code in a task so a panic becomes an Internal terminal event.
-    let mut operation = tokio::spawn(async move { echo_api::execute(job.request, &api).await });
+    let mut operation = tokio::spawn(async move {
+        if let Some(hook) = job.hook {
+            echo_api::util::interception::HOST_HOOK
+                .scope(hook, echo_api::execute(job.request, &api))
+                .await
+        } else {
+            echo_api::execute(job.request, &api).await
+        }
+    });
     let (status, payload) = tokio::select! {
         biased;
         _ = job.cancel.cancelled() => {

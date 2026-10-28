@@ -66,6 +66,7 @@ void AppContext::createPlugins()
                           m_shell->sidebarLayout(),
                           m_shortcuts.get(),
                           m_accountController->verification()};
+    pluginHost.settings = m_shell.get();
     pluginHost.attachPluginWindow = [&window](QQuickWindow *surface) {
         window.attachPluginWindow(surface);
     };

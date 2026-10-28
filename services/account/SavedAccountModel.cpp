@@ -14,6 +14,23 @@ SavedAccountModel::SavedAccountModel(ApiClient &api, AccountService &account,
                                      StorageService &storage, QObject *parent)
     : QAbstractListModel(parent), m_api(api), m_account(account), m_storage(storage)
 {
+    m_validationDeadline.setSingleShot(true);
+    m_validationDeadline.setInterval(15000);
+    connect(&m_validationDeadline, &QTimer::timeout, this, [this] {
+        if (!m_operation || !m_operation->validationRequest)
+            return;
+        const auto id = m_operation->validationRequest;
+        validationFailed(id, QByteArrayLiteral("{\"kind\":\"timeout\"}"));
+        m_api.cancelRequest(id);
+    });
+    connect(&api, &ApiClient::verificationRequired, this, [this](quint64 id, const QString &) {
+        if (m_operation && m_operation->validationRequest == id)
+            m_validationDeadline.stop();
+    });
+    connect(&api, &ApiClient::verificationDismissed, this, [this] {
+        if (m_operation && m_operation->validationRequest && !m_operation->cancelled)
+            m_validationDeadline.start();
+    });
     connect(&storage, &StorageService::accountsReady, this, &SavedAccountModel::sqlReady);
     connect(&storage, &StorageService::accountsFailed, this, [this](quint64 id) {
         if (!id) {
@@ -26,6 +43,8 @@ SavedAccountModel::SavedAccountModel(ApiClient &api, AccountService &account,
     });
     connect(&storage, &StorageService::failed, this, [this] {
         m_ready = false;
+        cancelSwitch();
+        m_validationDeadline.stop();
         m_queue.clear();
         m_operation.reset();
         m_error = tr("账号存储无法初始化，请重启后重试");
@@ -33,6 +52,8 @@ SavedAccountModel::SavedAccountModel(ApiClient &api, AccountService &account,
         pump();
     });
     connect(&api, &ApiClient::sessionChanged, this, [this] {
+        if (!m_restoring)
+            cancelSwitch();
         const bool reopen = m_durationOpen;
         endDurationQueries();
         if (reopen) {
@@ -43,6 +64,9 @@ SavedAccountModel::SavedAccountModel(ApiClient &api, AccountService &account,
             });
         }
     });
+    connect(&api, &ApiClient::succeeded, this, &SavedAccountModel::validationSucceeded);
+    connect(&api, &ApiClient::failed, this,
+            [this](quint64 id, int, const QByteArray &bytes) { validationFailed(id, bytes); });
     connect(&api, &ApiClient::succeeded, this, [this](quint64 id, const QByteArray &bytes) {
         if (!m_durationRequests.contains(id) || m_durationRevision != m_api.sessionRevision())
             return;
@@ -63,10 +87,21 @@ SavedAccountModel::SavedAccountModel(ApiClient &api, AccountService &account,
             emit dataChanged(index(0, 0), index(count() - 1, 0), {DurationLoadingRole});
         pumpDurationQueries();
     });
+    connect(&account, &AccountService::sessionAdopted, this, [this] {
+        if (!m_restoring)
+            cancelSwitch();
+    });
     connect(&account, &AccountService::changed, this, [this] {
         auto session = m_account.storedSession();
         if (session != m_lastSession) {
-            ++m_generation;
+            const auto previous = QJsonDocument::fromJson(m_lastSession).object();
+            const auto next = QJsonDocument::fromJson(session).object();
+            // Display metadata may finish loading while a candidate is checked.
+            // Only a credential change invalidates that candidate generation.
+            if (previous.value("user_id") != next.value("user_id") ||
+                previous.value("token") != next.value("token") ||
+                previous.value("refresh_credential") != next.value("refresh_credential"))
+                ++m_generation;
             m_lastSession = session;
             if (!session.isEmpty() && !m_restoring && !m_closing) {
                 Operation op;
@@ -84,6 +119,8 @@ SavedAccountModel::SavedAccountModel(ApiClient &api, AccountService &account,
                 enqueue(std::move(op));
             }
         }
+        m_switchErrors.remove(m_account.userId());
+        m_expiredAccounts.remove(m_account.userId());
         publish(m_rows);
     });
 }
@@ -120,6 +157,12 @@ QVariant SavedAccountModel::data(const QModelIndex &index, int role) const
                    ? QString()
                    : QLocale(QLocale::Chinese).toString(*duration / 60) + tr(" 分钟");
     }
+    case SwitchCheckingRole:
+        return v.userId == switchingUserId();
+    case SwitchErrorRole:
+        return m_switchErrors.value(v.userId);
+    case LoginExpiredRole:
+        return m_expiredAccounts.contains(v.userId);
     case DurationLoadingRole:
         return v.userId == m_account.userId() ? m_account.gradeLoading()
                                               : m_durationQueue.contains(v.userId) ||
@@ -137,7 +180,10 @@ QHash<int, QByteArray> SavedAccountModel::roleNames() const
             {DurationRole, "listeningDuration"},
             {DurationLoadingRole, "durationLoading"},
             {AvatarIdentityIconRole, "avatarIdentityIcon"},
-            {AvatarIdentityLabelRole, "avatarIdentityLabel"}};
+            {AvatarIdentityLabelRole, "avatarIdentityLabel"},
+            {SwitchCheckingRole, "switchChecking"},
+            {SwitchErrorRole, "switchError"},
+            {LoginExpiredRole, "loginExpired"}};
 }
 const StoredAccount *SavedAccountModel::find(quint64 userId) const
 {
@@ -184,6 +230,101 @@ void SavedAccountModel::publish(const StoredAccounts &accounts)
                              {NicknameRole, AvatarRole, DurationRole, DurationLoadingRole,
                               AvatarIdentityIconRole, AvatarIdentityLabelRole});
 }
+bool SavedAccountModel::ownsSwitchRequest(quint64 requestId) const
+{
+    return requestId && m_operation && m_operation->validationRequest == requestId;
+}
+quint64 SavedAccountModel::switchingUserId() const
+{
+    return m_operation && m_operation->kind == Kind::Switch && !m_operation->restoring &&
+                   !m_operation->cancelled
+               ? m_operation->record.userId
+               : 0;
+}
+void SavedAccountModel::publishSwitchState()
+{
+    if (!m_rows.isEmpty())
+        emit dataChanged(index(0, 0), index(count() - 1, 0),
+                         {SwitchCheckingRole, SwitchErrorRole, LoginExpiredRole});
+    emit changed();
+}
+void SavedAccountModel::cancelSwitch()
+{
+    if (!m_operation || m_operation->kind != Kind::Switch || m_operation->restoring ||
+        m_operation->cancelled)
+        return;
+    m_operation->cancelled = true;
+    const auto request = std::exchange(m_operation->validationRequest, 0);
+    const bool committing = m_operation->committing;
+    if (request)
+        m_api.cancelRequest(request);
+    if (!committing)
+        finish();
+    else
+        publishSwitchState();
+}
+bool SavedAccountModel::adoptSwitch()
+{
+    const auto record = m_operation->record;
+    const auto profile = m_operation->profile;
+    const auto bytes = QJsonDocument(QJsonObject{{"user_id", qint64(record.userId)},
+                                                 {"token", record.token},
+                                                 {"refresh_credential", record.refreshCredential},
+                                                 {"expires_at_seconds", record.expiresAtSeconds},
+                                                 {"nickname", record.nickname},
+                                                 {"avatar_url", record.avatarUrl}})
+                           .toJson(QJsonDocument::Compact);
+    // Suppress only the persistence echo of this adoption. Session listeners
+    // must still reset every account-owned consumer after the commit succeeds.
+    m_restoring = true;
+    const bool adopted = m_account.adoptStoredSession(bytes, profile);
+    m_restoring = false;
+    if (adopted && m_operation && m_account.userId() == record.userId)
+        m_operation->generation = m_generation;
+    return adopted;
+}
+void SavedAccountModel::validationSucceeded(quint64 id, const QByteArray &payload)
+{
+    if (!m_operation || m_operation->kind != Kind::Switch || m_operation->restoring || !id ||
+        m_operation->validationRequest != id)
+        return;
+    if (m_operation->cancelled || m_operation->generation != m_generation || m_closing) {
+        cancelSwitch();
+        return;
+    }
+    const auto profile = QJsonDocument::fromJson(payload).object();
+    if (profile.value("id").toInteger() != qint64(m_operation->record.userId)) {
+        validationFailed(id, QByteArrayLiteral("{\"kind\":\"invalid_profile\"}"));
+        return;
+    }
+    auto &op = *m_operation;
+    m_validationDeadline.stop();
+    op.validationRequest = 0;
+    op.profile = profile;
+    op.record.nickname = profile.value("nickname").toString();
+    op.record.avatarUrl = profile.value("avatar_url").toString();
+    op.record.lastUsedAt = QDateTime::currentMSecsSinceEpoch();
+    op.committing = true;
+    m_storage.saveAccount(op.id, op.record, true);
+}
+void SavedAccountModel::validationFailed(quint64 id, const QByteArray &payload)
+{
+    if (!m_operation || m_operation->kind != Kind::Switch || m_operation->restoring ||
+        m_operation->validationRequest != id || m_operation->committing)
+        return;
+    const auto user = m_operation->record.userId;
+    const auto kind = QJsonDocument::fromJson(payload).object().value("kind").toString();
+    if (!m_operation->cancelled && m_operation->generation == m_generation &&
+        kind != QStringLiteral("cancelled")) {
+        if (kind == QStringLiteral("authentication") || kind == QStringLiteral("login_required")) {
+            m_expiredAccounts.insert(user);
+            m_switchErrors.insert(user, tr("登录已失效，请重新登录"));
+        } else {
+            m_switchErrors.insert(user, tr("暂时无法验证，请重试"));
+        }
+    }
+    finish();
+}
 bool SavedAccountModel::switchAccount(quint64 userId)
 {
     if (!m_ready || m_closing || busy() || userId == m_account.userId())
@@ -194,7 +335,10 @@ bool SavedAccountModel::switchAccount(quint64 userId)
     Operation op;
     op.kind = Kind::Switch;
     op.record = *record;
+    m_switchErrors.remove(userId);
+    m_expiredAccounts.remove(userId);
     enqueue(std::move(op));
+    publishSwitchState();
     return true;
 }
 bool SavedAccountModel::forgetAccount(quint64 userId)
@@ -223,6 +367,7 @@ void SavedAccountModel::logout()
         return;
     // Even a logout before asynchronous startup restoration must invalidate
     // the pending SQL restoration; an empty visible session is not a no-op here.
+    cancelSwitch();
     ++m_generation;
     const auto userId = m_account.userId();
     const auto *record = find(userId);
@@ -272,39 +417,31 @@ void SavedAccountModel::pump()
     if (op.kind == Kind::Save) {
         m_storage.saveAccount(op.id, op.record, op.session == m_account.storedSession());
     } else if (op.kind == Kind::Switch) {
-        // Yield before adoption so explicit login/logout can invalidate a queued
-        // switch. No credentials or database calls are exposed through QML.
+        if (!op.restoring) {
+            op.validationRequest = m_api.validateAccount(op.record.userId, op.record.token,
+                                                         op.record.refreshCredential);
+            m_validationDeadline.start();
+            if (!op.validationRequest)
+                validationFailed(0, QByteArrayLiteral("{\"kind\":\"unavailable\"}"));
+            publishSwitchState();
+            return;
+        }
+        // Startup restoration keeps its existing offline behavior. Only an
+        // explicit switch validates before installing a candidate session.
         const auto id = op.id;
         QTimer::singleShot(0, this, [this, id] {
             if (!m_operation || m_operation->id != id)
                 return;
-            auto &current = *m_operation;
-            if (current.generation != m_generation || m_closing) {
+            if (m_operation->generation != m_generation || m_closing) {
                 finish();
                 return;
             }
-            const auto &record = current.record;
-            const auto bytes =
-                QJsonDocument(QJsonObject{{"user_id", qint64(record.userId)},
-                                          {"token", record.token},
-                                          {"refresh_credential", record.refreshCredential},
-                                          {"expires_at_seconds", record.expiresAtSeconds},
-                                          {"nickname", record.nickname},
-                                          {"avatar_url", record.avatarUrl}})
-                    .toJson(QJsonDocument::Compact);
-            m_restoring = true;
-            const bool adopted = m_account.adoptStoredSession(bytes);
-            m_restoring = false;
-            if (!adopted) {
+            if (!adoptSwitch()) {
                 fail();
                 return;
             }
-            // Adoption advances the account generation itself. Bind feedback
-            // to that new identity; later explicit login/logout still retires it.
-            if (m_account.userId() == current.record.userId)
-                current.generation = m_generation;
-            current.record.lastUsedAt = QDateTime::currentMSecsSinceEpoch();
-            m_storage.saveAccount(id, current.record, true);
+            m_operation->record.lastUsedAt = QDateTime::currentMSecsSinceEpoch();
+            m_storage.saveAccount(id, m_operation->record, true);
         });
     } else if (op.kind == Kind::Deselect) {
         m_storage.selectAccount(op.id, 0);
@@ -332,17 +469,40 @@ void SavedAccountModel::sqlReady(quint64 id, const StoredAccounts &accounts, qui
     }
     if (!m_operation || id != m_operation->id)
         return;
+    auto &pending = *m_operation;
+    if (pending.kind == Kind::Switch && !pending.restoring) {
+        if (pending.rollingBack) {
+            publish(accounts);
+            finish();
+            return;
+        }
+        if (pending.cancelled || pending.generation != m_generation || m_closing ||
+            !adoptSwitch()) {
+            // The SQL transaction may have committed while the dialog closed.
+            // Serialize restoration before subsequent login/logout writes.
+            m_operation->rollingBack = true;
+            const auto current = find(m_account.userId()) ? m_account.userId() : 0;
+            m_storage.selectAccount(id, current);
+            return;
+        }
+    }
     publish(accounts);
     auto &op = *m_operation;
     const auto name =
         op.record.nickname.isEmpty() ? QString::number(op.record.userId) : op.record.nickname;
     const bool currentNotice = !m_closing && op.generation == m_generation;
-    if (op.kind == Kind::Switch && !op.restoring) {
+    if (op.kind == Kind::Switch && !op.restoring && currentNotice) {
+        m_switchErrors.remove(op.record.userId);
+        m_expiredAccounts.remove(op.record.userId);
         emit switched();
         if (currentNotice)
             emit notice(tr("已切换至 %1").arg(name), false);
-    } else if (currentNotice && op.kind == Kind::Remove && op.explicitRemoval)
-        emit notice(tr("已移除账号"), false);
+    } else if (op.kind == Kind::Remove) {
+        m_switchErrors.remove(op.record.userId);
+        m_expiredAccounts.remove(op.record.userId);
+        if (currentNotice && op.explicitRemoval)
+            emit notice(tr("已移除账号"), false);
+    }
     finish();
 }
 void SavedAccountModel::fail()
@@ -356,8 +516,9 @@ void SavedAccountModel::fail()
 }
 void SavedAccountModel::finish()
 {
+    m_validationDeadline.stop();
     m_operation.reset();
-    emit changed();
+    publishSwitchState();
     QTimer::singleShot(0, this, &SavedAccountModel::pump);
 }
 void SavedAccountModel::beginDurationQueries()
@@ -407,6 +568,7 @@ void SavedAccountModel::suppressStartupRestoration()
 }
 void SavedAccountModel::shutdown()
 {
+    cancelSwitch();
     m_closing = true;
     endDurationQueries();
     pump();

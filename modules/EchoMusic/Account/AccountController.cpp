@@ -13,7 +13,15 @@ AccountController::AccountController(ApiClient &api, AccountService &account,
     : QObject(parent), m_api(api), m_qq(api, this), m_wechat(api, this), m_verification(api, this),
       m_account(account), m_saved(saved), m_qr(qr), m_playlists(playlists), m_online(online)
 {
-    connect(&m_verification, &VerificationService::loginRequested, this, [this] {
+    connect(&m_verification, &VerificationService::loginRequested, this, [this](quint64 request) {
+        const auto candidate = m_saved.switchingUserId();
+        if (candidate && m_saved.ownsSwitchRequest(request)) {
+            // Candidate login confirmation must not adopt an arbitrary QR user
+            // or replay the old token after the new login has committed.
+            m_api.cancelLoginVerification();
+            reauthenticateAccount(candidate);
+            return;
+        }
         // A type-38 login now owns the continuation in ApiClient. Do not cancel
         // that original form ID while replacing its presentation with login.
         m_password = m_smsLogin = m_sendSms = 0;
@@ -36,8 +44,7 @@ AccountController::AccountController(ApiClient &api, AccountService &account,
             const auto expected = service == &m_qq ? 3 : 4;
             if (!m_open || m_method != expected || m_loginRevision != m_api.sessionRevision())
                 return;
-            if (!m_account.adoptLoginAuthorization(authorization)) {
-                m_error = tr("登录信息不完整，请重新登录");
+            if (!acceptAuthorization(authorization)) {
                 emit changed();
             }
         });
@@ -46,8 +53,7 @@ AccountController::AccountController(ApiClient &api, AccountService &account,
         auto authorization = m_qr.takeAuthorization();
         if (!m_open || m_method != 0 || m_loginRevision != m_api.sessionRevision())
             return;
-        if (!m_account.adoptQrAuthorization(authorization)) {
-            m_error = tr("登录信息不完整，请重新登录");
+        if (!acceptAuthorization(authorization)) {
             emit changed();
         }
     });
@@ -109,8 +115,7 @@ AccountController::AccountController(ApiClient &api, AccountService &account,
             emit changed();
             return;
         }
-        if (!m_account.adoptLoginAuthorization(payload)) {
-            m_error = tr("登录信息不完整，请重新登录");
+        if (!acceptAuthorization(payload)) {
             emit changed();
         }
     });
@@ -148,11 +153,47 @@ AccountController::AccountController(ApiClient &api, AccountService &account,
             closeLogin();
     });
 }
+bool AccountController::acceptAuthorization(const QByteArray &payload)
+{
+    const auto user = QJsonDocument::fromJson(payload).object().value("user_id").toInteger();
+    if (m_reauthenticationUser && user != qint64(m_reauthenticationUser)) {
+        m_error = tr("登录的账号与目标账号不一致，请登录目标账号");
+        return false;
+    }
+    if (m_account.adoptLoginAuthorization(payload))
+        return true;
+    m_error = tr("登录信息不完整，请重新登录");
+    return false;
+}
+void AccountController::reauthenticateAccount(quint64 userId)
+{
+    if (m_shuttingDown || m_saved.busy() || userId == m_account.userId())
+        return;
+    QString name;
+    bool found = false;
+    for (int i = 0; i < m_saved.count(); ++i) {
+        const auto index = m_saved.index(i, 0);
+        if (m_saved.data(index, SavedAccountModel::UserIdRole).toULongLong() == userId) {
+            name = m_saved.data(index, SavedAccountModel::NicknameRole).toString();
+            found = true;
+            break;
+        }
+    }
+    if (!found)
+        return;
+    if (name.isEmpty())
+        name = QString::number(userId);
+    openLogin();
+    m_reauthenticationUser = userId;
+    m_loginPrompt = tr("重新登录 %1 后切换").arg(name);
+    emit changed();
+}
 void AccountController::openLogin()
 {
     if (m_shuttingDown)
         return;
     closeLogin();
+    m_saved.cancelSwitch();
     m_saved.suppressStartupRestoration();
     m_open = true;
     m_method = 0;
@@ -167,6 +208,8 @@ void AccountController::closeLogin()
     if (std::exchange(m_confirmingLogin, false))
         m_api.cancelLoginVerification();
     m_open = false;
+    m_reauthenticationUser = 0;
+    m_loginPrompt.clear();
     m_loginRevision = 0;
     m_error.clear();
     m_qr.cancel();

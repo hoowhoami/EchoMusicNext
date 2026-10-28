@@ -21,7 +21,7 @@ EchoDialog {
             spacing: 12
             EchoTextLine {
                 Layout.fillWidth: true
-                text: qsTr("窗口与网络服务")
+                text: qsTr("宿主与系统资源")
                 font: Theme.font(13, Theme.boldWeight)
                 color: Theme.floatingText
             }
@@ -68,7 +68,7 @@ EchoDialog {
             EchoTextLine {
                 Layout.fillWidth: true
                 visible: resources.count === 0
-                text: qsTr("暂无窗口与网络服务授权")
+                text: qsTr("暂无宿主与系统资源授权")
                 font: Theme.font(13, Theme.regularWeight)
                 color: Theme.floatingSecondaryText
             }

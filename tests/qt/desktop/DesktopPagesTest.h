@@ -106,6 +106,7 @@ private slots:
     void accountProfileAndGradeRejectOldAccountResult();
     void identityProjectionAndSessionIsolation();
     void productionIdentitySummaryAndAvatarCorners();
+    void transparentAvatarsRetireFallbackInCommentsAndSidebar();
     void globalFontUsesInstalledFamilyAndRestoresPreference();
     void fixedProfileSocialAndSidebarActionsKeepIntrinsicWidths();
     void productionProfileNameTagsStayAligned();

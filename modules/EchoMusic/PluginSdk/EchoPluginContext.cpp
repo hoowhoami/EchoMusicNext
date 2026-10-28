@@ -22,6 +22,9 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_permissions = new EchoPluginPermissions(*this);
+    m_process = new EchoPluginProcess(*this);
+    m_server = new EchoPluginServer(*this);
+    connect(m_process, &EchoPluginProcess::drained, this, &EchoPluginContext::resourcesDrained);
     m_webServer = new EchoPluginWebServer(*this);
     connect(m_webServer, &EchoPluginWebServer::drained, this, &EchoPluginContext::resourcesDrained);
     m_backups = new EchoPluginBackups(*this);
@@ -42,6 +45,8 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     m_lyricEffects = new EchoPluginLyricEffects(*this);
     m_scroll = new EchoPluginScroll(*this);
     m_scroll->setParent(this);
+    m_cover = new EchoPluginCover(*this);
+    m_settings = new EchoPluginSettings(*this);
     m_ui = new EchoPluginUi(*this);
     m_plugins = new EchoPluginRegistry(*this);
     m_dataPath = dataPath;
@@ -70,6 +75,7 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
         for (const auto &op : operations)
             if (op)
                 op->cancel();
+        emit sessionInvalidated();
     };
     connect(&host.account, &AccountService::sessionAdopted, this, invalidate);
     // Only identity/session changes invalidate delivery, not profile loading.
@@ -283,14 +289,15 @@ EchoPluginOperation *EchoPluginContext::executeCommand(const QString &id,
 }
 EchoPluginOperation *EchoPluginContext::invokeRegistered(const QJSValue &callback,
                                                          QPointer<EchoPluginRegistration> lease,
-                                                         const QVariantMap &arguments)
+                                                         const QVariantMap &arguments,
+                                                         bool reportRejection)
 {
     auto *op = operation();
     if (op->finished())
         return op;
     op->start();
     const auto epoch = m_accountEpoch;
-    QTimer::singleShot(0, op, [this, op, callback, lease, arguments, epoch] {
+    QTimer::singleShot(0, op, [this, op, callback, lease, arguments, epoch, reportRejection] {
         if (op->finished())
             return;
         if (!m_accepting || epoch != m_accountEpoch || !lease || !lease->active()) {
@@ -298,10 +305,19 @@ EchoPluginOperation *EchoPluginContext::invokeRegistered(const QJSValue &callbac
             return;
         }
         const auto result = call(callback, {m_engine.toScriptValue(arguments)});
+        if (op->finished() || !m_accepting || !lease || !lease->active()) {
+            op->cancel();
+            return;
+        }
         if (result.isError())
             op->fail("PluginError", result.toString());
         else {
-            auto *bridge = new EchoPluginPromise(*op, parent());
+            QPointer<EchoPluginContext> guard(this);
+            auto *bridge = new EchoPluginPromise(
+                *op, parent(), [guard, reportRejection](const QString &message) {
+                    if (reportRejection && guard && guard->active())
+                        emit guard->callbackFailed(message);
+                });
             QQmlEngine::setObjectOwnership(bridge, QQmlEngine::CppOwnership);
             const auto attach = m_engine.evaluate(
                 "(function(value,bridge) { Promise.resolve(value).then(function(result) { "
@@ -366,6 +382,7 @@ void EchoPluginContext::beginRetire()
     if (m_host.permissions)
         m_host.permissions->cancelScope(this);
     m_accepting = false;
+    m_settings->blockSignals(true);
     for (auto child : m_presentations)
         if (child)
             child->beginRetire();
@@ -380,6 +397,7 @@ void EchoPluginContext::beginRetire()
     for (const auto &op : operations)
         if (op)
             op->cancel();
+    m_process->shutdown();
     m_webServer->shutdown();
     m_files->shutdown();
     m_net->shutdown();
@@ -398,7 +416,8 @@ bool EchoPluginContext::drained() const
     for (auto child : m_presentations)
         if (child && !child->drained())
             return false;
-    return m_webServer->isDrained() && m_net->isDrained() && m_io->isDrained() &&
-           m_sqlite->isDrained() && m_appearance->drained() && m_files->isDrained();
+    return m_process->isDrained() && m_webServer->isDrained() && m_net->isDrained() &&
+           m_io->isDrained() && m_sqlite->isDrained() && m_appearance->drained() &&
+           m_files->isDrained();
 }
 } // namespace EchoMusic

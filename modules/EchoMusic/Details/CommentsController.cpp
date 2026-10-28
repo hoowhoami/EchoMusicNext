@@ -44,7 +44,9 @@ QVariantMap CommentsModel::geometryEntry(int row) const
     const auto map = json ? QVariantMap{} : value.toMap();
     QVariantMap result;
     for (const auto *name :
-         {"id", "body", "content", "content_expanded", "quote_name", "quote_content", "user_id"}) {
+         {"id", "body", "content", "content_expanded", "quote_name", "quote_content", "user_id",
+          "thread_expanded", "reply_open", "reply_first", "reply_nested", "loading", "error",
+          "hasMore", "empty"}) {
         if (json && object.contains(name))
             result.insert(name, object.value(name).toVariant());
         else if (!json && map.contains(name))
@@ -609,7 +611,7 @@ void CommentsController::rebuild()
             grouped[root].append(entry);
     }
     auto append = [&](QJsonObject value, const QString &kind, const QString &root,
-                      const QJsonArray &siblings) {
+                      const QJsonArray &siblings, bool firstReply = false) {
         auto entry = value;
         if (m_authors)
             entry.insert("products", m_authors->products(entry.value("user_id").toString()));
@@ -649,13 +651,21 @@ void CommentsController::rebuild()
         entry.insert("quote_content", quoteContent);
         const auto thread = m_streams.value(keyFor(byId.value(root)));
         entry.insert("thread_expanded", thread && thread->expanded);
+        entry.insert("reply_first", firstReply);
+        const bool replyOpen =
+            !m_replyTarget.isEmpty() &&
+            m_replyTarget.value("id").toString() == entry.value("id").toString() &&
+            m_replyRoot == root;
+        entry.insert("reply_open", replyOpen);
         const auto context = parentId(value);
         entry.insert("context_reply", !context.isEmpty());
         rows.append({{"entry", QVariant::fromValue(entry)}, {"kind", kind}, {"rootId", root}});
-        if (!m_replyTarget.isEmpty() &&
-            m_replyTarget.value("id").toString() == entry.value("id").toString() &&
-            m_replyRoot == root)
-            rows.append({{"entry", m_replyTarget}, {"kind", "composer"}, {"rootId", root}});
+        if (replyOpen) {
+            auto target = m_replyTarget;
+            target.insert("reply_nested", kind == "reply");
+            target.insert("thread_expanded", thread && thread->expanded);
+            rows.append({{"entry", target}, {"kind", "composer"}, {"rootId", root}});
+        }
     };
     // Singer entries precede the ordinary stream, without participating in
     // its total, page size or hasMore. Both sections stay in the virtual view.
@@ -703,12 +713,19 @@ void CommentsController::rebuild()
                 auto x = a.value("created_at").toString(), y = b.value("created_at").toString();
                 return !x.isEmpty() && (y.isEmpty() || x < y);
             });
-        rows.append({{"entry", QVariantMap{{"count", replies.size()},
+        auto total =
+            !f->total.isNull() && !f->total.isUndefined() ? f->total : entry.value("reply_count");
+        const auto rootTotal = entry.value("reply_count");
+        if (rootTotal.isDouble() && (!total.isDouble() || rootTotal.toDouble() > total.toDouble()))
+            total = rootTotal;
+        rows.append({{"entry", QVariantMap{{"count", total.isNull() || total.isUndefined()
+                                                         ? QVariant{}
+                                                         : total.toVariant()},
                                            {"context", !parentId(entry).isEmpty()}}},
                      {"kind", "threadHeading"},
                      {"rootId", id}});
-        for (const auto &reply : ordered)
-            append(reply, "reply", id, replies);
+        for (qsizetype replyIndex = 0; replyIndex < ordered.size(); ++replyIndex)
+            append(ordered[replyIndex], "reply", id, replies, replyIndex == 0);
         bool pending = false;
         for (const auto &p : m_pending)
             if (p.stream == keyFor(entry))

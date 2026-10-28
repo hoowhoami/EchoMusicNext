@@ -299,6 +299,35 @@ bool echo_capabilities_cancel(const struct EchoCapabilities *native, uint64_t id
 void echo_capabilities_destroy(struct EchoCapabilities *native);
 
 /**
+ * Host-only protocol continuation, copied before return. No plugin JS runs on a Rust worker.
+ * # Safety
+ * Same runtime/input/callback ownership rules as echo_runtime_submit.
+ */
+uint64_t echo_runtime_submit_intercepted(const struct EchoRuntime *runtime,
+                                         const uint8_t *input,
+                                         size_t len,
+                                         uint64_t revision,
+                                         void (*callback)(void*, const struct EchoResult*),
+                                         void (*hook)(void*,
+                                                      uint64_t,
+                                                      uint64_t,
+                                                      uint64_t,
+                                                      uint32_t,
+                                                      const uint8_t*,
+                                                      size_t),
+                                         void *context);
+
+/**
+ * Returns false for a completed/cancelled ticket. No duplicate forward is submitted.
+ * # Safety
+ * Runtime/input must remain valid for this call and must not be concurrently destroyed.
+ */
+bool echo_runtime_intercept_resume(const struct EchoRuntime *runtime,
+                                   uint64_t ticket,
+                                   const uint8_t *input,
+                                   size_t len);
+
+/**
  * Process-wide Qt host chooses level: error=0/warn=1/info=2/debug=3/verbose=4.
  */
 bool echo_log_start(uint32_t level);

@@ -68,7 +68,7 @@ Control {
         shownMonth = new Date(next.getFullYear(), next.getMonth(), 1, 12);
     }
     onValueChanged: sync()
-    onEnabledChanged: if (!enabled)
+    onEnabledChanged: if (!enabled && !EchoPopupCoordinator.interactionSuspended(picker.Window.window))
         calendarOwner.close()
     Component.onCompleted: sync()
     background: Rectangle {

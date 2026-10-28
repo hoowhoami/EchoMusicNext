@@ -220,8 +220,9 @@ signals:
 private:
     friend class AccountServiceTestAccess;
     friend class SavedAccountModel;
-    bool adoptStoredSession(const QByteArray &payload);
-    bool adopt(const QJsonObject &value, bool complete);
+    bool adoptStoredSession(const QByteArray &payload, const QJsonObject &profile = {});
+    bool adopt(const QJsonObject &value, bool complete, const QJsonObject &profile = {});
+    void applyProfile(const QJsonObject &profile);
     QByteArray storedSession() const;
     void succeed(quint64 id, const QByteArray &payload);
     void fail(quint64 id, const QByteArray &payload);
@@ -231,6 +232,7 @@ private:
     std::unique_ptr<MembershipService> m_ownedMembership;
     MembershipService *m_membership = nullptr;
     bool m_membershipPending = false;
+    bool m_profileExtrasStarted = false;
     State m_state = State::SignedOut;
     quint64 m_userId = 0, m_expires = 0, m_refresh = 0, m_revision = 0, m_generation = 0;
     QString m_nickname, m_avatar, m_error;

@@ -131,6 +131,41 @@ public:
         c.rebuild();
         emit c.changed();
     }
+    static void styledThread(CommentsController &c)
+    {
+        comments(c, 0);
+        auto root = row(1);
+        root["user_name"] = QStringLiteral("竖");
+        root["content"] = QStringLiteral("没看懂的是搞笑图片，看懂了就是童年");
+        root["created_at"] = "2021-06-12 22:32:48";
+        root["location"] = "";
+        root["reply_count"] = 2;
+        root["likes"] = QJsonObject{{"count", 1307}};
+        auto first = row(2);
+        first["user_name"] = QStringLiteral("没有尽头");
+        first["content"] =
+            QStringLiteral("小时候的你我他[微笑][微笑]//@清风:没看懂的是搞笑图片，看懂了就是童年");
+        first["parent_id"] = "1";
+        first["reply_code"] = 1;
+        first["created_at"] = "2021-06-30 10:45:03";
+        first["location"] = "";
+        first["likes"] = QJsonObject{{"count", 67}};
+        auto second = row(3);
+        second["content"] = QStringLiteral("保留换行与 <b>原文</b> & 空格  ").repeated(10);
+        second["parent_id"] = "1";
+        second["reply_code"] = 1;
+        second["created_at"] = "2021-07-21 20:46:06";
+        auto &stream = c.stream("all");
+        stream.rows = {root, row(4)};
+        stream.total = 2;
+        auto &floor = c.stream("thread:1");
+        floor.rows = {first, second};
+        floor.loaded = floor.expanded = true;
+        floor.more = false;
+        floor.total = 2;
+        c.rebuild();
+        emit c.changed();
+    }
     static void seed(SongDetailContext &c)
     {
         c.m_mix = 32042818;
@@ -394,6 +429,177 @@ class DetailsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void commentThreadsMatchSourceLayout()
+    {
+        QTemporaryDir dir;
+        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("song-detail", {{"tab", "comment"}}, "32042818"));
+        auto *controller = service.songFor(router.current())->comments();
+        DetailsTestAccess::styledThread(*controller);
+        ShellSettings shell(prefs);
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Details
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window {
+ id: window
+ required property CommentsController controller
+ required property ShellSettings settings
+ property bool compact: false
+ visible: true; width: compact ? 520 : 1000; height: 900
+ Rectangle { anchors.fill: parent; color: Theme.main }
+ Item {
+  width: parent.width / window.settings.uiScale
+  height: parent.height / window.settings.uiScale
+  scale: window.settings.uiScale; transformOrigin: Item.TopLeft
+  CommentsView {
+   anchors.fill: parent; controller: window.controller
+   compact: window.compact; showSections: false
+   contentInset: compact ? 16 : 24; uiScale: window.settings.uiScale
+  }
+ }
+})",
+                          QUrl("qrc:/comment-style-parity-test.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"controller", QVariant::fromValue(controller)},
+                                                   {"settings", QVariant::fromValue(&shell)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        auto *list = visual(window->contentItem(), "commentsList");
+        QVERIFY(list);
+        const auto rowAt = [&](int index) -> QQuickItem * {
+            QQuickItem *loader = nullptr;
+            QMetaObject::invokeMethod(list, "rowItemAt", Q_RETURN_ARG(QQuickItem *, loader),
+                                      Q_ARG(int, index));
+            return loader ? loader->property("item").value<QQuickItem *>() : nullptr;
+        };
+        const auto captures = qEnvironmentVariable("ECHO_COMMENT_PARITY_CAPTURES");
+        if (!captures.isEmpty())
+            QVERIFY(QDir().mkpath(captures));
+        for (bool compact : {false, true})
+            for (bool dark : {false, true})
+                for (bool zoomed : {false, true}) {
+                    root->setProperty("compact", compact);
+                    theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+                    shell.resetZoom();
+                    if (zoomed)
+                        for (int step = 0; step < 5; ++step)
+                            shell.zoomIn();
+                    QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtBeginning"));
+                    QQuickItem *main = nullptr, *heading = nullptr, *reply = nullptr,
+                               *longReply = nullptr;
+                    QTRY_VERIFY((main = rowAt(0)) && (heading = rowAt(1)) && (reply = rowAt(2)) &&
+                                (longReply = rowAt(3)));
+                    const auto replyReady = [](QQuickItem *item) {
+                        return visual(item, "commentAvatar", true) &&
+                               visual(item, "commentLikeCount", true) &&
+                               visual(item, "commentRootTime", true) &&
+                               visual(item, "commentReplyTime", true) &&
+                               visual(item, "commentUserLine", true) &&
+                               visual(item, "commentContent", true) &&
+                               visual(item, "commentReplyDivider", true);
+                    };
+                    QTRY_VERIFY(replyReady(reply) && replyReady(longReply));
+                    QTRY_VERIFY(qAbs(reply->height() - reply->implicitHeight()) < 1. &&
+                                qAbs(longReply->height() - longReply->implicitHeight()) < 1.);
+                    QTRY_VERIFY(visual(heading, "commentFloorCount"));
+                    QTRY_COMPARE(list->property("rowSpacing").toReal(), 0.);
+                    auto *mainSurface = visual(main, "commentCardSurface");
+                    auto *headingSurface = visual(heading, "commentCardSurface");
+                    QVERIFY(mainSurface && headingSurface);
+                    QTRY_VERIFY(qAbs(mainSurface->mapToScene({0, mainSurface->height()}).y() -
+                                     headingSurface->mapToScene({0, 0}).y()) < 1.);
+                    QCOMPARE(visual(reply, "commentAvatar")->width(), 30.);
+                    QCOMPARE(visual(reply, "commentAvatar")->height(), 30.);
+                    QVERIFY(!visual(reply, "commentLikeCount", true)->isVisible());
+                    QVERIFY(!visual(reply, "commentRootTime", true)->isVisible());
+                    QVERIFY(visual(reply, "commentReplyTime")->isVisible());
+                    QCOMPARE(visual(reply, "commentUserLine")
+                                 ->property("font")
+                                 .value<QFont>()
+                                 .pixelSize(),
+                             compact ? 11 : 12);
+                    QCOMPARE(visual(reply, "commentContent")
+                                 ->property("font")
+                                 .value<QFont>()
+                                 .pixelSize(),
+                             compact ? 12 : 13);
+                    QVERIFY(!visual(reply, "commentReplyDivider", true)->isVisible());
+                    QVERIFY(visual(longReply, "commentReplyDivider", true)->isVisible());
+                    QCOMPARE(visual(heading, "commentFloorCount")->property("text").toString(),
+                             "2");
+                    auto *body = visual(reply, "commentContent");
+                    auto *time = visual(reply, "commentReplyTime");
+                    QVERIFY(time->mapToItem(reply, {0, 0}).y() >
+                            body->mapToItem(reply, {0, body->height()}).y());
+                    auto *longBody = visual(longReply, "commentContent");
+                    auto *document =
+                        longBody->property("textDocument").value<QQuickTextDocument *>();
+                    QVERIFY(document);
+                    QVERIFY(document->textDocument()->toPlainText().contains("<b>原文</b>"));
+                    QVERIFY(
+                        document->textDocument()->toPlainText().endsWith(QStringLiteral("展开")));
+                    if (!captures.isEmpty()) {
+                        QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                        window->update();
+                        QTRY_VERIFY(!frames.isEmpty());
+                        QVERIFY(window->grabWindow().save(captures +
+                                                          QString("/%1-%2-%3.png")
+                                                              .arg(compact ? "playback" : "detail")
+                                                              .arg(dark ? "dark" : "light")
+                                                              .arg(zoomed ? 125 : 100)));
+                    }
+                    QVERIFY(QMetaObject::invokeMethod(longBody, "linkActivated",
+                                                      Q_ARG(QString, "comment:toggle")));
+                    QTRY_VERIFY(controller->model()
+                                    ->data(controller->model()->index(3), CommentsModel::Entry)
+                                    .toMap()
+                                    .value("content_expanded")
+                                    .toBool());
+                    QTRY_VERIFY(
+                        document->textDocument()->toPlainText().endsWith(QStringLiteral("收起")));
+                    controller->toggleContent("3");
+                    QTRY_VERIFY(
+                        document->textDocument()->toPlainText().endsWith(QStringLiteral("展开")));
+                    const auto target =
+                        controller->model()
+                            ->data(controller->model()->index(2), CommentsModel::Entry)
+                            .toMap();
+                    controller->beginReply(target, "1");
+                    QQuickItem *form = nullptr;
+                    QTRY_VERIFY((form = visual(window->contentItem(), "floorReplyComposer")));
+                    QVERIFY(form->property("nested").toBool());
+                    auto *replyBody = visual(reply, "commentContent");
+                    QVERIFY(replyBody);
+                    QTRY_VERIFY(qAbs(form->mapToScene({0, 0}).x() -
+                                     replyBody->mapToScene({0, 0}).x()) < 1.);
+                    QTRY_VERIFY(qAbs(form->mapToScene({form->width(), 0}).x() -
+                                     replyBody->mapToScene({replyBody->width(), 0}).x()) < 1.);
+                    auto *cancel = visual(form, "cancelFloorReply");
+                    QVERIFY(cancel);
+                    QPointer<QQuickItem> retiringForm = form;
+                    click(window, cancel);
+                    QTRY_VERIFY(!retiringForm);
+                }
+        root.reset();
+        service.shutdown();
+        router.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
     void singerCommentsStaySeparateFromPagination()
     {
         QTemporaryDir dir;

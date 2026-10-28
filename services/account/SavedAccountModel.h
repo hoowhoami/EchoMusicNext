@@ -2,7 +2,9 @@
 #include "StoredAccount.h"
 #include <QAbstractListModel>
 #include <QQueue>
+#include <QJsonObject>
 #include <QSet>
+#include <QTimer>
 #include <optional>
 namespace EchoMusic
 {
@@ -16,6 +18,7 @@ class SavedAccountModel final : public QAbstractListModel
     Q_PROPERTY(int count READ count NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
+    Q_PROPERTY(quint64 switchingUserId READ switchingUserId NOTIFY changed)
 public:
     enum Role
     {
@@ -26,7 +29,10 @@ public:
         DurationRole,
         DurationLoadingRole,
         AvatarIdentityIconRole,
-        AvatarIdentityLabelRole
+        AvatarIdentityLabelRole,
+        SwitchCheckingRole,
+        SwitchErrorRole,
+        LoginExpiredRole
     };
     SavedAccountModel(ApiClient &api, AccountService &account, StorageService &storage,
                       QObject *parent = nullptr);
@@ -49,7 +55,11 @@ public:
     {
         return m_error;
     }
+    quint64 switchingUserId() const;
+    bool ownsSwitchRequest(quint64 requestId) const;
     Q_INVOKABLE bool switchAccount(quint64 userId);
+    /// Closing the switcher retires its candidate, including late SQL readback.
+    Q_INVOKABLE void cancelSwitch();
     Q_INVOKABLE bool forgetAccount(quint64 userId);
     Q_INVOKABLE void logout();
     Q_INVOKABLE void beginDurationQueries();
@@ -82,11 +92,18 @@ private:
         StoredAccount record;
         QByteArray session;
         bool restoring = false, explicitRemoval = false;
+        quint64 validationRequest = 0;
+        bool committing = false, cancelled = false, rollingBack = false;
+        QJsonObject profile;
     };
     void enqueue(Operation operation);
     void pump();
     void sqlReady(quint64 id, const StoredAccounts &accounts, quint64 active);
     void fail();
+    bool adoptSwitch();
+    void validationSucceeded(quint64 id, const QByteArray &payload);
+    void validationFailed(quint64 id, const QByteArray &payload);
+    void publishSwitchState();
     void finish();
     void publish(const StoredAccounts &accounts);
     void pumpDurationQueries();
@@ -96,11 +113,14 @@ private:
     StorageService &m_storage;
     StoredAccounts m_rows;
     QQueue<Operation> m_queue;
+    QTimer m_validationDeadline;
     std::optional<Operation> m_operation;
     QByteArray m_lastSession;
     QString m_error;
     QHash<quint64, quint64> m_durationRequests;
     QHash<quint64, qint64> m_durations;
+    QHash<quint64, QString> m_switchErrors;
+    QSet<quint64> m_expiredAccounts;
     QQueue<quint64> m_durationQueue;
     quint64 m_durationRevision = 0;
     bool m_durationOpen = false;

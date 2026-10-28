@@ -24,6 +24,10 @@
 #include <QSignalSpy>
 #include <QSGRendererInterface>
 #include <QTemporaryDir>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QNetworkProxy>
+#include "BrowserVerificationSession.h"
 #include <QtTest>
 using namespace EchoMusic;
 namespace EchoMusic
@@ -53,9 +57,51 @@ public:
 class ApiClientTestAccess
 {
 public:
+    static quint64 holdCandidate(ApiClient &api, quint64 user)
+    {
+        for (auto it = api.m_pending.cbegin(); it != api.m_pending.cend(); ++it) {
+            if (it->request.value("operation") != QStringLiteral("user_detail") ||
+                it->request.value("identity").toObject().value("userid").toInteger() !=
+                    qint64(user))
+                continue;
+            auto pending = *it;
+            const auto native = it.key();
+            api.cancelRequest(native);
+            static quint64 sequence = quint64(1) << 61;
+            const auto held = ++sequence;
+            pending.logicalId = held;
+            api.m_pending.insert(held, pending);
+            return held;
+        }
+        return 0;
+    }
+    static quint64 operation(ApiClient &api, const QString &name)
+    {
+        for (auto it = api.m_pending.cbegin(); it != api.m_pending.cend(); ++it)
+            if (it->request.value("operation").toString() == name)
+                return it.key();
+        return 0;
+    }
+    static void reply(ApiClient &api, quint64 request, int status, const QByteArray &payload)
+    {
+        api.deliver(request, api.sessionRevision(), status, payload);
+    }
+    static void challenge(ApiClient &api, quint64 request)
+    {
+        reply(api, request, 5,
+              R"({"kind":"challenge","challenge":{"event_id":"switch-control-flow"}})");
+    }
     static int pendingCount(const ApiClient &api)
     {
         return api.m_pending.size();
+    }
+};
+class SavedAccountModelTestAccess
+{
+public:
+    static void holdValidation(SavedAccountModel &saved, quint64 id)
+    {
+        saved.m_operation->validationRequest = id;
     }
 };
 class AccountControllerTestAccess
@@ -186,7 +232,8 @@ private slots:
                 host->setScale(scale);
                 for (const auto &title :
                      {QStringLiteral("很长的中文歌单名称以及 English playlist title"),
-                      QStringLiteral("A very long playlist with gypq and 0123456789")}) {
+                      QStringLiteral("A very long playlist with gypq and 0123456789"),
+                      QStringLiteral("xxxxxxxxxxxx ÅÉgypq ZZZZZZZZZZZZZZZZZ")}) {
                     row->setProperty("title", title);
                     for (int width : {166, 184, 200}) {
                         row->setWidth(width);
@@ -196,6 +243,8 @@ private slots:
                         const auto height = label->height();
                         const auto center = label->mapToScene({0, label->height() / 2}).y();
                         const auto glyphCenter = inkCenter();
+                        const auto baseline =
+                            text->mapToScene({0, text->property("baselineOffset").toReal()}).y();
                         QVERIFY(qIsFinite(glyphCenter));
                         const auto textWidth = text->width();
                         QCOMPARE(text->property("lineCount").toInt(), 1);
@@ -206,6 +255,12 @@ private slots:
                         QVERIFY(qAbs(label->mapToScene({0, label->height() / 2}).y() - center) <
                                 .01);
                         QVERIFY(qAbs(inkCenter() - glyphCenter) < .01);
+                        // Centering the newly elided glyph bounds can keep the
+                        // ink center stable while moving the shared prefix.
+                        QVERIFY(
+                            qAbs(text->mapToScene({0, text->property("baselineOffset").toReal()})
+                                     .y() -
+                                 baseline) < .01);
                         QCOMPARE(text->property("lineCount").toInt(), 1);
                         QVERIFY(text->width() < textWidth);
                         const auto textRight = text->mapToScene({text->width(), 0}).x();
@@ -405,6 +460,339 @@ private slots:
         }
         root.reset();
         api.shutdown();
+    }
+    void browserVerificationClosesOnlyItsOwnDialog()
+    {
+        QTemporaryDir directory;
+        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        ThemeStore theme(preferences);
+        theme.setMotionEnabled(false);
+        ShellSettings shell(preferences);
+        WindowController windows(preferences, false);
+        ApiClient api(DeviceIdentity::temporary());
+        QTcpServer proxy;
+        QVERIFY(proxy.listen(QHostAddress::LocalHost));
+        QVERIFY(api.setNetworkTransport(proxy.serverPort()));
+        Test::AccountUiFixture accountUi(api);
+        connect(accountUi.controller.verification(),
+                &VerificationService::returnToApplicationRequested, &windows,
+                &WindowController::showWindow);
+        SearchModel search(api);
+        RouteController routes;
+        ShellController shellController(preferences, routes);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"libraryController", QVariant::fromValue(&accountUi.library)},
+             {"accountController", QVariant::fromValue(&accountUi.controller)},
+             {"shellController", QVariant::fromValue(&shellController)},
+             {"searchService", QVariant::fromValue(&search)},
+             {"router", QVariant::fromValue(&routes)},
+             {"shellSettings", QVariant::fromValue(&shell)},
+             {"windowService", QVariant::fromValue(&windows)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        windows.attach(window);
+        window->resize(1400, 900);
+        QVERIFY(Test::prepareNativeInput(window));
+        auto *page = findVisibleVisual(window->contentItem(), "shellContent");
+        QVERIFY(page);
+        QQmlComponent recipe(&engine);
+        recipe.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+QtObject {
+ id: host
+ required property Item page
+ property alias formOwner: formOwner
+ property alias drawerOwner: drawerOwner
+ property int closedCount: 0
+ property EchoPopupLoader form: EchoPopupLoader { id: formOwner; hostItem: host.page
+  sourceComponent: EchoDialog { heading: "业务表单"; managedDismiss: true
+   onDismissRequested: close()
+   onClosed: host.closedCount++
+   body: EchoTextField { objectName: "businessVerificationDraft"; text: "保留未保存草稿" }
+  }
+ }
+ property EchoPopupLoader drawer: EchoPopupLoader { id: drawerOwner; hostItem: host.page
+  sourceComponent: EchoDrawer { onClosed: host.closedCount++; contentItem: Text { text: "业务抽屉" } }
+ }
+})",
+                       QUrl());
+        QScopedPointer<QObject> business(
+            recipe.createWithInitialProperties({{"page", QVariant::fromValue(page)}}));
+        QVERIFY2(business, qPrintable(recipe.errorString()));
+        auto *formOwner = business->property("formOwner").value<QObject *>();
+        auto *drawerOwner = business->property("drawerOwner").value<QObject *>();
+        QVERIFY(formOwner && drawerOwner);
+        QVERIFY(QMetaObject::invokeMethod(formOwner, "open", Q_ARG(QVariant, QVariantMap{})));
+        QVERIFY(QMetaObject::invokeMethod(drawerOwner, "open", Q_ARG(QVariant, QVariantMap{})));
+        QPointer<QObject> form = formOwner->property("item").value<QObject *>();
+        QPointer<QObject> drawer = drawerOwner->property("item").value<QObject *>();
+        QVERIFY(form && drawer);
+        QTRY_VERIFY(form->property("opened").toBool() && drawer->property("opened").toBool());
+        auto *draft = form->findChild<QObject *>("businessVerificationDraft");
+        QVERIFY(draft);
+        for (const bool cancel : {false, true}) {
+            auto *verification = accountUi.controller.verification();
+            const auto original = api.userDetail(); // Anonymous identity; HTTP stays on loopback.
+            ApiClientTestAccess::challenge(api, original);
+            const auto info = ApiClientTestAccess::operation(api, "get_verify_info");
+            QVERIFY(info);
+            ApiClientTestAccess::reply(
+                api, info, 0,
+                R"({"provider":"tencent","verification_type":23,"app_id":"197787253"})");
+            QTRY_VERIFY(verification->open());
+            QTRY_VERIFY(!page->isEnabled());
+            QTRY_VERIFY(!form->property("enabled").toBool());
+            QPointer<QObject> verificationDialog;
+            QTRY_VERIFY((verificationDialog = root->findChild<QObject *>("verificationDialog")));
+            QTRY_VERIFY(verificationDialog->property("opened").toBool());
+            QVERIFY(verificationDialog->property("enabled").toBool());
+            QTest::keyClick(window, Qt::Key_Escape);
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, QPoint(8, 8));
+            QVERIFY(verification->open());
+            QCOMPARE(formOwner->property("item").value<QObject *>(), form.data());
+            QCOMPARE(drawerOwner->property("item").value<QObject *>(), drawer.data());
+            QCOMPARE(business->property("closedCount").toInt(), 0);
+            if (cancel) {
+                verification->cancel();
+            } else {
+                // Exercise the production loopback callback without opening an
+                // external browser or claiming a real provider proof/login.
+                auto *browser = verification->findChild<BrowserVerificationSession *>();
+                QVERIFY(browser);
+                const auto url = browser->start();
+                QVERIFY(!url.isEmpty());
+                const QByteArray proof =
+                    R"({"ret":0,"ticket":"generated-control-proof","randstr":"generated"})";
+                const auto authority = url.authority().toLatin1();
+                const QByteArray request =
+                    "POST /result HTTP/1.1\r\nHost: " + authority + "\r\nOrigin: http://" +
+                    authority + "\r\nX-Echo-Verification: " + url.fragment().toLatin1() +
+                    "\r\nContent-Type: application/json\r\nContent-Length: " +
+                    QByteArray::number(proof.size()) + "\r\n\r\n" + proof;
+                QTcpSocket peer;
+                peer.setProxy(QNetworkProxy::NoProxy);
+                peer.connectToHost(url.host(), quint16(url.port()));
+                QTRY_COMPARE(peer.state(), QAbstractSocket::ConnectedState);
+                QCOMPARE(peer.write(request), qint64(request.size()));
+                QTRY_VERIFY(ApiClientTestAccess::operation(api, "sidedt"));
+                const auto submitted = ApiClientTestAccess::operation(api, "sidedt");
+                ApiClientTestAccess::reply(api, submitted, 0, R"({"acknowledged":true})");
+            }
+            QTRY_VERIFY(!verification->open());
+            QTRY_VERIFY(verificationDialog.isNull());
+            QTRY_VERIFY(page->isEnabled());
+            QVERIFY(form && drawer);
+            QVERIFY(form->property("visible").toBool());
+            QVERIFY(drawer->property("visible").toBool());
+            QTRY_VERIFY(form->property("enabled").toBool());
+            QCOMPARE(draft->property("text").toString(), QString("保留未保存草稿"));
+            QCOMPARE(business->property("closedCount").toInt(), 0);
+        }
+        QVERIFY(QMetaObject::invokeMethod(formOwner, "close"));
+        QVERIFY(QMetaObject::invokeMethod(drawerOwner, "close"));
+        QTRY_VERIFY(form.isNull() && drawer.isNull());
+        // Search also has focus-based dismissal outside the shared owner.
+        auto *searchInput = findVisibleVisual(window->contentItem(), "searchInput");
+        QVERIFY(searchInput);
+        auto *searchBox = searchInput->parentItem()->parentItem();
+        searchInput->setProperty("text", QString("保留搜索词"));
+        QVERIFY(QMetaObject::invokeMethod(searchBox, "focusSearch"));
+        QPointer<QObject> suggestions;
+        QTRY_VERIFY((suggestions = root->findChild<QObject *>("searchSuggestionsPopup")));
+        QTRY_VERIFY(suggestions->property("opened").toBool());
+        const auto searchVerification = api.userDetail();
+        ApiClientTestAccess::challenge(api, searchVerification);
+        const auto searchInfo = ApiClientTestAccess::operation(api, "get_verify_info");
+        QVERIFY(searchInfo);
+        ApiClientTestAccess::reply(
+            api, searchInfo, 0,
+            R"({"provider":"tencent","verification_type":23,"app_id":"197787253"})");
+        QTRY_VERIFY(accountUi.controller.verification()->open());
+        QVERIFY(suggestions && suggestions->property("visible").toBool());
+        accountUi.controller.verification()->cancel();
+        QTRY_VERIFY(!accountUi.controller.verification()->open());
+        QTest::qWait(50); // Flush the search box's queued outside-focus dismissal.
+        QVERIFY(suggestions && suggestions->property("visible").toBool());
+        QCOMPARE(searchInput->property("text").toString(), QString("保留搜索词"));
+        QVERIFY(QMetaObject::invokeMethod(searchBox, "dismissSearch"));
+        QTRY_VERIFY(suggestions.isNull());
+        QCOMPARE(warnings.size(), 0);
+        routes.shutdown();
+        windows.shutdown();
+    }
+    void productionAccountSwitchValidationAndCancellation()
+    {
+        QTemporaryDir directory;
+        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        ThemeStore theme(preferences);
+        ShellSettings shell(preferences);
+        shell.setMotionEnabled(false);
+        WindowController windows(preferences, false);
+        ApiClient api(DeviceIdentity::temporary());
+        QTcpServer proxy;
+        QVERIFY(proxy.listen(QHostAddress::LocalHost));
+        QVERIFY(api.setNetworkTransport(proxy.serverPort()));
+        Test::AccountUiFixture accountUi(api);
+        QSignalSpy ready(&accountUi.storage, &StorageService::accountsReady);
+        accountUi.storage.initialize(directory.filePath("accounts.sqlite"));
+        QTRY_COMPARE(ready.size(), 1);
+        const auto authorization = [](qint64 id) {
+            return QJsonDocument(QJsonObject{{"user_id", id},
+                                             {"token", "control-flow-token"},
+                                             {"nickname", QString("Account %1").arg(id)}})
+                .toJson();
+        };
+        QVERIFY(accountUi.account.adoptQrAuthorization(authorization(1)));
+        QTRY_VERIFY(!accountUi.saved.busy());
+        QVERIFY(accountUi.account.adoptQrAuthorization(authorization(2)));
+        QTRY_VERIFY(!accountUi.saved.busy());
+        SearchModel search(api);
+        RouteController routes;
+        ShellController shellController(preferences, routes);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"libraryController", QVariant::fromValue(&accountUi.library)},
+             {"accountController", QVariant::fromValue(&accountUi.controller)},
+             {"shellController", QVariant::fromValue(&shellController)},
+             {"searchService", QVariant::fromValue(&search)},
+             {"router", QVariant::fromValue(&routes)},
+             {"shellSettings", QVariant::fromValue(&shell)},
+             {"windowService", QVariant::fromValue(&windows)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        windows.attach(window);
+        window->resize(1400, 900);
+        QVERIFY(Test::prepareNativeInput(window));
+        auto visible = [&](const QString &name) {
+            return findVisibleVisual(window->contentItem(), name);
+        };
+        auto click = [&](QQuickItem *item) {
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                              item->mapToScene({item->width() / 2, item->height() / 2}).toPoint());
+        };
+        auto *owner = root->findChild<QObject *>("accountSwitcherDialogOwner");
+        QVERIFY(owner);
+        QSignalSpy switched(&accountUi.saved, &SavedAccountModel::switched);
+        const auto hold = [&] {
+            const auto id = ApiClientTestAccess::holdCandidate(api, 1);
+            if (id)
+                SavedAccountModelTestAccess::holdValidation(accountUi.saved, id);
+            return id;
+        };
+        const auto artifacts = qEnvironmentVariable("ECHO_ACCOUNT_SWITCH_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QVERIFY(QDir().mkpath(artifacts));
+        for (const auto mode : {ThemeStore::Dark, ThemeStore::Light}) {
+            theme.setMode(mode);
+            for (const auto scale : {1.0, 1.25}) {
+                shell.resetZoom();
+                while (shell.uiScale() < scale - 0.001)
+                    shell.zoomIn();
+                QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+                QTRY_VERIFY(visible("savedAccountAction"));
+                QTRY_VERIFY(owner->property("opened").toBool());
+                click(visible("savedAccountAction"));
+                const auto held = hold();
+                QVERIFY(held);
+                QTRY_VERIFY(visible("savedAccountAction")->property("loading").toBool());
+                QCOMPARE(visible("savedAccountAction")->property("text").toString(),
+                         QString("正在验证…"));
+                QCOMPARE(accountUi.account.userId(), quint64(2));
+                if (!artifacts.isEmpty()) {
+                    QTest::qWait(30);
+                    QVERIFY(window->grabWindow().save(
+                        artifacts + QString("/loading-%1-%2.png").arg(int(mode)).arg(scale)));
+                }
+                ApiClientTestAccess::reply(api, held, 5, R"({"kind":"authentication"})");
+                QTRY_VERIFY(!accountUi.saved.busy());
+                QTRY_COMPARE(visible("savedAccountAction")->property("text").toString(),
+                             QString("重新登录"));
+                QVERIFY(visible("savedAccountSwitchError"));
+                QCOMPARE(accountUi.account.state(), AccountService::State::SignedIn);
+                if (!artifacts.isEmpty()) {
+                    QTest::qWait(30);
+                    QVERIFY(window->grabWindow().save(
+                        artifacts + QString("/expired-%1-%2.png").arg(int(mode)).arg(scale)));
+                }
+                click(visible("savedAccountAction"));
+                QTRY_VERIFY(accountUi.controller.loginOpen());
+                QTRY_VERIFY(!visible("savedAccountAction"));
+                QTRY_VERIFY(visible("accountReloginPrompt"));
+                QrLoginServiceTestAccess::authorize(*accountUi.controller.qr(), authorization(3));
+                QCOMPARE(accountUi.account.userId(), quint64(2));
+                QVERIFY(accountUi.controller.errorMessage().contains("不一致"));
+                QTRY_VERIFY(visible("loginAccountError"));
+                QVERIFY(
+                    visible("loginAccountError")->property("text").toString().contains("不一致"));
+                if (!artifacts.isEmpty()) {
+                    QTest::qWait(30);
+                    QVERIFY(window->grabWindow().save(
+                        artifacts + QString("/relogin-%1-%2.png").arg(int(mode)).arg(scale)));
+                }
+                accountUi.controller.closeLogin();
+                QCOMPARE(accountUi.account.userId(), quint64(2));
+                QTRY_VERIFY(owner->property("item").value<QObject *>() == nullptr);
+                // A direct retry clears the expired marker and starts a new owner operation.
+                QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+                QTRY_VERIFY(visible("savedAccountAction"));
+                QVERIFY(accountUi.saved.switchAccount(1));
+                const auto cancelled = hold();
+                QVERIFY(cancelled);
+                QVERIFY(QMetaObject::invokeMethod(owner, "close"));
+                QTRY_VERIFY(!accountUi.saved.busy());
+                emit api.succeeded(cancelled, R"({"id":1})");
+                QCOMPARE(accountUi.account.userId(), quint64(2));
+                QCOMPARE(switched.size(), 0);
+                QTRY_VERIFY(owner->property("item").value<QObject *>() == nullptr);
+            }
+        }
+        // A candidate challenge disables the shell, but must retain the switcher
+        // and candidate until the verification dialog is explicitly cancelled.
+        QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+        QTRY_VERIFY(visible("savedAccountAction"));
+        click(visible("savedAccountAction"));
+        const auto challenged = hold();
+        QVERIFY(challenged);
+        ApiClientTestAccess::challenge(api, challenged);
+        QTRY_VERIFY(accountUi.controller.verification()->open());
+        QVERIFY(owner->property("visible").toBool());
+        QCOMPARE(accountUi.saved.switchingUserId(), quint64(1));
+        accountUi.controller.verification()->cancel();
+        QTRY_VERIFY(!accountUi.saved.busy());
+        QCOMPARE(accountUi.account.userId(), quint64(2));
+        QVERIFY(QMetaObject::invokeMethod(owner, "close"));
+        QTRY_VERIFY(owner->property("item").value<QObject *>() == nullptr);
+        QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+        QTRY_VERIFY(visible("savedAccountAction"));
+        click(visible("savedAccountAction"));
+        const auto loginChallenge = hold();
+        QVERIFY(loginChallenge);
+        ApiClientTestAccess::challenge(api, loginChallenge);
+        const auto info = ApiClientTestAccess::operation(api, "get_verify_info");
+        QVERIFY(info);
+        ApiClientTestAccess::reply(api, info, 0, R"({"verification_type":38,"provider":"login"})");
+        QCOMPARE(accountUi.controller.verification()->verificationType(), quint32(38));
+        accountUi.controller.verification()->beginLogin();
+        QVERIFY(accountUi.controller.loginOpen());
+        QCOMPARE(accountUi.account.userId(), quint64(2));
+        QVERIFY(accountUi.controller.loginPrompt().contains("Account 1"));
+        QrLoginServiceTestAccess::authorize(*accountUi.controller.qr(), authorization(1));
+        QCOMPARE(accountUi.account.userId(), quint64(1));
+        QVERIFY(!accountUi.controller.loginOpen());
+        QTRY_VERIFY(!accountUi.saved.busy());
+        QCOMPARE(warnings.size(), 0);
+        routes.shutdown();
+        windows.shutdown();
     }
     void productionAccountEntryOverlayAndDraftLifetime()
     {

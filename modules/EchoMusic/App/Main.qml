@@ -32,6 +32,20 @@ ApplicationWindow {
     Component.onCompleted: {
         syncTaskbarLyricWindow();
         syncBackupConfirmation();
+        syncVerificationCover();
+    }
+    Component.onDestruction: EchoPopupCoordinator.setInteractionSuspended(mainWindow, false)
+    readonly property bool verificationBlocking: EchoPopupCoordinator.interactionSuspended(mainWindow)
+    function syncVerificationCover(): void {
+        // Publish the reason before disabling the shell: popup owners must see
+        // a temporary cover rather than interpreting disabled as destruction.
+        EchoPopupCoordinator.setInteractionSuspended(mainWindow, accountController.verification.open);
+    }
+    Connections {
+        target: mainWindow.accountController.verification
+        function onChanged(): void {
+            mainWindow.syncVerificationCover();
+        }
     }
     function syncBackupConfirmation(): void {
         if (settingsDataService && settingsDataService.confirmation.summary)
@@ -337,7 +351,7 @@ ApplicationWindow {
             // Keep route/service state alive while its covered scenegraph is culled.
             // A painted login cover blocks clicks but not hover delivery.
             // Disable the covered shell, including already-open tooltips.
-            enabled: !mainWindow.accountController.loginOpen && !mainWindow.accountController.verification.open
+            enabled: !mainWindow.accountController.loginOpen && !mainWindow.verificationBlocking
             anchors.fill: parent
             spacing: 0
             Rectangle {
@@ -493,7 +507,7 @@ ApplicationWindow {
             anchors.fill: parent
             z: 100
             active: mainWindow.accountController.loginOpen
-            enabled: !mainWindow.accountController.verification.open
+            enabled: !mainWindow.verificationBlocking
             sourceComponent: LoginOverlay {
                 service: mainWindow.accountController
             }
@@ -501,7 +515,7 @@ ApplicationWindow {
         Loader {
             anchors.fill: parent
             z: 200
-            active: mainWindow.accountController.verification.open
+            active: mainWindow.verificationBlocking
             sourceComponent: VerificationOverlay {
                 service: mainWindow.accountController.verification
                 uiScale: mainWindow.shellSettings.uiScale

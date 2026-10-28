@@ -6,12 +6,14 @@ import EchoMusic.Controls
 import EchoMusic.Account
 import EchoMusic.Theme
 
-Rectangle {
+Item {
     id: row
+    objectName: replyRow ? "commentReplyRow" : "commentRootRow"
     required property var entry
     required property string rootId
     required property CommentsController controller
     property bool compact: false
+    property real uiScale: 1
     property bool replyRow: false
     property bool resourceActive: true
     // The controller owns expansion across delegate recycling and enrichment.
@@ -97,40 +99,63 @@ Rectangle {
     }
     signal replyRequested(var target, string rootId)
     signal deleteRequested(var target, string rootId, Item anchor)
-    implicitHeight: content.implicitHeight + (replyRow ? 24 : compact ? 28 : 40)
-    radius: compact ? Theme.popoverRadius : Theme.itemRadius
-    color: Theme.withAlpha(Theme.colors.tone, replyRow ? .025 : .05)
+    readonly property bool replyOpen: !!entry.reply_open
+    readonly property bool threadExpanded: !!entry.thread_expanded
+    readonly property real replyGap: Window.window && Window.window.width / uiScale <= 640 ? 8 : 12
+    readonly property real contentLeft: replyRow ? surface.mainLeft + surface.floorPadding : surface.outerInset + surface.cardPadding
+    readonly property real contentRight: replyRow ? surface.rightInset + surface.floorPadding : surface.rightInset
+    readonly property real topInset: replyRow ? 16 : surface.cardPadding
+    readonly property real bottomInset: replyRow ? (replyOpen ? 0 : 16) : surface.groupEnd ? surface.cardPadding + surface.cardGap : 0
+    implicitHeight: topInset + content.implicitHeight + bottomInset
+    CommentSurface {
+        id: surface
+        anchors.fill: parent
+        compact: row.compact
+        uiScale: row.uiScale
+        part: row.replyRow ? "reply" : "comment"
+        threadExpanded: row.threadExpanded
+        replyOpen: row.replyOpen
+    }
+    Rectangle {
+        objectName: "commentReplyDivider"
+        visible: row.replyRow && !row.entry.reply_first
+        x: surface.mainLeft + surface.floorPadding
+        width: Math.max(0, row.width - x - row.contentRight)
+        height: 1
+        color: Theme.subtleBorder
+    }
     RowLayout {
         id: content
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: row.replyRow ? 12 : row.compact ? 14 : 20
-        anchors.leftMargin: row.replyRow ? (row.compact ? 56 : 68) : row.compact ? 14 : 20
-        spacing: 12
-        ColumnLayout {
+        anchors.leftMargin: row.contentLeft
+        anchors.rightMargin: row.contentRight
+        anchors.topMargin: row.topInset
+        spacing: row.replyRow ? row.replyGap : 12
+        EchoCover {
+            objectName: "commentAvatar"
             Layout.alignment: Qt.AlignTop
-            Layout.fillHeight: false
-            spacing: 0
-            EchoCover {
-                objectName: "commentAvatar"
-                Layout.preferredWidth: row.replyRow ? 28 : row.compact ? 30 : 36
-                Layout.preferredHeight: width
-                resourceActive: row.resourceActive
-                source: row.entry.avatar_url || ""
-                cornerRadius: width / 2
-                placeholderGlyph: "user"
-                placeholderGlyphSize: 14
-                Image {
-                    width: 16
-                    height: 16
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    visible: !!row.entry.identity && String(row.entry.identity.pic || "").length > 0
-                    source: visible && row.resourceActive && row.entry.identity ? row.entry.identity.pic || "" : ""
-                    asynchronous: true
-                    sourceSize: Qt.size(32, 32)
-                }
+            Layout.minimumWidth: row.replyRow || row.compact ? 30 : 36
+            Layout.maximumWidth: Layout.minimumWidth
+            Layout.minimumHeight: Layout.minimumWidth
+            Layout.maximumHeight: Layout.minimumWidth
+            resourceActive: row.resourceActive
+            source: row.entry.avatar_url || ""
+            circular: true
+            placeholderGlyph: "user"
+            placeholderGlyphSize: 14
+            Image {
+                width: row.replyRow ? 14 : 16
+                height: width
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: row.replyRow ? 0 : 1
+                anchors.bottomMargin: row.replyRow ? 0 : 1
+                visible: !!row.entry.identity && String(row.entry.identity.pic || "").length > 0
+                source: visible && row.resourceActive ? row.entry.identity.pic || "" : ""
+                asynchronous: true
+                sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
             }
         }
         ColumnLayout {
@@ -146,12 +171,14 @@ Rectangle {
                     Layout.minimumWidth: 0
                     spacing: 2
                     EchoTextTagRow {
+                        objectName: "commentUserLine"
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         text: row.entry.user_name || ""
-                        font: Theme.font(row.compact ? (row.replyRow ? 11 : 12) : 14, Theme.semiboldWeight)
+                        font: Theme.font(row.replyRow ? (row.compact ? 11 : 12) : (row.compact ? 12 : 14), Theme.semiboldWeight)
                         color: Theme.text
                         spacing: 8
+                        wrap: true
                         MembershipTag {
                             visible: row.membershipPlate.kind !== "none"
                             kind: row.membershipPlate.kind
@@ -166,21 +193,33 @@ Rectangle {
                                 customTone: modelData.tone
                             }
                         }
+                        Label {
+                            objectName: "commentReplyTarget"
+                            visible: row.replyRow && String(row.entry.quote_name || "").length > 0
+                            text: qsTr("回复 %1").arg(row.entry.quote_name || "")
+                            color: Theme.secondaryText
+                            font: Theme.font(12, Theme.regularWeight)
+                        }
                     }
                     Label {
+                        objectName: "commentRootTime"
+                        visible: !row.replyRow
                         Layout.fillWidth: true
                         text: [row.entry.created_at || "", row.entry.location || ""].filter(v => v.length).join(" · ")
                         color: Theme.secondaryText
                         font: Theme.font(10, Theme.regularWeight)
+                        lineHeightMode: Text.FixedHeight
+                        lineHeight: 15
                         elide: Text.ElideRight
                     }
                 }
                 EchoBadge {
-                    // The reply label uses 11px/600, 1.5 line height and 6px/10px padding.
+                    objectName: "commentLikeCount"
+                    Layout.alignment: Qt.AlignTop
                     Layout.preferredHeight: font.pixelSize * 1.5 + (row.compact ? 8 : 12)
                     horizontalPadding: row.compact ? 8 : 10
                     foreground: Theme.accentText
-                    visible: !!row.entry.likes && row.entry.likes.count !== null && row.entry.likes.count !== undefined
+                    visible: !row.replyRow && !!row.entry.likes && row.entry.likes.count !== null && row.entry.likes.count !== undefined
                     count: row.entry.likes ? row.entry.likes.count : undefined
                     displayText: row.entry.likes && row.entry.likes.count !== null ? row.likeText(row.entry.likes.count) : ""
                     glyph: "thumb-up"
@@ -189,65 +228,57 @@ Rectangle {
                     tone: EchoBadge.Muted
                 }
             }
-            TextEdit {
-                id: body
+            Label {
+                visible: !row.replyRow && String(row.entry.quote_name || "").length > 0
+                Layout.topMargin: 2
+                text: qsTr("回复 %1").arg(row.entry.quote_name || "")
+                color: Theme.secondaryText
+                font: Theme.font(10, Theme.regularWeight)
+                lineHeightMode: Text.FixedHeight
+                lineHeight: 15
+            }
+            CommentBody {
                 objectName: "commentContent"
                 Layout.fillWidth: true
-                Layout.topMargin: row.compact ? 8 : 12
-                Layout.preferredHeight: contentHeight
-                readOnly: true
-                textFormat: TextEdit.PlainText
-                CommentTextStyle {
-                    document: body.textDocument
-                    lineHeight: body.font.pixelSize * 1.75
-                }
-                selectByMouse: true
-                wrapMode: TextEdit.Wrap
-                font: Theme.font(row.compact ? 12 : 14, Theme.regularWeight)
-                color: Theme.text
-                text: {
-                    const value = String(row.entry.body === undefined ? row.entry.content || "" : row.entry.body);
-                    return Array.from(value).length > 120 && !row.contentExpanded ? Array.from(value).slice(0, 120).join("") + "…" : value;
-                }
+                Layout.minimumWidth: 0
+                Layout.topMargin: row.replyRow ? 4 : row.compact ? 8 : 12
+                font: Theme.font(row.replyRow ? (row.compact ? 12 : 13) : (row.compact ? 12 : 14), Theme.regularWeight)
+                content: String(row.entry.body === undefined ? row.entry.content || "" : row.entry.body)
+                expanded: row.contentExpanded
+                onToggleRequested: row.controller.toggleContent(String(row.entry.id || ""))
             }
-            EchoSoftButton {
-                visible: Array.from(String(row.entry.body === undefined ? row.entry.content || "" : row.entry.body)).length > 120
-                plain: true
-                size: EchoControlSize.Small
-                text: row.contentExpanded ? qsTr("收起") : qsTr("展开")
-                onClicked: row.controller.toggleContent(String(row.entry.id || ""))
-            }
-            Rectangle {
+            CommentQuote {
+                objectName: "commentQuote"
+                resourceActive: row.resourceActive
+                visible: String(row.entry.quote_name || "").length > 0
                 Layout.fillWidth: true
                 Layout.topMargin: 8
-                visible: String(row.entry.quote_name || "").length > 0
-                implicitHeight: quote.implicitHeight + 16
-                color: Theme.mutedSurface
-                radius: Theme.detailRadius
-                Label {
-                    id: quote
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 8
-                    text: (row.entry.quote_name || "") + "：" + (row.entry.quote_content || "")
-                    wrapMode: Text.Wrap
-                    color: Theme.secondaryText
-                    font: Theme.font(12, Theme.regularWeight)
-                }
+                author: row.entry.quote_name || ""
+                content: row.entry.quote_content || ""
             }
             RowLayout {
+                objectName: "commentActions"
                 Layout.fillWidth: true
-                Layout.topMargin: 8
+                Layout.topMargin: row.replyRow ? 8 : 10
                 spacing: 16
+                Label {
+                    objectName: "commentReplyTime"
+                    visible: row.replyRow
+                    text: [row.entry.created_at || "", row.entry.location || ""].filter(v => v.length).join(" · ")
+                    color: Theme.secondaryText
+                    font: Theme.font(11, Theme.regularWeight)
+                    lineHeightMode: Text.FixedHeight
+                    lineHeight: 16.5
+                }
                 EchoSoftButton {
                     objectName: "commentThreadToggle"
                     visible: !row.replyRow && (row.entry.reply_count > 0 || !!row.entry.context_reply)
                     plain: true
-                    // Reply actions have no button inset.
                     implicitHeight: 24
                     leftPadding: 0
                     rightPadding: 0
+                    glyph: row.entry.thread_expanded ? "chevron-up" : "message-circle"
+                    glyphSize: 14
                     font: Theme.font(row.compact ? 11 : 12, Theme.mediumWeight)
                     foreground: Theme.accentText
                     text: row.entry.thread_expanded ? qsTr("收起回复") : row.entry.context_reply ? qsTr("查看上下文") : qsTr("查看%1条回复").arg(row.entry.reply_count)
@@ -257,25 +288,30 @@ Rectangle {
                     objectName: "commentReply"
                     visible: row.replyRow || !row.entry.context_reply
                     plain: true
-                    implicitHeight: 24
+                    implicitHeight: row.replyRow ? 18 : 24
                     leftPadding: 0
                     rightPadding: 0
-                    font: Theme.font(row.compact ? 11 : 12, Theme.mediumWeight)
-                    foreground: Theme.accentText
+                    font: Theme.font(row.replyRow ? 12 : row.compact ? 11 : 12, row.replyRow ? Theme.regularWeight : Theme.mediumWeight)
+                    foreground: row.replyRow && !hovered ? Theme.secondaryText : Theme.accentText
                     text: qsTr("回复")
                     onClicked: row.replyRequested(row.entry, row.rootId)
-                }
-                Item {
-                    Layout.fillWidth: true
                 }
                 EchoIconButton {
                     id: deleteButton
                     objectName: "commentDelete"
                     visible: row.controller.canDelete(row.entry)
-                    text: qsTr("删除评论")
+                    implicitWidth: 36
+                    implicitHeight: 36
+                    padding: row.replyRow ? 12 : 11.5
+                    hoverBackground: false
+                    foreground: hovered ? Theme.colors.dangerText : Theme.colors.iconMain
+                    text: row.replyRow ? qsTr("删除回复") : qsTr("删除评论")
                     glyph: "trash"
                     enabled: !row.controller.busy
                     onClicked: row.deleteRequested(row.entry, row.rootId, deleteButton)
+                }
+                Item {
+                    Layout.fillWidth: true
                 }
             }
         }

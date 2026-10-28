@@ -42,3 +42,5 @@ pub mod listen_together;
 pub mod listen_together_song;
 
 pub mod relation;
+
+pub mod interception;

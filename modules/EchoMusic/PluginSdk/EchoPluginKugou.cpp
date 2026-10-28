@@ -109,7 +109,7 @@ EchoPluginOperation *EchoPluginKugou::submit(const std::function<quint64()> &sta
         op->fail("LimitExceeded", "Too many business requests");
         return op;
     }
-    auto id = start();
+    auto id = m_scope.host().api.pluginRequest(start);
     if (!id) {
         op->fail("Unavailable", "Business service is unavailable");
         return op;

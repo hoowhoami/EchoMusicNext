@@ -20,7 +20,8 @@ QtObject {
     readonly property bool visible: item !== null && item.visible
     readonly property bool opened: item !== null && item.opened
     readonly property var hostWindow: hostItem ? hostItem.Window.window : null
-    readonly property bool available: hostItem !== null && hostItem.visible && hostItem.enabled && hostWindow !== null && hostWindow.visible && hostWindow.visibility !== Window.Minimized
+    readonly property bool hostAlive: hostItem !== null && hostItem.visible && hostWindow !== null && hostWindow.visible && hostWindow.visibility !== Window.Minimized
+    readonly property bool available: hostAlive && hostItem.enabled
     property int revision: 0
 
     function create(properties: var): T.Popup {
@@ -70,9 +71,14 @@ QtObject {
         });
     }
     onRequestedVisibleChanged: requestedVisible ? open() : close()
+    onHostAliveChanged: {
+        if (!hostAlive && !(keepOnMinimize && hostMinimized && hostItem !== null && hostItem.visible))
+            close();
+    }
     onAvailableChanged: {
         if (!available) {
-            if (!(keepOnMinimize && hostMinimized))
+            const covered = hostAlive && EchoPopupCoordinator.interactionSuspended(hostWindow);
+            if (!covered && !(keepOnMinimize && hostMinimized && hostItem !== null && hostItem.visible))
                 close();
         } else if (requestedVisible) {
             open();

@@ -105,3 +105,16 @@
 `ctx.webServer` 提供 loopback 同端口 HTTP/WebSocket 服务：`onRequest/onUpgrade/onConnection` 注册、`listen/status/close` 生命周期，异步请求/升级决策、二进制消息、ping/pong、Origin/Host 检查及消息/连接/缓冲限额。
 
 三类资源分别声明 `windows/tcp/webServer` capability，首次使用由宿主确认授权，绑定安装和当前包内容。插件管理“插件授权”可撤销；取消、账号变化、窗口作用域退出或停用关闭资源并丢弃迟到结果。详细签名与窗口配方见作者 SDK 的 `docs/windows-network.md`。
+
+
+包内程序用 `ctx.process.launch/terminate`，声明 `process`；首次启动按可执行内容授权，进程随 scope、账号和停用清理。`ctx.server.intercept` 声明 `serverIntercept`，支持签名前参数和 Wire 转换前原始传输两个阶段、优先级与一次性转发。管理页“插件授权”支持撤销；类型与使用边界见[作者 SDK](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/sdk.md#包内程序与宿主请求)。
+
+## 宿主导航、偏好、操作与封面
+
+`ctx.ui.navigation` 接入真实 RouteController 的内置页面、当前首页、设置入口、参数、历史与观察；原 `ui.navigate` 保留本插件注册页语义。`ctx.settings` 提供 playback/shell/appearance/lyrics/mini/desktop 的有限目录、分域类型化读写及合并快照订阅，调用原状态所有者保存，不访问任意 QSettings 或凭证。
+
+工具栏 definition 注册返回可 patch/refresh/invoke/cancel/dispose 的句柄，动态显隐/禁用/徽标、tooltip、默认位置/order、hover 及 Promise 忙态进入实际标题栏、播放栏和更多菜单；用户布局偏好仍优先。旧四参数注册共用此实现。
+
+`ctx.cover` 生成原生 SVG 主题图标封面，`ctx.ui.cover.setFallback` 接入共享 EchoCover 的空值/错误处理。多贡献按优先级及稳定键仲裁，加载失败继续下一层，撤下恢复下一贡献或当前宿主占位；保留原解码密度、裁切、过渡及池化资源释放。SVG 自定义图形限制为静态、自包含图形。
+
+feature 为 `ui.navigation/settings.host/ui.actions/cover.themed/ui.cover`；涉及读取与改变宿主的操作分别需要 navigation/hostSettings/cover 声明和首次授权，管理页可撤销。账号变化及 scope 退役撤销观察、动作与封面注册并取消在途交付；已完成的用户设置持久保留。完整签名及用法见[作者指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/host-access.md)。

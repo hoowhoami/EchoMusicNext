@@ -8,6 +8,7 @@ import EchoMusic.Playback
 
 EchoCover {
     id: cover
+    coverScope: "lyrics"
     required property PlaybackService playback
     readonly property bool canPlay: resourceActive && playback.playing && playback.lyricAppearance.dynamicAlbumCover && Theme.store.motionEnabled
     readonly property AlbumVideoSurface videoSurface: videoLoader.item as AlbumVideoSurface

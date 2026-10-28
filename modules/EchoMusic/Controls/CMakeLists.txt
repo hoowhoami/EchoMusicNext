@@ -29,6 +29,8 @@ qt_add_qml_module(
     EchoWheelScroll.cpp
     EchoWheelForwarder.h
     EchoWheelForwarder.cpp
+    EchoCoverRegistry.h
+    EchoCoverRegistry.cpp
     EchoIconSource.h
     EchoIconSource.cpp
     EchoImageMetrics.h

@@ -6,6 +6,11 @@ namespace EchoMusic
 class QrLoginServiceTestAccess
 {
 public:
+    static void authorize(QrLoginService &service, const QByteArray &payload)
+    {
+        service.m_authorization = payload;
+        emit service.authorized();
+    }
     static void present(QrLoginService &service, QrLoginService::State state, QString image = {})
     {
         service.clear();

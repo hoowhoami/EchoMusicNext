@@ -45,7 +45,16 @@ Rectangle {
                     objectName: "profileChangeAvatar"
                     Layout.preferredWidth: 56
                     Layout.preferredHeight: 56
+                    // The source avatar is shrink-0: name/tag pressure must
+                    // never turn the circular image or its overlay into an oval.
+                    Layout.minimumWidth: 56
+                    Layout.maximumWidth: 56
+                    Layout.minimumHeight: 56
+                    Layout.maximumHeight: 56
                     padding: 0
+                    // Basic.Button keeps padding + 2 horizontal padding by
+                    // default, which otherwise makes the inner avatar 52x56.
+                    horizontalPadding: 0
                     enabled: !overview.uploadingAvatar
                     hoverEnabled: true
                     Accessible.name: qsTr("修改头像")
@@ -108,6 +117,7 @@ Rectangle {
                 ColumnLayout {
                     Layout.fillHeight: false
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     spacing: 8
                     EchoTextTagRow {
                         objectName: "profileNameTags"

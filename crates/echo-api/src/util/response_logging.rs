@@ -114,6 +114,12 @@ fn payload(bytes: &[u8], status: u16, path: &str) -> String {
     serde_json::json!({"httpStatus": status, "path": path, "response": response}).to_string()
 }
 pub fn record(bytes: &[u8], status: u16, path: &str) {
+    record_origin(bytes, status, path, false);
+}
+pub fn record_intercepted(bytes: &[u8], status: u16, path: &str) {
+    record_origin(bytes, status, path, true);
+}
+fn record_origin(bytes: &[u8], status: u16, path: &str, intercepted: bool) {
     let level = if status >= 400 {
         1
     } else if ENABLED.load(Ordering::Relaxed) {
@@ -122,7 +128,15 @@ pub fn record(bytes: &[u8], status: u16, path: &str) {
         4
     };
     if echo_log::enabled(level) {
-        echo_log::write(level, "native.api.response", payload(bytes, status, path));
+        let mut value = payload(bytes, status, path);
+        if intercepted {
+            // Intercepted/mock bytes are never presented as an untouched provider sample.
+            if let Ok(mut record) = serde_json::from_str::<Value>(&value) {
+                record["origin"] = Value::String("plugin-interceptor".into());
+                value = record.to_string();
+            }
+        }
+        echo_log::write(level, "native.api.response", value);
     }
 }
 #[cfg(test)]

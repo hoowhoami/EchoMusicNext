@@ -23,9 +23,55 @@ public:
         return account.storedSession();
     }
 };
+class SavedAccountModelTestAccess
+{
+public:
+    static void timeout(SavedAccountModel &model)
+    {
+        QMetaObject::invokeMethod(&model.m_validationDeadline, "timeout");
+    }
+};
 class ApiClientTestAccess
 {
 public:
+    static quint64 candidate(ApiClient &api)
+    {
+        for (auto it = api.m_pending.cbegin(); it != api.m_pending.cend(); ++it)
+            if (it->request.value("operation") == QStringLiteral("user_detail"))
+                return it.key();
+        return 0;
+    }
+    static bool suspended(ApiClient &api, quint64 id)
+    {
+        return api.m_suspended.contains(id);
+    }
+    static quint64 retry(ApiClient &api, quint64 id)
+    {
+        for (auto it = api.m_pending.cbegin(); it != api.m_pending.cend(); ++it)
+            if (it->logicalId == id && it->retried)
+                return it.key();
+        return 0;
+    }
+    static void acknowledge(ApiClient &api, quint64 id)
+    {
+        const auto info = api.capabilities();
+        api.m_pending[info].verifiesRequest = id;
+        deliver(api, info, 0, R"({"acknowledged":true})");
+    }
+    static QJsonObject request(ApiClient &api, quint64 id)
+    {
+        return api.m_pending.value(id).request;
+    }
+    static void deliver(ApiClient &api, quint64 id, int status, const QByteArray &payload)
+    {
+        api.deliver(id, api.m_revision, status, payload);
+    }
+    // Domain DTOs only: these test state transitions, never provider conversion.
+    static void validate(ApiClient &api, qint64 user)
+    {
+        deliver(api, candidate(api), 0,
+                QJsonDocument(QJsonObject{{"id", user}, {"nickname", "Verified"}}).toJson());
+    }
     static QList<QJsonObject> requests(const ApiClient &api)
     {
         QList<QJsonObject> requests;
@@ -353,6 +399,200 @@ private slots:
         model.shutdown();
         storage.shutdown();
     }
+    void explicitSwitchPreservesCurrentAccount_data()
+    {
+        QTest::addColumn<QString>("outcome");
+        for (const auto &outcome :
+             {"authentication", "network", "timeout", "invalid_profile", "cancel",
+              "cancel_during_sql", "sql_failure", "other_login", "shutdown"})
+            QTest::newRow(outcome) << QString::fromLatin1(outcome);
+    }
+    void explicitSwitchPreservesCurrentAccount()
+    {
+        QFETCH(QString, outcome);
+        QTemporaryDir dir;
+        const auto path = dir.filePath("switch.sqlite");
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(1)); // All candidate HTTP stays on loopback.
+        AccountService account(api);
+        StorageService storage;
+        SavedAccountModel model(api, account, storage);
+        QSignalSpy ready(&storage, &StorageService::accountsReady);
+        storage.initialize(path);
+        QTRY_COMPARE(ready.size(), 1);
+        QVERIFY(account.adoptQrAuthorization(authorization(1, "candidate-token")));
+        QTRY_VERIFY(!model.busy());
+        QVERIFY(account.adoptQrAuthorization(authorization(2, "current-token")));
+        QTRY_VERIFY(!model.busy());
+        const auto revision = api.sessionRevision();
+        const auto session = AccountServiceTestAccess::session(account);
+        QSignalSpy adopted(&account, &AccountService::sessionAdopted);
+        QSignalSpy switched(&model, &SavedAccountModel::switched);
+        QSignalSpy expired(&api, &ApiClient::authenticationExpired);
+        QSignalSpy changedSession(&api, &ApiClient::sessionChanged);
+        if (outcome == "sql_failure") {
+            const auto connection = QUuid::createUuid().toString();
+            {
+                auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+                db.setDatabaseName(path);
+                QVERIFY(db.open());
+                QSqlQuery q(db);
+                QVERIFY(q.exec("CREATE TRIGGER reject_switch BEFORE UPDATE ON accounts BEGIN "
+                               "SELECT RAISE(ABORT,'test'); END"));
+            }
+            QSqlDatabase::removeDatabase(connection);
+        }
+        if (outcome == "cancel_during_sql")
+            connect(&storage, &StorageService::saveAccountRequested, &model,
+                    [&](quint64, const StoredAccount &, bool) { model.cancelSwitch(); });
+        QVERIFY(model.switchAccount(1));
+        const auto request = ApiClientTestAccess::candidate(api);
+        QVERIFY(request);
+        QVERIFY(model.busy());
+        QCOMPARE(model.switchingUserId(), quint64(1));
+        QCOMPARE(account.userId(), quint64(2));
+        QCOMPARE(api.sessionRevision(), revision);
+        QVERIFY(!model.switchAccount(1));
+        QVERIFY(!model.forgetAccount(1));
+        const auto candidate =
+            ApiClientTestAccess::request(api, request).value("identity").toObject();
+        QCOMPARE(candidate.value("userid").toInteger(), qint64(1));
+        QCOMPARE(candidate.value("token").toString(), QString("candidate-token"));
+        QCOMPARE(candidate.value("guid").toString(), api.deviceIdentitySnapshot().guid);
+        if (outcome == "authentication" || outcome == "network") {
+            ApiClientTestAccess::deliver(api, request, 5,
+                                         QJsonDocument(QJsonObject{{"kind", outcome}}).toJson());
+        } else if (outcome == "timeout") {
+            SavedAccountModelTestAccess::timeout(model);
+            emit api.succeeded(request, R"({"id":1})");
+        } else if (outcome == "invalid_profile") {
+            ApiClientTestAccess::validate(api, 9);
+        } else if (outcome == "cancel") {
+            model.cancelSwitch();
+            // Even a queued logical delivery may arrive after owner cancellation.
+            emit api.succeeded(request, R"({"id":1,"nickname":"Late"})");
+        } else if (outcome == "other_login") {
+            QVERIFY(account.adoptQrAuthorization(authorization(3, "new-login-token")));
+            emit api.succeeded(request, R"({"id":1,"nickname":"Late"})");
+        } else if (outcome == "shutdown") {
+            model.shutdown();
+            emit api.succeeded(request, R"({"id":1,"nickname":"Late"})");
+        } else {
+            ApiClientTestAccess::validate(api, 1);
+        }
+        QTRY_VERIFY(!model.busy());
+        QCOMPARE(account.userId(), outcome == "other_login" ? quint64(3) : quint64(2));
+        QCOMPARE(switched.size(), 0);
+        QCOMPARE(expired.size(), 0);
+        if (outcome != "other_login") {
+            QCOMPARE(adopted.size(), 0);
+            QCOMPARE(changedSession.size(), 0);
+            QCOMPARE(AccountServiceTestAccess::session(account), session);
+        }
+        for (int row = 0; row < model.count(); ++row)
+            if (model.data(model.index(row, 0), SavedAccountModel::UserIdRole).toULongLong() == 1)
+                QCOMPARE(
+                    model.data(model.index(row, 0), SavedAccountModel::LoginExpiredRole).toBool(),
+                    outcome == "authentication");
+        const auto connection = QUuid::createUuid().toString();
+        {
+            auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+            db.setDatabaseName(path);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT account_id FROM account_selection WHERE singleton=1"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toULongLong(), account.userId());
+        }
+        QSqlDatabase::removeDatabase(connection);
+    }
+    void successfulValidationCommitsOnceAndReusesProfile()
+    {
+        QTemporaryDir dir;
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(1));
+        AccountService account(api);
+        StorageService storage;
+        SavedAccountModel model(api, account, storage);
+        QSignalSpy ready(&storage, &StorageService::accountsReady);
+        storage.initialize(dir.filePath("switch.sqlite"));
+        QTRY_COMPARE(ready.size(), 1);
+        QVERIFY(account.adoptQrAuthorization(authorization(1)));
+        QTRY_VERIFY(!model.busy());
+        QVERIFY(account.adoptQrAuthorization(authorization(2)));
+        QTRY_VERIFY(!model.busy());
+        QSignalSpy changedSession(&api, &ApiClient::sessionChanged);
+        QSignalSpy switched(&model, &SavedAccountModel::switched);
+        QVERIFY(model.switchAccount(1));
+        QCOMPARE(account.userId(), quint64(2));
+        account.applyAvatar("https://example.test/updated-avatar.png");
+        QCOMPARE(model.switchingUserId(),
+                 quint64(1)); // Display updates do not retire the candidate.
+        ApiClientTestAccess::validate(api, 1);
+        QCOMPARE(account.userId(), quint64(2)); // Wait for successful SQL readback.
+        QTRY_VERIFY(!model.busy());
+        QCOMPARE(account.userId(), quint64(1));
+        QCOMPARE(account.nickname(), QString("Verified"));
+        QVERIFY(account.profileDetailAvailable());
+        QCOMPARE(changedSession.size(), 1);
+        QCOMPARE(switched.size(), 1);
+        account.loadProfileOnce();
+        QSet<QString> operations;
+        for (const auto &request : ApiClientTestAccess::requests(api))
+            operations.insert(request.value("operation").toString());
+        QVERIFY(!operations.contains("user_detail"));
+        QVERIFY(operations.contains("user_info"));
+        QVERIFY(operations.contains("user_vip_detail"));
+    }
+    void candidateChallengeDoesNotResumeOrCancelCurrentAccount()
+    {
+        for (const bool cancel : {false, true}) {
+            ApiClient api;
+            QVERIFY(api.setNetworkTransport(1));
+            QVERIFY(api.setAccount(2, "current-token"));
+            const auto candidate = api.validateAccount(1, "candidate-token", {});
+            const auto current = api.userDetail();
+            const QByteArray challenge =
+                R"({"kind":"challenge","challenge":{"event_id":"shared-event"}})";
+            ApiClientTestAccess::deliver(api, candidate, 5, challenge);
+            ApiClientTestAccess::deliver(api, current, 5, challenge);
+            QVERIFY(ApiClientTestAccess::suspended(api, candidate));
+            QVERIFY(ApiClientTestAccess::suspended(api, current));
+            if (cancel) {
+                QVERIFY(api.cancel(candidate));
+                QVERIFY(!ApiClientTestAccess::suspended(api, candidate));
+            } else {
+                ApiClientTestAccess::acknowledge(api, candidate);
+                QVERIFY(ApiClientTestAccess::retry(api, candidate));
+                QVERIFY(!ApiClientTestAccess::retry(api, current));
+            }
+            QVERIFY(ApiClientTestAccess::suspended(api, current));
+            QCOMPARE(api.currentAccountUserId(), quint64(2));
+        }
+    }
+    void candidateValidationBypassesInterceptorsAndIsolatesExpiry()
+    {
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(2, "current-token"));
+        int intercepted = 0;
+        auto intercept = [&](const QJsonObject &, ApiInterceptNext, ApiInterceptDone done) {
+            ++intercepted;
+            done({0, R"({"id":1})"});
+            return std::function<void()>{};
+        };
+        api.addInterceptor(0, intercept);
+        api.addInterceptor(0, intercept, true);
+        QSignalSpy expired(&api, &ApiClient::authenticationExpired);
+        const auto request = api.validateAccount(1, "candidate-token", "candidate-refresh");
+        QVERIFY(request);
+        ApiClientTestAccess::deliver(api, request, 5, R"({"kind":"authentication"})");
+        QCOMPARE(intercepted, 0);
+        QCOMPARE(expired.size(), 0);
+        const auto current = api.validateAccount(2, "current-token", {});
+        ApiClientTestAccess::deliver(api, current, 5, R"({"kind":"authentication"})");
+        QCOMPARE(expired.size(), 1);
+    }
     void catalogSaveSwitchForgetAndClose()
     {
         QTemporaryDir dir;
@@ -373,8 +613,10 @@ private slots:
         QVERIFY(account.adoptQrAuthorization(authorization(2)));
         QTRY_VERIFY(!model.busy());
         QCOMPARE(model.count(), 2);
-        QCOMPARE(notices.size(), 0); // Login persistence is not an explicit account switch.
+        QCOMPARE(notices.size(), 0);         // Login persistence is not an explicit account switch.
+        QVERIFY(api.setNetworkTransport(1)); // Local unreachable transport, no provider HTTP.
         QVERIFY(model.switchAccount(1));
+        ApiClientTestAccess::validate(api, 1);
         QTRY_VERIFY(!model.busy());
         QCOMPARE(account.userId(), quint64(1));
         QCOMPARE(model.data(model.index(0, 0), SavedAccountModel::UserIdRole).toULongLong(),
@@ -569,7 +811,9 @@ private slots:
         QCOMPARE(session.value("token").toString(), QString("token-2"));
         QCOMPARE(session.value("refresh_credential").toString(), QString("refresh-2"));
         QCOMPARE(session.value("expires_at_seconds").toInteger(), qint64(9876543210LL));
+        QVERIFY(api.setNetworkTransport(1)); // Local unreachable transport, no provider HTTP.
         QVERIFY(model.switchAccount(1));
+        ApiClientTestAccess::validate(api, 1);
         QTRY_VERIFY(!model.busy());
         QCOMPARE(account.userId(), quint64(1));
         QCOMPARE(startupAdoptions, (QList<bool>{true, false}));

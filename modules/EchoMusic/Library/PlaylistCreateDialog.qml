@@ -33,6 +33,7 @@ EchoDialog {
             onAccepted: dialog.service.create(dialog.playlistTitle, dialog.privatePlaylist)
         }
         Rectangle {
+            objectName: "playlistPrivacyCard"
             Layout.fillWidth: true
             implicitHeight: 66
             radius: Theme.cardRadius
@@ -57,6 +58,9 @@ EchoDialog {
                     }
                 }
                 EchoSwitch {
+                    objectName: "playlistPrivateSwitch"
+                    Layout.fillWidth: false
+                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                     checked: dialog.privatePlaylist
                     enabled: !dialog.service.busy
                     onToggled: dialog.privatePlaylist = checked
