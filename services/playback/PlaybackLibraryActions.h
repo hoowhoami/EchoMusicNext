@@ -113,6 +113,7 @@ private:
     void favoritePage(quint64, const QByteArray &);
     void nextWrite();
     void writeCompleted(const QByteArray &);
+    void applyFavoriteAdds(const QJsonArray &outcomes);
     void writeFailed(const QString &);
     void notifyRows();
     PlaybackService &m_playback;

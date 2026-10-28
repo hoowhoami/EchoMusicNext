@@ -1,9 +1,11 @@
 #include "SongMetadataService.h"
 #include "EmbeddedCoverCache.h"
 #include "EmbeddedCoverPresentation.h"
+#include "ArtistCoverPresentation.h"
 #include <QJsonDocument>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QScopedValueRollback>
 #include <algorithm>
 #include <utility>
 namespace EchoMusic
@@ -23,6 +25,14 @@ bool needsArtistCompletion(const QJsonObject &song)
 {
     return !hasArtistName(song["artists"]) ||
            !song["metadata"].toObject()["filename_artist_name"].toString().isEmpty();
+}
+int coverPriority(const QJsonObject &song)
+{
+    const auto cover = song["cover_url"].toString();
+    if (cover.trimmed().isEmpty())
+        return 0;
+    const auto metadata = song["metadata"].toObject();
+    return hasArtistCover(metadata, cover) ? 1 : hasEmbeddedCover(metadata, cover) ? 2 : 3;
 }
 } // namespace
 QJsonArray SongMetadataService::artistRefs(const QString &artist)
@@ -85,7 +95,7 @@ void SongMetadataService::enableCoverCache(const QString &directory)
     });
     m_covers->setScope(m_api.currentAccountUserId());
     for (const auto &key : m_listeners.keys())
-        if (!key.startsWith("id:"))
+        if (!key.startsWith("id:") && !key.startsWith("artist:"))
             m_coverIdentities.insert(m_covers->identityKey(key), key);
     // Re-project existing leases as well as asynchronously restored entries.
     m_pendingKeys.unite(QSet<QString>(m_listeners.keyBegin(), m_listeners.keyEnd()));
@@ -121,11 +131,19 @@ QString catalogId(const QJsonObject &song)
     const auto numeric = id.toULongLong(&ok);
     return ok && numeric ? QString::number(numeric) : QString();
 }
+QStringList songCoverKeys(const QJsonObject &song)
+{
+    // Album artwork belongs to a catalog version. Exact audio identities are
+    // only the fallback when this file has no catalog identity at all.
+    const auto id = catalogId(song);
+    return id.isEmpty() ? SongMetadataService::identityKeys(song) : QStringList{"id:" + id};
+}
 } // namespace
 bool SongMetadataService::needsCompletion(const QJsonObject &s)
 {
     if (missingText(s["title"].toString()) || missingText(s["cover_url"].toString()) ||
         hasEmbeddedCover(s["metadata"].toObject(), s["cover_url"].toString()) ||
+        hasArtistCover(s["metadata"].toObject(), s["cover_url"].toString()) ||
         !s["album_id"].toString().toULongLong() || missingText(s["album_title"].toString()) ||
         needsArtistCompletion(s))
         return true;
@@ -139,9 +157,14 @@ QJsonObject SongMetadataService::completeSong(QJsonObject s, const QJsonObject &
     const auto id = s["id"].toString();
     if (id != p["id"] && id != "0" && !id.isEmpty())
         return s;
-    if (!p["cover_url"].toString().isEmpty() &&
+    if (coverPriority(p) > coverPriority(s) &&
         hasEmbeddedCover(s["metadata"].toObject(), s["cover_url"].toString()))
         s = withoutEmbeddedCover(s);
+    if (coverPriority(p) > coverPriority(s) &&
+        hasArtistCover(s["metadata"].toObject(), s["cover_url"].toString()))
+        s = withoutArtistCover(s);
+    if (const auto artists = presentationArtists(s); !artists.isEmpty() || s.contains("artists"))
+        s["artists"] = artists;
     const bool provisional = !s["metadata"].toObject()["filename_artist_name"].toString().isEmpty();
     const bool artistGap = needsArtistCompletion(s);
     if (artistGap && hasArtistName(p["artists"]))
@@ -167,6 +190,8 @@ QJsonObject SongMetadataService::completeSong(QJsonObject s, const QJsonObject &
         }
         s["artists"] = artists;
     }
+    if (!p["embedded_text"].toBool())
+        s["artists"] = mergeArtistAvatars(s["artists"].toArray(), p["artists"].toArray(), true);
     const auto localPath = s["local_path"].toString();
     const bool filenameTitle =
         !localPath.isEmpty() && s["title"].toString() == QFileInfo(localPath).completeBaseName();
@@ -179,8 +204,14 @@ QJsonObject SongMetadataService::completeSong(QJsonObject s, const QJsonObject &
     if (missingText(s["album_title"].toString()) && !missingText(p["album_title"].toString()))
         s["album_title"] = p["album_title"];
     if (s["cover_url"].toString().trimmed().isEmpty() &&
-        !p["cover_url"].toString().trimmed().isEmpty())
+        !p["cover_url"].toString().trimmed().isEmpty()) {
         s["cover_url"] = p["cover_url"];
+        auto metadata = s["metadata"].toObject();
+        for (const auto &key : {"artist_cover_url", "embedded_cover_url"})
+            if (p["metadata"].toObject()[key].toString() == p["cover_url"].toString())
+                metadata[key] = p["cover_url"];
+        s["metadata"] = metadata;
+    }
     if (s["duration_ms"].toDouble() <= 0 && p["duration_ms"].toDouble() > 0)
         s["duration_ms"] = p["duration_ms"];
     auto meta = s["metadata"].toObject();
@@ -208,7 +239,10 @@ QStringList SongMetadataService::identityKeys(const QJsonObject &song)
 }
 QJsonObject SongMetadataService::complete(const QJsonObject &song)
 {
-    auto result = withoutEmbeddedCover(song);
+    auto result = withoutArtistCover(withoutEmbeddedCover(song));
+    if (const auto artists = presentationArtists(result);
+        !artists.isEmpty() || result.contains("artists"))
+        result["artists"] = artists;
     const auto id = catalogId(song);
     if (auto *cached = m_cache.object(id);
         cached && !cached->value.isEmpty() && cached->expires > m_clock.elapsed()) {
@@ -225,6 +259,16 @@ QJsonObject SongMetadataService::complete(const QJsonObject &song)
             result = completeSong(result, presentation);
         }
     }
+    rememberCoverFacts(result);
+    if (result["cover_url"].toString().trimmed().isEmpty())
+        for (const auto &key : songCoverKeys(song)) {
+            const auto *entry = m_coverFacts.object(key);
+            if (entry && entry->expires > m_clock.elapsed() &&
+                !entry->value["song_cover_url"].toString().isEmpty()) {
+                result["cover_url"] = entry->value["song_cover_url"];
+                break;
+            }
+        }
     if (m_covers && result["cover_url"].toString().trimmed().isEmpty()) {
         const auto url = m_covers->lookup(identityKeys(song));
         if (!url.isEmpty()) {
@@ -234,7 +278,126 @@ QJsonObject SongMetadataService::complete(const QJsonObject &song)
             result["metadata"] = meta;
         }
     }
+    if (result["cover_url"].toString().trimmed().isEmpty()) {
+        const auto candidate = artistCover(result);
+        const auto url = artistAvatar(candidate);
+        if (!url.isEmpty()) {
+            result["cover_url"] = url;
+            auto meta = result["metadata"].toObject();
+            meta["artist_cover_url"] = url;
+            result["metadata"] = meta;
+        }
+    }
     return result;
+}
+QStringList SongMetadataService::observationKeys(const QJsonObject &song) const
+{
+    auto keys = identityKeys(song);
+    if (!song["metadata"].toObject()["plugin_source"].toString().isEmpty())
+        return keys;
+    for (const auto &value : presentationArtists(song))
+        if (const auto id = value.toObject()["id"].toVariant().toULongLong(); id)
+            keys.append("artist:" + QString::number(id));
+    keys.removeDuplicates();
+    return keys;
+}
+void SongMetadataService::rememberCoverFacts(const QJsonObject &song, bool replace)
+{
+    // Observer callbacks only replay facts. Re-publication on every cache miss
+    // would keep a catalog larger than the cache in an endless eviction loop.
+    if (m_closed || (m_notifying && !replace))
+        return;
+    const auto cover = coverPriority(song) == 3 &&
+                               song["metadata"].toObject()["plugin_source"].toString().isEmpty()
+                           ? presentationImageUrl(song["cover_url"].toString())
+                           : QString();
+    const auto remember = [this, replace, &cover](const QString &key, const QJsonObject &artist,
+                                                  bool songIdentity) {
+        auto *previous = m_coverFacts.object(key);
+        const bool valid = previous && previous->expires > m_clock.elapsed();
+        auto value = valid ? previous->value : QJsonObject{};
+        if (!artistAvatar(artist).isEmpty() && (replace || artistAvatar(value).isEmpty()))
+            for (const auto &field : {"id", "name", "avatar_url"})
+                value[field] = artist[field];
+        if (songIdentity && !cover.isEmpty() &&
+            (replace || value["song_cover_url"].toString().isEmpty()))
+            value["song_cover_url"] = cover;
+        if (value.isEmpty() || (valid && previous->value == value))
+            return;
+        m_coverFacts.insert(
+            key, new CacheEntry{value, m_clock.elapsed() + 24 * 60 * 60 * 1000},
+            std::max(1000, int(QJsonDocument(value).toJson(QJsonDocument::Compact).size() * 2)));
+        m_pendingKeys.insert(key);
+    };
+    const auto refs = presentationArtists(song);
+    const auto identities = identityKeys(song);
+    const auto coverKeys = songCoverKeys(song);
+    const bool catalogArtists = song["metadata"].toObject()["plugin_source"].toString().isEmpty();
+    // An online completion can reveal an artist ID after the original watch.
+    // Extend only matching row indices; never resubscribe an entire catalog.
+    for (const auto &value : refs) {
+        const auto id = value.toObject()["id"].toVariant().toULongLong();
+        if (!id || !catalogArtists)
+            continue;
+        const auto artistKey = "artist:" + QString::number(id);
+        for (const auto &key : identities)
+            for (auto *owner : m_listeners.value(key)) {
+                auto &observer = m_observers[owner];
+                observer.rows[artistKey].unite(observer.rows.value(key));
+                m_listeners[artistKey].insert(owner);
+            }
+    }
+    QJsonObject first;
+    for (const auto &value : refs) {
+        const auto artist = value.toObject();
+        const auto avatar = artistAvatar(artist);
+        if (avatar.isEmpty() ||
+            (!artist["id"].toVariant().toULongLong() && missingText(artist["name"].toString())))
+            continue;
+        // Retain only the identity and URL required by presentation completion.
+        const QJsonObject fact{
+            {"id", artist["id"]}, {"name", artist["name"]}, {"avatar_url", avatar}};
+        if (first.isEmpty())
+            first = fact;
+        if (const auto id = artist["id"].toVariant().toULongLong(); id && catalogArtists)
+            remember("artist:" + QString::number(id), fact, false);
+    }
+    if (!first.isEmpty() || !cover.isEmpty())
+        for (const auto &key : identities)
+            remember(key, first, coverKeys.contains(key));
+    if (!m_pendingKeys.isEmpty())
+        m_notify.start();
+}
+QJsonObject SongMetadataService::artistCover(const QJsonObject &song)
+{
+    const auto read = [this](const QString &key) -> QJsonObject {
+        if (auto *entry = m_coverFacts.object(key); entry && entry->expires > m_clock.elapsed())
+            return entry->value;
+        m_coverFacts.remove(key);
+        return {};
+    };
+    const auto artists = presentationArtists(song);
+    const bool catalogArtists = song["metadata"].toObject()["plugin_source"].toString().isEmpty();
+    for (const auto &value : artists) {
+        const auto artist = value.toObject();
+        if (const auto id = artist["id"].toVariant().toULongLong(); id && catalogArtists)
+            if (const auto cached = read("artist:" + QString::number(id)); !cached.isEmpty())
+                return cached;
+        if (!artistAvatar(artist).isEmpty() &&
+            (artist["id"].toVariant().toULongLong() || !missingText(artist["name"].toString())))
+            return artist;
+    }
+    for (const auto &key : identityKeys(song)) {
+        const auto cached = read(key);
+        if (cached.isEmpty())
+            continue;
+        if (!hasArtistName(artists))
+            return cached;
+        for (const auto &value : artists)
+            if (samePresentationArtist(value.toObject(), cached))
+                return cached;
+    }
+    return {};
 }
 void SongMetadataService::publishEmbedded(const QJsonObject &song)
 {
@@ -306,10 +469,10 @@ void SongMetadataService::watch(QObject *owner, const QList<Observation> &songs,
     observer.apply = std::move(apply);
     QSet<QString> ids;
     for (const auto &entry : songs) {
-        for (const auto &key : identityKeys(entry.song)) {
-            observer.rows[key].append(entry.row);
+        for (const auto &key : observationKeys(entry.song)) {
+            observer.rows[key].insert(entry.row);
             m_listeners[key].insert(owner);
-            if (m_covers && !key.startsWith("id:"))
+            if (m_covers && !key.startsWith("id:") && !key.startsWith("artist:"))
                 m_coverIdentities.insert(m_covers->identityKey(key), key);
         }
         const auto id = catalogId(entry.song);
@@ -322,6 +485,7 @@ void SongMetadataService::watch(QObject *owner, const QList<Observation> &songs,
 }
 void SongMetadataService::notifyObservers()
 {
+    QScopedValueRollback notifying(m_notifying, true);
     const auto keys = std::exchange(m_pendingKeys, {});
     QHash<QObject *, QSet<QString>> rows;
     for (const auto &key : keys)
@@ -379,6 +543,7 @@ void SongMetadataService::clear()
     m_jobs.clear();
     m_cache.clear();
     m_embedded.clear();
+    m_coverFacts.clear();
     m_coverIdentities.clear();
     if (m_covers && !m_closed)
         m_covers->setScope(m_api.currentAccountUserId());
@@ -411,6 +576,8 @@ void SongMetadataService::shutdown()
 }
 void SongMetadataService::settle(const QString &id, const QJsonObject &value, bool cache)
 {
+    if (cache && !value.isEmpty())
+        rememberCoverFacts(value, true);
     if (cache)
         m_cache.insert(
             id,

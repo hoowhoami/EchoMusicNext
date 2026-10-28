@@ -16,7 +16,9 @@ Item {
     required property RouteContext context
     required property ShellSettings settings
     readonly property bool compactLayout: width <= 720
-    readonly property bool initialLoading: marketplace && manager.catalogLoading && !manager.loaded
+    // loaded tracks the network pass, while catalogCount includes disk cache
+    // before filtering. A refresh must not insert placeholders above that cache.
+    readonly property bool initialLoading: marketplace && manager.catalogLoading && !manager.loaded && manager.catalogCount === 0
     readonly property bool marketplace: context.query.view === "marketplace"
     property string uninstallId: ""
     property string failureId: ""
@@ -182,7 +184,7 @@ Item {
                         labelLetterSpacing: 0
                         width: page.compactLayout ? parent.width : Math.min(280, parent.width)
                         glyphs: ["puzzle", "cloud"]
-                        counts: [String(page.manager.runtime.count), page.manager.loaded ? String(page.manager.catalogCount) : "-"]
+                        counts: [String(page.manager.runtime.count), page.manager.loaded || page.manager.catalogCount > 0 ? String(page.manager.catalogCount) : "-"]
                         labels: [qsTr("已安装"), qsTr("在线插件")]
                         accessibleName: qsTr("插件视图")
                         currentIndex: page.marketplace ? 1 : 0
@@ -333,6 +335,7 @@ Item {
                     }
                     RowLayout {
                         id: heading
+                        objectName: "pluginCatalogHeading"
                         Layout.fillHeight: false
                         Layout.fillWidth: true
                         Layout.preferredHeight: 21
@@ -358,9 +361,9 @@ Item {
                     }
                     Loader {
                         Layout.fillWidth: true
-                        active: page.initialLoading
+                        active: page.initialLoading && page.context.active
                         visible: active
-                        Layout.preferredHeight: item ? (item as Item).implicitHeight : 0
+                        Layout.preferredHeight: active && item ? (item as Item).implicitHeight : 0
                         sourceComponent: PluginMarketplaceSkeleton {
                             columns: rows.columns
                             resourceActive: page.context.active
@@ -372,16 +375,11 @@ Item {
                 id: row
                 required property var cards
                 width: list.width
-                height: {
-                    let tallest = 0;
-                    for (let i = 0; i < cardRepeater.count; ++i) {
-                        const card = cardRepeater.itemAt(i);
-                        if (card)
-                            tallest = Math.max(tallest, card.implicitHeight);
-                    }
-                    return tallest;
-                }
-                Row {
+                // Native layout observes child insertion and implicit size changes,
+                // including Repeater delegates completed after async page creation.
+                height: cardLayout.implicitHeight
+                RowLayout {
+                    id: cardLayout
                     x: 24
                     spacing: 14
                     Repeater {
@@ -390,8 +388,8 @@ Item {
                         delegate: PluginCard {
                             required property var modelData
                             objectName: "pluginCard-" + (modelData.id || "invalid")
-                            width: (list.width - 48 - (rows.columns - 1) * 14) / rows.columns
-                            height: row.height
+                            Layout.preferredWidth: Math.max(0, (list.width - 48 - (rows.columns - 1) * 14) / rows.columns)
+                            Layout.fillHeight: true
                             record: modelData
                             marketplace: page.marketplace
                             manager: page.manager

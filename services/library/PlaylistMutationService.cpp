@@ -114,6 +114,7 @@ bool PlaylistMutationService::saveEdit(const ApiClient::PlaylistUpdate &update,
     m_seen = 0;
     m_found = false;
     m_libraryReadIds.clear();
+    m_directoryItems = {};
     QPointer<PlaylistMutationService> guard(this);
     readCoverLibrary();
     return guard && m_request != 0;
@@ -266,6 +267,7 @@ void PlaylistMutationService::reset()
     m_positions.clear();
     m_verifiedPositions.clear();
     m_libraryReadIds.clear();
+    m_directoryItems = {};
     m_revision = m_api.sessionRevision();
     m_state = !m_closed && m_api.currentAccountUserId() ? State::Ready : State::SignedOut;
     QPointer<PlaylistMutationService> guard(this);
@@ -348,6 +350,8 @@ void PlaylistMutationService::succeed(quint64 request, const QByteArray &payload
     }
     const auto items = page.value("items").toArray();
     if (library) {
+        for (const auto &item : items)
+            m_directoryItems.append(item);
         m_seen += quint64(items.size());
         for (const auto &value : items) {
             const auto row = value.toObject();
@@ -382,7 +386,7 @@ void PlaylistMutationService::succeed(quint64 request, const QByteArray &payload
                 m_found = true;
             }
         }
-        if (!items.isEmpty() && (total ? m_seen < *total : items.size() >= 200)) {
+        if (!items.isEmpty() && (total ? m_seen < *total : items.size() >= 100)) {
             ++m_page;
             readNext();
             return;
@@ -400,10 +404,21 @@ void PlaylistMutationService::succeed(quint64 request, const QByteArray &payload
     m_error.clear();
     m_acknowledgement.clear();
     QPointer<PlaylistMutationService> guard(this);
-    if (library)
+    if (library) {
+        auto snapshot = object;
+        auto completePage = page;
+        completePage["items"] = m_directoryItems;
+        snapshot["page"] = completePage;
+        emit libraryReconciled(snapshot, revision);
+        if (!guard || revision != m_api.sessionRevision())
+            return;
         emit libraryInvalidated();
-    else
+    } else {
         emit tracksReconciled(id, *version, total ? qint64(*total) : -1, revision);
+        if (!guard || revision != m_api.sessionRevision())
+            return;
+        emit trackPageReconciled(object, revision);
+    }
     if (!guard || revision != m_api.sessionRevision())
         return;
     if (!library)
@@ -456,6 +471,7 @@ bool PlaylistMutationService::reconcile()
     m_found = false;
     m_verifiedPositions.clear();
     m_libraryReadIds.clear();
+    m_directoryItems = {};
     m_state = State::Reconciling;
     m_error.clear();
     const auto revision = m_revision;

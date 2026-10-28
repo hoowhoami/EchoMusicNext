@@ -62,6 +62,7 @@ public:
     /// negative count preserves the previous count when upstream omitted it.
     void applyTrackSnapshot(quint64 cloudListId, quint64 revision, qint64 songCount,
                             quint64 sessionRevision);
+    void applyLibrarySnapshot(const QJsonObject &snapshot, quint64 sessionRevision);
     void attachStorage(StorageService &storage);
     QString coverFor(const QString &globalId, const QString &fallback) const;
     /// Account-local editable metadata overlays public collection presentation.
@@ -113,6 +114,7 @@ private:
         bool descriptionPresent = false, tagsPresent = false;
         bool editable = false, isPrivate = false, collected = false, customCover = false;
     };
+    static Row readRow(const QJsonObject &item);
     void resetState();
     void finishMutation();
     void succeed(quint64 id, const QByteArray &payload);

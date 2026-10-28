@@ -732,6 +732,56 @@ void ControlsUiTest::tooltipPopupsExistOnlyDuringTheirTrigger()
     QCOMPARE(warnings.size(), 0);
 }
 
+void ControlsUiTest::tooltipPressPreservesClickAndRelease()
+{
+    ControlsSession session;
+    QVERIFY(session.create());
+    session.window->setPosition(session.window->screen()->availableGeometry().topLeft() +
+                                QPoint(16, 16));
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    auto *button = session.item("iconButton");
+    QVERIFY(button);
+    auto *hint = button->findChild<QObject *>("iconButtonToolTip");
+    QVERIFY(hint);
+    QSignalSpy clicked(button, SIGNAL(clicked()));
+    const auto center = button->mapToScene(button->boundingRect().center()).toPoint();
+    const auto hover = [&] {
+        Test::moveNativePointer(session.window, {10, 270});
+        QTRY_VERIFY(!hint->property("requestedVisible").toBool());
+        QTest::qWait(80);
+        Test::moveNativePointer(session.window, center);
+        QTRY_VERIFY(hint->property("requestedVisible").toBool());
+    };
+    for (const bool delayed : {false, true}) {
+        hint->setProperty("delay", delayed ? 300 : 0);
+        hover();
+        QPointer<QObject> nativeHint = hint->property("popup").value<QObject *>();
+        if (!delayed) {
+            QTRY_VERIFY(hint->property("visible").toBool());
+            nativeHint = hint->property("popup").value<QObject *>();
+            QVERIFY(nativeHint);
+        }
+        const auto before = clicked.count();
+        QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, center);
+        QTRY_VERIFY(nativeHint.isNull());
+        QVERIFY(button->property("pressed").toBool());
+        QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, center);
+        QTRY_VERIFY(!button->property("pressed").toBool());
+        QTRY_VERIFY(!button->property("down").toBool());
+        QCOMPARE(clicked.count(), before + 1);
+        QTRY_VERIFY(nativeHint.isNull());
+        QTest::qWait(350);
+        QVERIFY(!hint->property("popup").value<QObject *>());
+        QVERIFY(!session.window->mouseGrabberItem());
+    }
+    hover();
+    QTRY_VERIFY(hint->property("visible").toBool());
+    Test::moveNativePointer(session.window, {10, 270});
+    QTRY_VERIFY(!hint->property("session").value<QObject *>());
+    QCOMPARE(warnings.size(), 0);
+}
+
 void ControlsUiTest::nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover()
 {
     ControlsSession session;

@@ -1,4 +1,6 @@
 #include "PlaybackQueueModel.h"
+#include "ArtistCoverPresentation.h"
+#include "EmbeddedCoverPresentation.h"
 #include "SongMetadataService.h"
 #include <algorithm>
 namespace EchoMusic
@@ -245,10 +247,14 @@ void PlaybackQueueModel::updateFacts(const QString &id, const QString &hash, con
         row.album = album;
         changed = true;
     }
-    // An embedded cover is a local extraction artifact; only a missing
-    // placeholder adopts it.
-    if (!cover.isEmpty() && row.cover.trimmed().isEmpty() && row.cover != cover) {
+    // This legacy channel carries durable provider covers. Display fallbacks
+    // must not block a higher-priority fact or lose their provenance.
+    if (!cover.isEmpty() && row.cover != cover &&
+        (row.cover.trimmed().isEmpty() || hasArtistCover(row.catalogMetadata, row.cover) ||
+         hasEmbeddedCover(row.catalogMetadata, row.cover))) {
         row.cover = cover;
+        row.catalogMetadata.remove("artist_cover_url");
+        row.catalogMetadata.remove("embedded_cover_url");
         changed = true;
     }
     // The demuxed duration is authoritative for uploads without provider data.

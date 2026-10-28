@@ -13,14 +13,31 @@ namespace EchoMusic
 TrayIconTheme::TrayIconTheme(std::function<void()> update, QObject *parent)
     : QObject(parent), m_update(std::move(update))
 {
+    // AppKit recolours template images itself. Replacing the same image for
+    // every propagated Qt theme event decodes/rasterizes it for the whole scene
+    // tree and can starve the GUI during a system appearance transition.
+#ifndef Q_OS_MACOS
+    m_pendingUpdate.setSingleShot(true);
+    m_pendingUpdate.setInterval(50);
+    connect(&m_pendingUpdate, &QTimer::timeout, this, [this] {
+        // A native icon update can dispatch theme events synchronously. They
+        // belong to this refresh, rather than requesting another refresh.
+        m_updating = true;
+        m_update();
+        m_updating = false;
+    });
     qApp->installNativeEventFilter(this);
     qApp->installEventFilter(this);
-    connect(qApp->styleHints(), &QStyleHints::colorSchemeChanged, this, [this] { m_update(); });
+    connect(qApp->styleHints(), &QStyleHints::colorSchemeChanged, this,
+            &TrayIconTheme::scheduleUpdate);
+#endif
 }
 TrayIconTheme::~TrayIconTheme()
 {
+#ifndef Q_OS_MACOS
     qApp->removeNativeEventFilter(this);
     qApp->removeEventFilter(this);
+#endif
 }
 QIcon TrayIconTheme::monochrome(const QColor &color)
 {
@@ -69,13 +86,20 @@ QIcon TrayIconTheme::icon()
 #endif
 #endif
 }
+void TrayIconTheme::scheduleUpdate()
+{
+    // Bound bursts without extending the deadline. The timer belongs to the
+    // tray owner, so its pending delivery is cancelled during teardown.
+    if (!m_updating && !m_pendingUpdate.isActive())
+        m_pendingUpdate.start();
+}
 bool TrayIconTheme::nativeEventFilter(const QByteArray &, void *message, qintptr *)
 {
 #ifdef Q_OS_WIN
     const auto *event = static_cast<MSG *>(message);
     if (event->message == WM_SETTINGCHANGE || event->message == WM_THEMECHANGED ||
         event->message == WM_SYSCOLORCHANGE)
-        m_update();
+        scheduleUpdate();
 #else
     Q_UNUSED(message);
 #endif
@@ -84,7 +108,7 @@ bool TrayIconTheme::nativeEventFilter(const QByteArray &, void *message, qintptr
 bool TrayIconTheme::eventFilter(QObject *, QEvent *event)
 {
     if (event->type() == QEvent::ApplicationPaletteChange || event->type() == QEvent::ThemeChange)
-        m_update();
+        scheduleUpdate();
     return false;
 }
 } // namespace EchoMusic

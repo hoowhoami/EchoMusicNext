@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QUrl>
+#include <QScopeGuard>
 #include <utility>
 
 namespace EchoMusic
@@ -316,6 +317,38 @@ void UserPlaylistModel::reload()
     resetState();
     fetchMore({});
 }
+UserPlaylistModel::Row UserPlaylistModel::readRow(const QJsonObject &item)
+{
+    Row row;
+    const auto kind = item.value("kind").toString();
+    row.cloudId.value = quint64(qMax<qint64>(0, item.value("cloud_list_id").toInteger()));
+    // A model index identifies the row; incomplete or repeated provider IDs
+    // must not discard its title, provenance or other available facts.
+    row.songCount = quint64(qMax<qint64>(0, item.value("song_count").toInteger()));
+    row.revision = quint64(qMax<qint64>(0, item.value("revision").toInteger()));
+    row.creatorId = quint64(qMax<qint64>(0, item.value("creator_id").toInteger()));
+    row.creatorListId = quint64(qMax<qint64>(0, item.value("creator_list_id").toInteger()));
+    const auto source = item.value("source_code").toInteger();
+    if (!item.value("default_kind").isNull())
+        row.defaultKind = quint32(item.value("default_kind").toInteger());
+    row.globalId = item.value("global_id").toString();
+    row.creatorGlobalId = item.value("creator_global_id").toString();
+    row.title = item.value("title").toString();
+    row.description = item.value("description").toString();
+    row.tags = item.value("tags").toString();
+    row.descriptionPresent = item.value("description_present").toBool();
+    row.tagsPresent = item.value("tags_present").toBool();
+    row.cover = item.value("cover_url").toString();
+    row.creatorName = item.value("creator_name").toString();
+    row.sortIndex = item.value("sort_index").toInteger();
+    row.editable = kind == QStringLiteral("owned") && item.value("editable").toBool();
+    row.isPrivate = item.value("private").toBool();
+    row.kind = kind;
+    row.collected = kind == QStringLiteral("collected");
+    row.customCover = item.value("custom_cover").toBool();
+    row.sourceCode = quint32(source);
+    return row;
+}
 void UserPlaylistModel::applyTrackSnapshot(quint64 cloudListId, quint64 revision, qint64 songCount,
                                            quint64 sessionRevision)
 {
@@ -346,6 +379,109 @@ void UserPlaylistModel::applyTrackSnapshot(quint64 cloudListId, quint64 revision
         return;
     }
 }
+void UserPlaylistModel::applyLibrarySnapshot(const QJsonObject &snapshot, quint64 session)
+{
+    const auto page = snapshot["page"].toObject();
+    if (m_closed || m_mutating || !m_api.currentAccountUserId() ||
+        session != m_api.sessionRevision() ||
+        quint64(snapshot["user_id"].toInteger()) != m_api.currentAccountUserId() ||
+        !snapshot["total_revision"].isDouble() || snapshot["total_revision"].toInteger(-1) < 0 ||
+        !page["items"].isArray())
+        return;
+    const auto revision = quint64(snapshot["total_revision"].toInteger());
+    if (m_sessionRevision == session && revision < m_listRevision)
+        return;
+    QList<Row> rows;
+    QSet<quint64> wanted, previous;
+    const auto ambiguous = [this] {
+        m_state = State::RestartRequired;
+        m_error = tr("歌单身份无法增量核对，请刷新目录后重试");
+        emit changed();
+    };
+    for (const auto &value : page["items"].toArray()) {
+        auto row = readRow(value.toObject());
+        if (!row.cloudId.value || wanted.contains(row.cloudId.value)) {
+            ambiguous();
+            return; // Ambiguous identities cannot safely address existing delegates.
+        }
+        wanted.insert(row.cloudId.value);
+        rows.append(std::move(row));
+    }
+    for (const auto &row : std::as_const(m_rows)) {
+        if (!row.cloudId.value || previous.contains(row.cloudId.value)) {
+            ambiguous();
+            return;
+        }
+        previous.insert(row.cloudId.value);
+    }
+    if (m_request)
+        m_api.cancel(std::exchange(m_request, 0));
+    QPointer<UserPlaylistModel> guard(this);
+    m_mutating = true;
+    auto finish = qScopeGuard([this, guard] {
+        if (guard) {
+            m_mutating = false;
+            finishMutation();
+        }
+    });
+    const auto interrupted = [&] {
+        return !guard || m_resetPending || session != m_api.sessionRevision();
+    };
+    for (int row = m_rows.size() - 1; row >= 0; --row)
+        if (!wanted.contains(m_rows[row].cloudId.value)) {
+            beginRemoveRows({}, row, row);
+            m_rows.removeAt(row);
+            endRemoveRows();
+            if (interrupted())
+                return;
+        }
+    const auto roles = roleNames().keys();
+    for (int row = 0; row < rows.size(); ++row) {
+        int from = row;
+        while (from < m_rows.size() && m_rows[from].cloudId.value != rows[row].cloudId.value)
+            ++from;
+        if (from == m_rows.size()) {
+            beginInsertRows({}, row, row);
+            m_rows.insert(row, rows[row]);
+            endInsertRows();
+            if (interrupted())
+                return;
+        } else {
+            if (from != row) {
+                beginMoveRows({}, from, from, {}, row);
+                m_rows.move(from, row);
+                endMoveRows();
+                if (interrupted())
+                    return;
+            }
+            QHash<int, QVariant> before;
+            for (int role : roles)
+                before.insert(role, data(index(row), role));
+            m_rows[row] = rows[row];
+            QList<int> changedRoles;
+            for (int role : roles)
+                if (before.value(role) != data(index(row), role))
+                    changedRoles.append(role);
+            if (!changedRoles.isEmpty()) {
+                emit dataChanged(index(row), index(row), changedRoles);
+                if (interrupted())
+                    return;
+            }
+        }
+    }
+    m_sessionRevision = session;
+    m_listRevision = revision;
+    m_total = page["total"].isDouble() ? quint64(page["total"].toInteger()) : rows.size();
+    m_page = quint32((rows.size() + PageSize - 1) / PageSize);
+    m_exhausted = true;
+    m_state = State::Ready;
+    m_error.clear();
+    m_mutating = false;
+    finish.dismiss();
+    finishMutation();
+    if (guard && session == m_api.sessionRevision())
+        emit changed();
+}
 void UserPlaylistModel::succeed(quint64 id, const QByteArray &payload)
 {
     if (!m_request || id != m_request || m_closed || m_sessionRevision != m_api.sessionRevision())
@@ -368,38 +504,8 @@ void UserPlaylistModel::succeed(quint64 id, const QByteArray &payload)
         return;
     }
     QList<Row> rows;
-    for (const auto &value : page.value("items").toArray()) {
-        const auto item = value.toObject();
-        Row row;
-        const auto kind = item.value("kind").toString();
-        row.cloudId.value = quint64(qMax<qint64>(0, item.value("cloud_list_id").toInteger()));
-        // A model index identifies the row; incomplete or repeated provider IDs
-        // must not discard its title, provenance or other available facts.
-        row.songCount = quint64(qMax<qint64>(0, item.value("song_count").toInteger()));
-        row.revision = quint64(qMax<qint64>(0, item.value("revision").toInteger()));
-        row.creatorId = quint64(qMax<qint64>(0, item.value("creator_id").toInteger()));
-        row.creatorListId = quint64(qMax<qint64>(0, item.value("creator_list_id").toInteger()));
-        const auto source = item.value("source_code").toInteger();
-        if (!item.value("default_kind").isNull())
-            row.defaultKind = quint32(item.value("default_kind").toInteger());
-        row.globalId = item.value("global_id").toString();
-        row.creatorGlobalId = item.value("creator_global_id").toString();
-        row.title = item.value("title").toString();
-        row.description = item.value("description").toString();
-        row.tags = item.value("tags").toString();
-        row.descriptionPresent = item.value("description_present").toBool();
-        row.tagsPresent = item.value("tags_present").toBool();
-        row.cover = item.value("cover_url").toString();
-        row.creatorName = item.value("creator_name").toString();
-        row.sortIndex = item.value("sort_index").toInteger();
-        row.editable = kind == QStringLiteral("owned") && item.value("editable").toBool();
-        row.isPrivate = item.value("private").toBool();
-        row.kind = kind;
-        row.collected = kind == QStringLiteral("collected");
-        row.customCover = item.value("custom_cover").toBool();
-        row.sourceCode = quint32(source);
-        rows.append(std::move(row));
-    }
+    for (const auto &value : page.value("items").toArray())
+        rows.append(readRow(value.toObject()));
     const auto oldRevision = m_sessionRevision;
     m_mutating = true;
     if (!rows.isEmpty()) {

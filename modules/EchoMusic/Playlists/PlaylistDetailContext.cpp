@@ -4,6 +4,7 @@
 #include <QJsonDocument>
 #include <QUrl>
 #include <algorithm>
+#include <utility>
 namespace EchoMusic
 {
 PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &playback,
@@ -88,10 +89,11 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
                 entry["song"] = song;
                 auto meta = entry["metadata"].toObject();
                 meta["artist_refs"] = track->catalogMetadata["artist_refs"];
-                if (track->catalogMetadata.contains("embedded_cover_url"))
-                    meta["embedded_cover_url"] = track->catalogMetadata["embedded_cover_url"];
-                else
-                    meta.remove("embedded_cover_url");
+                for (const auto &key : {"embedded_cover_url", "artist_cover_url"})
+                    if (track->catalogMetadata.contains(key))
+                        meta[key] = track->catalogMetadata[key];
+                    else
+                        meta.remove(key);
                 if (!track->catalogMetadata.contains("filename_artist_name"))
                     meta.remove("filename_artist_name");
                 entry["metadata"] = meta;
@@ -102,7 +104,8 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
     connect(&m_playback, &PlaybackService::trackFactsApplied, this,
             &PlaylistDetailContext::applyPlaybackFacts);
     connect(m_playback.cloudSources(), &CloudAudioIndex::settled, this, [this] {
-        if (m_closed || !m_cloud || !m_route.active() || !enrichCloudEntries())
+        if (m_closed || m_reconcilingTracks || !m_cloud || !m_route.active() ||
+            !enrichCloudEntries())
             return;
         QJsonArray songs;
         for (const auto &entry : std::as_const(m_cloudEntries)) {
@@ -114,23 +117,10 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
         if (m_complete)
             publishCover();
     });
-    connect(&mutations, &PlaylistMutationService::tracksInvalidated, this, [this](quint64 id) {
-        if (m_cloud && m_cloud->value == id)
-            reload();
-    });
-    connect(&mutations, &PlaylistMutationService::libraryInvalidated, this, [this] {
-        // Membership writes refresh the account catalog, not public songs/detail.
-        if (m_collections && m_collections->writingCollection())
-            return;
-        m_metadataDirty = true;
-        QMetaObject::invokeMethod(
-            this,
-            [this] {
-                if (m_metadataDirty && m_route.active() && !m_closed)
-                    reload();
-            },
-            Qt::QueuedConnection);
-    });
+    connect(&mutations, &PlaylistMutationService::trackPageReconciled, this,
+            &PlaylistDetailContext::applyTrackReadback);
+    // Directory membership/metadata already flows through the shared library.
+    // It does not invalidate the songs of every retained playlist page.
     connect(&route, &RouteContext::queryChanged, this, &PlaylistDetailContext::activateComments);
     connect(this, &PlaylistDetailContext::changed, this, &PlaylistDetailContext::activateComments);
     activate();
@@ -188,8 +178,13 @@ void PlaylistDetailContext::activate()
         emit changed();
         return;
     }
-    if (m_detail.isEmpty() || m_metadataDirty) {
+    if (m_detail.isEmpty()) {
         reload();
+        return;
+    }
+    if (!m_pendingTrackReadback.isEmpty()) {
+        const auto snapshot = std::exchange(m_pendingTrackReadback, {});
+        applyTrackReadback(snapshot, m_api.sessionRevision());
         return;
     }
     // A kept-alive page can have finished pagination while optional metadata
@@ -206,7 +201,8 @@ void PlaylistDetailContext::reload()
     if (m_closed)
         return;
     cancel();
-    m_metadataDirty = false;
+    m_pendingTrackReadback = {};
+    m_reconcilingTracks = false;
     m_cloudEntries.clear();
     m_cloudEntryRows.clear();
     m_cloudEntryIds.clear();
@@ -228,6 +224,32 @@ void PlaylistDetailContext::reload()
         else
             m_error = tr("歌单请求未能启动");
     }
+    emit changed();
+}
+void PlaylistDetailContext::applyTrackReadback(const QJsonObject &snapshot, quint64 session)
+{
+    if (m_closed || session != m_api.sessionRevision() || !m_cloud ||
+        quint64(snapshot["user_id"].toInteger()) != m_api.currentAccountUserId() ||
+        quint64(snapshot["cloud_list_id"].toInteger()) != m_cloud->value ||
+        (m_revision && quint64(snapshot["revision"].toInteger()) < *m_revision))
+        return;
+    if (!m_route.active()) {
+        m_pendingTrackReadback = snapshot;
+        return;
+    }
+    cancelPageRequests();
+    m_reconcilingTracks = true;
+    m_revision = quint64(snapshot["revision"].toInteger());
+    m_cloudEntries.clear();
+    m_cloudEntryRows.clear();
+    m_cloudEntryIds.clear();
+    m_received = 0;
+    m_nextPage = 1;
+    m_pageSize = 300; // Same first-page size used by the shared write readback.
+    m_complete = false;
+    m_error.clear();
+    m_pages.insert(1, snapshot["page"].toObject());
+    consumeBatch();
     emit changed();
 }
 quint64 PlaylistDetailContext::orderListId() const
@@ -440,7 +462,11 @@ void PlaylistDetailContext::consumeBatch()
             for (int i = 0; prefix && i < m_songs.totalCount(); ++i)
                 prefix = m_songs.sourceItem(i)["resourceId"].toString() ==
                          songs[i].toObject()["id"].toString();
-            if (prefix) {
+            const bool finished = items.isEmpty() || (m_total > 0 && m_received >= m_total);
+            if (m_reconcilingTracks && !finished) {
+                // Retain the visible complete snapshot while remaining pages
+                // are read. Publishing a prefix would delete unchanged rows.
+            } else if (prefix && !m_reconcilingTracks) {
                 QJsonArray added;
                 for (int i = m_songs.totalCount(); i < songs.size(); ++i)
                     added.append(songs[i]);
@@ -454,6 +480,7 @@ void PlaylistDetailContext::consumeBatch()
         ++m_nextPage;
         if (items.isEmpty() || (m_total > 0 && m_received >= m_total)) {
             m_complete = true;
+            m_reconcilingTracks = false;
             cancelPageRequests();
             publishCover();
             return;
@@ -630,7 +657,7 @@ void PlaylistDetailContext::fail(quint64 id, const QByteArray &bytes)
 bool PlaylistDetailContext::removeSong(const QString &id)
 {
     // 只有歌单所有者可删除曲目；写操作由共享服务串行执行。
-    // 成功后通过 tracksInvalidated 重新加载服务端数据。
+    // 成功后复用 trackPageReconciled 读回，增量同步受影响的歌曲行。
     if (m_closed || !m_cloud || !m_revision || !m_complete || !m_route.active())
         return false;
     quint64 file = 0;

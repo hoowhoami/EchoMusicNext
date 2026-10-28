@@ -42,6 +42,7 @@ private slots:
     void verificationCoverPreservesPopupInstancesAndDrafts();
     void tooltipPopupsExistOnlyDuringTheirTrigger();
     void nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover();
+    void tooltipPressPreservesClickAndRelease();
     void numberInputCommitsAndClampsAcrossAllInputPaths();
     void dialogHeaderBodyAndFooterShareInsets();
     void drawerFixedActionsSurviveLongTitlesAndVisibilityChanges();

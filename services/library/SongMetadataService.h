@@ -71,9 +71,12 @@ private:
     void settle(const QString &, const QJsonObject &, bool cache);
     void clear();
     void notifyObservers();
+    void rememberCoverFacts(const QJsonObject &song, bool replace = false);
+    QStringList observationKeys(const QJsonObject &song) const;
+    QJsonObject artistCover(const QJsonObject &song);
     struct Observer
     {
-        QHash<QString, QStringList> rows;
+        QHash<QString, QSet<QString>> rows;
         std::function<void(const QStringList &)> apply;
         QSet<quint64> tickets;
         QMetaObject::Connection destroyed;
@@ -83,6 +86,7 @@ private:
     QSet<QString> m_pendingKeys;
     QTimer m_notify;
     QCache<QString, CacheEntry> m_embedded{4'000'000};
+    QCache<QString, CacheEntry> m_coverFacts{2'000'000};
     std::unique_ptr<EmbeddedCoverCache> m_covers;
     QHash<QString, QString> m_coverIdentities;
     ApiClient &m_api;
@@ -95,5 +99,6 @@ private:
     qint64 m_cooldown = 0;
     int m_failures = 0;
     bool m_closed = false;
+    bool m_notifying = false;
 };
 } // namespace EchoMusic

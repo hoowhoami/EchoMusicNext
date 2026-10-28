@@ -18,6 +18,8 @@
 #include <iterator>
 #include <limits>
 #include "ThemeStore.h"
+#include "TrayIconTheme.h"
+#include <QSystemTrayIcon>
 #include "UiTypography.h"
 #include "ShellController.h"
 #include "NativeWindow.h"
@@ -137,6 +139,10 @@ public:
 class PlaybackServiceTestAccess
 {
 public:
+    static AudioEngine *engine(PlaybackService &playback)
+    {
+        return &playback.m_engine;
+    }
     static PlaybackRepository *repository(PlaybackService &playback)
     {
         return playback.m_repository.get();
@@ -1841,6 +1847,108 @@ void PlaybackPageTest::presentationClockHandlesJitterPauseSpeedAndSeek()
     QTest::qWait(40);
     QCOMPARE(clock.sample(), stalled);
 }
+void PlaybackPageTest::themeEventBurstKeepsTrayStableDuringNativePlayback()
+{
+#ifndef Q_OS_MACOS
+    QSKIP("Native system appearance probe requires macOS");
+#else
+    if (QGuiApplication::platformName() != "cocoa")
+        QSKIP("Native playback and template image probe requires Cocoa");
+    int underruns = 0;
+    Session session;
+    session.playback.setVolume(0);
+    session.theme.setMode(ThemeStore::System);
+    QVERIFY(session.create(false));
+    QTRY_VERIFY_WITH_TIMEOUT(session.playback.engineReady(), 15000);
+    QTRY_VERIFY(!PlaybackServiceTestAccess::queueRestorePending(session.playback));
+    connect(PlaybackServiceTestAccess::engine(session.playback), &AudioEngine::eventReceived, this,
+            [&](const QJsonObject &event) {
+                const auto type = event.value("event").toString();
+                if (type == "ao-state-change" || type == "error" || type == "stalled" ||
+                    type == "playback-restart" || type == "state-change" || type == "seek")
+                    qInfo() << "Appearance audio event" << type << event.value("reason")
+                            << event.value("ao_reason");
+                if (type == "ao-state-change" && event.value("ao_reason") == "underrun")
+                    ++underruns;
+            });
+    const auto path = session.directory.filePath("appearance-silence.wav");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QDataStream stream(&file);
+    stream.setByteOrder(QDataStream::LittleEndian);
+    constexpr quint32 bytes = 16000 * 2 * 120;
+    stream.writeRawData("RIFF", 4);
+    stream << quint32(36 + bytes);
+    stream.writeRawData("WAVEfmt ", 8);
+    stream << quint32(16) << quint16(1) << quint16(1) << quint32(16000) << quint32(32000)
+           << quint16(2) << quint16(16);
+    stream.writeRawData("data", 4);
+    stream << bytes;
+    const QByteArray silence(bytes, '\0');
+    stream.writeRawData(silence.constData(), silence.size());
+    file.close();
+    PlaybackTrack track;
+    track.id = "appearance-local";
+    track.localPath = path;
+    track.title = "System appearance native playback";
+    session.playback.playTracks({track}, 0, "Appearance", "appearance-local");
+    QTRY_VERIFY_WITH_TIMEOUT(session.playback.playing() && !session.playback.loading(), 15000);
+    QSystemTrayIcon tray;
+    tray.setIcon(TrayIconTheme::icon());
+    tray.show();
+    int trayUpdates = 0;
+    TrayIconTheme listener([&] {
+        ++trayUpdates;
+        tray.setIcon(TrayIconTheme::icon());
+    });
+    const auto iconIdentity = tray.icon().cacheKey();
+    QSignalSpy positions(&session.playback, &PlaybackService::positionChanged);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    qint64 lastHeartbeat = 0, maxHeartbeatGap = 0;
+    QTimer heartbeat;
+    heartbeat.setInterval(20);
+    connect(&heartbeat, &QTimer::timeout, this, [&] {
+        const auto now = elapsed.elapsed();
+        maxHeartbeatGap = qMax(maxHeartbeatGap, now - lastHeartbeat);
+        lastHeartbeat = now;
+    });
+    heartbeat.start();
+    const auto cpuStart = std::clock();
+    const auto positionStart = session.playback.positionMs();
+    underruns = 0;
+    for (int i = 0; i < 6; ++i) {
+        const bool dark = i % 2 == 0;
+        session.theme.adoptSystemScheme(dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
+        // Deliver through the real Quick scene tree, as the platform theme
+        // notification does. Every descendant reaches application filters.
+        for (int burst = 0; burst < 20; ++burst) {
+            QEvent event(QEvent::ThemeChange);
+            QCoreApplication::sendEvent(session.window, &event);
+        }
+        QCOMPARE(session.theme.dark(), dark);
+        const auto previous = session.playback.positionMs();
+        QTRY_VERIFY_WITH_TIMEOUT(session.playback.positionMs() > previous, 1000);
+        QVERIFY(session.playback.playing());
+        QTest::qWait(250);
+    }
+    heartbeat.stop();
+    const auto cpuMs = 1000.0 * (std::clock() - cpuStart) / CLOCKS_PER_SEC;
+    qInfo() << "Six scene theme bursts: wall ms" << elapsed.elapsed() << "CPU ms" << cpuMs
+            << "max GUI heartbeat gap ms" << maxHeartbeatGap << "engine observations"
+            << positions.count() << "output underruns" << underruns << "audio progress ms"
+            << session.playback.positionMs() - positionStart << "tray updates" << trayUpdates;
+    QCOMPARE(trayUpdates, 0);
+    QCOMPARE(tray.icon().cacheKey(), iconIdentity);
+    QVERIFY(tray.icon().isMask());
+    // Keep GUI timing as diagnostic evidence: drawable acquisition and OS
+    // scheduling can delay the GUI independently of the native audio output.
+    QCOMPARE(underruns, 0);
+    QVERIFY(positions.count() >= 6);
+    session.playback.pause();
+    QTRY_VERIFY(!session.playback.playing());
+#endif
+}
 void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
 {
     Session session;
@@ -2892,7 +3000,7 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
     QVERIFY(file.open(QIODevice::WriteOnly));
     QDataStream stream(&file);
     stream.setByteOrder(QDataStream::LittleEndian);
-    constexpr quint32 bytes = 16000 * 2 * 30;
+    constexpr quint32 bytes = 16000 * 2 * 120;
     stream.writeRawData("RIFF", 4);
     stream << quint32(36 + bytes);
     stream.writeRawData("WAVEfmt ", 8);

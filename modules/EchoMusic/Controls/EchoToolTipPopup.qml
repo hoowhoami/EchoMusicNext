@@ -32,6 +32,9 @@ ToolTip {
         item: tip.parent
         coordinateItem: item ? tip.overlayItem : null
     }
+    // HoverSession cancels on passive pointer observation. Overlay auto-close
+    // must not consume one half of the underlying control's press/release pair.
+    closePolicy: Popup.NoAutoClose
     popupType: Popup.Item
     scale: uiScale
     transformOrigin: Popup.TopLeft

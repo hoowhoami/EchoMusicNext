@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QUrl>
 #include <algorithm>
+#include <utility>
 namespace EchoMusic
 {
 namespace
@@ -86,6 +87,34 @@ FavoritesService::~FavoritesService()
 {
     shutdown();
 }
+void FavoritesService::attachPlaylistMutations(PlaylistMutationService &mutations)
+{
+    disconnect(m_mutationConnection);
+    m_mutationConnection = connect(&mutations, &PlaylistMutationService::trackPageReconciled, this,
+                                   &FavoritesService::applyTrackReadback);
+}
+void FavoritesService::applyTrackReadback(const QJsonObject &snapshot, quint64 session)
+{
+    const auto list = m_library.cloudIdAt(m_library.likedRow());
+    if (m_closed || session != m_api.sessionRevision() || !list ||
+        quint64(snapshot["user_id"].toInteger()) != m_api.currentAccountUserId() ||
+        quint64(snapshot["cloud_list_id"].toInteger()) != list->value ||
+        (m_songRevision && quint64(snapshot["revision"].toInteger()) < *m_songRevision))
+        return;
+    m_likedLoaded = false;
+    if (!m_active || m_tab != 0) {
+        m_pendingTrackReadback = snapshot;
+        return;
+    }
+    for (auto id : m_pending.keys())
+        if (m_pending.value(id).kind == PendingKind::LikedSongs) {
+            m_pending.remove(id);
+            m_api.cancel(id);
+        }
+    prepareLikedSongs(list->value);
+    acceptLikedPage(snapshot);
+    emit changed();
+}
 const QStringList &FavoritesService::tabs()
 {
     static const QStringList value{"songs", "singers", "users", "albums", "videos"};
@@ -149,7 +178,10 @@ void FavoritesService::loadTab()
         return;
     switch (m_tab) {
     case 0:
-        if (!m_likedLoaded)
+        if (!m_pendingTrackReadback.isEmpty()) {
+            const auto snapshot = std::exchange(m_pendingTrackReadback, {});
+            applyTrackReadback(snapshot, m_api.sessionRevision());
+        } else if (!m_likedLoaded)
             requestLikedSongs();
         else
             resumeMetadata();
@@ -218,17 +250,22 @@ void FavoritesService::requestLikedSongs()
         return;
     }
     m_awaitingLibrary = false;
+    prepareLikedSongs(id->value);
+    requestLikedPage();
+}
+void FavoritesService::prepareLikedSongs(quint64 listId)
+{
+    m_pendingTrackReadback = {};
     cancelMetadata();
-    m_likedId = id->value;
+    m_likedId = listId;
     m_songRevision.reset();
     m_songCoverConsistent = true;
-    m_keepSongsDuringRefresh = m_songs.totalCount() > 0 && !m_songHasMore;
+    m_keepSongsDuringRefresh = m_songs.totalCount() > 0;
     m_songReceived = 0;
     m_songTotal = 0;
     m_songPage = 1;
     m_songRows = {};
     m_songHasMore = false;
-    requestLikedPage();
 }
 void FavoritesService::requestLikedPage()
 {
@@ -512,6 +549,7 @@ void FavoritesService::reset()
     m_videoTotal = m_videoReceived = 0;
     m_videoRows = {};
     m_songs.clear();
+    m_pendingTrackReadback = {};
     m_albums.replaceCards({});
     m_videos.replaceCards({});
     m_singers.replace({});
@@ -523,6 +561,53 @@ void FavoritesService::reset()
     if (m_active && m_router.current() && m_router.current()->name() == "favorites")
         loadTab();
     emit changed();
+}
+void FavoritesService::acceptLikedPage(const QJsonObject &object)
+{
+    const auto revision = object.value("revision").toInteger(-1);
+    // An uncertain version only suppresses auto-cover publication; it
+    // never rejects rows or blocks ordinary metadata completion.
+    if (revision < 0 || (m_songRevision && *m_songRevision != quint64(revision)))
+        m_songCoverConsistent = false;
+    else
+        m_songRevision = quint64(revision);
+    const auto page = object.value("page").toObject();
+    const auto items = page.value("items").toArray();
+    for (const auto &value : items)
+        m_songRows.append(value);
+    m_songReceived += quint64(items.size());
+    if (page.value("total").isDouble())
+        m_songTotal = quint64(qMax<qint64>(0, page.value("total").toInteger()));
+    m_songHasMore =
+        !items.isEmpty() &&
+        (page.value("total").isDouble() ? m_songReceived < m_songTotal : items.size() >= 300);
+    ++m_songPage;
+    // Sort the complete snapshot by global playlist position.
+    // Pages contain mixed positions; reversing pages or arrival order is incorrect.
+    QList<QJsonObject> ordered;
+    for (const auto &value : std::as_const(m_songRows))
+        ordered.append(value.toObject());
+    std::stable_sort(ordered.begin(), ordered.end(), [](const auto &a, const auto &b) {
+        const auto left = a.value("sort_index"), right = b.value("sort_index");
+        if (!left.isDouble())
+            return false;
+        return !right.isDouble() || left.toInteger() < right.toInteger();
+    });
+    QJsonArray songs;
+    for (const auto &entry : ordered) {
+        auto song = entry.value("song").toObject();
+        song.insert("metadata", entry.value("metadata"));
+        songs.append(song);
+    }
+    if (!m_keepSongsDuringRefresh || !m_songHasMore)
+        m_songs.replaceSongs(songs, true);
+    m_likedLoaded = !m_songHasMore;
+    m_error.clear();
+    completeSongs(items);
+    if (m_likedLoaded)
+        publishCover();
+    if (m_songHasMore)
+        requestLikedPage();
 }
 void FavoritesService::accept(quint64 id, const QByteArray &bytes)
 {
@@ -540,53 +625,9 @@ void FavoritesService::accept(quint64 id, const QByteArray &bytes)
         m_error.clear();
         break;
     }
-    case PendingKind::LikedSongs: {
-        const auto revision = object.value("revision").toInteger(-1);
-        // An uncertain version only suppresses auto-cover publication; it
-        // never rejects rows or blocks ordinary metadata completion.
-        if (revision < 0 || (m_songRevision && *m_songRevision != quint64(revision)))
-            m_songCoverConsistent = false;
-        else
-            m_songRevision = quint64(revision);
-        const auto page = object.value("page").toObject();
-        const auto items = page.value("items").toArray();
-        for (const auto &value : items)
-            m_songRows.append(value);
-        m_songReceived += quint64(items.size());
-        if (page.value("total").isDouble())
-            m_songTotal = quint64(qMax<qint64>(0, page.value("total").toInteger()));
-        m_songHasMore =
-            !items.isEmpty() &&
-            (page.value("total").isDouble() ? m_songReceived < m_songTotal : items.size() >= 300);
-        ++m_songPage;
-        // Sort the complete snapshot by global playlist position.
-        // Pages contain mixed positions; reversing pages or arrival order is incorrect.
-        QList<QJsonObject> ordered;
-        for (const auto &value : std::as_const(m_songRows))
-            ordered.append(value.toObject());
-        std::stable_sort(ordered.begin(), ordered.end(), [](const auto &a, const auto &b) {
-            const auto left = a.value("sort_index"), right = b.value("sort_index");
-            if (!left.isDouble())
-                return false;
-            return !right.isDouble() || left.toInteger() < right.toInteger();
-        });
-        QJsonArray songs;
-        for (const auto &entry : ordered) {
-            auto song = entry.value("song").toObject();
-            song.insert("metadata", entry.value("metadata"));
-            songs.append(song);
-        }
-        if (!m_keepSongsDuringRefresh || !m_songHasMore)
-            m_songs.replaceSongs(songs, true);
-        m_likedLoaded = !m_songHasMore;
-        m_error.clear();
-        completeSongs(items);
-        if (m_likedLoaded)
-            publishCover();
-        if (m_songHasMore)
-            requestLikedPage();
+    case PendingKind::LikedSongs:
+        acceptLikedPage(object);
         break;
-    }
     case PendingKind::Video: {
         const auto page = object.value("page").toObject();
         const auto items = page.value("items").toArray();

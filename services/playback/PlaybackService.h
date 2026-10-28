@@ -267,10 +267,7 @@ public:
     {
         return m_track.album;
     }
-    QString cover() const
-    {
-        return m_track.cover.isEmpty() ? m_embeddedCover : m_track.cover;
-    }
+    QString cover() const;
     /// Artwork as encoded PNG, or empty while it is still loading. Consumers
     /// that need pixels rather than a URL (native media integrations) read this
     /// instead of re-downloading the cover.

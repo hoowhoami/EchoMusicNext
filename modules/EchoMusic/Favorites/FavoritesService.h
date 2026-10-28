@@ -39,6 +39,7 @@ class FavoritesService final : public QObject
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY changed)
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY changed)
 public:
+    void attachPlaylistMutations(PlaylistMutationService &mutations);
     /// Explicit UI composition; construction alone does not register pages.
     void registerRoutes(RouteController &router);
     FavoritesService(ApiClient &, PlaybackService &, UserPlaylistModel &, PlaylistOrderModel &,
@@ -137,6 +138,11 @@ private:
     void loadTab();
     void requestFollow();
     void requestLikedSongs();
+    void prepareLikedSongs(quint64 listId);
+    void acceptLikedPage(const QJsonObject &page);
+    void applyTrackReadback(const QJsonObject &snapshot, quint64 session);
+    QJsonObject m_pendingTrackReadback;
+    QMetaObject::Connection m_mutationConnection;
     void requestLikedPage();
     void requestVideos();
     void projectAlbums();

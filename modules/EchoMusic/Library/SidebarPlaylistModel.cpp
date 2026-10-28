@@ -6,6 +6,7 @@ SidebarPlaylistModel::SidebarPlaylistModel(UserPlaylistModel &source, QObject *p
 {
     setSourceModel(&source);
     setDynamicSortFilter(true);
+    setSortRole(UserPlaylistModel::SortIndexRole);
     sort(0);
     connect(this, &QAbstractItemModel::rowsInserted, this, &SidebarPlaylistModel::changed);
     connect(this, &QAbstractItemModel::rowsRemoved, this, &SidebarPlaylistModel::changed);

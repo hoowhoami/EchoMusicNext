@@ -1921,6 +1921,86 @@ QtObject {
             QTRY_COMPARE(taskButton->property("foreground").value<QColor>(), theme.text());
             QVERIFY(taskButton->property("foreground").value<QColor>() != theme.accentText());
         }
+        // Reordering starts even in the button padding, without a business
+        // activation or native caption move; native button clicks still work.
+        auto *recognizeButton = item("titlebar-action-recognize");
+        QVERIFY(recognizeButton);
+        auto *taskHandle = findVisual(taskButton, "shellDragHandle-host/tasks");
+        QVERIFY(taskHandle);
+        QSignalSpy taskClicks(taskButton, SIGNAL(clicked()));
+        for (const bool motion : {true, false}) {
+            theme.setMotionEnabled(motion);
+            shell.setMotionEnabled(motion);
+            for (const bool zoomed : {false, true}) {
+                shell.resetZoom();
+                if (zoomed)
+                    for (int step = 0; step < 5; ++step)
+                        shell.zoomIn();
+                QTest::qWait(250);
+                for (const bool before : {true, false}) {
+                    const auto oldX = taskButton->x();
+                    const auto normalPosition = window->position();
+                    const auto start =
+                        taskButton->mapToScene({2, taskButton->height() / 2}).toPoint();
+                    const auto destination =
+                        recognizeButton
+                            ->mapToScene({recognizeButton->width() * (before ? 0.25 : 0.75),
+                                          recognizeButton->height() / 2})
+                            .toPoint();
+                    Test::moveNativePointer(window, start);
+                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
+                    QVERIFY(taskButton->property("pressed").toBool());
+                    QTest::mouseMove(window, start + QPoint(0, 8));
+                    QTest::mouseMove(window, destination);
+                    QTRY_VERIFY(taskHandle->property("dragging").toBool());
+                    // Drag posts/coalesces scene moves before DropArea delivery.
+                    QTest::qWait(30);
+                    auto *ghost = findVisual(window->contentItem(), "host/tasks");
+                    QVERIFY(ghost && ghost->isVisible());
+                    QVERIFY(QLineF(ghost->mapToScene(ghost->boundingRect().center()), destination)
+                                .length() < 2);
+                    QVERIFY(!taskButton->property("pressed").toBool());
+                    QCOMPARE(window->position(), normalPosition);
+                    capture(QString("titlebar-drag-%1-%2-%3").arg(motion).arg(zoomed).arg(before));
+                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, destination);
+                    QTRY_VERIFY(!taskHandle->property("dragging").toBool());
+                    QCOMPARE(taskClicks.count(), 0);
+                    if (motion) {
+                        QTest::qWait(45);
+                        const auto duringX = taskButton->x();
+                        QVERIFY2(before ? duringX < oldX && duringX > 0
+                                        : duringX > oldX && duringX < 38,
+                                 qPrintable(QString("before=%1 old=%2 during=%3 motion=%4")
+                                                .arg(before)
+                                                .arg(oldX)
+                                                .arg(duringX)
+                                                .arg(toolbar->property("motionActive").toBool())));
+                        capture(QString("titlebar-reorder-%1-%2").arg(zoomed).arg(before));
+                    }
+                    QTRY_COMPARE(taskButton->x(), before ? 0.0 : 38.0);
+                    QTest::qWait(50); // Settle the displaced peer before the reverse gesture.
+                    QVERIFY(!window->mouseGrabberItem());
+                }
+            }
+        }
+        shell.resetZoom();
+        // Hiding or disabling motion settles a transition already in flight.
+        theme.setMotionEnabled(true);
+        QVERIFY(
+            controller.titlebarActions()->shiftAction("host/tasks", -1, ShellActionModel::Toolbar));
+        QTest::qWait(45);
+        QVERIFY(taskButton->x() > 0 && taskButton->x() < 38);
+        window->hide();
+        QTRY_COMPARE(taskButton->x(), 0.0);
+        window->show();
+        QVERIFY(Test::prepareNativeInput(window));
+        QVERIFY(
+            controller.titlebarActions()->shiftAction("host/tasks", 1, ShellActionModel::Toolbar));
+        QTest::qWait(40);
+        theme.setMotionEnabled(false);
+        QTRY_COMPARE(taskButton->x(), 38.0);
+        shell.setMotionEnabled(false);
+        theme.setMotionEnabled(true);
         click(more);
         QPointer<QObject> menu = root->findChild<QObject *>("titlebarMorePopup");
         QVERIFY(menu);

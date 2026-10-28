@@ -8,6 +8,7 @@
 #include "PlaybackFailureController.h"
 #include "SongMetadataService.h"
 #include "EmbeddedCoverPresentation.h"
+#include "ArtistCoverPresentation.h"
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QFileDialog>
@@ -60,6 +61,13 @@ void PlaybackService::tryStartupAutoPlay()
 SongMetadataService *PlaybackService::metadata() const
 {
     return m_metadata;
+}
+QString PlaybackService::cover() const
+{
+    return m_track.cover.isEmpty() || (!m_embeddedCover.isEmpty() &&
+                                       hasArtistCover(m_track.catalogMetadata, m_track.cover))
+               ? m_embeddedCover
+               : m_track.cover;
 }
 void PlaybackService::attachMetadata(SongMetadataService &metadata)
 {
@@ -211,7 +219,9 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                 const auto accepted = mergeResolvedTrack(track);
                 m_track = accepted;
                 m_privileges = privileges;
-                m_artwork.load(accepted.cover, m_sequence);
+                if (m_metadata)
+                    m_track.applyPresentation(m_metadata->complete(m_track.toCatalog()));
+                m_artwork.load(cover(), m_sequence);
                 requestLyrics();
                 emit changed();
             });
@@ -391,7 +401,9 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                     const auto path = m_embeddedDirectory.filePath(coverFile);
                     if (m_metadata)
                         m_metadata->publishEmbeddedCover(m_track.toCatalog(), path);
-                    if (m_track.cover.isEmpty() && QFileInfo::exists(path)) {
+                    if ((m_track.cover.isEmpty() ||
+                         hasArtistCover(m_track.catalogMetadata, m_track.cover)) &&
+                        QFileInfo::exists(path)) {
                         m_embeddedCover = QUrl::fromLocalFile(path).toString();
                         m_artwork.load(m_embeddedCover, m_sequence);
                     }
@@ -407,9 +419,11 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                 // Reader artwork belongs to this playback session. Publishing
                 // its temporary URL as a catalog fact would let queues and
                 // history retain it after the owning directory is destroyed.
-                const auto durableCover = hasEmbeddedCover(m_track.catalogMetadata, m_track.cover)
-                                              ? QString()
-                                              : m_track.cover;
+                const auto durableCover =
+                    (hasEmbeddedCover(m_track.catalogMetadata, m_track.cover) ||
+                     hasArtistCover(m_track.catalogMetadata, m_track.cover))
+                        ? QString()
+                        : m_track.cover;
                 const auto facts = QJsonObject{
                     {"id", m_track.id},
                     {"hash", m_track.hash},

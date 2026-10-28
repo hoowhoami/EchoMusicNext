@@ -2591,6 +2591,15 @@ fn b3_cloud_video_purchased_follow_sampled_shapes() {
     assert_eq!(row.song.hash, "0123456789ABCDEF0123456789ABCDEF");
     assert!(!row.song.title.is_empty());
     assert_eq!(row.song.artists.len(), 1);
+    assert_eq!(row.metadata.artists.len(), row.song.artists.len());
+    assert_eq!(row.metadata.artists[0].id, row.song.artists[0].id);
+    assert_eq!(row.metadata.artists[0].name, row.song.artists[0].name);
+    assert!(
+        row.metadata.artists[0]
+            .avatar_url
+            .as_deref()
+            .is_some_and(|url| !url.is_empty())
+    );
     let end = user_cloud::convert(&sample("user_cloud/page2.json"), 2, 30).unwrap();
     assert!(end.page.items.is_empty());
     assert_eq!(end.counters.list_count, None);

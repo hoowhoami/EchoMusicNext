@@ -10,7 +10,12 @@ void ControlsUiTest::windowCaptionSeparatesDoubleClickFromDrag()
     component.setData(R"(
         import QtQuick
         import EchoMusic.Controls
-        EchoWindowDragArea { width: 300; height: 60; scale: 1.25 }
+        EchoWindowDragArea {
+            width: 300; height: 60; scale: 1.25
+            excludedItems: [disabledControl, actionGroup]
+            Item { id: disabledControl; x: 90; width: 34; height: 60; enabled: false }
+            Item { id: actionGroup; x: 140; width: 80; height: 60 }
+        }
     )",
                       QUrl());
     QScopedPointer<QObject> owner(component.create());
@@ -22,6 +27,17 @@ void ControlsUiTest::windowCaptionSeparatesDoubleClickFromDrag()
     QSignalSpy move(area, SIGNAL(moveRequested()));
     QSignalSpy doubleClick(area, SIGNAL(doubleClickRequested()));
     const QPoint start(50, 25);
+    for (const QPointF localPoint : {QPointF(100, 25), QPointF(180, 25)}) {
+        const auto clientPoint = area->mapToScene(localPoint).toPoint();
+        QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, clientPoint);
+        QTest::mouseMove(session.window, clientPoint + QPoint(20, 0));
+        QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier,
+                            clientPoint + QPoint(20, 0));
+        QCOMPARE(move.count(), 0);
+        QTest::mouseDClick(session.window, Qt::LeftButton, Qt::NoModifier, clientPoint);
+        QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, clientPoint);
+        QCOMPARE(doubleClick.count(), 0);
+    }
     QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, start);
     if (QOperatingSystemVersion::currentType() == QOperatingSystemVersion::Windows)
         QCOMPARE(move.count(), 0);

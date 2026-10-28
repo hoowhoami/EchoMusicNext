@@ -2,7 +2,7 @@
 //! with empty-string data denotes a page beyond the list. Requests use the
 //! playlist AES-CBC envelope and RSA portrait without an Android signature.
 use crate::{
-    domain::{ArtistRef, Page, SongSummary, cover_url},
+    domain::{ArtistRef, Page, SongSummary, cover_url, discovery::ArtistDetail},
     error::ApiError,
     util::{
         cloudlist,
@@ -215,6 +215,9 @@ fn track(row: &Row) -> CloudFileTrack {
         .collect();
     let identity = row.album_audio_id.or(row.kmr_album_audio_id);
     CloudFileTrack {
+        metadata: CloudSongMetadata {
+            artists: singers.iter().map(Singer::detail).collect(),
+        },
         song: SongSummary {
             id: identity.map(|value| value.to_string()).unwrap_or_default(),
             hash: row.hash.clone(),
@@ -258,7 +261,12 @@ fn track(row: &Row) -> CloudFileTrack {
 /// One cloud drive page. `file_id` is the deletion identity; the song ID is
 /// the album-audio identity used by playback, never interchangeable.
 #[derive(Debug, Serialize)]
+pub struct CloudSongMetadata {
+    pub artists: Vec<ArtistDetail>,
+}
+#[derive(Debug, Serialize)]
 pub struct CloudFileTrack {
+    pub metadata: CloudSongMetadata,
     pub source_file_name: String,
     pub song: SongSummary,
     pub file_id: Option<u64>,

@@ -1,5 +1,6 @@
 #include "PlaybackTrack.h"
 #include "EmbeddedCoverPresentation.h"
+#include "ArtistCoverPresentation.h"
 #include <QRegularExpression>
 #include <QJsonArray>
 namespace EchoMusic
@@ -64,7 +65,7 @@ PlaybackTrack PlaybackTrack::fromDomain(const QJsonObject &s)
     if (s.contains("personal_fm"))
         t.catalogMetadata.insert("personal_fm", s.value("personal_fm"));
     if (s.contains("artists"))
-        t.catalogMetadata.insert("artist_refs", s.value("artists"));
+        t.catalogMetadata.insert("artist_refs", presentationArtists(s));
     if (s.contains("album_title"))
         t.catalogMetadata.insert("album_title", s.value("album_title"));
     if (s.value("original").isBool())
@@ -111,11 +112,13 @@ bool PlaybackTrack::applyPresentation(const QJsonObject &song)
     cover = presentation.cover;
     if (presentation.durationMs)
         durationMs = presentation.durationMs;
-    const auto lease = song["metadata"].toObject().value("embedded_cover_url").toString();
-    if (lease.isEmpty())
-        catalogMetadata.remove("embedded_cover_url");
-    else
-        catalogMetadata["embedded_cover_url"] = lease;
+    for (const auto &key : {"embedded_cover_url", "artist_cover_url"}) {
+        const auto lease = song["metadata"].toObject().value(key).toString();
+        if (lease.isEmpty())
+            catalogMetadata.remove(key);
+        else
+            catalogMetadata[key] = lease;
+    }
     if (song.contains("artists"))
         catalogMetadata["artist_refs"] = song["artists"];
     if (!song["metadata"].toObject().contains("filename_artist_name"))
@@ -126,21 +129,23 @@ bool PlaybackTrack::applyPresentation(const QJsonObject &song)
 }
 QJsonObject PlaybackTrack::toDomain() const
 {
-    return withoutEmbeddedCover(
-        QJsonObject{{"id", id},
-                    {"hash", hash},
-                    {"title", title},
-                    {"artist", artist},
-                    {"album", album},
-                    {"cover", cover},
-                    {"local_path", localPath},
-                    {"album_id", QString::number(albumId)},
-                    {"song_id", QString::number(songId)},
-                    {"duration_ms", catalogMetadata.contains("catalog_duration_ms")
-                                        ? catalogMetadata.value("catalog_duration_ms")
-                                        : QJsonValue(qint64(durationMs))},
-                    {"metadata", catalogMetadata},
-                    {"privilege", catalogMetadata.value("catalog_privilege")}},
+    return withoutArtistCover(
+        withoutEmbeddedCover(
+            QJsonObject{{"id", id},
+                        {"hash", hash},
+                        {"title", title},
+                        {"artist", artist},
+                        {"album", album},
+                        {"cover", cover},
+                        {"local_path", localPath},
+                        {"album_id", QString::number(albumId)},
+                        {"song_id", QString::number(songId)},
+                        {"duration_ms", catalogMetadata.contains("catalog_duration_ms")
+                                            ? catalogMetadata.value("catalog_duration_ms")
+                                            : QJsonValue(qint64(durationMs))},
+                        {"metadata", catalogMetadata},
+                        {"privilege", catalogMetadata.value("catalog_privilege")}},
+            "cover"),
         "cover");
 }
 QVariantMap PlaybackTrack::publicValue() const

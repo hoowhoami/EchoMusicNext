@@ -338,12 +338,19 @@ Window {
         window.reset();
         close(cache);
     }
+    void cacheLeaseNeverEntersQueueOrHistorySql_data()
+    {
+        QTest::addColumn<QString>("marker");
+        QTest::newRow("embedded") << QString("embedded_cover_url");
+        QTest::newRow("artist") << QString("artist_cover_url");
+    }
     void cacheLeaseNeverEntersQueueOrHistorySql()
     {
+        QFETCH(QString, marker);
         QTemporaryDir dir;
         auto row = song("1");
         row["cover_url"] = "file:///owned-cache/cover.png";
-        row["metadata"] = QJsonObject{{"embedded_cover_url", row["cover_url"]}};
+        row["metadata"] = QJsonObject{{marker, row["cover_url"]}};
         auto track = PlaybackTrack::fromDomain(row);
         QCOMPARE(track.toCatalog()["cover_url"], row["cover_url"]);
         QCOMPARE(track.toDomain()["cover"].toString(), QString());

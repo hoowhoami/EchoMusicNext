@@ -1,4 +1,5 @@
 #include "PlaylistMutationService.h"
+#include "UserPlaylistModel.h"
 #include <QBuffer>
 #include <QElapsedTimer>
 #include <QImage>
@@ -30,6 +31,10 @@ public:
 class PlaylistMutationServiceTestAccess
 {
 public:
+    static quint64 request(const PlaylistMutationService &service)
+    {
+        return service.m_request;
+    }
     static quint64 writing(PlaylistMutationService &service, ApiClient &api)
     {
         return service.begin(api.capabilities(), PlaylistMutationService::Kind::Create, {0})
@@ -46,6 +51,7 @@ public:
         service.m_page = 1;
         service.m_seen = 0;
         service.m_libraryReadIds.clear();
+        service.m_directoryItems = {};
         service.m_found = false;
         service.m_kind =
             remove ? PlaylistMutationService::Kind::Remove : PlaylistMutationService::Kind::Create;
@@ -102,6 +108,72 @@ class PlaylistMutationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void directoryReadbackWithoutTotalUsesItsActualPageSize()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(1, "fixture-token"));
+        PlaylistMutationService service(api);
+        QSignalSpy snapshots(&service, &PlaylistMutationService::libraryReconciled);
+        QJsonArray items;
+        for (int id = 1; id <= 100; ++id)
+            items.append(QJsonObject{{"cloud_list_id", id}, {"kind", "owned"}});
+        const auto payload = [](const QJsonArray &rows) {
+            return QJsonDocument(QJsonObject{{"user_id", 1},
+                                             {"total_revision", 8},
+                                             {"page", QJsonObject{{"items", rows}}}})
+                .toJson();
+        };
+        const auto first = PlaylistMutationServiceTestAccess::reading(service, api);
+        PlaylistMutationServiceTestAccess::succeed(service, first, payload(items));
+        QVERIFY(snapshots.isEmpty());
+        QCOMPARE(service.state(), PlaylistMutationService::State::Reconciling);
+        PlaylistMutationServiceTestAccess::succeed(
+            service, PlaylistMutationServiceTestAccess::request(service), payload({}));
+        QCOMPARE(snapshots.size(), 1);
+        QCOMPARE(snapshots.first()[0].toJsonObject()["page"].toObject()["items"].toArray().size(),
+                 100);
+        api.shutdown();
+    }
+    void completeDirectoryReadbackIsMergedWithoutAnotherReload()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(1, "fixture-token"));
+        UserPlaylistModel library(api);
+        const QJsonObject existing{{"cloud_list_id", 8}, {"kind", "collected"}};
+        library.applyLibrarySnapshot(
+            {{"user_id", 1},
+             {"total_revision", 7},
+             {"page", QJsonObject{{"items", QJsonArray{existing}}, {"total", 1}}}},
+            api.sessionRevision());
+        const QPersistentModelIndex retained(library.index(0));
+        PlaylistMutationService service(api);
+        connect(&service, &PlaylistMutationService::libraryReconciled, &library,
+                &UserPlaylistModel::applyLibrarySnapshot);
+        QSignalSpy snapshots(&service, &PlaylistMutationService::libraryReconciled);
+        QSignalSpy resets(&library, &QAbstractItemModel::modelReset);
+        const auto page = [](const QJsonArray &rows) {
+            return QJsonDocument(QJsonObject{{"user_id", 1},
+                                             {"total_revision", 8},
+                                             {"page", QJsonObject{{"items", rows}, {"total", 2}}}})
+                .toJson();
+        };
+        const auto request = PlaylistMutationServiceTestAccess::reading(service, api);
+        PlaylistMutationServiceTestAccess::succeed(
+            service, request, page({QJsonObject{{"cloud_list_id", 7}, {"kind", "owned"}}}));
+        QVERIFY(snapshots.isEmpty());
+        PlaylistMutationServiceTestAccess::succeed(
+            service, PlaylistMutationServiceTestAccess::request(service), page({existing}));
+        QCOMPARE(snapshots.size(), 1);
+        QCOMPARE(snapshots.first()[0].toJsonObject()["page"].toObject()["items"].toArray().size(),
+                 2);
+        QVERIFY(resets.isEmpty());
+        QCOMPARE(library.rowCount(), 2);
+        QVERIFY(retained.isValid());
+        QCOMPARE(retained.row(), 1);
+        QVERIFY(!library.canFetchMore({}));
+        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
+        api.shutdown();
+    }
     void writesNeverAutomaticallyReplayAndFileIdsRemainTyped()
     {
         ApiClient api;

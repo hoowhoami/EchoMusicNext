@@ -40,13 +40,29 @@ QtObject {
             controller: tip
         }
     }
-    component HoverSession: QtObject {
+    component HoverSession: Item {
         id: hover
         required property EchoToolTip controller
+        parent: hostWindow ? hostWindow.contentItem : null
+        width: parent ? parent.width : 0
+        height: parent ? parent.height : 0
+        z: 100000
         readonly property var hostWindow: controller.parent ? controller.parent.Window.window : null
         readonly property Item overlayItem: controller.parent ? controller.parent.Overlay.overlay : null
         readonly property bool eligible: hostWindow !== null && hostWindow.visible && hostWindow.visibility !== Window.Minimized
         readonly property EchoToolTipPopup popup: instance.count > 0 ? instance.objectAt(0) as EchoToolTipPopup : null
+        // Observe the window press without taking the button's exclusive grab.
+        // This also cancels a pending hint; holding the same hover cannot reopen it.
+        PointHandler {
+            acceptedButtons: Qt.AllButtons
+            target: null
+            onActiveChanged: if (active)
+                Qt.callLater(hover.dismissAfterPress)
+        }
+        function dismissAfterPress() {
+            // Keep Popup teardown outside Qt's traversal of pointer targets.
+            controller.dismissedUntilHoverEnds = true;
+        }
         property Timer requestDelay: Timer {
             interval: Math.max(1, hover.controller.delay)
             running: hover.controller.triggered && hover.controller.delay > 0 && !hover.controller.delayElapsed

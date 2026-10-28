@@ -77,8 +77,8 @@ void AppContext::createAccount()
     auto &userPlaylists = *m_userPlaylists;
     m_playlistMutations = std::make_unique<PlaylistMutationService>(api);
     auto &playlistMutations = *m_playlistMutations;
-    bind(&playlistMutations, &EchoMusic::PlaylistMutationService::libraryInvalidated,
-         &userPlaylists, &EchoMusic::UserPlaylistModel::reload);
+    bind(&playlistMutations, &EchoMusic::PlaylistMutationService::libraryReconciled, &userPlaylists,
+         &EchoMusic::UserPlaylistModel::applyLibrarySnapshot);
     bind(&playlistMutations, &EchoMusic::PlaylistMutationService::tracksReconciled, &userPlaylists,
          &EchoMusic::UserPlaylistModel::applyTrackSnapshot);
     m_collections =

@@ -61,6 +61,8 @@ public:
             service.m_cache.object(key)->expires = -1;
         for (const auto &key : service.m_embedded.keys())
             service.m_embedded.object(key)->expires = -1;
+        for (const auto &key : service.m_coverFacts.keys())
+            service.m_coverFacts.object(key)->expires = -1;
     }
     static void reserve(SongMetadataService &service, const QStringList &ids)
     {

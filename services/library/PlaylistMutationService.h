@@ -1,6 +1,7 @@
 #pragma once
 #include "ApiClient.h"
 #include <QSet>
+#include <QJsonArray>
 
 namespace EchoMusic
 {
@@ -66,6 +67,11 @@ signals:
     /// Directory membership/metadata/order changed; track-only writes use the
     /// reconciled snapshot below so sidebar delegates remain intact.
     void libraryInvalidated();
+    /// Complete, version-consistent directory readback already verified by the
+    /// writer. Read owners merge it without issuing a second directory reload.
+    void libraryReconciled(const QJsonObject &snapshot, quint64 sessionRevision);
+    /// Verified first track page; consumers can reuse it for targeted refreshes.
+    void trackPageReconciled(const QJsonObject &snapshot, quint64 sessionRevision);
     /// Fresh readback facts for one account-local playlist. songCount == -1
     /// means unknown; never derive a count from attempted/per-item writes.
     void tracksReconciled(quint64 cloudListId, quint64 revision, qint64 songCount,
@@ -120,6 +126,7 @@ private:
     QString m_coverFileName, m_expectedCoverUrl;
     QHash<quint64, ApiClient::PlaylistPosition> m_positions;
     QSet<quint64> m_verifiedPositions, m_libraryReadIds;
+    QJsonArray m_directoryItems;
     quint64 m_coverCount = 0;
 };
 } // namespace EchoMusic

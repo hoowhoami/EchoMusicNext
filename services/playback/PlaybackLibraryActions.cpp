@@ -463,6 +463,8 @@ void PlaybackLibraryActions::nextWrite()
         m_failed.clear();
         if (m_pending.isEmpty()) {
             m_busy = false;
+            if (!m_favoritesReady && m_selected.contains("playlist/" + QString::number(m_likedId)))
+                refreshFavorites();
             notifyRows();
             int failed = 0;
             for (const auto &result : std::as_const(m_results))
@@ -533,20 +535,32 @@ void PlaybackLibraryActions::writeCompleted(const QByteArray &bytes)
             if (m_removing)
                 m_favorites.remove(key);
             else
-                m_favorites.insert(
-                    key, quint64(outcomes.first().toObject().value("file_id").toInteger()));
-            emit favoriteWritten(m_writeSongs.first(), !m_removing);
+                applyFavoriteAdds(outcomes);
+            if (m_removing)
+                emit favoriteWritten(m_writeSongs.first(), false);
             emit notice(m_removing ? tr("已取消收藏") : tr("收藏成功"), false);
         } else {
             m_error = tr("音乐服务未接受收藏操作");
             emit notice(m_error, true);
         }
         m_favoriteWrite = m_busy = false;
+        // The acknowledged row has already passed the shared version readback.
+        // Keep the complete membership index instead of re-reading every page
+        // after a known single-song change. Unknown file IDs still need a read.
+        m_favoritesReady =
+            ok && (m_removing || m_favorites.value(favoriteKey(m_writeSongs.first())) > 0);
         m_removing = false;
-        m_favoritesReady = false;
-        refreshFavorites();
+        if (!m_favoritesReady)
+            refreshFavorites();
         emit changed();
         return;
+    }
+    // Adding to the account's liked playlist is the same membership change as
+    // the heart action, including batch/partial successes. Other lists are not.
+    const auto liked = m_library.cloudIdAt(likedRow());
+    if (liked && expectedId == liked->value) {
+        m_likedId = liked->value;
+        applyFavoriteAdds(outcomes);
     }
     for (int i = 0; i < outcomes.size(); ++i)
         if (outcomes[i].toObject().value("resource_code").toInt() != 1)
@@ -556,6 +570,29 @@ void PlaybackLibraryActions::writeCompleted(const QByteArray &bytes)
     // Completion is emitted inside the writer's signal stack. Defer the next
     // target until its reconciliation lifecycle has completely returned.
     QTimer::singleShot(0, this, &PlaybackLibraryActions::nextWrite);
+}
+void PlaybackLibraryActions::applyFavoriteAdds(const QJsonArray &outcomes)
+{
+    for (int i = 0; i < outcomes.size(); ++i) {
+        const auto outcome = outcomes[i].toObject();
+        if (outcome.value("resource_code").toInt() != 1)
+            continue;
+        const auto &song = m_writeSongs[i];
+        const auto key = favoriteKey(song);
+        if (key.isEmpty()) {
+            m_favoritesReady = false;
+            continue;
+        }
+        const bool alreadyFavorite = m_favorites.contains(key);
+        const auto file = outcome.value("file_id").toInteger();
+        // Keep a known removal identity when an idempotent add omits it.
+        if (file > 0 || !alreadyFavorite)
+            m_favorites.insert(key, file > 0 ? quint64(file) : 0);
+        if (!m_favorites.value(key))
+            m_favoritesReady = false;
+        if (!alreadyFavorite)
+            emit favoriteWritten(song, true);
+    }
 }
 void PlaybackLibraryActions::writeFailed(const QString &message)
 {

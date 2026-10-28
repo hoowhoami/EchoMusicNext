@@ -350,53 +350,27 @@ void SongCatalogModel::appendSongs(const QJsonArray &songs)
 }
 void SongCatalogModel::replaceSongs(const QJsonArray &songs, bool preserveSelection)
 {
-    m_cards = false;
-    m_metadataObservedCount = 0;
-    if (m_metadata)
-        m_metadata->unwatch(this);
-    if (m_metadata)
-        m_metadataRefresh.start();
-    beginResetModel();
-    m_entries.clear();
-    m_indices.clear();
-    m_domainIndices.clear();
-    m_viewRows.clear();
-    m_order.clear();
-    if (!preserveSelection)
-        m_selected.clear();
+    QList<Entry> entries;
+    QSet<QString> ids;
     QStringList completedRows;
     for (const auto &value : songs) {
         const auto original = value.toObject();
         const auto song = m_metadata ? m_metadata->complete(original) : original;
         auto entry = songEntry(song);
-        if (entry.id.isEmpty() || m_indices.contains(entry.id))
-            entry.id = QStringLiteral("catalog-row:%1:%2").arg(m_entries.size()).arg(entry.id);
+        if (entry.id.isEmpty() || ids.contains(entry.id))
+            entry.id = QStringLiteral("catalog-row:%1:%2").arg(entries.size()).arg(entry.id);
+        ids.insert(entry.id);
         if (song != original)
             completedRows.append(entry.id);
-        m_domainIndices.insert(entry.domainSong["id"].toString(), m_entries.size());
-        m_indices.insert(entry.id, m_entries.size());
-        m_entries.append(std::move(entry));
+        entries.append(std::move(entry));
     }
-    m_selected.removeIf([this](const QString &id) { return !m_indices.contains(id); });
-    rebuild(true);
+    replaceEntries(std::move(entries), false, preserveSelection);
     if (!completedRows.isEmpty())
         emit presentationsApplied(completedRows);
-    emit selectionChanged();
 }
 void SongCatalogModel::replaceCards(const QJsonArray &cards)
 {
-    m_cards = true;
-    m_metadataObservedCount = 0;
-    m_metadataRefresh.stop();
-    if (m_metadata)
-        m_metadata->unwatch(this);
-    beginResetModel();
-    m_entries.clear();
-    m_indices.clear();
-    m_domainIndices.clear();
-    m_viewRows.clear();
-    m_order.clear();
-    m_selected.clear();
+    QList<Entry> entries;
     for (const auto &value : cards) {
         const auto o = value.toObject();
         Entry entry;
@@ -424,16 +398,131 @@ void SongCatalogModel::replaceCards(const QJsonArray &cards)
             entry.durationMs = quint64(duration.toInteger());
             entry.domainSong = QJsonObject{{"duration_ms", duration}};
         }
-        m_entries.append(std::move(entry));
+        entries.append(std::move(entry));
     }
-    rebuild(true);
-    emit selectionChanged();
+    replaceEntries(std::move(entries), true, false);
+}
+void SongCatalogModel::replaceEntries(QList<Entry> entries, bool cards, bool preserveSelection)
+{
+    const auto oldSelection = m_selected;
+    QHash<QString, int> incoming, existing;
+    bool unique = true;
+    for (int i = 0; i < entries.size(); ++i) {
+        unique &= !incoming.contains(entries[i].id);
+        incoming.insert(entries[i].id, i);
+    }
+    for (int i = 0; i < m_entries.size(); ++i) {
+        unique &= !existing.contains(m_entries[i].id);
+        existing.insert(m_entries[i].id, i);
+    }
+    if (!preserveSelection)
+        m_selected.clear();
+    else
+        m_selected.removeIf([&](const QString &id) { return !incoming.contains(id); });
+    if (m_cards == cards && m_entries == entries && oldSelection == m_selected)
+        return;
+    const auto order = orderedRows(entries);
+    QSet<QString> changedIds;
+    for (const auto &entry : entries) {
+        const auto before = existing.constFind(entry.id);
+        if (before != existing.cend() &&
+            (m_entries[*before] != entry ||
+             oldSelection.contains(entry.id) != m_selected.contains(entry.id)))
+            changedIds.insert(entry.id);
+    }
+    if (!unique) {
+        // Repeated opaque card IDs are displayable, but cannot address a
+        // persistent row unambiguously. Preserve the old fallback for them.
+        beginResetModel();
+    } else {
+        QList<int> target;
+        QSet<int> wanted;
+        for (int index : order) {
+            const auto &entry = entries[index];
+            auto found = existing.constFind(entry.id);
+            int backing;
+            if (found == existing.cend()) {
+                backing = m_entries.size();
+                existing.insert(entry.id, backing);
+                m_indices.insert(entry.id, backing);
+                m_entries.append(entry);
+            } else
+                backing = *found;
+            target.append(backing);
+            wanted.insert(backing);
+        }
+        for (int row = m_order.size() - 1; row >= 0;)
+            if (!wanted.contains(m_order[row])) {
+                const int last = row;
+                while (row >= 0 && !wanted.contains(m_order[row]))
+                    --row;
+                const int first = row + 1;
+                beginRemoveRows({}, first, last);
+                m_order.remove(first, last - first + 1);
+                endRemoveRows();
+            } else
+                --row;
+        QSet<int> visible(m_order.cbegin(), m_order.cend());
+        for (int row = 0; row < target.size(); ++row) {
+            if (row < m_order.size() && m_order[row] == target[row])
+                continue;
+            const int from = m_order.indexOf(target[row], row);
+            if (from < 0) {
+                const int first = row;
+                while (row + 1 < target.size() && !visible.contains(target[row + 1]))
+                    ++row;
+                beginInsertRows({}, first, row);
+                for (int at = first; at <= row; ++at) {
+                    m_order.insert(at, target[at]);
+                    visible.insert(target[at]);
+                }
+                endInsertRows();
+            } else {
+                beginMoveRows({}, from, from, {}, row);
+                m_order.move(from, row);
+                endMoveRows();
+            }
+        }
+    }
+    m_cards = cards;
+    m_entries = std::move(entries);
+    m_order = order;
+    m_indices.clear();
+    m_domainIndices.clear();
+    m_viewRows.fill(-1, m_entries.size());
+    for (int i = 0; i < m_entries.size(); ++i) {
+        m_indices.insert(m_entries[i].id, i);
+        m_domainIndices.insert(m_entries[i].domainSong.value("id").toString(), i);
+    }
+    for (int row = 0; row < m_order.size(); ++row)
+        m_viewRows[m_order[row]] = row;
+    if (!unique)
+        endResetModel();
+    else
+        for (int row = 0; row < m_order.size(); ++row)
+            if (changedIds.contains(m_entries[m_order[row]].id))
+                emit dataChanged(index(row), index(row));
+    m_metadataObservedCount = 0;
+    if (m_metadata) {
+        if (cards) {
+            m_metadataRefresh.stop();
+            m_metadata->unwatch(this);
+        } else
+            m_metadataRefresh.start();
+    }
+    emit changed();
+    if (oldSelection != m_selected)
+        emit selectionChanged();
 }
 void SongCatalogModel::clear()
 {
+    const bool controlsChanged = !m_query.isEmpty() || m_sortField || m_sortDirection;
+    const bool empty = m_entries.isEmpty();
     m_query.clear();
     m_sortField = m_sortDirection = 0;
     replaceSongs({});
+    if (empty && controlsChanged)
+        emit changed();
 }
 void SongCatalogModel::setQuery(const QString &value)
 {
@@ -464,22 +553,20 @@ void SongCatalogModel::clearSort()
     m_sortDirection = 0;
     rebuild();
 }
-void SongCatalogModel::rebuild(bool resetStarted)
+QList<int> SongCatalogModel::orderedRows(const QList<Entry> &entries) const
 {
-    if (!resetStarted)
-        beginResetModel();
-    m_order.clear();
+    QList<int> order;
     const auto needle = m_query.trimmed();
-    for (int i = 0; i < m_entries.size(); ++i) {
-        const auto &e = m_entries[i];
+    for (int i = 0; i < entries.size(); ++i) {
+        const auto &e = entries[i];
         if (needle.isEmpty() || (e.title.contains(needle, Qt::CaseInsensitive) ||
                                  e.artist.contains(needle, Qt::CaseInsensitive) ||
                                  e.album.contains(needle, Qt::CaseInsensitive)))
-            m_order.append(i);
+            order.append(i);
     }
     if (m_sortField)
-        std::stable_sort(m_order.begin(), m_order.end(), [&](int a, int b) {
-            const auto &x = m_entries[a], &y = m_entries[b];
+        std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+            const auto &x = entries[a], &y = entries[b];
             int comparison = 0;
             switch (m_sortField) {
             case 1:
@@ -504,6 +591,13 @@ void SongCatalogModel::rebuild(bool resetStarted)
             }
             return m_sortDirection == 2 ? comparison > 0 : comparison < 0;
         });
+    return order;
+}
+void SongCatalogModel::rebuild(bool resetStarted)
+{
+    if (!resetStarted)
+        beginResetModel();
+    m_order = orderedRows(m_entries);
     m_viewRows.fill(-1, m_entries.size());
     for (int row = 0; row < m_order.size(); ++row)
         m_viewRows[m_order[row]] = row;

@@ -141,6 +141,9 @@ private:
     void fail(quint64 id, const QByteArray &bytes);
     void failMessage(const QString &message);
     void consumeBatch();
+    void applyTrackReadback(const QJsonObject &snapshot, quint64 session);
+    QJsonObject m_pendingTrackReadback;
+    bool m_reconcilingTracks = false;
     void completePage(const QJsonArray &songs);
     void publishCover();
     /// Fill presentation facts stripped by the provider (cloud playlist entries
@@ -177,7 +180,6 @@ private:
     quint64 m_generation = 0, m_total = 0;
     std::optional<quint64> m_revision;
     quint32 m_nextPage = 1, m_pageSize = 200;
-    bool m_complete = false, m_resolving = false, m_closed = false, m_network,
-         m_metadataDirty = false;
+    bool m_complete = false, m_resolving = false, m_closed = false, m_network;
 };
 } // namespace EchoMusic

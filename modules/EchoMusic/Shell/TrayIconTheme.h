@@ -1,6 +1,7 @@
 #pragma once
 #include <QAbstractNativeEventFilter>
 #include <QObject>
+#include <QTimer>
 #include <QIcon>
 #include <functional>
 
@@ -16,8 +17,11 @@ public:
     static QIcon monochrome(const QColor &color);
 
 private:
+    void scheduleUpdate();
     bool eventFilter(QObject *, QEvent *) override;
     bool nativeEventFilter(const QByteArray &, void *, qintptr *) override;
     std::function<void()> m_update;
+    QTimer m_pendingUpdate;
+    bool m_updating = false;
 };
 } // namespace EchoMusic

@@ -1,6 +1,7 @@
 #include "PlaylistDetailService.h"
 #include "ShellSettings.h"
 #include "ThemeStore.h"
+#include "NativeWindow.h"
 #include "NetworkPreferences.h"
 #include "PlaybackLibraryActions.h"
 #include "SidebarPlaylistModel.h"
@@ -248,6 +249,63 @@ class PlaylistDetailTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void confirmedTrackPagesKeepUnchangedRowsAndDetails()
+    {
+        QTemporaryDir dir;
+        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api);
+        PlaylistMutationService mutations(api);
+        RouteController router;
+        PlaylistOrderModel order(api, mutations);
+        SongMetadataService metadata(api);
+        PlaylistDetailService service(api, playback, library, mutations, order, metadata, router,
+                                      false);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("playlist-detail", {}, "cover-playlist"));
+        auto *context = service.contextFor(router.current());
+        PlaylistDetailContextTestAccess::seed(*context, "Retained title");
+        PlaylistDetailContextTestAccess::cloud(*context);
+        const auto snapshot = [](int list, int revision, const QJsonArray &items) {
+            return QJsonObject{{"user_id", 100},
+                               {"cloud_list_id", list},
+                               {"revision", revision},
+                               {"page", QJsonObject{{"items", items}, {"total", items.size()}}}};
+        };
+        mutations.trackPageReconciled(snapshot(7, 10, {playlistSong(1), playlistSong(2)}),
+                                      api.sessionRevision());
+        QCOMPARE(context->songs()->totalCount(), 2);
+        context->songs()->toggleSelected("2");
+        const QPersistentModelIndex retained(context->songs()->index(1));
+        QSignalSpy resets(context->songs(), &QAbstractItemModel::modelReset);
+        mutations.libraryInvalidated();
+        mutations.trackPageReconciled(snapshot(8, 11, {}), api.sessionRevision());
+        QCoreApplication::processEvents();
+        QCOMPARE(context->songs()->totalCount(), 2);
+        mutations.trackPageReconciled(
+            snapshot(7, 11, {playlistSong(1), playlistSong(2), playlistSong(3)}),
+            api.sessionRevision());
+        QCOMPARE(context->songs()->totalCount(), 3);
+        QVERIFY(retained.isValid());
+        QVERIFY(retained.data(SongCatalogModel::Selected).toBool());
+        mutations.trackPageReconciled(snapshot(7, 12, {playlistSong(2), playlistSong(3)}),
+                                      api.sessionRevision());
+        QCOMPARE(retained.row(), 0);
+        QVERIFY(retained.isValid());
+        QCOMPARE(context->detail()["title"].toString(), QString("Cover playlist"));
+        QVERIFY(resets.isEmpty());
+        QVERIFY(context->complete());
+        QVERIFY(!context->loading());
+        service.shutdown();
+        router.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void libraryResponseVariationsDoNotRejectThePage()
     {
         ApiClient api(DeviceIdentity::temporary());
@@ -478,12 +536,14 @@ private slots:
         component.setData(R"(
 import QtQuick
 import EchoMusic.Music
+import EchoMusic.Theme
 Window {
  id: window
  required property SongCatalogModel songs
  required property SongCatalogActions actions
  property bool busy: false
  property string errorText: ""
+ color: Theme.main
  visible: true; width: 1000; height: 700
  SongCatalogView {
   anchors.fill: parent
@@ -516,6 +576,36 @@ Window {
         auto *list = playlistVisual(window->contentItem(), "discoverySongs");
         QVERIFY(list);
         QSignalSpy modelChanges(list, SIGNAL(modelChanged()));
+        QPointer<QQuickItem> retainedRow = playlistVisual(window->contentItem(), "songDelegate");
+        QVERIFY(retainedRow);
+        const auto retainedId = retainedRow->property("resourceId").toString();
+        const auto retainedY = retainedRow->mapToScene({0, 0}).y();
+        songs.toggleSelected(retainedId);
+        auto extended = page;
+        auto extra = playlistSong(101)["song"].toObject();
+        extra["metadata"] = playlistSong(101)["metadata"];
+        extended.append(extra);
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            songs.replaceSongs(extended, true);
+            drainIncubation();
+            QVERIFY(retainedRow);
+            QCOMPARE(retainedRow->property("resourceId").toString(), retainedId);
+            QTRY_VERIFY(qAbs(retainedRow->mapToScene({0, 0}).y() - retainedY) < .1);
+            QCOMPARE(songs.selectedCount(), 1);
+            songs.replaceSongs(page, true);
+            drainIncubation();
+            QVERIFY(retainedRow);
+            QTRY_VERIFY(qAbs(retainedRow->mapToScene({0, 0}).y() - retainedY) < .1);
+            const auto captures = qEnvironmentVariable("ECHO_COLLECTION_INCREMENTAL_CAPTURES");
+            if (!captures.isEmpty()) {
+                QVERIFY(QDir().mkpath(captures));
+                QTest::qWait(40);
+                QVERIFY(window->grabWindow().save(captures + (mode == ThemeStore::Light
+                                                                  ? "/retained-light.png"
+                                                                  : "/retained-dark.png")));
+            }
+        }
         for (int i = 0; i < 40; ++i) {
             // Reproduce the success -> playlist reload -> empty -> loading
             // sequence with live required-role delegates, without online writes.
@@ -914,9 +1004,7 @@ Window {
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window);
-        window->requestActivate();
-        if (QGuiApplication::platformName() != "offscreen")
-            QVERIFY(QTest::qWaitForWindowActive(window));
+        QVERIFY(Test::prepareNativeInput(window));
         QVERIFY(router.navigate("playlist-detail", {}, global));
         auto *context = service.contextFor(router.current());
         const auto artifacts = qEnvironmentVariable("ECHO_PLAYLIST_ARTIFACTS");

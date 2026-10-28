@@ -93,6 +93,7 @@ void AppContext::createPages()
     m_favorites = std::make_unique<FavoritesService>(
         api, playback, userPlaylists, *libraryController.order(), songMetadata, router, !smoke);
     auto &favorites = *m_favorites;
+    favorites.attachPlaylistMutations(playlistMutations);
     bind(&favorites, &FavoritesService::notice, &shellController, showNotice);
     bind(libraryController.order(), &EchoMusic::PlaylistOrderModel::notice, &shellController,
          [&](const QString &message, bool warning) {

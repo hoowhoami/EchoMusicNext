@@ -50,6 +50,7 @@ Item {
     // Native move/resize keeps snap, multi-monitor and Wayland behavior in the OS.
     EchoWindowDragArea {
         anchors.fill: parent
+        excludedItems: [navigation, toolbar, more, windowActions]
         onMoveRequested: bar.window.startSystemMove()
         onDoubleClickRequested: bar.windowService.toggleMaximized()
     }
@@ -59,6 +60,7 @@ Item {
         anchors.rightMargin: 12
         spacing: 4
         RowLayout {
+            id: navigation
             Layout.fillHeight: false
             visible: bar.width >= 400
             Layout.preferredWidth: 350
@@ -115,19 +117,57 @@ Item {
                 actions: bar.controller.titlebarActions
                 zone: ShellActionModel.Toolbar
             }
+            readonly property bool motionActive: visible && bar.window.visible && bar.window.visibility !== Window.Minimized && Theme.store.motionEnabled
+            onMotionActiveChanged: if (!motionActive) {
+                moveAnimation.complete();
+                displacedAnimation.complete();
+            }
+            move: Transition {
+                enabled: toolbar.motionActive
+                NumberAnimation {
+                    id: moveAnimation
+                    properties: "x,y"
+                    duration: Theme.normalDuration
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: Theme.easeStandard
+                }
+            }
+            moveDisplaced: Transition {
+                enabled: toolbar.motionActive
+                NumberAnimation {
+                    id: displacedAnimation
+                    properties: "x,y"
+                    duration: Theme.normalDuration
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: Theme.easeStandard
+                }
+            }
             delegate: ShellActionButton {
                 id: actionButton
                 actions: bar.controller.titlebarActions
                 projection: ShellActionModel.Toolbar
-                contentItem: ShellActionDragHandle {
+                property bool pooled: false
+                ListView.onPooled: pooled = true
+                ListView.onReused: pooled = false
+                visualContentActive: !pooled
+                ShellActionDragHandle {
+                    anchors.fill: parent
+                    button: actionButton
                     actionKey: actionButton.actionKey
                     glyph: actionButton.glyph
                     foreground: actionButton.foreground
                     iconOpacity: actionButton.enabled ? 1 : actionButton.disabledOpacity
-                    onClicked: actionButton.actions.activate(actionKey)
+                    dragLayer: bar
+                    resourceActive: !actionButton.pooled && toolbar.visible && bar.window.visible && bar.window.visibility !== Window.Minimized
                 }
                 DropArea {
-                    anchors.fill: parent
+                    // Unavailable commands remain valid reorder destinations.
+                    // Keep hit testing outside the disabled button subtree.
+                    parent: toolbar.contentItem
+                    x: actionButton.x
+                    y: actionButton.y
+                    width: actionButton.width
+                    height: actionButton.height
                     keys: ["titlebar-actions"]
                     onDropped: drop => {
                         const key = drop.source.objectName;

@@ -7,6 +7,7 @@ add_library(
     EmbeddedCoverCache.cpp
     EmbeddedCoverCache.h
     EmbeddedCoverPresentation.h
+    ArtistCoverPresentation.h
     UserPlaylistModel.cpp
     UserPlaylistModel.h
     PlaylistMutationService.cpp

@@ -15,6 +15,7 @@ void PluginRuntimeTest::marketplaceInstallsActualPackageAndRejectsTampering()
     auto archive = archiveFile.readAll();
     QJsonObject reportedEvent;
     bool holdCatalog = true;
+    bool failCatalog = false;
     QList<QPointer<QTcpSocket>> heldRequests;
     connect(&server, &QTcpServer::newConnection, &server, [&] {
         auto *socket = server.nextPendingConnection();
@@ -55,7 +56,10 @@ void PluginRuntimeTest::marketplaceInstallsActualPackageAndRejectsTampering()
                 : request.startsWith("GET /archive.echomod ") ? archive
                 : request.startsWith("POST ") ? QByteArray(R"({"ok":true,"plugins":[]})")
                                               : manifest;
-            socket->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(body.size()) +
+            const QByteArray status = failCatalog && request.startsWith("GET /echo-plugins.json ")
+                                          ? "HTTP/1.1 503 Unavailable"
+                                          : "HTTP/1.1 200 OK";
+            socket->write(status + "\r\nContent-Length: " + QByteArray::number(body.size()) +
                           "\r\nConnection: close\r\n\r\n" + body);
             socket->disconnectFromHost();
             connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
@@ -126,6 +130,17 @@ ApplicationWindow {
     QTRY_VERIFY(!manager.catalogLoading());
     QCOMPARE(manager.catalogCount(), 1);
     QTRY_VERIFY(visual(uiWindow->contentItem(), "pluginStat-heartbeat"));
+    const auto catalogFitsBelowHeading = [&] {
+        auto *heading = visual(uiWindow->contentItem(), "pluginCatalogHeading");
+        auto *card = visual(uiWindow->contentItem(), "pluginCard-org.test.catalog");
+        if (!heading || !card)
+            return false;
+        const auto gap =
+            card->mapToScene({0, 0}).y() - heading->mapToScene({0, heading->height()}).y();
+        return qAbs(gap - 14 * uiWindow->property("uiScale").toReal()) < 1.;
+    };
+    QTRY_VERIFY(!visual(uiWindow->contentItem(), "pluginMarketplaceSkeleton"));
+    QTRY_VERIFY(catalogFitsBelowHeading());
     if (!uiOutput.isEmpty()) {
         QDir().mkpath(uiOutput);
         uiWindow->resize(1000, 800);
@@ -155,6 +170,58 @@ ApplicationWindow {
         uiWindow->resize(900, 650);
         QTest::mouseMove(uiWindow, {uiWindow->width() - 4, uiWindow->height() - 4});
     }
+    {
+        // A fresh manager restores catalog.json but still owes its first
+        // network refresh. Exercise that state without faking loaded/loading.
+        PluginManager cached(host.runtime, host.settings);
+        cached.m_resolveUrl = manager.m_resolveUrl;
+        QCOMPARE(cached.catalogCount(), 1);
+        QVERIFY(!cached.loaded());
+        const auto restoreManager =
+            qScopeGuard([&] { uiRoot->setProperty("manager", QVariant::fromValue(&manager)); });
+        QVERIFY(uiRoot->setProperty("manager", QVariant::fromValue(&cached)));
+        QTRY_VERIFY(catalogFitsBelowHeading());
+        heldRequests.clear();
+        holdCatalog = true;
+        cached.refreshCatalog();
+        QVERIFY(cached.catalogLoading());
+        QTRY_VERIFY(!heldRequests.isEmpty());
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (const auto scale : {1., 1.25}) {
+                host.theme.setMode(mode);
+                uiWindow->setProperty("uiScale", scale);
+                QTRY_VERIFY(!visual(uiWindow->contentItem(), "pluginMarketplaceSkeleton"));
+                QTRY_VERIFY(catalogFitsBelowHeading());
+                if (!uiOutput.isEmpty())
+                    QVERIFY(uiWindow->grabWindow().save(
+                        uiOutput + QString("/marketplace-cached-refresh-%1-%2.png")
+                                       .arg(int(mode))
+                                       .arg(scale)));
+                // Filtering does not turn an existing catalog into a cold load.
+                cached.setSearch("no-matching-cached-plugin");
+                QTRY_COMPARE(cached.catalog()->rowCount(), 0);
+                QVERIFY(!visual(uiWindow->contentItem(), "pluginMarketplaceSkeleton"));
+                cached.setSearch("");
+                QTRY_VERIFY(catalogFitsBelowHeading());
+            }
+        failCatalog = true;
+        holdCatalog = false;
+        for (auto &socket : heldRequests)
+            if (socket)
+                QVERIFY(QMetaObject::invokeMethod(socket, "readyRead", Qt::QueuedConnection));
+        QTRY_VERIFY(!cached.catalogLoading());
+        QCOMPARE(cached.catalogCount(), 1);
+        QVERIFY(!cached.sourceError().isEmpty());
+        QTRY_VERIFY(!visual(uiWindow->contentItem(), "pluginMarketplaceSkeleton"));
+        QTRY_VERIFY(catalogFitsBelowHeading());
+        if (!uiOutput.isEmpty())
+            QVERIFY(uiWindow->grabWindow().save(uiOutput + "/marketplace-cached-failure.png"));
+        cached.shutdown();
+        failCatalog = false;
+    }
+    uiWindow->setProperty("uiScale", 1.);
+    host.theme.setMode(ThemeStore::Light);
+    QTRY_VERIFY(catalogFitsBelowHeading());
     auto *sourceAction = visual(uiWindow->contentItem(), "pluginSourceManage");
     QVERIFY(sourceAction);
     QVERIFY(QMetaObject::invokeMethod(sourceAction, "clicked"));

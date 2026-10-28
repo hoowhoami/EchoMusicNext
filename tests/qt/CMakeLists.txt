@@ -284,7 +284,8 @@ add_test(
         floatingPanelEdgesAndMenuHeight menusDrawersAndFileDialogsReleaseAfterClose
         businessPopupsAreCreatedOnDemandAndDestroyedAfterExit
         verificationCoverPreservesPopupInstancesAndDrafts tooltipPopupsExistOnlyDuringTheirTrigger
-        nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover dialogHeaderBodyAndFooterShareInsets
+        nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover tooltipPressPreservesClickAndRelease
+        dialogHeaderBodyAndFooterShareInsets
         drawerFixedActionsSurviveLongTitlesAndVisibilityChanges
         hintsAvoidTriggersAndWindowEdgesAcrossZoom popupsCancelVisibleAndPendingHints
         popupAndPageTracksShareRightInsetAndRetainDragMapping
@@ -311,7 +312,8 @@ add_test(
 add_test(
     NAME controls-ui-behavior
     COMMAND
-        echo-controls-ui-test listLocationPreservesVisibleRowsAndChecksOcclusion
+        echo-controls-ui-test windowCaptionSeparatesDoubleClickFromDrag
+        listLocationPreservesVisibleRowsAndChecksOcclusion
         coverKeepsNativeResolutionUnderAncestorZoom coverCropAndRoundedPixels
         iconRasterTracksZoomAndReleasesWhenHidden clearActionIsOneUserEditButProgrammaticClearIsNot
         boundedListAutoHeightSurvivesReopenAndVariableRows progressClimaxTicksAndWaitPreview
@@ -770,6 +772,7 @@ target_sources(
             plugins/PluginRuntimeTestFixture.h
             plugins/PluginRuntimeManagement1.cpp
             plugins/PluginRuntimeManagement2.cpp
+            plugins/PluginRuntimeManagementFirstOpen.cpp
             plugins/PluginRuntimeRuntime.cpp
             plugins/PluginRuntimeShutdown.cpp
             plugins/PluginRuntimeDependencies.cpp
@@ -1550,6 +1553,7 @@ if(APPLE)
               echo-plugin-runtime-test
               echo-playback-page-test
               echo-discovery-test
+              echo-playlist-detail-test
               echo-history-test
               echo-details-test
               echo-playback-discussion-test
@@ -1659,3 +1663,13 @@ set_tests_properties(
                                     TRUE
 )
 echo_copy_rust_runtime(echo-embedded-cover-cache-test)
+
+qt_add_executable(echo-artist-cover-fallback-test ArtistCoverFallbackTest.cpp)
+target_link_libraries(
+    echo-artist-cover-fallback-test PRIVATE echo_music echo_search echo_settings_keys Qt6::Test
+)
+add_test(NAME artist-cover-fallback COMMAND echo-artist-cover-fallback-test)
+set_tests_properties(
+    artist-cover-fallback PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
+)
+echo_copy_rust_runtime(echo-artist-cover-fallback-test)

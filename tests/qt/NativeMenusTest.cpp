@@ -3,6 +3,8 @@
 #include "PlaybackService.h"
 #include "ApiClient.h"
 #include <QApplication>
+#include <QEvent>
+#include <QElapsedTimer>
 #include <QMenu>
 #include <QSignalSpy>
 #include <QSystemTrayIcon>
@@ -414,6 +416,38 @@ private slots:
         QVERIFY(!window.floating()->miniActive());
         QVERIFY(main.isVisible());
         window.shutdown();
+    }
+    void themeNotificationBurstIsCoalescedAndCancelledWithOwner()
+    {
+        int updates = 0;
+        auto listener = std::make_unique<TrayIconTheme>([&] { ++updates; });
+        QObject recipient;
+        QElapsedTimer elapsed;
+        elapsed.start();
+        for (int i = 0; i < 1000; ++i) {
+            QEvent event(i % 2 ? QEvent::ThemeChange : QEvent::ApplicationPaletteChange);
+            QCoreApplication::sendEvent(&recipient, &event);
+        }
+        qInfo() << "1000 appearance events:" << updates << "inline tray updates in"
+                << elapsed.nsecsElapsed() / 1000000.0 << "ms";
+        QCOMPARE(updates, 0);
+#ifdef Q_OS_MACOS
+        // The template keeps the same native image identity across appearance
+        // changes. AppKit owns tinting; no application refresh is necessary.
+        QTest::qWait(100);
+        QCOMPARE(updates, 0);
+#else
+        QTRY_COMPARE(updates, 1);
+        // A later switch still refreshes. Deleting a tray owner cancels pending
+        // delivery, so a window closed during a system transition stays closed.
+        QEvent event(QEvent::ThemeChange);
+        QCoreApplication::sendEvent(&recipient, &event);
+        QTRY_COMPARE(updates, 2);
+        QCoreApplication::sendEvent(&recipient, &event);
+        listener.reset();
+        QTest::qWait(100);
+        QCOMPARE(updates, 2);
+#endif
     }
     void blackAndWhiteIconsKeepIdenticalSourceAlpha()
     {

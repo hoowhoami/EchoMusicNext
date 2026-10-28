@@ -120,7 +120,10 @@ private:
         QVariantList qualityTags;
         quint64 albumId = 0, durationMs = 0;
         bool playable = true, trackPlayable = false, original = false;
+        bool operator==(const Entry &) const = default;
     };
+    QList<int> orderedRows(const QList<Entry> &entries) const;
+    void replaceEntries(QList<Entry> entries, bool cards, bool preserveSelection);
     void watchMetadata();
     void notifyPresentations(const QSet<int> &changed, bool orderMayChange = true);
     QPointer<SongMetadataService> m_metadata;

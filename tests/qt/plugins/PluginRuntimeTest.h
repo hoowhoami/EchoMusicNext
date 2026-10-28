@@ -86,6 +86,8 @@ private slots:
     void settingsContributionRetiresWithScope();
     void managementHeaderAndLoadingContentStayAligned();
     void managementPageUsesProductionModelsAndDialogs();
+    void managementFirstOpenAfterRestart_data();
+    void managementFirstOpenAfterRestart();
     void statisticsUseSampledWireAndRejectInvalidNumbers();
     void marketplaceInstallsActualPackageAndRejectsTampering();
     void spectrumCapabilityAndOwnerLifetime();

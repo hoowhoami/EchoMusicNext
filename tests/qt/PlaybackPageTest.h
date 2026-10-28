@@ -32,6 +32,7 @@ private slots:
     void characterMotionMatchesUpstreamMeasurements();
     void wordBoundarySweepMatchesUpstreamMeasurements();
     void nativeEngineTimelineHasNoPeriodicHold();
+    void themeEventBurstKeepsTrayStableDuringNativePlayback();
     void presentationClockHandlesJitterPauseSpeedAndSeek();
     void shapedWordPixelsProgressSeekAndWrap();
     void shapedClustersKeepCompleteInk();

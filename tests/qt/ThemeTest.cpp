@@ -1289,6 +1289,24 @@ elif sys.argv[1] == 'dispatch':
         QVERIFY(hint);
         QTRY_VERIFY(hint->property("popup").value<QObject *>());
         QTRY_VERIFY(hint->property("popup").value<QObject *>()->property("visible").toBool());
+        QPointer<QObject> shownHint = hint->property("popup").value<QObject *>();
+        QSignalSpy clicks(button, SIGNAL(clicked()));
+        // A visible tooltip must not split native down/up delivery, leave the
+        // control pressed, or reopen while the same pointer hover continues.
+        for (DWORD action : {DWORD(MOUSEEVENTF_LEFTDOWN), DWORD(MOUSEEVENTF_LEFTUP)}) {
+            INPUT input{};
+            input.type = INPUT_MOUSE;
+            input.mi.dwFlags = action;
+            QCOMPARE(SendInput(1, &input, sizeof(INPUT)), UINT(1));
+            QTest::qWait(30);
+        }
+        QTRY_COMPARE(clicks.size(), 1);
+        QTRY_VERIFY(!button->property("pressed").toBool());
+        QVERIFY(!button->property("down").toBool());
+        QVERIFY(!window->mouseGrabberItem());
+        QTRY_VERIFY(shownHint.isNull());
+        QTest::qWait(600);
+        QVERIFY(!hint->property("popup").value<QObject *>());
         SetCursorPos(empty.x, empty.y);
         QTRY_VERIFY(!button->property("hovered").toBool());
         // Real held-button motion checks both Quick drag handlers and user32's

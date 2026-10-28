@@ -3,6 +3,7 @@
 #include "FavoritesService.h"
 #include "NetworkPreferences.h"
 #include "PlaybackService.h"
+#include "PlaybackLibraryActions.h"
 #include "PlaylistMutationService.h"
 #include "PlaylistOrderModel.h"
 #include "PlaylistEditModel.h"
@@ -40,9 +41,30 @@
 using namespace EchoMusic;
 namespace EchoMusic
 {
+class PlaybackLibraryActionsTestAccess
+{
+public:
+    static void ready(PlaybackLibraryActions &actions, ApiClient &api)
+    {
+        if (actions.m_favoriteRead)
+            api.cancel(actions.m_favoriteRead);
+        actions.m_favoriteRead = 0;
+        actions.m_revision = api.sessionRevision();
+        actions.m_likedId = 7;
+        actions.m_favoritesReady = true;
+    }
+    static quint64 favoriteRead(const PlaybackLibraryActions &actions)
+    {
+        return actions.m_favoriteRead;
+    }
+};
 class UserPlaylistModelTestAccess
 {
 public:
+    static void ready(UserPlaylistModel &model)
+    {
+        model.m_state = UserPlaylistModel::State::Ready;
+    }
     static void setKind(UserPlaylistModel &model, const QString &kind)
     {
         model.m_rows[0].kind = kind;
@@ -317,6 +339,10 @@ public:
 class PlaylistMutationServiceTestAccess
 {
 public:
+    static bool removingTracks(const PlaylistMutationService &service)
+    {
+        return service.m_kind == PlaylistMutationService::Kind::RemoveTracks;
+    }
     static quint64 request(const PlaylistMutationService &service)
     {
         return service.m_request;
@@ -494,6 +520,319 @@ class LibraryPagesTest : public QObject
 {
     Q_OBJECT
 private slots:
+
+    void collectionSnapshotsPreserveUnchangedRows()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        UserPlaylistModel model(api);
+        QAbstractItemModelTester check(&model,
+                                       QAbstractItemModelTester::FailureReportingMode::QtTest);
+        auto row = [](int id, const QString &kind = "owned") {
+            return QJsonObject{{"cloud_list_id", id},
+                               {"global_id", QString::number(id)},
+                               {"kind", kind},
+                               {"creator_id", 100},
+                               {"source_code", 1},
+                               {"revision", 1},
+                               {"title", QString("Playlist %1").arg(id)}};
+        };
+        const auto apply = [&](int revision, const QJsonArray &rows) {
+            model.applyLibrarySnapshot(
+                {{"user_id", 100},
+                 {"total_revision", revision},
+                 {"page", QJsonObject{{"items", rows}, {"total", rows.size()}}}},
+                api.sessionRevision());
+        };
+        apply(1, {row(7), row(8)});
+        SidebarPlaylistModel sidebar(model);
+        const QPersistentModelIndex retained(model.index(1));
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy inserts(&model, &QAbstractItemModel::rowsInserted);
+        QSignalSpy removes(&model, &QAbstractItemModel::rowsRemoved);
+        QSignalSpy changes(&model, &QAbstractItemModel::dataChanged);
+        apply(2, {row(9, "collected"), row(7), row(8)});
+        QCOMPARE(inserts.size(), 1);
+        QCOMPARE(retained.row(), 2);
+        QCOMPARE(retained.data(UserPlaylistModel::CloudListIdRole).toInt(), 8);
+        QVERIFY(changes.isEmpty());
+        apply(3, {row(7), row(8)});
+        QCOMPARE(removes.size(), 1);
+        QCOMPARE(retained.row(), 1);
+        auto renamed = row(7);
+        renamed["title"] = "Renamed";
+        apply(4, {row(8), renamed});
+        QCOMPARE(retained.row(), 0);
+        QCOMPARE(changes.size(), 1);
+        QVERIFY(changes.first()[2].value<QList<int>>().contains(UserPlaylistModel::TitleRole));
+        QVERIFY(resets.isEmpty());
+        auto sortedA = renamed;
+        auto sortedB = row(8);
+        sortedA["sort_index"] = 10;
+        sortedB["sort_index"] = 20;
+        apply(5, {sortedB, sortedA});
+        QCOMPARE(sidebar.index(0, 0).data(UserPlaylistModel::CloudListIdRole).toInt(), 7);
+        sortedB["sort_index"] = 0;
+        apply(6, {sortedB, sortedA});
+        QCOMPARE(sidebar.index(0, 0).data(UserPlaylistModel::CloudListIdRole).toInt(), 8);
+        QVERIFY(!model.canFetchMore({}));
+        apply(3, {}); // A delayed older directory cannot erase current rows.
+        QCOMPARE(model.rowCount(), 2);
+        const auto oldSession = api.sessionRevision();
+        QVERIFY(api.setAccount(200, "new-domain-fixture"));
+        model.applyLibrarySnapshot({{"user_id", 100},
+                                    {"total_revision", 99},
+                                    {"page", QJsonObject{{"items", QJsonArray{row(7)}}}}},
+                                   oldSession);
+        QCOMPARE(model.rowCount(), 0);
+        connect(&model, &QAbstractItemModel::rowsInserted, &api, [&] { api.setAccount(0, {}); });
+        model.applyLibrarySnapshot({{"user_id", 200},
+                                    {"total_revision", 1},
+                                    {"page", QJsonObject{{"items", QJsonArray{row(17)}}}}},
+                                   api.sessionRevision());
+        QCOMPARE(model.rowCount(), 0);
+        QCOMPARE(model.state(), UserPlaylistModel::State::SignedOut);
+        api.shutdown();
+    }
+
+    void canonicalSongAndCardSnapshotsKeepPersistentIdentity()
+    {
+        SongCatalogModel model;
+        QAbstractItemModelTester check(&model,
+                                       QAbstractItemModelTester::FailureReportingMode::QtTest);
+        auto song = [](int id) {
+            return QJsonObject{{"id", QString::number(id)},
+                               {"title", QString("Song %1").arg(id)},
+                               {"hash", QString(32, QChar('a'))}};
+        };
+        QJsonArray songs;
+        for (int i = 1; i <= 500; ++i)
+            songs.append(song(i));
+        model.replaceSongs(songs);
+        model.toggleSelected("250");
+        const QPersistentModelIndex retained(model.index(249));
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy changes(&model, &QAbstractItemModel::dataChanged);
+        songs.prepend(song(501));
+        model.replaceSongs(songs, true);
+        QCOMPARE(retained.row(), 250);
+        QCOMPARE(retained.data(SongCatalogModel::ResourceId).toString(), "250");
+        QVERIFY(retained.data(SongCatalogModel::Selected).toBool());
+        QVERIFY(changes.isEmpty());
+        songs.removeAt(1);
+        auto renamed = song(2);
+        renamed["title"] = "Changed title";
+        songs[1] = renamed;
+        model.replaceSongs(songs, true);
+        QCOMPARE(retained.row(), 249);
+        QCOMPARE(model.selectedCount(), 1);
+        QCOMPARE(changes.size(), 1);
+        model.replaceSongs(songs, true);
+        QCOMPARE(changes.size(), 1);
+        QJsonArray reversed;
+        for (int i = songs.size() - 1; i >= 0; --i)
+            reversed.append(songs.at(i));
+        songs = reversed;
+        model.replaceSongs(songs, true);
+        QCOMPARE(retained.data(SongCatalogModel::ResourceId).toString(), "250");
+        QVERIFY(resets.isEmpty());
+        SongCatalogModel cards;
+        QAbstractItemModelTester cardCheck(&cards,
+                                           QAbstractItemModelTester::FailureReportingMode::QtTest);
+        cards.replaceCards({song(1), song(2)});
+        const QPersistentModelIndex card(cards.index(1));
+        QSignalSpy cardResets(&cards, &QAbstractItemModel::modelReset);
+        QSignalSpy cardChanges(&cards, &QAbstractItemModel::dataChanged);
+        cards.replaceCards({song(1), song(2)});
+        cards.replaceCards({song(3), song(1), song(2)});
+        QCOMPARE(card.row(), 2);
+        QVERIFY(cardResets.isEmpty());
+        QVERIFY(cardChanges.isEmpty());
+    }
+
+    void favoriteWritesReuseConfirmedPageWithoutReloadingCatalogs_data()
+    {
+        QTest::addColumn<bool>("throughChooser");
+        QTest::newRow("heart") << false;
+        QTest::newRow("add-to-liked") << true;
+    }
+    void favoriteWritesReuseConfirmedPageWithoutReloadingCatalogs()
+    {
+        QFETCH(bool, throughChooser);
+        QTemporaryDir dir;
+        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        UserPlaylistModelTestAccess::ready(library);
+        PlaylistMutationService mutations(api);
+        connect(&mutations, &PlaylistMutationService::tracksReconciled, &library,
+                &UserPlaylistModel::applyTrackSnapshot);
+        playback.attachLibrary(library, mutations);
+        auto *actions = playback.libraryActions();
+        QVERIFY(actions);
+        PlaybackLibraryActionsTestAccess::ready(*actions, api);
+        PlaylistOrderModel order(api, mutations);
+        SongMetadataService metadata(api);
+        RouteController router;
+        FavoritesService favorites(api, playback, library, order, metadata, router, false);
+        favorites.attachPlaylistMutations(mutations);
+        favorites.registerRoutes(router);
+        QVERIFY(router.navigate("favorites"));
+        const auto entry = [](int id) {
+            return QJsonObject{{"file_id", 90 + id},
+                               {"sort_index", id},
+                               {"song", QJsonObject{{"id", QString::number(id)},
+                                                    {"title", QString("Song %1").arg(id)},
+                                                    {"hash", QString(32, QChar('a' + id))}}},
+                               {"metadata", QJsonObject{}}};
+        };
+        FavoritesServiceTestAccess::acceptSongs(favorites, {entry(1)}, 1);
+        favorites.songs()->toggleSelected("1");
+        const QPersistentModelIndex retained(favorites.songs()->index(0));
+        QSignalSpy songResets(favorites.songs(), &QAbstractItemModel::modelReset);
+        QSignalSpy albumResets(favorites.albums(), &QAbstractItemModel::modelReset);
+        QSignalSpy libraryResets(&library, &QAbstractItemModel::modelReset);
+        const auto track = PlaybackTrack::fromDomain(entry(2)["song"].toObject());
+        for (int step = 0; step < 2; ++step) {
+            if (throughChooser && !step) {
+                actions->prepareTracks({track}, false);
+                actions->choose(0);
+            } else
+                actions->toggleFavoriteTrack(track);
+            QCOMPARE(mutations.state(), PlaylistMutationService::State::Writing);
+            const QJsonObject ack{
+                {"user_id", 100},
+                {"cloud_list_id", 7},
+                {"revision", 8 + step},
+                {"song_count", step ? 1 : 2},
+                {"outcomes", QJsonArray{QJsonObject{{"file_id", 92}, {"resource_code", 1}}}}};
+            PlaylistMutationServiceTestAccess::complete(
+                mutations, PlaylistMutationServiceTestAccess::request(mutations),
+                QJsonDocument(ack).toJson());
+            const QJsonObject readback{
+                {"user_id", 100},
+                {"cloud_list_id", 7},
+                {"revision", 8 + step},
+                {"page", QJsonObject{{"items",
+                                      step ? QJsonArray{entry(1)} : QJsonArray{entry(1), entry(2)}},
+                                     {"total", step ? 1 : 2}}}};
+            PlaylistMutationServiceTestAccess::complete(
+                mutations, PlaylistMutationServiceTestAccess::request(mutations),
+                QJsonDocument(readback).toJson());
+            QTRY_VERIFY(!actions->busy());
+            QCOMPARE(actions->favoriteTrack(track), step == 0);
+            QCOMPARE(PlaybackLibraryActionsTestAccess::favoriteRead(*actions), quint64(0));
+            QCOMPARE(favorites.songs()->totalCount(), step ? 1 : 2);
+            QVERIFY(retained.isValid());
+            QCOMPARE(favorites.songs()->selectedCount(), 1);
+            QVERIFY(songResets.isEmpty());
+            QVERIFY(albumResets.isEmpty());
+            QVERIFY(libraryResets.isEmpty());
+        }
+        favorites.shutdown();
+        router.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
+
+    void addToLikedSharesFavoriteMembership_data()
+    {
+        QTest::addColumn<bool>("liked");
+        QTest::addColumn<bool>("partial");
+        QTest::addColumn<bool>("missingFile");
+        QTest::newRow("batch-liked-and-idempotent-add") << true << false << false;
+        QTest::newRow("ordinary-playlist") << false << false << false;
+        QTest::newRow("partial-success") << true << true << false;
+        QTest::newRow("unknown-removal-identity") << true << false << true;
+    }
+    void addToLikedSharesFavoriteMembership()
+    {
+        QFETCH(bool, liked);
+        QFETCH(bool, partial);
+        QFETCH(bool, missingFile);
+        QTemporaryDir dir;
+        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1)); // Keep fake-account requests in the test transport.
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seedRows(library, api, {{"我喜欢的音乐", 7}, {"普通歌单", 9}});
+        UserPlaylistModelTestAccess::ready(library);
+        PlaylistMutationService mutations(api);
+        connect(&mutations, &PlaylistMutationService::tracksReconciled, &library,
+                &UserPlaylistModel::applyTrackSnapshot);
+        playback.attachLibrary(library, mutations);
+        auto *actions = playback.libraryActions();
+        PlaybackLibraryActionsTestAccess::ready(*actions, api);
+        const auto track = [](int id) {
+            return PlaybackTrack::fromDomain({{"id", QString::number(id)},
+                                              {"title", QString("Song %1").arg(id)},
+                                              {"hash", QString(32, QChar('a' + id))}});
+        };
+        const PlaybackTracks songs{track(1), track(2)};
+        QSignalSpy written(actions, &PlaybackLibraryActions::favoriteWritten);
+        QSignalSpy resets(&library, &QAbstractItemModel::modelReset);
+        // Repeating the add keeps it liked and does not emit another favorite
+        // transition, even if an idempotent acknowledgement omits the file ID.
+        const int rounds = liked && !partial && !missingFile ? 2 : 1;
+        for (int round = 0; round < rounds; ++round) {
+            actions->prepareTracks(songs, false);
+            actions->choose(liked ? 0 : 1);
+            QCOMPARE(mutations.state(), PlaylistMutationService::State::Writing);
+            const int notifications = written.size();
+            const QJsonArray outcomes{
+                QJsonObject{{"resource_code", 1}, {"file_id", missingFile || round ? 0 : 91}},
+                QJsonObject{{"resource_code", partial ? 0 : 1},
+                            {"file_id", missingFile || round ? 0 : 92}}};
+            const QJsonObject ack{{"user_id", 100},
+                                  {"cloud_list_id", liked ? 7 : 9},
+                                  {"revision", 8 + round},
+                                  {"song_count", partial ? 1 : 2},
+                                  {"outcomes", outcomes}};
+            PlaylistMutationServiceTestAccess::complete(
+                mutations, PlaylistMutationServiceTestAccess::request(mutations),
+                QJsonDocument(ack).toJson());
+            QCOMPARE(written.size(), notifications); // No early success before readback.
+            QJsonArray items;
+            for (int i = 0; i < (partial ? 1 : 2); ++i)
+                items.append(QJsonObject{
+                    {"file_id", 91 + i}, {"sort_index", i}, {"song", songs[i].toCatalog()}});
+            const QJsonObject readback{
+                {"user_id", 100},
+                {"cloud_list_id", liked ? 7 : 9},
+                {"revision", 8 + round},
+                {"page", QJsonObject{{"items", items}, {"total", items.size()}}}};
+            PlaylistMutationServiceTestAccess::complete(
+                mutations, PlaylistMutationServiceTestAccess::request(mutations),
+                QJsonDocument(readback).toJson());
+            QTRY_VERIFY(!actions->busy());
+            QCOMPARE(actions->favoriteTrack(songs[0]), liked);
+            QCOMPARE(actions->favoriteTrack(songs[1]), liked && !partial);
+            QCOMPARE(actions->hasFailures(), partial);
+            QCOMPARE(written.size(), liked ? (partial ? 1 : 2) : 0);
+            if (missingFile)
+                QVERIFY(PlaybackLibraryActionsTestAccess::favoriteRead(*actions));
+            else
+                QCOMPARE(PlaybackLibraryActionsTestAccess::favoriteRead(*actions), quint64(0));
+            QVERIFY(resets.isEmpty());
+        }
+        // The same session's confirmed file identity is retained for unlike.
+        if (rounds == 2) {
+            actions->toggleFavoriteTrack(songs[0]);
+            QCOMPARE(mutations.state(), PlaylistMutationService::State::Writing);
+            QVERIFY(PlaylistMutationServiceTestAccess::removingTracks(mutations));
+        }
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
 
     void trackWritesKeepSidebarRowsAndUpdateConfirmedCounts()
     {
@@ -871,7 +1210,7 @@ ApplicationWindow {
         QVERIFY(router.navigate("cloud"));
         CloudServiceTestAccess::enableMetadata(cloud);
         const auto file = [](int id, const QString &songId) {
-            return QJsonObject{
+            auto item = QJsonObject{
                 {"song", QJsonObject{{"id", songId},
                                      {"title", "原始歌曲"},
                                      {"hash", QString(32, QChar('a' + id % 5))},
@@ -882,7 +1221,21 @@ ApplicationWindow {
                 {"file_id", id},
                 {"sort_index", id},
                 {"added_at_seconds", 500 - id}};
+            if (id == 103) {
+                const QJsonArray artists{QJsonObject{{"id", 71}, {"name", "备用歌手"}}};
+                auto song = item["song"].toObject();
+                song["artists"] = artists;
+                item["song"] = song;
+                auto details = artists[0].toObject();
+                details["avatar_url"] = "https://example.test/cloud-artist.jpg";
+                auto metadata = item["metadata"].toObject();
+                metadata["artists"] = QJsonArray{details};
+                item["metadata"] = metadata;
+            }
+            return item;
         };
+        const auto unmatchedId =
+            "cloud:" + file(103, {}).value("song").toObject().value("hash").toString();
         const QJsonArray facts{
             QJsonObject{{"id", "1"},
                         {"title", "正式歌曲"},
@@ -901,6 +1254,9 @@ ApplicationWindow {
             {});
         QVERIFY(!cloud.loading());
         QCOMPARE(cloud.songs()->count(), 3);
+        QVERIFY(cloud.songs()->track(unmatchedId));
+        QCOMPARE(cloud.songs()->track(unmatchedId)->cover,
+                 QString("https://example.test/cloud-artist.jpg"));
         QVERIFY(CloudServiceTestAccess::metadataTicket(cloud));
         const auto original = cloud.songs()->track("cloud-file:102").value();
         cloud.songs()->toggleSelected("cloud-file:102");
@@ -923,7 +1279,7 @@ ApplicationWindow {
                  original.catalogMetadata["source_file_name"]);
         QCOMPARE(completed.catalogMetadata["opaque"].toInt(), 42);
         QCOMPARE(CloudServiceTestAccess::file(cloud, 102)["sort_index"].toInt(), 102);
-        QVERIFY(cloud.songs()->track("cloud-file:103")->album.isEmpty());
+        QVERIFY(cloud.songs()->track(unmatchedId)->album.isEmpty());
         // A repeated song on a later page consumes shared cached facts, while
         // the first two files retain their completion through re-projection.
         CloudServiceTestAccess::acceptPage(
@@ -932,6 +1288,8 @@ ApplicationWindow {
         QCOMPARE(cloud.songs()->count(), 4);
         QTRY_COMPARE(cloud.songs()->track("cloud-file:104")->album, QString("正式专辑"));
         QCOMPARE(cloud.songs()->track("cloud-file:102")->album, QString("正式专辑"));
+        QCOMPARE(cloud.songs()->track(unmatchedId)->cover,
+                 QString("https://example.test/cloud-artist.jpg"));
         QCOMPARE(cloud.songs()->selectedCount(), 1);
         QCOMPARE(cloud.songs()->item(0)["resourceId"].toString(), QString("1"));
         cloud.actions()->appendSong("cloud-file:102", false);
