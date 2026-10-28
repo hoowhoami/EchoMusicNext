@@ -22,6 +22,7 @@
 #include "LyricModel.h"
 #include "LyricAppearance.h"
 #include "DynamicCoverController.h"
+#include "PortraitController.h"
 #include "LyricTextController.h"
 #include "LyricSourceController.h"
 #include "PlaybackSourceRequest.h"
@@ -59,6 +60,7 @@ class PlaybackService final : public QObject
     Q_PROPERTY(EchoMusic::PlaybackClimaxModel *climax READ climax CONSTANT)
     Q_PROPERTY(EchoMusic::LyricAppearance *lyricAppearance READ lyricAppearance CONSTANT)
     Q_PROPERTY(EchoMusic::DynamicCoverController *dynamicCover READ dynamicCover CONSTANT)
+    Q_PROPERTY(EchoMusic::PortraitController *portraits READ portraits CONSTANT)
     Q_PROPERTY(EchoMusic::PlaybackLibraryActions *libraryActions READ libraryActions NOTIFY changed)
     Q_PROPERTY(EchoMusic::SongCommands *songCommands READ songCommands CONSTANT)
     Q_PROPERTY(EchoMusic::SharingCommands *sharing READ sharing NOTIFY sharingChanged)
@@ -202,6 +204,10 @@ public:
     DynamicCoverController *dynamicCover()
     {
         return &m_dynamicCover;
+    }
+    PortraitController *portraits()
+    {
+        return &m_portraits;
     }
     LyricAppearance *lyricAppearance()
     {
@@ -575,6 +581,7 @@ private:
     ListeningReporter m_listening;
     LyricAppearance m_lyricAppearance;
     DynamicCoverController m_dynamicCover;
+    PortraitController m_portraits;
     LyricTextController m_lyricText;
     LyricSourceController m_lyricSource;
     PlaybackTrack m_track;

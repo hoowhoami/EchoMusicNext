@@ -427,6 +427,10 @@ quint64 ApiClient::songClimax(const QString &hash)
 {
     return m_media->songClimax(hash);
 }
+quint64 ApiClient::audioImages(const QList<AudioImageResource> &resources, quint32 count)
+{
+    return m_media->audioImages(resources, count);
+}
 quint64 ApiClient::albumDynamicCover(quint64 audio, quint64 album)
 {
     return m_media->albumDynamicCover(audio, album);

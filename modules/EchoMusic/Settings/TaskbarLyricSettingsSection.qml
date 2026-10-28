@@ -12,7 +12,7 @@ SettingsSection {
     readonly property TaskbarLyricController taskbar: windowService.taskbar
     readonly property TaskbarLyricPreferences style: taskbar.settings
     heading: qsTr("任务栏歌词")
-    glyph: "device-tv"
+    glyph: "layout-bottombar"
     visible: taskbar.available
 
     SettingsRow {

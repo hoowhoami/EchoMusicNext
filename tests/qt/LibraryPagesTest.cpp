@@ -19,6 +19,8 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QDir>
@@ -287,15 +289,44 @@ public:
 class PurchasedServiceTestAccess
 {
 public:
-    static void acceptSongs(PurchasedService &s, const QJsonArray &items, qint64 total)
+    static quint64 request(const PurchasedService &s, bool albums = false)
     {
-        const quint64 id = 920101;
-        s.m_pending.insert(id, {PurchasedService::PendingKind::Songs, s.m_api.sessionRevision()});
-        s.accept(id, QJsonDocument(QJsonObject{{"page", QJsonObject{{"page", 1},
-                                                                    {"page_size", 30},
-                                                                    {"total", total},
-                                                                    {"items", items}}}})
+        for (auto it = s.m_pending.cbegin(); it != s.m_pending.cend(); ++it)
+            if (it.value().kind == (albums ? PurchasedService::PendingKind::Albums
+                                           : PurchasedService::PendingKind::Songs))
+                return it.key();
+        return 0;
+    }
+    static void acceptSongs(PurchasedService &s, const QJsonArray &items, qint64 total,
+                            quint32 page = 1, quint64 id = 0)
+    {
+        accept(s, false, items, total, page, id);
+    }
+    static void acceptAlbums(PurchasedService &s, const QJsonArray &items, qint64 total,
+                             quint32 page = 1, quint64 id = 0)
+    {
+        accept(s, true, items, total, page, id);
+    }
+    static void accept(PurchasedService &s, bool albums, const QJsonArray &items, qint64 total,
+                       quint32 page, quint64 id)
+    {
+        if (!id)
+            id = albums ? 920102 : 920101;
+        else
+            s.m_api.cancel(id);
+        s.m_pending.insert(id, {albums ? PurchasedService::PendingKind::Albums
+                                       : PurchasedService::PendingKind::Songs,
+                                s.m_api.sessionRevision(), page});
+        s.accept(id, QJsonDocument(QJsonObject{{"page", int(page)},
+                                               {"page_size", 30},
+                                               {"total", total},
+                                               {"items", items}})
                          .toJson(QJsonDocument::Compact));
+    }
+    static void failSongs(PurchasedService &s, quint64 id)
+    {
+        s.m_api.cancel(id);
+        s.fail(id, R"({"kind":"network","message":"page read failed"})");
     }
     static void loadTab(PurchasedService &s)
     {
@@ -310,15 +341,9 @@ public:
             kinds.append(int(pending.kind));
         return kinds;
     }
-    static void acceptAlbums(PurchasedService &s, const QJsonArray &items, qint64 total)
+    static bool firstPagesComplete(const PurchasedService &s)
     {
-        const quint64 id = 920102;
-        s.m_pending.insert(id, {PurchasedService::PendingKind::Albums, s.m_api.sessionRevision()});
-        s.accept(id, QJsonDocument(QJsonObject{{"page", QJsonObject{{"page", 1},
-                                                                    {"page_size", 30},
-                                                                    {"total", total},
-                                                                    {"items", items}}}})
-                         .toJson(QJsonDocument::Compact));
+        return s.m_songPage > 0 && s.m_albumPage > 0;
     }
 };
 class PlaylistOrderModelTestAccess
@@ -2391,7 +2416,6 @@ ApplicationWindow {
                 QJsonObject{{"id", QString::number(i)}, {"title", QString("歌曲 %1 Song").arg(i)}});
         favorites.songs()->replaceSongs(songs);
         cloud.songs()->replaceSongs(songs);
-        purchased.songs()->replaceSongs(songs);
         CloudServiceTestAccess::quota(cloud);
         ThemeStore theme(prefs);
         theme.setMotionEnabled(false);
@@ -2451,6 +2475,8 @@ Window {
         for (const auto &[route, tabs] : routes)
             for (const auto &tab : tabs) {
                 QVERIFY(router.navigate(route, {{"tab", tab}}));
+                if (route == "purchased" && purchased.songs()->totalCount() == 0)
+                    PurchasedServiceTestAccess::acceptSongs(purchased, songs, 80);
                 QQuickItem *page = nullptr;
                 QTRY_VERIFY((page = find(window->contentItem(), route + "Page")));
                 auto *row = find(page, route + "TabToolbarRow");
@@ -2890,48 +2916,381 @@ Window {
         QVERIFY(notices.last().at(1).toBool());
     }
 
-    void purchasedContainersStayEmptyWithTotals()
+    void purchasedDomainRowsPopulateSongsAndAlbumCards()
     {
         QTemporaryDir dir;
         QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "library-pages-token"));
-        NetworkPreferences network(prefs, api);
-        network.installApplicationTransport();
-        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"), &network);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         PurchasedService purchased(api, playback, router, false);
         purchased.registerRoutes(router);
         QVERIFY(router.available("purchased"));
-
+        QVERIFY(router.navigate("purchased"));
         PurchasedServiceTestAccess::acceptSongs(purchased, {}, 0);
         QCOMPARE(purchased.songs()->count(), 0);
-        QCOMPARE(purchased.songsTotal(), quint64(0));
         QVERIFY(!purchased.hasMore());
-        // A non-empty raw goods row must not fabricate a song row.
-        PurchasedServiceTestAccess::acceptSongs(
-            purchased, QJsonArray{QJsonObject{{"album_audio_id", 38232532}}}, 5);
-        QCOMPARE(purchased.songs()->count(), 0);
-        QCOMPARE(purchased.songsTotal(), quint64(5));
+        // Canonical Rust domain rows, not fabricated upstream goods fixtures.
+        const QJsonObject song{
+            {"id", "123"},
+            {"hash", "0123456789ABCDEF0123456789ABCDEF"},
+            {"title", "Purchased title"},
+            {"artists", QJsonArray{QJsonObject{{"id", QJsonValue::Null}, {"name", "Artist"}}}},
+            {"album_id", "456"},
+            {"album_title", "Album"},
+            {"duration_ms", 250409},
+            {"cover_url", "https://example.test/400/cover.jpg"}};
+        PurchasedServiceTestAccess::acceptSongs(purchased, {song}, 2);
+        QCOMPARE(purchased.songs()->count(), 1);
+        QCOMPARE(purchased.songs()->item(0).value("title").toString(), QString("Purchased title"));
+        QCOMPARE(purchased.songs()->item(0).value("albumId").toString(), QString("456"));
+        QCOMPARE(purchased.songs()->track("123")->durationMs, quint64(250409));
+        QVERIFY(purchased.songs()->track("123")->playable());
+        QCOMPARE(purchased.songsTotal(), quint64(2));
         QVERIFY(purchased.hasMore());
-        PurchasedServiceTestAccess::acceptSongs(purchased, {}, 5);
+        PurchasedServiceTestAccess::acceptSongs(purchased, {}, 2, 2);
+        QCOMPARE(purchased.songs()->count(), 1);
         QVERIFY(!purchased.hasMore());
-        PurchasedServiceTestAccess::acceptAlbums(purchased, {}, 0);
-        QCOMPARE(purchased.albums()->count(), 0);
+        purchased.selectTab(1);
+        PurchasedServiceTestAccess::acceptAlbums(
+            purchased,
+            {QJsonObject{{"id", 789},
+                         {"title", "Bought album"},
+                         {"artists", QJsonArray{QJsonObject{{"name", "Singer"}}}},
+                         {"cover_url", "https://example.test/album.jpg"}}},
+            2);
+        QCOMPARE(purchased.albums()->count(), 1);
+        QCOMPARE(purchased.albums()->item(0).value("resourceId").toString(), QString("789"));
+        QCOMPARE(purchased.albums()->item(0).value("artistText").toString(), QString("Singer"));
+        QVERIFY(purchased.hasMore());
+        PurchasedServiceTestAccess::acceptAlbums(
+            purchased, {QJsonObject{{"id", 790}, {"title", "Second album"}}}, 2, 2);
+        QCOMPARE(purchased.albums()->count(), 2);
+        QCOMPARE(purchased.albums()->item(0).value("resourceId").toString(), QString("789"));
+        QVERIFY(!purchased.hasMore());
+        purchased.refresh();
+        QCOMPARE(purchased.songsTotal(), quint64(0));
         QCOMPARE(purchased.albumsTotal(), quint64(0));
-
-        // A fresh signed-in page loads both containers and tab totals.
-        // The preceding instance has already consumed its setup reads.
-        RouteController freshRouter;
-        PurchasedService fresh(api, playback, freshRouter, false);
-        fresh.registerRoutes(freshRouter);
-        PurchasedServiceTestAccess::loadTab(fresh);
-        const auto kinds = PurchasedServiceTestAccess::pendingKinds(fresh);
-        QCOMPARE(kinds.size(), 2);
-        QVERIFY(kinds.contains(0));
-        QVERIFY(kinds.contains(1));
+        QCOMPARE(purchased.songs()->count(), 0);
+        QCOMPARE(purchased.albums()->count(), 0);
+    }
+    void purchasedSongsContinueInBackgroundAndFenceCanceledPages()
+    {
+        QTemporaryDir dir;
+        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(100, "library-pages-token"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        router.registerPage(
+            {"home", "/home", QUrl("qrc:/test-unused.qml"), {}, true, true, false, {}});
+        PurchasedService purchased(api, playback, router, true);
+        purchased.registerRoutes(router);
+        // Constructing the owner, registering the route and changing accounts
+        // elsewhere must not preload purchased music.
+        QVERIFY(!purchased.loading());
+        QVERIFY(router.navigate("home"));
+        QVERIFY(api.setAccount(101, "inactive-page-test-token"));
+        QVERIFY(!PurchasedServiceTestAccess::request(purchased));
+        QVERIFY(!PurchasedServiceTestAccess::request(purchased, true));
+        QVERIFY(router.navigate("purchased"));
+        const auto songRequest = PurchasedServiceTestAccess::request(purchased);
+        const auto albumRequest = PurchasedServiceTestAccess::request(purchased, true);
+        QVERIFY(songRequest && albumRequest);
+        PurchasedServiceTestAccess::acceptAlbums(purchased, {}, 0, 1, albumRequest);
+        QJsonArray first, last;
+        for (int i = 1; i <= 35; ++i) {
+            const QJsonObject row{{"id", QString::number(i)},
+                                  {"title", QString("Domain song %1").arg(i)},
+                                  {"hash", "0123456789ABCDEF0123456789ABCDEF"}};
+            (i <= 30 ? first : last).append(row);
+        }
+        PurchasedServiceTestAccess::acceptSongs(purchased, first, 35, 1, songRequest);
+        QCOMPARE(purchased.songs()->count(), 30);
+        QVERIFY(purchased.songsLoading());
+        // No scroll or loadMore call: the owner schedules exactly one next page.
+        quint64 next = 0;
+        QCoreApplication::sendPostedEvents(&purchased, QEvent::MetaCall);
+        QVERIFY((next = PurchasedServiceTestAccess::request(purchased)));
+        QCOMPARE(
+            ApiClientTestAccess::request(api, next).value("query").toObject().value("page").toInt(),
+            2);
+        purchased.songs()->toggleSelected("1");
+        PurchasedServiceTestAccess::failSongs(purchased, next);
+        QCOMPARE(purchased.songs()->count(), 30);
+        QVERIFY(!purchased.songsLoading());
+        QVERIFY(!purchased.errorMessage().isEmpty());
+        QVERIFY(router.navigate("home"));
+        router.back();
+        QVERIFY(!PurchasedServiceTestAccess::request(purchased));
+        purchased.loadMore(); // Explicit retry resumes page 2, preserving page 1.
+        next = PurchasedServiceTestAccess::request(purchased);
+        QVERIFY(next);
+        QCOMPARE(
+            ApiClientTestAccess::request(api, next).value("query").toObject().value("page").toInt(),
+            2);
+        PurchasedServiceTestAccess::acceptSongs(purchased, last, 35, 2, next);
+        QCOMPARE(purchased.songs()->count(), 35);
+        QCOMPARE(purchased.songs()->selectedCount(), 1);
+        QVERIFY(!purchased.hasMore());
+        QVERIFY(!purchased.songsLoading());
+        purchased.refresh();
+        const auto retry = PurchasedServiceTestAccess::request(purchased);
+        QVERIFY(retry);
+        PurchasedServiceTestAccess::acceptSongs(purchased, first, 35, 1, retry);
+        QVERIFY(router.navigate("home")); // Cancel before the queued next-page callback.
+        QCoreApplication::sendPostedEvents();
+        QVERIFY(!PurchasedServiceTestAccess::request(purchased));
+        QCOMPARE(purchased.songs()->count(), 30);
+        router.back();
+        QCoreApplication::sendPostedEvents(&purchased, QEvent::MetaCall);
+        QVERIFY(PurchasedServiceTestAccess::request(purchased));
+        QVERIFY(api.setAccount(200, "another-test-only-token"));
+        QCOMPARE(purchased.songs()->count(), 0);
+        QCOMPARE(purchased.albums()->count(), 0);
+        QCOMPARE(purchased.songsTotal(), quint64(0));
+        purchased.shutdown();
+        QVERIFY(!purchased.loading());
     }
 
+    void contentGridLoadingTransitionsKeepDelegateRoles()
+    {
+        QTemporaryDir dir;
+        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        SongCatalogModel cards;
+        const QJsonArray rows{
+            QJsonObject{{"id", 789}, {"title", "Album A"}, {"creator", "Artist A"}},
+            QJsonObject{{"id", 790}, {"title", "Album B"}, {"creator", "Artist B"}}};
+        cards.replaceCards(rows);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Music
+Window {
+ required property SongCatalogModel cards
+ visible: true; width: 800; height: 600
+ ContentGrid { objectName: "transitionGrid"; anchors.fill: parent; sourceModel: cards }
+})",
+                          QUrl("qrc:/content-grid-transitions.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"cards", QVariant::fromValue(&cards)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *grid = root->findChild<QQuickItem *>("transitionGrid");
+        QVERIFY(grid);
+        auto firstCard = [&]() -> QQuickItem * {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(grid, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, 0));
+            return item;
+        };
+        QTRY_VERIFY(firstCard());
+        QCOMPARE(firstCard()->property("title").toString(), QString("Album A"));
+        for (int cycle = 0; cycle < 6; ++cycle) {
+            // Refreshes cross both directions between an integer skeleton model
+            // and a role-bearing catalog. Force a layout at every boundary.
+            QVERIFY(grid->setProperty("loading", true));
+            QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+            QTRY_VERIFY(firstCard());
+            QVERIFY(!firstCard()->property("resourceId").isValid());
+            cards.clear();
+            theme.setMode(cycle % 2 ? ThemeStore::Dark : ThemeStore::Light);
+            window->setWidth(cycle % 2 ? 800 : 520);
+            QCoreApplication::processEvents();
+            cards.replaceCards(rows);
+            QVERIFY(grid->setProperty("loading", false));
+            QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+            QTRY_VERIFY(firstCard());
+            QCOMPARE(firstCard()->property("title").toString(), QString("Album A"));
+            QCOMPARE(firstCard()->property("resourceId").toString(), QString("789"));
+        }
+        QCOMPARE(warnings.count(), 0);
+    }
+
+    void purchasedLiveCurrentAccountRendersSongsAndAlbums_data()
+    {
+        QTest::addColumn<QString>("initialTab");
+        QTest::newRow("songs-first") << QString("songs");
+        QTest::newRow("albums-first") << QString("albums");
+    }
+    void purchasedLiveCurrentAccountRendersSongsAndAlbums()
+    {
+        const auto helper = qEnvironmentVariable("ECHO_PURCHASED_LIVE_SNAPSHOT");
+        if (helper.isEmpty())
+            QSKIP("Explicit current-account read-only sampling only");
+        QFETCH(QString, initialTab);
+        QProcess snapshot;
+        auto environment = QProcessEnvironment::systemEnvironment();
+        environment.insert("QT_PLUGIN_PATH",
+                           QDir::currentPath() + "/build/qt-official/6.12.0/macos/plugins");
+        snapshot.setProcessEnvironment(environment);
+        snapshot.start(helper, {});
+        QVERIFY(snapshot.waitForFinished(5000));
+        QCOMPARE(snapshot.exitCode(), 0);
+        const auto accountSnapshot =
+            QJsonDocument::fromJson(snapshot.readAllStandardOutput()).object();
+        const auto user = accountSnapshot.value("user").toObject();
+        const auto device = accountSnapshot.value("device").toObject();
+        DeviceIdentity identity{device.value("mid").toString(),
+                                device.value("dfid").toString(),
+                                device.value("guid").toString(),
+                                device.value("mac").toString(),
+                                device.value("serverDev").toString(),
+                                device.value("uuid").toString(),
+                                device.value("renderFingerprint").toString()};
+        QTemporaryDir dir;
+        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        ApiClient api(identity);
+        QVERIFY(api.setAccount(quint64(user.value("userid").toInteger()),
+                               user.value("token").toString(), user.value("t1").toString()));
+        NetworkPreferences network(prefs, api);
+        network.installApplicationTransport();
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"), &network);
+        SongMetadataService metadata(api);
+        RouteController router;
+        PurchasedService purchased(api, playback, router, true);
+        purchased.songs()->attachMetadata(&metadata);
+        purchased.registerRoutes(router);
+        QFile probe(dir.filePath("AlbumProbe.qml"));
+        QVERIFY(probe.open(QIODevice::WriteOnly));
+        probe.write("import EchoMusic.Shell\nRoutePage { objectName: \"albumNavigationProbe\" }\n");
+        probe.close();
+        router.registerPage({"album-detail",
+                             "/album/:id",
+                             QUrl::fromLocalFile(probe.fileName()),
+                             {},
+                             true,
+                             true,
+                             false,
+                             {}});
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        ShellSettings shell(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window {
+ id: host
+ required property RouteController router
+ required property ShellSettings settings
+ visible: true; width: 1150; height: 800
+ Rectangle { anchors.fill: parent; color: Theme.main }
+ Item {
+  width: parent.width/host.settings.uiScale; height: parent.height/host.settings.uiScale
+  scale: host.settings.uiScale; transformOrigin: Item.TopLeft
+  RouteHost { anchors.fill: parent; router: host.router; settings: host.settings }
+ }
+})",
+                          QUrl("qrc:/purchased-live-host.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"router", QVariant::fromValue(&router)}, {"settings", QVariant::fromValue(&shell)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        std::function<QQuickItem *(QQuickItem *, const QString &)> find =
+            [&](QQuickItem *item, const QString &name) -> QQuickItem * {
+            if (item->objectName() == name && item->isVisible())
+                return item;
+            for (auto *child : item->childItems())
+                if (auto *result = find(child, name))
+                    return result;
+            return nullptr;
+        };
+        QVERIFY(router.navigate("purchased", {{"tab", initialTab}}));
+        QTRY_VERIFY_WITH_TIMEOUT(PurchasedServiceTestAccess::firstPagesComplete(purchased), 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(!purchased.loading(), 30000);
+        QVERIFY2(purchased.errorMessage().isEmpty(),
+                 "Current-account purchased API reported an error");
+        if (!purchased.songsTotal() || !purchased.albumsTotal())
+            QSKIP("Non-empty visual coverage requires current-account songs and albums; do not "
+                  "select another saved account");
+        QCOMPARE(quint64(purchased.songs()->count()), purchased.songsTotal());
+        QCOMPARE(quint64(purchased.albums()->count()), purchased.albumsTotal());
+        QQuickItem *songView = nullptr;
+        QQuickItem *initialView = nullptr;
+        QTRY_VERIFY(
+            (initialView = find(window->contentItem(),
+                                initialTab == "songs" ? "discoverySongs" : "purchasedAlbumsGrid")));
+        QTRY_VERIFY(qAbs(initialView->property("contentY").toReal() -
+                         initialView->property("originY").toReal() +
+                         initialView->property("topMargin").toReal()) < .5);
+        QQuickItem *firstRow = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(initialView, "itemAtIndex",
+                                              Q_RETURN_ARG(QQuickItem *, firstRow),
+                                              Q_ARG(int, 0)) &&
+                    firstRow);
+        const auto firstRowBounds = firstRow->mapRectToScene(firstRow->boundingRect());
+        QVERIFY(firstRowBounds.top() >= 0 && firstRowBounds.bottom() <= window->height());
+        qInfo() << "Live purchased account: songs" << purchased.songsTotal() << "albums"
+                << purchased.albumsTotal();
+        const auto captures = qEnvironmentVariable("ECHO_PURCHASED_ARTIFACTS");
+        if (!captures.isEmpty())
+            QVERIFY(QDir().mkpath(captures));
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (const bool scaled : {false, true}) {
+                shell.resetZoom();
+                if (scaled)
+                    for (int i = 0; i < 5; ++i)
+                        shell.zoomIn();
+                for (const int tab : {0, 1}) {
+                    purchased.selectTab(tab);
+                    QTRY_COMPARE(purchased.tab(), tab);
+                    QTRY_VERIFY(find(window->contentItem(), "purchasedPage"));
+                    QTest::qWait(160);
+                    if (tab == 0) {
+                        QTRY_VERIFY((songView = find(window->contentItem(), "discoverySongs")));
+                        QVERIFY(qAbs(songView->property("contentY").toReal() -
+                                     songView->property("originY").toReal() +
+                                     songView->property("topMargin").toReal()) < .5);
+                    }
+                    if (!captures.isEmpty())
+                        QVERIFY(window->grabWindow().save(captures +
+                                                          QString("/%1-purchased-%2-%3-%4.png")
+                                                              .arg(initialTab)
+                                                              .arg(tab)
+                                                              .arg(int(mode))
+                                                              .arg(scaled)));
+                }
+            }
+        }
+        purchased.albums()->setQuery("does-not-match-any-purchased-album-20261028");
+        QCOMPARE(purchased.albums()->count(), 0);
+        purchased.albums()->setQuery({});
+        QQuickItem *card = nullptr;
+        QTRY_VERIFY((card = find(window->contentItem(), "contentDelegate")));
+        const auto albumId = card->property("resourceId").toString();
+        QVERIFY(!albumId.isEmpty());
+        QVERIFY(QMetaObject::invokeMethod(card, "clicked"));
+        QTRY_COMPARE(router.current()->name(), QString("album-detail"));
+        QCOMPARE(router.current()->resourceId(), albumId);
+        QTRY_VERIFY(find(window->contentItem(), "albumNavigationProbe"));
+        router.back();
+        QTRY_COMPARE(router.current()->name(), QString("purchased"));
+        QCOMPARE(quint64(purchased.songs()->count()), purchased.songsTotal());
+        QCOMPARE(warnings.size(), 0);
+        router.shutdown();
+        root.reset();
+        purchased.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
     void likedRowFollowsSourceLookupOrder()
     {
         QTemporaryDir dir;

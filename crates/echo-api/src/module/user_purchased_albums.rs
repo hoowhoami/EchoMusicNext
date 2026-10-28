@@ -1,35 +1,49 @@
-//! Purchased album container from /openapi/v1/copyright/get_album_goods.
-//! As with singles, unsupported goods rows remain intact without fabricated fields.
+//! Purchased albums, mapped independently from non-empty 2026-10-28 samples.
 use crate::{
-    domain::Page,
+    domain::{AlbumSummary, ArtistRef, Page},
     error::ApiError,
     util::request::{self, ApiClient, Identity},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Query {
     pub page: u32,
     pub page_size: u32,
 }
-
-type Wire = crate::util::response::DefaultDataEnvelope<serde_json::Value>;
-
+type Wire = crate::util::response::DefaultDataEnvelope<Value>;
 #[derive(Deserialize)]
 struct Data {
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     total: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::list")]
-    goods: Vec<serde_json::Value>,
+    goods: Vec<Row>,
 }
-
-pub fn convert(
-    bytes: &[u8],
-    page: u32,
-    page_size: u32,
-) -> Result<Page<serde_json::Value>, ApiError> {
+#[derive(Deserialize)]
+struct Row {
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    album_id: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::text")]
+    album_name: String,
+    #[serde(default, deserialize_with = "crate::util::response::text")]
+    singer_name: String,
+    #[serde(default, deserialize_with = "crate::util::response::text")]
+    cover: String,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    is_publish: Option<u32>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
+}
+#[derive(Debug, Serialize)]
+pub struct PurchasedAlbum {
+    #[serde(flatten)]
+    pub album: AlbumSummary,
+    pub publication_code: Option<u32>,
+    pub provider_extension: BTreeMap<String, Value>,
+}
+pub fn convert(bytes: &[u8], page: u32, page_size: u32) -> Result<Page<PurchasedAlbum>, ApiError> {
     let wire: Wire = request::decode(bytes)?;
     if wire.status != 1 && wire.error_code == 20017 {
         return Err(ApiError::authentication(20017));
@@ -41,7 +55,29 @@ pub fn convert(
         page: Some(page),
         page_size: Some(page_size),
         total: data.total,
-        items: data.goods,
+        items: data
+            .goods
+            .into_iter()
+            .map(|row| PurchasedAlbum {
+                album: AlbumSummary {
+                    id: row.album_id.filter(|id| *id > 0),
+                    title: row.album_name,
+                    artists: if row.singer_name.is_empty() {
+                        vec![]
+                    } else {
+                        vec![ArtistRef {
+                            id: None,
+                            name: row.singer_name,
+                        }]
+                    },
+                    cover_url: row.cover.replace("{size}", "400"),
+                    song_count: None,
+                    published_at: String::new(),
+                },
+                publication_code: row.is_publish,
+                provider_extension: row.extra,
+            })
+            .collect(),
     })
 }
 

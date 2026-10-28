@@ -81,6 +81,46 @@ void PluginRuntimeTest::ecosystemBusinessRequestsAndSharedVerification()
         host.api, id, R"({"kind":"songs","page":{"page":2,"page_size":20,"total":0,"items":[]}})");
     QCOMPARE(search->state(), EchoPluginOperation::Succeeded);
     QVERIFY(!search->result().toMap().contains("identity"));
+    auto *images = scope->kugou()->request(
+        "audioImages",
+        {{"resources", QVariantList{QVariantMap{{"hash", QString(32, 'a')},
+                                                {"audioId", "9007199254740993"},
+                                                {"albumAudioId", "32042818"},
+                                                {"filename", "歌手 - 歌曲, live"}}}}});
+    auto imagesRoot = host.engine.newQObject(images);
+    QCOMPARE(images->state(), EchoPluginOperation::Running);
+    const auto imagesId = ApiClientTestAccess::pending(host.api, "images_audio");
+    QVERIFY(imagesId);
+    const auto imagesRequest = ApiClientTestAccess::request(host.api, imagesId);
+    const auto imagesQuery = imagesRequest.value("query").toObject();
+    QCOMPARE(imagesQuery.value("count").toInt(), 5);
+    const auto resource = imagesQuery.value("resources").toArray()[0].toObject();
+    QCOMPARE(resource.value("audio_id").toInteger(), qint64(9007199254740993LL));
+    QCOMPARE(resource.value("filename").toString(), "歌手 - 歌曲, live");
+    QCOMPARE(imagesRequest.value("identity").toObject().value("userid").toInteger(), qint64(0));
+    QVERIFY(imagesRequest.value("identity").toObject().value("token").toString().isEmpty());
+    ApiClientTestAccess::complete(
+        host.api, imagesId,
+        R"([[{"artist_id":"9007199254740993","images":{"3":[{"url":"https://example.com/portrait.jpg"}]}}],[]])");
+    QCOMPARE(images->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(images->result().toList().size(), 2);
+    QVERIFY(images->result().toList()[1].toList().isEmpty());
+    auto *cancelImages = scope->kugou()->request(
+        "audioImages", {{"resources", QVariantList{QVariantMap{{"hash", QString(32, 'a')}}}}});
+    auto cancelImagesRoot = host.engine.newQObject(cancelImages);
+    cancelImages->cancel();
+    QCOMPARE(cancelImages->state(), EchoPluginOperation::Canceled);
+    QCOMPARE(ApiClientTestAccess::pending(host.api, "images_audio"), quint64(0));
+    for (const auto &invalid : QVariantList{
+             QVariantMap{{"resources", QVariantList{}}},
+             QVariantMap{{"resources", QVariantList{QVariantMap{{"hash", QString(32, 'a')},
+                                                                {"unknown", true}}}}},
+             QVariantMap{{"resources", QVariantList{QVariantMap{{"hash", QString(32, 'a')}}}},
+                         {"count", 51}}}) {
+        auto *rejected = scope->kugou()->request("audioImages", invalid.toMap());
+        catalogRoots.append(host.engine.newQObject(rejected));
+        QCOMPARE(rejected->errorCode(), "InvalidArgument");
+    }
     auto *lyric =
         scope->kugou()->request("lyric", {{"id", "fixture-lyric"}, {"accessKey", "fixture-key"}});
     auto lyricRoot = host.engine.newQObject(lyric);
@@ -169,10 +209,15 @@ ApplicationWindow {id:win;required property VerificationService verification;wid
     QCOMPARE(login->state(), EchoPluginOperation::Failed);
     QCOMPARE(login->errorCode(), "login_required");
     auto *old = scope->kugou()->request("userInfo");
+    auto *oldImages = scope->kugou()->request(
+        "audioImages", {{"resources", QVariantList{QVariantMap{{"hash", QString(32, 'a')}}}}});
+    auto oldImagesRoot = host.engine.newQObject(oldImages);
     auto oldRoot = host.engine.newQObject(old);
     QCOMPARE(old->state(), EchoPluginOperation::Running);
     QSignalSpy accountChanged(scope->kugou(), &EchoPluginKugou::accountChanged);
     host.api.setAccount(43, "another-token");
+    QTRY_COMPARE(oldImages->state(), EchoPluginOperation::Canceled);
+    QCOMPARE(ApiClientTestAccess::pending(host.api, "images_audio"), quint64(0));
     QTRY_VERIFY(!accountChanged.isEmpty());
     QCOMPARE(scope->kugou()->account().value("userId").toString(), "43");
     QCOMPARE(old->state(), EchoPluginOperation::Canceled);
@@ -186,8 +231,14 @@ ApplicationWindow {id:win;required property VerificationService verification;wid
                  .value("userid")
                  .toInteger(),
              qint64(43));
+    auto *retiredImages = scope->kugou()->request(
+        "audioImages", {{"resources", QVariantList{QVariantMap{{"hash", QString(32, 'a')}}}}});
+    auto retiredImagesRoot = host.engine.newQObject(retiredImages);
+    QCOMPARE(retiredImages->state(), EchoPluginOperation::Running);
     host.runtime.setEnabled(host.runtime.installationForId("ecosystem"), false);
     QTRY_COMPARE(current->state(), EchoPluginOperation::Canceled);
+    QTRY_COMPARE(retiredImages->state(), EchoPluginOperation::Canceled);
+    QCOMPARE(ApiClientTestAccess::pending(host.api, "images_audio"), quint64(0));
     QTRY_COMPARE(host.runtime.state(host.runtime.installationForId("ecosystem")),
                  PluginRuntime::Disabled);
     QCOMPARE(ApiClientTestAccess::pending(host.api, "user_info"), quint64(0));

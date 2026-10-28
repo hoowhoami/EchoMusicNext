@@ -133,7 +133,7 @@ void PluginRuntimeTest::appearanceCatalogConfigurationAndRetirement()
     QVERIFY(scope);
     auto *catalog = host.theme.extensions();
     QCOMPARE(catalog->themes()->rowCount(), 2);
-    QCOMPARE(catalog->skins()->rowCount(), 2);
+    QCOMPARE(catalog->skins()->rowCount(), 3);
     QVERIFY(catalog->theme() == nullptr);
     QVERIFY(catalog->skin() == nullptr);
     QVERIFY(!scope->ui()->state().value("prematurePatch").toBool());
@@ -328,7 +328,7 @@ void PluginRuntimeTest::appearanceProductionThemeSkinAndMini()
     QVERIFY(QMetaObject::invokeMethod(page, "openSkins"));
     QQuickItem *skinCatalog = nullptr;
     QTRY_VERIFY((skinCatalog = visual(window->contentItem(), "lyricSkinCatalog")));
-    QTRY_COMPARE(skinCatalog->property("count").toInt(), 2);
+    QTRY_COMPARE(skinCatalog->property("count").toInt(), 3);
     auto *scope = host.runtime.context(installation);
     QVERIFY(scope->appearance()->useSkin("wide"));
     auto *skinHost = visual(window->contentItem(), "pluginPlaybackSkinHost");
@@ -405,7 +405,7 @@ void PluginRuntimeTest::appearanceErrorsAndActivationRollback()
         host, appearancePackage(host, definitions + "throw new Error('activation rollback');"));
     QTRY_COMPARE(host.runtime.state(failed), PluginRuntime::Failed);
     QCOMPARE(host.theme.extensions()->themes()->rowCount(), 1);
-    QCOMPARE(host.theme.extensions()->skins()->rowCount(), 1);
+    QCOMPARE(host.theme.extensions()->skins()->rowCount(), 2);
     const auto second = installAppearance(host,
                                           appearancePackage(host, R"(
  if(c.theme.registerTheme({id:"invalid",title:"Invalid",defaults:{},validate:()=>{throw "bad configuration";}}))throw new Error("primitive throw accepted");

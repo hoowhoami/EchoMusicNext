@@ -9,9 +9,8 @@ namespace EchoMusic
 {
 class PlaybackService;
 class PurchasedServiceTestAccess;
-/// Purchased-music owner for songs and albums. Only container facts are
-/// currently mapped; unsupported goods rows remain intact without fabricated
-/// fields. Playback uses the queue:purchased context.
+/// Purchased songs/albums consume Rust domain rows. This owner keeps independent
+/// pagination and errors; playback uses the queue:purchased context.
 class PurchasedService final : public QObject
 {
     Q_OBJECT
@@ -23,6 +22,8 @@ class PurchasedService final : public QObject
     Q_PROPERTY(EchoMusic::PlaybackService *playback READ playback CONSTANT)
     Q_PROPERTY(int tab READ tab NOTIFY changed)
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
+    Q_PROPERTY(bool songsLoading READ songsLoading NOTIFY changed)
+    Q_PROPERTY(bool albumsLoading READ albumsLoading NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY changed)
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY changed)
@@ -56,11 +57,19 @@ public:
     }
     bool loading() const
     {
-        return !m_pending.isEmpty();
+        return !m_pending.isEmpty() || m_songContinuationQueued;
     }
     QString errorMessage() const
     {
-        return m_error;
+        return m_tab == 0 ? m_songError : m_albumError;
+    }
+    bool songsLoading() const
+    {
+        return hasPending(PendingKind::Songs) || m_songContinuationQueued;
+    }
+    bool albumsLoading() const
+    {
+        return hasPending(PendingKind::Albums);
     }
     bool hasMore() const;
     bool signedIn() const
@@ -94,10 +103,12 @@ private:
     {
         PendingKind kind;
         quint64 session;
+        quint32 page = 1;
     };
     void activate(RouteContext *context);
     void reset();
     void loadTab();
+    void continueSongs();
     void request(PendingKind kind, quint32 page);
     bool hasPending(PendingKind kind) const;
     void cancelAll();
@@ -110,13 +121,15 @@ private:
     SongCatalogModel m_songs, m_albums;
     SongCatalogActions m_actions;
     QHash<quint64, Pending> m_pending;
-    QJsonArray m_songRows, m_albumRows;
+    QJsonArray m_albumRows;
     quint64 m_songTotal = 0, m_songReceived = 0;
     quint64 m_albumTotal = 0, m_albumReceived = 0;
     quint32 m_songPage = 0, m_albumPage = 0;
+    quint64 m_generation = 0;
     int m_tab = 0;
-    QString m_instance, m_error;
+    QString m_instance, m_songError, m_albumError;
     bool m_network = false, m_active = false, m_closed = false;
-    bool m_songExhausted = false, m_albumExhausted = false, m_signedOutWarned = false;
+    bool m_songExhausted = false, m_albumExhausted = false;
+    bool m_songContinuationQueued = false;
 };
 } // namespace EchoMusic

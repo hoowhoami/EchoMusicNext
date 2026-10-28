@@ -29,6 +29,7 @@ qt_add_qml_module(
     ShortcutActions.cpp
     SidebarLayoutModel.h
     SidebarLayoutModel.cpp
+    SidebarShortcutResources.cpp
     SidebarPluginEntries.cpp
     FloatingPlayerController.h
     FloatingPlayerController.cpp

@@ -5,6 +5,7 @@ pub mod artist_albums;
 pub mod artist_audios_new;
 pub mod artist_detail;
 pub mod get_verify_info;
+pub mod images_audio;
 pub mod import_playlist;
 pub mod login;
 pub mod login_qr_check;

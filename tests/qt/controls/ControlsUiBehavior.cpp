@@ -654,6 +654,7 @@ void ControlsUiTest::progressClimaxTicksAndWaitPreview()
 void ControlsUiTest::playPauseTransitionKeepsEndpointsAndInterrupts()
 {
     ControlsSession session;
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
     QVERIFY(session.create());
     QQmlComponent component(&session.engine);
     component.setData(R"(
@@ -768,6 +769,7 @@ void ControlsUiTest::playPauseTransitionKeepsEndpointsAndInterrupts()
     QVERIFY(initialIcon);
     QCOMPARE(initialIcon->property("phase").toReal(), 1.);
     QVERIFY(!initialIcon->property("transitioning").toBool());
+    QVERIFY(warnings.isEmpty());
 }
 
 void ControlsUiTest::progressBusyRendersAndRetiresNativeAnimation()

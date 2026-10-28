@@ -14,13 +14,15 @@ Item {
     required property string entryKey
     required property string title
     required property string glyph
+    property string cover: ""
+    property string resourceId: ""
     required property int entryIndex
     property bool collapsed: false
     property bool resourceActive: true
     property bool gestureArmed: false
     property bool dragging: false
     readonly property bool hovered: enabled && resourceActive && (pointer.containsMouse || remove.hovered || activate.visualFocus || remove.visualFocus)
-    readonly property bool selected: router.current && router.current.name === routeName
+    readonly property bool selected: router.current && router.current.name === routeName && router.current.resourceId === resourceId
     readonly property bool canRemove: layout.shortcuts.length > 1 && !collapsed
     readonly property alias activation: activate
     signal removed(int previousIndex, bool keyboard)
@@ -60,8 +62,8 @@ Item {
         topPadding: 4
         bottomPadding: 4
         background: null
-        onClicked: if (!card.dragging && !card.layout.activate(card.entryKey))
-            card.router.navigate(card.routeName)
+        onClicked: if (!card.dragging)
+            card.layout.openShortcut(card.router, card.entryKey)
         Keys.onEscapePressed: card.cancelDrag()
         // Window navigation shortcuts run before ordinary key handlers.
         // A focused card must consume Alt+arrows itself.
@@ -88,9 +90,33 @@ Item {
                 anchors.centerIn: parent
                 width: 20
                 height: 20
+                visible: !card.resourceId
                 name: card.glyph
                 color: card.selected ? Theme.accentText : Theme.iconMain
                 opacity: card.hovered && !card.collapsed ? 0 : 1
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: Theme.normalDuration
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: Theme.easeStandard
+                    }
+                }
+            }
+            Loader {
+                anchors.centerIn: parent
+                width: 20
+                height: 20
+                active: !!card.resourceId && card.resourceActive
+                opacity: card.hovered && !card.collapsed ? 0 : 1
+                sourceComponent: EchoCover {
+                    source: card.cover
+                    coverAlt: card.title
+                    circular: card.routeName === "artist-detail"
+                    cornerRadius: circular ? width / 2 : 5
+                    placeholderGlyph: card.routeName === "artist-detail" ? "user" : "playlist-add"
+                    placeholderGlyphSize: 16
+                    resourceActive: card.resourceActive
+                }
                 Behavior on opacity {
                     NumberAnimation {
                         duration: Theme.normalDuration
@@ -103,7 +129,7 @@ Item {
                 objectName: "sidebarShortcutLabel"
                 anchors.verticalCenter: parent.verticalCenter
                 width: Math.max(0, parent.width - (card.canRemove ? 24 : 0))
-                height: Math.min(implicitHeight, parent.height)
+                height: parent.height
                 visible: !card.collapsed
                 opacity: card.hovered ? 1 : 0
                 text: card.title
@@ -232,7 +258,7 @@ Item {
                 ghost.Drag.drop();
                 card.layout.endShortcutDrag(true);
             } else if (card.gestureArmed && activate.enabled) {
-                card.router.navigate(card.routeName);
+                card.layout.openShortcut(card.router, card.entryKey);
             }
             card.dragging = false;
             card.gestureArmed = false;

@@ -9,6 +9,23 @@ QtObject {
     readonly property color defaultUnplayedColor: Qt.rgba(1, 1, 1, .2)
     readonly property color defaultCoverPlayedColor: "#ffffff"
     readonly property color defaultCoverUnplayedColor: Qt.rgba(1, 1, 1, .2)
+    readonly property color defaultPortraitUnplayedColor: defaultCoverUnplayedColor
+    function portraitPlayed(appearance: var, accent: color): color {
+        const skin = appearance.portrait;
+        if (skin.textColor.length > 0)
+            return skin.textColor;
+        return skin.useCoverColor ? accent : globalPlayed(appearance, accent);
+    }
+    function portraitUnplayed(appearance: var, accent: color): color {
+        const skin = appearance.portrait;
+        if (skin.unplayedTextColor.length > 0)
+            return skin.unplayedTextColor;
+        if (skin.unplayedUseCoverColor)
+            return accent;
+        if (appearance.unplayedFollowCoverColor || appearance.unplayedColor.length > 0)
+            return globalUnplayed(appearance, accent);
+        return defaultPortraitUnplayedColor;
+    }
     function globalPlayed(appearance: var, accent: color): color {
         if (appearance.followCoverColor)
             return accent;

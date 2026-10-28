@@ -1,5 +1,6 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
+#include "EchoIconSource.h"
 
 void DesktopPagesTest::playbackZoomShortcutsFollowSharedScale()
 {
@@ -705,10 +706,34 @@ void DesktopPagesTest::remainingSettingsProductionSections()
                                     "spatialAudio", "lyric", "shortcuts", "audioDevice", "cast",
                                     "plugins", "data", "network", "experimental", "about"}) {
                 catalog->select(key);
+                if (loader->property("status").toInt() == 2) // Loader.Loading
+                    QVERIFY2(!loader->isVisible(),
+                             "Partially constructed settings must stay hidden");
                 QTRY_COMPARE(loader->property("source").toUrl(), catalog->source());
                 QTRY_COMPARE(loader->property("status").toInt(), 1); // Loader.Ready
                 auto *section = loader->property("item").value<QQuickItem *>();
                 QVERIFY(section);
+                if (QString::fromLatin1(key) == "shortcuts") {
+                    session.theme.setMotionEnabled(true);
+                    session.window->update();
+                    QTest::qWait(16);
+                    auto *first = visual(section, "settingsShortcutLocal0");
+                    auto *last = visual(section, "settingsShortcutLocal" +
+                                                     QString::number(shortcuts.rowCount() - 1));
+                    QVERIFY(first && last);
+                    const auto firstBounds = first->mapRectToScene(first->boundingRect());
+                    const auto lastBounds = last->mapRectToScene(last->boundingRect());
+                    if (!captures.isEmpty())
+                        QVERIFY(session.window->grabWindow().save(
+                            captures + QString("/shortcut-first-frame-%1-%2.png")
+                                           .arg(dark ? "dark" : "light")
+                                           .arg(zoom)));
+                    QTest::qWait(220);
+                    QCOMPARE(first->mapRectToScene(first->boundingRect()), firstBounds);
+                    QCOMPARE(last->mapRectToScene(last->boundingRect()), lastBounds);
+                    QCOMPARE(section->opacity(), 1.0);
+                    session.theme.setMotionEnabled(false);
+                }
                 QTest::qWait(50);
                 // Walk real instantiated controls, including content below the
                 // scroll viewport. Check allocated geometry after layout so a
@@ -717,6 +742,23 @@ void DesktopPagesTest::remainingSettingsProductionSections()
                 while (!pending.isEmpty()) {
                     auto *item = pending.takeLast();
                     pending.append(item->childItems());
+                    if (item->property("heading").isValid() && item->property("glyph").isValid()) {
+                        const auto glyph = item->property("glyph").toString();
+                        QVERIFY2(!EchoIconSource::iconResourcePath(glyph).isEmpty(),
+                                 qPrintable(item->property("heading").toString() + ": " + glyph));
+                        if (item->isVisible()) {
+                            auto *icon = visual(item, "settingsSectionIcon");
+                            QVERIFY(icon);
+                            QTRY_COMPARE(icon->property("status").toInt(), 1); // Image.Ready
+                            if (!captures.isEmpty() && glyph == "device-desktop") {
+                                QVERIFY(session.revealItem(icon));
+                                QVERIFY(session.window->grabWindow().save(
+                                    captures + QString("/desktop-heading-%1-%2.png")
+                                                   .arg(dark ? "dark" : "light")
+                                                   .arg(zoom)));
+                            }
+                        }
+                    }
                     if (!item->isVisible())
                         continue;
                     bool action = false;
@@ -757,6 +799,7 @@ void DesktopPagesTest::remainingSettingsProductionSections()
                 QVERIFY(session.window->grabWindow().save(
                     captures +
                     QString("/changelog-%1-%2.png").arg(dark ? "dark" : "light").arg(zoom)));
+            QVERIFY(Test::prepareNativeInput(session.window));
             QTest::keyClick(session.window, Qt::Key_Escape);
             QTRY_VERIFY(!changelogDialog || !changelogDialog->property("visible").toBool());
             QVERIFY2(dialog->property("opened").toBool(),
@@ -772,6 +815,7 @@ void DesktopPagesTest::remainingSettingsProductionSections()
                 QVERIFY(session.window->grabWindow().save(
                     captures +
                     QString("/disclaimer-%1-%2.png").arg(dark ? "dark" : "light").arg(zoom)));
+            QVERIFY(Test::prepareNativeInput(session.window));
             QTest::keyClick(session.window, Qt::Key_Escape);
             QTRY_VERIFY([&] {
                 const auto *disclaimer =
@@ -792,6 +836,7 @@ void DesktopPagesTest::remainingSettingsProductionSections()
                 QVERIFY(session.window->grabWindow().save(
                     captures +
                     QString("/backup-%1-%2.png").arg(dark ? "dark" : "light").arg(zoom)));
+            QVERIFY(Test::prepareNativeInput(session.window));
             QTest::keyClick(session.window, Qt::Key_Escape);
             QMetaObject::invokeMethod(dialog, "close");
             QTRY_VERIFY(!dialog || !dialog->property("visible").toBool());
@@ -815,6 +860,9 @@ void DesktopPagesTest::remainingSettingsProductionSections()
             QVERIFY(reopenedCatalog);
             QTRY_COMPARE(reopenedCatalog->current(), QString("cast"));
             QTRY_VERIFY(visual(session.window->contentItem(), "settingsCastEnabled"));
+            auto *reopenedLoader = visual(session.window->contentItem(), "settingsSectionLoader");
+            QVERIFY(reopenedLoader);
+            QTRY_COMPARE(reopenedLoader->property("status").toInt(), 1); // Loader.Ready
         }
     }
     QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));

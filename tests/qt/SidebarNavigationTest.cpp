@@ -31,6 +31,15 @@ public:
         emit model.dataChanged(model.index(0), model.index(0), {UserPlaylistModel::CoverUrlRole});
         emit model.changed();
     }
+    static void collect(UserPlaylistModel &model, int row)
+    {
+        model.m_rows[row].kind = "collected";
+        model.m_rows[row].collected = true;
+        model.m_rows[row].creatorGlobalId = model.m_rows[row].globalId;
+        emit model.dataChanged(
+            model.index(row), model.index(row),
+            {UserPlaylistModel::KindRole, UserPlaylistModel::CreatorGlobalIdRole});
+    }
 };
 } // namespace EchoMusic
 namespace
@@ -144,6 +153,48 @@ private slots:
         QCOMPARE(session.library.tab(), 0);
         QVERIFY(session.router.navigate("playlist-detail", {}, "creator-public"));
         QCOMPARE(session.library.tab(), 1);
+    }
+    void catalogRefreshKeepsTheManuallySelectedSection()
+    {
+        Session session;
+        for (const bool owned : {true, false}) {
+            const auto resource = owned ? QString("owned-global") : QString("creator-public");
+            QVERIFY(session.router.navigate("playlist-detail", {}, resource));
+            QCOMPARE(session.library.tab(), owned ? 0 : 1);
+            session.library.setTab(owned ? 1 : 0);
+            const auto routeKey = session.router.current()->key();
+            for (int refresh = 0; refresh < 2; ++refresh) {
+                // The same command as the production refresh button. With no
+                // account transport, feed canonical rows after its real reset.
+                session.library.reload();
+                QCOMPARE(session.source.rowCount(), 0);
+                UserPlaylistModelTestAccess::append(session.source, "owned", "owned-global",
+                                                    "unused-creator");
+                UserPlaylistModelTestAccess::append(session.source, "collected", "local-collected",
+                                                    "creator-public");
+                QCOMPARE(session.library.tab(), owned ? 1 : 0);
+                QCOMPARE(session.library.playlists()->rowCount(), 1);
+                QCOMPARE(session.router.current()->key(), routeKey);
+            }
+        }
+    }
+    void newAccountAndChangedMembershipStillRevealTheSection()
+    {
+        Session session;
+        QVERIFY(session.router.navigate("playlist-detail", {}, "creator-public"));
+        session.library.setTab(0);
+        QVERIFY(session.api.setAccount(2, "test-only-token"));
+        UserPlaylistModelTestAccess::append(session.source, "collected", "another-local",
+                                            "creator-public");
+        QCOMPARE(session.library.tab(), 1);
+        QVERIFY(session.router.navigate("playlist-detail", {}, "owned-global"));
+        UserPlaylistModelTestAccess::append(session.source, "owned", "owned-global", "unused");
+        QCOMPARE(session.library.tab(), 0);
+        UserPlaylistModelTestAccess::collect(session.source, 1);
+        QCOMPARE(session.library.tab(), 1);
+        session.library.setTab(0);
+        UserPlaylistModelTestAccess::changeCover(session.source);
+        QCOMPARE(session.library.tab(), 0);
     }
 };
 QTEST_GUILESS_MAIN(SidebarNavigationTest)

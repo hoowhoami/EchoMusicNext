@@ -4,10 +4,16 @@
 #include <QPointer>
 #include <functional>
 #include <QHash>
+#include <QJsonArray>
+#include <QSet>
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
 {
 class LibraryController;
+class PlaybackService;
+class ApiClient;
+class UserPlaylistModel;
+class RouteController;
 /// Application-owned menu layout. The finite built-in catalog is separate from
 /// the virtual playlist model; visibility/order survives restart, never changes
 /// API identities or creates a second writable QML preference store.
@@ -16,6 +22,7 @@ class SidebarLayoutModel final : public QAbstractListModel
     Q_OBJECT
     QML_ELEMENT
     Q_MOC_INCLUDE("LibraryController.h")
+    Q_MOC_INCLUDE("RouteController.h")
     QML_UNCREATABLE("Owned by ShellSettings")
     Q_PROPERTY(EchoMusic::LibraryController *libraryController READ libraryController WRITE
                    setLibraryController NOTIFY changed)
@@ -27,7 +34,28 @@ class SidebarLayoutModel final : public QAbstractListModel
     Q_PROPERTY(QAbstractItemModel *shortcutModel READ shortcutModel CONSTANT)
     Q_PROPERTY(QAbstractItemModel *navigationModel READ navigationModel CONSTANT)
     Q_PROPERTY(QVariantList shortcutCatalog READ shortcutCatalog NOTIFY changed)
+    Q_PROPERTY(QVariantList frequentArtists READ frequentArtists NOTIFY changed)
+    Q_PROPERTY(QVariantList recentPlaylists READ recentPlaylists NOTIFY changed)
+    Q_PROPERTY(bool historyLoading READ historyLoading NOTIFY changed)
+    Q_PROPERTY(QString historyError READ historyError NOTIFY changed)
 public:
+    ~SidebarLayoutModel() override;
+    /// Borrow the canonical playback/library owners; retain only bounded display projections.
+    void attachResources(ApiClient &, PlaybackService &, UserPlaylistModel &, bool networkEnabled);
+    QVariantList frequentArtists() const;
+    QVariantList recentPlaylists() const;
+    bool historyLoading() const
+    {
+        return m_historyLoading;
+    }
+    QString historyError() const
+    {
+        return m_historyError;
+    }
+    Q_INVOKABLE void browseResources(bool active);
+    Q_INVOKABLE bool openShortcut(RouteController *router, const QString &key);
+    QString resourceIdForKey(const QString &key) const;
+    QString homeResourceId() const;
     enum Role
     {
         Key = Qt::UserRole + 1,
@@ -105,6 +133,21 @@ private:
     void addPluginSections(QVariantList &) const;
     void refreshSectionModel();
     void save();
+    void acceptHistory(const QJsonArray &entries);
+    QVariantMap resourceEntry(const QString &key) const;
+    QVariantMap resolveResource(QVariantMap entry) const;
+    void updatePortraits();
+    void cancelPortraits();
+    void saveResources();
+    QPointer<ApiClient> m_resourceApi;
+    QPointer<PlaybackService> m_playback;
+    QPointer<UserPlaylistModel> m_resourceLibrary;
+    QVariantList m_frequentArtists;
+    QHash<QString, QVariantMap> m_resources;
+    QHash<quint64, QString> m_portraitRequests;
+    QSet<QString> m_portraitAttempts;
+    bool m_browsing = false, m_resourceNetwork = false, m_historyLoading = false;
+    QString m_historyError;
     QSettings &m_preferences;
     QPointer<LibraryController> m_library;
     void applyPlaylistVisibility();

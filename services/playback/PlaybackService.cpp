@@ -155,8 +155,8 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
       m_audioControls(m_engine, m_native, settings, this),
       m_effectCatalog(api, m_audioControls, this), m_catalog(this), m_lyrics(this),
       m_climax(api, this), m_listening(api, this), m_lyricAppearance(settings, this),
-      m_dynamicCover(api, this), m_lyricText(m_lyrics, m_native, settings, this),
-      m_lyricSource(api, settings, this)
+      m_dynamicCover(api, this), m_portraits(api, *m_lyricAppearance.portrait(), this),
+      m_lyricText(m_lyrics, m_native, settings, this), m_lyricSource(api, settings, this)
 {
     m_sessionController = std::make_unique<PlaybackSessionController>(*this);
     m_outputController = std::make_unique<PlaybackOutputController>(*this);
@@ -185,7 +185,10 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
         m_castRefreshSequence = m_sequence;
         refreshCurrentSource();
     });
-    connect(this, &PlaybackService::changed, this, [this] { m_dynamicCover.setTrack(m_track); });
+    connect(this, &PlaybackService::changed, this, [this] {
+        m_dynamicCover.setTrack(m_track);
+        m_portraits.setTrack(m_track);
+    });
     // The application owns network policy. Only an immutable deadline is copied
     // to the audio actor; playback does not persist a second network preference.
     if (network)
@@ -548,6 +551,7 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
             m_coverPng.clear();
             m_privileges = {};
             m_error.clear();
+            m_lyricSource.clear();
             m_lyricText.clear();
             publishMedia();
             emit changed();

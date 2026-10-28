@@ -9,6 +9,8 @@ Item {
     id: motion
     property EchoCover sourceCover: null
     required property EchoCover targetCover
+    onTargetCoverChanged: if (!targetCover)
+        finish()
     property real hostOpacity: 0
     property real contentOpacity: 0
     property real contentOffset: 20
@@ -41,10 +43,12 @@ Item {
         entering = forward;
         // Popup has assigned its final size. Flush its native layout once,
         // never read layout geometry on an animation frame.
-        targetCover.parent.parent.ensurePolished();
-        targetCover.parent.ensurePolished();
+        if (targetCover) {
+            targetCover.parent.parent.ensurePolished();
+            targetCover.parent.ensurePolished();
+        }
         const small = sourceCover ? bounds(sourceCover) : Qt.rect(0, 0, 0, 0);
-        largeRect = bounds(targetCover);
+        largeRect = targetCover ? bounds(targetCover) : Qt.rect(0, 0, 0, 0);
         coverFlight = Theme.store.motionEnabled && small.width > 0 && small.height > 0 && largeRect.width > 0 && largeRect.height > 0;
         if (coverFlight) {
             fromRect = interrupted ? previous : forward ? small : largeRect;
@@ -91,25 +95,25 @@ Item {
         Binding {
             target: placeholderSnapshot.item
             property: "glyphSize"
-            value: motion.smallGlyphSize + (motion.targetCover.placeholderGlyphSize - motion.smallGlyphSize) * motion.cornerBlend
+            value: motion.targetCover ? motion.smallGlyphSize + (motion.targetCover.placeholderGlyphSize - motion.smallGlyphSize) * motion.cornerBlend : 0
             when: placeholderSnapshot.item !== null
         }
         Binding {
             target: placeholderSnapshot.item
             property: "color"
-            value: motion.sourceCover ? motion.blendColor(motion.sourceCover.placeholderColor, motion.targetCover.placeholderColor) : motion.targetCover.placeholderColor
+            value: !motion.targetCover ? "transparent" : motion.sourceCover ? motion.blendColor(motion.sourceCover.placeholderColor, motion.targetCover.placeholderColor) : motion.targetCover.placeholderColor
             when: placeholderSnapshot.item !== null
         }
         Binding {
             target: placeholderSnapshot.item
             property: "glyphColor"
-            value: motion.sourceCover ? motion.blendColor(motion.sourceCover.colors.text, motion.targetCover.colors.text) : motion.targetCover.colors.text
+            value: !motion.targetCover ? "transparent" : motion.sourceCover ? motion.blendColor(motion.sourceCover.colors.text, motion.targetCover.colors.text) : motion.targetCover.colors.text
             when: placeholderSnapshot.item !== null
         }
         Binding {
             target: placeholderSnapshot.item
             property: "glyphOpacity"
-            value: motion.sourceCover ? motion.sourceCover.placeholderOpacity + (motion.targetCover.placeholderOpacity - motion.sourceCover.placeholderOpacity) * motion.cornerBlend : motion.targetCover.placeholderOpacity
+            value: !motion.targetCover ? 0 : motion.sourceCover ? motion.sourceCover.placeholderOpacity + (motion.targetCover.placeholderOpacity - motion.sourceCover.placeholderOpacity) * motion.cornerBlend : motion.targetCover.placeholderOpacity
             when: placeholderSnapshot.item !== null
         }
     }
@@ -146,7 +150,7 @@ Item {
                 layer.textureSize: flightMetrics.pixelSize
                 Rectangle {
                     anchors.fill: parent
-                    radius: motion.targetCover.cornerRadius
+                    radius: motion.targetCover ? motion.targetCover.cornerRadius : 0
                     antialiasing: true
                     color: "white"
                 }

@@ -140,7 +140,7 @@ bool RouteController::unregisterPage(const QString &name, quint64 revision)
         if (m_cursor >= 0)
             present(m_history[m_cursor]);
         else if (available(homeRoute())) {
-            m_history.append({homeRoute(), {}, {}});
+            m_history.append({homeRoute(), homeResourceId(), {}});
             m_cursor = 0;
             present(m_history[0]);
         }
@@ -416,6 +416,11 @@ QString RouteController::homeRoute() const
     const auto route = m_homeLayout ? m_homeLayout->homeRoute() : QStringLiteral("home");
     return available(route) ? route : QStringLiteral("home");
 }
+QString RouteController::homeResourceId() const
+{
+    return m_homeLayout && homeRoute() == m_homeLayout->homeRoute() ? m_homeLayout->homeResourceId()
+                                                                    : QString();
+}
 bool RouteController::navigateHome(bool replaceCurrent)
 {
     if (m_closed)
@@ -425,7 +430,7 @@ bool RouteController::navigateHome(bool replaceCurrent)
             this, [this, replaceCurrent] { navigateHome(replaceCurrent); }, Qt::QueuedConnection);
         return true;
     }
-    return goTo(homeRoute(), {}, {}, replaceCurrent);
+    return goTo(homeRoute(), {}, homeResourceId(), replaceCurrent);
 }
 void RouteController::invalidateAccount()
 {
@@ -450,8 +455,9 @@ void RouteController::resetAccount(bool preserveRoute)
     emit dismissOverlays();
     // Explicit login/account changes resolve the current first shortcut with fresh account
     // data. Only SQL startup restoration retains a navigation made meanwhile.
-    const Location location =
-        preserveRoute && m_cursor >= 0 ? m_history[m_cursor] : Location{homeRoute(), {}, {}};
+    const Location location = preserveRoute && m_cursor >= 0
+                                  ? m_history[m_cursor]
+                                  : Location{homeRoute(), homeResourceId(), {}};
     m_history = {location};
     m_cursor = 0;
     auto *previous = m_current;

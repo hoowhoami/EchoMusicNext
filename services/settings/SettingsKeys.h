@@ -114,6 +114,26 @@ inline constexpr QLatin1StringView RetentionDays{"logging/retentionDays"};
 } // namespace Logging
 namespace Lyrics
 {
+inline constexpr QLatin1StringView PortraitEnableSpring{"lyrics/portrait/enableSpring"};
+inline constexpr QLatin1StringView PortraitEnableBlur{"lyrics/portrait/enableBlur"};
+inline constexpr QLatin1StringView PortraitEnableScale{"lyrics/portrait/enableScale"};
+
+inline constexpr QLatin1StringView PortraitPrefix{"lyrics/portrait/"};
+inline constexpr QLatin1StringView PortraitBackdropOpacity{"lyrics/portrait/backdropOpacity"};
+inline constexpr QLatin1StringView PortraitCarouselEnabled{"lyrics/portrait/carouselEnabled"};
+inline constexpr QLatin1StringView PortraitCarouselInterval{"lyrics/portrait/carouselInterval"};
+inline constexpr QLatin1StringView PortraitFallbackCover{"lyrics/portrait/fallbackCover"};
+inline constexpr QLatin1StringView PortraitAutoCollapse{"lyrics/portrait/autoCollapse"};
+inline constexpr QLatin1StringView PortraitCollapseDelay{"lyrics/portrait/collapseDelay"};
+inline constexpr QLatin1StringView PortraitHideControls{"lyrics/portrait/hideControls"};
+inline constexpr QLatin1StringView PortraitFontScale{"lyrics/portrait/fontScale"};
+inline constexpr QLatin1StringView PortraitFontWeight{"lyrics/portrait/fontWeight"};
+inline constexpr QLatin1StringView PortraitTextColor{"lyrics/portrait/textColor"};
+inline constexpr QLatin1StringView PortraitUnplayedTextColor{"lyrics/portrait/unplayedTextColor"};
+inline constexpr QLatin1StringView PortraitUseCoverColor{"lyrics/portrait/useCoverColor"};
+inline constexpr QLatin1StringView PortraitUnplayedUseCoverColor{
+    "lyrics/portrait/unplayedUseCoverColor"};
+
 inline constexpr QLatin1StringView PageUnplayedFollowCoverColor{
     "lyrics/page/unplayedFollowCoverColor"};
 inline constexpr QLatin1StringView AppearanceDynamicAlbumCover{
@@ -273,6 +293,7 @@ inline constexpr QLatin1StringView HiddenEntries{"sidebar/hiddenEntries"};
 inline constexpr QLatin1StringView HiddenGroups{"sidebar/hiddenGroups"};
 inline constexpr QLatin1StringView Prefix{"sidebar/"};
 inline constexpr QLatin1StringView Shortcuts{"sidebar/shortcuts"};
+inline constexpr QLatin1StringView ResourceCards{"sidebar/resourceCards"};
 } // namespace Sidebar
 namespace Typography
 {

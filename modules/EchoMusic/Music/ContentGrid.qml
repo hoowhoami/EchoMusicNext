@@ -14,6 +14,7 @@ GridView {
     // The catalog model retains ownership of the real rows.
     property var sourceModel: null
     property bool loading: false
+    property bool presentationReady: false
     readonly property int columns: Math.max(1, Math.floor(width / ((video ? 220 : 180) + 20)))
     readonly property real cardWidth: Math.max(1, width / columns - 20)
     readonly property real cardHeight: (cardWidth - (artist ? 26 : video ? 18 : 22)) / (video ? 1.78 : 1) + (artist ? 70 : video ? 62 : 66)
@@ -36,14 +37,31 @@ GridView {
     reuseItems: true
     cacheBuffer: cellHeight * 3
     boundsBehavior: Flickable.StopAtBounds
-    model: grid.loading ? grid.columns * 2 : grid.sourceModel
+    function syncPresentation(): void {
+        if (!grid.presentationReady)
+            return;
+        // Separate model/delegate bindings run in either order. Detach rows
+        // before switching so ContentCard never receives integer placeholders
+        // without its required catalog roles (including pooled delegates).
+        grid.model = null;
+        grid.delegate = grid.loading ? skeletonDelegate : cardDelegate;
+        grid.model = grid.loading ? grid.columns * 2 : grid.sourceModel;
+    }
+    onLoadingChanged: syncPresentation()
+    onSourceModelChanged: if (!grid.loading)
+        syncPresentation()
+    onColumnsChanged: if (grid.loading)
+        syncPresentation()
+    Component.onCompleted: {
+        presentationReady = true;
+        syncPresentation();
+    }
     ScrollBar.vertical: EchoPageScrollBar {
         objectName: "gridScrollbar"
         view: grid
         container: grid.pageContainer
         viewActive: grid.visible && grid.pageActive
     }
-    delegate: grid.loading ? skeletonDelegate : cardDelegate
     Component {
         id: cardDelegate
         ContentCard {

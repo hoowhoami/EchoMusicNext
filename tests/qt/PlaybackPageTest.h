@@ -4,6 +4,9 @@ class PlaybackPageTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void portraitGalleryCancelsCachesAndUsesPreferredCategory();
+    void portraitSkinPreferencesAndProductionLifecycle();
+    void portraitCollapseKeepsMotionAndAvoidsVisibleControls();
     void restoredTrackLoadsLyricsWithoutStartingPlayback_data();
     void restoredTrackLoadsLyricsWithoutStartingPlayback();
     void queueDrawerClipsScrolledRowsInsideItsBorder();
@@ -32,6 +35,7 @@ private slots:
     void characterMotionMatchesUpstreamMeasurements();
     void wordBoundarySweepMatchesUpstreamMeasurements();
     void nativeEngineTimelineHasNoPeriodicHold();
+    void nativeEngineTimelineHasNoPeriodicHold_data();
     void themeEventBurstKeepsTrayStableDuringNativePlayback();
     void presentationClockHandlesJitterPauseSpeedAndSeek();
     void shapedWordPixelsProgressSeekAndWrap();

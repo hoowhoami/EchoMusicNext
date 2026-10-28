@@ -100,6 +100,8 @@ private slots:
     void sidebarHistoryNavigationRevealsPlaylistSection();
     void productionSidebarScrollbar();
     void productionSidebarCardsMenusAndLayout();
+    void sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots_data();
+    void sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots();
     void signedOutAccountPopoverAndOddShortcutWidths();
     void remainingSettingsProductionSections();
     void settingsFilterAndUnsupportedProviderNeverLoadStub();
@@ -111,6 +113,7 @@ private slots:
     void fixedProfileSocialAndSidebarActionsKeepIntrinsicWidths();
     void productionProfileNameTagsStayAligned();
     void productionProfileFieldsAndMembershipDates();
+    void profileMembershipDatesUseAllAvailableWidth();
     void productionAccountSurfacesAndAnchors();
     void profileEditorKeepsEqualColumnsAndDateActionsClear();
     void profileEditorValidationFeedbackStaysVisibleWithoutScrolling();

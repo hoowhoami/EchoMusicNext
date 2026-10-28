@@ -149,6 +149,7 @@ struct ApiClient::MediaClient
     quint64 recognizeAudio(const QByteArray &pcm);
     quint64 personalFm(const FmRequest &request);
     quint64 songClimax(const QString &hash);
+    quint64 audioImages(const QList<AudioImageResource> &resources, quint32 count);
     quint64 albumDynamicCover(quint64 audio, quint64 album);
     quint64 songRanking(quint64 mix, bool details);
     quint64 songMv(quint64 mix);

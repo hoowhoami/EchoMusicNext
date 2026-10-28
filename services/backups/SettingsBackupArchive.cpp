@@ -100,6 +100,7 @@ bool SettingsBackupArchive::portableKey(const QString &key)
                                     EchoMusic::SettingsKeys::Playback::Prefix,
                                     EchoMusic::SettingsKeys::Video::BarragePrefix,
                                     EchoMusic::SettingsKeys::Lyrics::AppearancePrefix,
+                                    EchoMusic::SettingsKeys::Lyrics::PortraitPrefix,
                                     EchoMusic::SettingsKeys::PlayerEngine::Prefix,
                                     EchoMusic::SettingsKeys::Sidebar::Prefix,
                                     EchoMusic::SettingsKeys::Shell::TitlebarPrefix,

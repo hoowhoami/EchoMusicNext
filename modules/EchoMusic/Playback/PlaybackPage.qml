@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
-import QtQuick.Layouts
 import EchoMusic.Theme
 import EchoMusic.Controls
 import EchoMusic.Playback
@@ -44,11 +43,14 @@ Popup {
     readonly property bool hasNativeWindowControls: Qt.platform.os === "osx" && nativeWindowControlsBounds.width > 0
     readonly property bool presentationActive: visible && !playbackPart.replaced && (!contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized))
     readonly property bool resourceActive: presentationActive && !skinHost.loaded
+    readonly property bool portraitSelected: Theme.store.extensions.selectedSkin === "portrait"
+    readonly property real portraitControlsOpacity: portraitBody.item ? (portraitBody.item as PortraitPlayback).controlsOpacity : 1
+    readonly property bool portraitControlsShown: !portraitBody.item || (portraitBody.item as PortraitPlayback).controlsShown
     readonly property real lyricToolsMargin: 16
     // The lyric viewport reaches the centered body's right edge, so a row's
     // hover/press box would sit under the page-anchored lyric tools. Reserve
     // that overlap plus a safe gap.
-    readonly property real lyricOverlayReserve: Math.max(0, body.x + body.width - (page.width - lyricTools.width - lyricToolsMargin)) + 12
+    readonly property real lyricOverlayReserve: Math.max(0, coverBody.x + coverBody.width - (page.width - lyricTools.width - lyricToolsMargin)) + 12
     readonly property Item toastAnchor: transport.item as Item
     signal globalSettingsRequested
     function openSkins(): void {
@@ -65,7 +67,7 @@ Popup {
     // Match EchoMusic's LyricPage backgroundStyle -> lyricPageColorVariables:
     // artwork uses a black base; the solid mode uses the cover-derived color.
     // Hover ink still follows the current accent and its readability adjustment.
-    readonly property color paletteBackground: playback.lyricAppearance.backgroundBlur && playback.cover.toString().length > 0 ? "#000000" : backgroundColor
+    readonly property color paletteBackground: (portraitSelected || playback.lyricAppearance.backgroundBlur && playback.cover.toString().length > 0) ? "#000000" : backgroundColor
     // Explicit inputs keep both background and accent changes observable to QML.
     readonly property var lyricPalette: Theme.store.lyricPalette(paletteBackground, Theme.accent)
     readonly property ThemeColors colors: ThemeColors {
@@ -256,7 +258,7 @@ Popup {
             }
             PauseAnimation {
                 // The transition job captures this before ScriptAction runs.
-                duration: !Theme.store.motionEnabled ? 0 : page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 460 : 400
+                duration: !Theme.store.motionEnabled ? 0 : !page.portraitSelected && page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 460 : 400
             }
         }
     }
@@ -271,7 +273,7 @@ Popup {
                 }
             }
             PauseAnimation {
-                duration: !Theme.store.motionEnabled ? 0 : page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 360 : 400
+                duration: !Theme.store.motionEnabled ? 0 : !page.portraitSelected && page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 360 : 400
             }
         }
     }
@@ -300,7 +302,8 @@ Popup {
                 anchors.fill: parent
                 z: -1
                 playback: page.playback
-                resourceActive: page.resourceActive
+                resourceActive: page.resourceActive && (!page.portraitSelected || !portraitBody.item || !(portraitBody.item as PortraitPlayback).backgroundReady)
+                visible: !page.portraitSelected || !portraitBody.item || !(portraitBody.item as PortraitPlayback).backgroundReady
                 baseColor: page.backgroundColor
                 opacity: motion.hostOpacity
             }
@@ -309,8 +312,8 @@ Popup {
                 objectName: "playbackPageMotion"
                 anchors.fill: parent
                 z: 10
-                sourceCover: page.sourceCover
-                targetCover: albumCover
+                sourceCover: page.portraitSelected ? null : page.sourceCover
+                targetCover: coverBody.item ? (coverBody.item as CoverPlayback).cover : null
             }
             // AppKit owns the native traffic lights outside this subtree. Every
             // application control follows the same zoom as the playback content.
@@ -352,140 +355,47 @@ Popup {
                     onClicked: page.close()
                 }
             }
-            GridLayout {
-                id: body
-                readonly property bool narrow: page.width <= 768
-                columns: narrow ? 1 : 2
-                anchors.top: parent.top
-                anchors.bottom: transport.top
+            Loader {
+                id: coverBody
+                objectName: "coverPlaybackOwner"
                 anchors.horizontalCenter: parent.horizontalCenter
-                anchors.topMargin: 96
+                y: 96
                 width: Math.min(1400, parent.width) - 64
-                columnSpacing: 32
-                rowSpacing: 16
-                ColumnLayout {
-                    id: coverSide
-                    objectName: "playbackPageCoverSide"
-                    Layout.minimumWidth: 0
-                    Layout.maximumWidth: Layout.preferredWidth
-                    Layout.preferredWidth: body.narrow ? body.width : Math.max(280, Math.min((body.width + 64) * 0.35, 420))
-                    Layout.preferredHeight: body.narrow ? 16 + 160 + 24 + 33 + 6 + 21 : -1
-                    Layout.fillHeight: !body.narrow
-                    spacing: 0
-                    Item {
-                        visible: !body.narrow
-                        Layout.fillHeight: true
-                    }
-                    PlaybackAlbumCover {
-                        id: albumCover
-                        opacity: motion.hostOpacity
-                        artworkOpacity: motion.coverFlight ? 0 : 1
-                        Layout.topMargin: body.narrow ? 16 : 24
-                        objectName: "playbackPageCover"
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: body.narrow ? 160 : Math.min(380, Math.max(220, parent.width * 0.8))
-                        Layout.preferredHeight: Layout.preferredWidth
-                        playback: page.playback
-                        colors: page.colors
-                        placeholderColor: page.colors.mutedSurface
-                        placeholderGlyphSize: 32
-                        resourceActive: page.resourceActive
-                        EchoSurfaceShadow {
-                            objectName: "playbackCoverShadow"
-                            // One shadow follows the flight and remains in place
-                            // on landing, without appearing as a new final layer.
-                            x: motion.coverFlight ? motion.currentRect.x - motion.largeRect.x : 0
-                            y: motion.coverFlight ? motion.currentRect.y - motion.largeRect.y : 0
-                            width: parent.width
-                            height: parent.height
-                            surface: parent
-                            z: -1
-                            opacity: motion.coverFlight ? motion.cornerBlend : 1
-                            radius: motion.coverFlight ? motion.smallRadius + (Theme.mediaRadius - motion.smallRadius) * motion.cornerBlend : Theme.mediaRadius
-                            blur: 64
-                            offset: Qt.vector2d(0, 24)
-                            color: Qt.rgba(0, 0, 0, 0.3)
-                            transform: Scale {
-                                xScale: motion.coverFlight ? motion.currentRect.width / Math.max(1, motion.largeRect.width) : 1
-                                yScale: motion.coverFlight ? motion.currentRect.height / Math.max(1, motion.largeRect.height) : 1
-                            }
-                        }
-                    }
-                    EchoTextTagRow {
-                        objectName: "playbackPageTitle"
-                        // Single-line metadata keeps its final line box even when
-                        // empty text has no Flow width during the first layout.
-                        Layout.preferredHeight: lineHeight
-                        opacity: motion.hostOpacity * motion.contentOpacity
-                        transform: Translate {
-                            y: motion.contentOffset
-                        }
-                        fillTextWidth: true
-                        Layout.topMargin: 24
-                        Layout.leftMargin: 16
-                        Layout.rightMargin: 16
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        Layout.maximumWidth: 380 - 32
-                        Layout.alignment: Qt.AlignHCenter
-                        text: page.playback.title
-                        horizontalAlignment: Text.AlignHCenter
-                        color: page.colors.text
-                        lineHeight: 33
-                        font: Theme.font(22, Theme.boldWeight)
-                    }
-                    EchoTextTagRow {
-                        objectName: "playbackPageArtist"
-                        Layout.preferredHeight: lineHeight
-                        opacity: motion.hostOpacity * motion.contentOpacity
-                        transform: Translate {
-                            y: motion.contentOffset
-                        }
-                        fillTextWidth: true
-                        Layout.topMargin: 6
-                        Layout.bottomMargin: body.narrow ? 0 : 24
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        Layout.maximumWidth: 380 - 32
-                        Layout.alignment: Qt.AlignHCenter
-                        text: page.playback.artist
-                        horizontalAlignment: Text.AlignHCenter
-                        color: page.colors.secondaryText
-                        lineHeight: 21
-                        font: Theme.font(14, Theme.mediumWeight)
-                    }
-                    Item {
-                        visible: !body.narrow
-                        Layout.fillHeight: true
-                    }
+                height: Math.max(0, transport.y - y)
+                // The actual Popup is created on demand. Keep its cover layout
+                // stable through open/close transitions; decoders and lyric rows
+                // still follow resourceActive, and other skins unload this body.
+                active: !page.portraitSelected && !skinHost.loaded
+                sourceComponent: CoverPlayback {
+                    playback: page.playback
+                    colors: page.colors
+                    pageMotion: motion
+                    resourceActive: page.resourceActive
+                    pageWidth: page.width
+                    pageHeight: page.height
+                    renderTime: page.renderTime
+                    controlsTopReserve: page.controlsTopReserve
+                    overlayRightReserve: page.lyricOverlayReserve
                 }
-                Item {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumWidth: 0
-                    Layout.minimumHeight: 0
-                    Loader {
-                        anchors.fill: parent
-                        // Keep the lower page clear without letting the reserve
-                        // alter the GridLayout row or the cover's geometry.
-                        anchors.bottomMargin: Math.max(96, page.controlsTopReserve + 16)
-                        opacity: motion.hostOpacity * motion.contentOpacity
-                        transform: Translate {
-                            y: motion.contentOffset
-                        }
-                        // Destroy the native delegate pool on close/minimize.
-                        active: page.resourceActive
-                        sourceComponent: CoverLyricViewport {
-                            objectName: "playbackLyricViewport"
-                            playback: page.playback
-                            colors: page.colors
-                            renderTime: page.renderTime
-                            resourceActive: page.resourceActive
-                            pageWidth: page.width
-                            pageHeight: page.height
-                            overlayRightReserve: page.lyricOverlayReserve
-                        }
-                    }
+            }
+            Loader {
+                id: portraitBody
+                objectName: "portraitPlaybackOwner"
+                anchors.fill: parent
+                opacity: motion.hostOpacity
+                active: page.resourceActive && page.portraitSelected
+                sourceComponent: PortraitPlayback {
+                    playback: page.playback
+                    colors: page.colors
+                    renderTime: page.renderTime
+                    resourceActive: page.resourceActive
+                    baseColor: page.backgroundColor
+                    controlsReserve: Math.max(96, page.controlsTopReserve + 16)
+                    controlsHeight: transport.height
+                    controlsAboveReserve: page.controlsTopReserve
+                    lyricToolsTop: lyricTools.y
+                    lyricToolsLeft: lyricTools.x
+                    popupOpen: skinsOwner.visible || sourceDialogOwner.visible
                 }
             }
             Loader {
@@ -505,7 +415,7 @@ Popup {
                 x: parent.width - width - page.lyricToolsMargin
                 y: Math.max(104, 35 / page.uiScale + 58)
                 height: Math.max(0, parent.height - y - 112)
-                opacity: (contentHover.hovered || activeFocus ? 1 : 0) * motion.hostOpacity
+                opacity: (page.portraitControlsShown && (contentHover.hovered || activeFocus) ? 1 : 0) * motion.hostOpacity
                 enabled: opacity > 0
                 playback: page.playback
                 colors: page.colors
@@ -543,7 +453,10 @@ Popup {
             }
             Loader {
                 id: transport
-                opacity: motion.hostOpacity * motion.contentOpacity
+                objectName: "playbackTransport"
+                visible: page.portraitControlsOpacity > 0
+                opacity: motion.hostOpacity * motion.contentOpacity * page.portraitControlsOpacity
+                enabled: opacity > 0
                 transform: Translate {
                     y: motion.contentOffset
                 }

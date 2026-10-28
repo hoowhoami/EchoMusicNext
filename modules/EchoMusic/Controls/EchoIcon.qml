@@ -8,6 +8,9 @@ Item {
     // Callers supply their actual surface/state foreground, like currentColor.
     property color color: Theme.text
     property bool resourceActive: true
+    // A short glyph scale transition can rasterize at its stable endpoint
+    // density instead of reloading the SVG on every animation frame.
+    property Item rasterizationItem: control
     property alias asynchronous: image.asynchronous
     readonly property alias status: image.status
     // Rasterize glyphs 1:1 at device pixels: the artwork bucket floor (32px)
@@ -22,7 +25,7 @@ Item {
     implicitHeight: 20
     EchoImageMetrics {
         id: metrics
-        item: control
+        item: control.rasterizationItem
         active: control.resourceActive && control.visible
         source: image.source
     }

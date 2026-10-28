@@ -1,10 +1,11 @@
 #pragma once
 #include <QObject>
 #include <QSettings>
+#include "LyricPortraitAppearance.h"
 namespace EchoMusic
 {
-/// GUI-thread, application-owned cover lyric preferences. Only the implemented
-/// cover skin is exposed; no old provider IDs, schema import or mutable QML copy.
+/// GUI-thread, application-owned global and cover lyric preferences, with an
+/// independent portrait skin child. No imported schema or mutable QML copy.
 ///
 /// Explicit skin colors take priority over explicit global colors, per slot.
 /// Each view resolves its own defaults when neither layer is configured.
@@ -14,6 +15,7 @@ class LyricAppearance final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString skinKey READ skinKey CONSTANT)
+    Q_PROPERTY(EchoMusic::LyricPortraitAppearance *portrait READ portrait CONSTANT)
     Q_PROPERTY(bool customized READ customized NOTIFY changed)
     Q_PROPERTY(double alignPosition READ alignPosition WRITE setAlignPosition NOTIFY changed)
     Q_PROPERTY(bool enableSpring READ enableSpring WRITE setEnableSpring NOTIFY changed)
@@ -40,6 +42,10 @@ class LyricAppearance final : public QObject
     Q_PROPERTY(bool unplayedUseCoverColor READ unplayedUseCoverColor WRITE setUnplayedUseCoverColor
                    NOTIFY changed)
 public:
+    LyricPortraitAppearance *portrait()
+    {
+        return &m_portrait;
+    }
     QString playedColor() const
     {
         return m_playedColor;
@@ -154,6 +160,7 @@ signals:
 
 private:
     QSettings &m_settings;
+    LyricPortraitAppearance m_portrait;
     QString m_playedColor, m_unplayedColor;
     bool m_followCoverColor = false, m_unplayedFollowCoverColor = false;
     QString m_unplayedTextColor;

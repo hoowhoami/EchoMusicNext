@@ -8,7 +8,8 @@ class LibraryController;
 class RouteController;
 class UserPlaylistModel;
 /// Reveal the current playlist's catalog section after any navigation, including
-/// history traversal and a catalog that arrives after the route. Owns no tab state.
+/// history traversal and a catalog that arrives after the route. LibraryController
+/// owns the selected tab; repeated catalog loads do not override manual browsing.
 class SidebarRouteCoordinator final : public QObject
 {
     Q_OBJECT
@@ -23,5 +24,7 @@ private:
     UserPlaylistModel &m_source;
     RouteController &m_router;
     QString m_routeName, m_resourceId;
+    quint64 m_sessionRevision = 0;
+    int m_revealedTab = -1;
 };
 } // namespace EchoMusic

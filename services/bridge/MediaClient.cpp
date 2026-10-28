@@ -42,6 +42,25 @@ quint64 ApiClient::MediaClient::songClimax(const QString &hash)
     return api.submit({{"operation", "song_climax"}, {"query", QJsonObject{{"hash", hash}}}}, true,
                       {AuthenticationMode::CurrentAccount, false});
 }
+quint64 ApiClient::MediaClient::audioImages(const QList<AudioImageResource> &resources,
+                                            quint32 count)
+{
+    if (resources.isEmpty() || resources.size() > 100 || !count || count > 50)
+        return 0;
+    QJsonArray items;
+    for (const auto &resource : resources) {
+        if (resource.audioId > quint64(std::numeric_limits<qint64>::max()) ||
+            resource.albumAudioId > quint64(std::numeric_limits<qint64>::max()))
+            return 0;
+        items.append(QJsonObject{{"hash", resource.hash},
+                                 {"audio_id", qint64(resource.audioId)},
+                                 {"album_audio_id", qint64(resource.albumAudioId)},
+                                 {"filename", resource.filename}});
+    }
+    return api.submit({{"operation", "images_audio"},
+                       {"query", QJsonObject{{"resources", items}, {"count", int(count)}}}},
+                      true, {AuthenticationMode::DeviceOnly, false});
+}
 
 quint64 ApiClient::MediaClient::albumDynamicCover(quint64 audio, quint64 album)
 {

@@ -67,6 +67,7 @@ Item {
             x: root.playOffset
         }
         name: "play"
+        rasterizationItem: root
         color: root.color
         opacity: 1 - root.phase
         scale: 1 - 0.18 * root.phase
@@ -76,6 +77,7 @@ Item {
         objectName: "playPausePauseIcon"
         anchors.fill: parent
         name: "pause"
+        rasterizationItem: root
         color: root.color
         opacity: root.phase
         scale: 0.82 + 0.18 * root.phase

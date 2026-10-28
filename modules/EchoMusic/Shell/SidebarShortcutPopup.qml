@@ -8,30 +8,57 @@ import EchoMusic.Shell
 
 EchoDialog {
     id: popup
-    component ShortcutOption: Button {
+    component ShortcutOption: Item {
         id: option
         required property var modelData
+        property bool artist: false
+        readonly property bool available: modelData.plugin ? popup.layout.entryEnabled(modelData.key) : popup.router.available(modelData.route)
         Layout.fillWidth: true
         Layout.minimumWidth: 0
-        implicitHeight: Math.max(23, label.implicitHeight) + 30
-        padding: 15
-        enabled: modelData.pinned ? popup.layout.shortcuts.length > 1 : modelData.plugin ? popup.layout.entryEnabled(modelData.key) : popup.router.available(modelData.route)
-        hoverEnabled: true
-        Accessible.name: (modelData.pinned ? qsTr("移除") : qsTr("添加")) + modelData.title
-        Accessible.checkable: true
-        Accessible.checked: modelData.pinned
-        onClicked: popup.layout.toggleShortcut(modelData.key)
-        background: Rectangle {
-            radius: Theme.controlRadius
-            color: option.hovered && option.enabled ? Theme.floating.hover : Theme.floating.mutedSurface
+        implicitHeight: artist ? 142 : modelData.resourceId ? Math.max(36, label.implicitHeight) + 20 : Math.max(23, label.implicitHeight) + 30
+        Button {
+            id: activate
+            objectName: "shortcutCandidate-" + option.modelData.key
+            anchors.fill: parent
+            enabled: option.available
+            hoverEnabled: true
+            Accessible.name: option.modelData.title
+            onClicked: if (popup.layout.openShortcut(popup.router, option.modelData.key))
+                popup.close()
+            background: Rectangle {
+                radius: Theme.controlRadius
+                color: activate.hovered && activate.enabled ? Theme.floating.hover : Theme.floating.mutedSurface
+                border.width: activate.visualFocus ? 2 : 0
+                border.color: Theme.floating.accent
+            }
+            contentItem: Item {}
         }
-        contentItem: RowLayout {
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: option.modelData.resourceId ? 10 : 15
             spacing: 12
-            EchoIcon {
-                name: option.modelData.glyph
-                Layout.preferredWidth: 23
-                Layout.preferredHeight: 23
-                color: option.modelData.pinned || !option.enabled ? Theme.floatingSecondaryText : Theme.floatingText
+            visible: !option.artist
+            Loader {
+                Layout.preferredWidth: option.modelData.resourceId ? 36 : 23
+                Layout.preferredHeight: width
+                sourceComponent: option.modelData.resourceId ? artwork : icon
+                Component {
+                    id: icon
+                    EchoIcon {
+                        name: option.modelData.glyph
+                        color: option.modelData.pinned || !option.available ? Theme.floatingSecondaryText : Theme.floatingText
+                    }
+                }
+                Component {
+                    id: artwork
+                    EchoCover {
+                        source: option.modelData.cover || ""
+                        coverAlt: option.modelData.title
+                        cornerRadius: 5
+                        resourceActive: popup.visible
+                        colors: Theme.floating
+                    }
+                }
             }
             EchoTextTagRow {
                 id: label
@@ -40,15 +67,63 @@ EchoDialog {
                 text: option.modelData.title
                 wrap: true
                 fillTextWidth: true
-                color: option.modelData.pinned || !option.enabled ? Theme.floatingSecondaryText : Theme.floatingText
+                color: option.modelData.pinned || !option.available ? Theme.floatingSecondaryText : Theme.floatingText
                 font: Theme.font(14, Theme.regularWeight)
             }
-            EchoIcon {
-                name: option.modelData.pinned ? "minus" : "plus"
-                Layout.preferredWidth: 18
-                Layout.preferredHeight: 18
-                color: option.modelData.pinned || !option.enabled ? Theme.floatingSecondaryText : Theme.floatingText
+            Item {
+                Layout.preferredWidth: 24
+                Layout.preferredHeight: 24
             }
+        }
+        Loader {
+            active: option.artist
+            anchors.fill: parent
+            sourceComponent: ColumnLayout {
+                spacing: 10
+                Item {
+                    Layout.preferredHeight: 20
+                }
+                EchoCover {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 64
+                    Layout.preferredHeight: 64
+                    source: option.modelData.cover || ""
+                    coverAlt: option.modelData.title
+                    circular: true
+                    placeholderGlyph: "user"
+                    resourceActive: popup.visible
+                    colors: Theme.floating
+                }
+                Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 8
+                    Layout.rightMargin: 8
+                    text: option.modelData.title
+                    elide: Text.ElideRight
+                    horizontalAlignment: Text.AlignHCenter
+                    color: Theme.floatingText
+                    font: Theme.font(14, Theme.regularWeight)
+                }
+                Item {
+                    Layout.fillHeight: true
+                }
+            }
+        }
+        EchoIconButton {
+            objectName: "shortcutCandidateToggle-" + option.modelData.key
+            anchors.right: parent.right
+            anchors.rightMargin: option.artist ? 6 : 12
+            anchors.top: option.artist ? parent.top : undefined
+            anchors.topMargin: 6
+            anchors.verticalCenter: option.artist ? undefined : parent.verticalCenter
+            width: 30
+            height: 30
+            padding: 6
+            enabled: option.modelData.pinned ? popup.layout.shortcuts.length > 1 : option.available
+            glyph: option.modelData.pinned ? "minus" : "plus"
+            text: (option.modelData.pinned ? qsTr("移除") : qsTr("添加")) + option.modelData.title + qsTr("卡片")
+            colors: Theme.floating
+            onClicked: popup.layout.toggleShortcut(option.modelData.key)
         }
     }
     objectName: "sidebarShortcutPopup"
@@ -73,6 +148,9 @@ EchoDialog {
         item: popup.anchorItem
         coordinateItem: popup.parent
     }
+    onOpened: layout.browseResources(true)
+    onClosed: layout.browseResources(false)
+    Component.onDestruction: layout.browseResources(false)
     flushBody: true
     body: Component {
         Flickable {
@@ -136,19 +214,20 @@ EchoDialog {
                         viewActive: popup.visible
                     }
                     delegate: RowLayout {
+                        id: optionRow
                         required property int index
                         width: options.width
                         spacing: 10
                         uniformCellSizes: true
                         ShortcutOption {
-                            modelData: options.catalog[parent.index * 2]
+                            modelData: options.catalog[optionRow.index * 2]
                         }
                         Loader {
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
-                            active: parent.index * 2 + 1 < options.catalog.length
+                            active: optionRow.index * 2 + 1 < options.catalog.length
                             sourceComponent: ShortcutOption {
-                                modelData: options.catalog[parent.parent.index * 2 + 1]
+                                modelData: options.catalog[optionRow.index * 2 + 1]
                                 width: parent.width
                             }
                         }
@@ -164,12 +243,26 @@ EchoDialog {
                         color: Theme.floatingText
                         font: Theme.font(17, Theme.semiboldWeight)
                     }
+                    GridLayout {
+                        Layout.fillWidth: true
+                        visible: popup.layout.frequentArtists.length > 0
+                        columns: 3
+                        columnSpacing: 12
+                        rowSpacing: 12
+                        Repeater {
+                            model: popup.layout.frequentArtists
+                            delegate: ShortcutOption {
+                                artist: true
+                            }
+                        }
+                    }
                     Label {
                         objectName: "shortcutArtistsEmpty"
+                        visible: popup.layout.frequentArtists.length === 0
                         Layout.fillWidth: true
                         Layout.topMargin: 18
                         Layout.bottomMargin: 18
-                        text: qsTr("播放歌曲后，常听艺人会出现在这里")
+                        text: popup.layout.historyLoading ? qsTr("正在加载播放记录…") : popup.layout.historyError.length ? qsTr("暂时无法加载播放记录，请稍后重试") : qsTr("播放歌曲后，常听艺人会出现在这里")
                         wrapMode: Text.Wrap
                         color: Theme.floatingSecondaryText
                         font: Theme.font(13, Theme.regularWeight)
@@ -185,8 +278,18 @@ EchoDialog {
                         color: Theme.floatingText
                         font: Theme.font(17, Theme.semiboldWeight)
                     }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: popup.layout.recentPlaylists.length > 0
+                        spacing: 4
+                        Repeater {
+                            model: popup.layout.recentPlaylists
+                            delegate: ShortcutOption {}
+                        }
+                    }
                     Label {
                         objectName: "shortcutPlaylistsEmpty"
+                        visible: popup.layout.recentPlaylists.length === 0
                         Layout.fillWidth: true
                         Layout.topMargin: 18
                         Layout.bottomMargin: 18

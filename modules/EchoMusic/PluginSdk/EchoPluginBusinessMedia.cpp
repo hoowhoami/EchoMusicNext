@@ -4,6 +4,32 @@ namespace EchoMusic::PluginBusiness
 bool media(const QString &method, Arguments &a, ApiClient &api, std::function<quint64()> &command)
 {
     const auto &arguments = a.values;
+    if (method == "audioImages") {
+        if (!arguments.contains("resources"))
+            a.valid = false;
+        const auto values = a.array("resources");
+        if (values.isEmpty() || values.size() > 100)
+            a.valid = false;
+        QList<ApiClient::AudioImageResource> resources;
+        for (const auto &value : values) {
+            if (value.metaType().id() != QMetaType::QVariantMap)
+                a.valid = false;
+            Arguments item(value.toMap());
+            if (!item.values.contains("hash"))
+                item.valid = false;
+            ApiClient::AudioImageResource resource;
+            resource.hash = item.text("hash");
+            resource.audioId = item.number("audioId");
+            resource.albumAudioId = item.number("albumAudioId");
+            resource.filename = item.text("filename");
+            a.valid = item.done() && a.valid;
+            resources.append(resource);
+        }
+        const auto count = a.number("count", 5, 50);
+        if (!count)
+            a.valid = false;
+        command = [&api, resources, count] { return api.audioImages(resources, quint32(count)); };
+    }
     if (method == "songClimax") {
         if (!arguments.contains("hash"))
             a.valid = false;

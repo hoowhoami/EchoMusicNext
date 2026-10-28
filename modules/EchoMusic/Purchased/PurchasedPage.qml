@@ -19,6 +19,47 @@ RoutePage {
     readonly property real toolbarRowHeight: 56
     readonly property real toolbarHeight: page.toolbarRowHeight + (page.songsTab ? 44 : 0)
     property string menuSongId: ""
+    property bool songsPositionInitialized: false
+    property bool albumsPositionInitialized: false
+    property bool contentReady: false
+    function initializePositions(): void {
+        if (!contentReady)
+            return;
+        // The first insertion replaces an empty footer. ListView can preserve
+        // that footer's old anchor; the first actual rows must start in view.
+        if (!songsPositionInitialized && page.service.songs.count > 0) {
+            songsPositionInitialized = true;
+            songList.listView.forceLayout();
+            if (page.songsTab)
+                viewport.resetPosition();
+            else
+                songList.listView.positionViewAtBeginning();
+        }
+        if (!albumsPositionInitialized && page.service.albums.count > 0) {
+            albumsPositionInitialized = true;
+            albumsGrid.forceLayout();
+            if (!page.songsTab)
+                viewport.resetPosition();
+            else
+                albumsGrid.positionViewAtBeginning();
+        }
+    }
+    Component.onCompleted: {
+        contentReady = true;
+        initializePositions();
+    }
+    Connections {
+        target: page.service.songs
+        function onChanged(): void {
+            page.initializePositions();
+        }
+    }
+    Connections {
+        target: page.service.albums
+        function onChanged(): void {
+            page.initializePositions();
+        }
+    }
     function showSongMenu(id: string, sceneX: real, sceneY: real): void {
         page.menuSongId = id;
         songMenuOwner.open({
@@ -192,16 +233,13 @@ RoutePage {
             pageContainer: viewport
             contentInset: 24
             topMargin: page.expandedHeaderHeight + page.toolbarHeight
-            loading: page.service.loading && page.service.songs.count === 0
-            loadingMore: page.service.loading && page.service.songs.count > 0
-            hasMore: page.service.hasMore
+            loading: page.service.songsLoading && page.service.songs.count === 0
+            loadingMore: page.service.songsLoading && page.service.songs.count > 0
             errorMessage: page.service.errorMessage
             resourceActive: page.pageActive && visible
             menuSongId: page.menuSongId
-            emptyComponent: purchasedSongEmpty
-            loadMoreComponent: purchasedLoadMore
-            onLoadMoreRequested: page.service.loadMore()
-            onRetryRequested: page.service.refresh()
+            emptyComponent: page.service.errorMessage.length || page.service.songs.query.length ? null : purchasedSongEmpty
+            onRetryRequested: page.service.loadMore()
             onMoreRequested: (id, sceneX, sceneY) => page.showSongMenu(id, sceneX, sceneY)
         }
         ContentGrid {
@@ -216,7 +254,7 @@ RoutePage {
             pageActive: page.pageActive
             pageContainer: viewport
             sourceModel: page.service.albums
-            loading: page.service.loading && page.service.albums.count === 0
+            loading: page.service.albumsLoading && page.service.albums.count === 0
             navigationAvailable: page.router.available("album-detail")
             onOpenRequested: id => page.router.navigate("album-detail", {}, id)
             footer: Item {
@@ -224,9 +262,29 @@ RoutePage {
                 width: albumsGrid.width - 20
                 readonly property int rows: page.service.albums.count
                 // 空状态和加载更多入口独立显示。
-                readonly property bool emptyState: albumsFooter.rows === 0 && albumsGrid.visible && !albumsGrid.loading
+                readonly property bool hasError: page.service.errorMessage.length > 0 && !page.service.albumsLoading
+                readonly property bool emptyState: albumsFooter.rows === 0 && albumsGrid.visible && !albumsGrid.loading && !hasError
                 readonly property bool showMore: page.service.hasMore && !albumsGrid.loading && albumsGrid.visible
-                height: albumsFooter.emptyState ? (albumsFooter.showMore ? 384 : 320) : albumsFooter.rows > 0 && albumsFooter.showMore ? 64 : 0
+                height: albumsFooter.hasError ? 160 : albumsFooter.emptyState ? (albumsFooter.showMore ? 384 : 320) : albumsFooter.rows > 0 && albumsFooter.showMore ? 64 : 0
+                ColumnLayout {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: 24
+                    width: Math.min(420, parent.width - 48)
+                    visible: albumsFooter.hasError
+                    Label {
+                        Layout.fillWidth: true
+                        text: page.service.errorMessage
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                        color: Theme.secondaryText
+                    }
+                    EchoSoftButton {
+                        objectName: "purchasedAlbumsRetry"
+                        Layout.alignment: Qt.AlignHCenter
+                        text: qsTr("重试")
+                        onClicked: page.service.loadMore()
+                    }
+                }
                 ColumnLayout {
                     visible: albumsFooter.emptyState
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -249,14 +307,14 @@ RoutePage {
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: 16
-                        text: qsTr("暂无已购专辑")
+                        text: page.service.albums.query.length ? qsTr("未找到匹配专辑") : qsTr("暂无已购专辑")
                         color: Theme.text
                         font: Theme.font(18, Theme.semiboldWeight)
                     }
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: 8
-                        text: qsTr("购买的专辑会展示在这里")
+                        text: page.service.albums.query.length ? qsTr("试试其它搜索关键词") : qsTr("购买的专辑会展示在这里")
                         color: Theme.secondaryText
                         font: Theme.font(13, Theme.mediumWeight)
                     }
@@ -265,9 +323,9 @@ RoutePage {
                     objectName: "purchasedAlbumsLoadMore"
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: albumsFooter.emptyState ? 336 : 24
-                    visible: albumsFooter.showMore
-                    text: page.service.loading ? qsTr("加载中...") : qsTr("加载更多")
-                    enabled: !page.service.loading
+                    visible: albumsFooter.showMore && !albumsFooter.hasError
+                    text: page.service.albumsLoading ? qsTr("加载中...") : qsTr("加载更多")
+                    enabled: !page.service.albumsLoading
                     onClicked: page.service.loadMore()
                 }
             }
@@ -318,31 +376,6 @@ RoutePage {
                     color: Theme.secondaryText
                     font: Theme.font(13, Theme.mediumWeight)
                 }
-                // 空状态和加载更多入口独立：容器 total>0 而行尚未映射时可以同时出现。
-                EchoSoftButton {
-                    objectName: "purchasedSongsLoadMoreEmpty"
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.topMargin: 24
-                    visible: page.service.hasMore
-                    enabled: !page.service.loading
-                    text: page.service.loading ? qsTr("加载中...") : qsTr("加载更多")
-                    onClicked: page.service.loadMore()
-                }
-            }
-        }
-    }
-    Component {
-        id: purchasedLoadMore
-        Item {
-            implicitHeight: page.service.hasMore || page.service.loading ? 64 : 0
-            EchoSoftButton {
-                objectName: "purchasedSongsLoadMore"
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: 16
-                visible: page.service.hasMore
-                text: page.service.loading ? qsTr("加载中...") : qsTr("加载更多")
-                enabled: !page.service.loading
-                onClicked: page.service.loadMore()
             }
         }
     }

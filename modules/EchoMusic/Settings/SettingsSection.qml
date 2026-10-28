@@ -16,6 +16,7 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: 12
         EchoIcon {
+            objectName: "settingsSectionIcon"
             name: section.glyph
             Layout.preferredWidth: 20
             Layout.preferredHeight: 20

@@ -343,6 +343,10 @@ pub enum Request {
         query: module::song_climax::Query,
         identity: Identity,
     },
+    ImagesAudio {
+        query: module::images_audio::Query,
+        identity: Identity,
+    },
     AlbumDycover {
         query: module::album_dycover::Query,
         identity: Identity,
@@ -856,6 +860,9 @@ pub async fn execute(request: Request, client: &ApiClient) -> Result<Vec<u8>, er
         }
         Request::SongClimax { query, identity } => {
             module::song_climax::execute(client, query, &identity).await
+        }
+        Request::ImagesAudio { query, identity } => {
+            module::images_audio::execute(client, query, &identity).await
         }
         Request::AlbumDycover { query, identity: _ } => {
             module::album_dycover::execute(client, query).await

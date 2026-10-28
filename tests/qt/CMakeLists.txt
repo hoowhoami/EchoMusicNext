@@ -681,10 +681,11 @@ add_test(
         productionSidebarImportEntranceAndModes productionSidebarOrderEditor
         sidebarHomeAndDragTransaction sidebarHistoryNavigationRevealsPlaylistSection
         productionSidebarScrollbar productionSidebarCardsMenusAndLayout
+        sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots
         accountProfileAndGradeRejectOldAccountResult
         fixedProfileSocialAndSidebarActionsKeepIntrinsicWidths productionProfileNameTagsStayAligned
-        productionProfileFieldsAndMembershipDates productionAccountSurfacesAndAnchors
-        profileEditorKeepsEqualColumnsAndDateActionsClear
+        productionProfileFieldsAndMembershipDates profileMembershipDatesUseAllAvailableWidth
+        productionAccountSurfacesAndAnchors profileEditorKeepsEqualColumnsAndDateActionsClear
         profileEditorValidationFeedbackStaysVisibleWithoutScrolling
         profileDevicesKeepInlineStatusAndBoundedViewport profileRelatedScrollBarsUseNativeMapping
 )

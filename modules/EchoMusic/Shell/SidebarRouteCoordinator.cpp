@@ -36,10 +36,16 @@ void SidebarRouteCoordinator::routeChanged()
         return;
     m_routeName = name;
     m_resourceId = resource;
+    m_revealedTab = -1;
     synchronize();
 }
 void SidebarRouteCoordinator::synchronize()
 {
+    const auto session = m_source.sessionRevision();
+    if (session != m_sessionRevision) {
+        m_sessionRevision = session;
+        m_revealedTab = -1;
+    }
     const auto *current = m_router.current();
     if (!current || current->name() != QStringLiteral("playlist-detail"))
         return;
@@ -56,7 +62,14 @@ void SidebarRouteCoordinator::synchronize()
                                         : UserPlaylistModel::CreatorGlobalIdRole)
                             .toString();
         if (!id.isEmpty() && id == current->resourceId()) {
-            m_library.setTab(owned ? 0 : 1);
+            const int tab = owned ? 0 : 1;
+            // Reset/insert notifications during refresh reveal the same route
+            // again. Remember its membership, not the user's selected tab, so
+            // manual browsing survives until navigation or provenance changes.
+            if (m_revealedTab != tab) {
+                m_revealedTab = tab;
+                m_library.setTab(tab);
+            }
             return;
         }
     }

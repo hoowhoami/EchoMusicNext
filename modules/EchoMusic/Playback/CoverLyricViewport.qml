@@ -73,12 +73,32 @@ Item {
     property real secondaryFontSize: Math.max(10, fontSize * .5)
     property real secondaryGap: fontSize * .3
     property bool softFocus: true
+    property bool blurEnabled: appearance.enableBlur
     property bool filterLyrics: true
     property bool springEnabled: appearance.enableSpring
     property bool scaleEnabled: appearance.enableScale
     property bool hidePassed: appearance.hidePassedLines
     property real focusPosition: appearance.alignPosition
     property real wordFade: appearance.wordFadeWidth
+    // Alternate built-in layouts share shaping, timeline and native virtual rows.
+    property bool compact: false
+    readonly property bool browsing: !lines.following
+    readonly property real focusBlockHeight: lines.focusBlockHeight
+    property bool staggerEnabled: true
+    property real edgeFade: 0
+    property bool rowBackgroundEnabled: true
+    property bool pauseMotionWithPlayback: false
+    readonly property bool presentationMotionEnabled: Theme.store.motionEnabled && (!pauseMotionWithPlayback || playback.playing)
+    signal settleMotion
+    onPresentationMotionEnabledChanged: if (!presentationMotionEnabled)
+        settleMotion()
+    signal browseStarted
+    function resumeFollow(): void {
+        lines.following = true;
+        resume.stop();
+        scheduleUpdate(false, false, true);
+    }
+    onCompactChanged: resumeFollow()
     function nextLineIndex(index: int): int {
         return timeline.nextRow(index);
     }
@@ -171,7 +191,7 @@ Item {
         if (!resourceActive || !lines.following || playback.lyrics.count === 0 || lines.height <= 0)
             return;
         const target = Math.max(0, waiting ? nextLineIndex(timeline.gapAnchor) : focusLine);
-        const animate = !immediate && lines.initialized && Math.abs(timeline.ordinal(target) - lines.lastFollowIndex) <= 2 && Theme.store.motionEnabled;
+        const animate = !immediate && lines.initialized && Math.abs(timeline.ordinal(target) - lines.lastFollowIndex) <= 2 && presentationMotionEnabled;
         const previous = lines.contentY;
         const previousOrigin = lines.originY;
         // Qt measures/places the current delegate. Keep no live range binding
@@ -192,6 +212,7 @@ Item {
         // When a short window cannot fit the complete main/translation block,
         // keep the singing text centered rather than centering the subtitles
         // too and clipping the whole bright line above the visible area.
+        lines.focusBlockHeight = measured.textRowHeight;
         const textAnchor = lines.height < measured.textRowHeight ? viewport.fontSize * .4 + measured.mainHeight / 2 : measured.textRowHeight / 2;
         const anchor = viewport.interlude ? measured.headerHeight / 2 : measured.headerHeight + textAnchor;
         const desired = measured.y + anchor - lines.focusCenter;
@@ -263,11 +284,13 @@ Item {
         highlightRangeMode: ListView.NoHighlightRange
         readonly property real focusCenter: height * viewport.focusPosition
         property bool initialized: false
+        property real focusBlockHeight: 0
         property int lastFollowIndex: -1
         onCountChanged: viewport.scheduleUpdate(false, false, true)
         property bool following: true
         property bool animateScroll: false
         onMovementStarted: {
+            viewport.browseStarted();
             following = false;
             resume.stop();
         }
@@ -276,6 +299,7 @@ Item {
         WheelHandler {
             blocking: false
             onWheel: event => {
+                viewport.browseStarted();
                 lines.following = false;
                 if (viewport.playback.lyrics.scrollable)
                     resume.restart();
@@ -339,7 +363,7 @@ Item {
                 positioned = true;
             }
             FrameAnimation {
-                running: (scrollMotion.running || dotMotion.running || scaleMotion.running) && viewport.resourceActive && !line.pooled
+                running: (scrollMotion.running || dotMotion.running || scaleMotion.running) && viewport.presentationMotionEnabled && viewport.resourceActive && !line.pooled
                 onTriggered: {
                     scrollMotion.advance();
                     dotMotion.advance();
@@ -358,6 +382,14 @@ Item {
             }
             Connections {
                 target: viewport
+                function onSettleMotion(): void {
+                    scrollMotion.snap(lines.contentY);
+                    dotMotion.snap(lines.contentY);
+                    scaleMotion.snap(visual.targetScale);
+                    blurTransition.complete();
+                    opacityTransition.complete();
+                    inkTransitionAnimation.complete();
+                }
                 function onScrollRequested(from: real, destination: real, animate: bool): void {
                     if (line.headerHeight > 0) {
                         if (!animate || !line.dotsPositioned)
@@ -375,7 +407,7 @@ Item {
                         line.animatePosition = true;
                         const previous = timeline.previousRow(viewport.focusLine);
                         const interval = previous >= 0 ? timeline.startAt(viewport.focusLine) - timeline.startAt(previous) : 0;
-                        scrollMotion.retarget(destination, viewport.waiting || viewport.seekingLayout ? 0 : interval, viewport.seekingLayout ? 0 : Math.round(viewport.delayFor(line.index)), viewport.springEnabled);
+                        scrollMotion.retarget(destination, viewport.waiting || viewport.seekingLayout ? 0 : interval, viewport.seekingLayout || !viewport.staggerEnabled ? 0 : Math.round(viewport.delayFor(line.index)), viewport.springEnabled);
                     }
                     line.freshPosition = false;
                 }
@@ -390,9 +422,18 @@ Item {
                 const passed = viewport.waiting ? timeline.nextRow(timeline.gapAnchor) : viewport.focusLine;
                 // Resting ink already carries its opacity, including plain LRC.
                 // A second row fade would reduce the 20% default to 4%.
+                if (viewport.compact && viewport.playback.lyrics.scrollable && index !== viewport.focusLine)
+                    return 0;
                 return viewport.hidePassed && viewport.playback.playing && timeline.ordinal(index) < timeline.ordinal(passed) && lines.following ? 0 : timeline.highlighted(index) ? .85 : 1;
             }
             readonly property string secondaryText: [viewport.playback.lyricText.wantTranslation ? translation : "", viewport.playback.lyricText.wantRomanization && !ruby ? romanization : ""].filter(value => value.length > 0).join("\n")
+            readonly property real edgeOpacity: {
+                if (viewport.edgeFade <= 0 || viewport.compact)
+                    return 1;
+                const top = y + headerHeight + viewport.fontSize * .4 - (lines.following ? scrollY : lines.contentY);
+                const bottom = top + textRowHeight - viewport.fontSize * .8;
+                return Math.max(0, Math.min(1, top / viewport.edgeFade, (viewport.height - bottom) / viewport.edgeFade));
+            }
             width: lines.width
             height: viewport.filterLyrics && filtered ? 0 : textRowHeight + headerHeight
             visible: !viewport.filterLyrics || !filtered
@@ -441,6 +482,7 @@ Item {
             }
             Item {
                 objectName: "lyricTextRow" + line.index
+                opacity: line.edgeOpacity
                 y: line.headerHeight
                 width: line.width
                 height: line.textRowHeight
@@ -449,6 +491,7 @@ Item {
                 }
                 Rectangle {
                     objectName: "lyricRowBackground"
+                    visible: viewport.rowBackgroundEnabled && (!viewport.compact || line.index === viewport.focusLine)
                     anchors.fill: parent
                     anchors.leftMargin: 0
                     anchors.rightMargin: viewport.overlayRightReserve
@@ -464,18 +507,19 @@ Item {
                     opacity: lyricPart.value("opacity", line.lineOpacity)
                     property real targetScale: viewport.scaleEnabled && viewport.playback.playing && !line.active ? 97 : 100
                     scale: lyricPart.value("scale", scaleMotion.value / 100)
-                    onTargetScaleChanged: scaleMotion.retargetScale(targetScale, line.inViewport && !line.freshPosition && viewport.resourceActive && viewport.springEnabled && Theme.store.motionEnabled)
+                    onTargetScaleChanged: scaleMotion.retargetScale(targetScale, line.inViewport && !line.freshPosition && viewport.resourceActive && viewport.springEnabled && viewport.presentationMotionEnabled)
                     Component.onCompleted: scaleMotion.snap(targetScale)
                     LyricSpring {
                         id: scaleMotion
                     }
                     transformOrigin: Item.Left
-                    property real blurAmount: viewport.softFocus && viewport.appearance.enableBlur && lines.following && !line.active ? Math.min(5, (1 + line.distance) * (viewport.width <= 1024 ? .8 : 1)) : 0
+                    property real blurAmount: viewport.softFocus && viewport.blurEnabled && lines.following && !line.active ? Math.min(5, (1 + line.distance) * (viewport.width <= 1024 ? .8 : 1)) : 0
                     // Line activation precedes word timing, allowing the native
                     // transition to clear the incoming row before its first word.
                     Behavior on blurAmount {
-                        enabled: line.inViewport && viewport.resourceActive && Theme.store.motionEnabled
+                        enabled: line.inViewport && viewport.resourceActive && viewport.presentationMotionEnabled
                         NumberAnimation {
+                            id: blurTransition
                             duration: 400
                             easing.type: Easing.BezierSpline
                             easing.bezierCurve: [.25, .1, .25, 1, 1, 1]
@@ -489,8 +533,9 @@ Item {
                         autoPaddingEnabled: true
                     }
                     Behavior on opacity {
-                        enabled: line.inViewport && viewport.resourceActive && Theme.store.motionEnabled
+                        enabled: line.inViewport && viewport.resourceActive && viewport.presentationMotionEnabled
                         NumberAnimation {
+                            id: opacityTransition
                             duration: 400
                             easing.type: Easing.BezierSpline
                             easing.bezierCurve: [.25, .1, .25, 1, 1, 1]
@@ -553,8 +598,9 @@ Item {
                         // remains on the original immutable source timestamps.
                         Behavior on highlightAmount {
                             id: inkTransition
-                            enabled: viewport.resourceActive && line.inViewport && !line.freshPosition && Theme.store.motionEnabled
+                            enabled: viewport.resourceActive && line.inViewport && !line.freshPosition && viewport.presentationMotionEnabled
                             NumberAnimation {
+                                id: inkTransitionAnimation
                                 duration: inkTransition.targetValue > 0 ? 300 : 450
                                 easing.type: Easing.BezierSpline
                                 easing.bezierCurve: [0, 0, .58, 1, 1, 1]
@@ -566,7 +612,7 @@ Item {
                         playedColor: lyricPart.value("foreground", viewport.textColor)
                         unplayedColor: lyricPart.value("secondaryForeground", viewport.unplayedColor)
                         fadeWidth: viewport.wordFade
-                        animateWords: viewport.scaleEnabled && Theme.store.motionEnabled
+                        animateWords: viewport.scaleEnabled && viewport.presentationMotionEnabled
                     }
                     Loader {
                         id: rubyLine
@@ -581,7 +627,7 @@ Item {
                             current: line.active
                             playedColor: lyricPart.value("foreground", viewport.textColor)
                             unplayedColor: lyricPart.value("secondaryForeground", viewport.unplayedColor)
-                            animateWords: Theme.store.motionEnabled
+                            animateWords: viewport.presentationMotionEnabled
                         }
                     }
                     Label {

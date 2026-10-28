@@ -163,6 +163,7 @@ signals:
     void pageActivated(EchoMusic::RouteContext *page);
 
 private:
+    QString homeResourceId() const;
     struct Location
     {
         QString name, resource;

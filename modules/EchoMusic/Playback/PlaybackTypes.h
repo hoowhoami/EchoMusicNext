@@ -109,6 +109,20 @@ struct LyricAppearanceRegistration
     QML_NAMED_ELEMENT(LyricAppearance)
     QML_UNCREATABLE("Playback-owned lyric appearance")
 };
+struct LyricPortraitAppearanceRegistration
+{
+    Q_GADGET
+    QML_FOREIGN(LyricPortraitAppearance)
+    QML_NAMED_ELEMENT(LyricPortraitAppearance)
+    QML_UNCREATABLE("Playback-owned portrait preferences")
+};
+struct PortraitControllerRegistration
+{
+    Q_GADGET
+    QML_FOREIGN(PortraitController)
+    QML_NAMED_ELEMENT(PortraitController)
+    QML_UNCREATABLE("Playback-owned portrait gallery")
+};
 struct LyricModelRegistration
 {
     Q_GADGET

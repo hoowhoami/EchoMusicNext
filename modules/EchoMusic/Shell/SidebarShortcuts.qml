@@ -93,6 +93,8 @@ Item {
                         routeName: cell.row.route
                         title: cell.row.title
                         glyph: cell.row.glyph
+                        cover: cell.row.cover || ""
+                        resourceId: cell.row.resourceId || ""
                         collapsed: shortcuts.collapsed
                         resourceActive: shortcuts.resourceActive
                         onReorderRequested: (key, target, after) => {
@@ -146,12 +148,16 @@ Item {
                 required property string shortcutTitle
                 required property string shortcutRoute
                 required property string shortcutGlyph
+                required property string shortcutCover
+                required property string shortcutResourceId
                 layout: shortcuts.layout
                 router: shortcuts.router
                 entryKey: shortcutKey
                 routeName: shortcutRoute
                 title: shortcutTitle
                 glyph: shortcutGlyph
+                cover: shortcutCover
+                resourceId: shortcutResourceId
                 entryIndex: index
                 collapsed: shortcuts.collapsed
                 resourceActive: shortcuts.resourceActive

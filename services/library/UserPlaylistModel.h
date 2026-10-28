@@ -96,6 +96,11 @@ public:
     {
         return m_listRevision;
     }
+    /// Session owning the catalog, also while an ordinary reload has no rows.
+    quint64 sessionRevision() const
+    {
+        return m_api.sessionRevision();
+    }
 signals:
     void changed();
     void coverChanged(const QString &globalId);

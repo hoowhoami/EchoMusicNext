@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <utility>
 #include <QTimer>
+#include <QJsonDocument>
+#include <QJsonObject>
 namespace EchoMusic
 {
 namespace
@@ -26,10 +28,9 @@ public:
     {
         if (m_rowData)
             return {{Qt::UserRole + 1, "rowData"}};
-        return {{Qt::UserRole + 1, "shortcutKey"},
-                {Qt::UserRole + 2, "shortcutTitle"},
-                {Qt::UserRole + 3, "shortcutGlyph"},
-                {Qt::UserRole + 4, "shortcutRoute"}};
+        return {{Qt::UserRole + 1, "shortcutKey"},   {Qt::UserRole + 2, "shortcutTitle"},
+                {Qt::UserRole + 3, "shortcutGlyph"}, {Qt::UserRole + 4, "shortcutRoute"},
+                {Qt::UserRole + 5, "shortcutCover"}, {Qt::UserRole + 6, "shortcutResourceId"}};
     }
     QVariant data(const QModelIndex &index, int role) const override
     {
@@ -47,6 +48,10 @@ public:
             return row.value("glyph");
         case Qt::UserRole + 4:
             return row.value("route");
+        case Qt::UserRole + 5:
+            return row.value("cover", "");
+        case Qt::UserRole + 6:
+            return row.value("resourceId", "");
         default:
             return {};
         }
@@ -106,6 +111,19 @@ SidebarLayoutModel::SidebarLayoutModel(QSettings &preferences, QObject *parent)
                          {"ranking", tr("排行榜"), "arrows-sort", {}},
                          {"purchased", tr("已购音乐"), "shopping-bag", {}},
                          {"listen-together", tr("一起听"), "headphones", {}}};
+    const auto savedResources =
+        QJsonDocument::fromJson(
+            preferences.value(SettingsKeys::Sidebar::ResourceCards).toByteArray())
+            .array();
+    for (const auto &value : savedResources) {
+        const auto entry = value.toObject().toVariantMap();
+        const auto key = entry.value("key").toString();
+        const auto route = entry.value("route").toString();
+        if ((route == "artist-detail" || route == "playlist-detail") &&
+            !entry.value("resourceId").toString().isEmpty() &&
+            key == route + ":" + entry.value("resourceId").toString())
+            m_resources.insert(key, entry);
+    }
     m_hidden = preferences.value(EchoMusic::SettingsKeys::Sidebar::HiddenEntries).toStringList();
     m_hiddenGroups =
         preferences.value(EchoMusic::SettingsKeys::Sidebar::HiddenGroups).toStringList();
@@ -281,6 +299,8 @@ QVariantList SidebarLayoutModel::shortcuts() const
     QVariantList result;
     const auto plugins = pluginEntries(true);
     for (const auto &key : m_pinned) {
+        if (m_resources.contains(key))
+            result.append(resolveResource(m_resources.value(key)));
         for (const auto &e : m_shortcutCatalog)
             if (e.key == key)
                 result.append(describe(e));
@@ -405,15 +425,23 @@ void SidebarLayoutModel::toggleGroup(const QString &key)
 void SidebarLayoutModel::toggleShortcut(const QString &key)
 {
     endShortcutDrag(false);
-    if (!isPlugin(key) && std::none_of(m_shortcutCatalog.cbegin(), m_shortcutCatalog.cend(),
-                                       [&key](const Entry &e) { return e.key == key; }))
+    const auto resource = resourceEntry(key);
+    if (!isPlugin(key) && resource.isEmpty() &&
+        std::none_of(m_shortcutCatalog.cbegin(), m_shortcutCatalog.cend(),
+                     [&key](const Entry &e) { return e.key == key; }))
         return;
     if (m_pinned.contains(key)) {
         if (shortcuts().size() == 1)
             return;
         m_pinned.removeOne(key);
-    } else
+        m_resources.remove(key);
+    } else {
         m_pinned.append(key);
+        if (!resource.isEmpty())
+            m_resources.insert(key, resource);
+    }
+    saveResources();
+    updatePortraits();
     for (int i = 0; i < m_entries.size(); ++i)
         if (m_entries.at(i).key == key)
             emit dataChanged(index(i), index(i), {Pinned});
@@ -524,6 +552,9 @@ void SidebarLayoutModel::restoreShortcuts()
 {
     endShortcutDrag(false);
     m_pinned = {"home", "explore"};
+    m_resources.clear();
+    saveResources();
+    updatePortraits();
     if (!m_entries.isEmpty())
         emit dataChanged(index(0), index(m_entries.size() - 1), {Pinned});
     save();

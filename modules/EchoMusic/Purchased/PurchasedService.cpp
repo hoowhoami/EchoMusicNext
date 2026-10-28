@@ -37,11 +37,9 @@ bool PurchasedService::hasPending(PendingKind kind) const
 }
 bool PurchasedService::hasMore() const
 {
-    // Raw goods rows paginate for the future mapping while the visible models
-    // stay empty; exhaustion follows the provider totals.
     if (m_tab == 0)
-        return !m_songExhausted && m_songTotal > 0 && m_songReceived < m_songTotal;
-    return !m_albumExhausted && m_albumTotal > 0 && m_albumReceived < m_albumTotal;
+        return m_songPage > 0 && !m_songExhausted;
+    return m_albumPage > 0 && !m_albumExhausted;
 }
 void PurchasedService::selectTab(int tab)
 {
@@ -79,10 +77,33 @@ void PurchasedService::loadTab()
         return;
     // Load both containers on account changes so both tab totals are available
     // before the user switches tabs.
-    if (!m_songPage && !m_songExhausted)
+    if (!m_songPage && !m_songExhausted && m_songError.isEmpty())
         request(PendingKind::Songs, 1);
-    if (!m_albumPage && !m_albumExhausted)
+    else if (m_songPage)
+        continueSongs();
+    if (!m_albumPage && !m_albumExhausted && m_albumError.isEmpty())
         request(PendingKind::Albums, 1);
+}
+void PurchasedService::continueSongs()
+{
+    if (m_closed || !m_active || !m_network || m_songExhausted || !m_songError.isEmpty() ||
+        songsLoading() || !m_api.currentAccountUserId())
+        return;
+    m_songContinuationQueued = true;
+    const auto generation = m_generation, session = m_api.sessionRevision();
+    const auto page = m_songPage;
+    QMetaObject::invokeMethod(
+        this,
+        [this, generation, session, page] {
+            if (generation != m_generation)
+                return;
+            m_songContinuationQueued = false;
+            if (!m_closed && m_active && m_network && session == m_api.sessionRevision() &&
+                page == m_songPage && !m_songExhausted && m_songError.isEmpty() &&
+                !hasPending(PendingKind::Songs))
+                request(PendingKind::Songs, page + 1);
+        },
+        Qt::QueuedConnection);
 }
 void PurchasedService::request(PendingKind kind, quint32 page)
 {
@@ -90,13 +111,14 @@ void PurchasedService::request(PendingKind kind, quint32 page)
         return;
     const auto request = kind == PendingKind::Songs ? m_api.purchasedSongs(page, 30)
                                                     : m_api.purchasedAlbums(page, 30);
+    auto &error = kind == PendingKind::Songs ? m_songError : m_albumError;
     if (!request) {
-        m_error = tr("已购音乐加载失败");
+        error = tr("已购音乐加载失败");
         emit changed();
         return;
     }
-    m_pending.insert(request, {kind, m_api.sessionRevision()});
-    m_error.clear();
+    m_pending.insert(request, {kind, m_api.sessionRevision(), page});
+    error.clear();
     emit changed();
 }
 void PurchasedService::refresh()
@@ -106,11 +128,13 @@ void PurchasedService::refresh()
     cancelAll();
     m_songPage = m_albumPage = 0;
     m_songReceived = m_albumReceived = 0;
-    m_songRows = m_albumRows = {};
+    m_songTotal = m_albumTotal = 0;
+    m_albumRows = {};
     m_songs.replaceSongs({});
     m_albums.replaceCards({});
     m_songExhausted = m_albumExhausted = false;
-    m_error.clear();
+    m_songError.clear();
+    m_albumError.clear();
     if (m_active)
         loadTab();
     emit changed();
@@ -120,13 +144,17 @@ void PurchasedService::loadMore()
     if (m_closed || !m_active || !m_network || !m_api.currentAccountUserId())
         return;
     const auto kind = m_tab == 0 ? PendingKind::Songs : PendingKind::Albums;
-    if (hasPending(kind) || !hasMore())
+    const auto previous = m_tab == 0 ? m_songPage : m_albumPage;
+    if (hasPending(kind) || (m_tab == 0 && m_songContinuationQueued) ||
+        (previous > 0 && !hasMore()))
         return;
     const auto page = m_tab == 0 ? m_songPage + 1 : m_albumPage + 1;
     request(kind, page);
 }
 void PurchasedService::cancelAll()
 {
+    ++m_generation;
+    m_songContinuationQueued = false;
     for (const auto id : m_pending.keys()) {
         m_pending.remove(id);
         m_api.cancel(id);
@@ -134,17 +162,16 @@ void PurchasedService::cancelAll()
 }
 void PurchasedService::reset()
 {
-    if (m_pending.isEmpty() && !m_songPage && !m_albumPage)
-        return;
     cancelAll();
     m_songPage = m_albumPage = 0;
     m_songReceived = m_albumReceived = 0;
     m_songTotal = m_albumTotal = 0;
-    m_songRows = m_albumRows = {};
+    m_albumRows = {};
     m_songs.replaceSongs({});
     m_albums.replaceCards({});
     m_songExhausted = m_albumExhausted = false;
-    m_error.clear();
+    m_songError.clear();
+    m_albumError.clear();
     if (m_active && m_router.current() && m_router.current()->name() == "purchased")
         loadTab();
     emit changed();
@@ -154,30 +181,58 @@ void PurchasedService::accept(quint64 id, const QByteArray &bytes)
     if (!m_pending.contains(id))
         return;
     const auto pending = m_pending.take(id);
+    const auto generation = m_generation;
     if (m_closed || pending.session != m_api.sessionRevision())
         return;
-    const auto object = QJsonDocument::fromJson(bytes).object();
-    const auto page = object.value("page").toObject();
+    // These operations return Page<T> directly. Cloud/video responses have an
+    // enclosing page object; applying that different contract loses all rows.
+    const auto page = QJsonDocument::fromJson(bytes).object();
     const auto items = page.value("items").toArray();
     const auto total = page.value("total").isDouble()
                            ? quint64(qMax<qint64>(0, page.value("total").toInteger()))
                            : quint64(0);
     if (pending.kind == PendingKind::Songs) {
-        // Raw goods rows stay verbatim until a non-empty sample exists; the
-        // model intentionally stays empty instead of fabricating fields.
-        m_songRows += items;
+        const QPointer<PurchasedService> guard(this);
+        m_songs.appendSongs(items);
+        if (!guard || m_closed || generation != m_generation ||
+            pending.session != m_api.sessionRevision())
+            return;
         m_songTotal = total;
         m_songReceived += quint64(items.size());
-        m_songPage = quint32(page.value("page").toInteger(1));
-        m_songExhausted = items.isEmpty() || (total > 0 && m_songReceived >= total);
+        m_songPage = pending.page;
+        m_songExhausted =
+            items.isEmpty() ||
+            (page.value("total").isDouble() ? m_songReceived >= total : items.size() < 30);
+        m_songError.clear();
+        continueSongs();
     } else {
-        m_albumRows += items;
+        for (const auto &value : items) {
+            const auto album = value.toObject();
+            QStringList names;
+            for (const auto &artist : album.value("artists").toArray()) {
+                const auto name = artist.toObject().value("name").toString();
+                if (!name.isEmpty())
+                    names.append(name);
+            }
+            m_albumRows.append(QJsonObject{{"id", album.value("id")},
+                                           {"title", album.value("title")},
+                                           {"creator", names.join(" / ")},
+                                           {"cover_url", album.value("cover_url")},
+                                           {"song_count", album.value("song_count")}});
+        }
+        const QPointer<PurchasedService> guard(this);
+        m_albums.replaceCards(m_albumRows);
+        if (!guard || m_closed || generation != m_generation ||
+            pending.session != m_api.sessionRevision())
+            return;
         m_albumTotal = total;
         m_albumReceived += quint64(items.size());
-        m_albumPage = quint32(page.value("page").toInteger(1));
-        m_albumExhausted = items.isEmpty() || (total > 0 && m_albumReceived >= total);
+        m_albumPage = pending.page;
+        m_albumExhausted =
+            items.isEmpty() ||
+            (page.value("total").isDouble() ? m_albumReceived >= total : items.size() < 30);
+        m_albumError.clear();
     }
-    m_error.clear();
     emit changed();
 }
 void PurchasedService::fail(quint64 id, const QByteArray &bytes)
@@ -190,9 +245,10 @@ void PurchasedService::fail(quint64 id, const QByteArray &bytes)
     const auto error = QJsonDocument::fromJson(bytes).object();
     const auto kind = error.value("kind").toString();
     const auto message = error.value("message").toString();
-    m_error = kind == QStringLiteral("authentication") ? tr("登录已失效，请重新登录")
-              : !message.isEmpty()                     ? message
-                                                       : tr("已购音乐加载失败");
+    auto &messageForTab = pending.kind == PendingKind::Songs ? m_songError : m_albumError;
+    messageForTab = kind == QStringLiteral("authentication") ? tr("登录已失效，请重新登录")
+                    : !message.isEmpty()                     ? message
+                                                             : tr("已购音乐加载失败");
     emit changed();
 }
 void PurchasedService::shutdown()

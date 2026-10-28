@@ -246,6 +246,9 @@ Popup {
                     width: Math.max(0, content.width - 34)
                     height: item ? (item as Item).implicitHeight : 0
                     asynchronous: true
+                    // Keep asynchronous creation, but present the complete
+                    // section at once instead of exposing rows across frames.
+                    visible: status === Loader.Ready
                     active: dialog.visible && navigation.source.toString().length > 0
                     // Inject typed service references before bindings evaluate.
                     // No section QML is instantiated until selected and visible.

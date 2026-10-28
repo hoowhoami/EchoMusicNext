@@ -131,6 +131,7 @@ qt_add_resources(
     icons/alert-triangle.svg
     icons/arrow-bar-down.svg
     icons/arrow-bar-to-down.svg
+    icons/arrow-bar-to-up.svg
     icons/arrow-left.svg
     icons/arrow-narrow-down.svg
     icons/arrow-narrow-up.svg
@@ -166,6 +167,7 @@ qt_add_resources(
     icons/copy.svg
     icons/cpu.svg
     icons/current-location.svg
+    icons/device-desktop.svg
     icons/device-mobile.svg
     icons/device-speaker.svg
     icons/diamond.svg

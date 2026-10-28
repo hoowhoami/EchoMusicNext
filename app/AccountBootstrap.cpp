@@ -114,6 +114,7 @@ void AppContext::createAccount()
     m_importTasks = std::make_unique<PlaylistImportTaskCoordinator>(
         *libraryController.importer(), *shellController.tasks(), settings);
     playback.attachLibrary(userPlaylists, playlistMutations);
+    shell.sidebarLayout()->attachResources(api, playback, userPlaylists, !smoke);
     playback.listenTogether()->attachAccount(account);
     theme.setCoverColor(playback.coverColor());
     bind(&playback, &EchoMusic::PlaybackService::changed, &theme,

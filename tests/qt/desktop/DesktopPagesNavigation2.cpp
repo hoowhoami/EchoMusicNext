@@ -783,3 +783,240 @@ void DesktopPagesTest::profileRelatedScrollBarsUseNativeMapping()
     }
     QCOMPARE(warnings.size(), 0);
 }
+
+void DesktopPagesTest::sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots_data()
+{
+    QTest::addColumn<bool>("dark");
+    QTest::addColumn<bool>("scaled");
+    QTest::newRow("light-100") << false << false;
+    QTest::newRow("dark-100") << true << false;
+    QTest::newRow("light-125") << false << true;
+    QTest::newRow("dark-125") << true << true;
+}
+void DesktopPagesTest::sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots()
+{
+    QFETCH(bool, dark);
+    QFETCH(bool, scaled);
+    Session session;
+    session.shell.setMotionEnabled(false);
+    session.theme.setMotionEnabled(false);
+    session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+    if (scaled)
+        while (session.shell.uiScale() < 1.25 - .001)
+            session.shell.zoomIn();
+    PlaybackService playback(session.api, session.preferences);
+    auto *layout = session.shell.sidebarLayout();
+    QAbstractItemModelTester cards(layout->shortcutModel(),
+                                   QAbstractItemModelTester::FailureReportingMode::Fatal);
+    layout->attachResources(session.api, playback, session.accounts.playlists, false);
+    session.router.setHomeLayout(layout);
+    for (const auto &name : {QString("home"), QString("explore"), QString("artist-detail"),
+                             QString("playlist-detail")})
+        QVERIFY(
+            session.router.registerPage({name,
+                                         "/test/" + name + (name.endsWith("-detail") ? "/:id" : ""),
+                                         QUrl("qrc:/qt/qml/EchoMusic/Shell/RoutePage.qml"),
+                                         {}}));
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&] {
+        session.root.reset();
+        session.window = nullptr;
+        playback.shutdown();
+    });
+    session.window->resize(1150, 950);
+    QVERIFY(Test::prepareNativeInput(session.window));
+    const auto item = [&](const QString &name) {
+        return visual(session.window->contentItem(), name);
+    };
+    QVERIFY(!session.root->findChild<QObject *>("sidebarShortcutPopup"));
+    auto popup = session.openOwnedPopup("sidebarShortcutPopupOwner");
+    QVERIFY(popup);
+    const auto pins = layout->shortcuts();
+    QVERIFY(session.clickItem("shortcutCandidate-explore"));
+    QTRY_COMPARE(session.router.current()->name(), QString("explore"));
+    QCOMPARE(layout->shortcuts(), pins);
+    QTRY_VERIFY(popup.isNull());
+    popup = session.openOwnedPopup("sidebarShortcutPopupOwner");
+    QVERIFY(popup);
+    QVERIFY(session.clickItem("shortcutCandidateToggle-explore"));
+    QCOMPARE(layout->shortcuts().size(), 1);
+    QCOMPARE(session.router.current()->name(), QString("explore"));
+    // The final card remains navigable while only its remove action is disabled.
+    QVERIFY(item("shortcutCandidate-home")->isEnabled());
+    QVERIFY(!item("shortcutCandidateToggle-home")->isEnabled());
+    QVERIFY(session.clickItem("shortcutCandidateToggle-explore"));
+    QCOMPARE(layout->shortcuts().size(), 2);
+    QJsonArray history;
+    for (int i = 1; i <= 9; ++i) {
+        const auto artist =
+            QJsonObject{{"id", QString::number(i)}, {"name", QString("艺人 %1").arg(i)}};
+        QJsonArray refs{artist, QJsonObject{{"id", "0"}, {"name", "无身份"}}};
+        if (i == 1)
+            refs.append(artist);
+        const QJsonObject metadata{{"artist_refs", refs}};
+        const QJsonObject track{{"metadata", metadata}};
+        history.append(QJsonObject{
+            {"play_count", i == 1 ? 5 : 10 - i}, {"played_at", i * 1000}, {"track", track}});
+    }
+    playback.historyLoaded(history);
+    QCOMPARE(layout->frequentArtists().size(), 6);
+    QCOMPARE(layout->frequentArtists()[0].toMap()["resourceId"].toString(), QString("2"));
+    PlaybackTrack track;
+    track.id = "701";
+    track.songId = 701;
+    track.hash = QString(32, QLatin1Char('a'));
+    track.title = "队列歌曲";
+    playback.queueCatalog()->restore({{"queue:playlist:901", "歌单 901", {track}, 0, {}, 9},
+                                      {"queue:playlist:902", "歌单 902", {track}, 0, {}, 10},
+                                      {"queue:album:903", "专辑", {track}, 0, {}, 11},
+                                      {"queue:playlist:904", "空歌单", {}, -1, {}, 12}},
+                                     "queue:playlist:902");
+    QCOMPARE(layout->recentPlaylists().size(), 2);
+    QCOMPARE(layout->recentPlaylists()[0].toMap()["resourceId"].toString(), QString("902"));
+    QVERIFY(session.clickItem("shortcutCandidateToggle-artist-detail:1"));
+    QCOMPARE(layout->shortcuts().size(), 3);
+    QCOMPARE(session.router.current()->name(), QString("explore"));
+    QVERIFY(session.clickItem("shortcutCandidate-artist-detail:1"));
+    QTRY_COMPARE(session.router.current()->resourceId(), QString("1"));
+    QCOMPARE(session.router.current()->name(), QString("artist-detail"));
+    QTRY_VERIFY(popup.isNull());
+    popup = session.openOwnedPopup("sidebarShortcutPopupOwner");
+    QVERIFY(popup);
+    playback.historyLoaded(history);
+    QVERIFY(session.clickItem("shortcutCandidateToggle-playlist-detail:902"));
+    QCOMPARE(layout->shortcuts().size(), 4);
+    // Reopen and render real production content in each appearance/scale combination.
+    QTRY_VERIFY(item("shortcutCandidate-playlist-detail:902"));
+    QVERIFY(session.revealItem(item("shortcutCandidate-playlist-detail:902")));
+    QVERIFY(session.settleScene());
+    const auto output = qEnvironmentVariable("ECHO_SHORTCUT_CAPTURE_DIR");
+    if (!output.isEmpty()) {
+        QDir().mkpath(output);
+        QVERIFY(session.window->grabWindow().save(
+            output +
+            QString("/shortcuts-%1-%2.png").arg(dark ? "dark" : "light", scaled ? "125" : "100")));
+    }
+    QVERIFY(session.clickItem("shortcutCandidate-playlist-detail:902"));
+    QTRY_COMPARE(session.router.current()->resourceId(), QString("902"));
+    QCOMPARE(session.router.current()->name(), QString("playlist-detail"));
+    QTRY_VERIFY(popup.isNull());
+    QVERIFY(AccountServiceTestAccess::adopt(session.accounts.account, account(900002)));
+    QCOMPARE(layout->frequentArtists().size(), 0);
+    playback.historyLoaded({});
+    playback.queueCatalog()->clear();
+    QCOMPARE(layout->frequentArtists().size(), 0);
+    QCOMPARE(layout->recentPlaylists().size(), 0);
+    QCOMPARE(layout->shortcuts().size(), 4);
+    QVERIFY(session.clickItem("sidebarShortcut-artist-detail:1"));
+    QCOMPARE(session.router.current()->resourceId(), QString("1"));
+    layout->moveShortcutBefore("playlist-detail:902", "home");
+    QVERIFY(session.router.navigateHome());
+    QCOMPARE(session.router.current()->resourceId(), QString("902"));
+    session.router.invalidateAccount();
+    QCOMPARE(session.router.current()->resourceId(), QString("902"));
+    session.preferences.sync();
+    QSettings saved(session.directory.filePath("preferences.ini"), QSettings::IniFormat);
+    SidebarLayoutModel restored(saved, nullptr);
+    QCOMPARE(restored.shortcuts().size(), 4);
+    QCOMPARE(restored.homeRoute(), QString("playlist-detail"));
+    QCOMPARE(restored.homeResourceId(), QString("902"));
+    layout->toggleShortcut("artist-detail:1");
+    layout->restoreShortcuts();
+    QCOMPARE(layout->shortcuts().size(), 2);
+    for (const auto &warning : warnings)
+        for (const auto &error : qvariant_cast<QList<QQmlError>>(warning[0]))
+            QVERIFY2(false, qPrintable(error.toString()));
+}
+
+void DesktopPagesTest::profileMembershipDatesUseAllAvailableWidth()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    session.theme.attachToEngine(session.engine);
+    QVERIFY(AccountServiceTestAccess::adopt(session.accounts.account, account(900001)));
+    const auto vip = AccountServiceTestAccess::vipRequest(session.accounts.account, session.api);
+    // Canonical membership facts exercise all four production cells together.
+    AccountServiceTestAccess::complete(session.accounts.account, vip, R"({
+        "user_id":900001,"user_type_code":16,"vip_type_code":6,
+        "super_begins_at":"2026-01-02T03:04:05","super_expires_at":"2027-05-29T03:04:05",
+        "deluxe_begins_at":"2026-01-02T03:04:05","deluxe_expires_at":"2027-05-31T03:04:05",
+        "products":[
+            {"active":true,"business":"concept","product":"svip","begins_at":"2026-01-02T03:04:05","expires_at":"2027-12-02T03:04:05"},
+            {"active":true,"business":"concept","product":"tvip","begins_at":"2026-01-02T03:04:05","expires_at":"2028-11-29T03:04:05"}
+        ]})");
+    QCOMPARE(session.accounts.account.memberships().size(), 4);
+    QQuickWindow window;
+    QQuickItem host(window.contentItem());
+    host.setPosition({24, 24});
+    QQmlComponent component(&session.engine,
+                            QUrl("qrc:/qt/qml/EchoMusic/Profile/ProfileDetails.qml"));
+    QScopedPointer<QObject> root(component.createWithInitialProperties(
+        {{"account", QVariant::fromValue(&session.accounts.account)}}));
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *panel = qobject_cast<QQuickItem *>(root.data());
+    QVERIFY(panel);
+    panel->setParentItem(&host);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    window.resize(1060, 620);
+    window.show();
+    QVERIFY(Test::prepareNativeInput(&window));
+    Test::moveNativePointer(&window, {10, 10});
+    const auto render = [&] {
+        for (int frame = 0; frame < 2; ++frame) {
+            QSignalSpy rendered(&window, &QQuickWindow::frameSwapped);
+            window.requestUpdate();
+            if (!rendered.wait(1000))
+                return false;
+        }
+        return true;
+    };
+    const QStringList kinds{"super", "deluxe", "concept", "music"};
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        window.setColor(mode == ThemeStore::Dark ? QColor("#202020") : QColor("#fafafa"));
+        for (const qreal scale : {1., 1.25}) {
+            host.setScale(scale);
+            panel->setProperty("uiScale", scale);
+            for (const int width : {800, 820, 900, 680, 500, 440, 360}) {
+                panel->setWidth(width);
+                window.resize(qCeil(width * scale) + 48, 620);
+                QVERIFY(render());
+                panel->setHeight(panel->implicitHeight());
+                QVERIFY(render());
+                qreal firstWidth = -1;
+                for (const auto &kind : kinds) {
+                    auto *content = visual(panel, "profileMembershipContent-" + kind);
+                    auto *expiry = visual(panel, "profileMembershipExpiry-" + kind);
+                    auto *info = visual(panel, "profileMembershipInfo-" + kind);
+                    QVERIFY(content && expiry && info);
+                    qInfo() << "membership expiry" << mode << scale << width << kind
+                            << content->width() << expiry->width() << expiry->implicitWidth()
+                            << expiry->property("truncated");
+                    if (firstWidth < 0)
+                        firstWidth = content->width();
+                    QVERIFY2(qAbs(content->width() - firstWidth) <= 1,
+                             qPrintable("Unequal content width: " + kind));
+                    if (width >= 800)
+                        QVERIFY2(!expiry->property("truncated").toBool(),
+                                 qPrintable("Expiry unnecessarily elided: " + kind));
+                    QCOMPARE(expiry->property("lineCount").toInt(), 1);
+                    QVERIFY(expiry->mapToItem(info->parentItem(), {expiry->width(), 0}).x() <=
+                            info->x());
+                    QVERIFY(info->width() >= 20);
+                    QVERIFY(info->x() + info->width() <= info->parentItem()->width() + 1);
+                }
+                const auto captures = qEnvironmentVariable("ECHO_MEMBERSHIP_CAPTURE_DIR");
+                if (!captures.isEmpty() && (width == 820 || width == 360)) {
+                    QDir().mkpath(captures);
+                    QVERIFY(window.grabWindow().save(
+                        captures + QString("/memberships-%1-%2-%3.png")
+                                       .arg(mode == ThemeStore::Dark ? "dark" : "light")
+                                       .arg(scale)
+                                       .arg(width)));
+                }
+            }
+        }
+    }
+    QCOMPARE(warnings.size(), 0);
+}

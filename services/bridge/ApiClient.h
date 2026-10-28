@@ -113,6 +113,15 @@ public:
     quint64 albumDynamicCover(quint64 albumAudioId, quint64 albumId);
     /// Optional metadata for a committed track; current-account snapshot, no challenge UI.
     quint64 songClimax(const QString &hash);
+    struct AudioImageResource
+    {
+        QString hash;
+        quint64 audioId = 0;
+        quint64 albumAudioId = 0;
+        QString filename;
+    };
+    /// Ordered song groups and all artist image categories; public device-only request.
+    quint64 audioImages(const QList<AudioImageResource> &resources, quint32 count = 5);
     /// Discovery commands return typed domain DTOs.
     quint64 recommendedPlaylists(const QString &categoryId);
     quint64 editorPlaylists();

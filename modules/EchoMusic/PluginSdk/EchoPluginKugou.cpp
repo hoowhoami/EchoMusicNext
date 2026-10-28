@@ -141,6 +141,7 @@ QStringList EchoPluginKugou::methods()
             "artistDirectory",
             "artistSongs",
             "audioEffects",
+            "audioImages",
             "cloudMatch",
             "cloudPlaylistTracks",
             "cloudSource",

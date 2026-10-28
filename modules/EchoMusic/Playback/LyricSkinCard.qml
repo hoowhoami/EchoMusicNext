@@ -12,7 +12,7 @@ Button {
     required property bool selected
     property url preview
     signal chosen
-    objectName: entryKey === "cover" ? "coverLyricSkinCard" : "pluginLyricSkinCard"
+    objectName: entryKey === "cover" ? "coverLyricSkinCard" : entryKey === "portrait" ? "portraitLyricSkinCard" : "pluginLyricSkinCard"
     implicitHeight: (width - 22) * 9 / 16 + 7 + 19.5 + 22
     padding: 11
     hoverEnabled: true
@@ -44,6 +44,7 @@ Button {
                 }
             }
             Rectangle {
+                visible: card && card.entryKey !== "portrait"
                 x: 12
                 y: (parent.height - height) / 2
                 width: 34
@@ -65,15 +66,16 @@ Button {
                 }
             }
             Column {
-                x: 56
-                y: (parent.height - height) / 2
-                width: parent.width - 68
+                x: card && card.entryKey === "portrait" ? 16 : 56
+                y: card && card.entryKey === "portrait" ? parent.height - height - 12 : (parent.height - height) / 2
+                width: parent.width - (card && card.entryKey === "portrait" ? 32 : 68)
                 spacing: 5
                 Repeater {
                     model: [.8, .55, .65]
                     Rectangle {
                         required property real modelData
                         width: parent ? parent.width * modelData : 0
+                        anchors.horizontalCenter: card && card.entryKey === "portrait" ? parent.horizontalCenter : undefined
                         height: 4
                         radius: Theme.microRadius
                         color: Theme.withAlpha("white", modelData === .55 ? .4 : .22)

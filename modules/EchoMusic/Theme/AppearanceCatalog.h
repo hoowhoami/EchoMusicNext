@@ -113,7 +113,7 @@ private:
     AppearanceCatalog &m_catalog;
     QString m_kind, m_typeFilter;
     QList<AppearanceEntry *> filtered() const;
-    bool includesBuiltin() const;
+    int builtinCount() const;
 };
 /// Non-business contribution directory. ThemeStore alone resolves appearance;
 /// SDK supplies scoped presentation factories, never private host QObjects.

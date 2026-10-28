@@ -161,7 +161,7 @@ void AppearanceCatalog::clearTheme()
 bool AppearanceCatalog::chooseSkin(const QString &key)
 {
     auto e = find(key);
-    if (key != "cover" && (!e || e->kind != "skin"))
+    if (key != "cover" && key != "portrait" && (!e || e->kind != "skin"))
         return false;
     if (e)
         e->error.clear();
@@ -223,7 +223,7 @@ AppearanceListModel::AppearanceListModel(AppearanceCatalog &c, QString k)
 }
 int AppearanceListModel::rowCount(const QModelIndex &p) const
 {
-    return p.isValid() ? 0 : filtered().size() + int(includesBuiltin());
+    return p.isValid() ? 0 : filtered().size() + builtinCount();
 }
 QHash<int, QByteArray> AppearanceListModel::roleNames() const
 {
@@ -235,28 +235,31 @@ QHash<int, QByteArray> AppearanceListModel::roleNames() const
 QVariant AppearanceListModel::data(const QModelIndex &i, int r) const
 {
     const auto all = filtered();
-    if (!i.isValid() || i.row() < 0 || i.row() >= all.size() + int(includesBuiltin()))
+    if (!i.isValid() || i.row() < 0 || i.row() >= all.size() + builtinCount())
         return {};
-    if (includesBuiltin() && i.row() == 0) {
+    if (i.row() < builtinCount()) {
         switch (r - Qt::UserRole) {
         case 1:
-            return m_kind == "theme" ? "echo" : "cover";
+            return m_kind == "theme" ? "echo" : i.row() == 0 ? "cover" : "portrait";
         case 2:
-            return m_kind == "theme" ? "Echo" : QString::fromUtf8("封面歌词");
+            return m_kind == "theme" ? "Echo"
+                   : i.row() == 0    ? QString::fromUtf8("封面歌词")
+                                     : QString::fromUtf8("写真");
         case 3:
             return m_kind == "theme" ? QString::fromUtf8("简约清爽，让音乐成为主角。") : QString();
         case 4:
             return QUrl();
         case 5:
-            return m_kind == "theme" ? m_catalog.selectedTheme().isEmpty()
-                                     : m_catalog.selectedSkin() == "cover";
+            return m_kind == "theme"
+                       ? m_catalog.selectedTheme().isEmpty()
+                       : m_catalog.selectedSkin() == (i.row() == 0 ? "cover" : "portrait");
         case 6:
             return QVariant::fromValue<AppearanceEntry *>(nullptr);
         default:
             return {};
         }
     }
-    auto e = all[i.row() - int(includesBuiltin())];
+    auto e = all[i.row() - builtinCount()];
     switch (r - Qt::UserRole) {
     case 1:
         return e->key;
@@ -284,9 +287,9 @@ QList<AppearanceEntry *> AppearanceListModel::filtered() const
         result.removeIf([this](auto *e) { return e->type != m_typeFilter; });
     return result;
 }
-bool AppearanceListModel::includesBuiltin() const
+int AppearanceListModel::builtinCount() const
 {
-    return m_typeFilter.isEmpty() || m_typeFilter == "default";
+    return m_typeFilter.isEmpty() || m_typeFilter == "default" ? (m_kind == "skin" ? 2 : 1) : 0;
 }
 void AppearanceListModel::setTypeFilter(const QString &value)
 {

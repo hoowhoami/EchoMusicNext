@@ -57,6 +57,37 @@
 using namespace EchoMusic;
 namespace EchoMusic
 {
+class PortraitControllerTestAccess
+{
+public:
+    static quint64 begin(PortraitController &gallery, ApiClient &api)
+    {
+        gallery.cancel();
+        gallery.m_active = true;
+        gallery.m_revision = api.sessionRevision();
+        return gallery.m_request = api.capabilities();
+    }
+    static void finish(PortraitController &gallery, ApiClient &api, quint64 id,
+                       const QByteArray &bytes)
+    {
+        api.cancel(id);
+        gallery.succeeded(id, bytes);
+    }
+    static void present(PortraitController &gallery, const QStringList &urls)
+    {
+        gallery.m_urls = urls;
+        gallery.m_index = 0;
+        gallery.publish();
+    }
+    static int cached(const PortraitController &gallery)
+    {
+        return gallery.m_cache.size();
+    }
+    static bool carousel(const PortraitController &gallery)
+    {
+        return gallery.m_carousel.isActive();
+    }
+};
 class LyricSourceControllerTestAccess
 {
 public:
@@ -368,7 +399,13 @@ void PlaybackPageTest::restoredTrackLoadsLyricsWithoutStartingPlayback()
         QTRY_VERIFY(Access::download(source));
         Access::complete(
             source, session.api, Access::download(source),
-            R"({"offset_ms":0,"scrollable":true,"lines":[{"text":"恢复歌曲但不启动播放","start_ms":0,"duration_ms":5000,"words":[]}]})");
+            QJsonDocument(
+                QJsonObject{
+                    {"format", "lrc"},
+                    {"encoding", "base64"},
+                    {"content",
+                     QString::fromLatin1(QByteArray("[00:00.00]恢复歌曲但不启动播放").toBase64())}})
+                .toJson());
     }
     QTRY_COMPARE_WITH_TIMEOUT(session.playback.lyricState(), QString("ready"), 30000);
     QVERIFY(session.playback.lyrics()->rowCount() > 0);
@@ -877,7 +914,11 @@ void PlaybackPageTest::emptyArtworkKeepsItsRadiusAcrossPageEntry()
                         : QString());
                 auto *source = session.item("transitionSourceCover");
                 QVERIFY(source);
-                QTRY_COMPARE(source->property("status").toInt(), missingFile ? 3 : 0);
+                // The shared cover resolver can exhaust a rejected URL and
+                // settle at Null after the decoder's transient Error state.
+                QTRY_VERIFY(missingFile ? (source->property("status").toInt() == 3 ||
+                                           source->property("status").toInt() == 0)
+                                        : source->property("status").toInt() == 0);
                 const auto radius = cover->property("cornerRadius").toReal();
                 int frames = 0;
                 bool changedRadius = false, flew = false;
@@ -1117,7 +1158,12 @@ void PlaybackPageTest::clearingCurrentQueueClearsLyrics()
     QTRY_VERIFY(Access::download(source));
     const auto download = Access::download(source);
     const QByteArray lyrics =
-        R"({"offset_ms":0,"scrollable":true,"lines":[{"text":"清空后不能残留","start_ms":0,"duration_ms":5000,"words":[]}]})";
+        QJsonDocument(
+            QJsonObject{{"format", "lrc"},
+                        {"encoding", "base64"},
+                        {"content",
+                         QString::fromLatin1(QByteArray("[00:00.00]清空后不能残留").toBase64())}})
+            .toJson();
     Access::complete(source, session.api, download, lyrics);
     QTRY_COMPARE(session.playback.lyricState(), QString("ready"));
     QTRY_COMPARE(session.item("playbackLyricList")->property("count").toInt(), 1);
@@ -1201,7 +1247,9 @@ Item {
     auto *large = findVisual(host, "detailTarget");
     auto *motion = findVisual(host, "detailFlight");
     QVERIFY(small && large && motion);
-    QTRY_COMPARE(small->property("status").toInt(), artworkStatus);
+    QTRY_VERIFY(artworkStatus == 3 ? (small->property("status").toInt() == 3 ||
+                                      small->property("status").toInt() == 0)
+                                   : small->property("status").toInt() == artworkStatus);
     QVERIFY(QMetaObject::invokeMethod(motion, "prepare", Q_ARG(bool, true)));
     motion->setProperty("progress", 1.);
     QTest::qWait(80);
@@ -1209,7 +1257,9 @@ Item {
     QVERIFY(!moving.isNull());
     QVERIFY(QMetaObject::invokeMethod(motion, "finish"));
     large->setVisible(true);
-    QTRY_COMPARE(large->property("status").toInt(), artworkStatus);
+    QTRY_VERIFY(artworkStatus == 3 ? (large->property("status").toInt() == 3 ||
+                                      large->property("status").toInt() == 0)
+                                   : large->property("status").toInt() == artworkStatus);
     QTest::qWait(80);
     const auto settled = session.window->grabWindow();
     const auto rect = large->mapRectToScene(artworkStatus == 1 ? QRectF(16, 16, 248, 248)
@@ -1949,9 +1999,21 @@ void PlaybackPageTest::themeEventBurstKeepsTrayStableDuringNativePlayback()
     QTRY_VERIFY(!session.playback.playing());
 #endif
 }
+void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold_data()
+{
+    QTest::addColumn<QString>("skin");
+    QTest::addColumn<bool>("compact");
+    QTest::newRow("cover") << QString("cover") << false;
+    QTest::newRow("portrait") << QString("portrait") << false;
+    QTest::newRow("portrait-compact") << QString("portrait") << true;
+}
 void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
 {
+    QFETCH(QString, skin);
+    QFETCH(bool, compact);
     Session session;
+    QVERIFY(session.theme.extensions()->chooseSkin(skin));
+    session.playback.lyricAppearance()->portrait()->setAutoCollapse(false);
     session.playback.setVolume(0);
     QVERIFY(session.create(false));
     if (session.window->rendererInterface()->graphicsApi() == QSGRendererInterface::Software)
@@ -1994,6 +2056,12 @@ void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
                                                         {"start_ms", 5000},
                                                         {"duration_ms", 4500}}}}}}}},
         "local-render-only");
+    if (compact) {
+        auto *portrait = session.item("portraitPlayback");
+        QVERIFY(portrait);
+        portrait->setProperty("collapsed", true);
+        QTRY_VERIFY(!portrait->property("placementRunning").toBool());
+    }
     QTest::qWait(400);
     QCOMPARE(session.playback.lyrics()->rowCount(), 1);
     QList<LyricLine *> glyphItems;
@@ -2052,17 +2120,30 @@ void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
         QJsonArray data;
         for (const auto &frame : frames)
             data.append(QJsonArray{double(frame.first), frame.second});
-        QFile out(captureDir + "/native-engine-cadence.json");
+        const auto suffix = skin == "cover" ? QString()
+                            : compact       ? QString("-portrait-compact")
+                                            : QString("-portrait");
+        QFile out(captureDir + "/native-engine-cadence" + suffix + ".json");
         QVERIFY(out.open(QIODevice::WriteOnly));
         out.write(QJsonDocument(data).toJson());
-        QVERIFY(session.window->grabWindow().save(captureDir + "/native-gpu-lyrics.png"));
+        QVERIFY(
+            session.window->grabWindow().save(captureDir + "/native-gpu-lyrics" + suffix + ".png"));
     }
     for (int i = 0; i < glyphItems.size(); ++i)
         QCOMPARE(glyphItems[i]->textureUploads(), uploads[i]);
     const auto rendered = session.window->grabWindow();
+    QRectF glyphBounds;
+    for (auto *item : glyphItems)
+        if (item->current())
+            glyphBounds = glyphBounds.united(item->mapRectToScene(item->boundingRect()));
+    const auto ratio = rendered.width() / qreal(session.window->width());
+    const auto inkBounds = QRectF(glyphBounds.topLeft() * ratio, glyphBounds.size() * ratio)
+                               .toAlignedRect()
+                               .intersected(rendered.rect());
+    QVERIFY(!inkBounds.isEmpty());
     int ink = 0;
-    for (int y = rendered.height() / 4; y < rendered.height() * 3 / 4; ++y)
-        for (int x = rendered.width() / 2; x < rendered.width() * 9 / 10; ++x) {
+    for (int y = inkBounds.top(); y <= inkBounds.bottom(); ++y)
+        for (int x = inkBounds.left(); x <= inkBounds.right(); ++x) {
             const auto c = rendered.pixelColor(x, y);
             ink += c.red() > 150 && c.green() > 150 && c.blue() > 150;
         }
@@ -2688,6 +2769,7 @@ void PlaybackPageTest::skinSelectionBadgeIsAbovePreviewPixels()
     Session session;
     QVERIFY(session.create());
     QVERIFY(Test::prepareNativeInput(session.window));
+    QTRY_VERIFY(session.page()->property("opened").toBool());
     for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
         session.theme.setMode(mode);
         for (const auto scale : {1., 1.25}) {
@@ -3861,4 +3943,351 @@ int main(int argc, char **argv)
     configureUiTypography("system-ui");
     PlaybackPageTest test;
     return QTest::qExec(&test, argc, argv);
+}
+
+void PlaybackPageTest::portraitGalleryCancelsCachesAndUsesPreferredCategory()
+{
+    QTemporaryDir directory;
+    QSettings settings(directory.filePath("portrait.ini"), QSettings::IniFormat);
+    ApiClient api;
+    QVERIFY(api.setNetworkTransport(1));
+    LyricPortraitAppearance appearance(settings);
+    PortraitController gallery(api, appearance);
+    PlaybackTrack track;
+    track.hash = QString(32, 'a');
+    track.songId = 12;
+    gallery.setTrack(track);
+    const auto stale = PortraitControllerTestAccess::begin(gallery, api);
+    gallery.setActive(false);
+    PortraitControllerTestAccess::finish(
+        gallery, api, stale,
+        R"([[{"images":{"3":[{"url":"https://example.invalid/stale.jpg"}]}}]])");
+    QVERIFY(gallery.source().isEmpty());
+    const auto pending = PortraitControllerTestAccess::begin(gallery, api);
+    PortraitControllerTestAccess::finish(
+        gallery, api, pending,
+        R"([[{"images":{"2":[{"url":"https://example.invalid/lower.jpg"}],"3":[{"url":"https://example.invalid/one.jpg"},{"url":"https://example.invalid/one.jpg"}]}},{"images":{"3":[{"url":"https://example.invalid/two.jpg"}]}}]])");
+    QCOMPARE(gallery.count(), 2);
+    QCOMPARE(gallery.source(), QUrl("https://example.invalid/one.jpg"));
+    QVERIFY(PortraitControllerTestAccess::carousel(gallery));
+    gallery.next();
+    QCOMPARE(gallery.source(), QUrl("https://example.invalid/two.jpg"));
+    gallery.previous();
+    QCOMPARE(gallery.index(), 0);
+    gallery.imageFailed(QUrl("https://example.invalid/stale.jpg"));
+    QCOMPARE(gallery.count(), 2);
+    gallery.setActive(false);
+    QVERIFY(gallery.source().isEmpty());
+    QVERIFY(!PortraitControllerTestAccess::carousel(gallery));
+    gallery.setActive(true);
+    QCOMPARE(gallery.count(), 2); // Reopen uses URL metadata, no request/decoder cache.
+    gallery.imageFailed(gallery.source());
+    QCOMPARE(gallery.source(), QUrl("https://example.invalid/two.jpg"));
+    QVERIFY(!PortraitControllerTestAccess::carousel(gallery));
+    gallery.imageFailed(gallery.source());
+    QCOMPARE(gallery.count(), 0);
+    QCOMPARE(PortraitControllerTestAccess::cached(gallery), 0);
+    gallery.setActive(false);
+    for (int i = 0; i < 60; ++i) {
+        track.songId = 100 + i;
+        gallery.setTrack(track);
+        const auto id = PortraitControllerTestAccess::begin(gallery, api);
+        PortraitControllerTestAccess::finish(gallery, api, id, "[[]]");
+        gallery.setActive(false);
+    }
+    QCOMPARE(PortraitControllerTestAccess::cached(gallery), 50);
+    gallery.setActive(true);
+    QVERIFY(gallery.source().isEmpty());
+    QVERIFY(!gallery.loading());
+    api.shutdown();
+}
+
+void PlaybackPageTest::portraitSkinPreferencesAndProductionLifecycle()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    auto *appearance = session.playback.lyricAppearance();
+    auto *settings = appearance->portrait();
+    settings->setAutoCollapse(false);
+    settings->setCarouselEnabled(false);
+    settings->setFontWeight(600);
+    settings->setFontScale(1.1);
+    appearance->setFontWeight(900);
+    appearance->setPlayedColor("#abcdef");
+    {
+        LyricAppearance restored(session.settings);
+        QCOMPARE(restored.portrait()->fontWeight(), 600);
+        QCOMPARE(restored.fontWeight(), 900);
+        QCOMPARE(restored.portrait()->fontScale(), 1.1);
+    }
+    QVERIFY(session.create());
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QVERIFY(session.theme.extensions()->chooseSkin("portrait"));
+    session.playback.lyricText()->setWantTranslation(true);
+    QQuickItem *portrait = nullptr;
+    QTRY_VERIFY((portrait = session.item("portraitPlayback")));
+    QTRY_VERIFY(!session.item("playbackPageCover"));
+    auto *gallery = session.playback.portraits();
+    QImage image(1280, 800, QImage::Format_RGB32);
+    image.fill(QColor("#8e7fba"));
+    const auto generated = session.directory.filePath("portrait.png");
+    QVERIFY(image.save(generated));
+    const auto source = qEnvironmentVariable("ECHO_PORTRAIT_IMAGE", generated);
+    PortraitControllerTestAccess::present(*gallery,
+                                          {QUrl::fromLocalFile(source).toString(),
+                                           QUrl::fromLocalFile(generated).toString() + "?second"});
+    QTRY_VERIFY(portrait->property("backgroundReady").toBool());
+    QQuickItem *viewport = nullptr;
+    QTRY_VERIFY((viewport = session.item("portraitLyricViewport")));
+    QCOMPARE(viewport->property("textColor").value<QColor>(), QColor("#abcdef"));
+    QCOMPARE(viewport->property("unplayedColor").value<QColor>(), QColor(255, 255, 255, 51));
+    settings->setTextColor("#ffffff");
+    QTRY_COMPARE(viewport->property("textColor").value<QColor>(), QColor(Qt::white));
+    QCOMPARE(appearance->playedColor(), QString("#abcdef"));
+    QVERIFY(viewport->property("softFocus").toBool());
+    QVERIFY(viewport->property("scaleEnabled").toBool());
+    QVERIFY(viewport->property("springEnabled").toBool());
+    QVERIFY(lyricItems(session.window->contentItem()) > 0);
+    QVERIFY(lyricItems(session.window->contentItem()) < 35);
+    const auto captures = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const qreal scale : {1., 1.25}) {
+            session.root->setProperty("surfaceScale", scale);
+            for (const auto width : {1200, 660}) {
+                session.window->resize(width, 900);
+                portrait->setProperty("collapsed", false);
+                QTRY_VERIFY(viewport->height() > 0);
+                auto *content = session.page()->property("contentItem").value<QQuickItem *>();
+                const auto bottom =
+                    viewport->mapToItem(content, QPointF(0, viewport->height())).y();
+                QVERIFY(bottom <= content->height() - 88 - 96 + .5);
+                for (const auto compact : {false, true}) {
+                    portrait->setProperty("collapsed", compact);
+                    QTRY_COMPARE(viewport->property("compact").toBool(), compact);
+                    auto *toggle = session.item("portraitCollapseLyrics");
+                    auto *sourceAction = session.item("lyricSourceAction");
+                    QVERIFY(toggle && sourceAction);
+                    QVERIFY(
+                        qAbs(toggle->mapToScene(toggle->boundingRect().center()).y() -
+                             sourceAction->mapToScene(sourceAction->boundingRect().center()).y()) <
+                        .1);
+                    QCOMPARE(toggle->property("glyph").toString(),
+                             compact ? QString("arrow-bar-to-up") : QString("arrow-bar-down"));
+                    QTRY_VERIFY(findVisual(toggle, "iconImage") &&
+                                findVisual(toggle, "iconImage")->property("status").toInt() == 1);
+                    const auto rowName =
+                        "lyricTextRow" + QString::number(viewport->property("focusLine").toInt());
+                    auto *row = session.item(rowName);
+                    QVERIFY(row);
+                    auto *background = findVisual(row, "lyricRowBackground");
+                    QVERIFY(background);
+                    QCOMPARE(background->isVisible(), !compact);
+                    if (!compact) {
+                        auto *navigation = session.item("portraitGalleryNavigation");
+                        QVERIFY(navigation);
+                        QVERIFY(
+                            qAbs(navigation->mapToScene(navigation->boundingRect().center()).y() -
+                                 sourceAction->mapToScene(sourceAction->boundingRect().center())
+                                     .y()) < .1);
+                        QTRY_VERIFY_WITH_TIMEOUT(
+                            ([&] {
+                                Test::moveNativePointer(
+                                    session.window,
+                                    row->mapToScene({20, row->height() / 2}).toPoint());
+                                return background->property("color").value<QColor>().alphaF() > .06;
+                            })(),
+                            2000);
+                    }
+                    session.window->update();
+                    QTest::qWait(100);
+                    if (!captures.isEmpty()) {
+                        QDir().mkpath(captures);
+                        QVERIFY(session.window->grabWindow().save(
+                            captures + QString("/portrait-%1-%2-%3-%4.png")
+                                           .arg(int(mode))
+                                           .arg(scale)
+                                           .arg(width)
+                                           .arg(compact ? "compact" : "expanded")));
+                    }
+                }
+            }
+        }
+    }
+    settings->setHideControls(true);
+    portrait->setProperty("mouseActive", false);
+    QVERIFY(!portrait->property("controlsShown").toBool());
+    QVERIFY(QMetaObject::invokeMethod(portrait, "activity"));
+    QVERIFY(portrait->property("controlsShown").toBool());
+    QVERIFY(QMetaObject::invokeMethod(session.page(), "openSkins"));
+    QTRY_VERIFY(session.item("portraitLyricSkinCard"));
+    QVERIFY(!session.item("resetPortraitSkin"));
+    QVERIFY(QMetaObject::invokeMethod(session.item("portraitLyricSkinCard"), "clicked"));
+    QTRY_VERIFY(session.item("resetPortraitSkin"));
+    QCOMPARE(session.item("resetPortraitSkin")->height(), 36.);
+    settings->setUnplayedTextColor("#ffffff");
+    QVERIFY(QMetaObject::invokeMethod(session.item("resetPortraitUnplayedColor"), "clicked"));
+    QTRY_COMPARE(viewport->property("unplayedColor").value<QColor>(), QColor(255, 255, 255, 51));
+    QVERIFY(QMetaObject::invokeMethod(session.item("resetPortraitSkin"), "clicked"));
+    QCOMPARE(settings->fontWeight(), 700);
+    QCOMPARE(appearance->fontWeight(), 900);
+    // Closing settings resumes the configured idle collapse; browsing/static
+    // lyrics cannot be silently collapsed underneath a user interaction.
+    auto *drawer = session.page()->findChild<QObject *>("lyricSkinDrawer");
+    QVERIFY(drawer);
+    QVERIFY(QMetaObject::invokeMethod(drawer, "close"));
+    QTRY_VERIFY(!session.page()->findChild<QObject *>("lyricSkinDrawer"));
+    portrait->setProperty("collapsed", false);
+    QVERIFY(QMetaObject::invokeMethod(portrait, "activity"));
+    QTRY_VERIFY2_WITH_TIMEOUT(
+        portrait->property("collapsed").toBool(),
+        qPrintable(QString("auto=%1 delay=%2 browsing=%3 popup=%4 timer=%5")
+                       .arg(settings->autoCollapse())
+                       .arg(settings->collapseDelay())
+                       .arg(viewport->property("browsing").toBool())
+                       .arg(portrait->property("popupOpen").toBool())
+                       .arg(portrait->findChild<QObject *>("portraitIdleCollapseTimer")
+                                ->property("running")
+                                .toBool())),
+        6500);
+    QPointer<QQuickItem> oldPortrait(portrait);
+    QVERIFY(session.theme.extensions()->chooseSkin("cover"));
+    QTRY_VERIFY(oldPortrait.isNull());
+    QTRY_VERIFY(session.item("playbackPageCover"));
+    QVERIFY(gallery->source().isEmpty());
+    QVERIFY(!PortraitControllerTestAccess::carousel(*gallery));
+    QVERIFY(session.theme.extensions()->chooseSkin("portrait"));
+    QTRY_VERIFY((portrait = session.item("portraitPlayback")));
+    settings->setAutoCollapse(false);
+    PortraitControllerTestAccess::present(*gallery, {QUrl::fromLocalFile(source).toString()});
+    QTRY_VERIFY(portrait->property("backgroundReady").toBool());
+    QPointer<QObject> texture = portrait->findChild<QObject *>("portraitImageTexture");
+    QVERIFY(texture);
+    session.theme.setTransparency(100);
+    QTRY_VERIFY(texture.isNull());
+    QVERIFY(gallery->source().isEmpty());
+    session.theme.setTransparency(0);
+    PortraitControllerTestAccess::present(*gallery, {QUrl::fromLocalFile(source).toString()});
+    QTRY_VERIFY(portrait->property("backgroundReady").toBool());
+    texture = portrait->findChild<QObject *>("portraitImageTexture");
+    session.theme.setWindowFrosted(true);
+    QTRY_VERIFY(texture.isNull());
+    QVERIFY(gallery->source().isEmpty());
+    session.theme.setWindowFrosted(false);
+    QPointer<QQuickItem> minimized(portrait);
+    session.window->showMinimized();
+    QTRY_VERIFY(minimized.isNull());
+    QVERIFY(gallery->source().isEmpty());
+    QVERIFY(!PortraitControllerTestAccess::carousel(*gallery));
+    session.window->showNormal();
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QTRY_VERIFY((portrait = session.item("portraitPlayback")));
+    QPointer<QQuickItem> released(portrait);
+    QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+    QTRY_VERIFY(released.isNull());
+    QVERIFY(gallery->source().isEmpty());
+    QVERIFY(!PortraitControllerTestAccess::carousel(*gallery));
+    QVERIFY(warnings.isEmpty());
+}
+
+void PlaybackPageTest::portraitCollapseKeepsMotionAndAvoidsVisibleControls()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    auto *settings = session.playback.lyricAppearance()->portrait();
+    settings->setAutoCollapse(false);
+    QVERIFY(session.theme.extensions()->chooseSkin("portrait"));
+    QVERIFY(session.create());
+    session.playback.lyricText()->setWantTranslation(true);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    auto *portrait = session.item("portraitPlayback");
+    auto *viewport = session.item("portraitLyricViewport");
+    auto *content = session.page()->property("contentItem").value<QQuickItem *>();
+    QVERIFY(portrait && viewport && content);
+    const auto photo = qEnvironmentVariable("ECHO_PORTRAIT_IMAGE");
+    if (!photo.isEmpty()) {
+        PortraitControllerTestAccess::present(*session.playback.portraits(),
+                                              {QUrl::fromLocalFile(photo).toString()});
+        QTRY_VERIFY(portrait->property("backgroundReady").toBool());
+    }
+    auto *transport = session.item("playbackTransport");
+    QVERIFY(transport);
+    // Model the actual above-controls contribution, not the expanded mode's
+    // minimum reading gap. Both leave with the same transport surface.
+    session.page()->setProperty("controlsTopReserve", 120.);
+    const auto currentBox = [&] {
+        const auto index = viewport->property("focusLine").toInt();
+        auto *row = session.item("lyricTextRow" + QString::number(index));
+        return row ? row->mapRectToItem(content, row->boundingRect()) : QRectF();
+    };
+    const auto capture = [&](const QString &name) {
+        const auto directory = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+        if (directory.isEmpty())
+            return true;
+        QDir().mkpath(directory);
+        return session.window->grabWindow().save(directory + "/portrait-bottom-" + name + ".png");
+    };
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const auto scale : {1., 1.25}) {
+            session.root->setProperty("surfaceScale", scale);
+            for (const auto width : {1200, 660}) {
+                session.window->resize(width, 900);
+                settings->setHideControls(false);
+                portrait->setProperty("collapsed", false);
+                QTest::qWait(80);
+                QTRY_VERIFY(viewport->property("focusBlockHeight").toReal() > 0);
+                const auto expanded = currentBox();
+                QVERIFY(!expanded.isEmpty());
+                const auto label = QString("%1-%2-%3-").arg(int(mode)).arg(scale).arg(width);
+                QVERIFY(capture(label + "expanded"));
+                portrait->setProperty("collapsed", true);
+                QTRY_VERIFY(qAbs(currentBox().bottom() - (content->height() - 88 - 120 - 24)) < 2);
+                const auto shown = currentBox();
+                QVERIFY(shown.center().y() > expanded.center().y() + 30);
+                QVERIFY(viewport->property("softFocus").toBool());
+                QVERIFY(viewport->property("springEnabled").toBool());
+                QVERIFY(viewport->property("staggerEnabled").toBool());
+                QVERIFY(viewport->property("scaleEnabled").toBool());
+                QVERIFY(capture(label + "controls"));
+                settings->setHideControls(true);
+                portrait->setProperty("mouseActive", false);
+                QTRY_COMPARE(portrait->property("controlsOpacity").toReal(), 0.);
+                QTRY_VERIFY(!transport->isVisible());
+                QTRY_VERIFY(qAbs(currentBox().bottom() - (content->height() - 24)) < 2);
+                QVERIFY(qAbs(currentBox().bottom() - shown.bottom() - 208) < 2);
+                QVERIFY(capture(label + "hidden"));
+                // Opening a popup keeps its transport anchor available.
+                portrait->setProperty("popupOpen", true);
+                QTRY_VERIFY(portrait->property("controlsShown").toBool());
+                QTRY_VERIFY(transport->isVisible());
+                QTRY_VERIFY(qAbs(currentBox().bottom() - shown.bottom()) < 2);
+                portrait->setProperty("popupOpen", false);
+                QVERIFY(lyricItems(session.window->contentItem()) < 35);
+            }
+        }
+    }
+    // Reverse in flight from the actual spring position. This is a transform
+    // of the same native viewport; toggling must not replace its glyph tree.
+    QPointer<QQuickItem> sameViewport(viewport);
+    QTest::qWait(80);
+    const auto hidden = portrait->property("lyricOffset").toReal();
+    session.theme.setMotionEnabled(true);
+    portrait->setProperty("mouseActive", true);
+    QVERIFY(portrait->property("placementRunning").toBool());
+    QTest::qWait(80);
+    auto *placement = portrait->findChild<LyricSpring *>(QString(), Qt::FindDirectChildrenOnly);
+    QVERIFY(placement);
+    placement->advance(); // Compare the reversal at one wall-clock instant, not an old frame.
+    const auto middle = portrait->property("lyricOffset").toReal();
+    QVERIFY(middle < hidden - 1);
+    QVERIFY(middle > portrait->property("lyricOffsetTarget").toReal());
+    portrait->setProperty("mouseActive", false);
+    QVERIFY(qAbs(portrait->property("lyricOffset").toReal() - middle) < 4);
+    session.theme.setMotionEnabled(false);
+    QVERIFY(!portrait->property("placementRunning").toBool());
+    QVERIFY(qAbs(portrait->property("lyricOffset").toReal() -
+                 portrait->property("lyricOffsetTarget").toReal()) < .05);
+    QCOMPARE(sameViewport.data(), session.item("portraitLyricViewport"));
+    QVERIFY(warnings.isEmpty());
 }

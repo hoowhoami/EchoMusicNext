@@ -2623,7 +2623,7 @@ fn b3_cloud_video_purchased_follow_sampled_shapes() {
     let empty =
         user_video_collect::convert(&sample("user_video_collect/page2.json"), 2, 30).unwrap();
     assert!(empty.page.items.is_empty());
-    // Purchased goods are not mapped; only container facts are projected.
+    // Empty purchased containers remain valid after non-empty row support.
     let songs =
         user_purchased_songs::convert(&sample("user_purchased_songs/page1.json"), 1, 30).unwrap();
     assert_eq!(songs.total, Some(0));
@@ -2682,4 +2682,133 @@ fn gateway_playback_and_independent_grade_write_match_new_live_captures() {
     assert_eq!(after.listening_seconds, before.listening_seconds);
     assert_eq!(written.grade, Some(5));
     assert_eq!(written.current_points, Some(18327));
+}
+
+#[test]
+fn purchased_non_empty_singles_keep_audio_identity_and_all_quality_facts() {
+    use echo_api::module::user_purchased_songs;
+    let bytes = sample("user_purchased_songs/next-current-page1-20261028.json");
+    let raw: Value = serde_json::from_slice(&bytes).unwrap();
+    let songs = user_purchased_songs::convert(&bytes, 1, 30).unwrap();
+    assert_eq!(songs.total, Some(2));
+    assert_eq!(songs.items.len(), 2);
+    for (song, row) in songs
+        .items
+        .iter()
+        .zip(raw["data"]["goods"].as_array().unwrap())
+    {
+        let audio = &row["audio_info"];
+        assert_eq!(song.song.id, row["album_audio_id"].to_string());
+        assert_ne!(song.song.id, row["good_scid"].to_string());
+        assert_eq!(row["hash"], "");
+        assert_eq!(song.song.hash, audio["hash_high"].as_str().unwrap());
+        assert_eq!(song.song.title, row["songname"].as_str().unwrap());
+        assert_eq!(song.song.album_id, audio["album_id"].to_string());
+        assert_eq!(song.song.duration_ms, audio["duration"].as_u64());
+        assert_eq!(song.song.artists.len(), 1);
+        assert!(song.song.artists[0].id.is_none());
+        assert!(song.song.cover_url.contains("/400/"));
+        assert_eq!(song.metadata.catalog.resources.len(), 4);
+        for (resource, quality) in song
+            .metadata
+            .catalog
+            .resources
+            .iter()
+            .zip(["128", "320", "flac", "high"])
+        {
+            assert_eq!(resource.quality, quality);
+            assert_eq!(
+                resource.hash.as_deref(),
+                audio[format!("hash_{quality}")].as_str()
+            );
+            assert_eq!(
+                resource.size_bytes,
+                audio[format!("filesize_{quality}")].as_u64()
+            );
+            assert_eq!(
+                resource.privilege.map(u64::from),
+                audio[format!("privilege_{quality}")].as_u64()
+            );
+        }
+        assert_eq!(
+            song.metadata.catalog.resources[0].bit_rate_bps,
+            Some(128000)
+        );
+        assert!(song.metadata.catalog.resources[1].bit_rate_bps.is_none());
+        let rights = song.metadata.catalog.rights.as_ref().unwrap();
+        assert!(rights.quality_map.is_some());
+        assert_eq!(rights.preview.as_ref().unwrap().end_ms, Some(60000));
+        assert_eq!(
+            song.metadata.provider_extension["purchase"]["good_scid"],
+            row["good_scid"]
+        );
+        assert_eq!(
+            song.metadata.provider_extension["trans_param"]["cid"],
+            audio["trans_param"]["cid"]
+        );
+    }
+}
+
+#[test]
+fn purchased_albums_and_real_pagination_preserve_card_ids_and_end_pages() {
+    use echo_api::module::{user_purchased_albums, user_purchased_songs};
+    let bytes = sample("user_purchased_albums/next-current-page1-20261028.json");
+    let raw: Value = serde_json::from_slice(&bytes).unwrap();
+    let albums = user_purchased_albums::convert(&bytes, 1, 30).unwrap();
+    assert_eq!(albums.total, Some(6));
+    assert_eq!(albums.items.len(), 6);
+    for (album, row) in albums
+        .items
+        .iter()
+        .zip(raw["data"]["goods"].as_array().unwrap())
+    {
+        assert_eq!(album.album.id, row["album_id"].as_u64());
+        assert_eq!(album.album.title, row["album_name"].as_str().unwrap());
+        assert_eq!(
+            album.album.artists[0].name,
+            row["singer_name"].as_str().unwrap()
+        );
+        assert!(album.album.artists[0].id.is_none());
+        assert!(album.album.cover_url.contains("/400/"));
+        assert!(album.album.song_count.is_none());
+        assert!(album.album.published_at.is_empty());
+        assert_eq!(album.publication_code, Some(1));
+        assert_eq!(album.provider_extension["buy_total"], row["buy_total"]);
+    }
+    let songs = user_purchased_songs::convert(
+        &sample("user_purchased_songs/next-page2-size1-20261028.json"),
+        2,
+        1,
+    )
+    .unwrap();
+    assert_eq!(songs.page, Some(2));
+    assert_eq!(songs.items.len(), 1);
+    assert!(
+        user_purchased_songs::convert(
+            &sample("user_purchased_songs/next-page3-size1-20261028.json"),
+            3,
+            1
+        )
+        .unwrap()
+        .items
+        .is_empty()
+    );
+    let albums = user_purchased_albums::convert(
+        &sample("user_purchased_albums/next-page2-size4-20261028.json"),
+        2,
+        4,
+    )
+    .unwrap();
+    assert_eq!(albums.page_size, Some(4));
+    assert_eq!(albums.items.len(), 2);
+    assert!(
+        user_purchased_albums::convert(
+            &sample("user_purchased_albums/next-page3-size4-20261028.json"),
+            3,
+            4
+        )
+        .unwrap()
+        .items
+        .is_empty()
+    );
 }

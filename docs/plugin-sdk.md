@@ -80,7 +80,9 @@
 
 ## 业务、入口、任务与歌词动效
 
-`ctx.kugou`公开97个固定类型化业务命令与验证；调用宿主同一ApiClient/VerificationService，账号由宿主绑定，业务ID使用十进制字符串。插件取消只撤销本请求的验证等待，宿主验证界面的取消仍关闭当前共享验证；账号切换或停用取消请求，登录确认不跨账号续跑插件操作。登录仍由宿主账号入口管理。
+`ctx.kugou`公开98个固定类型化业务命令与验证；调用宿主同一ApiClient/VerificationService，账号由宿主绑定，业务ID使用十进制字符串。插件取消只撤销本请求的验证等待，宿主验证界面的取消仍关闭当前共享验证；账号切换或停用取消请求，登录确认不跨账号续跑插件操作。登录仍由宿主账号入口管理。
+
+歌手写真通过 `ctx.kugou.request('audioImages', {resources: [{hash, audioId?, albumAudioId?, filename?}], count?})` 获取按歌曲分组的歌手与分类图片；完整类型、选图用法和加载生命周期见[业务接口](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/ecosystem.md)。
 
 `ui.registerSidebarItem/registerShortcutCard/registerSongMenuItem`接入原侧栏、添加卡片/布局设置和共享歌曲菜单。`shortcuts`复用本地/系统快捷键冲突、输入焦点和录制门控；`toast`使用原通知视口；`scroll`只提供活动原生页面的公开引用/快照/滚动动作。`tasks`接入原任务中心的完整状态、图标/优先级patch、动作/明细和保留策略，代际替换、账号切换与停用均回收。
 

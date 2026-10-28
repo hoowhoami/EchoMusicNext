@@ -24,6 +24,9 @@ qt_add_qml_module(
     PlaybackProgress.qml
     PlaybackControls.qml
     PlaybackPage.qml
+    CoverPlayback.qml
+    PortraitPlayback.qml
+    PortraitBackdrop.qml
     PlaybackPageMotion.qml
     PlaybackBackground.qml
     PlaybackBlurredBackground.qml
@@ -38,6 +41,12 @@ qt_add_qml_module(
     LyricVerticalLine.qml
     InterludeDots.qml
     LyricSkinSettings.qml
+    LyricSkinSection.qml
+    LyricSkinSettingRow.qml
+    LyricSkinToggleRow.qml
+    LyricSkinRangeRow.qml
+    LyricSkinColorRow.qml
+    PortraitSkinSettings.qml
     LyricSkinCard.qml
     LyricSkinDrawer.qml
     PlaybackLyricTools.qml
@@ -85,6 +94,7 @@ qt_add_shaders(
     /qt/qml/EchoMusic/Playback
     FILES
     shaders/background-preprocess.frag
+    shaders/portrait-background.frag
     shaders/background-mesh.vert
     shaders/background-mesh.frag
     shaders/lyric-fluid.frag

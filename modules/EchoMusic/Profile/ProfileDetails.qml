@@ -121,7 +121,9 @@ Rectangle {
             Layout.fillWidth: true
             uniformCellWidths: true
             columns: body.width <= 440 ? 2 : 4
-            columnSpacing: 0
+            // Keep the separator gutters outside the equal content tracks.
+            // Per-cell insets otherwise make the two inner dates narrower.
+            columnSpacing: 24
             rowSpacing: 0
             Repeater {
                 model: [
@@ -144,12 +146,12 @@ Rectangle {
                 ]
                 delegate: Item {
                     id: member
+                    objectName: "profileMembership-" + modelData.kind
                     required property var modelData
                     required property int index
                     readonly property bool stacked: body.width <= 680 && body.width > 440
                     readonly property real inset: 12
                     readonly property bool first: index % (body.width <= 440 ? 2 : 4) === 0
-                    readonly property bool last: index % (body.width <= 440 ? 2 : 4) === (body.width <= 440 ? 1 : 3)
                     readonly property color tone: modelData.kind === "super" ? "#f97316" : modelData.kind === "deluxe" ? "#e8a317" : modelData.kind === "concept" ? "#8b5cf6" : "#10b981"
                     readonly property var membership: details.account.memberships.find(item => item.kind === member.modelData.kind)
                     Layout.fillWidth: true
@@ -158,21 +160,23 @@ Rectangle {
                     implicitHeight: memberContent.implicitHeight + (body.width <= 440 ? 24 : 0)
                     Rectangle {
                         visible: !member.first
+                        x: -member.inset
                         width: 1
                         height: parent.height
                         color: Theme.subtleBorder
                     }
                     Rectangle {
                         visible: body.width <= 440 && member.index >= 2
-                        width: parent.width
+                        x: member.first ? 0 : -member.inset
+                        width: parent.width + member.inset
                         height: 1
                         color: Theme.subtleBorder
                     }
                     GridLayout {
                         id: memberContent
-                        x: member.first ? 0 : member.inset
+                        objectName: "profileMembershipContent-" + member.modelData.kind
                         y: body.width <= 440 ? 12 : 0
-                        width: parent.width - x - (member.last ? 0 : member.inset)
+                        width: parent.width
                         columns: member.stacked ? 1 : 2
                         columnSpacing: body.width <= 440 ? 8 : 12
                         rowSpacing: 8
@@ -205,6 +209,7 @@ Rectangle {
                                 spacing: 8
                                 Label {
                                     Layout.fillWidth: true
+                                    objectName: "profileMembershipExpiry-" + member.modelData.kind
                                     text: member.membership ? member.membership.expires : qsTr("未开通")
                                     color: Theme.secondaryText
                                     font: Theme.font(12, Theme.regularWeight)

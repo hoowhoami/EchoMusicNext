@@ -119,6 +119,7 @@ pub enum Origin {
     DeviceLogout,
     RelationUser,
     Climax,
+    ArtistImages,
     Lyrics,
     EffectsCatalog,
     Gateway,
@@ -376,6 +377,18 @@ impl ApiClient {
             .await?
             .bytes)
     }
+    /// Artist images sign only endpoint parameters; account/device URL defaults
+    /// must not be injected into this public CDN query.
+    pub async fn request_audio_images(
+        &self,
+        identity: &Identity,
+        endpoint: Endpoint<'_>,
+    ) -> Result<Vec<u8>, ApiError> {
+        Ok(self
+            .send_endpoint(identity, endpoint, false, true)
+            .await?
+            .bytes)
+    }
     /// Import authenticates in the JSON body. Its URL contains only the six
     /// device/application fields and signature, without account defaults.
     pub async fn request_import(
@@ -560,6 +573,7 @@ impl ApiClient {
                             Origin::Lyrics => "https://lyrics.kugou.com",
                             Origin::RelationUser => "https://relationuser.kugou.com",
                             Origin::Climax => "https://expendablekmrcdn.kugou.com",
+                            Origin::ArtistImages => "https://expendablekmr.kugou.com",
                             // The reference public catalog uses HTTP; this CDN has no matching
                             // TLS certificate. clear_defaults excludes token/userid entirely.
                             Origin::EffectsCatalog => "http://mobilecdngz.kugou.com",

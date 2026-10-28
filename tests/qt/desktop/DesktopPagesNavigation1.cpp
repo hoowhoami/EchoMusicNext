@@ -980,6 +980,21 @@ void DesktopPagesTest::sidebarHistoryNavigationRevealsPlaylistSection()
     QTRY_VERIFY(selected("display-playlist-1"));
     QVERIFY(click(collapsed ? "sidebarRailPlaylistTab-1" : "sidebarCollectedTab"));
     QTRY_COMPARE(session.accounts.library.tab(), 1);
+    const auto reloadCatalog = [&] {
+        const auto routeKey = session.router.current()->key();
+        const int selectedTab = session.accounts.library.tab();
+        if (collapsed)
+            session.accounts.library.reload();
+        else if (!click("sidebarPlaylistRefresh"))
+            return false;
+        if (session.accounts.playlists.rowCount() != 0)
+            return false;
+        UserPlaylistModelTestAccess::present(session.accounts.playlists, session.api, 3);
+        UserPlaylistModelTestAccess::collectSecond(session.accounts.playlists);
+        return session.accounts.library.tab() == selectedTab &&
+               session.router.current()->key() == routeKey;
+    };
+    QVERIFY(reloadCatalog());
     QVERIFY(session.accounts.library.openPlaylist(2));
     QTRY_VERIFY(selected("history-collected-public"));
     QVERIFY(click("titlebarBackAction"));
@@ -988,6 +1003,14 @@ void DesktopPagesTest::sidebarHistoryNavigationRevealsPlaylistSection()
     QTRY_VERIFY(selected("display-playlist-1"));
     QVERIFY(click("titlebarForwardAction"));
     QTRY_COMPARE(session.router.current()->resourceId(), QString("history-collected-public"));
+    QTRY_COMPARE(session.accounts.library.tab(), 1);
+    QTRY_VERIFY(selected("history-collected-public"));
+    QVERIFY(click(collapsed ? "sidebarRailPlaylistTab-0" : "sidebarCreatedTab"));
+    QTRY_COMPARE(session.accounts.library.tab(), 0);
+    QVERIFY(reloadCatalog());
+    QVERIFY(click("titlebarBackAction"));
+    QTRY_COMPARE(session.accounts.library.tab(), 0);
+    QVERIFY(click("titlebarForwardAction"));
     QTRY_COMPARE(session.accounts.library.tab(), 1);
     QTRY_VERIFY(selected("history-collected-public"));
     const auto captures = qEnvironmentVariable("ECHO_SIDEBAR_HISTORY_CAPTURE_DIR");
