@@ -579,6 +579,12 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                         m_track = *track;
                         m_duration = qint64(track->durationMs);
                     }
+                    // A restored track never runs startTrack, and the metadata
+                    // presentation only reloads the artwork when the cover URL
+                    // itself changes, so without this the native surfaces
+                    // (taskbar preview, SMTC) would keep the placeholder while
+                    // the QML covers, which fetch the URL directly, look fine.
+                    loadCurrentArtwork();
                     m_restoring = false;
                     if (std::any_of(states.cbegin(), states.cend(), [](const auto &state) {
                             return state.key.startsWith("fm/") ||
@@ -646,6 +652,10 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
             m_track = *track;
             m_duration = qint64(track->durationMs);
         }
+        // Re-adopting the queue's track must not leave the native artwork
+        // surfaces (taskbar preview, SMTC) on the placeholder: the cleared PNG
+        // only comes back when the loader runs again.
+        loadCurrentArtwork();
         m_error.clear();
         m_playing = m_loading = false;
         publishMedia();
@@ -717,6 +727,16 @@ void PlaybackService::appendTracksImpl(const PlaybackTracks &tracks, bool next, 
 void PlaybackService::playIndex(int index)
 {
     m_queueController->playIndex(index);
+}
+void PlaybackService::loadCurrentArtwork()
+{
+    const auto source = cover();
+    if (source.isEmpty()) {
+        m_coverColor = QColor();
+        m_coverPng.clear();
+        return;
+    }
+    m_artwork.load(source, m_sequence);
 }
 void PlaybackService::startIndex(int index, bool preserveFailureChain)
 {

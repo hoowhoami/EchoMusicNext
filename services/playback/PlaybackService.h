@@ -425,6 +425,9 @@ public:
     void appendTracks(const PlaybackTracks &tracks, bool next = false);
     void enqueueTracks(const PlaybackTracks &tracks, bool cut);
     Q_INVOKABLE void playIndex(int index);
+    /// Re-decodes the current track's cover for the native surfaces after the
+    /// track was adopted without a start (queue restore, session switch).
+    void loadCurrentArtwork();
     Q_INVOKABLE void playViewedIndex(int index);
     Q_INVOKABLE void removeViewedIndex(int index);
     Q_INVOKABLE void resumeViewedQueue();
