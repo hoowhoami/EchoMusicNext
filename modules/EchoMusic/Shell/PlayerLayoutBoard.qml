@@ -11,6 +11,12 @@ Rectangle {
     required property ShellActionModel actions
     property bool resourceActive: true
     property bool narrow: false
+    PlayerLayoutReorder {
+        id: reorderState
+        actions: board.actions
+        hostItem: board
+        resourceActive: board.resourceActive && board.visible && board.Window.window !== null && board.Window.window.visible && board.Window.window.visibility !== Window.Minimized
+    }
     readonly property var regions: [
         {
             zone: ShellActionModel.Left,
@@ -165,6 +171,7 @@ Rectangle {
                         zone: modelData.zone
                         label: modelData.label
                         dragLayer: board
+                        reorder: reorderState
                         resourceActive: board.resourceActive
                     }
                 }
@@ -193,6 +200,7 @@ Rectangle {
                 label: qsTr("更多菜单按钮")
                 showLabel: false
                 dragLayer: board
+                reorder: reorderState
                 resourceActive: board.resourceActive
             }
         }

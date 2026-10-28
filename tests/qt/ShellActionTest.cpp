@@ -90,6 +90,56 @@ class ShellActionTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void dragPreviewCommitsOnceAndDiscardsCatalogChanges()
+    {
+        QTemporaryDir directory;
+        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        M model(preferences, M::Titlebar);
+        model.setCapacity(M::Toolbar, 3);
+        QObject provider;
+        auto first = model.registerAction(provider, action("one", M::Toolbar, 0));
+        auto second = model.registerAction(provider, action("two", M::Toolbar, 1));
+        model.registerAction(provider, action("three", M::Toolbar, 2));
+        ShellActionProjection projection;
+        projection.setZone(M::Toolbar);
+        projection.setActions(&model);
+        QAbstractItemModelTester tester(&projection,
+                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
+        QSignalSpy moves(&projection, &QAbstractItemModel::rowsMoved);
+        const auto saved = preferences.value("shell/titlebar/order");
+        QVERIFY(projection.beginReorder("one"));
+        projection.previewReorder(2);
+        QCOMPARE(keys(projection), QStringList({"two", "three", "one"}));
+        QCOMPARE(keys(model), QStringList({"one", "two", "three"}));
+        QCOMPARE(preferences.value("shell/titlebar/order"), saved);
+        QVERIFY(!moves.isEmpty());
+        projection.previewReorder(0);
+        QCOMPARE(keys(projection), keys(model));
+        projection.previewReorder(2);
+        projection.finishReorder(false);
+        QCOMPARE(keys(projection), keys(model));
+        QCOMPARE(preferences.value("shell/titlebar/order"), saved);
+        QVERIFY(projection.beginReorder("one"));
+        projection.previewReorder(2);
+        projection.finishReorder(true);
+        QCOMPARE(keys(model), QStringList({"two", "three", "one"}));
+        QCOMPARE(keys(projection), keys(model));
+        const auto committed = preferences.value("shell/titlebar/order");
+        QVERIFY(committed != saved);
+        QVERIFY(projection.beginReorder("one"));
+        projection.previewReorder(0);
+        QVERIFY(model.unregisterAction(second));
+        projection.finishReorder(true);
+        QCOMPARE(keys(projection), keys(model));
+        QCOMPARE(keys(model), QStringList({"three", "one"}));
+        QCOMPARE(preferences.value("shell/titlebar/order"), committed);
+        QVERIFY(projection.beginReorder("one"));
+        QVERIFY(model.unregisterAction(first));
+        projection.previewReorder(0);
+        projection.finishReorder(true);
+        QCOMPARE(keys(projection), keys(model));
+    }
+
     void playbackFailuresRespectEpochDeduplicationAndActualSkipScheduling()
     {
         QTemporaryDir directory;

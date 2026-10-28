@@ -25,13 +25,11 @@ MouseArea {
         }
         pressPosition = mapToItem(null, mouse.x, mouse.y);
         moveStarted = false;
-        // Windows' modal system-move loop consumes the click sequence if it
-        // starts on press. Wait for a real drag so double clicks reach QML.
-        if (Qt.platform.os !== "windows")
-            moveRequested();
+    // Starting a modal move on press turns small click jitter into window
+    // motion. All platforms wait for a deliberate drag, preserving clicks.
     }
     onPositionChanged: mouse => {
-        if (Qt.platform.os !== "windows" || !pressed || moveStarted)
+        if (!pressed || moveStarted)
             return;
         const position = mapToItem(null, mouse.x, mouse.y);
         const distance = Math.hypot(position.x - pressPosition.x, position.y - pressPosition.y);

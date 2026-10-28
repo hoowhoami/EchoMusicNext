@@ -136,6 +136,9 @@ public:
     Q_INVOKABLE void toggleVisibility();
     Q_INVOKABLE void quit();
     void applyStartupVisibility();
+    /// Explicit caption gesture; on macOS native movement is allowed only for
+    /// this call and revoked after the OS tracking loop, including failure.
+    Q_INVOKABLE bool startSystemMove();
     Q_INVOKABLE void minimize();
     Q_INVOKABLE void toggleMaximized();
     Q_INVOKABLE void toggleFullscreen();
@@ -193,6 +196,7 @@ private:
     // complete UI; tray activation recreates that last mode as EchoMusic does.
     bool m_restoreMini = false;
     bool m_presentationReady = false;
+    bool m_systemMoveActive = false;
     QTimer m_saveTimer;
     QRect m_normal;
     bool m_persist, m_remember = true, m_restoring = false, m_wasMaximized = false;

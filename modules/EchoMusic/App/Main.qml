@@ -361,7 +361,7 @@ ApplicationWindow {
                 EchoWindowDragArea {
                     width: parent.width
                     height: Math.max(46, 35 / mainWindow.shellSettings.uiScale)
-                    onMoveRequested: mainWindow.startSystemMove()
+                    onMoveRequested: mainWindow.windowService.startSystemMove()
                     onDoubleClickRequested: mainWindow.windowService.toggleMaximized()
                 }
                 Behavior on Layout.preferredWidth {
@@ -535,7 +535,7 @@ ApplicationWindow {
             visible: mainWindow.accountController.loginOpen
             width: parent.width
             height: 46
-            onMoveRequested: mainWindow.startSystemMove()
+            onMoveRequested: mainWindow.windowService.startSystemMove()
             onDoubleClickRequested: mainWindow.windowService.toggleMaximized()
         }
         EchoPopupLoader {
@@ -551,7 +551,7 @@ ApplicationWindow {
                         initialSection: "lyric"
                     });
                 }
-                onTitleDragRequested: mainWindow.startSystemMove()
+                onTitleDragRequested: mainWindow.windowService.startSystemMove()
                 onTitleDoubleClickRequested: mainWindow.windowService.toggleMaximized()
                 // The page accepts pointer input once its entry transition is
                 // done. The pointer usually stopped moving before that, and Qt

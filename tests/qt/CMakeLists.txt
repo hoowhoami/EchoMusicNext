@@ -1537,7 +1537,10 @@ echo_copy_rust_runtime(echo-experimental-settings-test)
 
 if(APPLE)
     add_library(echo_native_test_support STATIC NativeWindowTestSupport.mm)
-    target_link_libraries(echo_native_test_support PRIVATE "-framework AppKit")
+    target_link_libraries(
+        echo_native_test_support PRIVATE Qt6::Gui "-framework AppKit"
+                                         "-framework ApplicationServices"
+    )
     foreach(
         echo_test_target IN
         ITEMS echo-song-playback-ui-test

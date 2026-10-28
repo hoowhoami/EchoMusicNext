@@ -97,6 +97,7 @@ qt_add_qml_module(
     ToastViewport.qml
     PlayerActionStrip.qml
     PlayerLayoutZone.qml
+    PlayerLayoutReorder.qml
     PlayerLayoutBoard.qml
     PlayerBarMorePopup.qml
     ShellMoreHeading.qml

@@ -311,8 +311,12 @@ RoutePage {
             resourceActive: page.pageActive && visible
             menuSongId: page.menuSongId
             emptyComponent: cloudEmpty
-            onLoadMoreRequested: page.service.loadMore()
-            onRetryRequested: page.service.refresh()
+            onRetryRequested: {
+                if (page.service.hasMore)
+                    page.service.loadMore();
+                else
+                    page.service.refresh();
+            }
             onMoreRequested: (id, sceneX, sceneY) => page.showSongMenu(id, sceneX, sceneY)
         }
         EchoEnter {

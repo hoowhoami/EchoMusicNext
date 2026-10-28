@@ -442,6 +442,7 @@ void ShellActionProjection::setActions(ShellActionModel *actions)
         return;
     if (m_actions)
         disconnect(m_actions, nullptr, this, nullptr);
+    finishReorder(false);
     removeSourceRows(0, std::numeric_limits<int>::max());
     m_actions = actions;
     if (actions) {
@@ -469,6 +470,7 @@ void ShellActionProjection::setZone(ShellActionModel::Zone zone)
 {
     if (m_zone == zone)
         return;
+    finishReorder(false);
     m_zone = zone;
     reconcile();
     emit zoneChanged();
@@ -488,11 +490,53 @@ QVariant ShellActionProjection::data(const QModelIndex &index, int role) const
                ? m_rows[index.row()].data(role)
                : QVariant{};
 }
+bool ShellActionProjection::beginReorder(const QString &key)
+{
+    finishReorder(false);
+    for (const auto &row : m_rows) {
+        if (row.data(ShellActionModel::KeyRole).toString() != key)
+            continue;
+        m_reorderSource = row;
+        m_reorderStart = m_rows;
+        m_reorderPreview = m_rows;
+        return true;
+    }
+    return false;
+}
+void ShellActionProjection::previewReorder(int target)
+{
+    if (!m_reorderSource.isValid() || m_reorderPreview.isEmpty())
+        return;
+    const int source = m_reorderPreview.indexOf(m_reorderSource);
+    target = qBound(0, target, int(m_reorderPreview.size()) - 1);
+    if (source < 0 || source == target)
+        return;
+    m_reorderPreview.move(source, target);
+    reconcile();
+}
+void ShellActionProjection::finishReorder(bool commit)
+{
+    if (m_reorderStart.isEmpty())
+        return;
+    QStringList keys;
+    if (commit && m_reorderSource.isValid() && m_reorderPreview != m_reorderStart)
+        for (const auto &row : m_reorderPreview)
+            keys.append(row.data(ShellActionModel::KeyRole).toString());
+    m_reorderSource = QPersistentModelIndex{};
+    m_reorderStart.clear();
+    m_reorderPreview.clear();
+    if (!keys.isEmpty() && m_actions)
+        m_actions->reorder(keys);
+    reconcile();
+}
 void ShellActionProjection::removeSourceRows(int first, int last)
 {
     // Detaching a complete view should retire one range, including a large
     // plugin catalog, rather than delivering one removal for every action.
     if (!m_rows.isEmpty() && first == 0 && last == std::numeric_limits<int>::max()) {
+        m_reorderSource = QPersistentModelIndex{};
+        m_reorderStart.clear();
+        m_reorderPreview.clear();
         beginRemoveRows({}, 0, m_rows.size() - 1);
         m_rows.clear();
         endRemoveRows();
@@ -518,6 +562,17 @@ void ShellActionProjection::reconcile()
             if (effective != -2 && (m_zone == ShellActionModel::All || zone == m_zone))
                 desired.append(source);
         }
+    if (!m_reorderStart.isEmpty()) {
+        if (desired == m_reorderStart && m_reorderSource.isValid()) {
+            desired = m_reorderPreview;
+        } else {
+            // Provider removal/visibility/order changes invalidate the gesture,
+            // including persistent indexes already retired by the source model.
+            m_reorderSource = QPersistentModelIndex{};
+            m_reorderStart.clear();
+            m_reorderPreview.clear();
+        }
+    }
     const QSet<QPersistentModelIndex> keep(desired.cbegin(), desired.cend());
     if (m_rows.isEmpty()) {
         if (!desired.isEmpty()) {
@@ -573,6 +628,7 @@ void ShellActionProjection::setUsePreferredPlacement(bool value)
 {
     if (m_preferred == value)
         return;
+    finishReorder(false);
     m_preferred = value;
     reconcile();
     emit usePreferredPlacementChanged();

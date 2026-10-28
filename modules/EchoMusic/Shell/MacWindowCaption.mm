@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #include <QQuickWindow>
 #include <QRectF>
+#include <QScopeGuard>
 
 namespace EchoMusic
 {
@@ -11,10 +12,32 @@ void setMacDockHidden(bool hidden)
 }
 void configureMacWindow(QQuickWindow *window)
 {
+    if (!window)
+        return;
     // Qt owns the native window and its standard buttons. Keep their default
     // AppKit layout; only suppress the redundant title over the custom chrome.
     auto *content = reinterpret_cast<NSView *>(window->winId());
     content.window.titleVisibility = NSWindowTitleHidden;
+    // Expanded titlebar content is still an AppKit drag surface even when
+    // Quick accepts its controls. Only the explicit controller move may enable
+    // native movement; do not replace Qt's view/class or native button targets.
+    content.window.movableByWindowBackground = NO;
+    content.window.movable = NO;
+}
+bool startMacWindowMove(QQuickWindow *window)
+{
+    auto *content = reinterpret_cast<NSView *>(window->winId());
+    auto *native = [content.window retain];
+    if (!native)
+        return false;
+    native.movable = YES;
+    // The system loop can process closing events. Keep NSWindow alive until
+    // Qt's modal drag returns, then revoke permission before the next press.
+    const auto restore = qScopeGuard([native] {
+        native.movable = NO;
+        [native release];
+    });
+    return window->startSystemMove();
 }
 QRectF macCaptionBounds(QQuickWindow *window)
 {

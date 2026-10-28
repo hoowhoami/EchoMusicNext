@@ -61,8 +61,11 @@ void CloudService::activate(RouteContext *context)
     m_active = true;
     if (m_active && m_network && !m_page && m_api.currentAccountUserId())
         requestPage(1);
-    else if (m_page)
+    else if (m_page) {
         completeSongs(m_items);
+        if (m_error.isEmpty())
+            loadMore();
+    }
     emit changed();
 }
 void CloudService::refresh()
@@ -258,6 +261,18 @@ void CloudService::accept(quint64 id, const QByteArray &bytes)
     m_error.clear();
     project();
     completeSongs(accepted);
+    // Like Cloud.vue, publish the first page immediately and drain the rest
+    // serially without depending on viewport scrolling. The queued boundary
+    // lets navigation/account changes cancel continuation before it starts.
+    const auto session = m_listSession;
+    const auto acceptedPage = m_page;
+    QMetaObject::invokeMethod(
+        this,
+        [this, session, acceptedPage] {
+            if (session == m_api.sessionRevision() && acceptedPage == m_page && m_error.isEmpty())
+                loadMore();
+        },
+        Qt::QueuedConnection);
     emit changed();
 }
 void CloudService::completeSongs(const QList<QJsonObject> &items)

@@ -11,6 +11,11 @@ namespace EchoMusic::Test
 {
 #ifdef Q_OS_MACOS
 void activateTestApplication();
+QVariantMap nativeWindowInputPolicy(QWindow *window);
+bool systemMousePostingAvailable();
+void postSystemLeftMouse(QPoint globalPosition, QEvent::Type type);
+// Post through AppKit/QPA, including the native expanded-caption delivery path.
+void postNativeLeftMouse(QWindow *window, QPoint position, QEvent::Type type);
 #endif
 /// A CLI test can be a background process. On Cocoa requestActivate() makes a
 /// window key but does not foreground the process; raise() supplies that Qt

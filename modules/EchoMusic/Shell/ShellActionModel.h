@@ -124,8 +124,8 @@ private:
     quint64 m_generation = 0;
 };
 
-/// Read-only view of one registry. Native row moves keep QML delegates alive;
-/// QSortFilterProxyModel translates source moves to layoutChanged instead.
+/// Projection of one registry with optional transient drag order. Native moves keep delegates
+/// alive; QSortFilterProxyModel translates source moves to layoutChanged instead.
 class ShellActionProjection : public QAbstractListModel
 {
     Q_OBJECT
@@ -155,6 +155,11 @@ public:
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
+    // A drag owns a temporary view order. Registry/preferences change only once
+    // on release; cancellation or a changed catalog restores the source order.
+    Q_INVOKABLE bool beginReorder(const QString &key);
+    Q_INVOKABLE void previewReorder(int target);
+    Q_INVOKABLE void finishReorder(bool commit);
 signals:
     void actionsChanged();
     void zoneChanged();
@@ -167,6 +172,8 @@ private:
                            const QList<int> &roles);
     QPointer<ShellActionModel> m_actions;
     QList<QPersistentModelIndex> m_rows;
+    QPersistentModelIndex m_reorderSource;
+    QList<QPersistentModelIndex> m_reorderStart, m_reorderPreview;
     ShellActionModel::Zone m_zone = ShellActionModel::All;
     bool m_preferred = false;
 };

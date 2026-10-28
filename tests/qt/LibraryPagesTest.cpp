@@ -219,6 +219,19 @@ public:
 class CloudServiceTestAccess
 {
 public:
+    static quint64 listRequest(const CloudService &s)
+    {
+        return s.m_listRequest;
+    }
+    static void respond(CloudService &s, quint64 id, const QJsonObject &object, bool failed = false)
+    {
+        s.m_api.cancel(id);
+        const auto bytes = QJsonDocument(object).toJson();
+        if (failed)
+            s.fail(id, bytes);
+        else
+            s.accept(id, bytes);
+    }
     static void enableMetadata(CloudService &s)
     {
         s.m_network = true;
@@ -2281,14 +2294,15 @@ ApplicationWindow {
         CloudService cloud(api, playback, songMetadata, router, true);
         cloud.registerRoutes(router);
         QVERIFY(router.navigate("cloud"));
-        QTRY_VERIFY_WITH_TIMEOUT(!cloud.loading(), 45000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !cloud.loading() && (!cloud.hasMore() || !cloud.errorMessage().isEmpty()), 45000);
         QVERIFY2(cloud.errorMessage().isEmpty(), qPrintable(cloud.errorMessage()));
         QVERIFY(cloud.songs()->count() > 0);
         QTRY_COMPARE_WITH_TIMEOUT(CloudServiceTestAccess::metadataTicket(cloud), quint64(0), 45000);
         int cloudFacts = 0;
         for (const auto &result : metadataReady)
             cloudFacts += result[1].value<QJsonArray>().size();
-        qInfo() << "LIVE cloud first_page rows=" << cloud.songs()->count()
+        qInfo() << "LIVE cloud complete_without_scroll rows=" << cloud.songs()->count()
                 << "metadata_consumers=" << metadataReady.size()
                 << "metadata_completed=" << cloudFacts;
         cloud.shutdown();
@@ -2653,6 +2667,130 @@ Window {
         QCOMPARE(favorites.videos()->count(), 2);
         QCOMPARE(favorites.videos()->item(0).value("durationText").toString(), QString("3:44"));
         QVERIFY(!favorites.hasMore());
+    }
+
+    void cloudAutomaticallyLoadsWithoutScrollingAndCancelsContinuation()
+    {
+        QTemporaryDir dir;
+        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        QTcpServer transport;
+        QVERIFY(transport.listen(QHostAddress::LocalHost));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(transport.serverPort()));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        SongMetadataService metadata(api);
+        RouteController router;
+        CloudService cloud(api, playback, metadata, router, true);
+        cloud.registerRoutes(router);
+        QVERIFY(router.registerPage({"other",
+                                     "/main/other",
+                                     QUrl("qrc:/not-instantiated.qml"),
+                                     {},
+                                     true,
+                                     true,
+                                     false,
+                                     {}}));
+        const auto page = [](int number, int first, int count, int total) {
+            QJsonArray items;
+            for (int i = first; i < first + count; ++i)
+                items.append(QJsonObject{
+                    {"file_id", i},
+                    {"sort_index", i},
+                    {"added_at_seconds", 1},
+                    {"song", QJsonObject{{"id", QString::number(i)},
+                                         {"hash", QString(32, 'A')},
+                                         {"title", QString("Cloud Song %1").arg(i)},
+                                         {"album_id", "1"},
+                                         {"album_title", "Album"},
+                                         {"duration_ms", 180000},
+                                         {"cover_url", "https://example.invalid/cover.jpg"},
+                                         {"artists", QJsonArray{QJsonObject{{"id", "1"},
+                                                                            {"name", "Artist"}}}}}},
+                    {"metadata", QJsonObject{}}});
+            return QJsonObject{
+                {"page", QJsonObject{{"page", number}, {"total", total}, {"items", items}}}};
+        };
+        const auto respond = [&](const QJsonObject &object) {
+            CloudServiceTestAccess::respond(cloud, CloudServiceTestAccess::listRequest(cloud),
+                                            object);
+        };
+        QVERIFY(router.navigate("cloud"));
+        QVERIFY(cloud.loading());
+        respond(page(1, 1, 100, 205));
+        QCOMPARE(cloud.songs()->count(), 100); // First screen is published before the next read.
+        cloud.songs()->toggleSelected("1");
+        const QPersistentModelIndex retained(cloud.songs()->index(0));
+        QSignalSpy resets(cloud.songs(), &QAbstractItemModel::modelReset);
+        for (int number = 2; number <= 3; ++number) {
+            QTRY_VERIFY(cloud.loading()); // No scroll or explicit loadMore call.
+            const auto request = CloudServiceTestAccess::listRequest(cloud);
+            cloud.loadMore();
+            cloud.loadMore();
+            QCOMPARE(CloudServiceTestAccess::listRequest(cloud), request); // One request at a time.
+            respond(page(number, (number - 1) * 100 + 1, number == 2 ? 100 : 5, 205));
+        }
+        QCOMPARE(cloud.songs()->count(), 205);
+        QVERIFY(!cloud.hasMore());
+        QTest::qWait(25);
+        QVERIFY(!cloud.loading());
+        QVERIFY(retained.isValid());
+        QCOMPARE(retained.row(), 0);
+        QCOMPARE(retained.data(SongCatalogModel::ResourceId).toString(), "1");
+        QCOMPARE(cloud.songs()->selectedCount(), 1);
+        QVERIFY(resets.isEmpty());
+        cloud.songs()->setQuery("Cloud Song 205");
+        QCOMPARE(cloud.songs()->count(), 1); // Search sees later pages without scrolling.
+        cloud.songs()->setQuery({});
+
+        cloud.refresh();
+        respond(page(1, 1, 100, 205));
+        QVERIFY(router.navigate("other")); // Leave before the queued second-page read.
+        QTest::qWait(25);
+        QVERIFY(!cloud.loading());
+        QCOMPARE(cloud.songs()->count(), 100);
+        QVERIFY(router.navigate("cloud"));
+        QTRY_VERIFY(cloud.loading()); // Resume from the first accepted page.
+        CloudServiceTestAccess::respond(cloud, CloudServiceTestAccess::listRequest(cloud),
+                                        {{"kind", "transport"}, {"message", "offline"}}, true);
+        QTest::qWait(25);
+        QVERIFY(!cloud.loading());
+        QCOMPARE(cloud.errorMessage(), "offline");
+        QCOMPARE(cloud.songs()->count(), 100);
+        cloud.loadMore(); // Explicit retry continues, keeping accepted rows.
+        QVERIFY(cloud.loading());
+        respond(page(2, 0, 0, 205)); // EOF also stops when a counter is stale.
+        QTest::qWait(25);
+        QVERIFY(!cloud.hasMore());
+        QVERIFY(!cloud.loading());
+        QCOMPARE(cloud.songs()->count(), 100);
+
+        cloud.refresh();
+        const auto stale = CloudServiceTestAccess::listRequest(cloud);
+        respond(page(1, 1, 100, 205));
+        QVERIFY(api.setAccount(101, "offline-domain-fixture-next"));
+        QCOMPARE(cloud.songs()->count(), 0);
+        QVERIFY(cloud.loading());
+        const auto current = CloudServiceTestAccess::listRequest(cloud);
+        CloudServiceTestAccess::respond(cloud, stale, page(2, 101, 100, 205));
+        QCOMPARE(CloudServiceTestAccess::listRequest(cloud), current);
+        QCOMPARE(cloud.songs()->count(), 0);
+        respond(page(1, 500, 1, 1));
+        QTest::qWait(25);
+        QVERIFY(!cloud.loading());
+        QCOMPARE(cloud.songs()->count(), 1);
+        QCOMPARE(cloud.songs()->item(0)["resourceId"].toString(), "500");
+
+        cloud.refresh();
+        respond(page(1, 1, 100, 205));
+        cloud.shutdown(); // Queued continuation cannot revive a closed service.
+        QTest::qWait(25);
+        QVERIFY(!cloud.loading());
+        router.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
     }
 
     void cloudPagesSortDeleteAndReportCounters()

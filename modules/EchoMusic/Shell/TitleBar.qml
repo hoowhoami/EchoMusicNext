@@ -47,12 +47,12 @@ Item {
     }
     onWidthChanged: updateCapacity()
     Component.onCompleted: updateCapacity()
-    // Native move/resize keeps snap, multi-monitor and Wayland behavior in the OS.
-    EchoWindowDragArea {
+    // Controls, disabled entries, inter-button gaps and the vertical padding
+    // are client input. Only the explicit empty caption below starts a move.
+    MouseArea {
+        objectName: "titlebarInputGuard"
         anchors.fill: parent
-        excludedItems: [navigation, toolbar, more, windowActions]
-        onMoveRequested: bar.window.startSystemMove()
-        onDoubleClickRequested: bar.windowService.toggleMaximized()
+        acceptedButtons: Qt.AllButtons
     }
     RowLayout {
         anchors.fill: parent
@@ -114,9 +114,11 @@ Item {
             cacheBuffer: 0
             spacing: 4
             model: ShellActionProjection {
+                id: toolbarProjection
                 actions: bar.controller.titlebarActions
                 zone: ShellActionModel.Toolbar
             }
+            property int reorderEpoch: 0
             readonly property bool motionActive: visible && bar.window.visible && bar.window.visibility !== Window.Minimized && Theme.store.motionEnabled
             onMotionActiveChanged: if (!motionActive) {
                 moveAnimation.complete();
@@ -159,28 +161,35 @@ Item {
                     iconOpacity: actionButton.enabled ? 1 : actionButton.disabledOpacity
                     dragLayer: bar
                     resourceActive: !actionButton.pooled && toolbar.visible && bar.window.visible && bar.window.visibility !== Window.Minimized
-                }
-                DropArea {
-                    // Unavailable commands remain valid reorder destinations.
-                    // Keep hit testing outside the disabled button subtree.
-                    parent: toolbar.contentItem
-                    x: actionButton.x
-                    y: actionButton.y
-                    width: actionButton.width
-                    height: actionButton.height
-                    keys: ["titlebar-actions"]
-                    onDropped: drop => {
-                        const key = drop.source.objectName;
-                        const target = actionButton.actionKey;
-                        const before = drop.x < width / 2;
-                        const actions = bar.controller.titlebarActions;
+                    onReorderStarted: key => {
+                        toolbar.reorderEpoch++;
+                        toolbarProjection.beginReorder(key);
+                    }
+                    onReorderMoved: position => {
+                        const point = toolbar.mapFromItem(null, position.x, position.y);
+                        toolbarProjection.previewReorder(Math.floor(point.x / 38));
+                    }
+                    onReorderReleased: position => {
+                        const point = toolbar.mapFromItem(null, position.x, position.y);
+                        const inside = point.x >= 0 && point.x <= toolbar.width && point.y >= 0 && point.y <= toolbar.height;
+                        const epoch = toolbar.reorderEpoch;
                         Qt.callLater(() => {
-                            if (before)
-                                actions.moveBefore(key, target, ShellActionModel.Toolbar);
-                            else
-                                actions.moveAfter(key, target, ShellActionModel.Toolbar);
+                            if (epoch === toolbar.reorderEpoch)
+                                toolbarProjection.finishReorder(inside);
                         });
-                        drop.acceptProposedAction();
+                    }
+                    onReorderCanceled: {
+                        const epoch = ++toolbar.reorderEpoch;
+                        // Pool/removal notifications can arrive inside a model
+                        // transaction; restore after that notification completes.
+                        Qt.callLater(() => {
+                            if (epoch === toolbar.reorderEpoch) {
+                                toolbarProjection.finishReorder(false);
+                                // A hidden view does not get a render/polish turn.
+                                // Apply its restored order before it is shown again.
+                                toolbar.forceLayout();
+                            }
+                        });
                     }
                 }
             }
@@ -189,8 +198,9 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             EchoWindowDragArea {
+                objectName: "titlebarWindowDragArea"
                 anchors.fill: parent
-                onMoveRequested: bar.window.startSystemMove()
+                onMoveRequested: bar.windowService.startSystemMove()
                 onDoubleClickRequested: bar.windowService.toggleMaximized()
             }
         }

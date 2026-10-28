@@ -39,8 +39,7 @@ void ControlsUiTest::windowCaptionSeparatesDoubleClickFromDrag()
         QCOMPARE(doubleClick.count(), 0);
     }
     QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, start);
-    if (QOperatingSystemVersion::currentType() == QOperatingSystemVersion::Windows)
-        QCOMPARE(move.count(), 0);
+    QCOMPARE(move.count(), 0);
     QTest::mouseDClick(session.window, Qt::LeftButton, Qt::NoModifier, start);
     QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, start);
     QCOMPARE(doubleClick.count(), 1);
@@ -48,8 +47,7 @@ void ControlsUiTest::windowCaptionSeparatesDoubleClickFromDrag()
     QTest::qWait(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 10);
     QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, start);
     QTest::mouseMove(session.window, start + QPoint(1, 0));
-    if (QOperatingSystemVersion::currentType() == QOperatingSystemVersion::Windows)
-        QCOMPARE(move.count(), 0);
+    QCOMPARE(move.count(), 0);
     const auto dragged = start + QPoint(QGuiApplication::styleHints()->startDragDistance() + 5, 0);
     QTest::mouseMove(session.window, dragged);
     QCOMPARE(move.count(), 1);

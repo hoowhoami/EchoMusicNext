@@ -11,6 +11,7 @@
 #include <QGuiApplication>
 #include <QQmlEngine>
 #include <QScreen>
+#include <QScopedValueRollback>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QLoggingCategory>
@@ -58,6 +59,7 @@ QQuickItem *staleOverlayGrabber(QQuickWindow *window)
 } // namespace
 #ifdef Q_OS_MACOS
 void configureMacWindow(QQuickWindow *window);
+bool startMacWindowMove(QQuickWindow *window);
 QRectF macCaptionBounds(QQuickWindow *window);
 void setMacDockHidden(bool hidden);
 QMenuBar *createMacApplicationMenu(WindowController *controller);
@@ -144,6 +146,17 @@ QRect WindowController::restoreBounds(const QRect &saved, const QList<QRect> &ar
     }
     const QSize size(qMin(1150, primary.width()), qMin(750, primary.height()));
     return {primary.center() - QPoint(size.width() / 2, size.height() / 2), size};
+}
+bool WindowController::startSystemMove()
+{
+    if (!m_window || !m_window->isVisible() || fullscreen() || m_systemMoveActive)
+        return false;
+    const QScopedValueRollback moving(m_systemMoveActive, true);
+#ifdef Q_OS_MACOS
+    if (QGuiApplication::platformName() == "cocoa")
+        return startMacWindowMove(m_window);
+#endif
+    return m_window->startSystemMove();
 }
 bool WindowController::mainWindowActive() const
 {
@@ -234,7 +247,13 @@ void WindowController::attach(QQuickWindow *window)
     connect(window, &QWindow::yChanged, this, &WindowController::captureNormalGeometry);
     connect(window, &QWindow::widthChanged, this, &WindowController::captureNormalGeometry);
     connect(window, &QWindow::heightChanged, this, &WindowController::captureNormalGeometry);
-    connect(window, &QWindow::windowStateChanged, this, [this] { emit changed(); });
+    connect(window, &QWindow::windowStateChanged, this, [this] {
+#ifdef Q_OS_MACOS
+        if (m_window && !m_systemMoveActive && QGuiApplication::platformName() == "cocoa")
+            configureMacWindow(m_window);
+#endif
+        emit changed();
+    });
     // A shortcut can choose Mini while the engine is still creating Main.qml.
     if (m_floating.miniActive()) {
         m_backgroundState = restoreState(window->windowStates());

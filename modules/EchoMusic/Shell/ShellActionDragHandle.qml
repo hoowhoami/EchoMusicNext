@@ -35,15 +35,24 @@ Item {
     onMotionActiveChanged: if (!motionActive)
         opacityAnimation.complete()
     signal clicked
+    signal reorderStarted(string key)
+    signal reorderMoved(point scenePosition)
+    signal reorderReleased(point scenePosition)
+    signal reorderCanceled
+    property point lastScenePosition
     implicitWidth: 20
     implicitHeight: 20
     // MouseArea.drag.active can survive pool/reuse. A cancelled press must
     // never reactivate when this handle becomes visible with different roles.
     onResourceActiveChanged: if (!resourceActive) {
+        if (button !== null)
+            reorderCanceled();
         gestureArmed = false;
         ghost.Drag.cancel();
     }
     onActionKeyChanged: {
+        if (gestureArmed && button !== null)
+            reorderCanceled();
         gestureArmed = false;
         ghost.Drag.cancel();
     }
@@ -98,23 +107,37 @@ Item {
         onActiveChanged: {
             if (active) {
                 ghost.actionKey = handle.actionKey;
-                updateGhost();
                 handle.gestureArmed = true;
+                handle.reorderStarted(handle.actionKey);
+                updateGhost();
             } else if (handle.gestureArmed) {
-                ghost.Drag.drop();
+                if (handle.resourceActive && handle.enabled && handle.Window.window !== null && handle.Window.window.visible) {
+                    handle.reorderReleased(handle.lastScenePosition);
+                    ghost.Drag.drop();
+                } else {
+                    handle.reorderCanceled();
+                    ghost.Drag.cancel();
+                }
                 handle.gestureArmed = false;
             }
         }
         onCanceled: {
+            // Cancellation can follow activeChanged(false); invalidate any
+            // queued release even if that callback already disarmed the ghost.
+            handle.reorderCanceled();
             handle.gestureArmed = false;
             ghost.Drag.cancel();
         }
-        onCentroidChanged: if (active)
+        onCentroidChanged: if (active && (centroid.pressedButtons & Qt.LeftButton))
             updateGhost()
         function updateGhost() {
-            const point = parent.mapToItem(ghost.parent, centroid.position.x, centroid.position.y);
+            // The delegate itself moves during preview. Scene coordinates keep
+            // the ghost and insertion target independent of that animation.
+            handle.lastScenePosition = centroid.scenePosition;
+            const point = ghost.parent.mapFromItem(null, handle.lastScenePosition.x, handle.lastScenePosition.y);
             ghost.x = point.x - ghost.width / 2;
             ghost.y = point.y - ghost.height / 2;
+            handle.reorderMoved(handle.lastScenePosition);
         }
     }
     MouseArea {

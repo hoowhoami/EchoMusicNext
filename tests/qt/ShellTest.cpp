@@ -29,6 +29,10 @@
 #include <QNetworkProxy>
 #include "BrowserVerificationSession.h"
 #include <QtTest>
+#ifdef Q_OS_MACOS
+#include <thread>
+#include <atomic>
+#endif
 using namespace EchoMusic;
 namespace EchoMusic
 {
@@ -1820,6 +1824,252 @@ QtObject {
             }
         }
     }
+    void productionPlayerLayoutDragPreviewsAndSettles()
+    {
+        QTemporaryDir directory;
+        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        ThemeStore theme(preferences);
+        RouteController routes;
+        ShellController controller(preferences, routes);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import EchoMusic.Controls
+            import EchoMusic.Shell
+            Window {
+                id: host
+                width: 1120; height: 760; visible: true
+                property real uiScale: 1
+                required property ShellActionModel actions
+                function openEditor() { owner.open({editing: true}); }
+                Item { id: anchor; x: 540; y: 710; width: 34; height: 34 }
+                EchoPopupLoader {
+                    id: owner
+                    hostItem: host.contentItem
+                    sourceComponent: Component {
+                        PlayerBarMorePopup { actions: host.actions; anchorItem: anchor }
+                    }
+                }
+                Component.onCompleted: Qt.callLater(openEditor)
+            }
+        )",
+                          QUrl());
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"actions", QVariant::fromValue(controller.playerbarActions())}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        auto item = [&](const QString &name) {
+            return findVisibleVisual(window->contentItem(), name);
+        };
+        const auto capture = [&](QString name) {
+            const auto path = qEnvironmentVariable("ECHO_PLAYER_LAYOUT_CAPTURE_DIR");
+            if (path.isEmpty())
+                return;
+            window->update();
+            QTest::qWait(16);
+            QVERIFY(QDir().mkpath(path));
+            const auto image = window->grabWindow();
+            QVERIFY(!image.isNull());
+            QVERIFY(image.save(path + "/" + name + ".png"));
+        };
+        QPointer<QObject> popup;
+        QTRY_VERIFY((popup = root->findChild<QObject *>("playerbarMorePopup")));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (const double scale : {1.0, 1.25}) {
+                window->setProperty("uiScale", scale);
+                for (const bool motion : {true, false}) {
+                    theme.setMotionEnabled(motion);
+                    controller.playerbarActions()->restoreDefaults();
+                    QTest::qWait(220);
+                    auto *right = item("playerLayoutZone-3");
+                    auto *more = item("playerLayoutZone-4");
+                    auto *quality = item("playerLayoutChip-host/quality");
+                    auto *effect = item("playerLayoutChip-host/effect");
+                    QVERIFY(right && more && quality && effect);
+                    auto *qualitySlot = quality->parentItem();
+                    auto *effectSlot = effect->parentItem();
+                    const auto savedOrder = preferences.value("shell/playerbar/order");
+                    const auto savedPlacement = preferences.value("shell/playerbar/placements");
+                    const auto originalEffect = effectSlot->mapToItem(right, QPointF{}).x();
+                    const auto start = quality->mapToScene({2, 17}).toPoint();
+                    const auto end = right->mapToScene({right->width() - 20, 47}).toPoint();
+                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
+                    QTest::mouseMove(window, start + QPoint(10, 0));
+                    QTest::mouseMove(window, end);
+                    QTest::qWait(40);
+                    const auto during = effectSlot->mapToItem(right, QPointF{}).x();
+                    QVERIFY(during < originalEffect);
+                    if (motion)
+                        QVERIFY(during > originalEffect - 40);
+                    QCOMPARE(preferences.value("shell/playerbar/order"), savedOrder);
+                    QCOMPARE(preferences.value("shell/playerbar/placements"), savedPlacement);
+                    capture(QString("held-within-%1-%2-%3").arg(int(mode)).arg(scale).arg(motion));
+                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, end);
+                    QTRY_VERIFY(preferences.value("shell/playerbar/order") != savedOrder);
+                    QTest::qWait(220);
+                    quality = item("playerLayoutChip-host/quality");
+                    QVERIFY(quality && quality->parentItem() == qualitySlot);
+                    // Cross-zone preview opens an insertion gap before the first
+                    // More item without moving the source model or its grab.
+                    const auto placement = preferences.value("shell/playerbar/placements");
+                    const auto source = quality->mapToScene({2, 17}).toPoint();
+                    const auto target = more->mapToScene({5, 47}).toPoint();
+                    auto *cast = item("playerLayoutChip-host/cast");
+                    QVERIFY(cast);
+                    const auto castX = cast->mapToItem(more, QPointF{}).x();
+                    QPointer<QQuickItem> heldSource(quality);
+                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, source);
+                    QTest::mouseMove(window, source + QPoint(10, 0));
+                    QTest::mouseMove(window, target);
+                    QTest::qWait(40);
+                    QVERIFY(heldSource);
+                    QVERIFY(cast->mapToItem(more, QPointF{}).x() > castX);
+                    QVERIFY(item("playerLayoutGap-4"));
+                    QCOMPARE(preferences.value("shell/playerbar/placements"), placement);
+                    QCOMPARE(right->property("count").toInt(), 4);
+                    QCOMPARE(more->property("count").toInt(), 1);
+                    capture(QString("held-cross-%1-%2-%3").arg(int(mode)).arg(scale).arg(motion));
+                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, target);
+                    QTRY_COMPARE(more->property("count").toInt(), 2);
+                    QTRY_COMPARE(right->property("count").toInt(), 3);
+                    capture(
+                        QString("landing-cross-%1-%2-%3").arg(int(mode)).arg(scale).arg(motion));
+                    QTest::qWait(240);
+                    quality = findVisibleVisual(more, "playerLayoutChip-host/quality");
+                    QVERIFY(quality);
+                    QVERIFY(qAbs(quality->mapToItem(more, QPointF{}).x()) < 0.5);
+                    QVERIFY(qAbs(cast->mapToItem(more, QPointF{}).x() - 40) < 0.5);
+                    capture(
+                        QString("settled-cross-%1-%2-%3").arg(int(mode)).arg(scale).arg(motion));
+                }
+            }
+        }
+        theme.setMotionEnabled(true);
+        window->setProperty("uiScale", 1.0);
+        controller.playerbarActions()->restoreDefaults();
+        QVERIFY(controller.playerbarActions()->moveInPlayerZone("host/favorite",
+                                                                ShellActionModel::More));
+        QTest::qWait(220);
+        auto *left = item("playerLayoutZone-1");
+        auto *right = item("playerLayoutZone-3");
+        auto *more = item("playerLayoutZone-4");
+        auto *quality = item("playerLayoutChip-host/quality");
+        QVERIFY(left && right && more && quality);
+        QTRY_COMPARE(left->property("count").toInt(), 0);
+        const auto placements = preferences.value("shell/playerbar/placements");
+        const auto source = quality->mapToScene({2, 17}).toPoint();
+        const auto emptyTarget = left->mapToScene({8, 47}).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, source);
+        QTest::mouseMove(window, source + QPoint(10, 0));
+        QTest::mouseMove(window, emptyTarget);
+        QTest::qWait(160);
+        QVERIFY(item("playerLayoutGap-1"));
+        QCOMPARE(left->property("count").toInt(), 0);
+        QCOMPARE(preferences.value("shell/playerbar/placements"), placements);
+        // Leaving every region and releasing cancels instead of saving the last
+        // hovered target; the same source remains available for another drag.
+        QTest::mouseMove(window, {20, 20});
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, {20, 20});
+        QTest::qWait(200);
+        QCOMPARE(preferences.value("shell/playerbar/placements"), placements);
+        QCOMPARE(left->property("count").toInt(), 0);
+        QVERIFY(item("playerLayoutChip-host/quality") == quality);
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, source);
+        QTest::mouseMove(window, source + QPoint(10, 0));
+        QTest::mouseMove(window, emptyTarget);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, emptyTarget);
+        QTRY_COMPARE(left->property("count").toInt(), 1);
+        QTest::qWait(220);
+        quality = findVisibleVisual(left, "playerLayoutChip-host/quality");
+        QVERIFY(quality);
+        const auto beforeClose = preferences.value("shell/playerbar/placements");
+        const auto closingStart = quality->mapToScene({17, 17}).toPoint();
+        const auto closingEnd = more->mapToScene({5, 47}).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, closingStart);
+        QTest::mouseMove(window, closingStart + QPoint(10, 0));
+        QTest::mouseMove(window, closingEnd);
+        QTest::qWait(40);
+        QVERIFY(item("host/quality"));
+        QCOMPARE(warnings.size(), 0);
+        QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        QTRY_VERIFY(popup.isNull());
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, closingEnd);
+        QCOMPARE(preferences.value("shell/playerbar/placements"), beforeClose);
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "openEditor"));
+        QTRY_VERIFY((popup = root->findChild<QObject *>("playerbarMorePopup")));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        // A scrolled, virtualized target must use its logical origin for the
+        // insertion gap and preserve that viewport when the new row arrives.
+        QObject provider;
+        for (int i = 0; i < 64; ++i) {
+            ShellActionModel::Contribution contribution;
+            contribution.key = "test/player-motion/" + QString::number(i);
+            contribution.id = contribution.key;
+            contribution.title = QStringLiteral("扩展动作 %1").arg(i);
+            contribution.icon = "music";
+            contribution.invoke = [] {};
+            controller.playerbarActions()->registerAction(provider, std::move(contribution));
+        }
+        more = item("playerLayoutZone-4");
+        QVERIFY(more);
+        QTRY_COMPARE(more->property("count").toInt(), 66);
+        more->setProperty("contentX", more->property("originX").toReal() + 400);
+        QTest::qWait(40);
+        auto *content = more->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        int liveSlots = 0;
+        for (auto *child : content->childItems())
+            liveSlots += child->objectName().startsWith("playerLayoutSlot-");
+        QVERIFY(liveSlots > 0 && liveSlots < 32);
+        qInfo() << "Player editor: 66 More actions, live slots" << liveSlots;
+        quality = item("playerLayoutChip-host/quality");
+        QVERIFY(quality);
+        const auto scrolledStart = quality->mapToScene({17, 17}).toPoint();
+        const auto scrolledEnd = more->mapToScene({85, 47}).toPoint();
+        const auto scrollPlacement = preferences.value("shell/playerbar/placements");
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, scrolledStart);
+        QTest::mouseMove(window, scrolledStart + QPoint(10, 0));
+        QTest::mouseMove(window, scrolledEnd);
+        QTest::qWait(60);
+        auto *gap = item("playerLayoutGap-4");
+        QVERIFY(gap);
+        QVERIFY2(qAbs(gap->mapToItem(more, QPointF{}).x() - 80) < 0.5,
+                 qPrintable(QStringLiteral("gap=%1 contentX=%2 originX=%3 parent=%4")
+                                .arg(gap->mapToItem(more, QPointF{}).x())
+                                .arg(more->property("contentX").toReal())
+                                .arg(more->property("originX").toReal())
+                                .arg(gap->parentItem()->objectName())));
+        QCOMPARE(preferences.value("shell/playerbar/placements"), scrollPlacement);
+        capture("held-scrolled");
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, scrolledEnd);
+        QTRY_COMPARE(more->property("count").toInt(), 67);
+        QTest::qWait(240);
+        quality = findVisibleVisual(more, "playerLayoutChip-host/quality");
+        QVERIFY(quality);
+        QVERIFY(qAbs(quality->mapToItem(more, QPointF{}).x() - 80) < 0.5);
+        capture("settled-scrolled");
+        const auto beforeHide = preferences.value("shell/playerbar/placements");
+        const auto hidingStart = quality->mapToScene({17, 17}).toPoint();
+        left = item("playerLayoutZone-1");
+        QVERIFY(left);
+        const auto hidingEnd = left->mapToScene({8, 47}).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, hidingStart);
+        QTest::mouseMove(window, hidingStart + QPoint(10, 0));
+        QTest::mouseMove(window, hidingEnd);
+        window->hide();
+        QTest::qWait(40);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, hidingEnd);
+        QCOMPARE(preferences.value("shell/playerbar/placements"), beforeHide);
+        window->show();
+        QVERIFY(Test::prepareNativeInput(window));
+        QCOMPARE(warnings.size(), 0);
+    }
     void productionTitlebarPinningTasksAndVirtualization()
     {
         QTemporaryDir temp;
@@ -1928,6 +2178,46 @@ QtObject {
         auto *taskHandle = findVisual(taskButton, "shellDragHandle-host/tasks");
         QVERIFY(taskHandle);
         QSignalSpy taskClicks(taskButton, SIGNAL(clicked()));
+        auto *caption = item("titlebarWindowDragArea");
+        QVERIFY(caption);
+        QSignalSpy captionMoves(caption, SIGNAL(moveRequested()));
+        auto *titlebar = item("shellTitleBar");
+        QVERIFY(titlebar);
+        // Include the padding above/below controls: it used to fall through to
+        // the entire-bar caption even when the icon itself was protected.
+        for (auto *target : {taskButton, recognizeButton, item("titlebarBackAction"), more}) {
+            QVERIFY(target);
+            for (const qreal y : {1.0, titlebar->height() - 1}) {
+                const auto center = target->mapToItem(titlebar, target->boundingRect().center());
+                const auto start = titlebar->mapToScene({center.x(), y}).toPoint();
+                QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
+                QTest::mouseMove(window, start + QPoint(24, 0));
+                QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, start + QPoint(24, 0));
+                QCOMPARE(captionMoves.size(), 0);
+            }
+        }
+#ifdef Q_OS_MACOS
+        if (QGuiApplication::platformName() == "cocoa") {
+            auto *guard = item("titlebarInputGuard");
+            QVERIFY(guard);
+            QSignalSpy nativePresses(guard, SIGNAL(pressedChanged()));
+            QVERIFY(nativePresses.isValid());
+            for (const qreal y : {1.0, titlebar->height() - 1}) {
+                const auto center =
+                    taskButton->mapToItem(titlebar, taskButton->boundingRect().center());
+                const auto start = titlebar->mapToScene({center.x(), y}).toPoint();
+                const auto original = window->position();
+                const auto delivered = nativePresses.size();
+                Test::postNativeLeftMouse(window, start, QEvent::MouseButtonPress);
+                Test::postNativeLeftMouse(window, start + QPoint(24, 0), QEvent::MouseMove);
+                Test::postNativeLeftMouse(window, start + QPoint(24, 0),
+                                          QEvent::MouseButtonRelease);
+                QTRY_VERIFY(nativePresses.size() >= delivered + 2);
+                QCOMPARE(window->position(), original);
+                QCOMPARE(captionMoves.size(), 0);
+            }
+        }
+#endif
         for (const bool motion : {true, false}) {
             theme.setMotionEnabled(motion);
             shell.setMotionEnabled(motion);
@@ -1939,6 +2229,7 @@ QtObject {
                 QTest::qWait(250);
                 for (const bool before : {true, false}) {
                     const auto oldX = taskButton->x();
+                    const auto savedOrder = preferences.value("shell/titlebar/order");
                     const auto normalPosition = window->position();
                     const auto start =
                         taskButton->mapToScene({2, taskButton->height() / 2}).toPoint();
@@ -1953,54 +2244,206 @@ QtObject {
                     QTest::mouseMove(window, start + QPoint(0, 8));
                     QTest::mouseMove(window, destination);
                     QTRY_VERIFY(taskHandle->property("dragging").toBool());
-                    // Drag posts/coalesces scene moves before DropArea delivery.
-                    QTest::qWait(30);
+                    // Verify the actual exchange while the mouse is still down,
+                    // rather than mistaking a post-release transition for preview.
+                    QTest::qWait(45);
+                    if (motion) {
+                        const auto duringX = taskButton->x();
+                        QVERIFY2(before ? duringX < oldX && duringX > 0
+                                        : duringX > oldX && duringX < 38,
+                                 qPrintable(QString("held preview before=%1 old=%2 during=%3")
+                                                .arg(before)
+                                                .arg(oldX)
+                                                .arg(duringX)));
+                    }
                     auto *ghost = findVisual(window->contentItem(), "host/tasks");
                     QVERIFY(ghost && ghost->isVisible());
                     QVERIFY(QLineF(ghost->mapToScene(ghost->boundingRect().center()), destination)
                                 .length() < 2);
+                    QCOMPARE(preferences.value("shell/titlebar/order"), savedOrder);
+                    QCOMPARE(captionMoves.size(), 0);
                     QVERIFY(!taskButton->property("pressed").toBool());
                     QCOMPARE(window->position(), normalPosition);
-                    capture(QString("titlebar-drag-%1-%2-%3").arg(motion).arg(zoomed).arg(before));
+                    capture(
+                        QString("titlebar-held-swap-%1-%2-%3").arg(motion).arg(zoomed).arg(before));
+                    QTRY_COMPARE(taskButton->x(), before ? 0.0 : 38.0);
+                    QCOMPARE(preferences.value("shell/titlebar/order"), savedOrder);
+                    // Keeping the pointer still after the source moves must not
+                    // cause the preview to oscillate back under its own handler.
+                    QTest::qWait(80);
+                    QCOMPARE(taskButton->x(), before ? 0.0 : 38.0);
                     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, destination);
                     QTRY_VERIFY(!taskHandle->property("dragging").toBool());
+                    QTRY_VERIFY(preferences.value("shell/titlebar/order") != savedOrder);
                     QCOMPARE(taskClicks.count(), 0);
-                    if (motion) {
-                        QTest::qWait(45);
-                        const auto duringX = taskButton->x();
-                        QVERIFY2(before ? duringX < oldX && duringX > 0
-                                        : duringX > oldX && duringX < 38,
-                                 qPrintable(QString("before=%1 old=%2 during=%3 motion=%4")
-                                                .arg(before)
-                                                .arg(oldX)
-                                                .arg(duringX)
-                                                .arg(toolbar->property("motionActive").toBool())));
-                        capture(QString("titlebar-reorder-%1-%2").arg(zoomed).arg(before));
-                    }
                     QTRY_COMPARE(taskButton->x(), before ? 0.0 : 38.0);
                     QTest::qWait(50); // Settle the displaced peer before the reverse gesture.
                     QVERIFY(!window->mouseGrabberItem());
                 }
             }
         }
+#ifdef Q_OS_MACOS
+        if (QGuiApplication::platformName() == "cocoa")
+            qInfo() << "Native input policy" << Test::nativeWindowInputPolicy(window);
+        if (QGuiApplication::platformName() == "cocoa")
+            QVERIFY(!Test::nativeWindowInputPolicy(window).value("movable").toBool());
+#endif
+#ifdef Q_OS_MACOS
+        if (QGuiApplication::platformName() == "cocoa") {
+            qInfo() << "System mouse posting" << Test::systemMousePostingAvailable();
+            if (Test::systemMousePostingAvailable()) {
+                theme.setMotionEnabled(true);
+                shell.resetZoom();
+                QTest::qWait(200);
+                for (int round = 0; round < 40; ++round) {
+                    const auto original = window->position();
+                    const auto start =
+                        taskButton
+                            ->mapToGlobal({round % 3 == 0   ? 2.0
+                                           : round % 3 == 1 ? taskButton->width() / 2
+                                                            : taskButton->width() - 2,
+                                           taskButton->height() / 2})
+                            .toPoint();
+                    const auto end = toolbar
+                                         ->mapToGlobal({round % 2 ? toolbar->width() - 12 : 8.0,
+                                                        toolbar->height() / 2})
+                                         .toPoint();
+                    QCursor::setPos(start);
+                    std::atomic_bool done = false;
+                    std::thread native([&] {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                        Test::postSystemLeftMouse(start, QEvent::MouseButtonPress);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+                        Test::postSystemLeftMouse(start + QPoint(0, 8), QEvent::MouseMove);
+                        for (int step = 1; step <= 4; ++step) {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+                            Test::postSystemLeftMouse(start + (end - start) * step / 4,
+                                                      QEvent::MouseMove);
+                        }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(15));
+                        Test::postSystemLeftMouse(end, QEvent::MouseButtonRelease);
+                        done = true;
+                    });
+                    const auto join = qScopeGuard([&] { native.join(); });
+                    QTRY_VERIFY(done.load());
+                    QTRY_COMPARE(QGuiApplication::mouseButtons(), Qt::MouseButtons(Qt::NoButton));
+                    QCOMPARE(window->position(), original);
+                    QCOMPARE(captionMoves.size(), 0);
+                    QCOMPARE(taskClicks.size(), 0);
+                    QVERIFY(!Test::nativeWindowInputPolicy(window).value("movable").toBool());
+                    QVERIFY(!taskHandle->property("dragging").toBool());
+                }
+                const auto original = window->position();
+                const auto start = caption->mapToGlobal(caption->boundingRect().center()).toPoint();
+                const auto end = start + QPoint(30, 20);
+                std::atomic_bool done = false;
+                std::thread native([&] {
+                    Test::postSystemLeftMouse(start, QEvent::MouseButtonPress);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                    for (int step = 1; step <= 6; ++step) {
+                        Test::postSystemLeftMouse(start + (end - start) * step / 6,
+                                                  QEvent::MouseMove);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+                    }
+                    Test::postSystemLeftMouse(end, QEvent::MouseButtonRelease);
+                    done = true;
+                });
+                const auto join = qScopeGuard([&] { native.join(); });
+                QTRY_VERIFY(done.load());
+                QTRY_VERIFY(window->position() != original);
+                QTRY_COMPARE(captionMoves.size(), 1);
+                QTRY_COMPARE(QGuiApplication::mouseButtons(), Qt::MouseButtons(Qt::NoButton));
+                QVERIFY(!Test::nativeWindowInputPolicy(window).value("movable").toBool());
+                QVERIFY(!windows.startSystemMove()); // No held native left button.
+                QVERIFY(!Test::nativeWindowInputPolicy(window).value("movable").toBool());
+                window->setPosition(original);
+                captionMoves.clear();
+            }
+        }
+#endif
+        // A second drag can begin before the previous animation and queued
+        // commit finish. Do not settle the view between these gestures.
+        theme.setMotionEnabled(true);
+        for (int round = 0; round < 80; ++round) {
+            const auto rect = taskButton->mapRectToItem(toolbar, taskButton->boundingRect());
+            QVERIFY2(rect.left() >= -0.5 && rect.right() <= toolbar->width() + 0.5,
+                     qPrintable(QString("round=%1 rect=%2,%3 contentX=%4 captionX=%5")
+                                    .arg(round)
+                                    .arg(rect.left())
+                                    .arg(rect.right())
+                                    .arg(toolbar->property("contentX").toReal())
+                                    .arg(caption->x())));
+            const auto start = taskButton
+                                   ->mapToScene({round % 3 == 0   ? 2.0
+                                                 : round % 3 == 1 ? taskButton->width() / 2
+                                                                  : taskButton->width() - 2,
+                                                 taskButton->height() / 2})
+                                   .toPoint();
+            const auto end =
+                toolbar
+                    ->mapToScene({round % 2 ? toolbar->width() - 12 : 8.0, toolbar->height() / 2})
+                    .toPoint();
+            QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
+            QVERIFY2(taskButton->property("pressed").toBool(),
+                     qPrintable(QString("re-press round=%1 start=%2,%3")
+                                    .arg(round)
+                                    .arg(start.x())
+                                    .arg(start.y())));
+            QTest::mouseMove(window, start + QPoint(0, 8));
+            QTest::mouseMove(window, end);
+            QVERIFY2(taskHandle->property("dragging").toBool(),
+                     qPrintable(QString("re-drag round=%1").arg(round)));
+            QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, end);
+            QCOMPARE(captionMoves.size(), 0);
+            QVERIFY(!window->mouseGrabberItem());
+            if (round % 4)
+                QTest::qWait(round % 4 == 1 ? 1 : round % 4 == 2 ? 16 : 45);
+        }
+        QTest::qWait(250);
+        controller.titlebarActions()->moveAfter("host/tasks", "host/recognize",
+                                                ShellActionModel::Toolbar);
+        QVERIFY(QMetaObject::invokeMethod(toolbar, "positionViewAtBeginning"));
+        QTest::qWait(250);
+        const auto visualTaskX = [&] { return taskButton->mapToItem(toolbar, QPointF{}).x(); };
+        QTRY_COMPARE(visualTaskX(), 38.0);
         shell.resetZoom();
+        // Cancelling a held preview restores the view without saving anything.
+        const auto beforeCancel = preferences.value("shell/titlebar/order");
+        const auto cancelStart = taskButton->mapToScene({2, taskButton->height() / 2}).toPoint();
+        const auto cancelEnd =
+            recognizeButton->mapToScene({8, recognizeButton->height() / 2}).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, cancelStart);
+        QTest::mouseMove(window, cancelStart + QPoint(0, 8));
+        QTest::mouseMove(window, cancelEnd);
+        QTRY_VERIFY(taskHandle->property("dragging").toBool());
+        QTRY_COMPARE(visualTaskX(), 0.0);
+        window->hide();
+        QTRY_VERIFY(!taskHandle->property("dragging").toBool());
+        QCOMPARE(preferences.value("shell/titlebar/order"), beforeCancel);
+        QTRY_COMPARE(visualTaskX(), 38.0);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, cancelEnd);
+        window->show();
+        QVERIFY(Test::prepareNativeInput(window));
         // Hiding or disabling motion settles a transition already in flight.
         theme.setMotionEnabled(true);
         QVERIFY(
             controller.titlebarActions()->shiftAction("host/tasks", -1, ShellActionModel::Toolbar));
         QTest::qWait(45);
-        QVERIFY(taskButton->x() > 0 && taskButton->x() < 38);
         window->hide();
-        QTRY_COMPARE(taskButton->x(), 0.0);
+        QTRY_COMPARE(visualTaskX(), 0.0);
         window->show();
         QVERIFY(Test::prepareNativeInput(window));
         QVERIFY(
             controller.titlebarActions()->shiftAction("host/tasks", 1, ShellActionModel::Toolbar));
         QTest::qWait(40);
         theme.setMotionEnabled(false);
-        QTRY_COMPARE(taskButton->x(), 38.0);
+        QTRY_COMPARE(visualTaskX(), 38.0);
         shell.setMotionEnabled(false);
         theme.setMotionEnabled(true);
+#ifdef Q_OS_MACOS
+        if (QGuiApplication::platformName() == "cocoa")
+            QVERIFY(!Test::nativeWindowInputPolicy(window).value("movable").toBool());
+#endif
         click(more);
         QPointer<QObject> menu = root->findChild<QObject *>("titlebarMorePopup");
         QVERIFY(menu);
