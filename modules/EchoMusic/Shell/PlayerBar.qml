@@ -171,7 +171,11 @@ Item {
                     width: implicitWidth
                     height: 28
                     compact: true
-                    spacing: bar.lyricStyle ? 4 : 6
+                    // Compact slots are 28 DIP with 20px glyphs (4px inset each
+                    // side); the right strip's 36 DIP slots inset 8px. Matching
+                    // the glyph-to-glyph gap of the right column (8 + 4 + 8)
+                    // needs spacing 12 here: 4 + 12 + 4.
+                    spacing: 12
                     colors: bar.colors
                     playbackLoading: bar.playback && bar.playback.loading
                     lyricStyle: bar.lyricStyle
