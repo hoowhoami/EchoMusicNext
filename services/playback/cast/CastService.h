@@ -4,7 +4,7 @@
 #include "DlnaSession.h"
 #include <QAbstractListModel>
 #include <QJsonObject>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QSortFilterProxyModel>
 namespace EchoMusic
 {
@@ -37,7 +37,8 @@ public:
         Active,
         Connecting
     };
-    CastService(NativeBridge &native, PlaybackService &playback, QSettings &settings);
+    CastService(NativeBridge &native, PlaybackService &playback,
+                EchoMusic::SettingsStore &settings);
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
@@ -155,7 +156,7 @@ private:
     int find(const QString &id) const;
     NativeBridge &m_native;
     PlaybackService &m_playback;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     DlnaSession m_media;
     QSortFilterProxyModel m_dlna, m_airplay;
     SsdpDiscovery m_ssdp;

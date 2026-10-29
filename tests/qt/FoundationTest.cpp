@@ -24,7 +24,7 @@
 #include <QTemporaryDir>
 #include <QDir>
 #include <QFile>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QtTest>
 
 using namespace EchoMusic;
@@ -162,7 +162,7 @@ private slots:
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         const auto path = directory.filePath("network.ini");
-        QSettings settings(path, QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(path);
         ApiClient api(DeviceIdentity::temporary());
         const auto revision = api.sessionRevision();
         NetworkPreferences preferences(settings, api);
@@ -179,11 +179,11 @@ private slots:
         QVERIFY(!preferences.applyTimeouts(301, 60));
         QCOMPARE(preferences.apiTimeoutSeconds(), 1.125);
         QCOMPARE(preferences.playerTimeoutSeconds(), 2.375);
-        QSettings reloaded(path, QSettings::IniFormat);
+        EchoMusic::SettingsStore reloaded(path);
         NetworkPreferences restored(reloaded, api);
         QCOMPARE(restored.apiTimeoutSeconds(), 1.125);
         QCOMPARE(restored.playerTimeoutSeconds(), 2.375);
-        QCOMPARE(reloaded.allKeys(), QStringList{"network/localPolicy"});
+        QCOMPARE(reloaded.allKeys(), (QStringList{"network/proxyPolicy", "network/timeouts"}));
         api.shutdown();
         QVERIFY(!preferences.applyTimeouts(0, 10));
         QCOMPARE(changed.size(), 1);
@@ -194,8 +194,8 @@ private slots:
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         // A directory cannot be replaced by an INI file, including when tests
-        // run as a privileged user. This exercises real QSettings sync failure.
-        QSettings settings(directory.path(), QSettings::IniFormat);
+        // run as a privileged user. This exercises real EchoMusic::SettingsStore sync failure.
+        EchoMusic::SettingsStore settings(directory.path());
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences preferences(settings, api);
         QSignalSpy changed(&preferences, &NetworkPreferences::timeoutsChanged);
@@ -203,7 +203,7 @@ private slots:
         QCOMPARE(changed.size(), 0);
         QCOMPARE(preferences.apiTimeoutSeconds(), 0.);
         QCOMPARE(preferences.playerTimeoutSeconds(), 60.);
-        QVERIFY(!settings.contains("network/localPolicy"));
+        QVERIFY(!settings.contains("network/proxyPolicy"));
         QCOMPARE(preferences.errorMessage(), QString("无法保存网络设置"));
     }
     void networkTimeoutSaveCanRetryAfterStorageRecovery()
@@ -215,7 +215,7 @@ private slots:
         QVERIFY(blocker.open(QIODevice::WriteOnly));
         blocker.write("not a directory");
         blocker.close();
-        QSettings settings(parent + "/preferences.ini", QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(parent + "/preferences.ini");
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences preferences(settings, api);
         QSignalSpy changed(&preferences, &NetworkPreferences::timeoutsChanged);
@@ -225,23 +225,20 @@ private slots:
         QVERIFY(preferences.applyTimeouts(1.5, 2.5));
         QCOMPARE(changed.size(), 1);
         QVERIFY(preferences.errorMessage().isEmpty());
-        QSettings reopened(settings.fileName(), QSettings::IniFormat);
+        EchoMusic::SettingsStore reopened(settings.fileName());
         NetworkPreferences restored(reopened, api);
         QCOMPARE(restored.apiTimeoutSeconds(), 1.5);
         QCOMPARE(restored.playerTimeoutSeconds(), 2.5);
     }
-    void networkTimeoutNativeStoreRetainsItsIdentity()
+    void networkTimeoutFreshStoreRetainsItsProfile()
     {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        const auto organization = "EchoMusicNext-NetworkTest-" + QDir(directory.path()).dirName();
-        QSettings settings(QSettings::NativeFormat, QSettings::UserScope, organization, "test");
-        settings.setFallbacksEnabled(false);
+        EchoMusic::SettingsStore settings(directory.path() + "/portable/settings.ini");
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences preferences(settings, api);
         QVERIFY(preferences.applyTimeouts(0.731, 4.625));
-        QSettings reopened(QSettings::NativeFormat, QSettings::UserScope, organization, "test");
-        reopened.setFallbacksEnabled(false);
+        EchoMusic::SettingsStore reopened(settings.fileName());
         NetworkPreferences restored(reopened, api);
         QCOMPARE(reopened.fileName(), settings.fileName());
         // Clean only this uniquely named test store before further assertions.
@@ -249,7 +246,7 @@ private slots:
         reopened.sync();
         QCOMPARE(restored.apiTimeoutSeconds(), 0.731);
         QCOMPARE(restored.playerTimeoutSeconds(), 4.625);
-        QCOMPARE(reopened.status(), QSettings::NoError);
+        QCOMPARE(reopened.status(), EchoMusic::SettingsStore::NoError);
     }
     void networkConfigurationPreservesSourceModesAndOrderedProxyRules()
     {
@@ -649,7 +646,7 @@ private slots:
     void registrationKeepsPersistentIdentityAndDoesNotRetryEmptyAcknowledgements()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("device.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("device.ini"));
         const auto initial = DeviceIdentity::load(settings);
         ApiClient api(initial);
         NetworkPreferences network(settings, api);
@@ -697,7 +694,7 @@ private slots:
             QVERIFY(request.value("t1").toString().isEmpty());
         }
         QCOMPARE(QSet<quint64>(ids.begin(), ids.end()).size(), 2);
-        QSettings reopened(settings.fileName(), QSettings::IniFormat);
+        EchoMusic::SettingsStore reopened(settings.fileName());
         const auto saved = DeviceIdentity::load(reopened);
         QCOMPARE(saved.guid, initial.guid);
         QCOMPARE(saved.mid, initial.mid);
@@ -715,11 +712,11 @@ private slots:
     void registeredDeviceSnapshotAndWriterShutdown()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.path() + QStringLiteral("/device.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.path() + QStringLiteral("/device.ini"));
         auto device = DeviceIdentity::temporary();
         device.dfid = QStringLiteral("fixture-dfid");
         QVERIFY(DeviceIdentity::saveRegistration(settings, device));
-        QSettings reopened(settings.fileName(), QSettings::IniFormat);
+        EchoMusic::SettingsStore reopened(settings.fileName());
         const auto loaded = DeviceIdentity::load(reopened);
         QCOMPARE(loaded.guid, device.guid);
         QCOMPARE(loaded.mid, device.mid);
@@ -1101,7 +1098,7 @@ private slots:
         const auto path = directory.filePath("device.ini");
         DeviceIdentity before, registered;
         {
-            QSettings settings(path, QSettings::IniFormat);
+            EchoMusic::SettingsStore settings(path);
             before = DeviceIdentity::load(settings);
             settings.sync();
             ApiClient api(before);
@@ -1114,7 +1111,7 @@ private slots:
             QTRY_VERIFY_WITH_TIMEOUT(
                 registration.state() != DeviceRegistrationService::State::Registering, 25000);
             QCOMPARE(registration.state(), DeviceRegistrationService::State::Ready);
-            QSettings reopened(path, QSettings::IniFormat);
+            EchoMusic::SettingsStore reopened(path);
             registered = DeviceIdentity::load(reopened);
             QVERIFY(!registered.dfid.isEmpty() && registered.dfid != "-");
             QCOMPARE(registered.guid, before.guid);
@@ -1134,7 +1131,7 @@ private slots:
             QTRY_COMPARE(apiClosed.size(), 1);
         }
         {
-            QSettings reopened(path, QSettings::IniFormat);
+            EchoMusic::SettingsStore reopened(path);
             ApiClient api(DeviceIdentity::load(reopened));
             DeviceRegistrationService warm(api, reopened);
             QSignalSpy changes(&warm, &DeviceRegistrationService::changed);
@@ -1169,14 +1166,14 @@ private slots:
         QCOMPARE(qr.state(), QrLoginService::State::Waiting);
         qr.cancel();
         QTemporaryDir directory;
-        QSettings settings(directory.path() + QStringLiteral("/device.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.path() + QStringLiteral("/device.ini"));
         DeviceRegistrationService registration(api, settings);
         QSignalSpy registrationClosed(&registration, &DeviceRegistrationService::closed);
         registration.start();
         QTRY_VERIFY_WITH_TIMEOUT(
             registration.state() != DeviceRegistrationService::State::Registering, 25000);
         QCOMPARE(registration.state(), DeviceRegistrationService::State::Ready);
-        QSettings reopened(settings.fileName(), QSettings::IniFormat);
+        EchoMusic::SettingsStore reopened(settings.fileName());
         const auto device = DeviceIdentity::load(reopened);
         QVERIFY(!device.dfid.isEmpty() && device.dfid != QStringLiteral("-"));
         QCOMPARE(device.mid, DeviceIdentity::midForGuid(device.guid));
@@ -1273,12 +1270,12 @@ private slots:
         const auto path = directory.path() + "/preferences.ini";
         QString firstMid;
         {
-            QSettings settings(path, QSettings::IniFormat);
+            EchoMusic::SettingsStore settings(path);
             firstMid = DeviceIdentity::load(settings).mid;
             settings.sync();
-            QCOMPARE(settings.status(), QSettings::NoError);
+            QCOMPARE(settings.status(), EchoMusic::SettingsStore::NoError);
         }
-        QSettings reopened(path, QSettings::IniFormat);
+        EchoMusic::SettingsStore reopened(path);
         const auto snapshot = DeviceIdentity::load(reopened);
         QCOMPARE(snapshot.mid, firstMid);
         QCOMPARE(snapshot.dfid, QStringLiteral("-"));

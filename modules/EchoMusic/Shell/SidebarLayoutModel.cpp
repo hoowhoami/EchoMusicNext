@@ -94,7 +94,7 @@ private:
     bool m_rowData;
 };
 } // namespace
-SidebarLayoutModel::SidebarLayoutModel(QSettings &preferences, QObject *parent)
+SidebarLayoutModel::SidebarLayoutModel(EchoMusic::SettingsStore &preferences, QObject *parent)
     : QAbstractListModel(parent), m_preferences(preferences)
 {
     // Exclude entries already represented by shortcut cards.

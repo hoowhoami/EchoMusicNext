@@ -1,6 +1,12 @@
 add_library(
-    echo_storage STATIC StorageService.cpp StorageService.h DatabaseWorker.cpp DatabaseWorker.h
-                        StoredPlaylistCover.h
+    echo_storage STATIC
+    StorageSnapshot.h
+    StorageSnapshot.cpp
+    StorageService.cpp
+    StorageService.h
+    DatabaseWorker.cpp
+    DatabaseWorker.h
+    StoredPlaylistCover.h
 )
 target_include_directories(echo_storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(

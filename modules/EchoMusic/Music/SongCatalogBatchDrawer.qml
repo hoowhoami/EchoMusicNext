@@ -95,6 +95,9 @@ EchoDrawer {
             Layout.bottomMargin: 8
             clip: true
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: songs
+            }
             cacheBuffer: 140
             model: drawer.collection.totalCount
             boundsBehavior: Flickable.StopAtBounds

@@ -1,6 +1,6 @@
 #include "SettingsKeys.h"
 #include "PluginRuntime.h"
-#include "PluginDataTransaction.h"
+#include "StorageSnapshot.h"
 #include "EchoPluginFilePicker.h"
 #include "PlaybackService.h"
 #include <QCryptographicHash>
@@ -44,9 +44,9 @@ void PluginSettlement::invalidate()
     complete = {};
     deleteLater();
 }
-PluginRuntime::PluginRuntime(QQmlEngine &engine, QSettings &preferences, PluginHost host,
-                             QString root, bool safeMode)
-    : m_engine(engine), m_preferences(preferences), m_host(host), m_root(std::move(root)),
+PluginRuntime::PluginRuntime(QQmlEngine &engine, EchoMusic::SettingsStore &preferences,
+                             PluginHost host, QString root, bool safeMode)
+    : m_engine(engine), m_preferences(preferences), m_host(host), m_root(PluginPaths(root).root()),
       m_safeMode(safeMode ||
                  preferences.value(EchoMusic::SettingsKeys::Plugins::SafeMode, false).toBool())
 {
@@ -201,44 +201,67 @@ void PluginRuntime::changed(Entry &entry)
             break;
         }
 }
-void PluginRuntime::persist()
+QVariantMap PluginRuntime::installationRecord(const Entry &entry) const
+{
+    return {{"id", entry.package.id},
+            {"installation", entry.package.installationId},
+            {"source", entry.source},
+            {"origin", entry.origin},
+            {"enabled", entry.enabled},
+            {"transaction", QFileInfo(entry.transaction).fileName()},
+            {"contentHash", entry.package.contentHash}};
+}
+bool PluginRuntime::persist()
 {
     QVariantList catalog;
-    for (const auto &entry : m_entries)
-        if (!(entry->mutation == Entry::Updating && entry->newInstall))
-            catalog.append(
-                QVariantMap{{"source", entry->mutation == Entry::Updating && !entry->newInstall
-                                           ? entry->previousSource
-                                           : entry->source},
-                            {"installation", entry->package.installationId},
-                            {"root", entry->mutation == Entry::Updating && !entry->newInstall
-                                         ? entry->previousPackage.root
-                                         : entry->package.root},
-                            {"origin", entry->mutation == Entry::Updating && !entry->newInstall
-                                           ? entry->previousOrigin
-                                           : entry->origin},
-                            {"enabled", entry->enabled}});
-    m_preferences.setValue(EchoMusic::SettingsKeys::Plugins::Installations, catalog);
-    m_preferences.sync();
+    for (const auto &entry : m_entries) {
+        if (entry->newInstall && entry->mutation != Entry::None)
+            continue;
+        auto record = installationRecord(*entry);
+        if (entry->mutation != Entry::None && !entry->newInstall) {
+            record["source"] = entry->previousSource;
+            record["origin"] = entry->previousOrigin;
+            record["transaction"] = QFileInfo(entry->previousTransaction).fileName();
+        }
+        if (PluginPaths::validId(record.value("id").toString()))
+            catalog.append(record);
+    }
+    m_storeError = PluginInstallationStore(m_root).save(catalog);
+    return m_storeError.isEmpty();
 }
 bool PluginRuntime::setEnabled(const QString &installation, bool enabled)
 {
     auto *entry = find(installation);
+    if (entry && !enabled && entry->newInstall && entry->mutation == Entry::Updating &&
+        entry->state == Activating && !m_closing && !m_maintenance) {
+        entry->enabled = false;
+        entry->transactionError = tr("插件安装已取消");
+        entry->mutation = Entry::Rollback;
+        entry->applying = false;
+        entry->pendingPackage = entry->previousPackage;
+        entry->origin = entry->previousOrigin;
+        entry->source = entry->previousSource;
+        retire(*entry, Disabled);
+        return true;
+    }
     if (!entry || m_closing || m_maintenance || (enabled && m_imports) ||
-        m_preferences.value(EchoMusic::SettingsKeys::Plugins::RollbackPrefix + installation, false)
-            .toBool() ||
         entry->state == Discovered || entry->state == Invalid || entry->state == Incompatible ||
         entry->mutation != Entry::None || entry->state == Deactivating ||
         (enabled && entry->state == Activating)) {
         emit notice(tr("插件启停失败，请稍后重试"), true);
         return false;
     }
+    const bool previousEnabled = entry->enabled;
     entry->enabled = enabled;
     if (!enabled && !entry->context && entry->state == Blocked) {
         entry->state = Disabled;
         entry->error.clear();
     }
-    persist();
+    if (!persist()) {
+        entry->enabled = previousEnabled;
+        emit notice(m_storeError, true);
+        return false;
+    }
     changed(*entry);
     if (!enabled && entry->context)
         retire(*entry, Disabled);
@@ -256,18 +279,14 @@ bool PluginRuntime::setEnabled(const QString &installation, bool enabled)
 bool PluginRuntime::reload(const QString &installation)
 {
     auto *entry = find(installation);
-    if (!entry || m_closing || m_maintenance || m_imports ||
-        m_preferences.value(EchoMusic::SettingsKeys::Plugins::RollbackPrefix + installation, false)
-            .toBool() ||
-        entry->state == Discovered || entry->state == Deactivating || entry->state == Activating ||
+    if (!entry || m_closing || m_maintenance || m_imports || entry->state == Discovered ||
+        entry->state == Deactivating || entry->state == Activating ||
         entry->mutation != Entry::None)
         return false;
-    if (entry->context) {
-        entry->reloadPending = true;
-        retire(*entry, Disabled);
-    } else
-        load(*entry, QFileInfo::exists(entry->source) ? entry->source : entry->package.root);
-    return true;
+    const auto source = QFileInfo::exists(entry->source)
+                            ? entry->source
+                            : PluginPaths(m_root).code(entry->package.id);
+    return installDirectory(source, entry->origin);
 }
 bool PluginRuntime::retry(const QString &installation)
 {
@@ -329,6 +348,8 @@ QVariantMap PluginRuntime::record(const QString &installation) const
                                            !entry->context->ui()->settingsComponent().isEmpty());
     result.insert("sourceName", entry->origin.value("name", tr("本地安装")));
     result.insert("origin", entry->origin);
+    result.insert("codeDirectory", PluginPaths(m_root).code(entry->package.id));
+    result.insert("dataDirectory", PluginPaths(m_root).data(entry->package.id));
     result.insert("iconUrl", QUrl::fromLocalFile(entry->package.resolve(
                                  entry->package.manifest.value("icon").toString())));
     return result;
@@ -471,6 +492,7 @@ QVariantList PluginRuntime::backupEntries() const
         if (!origin.contains("kind"))
             origin.insert("kind", "local");
         origin.remove("directory");
+        origin.remove("file");
         entries.append(QVariantMap{{"id", entry->package.id},
                                    {"name", entry->package.name},
                                    {"installation", entry->package.installationId},

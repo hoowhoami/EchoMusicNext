@@ -3,6 +3,7 @@
 #include "LyricSourceController.h"
 #include "LyricTextController.h"
 #include "PlaybackTrack.h"
+#include "SettingsStore.h"
 #include <QJsonObject>
 #include <QUrl>
 #include <memory>
@@ -32,12 +33,9 @@ class PlaybackTransitionPresentation final : public QObject
 {
     Q_OBJECT
 public:
-    PlaybackTransitionPresentation(ApiClient &, NativeBridge &, QSettings &, QObject *parent);
+    PlaybackTransitionPresentation(ApiClient &, NativeBridge &, SettingsStore &, QObject *parent);
     ~PlaybackTransitionPresentation() override;
-    void prepare(const PlaybackTrack &, quint64 request, quint64 incomingSequence,
-                 const QJsonObject &outgoingFacts = {});
-    QJsonObject analysisSourceFacts(const QJsonObject &selector) const;
-    QString analysisSourceAuthority(const QJsonObject &facts) const;
+    void prepare(const PlaybackTrack &, quint64 request, quint64 incomingSequence);
     void invalidate(const QString &reason = "cancelled");
     void observe(const QJsonObject &native, quint64 currentSequence, const PlaybackTrack &current,
                  const QUrl &cover, const LyricModel &lyrics, const QString &lyricState,
@@ -75,13 +73,13 @@ private:
     void cancelIncoming();
     ApiClient &m_api;
     NativeBridge &m_nativeBridge;
-    QSettings &m_settings;
+    SettingsStore &m_settings;
     PlaybackTransitionTrack m_outgoing, m_incoming;
     std::unique_ptr<LyricSourceController> m_lyricSource;
     std::unique_ptr<LyricTextController> m_lyricText;
     PlaybackTrack m_target;
     QString m_request, m_incomingSequence, m_account;
-    QJsonObject m_native, m_pendingAnalysisFacts, m_outgoingAnalysisFacts;
+    QJsonObject m_native;
     QString m_reason;
     quint64 m_lastEpoch = 0;
     bool m_valid = false, m_copying = false;

@@ -90,27 +90,7 @@ halo tile 的16/40/80/160px四级及正文模糊均以float计算、最后存hal
 GPU render job 在窗口下一次渲染同步或场景图销毁时执行，不承诺隐藏瞬间从 GUI 线程直接销毁 GPU 对象。
 析构断开自身窗口回调，SG 材质和 render job 持有纹理页；不会遗留到播放时钟或回调中。
 
-## static 早期验证记录
-
-先运行空实现得到字体链行为红灯；实现后运行真实 Qt 6.12 / macOS Metal 小工程。
-`GlyphRunTest.cpp` 覆盖完整 QFont families/单 run 字体覆盖、Arabic/Latin/CJK/组合字/ZWJ 序列、GPU ink 对照 QTextLayout、28px字号的20px模糊、40/158.4px独立halo像素二阶矩、三层独立RGB色、effects页预算拒绝、120帧pose 不改 revision/uploads、超限/非法输入原子拒绝、元素/窗口隐藏恢复及销毁。独立DPR2子进程验证24字中文和中英混排长句，保留完整上下文高清ink覆盖，并在blur20/halo40与158.4交替的120帧中检查无重建/上传。真实ink metrics另以4倍栅格覆盖核对Latin、下划线、CJK、emoji、fontchain和空白/零宽；测试先抓到QGlyphRun.boundingRect行框较Agj实际ink多12px的错误，修为rawFont glyph边界聚合后通过。
-
-以下是早期独立验证记录，不替代本轮统一构建或 canvas 验收。当时验证工程在 `/tmp/echo-glyph-run-test`，未构建全宿主，也未修改宿主 CMake。
-
-```sh
-cmake -S /tmp/echo-glyph-run-test -B /tmp/echo-glyph-run-test/build -G Ninja \
-  -DCMAKE_PREFIX_PATH=/Users/huanggenji/Work/mine/EchoMusicNext/build/qt-official/6.12.0/macos
-cmake --build /tmp/echo-glyph-run-test/build -j 3
-/tmp/echo-glyph-run-test/build/glyph-run-test
-```
-
-早期接入要求是将新 .h/.cpp 加入目标 SOURCES；static shader 使用 `qt_add_shaders(... BATCHABLE ...)`，并确认 `.qsb` 路径与 C++ 一致。canvas 使用独立 shader 与对应的参数布局。
-未启用 BATCHABLE 的临时 shader 在 Metal 首测触发 attribute assertion，已纠正；析构回调曾触发 use-after-destruction，已通过显式断开和销毁测试修复。
-Retina回归先确认旧实现的普通9字中文/DPR2触发正文八页预算拒绝，再通过分离高清ink与effects修复；没有增加总页数或削弱请求半径。
-加入段落layout后独立完整测试14项通过、0失败/跳过；全套`QT_SCALE_FACTOR=2`共14项通过；-Wall/-Wextra/-Wpedantic编译无警告；ASan/UBSan+DPR2同12项通过且无诊断（macOS未启用LeakSanitizer）。
-Windows/Linux、跨屏DPR切换、极端长段准备耗时及正式插件运行时仍需集成验收；小工程结果不能替代这些检查。macOS像素测试使用Cocoa/Metal，offscreen的软件场景图不能渲染自定义材质，不能用其空白截图断言GPU失败。
-
-## Folia 源码对照和后续绘制能力
+## Folia 源码对照
 
 参考仓库固定提交 `a8da4437cf19723555bd75e4685ca20815fe5b82`，本阶段未改参考源码。
 
@@ -125,43 +105,17 @@ Windows/Linux、跨屏DPR切换、极端长段准备耗时及正式插件运行�
 
 Qt [Text.CurveRendering](https://doc.qt.io/qt-6/qml-qtquick-text.html#renderType-prop) 是 GPU 曲线字体光栅化，不提供沿任意路径逐字排布；[Shape.CurveRenderer](https://doc.qt.io/qt-6/qml-qtquick-shapes-shape.html#rendererType-prop) 适合2D路径，缩放时不重新细分；[ShaderEffect](https://doc.qt.io/qt-6/qml-qtquick-shadereffect.html) 消费预编译 qsb，可承载2D光场/后处理，不能自动替代完整3D scene graph。
 
-段落回归先复现旧实现拒绝换行，再核对原生多行Arabic/Latin/CJK/ZWJ、软长词、CRLF/空行/尾换行、lineHeight、每字素x/y和实际RGB覆盖。逐cluster与整段平移逐像素一致，120帧pose无重排/上传，隐藏释放及拒绝保留accepted inputs均有断言。
-
-## 后续通用扩展（本轮）
+## 大半径光晕与彩色字形
 
 高预算halo增加512/1024；旧0/40/80/160路径及其16/40/80/160通道不变。新512预算通道16/128/256/512，1024预算通道16/128/512/1024，density上限为32/maxRadius，因此完整3σ tile仍约192px；高清ink先按面积积分进低频tile，避免直接hint成3px文字时改变能量。GPU预算仍高清最多8页且32MiB+effects4页32MiB，不添加dither或强度补偿。较宽阴影的8bit主target会截断弱尾部，正确基准是同字体与CTM的Chrome最终图像，不能用未量化Gaussian理想能量要求native。Folia `utils/glowBlurQuantize.ts:62-75` 已明确 Canvas shadowBlur / CSS text-shadow blur 是σ的两倍；CSS filter blur/drop-shadow 参数本身为σ，消费者必须区分单位。
-
-原生QPainter色字形在高清RGBA8内保留原premultiplied RGBA，普通字仍使用覆盖mask与动态pose tint。识别实际paint结果而非猜family，不复制Apple近191MB的sbix表；Qt处理sbix/COLR/CBDT。混合fallback按原QGlyphRun分别缓存，但共享同一个安全cluster pose。独立测试Latin红色+ZWJ emoji/组合字混合在opacity1/.4均与QPainter真实RGB覆盖对照，DPR2通过；opaque palette保持本色，模糊和halo仍基于alpha覆盖与文字色。任意COLR currentColor与固定palette同glyph交织的动态重着色尚无本机真实字体用例，不能宣称该边界已验证。
-
-measurementOnly独立原生测试覆盖visible=true零mask/upload/batch、16384px完整fallback、超字号/超UTF16拒绝、切回渲染失败不改accepted mode/layout/revision、正常恢复渲染、非空pose拒绝、切换清poses、隐藏恢复。大halo与原始Chrome source指令的最终量化像素验收仍在定稿；旧理想能量测试曾RED，不据此伪造强度或噪声。
-
-## clip/instance 与宽阴影本轮验证
-
-clip/instance先取得旧实现重复start拒绝与忽略clip的RED，再以真正可见Metal窗口验证italic ffi+Arabic完整context切片、同一Arabic“لا”两EGC共享clusterStart0的红蓝裁切、旋转/缩放前坐标、零面积、halo模糊后裁切、显式绘制顺序、重复默认/显式instance拒绝、非有限/过大输入及8MiB展开预算。120帧更新不改maskRevision/textureUploads，改变实例数量也复用GPU页。
-
-新>160缓存的三box使用按Gaussian方差选择的三种奇数核宽，shader在相邻等级插值后以8bit coverage量化，再应用独立颜色/opacity，以对照Canvas量化阴影；无dither、无能量增益，旧<=160采样路径不变。低级16在512预算下也使用同一低density，不能视作高精细小半径；消费者应按实际预算分离普通正文和大line-glow。
-
-Chrome155真实 Fume `fillText` 参考（151.54071925781247px、weight780、星、fill .756、shadow213、CTM .22）继续作为独立 E2E 严格测试。旧 fixture 使用152整数字号和 fallback 行框 middle，现修为实际浮点字号及主字体 em middle；原始 Chrome PNG／三点15%能量和二阶矩门槛未改。当前开发原语：DPR1 正文质量104073、Chrome114741；三档 halo 质量203905／196368／207949，对应参考245398／254645／249151，仍失败。DPR2 正文392768、Chrome438346，三档均在原15%内。字体日志中的152px是基础 QFont 的 shaping 检查，不代表 run 实际请求字号。不能据 DPR2 通过宣称 E2E 全通过。
-
-旧“同 ink”测试把原生 QPainter PNG 交给 `drawImage` 并设 `globalAlpha=.756`。Chrome155 独立反证发现其 image-filter alpha 路径和 `fillText` 不同：同一文字的原始 fillText 与“opaque shadow + shadowColor.a=.756，另画 body.a=.756”在三档逐像素完全一致；而原始 drawImage/globalAlpha 与该投影最大差8–9/255。原语的 coverage8bit→paint alpha 顺序适用于这里的文本源，不能因旧 image oracle 就删除。新同 ink oracle 保留相同 native PNG，使用已验证的文本投影，并在每档额外要求真实 source fillText 与投影最大 RGB 差严格为0；原5%正文／15%halo门槛不变。原语生产算法完全未动时 DPR1/2 均通过，DPR1 最差二阶矩14.435%、DPR2 最差5.227%。旧 image 路径反证和失败日志继续保留，不将两类输入混写为等价。
-
-2026-10-23 证据：host `build/folia-halo-kernel-probe/source-alpha-final-dpr{1,2}.log`；插件 `build/folia-fume-native/canvas-{current155,alpha-split,raster-scale}-*.{html,json}`。当前 Chrome155.0.8059.86 重生原始8张PNG均与旧参考逐字节一致。同一个 Chrome、同 font／CTM 的额外对照也显示，直接 device-size fillText 与先全尺寸 immutable PNG 再缩小并不相同：DPR1 正文114741 vs103149，三档halo245398／254645／249151 vs212007／218501／220670。这隔离了 raster scale 的影响，未据此给 native 添加每帧重建字段。
-
-DPR1旋转clip首测以旋转后重新栅格化的矢量字形作oracle，超过16%误差；改为先用同一QTextLayout生成原生ink再旋转该bitmap后，保持原16%门槛，DPR1相对RGB误差12.95%、DPR2为12.24%，均通过。裁切原始坐标、完整文字覆盖另有未旋转矢量oracle约束，未改原语渲染代码。
 
 ## 原生纯描边和大字号
 
 可见字号上限扩至1024；纯测量仍16384。616px源Sonnet decoration/ghost不以256px位图放大模拟。单个完整字形包含描边和padding后可放入2048px ink页；更大的单片明确拒绝。页面仍最多8张，所有实际ink image尺寸合计不超过32MiB，effects继续4×1024² RGBA16F合计32MiB。普通1024以内tile默认packing不变；大页仅按需引入，不因扩尺寸而扩大总预算。
 
-RED→GREEN新增真实Metal DPR1/2验证：72px italic ffi+Arabic完整context纯轮廓，与QPainterPath::addText+Stroker对照相对RGB误差<16%；616px bold CJK描边3.696px与原生路径对照<8%，窗口minimumSize确保整字可见；120帧颜色/opacity不改revision/upload。显式strokeWidth0与省略字段的正文像素完全一致，metrics不因描边改变；非法宽度、无路径彩色字形和超预算保留accepted输入，空白stroke8允许为空。
-
-真实源Sonnet type-impact、viewport1000×700、baseFont112、单词brightest经原始packing得decoration字号616/weight300/stroke3.696；原生独立容量测试实际ink为DPR1 3,954,020bytes、DPR2 13,725,056bytes，均保留现32MiB预算。20个616px CJK描边的申请真实超预算并原子拒绝；该拒绝不代表任意歌词场景都已完成验收，后续组件仍需实际scene和混合层预算回归。
-
 ## 自动环境重建的拒绝状态
 
 真实DPR2回归先复现：新GlyphRun显式8193 UTF16 runs被拒绝、accepted runs为空，随后挂到窗口时自动用旧empty runs重建并错误清掉errorString。修复只区分显式输入提交与DPR/显隐环境重建：自动成功不清已有错误，也不发先清再恢复的errorChanged信号；成功恢复会保留旧accepted poses。新的自动分配失败仍报告实际分配错误。显式合法runs/font/poses提交的既有清错语义保持。
-
-专项涵盖拒绝后挂DPR2 window、visible反复恢复、最近pose数字拒绝、accepted poses与错误信号计数、合法显式runs恢复。此修复不把先前被拒绝的新输入当作accepted，也不在自动生命周期中偷偷重试未接受的输入。
 
 ## 单片段合成透明度
 
@@ -175,21 +129,14 @@ UV属性的第三分量携带pose opacity，属性总数仍15（另预留Qt batc
 
 这不是Chrome逐像素字体等价保证：size相关hinting、optical-size/变量字体选择可能与按目标字号重新shape的浏览器不同。metrics明确是完整原生参考context换算；不返回字符宽度估算、不拆fallback逐字shape。主字体em指标按目标字号归一，实际浮点shape/字号均参与accepted runs与缓存身份；消费者的测量cache不得Math.round(size)。
 
-RED为源Tempera真实0.8969064634404105px请求原生拒绝。新增0.125/.896906/1.25/12.4/80.5px的ffi、Arabic、中文与ZWJ混合完整context；真实QPainter按同native cluster绘制的DPR1/2 RGB差为0，保留原跨fragment source-over。换行、.2px spacing、72px maxWidth和18px lineHeight逐cursor/baseline验证；120帧不改mask，非法/低于1/64请求原子拒绝、隐藏释放。DPR2全套31通过，仅原Fume Canvas halo质量失败保留；ASan/UBSan+DPR2专项8通过，无诊断。
-
 ## 整体纹理 tint
 
 `pose.tint` 可选颜色，默认white，其RGB在单fragment正文和halo合成之后逐通道相乘；忽略tint自身alpha。`pose.color`保留普通glyph的填充色及RGBA字形的既有alpha语义，默认彩色palette不变。该独立项对应Pixi Text/Sprite.tint：原彩色emoji、正文与TextStyle.dropShadow一起被tint，不替换palette，也不新增FBO。无tint和显式white（即使alpha0）像素完全相同。
 
-复用ink UV第四分量和bodyEffects UV的两个空分量，不增加15个attribute；vertex216B，geometry总8MiB可6472quad，三个完整2048fragment实例仍合法。M与😀各带真实18px halo/opacity.6，对最终opaque RGB逐通道乘tint的GPU oracle先RED误差99/255、后Metal DPR1和ASan/UBSan DPR2通过（最大2/255量化容差），120帧不改mask/upload；非法色原子保留上帧、隐藏释放。
-
-
 ## 销毁通知与纹理消费者
 
-2026-10-28 完整插件生命周期在 Pendolo 关闭时复现 ShaderEffectSource 析构崩溃。GlyphRun 原析构全量断开信号，连 Qt 用于撤销 sourceItem 监听的 `QObject::destroyed` 也被移除。改用 `blockSignals(true)` 抑制清理阶段属性通知，并仅断开自身 `windowChanged` 回调及已保存窗口连接；Qt 的销毁通知继续交付。该行为符合 [QObject 的销毁与信号屏蔽契约](https://doc.qt.io/qt-6/qobject.html#blockSignals)。真实 ShaderEffectSource 的独立回归旧源崩溃且销毁观察为零，修复后清空 sourceItem 并安全销毁消费者，3/3 通过。D 版统一构建 67/67；完整生命周期继续复验，不据独立回归称其全部完成。
+GlyphRun 清理阶段用 `blockSignals(true)` 抑制属性通知，并仅断开自身 `windowChanged` 回调及已保存窗口连接。保留 Qt 的 `QObject::destroyed` 通知，使 ShaderEffectSource 能撤销 sourceItem 监听并安全退休；不能全量断开信号。相关行为由真实纹理消费者生命周期回归约束。
 
-## 第三轮正式组合验证（2026-10-29）
+## 精简版验证
 
-已整合宿主 `c213df5`，重新构建正式目标并绑定新 FFI `575af718…`。四组 CTest 全通过（26.79 秒）：GlyphRun 34/34、Canvas Preparation 12/12、Canvas Rendering 13/13、ImageCapture 15/15；另 DPR2 非重复九方法为 12/12。Rendering 原源矩阵共 528 帧（两 DPR 各 264），质量门未变。197 实例、负 sourceRect、相交边缘、多 target、MSAA4 和 QRC 同 beginFrame 捕获的对应像素均通过；QRC 离屏目标实际 DPR1，不泛称所有离屏 DPR2。
-
-40 代池复用最终归零。DPR1 峰 84,779,269 字节、无预算拒绝；DPR2 峰 133,978,817 字节，原两次 exact-budget 拒绝经真实排空后原样一次重交恢复，没有增加 128 MiB 门槛。证据位于 `build/folia-fume-production-qa/formal-R3/`；这些是图形/资源门，不是进程内存上限或安静前台性能结论。
+本轮重新执行 GlyphRun、Canvas Preparation/Rendering、ImageCapture、PointMesh 与资源生命周期专项。原像素、正文、光晕、缓存和超时门保持；各平台实际结果在 PR 中单独报告。此前组合的通过计数、旧版截图与性能不作为当前版本结论。

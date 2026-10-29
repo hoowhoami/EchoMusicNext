@@ -46,7 +46,8 @@ class PluginManager final : public QObject
     Q_PROPERTY(QVariantMap shareRecord READ shareRecord NOTIFY changed)
     Q_PROPERTY(QString shareSourceUrl READ shareSourceUrl NOTIFY changed)
 public:
-    PluginManager(PluginRuntime &runtime, QSettings &preferences, QObject *parent = nullptr);
+    PluginManager(PluginRuntime &runtime, EchoMusic::SettingsStore &preferences,
+                  QObject *parent = nullptr);
     void setNetworkPreferences(NetworkPreferences *network);
     ~PluginManager() override;
     PluginFileService *fileGrants()
@@ -183,7 +184,7 @@ private:
     QVariantMap entry(const QString &key) const;
     QPointer<SharingCommands> m_sharing;
     PluginRuntime &m_runtime;
-    QSettings &m_preferences;
+    EchoMusic::SettingsStore &m_preferences;
     PluginListModel m_catalog, m_sourceModel;
     QNetworkAccessManager m_network;
     QSet<QNetworkReply *> m_replies;

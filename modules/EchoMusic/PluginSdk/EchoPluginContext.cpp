@@ -34,8 +34,6 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     connect(m_text, &EchoPluginText::drained, this, &EchoPluginContext::resourcesDrained);
     m_windows = new EchoPluginWindows(*this);
     m_audio = new EchoPluginAudio(*this);
-    connect(m_audio->analysis(), &EchoPluginAudioAnalysis::drained, this,
-            &EchoPluginContext::resourcesDrained);
     m_player = new EchoPluginPlayer(*this, host.playback);
     m_playlist = new EchoPluginPlaylist(*this);
     m_lyrics = new EchoPluginLyrics(*this);
@@ -363,13 +361,24 @@ bool EchoPluginContext::commit()
     m_committed = true;
     return true;
 }
+void EchoPluginContext::freezeStorage(bool frozen)
+{
+    auto *owner = activationContext();
+    owner->m_storageFrozen = frozen;
+    if (!frozen) {
+        owner->m_assets->resumeStorage();
+        for (auto child : owner->m_presentations)
+            if (child)
+                child->m_assets->resumeStorage();
+    }
+}
 void EchoPluginContext::storageBarrier(std::function<void()> ready)
 {
     QList<QPointer<EchoPluginContext>> scopes{this};
     for (auto child : m_presentations)
         if (child)
             scopes.append(child);
-    auto pending = std::make_shared<int>(scopes.size() * 3);
+    auto pending = std::make_shared<int>(scopes.size() * 4);
     const auto arrive = [pending, ready] {
         if (--*pending == 0)
             ready();
@@ -378,6 +387,7 @@ void EchoPluginContext::storageBarrier(std::function<void()> ready)
         scope->m_appearance->storageBarrier(arrive);
         scope->m_io->storageBarrier(arrive);
         scope->m_sqlite->storageBarrier(arrive);
+        scope->m_assets->storageBarrier(arrive);
     }
 }
 void EchoPluginContext::beginRetire()
@@ -411,7 +421,6 @@ void EchoPluginContext::beginRetire()
     m_sqlite->shutdown();
     m_text->shutdown();
     m_assets->shutdown();
-    m_audio->analysis()->shutdown();
     for (auto it = m_resources.crbegin(); it != m_resources.crend(); ++it)
         if (*it &&
             ((*it)->key().contains(":cleanup:") || (*it)->key().contains(":cleanup.presentation.")))
@@ -427,7 +436,6 @@ bool EchoPluginContext::drained() const
             return false;
     return m_process->isDrained() && m_webServer->isDrained() && m_net->isDrained() &&
            m_io->isDrained() && m_sqlite->isDrained() && m_appearance->drained() &&
-           m_files->isDrained() && m_text->isDrained() && m_assets->isDrained() &&
-           m_audio->analysis()->isDrained();
+           m_files->isDrained() && m_text->isDrained() && m_assets->isDrained();
 }
 } // namespace EchoMusic

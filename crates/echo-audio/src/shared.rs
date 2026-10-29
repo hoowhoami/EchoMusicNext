@@ -1383,11 +1383,7 @@ impl SharedAudio {
         self.set_position_secs(position_secs);
         self.set_speed(dsp_settings.speed);
         if let Ok(mut ring) = self.spectrum_ring.lock() {
-            // The session mix format is fixed. Preserve the allocation and
-            // capture flag while advancing the analysis generation on seek,
-            // loop, and decoder resume; a replacement ring can repeat an old
-            // generation and accidentally reuse frequency smoothing/deadlines.
-            ring.clear();
+            *ring = SampleRing::new(self.mix_format.sample_rate as usize);
         }
         self.update_dsp_settings(dsp_settings);
         self.wake_output_producer();
@@ -1475,9 +1471,8 @@ impl SharedAudio {
             .unwrap_or_default();
         let remaining_samples = output_samples.saturating_add(decoded_samples);
         if let Some((request_id, generation)) = transition {
-            if !self.record_transition_end(request_id, generation, remaining_samples) {
-                return;
-            }
+            // Read-only metadata cannot veto the mixer's existing gain marker.
+            let _ = self.record_transition_end(request_id, generation, remaining_samples);
         }
         *marker = Some(GainMarker {
             remaining_samples,

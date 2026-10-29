@@ -36,6 +36,7 @@ qt_add_qml_module(
     LyricColors.qml
     FloatingLyricViewport.qml
     FloatingLyricContent.qml
+    LyricLineMotion.qml
     EchoLyricInkPart.qml
     LyricRubyLine.qml
     LyricVerticalLine.qml
@@ -54,7 +55,8 @@ qt_add_qml_module(
     LyricSourceSearchForm.qml
     AddToPlaylistDialog.qml
     PlaybackQueueDrawer.qml
-    PlaybackQueueWall.qml
+    PlaybackQueueRow.qml
+    PlaybackQueueReorder.qml
     PlaybackOptionsPopup.qml
     PlaybackCastPopup.qml
     CastDeviceGroup.qml

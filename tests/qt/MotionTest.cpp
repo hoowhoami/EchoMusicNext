@@ -3,7 +3,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTemporaryDir>
 #include <QtTest>
 using namespace EchoMusic;
@@ -26,7 +26,7 @@ private slots:
     void contentEntryHonorsMotionVisibilityAndStagger()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ThemeStore theme(prefs);
         QQmlEngine engine;
         theme.attachToEngine(engine);

@@ -97,7 +97,8 @@ QString displayShortcut(const QKeySequence &sequence)
 #endif
 }
 } // namespace
-ShortcutService::ShortcutService(QSettings &settings, bool nativeRegistration, QObject *parent)
+ShortcutService::ShortcutService(EchoMusic::SettingsStore &settings, bool nativeRegistration,
+                                 QObject *parent)
     : QAbstractListModel(parent), m_settings(settings), m_nativeRegistration(nativeRegistration),
       m_globalEnabled(
           settings.value(EchoMusic::SettingsKeys::Shortcuts::GlobalEnabled, false).toBool()),

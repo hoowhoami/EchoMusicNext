@@ -87,6 +87,7 @@ Item {
     property bool staggerEnabled: true
     property real edgeFade: 0
     property bool rowBackgroundEnabled: true
+    property real rowBackgroundInset: 0
     property bool pauseMotionWithPlayback: false
     readonly property bool presentationMotionEnabled: Theme.store.motionEnabled && (!pauseMotionWithPlayback || playback.playing)
     signal settleMotion
@@ -274,6 +275,9 @@ Item {
         anchors.fill: parent
         clip: true
         reuseItems: true
+        EchoViewPoolGuard {
+            targetView: lines
+        }
         cacheBuffer: 200
         topMargin: height
         bottomMargin: height
@@ -363,11 +367,10 @@ Item {
                 positioned = true;
             }
             FrameAnimation {
-                running: (scrollMotion.running || dotMotion.running || scaleMotion.running) && viewport.presentationMotionEnabled && viewport.resourceActive && !line.pooled
+                running: (scrollMotion.running || dotMotion.running) && viewport.presentationMotionEnabled && viewport.resourceActive && !line.pooled
                 onTriggered: {
                     scrollMotion.advance();
                     dotMotion.advance();
-                    scaleMotion.advance();
                 }
             }
             Connections {
@@ -385,10 +388,7 @@ Item {
                 function onSettleMotion(): void {
                     scrollMotion.snap(lines.contentY);
                     dotMotion.snap(lines.contentY);
-                    scaleMotion.snap(visual.targetScale);
-                    blurTransition.complete();
-                    opacityTransition.complete();
-                    inkTransitionAnimation.complete();
+                    lineMotion.settle();
                 }
                 function onScrollRequested(from: real, destination: real, animate: bool): void {
                     if (line.headerHeight > 0) {
@@ -444,7 +444,7 @@ Item {
                 scrollMotion.snap(lines.contentY);
                 dotMotion.snap(lines.contentY);
                 dotsPositioned = false;
-                scaleMotion.snap(visual.targetScale);
+                lineMotion.settle();
             }
             ListView.onReused: {
                 freshPosition = true;
@@ -453,7 +453,7 @@ Item {
                 dotMotion.snap(lines.contentY);
                 dotsPositioned = false;
                 pooled = false;
-                scaleMotion.snap(visual.targetScale);
+                lineMotion.settle();
             }
             Loader {
                 active: line.headerHeight > 0 && viewport.resourceActive
@@ -493,8 +493,8 @@ Item {
                     objectName: "lyricRowBackground"
                     visible: viewport.rowBackgroundEnabled && (!viewport.compact || line.index === viewport.focusLine)
                     anchors.fill: parent
-                    anchors.leftMargin: 0
-                    anchors.rightMargin: viewport.overlayRightReserve
+                    anchors.leftMargin: viewport.rowBackgroundInset
+                    anchors.rightMargin: viewport.overlayRightReserve + viewport.rowBackgroundInset
                     radius: viewport.fontSize * .25
                     color: Theme.withAlpha(viewport.textColor, tap.pressed ? .03 : hover.hovered ? .07 : 0)
                 }
@@ -504,26 +504,21 @@ Item {
                     y: viewport.fontSize * .4 + lyricPart.value("translateY", 0)
                     width: parent.width - viewport.fontSize * 2
                     height: parent.height - viewport.fontSize * .8
-                    opacity: lyricPart.value("opacity", line.lineOpacity)
-                    property real targetScale: viewport.scaleEnabled && viewport.playback.playing && !line.active ? 97 : 100
-                    scale: lyricPart.value("scale", scaleMotion.value / 100)
-                    onTargetScaleChanged: scaleMotion.retargetScale(targetScale, line.inViewport && !line.freshPosition && viewport.resourceActive && viewport.springEnabled && viewport.presentationMotionEnabled)
-                    Component.onCompleted: scaleMotion.snap(targetScale)
-                    LyricSpring {
-                        id: scaleMotion
-                    }
+                    opacity: lineMotion.opacity
+                    scale: lyricPart.value("scale", lineMotion.scale)
                     transformOrigin: Item.Left
-                    property real blurAmount: viewport.softFocus && viewport.blurEnabled && lines.following && !line.active ? Math.min(5, (1 + line.distance) * (viewport.width <= 1024 ? .8 : 1)) : 0
-                    // Line activation precedes word timing, allowing the native
-                    // transition to clear the incoming row before its first word.
-                    Behavior on blurAmount {
-                        enabled: line.inViewport && viewport.resourceActive && viewport.presentationMotionEnabled
-                        NumberAnimation {
-                            id: blurTransition
-                            duration: 400
-                            easing.type: Easing.BezierSpline
-                            easing.bezierCurve: [.25, .1, .25, 1, 1, 1]
-                        }
+                    readonly property real blurAmount: lineMotion.blur
+                    LyricLineMotion {
+                        id: lineMotion
+                        objectName: "appleMusicLineMotion"
+                        activeLine: line.active
+                        resourceActive: viewport.resourceActive && !line.pooled
+                        animationEnabled: line.inViewport && viewport.presentationMotionEnabled
+                        springEnabled: viewport.springEnabled && !line.freshPosition
+                        shrinkInactive: viewport.scaleEnabled && viewport.playback.playing
+                        blurInactive: viewport.softFocus && viewport.blurEnabled && lines.following
+                        inactiveBlur: Math.min(5, (1 + line.distance) * (viewport.width <= 1024 ? .8 : 1))
+                        targetOpacity: lyricPart.value("opacity", line.lineOpacity)
                     }
                     layer.enabled: viewport.resourceActive && line.inViewport && blurAmount > .01
                     layer.effect: MultiEffect {
@@ -531,15 +526,6 @@ Item {
                         blurMax: 12
                         blur: visual.blurAmount / 12
                         autoPaddingEnabled: true
-                    }
-                    Behavior on opacity {
-                        enabled: line.inViewport && viewport.resourceActive && viewport.presentationMotionEnabled
-                        NumberAnimation {
-                            id: opacityTransition
-                            duration: 400
-                            easing.type: Easing.BezierSpline
-                            easing.bezierCurve: [.25, .1, .25, 1, 1, 1]
-                        }
                     }
                     LyricLine {
                         id: lyric
@@ -556,7 +542,7 @@ Item {
                                     secondaryForeground: viewport.unplayedColor,
                                     font: Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false),
                                     opacity: line.lineOpacity,
-                                    scale: scaleMotion.value / 100,
+                                    scale: lineMotion.scale,
                                     translateX: 0,
                                     translateY: 0
                                 }) : ({})
@@ -593,19 +579,9 @@ Item {
                         words: line.words
                         startMs: line.startMs - viewport.playback.lyrics.offsetMs
                         durationMs: line.durationMs
-                        highlightAmount: line.active ? 1 : 0
-                        // Row activation uses the advance schedule; word reveal
-                        // remains on the original immutable source timestamps.
-                        Behavior on highlightAmount {
-                            id: inkTransition
-                            enabled: viewport.resourceActive && line.inViewport && !line.freshPosition && viewport.presentationMotionEnabled
-                            NumberAnimation {
-                                id: inkTransitionAnimation
-                                duration: inkTransition.targetValue > 0 ? 300 : 450
-                                easing.type: Easing.BezierSpline
-                                easing.bezierCurve: [0, 0, .58, 1, 1, 1]
-                            }
-                        }
+                        // Activation follows the shared early schedule; the GPU
+                        // word sweep continues to use immutable source timing.
+                        highlightAmount: lineMotion.highlight
                         current: line.active || highlightAmount > .001
                         timeMs: (line.active || highlightAmount > .001) && line.inViewport && viewport.resourceActive ? viewport.renderTime - viewport.playback.lyrics.offsetMs : -1
                         font: lyricPart.styledFont(Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false))
@@ -624,7 +600,8 @@ Item {
                             units: line.rubyUnits
                             font: lyricPart.styledFont(Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false))
                             timeMs: line.inViewport ? viewport.renderTime - viewport.playback.lyrics.offsetMs : -1
-                            current: line.active
+                            current: line.active || lineMotion.highlight > .001
+                            highlightAmount: lineMotion.highlight
                             playedColor: lyricPart.value("foreground", viewport.textColor)
                             unplayedColor: lyricPart.value("secondaryForeground", viewport.unplayedColor)
                             animateWords: viewport.presentationMotionEnabled

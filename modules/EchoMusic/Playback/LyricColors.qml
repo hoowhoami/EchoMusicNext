@@ -6,8 +6,9 @@ import QtQuick
 // cover skin owns its resting white ink. Global previews resolve their own
 // default independently. Reads stay in QML so every preference is observable.
 QtObject {
+    readonly property color defaultPlayedColor: "#ffffff"
     readonly property color defaultUnplayedColor: Qt.rgba(1, 1, 1, .2)
-    readonly property color defaultCoverPlayedColor: "#ffffff"
+    readonly property color defaultCoverPlayedColor: defaultPlayedColor
     readonly property color defaultCoverUnplayedColor: Qt.rgba(1, 1, 1, .2)
     readonly property color defaultPortraitUnplayedColor: defaultCoverUnplayedColor
     function portraitPlayed(appearance: var, accent: color): color {
@@ -29,7 +30,7 @@ QtObject {
     function globalPlayed(appearance: var, accent: color): color {
         if (appearance.followCoverColor)
             return accent;
-        return appearance.playedColor.length > 0 ? appearance.playedColor : "#ffffff";
+        return appearance.playedColor.length > 0 ? appearance.playedColor : defaultPlayedColor;
     }
     function globalUnplayed(appearance: var, accent: color): color {
         if (appearance.unplayedFollowCoverColor)
@@ -53,6 +54,23 @@ QtObject {
         if (appearance.unplayedFollowCoverColor || appearance.unplayedColor.length > 0)
             return globalUnplayed(appearance, accent);
         return defaultCoverUnplayedColor;
+    }
+    // Mini keeps the playback page's default alpha hierarchy. The floating
+    // palette already owns a readable foreground for its actual surface;
+    // mirror the white defaults to black when that foreground is dark.
+    function miniPlayed(preferences: var, accent: color, foreground: color): color {
+        if (preferences.followCoverColor)
+            return accent;
+        if (preferences.playedColor.length > 0)
+            return preferences.playedColor;
+        return foreground.hslLightness > .5 ? defaultCoverPlayedColor : Qt.rgba(0, 0, 0, defaultCoverPlayedColor.a);
+    }
+    function miniUnplayed(preferences: var, accent: color, foreground: color): color {
+        if (preferences.unplayedFollowCoverColor)
+            return accent;
+        if (preferences.unplayedColor.length > 0)
+            return preferences.unplayedColor;
+        return foreground.hslLightness > .5 ? defaultCoverUnplayedColor : Qt.rgba(0, 0, 0, defaultCoverUnplayedColor.a);
     }
     // The shared picker accepts opaque #rgb/#rrggbb only; preview alpha at the
     // swatch instead of letting the picker normalize the derived color away.

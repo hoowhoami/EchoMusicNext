@@ -24,8 +24,6 @@ typedef enum EchoStatus {
 
 typedef struct EchoAudio EchoAudio;
 
-typedef struct EchoAudioAnalysisSource EchoAudioAnalysisSource;
-
 typedef struct EchoCapabilities EchoCapabilities;
 
 typedef struct EchoRuntime EchoRuntime;
@@ -280,51 +278,6 @@ bool echo_audio_spectrum_configure(struct EchoAudio *audio, const uint8_t *bytes
  * At most one snapshot is requested by the GUI spectrum broker at a time.
  */
 bool echo_audio_spectrum_snapshot(struct EchoAudio *audio, uint64_t revision);
-
-/**
- * Worker-only immutable capture of the actually adopted native source. The expected
- * locator/ordinal must come from the host's acknowledged source facts, never SDK input.
- * Callback payload is borrowed; retain the returned handle through every decode/cancel call.
- */
-struct EchoAudioAnalysisSource *echo_audio_analysis_capture(uint64_t expected_seq,
-                                                            const uint8_t *expected_locator,
-                                                            size_t locator_len,
-                                                            int64_t expected_ordinal,
-                                                            EchoCallback callback,
-                                                            void *context);
-
-/**
- * Capture only a retained outgoing source from the exact live native mix epoch.
- * Locator/ordinal still originate exclusively in acknowledged host facts.
- */
-struct EchoAudioAnalysisSource *echo_audio_analysis_capture_outgoing(uint64_t expected_seq,
-                                                                     const uint8_t *expected_locator,
-                                                                     size_t locator_len,
-                                                                     int64_t expected_ordinal,
-                                                                     uint64_t transition_epoch,
-                                                                     EchoCallback callback,
-                                                                     void *context);
-
-/**
- * Cancel is an atomic/short-mutex action. Owner must retain the handle until all calls return.
- */
-void echo_audio_analysis_cancel(struct EchoAudioAnalysisSource *source);
-
-/**
- * Background-only whole-source decode. Profile 0 is 22050 Hz first-two-channel mid;
- * profile 1 is 44100 Hz first-two stereo (mono duplicated). PCM pointers are borrowed
- * only during callback; false cancels. Only EOF emits a successful whole_track summary.
- */
-bool echo_audio_analysis_decode(struct EchoAudioAnalysisSource *source,
-                                uint32_t profile,
-                                bool (*pcm)(void*, const float*, const float*, size_t),
-                                EchoCallback callback,
-                                void *context);
-
-/**
- * Free only when no call is using this handle. It never waits on an inference/GPU job.
- */
-void echo_audio_analysis_source_destroy(struct EchoAudioAnalysisSource *source);
 
 struct EchoCapabilities *echo_capabilities_create(EchoCallback callback, void *context);
 

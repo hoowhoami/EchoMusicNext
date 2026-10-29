@@ -39,6 +39,7 @@ void PluginRuntimeTest::reloadUsesNewCodeUrlAndIdentity()
     host.runtime.importDirectory(source);
     QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Active);
     QTRY_COMPARE(host.playback.volume(), 20);
+    QTRY_VERIFY(!host.runtime.loading());
     const auto identity = host.installation();
     const auto firstRoot = host.runtime.context(identity)->package().root;
     write(source + "/entry.mjs", "export function activate(ctx) { ctx.player.setVolume(70); }\n");

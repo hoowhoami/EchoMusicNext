@@ -52,6 +52,7 @@ if(APPLE)
     set_source_files_properties(assets/icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_target_properties(echomusicnext PROPERTIES MACOSX_BUNDLE_ICON_FILE icon.icns)
 elseif(WIN32)
+    target_sources(echomusicnext PRIVATE Application.manifest)
     enable_language(RC)
     configure_file(Application.rc.in ${CMAKE_CURRENT_BINARY_DIR}/Application.rc @ONLY)
     target_sources(echomusicnext PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/Application.rc)
@@ -211,6 +212,3 @@ else()
 endif()
 
 target_link_libraries(echomusicnext PRIVATE echo_settings_keys)
-
-# Independent AGPL GPU helper, model bytes and notices; no host-library linkage.
-echo_deploy_audio_analysis(echomusicnext)

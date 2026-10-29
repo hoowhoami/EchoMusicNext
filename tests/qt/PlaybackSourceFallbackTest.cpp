@@ -396,7 +396,7 @@ private slots:
     void mvPreferenceIsOptInAndPersists()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("settings.ini"));
         PlaybackPreferences first(settings);
         QVERIFY(!first.mvAudioFallbackEnabled());
         first.setMvAudioFallbackEnabled(true);
@@ -423,7 +423,7 @@ void PlaybackSourceFallbackTest::liveCloudAndMvUseActualAudioEngine()
                           "-"};
     ApiClient api(device);
     QTemporaryDir dir;
-    QSettings settings(dir.filePath("settings.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(dir.filePath("settings.ini"));
     settings.setValue("playback/volume", 0);
     settings.setValue("playback/defaultQuality", "standard");
     settings.setValue("playback/transitionMode", "none");

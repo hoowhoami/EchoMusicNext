@@ -8,7 +8,7 @@
 #include "TaskbarLyricPreferences.h"
 #include "WindowsTaskbarLyric.h"
 
-class QSettings;
+#include "SettingsStore.h"
 
 namespace EchoMusic
 {
@@ -52,7 +52,7 @@ class TaskbarLyricController final : public QObject
     /// The user may drag the strip to any place on the taskbar.
     Q_PROPERTY(bool dragEnabled READ dragEnabled NOTIFY stateChanged)
 public:
-    TaskbarLyricController(QSettings &settings, QObject *parent = nullptr);
+    TaskbarLyricController(EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     ~TaskbarLyricController() override;
     TaskbarLyricPreferences *settings()
     {
@@ -146,7 +146,7 @@ private:
     /// Re-kicks the paint request that keeps the re-parented strip presenting,
     /// but only when the scene graph has actually gone quiet.
     void kickExposure();
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     TaskbarLyricPreferences m_settingsStore;
     WindowsTaskbarLyric m_session;
     QPointer<QQuickWindow> m_window;

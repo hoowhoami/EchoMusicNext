@@ -258,7 +258,7 @@ void PluginRuntimeTest::resourceAuthorizationDenialCancelAndIsolation()
     QVERIFY(!peer.hasPendingConnections());
     auto *restoreGrant = scope->permissions()->request("tcp", "重开账本测试");
     QTRY_COMPARE(restoreGrant->state(), EchoPluginOperation::Succeeded);
-    QSettings reopened(host.settings.fileName(), QSettings::IniFormat);
+    EchoMusic::SettingsStore reopened(host.settings.fileName());
     PluginPermissionStore store(reopened, nullptr);
     QVERIFY(store.granted(*scope, "tcp"));
 }

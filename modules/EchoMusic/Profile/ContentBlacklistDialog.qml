@@ -156,6 +156,9 @@ EchoDialog {
             topMargin: 2
             bottomMargin: 4
             reuseItems: dialog.visible
+            EchoViewPoolGuard {
+                targetView: list
+            }
             cacheBuffer: dialog.visible ? 116 : 0
             boundsBehavior: Flickable.StopAtBounds
             model: dialog.visible ? dialog.service.entries : null

@@ -2,9 +2,6 @@
 #include "EchoPluginPlaybackTransition.h"
 #include "EchoPluginContext.h"
 #include "PlaybackService.h"
-#include "ShellController.h"
-#include "ApiClient.h"
-#include "AccountService.h"
 #include "EchoPluginViewContext.h"
 #include <cmath>
 #include <QTimer>
@@ -76,20 +73,6 @@ EchoPluginPlayer::EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &ho
       m_queue(*host.queue(), this), m_lyrics(*host.lyrics(), this)
 {
     m_transition = new EchoPluginPlaybackTransition(scope, host.transitionPresentation(), this);
-    connect(&scope, &EchoPluginContext::activeChanged, this, [this] {
-        if (!m_scope.active())
-            m_host.cancelVolumePreview(this);
-    });
-    connect(&scope.host().api, &ApiClient::sessionChanged, this,
-            [this] { m_host.cancelVolumePreview(this); });
-    connect(&scope.host().account, &AccountService::sessionAdopted, this,
-            [this] { m_host.cancelVolumePreview(this); });
-    connect(host.sleepTimer(), &SleepTimer::changed, this, &EchoPluginPlayer::changed);
-    connect(host.queueCatalog(), &PlaybackQueueCatalog::changed, this, [this] {
-        if (auto *queue = m_host.queue())
-            m_queue.setSource(*queue);
-        emit changed();
-    });
     m_previous = snapshot();
     publishStateEvents();
     connect(host.personalFm(), &PersonalFmController::changed, this, &EchoPluginPlayer::changed);
@@ -206,33 +189,7 @@ EchoPluginOperation *EchoPluginPlayer::setSpeed(double value)
 }
 EchoPluginOperation *EchoPluginPlayer::playIndex(int row)
 {
-    auto *queue = m_host.queue();
-    if (!queue || !queue->at(row))
-        return m_scope.rejected("InvalidArgument", "Queue row does not exist");
-    const auto key = m_host.queueCatalog()->activeKey();
-    const auto revision = queue->revision();
-    const auto identity = queue->at(row)->key();
-    const auto epoch = m_scope.accountEpoch();
-    const QPointer<PlaybackQueueModel> guard(queue);
-    auto *op = m_scope.operation();
-    if (op->finished())
-        return op;
-    op->start();
-    QTimer::singleShot(0, op, [this, op, guard, key, revision, identity, epoch, row] {
-        if (op->finished())
-            return;
-        if (!m_scope.active() || m_scope.accountEpoch() != epoch)
-            op->cancel();
-        else if (!guard || m_host.queue() != guard || m_host.queueCatalog()->activeKey() != key ||
-                 guard->revision() != revision || !guard->at(row) ||
-                 guard->at(row)->key() != identity)
-            op->fail("StaleQueue", "Queue changed before the command ran");
-        else {
-            m_host.playIndex(row);
-            op->succeed();
-        }
-    });
-    return op;
+    return command([this, row] { m_host.playIndex(row); });
 }
 EchoPluginOperation *EchoPluginPlayer::remove(int row)
 {
@@ -326,15 +283,6 @@ QVariantMap EchoPluginPlayer::snapshot() const
         {"positionMs", positionMs()},
         {"durationMs", durationMs()},
         {"volume", volume()},
-        {"canShuffleQueue", m_host.canShuffleQueue()},
-        {"canShowSongWall", m_host.queue()->rowCount() > 0 && !m_host.personalFm()->active()},
-        {"canLocateTrack", m_scope.host().shell.canLocatePlayingTrack()},
-        {"sleepTimer", QVariantMap{{"active", m_host.sleepTimer()->active()},
-                                   {"durationMinutes", m_host.sleepTimer()->durationMinutes()},
-                                   {"remainingSeconds", m_host.sleepTimer()->remainingSeconds()},
-                                   {"action", m_host.sleepTimer()->action()},
-                                   {"executing", m_host.sleepTimer()->executing()},
-                                   {"errorMessage", m_host.sleepTimer()->errorMessage()}}},
         {"speed", speed()},
         {"playMode", int(m_host.playMode())},
         {"quality", m_host.quality()},

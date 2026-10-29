@@ -11,7 +11,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QProcess>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -146,7 +146,7 @@ private slots:
     void sortPreferencesAreSharedAcrossArtistsAndCachedRoutes()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ShellSettings shell(prefs);
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -223,7 +223,7 @@ private slots:
             QSKIP("Invoked only by the isolated process-restart test");
         const auto stage = qEnvironmentVariable("ECHO_ARTIST_PREFS_STAGE").split('-');
         QCOMPARE(stage.size(), 3);
-        QSettings prefs(path, QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(path);
         ShellSettings shell(prefs);
         ApiClient api(DeviceIdentity::temporary());
         QTemporaryDir dir;
@@ -247,13 +247,13 @@ private slots:
         playback.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
         api.shutdown();
-        // Normal QSettings destruction flushes the write. The next assertion
-        // runs in another process, with no shared QSettings in-memory cache.
+        // Normal EchoMusic::SettingsStore destruction flushes the write. The next assertion
+        // runs in another process, with no shared EchoMusic::SettingsStore in-memory cache.
     }
     void pagedSongsAndProviderSort()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -307,7 +307,7 @@ private slots:
     void shortPageDiscardsInFlightSiblings()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -339,7 +339,7 @@ private slots:
     void failureAndSessionChange()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -375,7 +375,7 @@ private slots:
     void albumPagingSortAndEof()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -439,7 +439,7 @@ private slots:
     void nativeArtistPage()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences network(prefs, api);

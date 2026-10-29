@@ -60,14 +60,12 @@ if (platform === 'macOS') {
     path.join(qt, 'plugins/platforms/libqoffscreen.dylib'),
     path.join(platforms, 'libqoffscreen.dylib'),
   );
-  const analysisHelper = path.join(app, 'Contents/Helpers/echo-audio-analysis-helper');
   run(path.join(qt, 'bin/macdeployqt'), [
     app,
     `-qmldir=${path.join(root, 'modules')}`,
     `-qmlimport=${path.join(build, 'qml')}`,
     `-executable=${path.join(app, 'Contents/Helpers/echo-theme-image-worker')}`,
     `-executable=${path.join(app, 'Contents/Helpers/echo-plugin-asset-worker')}`,
-    ...(fs.existsSync(analysisHelper) ? [`-executable=${analysisHelper}`] : []),
     '-always-overwrite',
   ]);
   const sqlDrivers = path.join(app, 'Contents/PlugIns/sqldrivers');
@@ -115,9 +113,7 @@ if (platform === 'macOS') {
     '--dir',
     path.join(stage, 'bin'),
     path.join(stage, 'bin/echomusicnext.exe'),
-    ...(fs.existsSync(path.join(stage, 'bin/echo-audio-analysis-helper.exe'))
-      ? [path.join(stage, 'bin/echo-audio-analysis-helper.exe')]
-      : []),
+    path.join(stage, 'bin/echo-plugin-asset-worker.exe'),
   ]);
   fs.copyFileSync(
     path.join(qt, 'plugins/platforms/qoffscreen.dll'),
@@ -182,9 +178,6 @@ if (platform === 'macOS') {
       path.join(stage, 'bin/echo-theme-image-worker'),
       '--executable',
       path.join(stage, 'bin/echo-plugin-asset-worker'),
-      ...(fs.existsSync(path.join(stage, 'bin/echo-audio-analysis-helper'))
-        ? ['--executable', path.join(stage, 'bin/echo-audio-analysis-helper')]
-        : []),
       '--executable',
       path.join(stage, 'bin/echo-update-helper'),
       '--executable',

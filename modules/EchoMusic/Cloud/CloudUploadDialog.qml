@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Cloud
@@ -44,9 +43,9 @@ EchoDialog {
         objectName: "cloudUploadFileOwner"
         hostItem: dialog.contentItem
         sourceComponent: Component {
-            FileDialog {
+            EchoFileDialog {
                 title: dialog.manualPicker ? qsTr("选择匹配上传的音频") : qsTr("选择上传的音频")
-                fileMode: dialog.manualPicker ? FileDialog.OpenFile : FileDialog.OpenFiles
+                fileMode: dialog.manualPicker ? EchoFileDialog.OpenFile : EchoFileDialog.OpenFiles
                 nameFilters: [qsTr("音频文件 (*.aac *.aif *.aiff *.amr *.ape *.caf *.dff *.dsf *.flac *.m4a *.mp3 *.oga *.ogg *.opus *.wav *.wave *.wma)")]
                 onAccepted: dialog.service.selectFiles(selectedFiles, dialog.manualPicker)
             }
@@ -57,7 +56,8 @@ EchoDialog {
         objectName: "cloudUploadFolderOwner"
         hostItem: dialog.contentItem
         sourceComponent: Component {
-            FolderDialog {
+            EchoFileDialog {
+                fileMode: EchoFileDialog.OpenFolder
                 title: qsTr("选择上传的音乐文件夹")
                 onAccepted: dialog.service.selectFolder(selectedFolder)
             }
@@ -286,6 +286,9 @@ EchoDialog {
                 model: dialog.service
                 boundsBehavior: Flickable.StopAtBounds
                 reuseItems: true
+                EchoViewPoolGuard {
+                    targetView: files
+                }
                 ScrollBar.vertical: EchoPopupScrollBar {
                     surface: dialog
                     view: files

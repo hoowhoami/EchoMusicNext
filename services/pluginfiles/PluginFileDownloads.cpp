@@ -1,3 +1,4 @@
+#include "PluginPaths.h"
 #include "PluginFileWorker_p.h"
 #include <QDir>
 #include <QDateTime>
@@ -129,13 +130,13 @@ void PluginFileWorker::saveDownloads()
     const auto data = QJsonDocument(rows).toJson(QJsonDocument::Compact);
     if (data.size() > 8 * 1024 * 1024)
         reject("QuotaExceeded", "Download history exceeds its storage budget");
-    QSaveFile file(root + "/resources/downloads.json");
+    QSaveFile file(PluginPaths(root).state("downloads.json"));
     if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit())
         reject("StorageError", "Download state could not be saved");
 }
 void PluginFileWorker::loadDownloads()
 {
-    QFile file(root + "/resources/downloads.json");
+    QFile file(PluginPaths(root).state("downloads.json"));
     if (!file.exists())
         return;
     if (!file.open(QIODevice::ReadOnly) || file.size() > 8 * 1024 * 1024)
@@ -156,7 +157,7 @@ void PluginFileWorker::loadDownloads()
                       row.value("name").toString(),
                       {},
                       {}};
-        if (QUuid(job->owner.installation).isNull())
+        if (QUuid(job->owner.installation).isNull() || !PluginPaths::validId(job->owner.pluginId))
             continue;
         job->options = row.value("options").toObject().toVariantMap();
         job->target = row.value("target").toObject().toVariantMap();
@@ -176,7 +177,7 @@ void PluginFileWorker::loadDownloads()
         job->lastModified = row.value("lastModified").toString();
         job->result = row.value("result").toObject().toVariantMap();
         job->partPath =
-            root + "/cache/" + job->owner.installation + "/downloads/" + job->id + ".part";
+            PluginPaths(root).cache(job->owner.pluginId) + "/downloads/" + job->id + ".part";
         jobs.insert(job->id, job);
     }
 }
@@ -244,7 +245,7 @@ QVariant PluginFileWorker::downloads(const PluginFileOwner &owner, const QString
         job->options = options;
         job->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
         job->created = QDateTime::currentMSecsSinceEpoch();
-        job->partPath = root + "/cache/" + owner.installation + "/downloads/" + job->id + ".part";
+        job->partPath = PluginPaths(root).cache(owner.pluginId) + "/downloads/" + job->id + ".part";
         jobs.insert(job->id, job);
         try {
             saveDownloads();

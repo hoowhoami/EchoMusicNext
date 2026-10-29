@@ -9,6 +9,8 @@ Q_IMPORT_QML_PLUGIN(EchoMusic_ThemesPlugin)
 #include <QImageReader>
 #include <QCryptographicHash>
 #include <QDataStream>
+#include <QScopeGuard>
+#include "StorageFence.h"
 #include "asset-archive/CaseFold.h"
 
 namespace
@@ -116,6 +118,9 @@ private slots:
             assets->exportImageArchive("example.images", exported, json, "backup.zip"));
         QTRY_VERIFY(fixture.picker());
         QCOMPARE(fixture.picker()->acceptMode(), QFileDialog::AcceptSave);
+        QCOMPARE(QFileInfo(fixture.picker()->selectedFiles().value(0)).fileName(),
+                 QString("backup.zip"));
+        QCOMPARE(fixture.picker()->font().families(), fixture.scope->font().families());
         fixture.picker()->selectFile(zipPath);
         QVERIFY(QMetaObject::invokeMethod(fixture.picker(), "accept", Qt::DirectConnection));
         QTRY_COMPARE_WITH_TIMEOUT(save->state(), EchoPluginOperation::Succeeded, 15000);
@@ -130,6 +135,24 @@ private slots:
         QCOMPARE(lease->jsonFiles().value("meta.json").toMap().value("example").toBool(), true);
         QCOMPARE(lease->jsonFiles().value("pool.json").toMap().value("data").toString().size(),
                  60000);
+        {
+            auto *scope = fixture.scope;
+            scope->freezeStorage(true);
+            const auto unfreeze = qScopeGuard([scope] { scope->freezeStorage(false); });
+            const auto ready = std::make_shared<bool>(false);
+            scope->storageBarrier([ready] { *ready = true; });
+            QTRY_VERIFY(*ready);
+            QVERIFY(lease->ready());
+            QVERIFY(QDir(scope->dataPath() + "/assets-v1")
+                        .entryList({".archive-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot)
+                        .isEmpty());
+            auto *blocked = fixture.retain(lease->importInto(
+                "restored.images",
+                {{QVariantMap{{"path", "images/old-bare-id"}, {"name", "restored.svg"}}}}));
+            QCOMPARE(blocked->state(), EchoPluginOperation::Failed);
+            QCOMPARE(blocked->errorCode(), QString("StorageFrozen"));
+            QVERIFY(lease->ready()); // A blocked write does not consume the snapshot.
+        }
         auto *restore = fixture.retain(lease->importInto(
             "restored.images",
             {{QVariantMap{{"path", "images/old-bare-id"}, {"name", "restored.svg"}}}}));
@@ -144,6 +167,42 @@ private slots:
                                .filePath(entry.value("handle").toString().mid(6) + ".svg"));
         QVERIFY(originalFile.open(QIODevice::ReadOnly));
         QCOMPARE(originalFile.readAll(), original);
+    }
+    void exportDestinationHonorsStorageFence()
+    {
+        ArchiveFixture fixture;
+        QVERIFY(fixture.activate());
+        QImage image(1, 1, QImage::Format_RGBA8888);
+        image.fill(Qt::red);
+        const auto input = fixture.host.temporary.filePath("original.png");
+        QVERIFY(image.save(input));
+        auto *assets = fixture.scope->assets();
+        auto *import = fixture.retain(assets->importImages("export-fence"));
+        QTRY_VERIFY(fixture.picker());
+        fixture.picker()->selectFile(input);
+        QVERIFY(QMetaObject::invokeMethod(fixture.picker(), "accept", Qt::DirectConnection));
+        QTRY_COMPARE_WITH_TIMEOUT(import->state(), EchoPluginOperation::Succeeded, 15000);
+        QTRY_VERIFY(assets->isDrained());
+        const auto descriptor = import->result().toMap().value("assets").toList().first().toMap();
+        const auto destination = fixture.host.temporary.filePath("portable-files");
+        QVERIFY(QDir().mkpath(destination));
+        const auto fence = StorageFence::freeze(destination);
+        QVERIFY(fence);
+        QVERIFY(!fixture.scope->storageFrozen());
+        const auto output = destination + "/frozen.zip";
+        auto *save = fixture.retain(
+            assets->exportImageArchive("export-fence",
+                                       {{QVariantMap{{"handle", descriptor.value("handle")},
+                                                     {"path", "images/original.png"}}}},
+                                       {}, "frozen.zip"));
+        QTRY_VERIFY(fixture.picker());
+        fixture.picker()->selectFile(output);
+        QVERIFY(QMetaObject::invokeMethod(fixture.picker(), "accept", Qt::DirectConnection));
+        QTRY_COMPARE(save->state(), EchoPluginOperation::Failed);
+        QCOMPARE(save->errorCode(), QString("StorageFrozen"));
+        QTRY_VERIFY(assets->isDrained());
+        QVERIFY(!QFileInfo::exists(output));
+        QTRY_COMPARE(EchoPluginAssets::archiveSlotCount(), 0);
     }
     void pickerCancellationAndInvalidArgumentsDoNotPublish()
     {

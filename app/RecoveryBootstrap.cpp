@@ -15,8 +15,9 @@
 #include <QUrlQuery>
 namespace EchoMusic
 {
-int runRecoveryFailure(QGuiApplication &app, QSettings &settings, const QString &error,
-                       EchoMusic::SingleInstance *instance, const QStringList &arguments)
+int runRecoveryFailure(QGuiApplication &app, EchoMusic::SettingsStore &settings,
+                       const QString &error, EchoMusic::SingleInstance *instance,
+                       const QStringList &arguments)
 {
     // Do not construct account stores, transport, plugins or audio against an
     // unfinished restore. The retry uses the same fully drained relaunch helper.

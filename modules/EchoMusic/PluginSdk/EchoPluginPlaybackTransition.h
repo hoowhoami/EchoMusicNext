@@ -10,7 +10,6 @@ class EchoPluginTransitionTrack final : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Owned by EchoPluginPlaybackTransition")
-    Q_PROPERTY(QString identity READ identity NOTIFY changed)
     Q_PROPERTY(QString sequence READ sequence NOTIFY changed)
     Q_PROPERTY(QString id READ id NOTIFY changed)
     Q_PROPERTY(QString hash READ hash NOTIFY changed)
@@ -26,7 +25,6 @@ class EchoPluginTransitionTrack final : public QObject
 public:
     EchoPluginTransitionTrack(EchoPluginContext &, PlaybackTransitionPresentation &,
                               PlaybackTransitionTrack &, QObject *parent);
-    QString identity() const;
     QString sequence() const;
     QString id() const;
     QString hash() const;

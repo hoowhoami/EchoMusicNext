@@ -7,7 +7,8 @@
 #include <utility>
 namespace EchoMusic
 {
-CastService::CastService(NativeBridge &native, PlaybackService &playback, QSettings &settings)
+CastService::CastService(NativeBridge &native, PlaybackService &playback,
+                         EchoMusic::SettingsStore &settings)
     : m_native(native), m_playback(playback), m_settings(settings), m_media(native, this),
       m_enabled(settings.value(EchoMusic::SettingsKeys::Cast::Enabled, false).toBool())
 {

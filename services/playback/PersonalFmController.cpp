@@ -17,7 +17,7 @@ QString identity(const PlaybackTrack &track)
 }
 } // namespace
 PersonalFmController::PersonalFmController(PlaybackService &playback, ApiClient &api,
-                                           QSettings &settings)
+                                           EchoMusic::SettingsStore &settings)
     : QObject(&playback), m_playback(playback), m_api(api), m_settings(settings)
 {
     connect(&playback, &PlaybackService::metadataServiceChanged, this,

@@ -3,7 +3,7 @@
 #include "EchoPluginContext.h"
 #include "PluginDependencyGraph.h"
 #include <QAbstractListModel>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTimer>
 #include <memory>
 #include <vector>
@@ -38,6 +38,7 @@ class PluginRuntime final : public QAbstractListModel
     Q_PROPERTY(QString directory READ directory CONSTANT)
     Q_PROPERTY(int count READ rowCount NOTIFY catalogChanged)
     Q_PROPERTY(int enabledCount READ enabledCount NOTIFY catalogChanged)
+    Q_PROPERTY(QVariantList dataEntries READ dataEntries NOTIFY catalogChanged)
     Q_PROPERTY(QStringList supportedFeatures READ supportedFeatures CONSTANT)
 public:
     enum State
@@ -64,8 +65,8 @@ public:
         InstallationRole,
         RecordRole
     };
-    PluginRuntime(QQmlEngine &engine, QSettings &preferences, PluginHost host, QString root,
-                  bool safeMode = false);
+    PluginRuntime(QQmlEngine &engine, EchoMusic::SettingsStore &preferences, PluginHost host,
+                  QString root, bool safeMode = false);
     ~PluginRuntime() override;
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -122,6 +123,10 @@ public:
     }
     Q_INVOKABLE void openWindow(const QString &installation, const QString &windowId);
     Q_INVOKABLE bool clearFailure(const QString &installation);
+    QVariantList dataEntries() const;
+    Q_INVOKABLE bool openPluginDirectory(const QString &installation, bool data = false);
+    Q_INVOKABLE bool clearPluginData(const QString &key);
+    Q_INVOKABLE bool openDataDirectory(const QString &key);
     void shutdown();
     /// A reversible application-backup barrier. Retire contexts and drain SQL,
     /// jobs and external resources without changing the user's enabled flags.
@@ -153,11 +158,12 @@ private:
             None,
             Updating,
             Rollback,
+            Clearing,
             Removing
         } mutation = None;
         bool snapshotReady = false, dataRestored = false, applying = false, newInstall = false,
              removeData = false;
-        QString previousSource, transactionError;
+        QString previousSource, transactionError, transaction, previousTransaction, importedInput;
         QString source, error;
         bool reloadPending = false;
         bool retirementPending = false;
@@ -175,7 +181,9 @@ private:
     void load(Entry &entry, const QString &directory);
     Entry *find(const QString &installation) const;
     void changed(Entry &entry);
-    void persist();
+    bool persist();
+    QVariantMap installationRecord(const Entry &entry) const;
+    void cleanImages(const QString &id, std::function<void()> completed = {});
     void activate(Entry &entry);
     PluginDependencyGraph dependencyPlan(const PluginPackage *replacement = nullptr) const;
     void queueReconcile();
@@ -190,18 +198,20 @@ private:
     void applyMutation(Entry &entry);
     void finishMutation(Entry &entry);
     void removeEntry(Entry &entry);
-    void discardSnapshot(const QString &backup, std::function<void()> complete = {});
+    void discardSnapshot(const QString &backup, std::function<void()> complete = {},
+                         const QString &input = {});
     QQmlEngine &m_engine;
-    QSettings &m_preferences;
+    EchoMusic::SettingsStore &m_preferences;
     PluginHost m_host;
     PluginFileService *m_fileService = nullptr;
     bool m_fileShutdown = false;
-    QString m_root, m_sdkError;
+    QString m_root, m_sdkError, m_storeError;
     bool m_safeMode = false, m_started = false, m_closing = false, m_closed = false;
     bool m_loadingNotification = false, m_refreshing = false, m_startScanPending = false;
     bool m_refreshNotice = false;
     bool m_reconcileQueued = false;
-    QStringList m_refreshSources, m_refreshInstallations;
+    QStringList m_refreshSources, m_refreshInstallations, m_explicitImports;
+    QHash<QString, bool> m_importEnabled;
     int m_imports = 0;
     bool m_maintenance = false;
     std::function<void(bool)> m_maintenanceReady;

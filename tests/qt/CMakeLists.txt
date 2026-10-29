@@ -114,7 +114,8 @@ if(APPLE)
 endif()
 qt_add_executable(echo-settings-backup-test SettingsBackupTest.cpp)
 target_link_libraries(
-    echo-settings-backup-test PRIVATE echo_settings echo_storage Qt6::Sql Qt6::Test
+    echo-settings-backup-test PRIVATE echo_settings echo_storage echo_plugin_packages Qt6::Sql
+                                      Qt6::Test
 )
 add_test(NAME settings-backup COMMAND echo-settings-backup-test)
 set_tests_properties(settings-backup PROPERTIES TIMEOUT 45)
@@ -261,8 +262,14 @@ qt_add_qml_module(
     ControlSizeHarness.qml
 )
 target_link_libraries(
-    echo-controls-ui-test PRIVATE echo_controls echo_controlsplugin echo_theme Qt6::Quick
-                                  Qt6::QuickControls2 Qt6::Test
+    echo-controls-ui-test
+    PRIVATE echo_controls
+            echo_controlsplugin
+            echo_theme
+            Qt6::Widgets
+            Qt6::Quick
+            Qt6::QuickControls2
+            Qt6::Test
 )
 set(ECHO_CONTROLS_TEST_GROUPS controls-ui-inputs controls-ui-popups controls-ui-typography
                               controls-ui-effects controls-ui-behavior
@@ -282,6 +289,7 @@ add_test(
     COMMAND
         echo-controls-ui-test scaledPopupTextKeepsNativePixelResolution
         floatingPanelEdgesAndMenuHeight menusDrawersAndFileDialogsReleaseAfterClose
+        filePickerPreservesSelectionAndCancelsWithOwner
         businessPopupsAreCreatedOnDemandAndDestroyedAfterExit
         verificationCoverPreservesPopupInstancesAndDrafts tooltipPopupsExistOnlyDuringTheirTrigger
         nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover tooltipPressPreservesClickAndRelease
@@ -490,6 +498,51 @@ target_link_libraries(
 )
 add_test(NAME theme COMMAND echo-theme-test)
 set_tests_properties(theme PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+qt_add_executable(echo-system-theme-mode-test SystemThemeModeTest.cpp)
+# This test exercises the C++ store only and creates no QML engine or page.
+set_target_properties(echo-system-theme-mode-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+target_link_libraries(echo-system-theme-mode-test PRIVATE echo_theme Qt6::Test)
+add_test(NAME system-theme-mode COMMAND echo-system-theme-mode-test)
+set_tests_properties(
+    system-theme-mode PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15
+)
+# Exercise the actual Linux D-Bus adapter on an isolated bus, also on macOS
+# developer SDKs that provide QtDBus. This is not Linux desktop acceptance.
+if(UNIX)
+    if(NOT TARGET Qt6::DBus)
+        find_package(Qt6 6.12.0 EXACT QUIET COMPONENTS DBus)
+    endif()
+    if(TARGET Qt6::DBus)
+        qt_add_executable(echo-linux-system-theme-test LinuxSystemThemeTest.cpp)
+        target_sources(
+            echo-linux-system-theme-test PRIVATE ../../modules/EchoMusic/Theme/LinuxSystemTheme.cpp
+                                                 ../../modules/EchoMusic/Theme/LinuxSystemTheme.h
+        )
+        target_include_directories(
+            echo-linux-system-theme-test PRIVATE ../../modules/EchoMusic/Theme
+        )
+        target_link_libraries(echo-linux-system-theme-test PRIVATE Qt6::Gui Qt6::DBus Qt6::Test)
+        add_test(NAME linux-system-theme COMMAND echo-linux-system-theme-test)
+        set_tests_properties(
+            linux-system-theme PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45
+        )
+        if(APPLE)
+            # Official macOS Qt loads libdbus dynamically. It is a test-only
+            # dependency here; Homebrew's Apple Silicon prefix is not a dyld default.
+            find_library(ECHO_TEST_DBUS_LIBRARY NAMES dbus-1)
+            if(ECHO_TEST_DBUS_LIBRARY)
+                get_filename_component(
+                    echo_test_dbus_directory "${ECHO_TEST_DBUS_LIBRARY}" DIRECTORY
+                )
+                set_tests_properties(
+                    linux-system-theme
+                    PROPERTIES ENVIRONMENT_MODIFICATION
+                               "DYLD_LIBRARY_PATH=path_list_prepend:${echo_test_dbus_directory}"
+                )
+            endif()
+        endif()
+    endif()
+endif()
 if(WIN32)
     add_test(
         NAME windows-window-material
@@ -774,6 +827,7 @@ target_sources(
             plugins/PluginRuntimeManagement1.cpp
             plugins/PluginRuntimeManagement2.cpp
             plugins/PluginRuntimeManagementFirstOpen.cpp
+            plugins/PluginRuntimeDistribution.cpp
             plugins/PluginRuntimeRuntime.cpp
             plugins/PluginRuntimeShutdown.cpp
             plugins/PluginRuntimeDependencies.cpp
@@ -1012,6 +1066,27 @@ set_tests_properties(
 )
 
 qt_add_executable(echo-playback-page-test PlaybackPageTest.cpp PlaybackPageTest.h)
+qt_add_executable(echo-playback-queue-reorder-test PlaybackQueueReorderTest.cpp)
+set_target_properties(echo-playback-queue-reorder-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+target_link_libraries(
+    echo-playback-queue-reorder-test
+    PRIVATE echo_playback
+            echo_playbackplugin
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            echo_libraryui
+            echo_libraryuiplugin
+            Qt6::QuickControls2
+            Qt6::Widgets
+            Qt6::Test
+)
+add_test(NAME playback-queue-reorder COMMAND echo-playback-queue-reorder-test)
+set_tests_properties(
+    playback-queue-reorder PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90
+)
+echo_copy_rust_runtime(echo-playback-queue-reorder-test)
 qt_add_qml_module(
     echo-playback-page-test
     URI
@@ -1556,6 +1631,7 @@ if(APPLE)
               echo-mac-floating-test
               echo-plugin-runtime-test
               echo-playback-page-test
+              echo-playback-queue-reorder-test
               echo-discovery-test
               echo-playlist-detail-test
               echo-history-test
@@ -1735,61 +1811,6 @@ target_link_libraries(
 add_test(NAME lyric-metadata COMMAND echo-lyric-metadata-test)
 set_tests_properties(lyric-metadata PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
 echo_copy_rust_runtime(echo-lyric-metadata-test)
-
-qt_add_executable(echo-plugin-spectrum-frequency-test PluginSpectrumFrequencyTest.cpp)
-target_include_directories(echo-plugin-spectrum-frequency-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(
-    echo-plugin-spectrum-frequency-test
-    PRIVATE echo_themes
-            echo_themesplugin
-            echo_platform
-            echo_plugins
-            echo_pluginsplugin
-            echo_plugin_sdkplugin
-            Qt6::Test
-            Qt6::Sql
-            Qt6::Widgets
-            Qt6::Network
-)
-add_test(NAME plugin-spectrum-frequency COMMAND echo-plugin-spectrum-frequency-test)
-set_tests_properties(
-    plugin-spectrum-frequency PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45
-)
-echo_copy_rust_runtime(echo-plugin-spectrum-frequency-test)
-
-qt_add_executable(echo-plugin-audio-analysis-test PluginAudioAnalysisTest.cpp)
-qt_add_executable(
-    echo-audio-analysis-installation-test AudioAnalysisInstallationTest.cpp
-    ${PROJECT_SOURCE_DIR}/services/audioanalysis/AnalysisInstallation.cpp
-)
-target_include_directories(
-    echo-audio-analysis-installation-test PRIVATE ${PROJECT_SOURCE_DIR}/services/audioanalysis
-)
-target_link_libraries(echo-audio-analysis-installation-test PRIVATE Qt6::Core Qt6::Test)
-add_test(NAME audio-analysis-installation COMMAND echo-audio-analysis-installation-test)
-target_include_directories(
-    echo-plugin-audio-analysis-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-                                            ${PROJECT_SOURCE_DIR}/services/audioanalysis
-)
-target_link_libraries(
-    echo-plugin-audio-analysis-test
-    PRIVATE echo_themes
-            echo_themesplugin
-            echo_platform
-            echo_plugins
-            echo_pluginsplugin
-            echo_plugin_sdkplugin
-            Qt6::Test
-            Qt6::Sql
-            Qt6::Widgets
-            Qt6::Network
-            Qt6::Concurrent
-)
-add_test(NAME plugin-audio-analysis COMMAND echo-plugin-audio-analysis-test)
-set_tests_properties(
-    plugin-audio-analysis PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120
-)
-echo_copy_rust_runtime(echo-plugin-audio-analysis-test)
 
 qt_add_executable(echo-glyph-run-test GlyphRunTest.cpp)
 target_link_libraries(echo-glyph-run-test PRIVATE echo_plugin_sdk Qt6::Test)
@@ -1976,3 +1997,11 @@ target_compile_definitions(
 add_test(NAME lyric-ttml COMMAND echo-lyric-ttml-test)
 set_tests_properties(lyric-ttml PROPERTIES TIMEOUT 30)
 echo_copy_rust_runtime(echo-lyric-ttml-test)
+
+qt_add_executable(echo-settings-storage-test SettingsStorageTest.cpp)
+target_link_libraries(
+    echo-settings-storage-test PRIVATE echo_backups echo_storage echo_settings_keys Qt6::Sql
+                                       Qt6::Test
+)
+add_test(NAME settings-storage COMMAND echo-settings-storage-test)
+set_tests_properties(settings-storage PROPERTIES TIMEOUT 45)

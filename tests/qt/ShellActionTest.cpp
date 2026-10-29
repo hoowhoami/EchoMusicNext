@@ -93,7 +93,7 @@ private slots:
     void dragPreviewCommitsOnceAndDiscardsCatalogChanges()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         M model(preferences, M::Titlebar);
         model.setCapacity(M::Toolbar, 3);
         QObject provider;
@@ -143,7 +143,7 @@ private slots:
     void playbackFailuresRespectEpochDeduplicationAndActualSkipScheduling()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService player(api, settings);
         RouteController router;
@@ -219,7 +219,7 @@ private slots:
     void sharedPlaybackCommandsPublishFeedbackWithoutPageObservers()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService player(api, settings);
         RouteController router;
@@ -263,7 +263,7 @@ private slots:
     void restoreDefaultsRetainsActionIdentity()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         for (const auto surface : {M::Titlebar, M::Playerbar}) {
             M model(settings, surface);
             QObject owner;
@@ -310,7 +310,7 @@ private slots:
     void overflowPinOrderAndInactivePreferences()
     {
         QTemporaryDir temp;
-        QSettings settings(temp.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(temp.filePath("settings.ini"));
         const QString inactive = "plugin/unloaded/item";
         settings.setValue("shell/titlebar/order", QStringList{"a", inactive, "b", "c"});
         settings.setValue("shell/titlebar/placements", QVariantMap{{inactive, int(M::Toolbar)}});
@@ -349,7 +349,7 @@ private slots:
         model.registerAction(owner, action("a"));
         QCOMPARE(keys(toolbar), (QStringList{"c", "a"}));
         settings.sync();
-        QSettings reopened(temp.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore reopened(temp.filePath("settings.ini"));
         M recreated(reopened, M::Titlebar);
         recreated.registerAction(owner, action("a"));
         recreated.registerAction(owner, action("c", M::More));
@@ -365,7 +365,7 @@ private slots:
     void actionOwnershipGenerationAndReentrantRemoval()
     {
         QTemporaryDir temp;
-        QSettings settings(temp.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(temp.filePath("settings.ini"));
         M model(settings, M::Titlebar);
         QAbstractItemModelTester tester(&model,
                                         QAbstractItemModelTester::FailureReportingMode::QtTest);
@@ -397,7 +397,7 @@ private slots:
     void playerFourRegionsAndSubsetReordering()
     {
         QTemporaryDir temp;
-        QSettings settings(temp.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(temp.filePath("settings.ini"));
         M model(settings, M::Playerbar);
         QObject owner;
         model.registerAction(owner, action("favorite", M::Left, 8));
@@ -425,7 +425,7 @@ private slots:
     void typedPlayerProviderUnloadAndBoardPlacement()
     {
         QTemporaryDir temp;
-        QSettings settings(temp.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(temp.filePath("settings.ini"));
         RouteController router;
         ShellController controller(settings, router);
         auto provider = std::make_unique<QObject>();

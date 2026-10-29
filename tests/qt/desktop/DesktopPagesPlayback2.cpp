@@ -104,22 +104,22 @@ void DesktopPagesTest::playbackQueueEmptyIndicatorAndCloseIcon()
                 session.window->setWidth(width);
                 QTRY_VERIFY(qAbs(actions->mapToItem(body, {actions->width(), 0}).x() -
                                  (body->width() - 16)) < .5);
-                QTRY_COMPARE(actions->width(), 4 * 32.0 + 3 * 4);
+                QTRY_COMPARE(actions->width(), 4 * 28.0 + 3 * 4);
                 QQuickItem *previous = nullptr;
                 for (const auto *name : {"queueScrollTopButton", "queueLocateButton",
                                          "queueAddButton", "queueClearButton"}) {
                     auto *button = visual(actions, name);
                     QVERIFY(button && button->isVisible());
-                    QCOMPARE(button->width(), 32.0);
-                    QCOMPARE(button->height(), 32.0);
+                    QCOMPARE(button->width(), 28.0);
+                    QCOMPARE(button->height(), 28.0);
                     if (previous) {
                         QCOMPARE(button->x() - previous->x() - previous->width(), 4.0);
                         QCOMPARE(button->y(), previous->y());
                     }
                     previous = button;
                 }
-                QTRY_VERIFY(qAbs(previous->mapToItem(body, {16, 16}).x() -
-                                 close->mapToItem(body, {16, 16}).x()) < .5);
+                QTRY_VERIFY(qAbs(previous->mapToItem(body, {14, 14}).x() -
+                                 close->mapToItem(body, {14, 14}).x()) < .5);
                 QCOMPARE(arrows->isVisible(), playback.queueCatalog()->previewCount() > 1);
                 if (arrows->isVisible()) {
                     QCOMPARE(arrows->width(), 2 * 24.0 + 12);
@@ -162,7 +162,7 @@ void DesktopPagesTest::playbackQueueEmptyIndicatorAndCloseIcon()
         auto expectedInk = session.theme.floatingText();
         expectedInk.setAlphaF(.8);
         QCOMPARE(close->property("foreground").value<QColor>(), expectedInk);
-        QCOMPARE(close->width() - close->property("padding").toReal() * 2, 20.);
+        QCOMPARE(close->width() - close->property("padding").toReal() * 2, 16.);
         if (!captureDirectory.isEmpty())
             QVERIFY(session.window->grabWindow().save(
                 captureDirectory +
@@ -254,7 +254,7 @@ void DesktopPagesTest::playbackQueueEmptyIndicatorAndCloseIcon()
         QTRY_COMPARE(playback.queueCatalog()->previewCount(), 0);
         QTRY_VERIFY(!track->isVisible() && !thumb->isVisible());
         QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier,
-                          close->mapToScene(QPointF(16, 16)).toPoint());
+                          close->mapToScene(QPointF(14, 14)).toPoint());
         QTRY_VERIFY(drawer.isNull());
         playback.queueCatalog()->clear();
     }

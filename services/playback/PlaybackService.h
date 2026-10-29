@@ -37,10 +37,12 @@
 #include "DiscoverQueueController.h"
 #include "TrackTransitionController.h"
 #include "PlaybackPreferences.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QPointer>
 #include <QRandomGenerator>
 #include <QTimer>
+class QFileDialog;
+
 namespace EchoMusic
 {
 class SongMetadataService;
@@ -151,8 +153,8 @@ public:
         return static_cast<ProgressBusyReason>(
             m_progress.reason(hasTrack() && !m_closing && m_error.isEmpty(), m_playing));
     }
-    explicit PlaybackService(ApiClient &api, QSettings &settings, QObject *parent = nullptr,
-                             const QString &storagePath = {},
+    explicit PlaybackService(ApiClient &api, EchoMusic::SettingsStore &settings,
+                             QObject *parent = nullptr, const QString &storagePath = {},
                              NetworkPreferences *network = nullptr);
     ~PlaybackService() override;
     void attachMetadata(SongMetadataService &metadata);
@@ -440,12 +442,6 @@ public:
     Q_INVOKABLE void next(bool automatic = false);
     Q_INVOKABLE void seek(qint64 positionMs);
     Q_INVOKABLE void setVolume(double volume);
-    /// Transient, single-owner output preview. Only commit writes preferences.
-    bool previewVolume(QObject *owner, double volume);
-    bool commitVolumePreview(QObject *owner, double volume);
-    void cancelVolumePreview(QObject *owner);
-    bool canShuffleQueue() const;
-    Q_INVOKABLE bool shuffleQueue();
     Q_INVOKABLE void setSpeed(double speed);
     Q_INVOKABLE void setPlayMode(PlayMode mode);
     Q_INVOKABLE void cycleMode();
@@ -465,17 +461,6 @@ public:
     PlaybackTransitionPresentation &transitionPresentation()
     {
         return *m_transitionPresentation;
-    }
-    /// Select an exact retained presentation through the existing source owner.
-    /// A departed outgoing deck may require a normal decoder/source reopen.
-    bool selectTransitionSource(const QString &epoch, const QString &sequence, qint64 positionMs,
-                                bool playing);
-    /// Internal adopted representation. Locators are never exposed to plugin QML.
-    QJsonObject analysisSourceFacts(const QJsonObject &selector = {}) const;
-    QString analysisSourceAuthority(const QJsonObject &facts) const;
-    AudioEngine &analysisEngine()
-    {
-        return m_engine;
     }
     bool engineReady() const
     {
@@ -529,8 +514,7 @@ private:
     void cancelTrackProbe();
     void startIndex(int index, bool preserveFailureChain);
     void appendTracksImpl(const PlaybackTracks &tracks, bool next, bool sequential);
-    void startTrack(const PlaybackTrack &track, int index, bool preserveFailureChain,
-                    qint64 initialPosition = -1, bool autoplay = true);
+    void startTrack(const PlaybackTrack &track, int index, bool preserveFailureChain);
     /// Legacy "0" snapshots of unmatched cloud uploads adopt the file identity
     /// ("cloud:<hash>" + cloud file record + duration) once the index knows the
     /// audio hash. No-op for local files and catalog songs.
@@ -550,16 +534,9 @@ private:
     ProgressBusyReason m_publishedProgress = ProgressReady;
     void requestLyrics();
     void requestEmbeddedMetadata();
-    QJsonObject sourceFacts(const PlaybackTrack &, const QJsonObject &resolved,
-                            const QString &quality, const QString &effect, const QString &locator,
-                            qint64 audioTrack, quint64 sequence, quint64 sourceRevision) const;
-    void stageSourceFacts(const QString &locator, qint64 audioTrack);
-    void adoptSourceFacts();
     void persist();
     void finishHistory();
     void publishMedia();
-    void applyVolume(double volume, bool persist);
-    void releaseVolumePreview();
     ApiClient::PlaybackQuality apiQuality() const;
     QTimer m_mediaTimer;
     SleepTimer m_sleepTimer;
@@ -570,7 +547,7 @@ private:
     std::unique_ptr<PlaybackLibraryActions> m_libraryActions;
     SongCommands m_songCommands;
     ApiClient &m_api;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     PlaybackPreferences m_preferences;
     PlayerEnginePreferences m_enginePreferences;
     QPointer<NetworkPreferences> m_networkPreferences;
@@ -618,7 +595,6 @@ private:
     LyricTextController m_lyricText;
     LyricSourceController m_lyricSource;
     std::unique_ptr<PlaybackTransitionPresentation> m_transitionPresentation;
-    QJsonObject m_resolvedSourceFacts, m_pendingSourceFacts, m_analysisSourceFacts;
     PlaybackTrack m_track;
     QCache<QString, QJsonObject> m_playbackFacts{2000};
     QPointer<SongMetadataService> m_metadata;
@@ -636,6 +612,7 @@ private:
     // Fresh volume preferences and unmute fallback both use 50%.
     static constexpr double DefaultVolume = 50.;
     double m_unmutedVolume = DefaultVolume;
+    QPointer<QFileDialog> m_localFileDialog;
     double m_localVolume = DefaultVolume, m_localUnmutedVolume = DefaultVolume;
     bool m_remoteVolume = false;
     qint64 m_resumePosition = -1;
@@ -648,9 +625,5 @@ private:
     PlayMode m_mode = ListLoop;
     bool m_playing = false, m_loading = false, m_autoplay = false, m_ready = false,
          m_closing = false, m_startupAutoPlayPending = false;
-    QPointer<QObject> m_volumePreviewOwner;
-    QMetaObject::Connection m_volumePreviewDestroyed;
-    double m_volumePreviewBaseline = DefaultVolume;
-    double m_volumePreviewUnmuted = DefaultVolume;
 };
 } // namespace EchoMusic

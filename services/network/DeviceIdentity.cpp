@@ -2,7 +2,7 @@
 #include "DeviceIdentity.h"
 #include <QCryptographicHash>
 #include <QRegularExpression>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QUuid>
 #include <QRandomGenerator>
 
@@ -16,7 +16,7 @@ QString createDeviceGuid()
     const auto source = QUuid::createUuid().toString(QUuid::WithoutBraces).toUtf8();
     return QString::fromLatin1(QCryptographicHash::hash(source, QCryptographicHash::Md5).toHex());
 }
-void removeDevicePreferences(QSettings &settings)
+void removeDevicePreferences(EchoMusic::SettingsStore &settings)
 {
     for (const auto key :
          {EchoMusic::SettingsKeys::Network::RegisteredDevice,
@@ -27,14 +27,14 @@ void removeDevicePreferences(QSettings &settings)
         settings.remove(QLatin1String(key));
 }
 } // namespace
-bool DeviceIdentity::resetOnRestart(QSettings &settings)
+bool DeviceIdentity::resetOnRestart(EchoMusic::SettingsStore &settings)
 {
     // A registration writer may already hold an old immutable snapshot. The marker
     // survives that write; load() clears it again only after the old process drained.
     settings.setValue(EchoMusic::SettingsKeys::Network::ResetDeviceIdentity, true);
     removeDevicePreferences(settings);
     settings.sync();
-    return settings.status() == QSettings::NoError;
+    return settings.status() == EchoMusic::SettingsStore::NoError;
 }
 QString DeviceIdentity::midForGuid(const QString &guid)
 {
@@ -67,7 +67,8 @@ DeviceIdentity DeviceIdentity::temporary()
             QStringLiteral("-"),
             QString::number(QRandomGenerator::global()->generate64())};
 }
-bool DeviceIdentity::saveRegistration(QSettings &settings, const DeviceIdentity &device)
+bool DeviceIdentity::saveRegistration(EchoMusic::SettingsStore &settings,
+                                      const DeviceIdentity &device)
 {
     if (!QRegularExpression(QStringLiteral("^[0-9a-f]{32}$")).match(device.guid).hasMatch() ||
         device.mid != midForGuid(device.guid) || device.dfid.isEmpty() ||
@@ -83,9 +84,9 @@ bool DeviceIdentity::saveRegistration(QSettings &settings, const DeviceIdentity 
                                   {"uuid", device.uuid},
                                   {"renderFingerprint", device.renderFingerprint}});
     settings.sync();
-    return settings.status() == QSettings::NoError;
+    return settings.status() == EchoMusic::SettingsStore::NoError;
 }
-DeviceIdentity DeviceIdentity::load(QSettings &settings)
+DeviceIdentity DeviceIdentity::load(EchoMusic::SettingsStore &settings)
 {
     if (settings.value(EchoMusic::SettingsKeys::Network::ResetDeviceIdentity).toBool()) {
         removeDevicePreferences(settings);

@@ -11,7 +11,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QImage>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -307,7 +307,7 @@ private slots:
         EmbeddedCoverCache cache(dir.filePath("cache"), {});
         cache.store({"hash:one"}, image(dir.path(), "reader", qRgb(80, 90, 100)));
         QTRY_VERIFY(!cache.lookup({"hash:one"}).isEmpty());
-        QSettings settings(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("prefs.ini"));
         ThemeStore theme(settings);
         QQmlEngine engine;
         theme.attachToEngine(engine);
@@ -383,7 +383,7 @@ Window {
     void currentArtworkIsReleasedWhenDiskCoverIsRevoked()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("prefs.ini"));
         settings.setValue(SettingsKeys::Playback::Volume, 0.0);
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
@@ -442,7 +442,7 @@ Window {
                                audio});
         QVERIFY(encoder.waitForFinished(15000));
         QCOMPARE(encoder.exitCode(), 0);
-        QSettings settings(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("prefs.ini"));
         settings.setValue(SettingsKeys::Playback::Volume, 0.0);
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));

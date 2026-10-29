@@ -17,6 +17,7 @@ NATIVE_POPUPS = {
     "Menu",
     "ToolTip",
     "FileDialog",
+    "EchoFileDialog",
     "NativeDialogs.FileDialog",
     "FolderDialog",
     "NativeDialogs.FolderDialog",

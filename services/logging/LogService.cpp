@@ -34,16 +34,10 @@ constexpr qint64 fileLimit = 5 * 1024 * 1024;
 constexpr int retainedFiles = 7;
 const QStringList levels{QStringLiteral("error"), QStringLiteral("warn"), QStringLiteral("info"),
                          QStringLiteral("debug"), QStringLiteral("verbose")};
-std::unique_ptr<QSettings> accessor(const QSettings &settings)
+std::unique_ptr<EchoMusic::SettingsStore> accessor(const EchoMusic::SettingsStore &settings)
 {
-    auto result =
-        settings.organizationName().isEmpty() && settings.applicationName().isEmpty()
-            ? std::make_unique<QSettings>(settings.fileName(), settings.format())
-            : std::make_unique<QSettings>(settings.format(), settings.scope(),
-                                          settings.organizationName(), settings.applicationName());
-    result->setFallbacksEnabled(settings.fallbacksEnabled());
-    result->beginGroup(settings.group());
-    return result;
+    // A new backend retries transient filesystem errors without sharing a thread-bound object.
+    return std::make_unique<EchoMusic::SettingsStore>(settings.fileName());
 }
 uint32_t logLevel(QtMsgType type)
 {
@@ -332,8 +326,8 @@ void rustRecord(void *, const EchoLogEntry *entry)
     }
 }
 } // namespace
-LogService::LogService(const QString &directory, int level, bool console, QSettings *preferences,
-                       bool commandLineLevel)
+LogService::LogService(const QString &directory, int level, bool console,
+                       EchoMusic::SettingsStore *preferences, bool commandLineLevel)
     : m_directory(directory.isEmpty()
                       ? QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) +
                             QStringLiteral("/logs")
@@ -420,7 +414,7 @@ bool LogService::persist(const QString &key, const QVariant &value)
     const auto previous = writer->value(key);
     writer->setValue(key, value);
     writer->sync();
-    if (writer->status() == QSettings::NoError)
+    if (writer->status() == EchoMusic::SettingsStore::NoError)
         return true;
     if (previous.isValid())
         writer->setValue(key, previous);

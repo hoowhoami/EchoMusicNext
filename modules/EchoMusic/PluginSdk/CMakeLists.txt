@@ -25,8 +25,6 @@ qt_add_qml_module(
     PresentationScope.cpp
     EchoPluginAudio.h
     EchoPluginAudio.cpp
-    EchoPluginAudioAnalysis.h
-    EchoPluginAudioAnalysis.cpp
     GlyphRun.h
     GlyphRun.cpp
     GlyphRunCanvas_p.h
@@ -220,5 +218,3 @@ add_dependencies(echo_plugin_sdk echo-plugin-asset-worker)
 target_compile_definitions(
     echo_plugin_sdk PRIVATE ECHO_PLUGIN_ASSET_WORKER_PATH="$<TARGET_FILE:echo-plugin-asset-worker>"
 )
-
-include("${PROJECT_SOURCE_DIR}/cmake/AudioAnalysis.cmake")

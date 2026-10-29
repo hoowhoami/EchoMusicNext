@@ -28,7 +28,6 @@ QVariantMap PlayerSpectrum::normalize(const QVariantMap &options)
     const auto scale = options.value("scale", "log").toString();
     out["scale"] = QStringList{"log", "linear", "mel"}.contains(scale) ? scale : "log";
     out["includeWaveform"] = options.value("includeWaveform", false).toBool();
-    out["includeFrequencyData"] = options.value("includeFrequencyData", false).toBool();
     return out;
 }
 PlayerSpectrum::PlayerSpectrum(PlaybackService &playback, AudioEngine &engine)
@@ -92,17 +91,10 @@ void PlayerSpectrum::reconcile()
 {
     if (m_stopped)
         return;
-    QVariantMap merged{{"enabled", false},
-                       {"bands", 8},
-                       {"fps", 1},
-                       {"fft_size", 256},
-                       {"min_frequency", 20000.},
-                       {"max_frequency", 2.},
-                       {"smoothing", .95},
-                       {"scale", "log"},
-                       {"include_waveform", false},
-                       {"include_frequency_data", false},
-                       {"frequency_fps", 1}};
+    QVariantMap merged{
+        {"enabled", false},         {"bands", 8},          {"fps", 1},         {"fft_size", 256},
+        {"min_frequency", 20000.},  {"max_frequency", 2.}, {"smoothing", .95}, {"scale", "log"},
+        {"include_waveform", false}};
     bool any = false;
     for (const auto &e : std::as_const(m_entries))
         if (e.owner && !e.paused) {
@@ -118,10 +110,6 @@ void PlayerSpectrum::reconcile()
             merged["smoothing"] = qMin(merged["smoothing"].toDouble(), o["smoothing"].toDouble());
             merged["include_waveform"] =
                 merged["include_waveform"].toBool() || o["includeWaveform"].toBool();
-            if (o["includeFrequencyData"].toBool()) {
-                merged["include_frequency_data"] = true;
-                merged["frequency_fps"] = qMax(merged["frequency_fps"].toInt(), o["fps"].toInt());
-            }
         }
     bool running = any && m_playback.engineReady() && m_playback.hasTrack() &&
                    m_playback.playing() && !m_playback.loading();
@@ -133,14 +121,8 @@ void PlayerSpectrum::reconcile()
     if (merged != m_options || sourceChanged) {
         m_options = merged;
         ++m_revision;
-        if (m_playback.engineReady()) {
-            auto engineOptions = merged;
-            // Reset the worker's amplitude history and mono PCM generation.
-            // Keeping this outside m_options avoids an extra configuration on
-            // the next ordinary playback position notification.
-            engineOptions["reset_frequency_data"] = sourceChanged;
-            m_engine.configureSpectrum(QJsonObject::fromVariantMap(engineOptions));
-        }
+        if (m_playback.engineReady())
+            m_engine.configureSpectrum(QJsonObject::fromVariantMap(merged));
     }
     if (!m_playback.engineReady())
         m_pending = false; // A restarted engine retires its previous event sink.
@@ -155,18 +137,14 @@ void PlayerSpectrum::reconcile()
     emit statusChanged();
     if (changed && !running)
         for (const auto id : m_entries.keys())
-            if (m_entries.contains(id) && !m_entries.value(id).paused) {
-                QVariantMap frame{{"source", "silence"},
-                                  {"state", m_playback.hasTrack() ? "paused" : "idle"},
-                                  {"bins", QVariantList()},
-                                  {"waveform", QVariantList()},
-                                  {"timestamp", QDateTime::currentMSecsSinceEpoch()},
-                                  {"peak", 0.},
-                                  {"rms", 0.}};
-                if (m_entries.value(id).options["includeFrequencyData"].toBool())
-                    frame["frequencyData"] = QVariantList();
-                emit frameReady(id, frame);
-            }
+            if (m_entries.contains(id) && !m_entries.value(id).paused)
+                emit frameReady(id, {{"source", "silence"},
+                                     {"state", m_playback.hasTrack() ? "paused" : "idle"},
+                                     {"bins", QVariantList()},
+                                     {"waveform", QVariantList()},
+                                     {"timestamp", QDateTime::currentMSecsSinceEpoch()},
+                                     {"peak", 0.},
+                                     {"rms", 0.}});
 }
 void PlayerSpectrum::accept(const QJsonObject &event)
 {
@@ -231,12 +209,6 @@ void PlayerSpectrum::accept(const QJsonObject &event)
         frame["bins"] = values;
         if (e.options["includeWaveform"].toBool())
             frame["waveform"] = raw.value("waveform").toArray().toVariantList();
-        if (e.options["includeFrequencyData"].toBool()) {
-            frame["frequencyData"] = raw.value("frequency_data").toArray().toVariantList();
-            if (raw.value("frequency_data_info").isObject())
-                frame["frequencyDataInfo"] =
-                    raw.value("frequency_data_info").toObject().toVariantMap();
-        }
         emit frameReady(id, frame);
     }
 }

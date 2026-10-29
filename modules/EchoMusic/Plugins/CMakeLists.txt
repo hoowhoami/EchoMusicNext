@@ -21,6 +21,7 @@ qt_add_qml_module(
     PluginMarketplaceSkeleton.qml
     PluginSourceDialog.qml
     PluginGrantsDialog.qml
+    PluginDataDialog.qml
     PluginShareResolvePage.qml
     PluginUninstallDialog.qml
     PluginFailureDialog.qml
@@ -46,7 +47,7 @@ target_link_libraries(echo_plugins PRIVATE echo_settings_keys)
 
 target_sources(
     echo_plugins PRIVATE PluginRuntimeHelpers_p.h PluginRuntimeActivation.cpp
-                         PluginRuntimeMutation.cpp PluginRuntimeDiscovery.cpp
+                         PluginRuntimeMutation.cpp PluginRuntimeDiscovery.cpp PluginRuntimeData.cpp
 )
 
 target_sources(

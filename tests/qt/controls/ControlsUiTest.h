@@ -38,6 +38,7 @@ private slots:
     void floatingFrostSamplesTheSceneAndStopsOnHide();
     void floatingEffectsAreOwnedByVisibleSurfaces();
     void menusDrawersAndFileDialogsReleaseAfterClose();
+    void filePickerPreservesSelectionAndCancelsWithOwner();
     void businessPopupsAreCreatedOnDemandAndDestroyedAfterExit();
     void verificationCoverPreservesPopupInstancesAndDrafts();
     void tooltipPopupsExistOnlyDuringTheirTrigger();

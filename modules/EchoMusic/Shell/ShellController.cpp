@@ -9,45 +9,6 @@
 #include <QThread>
 namespace EchoMusic
 {
-namespace
-{
-QPair<QString, QString> queueSourceRoute(const QString &source)
-{
-    for (const auto &entry :
-         {qMakePair(QStringLiteral("queue:playlist:"), QStringLiteral("playlist-detail")),
-          qMakePair(QStringLiteral("queue:album:"), QStringLiteral("album-detail"))}) {
-        if (source.startsWith(entry.first) && source.size() > entry.first.size())
-            return {entry.second, source.mid(entry.first.size())};
-    }
-    return {};
-}
-} // namespace
-bool ShellController::showQueueWall()
-{
-    if (m_closed || !m_playback || !m_playback->queue()->rowCount() ||
-        m_playback->personalFm()->active())
-        return false;
-    emit playbackPopupRequested("song-wall");
-    return true;
-}
-bool ShellController::canLocatePlayingTrack() const
-{
-    if (m_closed || !m_playback || !m_playback->hasTrack())
-        return false;
-    const auto destination = queueSourceRoute(m_playback->sourceKey());
-    return !destination.first.isEmpty() && m_router.available(destination.first);
-}
-bool ShellController::locatePlayingTrack()
-{
-    if (!canLocatePlayingTrack())
-        return false;
-    const auto destination = queueSourceRoute(m_playback->sourceKey());
-    return m_router.navigate(destination.first,
-                             {{"tab", QStringLiteral("songs")},
-                              {"locateTrack", m_playback->trackId()},
-                              {"locateToken", QString::number(++m_locateSerial)}},
-                             destination.second);
-}
 bool ShellController::invokePlayerCommand(PlayerCommand command)
 {
     const auto handle = m_playerHandles.value(command);
@@ -57,7 +18,8 @@ ShellController::~ShellController()
 {
     shutdown();
 }
-ShellController::ShellController(QSettings &settings, RouteController &router, QObject *parent)
+ShellController::ShellController(EchoMusic::SettingsStore &settings, RouteController &router,
+                                 QObject *parent)
     : QObject(parent), m_router(router), m_titlebar(settings, ShellActionModel::Titlebar, this),
       m_playerbar(settings, ShellActionModel::Playerbar, this), m_tasks(this), m_toasts(this)
 {

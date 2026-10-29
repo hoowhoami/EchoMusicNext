@@ -28,25 +28,11 @@
 
 原生点图元使用通用 `PointMesh` 和 `graphics.pointMesh`，顶点数量/数据有界，几何归场景图；输入布局、错误及平台边界见[点网格说明](plugin-point-mesh.md)。
 
-## 整曲分析与歌曲交接
+## 只读歌词转场呈现
 
-`audio.analysis` / `audioAnalysis` 提供已采用音源的有界完整分析 lease。声明 `audio.analysis.transitionSources` 后，还可用实际 `transition.outgoing.sequence` 与 `transition.epoch` 选择当前授权的 outgoing 源；不接受插件路径、URL、PCM 或曲目键。精确身份、缓存、取消/排空、模型与安装材料见[音源分析说明](audio-analysis.md)。平台或材料缺失明确失败，安装事实不代表 GPU 已验证。
+`playback.transitionPresentation` 投影实际输出消费、成对 A/B 曲目与歌词快照、位置，以及宿主原生时钟和 cue。歌词呈现继续使用唯一宿主时钟；不能把队列位置、overlap 比例或独立计时器替代真实歌曲交点。
 
-`playback.transitionPresentation` 投影实际输出消费、成对 A/B 位置、宿主歌词与增益计划对应的 cue。歌词呈现继续使用唯一宿主时钟；不能把队列位置、已消费 overlap 比例或任意计时器替代真正的歌曲交点。
-
-`playback.transitionTransport` 为 `page.command` / `player.control` 增加
-`selectTransitionSource`。参数必须完整提供真实投影的 `epoch`、目标 `sequence`（十进制
-uint64 字符串）、`positionMs`（0..1e12 的整数）和 `playing`（布尔值）。宿主在提交和
-执行时检查 presentation scope、账号及精确转场来源；过期选择返回 `StaleTransition`，
-不会改为控制当前曲。资源 ID 相同也不能替代 sequence。原生切换通知可能晚于真实输出，
-因此该命令统一经既有曲目来源流程恢复目标与初始 seek/播放意图，可能重新解析来源并重开
-decoder，不承诺复用原读流或无缝恢复。成功仅表示已接受意图；加载、权限与错误恢复仍由
-宿主原有状态通知报告。插件不获得音源地址、账户凭据或另一套播放时钟。
-
-`playback.queueActions` 增加 `queueNext { index }` 和 `saveQueue { title }`。前者直接
-使用经两次队列代次检查的原生曲目事实，保留本地来源；后者保存命名的本地队列副本，
-沿用宿主既有四队列容量及后台持久化策略。它不是账户云歌单写入，成功不表示磁盘事务
-已经同步提交。
+该投影只提供呈现数据，不切换播放来源、不重新取源或重开 decoder。播放、暂停、定位和音量继续使用既有播放器接口，目标为宿主当前曲目；视觉上仍保留 A 的歌词不赋予对 A 的播放控制权。
 
 ## 依赖与协作
 

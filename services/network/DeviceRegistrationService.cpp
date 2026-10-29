@@ -5,9 +5,10 @@
 #include <utility>
 namespace EchoMusic
 {
-DeviceRegistrationService::DeviceRegistrationService(ApiClient &api, const QSettings &settings,
+DeviceRegistrationService::DeviceRegistrationService(ApiClient &api,
+                                                     const EchoMusic::SettingsStore &settings,
                                                      QObject *parent)
-    : QObject(parent), m_api(api), m_path(settings.fileName()), m_format(settings.format())
+    : QObject(parent), m_api(api), m_path(settings.fileName())
 {
     const auto device = api.deviceIdentitySnapshot();
     if (!device.dfid.isEmpty() && device.dfid != QStringLiteral("-"))
@@ -75,9 +76,9 @@ void DeviceRegistrationService::succeed(quint64 id, const QByteArray &payload)
     device.dfid = dfid;
     const auto revision = m_revision;
     const auto saved = std::make_shared<bool>(false);
-    auto writer = QThread::create([path = m_path, format = m_format, device, saved] {
-        QSettings settings(path,
-                           format); // Worker-local settings object, never shared across threads.
+    auto writer = QThread::create([path = m_path, device, saved] {
+        EchoMusic::SettingsStore settings(
+            path); // Worker-local settings object, never shared across threads.
         *saved = DeviceIdentity::saveRegistration(settings, device);
     });
     m_writer = writer;

@@ -94,7 +94,7 @@ private slots:
     void batchDrawerSelectionLayoutAndLifetime()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings, nullptr, directory.filePath("playback.sqlite"));
         SongCatalogModel catalog;
@@ -267,7 +267,7 @@ private slots:
         QFETCH(bool, dark);
         QFETCH(qreal, scale);
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings, nullptr, directory.filePath("playback.sqlite"));
         playback.setVolume(0);

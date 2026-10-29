@@ -1,3 +1,4 @@
+#include "StorageFence.h"
 #include "ImpulseResponseImporter.h"
 #include <QtConcurrent>
 #include <QJsonArray>
@@ -50,6 +51,11 @@ ImpulseResponseImporter::ImpulseResponseImporter(NativeBridge &native, QString d
                 const auto cancel = m_cancel;
                 m_copy.setFuture(QtConcurrent::run([source, directory, cancel] {
                     Result result;
+                    const auto storage = StorageFence::write(directory);
+                    if (!storage) {
+                        result.error = tr("备份进行中，请稍后导入音效");
+                        return result;
+                    }
                     QFile input(source);
                     if (!input.open(QIODevice::ReadOnly) || !QFileInfo(input).isFile() ||
                         !QDir().mkpath(directory)) {

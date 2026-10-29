@@ -9,7 +9,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -33,7 +33,7 @@ private slots:
     void allVisibleLabelsAndBadgesSharePaintedCenter()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ThemeStore theme(settings);
         theme.setMotionEnabled(false);
         QQmlEngine engine;

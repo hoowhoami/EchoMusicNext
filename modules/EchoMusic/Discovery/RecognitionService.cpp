@@ -8,8 +8,9 @@
 namespace EchoMusic
 {
 RecognitionService::RecognitionService(ApiClient &api, PlaybackService &playback,
-                                       RecognitionCapture &capture, QSettings &settings,
-                                       RouteController &router, QObject *parent)
+                                       RecognitionCapture &capture,
+                                       EchoMusic::SettingsStore &settings, RouteController &router,
+                                       QObject *parent)
     : QObject(parent), m_api(api), m_playback(playback), m_capture(capture), m_settings(settings),
       m_actions(m_matches, playback, this)
 {

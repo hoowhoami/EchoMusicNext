@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs as NativeDialogs
 import EchoMusic.Shell
 import EchoMusic.Controls
 import EchoMusic.Theme
@@ -170,7 +169,7 @@ RoutePage {
         id: avatarPickerOwner
         hostItem: page
         sourceComponent: Component {
-            NativeDialogs.FileDialog {
+            EchoFileDialog {
                 id: avatarPicker
                 title: qsTr("修改头像")
                 nameFilters: [qsTr("头像图片 (*.jpg *.jpeg *.png *.gif)")]

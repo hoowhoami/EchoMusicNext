@@ -11,6 +11,7 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QUuid>
+#include "PluginPaths.h"
 #include <QTemporaryDir>
 #include <QVersionNumber>
 #include <QSet>
@@ -102,9 +103,6 @@ QStringList PluginPackage::supportedFeatures()
                          "windows.floating",
                          "playback.context",
                          "playback.lyrics.metadata",
-                         "audio.frequencyData",
-                         "audio.analysis",
-                         "audio.analysis.transitionSources",
                          "assets.images",
                          "assets.imageBatches",
                          "assets.imageDrops",
@@ -119,14 +117,10 @@ QStringList PluginPackage::supportedFeatures()
                          "graphics.glyphRun.canvas",
                          "graphics.shaderComposition",
                          "graphics.imageCapture",
-                         "playback.extendedControls",
                          "playback.transitionPresentation",
-                         "playback.transitionTransport",
-                         "playback.queueActions",
                          "text.glyphs",
                          "appearance.metadata",
                          "appearance.lyricIcons",
-                         "appearance.queueWall",
                          "ui.presentationClosing",
                          "ui.presentationVisibility"};
 #ifdef ECHO_HAS_ICU_SEGMENTATION
@@ -142,8 +136,7 @@ QStringList PluginPackage::supportedCapabilities()
             "backups",       "sqlite",       "theme",
             "lyricsPage",    "tcp",          "webServer",
             "windows",       "process",      "serverIntercept",
-            "navigation",    "hostSettings", "cover",
-            "audioAnalysis"};
+            "navigation",    "hostSettings", "cover"};
 }
 namespace
 {
@@ -222,8 +215,7 @@ PluginPackage PluginPackage::inspectManifest(const QByteArray &bytes)
     result.entry = object.value("entry").toString();
     if (object.value("format").toString() != "echomod" ||
         object.value("schemaVersion").toInt() != 1 || object.value("kind").toString() != "qml-js" ||
-        !QRegularExpression("^[a-z][a-z0-9.-]{1,127}$").match(result.id).hasMatch() ||
-        result.name.isEmpty() || result.name.size() > 256 ||
+        !PluginPaths::validId(result.id) || result.name.isEmpty() || result.name.size() > 256 ||
         !QRegularExpression("^[0-9]+\\.[0-9]+\\.[0-9]+$").match(result.version).hasMatch() ||
         !result.entry.endsWith(".mjs") || QDir::isAbsolutePath(result.entry) ||
         result.entry.contains("..") || result.entry.contains('\\'))
@@ -442,10 +434,24 @@ PluginPackage PluginPackage::importDirectory(const QString &source, const QStrin
         contents.append(data);
     }
     result.contentHash = QString::fromLatin1(hash.result().toHex());
-    const auto parent = QDir(packages).absoluteFilePath(installationId);
-    const auto destination = parent + '/' + result.contentHash;
+    const auto parent = QDir(packages).absoluteFilePath(result.id);
+    auto destination = parent + '/' + installationId + '-' + result.contentHash;
     if (!QDir().mkpath(parent))
         return fail("Cannot create package store");
+    if (QDir(destination).exists()) {
+        bool matches = !QFileInfo(destination).isSymLink() && !QFileInfo(destination).isJunction();
+        for (qsizetype i = 0; matches && i < files.size(); ++i) {
+            QFile cached(destination + '/' + files[i]);
+            matches = !QFileInfo(cached).isSymLink() && cached.open(QIODevice::ReadOnly) &&
+                      cached.size() == contents[i].size() && cached.readAll() == contents[i] &&
+                      bool(cached.permissions() &
+                           (QFile::ExeOwner | QFile::ExeGroup | QFile::ExeOther)) == bool(modes[i]);
+        }
+        // Never overwrite a possibly leased URL. A corrupt cache is rebuilt at a
+        // fresh URL and reclaimed only after the old installation scope drains.
+        if (!matches)
+            destination += "-repair-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    }
     if (!QDir(destination).exists()) {
         const auto staging =
             parent + "/.staging-" + QUuid::createUuid().toString(QUuid::WithoutBraces);

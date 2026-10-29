@@ -3,7 +3,7 @@
 #include "NativeBridge.h"
 #include "DspProviderRegistry.h"
 #include "ImpulseResponseImporter.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTimer>
 #include <QVariantList>
 namespace EchoMusic
@@ -47,8 +47,8 @@ class PlaybackAudioControls final : public QObject
     Q_PROPERTY(QVariantList providerControls READ providerControls NOTIFY changed)
     Q_PROPERTY(QString providerEditingPreset READ providerEditingPreset NOTIFY changed)
 public:
-    PlaybackAudioControls(AudioEngine &engine, NativeBridge &native, QSettings &settings,
-                          QObject *parent = nullptr);
+    PlaybackAudioControls(AudioEngine &engine, NativeBridge &native,
+                          EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     QVariantList gains() const;
     QVariantList equalizerPresets() const;
     QVariantList inputDevices() const
@@ -142,6 +142,7 @@ public:
         m_importer.shutdown();
     }
     Q_INVOKABLE void selectImpulseResponse(const QString &path);
+    QString effectFilesRoot() const;
     Q_INVOKABLE void removeImpulseResponse(const QString &path);
     void setImpulseMix(double mix);
     void setImpulseEnabled(bool enabled);
@@ -206,7 +207,7 @@ private:
     QString m_input = "default";
     quint64 m_inputRequest = 0;
     bool m_pauseOnDisconnect = true;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     DspProviderRegistry m_providers;
     QString m_providerId, m_targetProvider, m_providerMode = "speaker", m_targetMode = "speaker";
     QString m_providerPreset, m_targetPreset, m_removingProvider;

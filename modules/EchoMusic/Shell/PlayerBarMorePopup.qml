@@ -65,6 +65,9 @@ EchoAnchoredPopup {
             clip: true
             spacing: 3
             reuseItems: menu.visible && !menu.editing
+            EchoViewPoolGuard {
+                targetView: list
+            }
             cacheBuffer: 0
             model: ShellActionProjection {
                 actions: menu.visible && !menu.editing ? menu.actions : null

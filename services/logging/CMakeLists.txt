@@ -30,6 +30,5 @@ target_link_libraries(
 )
 qt_extract_metatypes(echo_logging)
 
-target_link_libraries(echo_crash_diagnostics PRIVATE echo_settings_keys)
-
-target_link_libraries(echo_logging PRIVATE echo_settings_keys)
+target_link_libraries(echo_crash_diagnostics PUBLIC echo_settings_keys)
+target_link_libraries(echo_logging PUBLIC echo_settings_keys)

@@ -108,6 +108,9 @@ EchoDialog {
                                 Layout.minimumHeight: 0
                                 clip: true
                                 reuseItems: true
+                                EchoViewPoolGuard {
+                                    targetView: candidates
+                                }
                                 cacheBuffer: 200
                                 spacing: 8
                                 model: dialog.visible ? dialog.sources : null
@@ -373,6 +376,9 @@ EchoDialog {
                                         Layout.fillHeight: true
                                         clip: true
                                         reuseItems: true
+                                        EchoViewPoolGuard {
+                                            targetView: preview
+                                        }
                                         cacheBuffer: 200
                                         model: dialog.visible ? dialog.sources.previewRows : null
                                         delegate: Item {

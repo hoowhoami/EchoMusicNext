@@ -65,7 +65,7 @@ public:
 struct Session
 {
     QTemporaryDir directory;
-    QSettings preferences{directory.filePath("preferences.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore preferences{directory.filePath("preferences.ini")};
     ApiClient api{DeviceIdentity::temporary()};
     PlaybackService playback{api, preferences, nullptr, directory.filePath("playback.sqlite")};
     FakeCapture capture;
@@ -315,7 +315,7 @@ private slots:
     void playlistOnlyTargetsDoNotChangeOtherAddEntrypoints()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ApiClient api(DeviceIdentity::temporary());
         UserPlaylistModel library(api);
         PlaylistMutationService writer(api);

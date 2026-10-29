@@ -1,4 +1,5 @@
 #pragma once
+#include "StorageFence.h"
 #include <QTemporaryDir>
 #include <QSharedPointer>
 #include "RelaunchService.h"
@@ -25,9 +26,9 @@ class SettingsDataService final : public BackupHost
     Q_PROPERTY(QVariantMap summary READ summary NOTIFY changed)
     Q_PROPERTY(bool canRestore READ canRestore NOTIFY changed)
 public:
-    SettingsDataService(QSettings &settings, PluginRuntime &plugins, RelaunchService &relaunch,
-                        NetworkPreferences &network, QString root, QString version,
-                        QObject *parent = nullptr);
+    SettingsDataService(EchoMusic::SettingsStore &settings, PluginRuntime &plugins,
+                        RelaunchService &relaunch, NetworkPreferences &network, QString root,
+                        QString version, QObject *parent = nullptr);
     ~SettingsDataService() override;
     bool busy() const
     {
@@ -70,7 +71,7 @@ public:
     /// Called after all five application storage/audio/API services have closed;
     /// the relaunch helper still waits for the original single-instance lock.
     void finishShutdown(std::function<void(QString)> complete);
-    static QString recover(const QString &root, QSettings &settings);
+    static QString recover(const QString &root, EchoMusic::SettingsStore &settings);
 signals:
     void confirmationChanged();
     void changed();
@@ -79,6 +80,7 @@ signals:
     void inspected();
 
 private:
+    std::shared_ptr<StorageFence> m_filesSnapshot;
     friend class SettingsBackupTestAccess;
     struct Inspection
     {
@@ -89,7 +91,6 @@ private:
     };
     void completeApi(BackupResult result);
     void clearToken(const QString &token);
-    QVariantMap preferenceValues() const;
     void finishJob(const QString &error);
     void clearFiles(std::function<void(QString)> complete);
     QHash<QString, Inspection> m_inspections;
@@ -103,7 +104,7 @@ private:
     QByteArray m_inspectInput;
     QTimer m_confirmationPoll;
     quint64 m_job = 0;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     PluginRuntime &m_plugins;
     RelaunchService &m_relaunch;
     NetworkPreferences &m_network;

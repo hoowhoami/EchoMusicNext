@@ -16,7 +16,7 @@
 #include <QQmlIncubationController>
 #include <QQuickItem>
 #include <QQuickWindow>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -252,7 +252,7 @@ private slots:
     void confirmedTrackPagesKeepUnchangedRowsAndDetails()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "offline-domain-fixture"));
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -420,7 +420,7 @@ private slots:
     void completionPreservesOriginalTitleAndSynchronizesSortedCover()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "test-token"));
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -519,7 +519,7 @@ private slots:
     void refreshWhileDelegatesAreAliveKeepsTheBackingModel()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         SongCatalogModel songs;
@@ -702,7 +702,7 @@ Window {
     void orderedBatchLateDeliveryAndRouteEviction()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         UserPlaylistModel library(api);
@@ -767,7 +767,7 @@ Window {
     void emptyPageDiscardsInFlightSiblings()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         UserPlaylistModel library(api);
@@ -804,7 +804,7 @@ Window {
     void partialFailureAndAccountGeneration()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         UserPlaylistModel library(api);
@@ -854,7 +854,7 @@ Window {
                                 std::istreambuf_iterator<char>());
         const auto identity = QJsonDocument::fromJson(QByteArray::fromStdString(input)).object();
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity{identity["mid"].toString(), identity["dfid"].toString(),
                                      identity["guid"].toString(), identity["mac"].toString(),
@@ -929,7 +929,7 @@ Window {
             QVERIFY(!identity.isEmpty());
         }
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(ownedLive
                           ? DeviceIdentity{identity["mid"].toString(), identity["dfid"].toString(),
@@ -1272,7 +1272,7 @@ Window {
     void playlistDetailEditEntryRequiresOwnedLibraryMembership()
     {
         QTemporaryDir dir;
-        QSettings preferences(dir.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(dir.filePath("settings.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "edit-ownership-fixture"));
         PlaybackService playback(api, preferences, nullptr, dir.filePath("playback.sqlite"));
@@ -1297,7 +1297,7 @@ Window {
     void ownedPlaylistOrderPopupKeepsLocalTargetThroughInvalidation()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "order-test-token"));
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -1387,7 +1387,7 @@ Window {
     void ownerRemoveSongWritesFileIdThroughSharedMutation()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "owner-remove-token"));
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));

@@ -1,7 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls.Basic
-import QtQuick.Effects
 import EchoMusic.Theme
 import EchoMusic.Controls
 import EchoMusic.Playback
@@ -95,10 +93,10 @@ Item {
     function syncLines(force: bool): void {
         if (!playback)
             return;
-        const index = playback.lyrics.scrollable ? playback.lyrics.visibleIndex(playback.lyrics.indexAt(renderTime)) : playback.lyrics.nextVisible(-1);
+        const index = playback.lyrics.scrollable ? timeline.focusIndex : playback.lyrics.nextVisible(-1);
         if (!force && index === currentIndex)
             return;
-        animateChange = initialized && index >= 0 && index !== currentIndex && Math.abs(index - currentIndex) === 1 && currentIndex >= 0 && resourceActive && playback.playing && Theme.store.motionEnabled;
+        animateChange = !force && initialized && index >= 0 && index !== currentIndex && Math.abs(index - currentIndex) === 1 && currentIndex >= 0 && resourceActive && playback.playing && Theme.store.motionEnabled;
         if (animateChange) {
             previous = {
                 line: line,
@@ -111,7 +109,10 @@ Item {
                 secondary: secondary,
                 fontSize: fontSize,
                 textAlignment: textAlignment,
-                renderTime: renderTime
+                renderTime: renderTime,
+                highlight: currentContent.highlightAmount,
+                blur: currentContent.blurAmount,
+                scale: currentContent.presentationScale
             };
         }
         if (!animateChange)
@@ -144,6 +145,15 @@ Item {
         return !vertical && visualLineCount >= 3 ? Math.max(16, Math.round(base * .7)) : base;
     }
     readonly property int textAlignment: alignment === "center" ? Qt.AlignHCenter : alignment === "right" || alignment === "both" && currentIndex % 2 === 1 ? Qt.AlignRight : Qt.AlignLeft
+    LyricTimeline {
+        id: timeline
+        objectName: "desktopLyricTimeline"
+        model: root.resourceActive ? root.playback.lyrics : null
+        filter: true
+        timeMs: root.renderTime
+        onChanged: if (root.resourceActive)
+            root.syncLines(false)
+    }
     LyricClock {
         id: clock
     }
@@ -152,6 +162,10 @@ Item {
             return;
         clock.observe(playback.positionMs, playback.playing, playback.speed, reset);
         renderTime = clock.sample();
+        if (reset) {
+            timeline.reset(renderTime);
+            syncLines(true);
+        }
     }
     Component.onCompleted: {
         observe(true);
@@ -167,11 +181,13 @@ Item {
     Connections {
         target: root.playback
         function onPositionChanged(): void {
-            root.observe(false);
+            if (root.resourceActive)
+                root.observe(false);
         }
         function onChanged(): void {
             clock.setPlaybackState(root.playback.playing, root.playback.speed);
-            root.renderTime = clock.sample();
+            if (root.resourceActive)
+                root.renderTime = clock.sample();
             if (!root.playback.playing) {
                 arrivalMotion.snap(0);
             }
@@ -179,12 +195,14 @@ Item {
         function onTimelineReset(): void {
             root.observe(true);
             arrivalMotion.snap(0);
+            currentContent.settleMotion();
         }
     }
     Connections {
         target: root.playback.lyrics
         function onChanged(): void {
-            root.syncLines(true);
+            if (root.resourceActive)
+                root.syncLines(true);
         }
     }
     Connections {
@@ -207,7 +225,8 @@ Item {
     onCurrentIndexChanged: {
         if (animateChange) {
             arrivalMotion.shift(1);
-            arrivalMotion.retarget(0, 0, 0, true);
+            const interval = playback.lyrics.startAt(currentIndex) - Number(previous.line.startMs || 0);
+            arrivalMotion.retarget(0, interval, 0, true);
         }
     }
     LyricSpring {
@@ -219,9 +238,14 @@ Item {
         active: arrivalMotion.running && root.resourceActive && root.previous.line !== undefined
         opacity: Math.max(0, Math.min(1, root.arrival))
         transform: Translate {
-            y: -7 * (1 - root.arrival)
+            x: root.vertical ? -root.fontSize * 1.24 * (1 - root.arrival) : 0
+            y: root.vertical ? 0 : -root.fontSize * 1.24 * (1 - root.arrival)
         }
         sourceComponent: FloatingLyricContent {
+            departing: true
+            initialHighlight: root.previous.highlight ?? 1
+            initialBlur: root.previous.blur ?? 0
+            initialScale: root.previous.scale ?? 1
             baseFont: root.baseFont
             playback: root.playback
             resourceActive: root.resourceActive
@@ -247,6 +271,9 @@ Item {
         }
     }
     FloatingLyricContent {
+        id: currentContent
+        objectName: "desktopCurrentLyricContent"
+        animateChange: root.animateChange
         effectHostId: effectHost.identity
         followOffset: root.effectFollowOffset
         onFollowRequested: (position, maximum) => root.requestEffectFollow(position, maximum)
@@ -254,7 +281,7 @@ Item {
         anchors.fill: parent
         playback: root.playback
         resourceActive: root.resourceActive
-        baseOpacity: Math.max(0, Math.min(1, 1 - root.arrival))
+        baseOpacity: 1
         arrival: root.arrival
         line: root.line
         nextLine: root.nextLine

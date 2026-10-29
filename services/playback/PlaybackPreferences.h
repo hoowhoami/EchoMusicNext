@@ -1,6 +1,6 @@
 #pragma once
 #include <QObject>
-#include <QSettings>
+#include "SettingsStore.h"
 
 namespace EchoMusic
 {
@@ -27,7 +27,7 @@ class PlaybackPreferences final : public QObject
     Q_PROPERTY(int autoNextMaxAttempts READ autoNextMaxAttempts WRITE setAutoNextMaxAttempts NOTIFY
                    failurePolicyChanged)
 public:
-    explicit PlaybackPreferences(QSettings &settings, QObject *parent = nullptr);
+    explicit PlaybackPreferences(EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     bool mvAudioFallbackEnabled() const
     {
         return m_mvFallback;
@@ -95,7 +95,7 @@ signals:
     void mvPolicyChanged();
 
 private:
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     QString m_queueMode = "context", m_quality = "hi_res";
     bool m_autoPlay = false, m_fade = true, m_viper = true;
     bool m_compatibilityMode = true;

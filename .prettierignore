@@ -6,6 +6,3 @@ tools/format/package-lock.json
 build/
 target/
 node_modules/
-
-# Original preferred inputs retain their pinned upstream bytes.
-tools/audio-analysis-helper/upstream/

@@ -53,4 +53,9 @@ target_compile_definitions(
 
 target_link_libraries(echo-theme-image-worker PRIVATE echo_settings_keys)
 
-target_link_libraries(echo_theme PRIVATE echo_settings_keys)
+# Theme public headers expose SettingsStore; consumers need its include path.
+target_link_libraries(echo_theme PUBLIC echo_settings_keys)
+if(UNIX AND NOT APPLE)
+    target_sources(echo_theme PRIVATE LinuxSystemTheme.cpp LinuxSystemTheme.h)
+    target_link_libraries(echo_theme PRIVATE Qt6::DBus)
+endif()

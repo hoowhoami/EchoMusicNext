@@ -183,6 +183,9 @@ Popup {
                     clip: true
                     model: navigation
                     reuseItems: true
+                    EchoViewPoolGuard {
+                        targetView: categories
+                    }
                     cacheBuffer: 41 * 2
                     spacing: 3
                     boundsBehavior: Flickable.StopAtBounds

@@ -6,7 +6,7 @@
 #include <QFont>
 #include <QObject>
 #include <QQmlEngine>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QJsonObject>
 #include <QRectF>
 #include <QThreadPool>
@@ -116,7 +116,7 @@ public:
     Q_ENUM(Mode)
     Q_INVOKABLE QFont styledFont(const QFont &base, qreal pixelSize, int weight,
                                  qreal letterSpacing, bool italic, bool underline) const;
-    explicit ThemeStore(QSettings &settings, QObject *parent = nullptr,
+    explicit ThemeStore(EchoMusic::SettingsStore &settings, QObject *parent = nullptr,
                         const QString &imageDirectory = {});
     ~ThemeStore() override;
     /// Bind before loading QML. The engine borrows this application-owned store;
@@ -406,6 +406,7 @@ public:
     static ThemePalette fromSeed(const QColor &seed, bool dark);
     static qreal contrast(const QColor &a, const QColor &b);
     // System events do not save preferences or override a user's pinned mode.
+    // Unknown preserves the last known scheme rather than implying light.
     void adoptSystemScheme(Qt::ColorScheme scheme);
 signals:
     void fontChanged();
@@ -430,7 +431,7 @@ private:
     void beginBackground();
     void scheduleImageSample();
     void cleanImages();
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     AppearanceCatalog *m_extensions = nullptr;
     QVariantMap m_extensionAppearance;
     ThemePalette m_palette;

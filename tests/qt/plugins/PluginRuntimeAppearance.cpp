@@ -65,8 +65,8 @@ QString installAppearance(Host &host, const QString &path, const QString &id = "
     QString installation;
     while (elapsed.elapsed() < 5000) {
         installation = host.runtime.installationForId(id);
-        if (!installation.isEmpty() && !host.runtime.loading() &&
-            (host.runtime.state(installation) == PluginRuntime::Active ||
+        if (!host.runtime.loading() &&
+            (installation.isEmpty() || host.runtime.state(installation) == PluginRuntime::Active ||
              host.runtime.state(installation) == PluginRuntime::Failed))
             break;
         QTest::qWait(1);
@@ -417,9 +417,12 @@ void PluginRuntimeTest::appearanceProductionThemeSkinAndMini()
 void PluginRuntimeTest::appearanceErrorsAndActivationRollback()
 {
     Host host;
+    QSignalSpy failures(&host.runtime, &PluginRuntime::pluginFailed);
     const auto failed = installAppearance(
         host, appearancePackage(host, definitions + "throw new Error('activation rollback');"));
-    QTRY_COMPARE(host.runtime.state(failed), PluginRuntime::Failed);
+    QVERIFY(failed.isEmpty());
+    QVERIFY(!failures.isEmpty());
+    QVERIFY(failures.last()[1].toString().contains("activation rollback"));
     QCOMPARE(host.theme.extensions()->themes()->rowCount(), 1);
     QCOMPARE(host.theme.extensions()->skins()->rowCount(), 2);
     const auto second = installAppearance(host,

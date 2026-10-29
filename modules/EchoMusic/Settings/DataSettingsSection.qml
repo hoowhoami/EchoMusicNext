@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs as NativeDialogs
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Shell
@@ -349,10 +348,10 @@ SettingsSection {
         id: exportPickerOwner
         hostItem: section
         sourceComponent: Component {
-            NativeDialogs.FileDialog {
+            EchoFileDialog {
                 id: exportPicker
                 title: qsTr("创建备份")
-                fileMode: NativeDialogs.FileDialog.SaveFile
+                fileMode: EchoFileDialog.SaveFile
                 nameFilters: [qsTr("EchoMusicNext 备份 (*.echonext-backup)")]
                 defaultSuffix: "echonext-backup"
                 onAccepted: section.dataService.create(selectedFile, section.exportSettings, section.exportPlugins)
@@ -363,10 +362,10 @@ SettingsSection {
         id: restorePickerOwner
         hostItem: section
         sourceComponent: Component {
-            NativeDialogs.FileDialog {
+            EchoFileDialog {
                 id: restorePicker
                 title: qsTr("选择备份")
-                fileMode: NativeDialogs.FileDialog.OpenFile
+                fileMode: EchoFileDialog.OpenFile
                 nameFilters: [qsTr("EchoMusicNext 备份 (*.echonext-backup)")]
                 onAccepted: section.dataService.inspect(selectedFile)
             }

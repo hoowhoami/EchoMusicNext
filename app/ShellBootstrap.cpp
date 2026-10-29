@@ -20,9 +20,7 @@ namespace EchoMusic
 void AppContext::createShell()
 {
     auto &settings = *preferences;
-    m_theme = std::make_unique<ThemeStore>(
-        settings, nullptr,
-        smoke ? smokeDirectory.path() + QStringLiteral("/theme-images") : QString());
+    m_theme = std::make_unique<ThemeStore>(settings);
     auto &theme = *m_theme;
     theme.pruneImageAssets();
     m_shell = std::make_unique<ShellSettings>(settings);

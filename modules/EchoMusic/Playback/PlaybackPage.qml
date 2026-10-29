@@ -41,8 +41,7 @@ Popup {
     property Component windowActions: null
     property rect nativeWindowControlsBounds: Qt.rect(0, 0, 0, 0)
     readonly property bool hasNativeWindowControls: Qt.platform.os === "osx" && nativeWindowControlsBounds.width > 0
-    property bool coveredBySongWall: false
-    readonly property bool presentationActive: visible && !coveredBySongWall && !playbackPart.replaced && (!contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized))
+    readonly property bool presentationActive: visible && !playbackPart.replaced && (!contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized))
     readonly property bool resourceActive: presentationActive && !skinHost.loaded
     readonly property bool portraitSelected: Theme.store.extensions.selectedSkin === "portrait"
     readonly property real portraitControlsOpacity: portraitBody.item ? (portraitBody.item as PortraitPlayback).controlsOpacity : 1

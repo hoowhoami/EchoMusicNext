@@ -2,7 +2,7 @@
 #include <QString>
 namespace EchoMusic
 {
-/// Native login-item state, never a QSettings value pretending registration.
+/// Native login-item state, never a EchoMusic::SettingsStore value pretending registration.
 /// Test/nonpersistent windows disable platform access entirely.
 class StartupIntegration final
 {

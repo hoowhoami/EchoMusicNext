@@ -7,6 +7,3 @@ cmake/patches/*.patch whitespace=-blank-at-eol
 *.jpeg binary
 *.webp binary
 *.ico binary
-# Preferred upstream sources and license notices are verified byte for byte.
-tools/audio-analysis-helper/upstream/** -text
-tools/audio-analysis-helper/third_party/** -text

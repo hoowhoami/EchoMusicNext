@@ -2,7 +2,7 @@
 #include "ApiClient.h"
 #include "LyricModel.h"
 #include "PlaybackTrack.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QSet>
 #include <optional>
 #include <memory>
@@ -38,7 +38,7 @@ class LyricSourceController final : public QAbstractListModel
     Q_PROPERTY(QString searchArtist READ searchArtist WRITE setSearchArtist NOTIFY changed)
     Q_PROPERTY(bool canSearch READ canSearch NOTIFY changed)
 public:
-    LyricSourceController(ApiClient &, QSettings &, QObject *parent = nullptr);
+    LyricSourceController(ApiClient &, EchoMusic::SettingsStore &, QObject *parent = nullptr);
     ~LyricSourceController() override;
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &, int role) const override;
@@ -210,7 +210,7 @@ private:
     }
     void commitCandidates(const QString &recommendedId);
     ApiClient &m_api;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     LyricModel m_preview;
     std::unique_ptr<QSortFilterProxyModel> m_previewRows;
     QList<Candidate> m_candidates, m_pendingCandidates, m_autoCandidates;

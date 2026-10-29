@@ -13,7 +13,7 @@
 #include <QQmlEngine>
 #include <QQuickWindow>
 #include <QQuickItem>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QSignalSpy>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -257,7 +257,7 @@ private slots:
                         device.value("uuid").toString(),
                         device.value("renderFingerprint").toString()};
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(identity);
         if (live)

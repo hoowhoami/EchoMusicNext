@@ -272,8 +272,7 @@ EchoPluginAppearanceHandle *EchoPluginAppearance::add(const QJSValue &d, const Q
                                 {"playerComponent", "playerbar"},
                                 {"miniComponent", "mini"},
                                 {"miniBackgroundComponent", "mini.background"},
-                                {"settingsComponent", "settings"},
-                                {"queueWallComponent", "queue-wall"}};
+                                {"settingsComponent", "settings"}};
     for (auto it = componentFields.begin(); it != componentFields.end(); ++it) {
         auto v = d.property(it.key());
         if (v.isUndefined())

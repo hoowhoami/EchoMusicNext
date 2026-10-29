@@ -1,6 +1,6 @@
 #pragma once
 #include <QObject>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
 {
@@ -30,7 +30,8 @@ class FloatingLyricPreferences final : public QObject
     Q_PROPERTY(int fontWeight READ fontWeight WRITE setFontWeight NOTIFY changed)
     Q_PROPERTY(bool backgroundBlur READ backgroundBlur WRITE setBackgroundBlur NOTIFY changed)
 public:
-    FloatingLyricPreferences(QSettings &settings, bool desktop, QObject *parent = nullptr);
+    FloatingLyricPreferences(EchoMusic::SettingsStore &settings, bool desktop,
+                             QObject *parent = nullptr);
     bool alwaysOnTop() const
     {
         return m_alwaysOnTop;
@@ -117,7 +118,7 @@ signals:
     void changed();
 
 private:
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     QString m_prefix;
     bool m_mini;
     bool m_alwaysOnTop;

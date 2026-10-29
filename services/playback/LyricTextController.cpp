@@ -86,7 +86,7 @@ QJsonObject convertedRow(QJsonObject row, const QJsonArray &texts, int &cursor)
 }
 } // namespace
 LyricTextController::LyricTextController(LyricModel &model, NativeBridge &native,
-                                         QSettings &settings, QObject *parent)
+                                         EchoMusic::SettingsStore &settings, QObject *parent)
     : QObject(parent), m_model(model), m_native(native), m_settings(settings)
 {
     m_ruby = settings.value(EchoMusic::SettingsKeys::Lyrics::RomanizationAsRuby, false).toBool();

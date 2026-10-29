@@ -898,8 +898,6 @@ pub struct SpectrumConfig {
     pub max_frequency: f64,
     pub smoothing: f64,
     pub include_waveform: bool,
-    pub include_frequency_data: bool,
-    pub frequency_fps: u32,
 }
 
 impl Default for SpectrumConfig {
@@ -913,8 +911,6 @@ impl Default for SpectrumConfig {
             max_frequency: 16_000.0,
             smoothing: 0.6,
             include_waveform: false,
-            include_frequency_data: false,
-            frequency_fps: 30,
         }
     }
 }
@@ -950,12 +946,6 @@ impl SpectrumConfig {
             }
             if let Some(value) = options.include_waveform {
                 config.include_waveform = value;
-            }
-            if let Some(value) = options.include_frequency_data {
-                config.include_frequency_data = value;
-            }
-            if let Some(value) = options.frequency_fps {
-                config.frequency_fps = value.clamp(1, 60);
             }
         }
         config

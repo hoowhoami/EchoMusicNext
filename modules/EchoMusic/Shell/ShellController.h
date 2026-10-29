@@ -46,7 +46,7 @@ public:
         Queue
     };
     Q_ENUM(PlayerCommand)
-    explicit ShellController(QSettings &settings, RouteController &router,
+    explicit ShellController(EchoMusic::SettingsStore &settings, RouteController &router,
                              QObject *parent = nullptr);
     ~ShellController() override;
     ShellActionModel *titlebarActions()
@@ -85,9 +85,6 @@ public:
     bool openSongDetails(const PlaybackTrack &, bool replace = false);
     /// Copy the current service-owned display identity on the GUI thread.
     Q_INVOKABLE void copyCurrentSongInfo();
-    bool showQueueWall();
-    bool canLocatePlayingTrack() const;
-    bool locatePlayingTrack();
     PlaybackService *playback() const
     {
         return m_playback;
@@ -120,6 +117,5 @@ private:
     void updateBarrageAction();
     bool m_closed = false;
     PlaybackService *m_playback = nullptr;
-    quint64 m_locateSerial = 0;
 };
 } // namespace EchoMusic

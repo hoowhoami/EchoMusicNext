@@ -1,6 +1,7 @@
+#include "PluginPaths.h"
 #include "SettingsKeys.h"
 #include "PluginRuntime.h"
-#include "PluginDataTransaction.h"
+#include "StorageSnapshot.h"
 #include <QCryptographicHash>
 #include <QFutureWatcher>
 #include <QtConcurrent>
@@ -75,6 +76,23 @@ PluginDependencyGraph PluginRuntime::dependencyPlan(const PluginPackage *replace
     if (replacement && !replaced) {
         packages.append(*replacement);
         enabled.insert(replacement->id);
+    }
+    // Explicit multi-imports are preflighted as one dependency set. A consumer
+    // waits for its queued provider and conflicts never execute just because
+    // their installation copies happen to complete in a particular order.
+    for (const auto &source : m_refreshSources) {
+        QFile manifest(source + "/manifest.json");
+        if (!manifest.open(QIODevice::ReadOnly) || manifest.size() > 256 * 1024)
+            continue;
+        const auto queued = PluginPackage::inspectManifest(manifest.readAll());
+        bool exists = false;
+        for (const auto &package : packages)
+            exists |= package.id == queued.id;
+        if (queued.error.isEmpty() && !exists) {
+            packages.append(queued);
+            if (m_importEnabled.value(QFileInfo(source).canonicalFilePath(), true))
+                enabled.insert(queued.id);
+        }
     }
     return PluginDependencyGraph::resolve(packages, enabled);
 }
@@ -169,7 +187,7 @@ void PluginRuntime::activate(Entry &entry)
     entry.state = Activating;
     entry.error.clear();
     entry.context = new EchoPluginContext(entry.package, ++m_generation, m_engine, m_host,
-                                          m_root + "/data/" + entry.package.installationId, this);
+                                          PluginPaths(m_root).data(entry.package.id), this);
     entry.context->plugins()->setResolver([this](const QString &id) -> EchoPluginContext * {
         auto *provider = find(installationForId(id));
         return provider && provider->state == Active && !provider->retirementPending

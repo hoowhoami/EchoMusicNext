@@ -1,3 +1,4 @@
+#include "PluginPaths.h"
 #include "SettingsKeys.h"
 #include "PluginManager.h"
 #include "SharingCommands.h"
@@ -22,7 +23,8 @@ namespace EchoMusic
 {
 using namespace PluginManagerDetail;
 
-PluginManager::PluginManager(PluginRuntime &runtime, QSettings &preferences, QObject *parent)
+PluginManager::PluginManager(PluginRuntime &runtime, EchoMusic::SettingsStore &preferences,
+                             QObject *parent)
     : QObject(parent), m_runtime(runtime), m_preferences(preferences), m_catalog(this),
       m_sourceModel(this), m_network(this)
 {
@@ -33,7 +35,7 @@ PluginManager::PluginManager(PluginRuntime &runtime, QSettings &preferences, QOb
             found = true;
     if (!found)
         m_sources.prepend(normalizeSource(official, tr("EchoMusicNext 官方插件源")));
-    QFile cache(runtime.directory() + "/catalog.json");
+    QFile cache(PluginPaths(runtime.directory()).cache() + "/marketplace/catalog.json");
     if (cache.open(QIODevice::ReadOnly) && cache.size() <= 8 * 1024 * 1024) {
         const auto doc = QJsonDocument::fromJson(cache.readAll()).object();
         if (doc.value("schemaVersion").toInt() == 2) {
@@ -84,7 +86,7 @@ bool PluginManager::openDirectory()
 }
 bool PluginManager::openRepository(const QString &key)
 {
-    const auto url = entry(key).value("sourceUrl").toString();
+    const auto url = entry(key).value("repo").toString();
     return !url.isEmpty() && QDesktopServices::openUrl(QUrl(url));
 }
 void PluginManager::shutdown()

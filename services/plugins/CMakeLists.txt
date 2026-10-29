@@ -4,8 +4,14 @@ add_library(
     PluginDatabaseWorker.cpp
     PluginPackage.h
     PluginPackage.cpp
-    PluginDataTransaction.h
-    PluginDataTransaction.cpp
+    PluginPaths.h
+    PluginPaths.cpp
+    PluginInstallationStore.h
+    PluginInstallationStore.cpp
+    PluginInstallTransaction.h
+    PluginInstallTransaction.cpp
+    PluginSourceEntry.h
+    PluginSourceEntry.cpp
     PluginMarketplaceStats.h
     PluginMarketplaceStats.cpp
     PluginDependencyGraph.h
@@ -22,3 +28,5 @@ target_link_libraries(
 # Rust extraction stays behind this service; UI modules never include its ABI.
 target_link_libraries(echo_plugin_packages PRIVATE echo_ffi)
 target_include_directories(echo_plugin_packages PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+target_link_libraries(echo_plugin_packages PUBLIC echo_storage)

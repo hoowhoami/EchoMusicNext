@@ -7,7 +7,8 @@
 #include <QApplication>
 #include <QCryptographicHash>
 #include <QDir>
-#include <QFileDialog>
+#include "EchoFileDialog.h"
+#include "StorageFence.h"
 #include <QFontDatabase>
 #include <QFutureWatcher>
 #include <QJsonArray>
@@ -157,7 +158,7 @@ struct EchoPluginAssetJob
     QElapsedTimer archiveClock;
     QPointer<EchoPluginOperation> operation;
     QPointer<QNetworkReply> reply;
-    QPointer<QFileDialog> dialog;
+    QPointer<EchoFileDialog> dialog;
     QPointer<QTimer> deadline;
     quint64 epoch = 0, revision = 0;
     QString transitionEpoch;
@@ -165,6 +166,7 @@ struct EchoPluginAssetJob
     bool trackScoped = false, running = false, countPending = true;
     std::shared_ptr<std::atomic_bool> canceled = std::make_shared<std::atomic_bool>(false);
     std::shared_ptr<QTemporaryDir> staging;
+    std::shared_ptr<StorageFence> storageFence, destinationFence;
     std::weak_ptr<EchoPluginAnimationCache> animation;
 };
 
@@ -484,12 +486,17 @@ bool prepareArchive(const QString &directory, EchoPluginAssetJob &job)
 {
     auto &session = *job.archive;
     if (!session.directory) {
-        session.directory =
-            std::make_shared<QTemporaryDir>(QDir(directory).filePath(".archive-XXXXXX"));
+        // Ready inspection leases must never leave mutable cache trees in the
+        // plugin data snapshot. Only ImportArchive stages publication on disk.
+        session.directory = std::make_shared<QTemporaryDir>();
         if (!session.directory->isValid())
             return fail(job, "AssetStorageError", "Cannot create bounded archive staging");
     }
-    job.staging = session.directory;
+    job.staging = job.command == ImportArchive
+                      ? std::make_shared<QTemporaryDir>(QDir(directory).filePath(".staging-XXXXXX"))
+                      : session.directory;
+    if (!job.staging->isValid())
+        return fail(job, "AssetStorageError", "Cannot create same-filesystem archive staging");
     if (job.command == InspectArchive) {
         session.source = QDir(job.staging->path()).filePath("archive.zip");
         if (!copySnapshot(job.files.value(0), session.source, 72 * MiB, job))
@@ -720,7 +727,10 @@ void prepare(const QString &directory, EchoPluginAssetJob &job)
         if (!prepareArchive(directory, job) || job.command != ImportArchive)
             return;
     } else
-        job.staging = std::make_shared<QTemporaryDir>(QDir(directory).filePath(".staging-XXXXXX"));
+        job.staging =
+            job.command == Sample || job.command == Frames
+                ? std::make_shared<QTemporaryDir>()
+                : std::make_shared<QTemporaryDir>(QDir(directory).filePath(".staging-XXXXXX"));
     if (!job.staging->isValid()) {
         fail(job, "AssetStorageError", "Cannot create private asset staging");
         return;
@@ -909,6 +919,7 @@ void prepare(const QString &directory, EchoPluginAssetJob &job)
             return;
         }
         const auto bytes = file.read((font ? 16 : 8) * MiB + 1);
+        file.close(); // Release the native read handle before same-volume rename on Windows.
         asset["sha256"] = QString::fromLatin1(
             QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
         if (font)
@@ -980,8 +991,33 @@ EchoPluginAssets::~EchoPluginAssets()
 }
 bool EchoPluginAssets::isDrained() const
 {
-    return m_jobs.isEmpty() && m_cleanupCount == 0 && m_animationLeases.isEmpty() &&
-           m_archiveLeases.isEmpty();
+    return m_jobs.isEmpty() && m_cleanupCount == 0 && m_storagePending == 0 &&
+           m_animationLeases.isEmpty() && m_archiveLeases.isEmpty();
+}
+void EchoPluginAssets::storageBarrier(std::function<void()> ready)
+{
+    m_storageBarriers.append(std::move(ready));
+    // An unaccepted native picker is not an accepted disk write. Close it;
+    // workers already accepted retain their writer and complete normally.
+    if (m_dialog)
+        m_dialog->close();
+    checkStorageBarriers();
+}
+void EchoPluginAssets::resumeStorage()
+{
+    QMetaObject::invokeMethod(this, &EchoPluginAssets::processAnimationQueue, Qt::QueuedConnection);
+}
+void EchoPluginAssets::checkStorageBarriers()
+{
+    if (!m_jobs.isEmpty() || m_cleanupCount || m_storagePending)
+        return;
+    const QPointer<EchoPluginAssets> self(this);
+    const auto callbacks = std::exchange(m_storageBarriers, {});
+    for (const auto &ready : callbacks) {
+        ready();
+        if (!self)
+            return;
+    }
 }
 qint64 EchoPluginAssets::archiveReservedBytes()
 {
@@ -1009,13 +1045,25 @@ std::shared_ptr<EchoPluginAssetJob> EchoPluginAssets::begin(int command, const Q
         job->operation->fail("ScopeClosed", "Plugin presentation has ended");
         return job;
     }
+    if (m_scope.storageFrozen()) {
+        job->operation->fail("StorageFrozen", "Plugin data is taking a backup snapshot");
+        return job;
+    }
     if (countPending && m_store->pending >= 2) {
         job->operation->fail("Busy", "At most two asset requests may be pending per installation");
+        return job;
+    }
+    // Acquired before directory creation or worker dispatch, retained through
+    // actual publication and private staging cleanup, including cancellation.
+    job->storageFence = StorageFence::write(m_store->directory);
+    if (!job->storageFence) {
+        job->operation->fail("StorageFrozen", "Plugin asset storage is taking a snapshot");
         return job;
     }
     if (countPending)
         ++m_store->pending;
     m_jobs.append(job);
+    ++m_storagePending;
     const auto canceled = job->canceled;
     const auto guard = QPointer<EchoPluginAssets>(this);
     const std::weak_ptr<EchoPluginAssetJob> weak = job;
@@ -1024,7 +1072,7 @@ std::shared_ptr<EchoPluginAssetJob> EchoPluginAssets::begin(int command, const Q
         if (guard) {
             if (const auto current = weak.lock()) {
                 if (current->dialog)
-                    current->dialog->reject();
+                    current->dialog->close();
                 if (current->reply)
                     current->reply->abort();
                 if (current->deadline)
@@ -1099,22 +1147,24 @@ EchoPluginOperation *EchoPluginAssets::import(const QString &collection, bool fo
         return job->operation;
     job->partial = partial;
     job->maxCount = maxCount;
-    auto *dialog = new QFileDialog(nullptr, fonts ? tr("导入插件字体") : tr("导入插件图片"));
+    auto *dialog = new EchoFileDialog(this);
     dialog->setObjectName("echoPluginAssetPicker");
-    dialog->setFont(m_scope.font());
-    dialog->setFileMode(QFileDialog::ExistingFiles);
-    dialog->setNameFilter(fonts ? tr("字体 (*.ttf *.otf *.ttc)")
-                                : tr("图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)"));
-    dialog->setAcceptMode(QFileDialog::AcceptOpen);
+    dialog->setProperty("title", fonts ? tr("导入插件字体") : tr("导入插件图片"));
+    dialog->setProperty("font", QVariant::fromValue(m_scope.font()));
+    dialog->setProperty("parentWindow", QVariant::fromValue(QGuiApplication::focusWindow()));
+    dialog->setProperty("fileMode", int(EchoFileDialog::OpenFiles));
+    dialog->setProperty("nameFilters",
+                        QStringList{fonts ? tr("字体 (*.ttf *.otf *.ttc)")
+                                          : tr("图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)")});
     m_dialog = dialog;
     job->dialog = dialog;
     m_store->picker = true;
-    connect(dialog, &QFileDialog::finished, this, [this, dialog, job](int result) {
+    const auto selectionFinished = [this, dialog, job](bool accepted) {
         m_dialog = nullptr;
         job->dialog = nullptr;
         m_store->picker = false;
-        if (result == QDialog::Accepted && !job->canceled->load()) {
-            const auto urls = dialog->selectedUrls();
+        if (accepted && !job->canceled->load()) {
+            const auto urls = dialog->selectedFiles();
             if (urls.isEmpty() || urls.size() > (job->partial ? 128 : 16))
                 fail(*job, "QuotaExceeded", "Selected file count exceeds the import budget");
             else {
@@ -1132,7 +1182,11 @@ EchoPluginOperation *EchoPluginAssets::import(const QString &collection, bool fo
             run(job);
         else
             complete(job);
-    });
+    };
+    connect(dialog, &EchoFileDialog::accepted, this,
+            [selectionFinished] { selectionFinished(true); });
+    connect(dialog, &EchoFileDialog::rejected, this,
+            [selectionFinished] { selectionFinished(false); });
     dialog->open();
     return job->operation;
 }
@@ -1234,22 +1288,22 @@ EchoPluginAssetArchive *EchoPluginAssets::openArchive(const QStringList &jsonPat
         run(job);
         return lease;
     }
-    auto *dialog = new QFileDialog(nullptr, tr("导入图片集合备份"));
+    auto *dialog = new EchoFileDialog(this);
     dialog->setObjectName("echoPluginArchivePicker");
-    dialog->setFont(m_scope.font());
-    dialog->setFileMode(QFileDialog::ExistingFile);
-    dialog->setNameFilter(tr("图片集合备份 (*.zip)"));
-    dialog->setAcceptMode(QFileDialog::AcceptOpen);
+    dialog->setProperty("title", tr("导入图片集合备份"));
+    dialog->setProperty("font", QVariant::fromValue(m_scope.font()));
+    dialog->setProperty("parentWindow", QVariant::fromValue(QGuiApplication::focusWindow()));
+    dialog->setProperty("fileMode", int(EchoFileDialog::OpenFile));
+    dialog->setProperty("nameFilters", QStringList{tr("图片集合备份 (*.zip)")});
     m_dialog = dialog;
     job->dialog = dialog;
     m_store->picker = true;
-    connect(dialog, &QFileDialog::finished, this, [this, dialog, job](int result) {
+    const auto selectionFinished = [this, dialog, job](bool accepted) {
         m_dialog = nullptr;
         job->dialog = nullptr;
         m_store->picker = false;
-        const auto urls = dialog->selectedUrls();
-        if (result == QDialog::Accepted && !job->canceled->load() && urls.size() == 1 &&
-            urls.first().isLocalFile())
+        const auto urls = dialog->selectedFiles();
+        if (accepted && !job->canceled->load() && urls.size() == 1 && urls.first().isLocalFile())
             job->files = {urls.first().toLocalFile()};
         else
             job->canceled->store(true);
@@ -1258,7 +1312,11 @@ EchoPluginAssetArchive *EchoPluginAssets::openArchive(const QStringList &jsonPat
             complete(job);
         else
             run(job);
-    });
+    };
+    connect(dialog, &EchoFileDialog::accepted, this,
+            [selectionFinished] { selectionFinished(true); });
+    connect(dialog, &EchoFileDialog::rejected, this,
+            [selectionFinished] { selectionFinished(false); });
     dialog->open();
     return lease;
 }
@@ -1350,33 +1408,42 @@ EchoPluginOperation *EchoPluginAssets::exportImageArchive(const QString &collect
     m_store->archive = job->archive;
     job->selections = entries;
     job->archiveJson = jsonFiles;
-    auto *dialog = new QFileDialog(nullptr, tr("导出图片集合备份"));
+    auto *dialog = new EchoFileDialog(this);
     dialog->setObjectName("echoPluginArchiveSavePicker");
-    dialog->setFont(m_scope.font());
-    dialog->setAcceptMode(QFileDialog::AcceptSave);
-    dialog->setFileMode(QFileDialog::AnyFile);
-    dialog->setNameFilter(tr("图片集合备份 (*.zip)"));
-    dialog->setDefaultSuffix("zip");
-    dialog->selectFile(suggestedName);
+    dialog->setProperty("title", tr("导出图片集合备份"));
+    dialog->setProperty("font", QVariant::fromValue(m_scope.font()));
+    dialog->setProperty("parentWindow", QVariant::fromValue(QGuiApplication::focusWindow()));
+    dialog->setProperty("fileMode", int(EchoFileDialog::SaveFile));
+    dialog->setProperty("nameFilters", QStringList{tr("图片集合备份 (*.zip)")});
+    dialog->setProperty("defaultSuffix", "zip");
+    dialog->setProperty("currentFile", suggestedName);
     m_dialog = dialog;
     job->dialog = dialog;
     m_store->picker = true;
-    connect(dialog, &QFileDialog::finished, this, [this, dialog, job](int result) {
+    const auto selectionFinished = [this, dialog, job](bool accepted) {
         m_dialog = nullptr;
         job->dialog = nullptr;
         m_store->picker = false;
-        const auto urls = dialog->selectedUrls();
-        if (result == QDialog::Accepted && !job->canceled->load() && urls.size() == 1 &&
-            urls.first().isLocalFile())
+        const auto urls = dialog->selectedFiles();
+        if (accepted && !job->canceled->load() && urls.size() == 1 && urls.first().isLocalFile())
             job->source = urls.first().toLocalFile();
         else
             job->canceled->store(true);
         dialog->deleteLater();
-        if (job->canceled->load())
+        if (!job->canceled->load()) {
+            job->destinationFence = StorageFence::write(job->source);
+            if (!job->destinationFence)
+                fail(*job, "StorageFrozen", "Selected export destination is taking a snapshot");
+        }
+        if (job->canceled->load() || !job->error.isEmpty())
             complete(job);
         else
             run(job);
-    });
+    };
+    connect(dialog, &EchoFileDialog::accepted, this,
+            [selectionFinished] { selectionFinished(true); });
+    connect(dialog, &EchoFileDialog::rejected, this,
+            [selectionFinished] { selectionFinished(false); });
     dialog->open();
     return job->operation;
 }
@@ -1395,6 +1462,7 @@ void EchoPluginAssets::releaseArchive(EchoPluginAssetArchive *lease)
                 job->operation->cancel();
         cleanupArchive(session);
     }
+    checkStorageBarriers();
     if (isDrained())
         emit drained();
 }
@@ -1438,6 +1506,7 @@ void EchoPluginAssets::cleanupArchive(const std::shared_ptr<EchoPluginArchiveSes
         const auto completions = std::move(session->afterCleanup);
         for (const auto &completion : completions)
             completion();
+        checkStorageBarriers();
         if (isDrained())
             emit drained();
     });
@@ -1589,7 +1658,7 @@ void EchoPluginAssets::complete(const std::shared_ptr<EchoPluginAssetJob> &job)
             job->save->cancelWriting();
         job->save.reset();
         auto staging = std::move(job->staging);
-        if (job->archive)
+        if (job->archive && staging == job->archive->directory)
             staging.reset();
         job->fonts.clear();
         job->bytes.clear();
@@ -1601,7 +1670,14 @@ void EchoPluginAssets::complete(const std::shared_ptr<EchoPluginAssetJob> &job)
                 --self->m_store->pending;
             const auto observersAtPublication = self->m_store->observers;
             const auto publicationEpoch = job->epoch;
-            const auto afterCleanup = [observersAtPublication, publicationEpoch, publishedChange] {
+            const auto afterCleanup = [self, job, observersAtPublication, publicationEpoch,
+                                       publishedChange] {
+                job->storageFence.reset();
+                job->destinationFence.reset();
+                if (self) {
+                    --self->m_storagePending;
+                    self->checkStorageBarriers();
+                }
                 if (!publishedChange)
                     return;
                 for (const auto &observer : observersAtPublication) {
@@ -1641,7 +1717,11 @@ void EchoPluginAssets::complete(const std::shared_ptr<EchoPluginAssetJob> &job)
                     }
                 }
                 if (self)
-                    self->cleanupArchive(session, afterCleanup);
+                    self->cleanupDirectory(std::move(staging), 0, false,
+                                           [self, session, afterCleanup] {
+                                               if (self)
+                                                   self->cleanupArchive(session, afterCleanup);
+                                           });
             } else {
                 self->cleanupDirectory(std::move(staging), 0, false, afterCleanup);
             }
@@ -1657,6 +1737,7 @@ void EchoPluginAssets::complete(const std::shared_ptr<EchoPluginAssetJob> &job)
                                 observer->processAnimationQueue();
                         },
                         Qt::QueuedConnection);
+            self->checkStorageBarriers();
             if (self->isDrained())
                 emit self->drained();
         }
@@ -2019,7 +2100,7 @@ EchoPluginAssetAnimation *EchoPluginAssets::animation(const QUrl &source, int wi
 
 void EchoPluginAssets::processAnimationQueue()
 {
-    if (m_closed || !m_scope.active())
+    if (m_closed || !m_scope.active() || m_scope.storageFrozen())
         return;
     const auto caches = m_animations.values();
     for (const auto &cache : caches) {
@@ -2140,6 +2221,7 @@ void EchoPluginAssets::releaseAnimation(EchoPluginAssetAnimation *lease)
         } else
             updateAnimation(cache);
     }
+    checkStorageBarriers();
     if (isDrained())
         emit drained();
 }
@@ -2163,6 +2245,7 @@ void EchoPluginAssets::cleanupDirectory(std::shared_ptr<QTemporaryDir> directory
                 --m_cleanupCount;
                 if (completion)
                     completion();
+                checkStorageBarriers();
                 if (isDrained())
                     emit drained();
             });
@@ -2202,7 +2285,8 @@ void EchoPluginAssets::shutdown()
     }
     releaseFonts();
     if (m_dialog)
-        m_dialog->reject();
+        m_dialog->close();
+    checkStorageBarriers();
     if (isDrained())
         emit drained();
 }

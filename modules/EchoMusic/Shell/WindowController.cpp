@@ -67,7 +67,8 @@ void popupMacTrayMenu(QMenu *menu);
 void retireMacMenu(QMenu *menu);
 QObject *createMacDockMenuOwner(WindowController *controller, std::function<QMenu *()> create);
 #endif
-WindowController::WindowController(QSettings &settings, bool persist, QObject *parent)
+WindowController::WindowController(EchoMusic::SettingsStore &settings, bool persist,
+                                   QObject *parent)
     : QObject(parent), m_settings(settings), m_floating(settings, persist, this),
       m_taskbar(settings, this), m_taskbarButton(settings, this), m_persist(persist),
       m_startup(persist), m_backdrop(persist)
@@ -335,14 +336,7 @@ void WindowController::showTaskbarLyricMenu(qreal globalX, qreal globalY)
     // The strip is a child of the taskbar, so the menu has to be shown at an
     // explicit position and owns its own lifetime.
     menu->setAttribute(Qt::WA_DeleteOnClose);
-    // This QMenu paints through the raster backing store, which needs the GDI
-    // redirection bitmap that the process-wide DComp surface policy removes
-    // (see main.cpp). Its native window is created synchronously inside
-    // popup(), so lifting the policy for this call keeps every other window
-    // on the DirectComposition path.
-    qunsetenv("QT_QPA_DISABLE_REDIRECTION_SURFACE");
     menu->popup(QPoint(qRound(globalX), qRound(globalY)));
-    qputenv("QT_QPA_DISABLE_REDIRECTION_SURFACE", "1");
 }
 QMenu *WindowController::createTaskbarLyricMenu()
 {
@@ -460,13 +454,8 @@ void WindowController::addLyricsMenuActions(QMenu *menu)
 }
 void WindowController::popupTrayMenu()
 {
-    // SNI hosts own placement, focus and dismissal of their remote menu (Linux
-    // XEmbed) and Windows binds it as a native HMENU menu. The Windows native
-    // menu renders blank under the DirectComposition presentation: its items
-    // are drawn into the redirection bitmap, which the process-wide
-    // QT_QPA_DISABLE_REDIRECTION_SURFACE removes. The tray menu therefore
-    // goes through the Qt popup path with the redirection surface lifted for
-    // its window's creation, exactly like the taskbar lyric menu.
+    // Remote SNI placement belongs to the host. Local raster menus use Qt's
+    // normal backing store; main-window DComp policy does not affect them.
     if (m_shuttingDown || m_trayMenu)
         return;
     emit nativeMenuOpening();
@@ -480,13 +469,7 @@ void WindowController::popupTrayMenu()
     }
 #endif
     connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
-#ifdef Q_OS_WIN
-    qunsetenv("QT_QPA_DISABLE_REDIRECTION_SURFACE");
     menu->popup(QCursor::pos());
-    qputenv("QT_QPA_DISABLE_REDIRECTION_SURFACE", "1");
-#else
-    menu->popup(QCursor::pos());
-#endif
 }
 void WindowController::installTrayMenuModel()
 {
@@ -494,9 +477,7 @@ void WindowController::installTrayMenuModel()
     // A complete, stable command model is needed even while the panel is closed:
     // GetLayout need not be preceded by AboutToShow, and hosts cache action IDs.
     // QMenu is only the Qt exporter recipe; no local QWidget popup is shown for
-    // SNI. Windows binds this menu as a native HMENU no longer: the native menu
-    // renders blank under the DirectComposition presentation, so the tray menu
-    // goes through the Qt popup path instead (see popupTrayMenu).
+    // SNI. Windows uses the local popup path (see popupTrayMenu).
     m_trayMenuModel.reset(createTrayMenu());
     connect(m_trayMenuModel.get(), &QMenu::aboutToShow, this, &WindowController::nativeMenuOpening);
 #ifndef Q_OS_WIN

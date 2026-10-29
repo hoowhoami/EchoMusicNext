@@ -26,10 +26,6 @@ void EchoPluginTransitionTrack::sync()
     m_rows.setSource(active() ? m_track.lyrics : m_empty);
     emit changed();
 }
-QString EchoPluginTransitionTrack::identity() const
-{
-    return active() ? m_track.track.presentationIdentity() : QString();
-}
 QString EchoPluginTransitionTrack::sequence() const
 {
     return active() ? m_track.sequence : QString();

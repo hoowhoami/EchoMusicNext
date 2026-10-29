@@ -1,5 +1,4 @@
 #include "AudioEngine.h"
-#include "../audioanalysis/NativePcmReader.h"
 #include "echo_ffi.h"
 #include <QJsonDocument>
 #include <QMutex>
@@ -10,10 +9,6 @@
 
 namespace EchoMusic
 {
-AudioAnalysis::CapturedPcmSource AudioEngine::captureAnalysisSource(const QJsonObject &facts)
-{
-    return AudioAnalysis::captureCurrentPcmSource(facts);
-}
 struct AudioSink
 {
     QMutex mutex;

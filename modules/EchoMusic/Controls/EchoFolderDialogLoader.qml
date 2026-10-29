@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Dialogs as NativeDialogs
 
 // Native folder dialogs have accepted/rejected rather than Popup.closed. Delay
 // disposal until the original result handler has consumed selectedFolder.
@@ -8,7 +7,7 @@ QtObject {
     id: owner
     required property Item hostItem
     required property Component sourceComponent
-    property NativeDialogs.FolderDialog item: null
+    property EchoFileDialog item: null
     readonly property var hostWindow: hostItem ? hostItem.Window.window : null
     readonly property bool hostAlive: hostItem !== null && hostItem.visible && hostWindow !== null && hostWindow.visible && hostWindow.visibility !== Window.Minimized
     readonly property bool available: hostAlive && hostItem.enabled
@@ -20,7 +19,7 @@ QtObject {
         if (!item)
             item = sourceComponent.createObject(owner, {
                 parentWindow: hostItem.Window.window
-            }) as NativeDialogs.FolderDialog;
+            }) as EchoFileDialog;
         if (item)
             item.open();
     }

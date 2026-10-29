@@ -15,12 +15,12 @@ private slots:
     void explicitInspectionAndReset()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         auto device = DeviceIdentity::load(settings);
         device.dfid = "synthetic-dfid";
         QVERIFY(DeviceIdentity::saveRegistration(settings, device));
         settings.setValue("interface/keepAlive", false);
-        settings.setValue("network/localPolicy", "unrelated-policy");
+        settings.setValue("network/proxyPolicy", QVariantMap{{"mode", "direct"}});
         ApiClient api(device);
         AccountService account(api);
         StorageService storage;
@@ -90,7 +90,7 @@ private slots:
         QCOMPARE(notices.size(), noticeCount);
         // An already-running registration writer cannot resurrect the old identity.
         QVERIFY(DeviceIdentity::saveRegistration(settings, device));
-        QSettings nextLaunch(settings.fileName(), QSettings::IniFormat);
+        EchoMusic::SettingsStore nextLaunch(settings.fileName());
         const auto replacement = DeviceIdentity::load(nextLaunch);
         QVERIFY(replacement.guid != device.guid);
         QVERIFY(replacement.mid != device.mid);
@@ -98,7 +98,8 @@ private slots:
         QCOMPARE(replacement.dfid, QString("-"));
         QVERIFY(!nextLaunch.contains("network/registeredDevice"));
         QVERIFY(!nextLaunch.contains("network/resetDeviceIdentity"));
-        QCOMPARE(nextLaunch.value("network/localPolicy").toString(), QString("unrelated-policy"));
+        QCOMPARE(nextLaunch.value("network/proxyPolicy").toMap().value("mode").toString(),
+                 QString("direct"));
         QCOMPARE(nextLaunch.value("interface/keepAlive").toBool(), false);
         QSignalSpy closed(&storage, &StorageService::closed);
         saved.shutdown();

@@ -11,6 +11,9 @@ import EchoMusic.Theme
 // measurement delegates, text-layout copies, timers or scans beyond the mounted item budget are used.
 ListView {
     id: view
+    EchoViewPoolGuard {
+        targetView: view
+    }
     EchoWheelScroll.enabled: true
     EchoWheelScroll.motionEnabled: Theme.store.motionEnabled
     property real maximumViewportHeight: 320

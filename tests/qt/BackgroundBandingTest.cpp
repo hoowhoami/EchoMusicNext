@@ -11,7 +11,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -23,7 +23,7 @@ private slots:
     void atmosphereKeepsItsFadeWithoutHorizontalBands()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("theme.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("theme.ini"));
         ThemeStore theme(preferences);
         theme.setMotionEnabled(false);
         theme.setPanelOpacity(50);

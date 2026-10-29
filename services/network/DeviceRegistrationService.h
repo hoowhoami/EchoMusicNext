@@ -1,6 +1,6 @@
 #pragma once
 #include <QObject>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QThread>
 #include "ApiClient.h"
 namespace EchoMusic
@@ -21,7 +21,7 @@ public:
         Error
     };
     Q_ENUM(State)
-    explicit DeviceRegistrationService(ApiClient &api, const QSettings &settings,
+    explicit DeviceRegistrationService(ApiClient &api, const EchoMusic::SettingsStore &settings,
                                        QObject *parent = nullptr);
     ~DeviceRegistrationService() override;
     State state() const
@@ -44,7 +44,6 @@ private:
     void succeed(quint64 id, const QByteArray &payload);
     ApiClient &m_api;
     QString m_path, m_error;
-    QSettings::Format m_format;
     State m_state = State::Idle;
     quint64 m_request = 0, m_revision = 0;
     QThread *m_writer = nullptr;

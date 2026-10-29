@@ -111,7 +111,7 @@ QSize renderedTextureSize(QQuickWindow *window, QQuickItem *item)
 struct ControlsSession
 {
     QTemporaryDir directory;
-    QSettings settings{directory.filePath("settings.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore settings{directory.filePath("settings.ini")};
     ThemeStore theme{settings};
     QQmlEngine engine;
     QScopedPointer<QObject> root;

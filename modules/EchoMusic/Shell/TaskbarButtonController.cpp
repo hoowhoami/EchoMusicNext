@@ -40,7 +40,8 @@ enum ThumbarButton
     ThumbarFavorite
 };
 } // namespace
-TaskbarButtonController::TaskbarButtonController(QSettings &settings, QObject *parent)
+TaskbarButtonController::TaskbarButtonController(EchoMusic::SettingsStore &settings,
+                                                 QObject *parent)
     : QObject(parent), m_settings(settings)
 {
     m_progressEnabled = m_settings.value(SettingsKeys::Window::TaskbarProgress, false).toBool();

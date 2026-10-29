@@ -52,7 +52,7 @@ private slots:
     void systemNotificationsInvalidateOnlyAffectedRoutes()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("network.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("network.ini"));
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences preferences(settings, api);
         auto *monitor = preferences.findChild<SystemNetworkMonitor *>();
@@ -128,7 +128,7 @@ private slots:
         const auto ini = dir.filePath("network.ini");
         const auto databasePath = dir.filePath("network.sqlite");
         {
-            QSettings settings(ini, QSettings::IniFormat);
+            EchoMusic::SettingsStore settings(ini);
             ApiClient api(DeviceIdentity::temporary());
             SqliteCredentialStore store(databasePath);
             NetworkPreferences preferences(settings, api, nullptr, &store);
@@ -149,7 +149,7 @@ private slots:
             QVERIFY(!query.next());
         }
         QSqlDatabase::removeDatabase("proxy-password-inspection");
-        QSettings settings(ini, QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(ini);
         ApiClient api(DeviceIdentity::temporary());
         SqliteCredentialStore store(databasePath);
         NetworkPreferences restored(settings, api, nullptr, &store);
@@ -185,7 +185,7 @@ private slots:
         QTemporaryDir dir;
         const auto path = dir.filePath("blocked.sqlite");
         QVERIFY(QDir().mkpath(path));
-        QSettings settings(dir.filePath("network.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("network.ini"));
         ApiClient api(DeviceIdentity::temporary());
         SqliteCredentialStore store(path);
         NetworkPreferences preferences(settings, api, nullptr, &store);
@@ -204,24 +204,26 @@ private slots:
         QVERIFY(preferences.hasProxyPassword());
         QCOMPARE(preferences.proxyMode(), QString("fixed_servers"));
     }
-    void oldProxyCredentialReferencesAreNotRestored()
+    void unclassifiedProxySettingsCannotCreateCredentials()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("network.ini"), QSettings::IniFormat);
-        settings.setValue("network/requestTimeouts",
-                          QVariantMap{{"mode", "fixed_servers"},
-                                      {"secretReference", "obsolete-external-reference"}});
+        EchoMusic::SettingsStore settings(dir.filePath("network.ini"));
+        settings.setValue(
+            "network/unclassifiedPolicy",
+            QVariantMap{{"mode", "fixed_servers"}, {"secretReference", "unowned-reference"}});
+        QCOMPARE(settings.status(), SettingsStore::FormatError);
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences preferences(settings, api);
         QVERIFY(!preferences.busy());
         QVERIFY(!preferences.hasProxyPassword());
         QCOMPARE(preferences.proxyMode(), QString("direct"));
-        QVERIFY(!QFile::exists(dir.filePath("network.sqlite")));
+        QVERIFY(
+            !QFile::exists(QFileInfo(settings.deviceFileName()).dir().filePath("network.sqlite")));
     }
     void passwordCommitRetainClearAndStorageRollback()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("network.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("network.ini"));
         ApiClient api(DeviceIdentity::temporary());
         TestProxyStore store;
         NetworkPreferences preferences(settings, api, nullptr, &store);
@@ -249,7 +251,7 @@ private slots:
         QVERIFY(persisted.open(QIODevice::ReadOnly));
         QVERIFY(!persisted.readAll().contains("test-only-proxy-password"));
         {
-            QSettings fresh(settings.fileName(), QSettings::IniFormat);
+            EchoMusic::SettingsStore fresh(settings.fileName());
             NetworkPreferences restored(fresh, api, nullptr, &store);
             QVERIFY(restored.hasProxyPassword());
             QVERIFY(!restored.busy());
@@ -280,7 +282,7 @@ private slots:
     void qtApplicationFactoryRoutesHttpAndDefaultProxyButKeepsLanSockets()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("network.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("network.ini"));
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences preferences(settings, api);
         QTcpServer proxy;

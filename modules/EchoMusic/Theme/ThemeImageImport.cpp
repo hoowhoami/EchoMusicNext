@@ -1,3 +1,4 @@
+#include "StorageFence.h"
 #include "ThemeImageStore.h"
 #include <QCoreApplication>
 #include <QDir>
@@ -18,6 +19,9 @@ ThemeImageResult ThemeImageStore::importImage(const QString &source, const QStri
     const auto interrupted = [&] { return canceled && canceled->load(); };
     if (interrupted())
         return {{}, QObject::tr("图片处理已取消"), {}, {}};
+    const auto storage = StorageFence::write(directory);
+    if (!storage)
+        return {{}, QObject::tr("备份进行中，请稍后导入图片"), {}, {}};
     const QFileInfo file(source);
     if (!file.isFile() || file.size() <= 0 || file.size() > 20 * 1024 * 1024)
         return {{}, QObject::tr("请选择不超过 20 MB 的图片"), {}, {}};

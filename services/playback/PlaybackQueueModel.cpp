@@ -65,31 +65,6 @@ void PlaybackQueueModel::refreshMetadata(const QStringList &rows)
         emit presentationChanged();
 }
 
-bool PlaybackQueueModel::shuffle(QRandomGenerator &random)
-{
-    if (m_tracks.size() < 2)
-        return false;
-    auto shuffled = m_tracks;
-    const bool current = m_current >= 0 && m_current < shuffled.size();
-    if (current) {
-        const auto selected = shuffled.takeAt(m_current);
-        shuffled.prepend(selected);
-    }
-    const int first = current ? 1 : 0;
-    for (int i = int(shuffled.size()) - 1; i > first; --i) {
-        const int selected = first + int(random.bounded(quint32(i - first + 1)));
-        shuffled.swapItemsAt(i, selected);
-    }
-    beginResetModel();
-    m_tracks = std::move(shuffled);
-    m_current = current ? 0 : -1;
-    m_next.clear();
-    m_nextSet.clear();
-    ++m_revision;
-    endResetModel();
-    emit changed();
-    return true;
-}
 void PlaybackQueueModel::restoreNext(const QStringList &keys)
 {
     m_next.clear();
@@ -130,8 +105,6 @@ QVariant PlaybackQueueModel::data(const QModelIndex &i, int role) const
         return i.row() == m_current;
     case QueuedNext:
         return m_nextSet.contains(t->key());
-    case Identity:
-        return t->presentationIdentity();
     default:
         return {};
     }
@@ -140,7 +113,7 @@ QHash<int, QByteArray> PlaybackQueueModel::roleNames() const
 {
     return {{Title, "title"},       {ArtistText, "artistText"},     {AlbumText, "albumText"},
             {CoverUrl, "coverUrl"}, {DurationText, "durationText"}, {ResourceId, "resourceId"},
-            {Current, "isCurrent"}, {QueuedNext, "queuedNext"},     {Identity, "identity"}};
+            {Current, "isCurrent"}, {QueuedNext, "queuedNext"}};
 }
 void PlaybackQueueModel::replace(PlaybackTracks tracks, int current)
 {

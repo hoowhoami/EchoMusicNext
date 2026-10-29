@@ -1,3 +1,4 @@
+#include "StorageSnapshot.h"
 #include "EchoPluginIo.h"
 #include "EchoPluginContext.h"
 #include <QDir>
@@ -64,7 +65,8 @@ StorageResult accessValues(const QString &directory, const QString &key, const Q
             result.error = db.lastError().text();
         else {
             QSqlQuery query(db);
-            if (initializeValues(db, result.error)) {
+            result.error = StorageSnapshot::claimSqlite(db.databaseName());
+            if (result.error.isEmpty() && initializeValues(db, result.error)) {
                 query.prepare(command == 0   ? "SELECT json FROM plugin_values WHERE key=?"
                               : command == 1 ? "INSERT INTO plugin_values(key,json) VALUES(?,?) ON "
                                                "CONFLICT(key) DO UPDATE SET json=excluded.json"

@@ -91,6 +91,9 @@ EchoDrawer {
                 bottomMargin: 12
                 spacing: 8
                 reuseItems: drawer.visible
+                EchoViewPoolGuard {
+                    targetView: list
+                }
                 cacheBuffer: drawer.visible ? 160 : 0
                 boundsBehavior: Flickable.StopAtBounds
                 model: drawer.visible ? drawer.profile.socialUsers : null

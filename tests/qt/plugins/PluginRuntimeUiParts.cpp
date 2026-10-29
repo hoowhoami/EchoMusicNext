@@ -68,10 +68,9 @@ QString activatePartPlugin(Host &host, const QString &id, const QByteArray &body
     QString installation;
     while (elapsed.elapsed() < 5000) {
         installation = host.runtime.installationForId(id);
-        if (!installation.isEmpty() &&
-            (host.runtime.state(installation) == PluginRuntime::Active ||
-             host.runtime.state(installation) == PluginRuntime::Failed) &&
-            !host.runtime.loading())
+        if (!host.runtime.loading() &&
+            (installation.isEmpty() || host.runtime.state(installation) == PluginRuntime::Active ||
+             host.runtime.state(installation) == PluginRuntime::Failed))
             break;
         QTest::qWait(1);
     }
@@ -261,11 +260,14 @@ void PluginRuntimeTest::uiStyleLayersRestoreLiveBindings()
     root->setProperty("baseColor", QColor("#334455"));
     QTRY_COMPARE(label->property("color").value<QColor>(), QColor("#334455"));
     // Late instances pick up rules; a failed activation never leaves a style behind.
+    QSignalSpy failures(&host.runtime, &PluginRuntime::pluginFailed);
     const auto failed = activatePartPlugin(host, "test.style-failed", R"(
  c.ui.styles.registerRule('paint', {}, {foreground:'#ff0000'});
  throw new Error('style activation must roll back');
 )");
-    QTRY_COMPARE(host.runtime.state(failed), PluginRuntime::Failed);
+    QVERIFY(failed.isEmpty());
+    QVERIFY(!failures.isEmpty());
+    QVERIFY(failures.last()[1].toString().contains("style activation must roll back"));
     QCOMPARE(EchoUiPartRegistry::forEngine(host.engine)->styleCount(), 0);
 }
 void PluginRuntimeTest::uiPartsIdentityObservationAndPublicActions()

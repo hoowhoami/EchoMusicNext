@@ -1,7 +1,7 @@
 #pragma once
 #include <QGuiApplication>
 #include <QList>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QUrl>
@@ -69,8 +69,8 @@ class SingleInstance;
 class ApplicationUrlHandler;
 class LogService;
 
-int runRecoveryFailure(QGuiApplication &, QSettings &, const QString &, SingleInstance *,
-                       const QStringList &);
+int runRecoveryFailure(QGuiApplication &, EchoMusic::SettingsStore &, const QString &,
+                       SingleInstance *, const QStringList &);
 
 // Context owns services explicitly in construction order. Phase functions wire
 // references; only this owner survives the event loop and drains all workers.
@@ -108,7 +108,7 @@ private:
     LogService *m_logging;
     bool startupSmoke, smoke, useStartup;
     QTemporaryDir smokeDirectory;
-    std::unique_ptr<QSettings> preferences;
+    std::unique_ptr<EchoMusic::SettingsStore> preferences;
     QString applicationData;
     std::unique_ptr<ThemeStore> m_theme;
     std::unique_ptr<ShellSettings> m_shell;

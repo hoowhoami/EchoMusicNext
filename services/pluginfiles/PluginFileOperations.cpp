@@ -1,3 +1,4 @@
+#include "PluginPaths.h"
 #include "PluginFileWorker_p.h"
 #include "echo_ffi.h"
 #include <QDirIterator>
@@ -58,10 +59,10 @@ qint64 number(const QVariantMap &input, const QString &key, qint64 fallback, qin
     return qint64(n);
 }
 } // namespace
-QString PluginFileWorker::privateRoot(const QString &installation, const QString &kind) const
+QString PluginFileWorker::privateRoot(const QString &id, const QString &kind) const
 {
-    return kind == "cache" ? root + "/cache/" + installation + "/files"
-                           : root + "/data/" + installation + "/files";
+    return kind == "cache" ? PluginPaths(root).cache(id) + "/files"
+                           : PluginPaths(root).data(id) + "/files";
 }
 QString PluginFileWorker::relative(const QVariant &value)
 {
@@ -229,8 +230,10 @@ QVariant PluginFileWorker::files(quint64 id, const PluginFileOwner &owner, const
         const auto kind = input.value("kind", "data").toString();
         if (!QStringList{"data", "cache"}.contains(kind))
             error("InvalidArgument", "Unknown private directory");
+        if (!PluginPaths::validId(owner.pluginId))
+            error("InvalidArgument", "Invalid private directory owner");
         const auto key = "private/" + owner.installation + '/' + kind;
-        const auto path = privateRoot(owner.installation, kind);
+        const auto path = privateRoot(owner.pluginId, kind);
         if (!QDir().mkpath(path))
             error("WriteError", "Cannot create private directory");
         if (!grants.contains(key)) {

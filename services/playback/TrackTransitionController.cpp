@@ -5,7 +5,6 @@
 #include <QJsonDocument>
 #include <QUrl>
 #include <cmath>
-#include <utility>
 
 namespace EchoMusic
 {
@@ -30,7 +29,7 @@ const QStringList modes{"automix-pro", "automix-basic", "fade", "gapless", "none
 
 } // namespace
 TrackTransitionController::TrackTransitionController(PlaybackService &playback, ApiClient &api,
-                                                     QSettings &settings)
+                                                     EchoMusic::SettingsStore &settings)
     : QObject(&playback), m_playback(playback), m_api(api), m_settings(settings),
       m_source(api, playback.m_membership, this, playback.cloudSources(),
                playback.sourceExtensions())
@@ -93,25 +92,19 @@ TrackTransitionController::TrackTransitionController(PlaybackService &playback, 
                 }
                 prepareSource();
             });
-    connect(
-        &playback.m_native, &NativeBridge::completed, this,
-        [this](quint64 id, quint64 revision, bool success, const QByteArray &bytes) {
-            if (!m_probe || id != m_probe || revision != m_revision || !stillValid())
-                return;
-            m_probe = 0;
-            const auto audioTrack =
-                effectAudioTrack(success ? QJsonDocument::fromJson(bytes).array() : QJsonArray{},
-                                 m_resolved.value("effect").toString(m_playback.m_songEffect));
-            m_preparedGain = m_playback.m_audioControls.gainForSource(m_resolved);
-            m_sourceFacts = m_playback.sourceFacts(
-                m_target, m_resolved, m_resolvedQuality,
-                m_resolved.value("effect").toString(m_fallback ? "none" : m_playback.m_songEffect),
-                m_urls.first(), audioTrack, m_sequence, m_playback.m_sourceRevision + 1);
-            m_playback.m_transitionPresentation->prepare(m_target, m_requestId, m_sequence,
-                                                         m_playback.analysisSourceFacts());
-            m_playback.m_engine.prepareNext(m_urls.first(), audioTrack, m_sequence, m_requestId,
-                                            m_revision, m_preparedGain);
-        });
+    connect(&playback.m_native, &NativeBridge::completed, this,
+            [this](quint64 id, quint64 revision, bool success, const QByteArray &bytes) {
+                if (!m_probe || id != m_probe || revision != m_revision || !stillValid())
+                    return;
+                m_probe = 0;
+                const auto audioTrack = effectAudioTrack(
+                    success ? QJsonDocument::fromJson(bytes).array() : QJsonArray{},
+                    m_resolved.value("effect").toString(m_playback.m_songEffect));
+                m_preparedGain = m_playback.m_audioControls.gainForSource(m_resolved);
+                m_playback.m_transitionPresentation->prepare(m_target, m_requestId, m_sequence);
+                m_playback.m_engine.prepareNext(m_urls.first(), audioTrack, m_sequence, m_requestId,
+                                                m_revision, m_preparedGain);
+            });
     connect(&playback.m_sleepTimer, &SleepTimer::changed, this, [this] {
         if (!m_context.isEmpty() &&
             (m_playback.m_sleepTimer.active() || m_playback.m_sleepTimer.waiting()))
@@ -337,7 +330,6 @@ void TrackTransitionController::queueChanged()
 void TrackTransitionController::clear(bool allowRetry)
 {
     m_playback.m_transitionPresentation->invalidate("preparation-cleared");
-    m_sourceFacts = {};
     ++m_revision;
     m_timeout.stop();
     m_source.cancel();
@@ -413,12 +405,7 @@ void TrackTransitionController::prepareSource()
     }
     m_preparedGain = m_playback.m_audioControls.gainForSource(m_resolved);
     const auto audioTrack = m_urlAudioTracks.value(0);
-    m_sourceFacts = m_playback.sourceFacts(
-        m_target, m_resolved, m_resolvedQuality,
-        m_resolved.value("effect").toString(m_fallback ? "none" : m_playback.m_songEffect),
-        m_urls.first(), audioTrack, m_sequence, m_playback.m_sourceRevision + 1);
-    m_playback.m_transitionPresentation->prepare(m_target, m_requestId, m_sequence,
-                                                 m_playback.analysisSourceFacts());
+    m_playback.m_transitionPresentation->prepare(m_target, m_requestId, m_sequence);
     m_playback.m_engine.prepareNext(m_urls.first(), audioTrack, m_sequence, m_requestId, m_revision,
                                     m_preparedGain);
 }
@@ -479,7 +466,6 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
     p.finishHistory();
     const auto track = m_target;
     const auto privileges = m_privileges, source = m_resolved;
-    const auto sourceFacts = std::exchange(m_sourceFacts, {});
     const auto fallback = m_fallback;
     const auto index = m_targetIndex;
     // Release host preparation bookkeeping without disarming the audible mix.
@@ -535,10 +521,6 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
     p.m_loaded = true;
     p.m_loading = false;
     p.m_error.clear();
-    p.m_resolvedSourceFacts = source;
-    p.m_pendingSourceFacts = sourceFacts;
-    p.m_pendingSourceFacts.insert("sourceRevision", QString::number(p.m_sourceRevision));
-    p.adoptSourceFacts();
     p.m_seamless = false;
     p.m_resumePosition = -1;
     p.m_coverColor = {};

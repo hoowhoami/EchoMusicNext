@@ -1,7 +1,7 @@
 #pragma once
 #include <QAbstractListModel>
 #include <QPointer>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QtQml/qqmlregistration.h>
 #include <functional>
 
@@ -65,7 +65,8 @@ public:
         bool supportsBadge = false;
         std::function<void()> invoke;
     };
-    explicit ShellActionModel(QSettings &preferences, Surface surface, QObject *parent = nullptr);
+    explicit ShellActionModel(EchoMusic::SettingsStore &preferences, Surface surface,
+                              QObject *parent = nullptr);
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
@@ -114,7 +115,7 @@ private:
     void resolve();
     void applyOrder();
     void persist();
-    QSettings &m_preferences;
+    EchoMusic::SettingsStore &m_preferences;
     Surface m_surface;
     QString m_prefix;
     QList<Entry> m_entries;

@@ -41,9 +41,6 @@ RoutePage {
         collection: page.detail.songs
         actions: page.detail.actions
         resourceActive: page.pageActive && visible
-        locateTrackId: String(page.context.query.locateTrack || "")
-        locateToken: String(page.context.query.locateToken || "")
-        locateComplete: page.detail.complete
         loading: page.detail.loading && !page.detail.songs.totalCount
         errorMessage: page.detail.errorMessage
         secondaryActive: page.commentsActive

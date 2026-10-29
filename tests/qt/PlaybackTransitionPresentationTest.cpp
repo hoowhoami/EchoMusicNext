@@ -3,25 +3,17 @@ Q_IMPORT_QML_PLUGIN(EchoMusic_ThemesPlugin)
 #include "EchoPluginPlaybackTransition.h"
 #include "plugins/PluginRuntimeTestFixture.h"
 #include "../../services/settings/SettingsKeys.h"
+#include <QCryptographicHash>
+#include <cmath>
 
 namespace EchoMusic
 {
 class PlaybackServiceTestAccess
 {
 public:
-    static bool detachOutputEvents(PlaybackService &player)
+    static AudioEngine &engine(PlaybackService &player)
     {
-        return QObject::disconnect(&player.m_engine, &AudioEngine::eventReceived, &player,
-                                   &PlaybackService::onEvent);
-    }
-    static void deliverOutputEvent(PlaybackService &player, const QJsonObject &event)
-    {
-        player.onEvent(event);
-    }
-    static void restoreOutputEvents(PlaybackService &player)
-    {
-        QObject::connect(&player.m_engine, &AudioEngine::eventReceived, &player,
-                         &PlaybackService::onEvent);
+        return player.m_engine;
     }
 };
 } // namespace EchoMusic
@@ -130,161 +122,6 @@ class PlaybackTransitionPresentationTest final : public QObject
 {
     Q_OBJECT
 private slots:
-    void displayedTransitionSourceTransport_data()
-    {
-        QTest::addColumn<bool>("playing");
-        QTest::addColumn<bool>("delayAdoption");
-        QTest::newRow("seek-resumes-displayed-A") << true << false;
-        QTest::newRow("pause-stays-on-displayed-A") << false << false;
-        QTest::newRow("seek-before-GUI-adoption") << true << true;
-        QTest::newRow("pause-before-GUI-adoption") << false << true;
-    }
-    void displayedTransitionSourceTransport()
-    {
-        QFETCH(bool, playing);
-        QFETCH(bool, delayAdoption);
-        Host host;
-        const auto originalVolume = host.playback.volume();
-        host.playback.setVolume(0);
-        const auto restoreVolume = qScopeGuard([&] {
-            host.playback.stop();
-            host.playback.setVolume(originalVolume);
-        });
-        host.runtime.importDirectory(
-            package(host.temporary.path(), "export function activate(ctx) {}\n"));
-        QVERIFY(awaitEvent(
-            [&] { return !host.runtime.installationForId("test.runtime").isEmpty(); }, 7000));
-        const auto installation = host.runtime.installationForId("test.runtime");
-        QVERIFY(awaitEvent(
-            [&] { return host.runtime.state(installation) == PluginRuntime::Active; }, 7000));
-        auto *scope = host.runtime.context(installation);
-        auto *projection = scope->player()->transition();
-        const auto a = installTrack(host, "displayed-A", 220),
-                   b = installTrack(host, "native-current-B", 330);
-        host.playback.transition()->setMode("fade");
-        host.playback.transition()->setFadeSeconds(2);
-        host.playback.playTracks({a, b}, 0, "Source transport", "source-transport");
-        QVERIFY2(awaitEvent(
-                     [&] {
-                         return host.playback.playing() && !host.playback.loading() &&
-                                host.playback.lyrics()->rowCount() == 2;
-                     },
-                     12000),
-                 qPrintable(state(host.playback)));
-        QMetaObject::Connection eventRoute;
-        QList<QJsonObject> deferredEvents;
-        bool delaying = delayAdoption, holding = false, nativeBLoaded = false;
-        const auto restoreRoute = qScopeGuard([&] {
-            if (eventRoute) {
-                disconnect(eventRoute);
-                PlaybackServiceTestAccess::restoreOutputEvents(host.playback);
-            }
-        });
-        if (delayAdoption) {
-            QVERIFY(PlaybackServiceTestAccess::detachOutputEvents(host.playback));
-            eventRoute = connect(
-                &host.playback.analysisEngine(), &AudioEngine::eventReceived, &host.playback,
-                [&](const QJsonObject &event) {
-                    const auto incoming = projection->incoming()->sequence();
-                    const bool incomingLoaded =
-                        !incoming.isEmpty() && event.value("event").toString() == "file-loaded" &&
-                        QString::number(quint64(event.value("seq").toDouble())) == incoming;
-                    const auto transition = event.value("transition_playback").toObject();
-                    if (delaying &&
-                        (holding || incomingLoaded || transition.value("handed_over").toBool())) {
-                        nativeBLoaded = nativeBLoaded || incomingLoaded;
-                        holding = true;
-                        if (deferredEvents.size() >= 512)
-                            qFatal("Native event delay exceeded its bounded test queue");
-                        deferredEvents.append(event);
-                        return;
-                    }
-                    PlaybackServiceTestAccess::deliverOutputEvent(host.playback, event);
-                });
-        }
-        host.playback.seek(34000);
-        if (delayAdoption) {
-            const bool incomingArrived = awaitEvent([&] { return nativeBLoaded; }, 10000);
-            if (!incomingArrived) {
-                QJsonArray held;
-                for (const auto &event : deferredEvents)
-                    held.append(event);
-                qWarning().noquote()
-                    << QJsonDocument(
-                           QJsonObject{
-                               {"phase", "native-B-precondition-timeout"},
-                               {"incomingGuiSequence", projection->incoming()->sequence()},
-                               {"projection", host.playback.transitionPresentation().snapshot()},
-                               {"heldRealEvents", held}})
-                           .toJson(QJsonDocument::Compact);
-            }
-            QVERIFY2(incomingArrived, qPrintable(state(host.playback)));
-            QVERIFY(projection->valid());
-            QVERIFY(!projection->handedOver());
-            QCOMPARE(host.playback.currentTrack().stableKey(), a.stableKey());
-            qInfo() << "Held real native file-loaded(B) before GUI adoption; GUI remains"
-                    << host.playback.title() << "deferred events" << deferredEvents.size();
-        } else {
-            QVERIFY2(awaitEvent(
-                         [&] {
-                             return projection->valid() && projection->handedOver() &&
-                                    projection->cueElapsedMs() > 100 &&
-                                    projection->cueElapsedMs() < projection->cueDurationMs() * .8;
-                         },
-                         10000),
-                     qPrintable(state(host.playback)));
-            QCOMPARE(host.playback.currentTrack().stableKey(), b.stableKey());
-        }
-        const auto epoch = projection->epoch();
-        const auto sequence = projection->outgoing()->sequence();
-        const qint64 position = playing ? 2300 : qint64(projection->outgoingPositionMs());
-        const QVariantMap arguments{{"epoch", epoch},
-                                    {"sequence", sequence},
-                                    {"positionMs", position},
-                                    {"playing", playing}};
-        QSignalSpy restoredSeek(&host.playback, &PlaybackService::seekCompleted);
-        auto *operation = scope->player()->control("selectTransitionSource", arguments);
-        QVERIFY(operation);
-        QVERIFY(awaitEvent([&] { return operation->finished(); }, 3000));
-        QCOMPARE(operation->state(), EchoPluginOperation::Succeeded);
-        // Replay only the real native messages delayed above, in original
-        // order. This fixture never manufactures a playback event or decoder.
-        delaying = false;
-        const auto pending = std::exchange(deferredEvents, {});
-        for (const auto &event : pending)
-            PlaybackServiceTestAccess::deliverOutputEvent(host.playback, event);
-        QVERIFY2(awaitEvent(
-                     [&] {
-                         return host.playback.currentTrack().stableKey() == a.stableKey() &&
-                                !host.playback.loading() && !restoredSeek.isEmpty() &&
-                                host.playback.playing() == playing &&
-                                qAbs(host.playback.positionMs() - position) < 700;
-                     },
-                     12000),
-                 qPrintable(state(host.playback)));
-        QVERIFY(!projection->valid());
-        QCOMPARE(host.playback.queue()->currentIndex(), 0);
-        QVERIFY2(awaitEvent(
-                     [&] {
-                         return host.playback.lyrics()->rowCount() == 2 &&
-                                scope->player()
-                                    ->lyrics()
-                                    ->row(0)
-                                    .value("lineText")
-                                    .toString()
-                                    .contains("displayed-A");
-                     },
-                     3000),
-                 qPrintable(state(host.playback)));
-        const auto source = host.playback.analysisSourceFacts();
-        QCOMPARE(source.value("locator").toString(), a.localPath);
-        auto *stale = scope->player()->control("selectTransitionSource", arguments);
-        QVERIFY(stale);
-        QVERIFY(awaitEvent([&] { return stale->finished(); }, 3000));
-        QCOMPARE(stale->state(), EchoPluginOperation::Failed);
-        QCOMPARE(stale->errorCode(), QString("StaleTransition"));
-        QCOMPARE(host.playback.currentTrack().stableKey(), a.stableKey());
-    }
     void actualQueueRetainsAUntilTheNativeCueAndClearsOnSeekAndStop()
     {
         Host host;
@@ -304,8 +141,8 @@ private slots:
         auto *scope = host.runtime.context(installation);
         auto *projection = scope->player()->transition();
         QJsonArray nativeEvents;
-        connect(&host.playback.analysisEngine(), &AudioEngine::eventReceived, this,
-                [&](const QJsonObject &event) {
+        connect(&PlaybackServiceTestAccess::engine(host.playback), &AudioEngine::eventReceived,
+                this, [&](const QJsonObject &event) {
                     const auto kind = event.value("event").toString();
                     if (nativeEvents.size() < 160 &&
                         (kind.startsWith("next-source-") || kind == "file-loaded" ||
@@ -335,9 +172,7 @@ private slots:
                      },
                      12000),
                  qPrintable(state(host.playback)));
-        const auto adoptedA = host.playback.analysisSourceFacts();
-        QCOMPARE(adoptedA.value("locator").toString(), a.localPath);
-        QCOMPARE(adoptedA.value("audioStreamOrdinal").toInteger(), -1);
+        QCOMPARE(host.playback.currentTrack().stableKey(), a.stableKey());
         host.playback.seek(34000);
         const auto projected = awaitEvent([&] { return projection->valid(); }, 10000);
         if (!projected)
@@ -351,7 +186,9 @@ private slots:
         QCOMPARE(projection->incoming()->id(), b.id);
         QCOMPARE(projection->outgoing()->hash(), a.hash);
         QCOMPARE(projection->incoming()->songId(), QString::number(b.songId));
-        QVERIFY(projection->outgoing()->identity() != projection->incoming()->identity());
+        QVERIFY(!projection->outgoing()->sequence().isEmpty());
+        QVERIFY(!projection->incoming()->sequence().isEmpty());
+        QVERIFY(projection->outgoing()->sequence() != projection->incoming()->sequence());
         QCOMPARE(projection->outgoing()->lyrics()->rowCount(), 2);
         QVERIFY(projection->cueReady());
         QCOMPARE(projection->cueReason(), QString("scheduled-gain-envelope"));
@@ -391,9 +228,7 @@ private slots:
                     .value("lineText")
                     .toString()
                     .contains("outgoing-A"));
-        const auto adoptedB = host.playback.analysisSourceFacts();
-        QCOMPARE(adoptedB.value("locator").toString(), b.localPath);
-        QVERIFY(adoptedA.value("trackSequence") != adoptedB.value("trackSequence"));
+        QCOMPARE(host.playback.currentTrack().stableKey(), b.stableKey());
         host.playback.seek(4000);
         QVERIFY(!projection->valid());
         QVERIFY(projection->outgoing()->id().isEmpty());
@@ -402,7 +237,6 @@ private slots:
         QCOMPARE(projection->outgoing()->lyrics()->rowCount(), 0);
         QCOMPARE(projection->incoming()->lyrics()->rowCount(), 0);
         host.playback.stop();
-        QVERIFY(host.playback.analysisSourceFacts().isEmpty());
         waitNaturally(200);
         QVERIFY(!projection->valid());
     }

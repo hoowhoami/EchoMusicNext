@@ -27,14 +27,6 @@ add_library(
     PlaybackRepository_p.h
     PlaybackRepository.h
     PlaybackRepository.cpp
-    ../audioanalysis/AnalysisBroker.h
-    ../audioanalysis/AnalysisBroker.cpp
-    ../audioanalysis/AnalysisInstallation.h
-    ../audioanalysis/AnalysisInstallation.cpp
-    ../audioanalysis/AnalysisService.h
-    ../audioanalysis/AnalysisService.cpp
-    ../audioanalysis/NativePcmReader.h
-    ../audioanalysis/NativePcmReader.cpp
     AudioEngine.cpp
     PlayerSpectrum.h
     PlayerSpectrum.cpp
@@ -111,7 +103,7 @@ add_library(
 )
 target_include_directories(
     echo_playback_service
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../audioanalysis
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
     PRIVATE ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(
@@ -128,10 +120,10 @@ target_link_libraries(
 )
 qt_extract_metatypes(echo_playback_service)
 
-target_link_libraries(echo_playback_service PRIVATE echo_settings_keys)
-
 target_sources(
     echo_playback_service
     PRIVATE PlaybackQueueController.h PlaybackQueueController.cpp PlaybackOutputController.h
             PlaybackOutputController.cpp PlaybackSessionController.h PlaybackSessionController.cpp
 )
+
+target_link_libraries(echo_playback_service PUBLIC echo_settings_keys)

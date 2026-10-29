@@ -2,7 +2,7 @@
 #include "AccountService.h"
 #include "SavedAccountModel.h"
 #include "RelaunchService.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QtQml/qqmlregistration.h>
 #include <functional>
 
@@ -19,7 +19,7 @@ class ExperimentalSettingsService final : public QObject
     Q_PROPERTY(bool resetPending READ resetPending NOTIFY changed)
 public:
     ExperimentalSettingsService(ApiClient &api, AccountService &account, SavedAccountModel &saved,
-                                QSettings &settings, RelaunchService &relaunch,
+                                EchoMusic::SettingsStore &settings, RelaunchService &relaunch,
                                 QObject *parent = nullptr);
     bool busy() const
     {
@@ -43,7 +43,7 @@ private:
     ApiClient &m_api;
     AccountService &m_account;
     SavedAccountModel &m_saved;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     RelaunchService &m_relaunch;
     std::function<bool()> m_guard;
     bool m_busy = false, m_waitingForLogout = false;

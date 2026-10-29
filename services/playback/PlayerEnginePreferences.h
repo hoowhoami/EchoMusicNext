@@ -1,6 +1,6 @@
 #pragma once
 #include <QObject>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QJsonObject>
 namespace EchoMusic
 {
@@ -32,7 +32,7 @@ class PlayerEnginePreferences final : public QObject
     Q_PROPERTY(int playbackStallMaxAttempts READ playbackStallMaxAttempts WRITE
                    setPlaybackStallMaxAttempts NOTIFY changed)
 public:
-    explicit PlayerEnginePreferences(QSettings &settings, QObject *parent = nullptr);
+    explicit PlayerEnginePreferences(EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     QJsonObject startupOptions() const;
     bool cachePause() const
     {
@@ -114,7 +114,7 @@ signals:
     void stallTimeoutChanged(double value);
 
 private:
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     double m_demuxerReadaheadSecs = 1;
     double m_cacheSecs = 3600000;
     double m_cachePauseWaitSecs = 1;

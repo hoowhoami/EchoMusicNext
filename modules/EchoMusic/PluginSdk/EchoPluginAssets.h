@@ -9,11 +9,11 @@
 #include <atomic>
 #include <memory>
 
-class QFileDialog;
 class QTemporaryDir;
 namespace EchoMusic
 {
 class EchoPluginContext;
+class EchoFileDialog;
 struct EchoPluginAssetStore;
 struct EchoPluginAssetJob;
 struct EchoPluginAnimationCache;
@@ -50,6 +50,8 @@ public:
                                                                const QString &fit = "contain");
     void shutdown();
     bool isDrained() const;
+    void storageBarrier(std::function<void()> ready);
+    void resumeStorage();
     static qint64 archiveReservedBytes();
     static int archiveSlotCount();
 signals:
@@ -83,18 +85,20 @@ private:
     void run(const std::shared_ptr<EchoPluginAssetJob> &job);
     void complete(const std::shared_ptr<EchoPluginAssetJob> &job);
     void releaseFonts();
+    void checkStorageBarriers();
     std::shared_ptr<EchoPluginAssetJob> begin(int command, const QString &value,
                                               bool countPending = true);
     EchoPluginContext &m_scope;
     std::shared_ptr<EchoPluginAssetStore> m_store;
     QNetworkAccessManager m_network;
     QList<std::shared_ptr<EchoPluginAssetJob>> m_jobs;
-    QPointer<QFileDialog> m_dialog;
+    QPointer<EchoFileDialog> m_dialog;
     QSet<QString> m_fontReferences;
     QHash<QString, std::shared_ptr<EchoPluginAnimationCache>> m_animations;
     QSet<EchoPluginAssetAnimation *> m_animationLeases;
     QSet<EchoPluginAssetArchive *> m_archiveLeases;
-    int m_cleanupCount = 0;
+    QList<std::function<void()>> m_storageBarriers;
+    int m_cleanupCount = 0, m_storagePending = 0;
     bool m_closed = false;
 };
 } // namespace EchoMusic

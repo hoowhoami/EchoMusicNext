@@ -139,7 +139,7 @@ QQuickItem *visual(QQuickItem *root, const QString &name)
 struct Fixture
 {
     QTemporaryDir dir;
-    QSettings prefs{dir.filePath("prefs.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore prefs{dir.filePath("prefs.ini")};
     ApiClient api{DeviceIdentity::temporary()};
     std::unique_ptr<PlaybackService> playback;
     Fixture()
@@ -194,7 +194,7 @@ private slots:
         const auto stage = qEnvironmentVariable("ECHO_FM_PREFS_STAGE").split('-');
         QCOMPARE(stage.size(), 3);
         const int mode = stage[1].toInt(), pool = stage[2].toInt();
-        QSettings prefs(path, QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(path);
         ApiClient api(DeviceIdentity::temporary());
         api.setNetworkTransport(1);
         QVERIFY(api.setAccount(900001, "offline-domain-fixture"));
@@ -426,7 +426,7 @@ private slots:
     {
         const bool live = qEnvironmentVariableIsSet("ECHO_LIVE_PERSONAL_FM");
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         prefs.setValue("playback/transitionMode", "none");
         DeviceIdentity device = DeviceIdentity::temporary();

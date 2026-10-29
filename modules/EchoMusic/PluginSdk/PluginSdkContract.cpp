@@ -127,8 +127,6 @@ QJsonObject pluginSdkContract()
                                         &EchoPluginScroll::staticMetaObject,
                                         &EchoPluginRegistry::staticMetaObject,
                                         &EchoPluginAudio::staticMetaObject,
-                                        &EchoPluginAudioAnalysis::staticMetaObject,
-                                        &EchoPluginAnalysisLease::staticMetaObject,
                                         &EchoPluginSpectrum::staticMetaObject,
                                         &EchoPluginSpectrumSubscription::staticMetaObject};
     for (const auto *meta : publicTypes)

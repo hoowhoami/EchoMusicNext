@@ -3,7 +3,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Shapes
-import QtQuick.Dialogs as NativeDialogs
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Playback
@@ -117,6 +116,9 @@ EchoDialog {
             implicitHeight: count > 0 ? count * 52 + Math.max(0, count - 1) * spacing : emptyState.implicitHeight
             clip: true
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: list
+            }
             cacheBuffer: 120
             spacing: 8
             model: manager.visible ? manager.files : null
@@ -206,11 +208,11 @@ EchoDialog {
         objectName: "localEffectFilePickerOwner"
         hostItem: manager.contentItem
         sourceComponent: Component {
-            NativeDialogs.FileDialog {
+            EchoFileDialog {
                 id: filePicker
                 objectName: "localEffectFilePicker"
                 title: qsTr("导入音效文件")
-                fileMode: NativeDialogs.FileDialog.OpenFiles
+                fileMode: EchoFileDialog.OpenFiles
                 parentWindow: manager.parent ? manager.parent.Window.window : null
                 nameFilters: [qsTr("音效文件 (*.irs *.wav *.wave *.flac *.aif *.aiff *.caf *.ogg *.oga *.mp3 *.m4a *.aac *.opus)"), qsTr("所有文件 (*)")]
                 onAccepted: manager.audio.importImpulseResponseFiles(selectedFiles)

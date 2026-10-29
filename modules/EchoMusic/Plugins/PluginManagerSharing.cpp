@@ -84,7 +84,7 @@ bool PluginManager::openShare(const QUrl &url)
     const auto path = query.queryItemValue("path", QUrl::FullyDecoded);
     const auto version = query.queryItemValue("version", QUrl::FullyDecoded);
     if (source.isEmpty() || !QRegularExpression("^[a-z][a-z0-9.-]{1,127}$").match(id).hasMatch() ||
-        !safePath(path) ||
+        (!path.isEmpty() && !safePath(path)) ||
         !QRegularExpression("^[0-9]+\\.[0-9]+\\.[0-9]+$").match(version).hasMatch())
         return false;
     m_shareTarget = {{"sourceId", source.value("id")},
@@ -263,13 +263,15 @@ void PluginManager::refreshStatistics(bool force)
 void PluginManager::reportInstallation(const QVariantMap &record, bool success)
 {
     const QString event = success ? m_installWasUpdate ? "update" : "install" : "failure";
-    QJsonObject plugin{{"sourceId", record.value("sourceId").toString()},
-                       {"pluginId", record.value("id").toString()},
-                       {"version", record.value("version").toString()},
-                       {"sourceUrl", record.value("sourceUrl").toString()},
-                       {"sourceName", record.value("repository").toString()},
-                       {"repo", record.value("sourceUrl").toString()},
-                       {"packagePath", record.value("path").toString()}};
+    QJsonObject plugin{
+        {"sourceId", record.value("sourceId").toString()},
+        {"pluginId", record.value("id").toString()},
+        {"version", record.value("version").toString()},
+        {"sourceUrl", record.value("sourceUrl").toString()},
+        {"sourceName",
+         normalizeSource(record.value("sourceUrl").toString(), {}).value("repository").toString()},
+        {"repo", record.value("repo").toString()},
+        {"packagePath", record.value("path").toString()}};
     // Report canonical repository metadata, never user-defined source labels,
     // account/device/activation identity or private paths.
     get(

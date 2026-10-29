@@ -47,8 +47,6 @@ struct PlaybackTrack
             return QStringLiteral("unmatched:") + hash;
         return id + "/" + hash;
     }
-    /// Opaque stable identity shared by queue and retained A/B presentations.
-    QString presentationIdentity() const;
     /// Merge display fields only; audio identity, rights and source state stay owned here.
     bool applyPresentation(const QJsonObject &song);
     static PlaybackTrack fromDomain(const QJsonObject &song);

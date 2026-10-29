@@ -25,6 +25,9 @@ GridView {
     model: names
     clip: true
     reuseItems: true
+    EchoViewPoolGuard {
+        targetView: directory
+    }
     cacheBuffer: 132
     boundsBehavior: Flickable.StopAtBounds
     ArtistDirectorySliceModel {

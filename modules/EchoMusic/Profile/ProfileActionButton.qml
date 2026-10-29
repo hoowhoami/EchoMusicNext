@@ -10,18 +10,22 @@ EchoIconButton {
     implicitWidth: 36
     implicitHeight: 36
     padding: 8
-    scale: down && enabled ? 0.9 : 1
+    scale: down && enabled && Theme.store.motionEnabled ? 0.98 : 1
     Behavior on scale {
+        enabled: Theme.store.motionEnabled && button.visible
         NumberAnimation {
             duration: Theme.fastDuration
-            easing.type: Easing.OutCubic
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: Theme.easeStandard
         }
     }
-    foreground: danger && hovered ? Theme.colors.danger : hovered || visualFocus ? Theme.text : Theme.iconMain
-    background: Rectangle {
-        radius: Theme.controlRadius
-        color: button.hovered ? button.danger ? Theme.withAlpha(Theme.colors.danger, 0.1) : Theme.hover : "transparent"
-        border.width: button.visualFocus ? 2 : 1
-        border.color: button.visualFocus ? Theme.accent : Theme.colors.controlBorder
+    foreground: danger && hovered ? Theme.colors.danger : Theme.text
+    background: EchoActionBackground {
+        publicPart: button.publicPart
+        colors: button.colors
+        pressed: button.down
+        highlighted: button.enabled && (button.hovered || button.visualFocus)
+        border.width: button.publicPart.value("borderWidth", button.visualFocus ? 2 : 0)
+        border.color: button.publicPart.value("borderColor", Theme.accent)
     }
 }

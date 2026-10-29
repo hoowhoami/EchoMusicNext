@@ -16,6 +16,7 @@ Item {
     property real timeMs: -1
     property int alignment: Qt.AlignLeft
     property bool current: false
+    property real highlightAmount: 1
     property bool wrap: true
     property color playedColor: "white"
     property color unplayedColor: "gray"
@@ -129,6 +130,7 @@ Item {
             wrap: root.wrap
             alignment: Qt.AlignHCenter
             current: root.current
+            highlightAmount: root.highlightAmount
             timeMs: root.timeMs
             playedColor: root.playedColor
             unplayedColor: root.unplayedColor

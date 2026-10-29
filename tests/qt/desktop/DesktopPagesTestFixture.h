@@ -745,7 +745,7 @@ private:
 struct Session
 {
     QTemporaryDir directory;
-    QSettings preferences{directory.filePath("preferences.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore preferences{directory.filePath("preferences.ini")};
     ThemeStore theme{preferences};
     ShellSettings shell{preferences};
     WindowController windows;

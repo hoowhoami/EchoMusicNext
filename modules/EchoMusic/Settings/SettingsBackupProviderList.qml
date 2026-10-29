@@ -46,6 +46,9 @@ ColumnLayout {
         Layout.preferredHeight: Math.min(256, count * 64)
         clip: true
         reuseItems: true
+        EchoViewPoolGuard {
+            targetView: entries
+        }
         cacheBuffer: 64
         spacing: 8
         model: list.service.selectedProvider === list.providerKey ? list.service.providerEntries : []

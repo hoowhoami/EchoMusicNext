@@ -106,9 +106,7 @@ pub(super) struct TransitionProjectionState {
 
 impl SharedAudio {
     pub(crate) fn mark_mix_boundary(&self, info: TrackSwitchInfo, plan: TransitionProjectionPlan) {
-        if self.is_decode_generation_current(plan.generation) && !self.should_stop_decoding() {
-            self.mark_track_boundary_inner(info, 0, false, Some(plan));
-        }
+        self.mark_track_boundary_inner(info, 0, false, Some(plan));
     }
 
     // Caller holds gapless_boundary, which serializes this output queue/cursor
@@ -119,6 +117,11 @@ impl SharedAudio {
         queued_samples: usize,
         plan: Option<TransitionProjectionPlan>,
     ) {
+        if self.should_stop_decoding()
+            || plan.is_some_and(|plan| !self.is_decode_generation_current(plan.generation))
+        {
+            return;
+        }
         let Ok(mut state) = self.transition_projection.lock() else {
             return;
         };
@@ -168,6 +171,9 @@ impl SharedAudio {
         generation: u64,
         queued_samples: usize,
     ) -> bool {
+        if self.should_stop_decoding() {
+            return false;
+        }
         let Ok(mut state) = self.transition_projection.lock() else {
             return false;
         };
@@ -304,6 +310,59 @@ mod tests {
         shared
     }
 
+    #[test]
+    fn presentation_recording_failure_does_not_block_the_existing_track_boundary() {
+        let shared = fixture(1.0);
+        let mut info =
+            TrackSwitchInfo::new("existing-mainline-boundary.wav".into(), None, 42, 30.0);
+        info.transition = Some(crate::events::TrackTransitionInfo {
+            mode: "fade".into(),
+            overlap_secs: 0.2,
+        });
+        // This deliberately invalidates only the optional presentation plan.
+        // Mainline mark_track_boundary_continuous has no presentation authority.
+        shared.mark_mix_boundary(
+            info,
+            TransitionProjectionPlan {
+                request_id: 9,
+                generation: shared.current_decode_generation() + 1,
+                outgoing_seq: 11,
+                overlap_frames: 20,
+                presentation: None,
+            },
+        );
+        assert_eq!(shared.transition_playback(), None);
+        assert_eq!(
+            shared
+                .gapless_boundary
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|boundary| boundary.info.seq),
+            Some(42),
+            "an unavailable read-only projection must not veto the existing PCM boundary"
+        );
+    }
+
+    #[test]
+    fn presentation_recording_failure_does_not_block_the_existing_gain_marker() {
+        let shared = fixture(1.0);
+        // No projection exists, so recording its end must fail. The existing
+        // gain marker still belongs to the mixer, not to presentation metadata.
+        shared.mark_mix_end(-3.0, 9, shared.current_decode_generation());
+        assert_eq!(shared.transition_playback(), None);
+        assert_eq!(
+            shared
+                .gain_marker
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|marker| marker.gain_db),
+            Some(-3.0),
+            "an unavailable read-only projection must not veto mainline normalization"
+        );
+    }
+
     fn mark(
         shared: &SharedAudio,
         request_id: u64,
@@ -434,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn seek_stop_and_stale_request_cannot_republish_old_transition_metadata_or_markers() {
+    fn seek_stop_and_stale_request_cannot_republish_old_transition_metadata() {
         let shared = fixture(1.0);
         mark(&shared, 5, 0, 11, 42, 20);
         let first = shared.transition_playback().unwrap().epoch;
@@ -442,14 +501,39 @@ mod tests {
         assert_eq!(shared.transition_playback(), None);
         mark(&shared, 5, 0, 11, 42, 20);
         assert_eq!(shared.transition_playback(), None);
-        assert!(shared.gapless_boundary.lock().unwrap().is_none());
+        assert_eq!(
+            shared
+                .gapless_boundary
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|boundary| boundary.info.seq),
+            Some(42),
+            "presentation invalidation must not add a new veto to the mainline boundary"
+        );
         mark(&shared, 6, generation, 11, 99, 20);
         let current = shared.transition_playback().unwrap();
         assert_ne!(current.epoch, first);
         shared.mark_mix_end(-3.0, 5, generation);
-        assert!(shared.gain_marker.lock().unwrap().is_none());
-        shared.mark_mix_end(-3.0, 6, 0);
-        assert!(shared.gain_marker.lock().unwrap().is_none());
+        assert_eq!(
+            shared
+                .gain_marker
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|marker| marker.gain_db),
+            Some(-3.0)
+        );
+        shared.mark_mix_end(-4.0, 6, 0);
+        assert_eq!(
+            shared
+                .gain_marker
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|marker| marker.gain_db),
+            Some(-4.0)
+        );
         assert_eq!(shared.transition_playback().unwrap(), current);
         shared.request_stop();
         assert_eq!(shared.transition_playback(), None);

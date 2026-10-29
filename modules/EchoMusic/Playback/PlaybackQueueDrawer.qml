@@ -31,10 +31,12 @@ Popup {
     transformOrigin: Popup.TopLeft
     padding: 0
     modal: true
+    focus: true
     dim: true
     Overlay.modal: Rectangle {
         color: Theme.withAlpha("black", .12)
     }
+    onAboutToHide: queueReorder.cancel()
     onOpened: {
         catalog.resetPreview();
         locateCurrent();
@@ -51,49 +53,62 @@ Popup {
     contentItem: ColumnLayout {
         spacing: 0
         Item {
+            objectName: "queueHeader"
             Layout.fillWidth: true
-            implicitHeight: 96
+            // Two 28px rows, a 6px gap and 8px vertical insets. Search context
+            // shares the title row, so changing queues never changes this height.
+            implicitHeight: 78
+            Layout.minimumHeight: implicitHeight
+            Layout.maximumHeight: implicitHeight
             ColumnLayout {
+                id: headerContent
                 anchors.fill: parent
                 anchors.margins: 16
                 anchors.topMargin: 8
                 anchors.bottomMargin: 8
-                spacing: 4
+                spacing: 6
                 RowLayout {
                     Layout.fillHeight: false
                     Layout.fillWidth: true
-                    spacing: 12
-                    ColumnLayout {
-                        Layout.fillHeight: false
+                    spacing: 8
+                    RowLayout {
+                        id: headingText
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
-                        spacing: 2
-                        RowLayout {
-                            Layout.fillHeight: false
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 24
-                            spacing: 8
-                            Label {
-                                visible: text.length > 0
-                                text: drawer.catalog.viewStatus
-                                font: Theme.font(14, Theme.semiboldWeight)
-                                color: Theme.floating.text
-                            }
-                            Label {
-                                objectName: "queueTitle"
-                                Layout.fillWidth: true
-                                text: drawer.catalog.viewTitle
-                                font: Theme.font(16, Theme.boldWeight)
-                                color: Theme.floating.text
-                                elide: Text.ElideRight
-                            }
+                        spacing: 8
+                        Label {
+                            Layout.alignment: Qt.AlignBaseline
+                            visible: text.length > 0
+                            text: drawer.catalog.viewStatus
+                            font: Theme.font(14, Theme.semiboldWeight)
+                            color: Theme.floating.text
                         }
                         Label {
+                            objectName: "queueTitle"
+                            Layout.alignment: Qt.AlignBaseline
+                            Layout.fillWidth: !subtitle.visible
+                            Layout.minimumWidth: 0
+                            text: drawer.catalog.viewTitle
+                            font: Theme.font(16, Theme.boldWeight)
+                            color: Theme.floating.text
+                            textFormat: Text.PlainText
+                            maximumLineCount: 1
+                            wrapMode: Text.NoWrap
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            id: subtitle
+                            objectName: "queueSubtitle"
+                            Layout.alignment: Qt.AlignBaseline
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 18
+                            Layout.minimumWidth: 0
+                            visible: text.length > 0
                             text: drawer.catalog.viewSubtitle
-                            font: Theme.font(12, Theme.regularWeight)
+                            font: Theme.font(11, Theme.regularWeight)
                             color: Theme.floating.secondaryText
+                            textFormat: Text.PlainText
+                            maximumLineCount: 1
+                            wrapMode: Text.NoWrap
                             elide: Text.ElideRight
                         }
                     }
@@ -103,8 +118,8 @@ Popup {
                         glyph: "x"
                         text: qsTr("关闭")
                         tooltipText: ""
-                        implicitWidth: 32
-                        implicitHeight: 32
+                        implicitWidth: 28
+                        implicitHeight: 28
                         padding: 6
                         onClicked: drawer.close()
                     }
@@ -156,9 +171,9 @@ Popup {
                             colors: Theme.floating
                             glyph: "arrow-up"
                             text: qsTr("回到顶部")
-                            implicitWidth: 32
-                            implicitHeight: 32
-                            padding: 7
+                            implicitWidth: 28
+                            implicitHeight: 28
+                            padding: 6
                             onClicked: list.positionViewAtBeginning()
                         }
                         EchoIconButton {
@@ -167,20 +182,20 @@ Popup {
                             glyph: "current-location"
                             text: qsTr("定位当前歌曲")
                             tooltipText: text
-                            implicitWidth: 32
-                            implicitHeight: 32
-                            padding: 7
+                            implicitWidth: 28
+                            implicitHeight: 28
+                            padding: 6
                             onClicked: drawer.locateCurrent()
                         }
                         EchoIconButton {
                             objectName: "queueAddButton"
                             colors: Theme.floating
-                            glyph: "playlist-add"
+                            glyph: "text-plus"
                             text: qsTr("添加到")
                             tooltipText: text
-                            implicitWidth: 32
-                            implicitHeight: 32
-                            padding: 7
+                            implicitWidth: 28
+                            implicitHeight: 28
+                            padding: 6
                             enabled: drawer.viewedQueue && drawer.viewedQueue.count > 0
                             onClicked: drawer.addToPlaylistRequested()
                         }
@@ -190,9 +205,9 @@ Popup {
                             glyph: "trash"
                             text: drawer.catalog.viewActive ? qsTr("清空当前队列") : qsTr("删除历史队列")
                             tooltipText: text
-                            implicitWidth: 32
-                            implicitHeight: 32
-                            padding: 7
+                            implicitWidth: 28
+                            implicitHeight: 28
+                            padding: 6
                             enabled: drawer.viewedQueue && drawer.viewedQueue.count > 0
                             onClicked: drawer.catalog.removeViewed()
                         }
@@ -257,6 +272,10 @@ Popup {
             Layout.rightMargin: 10
             clip: true
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: list
+            }
+            interactive: !queueReorder.busy
             cacheBuffer: 56 * 10
             model: drawer.visible ? drawer.viewedQueue : null
             boundsBehavior: Flickable.StopAtBounds
@@ -267,110 +286,41 @@ Popup {
             }
             Keys.onLeftPressed: drawer.catalog.switchPreview(-1)
             Keys.onRightPressed: drawer.catalog.switchPreview(1)
-            delegate: ItemDelegate {
+            delegate: EchoReorderRow {
                 id: row
                 objectName: "queueRow"
-                required property int index
+                reorder: queueReorder
+                required property string resourceId
                 required property string title
                 required property string artistText
                 required property string coverUrl
                 required property bool isCurrent
-                property bool pooled: false
-                readonly property bool active: isCurrent && drawer.catalog.viewActive
-                width: list.width
-                height: 56
-                leftPadding: 10
-                rightPadding: 12
-                topPadding: 0
-                bottomPadding: 0
-                ListView.onPooled: pooled = true
-                ListView.onReused: pooled = false
-                onDoubleClicked: drawer.playback.playViewedIndex(index)
-                background: Rectangle {
-                    radius: Theme.controlRadius
-                    color: row.active || row.hovered ? Theme.floating.hover : "transparent"
+                readonly property bool hovered: visualRow.hovered
+                readonly property bool active: visualRow.active
+                PlaybackQueueRow {
+                    id: visualRow
+                    objectName: "queueRowVisual"
+                    index: row.index
+                    title: row.title
+                    artistText: row.artistText
+                    coverUrl: row.coverUrl
+                    isCurrent: row.isCurrent
+                    viewActive: drawer.catalog.viewActive
+                    playing: drawer.playback.playing
+                    resourceActive: row.contentActive
+                    actionsEnabled: !queueReorder.busy
+                    onPlayRequested: index => drawer.playback.playViewedIndex(index)
+                    onRemoveRequested: index => drawer.playback.removeViewedIndex(index)
                 }
-                contentItem: RowLayout {
-                    spacing: 10
-                    Item {
-                        Layout.preferredWidth: 52
-                        Layout.fillHeight: true
-                        Label {
-                            anchors.centerIn: parent
-                            visible: !row.hovered && !row.active
-                            text: row.index + 1
-                            font: Theme.font(12, Theme.regularWeight)
-                            color: Theme.floating.secondaryText
-                        }
-                        EchoIconButton {
-                            colors: Theme.floating
-                            anchors.centerIn: parent
-                            visible: row.hovered || row.active
-                            glyph: row.active && drawer.playback.playing ? "player-pause" : "play"
-                            text: row.active && drawer.playback.playing ? qsTr("暂停") : qsTr("播放")
-                            foreground: row.active ? Theme.floating.accentText : Theme.floating.text
-                            implicitWidth: 28
-                            implicitHeight: 28
-                            padding: 6
-                            background: Item {}
-                            onClicked: drawer.playback.playViewedIndex(row.index)
-                        }
-                    }
-                    EchoCover {
-                        colors: Theme.floating
-                        Layout.preferredWidth: 46
-                        Layout.preferredHeight: 46
-                        source: row.coverUrl
-                        resourceActive: drawer.visible && !row.pooled
-                    }
-                    ColumnLayout {
-                        Layout.fillHeight: false
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        spacing: 2
-                        Label {
-                            Layout.fillWidth: true
-                            text: row.title
-                            font: Theme.font(13, Theme.semiboldWeight)
-                            color: row.active ? Theme.floating.accentText : Theme.floating.text
-                            elide: Text.ElideRight
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: row.artistText
-                            font: Theme.font(12, Theme.regularWeight)
-                            color: Theme.floating.secondaryText
-                            elide: Text.ElideRight
-                        }
-                    }
-                    Item {
-                        Layout.preferredWidth: 28
-                        Layout.fillHeight: true
-                        EchoIconButton {
-                            colors: Theme.floating
-                            anchors.centerIn: parent
-                            visible: row.hovered && drawer.catalog.viewActive
-                            objectName: "queueRemoveButton"
-                            glyph: "x"
-                            text: qsTr("移出队列")
-                            implicitWidth: 24
-                            implicitHeight: 24
-                            padding: 5
-                            onClicked: drawer.playback.removeViewedIndex(row.index)
-                        }
-                    }
-                }
-                DragHandler {
-                    id: reorder
-                    enabled: drawer.catalog.viewActive && !row.pooled
-                    target: null
-                    acceptedButtons: Qt.LeftButton
-                    cursorShape: Qt.ArrowCursor
-                    onActiveChanged: {
-                        if (!active && Math.abs(translation.y) >= 28)
-                            drawer.viewedQueue.move(row.index, Math.max(0, Math.min(list.count - 1, row.index + Math.round(translation.y / 56))));
-                    }
-                }
+            }
+            property Item reorderController: PlaybackQueueReorder {
+                id: queueReorder
+                parent: list
+                view: list
+                queue: drawer.viewedQueue
+                viewActive: drawer.catalog.viewActive
+                playing: drawer.playback.playing
+                resourceActive: drawer.visible
             }
             Column {
                 anchors.centerIn: parent

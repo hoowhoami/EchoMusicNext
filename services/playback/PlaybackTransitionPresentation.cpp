@@ -47,7 +47,8 @@ QVariantMap PlaybackTransitionTrack::lyricsInfo() const
             {"metadata", lyrics.metadata()}};
 }
 PlaybackTransitionPresentation::PlaybackTransitionPresentation(ApiClient &api, NativeBridge &native,
-                                                               QSettings &settings, QObject *parent)
+                                                               SettingsStore &settings,
+                                                               QObject *parent)
     : QObject(parent), m_api(api), m_nativeBridge(native), m_settings(settings), m_outgoing(this),
       m_incoming(this)
 {
@@ -64,7 +65,7 @@ void PlaybackTransitionPresentation::cancelIncoming()
     m_lyricText.reset();
 }
 void PlaybackTransitionPresentation::prepare(const PlaybackTrack &track, quint64 request,
-                                             quint64 sequence, const QJsonObject &outgoingFacts)
+                                             quint64 sequence)
 {
     if (!request || !sequence || !track.playable())
         return;
@@ -72,7 +73,6 @@ void PlaybackTransitionPresentation::prepare(const PlaybackTrack &track, quint64
     if (m_request == QString::number(request) && m_incomingSequence == QString::number(sequence) &&
         m_target.stableKey() == track.stableKey() && m_account == account)
         return;
-    m_pendingAnalysisFacts = outgoingFacts;
     m_target = track;
     m_request = QString::number(request);
     m_incomingSequence = QString::number(sequence);
@@ -138,8 +138,6 @@ void PlaybackTransitionPresentation::invalidate(const QString &reason)
     const bool hadState = m_valid || !m_request.isEmpty();
     m_valid = false;
     m_native = {};
-    m_pendingAnalysisFacts = {};
-    m_outgoingAnalysisFacts = {};
     m_reason = reason;
     m_request.clear();
     m_incomingSequence.clear();
@@ -192,12 +190,6 @@ void PlaybackTransitionPresentation::observe(const QJsonObject &native, quint64 
             return;
         m_valid = false;
         m_copying = true;
-        m_outgoingAnalysisFacts =
-            m_pendingAnalysisFacts.value("trackSequence").toString() == a &&
-                    m_pendingAnalysisFacts.value("accountRevision").toString() == m_account &&
-                    m_pendingAnalysisFacts.value("trackKey").toString() == current.stableKey()
-                ? m_pendingAnalysisFacts
-                : QJsonObject{};
         m_outgoing.track = current;
         m_outgoing.cover = cover;
         m_outgoing.sequence = a;
@@ -253,32 +245,6 @@ void PlaybackTransitionPresentation::updateCurrent(quint64 sequence, const Playb
     m_copying = false;
     emit m_incoming.changed();
     emit changed();
-}
-QJsonObject PlaybackTransitionPresentation::analysisSourceFacts(const QJsonObject &selector) const
-{
-    if (!m_valid || m_native.value("phase").toString() == "completed" ||
-        m_outgoingAnalysisFacts.isEmpty() || selector.size() != 2 ||
-        selector.value("sequence") != m_native.value("outgoing_seq") ||
-        selector.value("transitionEpoch") != m_native.value("epoch") ||
-        m_outgoingAnalysisFacts.value("accountRevision").toString() !=
-            QString::number(m_api.sessionRevision()))
-        return {};
-    auto facts = m_outgoingAnalysisFacts;
-    facts.insert("analysisTransitionEpoch", m_native.value("epoch"));
-    return facts;
-}
-QString PlaybackTransitionPresentation::analysisSourceAuthority(const QJsonObject &facts) const
-{
-    auto source = facts;
-    const auto explicitEpoch = source.take("analysisTransitionEpoch");
-    const QJsonObject selector{{"sequence", source.value("trackSequence")},
-                               {"transitionEpoch", m_native.value("epoch")}};
-    auto expected = analysisSourceFacts(selector);
-    const auto epoch = expected.take("analysisTransitionEpoch");
-    if (expected.isEmpty() || source != expected ||
-        (!explicitEpoch.isUndefined() && explicitEpoch != epoch))
-        return {};
-    return "epoch:" + epoch.toString();
 }
 bool PlaybackTransitionPresentation::permitsCover(const QUrl &url) const
 {

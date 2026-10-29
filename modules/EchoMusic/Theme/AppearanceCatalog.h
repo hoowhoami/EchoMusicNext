@@ -3,7 +3,7 @@
 #include <QAbstractListModel>
 #include <QPointer>
 #include <QUrl>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <functional>
 namespace EchoMusic
 {
@@ -130,7 +130,7 @@ class AppearanceCatalog final : public QObject
     Q_PROPERTY(QString selectedSkin READ selectedSkin NOTIFY changed)
     Q_PROPERTY(bool previewing READ previewing NOTIFY changed)
 public:
-    explicit AppearanceCatalog(QSettings &, QObject *parent);
+    explicit AppearanceCatalog(EchoMusic::SettingsStore &, QObject *parent);
     AppearanceListModel *themes()
     {
         return &m_themes;
@@ -158,7 +158,7 @@ public:
     bool insert(AppearanceEntry *);
     void remove(const QString &token);
     void removeInstallation(const QString &installation);
-    QSettings &settings()
+    EchoMusic::SettingsStore &settings()
     {
         return m_settings;
     }
@@ -181,7 +181,7 @@ signals:
 
 private:
     void notify(bool theme);
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     QHash<QString, QPointer<AppearanceEntry>> m_entries;
     bool m_invalidationPending = false;
     QString m_selectedTheme, m_selectedSkin = "cover", m_preview;

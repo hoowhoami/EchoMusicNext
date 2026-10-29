@@ -41,7 +41,8 @@ QString TaskbarLyricPreferences::positionKey(Position value)
     return QString::fromLatin1(kPositionKeys[1].key);
 }
 
-TaskbarLyricPreferences::TaskbarLyricPreferences(QSettings &settings, QObject *parent)
+TaskbarLyricPreferences::TaskbarLyricPreferences(EchoMusic::SettingsStore &settings,
+                                                 QObject *parent)
     : QObject(parent), m_settings(settings)
 {
     m_position = positionFromKey(

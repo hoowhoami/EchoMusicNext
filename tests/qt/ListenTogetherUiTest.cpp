@@ -128,7 +128,7 @@ private slots:
                                 std::istreambuf_iterator<char>());
         const auto identity = QJsonDocument::fromJson(QByteArray::fromStdString(input)).object();
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.0);
         prefs.setValue("playback/transitionMode", "none");
         ApiClient api(DeviceIdentity{
@@ -357,7 +357,7 @@ private slots:
     void productionRouteAndDemandCreatedDialogs()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.0);
         ApiClient api(DeviceIdentity::temporary());
         api.setNetworkTransport(1);

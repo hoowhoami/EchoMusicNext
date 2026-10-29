@@ -13,6 +13,8 @@ Item {
     property real timeMs: -1
     property int alignment: Qt.AlignTop
     property bool current: false
+    property real highlightAmount: 1
+    property bool animateWords: true
     property color playedColor: "white"
     property color unplayedColor: "gray"
     property size arrangedSize: Qt.size(0, 0)
@@ -137,12 +139,13 @@ Item {
             font: root.font
             alignment: Qt.AlignHCenter
             current: root.current
+            highlightAmount: root.highlightAmount
             startMs: unit.modelData.start_ms
             durationMs: unit.modelData.duration_ms
             timeMs: unit.modelData.start_ms + (root.timeMs - unit.modelData.start_ms - unit.modelData.from * unit.modelData.duration_ms) / Math.max(.0001, unit.modelData.to - unit.modelData.from)
             playedColor: root.playedColor
             unplayedColor: root.unplayedColor
-            animateWords: false
+            animateWords: root.animateWords
         }
     }
 }

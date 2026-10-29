@@ -14,8 +14,10 @@ struct Wire {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
-    #[serde(deserialize_with = "crate::util::response::list")]
-    data: Vec<serde_json::Value>,
+    // Rejections (e.g. 20010 for >50 IDs) omit data entirely. Decode the
+    // acknowledgement first, so they retain their actual business error.
+    #[serde(default)]
+    data: serde_json::Value,
 }
 #[derive(Deserialize)]
 struct Record {
@@ -75,11 +77,34 @@ pub struct SongPresentation {
     pub artists: Vec<ArtistDetail>,
 }
 pub fn convert(bytes: &[u8]) -> Result<Vec<SongPresentation>, ApiError> {
-    let wire: Wire = request::decode(bytes)?;
+    let result = convert_inner(bytes);
+    if result.as_ref().is_err_and(|error| error.kind == "decode") {
+        use sha2::{Digest, Sha256};
+        // Fingerprint only; payload prefixes may contain private catalog or
+        // account data. The error exposes whitelisted field names separately.
+        echo_log::write(
+            1,
+            "echo.api.krm_audio",
+            format!(
+                "Response decode failed bytes={} sha256={:x}",
+                bytes.len(),
+                Sha256::digest(bytes)
+            ),
+        );
+    }
+    result
+}
+fn convert_inner(bytes: &[u8]) -> Result<Vec<SongPresentation>, ApiError> {
+    let value = serde_json::from_slice(bytes).map_err(|_| ApiError::decode())?;
+    let wire: Wire = request::decode_value(value, &["status", "error_code"])?;
     request::success(wire.status, wire.error_code)?;
-
+    let data: Vec<serde_json::Value> = if wire.data.is_null() {
+        Vec::new()
+    } else {
+        request::decode_value(wire.data, &["data"])?
+    };
     let mut result = Vec::new();
-    for value in wire.data {
+    for value in data {
         if value
             .get("__status")
             .and_then(|v| crate::util::response::from_value::<u32>(v.clone()).ok())
@@ -88,7 +113,23 @@ pub fn convert(bytes: &[u8]) -> Result<Vec<SongPresentation>, ApiError> {
         {
             continue;
         }
-        let r: Record = crate::util::response::from_value(value).map_err(|_| ApiError::decode())?;
+        let r: Record = request::decode_value(
+            value,
+            &[
+                "base",
+                "album_info",
+                "authors",
+                "album_audio_id",
+                "album_id",
+                "songname",
+                "album_name",
+                "cover",
+                "author_id",
+                "author_name",
+                "avatar",
+                "is_publish",
+            ],
+        )?;
         let (album_title, cover) = r
             .album_info
             .map(|a| (a.album_name, cover_url(a.cover)))
@@ -126,20 +167,31 @@ pub async fn execute(
     {
         return Err(ApiError::new("input", "歌曲资料批量ID无效"));
     }
-    let body=serde_json::to_vec(&serde_json::json!({"data":query.album_audio_ids.iter().map(|id|serde_json::json!({"entity_id":id})).collect::<Vec<_>>(),"fields":"album_info,base,authors.base"})).map_err(|_|ApiError::encoding())?;
-    let bytes = client
-        .request_endpoint(
-            identity,
-            Endpoint {
-                origin: Origin::Gateway,
-                path: "/kmr/v2/audio",
-                router: Some("openapi.kugou.com"),
-                method: reqwest::Method::POST,
-                params: BTreeMap::new(),
-                body,
-                headers: &[("KG-TID", "238")],
-            },
-        )
-        .await?;
-    request::encode(&convert(&bytes)?)
+    // Keep the public 100-ID query contract, but never send more than the
+    // empirically accepted 50 entities per HTTP request. Sequential chunks
+    // stay within the caller's existing transport/concurrency/cancellation scope.
+    let mut presentations = Vec::new();
+    for ids in query.album_audio_ids.chunks(50) {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "data": ids.iter().map(|id| serde_json::json!({"entity_id": id})).collect::<Vec<_>>(),
+            "fields": "album_info,base,authors.base"
+        }))
+        .map_err(|_| ApiError::encoding())?;
+        let bytes = client
+            .request_endpoint(
+                identity,
+                Endpoint {
+                    origin: Origin::Gateway,
+                    path: "/kmr/v2/audio",
+                    router: Some("openapi.kugou.com"),
+                    method: reqwest::Method::POST,
+                    params: BTreeMap::new(),
+                    body,
+                    headers: &[("KG-TID", "238")],
+                },
+            )
+            .await?;
+        presentations.extend(convert(&bytes)?);
+    }
+    request::encode(&presentations)
 }

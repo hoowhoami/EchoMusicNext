@@ -99,7 +99,7 @@ PlaybackTracks tracks()
 struct Fixture
 {
     QTemporaryDir dir;
-    QSettings settings{dir.filePath("prefs.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore settings{dir.filePath("prefs.ini")};
     ApiClient api{DeviceIdentity::temporary()};
     std::unique_ptr<PlaybackService> playback;
     Fixture()
@@ -166,7 +166,7 @@ private slots:
     {
         QTemporaryDir dir;
         const auto path = dir.filePath("playback.sqlite");
-        QSettings settings(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("prefs.ini"));
         {
             ApiClient api(DeviceIdentity::temporary());
             QVERIFY(api.setNetworkTransport(1));
@@ -232,7 +232,7 @@ private slots:
             repository.shutdown();
             QTRY_COMPARE(closed.size(), 1);
         }
-        QSettings settings(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
         PlaybackService playback(api, settings, nullptr, path);
@@ -550,7 +550,7 @@ private slots:
                                     "-",
                                     "-"};
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("prefs.ini"));
         settings.setValue("playback/volume", 0);
         settings.setValue("playback/transitionMode", "none");
         ApiClient api(device);

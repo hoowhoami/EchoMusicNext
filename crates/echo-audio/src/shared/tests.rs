@@ -746,67 +746,6 @@ fn reset_for_decode_resume_clears_buffer_and_sets_position() {
 }
 
 #[test]
-fn decode_resume_resets_frequency_history_and_keeps_the_pcm_capture_enabled() {
-    use crate::config::SpectrumConfig;
-    use crate::spectrum::{SampleRing, SpectrumAnalyzer};
-
-    let shared = SharedAudio::new(
-        MixFormat::stereo_f32(48_000),
-        0.1,
-        8.0,
-        &DspSettings::default(),
-    );
-    let config = SpectrumConfig {
-        fft_size: 256,
-        include_frequency_data: true,
-        include_waveform: true,
-        ..SpectrumConfig::default()
-    };
-    let tone = |bin: f64| {
-        (0..4096)
-            .flat_map(|i| {
-                let sample =
-                    (0.003 * (2.0 * std::f64::consts::PI * bin * i as f64 / 2048.0).sin()) as f32;
-                [sample, sample]
-            })
-            .collect::<Vec<_>>()
-    };
-    let before_seek = tone(43.0);
-    let after_seek = tone(137.0);
-    let mut analyzer = SpectrumAnalyzer::new(config.clone());
-    let previous = {
-        let mut ring = shared.spectrum_ring.lock().unwrap();
-        ring.set_frequency_capture(true, false);
-        for _ in 0..4 {
-            ring.push_interleaved(&before_seek, 2);
-            analyzer.analyze(&mut ring, 48_000);
-        }
-        analyzer.analyze(&mut ring, 48_000).frequency_data.unwrap()
-    };
-    shared.reset_for_decode_resume(10.0, &DspSettings::default());
-    let actual = {
-        let mut ring = shared.spectrum_ring.lock().unwrap();
-        // Model the first real output callback after seek, before the next
-        // snapshot. Replacing the ring loses both its capture flag and epoch.
-        ring.push_interleaved(&after_seek, 2);
-        analyzer.analyze(&mut ring, 48_000)
-    };
-    let mut fresh_ring = SampleRing::new(48_000);
-    fresh_ring.set_frequency_capture(true, false);
-    fresh_ring.push_interleaved(&after_seek, 2);
-    let expected = SpectrumAnalyzer::new(config).analyze(&mut fresh_ring, 48_000);
-    assert!(
-        actual.frequency_data.as_ref().unwrap() != &previous,
-        "seek must not reuse the old frequency bytes or deadline"
-    );
-    assert!(
-        actual.frequency_data == expected.frequency_data,
-        "the first post-seek PCM must start with a fresh amplitude history"
-    );
-    assert_eq!(actual.waveform, expected.waveform);
-}
-
-#[test]
 fn reset_for_decode_resume_waits_for_resume_threshold() {
     let shared = SharedAudio::new(
         MixFormat::stereo_f32(100),

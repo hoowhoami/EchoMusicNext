@@ -55,6 +55,9 @@ EchoDialog {
                 Layout.minimumHeight: 80
                 clip: true
                 reuseItems: true
+                EchoViewPoolGuard {
+                    targetView: targets
+                }
                 cacheBuffer: 240
                 spacing: dialog.targetSpacing
                 model: dialog.actions

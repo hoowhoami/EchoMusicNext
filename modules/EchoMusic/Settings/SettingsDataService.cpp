@@ -1,3 +1,5 @@
+#include "PluginInstallationStore.h"
+#include "PluginInstallTransaction.h"
 #include "SettingsKeys.h"
 #include "SettingsDataService.h"
 #include "PluginRuntime.h"
@@ -13,11 +15,11 @@
 
 namespace EchoMusic
 {
-SettingsDataService::SettingsDataService(QSettings &settings, PluginRuntime &plugins,
+SettingsDataService::SettingsDataService(EchoMusic::SettingsStore &settings, PluginRuntime &plugins,
                                          RelaunchService &relaunch, NetworkPreferences &network,
                                          QString root, QString version, QObject *parent)
     : BackupHost(parent), m_settings(settings), m_plugins(plugins), m_relaunch(relaunch),
-      m_network(network), m_root(std::move(root)), m_version(std::move(version))
+      m_network(network), m_root(canonicalStoragePath(root)), m_version(std::move(version))
 {
     m_workers.setMaxThreadCount(1);
     m_tokenSweep.setInterval(30000);
@@ -69,14 +71,6 @@ SettingsDataService::~SettingsDataService()
     shutdown();
     m_workers.waitForDone();
 }
-QVariantMap SettingsDataService::preferenceValues() const
-{
-    QVariantMap values;
-    for (const auto &key : m_settings.allKeys())
-        if (SettingsBackupArchive::portableKey(key))
-            values.insert(key, m_settings.value(key));
-    return values;
-}
 QVariantMap SettingsDataService::summary() const
 {
     QStringList names;
@@ -95,6 +89,7 @@ void SettingsDataService::finishJob(const QString &error)
 {
     m_barrierDeadline.stop();
     m_busy = false;
+    m_filesSnapshot.reset();
     emit changed();
     if (!error.isEmpty())
         completeApi({{}, "BackupError", error});
@@ -133,14 +128,32 @@ void SettingsDataService::create(const QUrl &file, bool settings, bool plugins)
                 m_plugins.endMaintenance();
             (void)QtConcurrent::run(&m_workers,
                                     [staging] { QDir(staging->path()).removeRecursively(); });
-            finishJob(tr("备份已取消"));
+            finishJob(!ready && !*m_cancel && !m_closing
+                          ? tr("存储仍在处理中，未创建备份，请稍后重试")
+                          : tr("备份已取消"));
             return;
         }
-        const auto preferences = SettingsBackupArchive::encodePreferences(preferenceValues());
+        QString preferenceError;
+        const auto portable =
+            settings ? m_settings.portableValues(&preferenceError) : QVariantMap{};
+        const auto preferences =
+            preferenceError.isEmpty()
+                ? SettingsBackupArchive::encodePreferences(portable, &preferenceError,
+                                                           m_settings.portableFilesRoot())
+                : QJsonObject{};
+        if (!preferenceError.isEmpty()) {
+            if (plugins)
+                m_plugins.endMaintenance();
+            (void)QtConcurrent::run(&m_workers,
+                                    [staging] { QDir(staging->path()).removeRecursively(); });
+            finishJob(preferenceError);
+            return;
+        }
         const auto entries = plugins ? m_plugins.backupEntries() : QVariantList{};
         disconnect(&m_work, nullptr, this, nullptr);
         connect(&m_work, &QFutureWatcherBase::finished, this, [this, plugins] {
             const auto result = m_work.result();
+            m_filesSnapshot.reset();
             const bool api = bool(m_apiDone);
             if (plugins && !m_closing)
                 m_plugins.endMaintenance();
@@ -168,11 +181,14 @@ void SettingsDataService::create(const QUrl &file, bool settings, bool plugins)
             }
         });
         m_work.setFuture(QtConcurrent::run(
-            &m_workers, [file, staging, settings, plugins, preferences, entries, root = m_root,
-                         version = m_version, cancel = m_cancel, transfer = m_transfer] {
+            &m_workers,
+            [file, staging, settings, plugins, preferences, entries, root = m_root,
+             filesRoot = m_settings.portableFilesRoot(), version = m_version, cancel = m_cancel,
+             transfer = m_transfer, filesSnapshot = m_filesSnapshot]() mutable {
+                Q_UNUSED(filesSnapshot)
                 auto result = SettingsBackupArchive::create(
                     file.toLocalFile(), staging->path(), preferences, settings, entries, plugins,
-                    root + "/plugins", root + "/theme-images", version, *cancel);
+                    root + "/plugins", filesRoot, version, *cancel);
                 if (transfer) {
                     if (result.error.isEmpty()) {
                         QFile archive(file.toLocalFile());
@@ -185,19 +201,51 @@ void SettingsDataService::create(const QUrl &file, bool settings, bool plugins)
                     QDir(transfer->path()).removeRecursively();
                 }
                 QDir(staging->path()).removeRecursively();
+                filesSnapshot.reset();
                 return result;
             }));
     };
-    if (plugins) {
-        if (!m_plugins.beginBackupSnapshot(start)) {
+    // Close both write admissions before returning to the caller. Draining either
+    // domain must not leave the other domain writable during a backup request.
+    if (settings) {
+        m_filesSnapshot = StorageFence::freeze(m_settings.portableFilesRoot());
+        if (!m_filesSnapshot) {
             (void)QtConcurrent::run(&m_workers,
                                     [staging] { QDir(staging->path()).removeRecursively(); });
-            finishJob(tr("插件正在处理任务，请稍后创建备份"));
+            finishJob(tr("可迁移数据正在处理，请稍后备份"));
             return;
         }
-        m_barrierDeadline.start();
-    } else
-        start(true);
+    }
+    const auto pending = std::make_shared<int>(int(settings) + int(plugins));
+    const auto valid = std::make_shared<bool>(true);
+    const auto arrive = [pending, valid, start](bool ready) {
+        *valid = *valid && ready;
+        if (--*pending == 0)
+            start(*valid);
+    };
+    m_barrierDeadline.start();
+    if (plugins && !m_plugins.beginBackupSnapshot(arrive)) {
+        // No plugin barrier was accepted, so no maintenance belongs to this job.
+        m_barrierDeadline.stop();
+        (void)QtConcurrent::run(&m_workers,
+                                [staging] { QDir(staging->path()).removeRecursively(); });
+        finishJob(tr("插件正在处理任务，请稍后创建备份"));
+        return;
+    }
+    if (settings) {
+        auto *barrier = new QFutureWatcher<bool>(this);
+        connect(barrier, &QFutureWatcherBase::finished, this, [barrier, arrive] {
+            const bool ready = barrier->result();
+            barrier->deleteLater();
+            arrive(ready);
+        });
+        barrier->setFuture(
+            QtConcurrent::run(&m_workers, [fence = m_filesSnapshot, cancel = m_cancel]() mutable {
+                const auto ready = fence->waitForWriters(*cancel);
+                fence.reset();
+                return ready;
+            }));
+    }
 }
 void SettingsDataService::inspect(const QUrl &file)
 {
@@ -367,38 +415,42 @@ void SettingsDataService::finishShutdown(std::function<void(QString)> complete)
         return;
     }
     QString decodeError;
-    const auto values = m_restoreSettings
-                            ? SettingsBackupArchive::decodePreferences(
-                                  m_manifest.value("settings").toObject(), &decodeError)
-                            : QVariantMap{};
+    const auto values =
+        m_restoreSettings
+            ? SettingsBackupArchive::decodePreferences(m_manifest.value("settings").toObject(),
+                                                       &decodeError, m_settings.portableFilesRoot())
+            : QVariantMap{};
     if (!decodeError.isEmpty()) {
         complete(decodeError);
         return;
     }
-    QVariantMap oldValues;
-    QJsonArray absent;
-    for (auto it = values.begin(); it != values.end(); ++it) {
-        if (m_settings.contains(it.key()))
-            oldValues.insert(it.key(), m_settings.value(it.key()));
-        else
-            absent.append(it.key());
+    const auto oldValues =
+        m_restoreSettings ? m_settings.portableValues(&decodeError) : QVariantMap{};
+    if (!decodeError.isEmpty()) {
+        complete(decodeError);
+        return;
     }
-    const QJsonObject previous{{"values", SettingsBackupArchive::encodePreferences(oldValues)},
-                               {"absent", absent}};
-    const auto catalog = m_settings.value(EchoMusic::SettingsKeys::Plugins::Installations).toList();
+    const QJsonObject previous{
+        {"values", SettingsBackupArchive::encodePreferences(oldValues, &decodeError,
+                                                            m_settings.portableFilesRoot())}};
+    if (!decodeError.isEmpty()) {
+        complete(decodeError);
+        return;
+    }
+    const auto catalog = PluginInstallationStore(m_root + "/plugins").records();
     auto watcher = new QFutureWatcher<SettingsRestoreResult>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, values, complete] {
         auto result = watcher->result();
         watcher->deleteLater();
         if (result.error.isEmpty()) {
-            SettingsBackupArchive::applyPreferences(m_settings, values);
+            if (m_restoreSettings)
+                SettingsBackupArchive::applyPreferences(m_settings, values);
             if (m_restorePlugins)
-                m_settings.setValue(EchoMusic::SettingsKeys::Plugins::Installations,
-                                    result.catalog);
+                result.error = PluginInstallationStore(m_root + "/plugins").save(result.catalog);
             m_settings.sync();
-            if (m_settings.status() != QSettings::NoError)
+            if (m_settings.status() != EchoMusic::SettingsStore::NoError)
                 result.error = tr("无法提交恢复后的设置");
-            else {
+            if (result.error.isEmpty()) {
                 result.journal.insert("committed", true);
                 if (!SettingsBackupRestore::writeJournal(m_root, result.journal))
                     result.error = tr("无法提交恢复事务");
@@ -408,11 +460,15 @@ void SettingsDataService::finishShutdown(std::function<void(QString)> complete)
         connect(cleanup, &QFutureWatcherBase::finished, this, [this, cleanup, result, complete] {
             const auto rollback = cleanup->result();
             cleanup->deleteLater();
-            if (!result.error.isEmpty())
-                SettingsBackupRestore::restorePreferences(m_settings, result.journal);
+            const auto preferencesError =
+                !result.error.isEmpty()
+                    ? SettingsBackupRestore::restorePreferences(m_settings, result.journal)
+                    : QString();
             const auto error =
-                result.error + (rollback.isEmpty() ? QString() : "; rollback: " + rollback);
-            if (!rollback.isEmpty() || m_settings.status() != QSettings::NoError) {
+                result.error + (rollback.isEmpty() ? QString() : "; rollback: " + rollback) +
+                (preferencesError.isEmpty() ? QString() : "; preferences: " + preferencesError);
+            if (!rollback.isEmpty() || !preferencesError.isEmpty() ||
+                m_settings.status() != EchoMusic::SettingsStore::NoError) {
                 complete(error.isEmpty() ? tr("无法恢复原有设置，已保留恢复事务以供下次启动重试")
                                          : error);
                 return;
@@ -439,9 +495,10 @@ void SettingsDataService::finishShutdown(std::function<void(QString)> complete)
     m_staging->setAutoRemove(false);
     watcher->setFuture(QtConcurrent::run(
         &m_workers, [staging = m_staging, manifest = m_manifest, settings = m_restoreSettings,
-                     plugins = m_restorePlugins, root = m_root, catalog, previous] {
+                     plugins = m_restorePlugins, root = m_root, catalog, previous,
+                     filesRoot = m_settings.portableFilesRoot()] {
             return SettingsBackupRestore::prepare(staging->path(), manifest, settings, plugins,
-                                                  root, catalog, previous);
+                                                  root, catalog, previous, filesRoot);
         }));
 }
 void SettingsDataService::clearFiles(std::function<void(QString)> complete)
@@ -454,7 +511,7 @@ void SettingsDataService::clearFiles(std::function<void(QString)> complete)
             m_settings.clear();
             m_settings.sync();
         }
-        complete(error.isEmpty() && m_settings.status() != QSettings::NoError
+        complete(error.isEmpty() && m_settings.status() != EchoMusic::SettingsStore::NoError
                      ? tr("无法清除应用设置")
                      : error);
     });
@@ -462,7 +519,7 @@ void SettingsDataService::clearFiles(std::function<void(QString)> complete)
         return SettingsBackupRestore::clearManagedFiles(root, lock);
     }));
 }
-QString SettingsDataService::recover(const QString &root, QSettings &settings)
+QString SettingsDataService::recover(const QString &root, EchoMusic::SettingsStore &settings)
 {
     return SettingsBackupRestore::recover(root, settings);
 }

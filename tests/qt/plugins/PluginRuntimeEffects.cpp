@@ -85,6 +85,9 @@ FloatingLyricViewport {x:580;y:100;width:450;height:250;playback:win.playback;re
     auto *desktopNative = EchoUiPartRegistry::forEngine(host.engine)->find(desktopLine->id());
     QVERIFY(desktopNative);
     QTRY_VERIFY(qAbs(desktopNative->target()->opacity() - .75) < .001);
+    QTRY_VERIFY(page = parts->query({{"role", "lyrics.viewport"}, {"surface", "playback"}}));
+    QTRY_VERIFY(page->visible());
+    pageRoot = host.engine.newQObject(page);
     auto *registry = EchoLyricEffectRegistry::forEngine(host.engine);
     const auto before = scope->ui()->state().value("scrolls").toInt();
     QVERIFY(!registry->requestScroll(page->id(), {{"scope", "page"}, {"browsing", true}}));

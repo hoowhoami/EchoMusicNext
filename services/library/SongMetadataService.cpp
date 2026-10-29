@@ -62,6 +62,8 @@ SongMetadataService::SongMetadataService(ApiClient &api, QObject *parent)
         for (auto &observer : m_observers)
             observer.tickets.remove(ticket);
     });
+    m_retry.setSingleShot(true);
+    connect(&m_retry, &QTimer::timeout, this, &SongMetadataService::drain);
     m_drain.setSingleShot(true);
     m_drain.setInterval(0);
     connect(&m_drain, &QTimer::timeout, this, &SongMetadataService::drain);
@@ -525,7 +527,7 @@ quint64 SongMetadataService::request(const QStringList &ids)
         if (auto *cached = m_cache.object(id); cached && cached->expires > m_clock.elapsed()) {
             if (!cached->value.isEmpty())
                 job.values.append(cached->value);
-        } else if (m_clock.elapsed() >= m_cooldown)
+        } else
             job.waiting.insert(id);
     }
     m_jobs.insert(ticket, std::move(job));
@@ -540,6 +542,7 @@ void SongMetadataService::cancel(quint64 ticket)
 void SongMetadataService::clear()
 {
     m_drain.stop();
+    m_retry.stop();
     m_jobs.clear();
     m_cache.clear();
     m_embedded.clear();
@@ -592,6 +595,8 @@ void SongMetadataService::settle(const QString &id, const QJsonObject &value, bo
 }
 void SongMetadataService::drain()
 {
+    m_drain.stop();
+    m_retry.stop();
     if (m_closed)
         return;
     for (auto id : m_jobs.keys())
@@ -617,10 +622,10 @@ void SongMetadataService::drain()
         }
     }
     if (m_clock.elapsed() < m_cooldown) {
-        for (const auto &id : wanted)
-            settle(id, {}, false);
-        if (!m_jobs.isEmpty())
-            m_drain.start();
+        // One deadline for live consumers, never a polling timer. cancel/clear
+        // discards the demand, so a hidden page cannot restart transport.
+        if (!wanted.isEmpty())
+            m_retry.start(int(m_cooldown - m_clock.elapsed()));
         return;
     }
     QSet<QString> busy;
@@ -634,7 +639,7 @@ void SongMetadataService::drain()
         for (const auto &id : wanted) {
             ids.append(id);
             numeric.append(id.toULongLong());
-            if (ids.size() == 100)
+            if (ids.size() == 50)
                 break;
         }
         for (const auto &id : ids)
@@ -686,8 +691,17 @@ void SongMetadataService::fail(quint64 request, bool throttled)
     if (m_clock.elapsed() >= m_cooldown)
         qWarning("Song metadata completion deferred after request failure");
     m_cooldown = m_clock.elapsed() + delay;
-    for (const auto &id : ids)
-        settle(id, {}, false);
+    // Keep each live consumer for one bounded retry. A second failure (or a
+    // business/rate-limit rejection) settles it without poisoning negative
+    // cache entries. A future explicit demand can try again after cooldown.
+    for (auto &job : m_jobs)
+        for (const auto &id : ids)
+            if (job.waiting.contains(id)) {
+                if (throttled || job.retried.contains(id))
+                    job.waiting.remove(id);
+                else
+                    job.retried.insert(id);
+            }
     m_drain.start();
 }
 } // namespace EchoMusic

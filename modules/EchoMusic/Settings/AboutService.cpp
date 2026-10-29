@@ -34,7 +34,8 @@ QString installKind()
 #endif
 }
 } // namespace
-AboutService::AboutService(QSettings &settings, NetworkPreferences &network, QObject *parent)
+AboutService::AboutService(EchoMusic::SettingsStore &settings, NetworkPreferences &network,
+                           QObject *parent)
     : QObject(parent), m_settings(settings), m_policy(network), m_network(this),
       m_autoCheck(settings.value(EchoMusic::SettingsKeys::Updates::AutoCheck, true).toBool()),
       m_prerelease(settings.value(EchoMusic::SettingsKeys::Updates::Prerelease, false).toBool()),

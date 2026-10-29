@@ -122,6 +122,9 @@ ColumnLayout {
         clip: true
         model: pane.importer
         reuseItems: true
+        EchoViewPoolGuard {
+            targetView: missedList
+        }
         cacheBuffer: 240
         boundsBehavior: Flickable.StopAtBounds
         Rectangle {

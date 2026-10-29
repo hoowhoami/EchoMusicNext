@@ -873,7 +873,7 @@ void DesktopPagesTest::sidebarHomeAndDragTransaction()
 {
     QTemporaryDir temp;
     const auto path = temp.filePath("preferences.ini");
-    QSettings preferences(path, QSettings::IniFormat);
+    EchoMusic::SettingsStore preferences(path);
     preferences.setValue("sidebar/shortcuts", QStringList{"recommend", "explore", "home"});
     SidebarLayoutModel layout(preferences, nullptr);
     QAbstractItemModelTester cards(layout.shortcutModel(),
@@ -895,7 +895,7 @@ void DesktopPagesTest::sidebarHomeAndDragTransaction()
     layout.previewShortcutMove("explore", "recommend");
     layout.endShortcutDrag(true);
     preferences.sync();
-    QSettings restoredPreferences(path, QSettings::IniFormat);
+    EchoMusic::SettingsStore restoredPreferences(path);
     SidebarLayoutModel restored(restoredPreferences, nullptr);
     QCOMPARE(restored.homeRoute(), QString("explore"));
     RouteController router;

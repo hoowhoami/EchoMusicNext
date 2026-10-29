@@ -283,6 +283,9 @@ RoutePage {
                 clip: true
                 spacing: 8
                 reuseItems: true
+                EchoViewPoolGuard {
+                    targetView: candidates
+                }
                 cacheBuffer: 80
                 model: page.service.matches
                 leftMargin: 2
@@ -381,6 +384,9 @@ RoutePage {
                     clip: true
                     model: page.inputs
                     reuseItems: true
+                    EchoViewPoolGuard {
+                        targetView: microphones
+                    }
                     ScrollBar.vertical: EchoPopupScrollBar {
                         surface: sourceMenu
                         view: microphones

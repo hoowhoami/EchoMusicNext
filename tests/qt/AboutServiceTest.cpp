@@ -163,7 +163,7 @@ private slots:
     void singleFlightAndChannelCancellation()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences network(settings, api);
         HttpServer server;
@@ -192,7 +192,7 @@ private slots:
     void discoveryFetchesMatchingManifestAndHonorsChannel()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences network(settings, api);
         HttpServer server;
@@ -253,7 +253,7 @@ private slots:
     void downloadIntegrityCancelAndReopen()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences network(settings, api);
         HttpServer server;
@@ -292,7 +292,7 @@ private slots:
     void updatePopupCreatesOnDemandAndRestoresServiceState()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences network(settings, api);
         AboutService about(settings, network);

@@ -1,7 +1,7 @@
 #pragma once
 #include "LyricModel.h"
 #include "NativeBridge.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QJsonObject>
 namespace EchoMusic
 {
@@ -39,7 +39,7 @@ public:
     void setRomanizationAsRuby(bool);
     void setFilterEnabled(bool);
     void setFilterPattern(const QString &);
-    LyricTextController(LyricModel &model, NativeBridge &native, QSettings &settings,
+    LyricTextController(LyricModel &model, NativeBridge &native, EchoMusic::SettingsStore &settings,
                         QObject *parent = nullptr);
     ~LyricTextController() override;
     QString conversion() const
@@ -93,7 +93,7 @@ private:
     void completed(quint64 id, quint64 revision, bool success, const QByteArray &bytes);
     LyricModel &m_model;
     NativeBridge &m_native;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     QJsonObject m_original, m_presented;
     QString m_mode, m_track, m_error;
     quint64 m_revision = 0, m_request = 0;

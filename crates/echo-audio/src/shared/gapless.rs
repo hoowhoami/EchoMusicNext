@@ -104,7 +104,7 @@ impl SharedAudio {
 
     pub(super) fn mark_track_boundary_inner(
         &self,
-        mut info: TrackSwitchInfo,
+        info: TrackSwitchInfo,
         fade_frames: usize,
         reset_filter_graph: bool,
         transition: Option<TransitionProjectionPlan>,
@@ -113,10 +113,6 @@ impl SharedAudio {
         let Ok(mut boundary) = self.gapless_boundary.lock() else {
             return;
         };
-        if transition.is_some_and(|plan| !self.is_decode_generation_current(plan.generation)) {
-            return;
-        }
-        info.output_generation = self.current_decode_generation();
         let output_samples = self.realtime_output.buffered_samples();
         let decoded_samples = self
             .decoded_queue

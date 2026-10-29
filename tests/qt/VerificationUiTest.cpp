@@ -13,7 +13,7 @@
 #include <QJsonObject>
 #include <QProcess>
 #include <QTemporaryDir>
-#include <QSettings>
+#include "SettingsStore.h"
 #include "ThemeStore.h"
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -92,7 +92,7 @@ private slots:
         ApiClient api;
         VerificationService service(api, nullptr, QDesktopServices::openUrl);
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ThemeStore theme(preferences);
         QQuickView view;
         theme.attachToEngine(*view.engine());
@@ -136,7 +136,7 @@ private slots:
         ApiClient api;
         VerificationService service(api, nullptr, QDesktopServices::openUrl);
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ThemeStore theme(preferences);
         QQuickView view;
         theme.attachToEngine(*view.engine());

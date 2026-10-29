@@ -16,6 +16,38 @@ Item {
     property string shadowStrength: "normal"
     property real arrival: 0
     property real baseOpacity: 1
+    property bool departing: false
+    property bool animateChange: false
+    property real initialHighlight: 1
+    property real initialBlur: 0
+    property real initialScale: 1
+    property bool initialized: false
+    readonly property real highlightAmount: motion.highlight
+    readonly property real blurAmount: motion.blur
+    readonly property real presentationScale: motion.scale
+    function settleMotion(): void {
+        motion.settle();
+    }
+    onLineChanged: if (initialized) {
+        if (animateChange && !departing)
+            motion.startFrom(0, 1.6, .97);
+        else
+            motion.settle();
+    }
+    Component.onCompleted: {
+        initialized = true;
+        if (departing)
+            motion.startFrom(initialHighlight, initialBlur, initialScale);
+    }
+    LyricLineMotion {
+        id: motion
+        objectName: "appleMusicLineMotion"
+        activeLine: !content.departing
+        resourceActive: content.resourceActive
+        animationEnabled: content.playback.playing
+        shrinkInactive: true
+        blurInactive: true
+    }
     property int textAlignment: Qt.AlignLeft
     property bool vertical: false
     property real fontSize: 40
@@ -53,9 +85,9 @@ Item {
                 secondaryForeground: content.unplayedColor,
                 font: content.textFont,
                 opacity: 1,
-                scale: 1 - content.arrival * .015,
-                translateX: 0,
-                translateY: content.vertical ? 0 : content.arrival * 7
+                scale: motion.scale,
+                translateX: content.vertical ? content.arrival * content.fontSize * 1.24 : 0,
+                translateY: content.vertical ? 0 : content.arrival * content.fontSize * 1.24
             }) : ({})
         state: observed ? ({
                 scope: "desktop",
@@ -72,15 +104,18 @@ Item {
             }) : ({})
     }
     opacity: linePart.value("opacity", 1) * baseOpacity
-    scale: linePart.value("scale", 1 - content.arrival * .015)
+    scale: linePart.value("scale", motion.scale)
     transformOrigin: content.textAlignment === Qt.AlignRight ? Item.Right : content.textAlignment === Qt.AlignHCenter ? Item.Center : Item.Left
     transform: Translate {
-        x: linePart.value("translateX", 0)
-        y: linePart.value("translateY", content.vertical ? 0 : content.arrival * 7)
+        x: linePart.value("translateX", content.vertical ? content.arrival * content.fontSize * 1.24 : 0)
+        y: linePart.value("translateY", content.vertical ? 0 : content.arrival * content.fontSize * 1.24)
     }
-    layer.enabled: content.resourceActive && content.shadowStrength !== "none"
+    layer.enabled: content.resourceActive && (content.shadowStrength !== "none" || motion.blur > .01)
     layer.effect: MultiEffect {
-        shadowEnabled: true
+        blurEnabled: motion.blur > .01
+        blurMax: 12
+        blur: motion.blur / 12
+        shadowEnabled: content.shadowStrength !== "none"
         shadowColor: "#000000"
         shadowOpacity: content.shadowStrength === "soft" ? .4 : content.shadowStrength === "strong" ? .95 : .7
         shadowBlur: content.shadowStrength === "soft" ? .7 : .35
@@ -118,6 +153,7 @@ Item {
                 content.followRequested(defaultScrollOffset, Math.max(0, mainInk.textWidth - width))
             LyricLine {
                 id: mainInk
+                objectName: "desktopLyricInk"
                 EchoLyricInkPart {
                     runKey: content.playback.trackId + ":" + String(content.line.startMs || 0)
                     renderer: mainInk
@@ -133,13 +169,14 @@ Item {
                 words: content.line.words || []
                 startMs: (content.line.startMs || 0) - content.playback.lyrics.offsetMs
                 durationMs: content.line.durationMs || 0
-                current: content.line.lineText !== undefined
+                current: content.line.lineText !== undefined && (!content.departing || motion.highlight > .001)
+                highlightAmount: motion.highlight
                 timeMs: content.renderTime - content.playback.lyrics.offsetMs
                 font: linePart.styledFont(content.textFont)
                 playedColor: linePart.value("foreground", content.playedColor)
                 unplayedColor: content.line.lineText === undefined ? content.playedColor : content.unplayedColor
                 alignment: content.textAlignment
-                animateWords: content.resourceActive && Theme.store.motionEnabled
+                animateWords: content.resourceActive && content.playback.playing && Theme.store.motionEnabled
             }
         }
     }
@@ -154,23 +191,27 @@ Item {
             units: content.rubyUnits
             font: linePart.styledFont(content.textFont)
             timeMs: content.renderTime - content.playback.lyrics.offsetMs
-            current: true
+            current: !content.departing || motion.highlight > .001
+            highlightAmount: motion.highlight
             playedColor: linePart.value("foreground", content.playedColor)
             unplayedColor: linePart.value("secondaryForeground", content.unplayedColor)
-            animateWords: content.resourceActive && Theme.store.motionEnabled
+            animateWords: content.resourceActive && content.playback.playing && Theme.store.motionEnabled
         }
     }
     Component {
         id: verticalText
         LyricVerticalLine {
+            objectName: "desktopVerticalLyricInk"
             effectSurface: content.effectHostId !== "" ? "desktop" : ""
             followOverride: content.followOffset
             onFollowRequested: (position, maximum) => content.followRequested(position, maximum)
             alignment: content.textAlignment === Qt.AlignRight ? Qt.AlignBottom : content.textAlignment === Qt.AlignHCenter ? Qt.AlignVCenter : Qt.AlignTop
             units: content.line.lineText !== undefined ? content.verticalUnits : content.playback.lyrics.verticalText(content.playback.title)
+            animateWords: content.resourceActive && content.playback.playing && Theme.store.motionEnabled
             font: linePart.styledFont(content.textFont)
             timeMs: content.renderTime - content.playback.lyrics.offsetMs
-            current: true
+            current: !content.departing || motion.highlight > .001
+            highlightAmount: motion.highlight
             playedColor: linePart.value("foreground", content.playedColor)
             unplayedColor: content.line.lineText !== undefined ? content.unplayedColor : content.playedColor
         }

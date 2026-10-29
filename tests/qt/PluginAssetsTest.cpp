@@ -12,6 +12,9 @@ Q_IMPORT_QML_PLUGIN(EchoMusic_ThemesPlugin)
 #include <QLineEdit>
 #include <QDirIterator>
 #include <QThread>
+#include "StorageFence.h"
+#include <QScopeGuard>
+#include <utility>
 
 namespace
 {
@@ -208,6 +211,11 @@ private slots:
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     }
     void invalidArgumentsAndForeignSources();
+    void frozenStorageRejectsAssetMutation_data();
+    void frozenStorageRejectsAssetMutation();
+    void snapshotBarrierWaitsForAcceptedAssetJob();
+    void storageFenceRejectsAssetMutation();
+    void readyFrameCachesStayOutsideSnapshots();
     void realPickerImportSampleListAndRemove();
     void mixedImagePickerBatch_data();
     void mixedImagePickerBatch();
@@ -233,6 +241,123 @@ private slots:
     void batchFontStagingNeverExceedsInstallationBudget();
     void publicationNotifiesAllActiveScopesAfterCleanup();
 };
+
+void PluginAssetsTest::frozenStorageRejectsAssetMutation_data()
+{
+    QTest::addColumn<QString>("command");
+    QTest::newRow("clear") << QString("clear");
+    QTest::newRow("remove") << QString("remove");
+    QTest::newRow("import") << QString("import");
+}
+void PluginAssetsTest::frozenStorageRejectsAssetMutation()
+{
+    QFETCH(QString, command);
+    AssetsFixture fixture;
+    QVERIFY(fixture.activate());
+    auto *scope = fixture.scope;
+    auto *assets = scope->assets();
+    scope->freezeStorage(true);
+    const auto unfreeze = qScopeGuard([scope] { scope->freezeStorage(false); });
+    auto *operation = fixture.retain(command == "clear" ? assets->clear("frozen")
+                                     : command == "remove"
+                                         ? assets->remove("asset:0123456789abcdef0123456789abcdef")
+                                         : assets->importImages("frozen"));
+    // Frozen admission is synchronous; a picker or worker must not be started.
+    QCOMPARE(operation->state(), EchoPluginOperation::Failed);
+    QCOMPARE(operation->errorCode(), QString("StorageFrozen"));
+    QVERIFY(!fixture.picker());
+}
+void PluginAssetsTest::snapshotBarrierWaitsForAcceptedAssetJob()
+{
+    AssetsFixture fixture;
+    QVERIFY(fixture.activate());
+    CoverServer server;
+    QVERIFY(server.server.isListening());
+    const auto cover = server.url();
+    fixture.host.playback.setVolume(0);
+    fixture.host.playback.playTracks({coverTrack(fixture, "snapshot-cover", cover)}, 0, "Snapshot",
+                                     "snapshot");
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.host.playback.playing() && !fixture.host.playback.loading(),
+                             15000);
+    auto *scope = fixture.scope;
+    auto *assets = scope->assets();
+    auto *warm = fixture.retain(assets->sampleImage(cover, 1, 1));
+    QTRY_COMPARE_WITH_TIMEOUT(warm->state(), EchoPluginOperation::Succeeded, 15000);
+    QTRY_VERIFY(assets->isDrained());
+    server.hold = true;
+    auto *operation = fixture.retain(assets->sampleImage(cover, 1, 1));
+    QTRY_VERIFY(!server.waiting.isEmpty());
+    QCOMPARE(operation->state(), EchoPluginOperation::Running);
+    QVERIFY(!assets->isDrained());
+    scope->freezeStorage(true);
+    const auto unfreeze = qScopeGuard([scope] { scope->freezeStorage(false); });
+    struct Witnesses
+    {
+        bool assets = false, io = false, sqlite = false;
+    };
+    const auto witness = std::make_shared<Witnesses>();
+    scope->storageBarrier([witness] { witness->assets = true; });
+    // FIFO witnesses prove the existing worker barriers have actually arrived;
+    // no sleep or op.finished can stand in for the held asset request's drain.
+    scope->io()->storageBarrier([witness] { witness->io = true; });
+    scope->sqlite()->storageBarrier([witness] { witness->sqlite = true; });
+    QTRY_VERIFY(witness->io && witness->sqlite);
+    QVERIFY(!witness->assets);
+    for (const auto &socket : std::as_const(server.waiting))
+        if (socket)
+            server.respond(socket);
+    QTRY_COMPARE_WITH_TIMEOUT(operation->state(), EchoPluginOperation::Succeeded, 15000);
+    QTRY_VERIFY(witness->assets);
+    QVERIFY(assets->isDrained());
+    QCOMPARE(operation->result().toMap().value("pixels").toList(), QVariantList({24, 48, 72, 255}));
+}
+
+void PluginAssetsTest::storageFenceRejectsAssetMutation()
+{
+    AssetsFixture fixture;
+    QVERIFY(fixture.activate());
+    const auto snapshot = StorageFence::freeze(fixture.scope->dataPath());
+    QVERIFY(snapshot);
+    QVERIFY(!fixture.scope->storageFrozen());
+    auto *operation = fixture.retain(fixture.scope->assets()->clear("fenced"));
+    QCOMPARE(operation->state(), EchoPluginOperation::Failed);
+    QCOMPARE(operation->errorCode(), QString("StorageFrozen"));
+    QVERIFY(fixture.scope->assets()->isDrained());
+}
+void PluginAssetsTest::readyFrameCachesStayOutsideSnapshots()
+{
+    AssetsFixture fixture;
+    QVERIFY(fixture.activate([](const QString &source) {
+        QImage image(1, 1, QImage::Format_RGBA8888);
+        image.fill(Qt::red);
+        if (!image.save(source + "/owned.png"))
+            qFatal("Cannot write owned frame fixture");
+    }));
+    auto *scope = fixture.scope;
+    auto *assets = scope->assets();
+    QPointer<EchoPluginAssetAnimation> lease =
+        assets->animation(QUrl::fromLocalFile(scope->package().resolve("owned.png")), 1, 1);
+    QVERIFY(lease);
+    QTRY_VERIFY_WITH_TIMEOUT(lease->ready() || !lease->errorString().isEmpty(), 15000);
+    QVERIFY2(lease->ready(), qPrintable(lease->errorString()));
+    const auto frame = QFileInfo(lease->frameSource().toLocalFile()).canonicalFilePath();
+    QVERIFY(!frame.isEmpty());
+    const auto data = QFileInfo(scope->dataPath()).canonicalFilePath();
+    QVERIFY(!data.isEmpty());
+    QVERIFY(!frame.startsWith(data + '/'));
+    scope->freezeStorage(true);
+    const auto unfreeze = qScopeGuard([scope] { scope->freezeStorage(false); });
+    const auto ready = std::make_shared<bool>(false);
+    scope->storageBarrier([ready] { *ready = true; });
+    QTRY_VERIFY(*ready);
+    QVERIFY(lease && lease->active() && lease->ready());
+    QVERIFY(!assets->isDrained()); // The ready image lease stays available.
+    QVERIFY(QFileInfo::exists(frame));
+    lease->dispose();
+    QTRY_VERIFY(lease.isNull());
+    QTRY_VERIFY(!QFileInfo::exists(frame));
+    QTRY_VERIFY(assets->isDrained());
+}
 
 void PluginAssetsTest::invalidArgumentsAndForeignSources()
 {

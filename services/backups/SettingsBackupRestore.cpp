@@ -1,7 +1,10 @@
+#include "PluginPaths.h"
+#include "PluginInstallationStore.h"
+#include "PluginInstallTransaction.h"
 #include "SettingsKeys.h"
 #include "SettingsBackupRestore.h"
 #include "SettingsBackupArchive.h"
-#include "PluginDataTransaction.h"
+#include "StorageSnapshot.h"
 #include "PluginPackage.h"
 #include <QCryptographicHash>
 #include <QDir>
@@ -10,23 +13,29 @@
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QSaveFile>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QUuid>
 #include <QScopeGuard>
+#include <QSet>
 namespace EchoMusic
 {
 namespace
 {
-bool validInstallation(const QString &id)
+QString ownedDirectoryError(const QString &root, const QString &relative)
 {
-    static const QRegularExpression uuid(
-        "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$");
-    return uuid.match(id).hasMatch();
-}
-QString identity(const QVariantMap &origin)
-{
-    return origin.value("kind") == "marketplace" ? "marketplace/" + origin.value("id").toString()
-                                                 : "local";
+    if (relative.isEmpty() || relative.startsWith('/') || relative.contains('\\') ||
+        relative.contains(':') || relative.contains(QChar(0)))
+        return "Invalid portable storage path";
+    QString checked = canonicalStoragePath(root);
+    for (const auto &part : relative.split('/')) {
+        if (part.isEmpty() || part == "." || part == "..")
+            return "Invalid portable storage path";
+        checked += '/' + part;
+        const QFileInfo info(checked);
+        if (info.isSymLink() || info.isJunction() || (info.exists() && !info.isDir()))
+            return "Portable storage is not an owned directory";
+    }
+    return {};
 }
 } // namespace
 bool SettingsBackupRestore::writeJournal(const QString &root, const QJsonObject &journal)
@@ -38,11 +47,10 @@ bool SettingsBackupRestore::writeJournal(const QString &root, const QJsonObject 
     file.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
     return file.write(bytes) == bytes.size() && file.commit();
 }
-SettingsRestoreResult SettingsBackupRestore::prepare(const QString &staging,
-                                                     const QJsonObject &manifest, bool settings,
-                                                     bool plugins, const QString &root,
-                                                     const QVariantList &catalog,
-                                                     const QJsonObject &previous)
+SettingsRestoreResult
+SettingsBackupRestore::prepare(const QString &staging, const QJsonObject &manifest, bool settings,
+                               bool plugins, const QString &root, const QVariantList &catalog,
+                               const QJsonObject &previous, const QString &filesRoot)
 {
     SettingsRestoreResult result;
     result.catalog = catalog;
@@ -54,146 +62,148 @@ SettingsRestoreResult SettingsBackupRestore::prepare(const QString &staging,
             QDir(root + '/' + transaction).removeRecursively();
     });
     QJsonArray plans;
+    result.journal = {{"includesSettings", settings},
+                      {"version", 1},
+                      {"transaction", transaction},
+                      {"previous", previous},
+                      {"oldCatalog", QJsonArray::fromVariantList(catalog)},
+                      {"plugins", plans},
+                      {"includesPlugins", plugins},
+                      {"committed", false}};
+    if (!writeJournal(root, result.journal))
+        return {"Cannot persist restore journal", {}, {}};
     if (plugins) {
         const auto entries = manifest.value("plugins").toArray();
+        QSet<QString> ids;
         for (int i = 0; i < entries.size(); ++i) {
             const auto entry = entries[i].toObject();
-            const auto prefix = QString(EchoMusic::SettingsKeys::Plugins::EntryFormat).arg(i);
-            if (entry.value("prefix").toString() != prefix)
-                return {"Invalid backup plugin path", {}, {}};
+            const auto id = entry.value("id").toString();
+            const auto prefix = QString(SettingsKeys::Plugins::EntryFormat).arg(i);
             const auto origin = entry.value("origin").toObject().toVariantMap();
-            if (origin.value("kind") != "local" && origin.value("kind") != "marketplace")
-                return {"Invalid plugin source identity", {}, {}};
-            QString installation;
+            if (entry.value("prefix") != prefix || !PluginPaths::validId(id) || ids.contains(id) ||
+                (origin.value("kind") != "local" && origin.value("kind") != "marketplace"))
+                return {"Invalid backup plugin path or identity", {}, result.journal};
+            ids.insert(id);
             int existingIndex = -1;
+            PluginPackage previousPackage;
             for (int j = 0; j < result.catalog.size(); ++j) {
                 const auto existing = result.catalog[j].toMap();
-                QFile file(existing.value("root").toString() + "/manifest.json");
-                if (!file.open(QIODevice::ReadOnly) || file.size() > 256 * 1024)
+                if (existing.value("id") != id)
                     continue;
-                if (PluginPackage::inspectManifest(file.readAll()).id !=
-                    entry.value("id").toString())
-                    continue;
-                if (identity(existing.value("origin").toMap()) != identity(origin))
-                    return {"Backup plugin source differs from the installed identity", {}, {}};
-                installation = existing.value("installation").toString();
+                if (PluginPaths::sourceIdentity(existing.value("origin").toMap()) !=
+                    PluginPaths::sourceIdentity(origin))
+                    return {
+                        "Backup plugin source differs from installed identity", {}, result.journal};
                 existingIndex = j;
+                previousPackage.root = PluginPaths(root + "/plugins").code(id);
                 break;
             }
-            if (installation.isEmpty())
-                installation = QUuid::createUuid().toString(QUuid::WithoutBraces);
-            if (!validInstallation(installation))
-                return {"Invalid plugin installation identity", {}, {}};
-            const auto package = PluginPackage::importDirectory(
-                staging + '/' + prefix + "/package", root + "/plugins/packages", installation);
-            if (!package.error.isEmpty() || package.id != entry.value("id").toString())
+            const auto installation = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            const PluginPaths paths(root + "/plugins");
+            const auto package = PluginPackage::importDirectory(staging + '/' + prefix + "/package",
+                                                                paths.images(), installation);
+            if (!package.error.isEmpty() || package.id != id)
                 return {package.error.isEmpty() ? "Backup plugin identity mismatch" : package.error,
                         {},
-                        {}};
-            QVariantMap record{{"source", package.root},
-                               {"root", package.root},
+                        result.journal};
+            const auto installed =
+                PluginInstallTransaction::begin(paths.root(), package, previousPackage);
+            if (!installed.second.isEmpty())
+                return {installed.second, {}, result.journal};
+            const auto token = QFileInfo(installed.first).fileName();
+            plans.append(QJsonObject{{"id", id}, {"transaction", token}});
+            result.journal["plugins"] = plans;
+            if (!writeJournal(root, result.journal))
+                return {"Cannot persist restore plan", {}, result.journal};
+            const auto error =
+                StorageSnapshot::restore(paths.data(id), staging + '/' + prefix + "/data");
+            if (!error.isEmpty())
+                return {error, {}, result.journal};
+            QVariantMap record{{"id", id},
+                               {"source", paths.code(id)},
+                               {"root", paths.code(id)},
                                {"installation", installation},
                                {"origin", origin},
+                               {"transaction", token},
+                               {"contentHash", package.contentHash},
                                {"enabled", entry.value("enabled").toBool()}};
             if (existingIndex >= 0)
                 result.catalog[existingIndex] = record;
             else
                 result.catalog.append(record);
-            plans.append(QJsonObject{{"installation", installation},
-                                     {"input", prefix + "/data"},
-                                     {"backup", QString::number(i)}});
-        }
-    }
-    result.journal = {{"version", 1},         {"transaction", transaction},
-                      {"previous", previous}, {"oldCatalog", QJsonArray::fromVariantList(catalog)},
-                      {"plugins", plans},     {"includesPlugins", plugins},
-                      {"committed", false}};
-    // Capture every previous data directory before publishing a single change.
-    for (const auto &value : plans) {
-        const auto plan = value.toObject();
-        const auto error = PluginDataTransaction::capture(
-            root + "/plugins/data/" + plan.value("installation").toString(),
-            root + '/' + transaction + '/' + plan.value("backup").toString());
-        if (!error.isEmpty())
-            return {error, {}, result.journal};
-    }
-    if (!writeJournal(root, result.journal))
-        return {"Cannot persist restore journal", {}, result.journal};
-    for (const auto &value : plans) {
-        const auto plan = value.toObject();
-        const auto error = PluginDataTransaction::restore(
-            root + "/plugins/data/" + plan.value("installation").toString(),
-            staging + '/' + plan.value("input").toString());
-        if (!error.isEmpty()) {
-            result.error = error;
-            const auto rollback = rollbackFiles(root, result.journal);
-            if (!rollback.isEmpty())
-                result.error += "; rollback: " + rollback;
-            return result;
         }
     }
     if (settings) {
-        QDir images(staging + "/theme-images");
-        QDir().mkpath(root + "/theme-images");
-        static const QRegularExpression name("^[a-f0-9]{64}\\.png$");
-        for (const auto &file : images.entryInfoList(QDir::Files | QDir::Hidden)) {
-            if (!name.match(file.fileName()).hasMatch() || file.size() > 32 * 1024 * 1024) {
-                result.error = "Invalid managed theme asset";
-                return result;
-            }
-            QFile source(file.filePath());
-            if (!source.open(QIODevice::ReadOnly)) {
-                result.error = source.errorString();
-                return result;
-            }
-            QCryptographicHash hash(QCryptographicHash::Sha256);
-            if (!hash.addData(&source) || hash.result().toHex() != file.baseName().toLatin1()) {
-                result.error = "Theme asset identity mismatch";
-                return result;
-            }
-            const auto target = root + "/theme-images/" + file.fileName();
-            if (!QFile::exists(target) && !QFile::copy(file.filePath(), target)) {
-                result.error = "Cannot restore theme asset";
-                return result;
-            }
+        const auto target =
+            filesRoot.isEmpty() ? canonicalStoragePath(root) + "/portable/files" : filesRoot;
+        const auto relative = QDir(canonicalStoragePath(root)).relativeFilePath(target);
+        result.error = ownedDirectoryError(root, relative);
+        if (!result.error.isEmpty())
+            return result;
+        const bool hadFiles = QDir(target).exists();
+        const auto snapshot =
+            StorageSnapshot::capture(target, root + '/' + transaction + "/previous-files");
+        if (!snapshot.isEmpty()) {
+            result.error = snapshot;
+            return result;
         }
+        result.journal["filesPath"] = relative;
+        result.journal["hadFiles"] = hadFiles;
+        if (!writeJournal(root, result.journal)) {
+            result.error = "Cannot journal portable file restore";
+            return result;
+        }
+        result.error = StorageSnapshot::restore(target, staging + "/files");
+        if (!result.error.isEmpty())
+            return result;
     }
     return result;
 }
+
 QString SettingsBackupRestore::rollbackFiles(const QString &root, const QJsonObject &journal)
 {
     const auto transaction = journal.value("transaction").toString();
     static const QRegularExpression directory("^\\.settings-restore-[a-f0-9]{32}$");
     if (!directory.match(transaction).hasMatch())
         return "Invalid restore transaction";
-    for (const auto &value : journal.value("plugins").toArray()) {
-        const auto plan = value.toObject();
-        const auto id = plan.value("installation").toString();
-        bool valid = false;
-        const int index = plan.value("backup").toString().toInt(&valid);
-        if (!validInstallation(id) || !valid || index < 0 || index > 127)
-            return "Invalid restore rollback entry";
-        const auto error = PluginDataTransaction::restore(
-            root + "/plugins/data/" + id, root + '/' + transaction + '/' + QString::number(index));
+    const auto filesPath = journal.value("filesPath").toString();
+    if (!filesPath.isEmpty()) {
+        if (const auto error = ownedDirectoryError(root, filesPath); !error.isEmpty())
+            return error;
+        const auto target = root + '/' + filesPath;
+        const auto error =
+            StorageSnapshot::restore(target, root + '/' + transaction + "/previous-files");
         if (!error.isEmpty())
             return error;
+        if (!journal.value("hadFiles").toBool() && !QDir(target).removeRecursively())
+            return "Cannot remove newly restored portable files";
     }
+    if (journal.value("includesPlugins").toBool()) {
+        const auto error = PluginInstallationStore(root + "/plugins")
+                               .save(journal.value("oldCatalog").toArray().toVariantList());
+        if (!error.isEmpty())
+            return error;
+        return PluginInstallTransaction::recover(root + "/plugins");
+    }
+
     return {};
 }
-void SettingsBackupRestore::restorePreferences(QSettings &settings, const QJsonObject &journal)
+QString SettingsBackupRestore::restorePreferences(EchoMusic::SettingsStore &settings,
+                                                  const QJsonObject &journal)
 {
+    if (!journal.value("includesSettings").toBool())
+        return {};
     const auto previous = journal.value("previous").toObject();
     QString error;
-    const auto values =
-        SettingsBackupArchive::decodePreferences(previous.value("values").toObject(), &error);
+    const auto values = SettingsBackupArchive::decodePreferences(
+        previous.value("values").toObject(), &error, settings.portableFilesRoot());
+    if (!error.isEmpty())
+        return error;
     SettingsBackupArchive::applyPreferences(settings, values);
-    for (const auto &value : previous.value("absent").toArray())
-        if (SettingsBackupArchive::portableKey(value.toString()))
-            settings.remove(value.toString());
-    if (journal.value("includesPlugins").toBool())
-        settings.setValue(EchoMusic::SettingsKeys::Plugins::Installations,
-                          journal.value("oldCatalog").toArray().toVariantList());
     settings.sync();
+    return settings.status() == EchoMusic::SettingsStore::NoError
+               ? QString()
+               : "Cannot restore application preferences";
 }
 void SettingsBackupRestore::discard(const QString &root, const QJsonObject &journal)
 {
@@ -203,7 +213,7 @@ void SettingsBackupRestore::discard(const QString &root, const QJsonObject &jour
         QDir(root + '/' + transaction).removeRecursively();
     QFile::remove(root + "/settings-restore.json");
 }
-QString SettingsBackupRestore::recover(const QString &root, QSettings &settings)
+QString SettingsBackupRestore::recover(const QString &root, EchoMusic::SettingsStore &settings)
 {
     QFile file(root + "/settings-restore.json");
     if (!file.exists())
@@ -220,10 +230,13 @@ QString SettingsBackupRestore::recover(const QString &root, QSettings &settings)
         const auto error = rollbackFiles(root, journal);
         if (!error.isEmpty())
             return error;
-        restorePreferences(settings, journal);
-        if (settings.status() != QSettings::NoError)
+        if (const auto failure = restorePreferences(settings, journal); !failure.isEmpty())
+            return failure;
+        if (settings.status() != EchoMusic::SettingsStore::NoError)
             return "Cannot roll back application preferences";
     }
+    if (const auto error = PluginInstallTransaction::recover(root + "/plugins"); !error.isEmpty())
+        return error;
     discard(root, journal);
     return {};
 }

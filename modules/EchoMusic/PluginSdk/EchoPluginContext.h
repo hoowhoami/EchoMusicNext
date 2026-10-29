@@ -307,10 +307,7 @@ public:
     {
         return activationContext()->m_storageFrozen;
     }
-    void freezeStorage(bool frozen)
-    {
-        activationContext()->m_storageFrozen = frozen;
-    }
+    void freezeStorage(bool frozen);
     void storageBarrier(std::function<void()> ready);
     QString dataPath() const
     {
