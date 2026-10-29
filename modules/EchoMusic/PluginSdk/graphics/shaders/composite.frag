@@ -18,7 +18,8 @@ void main()
 {
     vec4 sampleColor = texture(source, uv);
     float a = clamp(sampleColor.a, 0.0, 1.0);
-    vec3 c = max(sampleColor.rgb / max(a, 0.000001), vec3(0));
+    vec3 c = clamp(sampleColor.rgb / max(a, 0.000001), vec3(0), vec3(65504));
+    c = mix(c, vec3(0), isnan(c));
     if (frame.outputInfo.x < -0.5)
         c = clamp(c, 0.0, 1.0);
     else {

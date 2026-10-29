@@ -8,7 +8,6 @@
 #include <QPlatformSurfaceEvent>
 #include <QQmlEngine>
 #include <cmath>
-#include <QScopedValueRollback>
 namespace EchoMusic
 {
 namespace
@@ -174,7 +173,8 @@ void EchoGpuSurface::syncActivity()
 {
     if (m_sizing)
         return;
-    QScopedValueRollback<bool> guard(m_sizing, true);
+    QPointer<EchoGpuSurface> alive(this);
+    m_sizing = true;
     const bool wants = !m_retired && !m_paused && m_graphics && m_graphics->active() &&
                        isVisible() && width() > 0 && height() > 0 && window() &&
                        window()->isVisible() && window()->visibility() != QWindow::Minimized;
@@ -182,7 +182,11 @@ void EchoGpuSurface::syncActivity()
     if (wants) {
         if (m_limited) {
             setFixedColorBufferWidth(0);
+            if (!alive)
+                return;
             setFixedColorBufferHeight(0);
+            if (!alive)
+                return;
             m_limited = false;
         }
         const auto dpr = window()->effectiveDevicePixelRatio();
@@ -204,13 +208,15 @@ void EchoGpuSurface::syncActivity()
             m_sizeAccepted = false;
             m_limited = true;
             setFixedColorBufferWidth(1);
+            if (!alive)
+                return;
             setFixedColorBufferHeight(1);
-            m_status = {
-                {"state", "error"},
-                {"available", false},
-                {"reason", valid ? "Plugin render-target budget exceeded"
-                                 : "GPU surface exceeds 4096 pixels per axis or 8 megapixels"}};
-            emit statusChanged();
+            if (!alive)
+                return;
+            m_status["state"] = "error";
+            m_status["available"] = false;
+            m_status["reason"] = valid ? "Plugin render-target budget exceeded"
+                                       : "GPU surface exceeds 4096 pixels per axis or 8 megapixels";
         }
     } else
         releaseTarget();
@@ -223,9 +229,14 @@ void EchoGpuSurface::syncActivity()
         requestFrame();
     else {
         releaseNative();
-        m_status["state"] = "suspended";
-        emit statusChanged();
+        if (!alive)
+            return;
+        if (m_sizeAccepted)
+            m_status["state"] = "suspended";
     }
+    m_sizing = false;
+    if (!running)
+        emit statusChanged();
 }
 void EchoGpuSurface::releaseTarget()
 {
@@ -236,11 +247,11 @@ void EchoGpuSurface::releaseTarget()
 }
 void EchoGpuSurface::releaseNative()
 {
-    for (const auto &request : m_readbacks)
+    const auto requests = std::exchange(m_readbacks, {});
+    const auto state = std::atomic_load(&m_renderState);
+    for (const auto &request : requests)
         if (request.second)
             request.second->cancel();
-    m_readbacks.clear();
-    const auto state = std::atomic_load(&m_renderState);
     if (!state)
         return;
     state->enabled = false;
@@ -264,13 +275,18 @@ void EchoGpuSurface::retire()
     if (m_retired)
         return;
     m_retired = true;
+    m_frame.clear();
+    m_status["state"] = "suspended";
+    m_status["available"] = false;
     releaseTarget();
     m_clock.stop();
-    for (const auto &r : m_readbacks)
-        if (r.second)
-            r.second->cancel();
-    m_readbacks.clear();
+    QPointer<EchoGpuSurface> alive(this);
+    setVisible(false);
+    if (!alive)
+        return;
     releaseNative();
+    if (alive)
+        emit alive->statusChanged();
 }
 bool EchoGpuSurface::submit(const QVariantMap &frame)
 {
@@ -334,16 +350,20 @@ void EchoGpuSurface::acceptReport(const QVariantMap &report)
         return;
     if (report.value("generation").toULongLong() < m_status.value("generation").toULongLong())
         return;
+    QPointer<EchoGpuSurface> alive(this);
     const auto desired = report.value("hdrSwapChain").toBool() && m_dynamicRange != "sdr" &&
                                  report.value("floatTextures").toBool()
                              ? TextureFormat::RGBA16F
                              : TextureFormat::RGBA8;
     if (colorBufferFormat() != desired)
         setColorBufferFormat(desired);
+    if (!alive)
+        return;
     for (auto i = report.begin(); i != report.end(); ++i)
         m_status.insert(i.key(), i.value());
-    emit statusChanged();
     m_graphics->report(m_status);
+    if (alive)
+        emit alive->statusChanged();
 }
 QQuickRhiItemRenderer *EchoGpuSurface::createRenderer()
 {

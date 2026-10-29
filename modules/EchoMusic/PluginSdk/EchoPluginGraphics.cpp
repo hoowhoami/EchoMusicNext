@@ -132,12 +132,14 @@ void EchoPluginGraphics::report(const QVariantMap &values)
     if (m_closed)
         return;
     m_capabilities = values;
-    emit changed();
-    auto *root = m_scope.activationContext()->graphics();
+    QPointer<EchoPluginGraphics> root = m_scope.activationContext()->graphics();
     if (root != this) {
         root->m_capabilities = values;
-        emit root->changed();
     }
+    const bool child = root != this;
+    emit changed();
+    if (child && root)
+        emit root->changed();
 }
 QByteArray EchoPluginGraphics::bytes(const QJSValue &value, const QString &format, int maximum)
 {
@@ -639,7 +641,8 @@ void EchoPluginGraphics::shutdown()
     if (m_closed)
         return;
     m_closed = true;
-    for (auto s : m_surfaces)
+    const auto surfaces = m_surfaces;
+    for (auto s : surfaces)
         if (s)
             s->retire();
     const auto resources = m_resources;

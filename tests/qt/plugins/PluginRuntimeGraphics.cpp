@@ -55,6 +55,30 @@ void PluginRuntimeTest::graphicsValidationOwnershipAndAccount()
         child->graphics()->createBuffer({{"size", 16}, {"usage", QStringList{"uniform"}}});
     QVERIFY(other);
     QVERIFY(other->id() != buffer->id());
+    QList<QPointer<EchoGpuResource>> leases;
+    while (auto *sampler = gpu->createSampler())
+        leases.append(sampler);
+    QVERIFY(leases.size() < 256);
+    QVERIFY(!child->graphics()->createSampler());
+    for (auto resource : leases)
+        if (resource)
+            resource->dispose();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QVERIFY(child->graphics()->createSampler());
+    std::vector<std::unique_ptr<EchoGpuSurface>> surfaces;
+    for (int i = 0; i < 16; ++i) {
+        auto surface = std::make_unique<EchoGpuSurface>();
+        surface->setGraphics(gpu);
+        QVERIFY(surface->graphics());
+        surfaces.push_back(std::move(surface));
+    }
+    EchoGpuSurface overflow;
+    overflow.setGraphics(gpu);
+    QVERIFY(!overflow.graphics());
+    surfaces.clear();
+    overflow.setGraphics(gpu);
+    QVERIFY(overflow.graphics());
+    overflow.setGraphics(nullptr);
     QVERIFY(QMetaObject::invokeMethod(&host.api, "sessionChanged", Q_ARG(quint64, 1)));
     QVERIFY(!buffer || !buffer->active());
     QVERIFY(gpu->createBuffer({{"size", 16}, {"usage", QStringList{"uniform"}}}));
@@ -68,6 +92,12 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     if (!qEnvironmentVariableIsSet("ECHO_TEST_NATIVE_GPU"))
         QSKIP("Native GPU opt-in; run on an exposed native window");
     Host host;
+    QList<QJSValue> operationRoots;
+    const auto retain = [&](EchoPluginOperation *op) {
+        if (op)
+            operationRoots.append(host.engine.newQObject(op));
+        return op;
+    };
     auto *scope = graphicsScope(host);
     QVERIFY(scope);
     auto *gpu = scope->graphics();
@@ -147,7 +177,7 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     QTRY_COMPARE_WITH_TIMEOUT(surface->status().value("state").toString(), "ready", 10000);
     QVERIFY(surface->status().value("compute").toBool());
     qInfo() << "GPU_CAPABILITIES" << surface->status();
-    auto *pixels = surface->readback();
+    auto *pixels = retain(surface->readback());
     QVERIFY(pixels);
     QTRY_VERIFY(pixels->finished());
     QCOMPARE(pixels->state(), EchoPluginOperation::Succeeded);
@@ -161,7 +191,7 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     QVERIFY(quint8(bytes[center]) > 110 && quint8(bytes[center]) < 160);
     QVERIFY(quint8(bytes[center + 1]) > 170 && quint8(bytes[center + 1]) < 205);
     QVERIFY(quint8(bytes[center + 2]) > 210);
-    auto *numbers = surface->readback(storage);
+    auto *numbers = retain(surface->readback(storage));
     QTRY_VERIFY(numbers->finished());
     QCOMPARE(numbers->state(), EchoPluginOperation::Succeeded);
     const auto computed = numbers->result().toMap().value("data").toByteArray();
@@ -171,7 +201,7 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
         std::memcpy(&value, computed.constData() + 4 * i, 4);
         QCOMPARE(value, float(i * 3) + .25f);
     }
-    auto *hdr = surface->readback(floatTexture);
+    auto *hdr = retain(surface->readback(floatTexture));
     QTRY_VERIFY(hdr->finished());
     QCOMPARE(hdr->state(), EchoPluginOperation::Succeeded);
     QCOMPARE(hdr->result().toMap().value("format").toString(), "rgba16f");
@@ -179,6 +209,12 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     qfloat16 first;
     std::memcpy(&first, floating.constData(), 2);
     QCOMPARE(float(first), 4.f);
+    const auto builds = surface->status().value("pipelineBuilds").toULongLong();
+    surface->setFps(30);
+    surface->setContinuous(true);
+    QTest::qWait(1100);
+    QCOMPARE(surface->status().value("pipelineBuilds").toULongLong(), builds);
+    surface->setContinuous(false);
     // Exercise real HDR output separately from offscreen float-texture support.
     if (surface->status().value("hdrSwapChain").toBool() &&
         surface->status().value("headroom").toDouble() > 1.01) {
@@ -186,7 +222,7 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
         surface->setDynamicRange("hdr");
         QTRY_VERIFY(surface->status().value("hdr").toBool());
         QTRY_VERIFY(window->property("echoHdrOutputActive").toBool());
-        auto *extended = surface->readback();
+        auto *extended = retain(surface->readback());
         QTRY_VERIFY(extended->finished());
         QCOMPARE(extended->state(), EchoPluginOperation::Succeeded);
         const auto output = extended->result().toMap();
@@ -200,7 +236,7 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
         QTRY_VERIFY(!surface->status().value("hdr").toBool());
     }
     QVERIFY(gpu->writeBuffer(uniform, host.engine.evaluate("[.75,.125,.25,1]")));
-    auto *changed = surface->readback();
+    auto *changed = retain(surface->readback());
     QTRY_VERIFY(changed->finished());
     QCOMPARE(changed->state(), EchoPluginOperation::Succeeded);
     QVERIFY(changed->result().toMap().value("data").toByteArray() != bytes);
@@ -221,12 +257,12 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     QVERIFY(QTest::qWaitForWindowExposed(window));
     QTRY_COMPARE_WITH_TIMEOUT(surface->status().value("state").toString(), "ready", 10000);
     QVERIFY(surface->status().value("generation").toULongLong() > generation);
-    auto *restored = surface->readback();
+    auto *restored = retain(surface->readback());
     QTRY_VERIFY(restored->finished());
     QCOMPARE(restored->state(), EchoPluginOperation::Succeeded);
     QCOMPARE(restored->result().toMap().value("data").toByteArray(),
              changed->result().toMap().value("data").toByteArray());
-    QPointer<EchoPluginOperation> canceled = surface->readback(storage);
+    QPointer<EchoPluginOperation> canceled = retain(surface->readback(storage));
     canceled->cancel();
     QCOMPARE(canceled->state(), EchoPluginOperation::Canceled);
     QPointer<EchoPluginContext> retired = scope;
