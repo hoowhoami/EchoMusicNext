@@ -16,7 +16,7 @@ Rectangle {
     signal settingsRequested(string installation)
     signal failureRequested(string installation)
     readonly property bool busy: !!record.busy || manager.busy
-    readonly property bool warning: !record.compatible || !!record.dependencyBlocked
+    readonly property bool warning: !record.compatible || !!record.dependencyBlocked || !!record.stale
     readonly property bool currentFailure: !marketplace && !!record.error && !record.dependencyBlocked
     readonly property bool hasFailure: !marketplace && !!record.failure?.message
     readonly property bool historicalFailure: hasFailure && !currentFailure && !record.dependencyBlocked
@@ -241,7 +241,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: warningRow.implicitHeight + 16
-            visible: card.warning && !!card.record.error
+            visible: card.warning && (!!card.record.error || !!card.record.refreshError)
             objectName: "pluginCardWarning"
             radius: Theme.cardRadius
             color: Theme.withAlpha("#f59e0b", 0.08)
@@ -259,7 +259,7 @@ Rectangle {
                 glyphSize: 14
                 wrap: true
                 glyphAtFirstLine: true
-                text: card.record.error || ""
+                text: card.record.stale ? qsTr("来源暂时不可用，显示上次成功获取的版本。") : card.record.error || ""
                 font: Theme.font(12, Theme.regularWeight)
                 color: Theme.dark ? "#fbbf24" : "#b45309"
             }
@@ -434,6 +434,13 @@ Rectangle {
                     danger: !card.marketplace
                     enabled: !card.busy
                     onClicked: card.marketplace ? card.manager.openRepository(card.record.key) : card.uninstallRequested(card.record.installationId)
+                }
+                EchoIconButton {
+                    visible: !card.marketplace
+                    glyph: "folder-open"
+                    text: qsTr("打开插件目录")
+                    enabled: !card.busy
+                    onClicked: card.manager.runtime.openPluginDirectory(card.record.installationId)
                 }
                 EchoIconButton {
                     id: failureButton

@@ -1,6 +1,6 @@
 #pragma once
 #include "PlaybackSourceRequest.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTimer>
 #include <QSet>
 
@@ -18,7 +18,8 @@ class TrackTransitionController final : public QObject
     Q_PROPERTY(bool matchTempo READ matchTempo WRITE setMatchTempo NOTIFY changed)
 public:
     bool containsSource(const QUrl &url) const;
-    TrackTransitionController(PlaybackService &playback, ApiClient &api, QSettings &settings);
+    TrackTransitionController(PlaybackService &playback, ApiClient &api,
+                              EchoMusic::SettingsStore &settings);
     QString mode() const
     {
         return m_mode;
@@ -61,7 +62,7 @@ private:
     bool adopt(const QJsonObject &event);
     PlaybackService &m_playback;
     ApiClient &m_api;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     PlaybackSourceRequest m_source;
     QTimer m_timeout;
     PlaybackTrack m_target;

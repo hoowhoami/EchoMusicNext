@@ -46,7 +46,7 @@ public:
         Queue
     };
     Q_ENUM(PlayerCommand)
-    explicit ShellController(QSettings &settings, RouteController &router,
+    explicit ShellController(EchoMusic::SettingsStore &settings, RouteController &router,
                              QObject *parent = nullptr);
     ~ShellController() override;
     ShellActionModel *titlebarActions()

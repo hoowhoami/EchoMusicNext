@@ -1,4 +1,5 @@
 #include "ImpulseResponseInstaller.h"
+#include "StorageFence.h"
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QSaveFile>
@@ -25,6 +26,11 @@ public:
         cancel();
         m_generation = generation;
         m_destination = destination;
+        m_storage = StorageFence::write(destination);
+        if (!m_storage) {
+            complete(false, tr("备份进行中，请稍后下载音效"));
+            return;
+        }
         for (const auto &url : urls)
             if (permitted(QUrl(url)) && m_urls.size() < 16)
                 m_urls.append(url);
@@ -45,6 +51,7 @@ public:
             m_reply = nullptr;
         }
         m_file.reset();
+        m_storage.reset();
         m_urls.clear();
         m_url = 0;
     }
@@ -122,6 +129,7 @@ private:
         cancel();
         emit finished(generation, success, path, error);
     }
+    std::shared_ptr<StorageFence> m_storage;
     QNetworkAccessManager *m_network = nullptr;
     QNetworkReply *m_reply = nullptr;
     std::unique_ptr<QSaveFile> m_file;

@@ -75,7 +75,7 @@ void DesktopPagesTest::playbackZoomShortcutsFollowSharedScale()
 void DesktopPagesTest::windowSettingsNeverHideWithoutNativeRecovery()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("window.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("window.ini"));
     WindowController controller(settings, false);
     QQuickWindow window;
     controller.attach(&window);
@@ -139,7 +139,7 @@ void DesktopPagesTest::startupEntryEscapesBothDesktopParsingLayers()
 void DesktopPagesTest::sidebarLayoutPersistsAndKeepsGroupsAndOneShortcut()
 {
     QTemporaryDir temp;
-    QSettings preferences(temp.filePath("preferences.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore preferences(temp.filePath("preferences.ini"));
     ShellSettings shell(preferences);
     auto &layout = *shell.sidebarLayout();
     QAbstractItemModelTester tester(&layout,
@@ -172,7 +172,7 @@ void DesktopPagesTest::sidebarLayoutPersistsAndKeepsGroupsAndOneShortcut()
     layout.toggleShortcut("invalid");
     QCOMPARE(layout.shortcuts().size(), 1);
     preferences.sync();
-    QSettings reread(temp.filePath("preferences.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore reread(temp.filePath("preferences.ini"));
     ShellSettings restored(reread);
     auto *loaded = restored.sidebarLayout();
     QCOMPARE(loaded->data(loaded->index(0), SidebarLayoutModel::Key).toString(),
@@ -926,7 +926,7 @@ void DesktopPagesTest::settingsFilterAndUnsupportedProviderNeverLoadStub()
 void DesktopPagesTest::globalFontUsesInstalledFamilyAndRestoresPreference()
 {
     QTemporaryDir directory;
-    QSettings preferences(directory.filePath("font.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore preferences(directory.filePath("font.ini"));
     ThemeStore theme(preferences);
     const auto family = QFontDatabase::families().value(0);
     QVERIFY(!family.isEmpty());
@@ -938,7 +938,7 @@ void DesktopPagesTest::globalFontUsesInstalledFamilyAndRestoresPreference()
     theme.setGlobalFont("no-such-installed-family");
     QCOMPARE(theme.globalFont(), family);
     preferences.sync();
-    QSettings reopened(directory.filePath("font.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore reopened(directory.filePath("font.ini"));
     ThemeStore restored(reopened);
     QCOMPARE(restored.globalFont(), family);
     restored.setGlobalFont("system-ui");

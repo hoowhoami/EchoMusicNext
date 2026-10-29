@@ -8,6 +8,8 @@
 #include "ShareTarget.h"
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QApplication>
+#include <QFileDialog>
 #include <QJsonDocument>
 #include <iostream>
 #include "LyricModel.h"
@@ -311,6 +313,38 @@ class PlaybackTest : public QObject
         return -1;
     }
 private slots:
+    void localFilePickerReturnsImmediatelyAndCancelsOnSessionOrShutdown()
+    {
+        QTemporaryDir directory;
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService player(api, settings);
+        QSignalSpy closed(&player, &PlaybackService::closed);
+        auto visibleDialog = []() -> QFileDialog * {
+            for (auto *widget : QApplication::topLevelWidgets())
+                if (auto *dialog = qobject_cast<QFileDialog *>(widget);
+                    dialog && dialog->isVisible())
+                    return dialog;
+            return nullptr;
+        };
+        player.openLocalFiles();
+        QTRY_VERIFY(visibleDialog());
+        QPointer<QFileDialog> first = visibleDialog();
+        player.openLocalFiles();
+        QCOMPARE(visibleDialog(), first.data());
+        QVERIFY(api.setAccount(900001, "lifecycle-test-only"));
+        QTRY_VERIFY(first.isNull());
+        QVERIFY(!player.hasTrack());
+        player.openLocalFiles();
+        QTRY_VERIFY(visibleDialog());
+        QPointer<QFileDialog> second = visibleDialog();
+        player.shutdown();
+        QVERIFY(second.isNull());
+        QTRY_COMPARE(closed.size(), 1);
+        player.openLocalFiles();
+        QVERIFY(!visibleDialog());
+        api.shutdown();
+    }
     void listeningEventsCountOnlyAdvancingAudioAndNeverReplayAcrossAccounts()
     {
         QTcpServer transport;
@@ -366,7 +400,7 @@ private slots:
         QTcpServer transport;
         QVERIFY(transport.listen(QHostAddress::LocalHost));
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("listening.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("listening.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(transport.serverPort()));
         QVERIFY(api.setAccount(900001, "protocol-test-only"));
@@ -403,7 +437,7 @@ private slots:
         file.close();
         QTcpServer transport;
         QVERIFY(transport.listen(QHostAddress::LocalHost));
-        QSettings settings(directory.filePath("listening.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("listening.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(transport.serverPort()));
         QVERIFY(api.setAccount(900001, "protocol-test-only"));
@@ -674,7 +708,7 @@ private slots:
         QFETCH(double, initial);
         QFETCH(double, restored);
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("volume.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("volume.ini"));
         if (saved)
             settings.setValue("playback/volume", initial);
         ApiClient api(DeviceIdentity::temporary());
@@ -753,7 +787,7 @@ private slots:
     void resolvedQualityPresentationAndMembershipChangesInvalidatePreparedSources()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
         ApiClient api;
         QVERIFY(api.setAccount(900001, "domain-only-test"));
         PlaybackService playback(api, settings);
@@ -865,7 +899,7 @@ private slots:
     void playbackPreferencesSeparateSelectionAndDefaultQuality()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
         ApiClient api;
         PlaybackService playback(api, settings);
         auto *preferences = playback.preferences();
@@ -951,7 +985,7 @@ private slots:
             t.durationMs = 10000;
             tracks.append(t);
         }
-        QSettings settings(dir.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("settings.ini"));
         ApiClient api;
         PlaybackService playback(api, settings);
         QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
@@ -1011,7 +1045,7 @@ private slots:
     void localEffectBatchImportsCopyRenameAndPreserveDisabledState()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("audio.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("audio.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings);
         auto *controls = playback.audioControls();
@@ -1056,7 +1090,7 @@ private slots:
             const auto entry = controls->impulseResponses().at(index).toMap();
             const auto path = entry.value("path").toString();
             QVERIFY(path != urls.at(index).toLocalFile());
-            QVERIFY(path.startsWith(directory.filePath("audio-effects/local/")));
+            QVERIFY(path.startsWith(controls->effectFilesRoot() + "/local/"));
             QFile source(urls.at(index).toLocalFile()), copy(path);
             QVERIFY(source.open(QIODevice::ReadOnly) && copy.open(QIODevice::ReadOnly));
             QCOMPARE(source.readAll(), copy.readAll());
@@ -1096,7 +1130,7 @@ private slots:
     void outputChoicesExcludeNativeSelectorsAndKeepDefaultHardware()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("audio.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("audio.ini"));
         settings.setValue("audio/outputDevice", "auto");
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings);
@@ -1133,7 +1167,7 @@ private slots:
     void loudnessCeilingAndOutputAcknowledgementsPreserveAppliedState()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("audio.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("audio.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings);
         auto *controls = playback.audioControls();
@@ -1173,7 +1207,7 @@ private slots:
     void downloadedAndEmbeddedLyricsUseCppParserAndCancel()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("lyrics.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("lyrics.ini"));
         ApiClient api(DeviceIdentity::temporary());
         LyricSourceController sources(api, settings);
         auto current = track(1);
@@ -1209,7 +1243,7 @@ private slots:
     void lyricCatalogOrderPreviewCloseAndFreshAutoSelection()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("sources.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("sources.ini"));
         ApiClient api(DeviceIdentity::temporary());
         LyricSourceController sources(api, settings);
         QAbstractItemModelTester modelTester(
@@ -1299,7 +1333,7 @@ private slots:
     void lyricKeywordSearchKeepsActivationIdentityAndRestoresFreshKeys()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("keywords.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("keywords.ini"));
         ApiClient api(DeviceIdentity::temporary());
         LyricSourceController sources(api, settings);
         QAbstractItemModelTester modelTester(
@@ -1446,7 +1480,7 @@ private slots:
     void lyricAutomaticFallbackPreservesQueryModeIdentityAndManualPriority()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("fallback.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("fallback.ini"));
         ApiClient api(DeviceIdentity::temporary());
         LyricSourceController sources(api, settings);
         QAbstractItemModelTester modelTester(
@@ -1625,7 +1659,7 @@ private slots:
     void lyricContentsSurviveAccountSwitchWithoutSharingCandidateKeys()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("lyrics.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("lyrics.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
         QVERIFY(api.setAccount(101, "offline-fixture"));
@@ -1656,7 +1690,7 @@ private slots:
     void manualLyricSourceIsSharedAcrossAccounts()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("lyrics.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("lyrics.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
         QVERIFY(api.setAccount(101, "offline-fixture"));
@@ -1748,7 +1782,7 @@ private slots:
     void embeddedLyricsKeepManualPriorityAndOrderedMetadataFallback()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("lyrics.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("lyrics.ini"));
         ApiClient api(DeviceIdentity::temporary());
         LyricSourceController sources(api, settings);
         QAbstractItemModelTester tester(&sources,
@@ -1876,7 +1910,7 @@ private slots:
     void lyricPreviewDoesNotApplyUntilRequestedAndDropsPreviousTrackResults()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("sources.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("sources.ini"));
         ApiClient api(DeviceIdentity::temporary());
         LyricSourceController sources(api, settings);
         QAbstractItemModelTester modelTester(
@@ -1924,7 +1958,7 @@ private slots:
     void addingToRetainedQueuePreservesActiveIdentityAndAccountScope()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ApiClient api(DeviceIdentity::temporary());
         UserPlaylistModel library(api);
         PlaylistMutationService mutations(api);
@@ -2003,7 +2037,7 @@ private slots:
     void contextualNativeConversionKeepsWordTimingAndRejectsStaleTrack()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("lyrics.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("lyrics.ini"));
         NativeBridge native;
         LyricModel lyrics(nullptr);
         LyricTextController text(lyrics, native, settings);
@@ -2056,7 +2090,7 @@ private slots:
     {
         QTemporaryDir dir;
         const auto path = dir.filePath("lyrics.ini");
-        QSettings settings(path, QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(path);
         NativeBridge native;
         LyricModel lyrics(nullptr);
         LyricTextController text(lyrics, native, settings);
@@ -2107,7 +2141,7 @@ private slots:
         QCOMPARE(lyrics.currentIndex(), 0);
         QVERIFY(text.errorMessage().isEmpty());
         settings.sync();
-        QSettings reopened(path, QSettings::IniFormat);
+        EchoMusic::SettingsStore reopened(path);
         LyricModel restored(nullptr);
         LyricTextController again(restored, native, reopened);
         QCOMPARE(again.conversion(), QStringLiteral("traditional-variants"));
@@ -2247,7 +2281,7 @@ private slots:
         QVERIFY(lyrics.replace({{"lines", lines}}));
         QCOMPARE(lyrics.rowCount(), 10001);
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("catalog.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("catalog.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings);
         QJsonArray items;
@@ -2320,7 +2354,7 @@ private slots:
                               "-"};
         ApiClient api(device);
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("live.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("live.ini"));
         settings.setValue("playback/volume", 0);
         settings.setValue("playback/defaultQuality", "standard");
         NetworkPreferences network(settings, api);
@@ -2395,7 +2429,7 @@ private slots:
                               "-"};
         ApiClient api(device);
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("settings.ini"));
         settings.setValue("playback/volume", 0);
         NetworkPreferences network(settings, api);
         QVERIFY(network.transportAvailable());

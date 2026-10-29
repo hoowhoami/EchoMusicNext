@@ -48,6 +48,9 @@ Item {
         anchors.fill: parent
         clip: true
         reuseItems: true
+        EchoViewPoolGuard {
+            targetView: lines
+        }
         cacheBuffer: Math.max(0, height)
         model: root.live ? root.page.player.lyrics : null
         spacing: 20

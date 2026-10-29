@@ -8,7 +8,7 @@
 #include "PlaybackService.h"
 #include "AudioEngine.h"
 #include <QTemporaryDir>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QFile>
 #include <QDir>
 #include <QSqlDatabase>
@@ -41,7 +41,7 @@ DeviceIdentity registeredDevice()
 struct Fixture
 {
     QTemporaryDir directory;
-    QSettings settings{directory.filePath("settings.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore settings{directory.filePath("settings.ini")};
     ApiClient api;
     NetworkPreferences network{settings, api};
     StorageService storage;

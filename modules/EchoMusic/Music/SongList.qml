@@ -31,6 +31,9 @@ ListView {
     signal moreRequested(string id, real sceneX, real sceneY)
     clip: true
     reuseItems: true
+    EchoViewPoolGuard {
+        targetView: list
+    }
     cacheBuffer: 60 * 10
     boundsBehavior: Flickable.StopAtBounds
     ScrollBar.vertical: EchoPageScrollBar {

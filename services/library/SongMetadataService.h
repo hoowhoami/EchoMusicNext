@@ -12,7 +12,7 @@
 namespace EchoMusic
 {
 class EmbeddedCoverCache;
-/// Shared optional presentation completion: 100 IDs/batch, three transports,
+/// Shared optional presentation completion: 50 IDs/batch, three transports,
 /// deduplicated consumers and a bounded public-facts cache. No playback rights.
 class SongMetadataService final : public QObject
 {
@@ -64,6 +64,7 @@ private:
     {
         QSet<QString> waiting;
         QJsonArray values;
+        QSet<QString> retried;
     };
     void drain();
     void accept(quint64, const QByteArray &);
@@ -93,6 +94,7 @@ private:
     QCache<QString, CacheEntry> m_cache{8'000'000};
     QElapsedTimer m_clock;
     QTimer m_drain;
+    QTimer m_retry;
     QHash<quint64, Job> m_jobs;
     QHash<quint64, QStringList> m_flights;
     quint64 m_ticket = 0;

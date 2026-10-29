@@ -121,7 +121,7 @@ void DesktopPagesTest::startupUsesRealFailuresAndReleasesItsEntirePage()
 void DesktopPagesTest::recoveryStartupWindowRetriesAndExitsWithoutBusinessOwners()
 {
     QTemporaryDir directory;
-    QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
     ThemeStore theme(preferences);
     ShellSettings shell(preferences);
     WindowController windows(preferences, false);
@@ -576,7 +576,7 @@ void DesktopPagesTest::miniWidthPreferencesClampAndRestore()
     QFETCH(int, savedWidth);
     QFETCH(int, expectedWidth);
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("mini.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("mini.ini"));
     const auto area = QGuiApplication::primaryScreen()->availableGeometry();
     settings.setValue("floating/mini/anchor",
                       QRect(area.topLeft() + QPoint(40, 40), QSize(savedWidth, 64)));

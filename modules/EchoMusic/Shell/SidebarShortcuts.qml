@@ -54,6 +54,9 @@ Item {
             cellHeight: shortcuts.collapsed ? 48 : 54
             model: shortcuts.layout.shortcuts.length + 1
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: virtualCards
+            }
             cacheBuffer: 108
             clip: true
             ScrollBar.vertical: EchoPageScrollBar {

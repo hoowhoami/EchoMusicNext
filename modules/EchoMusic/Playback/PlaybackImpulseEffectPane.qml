@@ -285,6 +285,9 @@ ColumnLayout {
             bottomMargin: 12
             spacing: 14
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: installedProviders
+            }
             clip: true
             delegate: DspInstalledProviderCard {
                 width: installedProviders.width - 20
@@ -315,6 +318,9 @@ ColumnLayout {
             cellHeight: 50
             model: pane.surface.visible && visible ? pane.files : null
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: localEffects
+            }
             clip: true
             cacheBuffer: cellHeight * 3
             delegate: PlaybackEffectPresetButton {

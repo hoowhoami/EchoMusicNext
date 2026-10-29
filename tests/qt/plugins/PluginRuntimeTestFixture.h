@@ -1,9 +1,12 @@
+#include "PluginPaths.h"
+#include "PluginInstallationStore.h"
+#include "PluginInstallTransaction.h"
 #pragma once
 #include "PluginRuntime.h"
 #include "../../../app/ApplicationShutdown.h"
 #include "PluginManager.h"
 #include "SharingCommands.h"
-#include "PluginDataTransaction.h"
+#include "StorageSnapshot.h"
 #include "PluginMarketplaceStats.h"
 #include "EchoPluginUi.h"
 #include "EchoPluginIo.h"
@@ -114,7 +117,7 @@ inline QString package(const QString &root, const QByteArray &entry,
 struct Host
 {
     QTemporaryDir temporary;
-    QSettings settings{temporary.path() + "/settings.ini", QSettings::IniFormat};
+    EchoMusic::SettingsStore settings{temporary.path() + "/settings.ini"};
     ApiClient api{DeviceIdentity::temporary()};
     AccountService account{api};
     PlaybackService playback{api, settings, nullptr, temporary.path() + "/playback.sqlite"};
@@ -175,6 +178,8 @@ struct Host
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         playback.shutdown();
         api.shutdown();
+        // Temp-profile image/private caches must not outlive a drained fixture.
+        QDir(PluginPaths(runtime.directory()).cache()).removeRecursively();
     }
     QString installation()
     {

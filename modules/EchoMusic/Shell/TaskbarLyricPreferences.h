@@ -1,11 +1,11 @@
 #pragma once
 #include <QObject>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QtQml/qqmlregistration.h>
 
 namespace EchoMusic
 {
-/// Taskbar lyric presentation preferences (QSettings-backed). The reference
+/// Taskbar lyric presentation preferences (EchoMusic::SettingsStore-backed). The reference
 /// EchoMusic clamps: maxWidth 160-800, fontSize 11-22 (shared/taskbar.ts).
 ///
 /// The cover is always shown and always opens the main window on a click;
@@ -35,7 +35,7 @@ public:
     Q_PROPERTY(bool wordByWord READ wordByWord WRITE setWordByWord NOTIFY changed)
     Q_PROPERTY(int dragOffsetX READ dragOffsetX WRITE setDragOffsetX NOTIFY changed)
 public:
-    explicit TaskbarLyricPreferences(QSettings &settings, QObject *parent = nullptr);
+    explicit TaskbarLyricPreferences(EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     Position position() const
     {
         return m_position;
@@ -77,7 +77,7 @@ signals:
     void changed();
 
 private:
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     Position m_position = Position::AutoRight;
     int m_maxWidth = 400;
     int m_fontSize = 14;

@@ -2,6 +2,8 @@
 #include <QCoreApplication>
 #include <QOperatingSystemVersion>
 #include <QWindow>
+#include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QJsonDocument>
 #include <QLoggingCategory>
 #include <QColor>
@@ -183,6 +185,17 @@ void WindowsWindowBackdrop::applyWindowPolicy()
 {
     if (!m_handle || !IsWindow(m_handle))
         return;
+    // Set once before the first exposed swapchain, and repair Qt style changes
+    // on this HWND only. Raster dialogs and non-D3D backends need redirection.
+    const auto *quick = qobject_cast<QQuickWindow *>(m_window.data());
+    const auto api =
+        quick ? quick->rendererInterface()->graphicsApi() : QSGRendererInterface::Unknown;
+    if (m_build >= 22621 && quick && quick->requestedFormat().alphaBufferSize() > 0 &&
+        (api == QSGRendererInterface::Direct3D11 || api == QSGRendererInterface::Direct3D12)) {
+        const auto style = GetWindowLongPtrW(m_handle, GWL_EXSTYLE);
+        if (!(style & WS_EX_NOREDIRECTIONBITMAP))
+            SetWindowLongPtrW(m_handle, GWL_EXSTYLE, style | WS_EX_NOREDIRECTIONBITMAP);
+    }
     const bool translucent = m_enabled || m_transparency > 0;
     // While the theme is translucent the window goes frameless: Qt then omits
     // the frame margins (shouldOmitFrameAdjustment) and the swapchain covers
@@ -412,8 +425,7 @@ void WindowsWindowBackdrop::clear()
         accent(0);
         frameBorder(m_handle, kBorderDefault);
         disableBlurBehind(m_handle);
-        extendFrame(m_handle,
-                    m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint));
+        extendFrame(m_handle, m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint));
         refreshFrame(m_handle);
     }
     m_applied = Applied::None;
@@ -638,8 +650,10 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
 }
 QVariantMap WindowsWindowBackdrop::diagnostics() const
 {
-    QVariantMap state{{"build", m_build},   {"frostEnabled", m_enabled},
-                      {"darkMode", m_dark}, {"initialized", m_initialized},
+    QVariantMap state{{"build", m_build},
+                      {"frostEnabled", m_enabled},
+                      {"darkMode", m_dark},
+                      {"initialized", m_initialized},
                       {"error", m_error}};
     if (!m_window || !m_handle || !IsWindow(m_handle)) {
         state.insert("attached", false);

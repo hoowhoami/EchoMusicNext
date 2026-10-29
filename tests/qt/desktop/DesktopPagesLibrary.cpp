@@ -148,7 +148,7 @@ void DesktopPagesTest::playlistImportBackgroundResultsStopAndSessionIsolation()
     QAbstractItemModelTester tester(&importer,
                                     QAbstractItemModelTester::FailureReportingMode::QtTest);
     QTemporaryDir temp;
-    QSettings preferences(temp.filePath("preferences.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore preferences(temp.filePath("preferences.ini"));
     TaskCenterModel tasks;
     PlaylistImportTaskCoordinator coordinator(importer, tasks, preferences);
     QVERIFY(importer.startLink("https://example.invalid/playlist"));

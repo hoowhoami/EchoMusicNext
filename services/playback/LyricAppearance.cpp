@@ -4,7 +4,7 @@
 #include <cmath>
 namespace EchoMusic
 {
-LyricAppearance::LyricAppearance(QSettings &settings, QObject *parent)
+LyricAppearance::LyricAppearance(EchoMusic::SettingsStore &settings, QObject *parent)
     : QObject(parent), m_settings(settings), m_portrait(settings, this)
 {
     setPlayedColor(settings.value(EchoMusic::SettingsKeys::Lyrics::PagePlayedColor, "").toString());

@@ -6,7 +6,7 @@
 
 namespace EchoMusic
 {
-/// Value-only package result; workers never touch the GUI engine or QSettings.
+/// Value-only package result; workers never touch the GUI engine or EchoMusic::SettingsStore.
 struct PluginPackage
 {
     QString id, name, version, root, entry, installationId, contentHash;
@@ -23,7 +23,8 @@ struct PluginPackage
     static QStringList supportedCapabilities();
     static bool validVersionRange(const QString &range);
     static bool versionMatches(const QString &range, const QString &version);
-    /// Copies a validated local source into a content-addressed version directory.
+    /// Captures a validated source as an immutable runtime image; installed code
+    /// publication and data rollback belong to PluginInstallTransaction.
     /// Symlinks/native QML plugins are rejected; this is integrity, not a sandbox.
     static PluginPackage importDirectory(const QString &source, const QString &packages,
                                          const QString &installationId);

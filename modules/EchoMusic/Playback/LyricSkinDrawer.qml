@@ -78,6 +78,9 @@ EchoDrawer {
             Layout.margins: 16
             clip: true
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: catalog
+            }
             cacheBuffer: height
             cellWidth: width / 2
             cellHeight: (cellWidth - 30) * 9 / 16 + 58

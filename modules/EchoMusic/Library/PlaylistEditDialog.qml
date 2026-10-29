@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs as NativeDialogs
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Library
@@ -35,9 +34,9 @@ EchoDialog {
         id: pickerOwner
         hostItem: dialog.parent
         sourceComponent: Component {
-            NativeDialogs.FileDialog {
+            EchoFileDialog {
                 title: qsTr("选择歌单封面")
-                fileMode: NativeDialogs.FileDialog.OpenFile
+                fileMode: EchoFileDialog.OpenFile
                 nameFilters: [qsTr("图片 (*.jpg *.jpeg *.png *.webp)")]
                 onAccepted: dialog.editor.selectCover(selectedFile)
             }

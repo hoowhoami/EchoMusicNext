@@ -12,7 +12,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QWheelEvent>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTemporaryDir>
 #include <QtTest>
 using namespace EchoMusic;
@@ -140,7 +140,7 @@ private slots:
     void pagedCatalogArrivesInSourceOrder()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -185,7 +185,7 @@ private slots:
     void shortPageDiscardsInFlightSiblings()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -217,7 +217,7 @@ private slots:
     void refreshFailurePreservesCachedCatalog()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -258,7 +258,7 @@ private slots:
     void sessionChangeClearsAndRejectsLatePages()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -286,7 +286,7 @@ private slots:
     void nativeAlbumPage()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences network(prefs, api);

@@ -193,18 +193,31 @@ def check(root):
                     )
     settings_symbols = set()
     settings_header = root / "services/settings/SettingsKeys.h"
-    if settings_header.exists():
-        for namespace, body in re.findall(
-            r"namespace (\w+)\s*\{(.*?)^\}", settings_header.read_text(), re.DOTALL | re.MULTILINE
-        ):
-            settings_symbols.update(
-                (namespace, name) for name in re.findall(r"QLatin1StringView\s+(\w+)\s*\{", body)
-            )
+    declarations = root / "services/settings/SettingsKeys.def"
+    if declarations.exists():
+        definitions = declarations.read_text()
+        settings_symbols.update(
+            re.findall(r"ECHO_(?:SETTING|PREFIX|FIELD)\(\s*(\w+)\s*,\s*(\w+)", definitions)
+        )
+        for line in definitions.splitlines():
+            if line.startswith(("ECHO_SETTING(", "ECHO_PREFIX(")) and not re.search(
+                r", (Portable|Device)\)$", line
+            ):
+                errors.append("SettingsKeys.def: every setting requires an explicit storage domain")
     for folder in ("app", "services", "modules"):
         for path in (root / folder).rglob("*"):
             if path.suffix not in {".cpp", ".h", ".mm"}:
                 continue
             source = strip_comments(path.read_text())
+            if "QSettings" in source and str(path.relative_to(root)) not in {
+                "services/settings/SettingsStore.h",
+                "services/settings/SettingsStore.cpp",
+                "services/platform/StartupIntegration.cpp",
+                "modules/EchoMusic/Shell/TrayIconTheme.cpp",
+            }:
+                errors.append(
+                    f"{path.relative_to(root)}: application preferences must use SettingsStore"
+                )
             if re.search(
                 r"\b(?:m_settings|m_preferences|settings|preferences|prefs)\s*(?:\.|->)\s*"
                 r'(?:value|setValue|contains|remove|beginGroup)\(\s*(?:QStringLiteral\()?"',

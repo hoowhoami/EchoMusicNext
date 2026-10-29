@@ -144,8 +144,9 @@ void PlaybackService::attachLibrary(UserPlaylistModel &library, PlaylistMutation
             &PersonalFmController::favoriteFeedback);
     emit changed();
 }
-PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *parent,
-                                 const QString &storagePath, NetworkPreferences *network)
+PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &settings,
+                                 QObject *parent, const QString &storagePath,
+                                 NetworkPreferences *network)
     : QObject(parent), m_sleepTimer(this), m_api(api), m_settings(settings),
       m_preferences(settings, this), m_enginePreferences(settings, this),
       m_networkPreferences(network), m_membership(api, this),
@@ -1280,21 +1281,36 @@ void PlaybackService::setQuality(const QString &quality)
 }
 void PlaybackService::openLocalFiles()
 {
-    const auto files =
-        QFileDialog::getOpenFileNames(nullptr, tr("添加本地音乐"), {},
-                                      tr("音频文件 (*.mp3 *.flac *.wav *.m4a *.aac *.ogg *.opus "
-                                         "*.aiff *.ape *.dsf *.dff *.mkv);;所有文件 (*)"));
-    PlaybackTracks tracks;
-    for (const auto &path : files) {
-        PlaybackTrack t;
-        t.id = path;
-        t.localPath = path;
-        t.title = QFileInfo(path).completeBaseName();
-        tracks.append(t);
-    }
-    if (!tracks.isEmpty())
-        playTracks(tracks, 0, tr("本地音乐"), "local");
+    if (m_closing || m_localFileDialog)
+        return;
+    auto *dialog = new QFileDialog(nullptr, tr("添加本地音乐"), {},
+                                   tr("音频文件 (*.mp3 *.flac *.wav *.m4a *.aac *.ogg *.opus "
+                                      "*.aiff *.ape *.dsf *.dff *.mkv);;所有文件 (*)"));
+    m_localFileDialog = dialog;
+    dialog->setFileMode(QFileDialog::ExistingFiles);
+    dialog->setWindowModality(Qt::ApplicationModal);
+    const auto revision = m_api.sessionRevision();
+    connect(dialog, &QDialog::finished, this, [this, dialog, revision](int result) {
+        m_localFileDialog = nullptr;
+        const auto files = dialog->selectedFiles();
+        dialog->deleteLater();
+        if (m_closing || revision != m_api.sessionRevision() || result != QDialog::Accepted)
+            return;
+        PlaybackTracks tracks;
+        for (const auto &path : files) {
+            PlaybackTrack track;
+            track.id = path;
+            track.localPath = path;
+            track.title = QFileInfo(path).completeBaseName();
+            tracks.append(track);
+        }
+        if (!tracks.isEmpty())
+            playTracks(tracks, 0, tr("本地音乐"), "local");
+    });
+    connect(&m_api, &ApiClient::sessionChanged, dialog, &QDialog::reject);
+    dialog->show();
 }
+
 void PlaybackService::retry()
 {
     if (m_personalFm->active() && queue()->currentIndex() < 0) {
@@ -1318,6 +1334,11 @@ void PlaybackService::clearHistory()
 }
 void PlaybackService::shutdown()
 {
+    if (m_localFileDialog) {
+        m_localFileDialog->disconnect(this);
+        delete m_localFileDialog;
+        m_localFileDialog = nullptr;
+    }
     m_sessionController->shutdown();
 }
 void PlaybackService::playViewedIndex(int index)

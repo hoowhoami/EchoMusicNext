@@ -30,7 +30,8 @@ public:
 } // namespace
 namespace EchoMusic
 {
-LyricSourceController::LyricSourceController(ApiClient &api, QSettings &settings, QObject *parent)
+LyricSourceController::LyricSourceController(ApiClient &api, EchoMusic::SettingsStore &settings,
+                                             QObject *parent)
     : QAbstractListModel(parent), m_api(api), m_settings(settings), m_preview(this),
       m_previewRows(std::make_unique<PreviewRows>(m_preview))
 {

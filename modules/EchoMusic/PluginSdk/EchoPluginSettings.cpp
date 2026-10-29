@@ -16,7 +16,7 @@ namespace EchoMusic
 {
 namespace
 {
-// Deliberately finite public preference surface. Never enumerate QSettings,
+// Deliberately finite public preference surface. Never enumerate EchoMusic::SettingsStore,
 // credentials, paths or arbitrary writable QObject properties.
 const QMap<QString, QStringList> fields{
     {"playback",

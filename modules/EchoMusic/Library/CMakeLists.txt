@@ -21,6 +21,7 @@ qt_add_qml_module(
     PlaylistEditDialog.qml
     PlaylistEditTags.qml
     PlaylistOrderDialog.qml
+    PlaylistOrderRow.qml
     PlaylistImportDialog.qml
     PlaylistImportDraft.qml
     PlaylistImportInput.qml

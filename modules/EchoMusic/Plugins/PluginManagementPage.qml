@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import EchoMusic.Theme
 import EchoMusic.Controls
 import EchoMusic.Shell
@@ -35,6 +34,7 @@ Item {
         failureOwner.close();
         pluginSettingsOwner.close();
         grantsOwner.close();
+        dataOwner.close();
         packageFileOwner.close();
         settingsScope = null;
     }
@@ -146,6 +146,14 @@ Item {
                             onClicked: packageFileOwner.open()
                         }
                         PluginActionButton {
+                            objectName: "pluginDataManagement"
+                            iconOnly: true
+                            glyph: "database"
+                            text: qsTr("插件数据")
+                            tooltipText: text
+                            onClicked: dataOwner.open()
+                        }
+                        PluginActionButton {
                             iconOnly: true
                             glyph: "lock-open"
                             text: qsTr("插件授权")
@@ -241,6 +249,9 @@ Item {
             Layout.fillHeight: true
             model: rows
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: list
+            }
             cacheBuffer: 320
             spacing: 14
             clip: true
@@ -458,6 +469,13 @@ Item {
         }
     }
     EchoPopupLoader {
+        id: dataOwner
+        hostItem: page
+        sourceComponent: PluginDataDialog {
+            runtime: page.manager.runtime
+        }
+    }
+    EchoPopupLoader {
         id: deferredSurfaceOwner
         objectName: "pluginLocalInstallOverlayOwner"
         hostItem: page
@@ -540,10 +558,10 @@ Item {
         id: packageFileOwner
         hostItem: page
         sourceComponent: Component {
-            FileDialog {
+            EchoFileDialog {
                 objectName: "pluginPackageFileDialog"
                 title: qsTr("安装 EchoMusicNext 插件")
-                fileMode: FileDialog.OpenFiles
+                fileMode: EchoFileDialog.OpenFiles
                 nameFilters: [qsTr("EchoMusicNext 插件 (*.echomod)")]
                 onAccepted: page.manager.installLocalBatch(selectedFiles)
                 onVisibleChanged: if (visible)

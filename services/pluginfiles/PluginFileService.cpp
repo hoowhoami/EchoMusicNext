@@ -1,3 +1,5 @@
+#include "PluginPaths.h"
+#include "PluginInstallationStore.h"
 #include "PluginFileService.h"
 #include "PluginFileWorker_p.h"
 #include <QDir>
@@ -194,8 +196,17 @@ PluginFileWorker::~PluginFileWorker() = default;
 void PluginFileWorker::initialize()
 {
     try {
-        QDir().mkpath(root + "/resources");
-        QFile file(root + "/resources/grants.json");
+        QDir().mkpath(PluginPaths(root).state());
+        QSet<QString> installations;
+        QString catalogError;
+        const bool managed = QFileInfo::exists(PluginPaths(root).state("catalog.json"));
+        if (managed) {
+            for (const auto &value : PluginInstallationStore(root).records(&catalogError))
+                installations.insert(value.toMap().value("installation").toString());
+            if (!catalogError.isEmpty())
+                throw PluginFileFailure{"StorageError", catalogError};
+        }
+        QFile file(PluginPaths(root).state("grants.json"));
         if (file.exists()) {
             if (!file.open(QIODevice::ReadOnly) || file.size() > 4 * 1024 * 1024)
                 throw PluginFileFailure{"StorageError", "Cannot read file grants"};
@@ -218,12 +229,20 @@ void PluginFileWorker::initialize()
                 grant.revision = row.value("revision").toString();
                 grant.revoked = row.value("revoked").toBool();
                 grant.persistent = true;
-                if (!grant.id.isEmpty() && !grant.owner.installation.isEmpty() &&
+                if ((!managed || installations.contains(grant.owner.installation)) &&
+                    !grant.id.isEmpty() && !grant.owner.installation.isEmpty() &&
                     QDir::isAbsolutePath(grant.path))
                     grants.insert(grant.id, grant);
             }
         }
         loadDownloads();
+        if (managed) {
+            for (auto it = jobs.begin(); it != jobs.end();)
+                if (!installations.contains(it.value()->owner.installation))
+                    it = jobs.erase(it);
+                else
+                    ++it;
+        }
         publishGrants();
     } catch (const PluginFileFailure &error) {
         initializationError = error.message;
@@ -326,7 +345,7 @@ void PluginFileWorker::saveGrants()
             row.insert("path", grant.path);
             rows.append(QJsonObject::fromVariantMap(row));
         }
-    QSaveFile file(root + "/resources/grants.json");
+    QSaveFile file(PluginPaths(root).state("grants.json"));
     const auto data = QJsonDocument(rows).toJson(QJsonDocument::Compact);
     if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit())
         throw PluginFileFailure{"StorageError", "Could not save file grants"};
@@ -359,6 +378,13 @@ void PluginFileWorker::closeScope(const QString &scope)
 }
 void PluginFileWorker::forget(const QString &installation)
 {
+    QSet<QString> pluginIds;
+    for (const auto &grant : std::as_const(grants))
+        if (grant.owner.installation == installation)
+            pluginIds.insert(grant.owner.pluginId);
+    for (const auto &job : std::as_const(jobs))
+        if (job->owner.installation == installation)
+            pluginIds.insert(job->owner.pluginId);
     retireMedia(
         [&](const auto &owner, const auto &) { return owner.installation == installation; });
     retireDownloads([&](const auto &job) { return job.owner.installation == installation; },
@@ -371,7 +397,9 @@ void PluginFileWorker::forget(const QString &installation)
             removed.append(job->id);
     for (const auto &id : removed)
         jobs.remove(id);
-    QDir(root + "/cache/" + installation).removeRecursively();
+    for (const auto &id : pluginIds)
+        if (PluginPaths::validId(id))
+            QDir(PluginPaths(root).cache(id)).removeRecursively();
     QMetaObject::invokeMethod(&service, [target = &service, installation, removed] {
         for (const auto &id : removed) {
             target->m_downloadControls.remove(id);

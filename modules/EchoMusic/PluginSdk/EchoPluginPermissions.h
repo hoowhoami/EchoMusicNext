@@ -1,6 +1,6 @@
 #pragma once
 #include "EchoPluginOperation.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QPointer>
 #include <QRect>
 #include <functional>
@@ -16,7 +16,7 @@ class PluginPermissionStore final : public QObject
     QML_UNCREATABLE("Owned by plugin runtime")
     Q_PROPERTY(QVariantList records READ records NOTIFY changed)
 public:
-    explicit PluginPermissionStore(QSettings &, QObject *parent);
+    explicit PluginPermissionStore(EchoMusic::SettingsStore &, QObject *parent);
     QVariantList records() const;
     QRect windowBounds(const QString &installation, const QString &id) const;
     void saveWindowBounds(const QString &installation, const QString &id, const QRect &bounds);
@@ -48,7 +48,7 @@ private:
     void prunePrompts();
     QHash<QString, QString> m_promptKeys;
     QHash<QString, QPointer<QMessageBox>> m_dialogs;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     QHash<QString, Pending> m_pending;
     QHash<QString, QVariantMap> m_session;
 };

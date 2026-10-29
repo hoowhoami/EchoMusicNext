@@ -2,7 +2,6 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QDir>
-#include <QStandardPaths>
 #include <QUuid>
 namespace EchoMusic
 {
@@ -265,8 +264,7 @@ void AudioEffectCatalog::activate(int row)
         return;
     }
     m_downloading = effect;
-    const auto directory =
-        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/audio-effects";
+    const auto directory = m_controls.effectFilesRoot() + "/downloads";
     m_destination = directory + "/" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".irs";
     m_installer.install(++m_downloadGeneration, m_urls, m_destination);
     emit changed();

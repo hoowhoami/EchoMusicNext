@@ -81,7 +81,7 @@ QQuickItem *visual(QQuickItem *root, const QString &name)
 struct ThemeSession
 {
     QTemporaryDir directory;
-    QSettings preferences{directory.filePath("theme.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore preferences{directory.filePath("theme.ini")};
     ThemeStore theme{preferences};
     ShellSettings shell{preferences};
     WindowController windows{preferences, false};
@@ -431,8 +431,8 @@ private slots:
     void engineBindingsAreIsolatedAndBorrowTheStore()
     {
         QTemporaryDir directory;
-        QSettings firstSettings(directory.filePath("first.ini"), QSettings::IniFormat);
-        QSettings secondSettings(directory.filePath("second.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore firstSettings(directory.filePath("first.ini"));
+        EchoMusic::SettingsStore secondSettings(directory.filePath("second.ini"));
         ThemeStore first(firstSettings), second(secondSettings);
         QPointer<ThemeStore> retained(&first);
         {
@@ -459,7 +459,7 @@ private slots:
         QVERIFY(engine.hasError());
         QVERIFY(engine.catchError().toString().contains("attached before loading QML"));
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("theme.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("theme.ini"));
         {
             ThemeStore store(settings);
             store.attachToEngine(engine);
@@ -519,7 +519,7 @@ private slots:
     void backgroundPreviewDoesNotPersistAndLateImportCannotReviveIt()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("preferences.ini"));
         const auto imageDirectory = directory.filePath("images");
         ThemeStore theme(preferences, nullptr, imageDirectory);
         theme.selectSolid(QColor("#abcdef"));
@@ -589,7 +589,7 @@ private slots:
         const auto normalized = ThemeImageStore::importImage(source, managed);
         QVERIFY2(normalized.error.isEmpty(), qPrintable(normalized.error));
         QCOMPARE(normalized.sample, expected);
-        QSettings preferences(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("preferences.ini"));
         {
             ThemeStore theme(preferences, nullptr, managed);
             theme.importBackground(QUrl::fromLocalFile(source));
@@ -864,11 +864,10 @@ elif sys.argv[1] == 'dispatch':
         window.setColor(Qt::transparent);
         window.resize(480, 320);
         const auto handle = reinterpret_cast<HWND>(window.winId());
-        // The adapter must not touch the redirection surface policy: Qt owns it
-        // (a DirectComposition swapchain for alpha windows), and flipping the
-        // style after that swapchain exists leaves stale composition behind.
-        const bool originalNoRedirection =
-            (GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP) != 0;
+        // Only the attached alpha D3D main HWND opts out of redirection.
+        const bool expectedNoRedirection =
+            window.rendererInterface()->graphicsApi() == QSGRendererInterface::Direct3D11 ||
+            window.rendererInterface()->graphicsApi() == QSGRendererInterface::Direct3D12;
         WindowsWindowBackdrop backdrop;
         backdrop.attach(&window);
         window.show();
@@ -876,8 +875,12 @@ elif sys.argv[1] == 'dispatch':
         QVERIFY(backdrop.supported());
         QVERIFY(backdrop.diagnostics().value("subclassInstalled").toBool());
         QCOMPARE(bool(GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP),
-                 originalNoRedirection);
+                 expectedNoRedirection);
         QVERIFY(backdrop.diagnostics().value("requestedAlphaBufferSize").toInt() > 0);
+        QWindow raster;
+        raster.setSurfaceType(QSurface::RasterSurface);
+        const auto rasterHandle = reinterpret_cast<HWND>(raster.winId());
+        QVERIFY(!(GetWindowLongPtrW(rasterHandle, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP));
         const auto nonLayered = [&] {
             return !(GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_LAYERED);
         };
@@ -970,7 +973,7 @@ elif sys.argv[1] == 'dispatch':
         backdrop.attach(nullptr);
         QVERIFY(hasFrame());
         QCOMPARE(bool(GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP),
-                 originalNoRedirection);
+                 expectedNoRedirection);
 #endif
     }
     void windowsLegacyAccentPreservesTransparentSurface()
@@ -1200,7 +1203,7 @@ elif sys.argv[1] == 'dispatch':
             QOperatingSystemVersion::current().microVersion() < 22621)
             QSKIP("Requires Windows 11 22H2+ native input delivery");
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ThemeStore theme(settings);
         QQmlEngine engine;
         theme.attachToEngine(engine);
@@ -1762,7 +1765,7 @@ elif sys.argv[1] == 'dispatch':
     void coverAndAppearancePreferencesShareTheProductionStore()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("preferences.ini"));
         ThemeStore theme(preferences);
         theme.setMode(ThemeStore::Light);
         theme.useCoverAccent();
@@ -1793,7 +1796,7 @@ elif sys.argv[1] == 'dispatch':
     void fractionalSourceFontSizeKeepsFamilyAndWeight()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("font.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("font.ini"));
         ThemeStore theme(preferences);
         const auto base = theme.applicationFont();
         const auto whole = theme.styledFont(base, 25, 650, 0.1, false, false);
@@ -1807,7 +1810,7 @@ elif sys.argv[1] == 'dispatch':
     void lyricFontsPersistAndResolveIndependently()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("fonts.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("fonts.ini"));
         ThemeStore theme(preferences);
         const auto system = uiFont("system-ui");
         QString selected;
@@ -1946,7 +1949,7 @@ elif sys.argv[1] == 'dispatch':
     void preferenceOwnershipAndReset()
     {
         QTemporaryDir temp;
-        QSettings preferences(temp.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(temp.filePath("settings.ini"));
         ThemeStore theme(preferences);
         theme.selectSolid(QColor("#abcdef"));
         theme.setMode(ThemeStore::Dark);

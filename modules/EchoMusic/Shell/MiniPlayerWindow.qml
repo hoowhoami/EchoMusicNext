@@ -121,7 +121,9 @@ Window {
                 id: hover
             }
             MouseArea {
-                anchors.fill: parent
+                objectName: "miniWindowMoveArea"
+                // Lyrics own taps, double-click seeking and scrolling.
+                anchors.fill: controls
                 onPressed: window.service.moveMini()
             }
             Item {
@@ -264,12 +266,18 @@ Window {
                         resourceActive: timeline.visible && window.live
                         fontSize: window.style.fontSize
                         textWeight: window.style.fontWeight
-                        textColor: window.style.followCoverColor ? Theme.store.lyricAccent(window.playback.coverColor) : window.style.playedColor || Theme.accentText
-                        unplayedColor: window.style.unplayedFollowCoverColor ? Theme.store.lyricAccent(window.playback.coverColor) : window.style.unplayedColor || window.miniColors.secondaryText
+                        textColor: LyricColors.miniPlayed(window.style, Theme.store.lyricAccent(window.playback.coverColor), window.miniColors.text)
+                        unplayedColor: LyricColors.miniUnplayed(window.style, Theme.store.lyricAccent(window.playback.coverColor), window.miniColors.text)
                         secondaryFontSize: window.style.secondaryFontSize
                         secondaryGap: window.style.lineGap
                         horizontalAlignment: window.style.alignment === "left" ? Qt.AlignLeft : window.style.alignment === "right" ? Qt.AlignRight : Qt.AlignHCenter
+                        // Small Mini text stays sharp. The shared sweep/spring
+                        // remains, without the large page's persistent defocus.
                         softFocus: false
+                        blurEnabled: false
+                        rowBackgroundInset: 12
+                        staggerEnabled: true
+                        pauseMotionWithPlayback: true
                         filterLyrics: false
                         springEnabled: true
                         scaleEnabled: true

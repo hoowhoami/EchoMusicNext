@@ -4,7 +4,7 @@
 #include <cmath>
 namespace EchoMusic
 {
-ShellSettings::ShellSettings(QSettings &settings, QObject *parent)
+ShellSettings::ShellSettings(EchoMusic::SettingsStore &settings, QObject *parent)
     : QObject(parent), m_settings(settings), m_sidebarLayout(settings, this)
 {
     m_userAgreementAccepted =

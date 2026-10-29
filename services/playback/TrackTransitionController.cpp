@@ -29,7 +29,7 @@ const QStringList modes{"automix-pro", "automix-basic", "fade", "gapless", "none
 
 } // namespace
 TrackTransitionController::TrackTransitionController(PlaybackService &playback, ApiClient &api,
-                                                     QSettings &settings)
+                                                     EchoMusic::SettingsStore &settings)
     : QObject(&playback), m_playback(playback), m_api(api), m_settings(settings),
       m_source(api, playback.m_membership, this, playback.cloudSources(),
                playback.sourceExtensions())

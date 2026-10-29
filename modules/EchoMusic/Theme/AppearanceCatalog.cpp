@@ -4,7 +4,7 @@
 #include <QTimer>
 namespace EchoMusic
 {
-AppearanceCatalog::AppearanceCatalog(QSettings &s, QObject *p)
+AppearanceCatalog::AppearanceCatalog(EchoMusic::SettingsStore &s, QObject *p)
     : QObject(p), m_settings(s),
       m_selectedTheme(s.value(SettingsKeys::Appearance::ExtensionTheme).toString()),
       m_selectedSkin(s.value(SettingsKeys::Appearance::ExtensionSkin, "cover").toString()),

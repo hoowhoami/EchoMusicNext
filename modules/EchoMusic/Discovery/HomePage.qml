@@ -336,6 +336,9 @@ RoutePage {
                     clip: true
                     model: page.activeTags
                     reuseItems: true
+                    EchoViewPoolGuard {
+                        targetView: tags
+                    }
                     boundsBehavior: Flickable.StopAtBounds
                     delegate: EchoSoftButton {
                         required property var modelData

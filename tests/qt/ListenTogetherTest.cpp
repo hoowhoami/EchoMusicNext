@@ -154,7 +154,7 @@ PlaybackTracks tracks()
 struct Fixture
 {
     QTemporaryDir dir;
-    QSettings settings{dir.filePath("prefs.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore settings{dir.filePath("prefs.ini")};
     ApiClient api{DeviceIdentity::temporary()};
     std::unique_ptr<PlaybackService> player;
     Fixture()
@@ -187,7 +187,7 @@ private slots:
                                 std::istreambuf_iterator<char>());
         const auto identity = QJsonDocument::fromJson(QByteArray::fromStdString(input)).object();
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("prefs.ini"));
         settings.setValue("playback/volume", 0.0);
         settings.setValue("playback/transitionMode", "none");
         ApiClient api(DeviceIdentity{

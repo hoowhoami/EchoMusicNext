@@ -110,7 +110,7 @@ private slots:
         QVERIFY(make(prior, 8));
         QLockFile priorLease(directory.filePath("crashes/prior.running"));
         QVERIFY(priorLease.tryLock(0));
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         if (days != 7)
             preferences.setValue("logging/retentionDays", days);
         {
@@ -151,7 +151,7 @@ private slots:
         QFile obstruction(blocked);
         QVERIFY(obstruction.open(QIODevice::WriteOnly));
         obstruction.close();
-        QSettings invalid(blocked + "/settings.ini", QSettings::IniFormat);
+        EchoMusic::SettingsStore invalid(blocked + "/settings.ini");
         {
             LogService logging(directory.filePath("logs"), 2, false, &invalid);
             QSignalSpy notices(&logging, &LogService::notice);
@@ -163,7 +163,7 @@ private slots:
             logging.setLevel("warn");
             QCOMPARE(logging.level(), QString("warn"));
         }
-        QSettings saved(blocked + "/settings.ini", QSettings::IniFormat);
+        EchoMusic::SettingsStore saved(blocked + "/settings.ini");
         {
             LogService explicitLevel(directory.filePath("override"), 3, false, &saved, true);
             QCOMPARE(explicitLevel.level(), QString("debug"));
@@ -177,7 +177,7 @@ private slots:
     void liveLevelDiagnosticsAndRedactedApiResponses()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         preferences.setValue("logging/level", "warn");
         QTcpServer proxy;
         QVERIFY(proxy.listen(QHostAddress::LocalHost));

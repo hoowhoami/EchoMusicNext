@@ -12,7 +12,7 @@
 #include <QImage>
 #include <QJsonDocument>
 #include <QSignalSpy>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QtTest>
@@ -390,7 +390,7 @@ private slots:
     void playbackSourceCoverPublishesWithoutChangingTrackIdentity()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue(SettingsKeys::Playback::Volume, 0.0);
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));

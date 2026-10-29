@@ -1,5 +1,5 @@
 #include "TaskbarLyricPreferences.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -36,7 +36,7 @@ private slots:
 void TaskbarLyricPreferencesTest::defaultsMatchTheShippedStrip()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("taskbar.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("taskbar.ini"));
     TaskbarLyricPreferences preferences(settings);
 
     QVERIFY(preferences.position() == Position::AutoRight);
@@ -62,7 +62,7 @@ void TaskbarLyricPreferencesTest::positionOrderIsThePickerOrder()
 void TaskbarLyricPreferencesTest::positionRoundTripsThroughItsStorageKey()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("taskbar.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("taskbar.ini"));
 
     const QList<QPair<Position, QString>> accepted{
         {Position::AutoLeft, QStringLiteral("left")},
@@ -83,7 +83,7 @@ void TaskbarLyricPreferencesTest::positionRoundTripsThroughItsStorageKey()
 void TaskbarLyricPreferencesTest::unknownPositionFallsBackToAutoRight()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("taskbar.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("taskbar.ini"));
 
     // "auto" is what older builds wrote; anything unparseable lands on the
     // shipped default as well.
@@ -97,7 +97,7 @@ void TaskbarLyricPreferencesTest::unknownPositionFallsBackToAutoRight()
 void TaskbarLyricPreferencesTest::numericValuesAreClamped()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("taskbar.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("taskbar.ini"));
     TaskbarLyricPreferences preferences(settings);
 
     preferences.setMaxWidth(159);
@@ -127,7 +127,7 @@ void TaskbarLyricPreferencesTest::valuesPersistUnderTheTaskbarKeys()
     QTemporaryDir directory;
     const auto path = directory.filePath("taskbar.ini");
     {
-        QSettings settings(path, QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(path);
         TaskbarLyricPreferences preferences(settings);
         preferences.setPosition(Position::FixedLeft);
         preferences.setMaxWidth(300);
@@ -138,7 +138,7 @@ void TaskbarLyricPreferencesTest::valuesPersistUnderTheTaskbarKeys()
         settings.sync();
     }
 
-    QSettings stored(path, QSettings::IniFormat);
+    EchoMusic::SettingsStore stored(path);
     QCOMPARE(stored.value(taskbarKey("position")).toString(), QStringLiteral("fixedLeft"));
     QCOMPARE(stored.value(taskbarKey("maxWidth")).toInt(), 300);
     QCOMPARE(stored.value(taskbarKey("fontSize")).toInt(), 20);
@@ -148,7 +148,7 @@ void TaskbarLyricPreferencesTest::valuesPersistUnderTheTaskbarKeys()
 
     // A fresh instance reads the same state back: that is what survives a
     // restart, including the manual drag mode's drop point.
-    QSettings reopened(path, QSettings::IniFormat);
+    EchoMusic::SettingsStore reopened(path);
     TaskbarLyricPreferences preferences(reopened);
     QVERIFY(preferences.position() == Position::FixedLeft);
     QCOMPARE(preferences.maxWidth(), 300);

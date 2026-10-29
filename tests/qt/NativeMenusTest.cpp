@@ -89,7 +89,7 @@ private slots:
     void exportedTrayModelSurvivesRemoteCloseAndKeepsActionsCurrent()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("exported-menu.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("exported-menu.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"));
         playback.setStartupHeld(true);
@@ -165,7 +165,7 @@ private slots:
     void taskbarLyricMenuDisablesTheStripAboveQuit()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("lyric-menu.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("lyric-menu.ini"));
         WindowController window(settings, false);
         window.taskbar()->setEnabled(true);
         QSignalSpy quitting(&window, &WindowController::quitRequested);
@@ -194,7 +194,7 @@ private slots:
         if (QGuiApplication::platformName() != "cocoa")
             QSKIP("Requires Cocoa's application delegate and Dock commands");
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("dock.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("dock.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"));
         playback.setStartupHeld(true);
@@ -264,7 +264,7 @@ private slots:
         if (QGuiApplication::platformName() != "cocoa")
             QSKIP("Requires the native Cocoa action dispatch path");
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("native.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("native.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"));
         playback.setStartupHeld(true);
@@ -307,7 +307,7 @@ private slots:
     void serviceActionsAndLifetime()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("menus.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("menus.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"));
         playback.setStartupHeld(true);
@@ -380,7 +380,7 @@ private slots:
     void leftRestoresCurrentModeAndIgnoresOtherButtons()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("window.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("window.ini"));
         WindowController window(settings, false);
         QQuickWindow main, mini;
         window.attach(&main);
@@ -490,7 +490,7 @@ int main(int argc, char **argv)
         // Same production owner/helpers, temporary preferences, no real account,
         // no API/audio startup and no global shortcuts or single-instance lock.
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("probe.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("probe.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"));
         playback.setStartupHeld(true);

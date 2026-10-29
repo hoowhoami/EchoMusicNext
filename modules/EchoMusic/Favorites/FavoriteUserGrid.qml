@@ -12,6 +12,7 @@ GridView {
     property var collection: null
     property bool singer: false
     property bool loading: false
+    property bool presentationReady: false
     property bool pageActive: true
     property EchoPageScrollContainer pageContainer: null
     property bool navigationAvailable: false
@@ -26,14 +27,34 @@ GridView {
     reuseItems: true
     cacheBuffer: cellHeight * 3
     boundsBehavior: Flickable.StopAtBounds
-    model: grid.loading ? grid.columns * 2 : grid.collection
+    function syncPresentation(): void {
+        if (!grid.presentationReady)
+            return;
+        // Detach rows before switching delegates: integer placeholders have no
+        // required SocialUserModel roles, including for pooled user cards.
+        // Discard the old pool as well, so cards cannot retain the old row roles.
+        const reuse = grid.reuseItems;
+        grid.reuseItems = false;
+        grid.model = null;
+        grid.delegate = grid.loading ? skeletonDelegate : userDelegate;
+        grid.model = grid.loading ? grid.columns * 2 : grid.collection;
+        grid.reuseItems = reuse;
+    }
+    onLoadingChanged: syncPresentation()
+    onCollectionChanged: if (!grid.loading)
+        syncPresentation()
+    onColumnsChanged: if (grid.loading)
+        syncPresentation()
+    Component.onCompleted: {
+        presentationReady = true;
+        syncPresentation();
+    }
     ScrollBar.vertical: EchoPageScrollBar {
         objectName: "favoriteUserScrollbar"
         view: grid
         container: grid.pageContainer
         viewActive: grid.visible && grid.pageActive
     }
-    delegate: grid.loading ? skeletonDelegate : userDelegate
     Component {
         id: userDelegate
         FavoriteUserCard {

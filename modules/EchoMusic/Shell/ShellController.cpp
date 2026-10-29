@@ -18,7 +18,8 @@ ShellController::~ShellController()
 {
     shutdown();
 }
-ShellController::ShellController(QSettings &settings, RouteController &router, QObject *parent)
+ShellController::ShellController(EchoMusic::SettingsStore &settings, RouteController &router,
+                                 QObject *parent)
     : QObject(parent), m_router(router), m_titlebar(settings, ShellActionModel::Titlebar, this),
       m_playerbar(settings, ShellActionModel::Playerbar, this), m_tasks(this), m_toasts(this)
 {

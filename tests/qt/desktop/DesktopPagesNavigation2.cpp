@@ -916,7 +916,7 @@ void DesktopPagesTest::sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots
     session.router.invalidateAccount();
     QCOMPARE(session.router.current()->resourceId(), QString("902"));
     session.preferences.sync();
-    QSettings saved(session.directory.filePath("preferences.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore saved(session.directory.filePath("preferences.ini"));
     SidebarLayoutModel restored(saved, nullptr);
     QCOMPARE(restored.shortcuts().size(), 4);
     QCOMPARE(restored.homeRoute(), QString("playlist-detail"));

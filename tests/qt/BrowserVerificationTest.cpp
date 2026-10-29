@@ -11,7 +11,7 @@
 #include <QNetworkProxy>
 #include <QScopeGuard>
 #include <QTemporaryDir>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QSignalSpy>
 #include <QTcpSocket>
 #include <QtTest>
@@ -241,7 +241,7 @@ private slots:
         QSignalSpy proof(session, &BrowserVerificationSession::proofSubmitted);
         QSignalSpy sdkFailure(session, &BrowserVerificationSession::sdkFailed);
         QTemporaryDir windowDirectory;
-        QSettings settings(windowDirectory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(windowDirectory.filePath("settings.ini"));
         WindowController window(settings, false);
         QQuickWindow view;
         view.setTitle("EchoMusicNext · 验证返回检查");

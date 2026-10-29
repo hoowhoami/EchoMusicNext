@@ -2,13 +2,14 @@
 #include "SongCatalogModel.h"
 #include "PlaybackQueueModel.h"
 #include "PlaybackService.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTemporaryDir>
 #include "SearchModel.h"
 #include <QAbstractItemModelTester>
 #include <QJsonDocument>
 #include <QSignalSpy>
 #include <QElapsedTimer>
+#include <QTcpServer>
 #include <QtTest>
 using namespace EchoMusic;
 namespace EchoMusic
@@ -83,6 +84,34 @@ public:
     static QSet<QString> waiting(const SongMetadataService &service, quint64 ticket)
     {
         return service.m_jobs.value(ticket).waiting;
+    }
+    static void fail(SongMetadataService &service, quint64 request, bool business = false)
+    {
+        service.fail(request, business);
+    }
+    static void endCooldown(SongMetadataService &service)
+    {
+        service.m_cooldown = 0;
+    }
+    static bool retryTimer(const SongMetadataService &service)
+    {
+        return service.m_retry.isActive();
+    }
+    static void retryNow(SongMetadataService &service)
+    {
+        service.m_cooldown = 0;
+        service.m_retry.start(0);
+    }
+    static quint64 firstFlight(const SongMetadataService &service)
+    {
+        return service.m_flights.isEmpty() ? 0 : service.m_flights.constBegin().key();
+    }
+    static QList<int> batchSizes(const SongMetadataService &service)
+    {
+        QList<int> sizes;
+        for (const auto &ids : service.m_flights)
+            sizes.append(ids.size());
+        return sizes;
     }
     static int embedded(const SongMetadataService &service)
     {
@@ -278,7 +307,7 @@ private slots:
     void playbackReaderBoundaryPublishesRawTagsToOtherLists()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
         PlaybackService playback(api, settings);
@@ -333,6 +362,94 @@ private slots:
         SongMetadataServiceTestAccess::flush(service);
         QCOMPARE(notifications, 0);
         QVERIFY(service.complete(song())["cover_url"].toString().isEmpty());
+        service.shutdown();
+        api.shutdown();
+    }
+    void failedMetadataRetriesOnlyLiveConsumersOnceAfterCooldown()
+    {
+        QTcpServer transport;
+        QVERIFY(transport.listen(QHostAddress::LocalHost));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(transport.serverPort()));
+        SongMetadataService service(api);
+        QSignalSpy completed(&service, &SongMetadataService::completed);
+        SongMetadataServiceTestAccess::reserve(service, {"1"});
+        const auto first = service.request({"1"});
+        const auto canceled = service.request({"1"});
+        SongMetadataServiceTestAccess::fail(service, 900002);
+        service.cancel(canceled);
+        SongMetadataServiceTestAccess::drain(service);
+        QCOMPARE(completed.size(), 0);
+        QCOMPARE(SongMetadataServiceTestAccess::waiting(service, first), QSet<QString>{"1"});
+        QVERIFY(SongMetadataServiceTestAccess::retryTimer(service));
+        SongMetadataServiceTestAccess::retryNow(service);
+        QTRY_COMPARE(SongMetadataServiceTestAccess::flights(service), 1);
+        const auto retry = SongMetadataServiceTestAccess::firstFlight(service);
+        QVERIFY(retry != 900002);
+        SongMetadataServiceTestAccess::deliver(service, retry, {presentation()});
+        api.cancel(retry);
+        QTRY_COMPARE(completed.size(), 1);
+        QCOMPARE(completed.first()[0].toULongLong(), first);
+        QCOMPARE(completed.first()[1].toJsonArray().size(), 1);
+        QVERIFY(!SongMetadataServiceTestAccess::retryTimer(service));
+
+        SongMetadataServiceTestAccess::reserve(service, {"2"});
+        service.request({"2"});
+        SongMetadataServiceTestAccess::fail(service, 900002);
+        SongMetadataServiceTestAccess::endCooldown(service);
+        SongMetadataServiceTestAccess::reserve(service, {"2"});
+        SongMetadataServiceTestAccess::fail(service, 900002);
+        SongMetadataServiceTestAccess::drain(service);
+        QCOMPARE(completed.size(), 2);
+        QVERIFY(completed.last()[1].toJsonArray().isEmpty());
+        QVERIFY(!SongMetadataServiceTestAccess::retryTimer(service));
+
+        SongMetadataServiceTestAccess::endCooldown(service);
+        SongMetadataServiceTestAccess::reserve(service, {"3"});
+        service.request({"3"});
+        SongMetadataServiceTestAccess::fail(service, 900002, true);
+        SongMetadataServiceTestAccess::drain(service);
+        QCOMPARE(completed.size(), 3);
+        QVERIFY(!SongMetadataServiceTestAccess::retryTimer(service));
+
+        SongMetadataServiceTestAccess::endCooldown(service);
+        SongMetadataServiceTestAccess::reserve(service, {"4"});
+        const auto cancelBeforeRetry = service.request({"4"});
+        SongMetadataServiceTestAccess::fail(service, 900002);
+        service.cancel(cancelBeforeRetry);
+        SongMetadataServiceTestAccess::drain(service);
+        QVERIFY(!SongMetadataServiceTestAccess::retryTimer(service));
+        QCOMPARE(completed.size(), 3);
+        SongMetadataServiceTestAccess::endCooldown(service);
+        SongMetadataServiceTestAccess::reserve(service, {"5"});
+        service.request({"5"});
+        SongMetadataServiceTestAccess::fail(service, 900002);
+        SongMetadataServiceTestAccess::drain(service);
+        QVERIFY(SongMetadataServiceTestAccess::retryTimer(service));
+        QVERIFY(api.setAccount(900003, "next-lifecycle-session"));
+        QVERIFY(!SongMetadataServiceTestAccess::retryTimer(service));
+        QCOMPARE(SongMetadataServiceTestAccess::jobs(service), 0);
+        SongMetadataServiceTestAccess::deliver(service, 900002, {presentation("5")});
+        QCOMPARE(completed.size(), 3);
+        service.shutdown();
+        api.shutdown();
+    }
+    void metadataBatchesStayWithinObservedUpstreamLimit()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService service(api);
+        QStringList ids;
+        for (int i = 1; i <= 151; ++i)
+            ids.append(QString::number(i));
+        const auto ticket = service.request(ids);
+        SongMetadataServiceTestAccess::drain(service);
+        const auto sizes = SongMetadataServiceTestAccess::batchSizes(service);
+        QCOMPARE(sizes.size(), 3);
+        for (auto size : sizes)
+            QCOMPARE(size, 50);
+        service.cancel(ticket);
+        SongMetadataServiceTestAccess::drain(service);
+        QCOMPARE(SongMetadataServiceTestAccess::flights(service), 0);
         service.shutdown();
         api.shutdown();
     }

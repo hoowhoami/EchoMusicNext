@@ -59,6 +59,9 @@ Item {
         model: root.collection
         visible: !root.loading
         reuseItems: true
+        EchoViewPoolGuard {
+            targetView: songs
+        }
         cacheBuffer: 240
         boundsBehavior: Flickable.StopAtBounds
         onMovementEnded: root.checkLoadMore()
@@ -185,6 +188,9 @@ Item {
         model: root.loading && root.visible ? 8 : 0
         interactive: false
         reuseItems: true
+        EchoViewPoolGuard {
+            targetView: loadingSongs
+        }
         cacheBuffer: 0
         delegate: SongSkeletonRow {
             property bool pooled: false

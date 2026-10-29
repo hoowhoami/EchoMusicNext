@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import EchoMusic.Shell
 import EchoMusic.Theme
+import EchoMusic.Controls
 
 ListView {
     id: strip
@@ -18,6 +19,9 @@ ListView {
     spacing: 6
     interactive: false
     reuseItems: true
+    EchoViewPoolGuard {
+        targetView: strip
+    }
     cacheBuffer: 0
     model: ShellActionProjection {
         actions: strip.actions

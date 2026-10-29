@@ -86,6 +86,9 @@ RoutePage {
             bottomMargin: 48
             clip: true
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: albumGrid
+            }
             cacheBuffer: cellHeight * 3
             boundsBehavior: Flickable.StopAtBounds
             model: page.detail.albums

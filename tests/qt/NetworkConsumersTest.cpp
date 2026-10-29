@@ -33,7 +33,7 @@ private slots:
     {
         QFETCH(bool, authenticated);
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("network.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("network.ini"));
         ApiClient api(DeviceIdentity::temporary());
         TestProxyStore store;
         NetworkPreferences preferences(settings, api, nullptr, &store);

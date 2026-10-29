@@ -111,6 +111,9 @@ Item {
             orientation: ListView.Horizontal
             interactive: false
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: toolbar
+            }
             cacheBuffer: 0
             spacing: 4
             model: ShellActionProjection {

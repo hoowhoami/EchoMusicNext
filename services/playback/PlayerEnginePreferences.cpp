@@ -12,7 +12,8 @@ double number(const QVariant &value, double fallback, double minimum, double max
     return ok && std::isfinite(result) ? qBound(minimum, result, maximum) : fallback;
 }
 } // namespace
-PlayerEnginePreferences::PlayerEnginePreferences(QSettings &settings, QObject *parent)
+PlayerEnginePreferences::PlayerEnginePreferences(EchoMusic::SettingsStore &settings,
+                                                 QObject *parent)
     : QObject(parent), m_settings(settings)
 {
     m_demuxerReadaheadSecs =

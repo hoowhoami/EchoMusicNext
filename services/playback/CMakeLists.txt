@@ -118,10 +118,10 @@ target_link_libraries(
 )
 qt_extract_metatypes(echo_playback_service)
 
-target_link_libraries(echo_playback_service PRIVATE echo_settings_keys)
-
 target_sources(
     echo_playback_service
     PRIVATE PlaybackQueueController.h PlaybackQueueController.cpp PlaybackOutputController.h
             PlaybackOutputController.cpp PlaybackSessionController.h PlaybackSessionController.cpp
 )
+
+target_link_libraries(echo_playback_service PUBLIC echo_settings_keys)

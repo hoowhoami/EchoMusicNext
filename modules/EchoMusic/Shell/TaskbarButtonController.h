@@ -4,7 +4,7 @@
 #include <QImage>
 #include <QObject>
 #include <QPointer>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QtQml/qqmlregistration.h>
 #include <optional>
 #include "TaskbarProgressState.h"
@@ -33,7 +33,7 @@ class TaskbarButtonController final : public QObject
     Q_PROPERTY(bool coverPreviewEnabled READ coverPreviewEnabled WRITE setCoverPreviewEnabled NOTIFY
                    changed)
 public:
-    explicit TaskbarButtonController(QSettings &settings, QObject *parent = nullptr);
+    explicit TaskbarButtonController(EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     bool available() const
     {
         return m_available;
@@ -69,7 +69,7 @@ private:
     /// a muted surface with a low-opacity music glyph.
     QImage placeholderCover();
     quintptr handle() const;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     QPointer<QQuickWindow> m_window;
     QPointer<PlaybackService> m_playback;
     /// The library action hub is created lazily when the library attaches, so

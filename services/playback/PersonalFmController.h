@@ -4,7 +4,7 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QPointer>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTimer>
 #include <optional>
 namespace EchoMusic
@@ -29,7 +29,7 @@ class PersonalFmController final : public QObject
     Q_PROPERTY(QVariantList sideTracks READ sideTracks NOTIFY changed)
     Q_PROPERTY(bool currentPlaying READ currentPlaying NOTIFY changed)
 public:
-    PersonalFmController(PlaybackService &, ApiClient &, QSettings &);
+    PersonalFmController(PlaybackService &, ApiClient &, EchoMusic::SettingsStore &);
     ~PersonalFmController() override;
     static QString queueKey()
     {
@@ -116,7 +116,7 @@ private:
     void savePreferences();
     PlaybackService &m_playback;
     ApiClient &m_api;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     QHash<quint64, Pending> m_requests;
     PlaybackTracks m_buffer;
     std::optional<PlaybackTrack> m_pendingTrack;

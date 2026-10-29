@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import EchoMusic.Theme
 import EchoMusic.Controls
 
@@ -294,7 +293,7 @@ ColumnLayout {
         id: fileDialogOwner
         hostItem: editor
         sourceComponent: Component {
-            FileDialog {
+            EchoFileDialog {
                 id: fileDialog
                 title: qsTr("选择背景图片")
                 nameFilters: [qsTr("背景图片 (*.jpg *.jpeg *.png *.webp)")]

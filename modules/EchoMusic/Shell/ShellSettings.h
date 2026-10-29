@@ -1,6 +1,6 @@
 #pragma once
 #include <QObject>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QtQml/qqmlregistration.h>
 #include "SidebarLayoutModel.h"
 
@@ -65,7 +65,7 @@ public:
     }
     void setMvBarrageEnabled(bool);
     Q_INVOKABLE void setMvBarrageOption(BarrageOption, double value);
-    explicit ShellSettings(QSettings &settings, QObject *parent = nullptr);
+    explicit ShellSettings(EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     SidebarLayoutModel *sidebarLayout()
     {
         return &m_sidebarLayout;
@@ -125,7 +125,7 @@ signals:
 
 private:
     void save(const QString &key, const QVariant &value);
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     SidebarLayoutModel m_sidebarLayout;
     bool m_collapsed = false, m_narrow = false, m_narrowExpanded = false, m_keepAlive = true,
          m_motion = true;

@@ -8,7 +8,7 @@ namespace
 const QStringList qualities{"standard",   "higher",      "flac",       "hi_res",
                             "viper_tape", "viper_clear", "viper_atmos"};
 }
-PlaybackPreferences::PlaybackPreferences(QSettings &settings, QObject *parent)
+PlaybackPreferences::PlaybackPreferences(EchoMusic::SettingsStore &settings, QObject *parent)
     : QObject(parent), m_settings(settings)
 {
     m_mvFallback =

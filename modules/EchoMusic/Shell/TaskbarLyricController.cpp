@@ -19,7 +19,7 @@ Q_LOGGING_CATEGORY(taskbarLyricLog, "echo.shell.taskbar-lyric")
 #endif
 } // namespace
 
-TaskbarLyricController::TaskbarLyricController(QSettings &settings, QObject *parent)
+TaskbarLyricController::TaskbarLyricController(EchoMusic::SettingsStore &settings, QObject *parent)
     : QObject(parent), m_settings(settings), m_settingsStore(settings, this)
 {
 #ifdef Q_OS_WIN

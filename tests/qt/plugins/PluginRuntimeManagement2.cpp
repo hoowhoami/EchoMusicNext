@@ -46,6 +46,7 @@ void PluginRuntimeTest::marketplaceInstallsActualPackageAndRejectsTampering()
                           QJsonObject{{"schemaVersion", 2},
                                       {"plugins",
                                        QJsonArray{QJsonObject{
+                                           {"id", "org.test.catalog"},
                                            {"path", "plugins/fixture"},
                                            {"artifact", "artifacts/fixture.echomod"},
                                            {"sha256", QString::fromLatin1(
@@ -287,7 +288,8 @@ ApplicationWindow {
     QTRY_COMPARE(command->state(), EchoPluginOperation::Succeeded);
     QCOMPARE(command->result().toInt(), 7);
     QVERIFY(
-        QFileInfo(host.runtime.directory() + "/data/" + installation + "/values.sqlite").isFile());
+        QFileInfo(PluginPaths(host.runtime.directory()).data("org.test.catalog") + "/values.sqlite")
+            .isFile());
     const auto originalArchive = archive;
     const auto generation = host.runtime.context(installation)->activationGeneration();
     // The index has already bound the original bytes. Even an otherwise

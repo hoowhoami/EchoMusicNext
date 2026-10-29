@@ -1685,3 +1685,79 @@ mod tests {
         assert_eq!(body["data"]["images"], serde_json::json!([]));
     }
 }
+
+#[cfg(test)]
+mod metadata_batch_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    #[tokio::test]
+    async fn metadata_public_hundred_id_query_uses_two_bounded_http_batches() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut received = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut input = Vec::new();
+                let (offset, length) = loop {
+                    if let Some(end) = input.windows(4).position(|v| v == b"\r\n\r\n") {
+                        let header = String::from_utf8_lossy(&input[..end]).to_ascii_lowercase();
+                        let length = header
+                            .lines()
+                            .find_map(|line| {
+                                line.strip_prefix("content-length:")
+                                    .map(|v| v.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap();
+                        break (end + 4, length);
+                    }
+                    let mut buffer = [0; 4096];
+                    let n = stream.read(&mut buffer).unwrap();
+                    assert!(n > 0);
+                    input.extend_from_slice(&buffer[..n]);
+                };
+                while input.len() < offset + length {
+                    let mut buffer = [0; 4096];
+                    let n = stream.read(&mut buffer).unwrap();
+                    assert!(n > 0);
+                    input.extend_from_slice(&buffer[..n]);
+                }
+                let body: serde_json::Value =
+                    serde_json::from_slice(&input[offset..offset + length]).unwrap();
+                let entities = body["data"].as_array().unwrap();
+                assert_eq!(entities.len(), 50);
+                assert_eq!(body["fields"], "album_info,base,authors.base");
+                let ids = entities
+                    .iter()
+                    .map(|v| v["entity_id"].as_u64().unwrap())
+                    .collect::<Vec<_>>();
+                let response = serde_json::json!({"status":1,"error_code":0,"data":ids.iter().map(|id|serde_json::json!({"base":{"album_audio_id":id,"songname":"transport fixture"}})).collect::<Vec<_>>()}).to_string();
+                write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",response.len(),response).unwrap();
+                received.extend(ids);
+            }
+            received
+        });
+        let mut client = ApiClient::new().unwrap();
+        client.base_url = format!("http://{address}");
+        let identity: Identity =
+            serde_json::from_value(serde_json::json!({"mid":"fixture-mid","dfid":"fixture-dfid"}))
+                .unwrap();
+        let result = crate::module::krm_audio::execute(
+            &client,
+            &identity,
+            crate::module::krm_audio::Query {
+                album_audio_ids: (1..=100).collect(),
+            },
+        )
+        .await
+        .unwrap();
+        let records: serde_json::Value = serde_json::from_slice(&result).unwrap();
+        assert_eq!(records.as_array().unwrap().len(), 100);
+        assert_eq!(records[0]["id"], "1");
+        assert_eq!(records[99]["id"], "100");
+        assert_eq!(server.join().unwrap(), (1..=100).collect::<Vec<_>>());
+    }
+}

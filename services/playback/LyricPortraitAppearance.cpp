@@ -4,7 +4,8 @@
 #include <cmath>
 namespace EchoMusic
 {
-LyricPortraitAppearance::LyricPortraitAppearance(QSettings &settings, QObject *parent)
+LyricPortraitAppearance::LyricPortraitAppearance(EchoMusic::SettingsStore &settings,
+                                                 QObject *parent)
     : QObject(parent), m_settings(settings)
 {
     setEnableSpring(settings.value(SettingsKeys::Lyrics::PortraitEnableSpring, true).toBool());

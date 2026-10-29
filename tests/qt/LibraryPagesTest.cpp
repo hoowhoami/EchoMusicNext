@@ -10,6 +10,7 @@
 #include "PurchasedService.h"
 #include "RouteController.h"
 #include "SongCatalogModel.h"
+#include "SocialUserModel.h"
 #include "UserPlaylistModel.h"
 #include "SidebarPlaylistModel.h"
 #include "ThemeStore.h"
@@ -29,7 +30,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTcpServer>
@@ -698,7 +699,7 @@ private slots:
     {
         QFETCH(bool, throughChooser);
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "offline-domain-fixture"));
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -794,7 +795,7 @@ private slots:
         QFETCH(bool, partial);
         QFETCH(bool, missingFile);
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1)); // Keep fake-account requests in the test transport.
         QVERIFY(api.setAccount(100, "offline-domain-fixture"));
@@ -1118,7 +1119,7 @@ private slots:
     void playlistEditorProductionDialogLifecycle()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         QTcpServer proxy;
         QVERIFY(proxy.listen(QHostAddress::LocalHost));
         ApiClient api(DeviceIdentity::temporary());
@@ -1236,7 +1237,7 @@ ApplicationWindow {
     void cloudMetadataCompletesEveryFileAndSurvivesPagination()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
         QVERIFY(api.setAccount(100, "offline-domain-fixture"));
@@ -1349,7 +1350,7 @@ ApplicationWindow {
     void cloudMetadataRefreshRouteAndAccountScopes()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
         QVERIFY(api.setAccount(100, "offline-domain-fixture"));
@@ -1408,7 +1409,7 @@ ApplicationWindow {
     void favoritesCompletesMetadataWithoutBlockingOrLosingPageFacts()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
         QVERIFY(api.setAccount(100, "offline-domain-fixture"));
@@ -1508,7 +1509,7 @@ ApplicationWindow {
     void favoritesMetadataRefreshAccountAndCacheScopes()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
         QVERIFY(api.setAccount(100, "offline-domain-fixture"));
@@ -1895,7 +1896,7 @@ ApplicationWindow {
     void cloudUploadProductionDialogLifecycle()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api;
         api.setAccount(123, "local-fixture-token");
         CloudUploadService upload(api, false);
@@ -2117,7 +2118,7 @@ ApplicationWindow {
                                 device.value("uuid").toString(),
                                 device.value("renderFingerprint").toString()};
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(identity);
         QVERIFY(api.setAccount(user.value("userid").toVariant().toULongLong(),
                                user.value("token").toString(), user.value("t1").toString()));
@@ -2279,7 +2280,7 @@ ApplicationWindow {
                                 device.value("uuid").toString(),
                                 device.value("renderFingerprint").toString()};
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(identity);
         QVERIFY(api.setAccount(user.value("userid").toVariant().toULongLong(),
@@ -2342,7 +2343,7 @@ ApplicationWindow {
     void favoritesAutomaticallyCompletesAndOrdersAcrossPages()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "control-fixture-never-a-real-credential"));
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -2395,7 +2396,7 @@ ApplicationWindow {
     void nativeLibraryTabRulesAndRows()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "library-tabs-test-token"));
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -2626,7 +2627,7 @@ Window {
     void favoritesSplitFollowProjectsAlbumsAndVideos()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "library-pages-token"));
@@ -2698,7 +2699,7 @@ Window {
     void cloudAutomaticallyLoadsWithoutScrollingAndCancelsContinuation()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         QTcpServer transport;
         QVERIFY(transport.listen(QHostAddress::LocalHost));
         ApiClient api(DeviceIdentity::temporary());
@@ -2822,7 +2823,7 @@ Window {
     void cloudPagesSortDeleteAndReportCounters()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "library-pages-token"));
         NetworkPreferences network(prefs, api);
@@ -2919,7 +2920,7 @@ Window {
     void purchasedDomainRowsPopulateSongsAndAlbumCards()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "library-pages-token"));
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -2978,7 +2979,7 @@ Window {
     void purchasedSongsContinueInBackgroundAndFenceCanceledPages()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "library-pages-token"));
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -3054,17 +3055,38 @@ Window {
         QVERIFY(!purchased.loading());
     }
 
+    void contentGridLoadingTransitionsKeepDelegateRoles_data()
+    {
+        QTest::addColumn<bool>("artist");
+        QTest::addColumn<bool>("video");
+        QTest::addColumn<bool>("initialLoading");
+        QTest::newRow("album-ready") << false << false << false;
+        QTest::newRow("album-loading") << false << false << true;
+        QTest::newRow("artist-ready") << true << false << false;
+        QTest::newRow("artist-loading") << true << false << true;
+        QTest::newRow("video-ready") << false << true << false;
+        QTest::newRow("video-loading") << false << true << true;
+    }
     void contentGridLoadingTransitionsKeepDelegateRoles()
     {
+        QFETCH(bool, artist);
+        QFETCH(bool, video);
+        QFETCH(bool, initialLoading);
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ThemeStore theme(prefs);
         theme.setMotionEnabled(false);
-        SongCatalogModel cards;
-        const QJsonArray rows{
-            QJsonObject{{"id", 789}, {"title", "Album A"}, {"creator", "Artist A"}},
-            QJsonObject{{"id", 790}, {"title", "Album B"}, {"creator", "Artist B"}}};
-        cards.replaceCards(rows);
+        SongCatalogModel cards, replacement;
+        const auto rows = [](int revision) {
+            QJsonArray result;
+            for (int i = 0; i < 300; ++i)
+                result.append(QJsonObject{{"id", 789 + revision * 1000 + i},
+                                          {"title", QString("Card %1-%2").arg(revision).arg(i)},
+                                          {"creator", QString("Artist %1").arg(revision)}});
+            return result;
+        };
+        cards.replaceCards(rows(0));
+        replacement.replaceCards(rows(9));
         QQmlEngine engine;
         theme.attachToEngine(engine);
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
@@ -3073,13 +3095,30 @@ Window {
 import QtQuick
 import EchoMusic.Music
 Window {
+ id: host
  required property SongCatalogModel cards
+ property bool initialLoading: false
+ property bool artistMode: false
+ property bool videoMode: false
+ property real zoom: 1
  visible: true; width: 800; height: 600
- ContentGrid { objectName: "transitionGrid"; anchors.fill: parent; sourceModel: cards }
+ Item {
+  width: parent.width / host.zoom
+  height: parent.height / host.zoom
+  scale: host.zoom; transformOrigin: Item.TopLeft
+  ContentGrid {
+   objectName: "transitionGrid"; anchors.fill: parent; sourceModel: host.cards
+   loading: host.initialLoading; artist: host.artistMode; video: host.videoMode
+   navigationAvailable: true
+  }
+ }
 })",
                           QUrl("qrc:/content-grid-transitions.qml"));
         QScopedPointer<QObject> root(
-            component.createWithInitialProperties({{"cards", QVariant::fromValue(&cards)}}));
+            component.createWithInitialProperties({{"cards", QVariant::fromValue(&cards)},
+                                                   {"initialLoading", initialLoading},
+                                                   {"artistMode", artist},
+                                                   {"videoMode", video}}));
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window);
@@ -3092,26 +3131,281 @@ Window {
                                       Q_ARG(int, 0));
             return item;
         };
-        QTRY_VERIFY(firstCard());
-        QCOMPARE(firstCard()->property("title").toString(), QString("Album A"));
-        for (int cycle = 0; cycle < 6; ++cycle) {
-            // Refreshes cross both directions between an integer skeleton model
-            // and a role-bearing catalog. Force a layout at every boundary.
+        for (int cycle = 1; cycle <= 6; ++cycle) {
             QVERIFY(grid->setProperty("loading", true));
             QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
             QTRY_VERIFY(firstCard());
             QVERIFY(!firstCard()->property("resourceId").isValid());
             cards.clear();
             theme.setMode(cycle % 2 ? ThemeStore::Dark : ThemeStore::Light);
-            window->setWidth(cycle % 2 ? 800 : 520);
+            window->setWidth(cycle % 2 ? 520 : 800);
+            root->setProperty("zoom", cycle % 2 ? 1.25 : 1.0);
             QCoreApplication::processEvents();
-            cards.replaceCards(rows);
+            cards.replaceCards(rows(cycle));
             QVERIFY(grid->setProperty("loading", false));
             QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
             QTRY_VERIFY(firstCard());
-            QCOMPARE(firstCard()->property("title").toString(), QString("Album A"));
-            QCOMPARE(firstCard()->property("resourceId").toString(), QString("789"));
+            QCOMPARE(firstCard()->property("title").toString(), QString("Card %1-0").arg(cycle));
+            QCOMPARE(firstCard()->property("resourceId").toString(),
+                     QString::number(789 + cycle * 1000));
+            QCOMPARE(firstCard()->property("artistText").toString(),
+                     QString("Artist %1").arg(cycle));
+            QSignalSpy open(grid, SIGNAL(openRequested(QString)));
+            QVERIFY(QMetaObject::invokeMethod(firstCard(), "clicked"));
+            QCOMPARE(open.count(), 1);
+            QCOMPARE(open.first().first().toString(), QString::number(789 + cycle * 1000));
+            int delegates = 0;
+            std::function<void(QQuickItem *)> count = [&](QQuickItem *item) {
+                if (item->objectName() == "contentDelegate")
+                    ++delegates;
+                for (auto *child : item->childItems())
+                    count(child);
+            };
+            count(grid);
+            QVERIFY2(delegates < 80, qPrintable(QString("Unbounded delegates: %1").arg(delegates)));
+            QVERIFY(grid->property("reuseItems").toBool());
         }
+        // Search/routes can detach and replace a catalog without a loading phase.
+        QVERIFY(grid->setProperty("sourceModel", QVariant::fromValue(&replacement)));
+        QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+        QTRY_VERIFY(firstCard());
+        QCOMPARE(firstCard()->property("title").toString(), QString("Card 9-0"));
+        QCOMPARE(firstCard()->property("resourceId").toString(), QString("9789"));
+        QVERIFY(grid->setProperty("sourceModel", QVariant()));
+        QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+        QTRY_COMPARE(grid->property("count").toInt(), 0);
+        QVERIFY(grid->setProperty("sourceModel", QVariant::fromValue(&cards)));
+        QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+        QTRY_VERIFY(firstCard());
+        QCOMPARE(firstCard()->property("title").toString(), QString("Card 6-0"));
+        cards.clear();
+        QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+        QTRY_COMPARE(grid->property("count").toInt(), 0);
+        cards.replaceCards(rows(7));
+        QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+        QTRY_VERIFY(firstCard());
+        QCOMPARE(firstCard()->property("title").toString(), QString("Card 7-0"));
+        QCOMPARE(warnings.count(), 0);
+    }
+
+    void fixedSongListModelReplacementKeepsRoles()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        SongCatalogModel firstModel, secondModel;
+        auto rows = [](int revision) {
+            QJsonArray result;
+            for (int i = 0; i < 300; ++i)
+                result.append(QJsonObject{{"id", revision * 1000 + i + 1},
+                                          {"title", QString("Song %1-%2").arg(revision).arg(i)}});
+            return result;
+        };
+        firstModel.replaceCards(rows(0));
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Music
+Window {
+ id: host
+ required property var source
+ property bool allowReuse: true
+ property int focusedRow: 2
+ property real scrollOffset: 0
+ visible: true; width: 800; height: 600
+ SongList { objectName: "fixedSongList"; anchors.fill: parent; model: host.source; reuseItems: host.allowReuse
+  currentIndex: host.focusedRow; contentY: host.scrollOffset
+  highlightFollowsCurrentItem: false
+ }
+})",
+                          QUrl("qrc:/fixed-song-list-model-replacement.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"source", QVariant::fromValue(&firstModel)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *view = root->findChild<QQuickItem *>("fixedSongList");
+        QVERIFY(view);
+        if (qEnvironmentVariableIsSet("ECHO_POOL_GUARD_BASELINE")) {
+            auto *guard = view->findChild<QObject *>("viewPoolGuard");
+            QVERIFY(guard);
+            guard->setProperty("ready", false); // Test-only reproduction of native pooling.
+        }
+        auto first = [&]() -> QQuickItem * {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(view, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, 0));
+            return item;
+        };
+        for (int cycle = 1; cycle <= 6; ++cycle) {
+            // Populate the reuse pool before a route-like model detach/replace.
+            root->setProperty("scrollOffset", 2000.0);
+            QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
+            QCoreApplication::processEvents();
+            root->setProperty("scrollOffset", 0.0);
+            QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
+            if (cycle % 2 == 0) {
+                QVERIFY(root->setProperty("source", QVariant()));
+                QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
+                QCOMPARE(view->property("count").toInt(), 0);
+            }
+            auto &next = cycle % 2 ? secondModel : firstModel;
+            next.replaceCards(rows(cycle));
+            QVERIFY(root->setProperty("source", QVariant::fromValue(&next)));
+            QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
+            const auto expected = QString("Song %1-0").arg(cycle);
+            QTRY_VERIFY(first() && first()->property("title").toString() == expected);
+            QCOMPARE(first()->property("resourceId").toString(), QString::number(cycle * 1000 + 1));
+            QCOMPARE(view->property("currentIndex").toInt(), 2);
+            root->setProperty("focusedRow", 3);
+            QTRY_COMPARE(view->property("currentIndex").toInt(), 3);
+            root->setProperty("focusedRow", 2);
+            root->setProperty("scrollOffset", 120.0);
+            QTRY_COMPARE(view->property("contentY").toReal(), 120.0);
+            root->setProperty("scrollOffset", 0.0);
+            QTRY_COMPARE(view->property("contentY").toReal(), 0.0);
+            root->setProperty("allowReuse", false);
+            QVERIFY(!view->property("reuseItems").toBool());
+            root->setProperty("allowReuse", true);
+            QVERIFY(view->property("reuseItems").toBool());
+        }
+        // Also cover imperative replacement, which removes the old QML binding.
+        QVERIFY(view->setProperty("model", QVariant::fromValue(&secondModel)));
+        QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
+        QTRY_VERIFY(first() && first()->property("title").toString() == QString("Song 5-0"));
+        QCOMPARE(warnings.count(), 0);
+    }
+
+    void favoriteUserGridLoadingTransitionsKeepDelegateRoles_data()
+    {
+        QTest::addColumn<bool>("singer");
+        QTest::addColumn<bool>("initialLoading");
+        QTest::newRow("singers-ready") << true << false;
+        QTest::newRow("singers-loading") << true << true;
+        QTest::newRow("users-ready") << false << false;
+        QTest::newRow("users-loading") << false << true;
+    }
+    void favoriteUserGridLoadingTransitionsKeepDelegateRoles()
+    {
+        QFETCH(bool, singer);
+        QFETCH(bool, initialLoading);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        SocialUserModel people(nullptr);
+        auto rows = [](int revision) {
+            QJsonArray result;
+            for (int i = 0; i < 300; ++i)
+                result.append(
+                    QJsonObject{{"key", QString::number(i)},
+                                {"artist_id", 1000 + i},
+                                {"user_id", 2000 + i},
+                                {"nickname", QString("Person %1-%2").arg(revision).arg(i)},
+                                {"avatar_url", ""},
+                                {"description", QString("Description %1").arg(revision)}});
+            return result;
+        };
+        people.replace(rows(0));
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Favorites
+Window {
+    id: host
+    required property var people
+    property bool initialLoading: false
+    property bool singer: false
+    property real zoom: 1
+    visible: true; width: 800; height: 600
+    Item {
+        width: parent.width / host.zoom
+        height: parent.height / host.zoom
+        scale: host.zoom
+        transformOrigin: Item.TopLeft
+        FavoriteUserGrid {
+            objectName: "userTransitionGrid"
+            anchors.fill: parent
+            collection: host.people
+            loading: host.initialLoading
+            singer: host.singer
+            navigationAvailable: true
+        }
+    }
+})",
+                          QUrl("qrc:/favorite-user-grid-transitions.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"people", QVariant::fromValue(&people)},
+                                                   {"singer", singer},
+                                                   {"initialLoading", initialLoading}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *grid = root->findChild<QQuickItem *>("userTransitionGrid");
+        QVERIFY(grid);
+        auto first = [&]() -> QQuickItem * {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(grid, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, 0));
+            return item;
+        };
+        for (int cycle = 1; cycle <= 6; ++cycle) {
+            QVERIFY(grid->setProperty("loading", true));
+            QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+            QTRY_VERIFY(first());
+            QVERIFY(!first()->property("nickname").isValid());
+            people.replace({});
+            window->setWidth(cycle % 2 ? 520 : 800);
+            root->setProperty("zoom", cycle % 2 ? 1.25 : 1.0);
+            theme.setMode(cycle % 2 ? ThemeStore::Dark : ThemeStore::Light);
+            QCoreApplication::processEvents();
+            people.replace(rows(cycle));
+            QVERIFY(grid->setProperty("loading", false));
+            QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+            QTRY_VERIFY(first());
+            QCOMPARE(first()->property("nickname").toString(), QString("Person %1-0").arg(cycle));
+            QCOMPARE(first()->property("avatarUrl").toString(), QString());
+            QCOMPARE(first()->property("metaText").toString(),
+                     QString("Description %1").arg(cycle));
+            QCOMPARE(first()->property("artistId").toLongLong(), qint64(1000));
+            QCOMPARE(first()->property("userId").toLongLong(), qint64(2000));
+            QCOMPARE(first()->property("targetId").toString(),
+                     singer ? QString("1000") : QString("2000"));
+            QSignalSpy open(grid, SIGNAL(openRequested(QString)));
+            QVERIFY(QMetaObject::invokeMethod(first(), "clicked"));
+            QCOMPARE(open.count(), singer ? 1 : 0);
+            if (singer)
+                QCOMPARE(open.first().first().toString(), QString("1000"));
+            int delegates = 0;
+            std::function<void(QQuickItem *)> count = [&](QQuickItem *item) {
+                if (item->objectName() == "favoriteUserCard")
+                    ++delegates;
+                for (auto *child : item->childItems())
+                    count(child);
+            };
+            count(grid);
+            QVERIFY2(delegates < 80, qPrintable(QString("Unbounded delegates: %1").arg(delegates)));
+        }
+        QVERIFY(grid->setProperty("loading", true));
+        QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+        people.replace({});
+        QVERIFY(grid->setProperty("loading", false));
+        QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+        QTRY_COMPARE(grid->property("count").toInt(), 0);
+        QVERIFY(!first());
+        people.replace(rows(7));
+        QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+        QTRY_VERIFY(first());
+        QCOMPARE(first()->property("nickname").toString(), QString("Person 7-0"));
         QCOMPARE(warnings.count(), 0);
     }
 
@@ -3147,7 +3441,7 @@ Window {
                                 device.value("uuid").toString(),
                                 device.value("renderFingerprint").toString()};
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(identity);
         QVERIFY(api.setAccount(quint64(user.value("userid").toInteger()),
                                user.value("token").toString(), user.value("t1").toString()));
@@ -3294,7 +3588,7 @@ Window {
     void likedRowFollowsSourceLookupOrder()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "library-pages-token"));
         RouteController router;
@@ -3310,7 +3604,7 @@ Window {
     void favoritesTracksOrderLoadsSavesAndValidates()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "library-pages-token"));
         NetworkPreferences network(prefs, api);

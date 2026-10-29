@@ -31,7 +31,7 @@ void PluginRuntimeTest::managementFirstOpenAfterRestart()
     QFETCH(bool, dark);
     QFETCH(double, scale);
     QTemporaryDir directory;
-    QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
     ApiClient api(DeviceIdentity::temporary());
     AccountService account(api);
     PlaybackService playback(api, preferences, nullptr, directory.filePath("playback.sqlite"));

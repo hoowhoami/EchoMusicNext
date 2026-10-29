@@ -30,7 +30,8 @@ QHash<int, QByteArray> actionRoles()
             {M::HoverRole, "actionHover"}};
 }
 } // namespace
-ShellActionModel::ShellActionModel(QSettings &preferences, Surface surface, QObject *parent)
+ShellActionModel::ShellActionModel(EchoMusic::SettingsStore &preferences, Surface surface,
+                                   QObject *parent)
     : QAbstractListModel(parent), m_preferences(preferences), m_surface(surface),
       m_prefix(surface == Titlebar ? EchoMusic::SettingsKeys::Shell::TitlebarPrefix
                                    : EchoMusic::SettingsKeys::Shell::PlayerbarPrefix)

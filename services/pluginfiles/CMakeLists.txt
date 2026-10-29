@@ -16,5 +16,5 @@ target_include_directories(
 target_link_libraries(
     echo_plugin_files
     PUBLIC Qt6::Core
-    PRIVATE Qt6::Network Qt6::Gui echo_ffi echo_build_options
+    PRIVATE Qt6::Network Qt6::Gui echo_ffi echo_build_options echo_plugin_packages
 )

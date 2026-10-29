@@ -33,7 +33,7 @@
 #include <QQuickImageProvider>
 #include <QMutex>
 #include <QMutexLocker>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QStandardItemModel>
 #include <QSignalSpy>
 #include <QSqlQuery>
@@ -239,7 +239,7 @@ private slots:
         QFETCH(QSize, size);
         QFETCH(qreal, zoom);
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ThemeStore theme(prefs);
         theme.setMotionEnabled(false);
@@ -490,7 +490,7 @@ Window {
     void homeAgreementAndLegalParagraphAlignment()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ThemeStore theme(prefs);
         theme.setMotionEnabled(false);
         theme.setFloatingFrosted(false);
@@ -641,7 +641,7 @@ Window {
         QTRY_VERIFY(shell.userAgreementAccepted());
         QTRY_VERIFY(agreement.isNull());
         QCOMPARE(nativePopups(), 0);
-        QSettings reread(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore reread(dir.filePath("prefs.ini"));
         ShellSettings restored(reread);
         QVERIFY(restored.userAgreementAccepted());
         QVERIFY(router.navigate("ranking"));
@@ -676,7 +676,7 @@ Window {
     void songSearchClearRestoresTheActualCollection()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ThemeStore theme(prefs);
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -767,7 +767,7 @@ Window {
         QFETCH(int, zoomSteps);
         QFETCH(int, windowWidth);
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         AccountService account(api);
@@ -1173,7 +1173,7 @@ Window {
     void artistDirectoryLoadsOnlyTheFeaturedAvatars()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ThemeStore theme(prefs);
         theme.setMotionEnabled(false);
         ShellSettings settings(prefs);
@@ -1418,7 +1418,7 @@ Window {
     void borrowedCommandsSurviveQmlGarbageCollection()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         AccountService account(api);
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -1470,7 +1470,7 @@ Window {
     void independentRequestsAndSessionIsolation()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         AccountService account(api);
@@ -1510,7 +1510,7 @@ Window {
     void freeListenAndDiscoverFlowPages()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         AccountService account(api);
@@ -2013,7 +2013,7 @@ Window {
                                      identity["guid"].toString(), identity["mac"].toString(),
                                      identity["device_name"].toString(), "-", "-"});
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         NetworkPreferences network(prefs, api);
         QVERIFY(network.transportAvailable());
@@ -2065,7 +2065,7 @@ Window {
     void exploreProjectionsTabIdentityAndRetiredRequests()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -2147,7 +2147,7 @@ Window {
     void exploreSpacingAndScrollingHeadersStayBelowPinnedContent()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
@@ -2400,7 +2400,7 @@ Window {
                                      identity["guid"].toString(), identity["mac"].toString(),
                                      identity["device_name"].toString(), "-", "-"});
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         NetworkPreferences network(prefs, api);
         QVERIFY(network.transportAvailable());
@@ -2572,7 +2572,7 @@ Window {
     void themedDateInkCentersInNativePixels()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ThemeStore theme(prefs);
         theme.setAccent(QColor("#c95532"));
         QQmlEngine engine;
@@ -2656,7 +2656,7 @@ Window {
     void detailHeadersDistributeEveryMetadataRow()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         AccountService account(api);
@@ -2810,7 +2810,7 @@ Window {
         if (!qEnvironmentVariableIsSet("ECHO_DISCOVERY_LIVE_UI"))
             QSKIP("Opt-in real native discovery requests and Cocoa capture");
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         AccountService account(api);

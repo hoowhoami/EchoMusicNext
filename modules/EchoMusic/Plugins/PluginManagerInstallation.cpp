@@ -46,8 +46,8 @@ bool PluginManager::install(const QString &key)
     m_installWasUpdate = !m_runtime.installationForId(e.value("id").toString()).isEmpty();
     m_installingKey = key;
     rebuild();
-    get(QUrl(raw({{"repository", e.value("repository")}}, e.value("artifact").toString())),
-        128 * 1024 * 1024, [this, e](QByteArray bytes, QString error) {
+    get(QUrl(e.value("artifactUrl").toString()), 128 * 1024 * 1024,
+        [this, e](QByteArray bytes, QString error) {
             if (!error.isEmpty())
                 finishInstall(false, error);
             else
@@ -96,7 +96,12 @@ void PluginManager::extractLocal(const QString &archive, const QVariantMap &entr
                                        : QVariantMap{{"kind", "marketplace"},
                                                      {"id", entry.value("sourceId")},
                                                      {"name", entry.value("sourceName")},
-                                                     {"url", entry.value("sourceUrl")}};
+                                                     {"url", entry.value("sourceUrl")},
+                                                     {"repository", entry.value("repository")},
+                                                     {"ref", entry.value("ref")},
+                                                     {"path", entry.value("path")},
+                                                     {"artifact", entry.value("artifact")},
+                                                     {"sha256", entry.value("sha256")}};
         m_pendingPluginId = localPluginId(result.first);
         if (!m_runtime.installDirectory(result.first, origin, entry.value("manifest").toMap(),
                                         stage))

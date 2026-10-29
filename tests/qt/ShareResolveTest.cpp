@@ -58,7 +58,7 @@ namespace
 struct Fixture
 {
     QTemporaryDir dir;
-    QSettings settings{dir.filePath("prefs.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore settings{dir.filePath("prefs.ini")};
     ApiClient api{DeviceIdentity::temporary()};
     AccountService account{api};
     PlaybackService playback{api, settings};

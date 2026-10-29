@@ -48,7 +48,7 @@ private slots:
     void productionSurfaces()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
         ThemeStore theme(settings);
         theme.setFloatingFrosted(true);
         NativeBridge native;

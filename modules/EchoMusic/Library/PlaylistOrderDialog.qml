@@ -19,11 +19,11 @@ EchoDialog {
     property bool tracksMode: false
     property real tracksListId: 0
     property string tracksTitle: ""
+    // Body/footer are separately loaded components. Expose only their transient
+    // controller for cancellation and button gating, never a second order model.
+    property EchoListReorder reorderController: null
+    readonly property bool reordering: reorderController !== null && reorderController.busy
     readonly property bool loading: editor.busy && !editor.saving && editor.count === 0
-    property int dragIndex: -1
-    property int dropIndex: -1
-    property real pointerY: 0
-    property string dragTitle: ""
     preferredWidth: 540
     height: Math.min(480, parent ? Math.max(120, parent.height / uiScale - 96) : 480)
     maximumHeight: 480
@@ -34,13 +34,21 @@ EchoDialog {
     closable: !editor.saving
     closePolicy: editor.saving ? Popup.NoAutoClose : Popup.CloseOnEscape | Popup.CloseOnPressOutside
     function load(): void {
+        if (dialog.reorderController)
+            dialog.reorderController.cancel();
         if (dialog.tracksMode)
             dialog.editor.openTracks(dialog.tracksListId, dialog.tracksTitle);
         else
             dialog.editor.open(dialog.playlistTab);
     }
+    onAboutToHide: if (dialog.reorderController)
+        dialog.reorderController.cancel()
     onOpened: dialog.load()
-    onClosed: editor.close()
+    onClosed: {
+        if (dialog.reorderController)
+            dialog.reorderController.cancel();
+        editor.close();
+    }
     Connections {
         target: dialog.editor
         function onSaved() {
@@ -86,7 +94,7 @@ EchoDialog {
                 font: Theme.font(12, Theme.semiboldWeight)
                 colors: Theme.floating
                 accent: false
-                enabled: !dialog.editor.busy
+                enabled: !dialog.editor.busy && !dialog.reordering
                 onClicked: dialog.load()
             }
         }
@@ -134,7 +142,7 @@ EchoDialog {
                             Layout.preferredWidth: 32
                             Layout.preferredHeight: 32
                             padding: 8
-                            enabled: !dialog.editor.busy && dialog.editor.selected > 0
+                            enabled: !dialog.editor.busy && !dialog.reordering && dialog.editor.selected > 0
                             onClicked: {
                                 dialog.editor.move(dialog.editor.selected, dialog.editor.selected - 1);
                                 list.positionViewAtIndex(dialog.editor.selected, ListView.Contain);
@@ -146,7 +154,7 @@ EchoDialog {
                             Layout.preferredWidth: 32
                             Layout.preferredHeight: 32
                             padding: 8
-                            enabled: !dialog.editor.busy && dialog.editor.selected >= 0 && dialog.editor.selected + 1 < dialog.editor.count
+                            enabled: !dialog.editor.busy && !dialog.reordering && dialog.editor.selected >= 0 && dialog.editor.selected + 1 < dialog.editor.count
                             onClicked: {
                                 dialog.editor.move(dialog.editor.selected, dialog.editor.selected + 1);
                                 list.positionViewAtIndex(dialog.editor.selected, ListView.Contain);
@@ -190,7 +198,7 @@ EchoDialog {
                             value: 1
                             Layout.preferredWidth: 92
                             Layout.preferredHeight: 32
-                            enabled: !dialog.editor.busy && dialog.editor.count > 0
+                            enabled: !dialog.editor.busy && !dialog.reordering && dialog.editor.count > 0
                             font: Theme.font(12, Theme.mediumWeight)
                             Accessible.name: qsTr("目标位置")
                         }
@@ -229,6 +237,10 @@ EchoDialog {
                 visible: !dialog.loading
                 model: dialog.editor
                 reuseItems: true
+                EchoViewPoolGuard {
+                    targetView: list
+                }
+                interactive: !dialog.reordering
                 cacheBuffer: 52 * 6
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: EchoPopupScrollBar {
@@ -236,112 +248,51 @@ EchoDialog {
                     view: list
                     resourceActive: dialog.opened
                 }
-                DragHandler {
-                    id: reorder
-                    target: null
-                    enabled: !dialog.editor.busy && dialog.editor.count > 0
-                    cursorShape: Qt.ArrowCursor
-                    onActiveChanged: {
-                        if (active) {
-                            dialog.pointerY = centroid.position.y;
-                            dialog.dragIndex = list.indexAt(centroid.pressPosition.x, centroid.pressPosition.y + list.contentY);
-                            dialog.dropIndex = dialog.dragIndex;
-                            dialog.dragTitle = dialog.editor.titleAt(dialog.dragIndex);
-                            dialog.editor.select(dialog.dragIndex);
-                        } else {
-                            dialog.editor.move(dialog.dragIndex, dialog.dropIndex);
-                            dialog.dragIndex = -1;
+                property Item reorderController: EchoListReorder {
+                    id: orderReorder
+                    objectName: "playlistOrderReorder"
+                    Component.onCompleted: dialog.reorderController = orderReorder
+                    Component.onDestruction: dialog.reorderController = null
+                    parent: list
+                    view: list
+                    sourceModel: dialog.editor
+                    rowHeight: 52
+                    blocked: dialog.editor.busy
+                    resourceActive: dialog.visible && !dialog.loading
+                    snapshotForRow: row => ({
+                                title: row.title,
+                                subtitle: row.subtitle
+                            })
+                    onStarted: index => dialog.editor.select(index)
+                    onMoveRequested: (from, to) => dialog.editor.move(from, to)
+                    dragContent: Component {
+                        PlaylistOrderRow {
+                            objectName: "playlistOrderGhost"
+                            index: orderReorder.fromIndex
+                            title: orderReorder.snapshot ? orderReorder.snapshot.title : ""
+                            subtitle: orderReorder.snapshot ? orderReorder.snapshot.subtitle : ""
+                            selected: true
+                            lifted: true
+                            interactive: false
                         }
                     }
-                    onTranslationChanged: if (active) {
-                        dialog.pointerY = centroid.position.y;
-                        dialog.dropIndex = Math.max(0, Math.min(dialog.editor.count - 1, Math.floor((list.contentY + dialog.pointerY) / 52)));
-                    }
                 }
-                Timer {
-                    interval: 16
-                    repeat: true
-                    running: dialog.dragIndex >= 0 && dialog.opened
-                    onTriggered: {
-                        const edge = 48;
-                        const delta = dialog.pointerY < edge ? -Math.min(12, (edge - dialog.pointerY) / 4) : dialog.pointerY > list.height - edge ? Math.min(12, (dialog.pointerY - list.height + edge) / 4) : 0;
-                        list.contentY = Math.max(0, Math.min(Math.max(0, list.contentHeight - list.height), list.contentY + delta));
-                        dialog.dropIndex = Math.max(0, Math.min(dialog.editor.count - 1, Math.floor((list.contentY + dialog.pointerY) / 52)));
-                    }
-                }
-                delegate: ItemDelegate {
+                delegate: EchoReorderRow {
                     id: row
                     objectName: "playlistOrderRow"
-                    required property int index
+                    reorder: orderReorder
                     required property string title
                     required property string subtitle
-                    width: list.width
-                    height: 52
-                    padding: 14
-                    enabled: !dialog.editor.busy
-                    onClicked: dialog.editor.select(index)
-                    Accessible.name: title
-                    background: Rectangle {
-                        color: dialog.editor.selected === row.index ? Theme.withAlpha(Theme.floating.accent, 0.08) : row.hovered ? Theme.floating.hover : "transparent"
-                        Rectangle {
-                            width: 2
-                            height: parent.height
-                            visible: dialog.editor.selected === row.index
-                            color: Theme.floating.accent
-                        }
-                    }
-                    contentItem: RowLayout {
-                        spacing: 10
-                        Grid {
-                            Layout.preferredWidth: 10
-                            Layout.preferredHeight: 14
-                            columns: 2
-                            spacing: 3
-                            Repeater {
-                                model: 6
-                                delegate: Rectangle {
-                                    width: 2
-                                    height: 2
-                                    radius: 1
-                                    color: Theme.floatingSecondaryText
-                                }
-                            }
-                        }
-
-                        Label {
-                            text: row.index + 1
-                            Layout.preferredWidth: 34
-                            horizontalAlignment: Text.AlignRight
-                            color: Theme.floatingSecondaryText
-                            font: Theme.font(12, Theme.regularWeight)
-                        }
-                        ColumnLayout {
-                            Layout.fillHeight: false
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Label {
-                                text: row.title
-                                Layout.fillWidth: true
-                                elide: Text.ElideRight
-                                color: Theme.floatingText
-                                font: Theme.font(13, Theme.mediumWeight)
-                            }
-                            Label {
-                                text: row.subtitle
-                                color: Theme.floatingSecondaryText
-                                font: Theme.font(11, Theme.regularWeight)
-                            }
-                        }
-                    }
-                    opacity: dialog.dragIndex === index ? 0 : 1
-                    transform: Translate {
-                        y: dialog.dragIndex < 0 ? 0 : dialog.dropIndex > dialog.dragIndex && row.index > dialog.dragIndex && row.index <= dialog.dropIndex ? -52 : dialog.dropIndex < dialog.dragIndex && row.index < dialog.dragIndex && row.index >= dialog.dropIndex ? 52 : 0
-                        Behavior on y {
-                            NumberAnimation {
-                                duration: 160
-                                easing.type: Easing.OutCubic
-                            }
-                        }
+                    readonly property bool hovered: visualRow.hovered
+                    PlaylistOrderRow {
+                        id: visualRow
+                        objectName: "playlistOrderRowVisual"
+                        index: row.index
+                        title: row.title
+                        subtitle: row.subtitle
+                        selected: dialog.editor.selected === row.index
+                        interactive: !dialog.editor.busy && !dialog.reordering
+                        onSelectedRequested: index => dialog.editor.select(index)
                     }
                 }
             }
@@ -382,24 +333,6 @@ EchoDialog {
                     }
                 }
             }
-            Rectangle {
-                width: list.width
-                height: 52
-                y: Math.max(0, Math.min(list.height - height, dialog.pointerY - height / 2))
-                visible: dialog.dragIndex >= 0
-                color: Theme.mix(Theme.floating.card, Theme.floating.accent, 0.08)
-                radius: Theme.cardRadius
-                border.color: Theme.withAlpha(Theme.floating.accent, 0.3)
-                Label {
-                    anchors.fill: parent
-                    anchors.margins: 14
-                    text: dialog.dragTitle
-                    font: Theme.font(13, Theme.mediumWeight)
-                    color: Theme.floatingText
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
-                }
-            }
             Label {
                 anchors.centerIn: parent
                 visible: dialog.editor.count === 0 && !dialog.loading
@@ -417,7 +350,7 @@ EchoDialog {
             font: Theme.font(12, Theme.semiboldWeight)
             colors: Theme.floating
             accent: false
-            enabled: !dialog.editor.busy && dialog.editor.dirty
+            enabled: !dialog.editor.busy && !dialog.reordering && dialog.editor.dirty
             onClicked: dialog.editor.restore()
         }
         Item {
@@ -444,7 +377,7 @@ EchoDialog {
             size: EchoControlSize.Standard
             font: Theme.font(12, Theme.semiboldWeight)
             colors: Theme.floating
-            enabled: !dialog.editor.busy && dialog.editor.dirty
+            enabled: !dialog.editor.busy && !dialog.reordering && dialog.editor.dirty
             onClicked: dialog.editor.save()
         }
     }

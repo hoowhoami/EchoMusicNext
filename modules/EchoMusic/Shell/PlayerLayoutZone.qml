@@ -105,6 +105,9 @@ Rectangle {
         orientation: ListView.Horizontal
         spacing: 6
         reuseItems: pane.resourceActive
+        EchoViewPoolGuard {
+            targetView: chips
+        }
         cacheBuffer: 0
         model: ShellActionProjection {
             actions: pane.resourceActive ? pane.actions : null

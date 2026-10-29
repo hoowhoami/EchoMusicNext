@@ -3,7 +3,7 @@
 #include <QAbstractListModel>
 #include <QPointer>
 #include <QQuickWindow>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <functional>
 #include <QHash>
 #include <QtQml/qqmlregistration.h>
@@ -52,7 +52,7 @@ public:
         Modified,
         GlobalError
     };
-    explicit ShortcutService(QSettings &settings, bool nativeRegistration = true,
+    explicit ShortcutService(EchoMusic::SettingsStore &settings, bool nativeRegistration = true,
                              QObject *parent = nullptr);
     ~ShortcutService() override;
     int rowCount(const QModelIndex &parent = {}) const override;
@@ -129,7 +129,7 @@ private:
     void persist(int row);
     void registerGlobal();
     bool editableFocus(QQuickWindow *window) const;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     QList<Entry> m_entries;
     QPointer<QQuickWindow> m_window, m_miniWindow;
     GlobalShortcuts m_global;

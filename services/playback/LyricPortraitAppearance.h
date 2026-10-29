@@ -1,6 +1,6 @@
 #pragma once
 #include <QObject>
-#include <QSettings>
+#include "SettingsStore.h"
 namespace EchoMusic
 {
 /// Independent portrait skin settings; global lyric preferences stay in LyricAppearance.
@@ -27,7 +27,7 @@ class LyricPortraitAppearance final : public QObject
     Q_PROPERTY(bool enableBlur READ enableBlur WRITE setEnableBlur NOTIFY changed)
     Q_PROPERTY(bool enableScale READ enableScale WRITE setEnableScale NOTIFY changed)
 public:
-    explicit LyricPortraitAppearance(QSettings &settings, QObject *parent = nullptr);
+    explicit LyricPortraitAppearance(EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     int backdropOpacity() const
     {
         return m_backdropOpacity;
@@ -117,7 +117,7 @@ private:
     bool m_enableSpring = true;
     bool m_enableBlur = true;
     bool m_enableScale = true;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     int m_backdropOpacity = 50;
     bool m_carouselEnabled = true;
     int m_carouselInterval = 15;

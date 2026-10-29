@@ -3,7 +3,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Shapes
-import QtQuick.Dialogs as NativeDialogs
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Playback
@@ -250,7 +249,7 @@ EchoDialog {
         id: filePickerOwner
         hostItem: manager.contentItem
         sourceComponent: Component {
-            NativeDialogs.FileDialog {
+            EchoFileDialog {
                 id: filePicker
                 title: qsTr("导入音效引擎")
                 parentWindow: manager.parent ? manager.parent.Window.window : null

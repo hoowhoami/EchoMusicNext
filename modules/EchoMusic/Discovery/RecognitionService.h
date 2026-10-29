@@ -3,7 +3,7 @@
 #include "SongCatalogModel.h"
 #include "SongCatalogActions.h"
 #include "RouteController.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QElapsedTimer>
 #include <QTimer>
 namespace EchoMusic
@@ -35,8 +35,8 @@ public:
         Failed
     };
     Q_ENUM(State)
-    RecognitionService(ApiClient &, PlaybackService &, RecognitionCapture &, QSettings &,
-                       RouteController &, QObject *parent = nullptr);
+    RecognitionService(ApiClient &, PlaybackService &, RecognitionCapture &,
+                       EchoMusic::SettingsStore &, RouteController &, QObject *parent = nullptr);
     ~RecognitionService() override;
     int state() const
     {
@@ -93,7 +93,7 @@ private:
     ApiClient &m_api;
     PlaybackService &m_playback;
     RecognitionCapture &m_capture;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     SongCatalogModel m_matches;
     SongCatalogActions m_actions;
     State m_state = Idle;

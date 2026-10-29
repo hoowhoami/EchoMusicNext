@@ -1,6 +1,6 @@
 #pragma once
 #include <QAbstractListModel>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QPointer>
 #include <functional>
 #include <QHash>
@@ -65,7 +65,7 @@ public:
         Hidden,
         Pinned
     };
-    explicit SidebarLayoutModel(QSettings &preferences, QObject *parent);
+    explicit SidebarLayoutModel(EchoMusic::SettingsStore &preferences, QObject *parent);
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
@@ -148,7 +148,7 @@ private:
     QSet<QString> m_portraitAttempts;
     bool m_browsing = false, m_resourceNetwork = false, m_historyLoading = false;
     QString m_historyError;
-    QSettings &m_preferences;
+    EchoMusic::SettingsStore &m_preferences;
     QPointer<LibraryController> m_library;
     void applyPlaylistVisibility();
     QAbstractItemModel *m_shortcuts = nullptr;

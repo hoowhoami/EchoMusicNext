@@ -119,6 +119,9 @@ Item {
                 visible: !plaza.catalog.brands
                 clip: true
                 reuseItems: true
+                EchoViewPoolGuard {
+                    targetView: effects
+                }
                 cacheBuffer: 256
                 spacing: 8
                 leftMargin: 12
@@ -161,6 +164,9 @@ Item {
                 visible: plaza.catalog.brands
                 clip: true
                 reuseItems: true
+                EchoViewPoolGuard {
+                    targetView: brands
+                }
                 cacheBuffer: 192
                 leftMargin: 12
                 rightMargin: 12

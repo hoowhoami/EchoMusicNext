@@ -60,11 +60,11 @@ void PluginRuntimeTest::metadataCommitFailureRetiresNewCodeAndRetainsRecoverySna
     QVERIFY(host.runtime.installDirectory(source));
     const auto installation = host.installation();
     QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Activating);
-    const auto file = host.settings.fileName();
+    const auto file = PluginPaths(host.runtime.directory()).state("catalog.json");
     QVERIFY(QFile::rename(file, file + ".saved"));
     QVERIFY(QDir().mkpath(file));
     QString installedEntry;
-    QDir versions(host.runtime.directory() + "/packages/" + installation);
+    QDir versions(PluginPaths(host.runtime.directory()).images() + "/test.runtime");
     for (const auto &version : versions.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
         QFile file(versions.filePath(version + "/manifest.json"));
         QVERIFY(file.open(QIODevice::ReadOnly));
@@ -79,8 +79,10 @@ void PluginRuntimeTest::metadataCommitFailureRetiresNewCodeAndRetainsRecoverySna
     QVERIFY(!finished.last()[1].toBool());
     QCOMPARE(host.runtime.record(installation).value("version").toString(), QString("1.0.0"));
     QVERIFY(host.runtime.state(installation) != PluginRuntime::Active);
-    QVERIFY(host.settings.value("plugins/rollback/" + installation).toBool());
-    QVERIFY(QDir(host.runtime.directory() + "/transactions/" + installation).exists());
+    QVERIFY(!QDir(PluginPaths(host.runtime.directory()).transactions("test.runtime"))
+                 .entryList(QDir::Dirs | QDir::NoDotAndDotDot)
+                 .isEmpty());
+    QVERIFY(QDir(PluginPaths(host.runtime.directory()).transactions("test.runtime")).exists());
     QVERIFY(QDir(file).removeRecursively());
     QVERIFY(QFile::rename(file + ".saved", file));
     host.settings.sync();
@@ -98,6 +100,7 @@ export function activate(ctx) {
                                 {"storage"});
     host.runtime.importDirectory(source);
     QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Active);
+    QTRY_VERIFY(!host.runtime.loading());
     const auto installation = host.installation();
     bool ready = false;
     QVERIFY(host.runtime.beginMaintenance([&](bool result) { ready = result; }));
@@ -110,8 +113,8 @@ export function activate(ctx) {
     QCOMPARE(entries.size(), 1);
     QVERIFY(!entries.first().toMap().value("origin").toMap().contains("directory"));
     const auto captured = host.temporary.path() + "/data-snapshot";
-    const auto result = PluginDataTransaction::capture(
-        host.runtime.directory() + "/data/" + installation, captured);
+    const auto result = StorageSnapshot::capture(
+        PluginPaths(host.runtime.directory()).data("test.runtime"), captured);
     QVERIFY2(result.isEmpty(), qPrintable(result));
     QVERIFY(QFile::exists(captured + "/values.sqlite"));
     const auto connection = QStringLiteral("backup-barrier-snapshot");
@@ -224,19 +227,18 @@ export function activate(ctx) {
  throw 'activation error';
 }
 )JS");
+    QSignalSpy failures(&host.runtime, &PluginRuntime::pluginFailed);
     host.runtime.importDirectory(source);
-    QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Failed);
+    QTRY_VERIFY(!host.runtime.loading());
+    QCOMPARE(host.runtime.rowCount(), 0);
+    QVERIFY(!failures.isEmpty());
+    QVERIFY(failures.last()[1].toString().contains("activation error"));
     QVERIFY(!host.shell.titlebarActions()->activate("test.runtime:titlebar:broken"));
     QCOMPARE(host.shell.tasks()->count(), 0);
-    QVERIFY(
-        !host.runtime.data(host.runtime.index(0), PluginRuntime::ErrorRole).toString().isEmpty());
     QVERIFY(!host.runtime.safeMode());
-    QVERIFY(host.runtime.record(host.installation())
-                .value("failure")
-                .toMap()
-                .value("message")
-                .toString()
-                .contains("activation error"));
+    QVERIFY(PluginInstallationStore(host.runtime.directory()).records().isEmpty());
+    QVERIFY(!QDir(PluginPaths(host.runtime.directory()).code("test.runtime")).exists());
+    QVERIFY(!QDir(PluginPaths(host.runtime.directory()).data("test.runtime")).exists());
 }
 
 void PluginRuntimeTest::applicationQuitDrainsPluginIoFixture()
@@ -263,7 +265,8 @@ void PluginRuntimeTest::applicationQuitDrainsPluginIoFixture()
     auto cleanup = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
     {
         auto database = QSqlDatabase::addDatabase("QSQLITE", connection);
-        database.setDatabaseName(runtime.directory() + "/data/" + installation + "/values.sqlite");
+        database.setDatabaseName(PluginPaths(runtime.directory()).data("test.runtime") +
+                                 "/values.sqlite");
         QVERIFY(database.open());
         QSqlQuery query(database);
         QVERIFY(query.exec("BEGIN EXCLUSIVE"));
@@ -380,7 +383,7 @@ void PluginRuntimeTest::interruptedProcessFixture()
         QSKIP("Subprocess fixture; exercised by killedProcessRecovery");
     const auto phase = qEnvironmentVariable("ECHO_PLUGIN_PROCESS_PHASE");
     Host host;
-    QSettings preferences(root + "/settings.ini", QSettings::IniFormat);
+    EchoMusic::SettingsStore preferences(root + "/settings.ini");
     PluginRuntime runtime(
         host.engine, preferences,
         {host.playback, host.theme, host.shell, host.router, host.account, host.api},
@@ -457,10 +460,11 @@ void PluginRuntimeTest::killedProcessRecovery()
         QVERIFY(child.waitForFinished(5000));
         QCOMPARE(child.exitStatus(), QProcess::CrashExit);
     }
-    QSettings preferences(root + "/settings.ini", QSettings::IniFormat);
-    const auto catalog = preferences.value("plugins/installations").toList();
-    QCOMPARE(catalog.size(), 1);
-    const auto installation = catalog.first().toMap().value("installation").toString();
+    EchoMusic::SettingsStore preferences(root + "/settings.ini");
+    const auto catalog = PluginInstallationStore(root + "/plugins").records();
+    QCOMPARE(catalog.size(), phase == "activating" ? 0 : 1);
+    const auto installation =
+        catalog.isEmpty() ? QString() : catalog.first().toMap().value("installation").toString();
     if (manualSafe)
         preferences.setValue("plugins/safeMode", true);
     Host host;
@@ -472,21 +476,19 @@ void PluginRuntimeTest::killedProcessRecovery()
         QCOMPARE(runtime.safeMode(), manualSafe);
         QSignalSpy failures(&runtime, &PluginRuntime::pluginFailed);
         runtime.start();
-        if (phase == "activating")
-            QTRY_COMPARE(runtime.state(installation), PluginRuntime::Activating);
-        else
+        if (phase == "activating") {
+            QTRY_VERIFY(!runtime.loading());
+            QCOMPARE(runtime.rowCount(), 0);
+            QVERIFY(!QDir(PluginPaths(root + "/plugins").data("test.runtime")).exists());
+        } else
             QTRY_COMPARE(runtime.state(installation),
                          manualSafe ? PluginRuntime::Disabled : PluginRuntime::Active);
-        QVERIFY(runtime.record(installation).value("enabled").toBool());
+        if (!installation.isEmpty())
+            QVERIFY(runtime.record(installation).value("enabled").toBool());
         QVERIFY(runtime.record(installation).value("error").toString().isEmpty());
         QVERIFY(runtime.record(installation).value("failure").toMap().isEmpty());
         QCOMPARE(failures.count(), 0);
-        if (phase == "activating") {
-            QVERIFY(runtime.context(installation));
-            QVERIFY(runtime.setEnabled(installation, false));
-            QTRY_COMPARE(runtime.state(installation), PluginRuntime::Disabled);
-            QCOMPARE(failures.count(), 0);
-        } else if (!manualSafe) {
+        if (phase != "activating" && !manualSafe) {
             auto *operation = runtime.context(installation)->io()->readValue("kept");
             const auto jsRoot = host.engine.newQObject(operation);
             QTRY_VERIFY(operation->finished());
@@ -510,34 +512,35 @@ export function activate(ctx) {
     host.runtime.importDirectory(source);
     QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Activating);
     QVERIFY(host.runtime.setEnabled(host.installation(), false));
-    QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Disabled);
+    QTRY_VERIFY(!host.runtime.loading());
+    QCOMPARE(host.runtime.rowCount(), 0);
     QVERIFY(!host.shell.titlebarActions()->activate("test.runtime:titlebar:pending"));
 }
 
 void PluginRuntimeTest::rejectedPromiseAndLifecycleTimeout()
 {
     Host host;
+    QSignalSpy failures(&host.runtime, &PluginRuntime::pluginFailed);
     const auto source =
         package(host.temporary.path(),
                 "export function activate(ctx) { return Promise.reject('rejected'); }\n");
     host.runtime.importDirectory(source);
-    QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Failed);
-    QVERIFY(host.runtime.data(host.runtime.index(0), PluginRuntime::ErrorRole)
-                .toString()
-                .contains("rejected"));
+    QTRY_VERIFY(!host.runtime.loading());
+    QCOMPARE(host.runtime.rowCount(), 0);
+    QVERIFY(!failures.isEmpty());
+    QVERIFY(failures.last()[1].toString().contains("rejected"));
     write(source + "/entry.mjs", "export function activate(ctx) { return new Promise(()=>{}); }\n");
-    QVERIFY(host.runtime.reload(host.installation()));
+    QVERIFY(host.runtime.installDirectory(source));
     QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Activating);
-    QTRY_COMPARE_WITH_TIMEOUT(host.runtime.state(host.installation()), PluginRuntime::Failed, 7000);
-    QVERIFY(host.runtime.data(host.runtime.index(0), PluginRuntime::ErrorRole)
-                .toString()
-                .contains("timed out"));
+    QTRY_VERIFY_WITH_TIMEOUT(!host.runtime.loading(), 7000);
+    QCOMPARE(host.runtime.rowCount(), 0);
+    QVERIFY(failures.last()[1].toString().contains("timed out"));
 }
 
 void PluginRuntimeTest::persistedInstallAndSafeMode()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.path() + "/settings.ini", QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.path() + "/settings.ini");
     ApiClient api(DeviceIdentity::temporary());
     AccountService account(api);
     PlaybackService playback(api, settings, nullptr, directory.path() + "/playback.sqlite");
@@ -566,7 +569,7 @@ void PluginRuntimeTest::persistedInstallAndSafeMode()
         QTRY_VERIFY(!runtime.loading());
         QCOMPARE(runtime.rowCount(), 1);
         QCOMPARE(runtime.record(installation).value("origin").toMap().value("directory").toString(),
-                 QFileInfo(source).canonicalFilePath());
+                 PluginPaths(root).code("test.runtime"));
         QCOMPARE(runtime.context(installation)->activationGeneration(), QString("1"));
         QSignalSpy closed(&runtime, &PluginRuntime::closed);
         runtime.shutdown();

@@ -25,6 +25,9 @@ ColumnLayout {
             spacing: 12
             cacheBuffer: 80
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: messages
+            }
             boundsBehavior: Flickable.StopAtBounds
             model: panel.profile.chatMessages
             onCountChanged: positionViewAtEnd()

@@ -5,6 +5,10 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void crossRepositoryCatalogInstallAndFailureIsolation();
+    void flatDirectoriesDataManagementAndReinstallIsolation();
+    void codeAndDataJournalRecovery();
+    void dataManagementProductionDialogAndRetirement();
     void hostNavigationRoutesHistoryCancellationAndAccount();
     void hostSettingsPersistenceSubscriptionsAndRevocation();
     void hostActionsDynamicAsyncAndLifecycle();
@@ -30,6 +34,7 @@ private slots:
     void fileGrantManagementDialogUsesRealLedger();
     void unifiedNetworkRequestOptionsAndCancellation();
     void backupsCreateInspectTokensAndStorageBarrier();
+    void backupsPortableFilesFreezeCancellationAndRetirement();
     void backupsProvidersUseRealUiAndRetire();
     void backupsRestoreCommitAndRollback();
     void sqliteBindingsMigrationsAndTransactions();

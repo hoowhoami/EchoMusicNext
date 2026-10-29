@@ -39,7 +39,8 @@ inline QString raw(const QVariantMap &source, const QString &path)
 inline bool sameMarketplaceSource(const QVariantMap &installed, const QVariantMap &entry)
 {
     const auto origin = installed.value("origin").toMap();
-    return origin.value("kind") == "marketplace" && origin.value("id") == entry.value("sourceId");
+    return origin.value("kind") == "marketplace" && origin.value("id") == entry.value("sourceId") &&
+           origin.value("repository") == entry.value("repository");
 }
 inline bool availableUpdate(const QVariantMap &installed, const QVariantMap &entry)
 {

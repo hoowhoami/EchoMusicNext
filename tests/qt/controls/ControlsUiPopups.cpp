@@ -1,5 +1,17 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
+#include <QApplication>
+#include <QFileDialog>
+#include <QFileSystemModel>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QDialogButtonBox>
+#include <QPushButton>
+#include <QTemporaryDir>
+#include <QFile>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 
 void ControlsUiTest::scaledPopupTextKeepsNativePixelResolution()
 {
@@ -310,8 +322,8 @@ void ControlsUiTest::menusDrawersAndFileDialogsReleaseAfterClose()
                 EchoFileDialogLoader {
                     id: fileOwner
                     hostItem: host
-                    sourceComponent: NativeDialogs.FileDialog {
-                        options: host.systemFileDialog ? 0 : NativeDialogs.FileDialog.DontUseNativeDialog
+                    sourceComponent: EchoFileDialog {
+                        options: host.systemFileDialog ? 0 : EchoFileDialog.DontUseNativeDialog
                     }
                 }
             }
@@ -350,6 +362,14 @@ void ControlsUiTest::menusDrawersAndFileDialogsReleaseAfterClose()
         QVERIFY(native);
         QTRY_VERIFY(native->property("visible").toBool());
         QCOMPARE(native->property("parentWindow").value<QWindow *>(), session.window);
+        QFileDialog *systemDialog = nullptr;
+        for (auto *widget : QApplication::topLevelWidgets())
+            if (auto *dialog = qobject_cast<QFileDialog *>(widget); dialog && dialog->isVisible())
+                systemDialog = dialog;
+        QVERIFY(systemDialog);
+        qInfo() << "System picker flags" << systemDialog->options() << systemDialog->windowFlags()
+                << "native helper" << systemDialog->testAttribute(Qt::WA_DontShowOnScreen);
+        QVERIFY(systemDialog->testAttribute(Qt::WA_DontShowOnScreen));
         QVERIFY(QMetaObject::invokeMethod(native, "close"));
         QTRY_VERIFY(native.isNull());
         QVERIFY(!owner->property("item").value<QObject *>());
@@ -400,10 +420,10 @@ Item {
   sourceComponent: EchoDrawer { onClosed: host.businessClosed++; contentItem: Text { text: "抽屉" } }
  }
  EchoFileDialogLoader { id: fileOwner; hostItem: host
-  sourceComponent: NativeDialogs.FileDialog { options: NativeDialogs.FileDialog.DontUseNativeDialog }
+  sourceComponent: EchoFileDialog { options: EchoFileDialog.DontUseNativeDialog }
  }
  EchoFolderDialogLoader { id: folderOwner; hostItem: host
-  sourceComponent: NativeDialogs.FolderDialog { options: NativeDialogs.FolderDialog.DontUseNativeDialog }
+  sourceComponent: EchoFileDialog { fileMode: EchoFileDialog.OpenFolder; options: EchoFileDialog.DontUseNativeDialog }
  }
  EchoPopupLoader { id: verificationOwner; hostItem: host.Window.window.contentItem
   sourceComponent: EchoDialog { verificationSurface: true; heading: "安全验证"; body: Item { implicitHeight: 80 } }
@@ -1298,4 +1318,140 @@ void ControlsUiTest::popupAndPageTracksShareRightInsetAndRetainDragMapping()
         QTRY_VERIFY(!closing || !closing->isVisible());
     }
     QCOMPARE(warnings.count(), 0);
+}
+
+void ControlsUiTest::filePickerPreservesSelectionAndCancelsWithOwner()
+{
+    ControlsSession session;
+    QVERIFY(session.create());
+    QTemporaryDir directory;
+    const auto path = directory.filePath("song.flac");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
+    QVERIFY(QDir(directory.path()).mkdir("child"));
+    QQmlComponent component(&session.engine);
+    component.setData(R"QML(
+import QtQuick
+import EchoMusic.Controls
+Item {
+    id: host
+    width: 600
+    height: 400
+    property alias owner: owner
+    property url directory
+    property int mode: EchoFileDialog.OpenFiles
+    property var selected: []
+    property int acceptedCount: 0
+    readonly property int selectedCount: selected.length
+    readonly property string selectedPath: selected.length ? selected[0].toString() : ""
+    EchoFileDialogLoader {
+        id: owner
+        hostItem: host
+        sourceComponent: EchoFileDialog {
+            title: "File picker regression"
+            fileMode: host.mode
+            options: EchoFileDialog.DontUseNativeDialog
+            currentFolder: host.directory
+            defaultSuffix: "echonext-backup"
+            nameFilters: ["All files (*)"]
+            onAccepted: {
+                host.selected = selectedFiles.slice();
+                host.acceptedCount++;
+            }
+        }
+    }
+})QML",
+                      QUrl());
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *host = qobject_cast<QQuickItem *>(root.data());
+    QVERIFY(host);
+    host->setParentItem(session.window->contentItem());
+    root->setProperty("directory", QUrl::fromLocalFile(directory.path()));
+    auto *owner = root->property("owner").value<QObject *>();
+    auto widget = []() -> QFileDialog * {
+        for (auto *top : QApplication::topLevelWidgets())
+            if (auto *dialog = qobject_cast<QFileDialog *>(top); dialog && dialog->isVisible())
+                return dialog;
+        return nullptr;
+    };
+    for (int mode : {1, 2, 3}) {
+        root->setProperty("mode", mode);
+        QVERIFY(QMetaObject::invokeMethod(owner, "open"));
+        QPointer<QObject> picker = owner->property("item").value<QObject *>();
+        QVERIFY(picker);
+        QTRY_VERIFY(widget());
+        QPointer<QFileDialog> dialog = widget();
+        QCOMPARE(dialog->windowHandle()->transientParent(), session.window);
+        QCOMPARE(dialog->fileMode(), mode == 1   ? QFileDialog::ExistingFiles
+                                     : mode == 2 ? QFileDialog::AnyFile
+                                                 : QFileDialog::Directory);
+#ifdef Q_OS_WIN
+        QVERIFY(!(GetWindowLongPtrW(reinterpret_cast<HWND>(dialog->winId()), GWL_EXSTYLE) &
+                  WS_EX_NOREDIRECTIONBITMAP));
+#endif
+        const auto chosen = mode == 2   ? directory.filePath("backup")
+                            : mode == 3 ? directory.path()
+                                        : path;
+        qInfo() << "Picker acceptance mode" << mode;
+        QVERIFY(dialog->testOption(QFileDialog::DontUseNativeDialog));
+        auto *files = dialog->findChild<QFileSystemModel *>();
+        QVERIFY(files);
+        const auto folderIndex = files->index(directory.path());
+        QTRY_VERIFY(files->rowCount(folderIndex) > 0);
+        // QFileDialog::selectFile intentionally leaves an already focused
+        // filename editor alone on Cocoa. Drive the real editor instead.
+        auto *fileName = dialog->findChild<QLineEdit *>("fileNameEdit");
+        QVERIFY(fileName);
+        fileName->setText(chosen);
+        auto *buttons = dialog->findChild<QDialogButtonBox *>();
+        QVERIFY(buttons);
+        QPushButton *acceptButton = nullptr;
+        for (auto *button : buttons->buttons())
+            if (buttons->buttonRole(button) == QDialogButtonBox::AcceptRole)
+                acceptButton = qobject_cast<QPushButton *>(button);
+        QVERIFY(acceptButton);
+        if (QGuiApplication::platformName() != "offscreen")
+            QVERIFY(Test::prepareNativeInput(dialog->windowHandle()));
+        QTRY_VERIFY(acceptButton->isEnabled());
+        QTRY_COMPARE(dialog->selectedFiles().size(), 1);
+        QTRY_COMPARE(dialog->selectedFiles().first(),
+                     mode == 2 ? chosen + ".echonext-backup" : chosen);
+        QSignalSpy acceptClicks(buttons, &QDialogButtonBox::accepted);
+        // Fail a regression without hanging inside QFileDialog's invalid-path
+        // message box. Valid selections never enter that nested event loop.
+        bool unexpectedMessage = false;
+        QTimer::singleShot(0, dialog, [&] {
+            for (auto *widget : QApplication::topLevelWidgets())
+                if (auto *message = qobject_cast<QMessageBox *>(widget);
+                    message && message->isVisible()) {
+                    unexpectedMessage = true;
+                    message->reject();
+                }
+        });
+        QTest::mouseClick(acceptButton, Qt::LeftButton);
+        QCOMPARE(acceptClicks.size(), 1);
+        QVERIFY2(!unexpectedMessage,
+                 qPrintable(QString("Unexpected picker message in mode %1").arg(mode)));
+        QTRY_VERIFY(picker.isNull());
+        QTRY_VERIFY(dialog.isNull());
+        QCOMPARE(root->property("selectedCount").toInt(), 1);
+        QCOMPARE(QUrl(root->property("selectedPath").toString()).toLocalFile(),
+                 mode == 2 ? chosen + ".echonext-backup" : chosen);
+    }
+    QCOMPARE(root->property("acceptedCount").toInt(), 3);
+    QVERIFY(QMetaObject::invokeMethod(owner, "open"));
+    QTRY_VERIFY(widget());
+    QPointer<QFileDialog> canceled = widget();
+    host->setEnabled(false);
+    QTRY_VERIFY(!owner->property("item").value<QObject *>());
+    QTRY_VERIFY(canceled.isNull());
+    QCOMPARE(root->property("acceptedCount").toInt(), 3);
+    host->setEnabled(true);
+    QVERIFY(QMetaObject::invokeMethod(owner, "open"));
+    QTRY_VERIFY(widget());
+    QPointer<QFileDialog> destroyed = widget();
+    root.reset();
+    QTRY_VERIFY(destroyed.isNull());
 }

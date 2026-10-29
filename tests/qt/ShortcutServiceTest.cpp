@@ -17,7 +17,7 @@ private slots:
     void miniUsesSharedBindingsAndItsOwnEditorGate()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("mini.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("mini.ini"));
         ShortcutService service(settings, false);
         QQuickWindow main, mini, other;
         service.attach(&main);
@@ -58,7 +58,7 @@ private slots:
     {
 #if defined(Q_OS_MACOS)
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("arrows.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("arrows.ini"));
         ShortcutService service(settings, false);
         QQuickWindow window;
         service.attach(&window);
@@ -113,7 +113,7 @@ private slots:
     {
 #if defined(Q_OS_MACOS)
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("recording.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("recording.ini"));
         // A binding previously recorded from a native arrow event can carry Num.
         settings.setValue("shortcuts/local/nextTrack", "Ctrl+Num+Right");
         ShortcutService service(settings, false);
@@ -148,7 +148,7 @@ private slots:
     void presentationUsesSourceModifierOrderWithoutChangingBindings()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("shortcuts.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("shortcuts.ini"));
         ShortcutService service(settings, false);
         const auto row = service.index(ShortcutService::SeekBackward);
 #if defined(Q_OS_MACOS)
@@ -167,7 +167,7 @@ private slots:
     void typedActionsUsePlaybackPercentAndExistingMuteState()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings, nullptr, directory.filePath("playback.sqlite"));
         auto *firstView = new QObject;
@@ -229,7 +229,7 @@ private slots:
     void recordingConflictClearResetAndPersistence()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         {
             ShortcutService service(settings, false);
             QCOMPARE(service.rowCount(), 15);
@@ -272,7 +272,7 @@ private slots:
     void windowFocusEditingAndShutdown()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ShortcutService service(settings, false);
         QQuickWindow window;
         service.attach(&window);
@@ -307,7 +307,7 @@ int main(int argc, char **argv)
     QGuiApplication app(argc, argv);
     if (app.arguments().contains("--native-probe")) {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("probe.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("probe.ini"));
         ShortcutService service(settings, false);
         QQuickWindow window;
         window.setTitle("EchoMusicNext shortcut probe: ready");

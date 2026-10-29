@@ -1,7 +1,7 @@
 #pragma once
 #include "PlaylistImportService.h"
 #include "TaskCenterModel.h"
-#include <QSettings>
+#include "SettingsStore.h"
 
 namespace EchoMusic
 {
@@ -12,7 +12,7 @@ class PlaylistImportTaskCoordinator final : public QObject
     Q_OBJECT
 public:
     PlaylistImportTaskCoordinator(PlaylistImportService &service, TaskCenterModel &tasks,
-                                  QSettings &settings, QObject *parent = nullptr);
+                                  EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
 
 private:
     void publish();

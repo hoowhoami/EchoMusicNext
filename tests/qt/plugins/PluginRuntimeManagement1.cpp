@@ -271,6 +271,7 @@ void PluginRuntimeTest::catalogInstallationSourceIsNotCompatibility()
     QTRY_VERIFY(!host.runtime.installationForId("test.catalog-origin").isEmpty());
     const auto installation = host.runtime.installationForId("test.catalog-origin");
     QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Active);
+    QTRY_VERIFY(!host.runtime.loading());
     const auto generation = host.runtime.context(installation)->activationGeneration();
     QVariantMap entry{{"key", "catalog-origin"},
                       {"id", "test.catalog-origin"},
@@ -481,20 +482,23 @@ void PluginRuntimeTest::rootDirectoryDiscoveryUpdatesAndRemovesOwnedInput()
         "awaitOperation(c.io.readValue('value')); }); "
         "return awaitOperation(c.io.readValue('value')).then(function(v) { if (!v) return "
         "awaitOperation(c.io.writeValue('value', {version:1})); }); }";
-    Host host(
-        [&](const QString &root) { package(root, entry, {"lifecycle", "storage", "commands"}); });
+    Host host([&](const QString &root) {
+        package(root, entry, {"lifecycle", "storage", "commands"});
+        write(PluginPaths(root).images() + "/test.runtime/abandoned/entry.mjs", "stale image");
+    });
     QCOMPARE(host.runtime.rowCount(), 1);
     const auto root = host.runtime.directory();
-    const auto source = root + "/source";
+    const auto source = root + "/test.runtime";
+    QVERIFY(!QDir(PluginPaths(root).images() + "/test.runtime/abandoned").exists());
     const auto installation = host.installation();
     QCOMPARE(
         host.runtime.record(installation).value("origin").toMap().value("directory").toString(),
         QFileInfo(source).canonicalFilePath());
     QVERIFY(host.runtime.context(installation)
                 ->package()
-                .root.startsWith(QFileInfo(root + "/packages").canonicalFilePath() + '/'));
+                .root.startsWith(QFileInfo(PluginPaths(root).images()).canonicalFilePath() + '/'));
     QVERIFY(!QDir(root + "/local").exists());
-    const auto data = root + "/data/" + installation;
+    const auto data = PluginPaths(root).data("test.runtime");
     QVERIFY(QFileInfo(data + "/values.sqlite").isFile());
     QSignalSpy finished(&host.runtime, &PluginRuntime::managementFinished);
     QFile manifestFile(source + "/manifest.json");
@@ -518,7 +522,9 @@ void PluginRuntimeTest::rootDirectoryDiscoveryUpdatesAndRemovesOwnedInput()
     QVERIFY(read);
     QTRY_COMPARE(read->state(), EchoPluginOperation::Succeeded);
     QCOMPARE(read->result().toMap().value("version").toInt(), 1);
-    QVERIFY(!QDir(root + "/transactions/" + installation).exists());
+    QVERIFY(QDir(PluginPaths(root).transactions("test.runtime"))
+                .entryList(QDir::Dirs | QDir::NoDotAndDotDot)
+                .isEmpty());
     QVERIFY(host.runtime.uninstall(installation, false));
     QTRY_VERIFY(!host.runtime.loading());
     QCOMPARE(host.runtime.rowCount(), 0);
@@ -527,13 +533,14 @@ void PluginRuntimeTest::rootDirectoryDiscoveryUpdatesAndRemovesOwnedInput()
     host.runtime.refresh();
     QTRY_VERIFY(!host.runtime.loading());
     QCOMPARE(host.runtime.rowCount(), 0);
-    // A deliberate reinstall keeps the retained SQL identity; a complete
-    // uninstall removes both the owned folder and that same private store.
+    // Reinstall creates a fresh authorization identity and restores retained data.
+    // Complete removal deletes the current code and private store.
     package(root, entry, {"lifecycle", "storage", "commands"});
     host.runtime.refresh();
     QTRY_VERIFY(!host.runtime.loading());
-    QCOMPARE(host.installation(), installation);
-    QVERIFY(host.runtime.uninstall(installation, true));
+    const auto reinstalled = host.installation();
+    QVERIFY(reinstalled != installation);
+    QVERIFY(host.runtime.uninstall(reinstalled, true));
     QTRY_VERIFY(!host.runtime.loading());
     QVERIFY(!QDir(source).exists());
     QVERIFY(!QDir(data).exists());
@@ -549,7 +556,7 @@ void PluginRuntimeTest::rootDiscoverySkipsStoresAndContinuesPastInvalidInput()
     auto manifest = QJsonDocument::fromJson(manifestFile.readAll()).object();
     manifestFile.close();
     write(root + "/aaa-invalid/manifest.json", "{}");
-    for (const auto &reserved : QStringList{"packages", "data", "transactions"}) {
+    for (const auto &reserved : QStringList{".data", ".state", ".transactions"}) {
         manifest["id"] = "test." + reserved;
         write(root + '/' + reserved + "/manifest.json", QJsonDocument(manifest).toJson());
         write(root + '/' + reserved + "/entry.mjs",
@@ -657,7 +664,9 @@ void PluginRuntimeTest::managementUpdateRollsBackPackageAndPrivateData()
     QTRY_COMPARE(read->state(), EchoPluginOperation::Succeeded);
     QCOMPARE(read->result().toMap().value("version").toInt(), 1);
     QVERIFY(!host.settings.value("plugins/rollback/" + installation).toBool());
-    QVERIFY(!QDir(host.temporary.path() + "/plugins/transactions/" + installation).exists());
+    QVERIFY(QDir(PluginPaths(host.runtime.directory()).transactions("test.runtime"))
+                .entryList(QDir::Dirs | QDir::NoDotAndDotDot)
+                .isEmpty());
     QVERIFY(host.runtime.setSafeMode(true));
     QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Disabled);
     QVERIFY(host.runtime.record(installation).value("enabled").toBool());
@@ -666,7 +675,7 @@ void PluginRuntimeTest::managementUpdateRollsBackPackageAndPrivateData()
     QVERIFY(host.runtime.uninstall(installation, false));
     QTRY_COMPARE(finished.count(), 3);
     QCOMPARE(host.runtime.rowCount(), 0);
-    QVERIFY(QFileInfo(host.temporary.path() + "/plugins/data/" + installation + "/values.sqlite")
+    QVERIFY(QFileInfo(PluginPaths(host.runtime.directory()).data("test.runtime") + "/values.sqlite")
                 .isFile());
     // Reinstall retains the private-data identity, and explicit removal clears it.
     manifest["version"] = "1.0.0";
@@ -674,10 +683,11 @@ void PluginRuntimeTest::managementUpdateRollsBackPackageAndPrivateData()
     write(source + "/entry.mjs", "export function activate(c) {}");
     QVERIFY(host.runtime.installDirectory(source));
     QTRY_COMPARE(finished.count(), 4);
-    QCOMPARE(host.installation(), installation);
-    QVERIFY(host.runtime.uninstall(installation, true));
+    const auto reinstalled = host.installation();
+    QVERIFY(reinstalled != installation);
+    QVERIFY(host.runtime.uninstall(reinstalled, true));
     QTRY_COMPARE(finished.count(), 5);
-    QVERIFY(!QDir(host.temporary.path() + "/plugins/data/" + installation).exists());
+    QVERIFY(!QDir(PluginPaths(host.runtime.directory()).data("test.runtime")).exists());
     QVERIFY(QDir(source).exists()); // Uninstall never removes an external author workspace.
 }
 
@@ -858,7 +868,7 @@ void PluginRuntimeTest::sourceCatalogNetworkCacheAndOfficialProtection()
                 fail ? QByteArray("unavailable")
                 : request.startsWith("GET /echo-plugins.json ")
                     ? QByteArray(
-                          R"({"schemaVersion":2,"plugins":[{"path":"plugins/test","artifact":"artifacts/test.echomod","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}]})")
+                          R"({"schemaVersion":2,"plugins":[{"id":"test.runtime","path":"plugins/test","artifact":"artifacts/test.echomod","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}]})")
                     : manifest;
             socket->write(
                 QByteArray(fail ? "HTTP/1.1 503 Unavailable\r\n" : "HTTP/1.1 200 OK\r\n") +

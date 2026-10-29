@@ -1,6 +1,6 @@
 #pragma once
 #include <QObject>
-#include <QSettings>
+#include "SettingsStore.h"
 #include "LyricPortraitAppearance.h"
 namespace EchoMusic
 {
@@ -78,7 +78,7 @@ public:
     void setUnplayedUseCoverColor(bool);
     Q_INVOKABLE void resetColors();
     Q_INVOKABLE void resetSkinColors();
-    explicit LyricAppearance(QSettings &settings, QObject *parent = nullptr);
+    explicit LyricAppearance(EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     QString skinKey() const
     {
         return QStringLiteral("cover");
@@ -159,7 +159,7 @@ signals:
     void changed();
 
 private:
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     LyricPortraitAppearance m_portrait;
     QString m_playedColor, m_unplayedColor;
     bool m_followCoverColor = false, m_unplayedFollowCoverColor = false;

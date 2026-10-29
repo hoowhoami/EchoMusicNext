@@ -1,7 +1,10 @@
 #pragma once
 #include "SettingsKeys.h"
 #include "PluginRuntime.h"
-#include "PluginDataTransaction.h"
+#include "StorageSnapshot.h"
+#include "PluginPaths.h"
+#include "PluginInstallationStore.h"
+#include "PluginInstallTransaction.h"
 #include <QCryptographicHash>
 #include <QFutureWatcher>
 #include <QtConcurrent>
@@ -16,14 +19,11 @@ namespace EchoMusic::PluginRuntimeDetail
 {
 inline QString identityKey(const QString &id, const QVariantMap &origin)
 {
-    return origin.value("kind") == "marketplace"
-               ? SettingsKeys::Plugins::IdentitiesPrefix + origin.value("id").toString() + '/' + id
-               : SettingsKeys::Plugins::IdPrefix + id;
+    return PluginPaths::sourceIdentity(origin) + '/' + id;
 }
 inline bool internalDirectory(const QString &name)
 {
-    return QStringList{"packages", "data", "transactions", "resources", "cache"}.contains(
-        name, Qt::CaseInsensitive);
+    return name.startsWith('.');
 }
 // Only a direct, non-symlink child belongs to the root's manual-install area.
 // External development sources and internal stores must never be deleted here.

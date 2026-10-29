@@ -16,6 +16,9 @@
 #include <QStyleHints>
 #include <QPointer>
 #include <cmath>
+#ifdef Q_OS_LINUX
+#include "LinuxSystemTheme.h"
+#endif
 
 namespace EchoMusic
 {
@@ -139,14 +142,12 @@ ThemePalette ThemeStore::fromSeed(const QColor &seed, bool dark)
     }
     return {shell, shell, main, main, card, card, text, secondary, mix(main, text, 0.18)};
 }
-ThemeStore::ThemeStore(QSettings &settings, QObject *parent, const QString &imageDirectory)
+ThemeStore::ThemeStore(EchoMusic::SettingsStore &settings, QObject *parent,
+                       const QString &imageDirectory)
     : QObject(parent), m_settings(settings),
-      m_imageDirectory(
-          !imageDirectory.isEmpty() ? imageDirectory
-          : settings.format() == QSettings::IniFormat
-              ? QFileInfo(settings.fileName()).absolutePath() + "/theme-images"
-              : QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) +
-                    "/theme-images")
+      m_imageDirectory(!imageDirectory.isEmpty()
+                           ? imageDirectory
+                           : settings.files("theme-images", SettingsDomain::Portable))
 {
     m_imageWorkers.setMaxThreadCount(1);
     m_sampleTimer.setSingleShot(true);
@@ -199,9 +200,15 @@ ThemeStore::ThemeStore(QSettings &settings, QObject *parent, const QString &imag
     m_taskbarLyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::TaskbarLyricFont);
     connect(this, &ThemeStore::fontChanged, this, &ThemeStore::lyricFontsChanged);
     qApp->installEventFilter(this);
+#ifdef Q_OS_LINUX
+    auto *systemTheme = new LinuxSystemTheme(this);
+    m_systemDark = systemTheme->scheme() == Qt::ColorScheme::Dark;
+    connect(systemTheme, &LinuxSystemTheme::schemeChanged, this, &ThemeStore::adoptSystemScheme);
+#else
     auto *hints = QGuiApplication::styleHints();
     m_systemDark = hints->colorScheme() == Qt::ColorScheme::Dark;
     connect(hints, &QStyleHints::colorSchemeChanged, this, &ThemeStore::adoptSystemScheme);
+#endif
     m_extensions = new AppearanceCatalog(m_settings, this);
     connect(m_extensions, &AppearanceCatalog::themeChanged, this, &ThemeStore::resolve);
     resolve();
@@ -514,6 +521,8 @@ void ThemeStore::save()
 }
 void ThemeStore::adoptSystemScheme(Qt::ColorScheme scheme)
 {
+    if (scheme == Qt::ColorScheme::Unknown)
+        return;
     const bool dark = scheme == Qt::ColorScheme::Dark;
     if (m_systemDark == dark)
         return;

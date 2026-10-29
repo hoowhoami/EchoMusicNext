@@ -1,5 +1,8 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
+#include "LyricLine.h"
+#include <QQmlIncubationController>
+#include <QStyleHints>
 #include "ShortcutActions.h"
 
 #ifdef Q_OS_MACOS
@@ -539,6 +542,8 @@ void DesktopPagesTest::floatingLyricsFollowRealAudioAndStopMotionOnPause()
 {
     Session session;
     session.theme.setMotionEnabled(true);
+    session.theme.setMode(ThemeStore::Light);
+    session.theme.setAccent(QColor("#db4a28"));
     PlaybackService playback(session.api, session.preferences);
     QVERIFY(session.create(&playback));
     const auto cleanup = qScopeGuard([&session] {
@@ -560,19 +565,31 @@ void DesktopPagesTest::floatingLyricsFollowRealAudioAndStopMotionOnPause()
     playback.setVolume(0);
     playback.playTracks({track}, 0, "Native motion", "floating-motion");
     QTRY_VERIFY_WITH_TIMEOUT(playback.playing(), 15000);
+    QTRY_VERIFY(playback.lyricState() != "loading");
     QJsonArray rows;
     const QStringList lyrics{
         QStringLiteral("让音乐留在身边"),      QStringLiteral("像晚风 轻轻掠过心间"),
         QStringLiteral("每一刻 都清晰可见"),   QStringLiteral("下一句 温柔地浮现"),
         QStringLiteral("暂停后 停在这一瞬间"), QStringLiteral("随着旋律 继续向前")};
-    for (int i = 0; i < lyrics.size(); ++i)
+    for (int i = 0; i < lyrics.size(); ++i) {
+        QJsonArray words;
+        if (i < 3) {
+            const auto split = lyrics[i].size() / 2;
+            words.append(QJsonObject{{"text", lyrics[i].left(split)},
+                                     {"start_ms", i * 1500 + 120},
+                                     {"duration_ms", 580}});
+            words.append(QJsonObject{{"text", lyrics[i].mid(split)},
+                                     {"start_ms", i * 1500 + 700},
+                                     {"duration_ms", 800}});
+        }
         rows.append(QJsonObject{{"text", lyrics[i]},
                                 {"start_ms", i * 1500},
                                 {"duration_ms", 1500},
-                                {"words", QJsonArray{}},
+                                {"words", words},
                                 {"translation", "Let the music stay with you"},
                                 {"romanization", "rang yin yue liu zai shen bian"}});
-    QVERIFY(playback.lyrics()->replace({{"lines", rows}}));
+    }
+    QVERIFY(playback.lyricText()->replace({{"offset_ms", 350}, {"lines", rows}}, track.id));
     auto *floating = session.windows.floating();
     floating->setDesktopEnabled(true);
     QQuickWindow *desktop = nullptr;
@@ -589,11 +606,71 @@ void DesktopPagesTest::floatingLyricsFollowRealAudioAndStopMotionOnPause()
     QTRY_VERIFY_WITH_TIMEOUT(viewport->property("arrival").toReal() > .15, 5000);
     QTRY_VERIFY_WITH_TIMEOUT(viewport->property("arrival").toReal() < .15, 1500);
     QVERIFY(playback.playing());
+    auto *content = visual(desktop->contentItem(), "desktopCurrentLyricContent");
+    QVERIFY(content);
+    auto *lineMotion = content->findChild<QObject *>("appleMusicLineMotion");
+    QVERIFY(lineMotion);
+    auto *ink = qobject_cast<LyricLine *>(visual(content, "desktopLyricInk"));
+    QVERIFY(ink && ink->animateWords());
+    QVERIFY(!ink->words().isEmpty());
+    // Native audio reports positions at 250ms intervals. The exact same shaped
+    // row must continue sampling between reports, without new glyph masks.
+    bool continuous = false;
+    for (int sample = 0; sample < 30 && !continuous; ++sample) {
+        const auto position = playback.positionMs();
+        const auto index = viewport->property("currentIndex").toInt();
+        const auto time = ink->timeMs();
+        const auto masks = ink->maskRevision();
+        QTest::qWait(25);
+        continuous = position == playback.positionMs() &&
+                     index == viewport->property("currentIndex").toInt() && ink->timeMs() > time &&
+                     ink->maskRevision() == masks;
+    }
+    QVERIFY(continuous);
     const auto before = playback.positionMs();
     floating->toggleMini();
     QTRY_VERIFY(floating->miniActive());
     floating->setPanel("lyric");
     QTest::qWait(350);
+    auto *mini = floating->miniWindow();
+    QVERIFY(mini);
+    auto *miniViewport = visual(mini->contentItem(), "miniLyricViewport");
+    QVERIFY(miniViewport);
+    QTRY_VERIFY(([&] {
+        int ready = 0;
+        for (int index = 0; index < lyrics.size(); ++index) {
+            auto *row = visual(miniViewport, "lyricTextRow" + QString::number(index));
+            if (row && row->isVisible() && row->width() > 0 && row->height() > 0)
+                ++ready;
+        }
+        return ready >= 2;
+    })());
+    int clearRows = 0;
+    for (int rowIndex = 0; rowIndex < lyrics.size(); ++rowIndex) {
+        auto *row = visual(miniViewport, "lyricTextRow" + QString::number(rowIndex));
+        if (!row || !row->isVisible())
+            continue;
+        auto *motion = row->findChild<QObject *>("appleMusicLineMotion");
+        QVERIFY(motion);
+        QCOMPARE(motion->property("blur").toReal(), 0.);
+        auto *background = visual(row, "lyricRowBackground");
+        QVERIFY(background);
+        QCOMPARE(background->x(), 12.);
+        QCOMPARE(background->width(), row->width() - 24.);
+        ++clearRows;
+    }
+    QVERIFY(clearRows >= 2);
+    QVERIFY(miniViewport->property("pauseMotionWithPlayback").toBool());
+    QCOMPARE(miniViewport->property("textColor").value<QColor>(), QColor(Qt::black));
+    floating->mini()->setPlayedColor("#ff00aa");
+    QTRY_COMPARE(miniViewport->property("textColor").value<QColor>(), QColor("#ff00aa"));
+    floating->mini()->setPlayedColor("");
+    QTRY_COMPARE(miniViewport->property("textColor").value<QColor>(), QColor(Qt::black));
+    QCOMPARE(miniViewport->property("unplayedColor").value<QColor>(),
+             QColor::fromRgbF(0, 0, 0, .2));
+    floating->mini()->setUnplayedColor("#26a4ff");
+    QTRY_COMPARE(miniViewport->property("unplayedColor").value<QColor>(), QColor("#26a4ff"));
+    floating->mini()->setUnplayedColor("");
     if (!qEnvironmentVariable("ECHO_FLOATING_CAPTURE_DIR").isEmpty()) {
         for (auto *candidate : QGuiApplication::topLevelWindows())
             if (candidate->objectName() == "miniPlayerWindow")
@@ -602,15 +679,106 @@ void DesktopPagesTest::floatingLyricsFollowRealAudioAndStopMotionOnPause()
     }
     QVERIFY(playback.playing());
     QVERIFY(playback.positionMs() > before);
-    floating->showMain();
     playback.pause();
     QTRY_VERIFY(!playback.playing());
+    QTRY_VERIFY(!lineMotion->property("running").toBool());
+    QVERIFY(!ink->animateWords());
     QTRY_VERIFY(qAbs(viewport->property("arrival").toReal()) < .001);
     // A final engine telemetry sample can arrive after the pause command.
     QTest::qWait(300);
+    const auto miniTime = miniViewport->property("renderTime").toReal();
     const auto paused = viewport->property("renderTime").toReal();
     QTest::qWait(100);
     QVERIFY(qAbs(viewport->property("renderTime").toReal() - paused) < 1);
+    QVERIFY(qAbs(miniViewport->property("renderTime").toReal() - miniTime) < 1);
+    QQmlComponent settingsComponent(
+        &session.engine, QUrl("qrc:/qt/qml/EchoMusic/Settings/MiniLyricSettingsSection.qml"));
+    std::unique_ptr<QObject> settingsPreview(settingsComponent.createWithInitialProperties(
+        {{"windowService", QVariant::fromValue(&session.windows)},
+         {"playback", QVariant::fromValue(&playback)}}));
+    QVERIFY2(settingsPreview, qPrintable(settingsComponent.errorString()));
+    auto *settingsItem = qobject_cast<QQuickItem *>(settingsPreview.get());
+    QVERIFY(settingsItem);
+    settingsItem->setWidth(600);
+    settingsItem->setParentItem(session.window->contentItem());
+    auto *colorPreview = visual(settingsItem, "miniLyricColors");
+    QVERIFY(colorPreview);
+    // Inspect the small native surface itself in both palettes and zooms,
+    // with an intentionally saturated application accent that must not tint ink.
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        const auto tone = mode == ThemeStore::Dark ? 1. : 0.;
+        QTRY_COMPARE(miniViewport->property("textColor").value<QColor>(),
+                     QColor::fromRgbF(tone, tone, tone));
+        QTRY_COMPARE(miniViewport->property("unplayedColor").value<QColor>(),
+                     QColor::fromRgbF(tone, tone, tone, .2));
+        QTRY_COMPARE(colorPreview->property("playedColor").value<QColor>(),
+                     miniViewport->property("textColor").value<QColor>());
+        QTRY_COMPARE(colorPreview->property("unplayedColor").value<QColor>(),
+                     miniViewport->property("unplayedColor").value<QColor>());
+        for (const auto scale : {1., 1.25}) {
+            session.shell.resetZoom();
+            if (scale > 1)
+                for (int step = 0; step < 5; ++step)
+                    session.shell.zoomIn();
+            QTRY_VERIFY(qAbs(floating->miniScale() - scale) < .001);
+            QTest::qWait(200);
+            const auto directory = qEnvironmentVariable("ECHO_FLOATING_CAPTURE_DIR");
+            if (!directory.isEmpty())
+                QVERIFY(mini->grabWindow().save(
+                    directory + QString("/mini-clear-%1-%2.png").arg(int(mode)).arg(scale)));
+        }
+    }
+    session.shell.resetZoom();
+    // This preview lives on the hidden main window while Mini is visible;
+    // finish its async control contents without relying on main-window frames.
+    QTRY_VERIFY(([&] {
+        auto *controller = session.engine.incubationController();
+        if (!controller)
+            return true;
+        controller->incubateFor(5);
+        return controller->incubatingObjectCount() == 0;
+    })());
+    settingsPreview.reset();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QVERIFY(Test::prepareNativeInput(mini));
+    QTRY_COMPARE(mini->contentItem()->width(), qreal(mini->width()));
+    auto *moveArea = visual(mini->contentItem(), "miniWindowMoveArea");
+    QVERIFY(moveArea);
+    QSignalSpy sought(&playback, &PlaybackService::seekCompleted);
+    qint64 landed = -1;
+    connect(&playback, &PlaybackService::seekCompleted, &playback,
+            [&] { landed = playback.positionMs(); });
+    for (const auto rowIndex : {1, 3}) {
+        playback.pause();
+        QTRY_VERIFY(!playback.playing());
+        auto *row = visual(miniViewport, "lyricTextRow" + QString::number(rowIndex));
+        QVERIFY(row);
+        const auto point = row->mapToScene({row->width() / 2, row->height() / 2}).toPoint();
+        QVERIFY(QRect(QPoint(), mini->size()).contains(point));
+        QVERIFY(!moveArea->mapRectToScene(moveArea->boundingRect()).contains(point));
+        Test::moveNativePointer(mini, point);
+        sought.clear();
+        landed = -1;
+        QTest::mouseClick(mini, Qt::LeftButton, Qt::NoModifier, point);
+        QTest::qWait(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 30);
+        QCOMPARE(sought.count(), 0);
+        if (rowIndex == 1) {
+            const auto directory = qEnvironmentVariable("ECHO_FLOATING_CAPTURE_DIR");
+            if (!directory.isEmpty())
+                QVERIFY(mini->grabWindow().save(directory + "/mini-highlight-insets.png"));
+        }
+        QTest::mouseDClick(mini, Qt::LeftButton, Qt::NoModifier, point, 10);
+        QTRY_COMPARE(sought.count(), 1);
+        const qint64 sourceTime = rowIndex == 1 ? 1620 : 4500;
+        QVERIFY2(qAbs(landed - sourceTime) < 60,
+                 qPrintable(QString("Mini row %1 landed %2, expected %3")
+                                .arg(rowIndex)
+                                .arg(landed)
+                                .arg(sourceTime)));
+        QTRY_VERIFY(playback.playing());
+    }
+    floating->showMain();
     session.theme.setMotionEnabled(false);
     playback.play();
     QTRY_VERIFY(playback.playing());
@@ -624,6 +792,17 @@ void DesktopPagesTest::floatingLyricsFollowRealAudioAndStopMotionOnPause()
         qInfo() << "floating-audio-render frames=" << probe->frames()
                 << "max-sync-ms=" << probe->maximumSyncMs()
                 << "max-render-record-ms=" << probe->maximumMs() << "rss-kib=" << floatingRssKiB();
+    floating->desktop()->setLayout("vertical");
+    QTRY_VERIFY(visual(desktop->contentItem(), "desktopVerticalLyricInk"));
+    auto *verticalInk = visual(desktop->contentItem(), "desktopVerticalLyricInk");
+    QVERIFY(!verticalInk->property("animateWords").toBool());
+    QCOMPARE(viewport->property("vertical").toBool(), true);
+    desktop->hide();
+    QTRY_VERIFY(!viewport->property("resourceActive").toBool());
+    QTRY_VERIFY(!lineMotion->property("running").toBool());
+    desktop->show();
+    QTRY_VERIFY(viewport->property("resourceActive").toBool());
+    QTRY_VERIFY(qAbs(viewport->property("arrival").toReal()) < .001);
     floating->setDesktopEnabled(false);
     playback.stop();
     QCOMPARE(warnings.size(), 0);
@@ -1230,7 +1409,7 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
 void DesktopPagesTest::floatingPreferencesAndFilteredTimelineKeepIdentity()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("floating.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("floating.ini"));
     FloatingLyricPreferences desktop(settings, true), mini(settings, false);
     QCOMPARE(desktop.alignment(), QString("both"));
     // Real QWindow logical geometry round-trips, including odd sizes at

@@ -32,7 +32,7 @@ QRect nearestArea(const QRect &bounds)
     return screen ? screen->availableGeometry() : primaryArea();
 }
 } // namespace
-FloatingPlayerController::FloatingPlayerController(QSettings &settings, bool persist,
+FloatingPlayerController::FloatingPlayerController(EchoMusic::SettingsStore &settings, bool persist,
                                                    QObject *parent)
     : QObject(parent), m_settings(settings), m_persist(persist), m_desktop(settings, true, this),
       m_mini(settings, false, this)

@@ -33,7 +33,7 @@
 #include <QQuickWindow>
 #include <QWheelEvent>
 #include <QPersistentModelIndex>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QStyleHints>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -432,7 +432,7 @@ private slots:
     void commentThreadsMatchSourceLayout()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -603,7 +603,7 @@ Window {
     void singerCommentsStaySeparateFromPagination()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -654,7 +654,7 @@ Window {
     void incrementalCommentsAndStaleSession()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -726,7 +726,7 @@ Window {
     void detailNavigationUsesTypeAndAssociatedIdentities()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -798,7 +798,7 @@ Window {
             QSKIP("Opt-in real local video decoder and native MV control pixels");
         QVERIFY(QFileInfo::exists(clip));
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, preferences, nullptr, directory.filePath("playback.sqlite"));
         RouteController router;
@@ -946,7 +946,7 @@ Window {
         if (!qEnvironmentVariableIsSet("ECHO_COMMENTS_PERF"))
             QSKIP("Opt-in Release workload measurement");
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -1022,7 +1022,7 @@ Window {
         QFETCH(bool, zoomed);
         QFETCH(int, rowCount);
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
@@ -1234,7 +1234,7 @@ Window {
         const auto restoreTabPolicy = qScopeGuard(
             [tabPolicy] { QGuiApplication::styleHints()->setTabFocusBehavior(tabPolicy); });
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(42, "fixture-only-never-sent"));
@@ -1864,7 +1864,7 @@ Window {
                                 device.value("uuid").toString(),
                                 device.value("renderFingerprint").toString()};
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(identity);
         QVERIFY(api.setAccount(user.value("userid").toVariant().toULongLong(),

@@ -49,6 +49,7 @@ target_sources(echo_platform PRIVATE ApplicationTranslations.h ApplicationTransl
 target_link_libraries(
     echo_platform
     PUBLIC Qt6::Core Qt6::Network Qt6::Gui
+    PRIVATE Qt6::Quick
     PRIVATE echo_build_options
 )
 if(APPLE)

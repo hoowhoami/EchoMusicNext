@@ -8,7 +8,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QPointer>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <functional>
 #include <memory>
 #include <QtQml/qqmlregistration.h>
@@ -58,7 +58,8 @@ public:
         DownloadFailed
     };
     Q_ENUM(DownloadState)
-    AboutService(QSettings &settings, NetworkPreferences &network, QObject *parent = nullptr);
+    AboutService(EchoMusic::SettingsStore &settings, NetworkPreferences &network,
+                 QObject *parent = nullptr);
     ~AboutService() override;
     QString version() const;
     QString changelog() const;
@@ -145,7 +146,7 @@ private:
     void beginDownload(const QUrl &url, bool fallback, quint64 revision);
     void downloadFailed(const QString &error);
     void pollInstaller();
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     NetworkPreferences &m_policy;
     QNetworkAccessManager m_network;
     QPointer<QNetworkReply> m_reply;

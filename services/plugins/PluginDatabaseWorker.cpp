@@ -1,3 +1,4 @@
+#include "StorageSnapshot.h"
 #include "PluginDatabaseWorker.h"
 #include <QDir>
 #include <QFile>
@@ -416,6 +417,15 @@ PluginDatabaseResult PluginDatabaseWorker::open(const QString &id, const QVarian
             QSqlDatabase::removeDatabase(connectionName);
             throw std::runtime_error(error.toStdString());
         }
+        if (!readOnly) {
+            const auto error = StorageSnapshot::claimSqlite(path);
+            if (!error.isEmpty()) {
+                db.close();
+                db = QSqlDatabase();
+                QSqlDatabase::removeDatabase(connectionName);
+                require(false, error);
+            }
+        }
         ++openedPaths[fileKey(path)];
     }
     m_databases.insert(id, {db, path, name, readOnly});
@@ -492,9 +502,12 @@ PluginDatabaseResult PluginDatabaseWorker::execute(const QString &command, const
             QMutexLocker lock(&openedMutex);
             require(openedPaths.value(fileKey(path)) == 0,
                     "Close every database handle before deleting");
-            if (!QFileInfo::exists(path))
+            if (!QFileInfo::exists(path)) {
+                require(StorageSnapshot::forgetSqlite(path), "Cannot delete database descriptor");
                 return {false, {}, {}};
+            }
             require(QFile::remove(path), "Cannot delete database");
+            require(StorageSnapshot::forgetSqlite(path), "Cannot delete database descriptor");
             for (const auto &suffix : {"-wal", "-shm", "-journal"})
                 QFile::remove(path + suffix);
             return {true, {}, {}};

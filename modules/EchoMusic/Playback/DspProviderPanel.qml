@@ -23,6 +23,9 @@ GridView {
     cellHeight: 38 + presetGap
     model: visible ? audio.providerPresets : null
     reuseItems: true
+    EchoViewPoolGuard {
+        targetView: panel
+    }
     cacheBuffer: cellHeight * 3
     boundsBehavior: Flickable.StopAtBounds
     ScrollBar.vertical: EchoScrollBar {}
@@ -420,6 +423,9 @@ GridView {
             width: parent.width
             height: parent.height - y
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: controls
+            }
             clip: true
             model: panel.audio.providerControls
             leftMargin: 14

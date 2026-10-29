@@ -2812,3 +2812,26 @@ fn purchased_albums_and_real_pagination_preserve_card_ids_and_end_pages() {
         .is_empty()
     );
 }
+
+#[test]
+fn song_metadata_observed_batch_limit_rejections_preserve_business_error() {
+    use echo_api::module::krm_audio;
+    for n in [51, 100] {
+        let bytes = sample(&format!("krm_audio/boundary-size{n}-20261029.json"));
+        let err = krm_audio::convert(&bytes).unwrap_err();
+        assert_eq!(err.kind, "business");
+        assert_eq!(err.code, Some(20010));
+    }
+    let records = krm_audio::convert(&sample("krm_audio/batch-size50-20261029.json")).unwrap();
+    assert_eq!(records.len(), 50);
+    assert!(
+        records
+            .iter()
+            .all(|v| !v.id.is_empty() && !v.title.is_empty())
+    );
+    let current = krm_audio::convert(&sample("krm_audio/restored-current-20261029.json")).unwrap();
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0].id, "252666919");
+    assert_eq!(current[0].artists.len(), 2);
+    assert!(!current[0].cover_url.is_empty());
+}

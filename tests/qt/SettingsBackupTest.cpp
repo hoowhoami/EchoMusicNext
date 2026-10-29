@@ -1,3 +1,5 @@
+#include "PluginPaths.h"
+#include "PluginInstallationStore.h"
 #include "SettingsBackupArchive.h"
 #include "SettingsBackupRestore.h"
 #include "StorageService.h"
@@ -7,7 +9,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLockFile>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
@@ -57,35 +59,33 @@ private slots:
     }
     void portablePreferencesExcludeCredentialsAndPreserveTypes()
     {
-        const QVariantMap input{
-            {"interface/uiScale", 1.25},
-            {"shortcuts/globalEnabled", true},
-            {"appearance/preferences", QByteArray("{\"mode\":2}")},
-            {"account/session", QByteArray("secret")},
-            {"device/id", "private"},
-            {"network/localPolicy", QVariantMap{{"passwordId", "sqlite-record"}}},
-            {"audio/outputDevice", "/private/device"},
-            {"recognition/source", "mic"},
-            {"plugins/installations", QVariantList{}}};
-        const auto encoded = SettingsBackupArchive::encodePreferences(input);
+        QTemporaryDir directory;
+        SettingsStore preferences(directory.filePath("preferences.ini"));
+        preferences.setValue("interface/uiScale", 1.25);
+        preferences.setValue("shortcuts/globalEnabled", true);
+        preferences.setValue("appearance/preferences", QByteArray("{\"mode\":2}"));
+        preferences.setValue("recognition/source", "mic");
+        preferences.setValue("network/timeouts",
+                             QVariantMap{{"apiSeconds", 1.25}, {"playerSeconds", 60.}});
+        preferences.setValue("audio/outputDevice", "/private/device");
+        preferences.setValue("network/proxyPolicy",
+                             QVariantMap{{"passwordId", "keep-local-reference"}});
+        QString error;
+        const auto encoded =
+            SettingsBackupArchive::encodePreferences(preferences.portableValues(), &error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
         QCOMPARE(encoded.size(), 5);
         QVERIFY(!QJsonDocument(encoded).toJson().contains("passwordId"));
-        QString error;
         const auto decoded = SettingsBackupArchive::decodePreferences(encoded, &error);
-        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(error.isEmpty());
         QCOMPARE(decoded.value("interface/uiScale").toDouble(), 1.25);
         QCOMPARE(decoded.value("appearance/preferences").metaType(),
                  QMetaType::fromType<QByteArray>());
         QVERIFY(decoded.value("shortcuts/globalEnabled").toBool());
         QCOMPARE(decoded.value("recognition/source").toString(), "mic");
-        QTemporaryDir directory;
-        QSettings preferences(directory.filePath("preferences.ini"), QSettings::IniFormat);
-        preferences.setValue(
-            "network/localPolicy",
-            QVariantMap{{"mode", "fixed_servers"}, {"passwordId", "keep-local-reference"}});
         SettingsBackupArchive::applyPreferences(preferences, decoded);
-        QCOMPARE(preferences.value("network/localPolicy").toMap().value("passwordId").toString(),
-                 QString("keep-local-reference"));
+        QCOMPARE(preferences.value("network/proxyPolicy").toMap().value("passwordId").toString(),
+                 "keep-local-reference");
         auto invalid = encoded;
         invalid.insert("account/session", QJsonObject{{"type", "string"}, {"value", "bad"}});
         SettingsBackupArchive::decodePreferences(invalid, &error);
@@ -140,16 +140,17 @@ private slots:
     void postShutdownRestoreCanRollbackAcrossProcessBoundary()
     {
         QTemporaryDir directory;
-        const auto root = directory.path();
+        const auto root = QFileInfo(directory.path()).canonicalFilePath();
         const auto id = "00000000-0000-0000-0000-000000000001";
-        writeFile(root + "/old-package/manifest.json", packageManifest());
-        writeFile(root + "/old-package/index.mjs", "export function activate() {}\n");
-        writeFile(root + "/plugins/data/" + id + "/value.txt", "before");
+        writeFile(root + "/plugins/test.backup/manifest.json", packageManifest());
+        writeFile(root + "/plugins/test.backup/index.mjs", "export function activate() {}\n");
+        writeFile(root + "/plugins/.data/test.backup" + "/value.txt", "before");
         writeFile(root + "/input/plugins/0/package/manifest.json", packageManifest());
         writeFile(root + "/input/plugins/0/package/index.mjs", "export function activate() {}\n");
         writeFile(root + "/input/plugins/0/data/value.txt", "after");
-        const QVariantList catalog{QVariantMap{{"root", root + "/old-package"},
-                                               {"source", root + "/old-package"},
+        const QVariantList catalog{QVariantMap{{"id", "test.backup"},
+                                               {"root", root + "/plugins/test.backup"},
+                                               {"source", root + "/plugins/test.backup"},
                                                {"installation", id},
                                                {"origin", QVariantMap{{"kind", "local"}}},
                                                {"enabled", true}}};
@@ -162,32 +163,34 @@ private slots:
             SettingsBackupArchive::encodePreferences({{"interface/uiScale", 1.0}});
         const QJsonObject previous{{"values", previousValues},
                                    {"absent", QJsonArray{"shortcuts/globalEnabled"}}};
-        auto result = SettingsBackupRestore::prepare(root + "/input", manifest, false, true, root,
+        QVERIFY(QDir().mkpath(root + "/input/files"));
+        auto result = SettingsBackupRestore::prepare(root + "/input", manifest, true, true, root,
                                                      catalog, previous);
         QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
-        QCOMPARE(readFile(root + "/plugins/data/" + id + "/value.txt"), QByteArray("after"));
+        QCOMPARE(readFile(root + "/plugins/.data/test.backup" + "/value.txt"), QByteArray("after"));
         QVERIFY(!result.catalog.first().toMap().value("enabled").toBool());
-        QSettings preferences(root + "/preferences.ini", QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(root + "/preferences.ini");
         preferences.setValue("interface/uiScale", 1.5);
         preferences.setValue("shortcuts/globalEnabled", true);
-        preferences.setValue("plugins/installations", result.catalog);
+        QVERIFY(PluginInstallationStore(root + "/plugins").save(result.catalog).isEmpty());
         preferences.sync();
         // Simulate a process dying between filesystem and durable settings commit.
         QVERIFY2(SettingsBackupRestore::recover(root, preferences).isEmpty(), "recovery failed");
-        QCOMPARE(readFile(root + "/plugins/data/" + id + "/value.txt"), QByteArray("before"));
+        QCOMPARE(readFile(root + "/plugins/.data/test.backup" + "/value.txt"),
+                 QByteArray("before"));
         QCOMPARE(preferences.value("interface/uiScale").toDouble(), 1.0);
         QVERIFY(!preferences.contains("shortcuts/globalEnabled"));
-        QCOMPARE(preferences.value("plugins/installations").toList(), catalog);
+        QCOMPARE(PluginInstallationStore(root + "/plugins").records(), catalog);
         QVERIFY(!QFile::exists(root + "/settings-restore.json"));
         QVERIFY(!QDir(root + '/' + result.journal.value("transaction").toString()).exists());
     }
     void committedRestoreRecoveryKeepsCurrentStateAndRemovesJournal()
     {
         QTemporaryDir directory;
-        const auto root = directory.path();
+        const auto root = QFileInfo(directory.path()).canonicalFilePath();
         const QString transaction = ".settings-restore-00000000000000000000000000000001";
         writeFile(root + '/' + transaction + "/0/value.txt", "before");
-        writeFile(root + "/plugins/data/00000000-0000-0000-0000-000000000001/value.txt", "after");
+        writeFile(root + "/plugins/.data/test.backup/value.txt", "after");
         const QJsonObject journal{
             {"version", 1},
             {"transaction", transaction},
@@ -198,15 +201,14 @@ private slots:
              QJsonArray{QJsonObject{{"installation", "00000000-0000-0000-0000-000000000001"},
                                     {"backup", "0"}}}}};
         QVERIFY(SettingsBackupRestore::writeJournal(root, journal));
-        QSettings preferences(root + "/preferences.ini", QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(root + "/preferences.ini");
         preferences.setValue("interface/uiScale", 1.5);
         preferences.sync();
 
         const auto error = SettingsBackupRestore::recover(root, preferences);
         QVERIFY2(error.isEmpty(), qPrintable(error));
         QCOMPARE(preferences.value("interface/uiScale").toDouble(), 1.5);
-        QCOMPARE(readFile(root + "/plugins/data/00000000-0000-0000-0000-000000000001/value.txt"),
-                 QByteArray("after"));
+        QCOMPARE(readFile(root + "/plugins/.data/test.backup/value.txt"), QByteArray("after"));
         QVERIFY(!QFile::exists(root + "/settings-restore.json"));
         QVERIFY(!QDir(root + '/' + transaction).exists());
         QVERIFY(SettingsBackupRestore::recover(root, preferences).isEmpty());
@@ -214,7 +216,7 @@ private slots:
     void clearRemovesLocalCredentialDatabases()
     {
         QTemporaryDir directory;
-        const auto root = directory.path();
+        const auto root = QFileInfo(directory.path()).canonicalFilePath();
         for (const auto &name : {"music.sqlite", "music.sqlite-wal", "music.sqlite-shm",
                                  "network.sqlite", "network.sqlite-wal", "network.sqlite-shm"}) {
             QFile file(root + '/' + name);

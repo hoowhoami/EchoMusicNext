@@ -30,7 +30,7 @@ QQuickItem *visual(QQuickItem *root, const QString &name)
 struct Session
 {
     QTemporaryDir directory;
-    QSettings settings{directory.filePath("theme.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore settings{directory.filePath("theme.ini")};
     ThemeStore theme{settings};
     QQmlEngine engine;
     QScopedPointer<QObject> root;

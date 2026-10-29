@@ -95,14 +95,8 @@ int main(int argc, char *argv[])
     // Keep every Qt Quick surface alpha-capable from its first native creation.
     // The theme paints an opaque skin when transparency is disabled.
     QQuickWindow::setDefaultAlphaBuffer(true);
-    // Alpha-capable D3D windows must present through DirectComposition over the
-    // DWM system backdrop. Qt's default HWND swapchain composites opaquely over
-    // the GDI redirection bitmap, which hides the backdrop and, with the legacy
-    // blur behind enabled, shows one static desktop snapshot instead. The
-    // redirection surface must therefore never exist for this process's windows;
-    // WindowController temporarily lifts it around the one raster popup (the
-    // taskbar lyric QMenu), whose GDI content needs the bitmap.
-    qputenv("QT_QPA_DISABLE_REDIRECTION_SURFACE", "1");
+    // D3D redirection policy belongs to the attached main HWND. A process
+    // switch would also disable raster backing stores for widget dialogs.
     // Qt Widgets supplies native tray menus; the application UI stays Qt Quick.
     QApplication app(argc, argv);
     // Lives for the whole process: every popup, dialog and page reports mouse
@@ -208,7 +202,7 @@ int main(int argc, char *argv[])
         EchoMusic::WindowsAppIdentity::ensureStartMenuShortcut();
     // Outlives all application services, including Rust runtime destruction.
     // The writer drains only after run() exits its GUI event loop.
-    QSettings logPreferences;
+    EchoMusic::SettingsStore logPreferences;
     EchoMusic::LogService logging(parser.value(QStringLiteral("log-dir")), int(level), true,
                                   smoke ? nullptr : &logPreferences,
                                   parser.isSet(QStringLiteral("log-level")));

@@ -1,3 +1,4 @@
+#include "StorageFence.h"
 #include "SettingsKeys.h"
 #include "PlaybackAudioControls.h"
 #include "EqualizerPresets.h"
@@ -23,11 +24,15 @@ QString effectDisplayName(QString name)
     name = name.trimmed().remove(extension).trimmed();
     return name.isEmpty() ? PlaybackAudioControls::tr("未命名音效") : name;
 }
-QString effectNameKey(const QString &path)
+QString effectNameKey(const QString &path, const QString &root)
 {
     return EchoMusic::SettingsKeys::Audio::ImpulseNamesPrefix +
            QString::fromLatin1(
-               QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex());
+               QCryptographicHash::hash(
+                   (path.startsWith(root + '/') ? QDir(root).relativeFilePath(path) : path)
+                       .toUtf8(),
+                   QCryptographicHash::Sha256)
+                   .toHex());
 }
 QString outputSelection(const QString &name)
 {
@@ -52,12 +57,12 @@ QString defaultPreset(const QString &id)
 } // namespace
 
 PlaybackAudioControls::PlaybackAudioControls(AudioEngine &engine, NativeBridge &native,
-                                             QSettings &settings, QObject *parent)
+                                             EchoMusic::SettingsStore &settings, QObject *parent)
     : QObject(parent),
-      m_importer(native, QFileInfo(settings.fileName()).absolutePath() + "/audio-effects/local",
+      m_importer(native, settings.files("audio-effects", SettingsDomain::Portable) + "/local",
                  this),
       m_engine(engine), m_native(native), m_settings(settings),
-      m_providers(native, QFileInfo(settings.fileName()).absolutePath() + "/audio-engines", this)
+      m_providers(native, settings.files("audio-engines", SettingsDomain::Device), this)
 {
     connect(&m_importer, &ImpulseResponseImporter::changed, this, &PlaybackAudioControls::changed);
     connect(&m_importer, &ImpulseResponseImporter::closed, this,
@@ -193,8 +198,10 @@ QVariantList PlaybackAudioControls::impulseResponses() const
             {"path", path},
             {"source", sources.value(path, QStringLiteral("local"))},
             {"name",
-             effectDisplayName(
-                 m_settings.value(effectNameKey(path), QFileInfo(path).fileName()).toString())},
+             effectDisplayName(m_settings
+                                   .value(effectNameKey(path, m_settings.portableFilesRoot()),
+                                          QFileInfo(path).fileName())
+                                   .toString())},
             {"available", QFileInfo(path).isReadable()}});
     return result;
 }
@@ -207,7 +214,7 @@ void PlaybackAudioControls::registerImpulseResponse(const QString &path, const Q
     m_irsPaths.removeAll(path);
     m_irsPaths.prepend(path);
     m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseResponses, m_irsPaths);
-    m_settings.setValue(effectNameKey(path), displayName);
+    m_settings.setValue(effectNameKey(path, m_settings.portableFilesRoot()), displayName);
     if (!identity.isEmpty())
         m_settings.setValue(EchoMusic::SettingsKeys::Audio::DownloadedEffectsPrefix + identity,
                             path);
@@ -519,7 +526,8 @@ void PlaybackAudioControls::renameImpulseResponse(const QString &path, const QSt
 {
     if (!m_irsPaths.contains(path) || name.trimmed().isEmpty())
         return;
-    m_settings.setValue(effectNameKey(path), uniqueEffectName(name.left(80), path));
+    m_settings.setValue(effectNameKey(path, m_settings.portableFilesRoot()),
+                        uniqueEffectName(name.left(80), path));
     emit changed();
 }
 void PlaybackAudioControls::selectImpulseResponse(const QString &path)
@@ -534,12 +542,21 @@ void PlaybackAudioControls::selectImpulseResponse(const QString &path)
     applyEffect();
     emit changed();
 }
+QString PlaybackAudioControls::effectFilesRoot() const
+{
+    return m_settings.files("audio-effects", SettingsDomain::Portable);
+}
 void PlaybackAudioControls::removeImpulseResponse(const QString &path)
 {
     if (!m_irsPaths.contains(path))
         return;
+    const auto storage = StorageFence::write(effectFilesRoot());
+    if (!storage) {
+        emit fileNotice(tr("备份进行中，请稍后移除音效"), false);
+        return;
+    }
     m_irsPaths.removeAll(path);
-    m_settings.remove(effectNameKey(path));
+    m_settings.remove(effectNameKey(path, m_settings.portableFilesRoot()));
     for (const auto &key : m_settings.allKeys())
         if (key.startsWith(EchoMusic::SettingsKeys::Audio::DownloadedEffectsPrefix) &&
             m_settings.value(key).toString() == path)
@@ -553,16 +570,9 @@ void PlaybackAudioControls::removeImpulseResponse(const QString &path)
     // Remove owned resources without touching the user's original file.
     // Canonical containment excludes symlinks to external resources.
     const auto canonical = QFileInfo(path).canonicalFilePath();
-    const QStringList roots{
-        QFileInfo(m_settings.fileName()).absolutePath() + "/audio-effects/local",
-        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/audio-effects"};
-    for (const auto &root : roots) {
-        const auto directory = QFileInfo(root).canonicalFilePath();
-        if (!directory.isEmpty() && canonical.startsWith(directory + "/")) {
-            QFile::remove(path);
-            break;
-        }
-    }
+    const auto directory = QFileInfo(effectFilesRoot()).canonicalFilePath();
+    if (!directory.isEmpty() && canonical.startsWith(directory + "/"))
+        QFile::remove(path);
     emit changed();
     emit fileNotice(tr("已移除音效"), true);
 }

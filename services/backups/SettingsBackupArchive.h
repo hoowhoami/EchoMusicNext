@@ -3,7 +3,7 @@
 #include <QVariantMap>
 #include <atomic>
 #include <memory>
-class QSettings;
+#include "SettingsStore.h"
 namespace EchoMusic
 {
 struct SettingsBackupResult
@@ -17,14 +17,15 @@ struct SettingsBackupResult
 /// path traversal, credentials or unbounded compression expansion.
 struct SettingsBackupArchive
 {
-    static bool portableKey(const QString &key);
-    static QJsonObject encodePreferences(const QVariantMap &values);
-    static QVariantMap decodePreferences(const QJsonObject &values, QString *error);
-    static void applyPreferences(QSettings &settings, const QVariantMap &values);
+    static QJsonObject encodePreferences(const QVariantMap &values, QString *error = nullptr,
+                                         const QString &filesRoot = {});
+    static QVariantMap decodePreferences(const QJsonObject &values, QString *error,
+                                         const QString &filesRoot = {});
+    static void applyPreferences(EchoMusic::SettingsStore &settings, const QVariantMap &values);
     static SettingsBackupResult create(const QString &destination, const QString &staging,
                                        const QJsonObject &preferences, bool includeSettings,
                                        const QVariantList &plugins, bool includePlugins,
-                                       const QString &pluginRoot, const QString &imageRoot,
+                                       const QString &pluginRoot, const QString &filesRoot,
                                        const QString &version, const std::atomic_bool &cancelled);
     static SettingsBackupResult inspect(const QString &source, const QString &staging,
                                         const std::atomic_bool &cancelled);

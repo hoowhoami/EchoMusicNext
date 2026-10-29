@@ -115,6 +115,9 @@ ColumnLayout {
             Layout.bottomMargin: 12
             clip: true
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: candidates
+            }
             cacheBuffer: 144
             spacing: 8
             boundsBehavior: Flickable.StopAtBounds

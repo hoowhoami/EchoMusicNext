@@ -12,7 +12,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTemporaryDir>
 #include <QtTest>
 using namespace EchoMusic;
@@ -117,7 +117,7 @@ private slots:
     void metadataCompletesPresentationAndStatsWithoutWritingHistory()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
         QVERIFY(api.setAccount(100, "offline-domain-fixture"));
@@ -215,7 +215,7 @@ private slots:
     void metadataRefreshRouteAccountAndDeletionScopes()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));
         QVERIFY(api.setAccount(100, "offline-domain-fixture"));
@@ -275,7 +275,7 @@ private slots:
     void readsRemovesAndClearsAccountHistory()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "history-token"));
@@ -332,7 +332,7 @@ private slots:
     void nativeHistoryPageAndClearDialog()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "history-token"));

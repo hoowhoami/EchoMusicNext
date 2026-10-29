@@ -6,7 +6,7 @@
 #include <functional>
 #include <memory>
 #include <QObject>
-#include <QSettings>
+#include "SettingsStore.h"
 
 namespace EchoMusic
 {
@@ -28,8 +28,8 @@ class NetworkPreferences final : public QObject
     Q_PROPERTY(double playerTimeoutSeconds READ playerTimeoutSeconds NOTIFY timeoutsChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorChanged)
 public:
-    explicit NetworkPreferences(QSettings &settings, ApiClient &api, QObject *parent = nullptr,
-                                LocalCredentialStore *store = nullptr);
+    explicit NetworkPreferences(EchoMusic::SettingsStore &settings, ApiClient &api,
+                                QObject *parent = nullptr, LocalCredentialStore *store = nullptr);
     QString proxyMode() const
     {
         return NetworkConfiguration::modeKey(m_configuration.mode);
@@ -128,7 +128,7 @@ private:
     void discardSecret(const QString &reference);
     void finishApply();
     QVariantMap record(const NetworkConfiguration &configuration, const QString &reference) const;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     ApiClient &m_api;
     double m_apiSeconds = 0;
     double m_playerSeconds = 60;

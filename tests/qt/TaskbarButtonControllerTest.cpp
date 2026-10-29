@@ -1,5 +1,5 @@
 #include "TaskbarButtonController.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -22,7 +22,7 @@ private slots:
 void TaskbarButtonControllerTest::defaultsAreOff()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("window.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("window.ini"));
     TaskbarButtonController controller(settings);
 
     QVERIFY(!controller.progressEnabled());
@@ -32,7 +32,7 @@ void TaskbarButtonControllerTest::defaultsAreOff()
 void TaskbarButtonControllerTest::togglesPersistUnderTheirWindowKeys()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("window.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("window.ini"));
     TaskbarButtonController controller(settings);
 
     controller.setProgressEnabled(true);
@@ -49,7 +49,7 @@ void TaskbarButtonControllerTest::togglesPersistUnderTheirWindowKeys()
 void TaskbarButtonControllerTest::repeatedSetDoesNotNotifyAgain()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("window.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("window.ini"));
     TaskbarButtonController controller(settings);
     QSignalSpy changes(&controller, &TaskbarButtonController::changed);
 
@@ -69,12 +69,12 @@ void TaskbarButtonControllerTest::storedValuesAreReadBackOnConstruction()
     QTemporaryDir directory;
     const auto path = directory.filePath("window.ini");
     {
-        QSettings settings(path, QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(path);
         settings.setValue(QStringLiteral("window/taskbarProgress"), true);
         settings.setValue(QStringLiteral("window/taskbarCoverPreview"), true);
         settings.sync();
     }
-    QSettings settings(path, QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(path);
     TaskbarButtonController controller(settings);
 
     QVERIFY(controller.progressEnabled());

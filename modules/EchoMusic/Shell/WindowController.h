@@ -3,7 +3,7 @@
 #include <QPointer>
 #include <QRectF>
 #include <QQuickWindow>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTimer>
 #include <QtQml/qqmlregistration.h>
 #include "StartupIntegration.h"
@@ -48,7 +48,7 @@ class WindowController final : public QObject
     Q_PROPERTY(Qt::WindowFlags mainWindowFlags READ mainWindowFlags CONSTANT)
     Q_PROPERTY(QRectF nativeCaptionBounds READ nativeCaptionBounds NOTIFY changed)
 public:
-    WindowController(QSettings &settings, bool persist, QObject *parent = nullptr);
+    WindowController(EchoMusic::SettingsStore &settings, bool persist, QObject *parent = nullptr);
     ~WindowController() override;
     void attach(QQuickWindow *window);
     void attachPluginWindow(QQuickWindow *window);
@@ -183,7 +183,7 @@ private:
     QMenu *createTaskbarLyricMenu();
     void addPlaybackMenuActions(QMenu *menu, bool submenuModes = true);
     void addLyricsMenuActions(QMenu *menu);
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     FloatingPlayerController m_floating;
     TaskbarLyricController m_taskbar;
     TaskbarButtonController m_taskbarButton;

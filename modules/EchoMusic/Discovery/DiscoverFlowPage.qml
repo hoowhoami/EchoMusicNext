@@ -117,10 +117,8 @@ RoutePage {
     // mode does. Arming is keyed per surface: the playback page's route exit
     // animation keeps its presentation "active" briefly after a navigation,
     // and a keyed release must not drop the gallery this page already armed.
-    onResourcesActiveChanged: page.service.playback.portraits.setSurfaceActive(
-                                  "discover-flow", page.resourcesActive)
-    Component.onCompleted: page.service.playback.portraits.setSurfaceActive(
-                               "discover-flow", page.resourcesActive)
+    onResourcesActiveChanged: page.service.playback.portraits.setSurfaceActive("discover-flow", page.resourcesActive)
+    Component.onCompleted: page.service.playback.portraits.setSurfaceActive("discover-flow", page.resourcesActive)
     Component.onDestruction: page.service.playback.portraits.setSurfaceActive("discover-flow", false)
     onPartStateChanged: {
         if (page.partState !== DiscoveryService.Loading)

@@ -49,7 +49,8 @@ void NetworkPreferences::eraseCredentialForReset(std::function<void(QString)> co
 namespace
 {
 Q_LOGGING_CATEGORY(networkPolicyLog, "echo.network.policy")
-constexpr auto timeoutsKey = EchoMusic::SettingsKeys::Network::LocalPolicy;
+constexpr auto timeoutsKey = EchoMusic::SettingsKeys::Network::Timeouts;
+constexpr auto proxyKey = EchoMusic::SettingsKeys::Network::ProxyPolicy;
 
 class TransportProxyFactory final : public QNetworkProxyFactory
 {
@@ -79,33 +80,19 @@ double restoredNumber(const QVariant &value, double fallback, double minimum)
     const double number = value.toDouble(&valid);
     return valid && std::isfinite(number) ? qBound(minimum, number, 300.) : fallback;
 }
-std::unique_ptr<QSettings> freshWriter(const QSettings &settings)
+std::unique_ptr<EchoMusic::SettingsStore> freshWriter(const EchoMusic::SettingsStore &settings)
 {
-    // QSettings::status retains the first error for that object's lifetime. A
-    // fresh accessor allows retry after a disk/permission failure while keeping
-    // the same native store identity (not treating a macOS domain as a filename).
-    auto result =
-        settings.organizationName().isEmpty() && settings.applicationName().isEmpty()
-            ? std::make_unique<QSettings>(settings.fileName(), settings.format())
-            : std::make_unique<QSettings>(settings.format(), settings.scope(),
-                                          settings.organizationName(), settings.applicationName());
-    result->setFallbacksEnabled(settings.fallbacksEnabled());
-    result->beginGroup(settings.group());
-    return result;
+    // A new backend retries transient filesystem errors without sharing a thread-bound object.
+    return std::make_unique<EchoMusic::SettingsStore>(settings.fileName());
 }
 } // namespace
-NetworkPreferences::NetworkPreferences(QSettings &settings, ApiClient &api, QObject *parent,
-                                       LocalCredentialStore *store)
+NetworkPreferences::NetworkPreferences(EchoMusic::SettingsStore &settings, ApiClient &api,
+                                       QObject *parent, LocalCredentialStore *store)
     : QObject(parent), m_settings(settings), m_api(api),
-      m_store(
-          store
-              ? store
-              : new SqliteCredentialStore(
-                    (settings.organizationName().isEmpty() && settings.applicationName().isEmpty()
-                         ? QFileInfo(settings.fileName()).absolutePath()
-                         : QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)) +
-                        "/network.sqlite",
-                    this))
+      m_store(store ? store
+                    : new SqliteCredentialStore(
+                          QFileInfo(settings.deviceFileName()).absolutePath() + "/network.sqlite",
+                          this))
 {
     connect(m_store, &LocalCredentialStore::finished, this,
             [this](quint64 operation, bool success, const QByteArray &bytes) {
@@ -115,9 +102,10 @@ NetworkPreferences::NetworkPreferences(QSettings &settings, ApiClient &api, QObj
                 auto complete = std::exchange(m_secretCompletion, {});
                 complete(success, bytes);
             });
-    const auto saved = settings.value(timeoutsKey).toMap();
-    m_apiSeconds = restoredNumber(saved.value("apiSeconds"), 0, 0);
-    m_playerSeconds = restoredNumber(saved.value("playerSeconds"), 60, 1);
+    const auto timeouts = settings.value(timeoutsKey).toMap();
+    const auto saved = settings.value(proxyKey).toMap();
+    m_apiSeconds = restoredNumber(timeouts.value("apiSeconds"), 0, 0);
+    m_playerSeconds = restoredNumber(timeouts.value("playerSeconds"), 60, 1);
     m_configuration.mode = NetworkConfiguration::modeFromKey(saved.value("mode").toString());
     m_configuration.pacScript = saved.value("pacScript").toString();
     m_configuration.proxyRules = saved.value("proxyRules").toString();
@@ -212,8 +200,6 @@ QVariantMap NetworkPreferences::record(const NetworkConfiguration &configuration
             {"proxyRules", configuration.proxyRules},
             {"username", configuration.username},
             {"bypassRules", configuration.bypassRules},
-            {"apiSeconds", configuration.apiTimeoutSeconds},
-            {"playerSeconds", configuration.playerTimeoutSeconds},
             {"passwordId", reference}};
 }
 bool NetworkPreferences::commit(const NetworkConfiguration &configuration, const QString &password,
@@ -225,13 +211,22 @@ bool NetworkPreferences::commit(const NetworkConfiguration &configuration, const
     }
     auto writer = freshWriter(m_settings);
     const auto previous = writer->value(timeoutsKey);
-    writer->setValue(timeoutsKey, record(configuration, reference));
+    const auto previousProxy = writer->value(proxyKey);
+    writer->setValue(timeoutsKey,
+                     QVariantMap{{"apiSeconds", configuration.apiTimeoutSeconds},
+                                 {"playerSeconds", configuration.playerTimeoutSeconds}});
+    writer->setValue(proxyKey, record(configuration, reference));
     writer->sync();
-    if (writer->status() != QSettings::NoError) {
+    if (writer->status() != EchoMusic::SettingsStore::NoError) {
         if (previous.isValid())
             writer->setValue(timeoutsKey, previous);
         else
             writer->remove(timeoutsKey);
+        if (previousProxy.isValid())
+            writer->setValue(proxyKey, previousProxy);
+        else
+            writer->remove(proxyKey);
+        writer->sync();
         m_api.setNetworkTimeout(m_apiSeconds);
         setError(tr("无法保存网络设置"));
         return false;
@@ -335,7 +330,7 @@ void NetworkPreferences::setGithubProxyUrl(const QString &value)
     auto writer = freshWriter(m_settings);
     writer->setValue(EchoMusic::SettingsKeys::Network::GithubProxyUrl, normalized);
     writer->sync();
-    if (writer->status() != QSettings::NoError) {
+    if (writer->status() != EchoMusic::SettingsStore::NoError) {
         setError(tr("无法保存 GitHub 加速地址"));
         return;
     }

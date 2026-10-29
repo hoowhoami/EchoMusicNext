@@ -14,16 +14,18 @@ SettingsSection {
     required property PlaybackService playback
     readonly property FloatingPlayerController windows: windowService.floating
     readonly property FloatingLyricPreferences style: windows.mini
+    readonly property color defaultForeground: (Theme.store.extensionAppearance.mini || {}).text || Theme.floatingText
     heading: qsTr("Mini 歌词")
     glyph: "picture-in-picture"
     LyricColorSettingsRow {
+        objectName: "miniLyricColors"
         uiScale: section.uiScale
         heading: qsTr("文字颜色")
         description: qsTr("分别设置已播与未播字色，也可跟随封面取色")
         customized: section.style.playedColor.length > 0 || section.style.unplayedColor.length > 0 || followsCover || unplayedFollowsCover
         coverColor: section.playback.coverColor
-        playedColor: section.style.playedColor || Theme.accentText
-        unplayedColor: section.style.unplayedColor || Theme.floatingSecondaryText
+        playedColor: LyricColors.miniPlayed(section.style, Theme.store.lyricAccent(section.playback.coverColor), section.defaultForeground)
+        unplayedColor: LyricColors.miniUnplayed(section.style, Theme.store.lyricAccent(section.playback.coverColor), section.defaultForeground)
         followsCover: section.style.followCoverColor
         unplayedFollowsCover: section.style.unplayedFollowCoverColor
         onColorChosen: (unplayed, value, follow) => {

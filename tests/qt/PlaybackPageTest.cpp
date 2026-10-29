@@ -270,7 +270,7 @@ int lyricItems(QQuickItem *root)
 struct Session
 {
     QTemporaryDir directory;
-    QSettings settings{directory.filePath("settings.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore settings{directory.filePath("settings.ini")};
     ThemeStore theme{settings};
     ApiClient api;
     NetworkPreferences network{settings, api};
@@ -1423,7 +1423,7 @@ void PlaybackPageTest::sceneGraphPlaybackCpu()
 void PlaybackPageTest::preferencesValidateAndPersistWithoutResettingGlobalBackground()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("preferences.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
     LyricAppearance first(settings);
     QVERIFY(!first.customized());
     first.setAlignPosition(4);
@@ -3948,7 +3948,7 @@ int main(int argc, char **argv)
 void PlaybackPageTest::portraitGalleryCancelsCachesAndUsesPreferredCategory()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("portrait.ini"), QSettings::IniFormat);
+    EchoMusic::SettingsStore settings(directory.filePath("portrait.ini"));
     ApiClient api;
     QVERIFY(api.setNetworkTransport(1));
     LyricPortraitAppearance appearance(settings);

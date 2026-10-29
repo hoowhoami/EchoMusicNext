@@ -1,6 +1,8 @@
+#include "PortableSettingsCodec.h"
+#include "PluginPaths.h"
 #include "SettingsKeys.h"
 #include "SettingsBackupArchive.h"
-#include "PluginDataTransaction.h"
+#include "StorageSnapshot.h"
 #include <QCryptographicHash>
 #include <QDataStream>
 #include <QDateTime>
@@ -12,7 +14,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
-#include <QSettings>
+#include "SettingsStore.h"
 
 namespace EchoMusic
 {
@@ -86,202 +88,26 @@ QString copyTree(const QString &source, const QString &destination,
     return {};
 }
 } // namespace
-bool SettingsBackupArchive::portableKey(const QString &key)
+QJsonObject SettingsBackupArchive::encodePreferences(const QVariantMap &values, QString *error,
+                                                     const QString &filesRoot)
 {
-    if (key.size() > 256 || key.contains("..") || key.contains(QChar(0)))
-        return false;
-    // Positive application preference scopes. Never archive account sessions,
-    // device IDs, grants, proxy secrets, filesystem bindings or runtime catalogs.
-    static const QStringList scopes{EchoMusic::SettingsKeys::Interface::Prefix,
-                                    EchoMusic::SettingsKeys::Navigation::Prefix,
-                                    EchoMusic::SettingsKeys::Typography::Prefix,
-                                    EchoMusic::SettingsKeys::Shortcuts::Prefix,
-                                    EchoMusic::SettingsKeys::Updates::Prefix,
-                                    EchoMusic::SettingsKeys::Playback::Prefix,
-                                    EchoMusic::SettingsKeys::Video::BarragePrefix,
-                                    EchoMusic::SettingsKeys::Lyrics::AppearancePrefix,
-                                    EchoMusic::SettingsKeys::Lyrics::PortraitPrefix,
-                                    EchoMusic::SettingsKeys::PlayerEngine::Prefix,
-                                    EchoMusic::SettingsKeys::Sidebar::Prefix,
-                                    EchoMusic::SettingsKeys::Shell::TitlebarPrefix,
-                                    EchoMusic::SettingsKeys::Shell::PlayerbarPrefix};
-    static const QSet<QString> individual{EchoMusic::SettingsKeys::Video::BarrageEnabled,
-                                          EchoMusic::SettingsKeys::Appearance::Preferences,
-                                          EchoMusic::SettingsKeys::Search::DefaultEnabled,
-                                          EchoMusic::SettingsKeys::Lyrics::Conversion,
-                                          EchoMusic::SettingsKeys::Lyrics::GlobalOffsetMs,
-                                          EchoMusic::SettingsKeys::Lyrics::OffsetStep,
-                                          EchoMusic::SettingsKeys::Lyrics::WantRomanization,
-                                          EchoMusic::SettingsKeys::Lyrics::WantTranslation,
-                                          EchoMusic::SettingsKeys::Network::GithubProxyUrl,
-                                          EchoMusic::SettingsKeys::Network::LocalPolicy,
-                                          EchoMusic::SettingsKeys::Audio::Equalizer,
-                                          EchoMusic::SettingsKeys::Audio::Normalization,
-                                          EchoMusic::SettingsKeys::Audio::ReferenceLufs,
-                                          EchoMusic::SettingsKeys::Recognition::Source,
-                                          EchoMusic::SettingsKeys::Logging::Level,
-                                          EchoMusic::SettingsKeys::Logging::ApiResponseBody,
-                                          EchoMusic::SettingsKeys::Cast::Enabled,
-                                          EchoMusic::SettingsKeys::Window::RememberSize,
-                                          EchoMusic::SettingsKeys::Window::CloseToTray,
-                                          EchoMusic::SettingsKeys::Window::HideDockInBackground,
-                                          EchoMusic::SettingsKeys::Window::HideMenuBarInBackground,
-                                          EchoMusic::SettingsKeys::Window::StartMinimized,
-                                          EchoMusic::SettingsKeys::Window::TaskbarCoverPreview,
-                                          EchoMusic::SettingsKeys::Window::TaskbarProgress,
-                                          EchoMusic::SettingsKeys::Audio::PauseOnDisconnect};
-    if (individual.contains(key))
-        return true;
-    for (const auto &scope : scopes)
-        if (key.startsWith(scope))
-            return true;
-    return false;
+    return PortableSettingsCodec::encode(values, error, filesRoot);
 }
-QJsonObject SettingsBackupArchive::encodePreferences(const QVariantMap &values)
+QVariantMap SettingsBackupArchive::decodePreferences(const QJsonObject &values, QString *error,
+                                                     const QString &filesRoot)
 {
-    QJsonObject result;
-    for (auto it = values.begin(); it != values.end(); ++it) {
-        if (!portableKey(it.key()))
-            continue;
-        const auto &value = it.value();
-        QJsonObject entry;
-        if (it.key() == EchoMusic::SettingsKeys::Network::LocalPolicy) {
-            const auto network = value.toMap();
-            result.insert(
-                it.key(),
-                QJsonObject{
-                    {"type", "timeouts"},
-                    {"value", QJsonObject{{"apiSeconds", network.value("apiSeconds", 0).toDouble()},
-                                          {"playerSeconds",
-                                           network.value("playerSeconds", 60).toDouble()}}}});
-            continue;
-        }
-        switch (value.metaType().id()) {
-        case QMetaType::QByteArray:
-            entry = {{"type", "bytes"},
-                     {"value", QString::fromLatin1(value.toByteArray().toBase64())}};
-            break;
-        case QMetaType::Bool:
-            entry = {{"type", "bool"}, {"value", value.toBool()}};
-            break;
-        case QMetaType::Int:
-        case QMetaType::LongLong:
-            entry = {{"type", "integer"}, {"value", QString::number(value.toLongLong())}};
-            break;
-        case QMetaType::Double:
-            entry = {{"type", "number"}, {"value", value.toDouble()}};
-            break;
-        case QMetaType::QString:
-            entry = {{"type", "string"}, {"value", value.toString()}};
-            break;
-        case QMetaType::QVariantList:
-            entry = {{"type", "array"}, {"value", QJsonValue::fromVariant(value)}};
-            break;
-        case QMetaType::QStringList:
-            entry = {{"type", "strings"}, {"value", QJsonValue::fromVariant(value)}};
-            break;
-        case QMetaType::QVariantMap:
-            entry = {{"type", "object"}, {"value", QJsonValue::fromVariant(value)}};
-            break;
-        default:
-            continue;
-        }
-        result.insert(it.key(), entry);
-    }
-    return result;
+    return PortableSettingsCodec::decode(values, error, filesRoot);
 }
-QVariantMap SettingsBackupArchive::decodePreferences(const QJsonObject &values, QString *error)
+void SettingsBackupArchive::applyPreferences(EchoMusic::SettingsStore &settings,
+                                             const QVariantMap &values)
 {
-    QVariantMap result;
-    if (values.size() > 2048 ||
-        QJsonDocument(values).toJson(QJsonDocument::Compact).size() > 2 * 1024 * 1024) {
-        *error = "Backup preference limits exceeded";
-        return {};
-    }
-    for (auto it = values.begin(); it != values.end(); ++it) {
-        if (!portableKey(it.key()) || !it.value().isObject()) {
-            *error = "Backup contains non-portable preferences";
-            return {};
-        }
-        const auto entry = it.value().toObject();
-        const auto type = entry.value("type").toString();
-        const auto value = entry.value("value");
-        if (it.key() == EchoMusic::SettingsKeys::Network::LocalPolicy) {
-            const auto timeouts = value.toObject();
-            const auto api = timeouts.value("apiSeconds"), player = timeouts.value("playerSeconds");
-            if (type != "timeouts" || timeouts.size() != 2 || !api.isDouble() ||
-                !player.isDouble() || api.toDouble() < 0 || api.toDouble() > 300 ||
-                player.toDouble() < 1 || player.toDouble() > 300) {
-                *error = "Invalid portable network timeouts";
-                return {};
-            }
-            result.insert(it.key(), timeouts.toVariantMap());
-            continue;
-        }
-        if (type == "bytes" && value.isString()) {
-            const auto decoded = QByteArray::fromBase64Encoding(
-                value.toString().toLatin1(), QByteArray::AbortOnBase64DecodingErrors);
-            if (!decoded) {
-                *error = "Invalid backup byte preference";
-                return {};
-            }
-            result.insert(it.key(), decoded.decoded);
-        } else if (type == "bool" && value.isBool())
-            result.insert(it.key(), value.toBool());
-        else if (type == "integer" && value.isString()) {
-            bool valid = false;
-            const auto integer = value.toString().toLongLong(&valid);
-            if (!valid) {
-                *error = "Invalid backup integer preference";
-                return {};
-            }
-            result.insert(it.key(), integer);
-        } else if (type == "number" && value.isDouble())
-            result.insert(it.key(), value.toDouble());
-        else if (type == "string" && value.isString())
-            result.insert(it.key(), value.toString());
-        else if (type == "strings" && value.isArray()) {
-            QStringList strings;
-            for (const auto &item : value.toArray()) {
-                if (!item.isString()) {
-                    *error = "Invalid backup string list";
-                    return {};
-                }
-                strings.append(item.toString());
-            }
-            result.insert(it.key(), strings);
-        } else if (type == "array" && value.isArray())
-            result.insert(it.key(), value.toArray().toVariantList());
-        else if (type == "object" && value.isObject())
-            result.insert(it.key(), value.toObject().toVariantMap());
-        else {
-            *error = "Invalid backup preference type";
-            return {};
-        }
-    }
-    error->clear();
-    return result;
-}
-void SettingsBackupArchive::applyPreferences(QSettings &settings, const QVariantMap &values)
-{
-    for (auto it = values.begin(); it != values.end(); ++it) {
-        if (it.key() == EchoMusic::SettingsKeys::Network::LocalPolicy) {
-            // Restore deadlines without replacing this machine's applied route,
-            // username or local password record ID with another device's state.
-            auto current = settings.value(it.key()).toMap();
-            const auto timeouts = it.value().toMap();
-            current.insert("apiSeconds", timeouts.value("apiSeconds"));
-            current.insert("playerSeconds", timeouts.value("playerSeconds"));
-            settings.setValue(it.key(), current);
-        } else
-            settings.setValue(it.key(), it.value());
-    }
+    settings.replacePortable(values);
 }
 SettingsBackupResult
 SettingsBackupArchive::create(const QString &destination, const QString &staging,
                               const QJsonObject &preferences, bool includeSettings,
                               const QVariantList &plugins, bool includePlugins,
-                              const QString &pluginRoot, const QString &imageRoot,
+                              const QString &pluginRoot, const QString &filesRoot,
                               const QString &version, const std::atomic_bool &cancelled)
 {
     SettingsBackupResult result;
@@ -319,7 +145,7 @@ SettingsBackupArchive::create(const QString &destination, const QString &staging
     // Bound the entire capture before copying any package or VACUUM snapshot;
     // independent per-plugin limits alone could stage many gigabytes first.
     if (includeSettings)
-        error = reserve(imageRoot);
+        error = reserve(filesRoot);
     if (includePlugins)
         for (const auto &value : plugins) {
             if (!error.isEmpty())
@@ -327,7 +153,7 @@ SettingsBackupArchive::create(const QString &destination, const QString &staging
             const auto plugin = value.toMap();
             error = reserve(plugin.value("root").toString());
             if (error.isEmpty())
-                error = reserve(pluginRoot + "/data/" + plugin.value("installation").toString());
+                error = reserve(PluginPaths(pluginRoot).data(plugin.value("id").toString()));
         }
     if (!error.isEmpty())
         return result;
@@ -345,9 +171,9 @@ SettingsBackupArchive::create(const QString &destination, const QString &staging
                              cancelled);
             if (!error.isEmpty())
                 return result;
-            error = PluginDataTransaction::capture(pluginRoot + "/data/" +
-                                                       plugin.value("installation").toString(),
-                                                   staging + '/' + prefix + "/data");
+            error = StorageSnapshot::capture(
+                PluginPaths(pluginRoot).data(plugin.value("id").toString()),
+                staging + '/' + prefix + "/data");
             if (!error.isEmpty())
                 return result;
             records.append(
@@ -359,12 +185,13 @@ SettingsBackupArchive::create(const QString &destination, const QString &staging
         }
     }
     if (includeSettings) {
-        error = copyTree(imageRoot, staging + "/theme-images", cancelled);
+        error = StorageSnapshot::capture(filesRoot, staging + "/files");
         if (!error.isEmpty())
             return result;
     }
     result.manifest = {
         {"format", "echomusicnext-backup"},
+        {"storageSchema", "owned-domains"},
         {"version", 1},
         {"appVersion", version},
         {"createdAt", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
@@ -437,8 +264,10 @@ SettingsBackupResult SettingsBackupArchive::inspect(const QString &source, const
         return result;
     const auto &manifest = result.manifest;
     if (manifest.value("format") != "echomusicnext-backup" ||
-        manifest.value("version").toInt() != 1 || !manifest.value("settings").isObject() ||
-        !manifest.value("plugins").isArray() || manifest.value("plugins").toArray().size() > 128)
+        manifest.value("version").toInt() != 1 ||
+        manifest.value("storageSchema") != "owned-domains" ||
+        !manifest.value("settings").isObject() || !manifest.value("plugins").isArray() ||
+        manifest.value("plugins").toArray().size() > 128)
         return {"Unsupported backup manifest", {}};
     decodePreferences(manifest.value("settings").toObject(), &result.error);
     if (!result.error.isEmpty())
@@ -463,8 +292,8 @@ SettingsBackupResult SettingsBackupArchive::inspect(const QString &source, const
             size < 0 || (total += size) > byteLimit || size > input.bytesAvailable())
             return {"Invalid backup file entry", {}};
         if (!path.startsWith(EchoMusic::SettingsKeys::Plugins::Prefix) &&
-            !path.startsWith("theme-images/") &&
-            !(entry.value("directory").toBool() && (path == "plugins" || path == "theme-images")))
+            !path.startsWith("files/") &&
+            !(entry.value("directory").toBool() && (path == "plugins" || path == "files")))
             return {"Unsupported backup asset", {}};
         names.insert(path);
         const auto target = staging + '/' + path;

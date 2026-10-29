@@ -43,9 +43,13 @@ GridView {
         // Separate model/delegate bindings run in either order. Detach rows
         // before switching so ContentCard never receives integer placeholders
         // without its required catalog roles (including pooled delegates).
+        // Drain the previous pool: its cards still belong to the old row model.
+        const reuse = grid.reuseItems;
+        grid.reuseItems = false;
         grid.model = null;
         grid.delegate = grid.loading ? skeletonDelegate : cardDelegate;
         grid.model = grid.loading ? grid.columns * 2 : grid.sourceModel;
+        grid.reuseItems = reuse;
     }
     onLoadingChanged: syncPresentation()
     onSourceModelChanged: if (!grid.loading)

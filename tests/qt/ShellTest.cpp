@@ -182,7 +182,7 @@ private slots:
     void sidebarLongPlaylistTitleKeepsItsLineOnHover()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ThemeStore theme(preferences);
         QQmlEngine engine;
         theme.attachToEngine(engine);
@@ -384,7 +384,7 @@ private slots:
     void productionLoginSurfaceUsesOnlyItsBackground()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ThemeStore theme(preferences);
         ShellSettings shell(preferences);
         shell.setMotionEnabled(false);
@@ -468,7 +468,7 @@ private slots:
     void browserVerificationClosesOnlyItsOwnDialog()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ThemeStore theme(preferences);
         theme.setMotionEnabled(false);
         ShellSettings shell(preferences);
@@ -633,7 +633,7 @@ QtObject {
     void productionAccountSwitchValidationAndCancellation()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ThemeStore theme(preferences);
         ShellSettings shell(preferences);
         shell.setMotionEnabled(false);
@@ -801,7 +801,7 @@ QtObject {
     void productionAccountEntryOverlayAndDraftLifetime()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ThemeStore theme(preferences);
         ShellSettings shell(preferences);
         shell.setMotionEnabled(false);
@@ -1275,7 +1275,7 @@ QtObject {
     void actualLoaderRetainsVisualStateAndStopsInactiveTimers()
     {
         QTemporaryDir temp;
-        QSettings preferences(temp.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(temp.filePath("settings.ini"));
         ShellSettings shell(preferences);
         ApiClient api(DeviceIdentity::temporary());
         Test::AccountUiFixture accountUi{api};
@@ -1431,7 +1431,7 @@ QtObject {
     void dynamicHomepageFollowsCurrentFirstShortcut()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         preferences.setValue("sidebar/shortcuts",
                              QStringList{"recommend", "explore", "home", "ranking"});
         ShellSettings settings(preferences);
@@ -1476,7 +1476,7 @@ QtObject {
         QCOMPARE(routes.current()->name(), QString("recommend-songs"));
         // No stale startup copy: a fresh settings reader restores the saved order.
         preferences.sync();
-        QSettings restoredPreferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore restoredPreferences(directory.filePath("settings.ini"));
         ShellSettings restored(restoredPreferences);
         QCOMPARE(restored.sidebarLayout()->homeRoute(), QString("recommend-songs"));
         RouteController pluginRoutes;
@@ -1501,7 +1501,7 @@ QtObject {
     void preferencesResponsiveZoomAndPalette()
     {
         QTemporaryDir temp;
-        QSettings settings(temp.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(temp.filePath("preferences.ini"));
         ShellSettings shell(settings);
         QCOMPARE(shell.keepAliveMax(), 20);
         QVERIFY(!shell.searchDefaultEnabled());
@@ -1556,7 +1556,7 @@ QtObject {
         QCOMPARE(theme.panelBackdrop(), theme.main());
         theme.setPanelOpacity(37);
         settings.sync();
-        QSettings reopened(temp.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore reopened(temp.filePath("preferences.ini"));
         ShellSettings shellAgain(reopened);
         ThemeStore themeAgain(reopened);
         QCOMPARE(shellAgain.keepAliveMax(), 30);
@@ -1569,7 +1569,7 @@ QtObject {
     void realMainShellGeometryAndThemeRoute()
     {
         QTemporaryDir temp;
-        QSettings preferences(temp.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(temp.filePath("settings.ini"));
         ThemeStore theme(preferences);
         ShellSettings shell(preferences);
         WindowController windows(preferences, false);
@@ -1698,7 +1698,7 @@ QtObject {
     void moreListsKeepShortLabelsWholeAndLongLabelsBounded()
     {
         QTemporaryDir temp;
-        QSettings preferences(temp.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(temp.filePath("settings.ini"));
         ThemeStore theme(preferences);
         ShellSettings shell(preferences);
         shell.setMotionEnabled(false);
@@ -1827,7 +1827,7 @@ QtObject {
     void productionPlayerLayoutDragPreviewsAndSettles()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ThemeStore theme(preferences);
         RouteController routes;
         ShellController controller(preferences, routes);
@@ -2073,7 +2073,7 @@ QtObject {
     void productionTitlebarPinningTasksAndVirtualization()
     {
         QTemporaryDir temp;
-        QSettings preferences(temp.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(temp.filePath("settings.ini"));
         ThemeStore theme(preferences);
         ShellSettings shell(preferences);
         shell.setMotionEnabled(false);
@@ -2879,7 +2879,7 @@ QtObject {
     void sidebarVisibilityKeepsEditorStable()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("window.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("window.ini"));
         ThemeStore theme(preferences);
         ShellSettings shell(preferences);
         WindowController windows(preferences, false);
@@ -3015,7 +3015,7 @@ QtObject {
     void contentFullscreenPreservesHostStateAndHiddenExit()
     {
         QTemporaryDir directory;
-        QSettings preferences(directory.filePath("window.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("window.ini"));
         WindowController windows(preferences, false);
         QQuickWindow window;
         windows.attach(&window);

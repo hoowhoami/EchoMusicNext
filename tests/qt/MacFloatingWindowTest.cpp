@@ -20,7 +20,7 @@ namespace
 struct Session
 {
     QTemporaryDir directory;
-    QSettings settings{directory.filePath("settings.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore settings{directory.filePath("settings.ini")};
     QQuickWindow main, desktop, mini;
     WindowController windows{settings, true};
     Session()

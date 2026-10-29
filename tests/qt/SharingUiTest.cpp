@@ -109,7 +109,7 @@ private slots:
                                 std::istreambuf_iterator<char>());
         const auto identity = QJsonDocument::fromJson(QByteArray::fromStdString(input)).object();
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity{identity["mid"].toString(), identity["dfid"].toString(),
                                      identity["guid"].toString(), identity["mac"].toString(),
                                      "EchoMusicNext", identity["uuid"].toString(),
@@ -318,7 +318,7 @@ Window {
     void productionHistoryBitmapAndIncomingPage()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("ui/motionEnabled", false);
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setNetworkTransport(1));

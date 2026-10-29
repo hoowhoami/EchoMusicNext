@@ -1,3 +1,4 @@
+#include "StorageFence.h"
 #include "ThemeImageStore.h"
 #include <QBuffer>
 #include <QColorSpace>
@@ -92,6 +93,9 @@ QColor ThemeImageStore::sample(const QString &directory, const QString &id, cons
 }
 void ThemeImageStore::clean(const QString &directory, const QStringList &retained)
 {
+    const auto storage = StorageFence::write(directory);
+    if (!storage)
+        return;
     QDir folder(directory);
     // Runs only with no imports pending, on the same serialized image worker.
     // These private directories can remain only after process termination.

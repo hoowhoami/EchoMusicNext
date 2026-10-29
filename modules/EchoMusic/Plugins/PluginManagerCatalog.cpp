@@ -1,3 +1,5 @@
+#include "PluginSourceEntry.h"
+#include "PluginPaths.h"
 #include "SettingsKeys.h"
 #include "PluginManager.h"
 #include "SharingCommands.h"
@@ -119,6 +121,7 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
         [this, source, generation, complete](QByteArray bytes, QString error) mutable {
             if (generation != m_generation)
                 return;
+            source["catalogValid"] = false;
             QJsonParseError parse;
             const auto doc = QJsonDocument::fromJson(bytes, &parse).object();
             if (error.isEmpty() &&
@@ -131,29 +134,29 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                 complete(source, {});
                 return;
             }
-            auto paths = std::make_shared<QStringList>();
-            auto artifacts = std::make_shared<QHash<QString, QVariantMap>>();
+            auto entries = std::make_shared<QVariantList>();
+            auto errors = std::make_shared<QStringList>();
+            QSet<QString> ids;
             for (const auto &value : doc.value("plugins").toArray()) {
-                const auto path = value.toObject().value("path").toString();
-                const auto artifact = value.toObject().value("artifact").toString();
-                const auto checksum = value.toObject().value("sha256").toString();
-                if (!safePath(path) || paths->contains(path) || !safePath(artifact) ||
-                    !artifact.endsWith(".echomod", Qt::CaseInsensitive) ||
-                    !QRegularExpression("^[a-f0-9]{64}$").match(checksum).hasMatch()) {
-                    source["lastError"] = tr("插件索引路径无效或重复");
-                    complete(source, {});
-                    return;
+                QString failure;
+                auto entry =
+                    PluginSourceEntry::parse(value.toObject().toVariantMap(),
+                                             source.value("repository").toString(), failure);
+                const auto id = entry.value("id").toString();
+                if (failure.isEmpty() && ids.contains(id))
+                    failure = tr("插件索引包含重复 ID：%1").arg(id);
+                if (!failure.isEmpty()) {
+                    errors->append(failure);
+                    continue;
                 }
-                paths->append(path);
-                artifacts->insert(path, {{"artifact", artifact}, {"sha256", checksum}});
+                ids.insert(id);
+                entries->append(entry);
             }
             auto results = std::make_shared<QVariantList>();
             auto current = std::make_shared<int>(0);
             auto next = std::make_shared<std::function<void()>>();
-            // Serial per-source requests bound memory and preserve index order.
-            // Break the callback cycle on every terminal path.
             std::weak_ptr<std::function<void()>> weakNext = next;
-            *next = [this, source, generation, complete, paths, artifacts, results, current,
+            *next = [this, source, generation, complete, entries, errors, results, current,
                      weakNext]() mutable {
                 const auto next = weakNext.lock();
                 if (!next)
@@ -162,8 +165,9 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                     *next = {};
                     return;
                 }
-                if (*current >= paths->size()) {
-                    source["lastError"] = "";
+                if (*current >= entries->size()) {
+                    source["lastError"] = errors->join('\n');
+                    source["catalogValid"] = true;
                     source["pluginCount"] = results->size();
                     source["lastFetchedAt"] = QDateTime::currentDateTime().toString(Qt::ISODate);
                     auto finish = complete;
@@ -171,51 +175,56 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                     finish(source, *results);
                     return;
                 }
-                const auto path = paths->at((*current)++);
-                get(QUrl(raw(source, path + "/manifest.json")), 256 * 1024,
-                    [this, source, generation, complete, path, artifacts, results,
-                     next](QByteArray bytes, QString error) mutable {
+                const auto entry = entries->at((*current)++).toMap();
+                get(QUrl(entry.value("manifestUrl").toString()), 256 * 1024,
+                    [this, source, generation, entry, errors, results,
+                     next](QByteArray bytes, QString failure) mutable {
                         if (generation != m_generation) {
                             *next = {};
                             return;
                         }
                         auto package = PluginPackage::inspectManifest(bytes);
-                        if (error.isEmpty() && !package.error.isEmpty() && !package.incompatible)
-                            error = package.error;
-                        if (!error.isEmpty()) {
-                            source["lastError"] = error;
-                            auto finish = complete;
-                            *next = {};
-                            finish(source, {});
-                            return;
-                        }
-                        auto record = package.manifest;
-                        record.insert("key", source.value("id").toString() + ':' + package.id);
-                        record.insert("sourceId", source.value("id"));
-                        record.insert("sourceName", source.value("name"));
-                        record.insert("sourceUrl", source.value("url"));
-                        record.insert("repository", source.value("repository"));
-                        record.insert("path", path);
-                        record.insert("artifact", artifacts->value(path).value("artifact"));
-                        record.insert("sha256", artifacts->value(path).value("sha256"));
-                        record.insert("compatible", package.error.isEmpty());
-                        record.insert("error", package.error);
-                        record.insert(
-                            "iconUrl",
-                            package.manifest.value("icon").toString().isEmpty()
-                                ? QString()
-                                : raw(source,
-                                      path + '/' + package.manifest.value("icon").toString()));
-                        record.insert("manifest", package.manifest);
-                        for (const auto &old : *results)
-                            if (old.toMap().value("id") == record.value("id")) {
-                                source["lastError"] = tr("插件索引包含重复ID");
-                                auto finish = complete;
-                                *next = {};
-                                finish(source, {});
-                                return;
+                        if (failure.isEmpty() && !package.error.isEmpty() && !package.incompatible)
+                            failure = package.error;
+                        if (failure.isEmpty() && package.id != entry.value("id"))
+                            failure = tr("插件 ID 与索引不一致");
+                        if (!failure.isEmpty()) {
+                            errors->append(entry.value("id").toString() + ": " + failure);
+                            for (const auto &old : m_entries) {
+                                auto cached = old.toMap();
+                                if (cached.value("sourceId") == source.value("id") &&
+                                    cached.value("id") == entry.value("id") &&
+                                    cached.value("repository") == entry.value("repository") &&
+                                    cached.value("sha256") == entry.value("sha256")) {
+                                    cached["stale"] = true;
+                                    cached["refreshError"] = failure;
+                                    results->append(cached);
+                                    break;
+                                }
                             }
-                        results->append(record);
+                        } else {
+                            auto record = package.manifest;
+                            for (auto it = entry.begin(); it != entry.end(); ++it)
+                                record[it.key()] = it.value();
+                            record["key"] = source.value("id").toString() + ':' + package.id;
+                            record["sourceId"] = source.value("id");
+                            record["sourceName"] = source.value("name");
+                            record["sourceUrl"] = source.value("url");
+                            record["compatible"] = package.error.isEmpty();
+                            record["error"] = package.error;
+                            const auto icon = package.manifest.value("icon").toString();
+                            record["iconUrl"] =
+                                icon.isEmpty()
+                                    ? QString()
+                                    : PluginSourceEntry::raw(
+                                          entry.value("repository").toString(),
+                                          entry.value("ref").toString(),
+                                          entry.value("path").toString().isEmpty()
+                                              ? icon
+                                              : entry.value("path").toString() + '/' + icon);
+                            record["manifest"] = package.manifest;
+                            results->append(record);
+                        }
                         auto continueFetch = *next;
                         continueFetch();
                     });
@@ -256,7 +265,7 @@ void PluginManager::refreshCatalog(bool force)
                         for (auto &value : m_sources)
                             if (value.toMap().value("id") == id)
                                 value = source;
-                        if (source.value("lastError").toString().isEmpty()) {
+                        if (source.value("catalogValid").toBool()) {
                             for (int i = int(m_entries.size()) - 1; i >= 0; --i)
                                 if (m_entries[i].toMap().value("sourceId") == id)
                                     m_entries.removeAt(i);
@@ -383,8 +392,8 @@ void PluginManager::save()
 {
     m_preferences.setValue(EchoMusic::SettingsKeys::Plugins::Sources, m_sources);
     m_preferences.sync();
-    QDir().mkpath(m_runtime.directory());
-    QSaveFile cache(m_runtime.directory() + "/catalog.json");
+    QDir().mkpath(PluginPaths(m_runtime.directory()).cache() + "/marketplace");
+    QSaveFile cache(PluginPaths(m_runtime.directory()).cache() + "/marketplace/catalog.json");
     if (cache.open(QIODevice::WriteOnly)) {
         cache.write(QJsonDocument(QJsonObject{{"schemaVersion", 2},
                                               {"plugins", QJsonArray::fromVariantList(m_entries)},
@@ -431,7 +440,8 @@ bool PluginManager::addSource(const QString &url, const QString &name)
         if (generation != m_generation)
             return;
         m_catalogLoading = false;
-        if (!source.value("lastError").toString().isEmpty()) {
+        if (!source.value("catalogValid").toBool() ||
+            (plugins.isEmpty() && !source.value("lastError").toString().isEmpty())) {
             if (source.value("id") == m_shareTarget.value("sourceId"))
                 m_shareInstallError = source.value("lastError").toString();
             emit notice(source.value("lastError").toString(), true);

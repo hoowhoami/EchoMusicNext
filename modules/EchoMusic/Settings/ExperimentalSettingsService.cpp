@@ -7,7 +7,7 @@ namespace EchoMusic
 {
 ExperimentalSettingsService::ExperimentalSettingsService(ApiClient &api, AccountService &account,
                                                          SavedAccountModel &saved,
-                                                         QSettings &settings,
+                                                         EchoMusic::SettingsStore &settings,
                                                          RelaunchService &relaunch, QObject *parent)
     : QObject(parent), m_api(api), m_account(account), m_saved(saved), m_settings(settings),
       m_relaunch(relaunch)

@@ -24,6 +24,7 @@
 #include <QPainterPath>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQmlIncubationController>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QScreen>
@@ -146,7 +147,7 @@ static qint64 residentBytes()
 struct Session
 {
     QTemporaryDir directory;
-    QSettings settings{directory.filePath("settings.ini"), QSettings::IniFormat};
+    EchoMusic::SettingsStore settings{directory.filePath("settings.ini")};
     ThemeStore theme{settings};
     ShellSettings shell{settings};
     WindowController windows{settings, false};
@@ -214,7 +215,7 @@ private slots:
     void skeletonLayoutsAcrossThemesAndWidths()
     {
         QTemporaryDir dir;
-        QSettings prefs(dir.filePath("prefs.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ThemeStore theme(prefs);
         QQmlEngine engine;
         theme.attachToEngine(engine);
@@ -605,7 +606,7 @@ Window {
     void sharedPageScrollLifecycleClippingAndWheel()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ThemeStore theme(settings);
         QQmlEngine engine;
         theme.attachToEngine(engine);
@@ -693,7 +694,7 @@ Window {
     void sharedPageContentWheelIsNotBlockedByStickyLayer()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("settings.ini"));
         ThemeStore theme(settings);
         QQmlEngine engine;
         theme.attachToEngine(engine);
@@ -779,6 +780,14 @@ Window {
              {SearchModel::Kind::Song, SearchModel::Kind::Lyric, SearchModel::Kind::Playlist,
               SearchModel::Kind::Album, SearchModel::Kind::Artist, SearchModel::Kind::Mv}) {
             SearchModelTestAccess::populate(session.search, kind, 10000);
+            const bool songs = kind == SearchModel::Kind::Song || kind == SearchModel::Kind::Lyric;
+            auto *view = session.item(songs ? "searchResults" : "searchResultGrid");
+            QVERIFY(view);
+            QTRY_VERIFY(view->isVisible());
+            QTRY_COMPARE(view->property("count").toInt(), 10000);
+            QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
+            QVERIFY(session.engine.incubationController());
+            QTRY_COMPARE(session.engine.incubationController()->incubatingObjectCount(), 0);
             QVERIFY(QMetaObject::invokeMethod(page, "scrollTo", Q_ARG(double, 2000.0)));
             QQuickItem *button = nullptr;
             QTRY_VERIFY((button = session.item("backToTopButton")));
@@ -792,13 +801,14 @@ Window {
             QTRY_VERIFY(control.isNull());
             QTRY_VERIFY(qAbs(page->property("scrollTop").toReal()) < 0.01);
             QCOMPARE(session.search.rowCount(), 10000);
-            const bool songs = kind == SearchModel::Kind::Song || kind == SearchModel::Kind::Lyric;
-            auto *view = session.item(songs ? "searchResults" : "searchResultGrid");
-            QVERIFY(view);
             QVERIFY(!view->property("moving").toBool());
             QVERIFY(countVisual(view, songs ? "songDelegate" : "contentDelegate") <
                     (songs ? 70 : 128));
         }
+        // Include the last view's asynchronous delegates in the warning check
+        // and finish their creation before destroying the window/engine.
+        QVERIFY(session.engine.incubationController());
+        QTRY_COMPARE(session.engine.incubationController()->incubatingObjectCount(), 0);
         QCOMPARE(warnings.count(), 0);
     }
     void productionPageWheelReachesContentAndGutters()
@@ -1450,6 +1460,8 @@ Window {
         grid->setProperty("contentY", 1000.0);
         QTRY_VERIFY(page->property("pinned").toBool());
         QTRY_VERIFY(countVisual(grid, "contentDelegate") < 128);
+        QVERIFY(session.engine.incubationController());
+        QTRY_COMPARE(session.engine.incubationController()->incubatingObjectCount(), 0);
         QCOMPARE(warnings.count(), 0);
     }
     void productionScrollbarsUsePageEdgeAndRemainInteractiveAboveStickyLayers()

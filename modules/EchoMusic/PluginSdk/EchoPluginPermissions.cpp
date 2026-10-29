@@ -36,7 +36,7 @@ bool supported(const QString &cap)
         .contains(cap);
 }
 } // namespace
-PluginPermissionStore::PluginPermissionStore(QSettings &s, QObject *parent)
+PluginPermissionStore::PluginPermissionStore(EchoMusic::SettingsStore &s, QObject *parent)
     : QObject(parent), m_settings(s)
 {
 }

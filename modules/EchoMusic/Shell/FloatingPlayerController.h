@@ -4,7 +4,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQuickItem>
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QTimer>
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
@@ -27,7 +27,7 @@ class FloatingPlayerController final : public QObject
     Q_PROPERTY(bool unlockAvailable READ unlockAvailable NOTIFY changed)
     Q_PROPERTY(bool unlockVisible READ unlockVisible NOTIFY unlockVisibilityChanged)
 public:
-    FloatingPlayerController(QSettings &, bool persist, QObject *parent = nullptr);
+    FloatingPlayerController(EchoMusic::SettingsStore &, bool persist, QObject *parent = nullptr);
     FloatingLyricPreferences *desktop()
     {
         return &m_desktop;
@@ -119,7 +119,7 @@ private:
     void saveDesktop();
     void saveMini();
     void resizeMini(bool expanded);
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     bool m_persist, m_desktopEnabled = false, m_locked = false, m_miniActive = false, m_up = false,
                     m_restoring = false, m_shutdown = false, m_unlockHovered = false;
     FloatingLyricPreferences m_desktop, m_mini;

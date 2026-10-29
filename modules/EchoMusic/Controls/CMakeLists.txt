@@ -11,6 +11,8 @@ qt_add_qml_module(
     URI
     EchoMusic.Controls
     SOURCES
+    EchoFileDialog.h
+    EchoFileDialog.cpp
     EchoUiPartRegistration.h
     EchoUiPartRegistration.cpp
     EchoLyricEffectRegistry.h
@@ -50,6 +52,9 @@ qt_add_qml_module(
     EchoWindowDragArea.qml
     EchoUiPartHost.qml
     EchoBoundedListView.qml
+    EchoViewPoolGuard.qml
+    EchoListReorder.qml
+    EchoReorderRow.qml
     EchoSpinner.qml
     EchoControlSize.qml
     EchoButton.qml
@@ -127,6 +132,7 @@ qt_add_resources(
     FILES
     icons/adjustments-horizontal.svg
     icons/adjustments.svg
+    icons/database.svg
     icons/alert-circle.svg
     icons/alert-triangle.svg
     icons/arrow-bar-down.svg
@@ -278,6 +284,7 @@ target_link_libraries(
     PRIVATE echo_build_options
             echo_theme
             echo_themeplugin
+            Qt6::Widgets
             Qt6::Gui
             Qt6::Qml
             Qt6::Quick

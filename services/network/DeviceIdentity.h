@@ -1,7 +1,7 @@
 #pragma once
 #include <QString>
 
-class QSettings;
+#include "SettingsStore.h"
 namespace EchoMusic
 {
 
@@ -18,11 +18,11 @@ struct DeviceIdentity
     QString deviceName;
     QString uuid;
     QString renderFingerprint;
-    static DeviceIdentity load(QSettings &settings);
+    static DeviceIdentity load(EchoMusic::SettingsStore &settings);
     static DeviceIdentity temporary();
-    static bool saveRegistration(QSettings &settings, const DeviceIdentity &device);
+    static bool saveRegistration(EchoMusic::SettingsStore &settings, const DeviceIdentity &device);
     /// Clear local identity and fence late registration writes until the next launch.
-    static bool resetOnRestart(QSettings &settings);
+    static bool resetOnRestart(EchoMusic::SettingsStore &settings);
     static QString midForGuid(const QString &guid);
 };
 } // namespace EchoMusic

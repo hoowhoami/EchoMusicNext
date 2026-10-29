@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Library
@@ -92,10 +91,10 @@ EchoDialog {
         id: pickerOwner
         hostItem: dialog.contentItem
         sourceComponent: Component {
-            FileDialog {
+            EchoFileDialog {
                 id: picker
                 title: qsTr("选择歌单截图")
-                fileMode: FileDialog.OpenFiles
+                fileMode: EchoFileDialog.OpenFiles
                 nameFilters: [qsTr("歌单截图 (*.jpg *.jpeg *.png)")]
                 onAccepted: dialog.selectScreenshots(selectedFiles)
             }

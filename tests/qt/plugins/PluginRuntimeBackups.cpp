@@ -1,3 +1,4 @@
+#include "StorageFence.h"
 #include "PluginRuntimeTest.h"
 #include "PluginRuntimeEcosystemFixture.h"
 #include "SettingsDataService.h"
@@ -19,13 +20,14 @@ public:
     {
         return data.m_inspections.size();
     }
-    static void armShutdownRestore(SettingsDataService &data, const QString &token)
+    static void armShutdownRestore(SettingsDataService &data, const QString &token,
+                                   bool settings = true)
     {
         const auto item = data.m_inspections.take(token);
         data.m_staging = item.staging;
         data.m_manifest = item.manifest;
         data.m_restore = true;
-        data.m_restoreSettings = true;
+        data.m_restoreSettings = settings;
         data.m_restorePlugins = true;
     }
 };
@@ -159,10 +161,16 @@ void PluginRuntimeTest::backupsCreateInspectTokensAndStorageBarrier()
     const auto acceptedRoot = f.host.engine.newQObject(accepted);
     presentationOwner.reset();
     const auto generation = c->activationGeneration();
+    auto acceptedFileWrite = StorageFence::write(f.host.settings.portableFilesRoot());
+    QVERIFY(acceptedFileWrite);
     auto *create = c->backups()->create();
     const auto createRoot = f.host.engine.newQObject(create);
     QCOMPARE(create->state(), EchoPluginOperation::Running);
     QCOMPARE(c->io()->writeValue("whileSnapshot", true)->errorCode(), "Busy");
+    QVERIFY(!StorageFence::write(f.host.settings.portableFilesRoot()));
+    QCoreApplication::processEvents();
+    QCOMPARE(create->state(), EchoPluginOperation::Running);
+    acceptedFileWrite.reset();
     auto result = wait(f.host, create);
     QVERIFY2(result.state == EchoPluginOperation::Succeeded, qPrintable(result.error));
     QCOMPARE(f.host.runtime.context(c->installationId()), c);
@@ -274,6 +282,8 @@ ApplicationWindow {id:win;required property SettingsDataService dataService;requ
         QDir().mkpath(uiOutput);
         auto *dialog = root->findChild<QObject *>("settingsBackupSourceDialog");
         QVERIFY(dialog);
+        QTRY_VERIFY_WITH_TIMEOUT(dialog->property("opened").toBool(), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(dialog->property("opacity").toDouble(), 1., 5000);
         for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
             f.host.theme.setMode(mode);
             for (const auto scale : {1.0, 1.25}) {
@@ -334,7 +344,8 @@ ApplicationWindow {id:win;required property SettingsDataService dataService;requ
 }
 void PluginRuntimeTest::backupsRestoreCommitAndRollback()
 {
-    for (const bool fail : {false, true}) {
+    for (const int scenario : {0, 1, 2}) {
+        const bool fail = scenario == 1, settings = scenario != 2;
         Fixture f;
         auto *c = scope(f);
         QVERIFY(c);
@@ -348,8 +359,10 @@ void PluginRuntimeTest::backupsRestoreCommitAndRollback()
             QString::fromLatin1(
                 QCryptographicHash::hash(image, QCryptographicHash::Sha256).toHex()) +
             ".png";
-        write(f.host.temporary.path() + "/theme-images/" + fileName, image);
-        auto result = wait(f.host, c->backups()->create());
+        write(f.host.settings.files("theme-images", SettingsDomain::Portable) + '/' + fileName,
+              image);
+        auto result =
+            wait(f.host, c->backups()->create({{"settings", settings}, {"plugins", true}}));
         QVERIFY2(result.state == EchoPluginOperation::Succeeded, qPrintable(result.error));
         result =
             wait(f.host, c->backups()->inspect(result.value.toMap().value("data").toByteArray()));
@@ -358,13 +371,13 @@ void PluginRuntimeTest::backupsRestoreCommitAndRollback()
         QCOMPARE(wait(f.host, db->run("UPDATE t SET v=2")).state, EchoPluginOperation::Succeeded);
         f.host.settings.setValue("interface/uiScale", 0.9);
         const auto databasePath = c->dataPath() + "/databases/main.sqlite";
-        SettingsBackupTestAccess::armShutdownRestore(f.data, token);
+        SettingsBackupTestAccess::armShutdownRestore(f.data, token, settings);
         QSignalSpy closed(&f.host.runtime, &PluginRuntime::closed);
         f.host.runtime.shutdown();
         QTRY_COMPARE(closed.size(), 1);
         if (fail) {
-            QVERIFY(QDir(f.host.temporary.path() + "/theme-images").removeRecursively());
-            write(f.host.temporary.path() + "/theme-images", "block file publication");
+            QVERIFY(QDir(f.host.settings.portableFilesRoot()).removeRecursively());
+            write(f.host.settings.portableFilesRoot(), "block file publication");
         }
         f.data.shutdown();
         bool complete = false;
@@ -375,7 +388,8 @@ void PluginRuntimeTest::backupsRestoreCommitAndRollback()
         });
         QTRY_VERIFY_WITH_TIMEOUT(complete, 15000);
         QVERIFY2(error.isEmpty() == !fail, qPrintable(error));
-        QCOMPARE(f.host.settings.value("interface/uiScale").toDouble(), fail ? 0.9 : 1.25);
+        QCOMPARE(f.host.settings.value("interface/uiScale").toDouble(),
+                 fail || !settings ? 0.9 : 1.25);
         const auto connection = "backup-verify";
         {
             auto sql = QSqlDatabase::addDatabase("QSQLITE", connection);
@@ -389,5 +403,43 @@ void PluginRuntimeTest::backupsRestoreCommitAndRollback()
         }
         QSqlDatabase::removeDatabase(connection);
         QVERIFY(!QFile::exists(f.host.temporary.path() + "/settings-restore.json"));
+    }
+}
+
+void PluginRuntimeTest::backupsPortableFilesFreezeCancellationAndRetirement()
+{
+    for (const bool retire : {false, true}) {
+        Fixture f;
+        auto *context = scope(f);
+        QVERIFY(context);
+        const auto installation = f.host.installation();
+        auto writer = StorageFence::write(f.host.settings.portableFilesRoot());
+        QVERIFY(writer);
+        QSignalSpy created(&f.data, &SettingsDataService::created);
+        QPointer<EchoPluginOperation> operation =
+            context->backups()->create({{"settings", true}, {"plugins", false}});
+        const auto guard = f.host.engine.newQObject(operation);
+        QTRY_VERIFY(f.data.busy());
+        QTest::qWait(30);
+        QVERIFY(operation && !operation->finished());
+        if (retire) {
+            QVERIFY(f.host.runtime.setEnabled(installation, false));
+            QTRY_COMPARE(f.host.runtime.state(installation), PluginRuntime::Disabled);
+        } else {
+            operation->cancel();
+            QTRY_COMPARE(operation->state(), EchoPluginOperation::Canceled);
+            QVERIFY(context->active());
+        }
+        QTRY_VERIFY(!f.data.busy());
+        auto reopened = StorageFence::write(f.host.settings.portableFilesRoot());
+        QVERIFY(reopened);
+        QCOMPARE(created.count(), 0);
+        reopened.reset();
+        writer.reset();
+        if (!retire)
+            QCOMPARE(
+                wait(f.host, context->backups()->create({{"settings", true}, {"plugins", false}}))
+                    .state,
+                EchoPluginOperation::Succeeded);
     }
 }

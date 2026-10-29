@@ -36,10 +36,12 @@
 #include "DiscoverQueueController.h"
 #include "TrackTransitionController.h"
 #include "PlaybackPreferences.h"
-#include <QSettings>
+#include "SettingsStore.h"
 #include <QPointer>
 #include <QRandomGenerator>
 #include <QTimer>
+class QFileDialog;
+
 namespace EchoMusic
 {
 class SongMetadataService;
@@ -150,8 +152,8 @@ public:
         return static_cast<ProgressBusyReason>(
             m_progress.reason(hasTrack() && !m_closing && m_error.isEmpty(), m_playing));
     }
-    explicit PlaybackService(ApiClient &api, QSettings &settings, QObject *parent = nullptr,
-                             const QString &storagePath = {},
+    explicit PlaybackService(ApiClient &api, EchoMusic::SettingsStore &settings,
+                             QObject *parent = nullptr, const QString &storagePath = {},
                              NetworkPreferences *network = nullptr);
     ~PlaybackService() override;
     void attachMetadata(SongMetadataService &metadata);
@@ -540,7 +542,7 @@ private:
     std::unique_ptr<PlaybackLibraryActions> m_libraryActions;
     SongCommands m_songCommands;
     ApiClient &m_api;
-    QSettings &m_settings;
+    EchoMusic::SettingsStore &m_settings;
     PlaybackPreferences m_preferences;
     PlayerEnginePreferences m_enginePreferences;
     QPointer<NetworkPreferences> m_networkPreferences;
@@ -604,6 +606,7 @@ private:
     // Fresh volume preferences and unmute fallback both use 50%.
     static constexpr double DefaultVolume = 50.;
     double m_unmutedVolume = DefaultVolume;
+    QPointer<QFileDialog> m_localFileDialog;
     double m_localVolume = DefaultVolume, m_localUnmutedVolume = DefaultVolume;
     bool m_remoteVolume = false;
     qint64 m_resumePosition = -1;

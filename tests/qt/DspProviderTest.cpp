@@ -1,4 +1,6 @@
 #include "AudioEngine.h"
+#include "StorageFence.h"
+#include "ImpulseResponseInstaller.h"
 #include "NativeBridge.h"
 #include "PlaybackAudioControls.h"
 #include "echo_dsp_provider.h"
@@ -32,6 +34,32 @@ class DspProviderTest : public QObject
         return 0;
     }
 private slots:
+    void managedEffectInstallerRejectsFrozenStorageAndReleasesOnFailure()
+    {
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("portable/settings.ini"));
+        const auto destination =
+            settings.files("audio-effects", SettingsDomain::Portable) + "/downloads/test.irs";
+        ImpulseResponseInstaller installer;
+        QSignalSpy finished(&installer, &ImpulseResponseInstaller::finished);
+        auto frozen = StorageFence::freeze(settings.portableFilesRoot());
+        QVERIFY(frozen);
+        installer.install(1, {}, destination);
+        QTRY_COMPARE(finished.count(), 1);
+        QVERIFY(!finished.last()[1].toBool());
+        QVERIFY(finished.last()[3].toString().contains("备份"));
+        QVERIFY(!QFileInfo::exists(destination));
+        frozen.reset();
+        installer.install(2, {}, destination);
+        QTRY_COMPARE(finished.count(), 2);
+        QVERIFY(!finished.last()[1].toBool());
+        // Failure must retire the accepted writer before notifying its caller.
+        auto nextSnapshot = StorageFence::freeze(settings.portableFilesRoot());
+        QVERIFY(nextSnapshot);
+        std::atomic_bool canceled = false;
+        QVERIFY(nextSnapshot->waitForWriters(canceled));
+        installer.shutdown();
+    }
     void importLifecycle_data()
     {
         QTest::addColumn<QString>("library");
@@ -47,7 +75,7 @@ private slots:
         QFETCH(QString, id);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        QSettings settings(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
         NativeBridge native;
         AudioEngine engine;
         QSignalSpy events(&engine, &AudioEngine::eventReceived),
@@ -73,6 +101,24 @@ private slots:
             QCOMPARE(projected.value("source").toString(), source);
             QCOMPARE(projected.value("name").toString(), source);
         }
+        const auto owned = audio.effectFilesRoot() + "/downloads/owned.irs";
+        QVERIFY(QDir().mkpath(QFileInfo(owned).absolutePath()));
+        QFile ownedFile(owned);
+        QVERIFY(ownedFile.open(QIODevice::WriteOnly));
+        ownedFile.close();
+        audio.registerImpulseResponse(owned, "owned", "market-owned");
+        const auto beforeRemoval = audio.impulseResponses();
+        QSignalSpy fileNotices(&audio, &PlaybackAudioControls::fileNotice);
+        auto frozen = StorageFence::freeze(settings.portableFilesRoot());
+        QVERIFY(frozen);
+        audio.removeImpulseResponse(owned);
+        QCOMPARE(audio.impulseResponses(), beforeRemoval);
+        QVERIFY(QFileInfo::exists(owned));
+        QVERIFY(!fileNotices.last()[1].toBool());
+        frozen.reset();
+        audio.removeImpulseResponse(owned);
+        QVERIFY(!QFileInfo::exists(owned));
+        QCOMPARE(audio.impulseResponses().size(), beforeRemoval.size() - 1);
         audio.providers()->importFile(QUrl("https://example.invalid/engine"));
         QVERIFY(!audio.providers()->errorMessage().isEmpty());
         QCOMPARE(audio.providers()->count(), 0);
@@ -158,7 +204,8 @@ private slots:
         QCOMPARE(audio.providers()->count(), 1);
         QCOMPARE(audio.providers()->record(id).value("path"), record.value("path"));
         {
-            DspProviderRegistry restored(native, directory.filePath("audio-engines"));
+            DspProviderRegistry restored(native,
+                                         settings.files("audio-engines", SettingsDomain::Device));
             QTRY_VERIFY_WITH_TIMEOUT(!restored.busy(), 5000);
             QCOMPARE(restored.count(), 1);
             QCOMPARE(restored.record(id).value("contentHash"), record.value("contentHash"));

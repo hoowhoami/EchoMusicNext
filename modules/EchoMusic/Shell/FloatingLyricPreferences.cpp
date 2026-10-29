@@ -3,7 +3,7 @@
 #include <QColor>
 namespace EchoMusic
 {
-FloatingLyricPreferences::FloatingLyricPreferences(QSettings &settings, bool desktop,
+FloatingLyricPreferences::FloatingLyricPreferences(EchoMusic::SettingsStore &settings, bool desktop,
                                                    QObject *parent)
     : QObject(parent), m_settings(settings),
       m_prefix(desktop ? EchoMusic::SettingsKeys::Floating::DesktopPrefix

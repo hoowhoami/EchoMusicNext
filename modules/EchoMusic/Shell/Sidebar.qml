@@ -200,6 +200,9 @@ Item {
                 }
             }
             reuseItems: true
+            EchoViewPoolGuard {
+                targetView: sidebarScroll
+            }
             cacheBuffer: 40 * 3
             spacing: sidebar.collapsed ? 7 : 2
             boundsBehavior: Flickable.StopAtBounds

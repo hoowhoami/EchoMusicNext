@@ -4,7 +4,7 @@
 #include <QTimer>
 #include <QtLogging>
 #include <memory>
-#include <QSettings>
+#include "SettingsStore.h"
 namespace EchoMusic
 {
 class LogSink;
@@ -19,7 +19,8 @@ class LogService final : public QObject
     Q_PROPERTY(int diagnosticMinutes READ diagnosticMinutes NOTIFY changed)
 public:
     explicit LogService(const QString &directory, int level = 2, bool console = true,
-                        QSettings *preferences = nullptr, bool commandLineLevel = false);
+                        EchoMusic::SettingsStore *preferences = nullptr,
+                        bool commandLineLevel = false);
     ~LogService() override;
     bool active() const
     {
@@ -57,6 +58,6 @@ private:
     bool m_responseBody = false;
     qint64 m_diagnosticUntil = 0;
     QTimer m_diagnostics;
-    std::unique_ptr<QSettings> m_preferences;
+    std::unique_ptr<EchoMusic::SettingsStore> m_preferences;
 };
 } // namespace EchoMusic

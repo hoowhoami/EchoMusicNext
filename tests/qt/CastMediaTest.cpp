@@ -368,7 +368,7 @@ private slots:
             QVERIFY(file.open(QIODevice::WriteOnly));
             QCOMPARE(file.write(bytes), bytes.size());
         }
-        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences network(preferences, api);
         PlaybackService playback(api, preferences, nullptr, directory.filePath("playback.sqlite"),
@@ -470,7 +470,7 @@ private slots:
     void expiredRemoteMediaUsesOneCurrentResourceNotification()
     {
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences network(settings, api);
         NativeBridge native;

@@ -4,7 +4,8 @@ namespace EchoMusic
 {
 PlaylistImportTaskCoordinator::PlaylistImportTaskCoordinator(PlaylistImportService &service,
                                                              TaskCenterModel &tasks,
-                                                             QSettings &settings, QObject *parent)
+                                                             EchoMusic::SettingsStore &settings,
+                                                             QObject *parent)
     : QObject(parent), m_service(service), m_tasks(tasks)
 {
     service.setProperty(

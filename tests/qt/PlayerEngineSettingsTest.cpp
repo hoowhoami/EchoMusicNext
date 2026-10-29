@@ -66,7 +66,7 @@ private slots:
     {
         QFETCH(bool, authenticated);
         QTemporaryDir directory;
-        QSettings settings(directory.filePath("network.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("network.ini"));
         settings.setValue("playback/volume", 0);
         ApiClient api(DeviceIdentity::temporary());
         TestProxyStore store;
@@ -186,7 +186,7 @@ private slots:
     {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        QSettings settings(directory.filePath("network.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("network.ini"));
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences preferences(settings, api);
         QVERIFY(preferences.applyTimeouts(0, 300));
@@ -238,7 +238,7 @@ private slots:
     {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        QSettings settings(directory.filePath("network.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(directory.filePath("network.ini"));
         ApiClient api(DeviceIdentity::temporary());
         NetworkPreferences preferences(settings, api);
         QVERIFY(preferences.applyTimeouts(0, 300));
@@ -274,11 +274,11 @@ private slots:
         const auto settingsPath = directory.filePath("network.ini");
         ApiClient api(DeviceIdentity::temporary());
         {
-            QSettings initial(settingsPath, QSettings::IniFormat);
+            EchoMusic::SettingsStore initial(settingsPath);
             NetworkPreferences saved(initial, api);
             QVERIFY(saved.applyTimeouts(0, 1));
         }
-        QSettings settings(settingsPath, QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(settingsPath);
         NetworkPreferences preferences(settings, api);
         QTcpServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
@@ -404,7 +404,7 @@ private slots:
     void persistedDecimalOptionsAndInvalidInput()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("preferences.ini"));
         settings.setValue("playerEngine/audioBufferSecs", "invalid");
         settings.setValue("playerEngine/audioSamplerate", "unsupported");
         PlayerEnginePreferences preferences(settings);
@@ -420,7 +420,7 @@ private slots:
         preferences.setAudioBufferSecs(std::numeric_limits<double>::quiet_NaN());
         preferences.setAudioSamplerate("unsupported");
         settings.sync();
-        QSettings second(dir.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore second(dir.filePath("preferences.ini"));
         PlayerEnginePreferences reopened(second);
         QCOMPARE(reopened.audioBufferSecs(), .35);
         QCOMPARE(reopened.audioSamplerate(), QString("44100"));
@@ -464,7 +464,7 @@ private slots:
         const QByteArray silence(bytes, '\0');
         QCOMPARE(stream.writeRawData(silence.constData(), silence.size()), silence.size());
         file.close();
-        QSettings settings(dir.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("preferences.ini"));
         settings.setValue("playback/volume", 0);
         settings.setValue("playback/volumeFade", false);
         ApiClient api;
@@ -508,7 +508,7 @@ private slots:
     void actualDecoderErrorsHonorDelayLimitAndUserCancellation()
     {
         QTemporaryDir dir;
-        QSettings settings(dir.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore settings(dir.filePath("preferences.ini"));
         settings.setValue("playback/volume", 0);
         ApiClient api;
         PlaybackService playback(api, settings);
@@ -566,7 +566,7 @@ private slots:
         QTest::qWait(1100);
         QCOMPARE(playback.queue()->currentIndex(), 0);
         settings.sync();
-        QSettings reopened(dir.filePath("preferences.ini"), QSettings::IniFormat);
+        EchoMusic::SettingsStore reopened(dir.filePath("preferences.ini"));
         PlaybackPreferences persisted(reopened);
         QCOMPARE(persisted.autoNextDelaySeconds(), 1);
         QCOMPARE(persisted.autoNextMaxAttempts(), 2);

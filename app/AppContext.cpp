@@ -66,10 +66,9 @@ namespace EchoMusic
 int AppContext::prepare()
 {
 
-    preferences = smoke ? std::make_unique<QSettings>(smokeDirectory.path() +
-                                                          QStringLiteral("/preferences.ini"),
-                                                      QSettings::IniFormat)
-                        : std::make_unique<QSettings>();
+    preferences = smoke ? std::make_unique<EchoMusic::SettingsStore>(
+                              smokeDirectory.path() + QStringLiteral("/preferences.ini"))
+                        : std::make_unique<EchoMusic::SettingsStore>();
     auto &settings = *preferences;
     applicationData = smoke
                           ? smokeDirectory.path()
