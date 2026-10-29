@@ -222,7 +222,7 @@ private:
     bool m_appliedExclusive = false;
     quint64 m_outputRevision = 0;
     bool m_outputPending = false;
-    bool m_normalization = true, m_hasLoudness = false;
+    bool m_normalization = false, m_hasLoudness = false;
     double m_referenceLufs = -14, m_trackLufs = 0, m_trackPeak = 0;
     QTimer m_equalizerCommit;
     QStringList m_irsPaths, m_importBatchPaths;

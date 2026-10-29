@@ -79,6 +79,15 @@ SettingsSection {
         }
     }
     SettingsDivider {}
+    FontFamilySettingsRow {
+        heading: qsTr("桌面歌词字体")
+        description: qsTr("桌面歌词窗口使用的字体，跟随全局或单独指定")
+        selectorName: "settingsDesktopLyricFont"
+        family: Theme.store.desktopLyricFont
+        onFamilySelected: selectedFamily => Theme.store.desktopLyricFont = selectedFamily
+    }
+    SettingsDivider {}
+
     SettingsRow {
         heading: qsTr("文字对齐")
         description: qsTr("选择桌面歌词的对齐方式")

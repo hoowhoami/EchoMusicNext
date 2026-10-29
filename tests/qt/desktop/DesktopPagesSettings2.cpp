@@ -702,7 +702,7 @@ void DesktopPagesTest::remainingSettingsProductionSections()
                 for (int i = 0; i < 5; ++i)
                     session.shell.zoomIn();
             int actionCount = 0;
-            for (const auto *key : {"interface", "window", "font", "playback", "player",
+            for (const auto *key : {"interface", "window", "playback", "player",
                                     "spatialAudio", "lyric", "shortcuts", "audioDevice", "cast",
                                     "plugins", "data", "network", "experimental", "about"}) {
                 catalog->select(key);
@@ -884,10 +884,10 @@ void DesktopPagesTest::settingsFilterAndUnsupportedProviderNeverLoadStub()
     SettingsCatalog catalog;
     QAbstractItemModelTester tester(&catalog,
                                     QAbstractItemModelTester::FailureReportingMode::QtTest);
-    QCOMPARE(catalog.rowCount(), 15);
+    QCOMPARE(catalog.rowCount(), 14);
     catalog.setFilter(" 字 体 ");
     QVERIFY(catalog.rowCount() > 0);
-    QCOMPARE(catalog.current(), QString("font"));
+    QCOMPARE(catalog.current(), QString("interface"));
     catalog.setFilter("音效");
     QCOMPARE(catalog.rowCount(), 0);
     QVERIFY(catalog.source().isEmpty());
@@ -1220,7 +1220,7 @@ void DesktopPagesTest::productionProfileSettingsAndSidebarOverlays()
              qMin(820.0, parent->width() - (parent->width() <= 640 ? 16 : 48)));
     QCOMPARE(dialog->property("height").toReal(),
              qMin(620.0, parent->height() - (parent->width() <= 640 ? 32 : 96)));
-    catalog->select("font");
+    catalog->select("interface");
     QTRY_VERIFY(visual(session.window->contentItem(), "settingsGlobalFont"));
     QTRY_VERIFY(!visual(session.window->contentItem(), "settingsDefaultSearch"));
     catalog->select("experimental");

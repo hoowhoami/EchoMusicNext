@@ -20,7 +20,10 @@ QtObject {
         }
     }
     function resetProjection(): void {
-        if (!guard.ready || guard.resetting || !guard.targetView.reuseItems)
+        // callLater 的延迟执行可能晚于视图销毁（如分区切换卸载选择器），
+        // 此时 targetView 已为空，直接返回。
+        if (!guard.ready || guard.resetting || !guard.targetView
+            || !guard.targetView.reuseItems)
             return;
         guard.resetting = true;
         // Capture live bindings after setModel and its caller finish. Capturing

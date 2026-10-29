@@ -71,7 +71,7 @@ private:
     QList<qint64> m_urlAudioTracks;
     QString m_resolvedQuality;
     QString m_context, m_failedContext, m_targetKey, m_nextQuality = "standard",
-                                                     m_mode = "automix-pro";
+                                                     m_mode = "none";
     QList<quint64> m_retired;
     quint64 m_revision = 0, m_requestId = 0, m_sequence = 0, m_probe = 0;
     int m_targetIndex = -1, m_fadeSeconds = 15;

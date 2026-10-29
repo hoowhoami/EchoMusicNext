@@ -34,6 +34,13 @@ ColumnLayout {
         radius: Theme.cardRadius
         color: Theme.floating.mutedSurface
         border.color: "transparent"
+        // 点击分区内空白区域时移除文本框焦点：光标与聚焦边框随之消失，
+        // 已输入内容由失焦提交逻辑保存。控件自身的点击优先，不会穿透。
+        MouseArea {
+            anchors.fill: parent
+            z: -1
+            onClicked: section.forceActiveFocus(Qt.MouseFocusReason)
+        }
         ColumnLayout {
             id: content
             x: 20

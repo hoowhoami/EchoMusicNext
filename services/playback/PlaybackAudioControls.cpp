@@ -135,7 +135,7 @@ PlaybackAudioControls::PlaybackAudioControls(AudioEngine &engine, NativeBridge &
     m_input = settings.value(EchoMusic::SettingsKeys::Audio::InputDevice, "default").toString();
     m_pauseOnDisconnect =
         settings.value(EchoMusic::SettingsKeys::Audio::PauseOnDisconnect, true).toBool();
-    m_normalization = settings.value(EchoMusic::SettingsKeys::Audio::Normalization, true).toBool();
+    m_normalization = settings.value(EchoMusic::SettingsKeys::Audio::Normalization, false).toBool();
     const auto lufs = settings.value(EchoMusic::SettingsKeys::Audio::ReferenceLufs, -14).toDouble();
     m_referenceLufs = std::isfinite(lufs) ? qBound(-20., lufs, -8.) : -14.;
     connect(&native, &NativeBridge::completed, this,

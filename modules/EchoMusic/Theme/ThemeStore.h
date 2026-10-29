@@ -32,6 +32,11 @@ class ThemeStore final : public QObject
     Q_PROPERTY(bool motionEnabled READ motionEnabled NOTIFY changed)
     Q_PROPERTY(QFont applicationFont READ applicationFont NOTIFY fontChanged)
     Q_PROPERTY(QString globalFont READ globalFont WRITE setGlobalFont NOTIFY fontChanged)
+    // 全局字号缩放（百分比）与全局字重偏移：作用于所有 Theme.font() 请求。
+    Q_PROPERTY(int globalFontSizeScale READ globalFontSizeScale WRITE setGlobalFontSizeScale NOTIFY
+                   fontChanged)
+    Q_PROPERTY(int globalFontWeightOffset READ globalFontWeightOffset WRITE
+                   setGlobalFontWeightOffset NOTIFY fontChanged)
     Q_PROPERTY(QString lyricFont READ lyricFont WRITE setLyricFont NOTIFY lyricFontsChanged)
     Q_PROPERTY(QString desktopLyricFont READ desktopLyricFont WRITE setDesktopLyricFont NOTIFY
                    lyricFontsChanged)
@@ -128,8 +133,18 @@ public:
     {
         return m_globalFont;
     }
+    int globalFontSizeScale() const
+    {
+        return m_globalFontSizeScale;
+    }
+    int globalFontWeightOffset() const
+    {
+        return m_globalFontWeightOffset;
+    }
     QStringList fontFamilies() const;
     void setGlobalFont(const QString &family);
+    void setGlobalFontSizeScale(int scale);
+    void setGlobalFontWeightOffset(int offset);
     QString lyricFont() const
     {
         return m_lyricFont;
@@ -417,6 +432,8 @@ signals:
 private:
     bool eventFilter(QObject *object, QEvent *event) override;
     QString m_globalFont = QStringLiteral("system-ui");
+    int m_globalFontSizeScale = 100;
+    int m_globalFontWeightOffset = 0;
     QString m_lyricFont = QStringLiteral("follow");
     QString m_desktopLyricFont = QStringLiteral("follow");
     QString m_miniLyricFont = QStringLiteral("follow");

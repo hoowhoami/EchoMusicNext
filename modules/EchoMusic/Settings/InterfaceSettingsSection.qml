@@ -22,6 +22,43 @@ SettingsSection {
         }
     }
     SettingsDivider {}
+    FontFamilySettingsRow {
+        heading: qsTr("全局字体")
+        description: qsTr("应用到软件内所有区域的字体")
+        selectorName: "settingsGlobalFont"
+        followGlobal: false
+        family: Theme.store.globalFont
+        onFamilySelected: selectedFamily => Theme.store.globalFont = selectedFamily
+    }
+    SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("全局字号")
+        description: qsTr("缩放软件内所有文字（80% - 150%）")
+        EchoSelect {
+            objectName: "settingsGlobalFontSizeScale"
+            colors: Theme.floating
+            implicitWidth: 180
+            model: ["80%", "90%", "100%", "110%", "125%", "150%"]
+            currentIndex: [80, 90, 100, 110, 125, 150].indexOf(Theme.store.globalFontSizeScale)
+            Accessible.name: qsTr("全局字号")
+            onActivated: index => Theme.store.globalFontSizeScale = [80, 90, 100, 110, 125, 150][index]
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("全局字重")
+        description: qsTr("整体调整软件内文字的粗细")
+        EchoSelect {
+            objectName: "settingsGlobalFontWeightOffset"
+            colors: Theme.floating
+            implicitWidth: 180
+            model: [qsTr("标准"), qsTr("偏粗"), qsTr("加粗"), qsTr("特粗")]
+            currentIndex: [0, 100, 200, 300].indexOf(Theme.store.globalFontWeightOffset)
+            Accessible.name: qsTr("全局字重")
+            onActivated: index => Theme.store.globalFontWeightOffset = [0, 100, 200, 300][index]
+        }
+    }
+    SettingsDivider {}
     SettingsRow {
         heading: qsTr("界面缩放")
         description: qsTr("立即调整整个界面并自动保存。") + (Qt.platform.os === "osx" ? "⌘" : "Ctrl") + qsTr(" + 加号 / 减号缩放，0 重置")
