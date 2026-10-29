@@ -31,6 +31,9 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     m_appearance = new EchoPluginAppearance(*this);
     m_fonts = new EchoPluginFonts(*this);
     m_windows = new EchoPluginWindows(*this);
+    m_graphics = new EchoPluginGraphics(*this);
+    connect(m_graphics, &EchoPluginGraphics::drainedChanged, this,
+            &EchoPluginContext::resourcesDrained);
     m_audio = new EchoPluginAudio(*this);
     m_player = new EchoPluginPlayer(*this, host.playback);
     m_playlist = new EchoPluginPlaylist(*this);
@@ -397,6 +400,7 @@ void EchoPluginContext::beginRetire()
     for (const auto &op : operations)
         if (op)
             op->cancel();
+    m_graphics->shutdown();
     m_process->shutdown();
     m_webServer->shutdown();
     m_files->shutdown();
@@ -416,8 +420,8 @@ bool EchoPluginContext::drained() const
     for (auto child : m_presentations)
         if (child && !child->drained())
             return false;
-    return m_process->isDrained() && m_webServer->isDrained() && m_net->isDrained() &&
-           m_io->isDrained() && m_sqlite->isDrained() && m_appearance->drained() &&
-           m_files->isDrained();
+    return m_graphics->drained() && m_process->isDrained() && m_webServer->isDrained() &&
+           m_net->isDrained() && m_io->isDrained() && m_sqlite->isDrained() &&
+           m_appearance->drained() && m_files->isDrained();
 }
 } // namespace EchoMusic

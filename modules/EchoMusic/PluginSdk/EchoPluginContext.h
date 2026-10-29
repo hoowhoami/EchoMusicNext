@@ -26,6 +26,7 @@
 #include "EchoPluginWebServer.h"
 #include "EchoPluginRegistry.h"
 #include "EchoPluginAudio.h"
+#include "EchoPluginGraphics.h"
 #include "EchoPluginAppearance.h"
 #include "EchoPluginViewContext.h"
 #include <QJSValue>
@@ -86,6 +87,7 @@ class EchoPluginContext final : public QObject
     Q_PROPERTY(QString activationGeneration READ activationGeneration CONSTANT)
     Q_PROPERTY(QString contextId READ contextId CONSTANT)
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
+    Q_PROPERTY(EchoMusic::EchoPluginGraphics *graphics READ graphics CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginAudio *audio READ audio CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginLyrics *lyrics READ lyrics CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginFiles *files READ files CONSTANT)
@@ -173,6 +175,10 @@ public:
     bool committed() const
     {
         return m_committed;
+    }
+    EchoPluginGraphics *graphics() const
+    {
+        return m_graphics;
     }
     EchoPluginAudio *audio() const
     {
@@ -332,6 +338,7 @@ private:
     EchoPluginAppearance *m_appearance;
     EchoPluginFonts *m_fonts;
     EchoPluginWindows *m_windows;
+    EchoPluginGraphics *m_graphics = nullptr;
     EchoPluginAudio *m_audio;
     EchoPluginPlayer *m_player;
     EchoPluginPlaylist *m_playlist;

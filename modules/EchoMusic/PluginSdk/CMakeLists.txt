@@ -8,6 +8,16 @@ qt_add_qml_module(
     DEPENDENCIES
     EchoMusic.Shell
     SOURCES
+    EchoPluginGraphics.h
+    EchoPluginGraphics.cpp
+    EchoGpuSurface.h
+    EchoGpuSurface.cpp
+    graphics/GpuRhi_p.h
+    graphics/GpuRhiResources.cpp
+    graphics/GpuRhiPasses.cpp
+    graphics/GpuRhiRenderer.cpp
+    graphics/GpuRhiOutput.cpp
+    graphics/GpuWindowOutput.cpp
     EchoUiPartRef.h
     EchoUiPartRef.cpp
     EchoPluginUiParts.h
@@ -136,3 +146,21 @@ if(WIN32)
 endif()
 
 target_link_libraries(echo_plugin_sdk PRIVATE echo_settings_keys)
+
+# QRhi is intentionally isolated inside the version-pinned host implementation.
+target_link_libraries(echo_plugin_sdk PRIVATE Qt6::GuiPrivate)
+qt_add_shaders(
+    echo_plugin_sdk
+    echo_gpu_shaders
+    PREFIX
+    /echo/graphics
+    GLSL
+    "300 es,330"
+    FILES
+    graphics/shaders/composite.vert
+    graphics/shaders/composite.frag
+    graphics/shaders/window-output.frag
+)
+qt_add_resources(
+    echo_plugin_sdk echo_gpu_output PREFIX /echo/graphics FILES graphics/WindowOutputEffect.qml
+)

@@ -67,6 +67,9 @@ fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> &str {
 }
 
 fn run_filter(shared: Arc<SharedAudio>, initial_graph: Option<AudioFilterGraph>) {
+    // Register before the first ring Release makes PCM visible to the callback.
+    // Waiting until the first full ring would leave its earliest wakeup unbound.
+    shared.register_output_producer();
     let mut generation = shared.current_filter_generation();
     let mut decode_generation = shared.current_decode_generation();
     let mut graph = match initial_graph {

@@ -14,6 +14,7 @@ Rectangle {
     property bool marketplace: false
     signal uninstallRequested(string installation)
     signal settingsRequested(string installation)
+    signal dataRequested(string installation)
     signal failureRequested(string installation)
     readonly property bool busy: !!record.busy || manager.busy
     readonly property bool warning: !record.compatible || !!record.dependencyBlocked || !!record.stale
@@ -421,7 +422,8 @@ Rectangle {
                 y: 11
                 spacing: 8
                 PluginActionButton {
-                    tooltipText: card.marketplace ? "" : card.record.settingsAvailable ? "" : !card.record.compatible ? qsTr("插件与当前主程序版本不兼容，无法加载设置") : !card.record.enabled ? qsTr("启用插件后可读取设置项") : card.manager.runtime.safeMode ? qsTr("安全模式下不会加载插件设置") : card.record.status !== qsTr("运行中") ? qsTr("插件运行后可读取设置项") : qsTr("该插件没有提供设置项")
+                    tooltipText: card.marketplace ? "" : card.record.settingsAvailable ? qsTr("设置") : !card.record.compatible ? qsTr("插件与当前主程序版本不兼容，无法加载设置") : !card.record.enabled ? qsTr("启用插件后可读取设置项") : card.manager.runtime.safeMode ? qsTr("安全模式下不会加载插件设置") : card.record.status !== qsTr("运行中") ? qsTr("插件运行后可读取设置项") : qsTr("该插件没有提供设置项")
+                    iconOnly: !card.marketplace
                     text: card.marketplace ? qsTr("分享") : qsTr("设置")
                     glyph: card.marketplace ? "share" : "settings"
                     foreground: !card.marketplace && !card.record.settingsAvailable ? Theme.withAlpha(Theme.secondaryText, 0.78) : colors.text
@@ -429,14 +431,17 @@ Rectangle {
                     onClicked: card.marketplace ? card.manager.share(card.record.key) : card.settingsRequested(card.record.installationId)
                 }
                 PluginActionButton {
-                    text: card.marketplace ? qsTr("仓库") : qsTr("移除")
-                    glyph: card.marketplace ? "external-link" : ""
-                    danger: !card.marketplace
-                    enabled: !card.busy
-                    onClicked: card.marketplace ? card.manager.openRepository(card.record.key) : card.uninstallRequested(card.record.installationId)
-                }
-                EchoIconButton {
                     visible: !card.marketplace
+                    iconOnly: true
+                    glyph: "database"
+                    objectName: "pluginCardData"
+                    text: qsTr("插件数据")
+                    enabled: !card.busy && !!card.record.installationId
+                    onClicked: card.dataRequested(card.record.installationId)
+                }
+                PluginActionButton {
+                    visible: !card.marketplace
+                    iconOnly: true
                     glyph: "folder-open"
                     text: qsTr("打开插件目录")
                     enabled: !card.busy
@@ -457,6 +462,14 @@ Rectangle {
                         color: failureButton.hovered ? card.historicalFailure || card.warning ? "#f59e0b" : Theme.colors.danger : Theme.withAlpha(card.historicalFailure || card.warning ? "#f59e0b" : Theme.colors.danger, 0.1)
                     }
                     onClicked: card.failureRequested(card.record.installationId)
+                }
+                PluginActionButton {
+                    iconOnly: !card.marketplace
+                    text: card.marketplace ? qsTr("仓库") : qsTr("移除")
+                    glyph: card.marketplace ? "external-link" : "trash"
+                    danger: !card.marketplace
+                    enabled: !card.busy
+                    onClicked: card.marketplace ? card.manager.openRepository(card.record.key) : card.uninstallRequested(card.record.installationId)
                 }
                 Item {
                     Layout.fillWidth: true

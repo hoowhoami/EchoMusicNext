@@ -5,6 +5,8 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void graphicsValidationOwnershipAndAccount();
+    void graphicsNativePixelsComputeAndRecovery();
     void crossRepositoryCatalogInstallAndFailureIsolation();
     void flatDirectoriesDataManagementAndReinstallIsolation();
     void codeAndDataJournalRecovery();

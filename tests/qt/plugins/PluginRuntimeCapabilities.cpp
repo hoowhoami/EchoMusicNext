@@ -1,4 +1,5 @@
 #include "PluginRuntimeTest.h"
+#include "EchoGpuSurface.h"
 #include "PluginRuntimeTestFixture.h"
 
 void PluginRuntimeTest::settingsContributionRetiresWithScope()
@@ -312,6 +313,7 @@ ApplicationWindow {
         }
         host.playback.pause();
         QTRY_VERIFY(!host.playback.spectrum()->status().value("running").toBool());
+        QTest::qWait(3000);
         measure("paused");
         window->hide();
         mini->hide();
@@ -341,9 +343,17 @@ ApplicationWindow {
                 QVERIFY(layer && miniLayer);
                 QVERIFY(layer->property("frame").toMap().value("source") == "player");
                 QVERIFY(!window->grabWindow().isNull());
-                int curveCount = 0;
+                int curveCount = 0, gpuCount = 0;
+                const bool requiresGpu =
+                    scope->package().capabilities.contains("graphics") &&
+                    window->rendererInterface()->graphicsApi() != QSGRendererInterface::Software;
                 std::function<void(QQuickItem *)> verifyVectors = [&](QQuickItem *item) {
                     QVERIFY(!QString(item->metaObject()->className()).contains("Canvas"));
+                    if (auto *surface = qobject_cast<EchoGpuSurface *>(item)) {
+                        QTRY_COMPARE(surface->status().value("state").toString(), "ready");
+                        QVERIFY(surface->status().value("compute").toBool());
+                        ++gpuCount;
+                    }
                     if (item->property("preferredRendererType").isValid()) {
                         QCOMPARE(item->property("preferredRendererType").toInt(), 4);
                         if (window->rendererInterface()->graphicsApi() ==
@@ -356,7 +366,12 @@ ApplicationWindow {
                 };
                 verifyVectors(layer);
                 verifyVectors(miniLayer);
-                QVERIFY(curveCount >= 2);
+                if (requiresGpu) {
+                    QVERIFY(gpuCount >= 2);
+                    QVERIFY(!layer->property("gpuFailed").toBool());
+                    QVERIFY(!miniLayer->property("gpuFailed").toBool());
+                } else
+                    QVERIFY(curveCount >= 2);
                 if (!artifacts.isEmpty()) {
                     const auto name = QString("/%1-%2-%3.png").arg(mode, theme).arg(scale);
                     QVERIFY(window->grabWindow().save(artifacts + name));
@@ -369,11 +384,14 @@ ApplicationWindow {
     QTRY_VERIFY(!host.playback.spectrum()->status().value("running").toBool());
     auto *centerLayer = visual(window->contentItem(), "spectrumVisualizerLayer");
     QVERIFY(centerLayer);
-    auto *centerClock = centerLayer->findChild<QObject *>("spectrumRenderClock");
+    auto *centerGpu = centerLayer->findChild<EchoGpuSurface *>("spectrumGpuSurface");
+    auto *centerClock = centerGpu ? static_cast<QObject *>(centerGpu)
+                                  : centerLayer->findChild<QObject *>("spectrumRenderClock");
+    const auto clockProperty = centerGpu ? "continuous" : "running";
     QVERIFY(centerClock);
-    QTRY_VERIFY_WITH_TIMEOUT(!centerClock->property("running").toBool(), 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(!centerClock->property(clockProperty).toBool(), 3000);
     host.playback.play();
-    QTRY_VERIFY(centerClock->property("running").toBool());
+    QTRY_VERIFY(centerClock->property(clockProperty).toBool());
     // Exercise the same demand-created settings dialog as the management page.
     window->resize(1100, 900);
     for (const auto mode : {ThemeStore::Dark, ThemeStore::Light}) {

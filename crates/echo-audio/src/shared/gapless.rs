@@ -136,7 +136,7 @@ impl SharedAudio {
         self.eof.store(false, Ordering::Release);
         self.end_reported.store(false, Ordering::Release);
         self.ao_state.reset();
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
         self.decoded_queue_changed.notify_all();
     }
 }

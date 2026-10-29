@@ -13,6 +13,118 @@ fn bind_test_signal_senders(shared: &SharedAudio) -> (Receiver<()>, Receiver<Pla
 }
 
 #[test]
+fn output_callback_before_producer_sleep_does_not_lose_capacity_wakeup() {
+    let shared = Arc::new(SharedAudio::new(
+        MixFormat::stereo_f32(100),
+        0.2,
+        8.0,
+        &DspSettings::default(),
+    ));
+    let capacity = shared.output_buffer_target_samples();
+    assert!(shared.push_samples(&vec![0.25; capacity]));
+    let consumer = Arc::downgrade(&shared);
+    *shared.before_output_queue_wait.lock().unwrap() = Some(Box::new(move || {
+        let shared = consumer.upgrade().unwrap();
+        // Force the actual callback into the check-to-sleep window. Its last
+        // successful consume is the only capacity notification needed here.
+        let mut output = vec![0.0; capacity];
+        assert_eq!(shared.pop_into(&mut output), capacity / MIX_CHANNELS);
+        assert_eq!(output, vec![0.25; capacity]);
+        let mut empty = [0.0; 4];
+        assert_eq!(shared.pop_into(&mut empty), 0);
+        assert!(shared.ao_state.ao_underrun());
+    }));
+    let producer_shared = shared.clone();
+    let (completed, completion) = sync_channel(1);
+    let producer = thread::spawn(move || {
+        completed
+            .send(producer_shared.push_samples(&[0.5; 4]))
+            .unwrap();
+    });
+    let result = completion.recv_timeout(Duration::from_millis(500));
+    // Always retire the thread, including the original lost-wakeup failure.
+    shared.request_stop();
+    producer.join().expect("producer must retire");
+    assert_eq!(
+        result,
+        Ok(true),
+        "the callback freed capacity before sleep, but the producer stayed asleep"
+    );
+    let mut output = [0.0; 4];
+    assert_eq!(shared.realtime_output.pop_into(&mut output).0, 4);
+    assert_eq!(output, [0.5; 4]);
+}
+
+#[test]
+fn output_stop_before_producer_sleep_does_not_lose_cancellation() {
+    let shared = Arc::new(SharedAudio::new(
+        MixFormat::stereo_f32(100),
+        0.2,
+        8.0,
+        &DspSettings::default(),
+    ));
+    let capacity = shared.output_buffer_target_samples();
+    assert!(shared.push_samples(&vec![0.25; capacity]));
+    let stopping = Arc::downgrade(&shared);
+    *shared.before_output_queue_wait.lock().unwrap() = Some(Box::new(move || {
+        stopping.upgrade().unwrap().request_stop();
+    }));
+    let producer_shared = shared.clone();
+    let (completed, completion) = sync_channel(1);
+    let producer = thread::spawn(move || {
+        completed
+            .send(producer_shared.push_samples(&[0.5; 4]))
+            .unwrap();
+    });
+    let result = completion.recv_timeout(Duration::from_millis(500));
+    shared.request_stop();
+    producer.join().expect("stopped producer must retire");
+    assert_eq!(result, Ok(false));
+    assert_eq!(shared.realtime_output.buffered_samples(), capacity);
+}
+
+#[test]
+fn output_spurious_wakeup_keeps_full_buffer_and_preserves_pcm() {
+    let shared = Arc::new(SharedAudio::new(
+        MixFormat::stereo_f32(100),
+        0.2,
+        8.0,
+        &DspSettings::default(),
+    ));
+    let capacity = shared.output_buffer_target_samples();
+    assert!(shared.push_samples(&vec![0.25; capacity]));
+    let (waiting, wait_started) = sync_channel(1);
+    *shared.before_output_queue_wait.lock().unwrap() = Some(Box::new(move || {
+        std::thread::current().unpark();
+        waiting.send(()).unwrap();
+    }));
+    let producer_shared = shared.clone();
+    let (completed, completion) = sync_channel(1);
+    let producer = thread::spawn(move || {
+        completed
+            .send(producer_shared.push_samples(&[0.5; 4]))
+            .unwrap();
+    });
+    let started = wait_started.recv_timeout(Duration::from_millis(500));
+    let premature = completion.recv_timeout(Duration::from_millis(20));
+    let buffered_before_consume = shared.realtime_output.buffered_samples();
+    let mut output = vec![0.0; capacity];
+    let consumed = shared.pop_into(&mut output);
+    let result = completion.recv_timeout(Duration::from_millis(500));
+    shared.request_stop();
+    producer.join().expect("producer must retire");
+    assert_eq!(started, Ok(()));
+    assert_eq!(premature, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
+    assert_eq!(buffered_before_consume, capacity);
+    assert_eq!(consumed, capacity / MIX_CHANNELS);
+    assert_eq!(output, vec![0.25; capacity]);
+    assert_eq!(result, Ok(true));
+    let mut tail = [0.0; 4];
+    assert_eq!(shared.realtime_output.pop_into(&mut tail).0, 4);
+    assert_eq!(tail, [0.5; 4]);
+}
+
+#[test]
 fn audio_sample_format_candidates_prefer_lossless_conversions() {
     assert_eq!(
         AudioSampleFormat::F32.best_output_formats(),

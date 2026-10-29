@@ -4,6 +4,7 @@
 #include "EchoPluginUiParts.h"
 #include "EchoPluginUiStyles.h"
 #include "EchoUiPartMount.h"
+#include "EchoGpuSurface.h"
 #include <QJsonArray>
 #include <QMetaMethod>
 #include <QMetaProperty>
@@ -49,7 +50,10 @@ QJsonObject describe(const QMetaObject &meta)
 QJsonObject pluginSdkContract()
 {
     QJsonObject types;
-    const QMetaObject *publicTypes[] = {&EchoPluginAction::staticMetaObject,
+    const QMetaObject *publicTypes[] = {&EchoGpuSurface::staticMetaObject,
+                                        &EchoPluginGraphics::staticMetaObject,
+                                        &EchoGpuResource::staticMetaObject,
+                                        &EchoPluginAction::staticMetaObject,
                                         &EchoPluginCover::staticMetaObject,
                                         &EchoPluginSettings::staticMetaObject,
                                         &EchoPluginNavigation::staticMetaObject,

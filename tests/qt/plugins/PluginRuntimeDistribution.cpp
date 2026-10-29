@@ -231,6 +231,34 @@ void PluginRuntimeTest::dataManagementProductionDialogAndRetirement()
     QTRY_VERIFY(!host.runtime.loading());
     auto *writeValue = host.runtime.context(host.installation())->io()->writeValue("erase", 42);
     QTRY_VERIFY(writeValue->finished());
+    const auto installOther = [&](const QString &id) {
+        const auto other = package(host.temporary.path() + '/' + id,
+                                   "export function activate(c){}", {"lifecycle", "storage"});
+        QFile file(other + "/manifest.json");
+        if (!file.open(QIODevice::ReadOnly))
+            return false;
+        auto manifest = QJsonDocument::fromJson(file.readAll()).object();
+        file.close();
+        manifest["id"] = id;
+        manifest["name"] = id;
+        write(other + "/manifest.json", QJsonDocument(manifest).toJson());
+        return host.runtime.installDirectory(other);
+    };
+    QVERIFY(installOther("test.other"));
+    QTRY_VERIFY(!host.runtime.loading());
+    const auto otherInstallation = host.runtime.installationForId("test.other");
+    QVERIFY(!otherInstallation.isEmpty());
+    auto *otherValue = host.runtime.context(otherInstallation)->io()->writeValue("keep", 17);
+    QTRY_VERIFY(otherValue->finished());
+    QVERIFY(installOther("test.retained"));
+    QTRY_VERIFY(!host.runtime.loading());
+    auto *retainedValue = host.runtime.context(host.runtime.installationForId("test.retained"))
+                              ->io()
+                              ->writeValue("keep", 99);
+    QTRY_VERIFY(retainedValue->finished());
+    QVERIFY(host.runtime.uninstall(host.runtime.installationForId("test.retained"), false));
+    QTRY_VERIFY(!host.runtime.loading());
+    QCOMPARE(host.runtime.dataEntries().size(), 3);
     QQmlComponent component(&host.engine);
     component.setData(R"QML(
 import QtQuick
@@ -265,12 +293,36 @@ ApplicationWindow {
                                             warnings.append(error.toString());
                                     });
     const auto disconnect = qScopeGuard([connection] { QObject::disconnect(connection); });
-    QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+    const QVariant selection = QVariantMap{{"installationId", host.installation()}};
+    QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, selection)));
     QTRY_VERIFY(scene->findChild<QObject *>("pluginDataDialog"));
     auto *dialog = scene->findChild<QObject *>("pluginDataDialog");
     QPointer<QObject> lifetime(dialog);
     QTRY_VERIFY(dialog->property("visible").toBool());
     QTRY_COMPARE(dialog->property("opacity").toReal(), 1.);
+    auto entries = [&] { return dialog->property("entries").toList(); };
+    QTRY_COMPARE(entries().size(), 1);
+    QCOMPARE(entries().first().toMap().value("key").toString(), host.installation());
+    QVERIFY(!visual(window->contentItem(), "pluginClearData-test.other"));
+    QVERIFY(!visual(window->contentItem(), "pluginClearData-test.retained"));
+    // Switching scope dismisses a pending destructive action from the old card.
+    QTRY_VERIFY(visual(window->contentItem(), "pluginClearData-test.runtime"));
+    QVERIFY(QMetaObject::invokeMethod(visual(window->contentItem(), "pluginClearData-test.runtime"),
+                                      "clicked"));
+    QTRY_VERIFY(visual(window->contentItem(), "pluginConfirmClearData"));
+    QVERIFY(dialog->setProperty("installationId", otherInstallation));
+    QVERIFY(dialog->property("pending").toMap().isEmpty());
+    QTRY_VERIFY(!visual(window->contentItem(), "pluginConfirmClearData"));
+    QTRY_COMPARE(entries().size(), 1);
+    QCOMPARE(entries().first().toMap().value("id").toString(), QString("test.other"));
+    QTRY_VERIFY(visual(window->contentItem(), "pluginClearData-test.other"));
+    QVERIFY(dialog->setProperty("installationId", QString()));
+    QTRY_COMPARE(entries().size(), 1);
+    QVERIFY(entries().first().toMap().value("retained").toBool());
+    QCOMPARE(entries().first().toMap().value("id").toString(), QString("test.retained"));
+    QTRY_VERIFY(visual(window->contentItem(), "pluginClearData-test.retained"));
+    QVERIFY(dialog->setProperty("installationId", host.installation()));
+    QTRY_COMPARE(entries().size(), 1);
     const auto directory = qEnvironmentVariable("ECHO_PLUGIN_DISTRIBUTION_CAPTURE_DIR");
     for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
         host.theme.setMode(mode);
@@ -294,6 +346,18 @@ ApplicationWindow {
     auto *read = host.runtime.context(host.installation())->io()->readValue("erase");
     QTRY_VERIFY(read->finished());
     QVERIFY(!read->result().isValid());
+    auto *otherRead = host.runtime.context(otherInstallation)->io()->readValue("keep");
+    QTRY_VERIFY(otherRead->finished());
+    QCOMPARE(otherRead->result().toInt(), 17);
+    QVERIFY(dialog->setProperty("installationId", QString()));
+    QTRY_VERIFY(visual(window->contentItem(), "pluginClearData-test.retained"));
+    QVERIFY(QMetaObject::invokeMethod(
+        visual(window->contentItem(), "pluginClearData-test.retained"), "clicked"));
+    QTRY_VERIFY(visual(window->contentItem(), "pluginConfirmClearData"));
+    QVERIFY(QMetaObject::invokeMethod(visual(window->contentItem(), "pluginConfirmClearData"),
+                                      "clicked"));
+    QTRY_VERIFY(!host.runtime.loading());
+    QTRY_COMPARE(entries().size(), 0);
     QVERIFY(QMetaObject::invokeMethod(owner, "close"));
     QTRY_VERIFY(lifetime.isNull());
     QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));

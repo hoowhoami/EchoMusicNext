@@ -39,7 +39,11 @@ QVersionNumber PluginPackage::sdkVersion()
 }
 QStringList PluginPackage::supportedFeatures()
 {
-    return {"ui.navigation",
+    return {"graphics.rhi",
+            "graphics.compute",
+            "graphics.hdr",
+            "graphics.readback",
+            "ui.navigation",
             "settings.host",
             "ui.actions",
             "cover.themed",
@@ -105,13 +109,28 @@ QStringList PluginPackage::supportedFeatures()
 }
 QStringList PluginPackage::supportedCapabilities()
 {
-    return {"localFiles",    "downloads",    "unrestrictedNetwork",
-            "audioSpectrum", "audioSource",  "lyrics",
-            "lyricEffects",  "kugouApi",     "kugouVerification",
-            "backups",       "sqlite",       "theme",
-            "lyricsPage",    "tcp",          "webServer",
-            "windows",       "process",      "serverIntercept",
-            "navigation",    "hostSettings", "cover"};
+    return {"graphics",
+            "localFiles",
+            "downloads",
+            "unrestrictedNetwork",
+            "audioSpectrum",
+            "audioSource",
+            "lyrics",
+            "lyricEffects",
+            "kugouApi",
+            "kugouVerification",
+            "backups",
+            "sqlite",
+            "theme",
+            "lyricsPage",
+            "tcp",
+            "webServer",
+            "windows",
+            "process",
+            "serverIntercept",
+            "navigation",
+            "hostSettings",
+            "cover"};
 }
 namespace
 {

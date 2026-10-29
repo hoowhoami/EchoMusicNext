@@ -822,7 +822,8 @@ target_compile_definitions(
 target_include_directories(echo-plugin-runtime-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(
     echo-plugin-runtime-test
-    PRIVATE plugins/PluginRuntimeTest.h
+    PRIVATE plugins/PluginRuntimeGraphics.cpp
+            plugins/PluginRuntimeTest.h
             plugins/PluginRuntimeTestFixture.h
             plugins/PluginRuntimeManagement1.cpp
             plugins/PluginRuntimeManagement2.cpp
@@ -1761,3 +1762,22 @@ target_link_libraries(
 )
 add_test(NAME settings-storage COMMAND echo-settings-storage-test)
 set_tests_properties(settings-storage PROPERTIES TIMEOUT 45)
+
+qt_add_shaders(
+    echo-plugin-runtime-test
+    plugin_gpu_test_shaders
+    PREFIX
+    /test-gpu
+    GLSL
+    "310 es,430"
+    FILES
+    shaders/gpu/fixture.vert
+    shaders/gpu/fixture.frag
+    shaders/gpu/fixture.comp
+)
+add_test(NAME plugin-runtime-graphics COMMAND echo-plugin-runtime-test
+                                              graphicsValidationOwnershipAndAccount
+)
+set_tests_properties(
+    plugin-runtime-graphics PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
+)
