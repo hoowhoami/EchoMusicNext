@@ -41,6 +41,15 @@ RowLayout {
         // follows the accent (the play/pause key) would keep the stale song's
         // color until the next hover cycle.
         color: area.containsMouse ? hoverColor : fillColor
+        // 按压反馈（参考实现 .controls button:active）：按下缩到 0.94，
+        // 松开回弹，与悬停底色的 180ms 过渡同速。
+        scale: area.pressed ? 0.94 : 1
+        Behavior on scale {
+            NumberAnimation {
+                duration: Theme.store.motionEnabled ? 180 : 0
+                easing.type: Easing.OutCubic
+            }
+        }
         EchoIcon {
             anchors.centerIn: parent
             name: button.glyph

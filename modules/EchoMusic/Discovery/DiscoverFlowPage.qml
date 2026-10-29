@@ -23,7 +23,13 @@ RoutePage {
     readonly property int activeIndex: Math.max(0, Math.min(m_activeIndex, Math.max(0, page.collection.count - 1)))
     readonly property var currentItem: page.collection.count > 0 ? page.collection.item(page.activeIndex) : null
     readonly property string artworkUrl: page.currentItem ? String(page.currentItem.coverUrl || "") : ""
-    readonly property var qualityTags: page.currentItem && page.currentItem.qualityTags ? page.currentItem.qualityTags : []
+    // The backdrop shows the same auto-rotating artist portraits the playback
+    // page's portrait mode uses (playback.portraits follows the playing track).
+    // While the gallery is empty — not yet fetched, or the track has no
+    // portraits — the displayed cover keeps the page from showing a bare
+    // surface, matching the previous cover-only behaviour.
+    readonly property url portraitSource: service.playback.portraits.source
+    readonly property url backdropSource: page.portraitSource.toString().length > 0 ? page.portraitSource : page.artworkUrl
     readonly property string progressLabel: page.collection.count > 0 ? (page.activeIndex + 1) + " / " + page.collection.count : "0 / 0"
     readonly property string currentId: page.currentItem ? String(page.currentItem.resourceId || "") : ""
     readonly property bool isCurrentTrack: page.service.discoverFlowActive && page.currentId.length > 0 && page.service.playback.trackId === page.currentId
@@ -106,6 +112,16 @@ RoutePage {
     }
 
     onPageActiveChanged: page.followActiveQueue = true
+    // The portrait gallery fetches and rotates only while this page is on
+    // screen; leaving releases it the same way the playback page's portrait
+    // mode does. Arming is keyed per surface: the playback page's route exit
+    // animation keeps its presentation "active" briefly after a navigation,
+    // and a keyed release must not drop the gallery this page already armed.
+    onResourcesActiveChanged: page.service.playback.portraits.setSurfaceActive(
+                                  "discover-flow", page.resourcesActive)
+    Component.onCompleted: page.service.playback.portraits.setSurfaceActive(
+                               "discover-flow", page.resourcesActive)
+    Component.onDestruction: page.service.playback.portraits.setSurfaceActive("discover-flow", false)
     onPartStateChanged: {
         if (page.partState !== DiscoveryService.Loading)
             page.refreshPending = false;
@@ -165,35 +181,13 @@ RoutePage {
     DiscoverFlowBackdrop {
         objectName: "discoverFlowBackdrop"
         anchors.fill: parent
-        source: page.artworkUrl
+        source: page.backdropSource
         resourceActive: page.resourcesActive
-    }
-
-    // User-adjusted legibility scrim: only the bottom 300 logical pixels are
-    // shaded. The artwork stays visible underneath, including at the bottom.
-    Rectangle {
-        objectName: "discoverFlowScrim"
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: Math.min(300, page.height)
-        bottomLeftRadius: Theme.shellRadius
-        bottomRightRadius: Theme.shellRadius
-        visible: page.currentItem !== null
-        gradient: Gradient {
-            GradientStop {
-                position: 0
-                color: Theme.withAlpha(Theme.main, 0)
-            }
-            GradientStop {
-                position: 0.6
-                color: Theme.withAlpha(Theme.main, 0.45)
-            }
-            GradientStop {
-                position: 1
-                color: Theme.withAlpha(Theme.main, 0.78)
-            }
-        }
+        // A portrait that cannot be decoded is retired by the gallery
+        // controller, which rotates to the next URL (or empties, falling the
+        // backdrop back to the cover). Cover failures report into the same
+        // controller as a no-op: the URL is not the gallery's source.
+        onFailed: imageUrl => page.service.playback.portraits.imageFailed(imageUrl)
     }
 
     // Header: title left, "换一批推荐" right.
@@ -227,7 +221,10 @@ RoutePage {
             glyph: "refresh-source"
             text: qsTr("换一批推荐")
             tooltipText: text
-            foreground: hoverHighlighted || visualFocus ? Theme.text : Theme.secondaryText
+            // Matches the action column's resting colour instead of the faint
+            // secondary tone: the icon floats over the artwork like the four
+            // transport buttons and must read the same way.
+            foreground: hoverHighlighted || visualFocus ? Theme.text : Theme.withAlpha(Theme.text, 0.8)
             enabled: !page.refreshLoading
             onClicked: page.refresh()
         }
@@ -271,7 +268,6 @@ RoutePage {
                 height: parent.height
                 anchors.bottom: parent.bottom
                 item: page.currentItem
-                qualityTags: page.qualityTags
                 progressLabel: page.progressLabel
                 narrow: page.narrow
                 shortPage: page.short

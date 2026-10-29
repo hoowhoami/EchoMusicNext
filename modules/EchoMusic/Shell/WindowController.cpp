@@ -460,10 +460,14 @@ void WindowController::addLyricsMenuActions(QMenu *menu)
 }
 void WindowController::popupTrayMenu()
 {
-    // SNI hosts own placement, focus and dismissal of their remote menu, XEmbed
-    // and Windows both use Qt's bound context menu (Windows tracks it as a
-    // native menu, see attachPlayback). Never open a second popup here.
-    if (m_shuttingDown || m_trayMenuModel || m_trayMenu)
+    // SNI hosts own placement, focus and dismissal of their remote menu (Linux
+    // XEmbed) and Windows binds it as a native HMENU menu. The Windows native
+    // menu renders blank under the DirectComposition presentation: its items
+    // are drawn into the redirection bitmap, which the process-wide
+    // QT_QPA_DISABLE_REDIRECTION_SURFACE removes. The tray menu therefore
+    // goes through the Qt popup path with the redirection surface lifted for
+    // its window's creation, exactly like the taskbar lyric menu.
+    if (m_shuttingDown || m_trayMenu)
         return;
     emit nativeMenuOpening();
     auto *menu = createTrayMenu();
@@ -476,7 +480,13 @@ void WindowController::popupTrayMenu()
     }
 #endif
     connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
+#ifdef Q_OS_WIN
+    qunsetenv("QT_QPA_DISABLE_REDIRECTION_SURFACE");
     menu->popup(QCursor::pos());
+    qputenv("QT_QPA_DISABLE_REDIRECTION_SURFACE", "1");
+#else
+    menu->popup(QCursor::pos());
+#endif
 }
 void WindowController::installTrayMenuModel()
 {
@@ -484,11 +494,18 @@ void WindowController::installTrayMenuModel()
     // A complete, stable command model is needed even while the panel is closed:
     // GetLayout need not be preceded by AboutToShow, and hosts cache action IDs.
     // QMenu is only the Qt exporter recipe; no local QWidget popup is shown for
-    // SNI. Windows needs the same stability: its native menu dispatches
-    // WM_COMMAND through the popup tracked from this binding (see attachPlayback).
+    // SNI. Windows binds this menu as a native HMENU no longer: the native menu
+    // renders blank under the DirectComposition presentation, so the tray menu
+    // goes through the Qt popup path instead (see popupTrayMenu).
     m_trayMenuModel.reset(createTrayMenu());
     connect(m_trayMenuModel.get(), &QMenu::aboutToShow, this, &WindowController::nativeMenuOpening);
+#ifndef Q_OS_WIN
+    // The SNI host reads /MenuBar through this binding: the QMenu object is the
+    // export recipe, never a local popup. Windows must NOT bind it - the native
+    // menu renders blank under the DirectComposition presentation, so the tray
+    // menu goes through the Qt popup path instead (see popupTrayMenu).
     m_tray->setContextMenu(m_trayMenuModel.get());
+#endif
 }
 void WindowController::attachPluginWindow(QQuickWindow *window)
 {

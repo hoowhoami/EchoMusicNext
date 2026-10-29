@@ -11,10 +11,14 @@
 
 ```
 桌面/壁纸
-  └─ 系统 backdrop（仅毛玻璃模式）
+  └─ legacy Accent 亚克力（仅毛玻璃模式，SetWindowCompositionAttribute）
        └─ Qt Quick DComp 交换链（premultiplied alpha，覆盖整窗）
             └─ QML 场景（透明像素 → 透出下层）
 ```
+
+DWM 系统 backdrop（`DWMWA_SYSTEMBACKDROP_TYPE`）已弃用：`DWMSBT_TRANSIENTWINDOW`
+在 DirectComposition 呈现下把背景洗成去饱和平涂，与 EchoMusic 参考实现的
+观感不符；诊断字段仍会读取该属性，但适配器从不写入。
 
 ## 关键决策与原因
 
@@ -29,9 +33,9 @@ redirection bitmap，**alpha 被忽略**且 bitmap 会遮挡一切 backdrop 层�
 - 事后 `SetWindowLongPtr(WS_EX_NOREDIRECTIONBITMAP)` 无效（Windows 拒绝
   对已创建窗口生效，错误 87），必须在创建前设置。
 - 该环境变量影响**所有**顶层窗口。光栅（QWidget）窗口没有 bitmap 就
-  不可见，因此全进程唯一的 QWidget 弹窗（任务栏歌词条 QMenu）在
-  `WindowController::showTaskbarLyricMenu` 里临时解除该变量，popup()
-  返回后恢复。新增 QWidget 顶层弹窗时必须做同样处理。
+  不可见，因此 QWidget 顶层弹窗（任务栏歌词条 QMenu
+  `showTaskbarLyricMenu`、托盘菜单 `popupTrayMenu`）都在 popup 前
+  临时解除该变量，返回后恢复。新增 QWidget 顶层弹窗时必须做同样处理。
 - 依赖 Qt 私有约定，**升级 Qt 后必须复核**（见文末清单）。
 
 ### 2. 永远不启用 DWM_BB（blur behind）
@@ -42,49 +46,53 @@ Qt 会对"加速渲染 + alpha"的窗口自动调用 `DwmEnableBlurBehindWindow`
 时的静态快照且永不更新**，窗口移动/缩放后残影错位（历史上"透明背景
 显示启动时画面"的根因）。alpha 的显示改由 DComp 交换链承担。
 
-### 3. 半透明状态 = 无边框呈现（核心）
+### 3. 所有材质统一无边框呈现（核心）
 
 **Qt 冻结的 `fullFrameMargins`（QTBUG-117704）使 swapchain 比窗口小
 一圈**：`geometry_sys() = 窗口矩形 - fullFrameMargins`，QML 的洗染层
-覆盖不到缺口带——透明度 <100% 时缺口带与主体形成透明度差，表现为
-可见的边框环（100% 时主体全透明，差异消失）。
+覆盖不到缺口带。原生边框还会引入 DWM 不可见缩放边框环（实测
+L6/T0/R7/B7 物理像素）：窗口的**客户区 ≠ 外框**，而几何持久化存的是
+客户区尺寸（`QWindow::geometry()`），两种材质间 insets 不一致时，
+恢复的几何与切换材质都会让窗口外框/可见内容变化一圈，并随
+"重启→切换材质"循环逐圈棘轮式增大（历史缺陷）。
 
-修复：半透明状态（毛玻璃开或透明度>0）动态加上 `FramelessWindowHint`。
-Qt 的 `shouldOmitFrameAdjustment` 对无边框窗口跳过边距计算
-（`fullFrameMargins()` 返回空），swapchain 覆盖整个窗口，洗染层全窗
-均匀，**任意透明度下四边无缝**。无边框的代价与对策：
+修复：`windowFlags()` 在**所有构建**上创建即返回
+`FramelessWindowHint`（此前仅 Win10 分支如此，Win11 保留原生边框是
+棘轮的根源）。Qt 的 `shouldOmitFrameAdjustment` 对无边框窗口跳过边距
+计算（`fullFrameMargins()` 返回空），swapchain 覆盖整个窗口，三种
+材质 insets 恒为 0，几何在任意材质间无损往返。无边框的代价与对策：
 
 - **DWM 阴影/缩放/贴靠**：`applyWindowPolicy` 补回 `WS_THICKFRAME`
   （QWindowKit/spcat 同款架构），阴影、原生缩放、任务栏贴靠保留；
   `WM_NCHITTEST` 处理器负责边缘命中测试。
-- **系统 backdrop**：无边框 + alpha 使 Qt 自动加 `WS_EX_LAYERED`
-  （LWA_ALPHA 不透明），而 layered 窗口无法承载系统 backdrop（实测：
-  高对比背景锐利直透 = 无亚克力）。repair 队列在 Qt 每次 initialize
-  后剥离该位，与压制 DWM_BB 同一模式。
+- **`WS_EX_LAYERED`**：无边框 + alpha 使 Qt 在 initialize 阶段自动加
+  `WS_EX_LAYERED`（LWA_ALPHA 不透明）。legacy Accent 亚克力并不依赖
+  该位，但全部已验证状态都在无 LAYERED 下运行，且 Qt 会在每次
+  initialize 重新加回——适配器在 frameless 时持续剥离，保持呈现路径
+  唯一（与压制 DWM_BB 同一模式）。
 - **最大化**：`shouldOmitFrameAdjustment` 只豁免非最大化窗口；最大化
   时 Qt 回退到缓存的边距，理论上会留下数像素透明带（在纯色壁纸上
   难以分辨，记为已知边界）。
 - **粘性**：无边框标志一旦设置不再移除——移除操作会在状态转换中
   丢失最大化还原状态（实测）。不透明主题与该标志共存无害（不透明
-  QML 覆盖整窗）。
+  QML 覆盖整窗）。全屏期间由全屏舞蹈接管该标志。
 
-### 4. 外观状态机（WindowsWindowBackdrop::material / applyWindowPolicy）
+### 4. 外观状态机（WindowsWindowBackdrop::applyMaterialState / applyWindowPolicy）
 
-| 状态 | 无边框 | 样式位 | 扩展框架 | backdrop (38) | 边框色 (34) |
-| --- | --- | --- | --- | --- | --- |
-| 半透明（毛玻璃开） | ✓ | POPUP+THICKFRAME，无 CAPTION | -1 | `DWMSBT_TRANSIENTWINDOW`(3) | `COLOR_NONE` |
-| 半透明（毛玻璃关，透明度>0） | ✓ | 同上 | -1（填充透明，见下） | `DWMSBT_NONE`(1) | `COLOR_NONE` |
-| 不透明 | 保持 | +CAPTION（最小化动画） | Qt 默认 | `DWMSBT_NONE`(1) | 默认 |
+| 状态 | 无边框 | 样式位 | Accent (19) | 边框色 (34) |
+| --- | --- | --- | --- | --- |
+| 毛玻璃开 | ✓ | POPUP+THICKFRAME，无 CAPTION | `ACCENT_ENABLE_ACRYLICBLURBEHIND`(4)，tint 0x01000000 | - |
+| 毛玻璃关、透明度>0 | ✓ | 同上 | `ACCENT_DISABLED`(0) | - |
+| 不透明 | ✓ | +CAPTION（最小化动画） | `ACCENT_DISABLED`(0) | 默认 |
 
-- 毛玻璃：亚克力材质画满整个玻璃区域，色调与主体一致。
-- 清透：backdrop 关闭；玻璃填充虽在（-1）但 `DWMWA_CAPTION_COLOR`
-  未设时为白色——实测发现其在无 `WS_CAPTION` 的窗口上行为不定，
-  且清透模式下 swapchain 已覆盖整窗，填充位于其后不影响透明度。
-- 半透明状态统一 `DWMWA_BORDER_COLOR=None`，去除亚克力材质自带的
-  Win7 风格 1px 描边。
-- 不透明状态补 `WS_CAPTION` 换取 DWM 的最小化/还原动画；原生按钮
-  画在客户面之下，被不透明 QML 覆盖。半透明状态剥离 CAPTION——
-  原生按钮会穿透半透明 QML 标题栏（无 redirection bitmap 遮挡）。
+- 毛玻璃：legacy Accent 亚克力（`SetWindowCompositionAttribute`），
+  Win10/Win11 同一路径；策略是窗口级的，Qt 冻结边距留下的缺口带
+  （QTBUG-117704，若存在）也显示同一材质，不会成环。
+- 半透明状态剥离 `WS_CAPTION`——原生按钮会穿透半透明 QML 标题栏
+  （无 redirection bitmap 遮挡）；不透明状态补回 CAPTION 换取 DWM 的
+  最小化/还原动画，原生按钮画在客户面之下，被不透明 QML 覆盖。
+- 系统 backdrop（38）从不写入；clear 时对所有构建统一复位边框色、
+  DWM_BB 与扩展框架，防御 Qt 在 initialize 期间的回置。
 
 ### 5. repair 队列
 
@@ -99,10 +107,9 @@ apply 在 surface 就绪前失败时也由 repair 重试。
 - 半透明状态下最小化/还原动画失效（WS_CAPTION 被剥离的代价）。
 - 最大化 + 半透明：Qt 回退到缓存的 frame margins，理论上存在数像素
   透明带（纯色壁纸上难以分辨）。
-- `build < 22621`（Win10/Win11 21H2）走 `SetWindowCompositionAttribute`
-  accent(4) 旧路径，未在开发机（26300）上验证；该路径下 Qt 自身的
-  DWM_BB 仍启用（Win10 上为实时模糊，无冻结问题）。
-- 透明度滑杆只影响 QML 层不透明度；DWM 材质没有分级强度。
+- Win10（<22621）从未保留原生边框，与 Win11 现在共享同一创建形态；
+  legacy Accent 路径在开发机（26300）验证，Win10 实机未回归测试。
+- 透明度滑杆只影响 QML 层不透明度；Accent 亚克力没有分级强度。
 
 ## 升级 Qt / 复核清单
 
@@ -126,3 +133,5 @@ apply 在 surface 就绪前失败时也由 repair 重试。
    `QTBUG-117704` 早退分支（客户区==窗口时冻结边距）。
 8. `WindowCreationData::initialize` 仍对 accelerated+alpha 窗口
    自动调用 `applyBlurBehindWindow`（适配器需持续压制）。
+9. `windowFlags()` 创建即无边框仍成立；若 Qt 对无边框 + alpha 窗口
+   的 `WS_EX_LAYERED` 行为变化，复核 `applyWindowPolicy` 的剥离条件。

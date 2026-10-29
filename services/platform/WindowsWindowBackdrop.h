@@ -32,12 +32,10 @@ private:
     enum class Applied
     {
         None,
-        Material,
         LegacyAccent
     };
     void clear();
     bool accent(int state);
-    bool material(bool enabled, int transparency);
     bool applyMaterialState(bool enabled, bool dark, int transparency);
     void releaseSurface();
     bool fullscreen() const;
@@ -61,7 +59,7 @@ private:
     // Last appearance request, kept across failed applies so the queued repair
     // can retry the state once the native surface report is available.
     int m_requestedEnabled = -1, m_requestedDark = -1, m_requestedTransparency = -1;
-    bool m_enabled = false, m_dark = false, m_suspended = false, m_repairQueued = false;
+    bool m_enabled = false, m_dark = false, m_repairQueued = false;
     bool m_geometryQueued = false;
     bool m_restoreFullscreen = false;
     bool m_framelessForFullscreen = false;

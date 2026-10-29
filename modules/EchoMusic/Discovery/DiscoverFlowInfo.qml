@@ -8,20 +8,17 @@ import EchoMusic.Theme
 Item {
     id: info
     property var item: null
-    property var qualityTags: []
     property string progressLabel: ""
     property bool narrow: false
     property bool shortPage: false
     property bool resourceActive: true
     property var shownItem: null
-    property var shownTags: []
     property string shownProgress: ""
     property int swapDuration: 0
     readonly property bool running: swap.running
     implicitHeight: content.implicitHeight
     function adopt(): void {
         shownItem = item;
-        shownTags = qualityTags;
         shownProgress = progressLabel;
     }
     function settle(): void {
@@ -44,10 +41,6 @@ Item {
         swap.restart();
     }
     onItemChanged: updateItem()
-    onQualityTagsChanged: {
-        if (!swap.running)
-            shownTags = qualityTags;
-    }
     onProgressLabelChanged: {
         if (!swap.running)
             shownProgress = progressLabel;
@@ -75,7 +68,7 @@ Item {
                 spacing: 8
                 Item {
                     width: progress.implicitWidth + 4
-                    height: info.shownTags.length > 0 ? 24 : 19.5
+                    height: 19.5
                     EchoTextTagRow {
                         id: progress
                         objectName: "discoverFlowProgress"
@@ -92,19 +85,6 @@ Item {
                             return counter;
                         }
                         lineHeight: 19.5
-                    }
-                }
-                Repeater {
-                    model: info.shownTags
-                    delegate: EchoTextTagRow {
-                        required property string modelData
-                        objectName: "discoverFlowQuality"
-                        text: modelData
-                        width: implicitWidth
-                        height: 24
-                        font: Theme.font(16, Theme.regularWeight)
-                        color: Theme.text
-                        lineHeight: 24
                     }
                 }
             }

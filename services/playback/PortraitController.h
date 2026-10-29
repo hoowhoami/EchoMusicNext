@@ -3,6 +3,7 @@
 #include "PlaybackTrack.h"
 #include "LyricPortraitAppearance.h"
 #include <QElapsedTimer>
+#include <QSet>
 #include <QTimer>
 #include <QUrl>
 namespace EchoMusic
@@ -38,6 +39,11 @@ public:
     }
     void setTrack(const PlaybackTrack &track);
     Q_INVOKABLE void setActive(bool active);
+    /// Multi-surface arming. The gallery stays active while ANY surface still
+    /// holds its key: routes can overlap briefly (a page's exit animation
+    /// outlives the navigation), and a late deactivation from one page must
+    /// not kill a surface that already armed.
+    Q_INVOKABLE void setSurfaceActive(const QString &surface, bool active);
     Q_INVOKABLE void previous();
     Q_INVOKABLE void next();
     Q_INVOKABLE void imageFailed(const QUrl &url);
@@ -65,6 +71,7 @@ private:
     QHash<QString, CacheEntry> m_cache;
     QElapsedTimer m_clock;
     QTimer m_carousel;
+    QSet<QString> m_surfaces;
     quint64 m_request = 0, m_revision = 0;
     int m_index = 0;
     bool m_active = false;
