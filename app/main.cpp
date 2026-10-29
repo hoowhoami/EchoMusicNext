@@ -3,7 +3,6 @@
 #include "NetworkBootstrap.h"
 #include "ApplicationUrlHandler.h"
 #include "PluginSdkContract.h"
-#include "EchoGpuSurface.h"
 #include <QJsonDocument>
 #include <QTextStream>
 #include "LogService.h"
@@ -100,7 +99,6 @@ int main(int argc, char *argv[])
     // switch would also disable raster backing stores for widget dialogs.
     // Qt Widgets supplies native tray menus; the application UI stays Qt Quick.
     QApplication app(argc, argv);
-    EchoMusic::EchoGpuSurface::installWindowPolicy();
     // Lives for the whole process: every popup, dialog and page reports mouse
     // presses through this single filter.
     EchoMusic::SpinBoxCommitFilter spinBoxCommitFilter(&app);

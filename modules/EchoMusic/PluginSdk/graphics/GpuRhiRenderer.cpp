@@ -65,19 +65,21 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
         return;
     }
     auto &s = *m_state;
-    auto *sc = s.window ? s.window->swapChain() : nullptr;
-    const bool hdrSwap = sc && (sc->format() == QRhiSwapChain::HDRExtendedSrgbLinear ||
-                                sc->format() == QRhiSwapChain::HDRExtendedDisplayP3Linear ||
-                                sc->format() == QRhiSwapChain::HDR10);
-    double headroom = 1., white = 100.;
-    if (hdrSwap) {
-        const auto info = sc->hdrInfo();
-        white = info.sdrWhiteLevel > 0 ? info.sdrWhiteLevel : 100.;
-        headroom = info.limitsType == QRhiSwapChainHdrInfo::ColorComponentValue
-                       ? info.limits.colorComponentValue.maxColorComponentValue
-                       : info.limits.luminanceInNits.maxLuminance / white;
+    if (rhi()->backend() == QRhi::Null || rhi()->isDeviceLost()) {
+        s.release();
+        s.bridge->report(
+            {{"available", false},
+             {"state", rhi()->backend() == QRhi::Null ? "unavailable" : "waiting"},
+             {"compute", false},
+             {"hdr", false},
+             {"generation", QVariant::fromValue(s.generation)},
+             {"reason", rhi()->backend() == QRhi::Null ? "Null backend has no GPU"
+                                                       : "Device lost; waiting for Qt recovery"}});
+        return;
     }
-    m_hdr = m_snapshot.hdr && hdrSwap && headroom > 1.;
+    // Qt Quick's embedded texture is not an independently color-managed HDR
+    // presentation surface. Keep the parent swapchain and every ordinary item
+    // untouched; HDR input is tone mapped inside this plugin's output quad.
     s.error.clear();
     if (!s.frameUniform) {
         s.generation = ++s.bridge->generation;
@@ -95,9 +97,9 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
                              float(renderTarget()->pixelSize().height()),
                              m_snapshot.pixelRatio,
                              float(s.clock.elapsed() / 1000.),
-                             m_hdr ? 1.f : (m_snapshot.hdr ? 0.f : -1.f),
-                             float(headroom),
-                             float(white),
+                             m_snapshot.hdr ? 0.f : -1.f,
+                             1.f,
+                             100.f,
                              rhi()->isYUpInFramebuffer() ? 1.f : 0.f};
         const auto correction = rhi()->clipSpaceCorrMatrix();
         std::memcpy(uniform + 8, correction.constData(), 64);
@@ -211,11 +213,10 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
         update();
     ++s.frames;
     // No GUI feedback loop: resource writes schedule frames; reports never do.
-    if (s.frames == 1 || s.frames % 30 == 0 || s.reportHdr != m_hdr ||
-        s.reportHeadroom != headroom || !s.error.isEmpty() || s.generation != s.reportGeneration) {
+    if (s.frames == 1 || s.frames % 30 == 0 || s.reportHdrRequested != m_snapshot.hdr ||
+        !s.error.isEmpty() || s.generation != s.reportGeneration) {
         s.reportGeneration = s.generation;
-        s.reportHdr = m_hdr;
-        s.reportHeadroom = headroom;
+        s.reportHdrRequested = m_snapshot.hdr;
         s.bridge->report(
             {{"available", true},
              {"state", s.error.isEmpty() ? "ready" : "error"},
@@ -223,12 +224,14 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
              {"compute", rhi()->isFeatureSupported(QRhi::Compute)},
              {"floatTextures",
               rhi()->isTextureFormatSupported(QRhiTexture::RGBA16F, QRhiTexture::RenderTarget)},
-             {"hdr", m_hdr},
-             {"hdrSwapChain", hdrSwap},
-             {"headroom", headroom},
-             {"sdrWhiteLevel", white},
+             {"hdr", false},
+             {"hdrRequested", m_snapshot.hdr},
+             {"localHdrSupported", false},
+             {"dynamicRange", "sdr"},
+             {"headroom", 1.},
+             {"sdrWhiteLevel", 100.},
              {"reason", s.error.isEmpty()
-                            ? (m_hdr ? QString() : "SDR output; HDR highlights are tone mapped")
+                            ? (m_snapshot.hdr ? "local-hdr-presentation-unavailable" : QString())
                             : s.error},
              {"nativeResources", s.objects.load()},
              {"generation", QVariant::fromValue(s.generation)},

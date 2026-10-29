@@ -15,8 +15,17 @@ bool GpuRenderState::prepareOutput(QRhiRenderTarget *output)
 {
     const auto size = output->pixelSize();
     const auto format = output->renderPassDescriptor()->serializedFormat();
+    bool needsDepth = false;
+    for (const auto &value : snapshot.frame.value("passes").toList()) {
+        const auto pass = value.toMap();
+        if (pass.value("type") != "render" || pass.value("target", "surface") != "surface")
+            continue;
+        const auto pipeline =
+            snapshot.resources.value(pass.value("pipeline").toString()).definition;
+        needsDepth |= pipeline.value("depthTest").toBool() || pipeline.value("depthWrite").toBool();
+    }
     if (workingTexture && workingTexture->pixelSize() == size && outputPipeline &&
-        outputFormat == format)
+        outputFormat == format && workingWithDepth == needsDepth)
         return true;
     passes.clear();
     outputPipeline.reset();
@@ -35,16 +44,18 @@ bool GpuRenderState::prepareOutput(QRhiRenderTarget *output)
             : QRhiTexture::RGBA8;
     workingTexture.reset(rhi->newTexture(
         workFormat, size, 1, QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
-    workingDepth.reset(
-        rhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil, size, output->sampleCount()));
-    if (!workingTexture->create() || !workingDepth->create()) {
+    workingWithDepth = needsDepth;
+    if (needsDepth)
+        workingDepth.reset(rhi->newTexture(QRhiTexture::D32F, size, output->sampleCount(),
+                                           QRhiTexture::RenderTarget));
+    if (!workingTexture->create() || (workingDepth && !workingDepth->create())) {
         error = "Cannot allocate linear render target";
         return false;
     }
     QRhiColorAttachment color(workingTexture.get());
     if (output->sampleCount() > 1) {
-        workingMultisample.reset(rhi->newRenderBuffer(QRhiRenderBuffer::Color, size,
-                                                      output->sampleCount(), {}, workFormat));
+        workingMultisample.reset(
+            rhi->newTexture(workFormat, size, output->sampleCount(), QRhiTexture::RenderTarget));
         if (!workingMultisample->create()) {
             error = "Cannot allocate multisample working buffer";
             return false;
@@ -53,7 +64,7 @@ bool GpuRenderState::prepareOutput(QRhiRenderTarget *output)
         color.setResolveTexture(workingTexture.get());
     }
     QRhiTextureRenderTargetDescription desc(color);
-    desc.setDepthStencilBuffer(workingDepth.get());
+    desc.setDepthTexture(workingDepth.get());
     workingTarget.reset(rhi->newTextureRenderTarget(desc));
     workingDescriptor.reset(workingTarget->newCompatibleRenderPassDescriptor());
     workingTarget->setRenderPassDescriptor(workingDescriptor.get());

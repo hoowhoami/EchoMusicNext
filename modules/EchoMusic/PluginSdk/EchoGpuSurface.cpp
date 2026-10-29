@@ -3,10 +3,6 @@
 #include "graphics/GpuRhi_p.h"
 #include <QQuickWindow>
 #include <QRunnable>
-#include <QGuiApplication>
-#include <QEvent>
-#include <QPlatformSurfaceEvent>
-#include <QQmlEngine>
 #include <cmath>
 namespace EchoMusic
 {
@@ -25,32 +21,13 @@ public:
 private:
     std::shared_ptr<GpuRenderState> m_state;
 };
-class GraphicsWindowPolicy final : public QObject
-{
-public:
-    using QObject::QObject;
-    bool eventFilter(QObject *object, QEvent *event) override
-    {
-        if (event->type() == QEvent::PlatformSurface &&
-            static_cast<QPlatformSurfaceEvent *>(event)->surfaceEventType() ==
-                QPlatformSurfaceEvent::SurfaceCreated)
-            if (auto *window = qobject_cast<QQuickWindow *>(object))
-                EchoGpuSurface::prepareWindow(window);
-        return false;
-    }
-};
 } // namespace
-void EchoGpuSurface::installWindowPolicy()
-{
-    if (!qGuiApp || qGuiApp->property("echoGraphicsWindowPolicy").toBool())
-        return;
-    qGuiApp->setProperty("echoGraphicsWindowPolicy", true);
-    qGuiApp->installEventFilter(new GraphicsWindowPolicy(qGuiApp));
-}
 EchoGpuSurface::EchoGpuSurface(QQuickItem *parent) : QQuickRhiItem(parent)
 {
     setAlphaBlending(true);
-    m_status = {{"available", false}, {"compute", false}, {"hdr", false}, {"state", "waiting"}};
+    m_status = {{"available", false},    {"compute", false},           {"hdr", false},
+                {"hdrRequested", false}, {"localHdrSupported", false}, {"dynamicRange", "sdr"},
+                {"state", "waiting"}};
     m_bridge = std::shared_ptr<GpuBridge>(new GpuBridge, [](GpuBridge *p) { p->deleteLater(); });
     m_bridge->surface = this;
     connect(&m_clock, &QTimer::timeout, this, [this] {
@@ -71,7 +48,6 @@ EchoGpuSurface::EchoGpuSurface(QQuickItem *parent) : QQuickRhiItem(parent)
         m_windowConnections.clear();
         releaseNative();
         if (window) {
-            prepareWindow(window);
             m_windowConnections.append(connect(window, &QQuickWindow::visibleChanged, this,
                                                &EchoGpuSurface::syncActivity));
             m_windowConnections.append(connect(window, &QQuickWindow::visibilityChanged, this,
@@ -158,8 +134,6 @@ void EchoGpuSurface::setDynamicRange(const QString &v)
     if ((v != "auto" && v != "sdr" && v != "hdr") || v == m_dynamicRange)
         return;
     m_dynamicRange = v;
-    if (m_status.value("hdrSwapChain").toBool() && m_status.value("floatTextures").toBool())
-        setColorBufferFormat(v == "sdr" ? TextureFormat::RGBA8 : TextureFormat::RGBA16F);
     emit configurationChanged();
     requestFrame();
 }
@@ -174,6 +148,25 @@ void EchoGpuSurface::syncActivity()
     if (m_sizing)
         return;
     QPointer<EchoGpuSurface> alive(this);
+    if (window() &&
+        window()->rendererInterface()->graphicsApi() == QSGRendererInterface::Software) {
+        releaseTarget();
+        releaseNative();
+        m_clock.stop();
+        m_status = {{"state", "unavailable"},
+                    {"available", false},
+                    {"compute", false},
+                    {"hdr", false},
+                    {"hdrRequested", m_dynamicRange != "sdr"},
+                    {"localHdrSupported", false},
+                    {"dynamicRange", "sdr"},
+                    {"reason", "Qt software renderer has no RHI"}};
+        if (m_graphics)
+            m_graphics->report(m_status);
+        if (alive)
+            emit statusChanged();
+        return;
+    }
     m_sizing = true;
     const bool wants = !m_retired && !m_paused && m_graphics && m_graphics->active() &&
                        isVisible() && width() > 0 && height() > 0 && window() &&
@@ -351,14 +344,6 @@ void EchoGpuSurface::acceptReport(const QVariantMap &report)
     if (report.value("generation").toULongLong() < m_status.value("generation").toULongLong())
         return;
     QPointer<EchoGpuSurface> alive(this);
-    const auto desired = report.value("hdrSwapChain").toBool() && m_dynamicRange != "sdr" &&
-                                 report.value("floatTextures").toBool()
-                             ? TextureFormat::RGBA16F
-                             : TextureFormat::RGBA8;
-    if (colorBufferFormat() != desired)
-        setColorBufferFormat(desired);
-    if (!alive)
-        return;
     for (auto i = report.begin(); i != report.end(); ++i)
         m_status.insert(i.key(), i.value());
     m_graphics->report(m_status);

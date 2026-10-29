@@ -41,7 +41,6 @@ QStringList PluginPackage::supportedFeatures()
 {
     return {"graphics.rhi",
             "graphics.compute",
-            "graphics.hdr",
             "graphics.readback",
             "ui.navigation",
             "settings.host",

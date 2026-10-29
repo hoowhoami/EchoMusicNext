@@ -380,6 +380,28 @@ ApplicationWindow {
             }
         }
     }
+    if (scope->package().capabilities.contains("graphics") &&
+        window->rendererInterface()->graphicsApi() == QSGRendererInterface::Metal) {
+        patch = retain(scope->executeCommand(
+            "settings.patch",
+            {{"mode", "bars"}, {"hdrHighlights", true}, {"hdrIntensity", 100}, {"opacity", 56}}));
+        QTRY_VERIFY(patch && patch->finished());
+        QTest::qWait(120);
+        auto *hdrLayer = visual(window->contentItem(), "spectrumVisualizerLayer");
+        auto *surface =
+            hdrLayer ? hdrLayer->findChild<EchoGpuSurface *>("spectrumGpuSurface") : nullptr;
+        QVERIFY(surface);
+        // Embedded surfaces retain SDR and never change either native window.
+        QVERIFY(!surface->status().value("hdr").toBool());
+        QVERIFY(!surface->status().value("localHdrSupported").toBool());
+        QVERIFY(!window->property("_qt_sg_hdr_format").isValid());
+        QVERIFY(!mini->property("_qt_sg_hdr_format").isValid());
+        QVERIFY(!window->contentItem()->findChild<QQuickItem *>("echoHdrContent"));
+        QVERIFY(!mini->contentItem()->findChild<QQuickItem *>("echoHdrContent"));
+        patch = retain(scope->executeCommand("settings.patch",
+                                             {{"mode", "centered"}, {"hdrHighlights", false}}));
+        QTRY_VERIFY(patch && patch->finished());
+    }
     host.playback.pause();
     QTRY_VERIFY(!host.playback.spectrum()->status().value("running").toBool());
     auto *centerLayer = visual(window->contentItem(), "spectrumVisualizerLayer");
@@ -403,6 +425,12 @@ ApplicationWindow {
             QPointer<QQuickItem> body = visual(window->contentItem(), "spectrumVisualizerSettings");
             QTest::qWait(120);
             QVERIFY(body->width() > 400);
+            if (scope->package().capabilities.contains("graphics")) {
+                auto *hdrToggle = visual(body, "spectrumHdrSwitch");
+                QVERIFY(hdrToggle);
+                QVERIFY(!hdrToggle->isEnabled());
+                QVERIFY(!hdrToggle->property("checked").toBool());
+            }
             if (mode == ThemeStore::Dark && scale == 1.0) {
                 QVERIFY(Test::prepareNativeInput(window));
                 auto *toggle = visual(body, "spectrumEnabledSwitch");
@@ -461,6 +489,9 @@ ApplicationWindow {
                 QTest::qWait(16);
             }
             wheel({}, Qt::ScrollEnd);
+            qInfo() << "SPECTRUM_WHEEL" << mode << scale << viewport->property("contentY")
+                    << viewport->height() << viewport->property("contentHeight")
+                    << viewport->mapToScene({0, 0});
             QTRY_VERIFY(viewport->property("contentY").toReal() > 0);
             QTRY_VERIFY(viewport->property("atYEnd").toBool());
             auto *reset = visual(body, "spectrumResetSettings");

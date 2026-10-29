@@ -23,7 +23,7 @@ struct NativeGpuResource
 {
     std::unique_ptr<QRhiBuffer> buffer;
     std::unique_ptr<QRhiTexture> texture;
-    std::unique_ptr<QRhiRenderBuffer> depth;
+    std::unique_ptr<QRhiTexture> depth;
     std::unique_ptr<QRhiSampler> sampler;
     quint64 revision = 0;
     bool ready = false;
@@ -77,16 +77,15 @@ struct GpuRenderState
     std::vector<std::shared_ptr<PendingGpuReadback>> reads;
     std::unique_ptr<QRhiBuffer> frameUniform;
     std::unique_ptr<QRhiTexture> workingTexture;
-    std::unique_ptr<QRhiRenderBuffer> workingDepth;
-    std::unique_ptr<QRhiRenderBuffer> workingMultisample;
+    std::unique_ptr<QRhiTexture> workingDepth;
+    std::unique_ptr<QRhiTexture> workingMultisample;
     std::unique_ptr<QRhiTextureRenderTarget> workingTarget;
     std::unique_ptr<QRhiRenderPassDescriptor> workingDescriptor;
     std::unique_ptr<QRhiSampler> outputSampler;
     std::unique_ptr<QRhiShaderResourceBindings> outputBindings;
     std::unique_ptr<QRhiGraphicsPipeline> outputPipeline;
     std::unique_ptr<QRhiRenderPassDescriptor> outputDescriptor;
-    bool reportHdr = false, workingNeedsClear = false;
-    double reportHeadroom = 0;
+    bool reportHdrRequested = false, workingNeedsClear = false, workingWithDepth = false;
     quint64 pipelineBuilds = 0;
     quint64 reportGeneration = 0;
     quint64 frameRevision = 0, generation = 0, frames = 0;
@@ -106,6 +105,5 @@ public:
 private:
     std::shared_ptr<GpuRenderState> m_state;
     EchoGpuSurface::Snapshot &m_snapshot;
-    bool m_hdr = false;
 };
 } // namespace EchoMusic

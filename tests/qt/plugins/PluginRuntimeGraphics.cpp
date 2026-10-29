@@ -7,10 +7,10 @@ namespace
 {
 EchoPluginContext *graphicsScope(Host &host)
 {
-    const auto source = package(host.temporary.path(), "export function activate(c) {}",
-                                {"lifecycle", "operations", "graphics.rhi", "graphics.compute",
-                                 "graphics.hdr", "graphics.readback"},
-                                {"graphics"});
+    const auto source = package(
+        host.temporary.path(), "export function activate(c) {}",
+        {"lifecycle", "operations", "graphics.rhi", "graphics.compute", "graphics.readback"},
+        {"graphics"});
     for (const auto &name : {"fixture.vert", "fixture.frag", "fixture.comp"}) {
         QFile shader(":/test-gpu/shaders/gpu/" + QString(name) + ".qsb");
         if (!shader.open(QIODevice::ReadOnly))
@@ -139,9 +139,11 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     QQmlComponent component(&host.engine);
     component.setData(
         "import QtQuick\nimport EchoMusic.PluginSdk\nWindow {id:hostWindow;required property "
-        "EchoPluginContext plugin;width:240;height:120;visible:false;EchoGpuSurface "
-        "{objectName:'gpu';anchors.fill:parent;graphics:hostWindow.plugin?hostWindow.plugin."
-        "graphics:null;dynamicRange:'sdr'}}",
+        "EchoPluginContext plugin;width:320;height:180;visible:false;color:'transparent';"
+        "Rectangle {width:80;height:180;color:'#4b7ca6'}"
+        "Rectangle {x:80;width:80;height:180;color:'#804b7ca6'}EchoGpuSurface "
+        "{objectName:'gpu';x:160;width:160;height:180;graphics:hostWindow.plugin?hostWindow.plugin."
+        "graphics:null}}",
         QUrl("qrc:/gpu-fixture.qml"));
     std::unique_ptr<QObject> object(
         component.createWithInitialProperties({{"plugin", QVariant::fromValue(scope)}}));
@@ -176,6 +178,15 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     QVERIFY(QTest::qWaitForWindowExposed(window));
     QTRY_COMPARE_WITH_TIMEOUT(surface->status().value("state").toString(), "ready", 10000);
     QVERIFY(surface->status().value("compute").toBool());
+    // Test the final visible window, not only the private item framebuffer.
+    QTest::qWait(80);
+    const auto finalWindow = window->grabWindow();
+    QVERIFY(!finalWindow.isNull());
+    const auto visibleColor =
+        finalWindow.pixelColor(finalWindow.width() * 3 / 4, finalWindow.height() / 2);
+    QVERIFY2(visibleColor.blueF() > visibleColor.redF() + .1,
+             "Plugin drawing must remain visible in the ordinary window");
+
     qInfo() << "GPU_CAPABILITIES" << surface->status();
     auto *pixels = retain(surface->readback());
     QVERIFY(pixels);
@@ -215,26 +226,75 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     QTest::qWait(1100);
     QCOMPARE(surface->status().value("pipelineBuilds").toULongLong(), builds);
     surface->setContinuous(false);
-    // Exercise real HDR output separately from offscreen float-texture support.
-    if (surface->status().value("hdrSwapChain").toBool() &&
-        surface->status().value("headroom").toDouble() > 1.01) {
-        QVERIFY(gpu->writeBuffer(uniform, host.engine.evaluate("[4,4,4,1]")));
-        surface->setDynamicRange("hdr");
-        QTRY_VERIFY(surface->status().value("hdr").toBool());
-        QTRY_VERIFY(window->property("echoHdrOutputActive").toBool());
-        auto *extended = retain(surface->readback());
-        QTRY_VERIFY(extended->finished());
-        QCOMPARE(extended->state(), EchoPluginOperation::Succeeded);
-        const auto output = extended->result().toMap();
-        QCOMPARE(output.value("format").toString(), "rgba16f");
-        const auto data = output.value("data").toByteArray();
-        qfloat16 value;
-        std::memcpy(&value, data.constData(), 2);
-        QVERIFY(float(value) > 1.f);
-        qInfo() << "GPU_HDR_OUTPUT" << float(value) << surface->status();
-        surface->setDynamicRange("sdr");
-        QTRY_VERIFY(!surface->status().value("hdr").toBool());
-    }
+    QCOMPARE(surface->dynamicRange(), "sdr");
+    const auto windowFormat = window->requestedFormat();
+    const auto rootItems = window->contentItem()->childItems();
+    const auto opaqueColor =
+        finalWindow.pixelColor(finalWindow.width() / 8, finalWindow.height() / 2);
+    const auto alphaColor =
+        finalWindow.pixelColor(finalWindow.width() * 3 / 8, finalWindow.height() / 2);
+    QVERIFY(opaqueColor.alpha() > 250);
+    QVERIFY(alphaColor.alpha() > 120 && alphaColor.alpha() < 136);
+    QVERIFY(!window->property("_qt_sg_hdr_format").isValid());
+    // A local HDR request must never recreate/reformat/reparent the host window.
+    QSignalSpy graphInitialized(window, &QQuickWindow::sceneGraphInitialized);
+    QVERIFY(gpu->writeBuffer(uniform, host.engine.evaluate("[4,4,4,1]")));
+    surface->setDynamicRange("hdr");
+    QTRY_VERIFY(surface->status().value("hdrRequested").toBool());
+    QCOMPARE(surface->status().value("dynamicRange").toString(), "sdr");
+    QVERIFY(!surface->status().value("hdr").toBool());
+    QVERIFY(!surface->status().value("localHdrSupported").toBool());
+    QCOMPARE(surface->status().value("reason").toString(), "local-hdr-presentation-unavailable");
+    auto *mapped = retain(surface->readback());
+    QTRY_VERIFY(mapped->finished());
+    QCOMPARE(mapped->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(mapped->result().toMap().value("format").toString(), "rgba8");
+    const auto mappedBytes = mapped->result().toMap().value("data").toByteArray();
+    QVERIFY(quint8(mappedBytes[center]) > 235 && quint8(mappedBytes[center]) < 255);
+    const auto afterRequest = window->grabWindow();
+    QCOMPARE(afterRequest.pixelColor(afterRequest.width() / 8, afterRequest.height() / 2),
+             opaqueColor);
+    QCOMPARE(afterRequest.pixelColor(afterRequest.width() * 3 / 8, afterRequest.height() / 2),
+             alphaColor);
+    QCOMPARE(window->requestedFormat(), windowFormat);
+    QCOMPARE(window->contentItem()->childItems(), rootItems);
+    QCOMPARE(graphInitialized.count(), 0);
+    QVERIFY(!window->property("_qt_sg_hdr_format").isValid());
+    surface->setDynamicRange("sdr");
+    QTRY_VERIFY(!surface->status().value("hdrRequested").toBool());
+    auto *depthPipeline = gpu->createRenderPipeline({{"vertexShader", "fixture.vert.qsb"},
+                                                     {"fragmentShader", "fixture.frag.qsb"},
+                                                     {"vertexLayout", layout},
+                                                     {"depthTest", true},
+                                                     {"depthWrite", true}});
+    QVERIFY(depthPipeline);
+    auto *redUniform = gpu->createBuffer({{"size", 16}, {"usage", QStringList{"uniform"}}},
+                                         host.engine.evaluate("[.9,.1,.1,1]"));
+    QVERIFY(redUniform);
+    QVERIFY(gpu->writeBuffer(uniform, host.engine.evaluate("[.25,.5,.75,1]")));
+    auto offscreen = render;
+    offscreen["pipeline"] = depthPipeline->id();
+    offscreen["target"] = floatTexture->id();
+    auto preserve = offscreen;
+    preserve["loadOp"] = "load";
+    auto overlayBindings = preserve.value("bindings").toList();
+    overlayBindings[1] = binding(1, "uniform", redUniform->id());
+    preserve["bindings"] = overlayBindings;
+    auto sampled = render;
+    auto sourceBinding = imageBinding;
+    sourceBinding["resource"] = floatTexture->id();
+    auto sampledBindings = sampled.value("bindings").toList();
+    sampledBindings[2] = sourceBinding;
+    sampled["bindings"] = sampledBindings;
+    QVERIFY(surface->submit({{"passes", QVariantList{offscreen, preserve, sampled}}}));
+    auto *multipass = retain(surface->readback(floatTexture));
+    QTRY_VERIFY(multipass->finished());
+    QCOMPARE(multipass->state(), EchoPluginOperation::Succeeded);
+    const auto multipassData = multipass->result().toMap().value("data").toByteArray();
+    qfloat16 preserved;
+    std::memcpy(&preserved, multipassData.constData(), 2);
+    QCOMPARE(float(preserved), .25f);
+    QVERIFY(surface->submit({{"passes", QVariantList{dispatch, render}}}));
     QVERIFY(gpu->writeBuffer(uniform, host.engine.evaluate("[.75,.125,.25,1]")));
     auto *changed = retain(surface->readback());
     QTRY_VERIFY(changed->finished());

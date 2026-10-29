@@ -59,9 +59,6 @@ public:
     bool live() const;
     bool drained() const;
     void retire();
-    /// Version-pinned Qt Quick HDR negotiation, called before the first scene graph.
-    static void prepareWindow(QQuickWindow *window);
-    static void installWindowPolicy();
     struct Snapshot
     {
         QHash<QString, GpuResourceDescription> resources;
@@ -103,6 +100,6 @@ private:
     bool m_sizing = false, m_sizeAccepted = true, m_limited = false;
     bool m_paused = false, m_continuous = false, m_retired = false;
     int m_fps = 60;
-    QString m_dynamicRange = "auto";
+    QString m_dynamicRange = "sdr";
 };
 } // namespace EchoMusic

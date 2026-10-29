@@ -101,6 +101,11 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
             (pipeline.value("depthTest").toBool() || pipeline.value("depthWrite").toBool()))
             depthTargets.insert(target);
     }
+    // Depth textures are cached with their render target across command-graph changes.
+    // Keep those allocations charged until the owning texture is disposed.
+    for (const auto &[id, resource] : resources)
+        if (resource.depth && descriptions.contains(id))
+            depthTargets.insert(id);
     for (const auto &target : depthTargets) {
         const auto d = descriptions.value(target).definition;
         wanted += qint64(d.value("width").toInt()) * d.value("height").toInt() * 4;

@@ -232,7 +232,7 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
             const bool load = p.value("loadOp", "clear") == "load";
             if (id != "surface" || load) {
                 QRhiTexture *texture = workingTexture.get();
-                QRhiRenderBuffer *depth = workingDepth.get();
+                QRhiTexture *depth = workingDepth.get();
                 bool newDepth = false;
                 if (id != "surface") {
                     const auto found = resources.find(id);
@@ -246,8 +246,9 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                     if (d.value("depthTest").toBool() || d.value("depthWrite").toBool()) {
                         auto &attachment = found->second.depth;
                         if (!attachment) {
-                            attachment.reset(rhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil,
-                                                                  texture->pixelSize()));
+                            attachment.reset(rhi->newTexture(QRhiTexture::D32F,
+                                                             texture->pixelSize(), 1,
+                                                             QRhiTexture::RenderTarget));
                             if (!attachment->create()) {
                                 error = "Cannot create offscreen depth attachment";
                                 return false;
@@ -263,7 +264,7 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                     color.setResolveTexture(workingTexture.get());
                 }
                 QRhiTextureRenderTargetDescription description{color};
-                description.setDepthStencilBuffer(depth);
+                description.setDepthTexture(depth);
                 QRhiTextureRenderTarget::Flags flags;
                 if (load) {
                     flags |= QRhiTextureRenderTarget::PreserveColorContents;
@@ -346,8 +347,8 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                             : d.value("cull") == "front" ? QRhiGraphicsPipeline::Front
                                                          : QRhiGraphicsPipeline::None);
             ps->setDepthTest(d.value("depthTest").toBool() || d.value("depthWrite").toBool());
-            if (!d.value("depthTest").toBool())
-                ps->setDepthOp(QRhiGraphicsPipeline::Always);
+            ps->setDepthOp(d.value("depthTest").toBool() ? QRhiGraphicsPipeline::Less
+                                                         : QRhiGraphicsPipeline::Always);
             ps->setDepthWrite(d.value("depthWrite", d.value("depthTest", false)).toBool());
             ps->setShaderResourceBindings(pass.bindings.get());
             ps->setRenderPassDescriptor(target->renderPassDescriptor());

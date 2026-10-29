@@ -74,7 +74,6 @@ EchoPluginGraphics::EchoPluginGraphics(EchoPluginContext &scope) : QObject(&scop
     if (activation != &scope)
         connect(activation->graphics(), &EchoPluginGraphics::changed, this,
                 &EchoPluginGraphics::changed);
-    EchoGpuSurface::installWindowPolicy();
     connect(&scope, &EchoPluginContext::sessionInvalidated, this, [this] {
         shutdown();
         // The activation facade survives account changes; presentation scopes do
@@ -102,16 +101,25 @@ QVariantMap EchoPluginGraphics::capabilities() const
     auto *root = m_scope.activationContext()->graphics();
     const auto &reported =
         m_capabilities.isEmpty() && root != this ? root->m_capabilities : m_capabilities;
-    QVariantMap values{{"available", false},
-                       {"reason", "No active GPU surface"},
-                       {"compute", false},
-                       {"hdr", false}};
+    QVariantMap values{{"available", false},    {"reason", "No active GPU surface"},
+                       {"compute", false},      {"hdr", false},
+                       {"hdrRequested", false}, {"localHdrSupported", false},
+                       {"dynamicRange", "sdr"}};
     for (auto i = reported.begin(); i != reported.end(); ++i)
         values.insert(i.key(), i.value());
-    if (QQuickWindow::graphicsApi() == QSGRendererInterface::Software)
-        return {{"available", false},    {"state", "unavailable"},
-                {"backend", "Software"}, {"compute", false},
-                {"hdr", false},          {"reason", "Qt software renderer has no RHI"}};
+    // graphicsApi() describes the requested RHI API; a software scene-graph
+    // adaptation selected via QT_QUICK_BACKEND can still leave it at Metal/D3D.
+    if (QQuickWindow::graphicsApi() == QSGRendererInterface::Software ||
+        qEnvironmentVariable("QT_QUICK_BACKEND").compare("software", Qt::CaseInsensitive) == 0) {
+        values["available"] = false;
+        values["state"] = "unavailable";
+        values["backend"] = "Software";
+        values["compute"] = false;
+        values["hdr"] = false;
+        values["localHdrSupported"] = false;
+        values["dynamicRange"] = "sdr";
+        values["reason"] = "Qt software renderer has no RHI";
+    }
     values["limits"] = QVariantMap{{"logicalBytes", budget},
                                    {"nativeBytes", m_memory->native.limit},
                                    {"renderTargetBytes", m_memory->targets.limit},

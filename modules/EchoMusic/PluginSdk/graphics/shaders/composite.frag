@@ -22,8 +22,8 @@ void main()
     c = mix(c, vec3(0), isnan(c));
     if (frame.outputInfo.x < -0.5)
         c = clamp(c, 0.0, 1.0);
-    else {
-        float limit = frame.outputInfo.x > 0.5 ? max(1.0, frame.outputInfo.y) : 1.0;
+    else if (frame.outputInfo.x < 0.5) {
+        float limit = 1.0;
         c /= limit;
         float peak = max(c.r, max(c.g, c.b));
         float mapped = peak <= 0.75 ? peak : 0.75 + 0.25 * (peak - 0.75) / (peak - 0.5);

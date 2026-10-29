@@ -17,7 +17,6 @@ qt_add_qml_module(
     graphics/GpuRhiPasses.cpp
     graphics/GpuRhiRenderer.cpp
     graphics/GpuRhiOutput.cpp
-    graphics/GpuWindowOutput.cpp
     EchoUiPartRef.h
     EchoUiPartRef.cpp
     EchoPluginUiParts.h
@@ -159,8 +158,4 @@ qt_add_shaders(
     FILES
     graphics/shaders/composite.vert
     graphics/shaders/composite.frag
-    graphics/shaders/window-output.frag
-)
-qt_add_resources(
-    echo_plugin_sdk echo_gpu_output PREFIX /echo/graphics FILES graphics/WindowOutputEffect.qml
 )
