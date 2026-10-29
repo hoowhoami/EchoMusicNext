@@ -39,7 +39,7 @@ QString EchoPluginFilePicker::validate(bool directory, const QVariantMap &option
 }
 EchoPluginFilePicker::EchoPluginFilePicker(const QString &name, bool directory,
                                            const QVariantMap &options, QObject *parent)
-    : QObject(parent)
+    : QObject(parent), m_directory(directory)
 {
     m_dialog = new QFileDialog();
     currentDialog = m_dialog;
@@ -66,21 +66,46 @@ EchoPluginFilePicker::EchoPluginFilePicker(const QString &name, bool directory,
     if (!filters.isEmpty())
         m_dialog->setNameFilters(filters);
     connect(m_dialog, &QFileDialog::accepted, this, [this] {
-        if (m_dialog)
-            emit selected(m_dialog->selectedFiles());
+        if (!m_dialog)
+            return;
+        auto files = m_dialog->selectedFiles();
+        // A programmatic accept before the exec presented the dialog has no
+        // native selection state; a directory pick then means the folder the
+        // dialog was opened at (what an interactive accept would return).
+        if (files.isEmpty() && !m_presented && m_directory)
+            files.append(m_dialog->directoryUrl().toLocalFile());
+        emit selected(files);
         deleteLater();
     });
     connect(m_dialog, &QFileDialog::rejected, this, [this] {
         emit rejected();
         deleteLater();
     });
+    // A programmatic accept()/reject() before the queued exec starts must not
+    // let that exec present the dialog afterwards.
+    connect(m_dialog, &QDialog::finished, this, [this] {
+        if (m_cancelled)
+            *m_cancelled = true;
+    });
 }
 EchoPluginFilePicker::~EchoPluginFilePicker()
 {
-    if (m_dialog) {
-        m_dialog->disconnect(this);
-        delete m_dialog.data();
+    if (!m_dialog)
+        return;
+    m_dialog->disconnect(this);
+    if (m_inExec) {
+        // Teardown landed inside the queued exec frame. Reject (the nested
+        // loop pumps the close through) and defer the deletion until that
+        // frame has returned; deleting now would free the dialog under
+        // IFileDialog::Show.
+        if (m_cancelled)
+            *m_cancelled = true;
+        if (m_dialog->isVisible())
+            m_dialog->reject();
+        m_dialog->deleteLater();
+        return;
     }
+    delete m_dialog.data();
 }
 void EchoPluginFilePicker::open()
 {
@@ -90,14 +115,44 @@ void EchoPluginFilePicker::open()
         m_dialog->winId();
         m_dialog->windowHandle()->setTransientParent(parent);
     }
-    m_dialog->open();
+    // Qt shows non-exec native dialogs on a worker thread, and that path
+    // deadlocks behind the taskbar lyric (the dialog window is created but
+    // never presented). Run the native dialog as a GUI-thread exec(), queued
+    // so open() still returns immediately and no member frame sits under the
+    // modal loop.
+    m_cancelled = std::make_shared<bool>(false);
+    m_inExec = true;
+    QPointer<EchoPluginFilePicker> guard(this);
+    QPointer<QFileDialog> dialogGuard(m_dialog.data());
+    const auto cancelled = m_cancelled;
+    QMetaObject::invokeMethod(
+        m_dialog.data(),
+        [this, guard, dialogGuard, cancelled] {
+            if (*cancelled || !dialogGuard)
+                return;
+            if (guard)
+                m_presented = true;
+            dialogGuard->exec();
+            if (!guard)
+                return;
+            m_inExec = false;
+        },
+        Qt::QueuedConnection);
 }
 void EchoPluginFilePicker::cancel()
 {
     if (m_dialog) {
         m_dialog->disconnect(this);
-        m_dialog->close();
-        delete m_dialog.data();
+        if (m_cancelled)
+            *m_cancelled = true;
+        if (m_inExec) {
+            if (m_dialog->isVisible())
+                m_dialog->reject();
+            m_dialog->deleteLater();
+        } else {
+            m_dialog->close();
+            delete m_dialog.data();
+        }
         m_dialog = nullptr;
     }
     deleteLater();
