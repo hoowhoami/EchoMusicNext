@@ -225,6 +225,7 @@ impl VideoInfoRaw {
     pub fn new() -> Self {
         Self(spa_sys::spa_video_info_raw {
             format: VideoFormat::Unknown.as_raw(),
+            flags: 0,
             modifier: 0,
             size: Rectangle {
                 width: 0,
@@ -254,7 +255,7 @@ impl VideoInfoRaw {
     }
 
     pub fn set_modifier(&mut self, modifier: u64) {
-        self.0.modifier = modifier as i64;
+        self.0.modifier = modifier as _;
     }
 
     pub fn modifier(self) -> u64 {
