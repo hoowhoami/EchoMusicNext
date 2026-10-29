@@ -75,30 +75,64 @@ public:
     }
 
 private:
+    void collectContent()
+    {
+        if (m_mutating || !m_content)
+            return;
+        m_mutating = true;
+        const auto children = m_window.contentItem()->childItems();
+        for (auto *item : children)
+            if (item != m_content && !m_auxiliary.contains(item))
+                item->setParentItem(m_content);
+        m_mutating = false;
+    }
     void apply(int mode, float white)
     {
         auto *root = m_window.contentItem();
         auto *engine = qmlEngine(&m_window);
         if (!root || !engine)
             return;
+        if (mode && !m_content) {
+            m_mutating = true;
+            m_content = new QQuickItem(root);
+            m_content->setObjectName("echoHdrContent");
+            m_content->setSize(root->size());
+            connect(root, &QQuickItem::widthChanged, m_content,
+                    [this, root] { m_content->setWidth(root->width()); });
+            connect(root, &QQuickItem::heightChanged, m_content,
+                    [this, root] { m_content->setHeight(root->height()); });
+            m_mutating = false;
+            collectContent();
+            connect(root, &QQuickItem::childrenChanged, this, &WindowOutput::collectContent,
+                    Qt::UniqueConnection);
+        }
+        m_mutating = true;
+        const auto before = root->childItems();
         if (mode) {
             m_owner->setProperty("transfer", mode);
             m_owner->setProperty("whiteLevel", white);
             m_owner->setProperty("gamutTransform", QVariant::fromValue(gamut(mode)));
             // Preserve encoded UI values in FP16 and convert to the actual
             // linear/PQ output once. SDR windows have no offscreen root layer.
-            QQmlProperty(root, "layer.format", engine).write(m_floatFormat);
-            QQmlProperty(root, "layer.effect", engine).write(QVariant::fromValue(m_effect));
-            QQmlProperty(root, "layer.enabled", engine).write(true);
-        } else {
-            QQmlProperty(root, "layer.enabled", engine).write(false);
-            QQmlProperty(root, "layer.effect", engine)
+            QQmlProperty(m_content, "layer.format", engine).write(m_floatFormat);
+            QQmlProperty(m_content, "layer.effect", engine).write(QVariant::fromValue(m_effect));
+            QQmlProperty(m_content, "layer.enabled", engine).write(true);
+        } else if (m_content) {
+            QQmlProperty(m_content, "layer.enabled", engine).write(false);
+            QQmlProperty(m_content, "layer.effect", engine)
                 .write(QVariant::fromValue(static_cast<QQmlComponent *>(nullptr)));
         }
+        for (auto *item : root->childItems())
+            if (item != m_content && !before.contains(item) && !m_auxiliary.contains(item))
+                m_auxiliary.append(item);
+        m_mutating = false;
         m_window.setProperty("echoHdrOutputActive", bool(mode));
         m_window.update();
     }
     QQuickWindow &m_window;
+    QQuickItem *m_content = nullptr;
+    QList<QPointer<QQuickItem>> m_auxiliary;
+    bool m_mutating = false;
     QObject *m_owner = nullptr;
     QQmlComponent *m_effect = nullptr;
     int m_floatFormat = -1, m_reported = -1;
