@@ -207,6 +207,7 @@ qt_add_resources(
     icons/moon.svg
     icons/movie.svg
     icons/brand-youtube.svg
+    icons/gift.svg
     icons/music-discount.svg
     icons/music-share.svg
     icons/music.svg
