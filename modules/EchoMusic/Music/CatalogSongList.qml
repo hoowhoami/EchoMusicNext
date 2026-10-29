@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import EchoMusic.Controls
+import EchoMusic.Music
 import EchoMusic.Theme
 
 // Shared virtual song body for detail/discovery catalogs. It owns only the
@@ -35,6 +36,64 @@ Item {
     readonly property string activeTrackId: actions.currentTrackId
     readonly property alias listView: songs
     readonly property SongListGeometry geometry: songs.geometry
+    // A routed source-collection request. Deferred until its real rows are ready.
+    property string locateTrackId: ""
+    property string locateToken: ""
+    property bool locateComplete: true
+    property string locateMessage: ""
+    property string handledLocateToken: ""
+    property bool locateQueued: false
+    function scheduleLocate(): void {
+        if (locateQueued || !locateToken || locateToken === handledLocateToken)
+            return;
+        locateQueued = true;
+        Qt.callLater(function () {
+            root.locateQueued = false;
+            root.applyLocate();
+        });
+    }
+    function applyLocate(): void {
+        if (!locateToken || locateToken === handledLocateToken)
+            return;
+        if (!resourceActive || !locateTrackId || locateTrackId !== activeTrackId) {
+            handledLocateToken = locateToken;
+            return;
+        }
+        if (loading || !songs.visible || songs.height <= 0)
+            return;
+        if (collection.query.length) {
+            collection.query = "";
+            scheduleLocate();
+            return;
+        }
+        const row = collection.indexOf(locateTrackId);
+        if (row >= 0) {
+            songs.forceLayout();
+            songs.positionViewAtIndex(row, ListView.Center);
+            handledLocateToken = locateToken;
+            locateMessage = "";
+        } else if (locateComplete || errorMessage.length) {
+            handledLocateToken = locateToken;
+            locateMessage = errorMessage.length ? qsTr("未能读取来源歌曲列表，无法定位") : qsTr("当前曲目已不在来源列表中");
+        }
+    }
+    onLocateTokenChanged: {
+        locateMessage = "";
+        scheduleLocate();
+    }
+    onResourceActiveChanged: scheduleLocate()
+    onActiveTrackIdChanged: scheduleLocate()
+    onLoadingChanged: scheduleLocate()
+    onLocateCompleteChanged: scheduleLocate()
+    onErrorMessageChanged: scheduleLocate()
+    onHeightChanged: scheduleLocate()
+    Component.onCompleted: scheduleLocate()
+    Connections {
+        target: root.collection
+        function onChanged(): void {
+            root.scheduleLocate();
+        }
+    }
     signal retryRequested
     signal moreRequested(string id, real sceneX, real sceneY)
     function checkLoadMore(): void {

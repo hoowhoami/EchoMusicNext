@@ -1,17 +1,22 @@
 #include "SleepTimer.h"
+#include <limits>
 namespace EchoMusic
 {
-bool SleepTimer::start(int minutes, const QString &action)
+bool SleepTimer::start(qint64 minutes, const QString &action)
 {
-    if (m_executing || minutes < 1 || minutes > 180 ||
+    if (m_executing || minutes < 1 || minutes > 59999 ||
         !QStringList{"pause", "quit", "shutdown"}.contains(action))
+        return false;
+    const auto now = m_clock();
+    const auto duration = minutes * qint64(60000);
+    if (now < 0 || now > std::numeric_limits<qint64>::max() - duration)
         return false;
     m_action = action;
     m_error.clear();
-    m_minutes = minutes;
-    m_remaining = minutes * 60;
+    m_minutes = int(minutes);
+    m_remaining = int(minutes * 60);
     m_waiting.clear();
-    m_deadline = m_clock() + minutes * 60000;
+    m_deadline = now + duration;
     emit changed();
     return true;
 }

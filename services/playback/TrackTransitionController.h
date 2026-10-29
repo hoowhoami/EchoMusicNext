@@ -65,7 +65,7 @@ private:
     PlaybackSourceRequest m_source;
     QTimer m_timeout;
     PlaybackTrack m_target;
-    QJsonObject m_privileges, m_resolved;
+    QJsonObject m_privileges, m_resolved, m_sourceFacts;
     QStringList m_urls;
     QList<qint64> m_urlAudioTracks;
     QString m_resolvedQuality;

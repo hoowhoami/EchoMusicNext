@@ -545,6 +545,7 @@ ApplicationWindow {
             keepOnMinimize: true
             sourceComponent: PlaybackPage {
                 id: nativePlaybackPage
+                coveredBySongWall: playbackQueueWallLoader.item !== null && (playbackQueueWallLoader.item as PlaybackQueueWall).coversPlayback
                 controlsTopReserve: (nativePlaybackPage.controlsItem as PlayerBar)?.aboveControlsHeight ?? 0
                 onGlobalSettingsRequested: {
                     preferencesOwner.open({
@@ -606,6 +607,15 @@ ApplicationWindow {
                 uiScale: mainWindow.shellSettings.uiScale
                 onAddToPlaylistRequested: if (playback.libraryActions)
                     playback.libraryActions.prepareViewedQueue()
+            }
+        }
+        EchoPopupLoader {
+            id: playbackQueueWallLoader
+            objectName: "playbackQueueWallOwner"
+            hostItem: mainWindow.contentItem
+            sourceComponent: PlaybackQueueWall {
+                playback: mainWindow.playbackService
+                uiScale: mainWindow.shellSettings.uiScale
             }
         }
         EchoPopupLoader {
@@ -734,6 +744,8 @@ ApplicationWindow {
                         else
                             host.openBarrage();
                     }
+                } else if (kind === "song-wall") {
+                    playbackQueueWallLoader.open();
                 } else if (kind === "queue") {
                     playbackQueueLoader.open();
                 } else if (kind === "effect") {

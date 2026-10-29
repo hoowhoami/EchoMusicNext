@@ -13,6 +13,163 @@ fn bind_test_signal_senders(shared: &SharedAudio) -> (Receiver<()>, Receiver<Pla
 }
 
 #[test]
+fn output_callback_before_producer_sleep_does_not_lose_capacity_wakeup() {
+    let shared = Arc::new(SharedAudio::new(
+        MixFormat::stereo_f32(100),
+        0.2,
+        8.0,
+        &DspSettings::default(),
+    ));
+    let capacity = shared.output_buffer_target_samples();
+    assert!(shared.push_samples(&vec![0.25; capacity]));
+    let consumer = Arc::downgrade(&shared);
+    *shared.before_output_queue_wait.lock().unwrap() = Some(Box::new(move || {
+        let shared = consumer.upgrade().unwrap();
+        // Force the actual callback into the check-to-sleep window. Its last
+        // successful consume is the only capacity notification needed here.
+        let mut output = vec![0.0; capacity];
+        assert_eq!(shared.pop_into(&mut output), capacity / MIX_CHANNELS);
+        assert_eq!(output, vec![0.25; capacity]);
+        let mut empty = [0.0; 4];
+        assert_eq!(shared.pop_into(&mut empty), 0);
+        assert!(shared.ao_state.ao_underrun());
+    }));
+    let producer_shared = shared.clone();
+    let (completed, completion) = sync_channel(1);
+    let producer = thread::spawn(move || {
+        completed
+            .send(producer_shared.push_samples(&[0.5; 4]))
+            .unwrap();
+    });
+    let result = completion.recv_timeout(Duration::from_millis(500));
+    // Always retire the thread, including the original lost-wakeup failure.
+    shared.request_stop();
+    producer.join().expect("producer must retire");
+    assert_eq!(
+        result,
+        Ok(true),
+        "the callback freed capacity before sleep, but the producer stayed asleep"
+    );
+    let mut output = [0.0; 4];
+    assert_eq!(shared.realtime_output.pop_into(&mut output).0, 4);
+    assert_eq!(output, [0.5; 4]);
+}
+
+#[test]
+fn output_stop_before_producer_sleep_does_not_lose_cancellation() {
+    let shared = Arc::new(SharedAudio::new(
+        MixFormat::stereo_f32(100),
+        0.2,
+        8.0,
+        &DspSettings::default(),
+    ));
+    let capacity = shared.output_buffer_target_samples();
+    assert!(shared.push_samples(&vec![0.25; capacity]));
+    let stopping = Arc::downgrade(&shared);
+    *shared.before_output_queue_wait.lock().unwrap() = Some(Box::new(move || {
+        stopping.upgrade().unwrap().request_stop();
+    }));
+    let producer_shared = shared.clone();
+    let (completed, completion) = sync_channel(1);
+    let producer = thread::spawn(move || {
+        completed
+            .send(producer_shared.push_samples(&[0.5; 4]))
+            .unwrap();
+    });
+    let result = completion.recv_timeout(Duration::from_millis(500));
+    shared.request_stop();
+    producer.join().expect("stopped producer must retire");
+    assert_eq!(result, Ok(false));
+    assert_eq!(shared.realtime_output.buffered_samples(), capacity);
+}
+
+#[test]
+fn output_spurious_wakeup_keeps_full_buffer_and_preserves_pcm() {
+    let shared = Arc::new(SharedAudio::new(
+        MixFormat::stereo_f32(100),
+        0.2,
+        8.0,
+        &DspSettings::default(),
+    ));
+    let capacity = shared.output_buffer_target_samples();
+    assert!(shared.push_samples(&vec![0.25; capacity]));
+    let (waiting, wait_started) = sync_channel(1);
+    *shared.before_output_queue_wait.lock().unwrap() = Some(Box::new(move || {
+        std::thread::current().unpark();
+        waiting.send(()).unwrap();
+    }));
+    let producer_shared = shared.clone();
+    let (completed, completion) = sync_channel(1);
+    let producer = thread::spawn(move || {
+        completed
+            .send(producer_shared.push_samples(&[0.5; 4]))
+            .unwrap();
+    });
+    let started = wait_started.recv_timeout(Duration::from_millis(500));
+    let premature = completion.recv_timeout(Duration::from_millis(20));
+    let buffered_before_consume = shared.realtime_output.buffered_samples();
+    let mut output = vec![0.0; capacity];
+    let consumed = shared.pop_into(&mut output);
+    let result = completion.recv_timeout(Duration::from_millis(500));
+    shared.request_stop();
+    producer.join().expect("producer must retire");
+    assert_eq!(started, Ok(()));
+    assert_eq!(premature, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
+    assert_eq!(buffered_before_consume, capacity);
+    assert_eq!(consumed, capacity / MIX_CHANNELS);
+    assert_eq!(output, vec![0.25; capacity]);
+    assert_eq!(result, Ok(true));
+    let mut tail = [0.0; 4];
+    assert_eq!(shared.realtime_output.pop_into(&mut tail).0, 4);
+    assert_eq!(tail, [0.5; 4]);
+}
+
+#[test]
+fn transition_playback_projection_follows_consumed_output_not_the_queued_mix() {
+    let shared = SharedAudio::new(
+        MixFormat::stereo_f32(100),
+        1.0,
+        8.0,
+        &DspSettings::default(),
+    );
+    shared.set_track_seq(11);
+    let (_wake, _telemetry) = bind_test_signal_senders(&shared);
+    assert!(shared.push_samples(&[0.2; 20]));
+    let mut info = TrackSwitchInfo::new("actual-incoming.wav".into(), None, 42, 30.0);
+    info.start_position_secs = 7.0;
+    info.transition = Some(crate::events::TrackTransitionInfo {
+        mode: "fade".into(),
+        overlap_secs: 0.2,
+    });
+    shared.mark_track_boundary_continuous(info);
+    assert!(shared.push_samples(&[0.3; 40]));
+    let read = || {
+        serde_json::to_value(crate::contextualize_shared_event(
+            &shared,
+            crate::events::PlayerEvent::time_update(shared.position_secs()),
+        ))
+        .unwrap()
+    };
+    let queued = read();
+    assert_eq!(
+        queued["transition_playback"]["phase"], "queued",
+        "decoded read-ahead is not an output handover"
+    );
+    assert_eq!(queued["transition_playback"]["outgoing_seq"], "11");
+    assert_eq!(queued["transition_playback"]["incoming_seq"], "42");
+    assert_eq!(queued["transition_playback"]["handed_over"], false);
+    assert_eq!(shared.current_track_seq(), 11);
+    let mut output = [0.0; 40];
+    assert_eq!(shared.pop_into(&mut output), 20);
+    let mixed = read();
+    assert_eq!(shared.current_track_seq(), 42);
+    assert_eq!(mixed["transition_playback"]["phase"], "mixing");
+    assert_eq!(mixed["transition_playback"]["handed_over"], true);
+    assert_eq!(mixed["transition_playback"]["progress"], 0.5);
+    assert_eq!(mixed["transition_playback"]["incoming_position_secs"], 7.1);
+}
+
+#[test]
 fn audio_sample_format_candidates_prefer_lossless_conversions() {
     assert_eq!(
         AudioSampleFormat::F32.best_output_formats(),
@@ -586,6 +743,67 @@ fn reset_for_decode_resume_clears_buffer_and_sets_position() {
     assert!((shared.position_secs() - 1.25).abs() < f64::EPSILON);
     assert!(!shared.is_drained());
     assert!(shared.mark_end_reported());
+}
+
+#[test]
+fn decode_resume_resets_frequency_history_and_keeps_the_pcm_capture_enabled() {
+    use crate::config::SpectrumConfig;
+    use crate::spectrum::{SampleRing, SpectrumAnalyzer};
+
+    let shared = SharedAudio::new(
+        MixFormat::stereo_f32(48_000),
+        0.1,
+        8.0,
+        &DspSettings::default(),
+    );
+    let config = SpectrumConfig {
+        fft_size: 256,
+        include_frequency_data: true,
+        include_waveform: true,
+        ..SpectrumConfig::default()
+    };
+    let tone = |bin: f64| {
+        (0..4096)
+            .flat_map(|i| {
+                let sample =
+                    (0.003 * (2.0 * std::f64::consts::PI * bin * i as f64 / 2048.0).sin()) as f32;
+                [sample, sample]
+            })
+            .collect::<Vec<_>>()
+    };
+    let before_seek = tone(43.0);
+    let after_seek = tone(137.0);
+    let mut analyzer = SpectrumAnalyzer::new(config.clone());
+    let previous = {
+        let mut ring = shared.spectrum_ring.lock().unwrap();
+        ring.set_frequency_capture(true, false);
+        for _ in 0..4 {
+            ring.push_interleaved(&before_seek, 2);
+            analyzer.analyze(&mut ring, 48_000);
+        }
+        analyzer.analyze(&mut ring, 48_000).frequency_data.unwrap()
+    };
+    shared.reset_for_decode_resume(10.0, &DspSettings::default());
+    let actual = {
+        let mut ring = shared.spectrum_ring.lock().unwrap();
+        // Model the first real output callback after seek, before the next
+        // snapshot. Replacing the ring loses both its capture flag and epoch.
+        ring.push_interleaved(&after_seek, 2);
+        analyzer.analyze(&mut ring, 48_000)
+    };
+    let mut fresh_ring = SampleRing::new(48_000);
+    fresh_ring.set_frequency_capture(true, false);
+    fresh_ring.push_interleaved(&after_seek, 2);
+    let expected = SpectrumAnalyzer::new(config).analyze(&mut fresh_ring, 48_000);
+    assert!(
+        actual.frequency_data.as_ref().unwrap() != &previous,
+        "seek must not reuse the old frequency bytes or deadline"
+    );
+    assert!(
+        actual.frequency_data == expected.frequency_data,
+        "the first post-seek PCM must start with a fresh amplitude history"
+    );
+    assert_eq!(actual.waveform, expected.waveform);
 }
 
 #[test]

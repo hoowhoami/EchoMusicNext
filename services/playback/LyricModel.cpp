@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <QTextBoundaryFinder>
 #include <cmath>
+#include <limits>
 namespace
 {
 bool timestamp(const QJsonValue &v, bool signedValue = false)
@@ -11,9 +12,184 @@ bool timestamp(const QJsonValue &v, bool signedValue = false)
     return v.isDouble() && std::isfinite(n) && std::trunc(n) == n &&
            std::abs(n) <= 9007199254740991. && (signedValue || n >= 0);
 }
+struct MetadataBudget
+{
+    qsizetype units = 0;
+    qsizetype words = 0;
+    bool text(const QJsonValue &value, qsizetype maximum = 16384)
+    {
+        if (!value.isString() || value.toString().size() > maximum)
+            return false;
+        units += value.toString().size();
+        // Serialized canonical rows repeat display text in their timed pieces.
+        return units <= 4 * 1024 * 1024;
+    }
+};
+bool intervalFields(const QJsonObject &row)
+{
+    return timestamp(row.value("start_ms")) && timestamp(row.value("duration_ms")) &&
+           row.value("start_ms").toDouble() + row.value("duration_ms").toDouble() <=
+               9007199254740991.;
+}
+bool words(const QJsonValue &value, MetadataBudget &budget, qint64 start = -1, qint64 end = -1)
+{
+    if (!value.isArray())
+        return false;
+    const auto array = value.toArray();
+    budget.words += array.size();
+    if (budget.words > 65536)
+        return false;
+    for (const auto &entry : array) {
+        if (!entry.isObject())
+            return false;
+        const auto word = entry.toObject();
+        if (!budget.text(word.value("text")) || !intervalFields(word))
+            return false;
+        const auto at = word.value("start_ms").toInteger();
+        if (start >= 0 && (at < start || at + word.value("duration_ms").toInteger() > end))
+            return false;
+    }
+    return true;
+}
+bool optionalText(const QJsonObject &source, const QString &key, const QString &target,
+                  QVariantMap &result, MetadataBudget &budget, qsizetype maximum = 256)
+{
+    if (!source.contains(key))
+        return true;
+    if (!budget.text(source.value(key), maximum))
+        return false;
+    result.insert(target, source.value(key).toString());
+    return true;
+}
+bool alternateTexts(const QJsonObject &source, QVariantMap &result, MetadataBudget &budget)
+{
+    if (!source.contains("alternate_texts"))
+        return true;
+    if (!source.value("alternate_texts").isArray() ||
+        source.value("alternate_texts").toArray().size() > 64)
+        return false;
+    QVariantList entries;
+    for (const auto &value : source.value("alternate_texts").toArray()) {
+        if (!value.isObject())
+            return false;
+        const auto entry = value.toObject();
+        if (!budget.text(entry.value("text")) || !entry.value("role").isString() ||
+            (entry.value("role").toString() != "translation" &&
+             entry.value("role").toString() != "romanization"))
+            return false;
+        QVariantMap alternate{{"text", entry.value("text").toString()},
+                              {"role", entry.value("role").toString()}};
+        if (!optionalText(entry, "lang", "lang", alternate, budget))
+            return false;
+        entries << alternate;
+    }
+    result.insert("alternateTexts", entries);
+    return true;
+}
+bool rowMetadata(const QJsonObject &source, QVariantMap &result, MetadataBudget &budget)
+{
+    if (!optionalText(source, "id", "id", result, budget) ||
+        !optionalText(source, "agent_id", "agentId", result, budget) ||
+        !optionalText(source, "song_part", "songPart", result, budget) ||
+        !alternateTexts(source, result, budget))
+        return false;
+    if (source.contains("block_index")) {
+        if (!timestamp(source.value("block_index")) ||
+            source.value("block_index").toDouble() > 65536)
+            return false;
+        result.insert("blockIndex", source.value("block_index").toInt());
+    }
+    if (source.contains("is_chorus")) {
+        if (!source.value("is_chorus").isBool())
+            return false;
+        result.insert("isChorus", source.value("is_chorus").toBool());
+    }
+    return true;
+}
+bool backgrounds(const QJsonObject &source, QVariantList &result, MetadataBudget &budget)
+{
+    if (!source.contains("background_vocals"))
+        return true;
+    if (!source.value("background_vocals").isArray() ||
+        source.value("background_vocals").toArray().size() > 8)
+        return false;
+    for (const auto &value : source.value("background_vocals").toArray()) {
+        if (!value.isObject())
+            return false;
+        const auto vocal = value.toObject();
+        if (vocal.contains("background_vocals"))
+            return false;
+        if (!budget.text(vocal.value("text")) || !intervalFields(vocal))
+            return false;
+        const auto start = vocal.value("start_ms").toInteger(),
+                   duration = vocal.value("duration_ms").toInteger();
+        if (!words(vocal.value("words"), budget, start, start + duration))
+            return false;
+        QVariantMap entry{{"lineText", vocal.value("text").toString()},
+                          {"startMs", start},
+                          {"durationMs", duration},
+                          {"words", vocal.value("words").toArray().toVariantList()}};
+        if (!optionalText(vocal, "translation", "translation", entry, budget, 16384) ||
+            !optionalText(vocal, "romanization", "romanization", entry, budget, 16384) ||
+            !rowMetadata(vocal, entry, budget))
+            return false;
+        result << entry;
+    }
+    return true;
+}
+bool documentMetadata(const QJsonObject &source, QVariantMap &result, MetadataBudget &budget)
+{
+    if (!optionalText(source, "source_format", "sourceFormat", result, budget, 64) ||
+        !optionalText(source, "timing_profile", "timingProfile", result, budget, 64))
+        return false;
+    if (source.contains("timing_profile") &&
+        (source.value("source_format").toString() != "ttml" ||
+         (source.value("timing_profile").toString() != "ttml-media" &&
+          source.value("timing_profile").toString() != "apple-lyrics-absolute")))
+        return false;
+    if (source.contains("agents")) {
+        if (!source.value("agents").isObject() || source.value("agents").toObject().size() > 64)
+            return false;
+        QVariantMap agents;
+        const auto input = source.value("agents").toObject();
+        for (auto it = input.begin(); it != input.end(); ++it) {
+            if (it.key().isEmpty() || it.key().size() > 256 || !it.value().isObject())
+                return false;
+            const auto value = it.value().toObject();
+            if (!value.value("id").isString() || value.value("id").toString() != it.key())
+                return false;
+            QVariantMap agent{{"id", it.key()}};
+            if (!optionalText(value, "name", "name", agent, budget) ||
+                !optionalText(value, "type", "type", agent, budget))
+                return false;
+            agents.insert(it.key(), agent);
+        }
+        result.insert("agents", agents);
+    }
+    return true;
+}
 } // namespace
 namespace EchoMusic
 {
+void LyricModel::copyPresentationFrom(const LyricModel &source)
+{
+    if (this == &source)
+        return;
+    beginResetModel();
+    m_lines = source.m_lines;
+    m_filter = source.m_filter;
+    m_filterEnabled = source.m_filterEnabled;
+    m_endPrefix = source.m_endPrefix;
+    m_offset = source.m_offset;
+    m_current = source.m_current;
+    m_scrollable = source.m_scrollable;
+    m_hasTranslation = source.m_hasTranslation;
+    m_hasRomanization = source.m_hasRomanization;
+    m_metadata = source.m_metadata;
+    endResetModel();
+    emit changed();
+    emit currentChanged();
+}
 QVariant LyricModel::data(const QModelIndex &i, int role) const
 {
     if (!i.isValid() || i.row() < 0 || i.row() >= m_lines.size())
@@ -38,6 +214,27 @@ QVariant LyricModel::data(const QModelIndex &i, int role) const
         return std::any_of(l.words.cbegin(), l.words.cend(), [](const QVariant &word) {
             return word.toMap().value("duration_ms").toLongLong() > 0;
         });
+    case Qt::UserRole + 9:
+        return l.metadata.value("id");
+    case Qt::UserRole + 10:
+        return l.metadata.value("agentId");
+    case Qt::UserRole + 11:
+        return l.metadata.value("songPart");
+    case Qt::UserRole + 12:
+        return l.metadata.value("blockIndex");
+    case Qt::UserRole + 13:
+        return l.metadata.value("isChorus");
+    case Qt::UserRole + 14: {
+        auto result = l.backgroundVocals;
+        for (auto &value : result) {
+            auto vocal = value.toMap();
+            vocal.insert("startMs", vocal.value("startMs").toLongLong() + m_offset);
+            value = vocal;
+        }
+        return result;
+    }
+    case Qt::UserRole + 15:
+        return l.metadata.value("alternateTexts", QVariantList{});
     default:
         return {};
     }
@@ -82,7 +279,7 @@ QVariantList LyricModel::verticalAt(int row) const
 }
 QVariantList LyricModel::verticalText(const QString &text) const
 {
-    return verticalUnits({text, 0, 0, {}, QString(), QString()});
+    return verticalUnits({text, 0, 0, {}, QString(), QString(), false, {}, {}});
 }
 QVariantList LyricModel::verticalUnits(const Line &line)
 {
@@ -210,7 +407,21 @@ bool LyricModel::replace(const QJsonObject &lyrics)
     if (!lyrics.value("offset_ms").isUndefined() && !timestamp(lyrics.value("offset_ms"), true))
         return false;
     QList<Line> lines;
+    MetadataBudget budget;
+    QVariantMap metadata;
+    if (!documentMetadata(lyrics, metadata, budget))
+        return false;
     const auto source = lyrics.value("lines").toArray();
+    const bool extended = !metadata.isEmpty() ||
+                          std::any_of(source.begin(), source.end(), [](const QJsonValue &value) {
+                              const auto line = value.toObject();
+                              return line.contains("background_vocals") ||
+                                     line.contains("agent_id") || line.contains("song_part") ||
+                                     line.contains("block_index") || line.contains("is_chorus") ||
+                                     line.contains("alternate_texts") || line.contains("id");
+                          });
+    if (extended && source.size() > 8192)
+        return false;
     for (const auto &v : source) {
         const auto l = v.toObject();
         if (!l.value("text").isString() || !timestamp(l.value("start_ms")) ||
@@ -226,15 +437,35 @@ bool LyricModel::replace(const QJsonObject &lyrics)
                 !timestamp(w.value("duration_ms")))
                 return false;
         }
-        lines.append({l.value("text").toString(), qint64(l.value("start_ms").toDouble()),
-                      qint64(l.value("duration_ms").toDouble()),
-                      l.value("words").toArray().toVariantList(), l.value("translation").toString(),
-                      l.value("romanization").toString()});
+        if (extended && (!budget.text(l.value("text")) || !intervalFields(l) ||
+                         !::words(l.value("words"), budget)))
+            return false;
+        if (extended)
+            for (const auto &field : {"translation", "romanization"})
+                if (l.contains(field) && !budget.text(l.value(field)))
+                    return false;
+        Line line{l.value("text").toString(),
+                  qint64(l.value("start_ms").toDouble()),
+                  qint64(l.value("duration_ms").toDouble()),
+                  l.value("words").toArray().toVariantList(),
+                  l.value("translation").toString(),
+                  l.value("romanization").toString(),
+                  false,
+                  {},
+                  {}};
+        if (!rowMetadata(l, line.metadata, budget) ||
+            !backgrounds(l, line.backgroundVocals, budget))
+            return false;
+        lines.append(std::move(line));
     }
     std::stable_sort(lines.begin(), lines.end(),
                      [](const auto &a, const auto &b) { return a.start < b.start; });
     beginResetModel();
     m_lines = std::move(lines);
+    metadata.insert("hasBackgroundVocals",
+                    std::any_of(m_lines.cbegin(), m_lines.cend(),
+                                [](const Line &line) { return !line.backgroundVocals.isEmpty(); }));
+    m_metadata = std::move(metadata);
     for (auto &line : m_lines)
         line.filtered =
             m_filterEnabled && m_filter.isValid() && m_filter.match(line.text).hasMatch();
@@ -260,6 +491,7 @@ void LyricModel::clear()
 {
     beginResetModel();
     m_lines.clear();
+    m_metadata.clear();
     m_scrollable = true;
     m_endPrefix.clear();
     m_current = -1;

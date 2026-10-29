@@ -76,12 +76,14 @@ class EchoPluginFonts final : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Owned by plugin context")
-    Q_PROPERTY(QStringList families READ families CONSTANT)
+    Q_PROPERTY(QStringList families READ families NOTIFY familiesChanged)
 public:
     explicit EchoPluginFonts(EchoPluginContext &);
     QStringList families() const;
     Q_INVOKABLE QFont build(const QStringList &families, int pixelSize = 14, int weight = 400,
                             qreal letterSpacing = 0) const;
+signals:
+    void familiesChanged();
 
 private:
     EchoPluginContext &m_scope;

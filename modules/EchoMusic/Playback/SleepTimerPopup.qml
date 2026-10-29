@@ -196,7 +196,7 @@ EchoAnchoredPopup {
                             }
                             Label {
                                 visible: !popup.custom
-                                text: qsTr("1–180 分钟")
+                                text: qsTr("1–59999 分钟")
                                 font: Theme.font(11, Theme.regularWeight)
                                 color: Theme.floating.secondaryText
                             }
@@ -215,7 +215,7 @@ EchoAnchoredPopup {
                         EchoSpinBox {
                             colors: Theme.floating
                             from: 1
-                            to: 180
+                            to: 59999
                             value: popup.selectedMinutes
                             onValueModified: {
                                 popup.selectedMinutes = value;

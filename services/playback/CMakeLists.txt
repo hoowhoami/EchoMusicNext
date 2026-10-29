@@ -27,6 +27,14 @@ add_library(
     PlaybackRepository_p.h
     PlaybackRepository.h
     PlaybackRepository.cpp
+    ../audioanalysis/AnalysisBroker.h
+    ../audioanalysis/AnalysisBroker.cpp
+    ../audioanalysis/AnalysisInstallation.h
+    ../audioanalysis/AnalysisInstallation.cpp
+    ../audioanalysis/AnalysisService.h
+    ../audioanalysis/AnalysisService.cpp
+    ../audioanalysis/NativePcmReader.h
+    ../audioanalysis/NativePcmReader.cpp
     AudioEngine.cpp
     PlayerSpectrum.h
     PlayerSpectrum.cpp
@@ -54,6 +62,8 @@ add_library(
     LyricExtensions.cpp
     LyricModel.cpp
     LyricModel.h
+    PlaybackTransitionPresentation.h
+    PlaybackTransitionPresentation.cpp
     PlaybackClimaxModel.h
     PlaybackClimaxModel.cpp
     PlaybackProgressState.h
@@ -101,7 +111,7 @@ add_library(
 )
 target_include_directories(
     echo_playback_service
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../audioanalysis
     PRIVATE ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(

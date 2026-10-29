@@ -32,9 +32,29 @@ pub struct SpectrumFrame {
     pub fft_size: u32,
     pub bins: Vec<f64>,
     pub waveform: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_data: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_data_info: Option<FrequencyDataInfo>,
     pub peak: f64,
     pub rms: f64,
     pub timestamp: f64,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FrequencyDataInfo {
+    pub fft_size: u32,
+    pub frequency_bin_count: u32,
+    pub sample_rate: u32,
+    pub bin_width_hz: f64,
+    pub window: &'static str,
+    pub fft_normalization: &'static str,
+    pub smoothing_time_constant: f64,
+    pub min_decibels: f64,
+    pub max_decibels: f64,
+    pub channel_interpretation: &'static str,
+    pub frames_per_second: u32,
 }
 
 #[derive(serde::Serialize, Clone, Debug)]
@@ -55,6 +75,9 @@ pub struct SpectrumOptions {
     pub max_frequency: Option<f64>,
     pub smoothing: Option<f64>,
     pub include_waveform: Option<bool>,
+    pub include_frequency_data: Option<bool>,
+    pub frequency_fps: Option<u32>,
+    pub reset_frequency_data: Option<bool>,
 }
 
 #[derive(serde::Serialize, Clone, Debug)]
@@ -67,6 +90,7 @@ pub struct PlayerEvent {
     pub generation: Option<f64>,
     pub time: Option<f64>,
     pub transition: Option<TrackTransitionInfo>,
+    pub transition_playback: Option<crate::TransitionPlaybackSnapshot>,
     pub duration: Option<f64>,
     pub state: Option<PlayerState>,
     pub reason: Option<String>,
@@ -324,6 +348,7 @@ impl PlayerEvent {
             generation: None,
             time: None,
             transition: None,
+            transition_playback: None,
             duration: None,
             state: None,
             reason: None,

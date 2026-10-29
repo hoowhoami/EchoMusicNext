@@ -51,6 +51,9 @@ signals:
     void placementChanged();
     void resourceActiveChanged();
     void loadedChanged();
+    /// Synchronous finalization before the old owner's command lease is revoked.
+    /// Receivers must not retain the opaque owner or defer work through this signal.
+    void presentationClosing(QObject *owner);
     void actionRequested(const QString &action, const QVariantMap &arguments);
 
 private:

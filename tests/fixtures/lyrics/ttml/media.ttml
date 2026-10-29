@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal">
+  <head><metadata>
+    <ttm:agent xml:id="lead" type="person"><ttm:name>Alice</ttm:name></ttm:agent>
+    <ttm:agent xml:id="back" type="person"><ttm:name>Bob</ttm:name></ttm:agent>
+  </metadata></head>
+  <body><div itunes:songPart="Chorus">
+    <p xml:id="line-1" ttm:agent="lead" begin="10s" end="14s"><span begin="0s" end="1s">甲👩🏽‍🚀</span><span ttm:role="x-bg" ttm:agent="back" begin="1s" end="3s"><span begin="0s" end="2s">和声</span><span ttm:role="x-translation">Harmony</span></span><span ttm:role="x-translation">Main</span><span ttm:role="x-roman">jiǎ</span></p>
+  </div></body>
+</tt>

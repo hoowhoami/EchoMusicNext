@@ -91,7 +91,7 @@ impl SharedAudio {
     }
 
     pub fn mark_track_boundary(&self, info: TrackSwitchInfo, fade_frames: usize) {
-        self.mark_track_boundary_inner(info, fade_frames, true);
+        self.mark_track_boundary_inner(info, fade_frames, true, None);
     }
 
     /// Track boundary for a transition rendered inside the decode worker: the audio on both
@@ -99,19 +99,24 @@ impl SharedAudio {
     /// must not be reset and no envelope is applied. Only the clock, track sequence and the
     /// incoming track's loudness gain change when the output callback crosses it.
     pub fn mark_track_boundary_continuous(&self, info: TrackSwitchInfo) {
-        self.mark_track_boundary_inner(info, 0, false);
+        self.mark_track_boundary_inner(info, 0, false, None);
     }
 
-    fn mark_track_boundary_inner(
+    pub(super) fn mark_track_boundary_inner(
         &self,
-        info: TrackSwitchInfo,
+        mut info: TrackSwitchInfo,
         fade_frames: usize,
         reset_filter_graph: bool,
+        transition: Option<TransitionProjectionPlan>,
     ) {
         // Serialize the queue snapshot with the callback's boundary consumption.
         let Ok(mut boundary) = self.gapless_boundary.lock() else {
             return;
         };
+        if transition.is_some_and(|plan| !self.is_decode_generation_current(plan.generation)) {
+            return;
+        }
+        info.output_generation = self.current_decode_generation();
         let output_samples = self.realtime_output.buffered_samples();
         let decoded_samples = self
             .decoded_queue
@@ -127,8 +132,10 @@ impl SharedAudio {
                 samples
             })
             .unwrap_or_default();
+        let remaining_samples = output_samples.saturating_add(decoded_samples);
+        self.record_transition_boundary(&info, remaining_samples, transition);
         *boundary = Some(GaplessBoundary {
-            remaining_samples: output_samples.saturating_add(decoded_samples),
+            remaining_samples,
             fade_samples: fade_frames.saturating_mul(self.mix_format.channels.max(1)),
             info,
         });
@@ -136,7 +143,7 @@ impl SharedAudio {
         self.eof.store(false, Ordering::Release);
         self.end_reported.store(false, Ordering::Release);
         self.ao_state.reset();
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
         self.decoded_queue_changed.notify_all();
     }
 }

@@ -28,6 +28,8 @@
 #include "EchoPluginAudio.h"
 #include "EchoPluginAppearance.h"
 #include "EchoPluginViewContext.h"
+#include "EchoPluginText.h"
+#include "EchoPluginAssets.h"
 #include <QJSValue>
 #include <QQmlEngine>
 #include <QPointer>
@@ -78,6 +80,8 @@ class EchoPluginContext final : public QObject
     Q_PROPERTY(EchoMusic::EchoPluginAppearance *theme READ appearance CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginAppearance *appearance READ appearance CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginFonts *fonts READ fonts CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginText *text READ text CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginAssets *assets READ assets CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginWindows *windows READ windows CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginCover *cover READ cover CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginSettings *settings READ settings CONSTANT)
@@ -145,6 +149,14 @@ public:
     EchoPluginFonts *fonts() const
     {
         return m_fonts;
+    }
+    EchoPluginText *text() const
+    {
+        return m_text;
+    }
+    EchoPluginAssets *assets() const
+    {
+        return m_assets;
     }
     EchoPluginWindows *windows() const
     {
@@ -331,6 +343,8 @@ private:
     PluginHost m_host;
     EchoPluginAppearance *m_appearance;
     EchoPluginFonts *m_fonts;
+    EchoPluginText *m_text;
+    EchoPluginAssets *m_assets;
     EchoPluginWindows *m_windows;
     EchoPluginAudio *m_audio;
     EchoPluginPlayer *m_player;

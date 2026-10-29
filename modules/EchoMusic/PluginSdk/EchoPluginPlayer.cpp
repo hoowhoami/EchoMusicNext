@@ -1,6 +1,10 @@
 #include "EchoPluginPlayer.h"
+#include "EchoPluginPlaybackTransition.h"
 #include "EchoPluginContext.h"
 #include "PlaybackService.h"
+#include "ShellController.h"
+#include "ApiClient.h"
+#include "AccountService.h"
 #include "EchoPluginViewContext.h"
 #include <cmath>
 #include <QTimer>
@@ -8,42 +12,84 @@
 namespace EchoMusic
 {
 EchoPluginReadModel::EchoPluginReadModel(QAbstractItemModel &source, QObject *parent)
-    : QAbstractListModel(parent), m_source(source)
+    : QAbstractListModel(parent)
 {
-    connect(&source, &QAbstractItemModel::modelAboutToBeReset, this, [this] { beginResetModel(); });
-    connect(&source, &QAbstractItemModel::modelReset, this, [this] { endResetModel(); });
-    connect(&source, &QAbstractItemModel::rowsAboutToBeInserted, this,
-            [this](const QModelIndex &, int first, int last) { beginInsertRows({}, first, last); });
-    connect(&source, &QAbstractItemModel::rowsInserted, this, [this] { endInsertRows(); });
-    connect(&source, &QAbstractItemModel::rowsAboutToBeRemoved, this,
-            [this](const QModelIndex &, int first, int last) { beginRemoveRows({}, first, last); });
-    connect(&source, &QAbstractItemModel::rowsRemoved, this, [this] { endRemoveRows(); });
-    connect(&source, &QAbstractItemModel::rowsAboutToBeMoved, this,
-            [this](const QModelIndex &, int first, int last, const QModelIndex &, int target) {
-                beginMoveRows({}, first, last, {}, target);
-            });
-    connect(&source, &QAbstractItemModel::rowsMoved, this, [this] { endMoveRows(); });
-    connect(&source, &QAbstractItemModel::dataChanged, this,
-            [this](const QModelIndex &first, const QModelIndex &last, const QList<int> &roles) {
-                emit dataChanged(index(first.row()), index(last.row()), roles);
-            });
+    setSource(source);
+}
+void EchoPluginReadModel::setSource(QAbstractItemModel &source)
+{
+    if (m_source == &source)
+        return;
+    for (const auto &connection : std::as_const(m_connections))
+        disconnect(connection);
+    m_connections.clear();
+    beginResetModel();
+    m_source = &source;
+    endResetModel();
+    m_connections.append(connect(&source, &QAbstractItemModel::modelAboutToBeReset, this,
+                                 [this] { beginResetModel(); }));
+    m_connections.append(
+        connect(&source, &QAbstractItemModel::modelReset, this, [this] { endResetModel(); }));
+    m_connections.append(connect(
+        &source, &QAbstractItemModel::rowsAboutToBeInserted, this,
+        [this](const QModelIndex &, int first, int last) { beginInsertRows({}, first, last); }));
+    m_connections.append(
+        connect(&source, &QAbstractItemModel::rowsInserted, this, [this] { endInsertRows(); }));
+    m_connections.append(connect(
+        &source, &QAbstractItemModel::rowsAboutToBeRemoved, this,
+        [this](const QModelIndex &, int first, int last) { beginRemoveRows({}, first, last); }));
+    m_connections.append(
+        connect(&source, &QAbstractItemModel::rowsRemoved, this, [this] { endRemoveRows(); }));
+    m_connections.append(
+        connect(&source, &QAbstractItemModel::rowsAboutToBeMoved, this,
+                [this](const QModelIndex &, int first, int last, const QModelIndex &, int target) {
+                    beginMoveRows({}, first, last, {}, target);
+                }));
+    m_connections.append(
+        connect(&source, &QAbstractItemModel::rowsMoved, this, [this] { endMoveRows(); }));
+    m_connections.append(
+        connect(&source, &QAbstractItemModel::dataChanged, this,
+                [this](const QModelIndex &first, const QModelIndex &last, const QList<int> &roles) {
+                    emit dataChanged(index(first.row()), index(last.row()), roles);
+                }));
+    m_connections.append(connect(&source, &QObject::destroyed, this, [this] {
+        beginResetModel();
+        m_source = nullptr;
+        endResetModel();
+    }));
 }
 int EchoPluginReadModel::rowCount(const QModelIndex &parent) const
 {
-    return parent.isValid() ? 0 : m_source.rowCount();
+    return parent.isValid() || !m_source ? 0 : m_source->rowCount();
 }
 QVariant EchoPluginReadModel::data(const QModelIndex &item, int role) const
 {
-    return item.isValid() ? m_source.data(m_source.index(item.row(), 0), role) : QVariant();
+    return item.isValid() && m_source ? m_source->data(m_source->index(item.row(), 0), role)
+                                      : QVariant();
 }
 QHash<int, QByteArray> EchoPluginReadModel::roleNames() const
 {
-    return m_source.roleNames();
+    return m_source ? m_source->roleNames() : QHash<int, QByteArray>{};
 }
 EchoPluginPlayer::EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &host)
     : QObject(&scope), m_scope(scope), m_host(host), m_audioSource(scope),
       m_queue(*host.queue(), this), m_lyrics(*host.lyrics(), this)
 {
+    m_transition = new EchoPluginPlaybackTransition(scope, host.transitionPresentation(), this);
+    connect(&scope, &EchoPluginContext::activeChanged, this, [this] {
+        if (!m_scope.active())
+            m_host.cancelVolumePreview(this);
+    });
+    connect(&scope.host().api, &ApiClient::sessionChanged, this,
+            [this] { m_host.cancelVolumePreview(this); });
+    connect(&scope.host().account, &AccountService::sessionAdopted, this,
+            [this] { m_host.cancelVolumePreview(this); });
+    connect(host.sleepTimer(), &SleepTimer::changed, this, &EchoPluginPlayer::changed);
+    connect(host.queueCatalog(), &PlaybackQueueCatalog::changed, this, [this] {
+        if (auto *queue = m_host.queue())
+            m_queue.setSource(*queue);
+        emit changed();
+    });
     m_previous = snapshot();
     publishStateEvents();
     connect(host.personalFm(), &PersonalFmController::changed, this, &EchoPluginPlayer::changed);
@@ -54,6 +100,8 @@ EchoPluginPlayer::EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &ho
     connect(host.lyrics(), &LyricModel::changed, this, &EchoPluginPlayer::lyricChanged);
     connect(host.lyrics(), &LyricModel::currentChanged, this, &EchoPluginPlayer::lyricChanged);
     connect(host.lyricText(), &LyricTextController::changed, this, &EchoPluginPlayer::lyricChanged);
+    connect(host.lyricSource(), &LyricSourceController::changed, this,
+            &EchoPluginPlayer::lyricChanged);
     connect(&host, &PlaybackService::positionChanged, this, [this] {
         if (isSignalConnected(QMetaMethod::fromSignal(&EchoPluginPlayer::eventOccurred)))
             emit eventOccurred("timeupdate", snapshot());
@@ -158,7 +206,33 @@ EchoPluginOperation *EchoPluginPlayer::setSpeed(double value)
 }
 EchoPluginOperation *EchoPluginPlayer::playIndex(int row)
 {
-    return command([this, row] { m_host.playIndex(row); });
+    auto *queue = m_host.queue();
+    if (!queue || !queue->at(row))
+        return m_scope.rejected("InvalidArgument", "Queue row does not exist");
+    const auto key = m_host.queueCatalog()->activeKey();
+    const auto revision = queue->revision();
+    const auto identity = queue->at(row)->key();
+    const auto epoch = m_scope.accountEpoch();
+    const QPointer<PlaybackQueueModel> guard(queue);
+    auto *op = m_scope.operation();
+    if (op->finished())
+        return op;
+    op->start();
+    QTimer::singleShot(0, op, [this, op, guard, key, revision, identity, epoch, row] {
+        if (op->finished())
+            return;
+        if (!m_scope.active() || m_scope.accountEpoch() != epoch)
+            op->cancel();
+        else if (!guard || m_host.queue() != guard || m_host.queueCatalog()->activeKey() != key ||
+                 guard->revision() != revision || !guard->at(row) ||
+                 guard->at(row)->key() != identity)
+            op->fail("StaleQueue", "Queue changed before the command ran");
+        else {
+            m_host.playIndex(row);
+            op->succeed();
+        }
+    });
+    return op;
 }
 EchoPluginOperation *EchoPluginPlayer::remove(int row)
 {
@@ -190,20 +264,27 @@ QVariantMap EchoPluginPlayer::lyricsInfo() const
 {
     auto *lyrics = m_host.lyrics();
     auto *text = m_host.lyricText();
-    return {{"count", lyrics->rowCount()},
-            {"currentIndex", lyrics->currentIndex()},
-            {"offsetMs", lyrics->offsetMs()},
-            {"scrollable", lyrics->scrollable()},
-            {"hasTranslation", lyrics->hasTranslation()},
-            {"hasRomanization", lyrics->hasRomanization()},
-            {"translation", text->wantTranslation()},
-            {"romanization", text->wantRomanization()},
-            {"conversion", text->conversion()},
-            {"globalOffsetMs", text->globalOffsetMs()},
-            {"trackOffsetMs", text->trackOffsetMs()},
-            {"offsetStep", text->offsetStep()},
-            {"state", m_host.lyricState()},
-            {"currentLine", lyrics->lineAt(lyrics->currentIndex())}};
+    auto result = lyrics->metadata();
+    result.insert(
+        {{"count", lyrics->rowCount()},
+         {"currentIndex", lyrics->currentIndex()},
+         {"offsetMs", lyrics->offsetMs()},
+         {"scrollable", lyrics->scrollable()},
+         {"hasTranslation", lyrics->hasTranslation()},
+         {"hasRomanization", lyrics->hasRomanization()},
+         {"translation", text->wantTranslation()},
+         {"romanization", text->wantRomanization()},
+         {"conversion", text->conversion()},
+         {"globalOffsetMs", text->globalOffsetMs()},
+         {"trackOffsetMs", text->trackOffsetMs()},
+         {"offsetStep", text->offsetStep()},
+         {"state", m_host.lyricState()},
+         {"errorMessage", !text->errorMessage().isEmpty()  ? text->errorMessage()
+                          : m_host.lyricState() == "error" ? m_host.lyricSource()->errorMessage()
+                                                           : QString()},
+         {"embeddedErrorMessage", m_host.lyricSource()->embeddedError()},
+         {"currentLine", lyrics->lineAt(lyrics->currentIndex())}});
+    return result;
 }
 QVariantMap EchoPluginPlayer::lyricSnapshot() const
 {
@@ -245,6 +326,15 @@ QVariantMap EchoPluginPlayer::snapshot() const
         {"positionMs", positionMs()},
         {"durationMs", durationMs()},
         {"volume", volume()},
+        {"canShuffleQueue", m_host.canShuffleQueue()},
+        {"canShowSongWall", m_host.queue()->rowCount() > 0 && !m_host.personalFm()->active()},
+        {"canLocateTrack", m_scope.host().shell.canLocatePlayingTrack()},
+        {"sleepTimer", QVariantMap{{"active", m_host.sleepTimer()->active()},
+                                   {"durationMinutes", m_host.sleepTimer()->durationMinutes()},
+                                   {"remainingSeconds", m_host.sleepTimer()->remainingSeconds()},
+                                   {"action", m_host.sleepTimer()->action()},
+                                   {"executing", m_host.sleepTimer()->executing()},
+                                   {"errorMessage", m_host.sleepTimer()->errorMessage()}}},
         {"speed", speed()},
         {"playMode", int(m_host.playMode())},
         {"quality", m_host.quality()},

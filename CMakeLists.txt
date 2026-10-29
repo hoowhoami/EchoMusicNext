@@ -61,6 +61,7 @@ include(CTest)
 include(cmake/Rust.cmake)
 
 include(cmake/ProjectOptions.cmake)
+include(cmake/TextSegmentation.cmake)
 set(ECHO_RELEASE_VERSION
     "${PROJECT_VERSION}"
     CACHE STRING "Full release version including prerelease suffix"

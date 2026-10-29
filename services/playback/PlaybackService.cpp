@@ -15,6 +15,7 @@
 #include <QFileInfo>
 #include <QUrl>
 #include <cmath>
+#include <utility>
 namespace EchoMusic
 {
 namespace
@@ -158,6 +159,8 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
       m_dynamicCover(api, this), m_portraits(api, *m_lyricAppearance.portrait(), this),
       m_lyricText(m_lyrics, m_native, settings, this), m_lyricSource(api, settings, this)
 {
+    m_transitionPresentation =
+        std::make_unique<PlaybackTransitionPresentation>(api, m_native, settings, this);
     m_sessionController = std::make_unique<PlaybackSessionController>(*this);
     m_outputController = std::make_unique<PlaybackOutputController>(*this);
     m_queueController = std::make_unique<PlaybackQueueController>(*this);
@@ -203,6 +206,19 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
     m_personalFm = std::make_unique<PersonalFmController>(*this, api, settings);
     m_discoverQueue = std::make_unique<DiscoverQueueController>(*this, api);
     m_listenTogether = std::make_unique<ListenTogetherController>(*this, api);
+    const auto updatePresentation = [this](bool lyricsChanged) {
+        m_transitionPresentation->updateCurrent(
+            m_audioSequence, m_track, QUrl(cover()), m_lyrics, m_lyricState,
+            m_lyricText.errorMessage().isEmpty() ? m_lyricSource.errorMessage()
+                                                 : m_lyricText.errorMessage(),
+            lyricsChanged);
+    };
+    connect(this, &PlaybackService::changed, this,
+            [updatePresentation] { updatePresentation(false); });
+    connect(&m_lyrics, &LyricModel::changed, this,
+            [updatePresentation] { updatePresentation(true); });
+    connect(&m_lyricText, &LyricTextController::changed, this,
+            [updatePresentation] { updatePresentation(false); });
     connect(this, &PlaybackService::changed, &m_sleepInhibitor, [this] {
         m_sleepInhibitor.setRequired(!m_closing && m_autoplay && m_playing &&
                                      m_preferences.preventSleep());
@@ -262,6 +278,7 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                     emit positionChanged();
                 }
                 m_resolvedQuality = resolvedQuality;
+                m_resolvedSourceFacts = source;
                 m_effectFallback = fallback;
                 m_effectError = fallback ? tr("所选音效暂未生效，继续使用原声") : QString();
                 m_pendingLoudness = {{"loudness", source.value("loudness")},
@@ -411,8 +428,9 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
                         m_artwork.load(m_embeddedCover, m_sequence);
                     }
                 }
-                m_lyricSource.updateEmbeddedDocument(m_track.stableKey(), title, artist,
-                                                     metadata.value("lyric").toString());
+                m_lyricSource.updateEmbeddedDocument(
+                    m_track.stableKey(), title, artist, metadata.value("lyric").toString(),
+                    metadata.value("lyric_error").toObject().value("message").toString());
                 // Unmatched uploads often lack a provider duration; the
                 // demuxed stream the engine reports is authoritative.
                 if (!m_track.durationMs && m_duration > 0)
@@ -468,11 +486,15 @@ PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *p
             m_trackProbe = 0;
             m_audioTrack = effectAudioTrack(
                 success ? QJsonDocument::fromJson(bytes).array() : QJsonArray{}, m_sourceEffect);
-            if (m_seamless)
+            if (m_seamless) {
+                stageSourceFacts(m_probedSource, m_audioTrack);
                 m_engine.switchSource(m_probedSource, m_audioSequence, m_audioTrack,
                                       m_sourceRevision);
-            else
-                m_engine.load(m_probedSource, (m_audioSequence = ++m_audioSerial), m_audioTrack);
+            } else {
+                m_audioSequence = ++m_audioSerial;
+                stageSourceFacts(m_probedSource, m_audioTrack);
+                m_engine.load(m_probedSource, m_audioSequence, m_audioTrack);
+            }
             m_probedSource.clear();
         });
     m_mediaTimer.setInterval(1000);
@@ -694,7 +716,86 @@ void PlaybackService::publishProgressStatus()
 }
 void PlaybackService::invalidate(bool preserveLyrics)
 {
+    m_resolvedSourceFacts = {};
+    m_pendingSourceFacts = {};
+    m_analysisSourceFacts = {};
     m_sessionController->invalidate(preserveLyrics);
+}
+QJsonObject PlaybackService::sourceFacts(const PlaybackTrack &track, const QJsonObject &resolved,
+                                         const QString &quality, const QString &effect,
+                                         const QString &locator, qint64 audioTrack,
+                                         quint64 sequence, quint64 sourceRevision) const
+{
+    QJsonObject facts{
+        {"accountRevision", QString::number(m_api.sessionRevision())},
+        {"trackKey", track.stableKey()},
+        {"sourceRevision", QString::number(sourceRevision)},
+        {"trackSequence", QString::number(sequence)},
+        {"locator", locator},
+        {"audioStreamOrdinal", audioTrack > 0 ? audioTrack - 1 : -1},
+        {"sourceKind",
+         resolved.value("source_kind").toString(track.localPath.isEmpty() ? "catalog" : "local")},
+        {"resolvedQuality", quality},
+        {"appliedEffect", effect},
+        {"statedDurationMs", qint64(track.durationMs)}};
+    for (const auto &pair :
+         {qMakePair("resolvedHash", "hash"), qMakePair("fileSizeBytes", "file_size_bytes"),
+          qMakePair("standardDurationMs", "standard_duration_ms")})
+        if (resolved.contains(pair.second))
+            facts.insert(pair.first, resolved.value(pair.second));
+    if (resolved.value("preview").isBool())
+        facts.insert("preview", resolved.value("preview"));
+    return facts;
+}
+void PlaybackService::stageSourceFacts(const QString &locator, qint64 audioTrack)
+{
+    m_pendingSourceFacts =
+        sourceFacts(m_track, m_resolvedSourceFacts, m_resolvedQuality, m_sourceEffect, locator,
+                    audioTrack, m_audioSequence, m_sourceRevision);
+}
+void PlaybackService::adoptSourceFacts()
+{
+    if (m_pendingSourceFacts.value("accountRevision").toString() !=
+            QString::number(m_api.sessionRevision()) ||
+        m_pendingSourceFacts.value("trackKey").toString() != m_track.stableKey() ||
+        m_pendingSourceFacts.value("trackSequence").toString() !=
+            QString::number(m_audioSequence) ||
+        m_pendingSourceFacts.value("sourceRevision").toString() !=
+            QString::number(m_sourceRevision))
+        return;
+    m_analysisSourceFacts = std::exchange(m_pendingSourceFacts, {});
+}
+QJsonObject PlaybackService::analysisSourceFacts(const QJsonObject &selector) const
+{
+    if (!selector.isEmpty()) {
+        if (m_closing || !m_loaded || !m_error.isEmpty() || m_cast->remoteMedia())
+            return {};
+        return m_transitionPresentation->analysisSourceFacts(selector);
+    }
+    if (m_closing || !m_loaded || m_loading || !m_error.isEmpty() || m_cast->remoteMedia() ||
+        !m_pendingSourceFacts.isEmpty() ||
+        m_analysisSourceFacts.value("accountRevision").toString() !=
+            QString::number(m_api.sessionRevision()) ||
+        m_analysisSourceFacts.value("trackKey").toString() != m_track.stableKey() ||
+        m_analysisSourceFacts.value("trackSequence").toString() !=
+            QString::number(m_audioSequence) ||
+        m_analysisSourceFacts.value("sourceRevision").toString() !=
+            QString::number(m_sourceRevision))
+        return {};
+    return m_analysisSourceFacts;
+}
+QString PlaybackService::analysisSourceAuthority(const QJsonObject &facts) const
+{
+    if (facts.isEmpty() || m_closing || !m_loaded || !m_error.isEmpty() || m_cast->remoteMedia())
+        return {};
+    const auto epoch = m_transitionPresentation->analysisSourceAuthority(facts);
+    if (!epoch.isEmpty())
+        return epoch;
+    // Explicit outgoing authorization cannot fall back to current after its
+    // exact native epoch has ended, even when the same track is still loaded.
+    if (facts.contains("analysisTransitionEpoch"))
+        return {};
+    return facts == analysisSourceFacts() ? QStringLiteral("current") : QString();
 }
 void PlaybackService::playTracks(const PlaybackTracks &tracks, int index, const QString &title,
                                  const QString &sourceKey)
@@ -785,7 +886,7 @@ PlaybackTrack PlaybackService::mergeResolvedTrack(const PlaybackTrack &track) co
     return merged;
 }
 void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
-                                 bool preserveFailureChain)
+                                 bool preserveFailureChain, qint64 initialPosition, bool autoplay)
 {
     auto resolved = snapshot;
     adoptCloudIdentity(resolved);
@@ -820,14 +921,16 @@ void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
     m_effectFallback = false;
     m_appliedEffect = "none";
     m_effectError.clear();
-    m_resumePosition = -1;
-    m_position = 0;
     m_duration = qint64(resolved.durationMs);
+    m_resumePosition = initialPosition < 0 ? -1
+                       : m_duration > 0    ? qMin(initialPosition, m_duration)
+                                           : initialPosition;
+    m_position = qMax<qint64>(0, m_resumePosition);
     m_error.clear();
     m_playing = false;
     publishMedia();
     m_loading = true;
-    m_autoplay = true;
+    m_autoplay = autoplay;
     m_lyricText.clear();
     m_lyricState = "loading";
     m_revision = m_api.sessionRevision();
@@ -887,10 +990,15 @@ void PlaybackService::loadNextUrl()
     }
     m_progress.reset();
     publishProgressStatus();
-    if (m_seamless)
-        m_engine.switchSource(source, m_audioSequence, m_audioTrack, ++m_sourceRevision);
-    else
-        m_engine.load(source, (m_audioSequence = ++m_audioSerial), m_audioTrack);
+    if (m_seamless) {
+        ++m_sourceRevision;
+        stageSourceFacts(source, m_audioTrack);
+        m_engine.switchSource(source, m_audioSequence, m_audioTrack, m_sourceRevision);
+    } else {
+        m_audioSequence = ++m_audioSerial;
+        stageSourceFacts(source, m_audioTrack);
+        m_engine.load(source, m_audioSequence, m_audioTrack);
+    }
 }
 void PlaybackService::revokePluginMedia(const QUrl &url)
 {
@@ -1019,6 +1127,47 @@ void PlaybackService::seek(qint64 position)
         return;
     m_engine.command(AudioEngine::Seek, double(qBound<qint64>(0, position, m_duration)) / 1000.);
 }
+bool PlaybackService::selectTransitionSource(const QString &epoch, const QString &sequence,
+                                             qint64 positionMs, bool playing)
+{
+    auto &presentation = *m_transitionPresentation;
+    const auto native = presentation.snapshot();
+    if (m_closing || m_loading || !m_loaded || !m_error.isEmpty() || m_cast->remoteMedia() ||
+        m_personalFm->active() || positionMs < 0 || positionMs > 1'000'000'000'000LL ||
+        !presentation.valid() || epoch.isEmpty() || native.value("epoch").toString() != epoch ||
+        native.value("phase").toString() == "completed" ||
+        (sequence != presentation.outgoing().sequence &&
+         sequence != presentation.incoming().sequence))
+        return false;
+    // A resource id alone cannot identify repeat-one or source replacements.
+    // GUI adoption can also lag the real native boundary, so even a sequence
+    // that appears current must not use an unscoped transport command.
+    const bool outgoing = sequence == presentation.outgoing().sequence;
+    const QJsonObject selector{{"transitionEpoch", epoch}, {"sequence", sequence}};
+    const auto facts = outgoing ? analysisSourceFacts(selector) : analysisSourceFacts();
+    if (facts.isEmpty() || facts.value("trackSequence").toString() != sequence ||
+        analysisSourceAuthority(facts).isEmpty())
+        return false;
+    const auto track = outgoing ? presentation.outgoing().track : presentation.incoming().track;
+    if (!track.playable() || facts.value("trackKey").toString() != track.stableKey())
+        return false;
+    int index = -1;
+    const auto &tracks = queue()->tracks();
+    for (int row = 0; row < tracks.size(); ++row)
+        if (tracks[row].stableKey() == track.stableKey()) {
+            index = row;
+            break;
+        }
+    if (index < 0)
+        return false;
+    // Normal source resolution keeps entitlements, native queue facts, lyrics,
+    // stream selection and error recovery with their existing owners. Carry the
+    // seek/pause intent before asynchronous resolution can finish; do not send
+    // an unscoped seek to whichever deck happens to be current at that time.
+    m_listenTogether->localTrackRequested();
+    startTrack(track, index, false, positionMs, playing);
+    return true;
+}
 void PlaybackService::previous()
 {
     const auto index = m_transition->previousIndex();
@@ -1127,25 +1276,96 @@ QVariantList PlaybackService::qualities() const
                  : QString()}});
     return result;
 }
+bool PlaybackService::canShuffleQueue() const
+{
+    return !m_closing && !m_personalFm->active() &&
+           m_sourceKey != DiscoverQueueController::queueKey() &&
+           m_sourceKey != "queue:listen-together" && m_catalog.activeModel() &&
+           m_catalog.activeModel()->rowCount() > 1;
+}
+bool PlaybackService::shuffleQueue()
+{
+    if (!canShuffleQueue())
+        return false;
+    m_transition->clear();
+    if (!queue()->shuffle(*QRandomGenerator::global()))
+        return false;
+    loadNextUrl();
+    emit changed();
+    return true;
+}
+void PlaybackService::releaseVolumePreview()
+{
+    disconnect(m_volumePreviewDestroyed);
+    m_volumePreviewDestroyed = {};
+    m_volumePreviewOwner = nullptr;
+}
+void PlaybackService::applyVolume(double value, bool persist)
+{
+    const bool changedValue = m_volume != value;
+    if (value > 0)
+        m_unmutedVolume = value;
+    m_volume = value;
+    // A commit equal to the live preview still must persist.
+    if (persist && !m_remoteVolume)
+        m_settings.setValue(EchoMusic::SettingsKeys::Playback::Volume, value);
+    if (changedValue && !m_remoteVolume && m_ready)
+        m_engine.command(AudioEngine::Volume, value);
+    if (changedValue)
+        emit changed();
+}
 void PlaybackService::setVolume(double value)
 {
     if (!std::isfinite(value))
         return;
-    value = qBound(0., value, m_remoteVolume ? 100. : 150.);
-    if (m_volume == value)
-        return;
-    if (value > 0)
-        m_unmutedVolume = value;
-    m_volume = value;
-    if (!m_remoteVolume) {
-        m_settings.setValue(EchoMusic::SettingsKeys::Playback::Volume, value);
-        if (m_ready)
-            m_engine.command(AudioEngine::Volume, value);
+    // A native/system control becomes the new authority, even at the same value.
+    releaseVolumePreview();
+    applyVolume(qBound(0., value, m_remoteVolume ? 100. : 150.), true);
+}
+bool PlaybackService::previewVolume(QObject *owner, double value)
+{
+    if (!owner || owner->thread() != thread() || m_closing || m_remoteVolume ||
+        !std::isfinite(value) || value < 0 || value > 150 ||
+        (m_volumePreviewOwner && m_volumePreviewOwner != owner))
+        return false;
+    if (!m_volumePreviewOwner) {
+        m_volumePreviewOwner = owner;
+        m_volumePreviewBaseline = m_volume;
+        m_volumePreviewUnmuted = m_unmutedVolume;
+        m_volumePreviewDestroyed = connect(owner, &QObject::destroyed, this, [this] {
+            const auto baseline = m_volumePreviewBaseline;
+            const auto unmuted = m_volumePreviewUnmuted;
+            releaseVolumePreview();
+            applyVolume(baseline, false);
+            m_unmutedVolume = unmuted;
+        });
     }
-    emit changed();
+    applyVolume(value, false);
+    return true;
+}
+bool PlaybackService::commitVolumePreview(QObject *owner, double value)
+{
+    if (!owner || m_volumePreviewOwner != owner || m_closing || m_remoteVolume ||
+        !std::isfinite(value) || value < 0 || value > 150)
+        return false;
+    releaseVolumePreview();
+    applyVolume(value, true);
+    return true;
+}
+void PlaybackService::cancelVolumePreview(QObject *owner)
+{
+    if (!owner || m_volumePreviewOwner != owner)
+        return;
+    const auto baseline = m_volumePreviewBaseline;
+    const auto unmuted = m_volumePreviewUnmuted;
+    releaseVolumePreview();
+    applyVolume(baseline, false);
+    m_unmutedVolume = unmuted;
 }
 void PlaybackService::applyOutputVolume(double volume)
 {
+    if (m_volumePreviewOwner)
+        cancelVolumePreview(m_volumePreviewOwner);
     if (!m_remoteVolume) {
         m_localVolume = m_volume;
         m_localUnmutedVolume = m_unmutedVolume;

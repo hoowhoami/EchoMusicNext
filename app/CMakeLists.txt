@@ -143,7 +143,7 @@ set_target_properties(
 )
 echo_copy_rust_runtime(echomusicnext)
 
-add_dependencies(echomusicnext echo-theme-image-worker)
+add_dependencies(echomusicnext echo-theme-image-worker echo-plugin-asset-worker)
 add_dependencies(echomusicnext echo-update-helper)
 echo_copy_crash_runtime(echomusicnext)
 if(APPLE)
@@ -161,7 +161,7 @@ install(
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 if(APPLE)
-    install(TARGETS echo-theme-image-worker echo-update-helper
+    install(TARGETS echo-theme-image-worker echo-plugin-asset-worker echo-update-helper
             RUNTIME DESTINATION "echomusicnext.app/Contents/Helpers"
     )
     install(FILES "$<TARGET_FILE:echo_ffi>" DESTINATION "echomusicnext.app/Contents/Frameworks")
@@ -173,7 +173,7 @@ if(APPLE)
             DESTINATION "echomusicnext.app/Contents/Resources/licenses/third-party"
     )
 else()
-    install(TARGETS echo-theme-image-worker echo-update-helper
+    install(TARGETS echo-theme-image-worker echo-plugin-asset-worker echo-update-helper
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
     install(FILES "$<TARGET_FILE:echo_ffi>"
@@ -196,6 +196,8 @@ if(APPLE)
                 "$<TARGET_BUNDLE_DIR:echomusicnext>/Contents/Helpers"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:echo-theme-image-worker>"
                 "$<TARGET_BUNDLE_DIR:echomusicnext>/Contents/Helpers/echo-theme-image-worker"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:echo-plugin-asset-worker>"
+                "$<TARGET_BUNDLE_DIR:echomusicnext>/Contents/Helpers/echo-plugin-asset-worker"
     )
 else()
     add_custom_command(
@@ -203,7 +205,12 @@ else()
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:echo-theme-image-worker>"
                 "$<TARGET_FILE_DIR:echomusicnext>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:echo-plugin-asset-worker>"
+                "$<TARGET_FILE_DIR:echomusicnext>"
     )
 endif()
 
 target_link_libraries(echomusicnext PRIVATE echo_settings_keys)
+
+# Independent AGPL GPU helper, model bytes and notices; no host-library linkage.
+echo_deploy_audio_analysis(echomusicnext)

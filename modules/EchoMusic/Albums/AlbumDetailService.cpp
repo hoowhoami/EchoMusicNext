@@ -53,7 +53,7 @@ void AlbumDetailService::registerRoutes(RouteController &router)
     router.registerPage({"album-detail",
                          "/main/album/:id",
                          QUrl("qrc:/qt/qml/EchoMusic/Albums/AlbumDetailPage.qml"),
-                         {"tab"},
+                         {"tab", "locateTrack", "locateToken"},
                          true,
                          true,
                          false,

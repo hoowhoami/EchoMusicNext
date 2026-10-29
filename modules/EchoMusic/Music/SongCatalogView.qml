@@ -46,6 +46,11 @@ Item {
     property Component emptyComponent: null
     readonly property real songToolbarRowHeight: compactSongToolbar ? 46 : 56
     readonly property real toolbarHeight: showToolbar ? songToolbarRowHeight + (showSortHeader && !secondaryActive ? 44 : 0) : 0
+    property string locateTrackId: ""
+    property string locateToken: ""
+    property bool locateComplete: true
+    property alias locateMessage: songList.locateMessage
+    readonly property var songListView: songList.listView
     property bool loading: false
     property string errorMessage: ""
     property bool resourceActive: true
@@ -53,6 +58,19 @@ Item {
     readonly property real scrollTop: viewport.scrollTop
     signal retryRequested
     signal moreRequested(string id, real sceneX, real sceneY)
+    Label {
+        objectName: "catalogLocateMessage"
+        z: 20
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: 24
+        width: Math.min(320, parent.width - 48)
+        text: page.locateMessage
+        textFormat: Text.PlainText
+        visible: text.length > 0
+        color: Theme.colors.dangerText
+        wrapMode: Text.Wrap
+    }
     EchoPageScrollContainer {
         id: viewport
         anchors.fill: parent
@@ -74,6 +92,9 @@ Item {
             loading: page.loading
             errorMessage: page.errorMessage
             resourceActive: page.resourceActive
+            locateTrackId: page.locateTrackId
+            locateToken: page.locateToken
+            locateComplete: page.locateComplete
             emptyComponent: page.emptyComponent
             menuSongId: page.menuSongId
             onRetryRequested: page.retryRequested()

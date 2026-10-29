@@ -208,6 +208,34 @@ fn restore_seek_playback_state(
     })
 }
 
+#[cfg(test)]
+thread_local! {
+    static AFTER_SEEK_COMMAND_ENQUEUED: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        std::cell::RefCell::new(None);
+}
+
+fn publish_seek_command(
+    shared: &SharedAudio,
+    sender: &SyncSender<decoder::DecodeCommand>,
+    command: decoder::DecodeCommand,
+) -> Result<(), TrySendError<decoder::DecodeCommand>> {
+    // Publish the interrupt before the command. A local/cache-backed seek can
+    // finish (and clear the flag) before try_send returns on the control thread.
+    // Interrupting after that acknowledgement would cancel resumed packet reads
+    // with no pending command left to clear the flag.
+    shared.request_decode_interrupt();
+    let result = sender.try_send(command);
+    #[cfg(test)]
+    if result.is_ok() {
+        AFTER_SEEK_COMMAND_ENQUEUED.with(|hook| {
+            if let Some(after_enqueue) = hook.borrow_mut().take() {
+                after_enqueue();
+            }
+        });
+    }
+    result
+}
+
 fn try_seek_current_decoder(plan: &SeekPlan, position: f64) -> crate::Result<bool> {
     let Some(sender) = plan.decode_commands.as_ref() else {
         return Ok(false);
@@ -225,12 +253,16 @@ fn try_seek_current_decoder(plan: &SeekPlan, position: f64) -> crate::Result<boo
         let mut retries = 0u32;
         loop {
             let (reply_tx, reply_rx) = sync_channel(1);
-            match sender.try_send(decoder::DecodeCommand::Seek {
-                position_secs: position,
-                generation: plan.generation,
-                track_seq: Some(plan.track_seq),
-                reply: reply_tx,
-            }) {
+            match publish_seek_command(
+                &plan.shared,
+                sender,
+                decoder::DecodeCommand::Seek {
+                    position_secs: position,
+                    generation: plan.generation,
+                    track_seq: Some(plan.track_seq),
+                    reply: reply_tx,
+                },
+            ) {
                 Ok(()) => break reply_rx,
                 Err(TrySendError::Full(_)) => {
                     retries += 1;
@@ -270,8 +302,6 @@ fn try_seek_current_decoder(plan: &SeekPlan, position: f64) -> crate::Result<boo
             }
         }
     };
-
-    plan.shared.request_decode_interrupt();
 
     // A network demuxer may need a fresh HTTP range request before it can acknowledge the
     // command. Reopening after the local two-second budget cancels that useful request and starts
@@ -488,3 +518,7 @@ pub fn seek(time: f64) -> Work<SeekTask> {
         request_seq,
     })
 }
+
+#[cfg(test)]
+#[path = "seek_tests.rs"]
+mod tests;

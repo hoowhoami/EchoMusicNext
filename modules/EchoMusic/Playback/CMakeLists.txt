@@ -54,6 +54,7 @@ qt_add_qml_module(
     LyricSourceSearchForm.qml
     AddToPlaylistDialog.qml
     PlaybackQueueDrawer.qml
+    PlaybackQueueWall.qml
     PlaybackOptionsPopup.qml
     PlaybackCastPopup.qml
     CastDeviceGroup.qml

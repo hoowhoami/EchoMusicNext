@@ -5,6 +5,7 @@
 #include "ThemeStore.h"
 #include "RouteController.h"
 #include <QFontDatabase>
+#include <QGuiApplication>
 #include <QRegularExpression>
 #include <cmath>
 namespace EchoMusic
@@ -227,6 +228,23 @@ EchoPluginAppearanceHandle *EchoPluginAppearance::add(const QJSValue &d, const Q
         delete e;
         return reject(reason);
     };
+    const auto icons = d.property("lyricsIcons");
+    QStringList iconNames;
+    if (!icons.isUndefined()) {
+        if (kind != "theme" || !icons.isArray() || icons.property("length").toUInt() > 64)
+            return discard("Theme lyricsIcons must be an array of at most 64 names");
+        for (quint32 i = 0; i < icons.property("length").toUInt(); ++i) {
+            const auto name = icons.property(i);
+            if (!name.isString() || name.toString().trimmed().isEmpty() ||
+                name.toString().size() > 128)
+                return discard(
+                    "Theme icon names must be nonempty strings of at most 128 characters");
+            iconNames.append(name.toString());
+        }
+    }
+    // Symbolic names are immutable theme data, not paths or renderer-specific
+    // icon implementations. A lyrics skin decides how unsupported names render.
+    e->definition.insert("lyricsIcons", iconNames);
     if (!QStringList{"host", "none"}.contains(e->titlebar) ||
         !QStringList{"host", "none"}.contains(e->tools))
         return discard("titlebar/tools must be host or none");
@@ -254,7 +272,8 @@ EchoPluginAppearanceHandle *EchoPluginAppearance::add(const QJSValue &d, const Q
                                 {"playerComponent", "playerbar"},
                                 {"miniComponent", "mini"},
                                 {"miniBackgroundComponent", "mini.background"},
-                                {"settingsComponent", "settings"}};
+                                {"settingsComponent", "settings"},
+                                {"queueWallComponent", "queue-wall"}};
     for (auto it = componentFields.begin(); it != componentFields.end(); ++it) {
         auto v = d.property(it.key());
         if (v.isUndefined())
@@ -434,7 +453,15 @@ QVariantMap EchoPluginAppearance::presentation(const QString &surface, QObject *
 QVariantMap EchoPluginAppearance::snapshot() const
 {
     const auto &t = m_scope.host().theme;
+    QVariant themeMetadata;
+    if (const auto *theme = t.extensions()->theme())
+        themeMetadata =
+            QVariantMap{{"key", theme->key},
+                        {"title", theme->title},
+                        {"description", theme->description},
+                        {"lyricsIcons", theme->definition.value("lyricsIcons").toStringList()}};
     return {{"dark", t.dark()},
+            {"themeMetadata", themeMetadata},
             {"font", t.applicationFont()},
             {"lyricFont", t.lyricBaseFont()},
             {"miniFont", t.miniLyricBaseFont()},
@@ -464,7 +491,13 @@ QVariantMap EchoPluginAppearance::snapshot() const
             {"selectedSkin", t.extensions()->selectedSkin()},
             {"surfaces", t.extensionAppearance()}};
 }
-EchoPluginFonts::EchoPluginFonts(EchoPluginContext &s) : QObject(&s), m_scope(s) {}
+EchoPluginFonts::EchoPluginFonts(EchoPluginContext &s) : QObject(&s), m_scope(s)
+{
+    connect(qGuiApp, &QGuiApplication::fontDatabaseChanged, this, [this] {
+        if (m_scope.active())
+            emit familiesChanged();
+    });
+}
 QStringList EchoPluginFonts::families() const
 {
     return m_scope.host().theme.fontFamilies();

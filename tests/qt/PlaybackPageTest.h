@@ -9,6 +9,10 @@ private slots:
     void portraitCollapseKeepsMotionAndAvoidsVisibleControls();
     void restoredTrackLoadsLyricsWithoutStartingPlayback_data();
     void restoredTrackLoadsLyricsWithoutStartingPlayback();
+    void downloadedLyricParserFailurePublishesError_data();
+    void downloadedLyricParserFailurePublishesError();
+    void staleDownloadedLyricParserFailureCannotReplaceNewSource();
+    void failedDownloadedPreviewPreservesActiveLyrics();
     void queueDrawerClipsScrolledRowsInsideItsBorder();
     void popupFrostSamplesTheVisiblePageAndReleases();
     void untimedLyricsUseFullInkAndKeepRomanizationOnEverySurface();

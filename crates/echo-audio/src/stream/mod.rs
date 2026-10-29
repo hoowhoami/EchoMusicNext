@@ -1,6 +1,7 @@
 mod file;
 mod http;
 mod url;
+pub(crate) use url::source_path_from_url;
 
 use std::io::{Read, Seek};
 use std::sync::Arc;

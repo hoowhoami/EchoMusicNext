@@ -4,6 +4,15 @@
 #include "EchoPluginUiParts.h"
 #include "EchoPluginUiStyles.h"
 #include "EchoUiPartMount.h"
+#include "GlyphRun.h"
+#include "FloatTexture.h"
+#include "PointMesh.h"
+#include "NativeShaderEffect.h"
+#include "ImageCapture.h"
+#include "PresentationScope.h"
+#include "EchoPluginAssetArchive.h"
+#include "EchoPluginImageDropArea.h"
+#include "EchoPluginPlaybackTransition.h"
 #include <QJsonArray>
 #include <QMetaMethod>
 #include <QMetaProperty>
@@ -77,6 +86,18 @@ QJsonObject pluginSdkContract()
                                         &EchoPluginAppearance::staticMetaObject,
                                         &EchoPluginAppearanceHandle::staticMetaObject,
                                         &EchoPluginFonts::staticMetaObject,
+                                        &EchoPluginText::staticMetaObject,
+                                        &EchoPluginAssets::staticMetaObject,
+                                        &EchoPluginImageDropArea::staticMetaObject,
+                                        &EchoPluginAssetAnimation::staticMetaObject,
+                                        &EchoPluginAssetArchive::staticMetaObject,
+                                        &GlyphRun::staticMetaObject,
+                                        &FloatTexture::staticMetaObject,
+                                        &NativeShaderEffect::staticMetaObject,
+                                        &PointMesh::staticMetaObject,
+                                        &ImageCapture::staticMetaObject,
+                                        &ImageCaptureLease::staticMetaObject,
+                                        &PresentationScope::staticMetaObject,
                                         &EchoPluginViewContext::staticMetaObject,
                                         &EchoPluginWindows::staticMetaObject,
                                         &EchoPluginUiParts::staticMetaObject,
@@ -86,6 +107,8 @@ QJsonObject pluginSdkContract()
                                         &EchoUiPartMount::staticMetaObject,
                                         &EchoPluginContext::staticMetaObject,
                                         &EchoPluginPlayer::staticMetaObject,
+                                        &EchoPluginPlaybackTransition::staticMetaObject,
+                                        &EchoPluginTransitionTrack::staticMetaObject,
                                         &EchoPluginReadModel::staticMetaObject,
                                         &EchoPluginUi::staticMetaObject,
                                         &EchoPluginIo::staticMetaObject,
@@ -104,6 +127,8 @@ QJsonObject pluginSdkContract()
                                         &EchoPluginScroll::staticMetaObject,
                                         &EchoPluginRegistry::staticMetaObject,
                                         &EchoPluginAudio::staticMetaObject,
+                                        &EchoPluginAudioAnalysis::staticMetaObject,
+                                        &EchoPluginAnalysisLease::staticMetaObject,
                                         &EchoPluginSpectrum::staticMetaObject,
                                         &EchoPluginSpectrumSubscription::staticMetaObject};
     for (const auto *meta : publicTypes)

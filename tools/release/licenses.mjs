@@ -3,13 +3,21 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { root } from './contract.mjs';
 import { rustSbom, vendorInventory } from './sbom.mjs';
-export function collectLicenses(destination, qt, version) {
-  const output = path.join(destination, 'deployment');
-  fs.mkdirSync(output, { recursive: true });
-  const source = path.join(root, 'build/release-tools/qt-license-texts');
-  if (!fs.existsSync(source))
-    throw new Error('Run node tools/release/prepare.mjs before packaging');
-  fs.cpSync(source, path.join(output, 'Qt/licenses'), { recursive: true });
+function copyNotices(directory, target, all = false) {
+  if (!fs.existsSync(directory)) return;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isSymbolicLink() || ['.git', 'target', 'node_modules'].includes(entry.name)) continue;
+    const file = path.join(directory, entry.name),
+      to = path.join(target, entry.name);
+    if (entry.isDirectory()) copyNotices(file, to, all || /^licen[sc]es?$/i.test(entry.name));
+    else if (all || /^(licen[sc]e|copying|copyright|notice|authors)([.\-_]|$)/i.test(entry.name)) {
+      fs.mkdirSync(target, { recursive: true });
+      fs.copyFileSync(file, to);
+    }
+  }
+}
+
+export function collectQtNotices(output, qt, sourceRoot = root) {
   const qtModules = new Set([
     'qtbase',
     'qtdeclarative',
@@ -17,40 +25,51 @@ export function collectLicenses(destination, qt, version) {
     'qtsvg',
     'qtshadertools',
     'qtwayland',
+    'qtwebsockets',
   ]);
+  fs.mkdirSync(path.join(output, 'Qt'), { recursive: true });
+  let webSocketsSpdx = false;
   const sbom = path.join(qt, 'sbom');
   if (fs.existsSync(sbom))
     for (const name of fs.readdirSync(sbom)) {
-      if (name.endsWith('.spdx.json') && qtModules.has(name.split('-6.')[0]))
-        fs.copyFileSync(path.join(sbom, name), path.join(output, 'Qt', name));
-    }
-  function copyNotices(directory, target, all = false) {
-    if (!fs.existsSync(directory)) return;
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (entry.isSymbolicLink() || ['.git', 'target', 'node_modules'].includes(entry.name))
-        continue;
-      const file = path.join(directory, entry.name),
-        to = path.join(target, entry.name);
-      if (entry.isDirectory()) copyNotices(file, to, all || /^licen[sc]es?$/i.test(entry.name));
-      else if (
-        all ||
-        /^(licen[sc]e|copying|copyright|notice|authors)([.\-_]|$)/i.test(entry.name)
+      if (
+        (name.endsWith('.spdx.json') || name.endsWith('.source.spdx')) &&
+        qtModules.has(name.split('-6.')[0])
       ) {
-        fs.mkdirSync(target, { recursive: true });
-        fs.copyFileSync(file, to);
+        fs.copyFileSync(path.join(sbom, name), path.join(output, 'Qt', name));
+        webSocketsSpdx ||= name.startsWith('qtwebsockets-6.');
       }
     }
-  }
   const cachedNotices = path.join(qt, 'share/echomusicnext-qt-notices');
   for (const module of qtModules)
     copyNotices(
-      path.join(root, 'build/qt-sources/6.12.0', module),
+      path.join(sourceRoot, 'build/qt-sources/6.12.0', module),
       path.join(cachedNotices, module),
     );
   if (fs.existsSync(cachedNotices))
     fs.cpSync(cachedNotices, path.join(output, 'Qt/source-notices'), { recursive: true });
   else if (!fs.existsSync(sbom))
     throw new Error('Qt source notices or SDK SPDX inventory required');
+  const hasNotice = (directory) =>
+    fs.existsSync(directory) &&
+    fs
+      .readdirSync(directory, { withFileTypes: true })
+      .some(
+        (entry) =>
+          entry.isFile() || (entry.isDirectory() && hasNotice(path.join(directory, entry.name))),
+      );
+  if (!webSocketsSpdx && !hasNotice(path.join(output, 'Qt/source-notices/qtwebsockets')))
+    throw new Error('Required QtWebSockets SPDX or source notices are missing');
+}
+
+export function collectLicenses(destination, qt, version) {
+  const output = path.join(destination, 'deployment');
+  fs.mkdirSync(output, { recursive: true });
+  const source = path.join(root, 'build/release-tools/qt-license-texts');
+  if (!fs.existsSync(source))
+    throw new Error('Run node tools/release/prepare.mjs before packaging');
+  fs.cpSync(source, path.join(output, 'Qt/licenses'), { recursive: true });
+  collectQtNotices(output, qt);
   const result = spawnSync('cargo', ['metadata', '--locked', '--offline', '--format-version=1'], {
     cwd: root,
     encoding: 'utf8',

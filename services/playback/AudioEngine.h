@@ -7,6 +7,10 @@
 namespace EchoMusic
 {
 struct AudioSink;
+namespace AudioAnalysis
+{
+struct CapturedPcmSource;
+}
 /// GUI-facing engine bridge. The worker alone owns the Rust handle. Callback
 /// context survives drain; high-rate observations coalesce in a bounded mailbox.
 class AudioEngine final : public QObject
@@ -44,6 +48,8 @@ public:
     void output(const QString &name, bool exclusive, quint64 revision = 0);
     void refreshDevices();
     void configureSpectrum(const QJsonObject &options);
+    /// Background-only immutable capture of the exact acknowledged native source.
+    static AudioAnalysis::CapturedPcmSource captureAnalysisSource(const QJsonObject &facts);
     void spectrumSnapshot(quint64 revision);
     void disconnectPolicy(bool pause);
     void effect(const QJsonObject &configuration, quint64 revision = 0);

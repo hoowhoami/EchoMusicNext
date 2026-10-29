@@ -63,7 +63,7 @@ void PlaylistDetailService::registerRoutes(RouteController &router)
     router.registerPage({"playlist-detail",
                          "/main/playlist/:id",
                          QUrl("qrc:/qt/qml/EchoMusic/Playlists/PlaylistDetailPage.qml"),
-                         {"tab"},
+                         {"tab", "locateTrack", "locateToken"},
                          true,
                          true,
                          false,

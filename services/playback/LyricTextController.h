@@ -41,6 +41,7 @@ public:
     void setFilterPattern(const QString &);
     LyricTextController(LyricModel &model, NativeBridge &native, QSettings &settings,
                         QObject *parent = nullptr);
+    ~LyricTextController() override;
     QString conversion() const
     {
         return m_mode;

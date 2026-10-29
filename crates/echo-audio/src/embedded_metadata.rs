@@ -13,6 +13,13 @@ use std::{
 
 const MAX_COVER_BYTES: usize = 8 * 1024 * 1024;
 const MAX_TEXT_CHARS: usize = 4096;
+const MAX_LYRIC_BYTES: usize = 4 * 1024 * 1024;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct EmbeddedLyricError {
+    pub kind: &'static str,
+    pub message: &'static str,
+}
 
 #[derive(Debug, Default, PartialEq)]
 pub struct EmbeddedMetadata {
@@ -20,6 +27,7 @@ pub struct EmbeddedMetadata {
     artist: Option<String>,
     album: Option<String>,
     lyric: Option<String>,
+    lyric_error: Option<EmbeddedLyricError>,
     cover: Option<Vec<u8>>,
 }
 
@@ -29,6 +37,8 @@ pub struct EmbeddedTrackMetadata {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub lyric: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lyric_error: Option<EmbeddedLyricError>,
     pub cover_file: Option<String>,
 }
 
@@ -39,11 +49,13 @@ impl EmbeddedMetadata {
         let cover = reader.take_cover().and_then(|cover| {
             (!cover.data.is_empty() && cover.data.len() <= MAX_COVER_BYTES).then_some(cover.data)
         });
+        let (lyric, lyric_error) = lyrics(&tags);
         Arc::new(Self {
             title: text(&tags, "title"),
             artist: text(&tags, "artist"),
             album: text(&tags, "album"),
-            lyric: lyrics(&tags),
+            lyric,
+            lyric_error,
             cover,
         })
     }
@@ -54,6 +66,7 @@ impl EmbeddedMetadata {
             artist: self.artist.clone(),
             album: self.album.clone(),
             lyric: self.lyric.clone(),
+            lyric_error: self.lyric_error.clone(),
             // Keep artwork out of V8 entirely: Electron may copy native Buffers
             // on its main thread even when they were created in a worker.
             // Cache failure must not discard otherwise usable tags or lyrics.
@@ -149,8 +162,8 @@ fn cache_cover(root: &Path, data: &[u8]) -> io::Result<String> {
     result.map(|()| name)
 }
 
-fn lyrics(tags: &HashMap<String, String>) -> Option<String> {
-    ["lyrics", "unsyncedlyrics", "unsynced lyrics"]
+fn lyrics(tags: &HashMap<String, String>) -> (Option<String>, Option<EmbeddedLyricError>) {
+    let lyric = ["lyrics", "unsyncedlyrics", "unsynced lyrics"]
         .into_iter()
         .find_map(|name| {
             tags.iter()
@@ -164,8 +177,18 @@ fn lyrics(tags: &HashMap<String, String>) -> Option<String> {
             })
         })
         .map(|(_, value)| value.trim_matches(|c: char| c.is_whitespace() || c == '\0'))
-        .filter(|value| !value.is_empty())
-        .map(|value| value.chars().take(256 * 1024).collect())
+        .filter(|value| !value.is_empty());
+    match lyric {
+        Some(value) if value.len() > MAX_LYRIC_BYTES => (
+            None,
+            Some(EmbeddedLyricError {
+                kind: "resource_limit",
+                message: "内嵌歌词超过 4 MiB UTF-8 预算",
+            }),
+        ),
+        Some(value) => (Some(value.to_owned()), None),
+        None => (None, None),
+    }
 }
 
 fn text(tags: &HashMap<String, String>, name: &str) -> Option<String> {
@@ -179,6 +202,87 @@ fn text(tags: &HashMap<String, String>, name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn reader_with_lyrics(lyric: &str) -> AudioReader {
+        // Rewrite only a real FLAC Vorbis-comment metadata block; PCM and the
+        // embedded picture stay byte-identical. No encoder/tool is needed.
+        let original = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/embedded-metadata.flac"),
+        )
+        .unwrap();
+        assert_eq!(&original[..4], b"fLaC");
+        let mut result = original[..4].to_vec();
+        let mut offset = 4;
+        loop {
+            let header = &original[offset..offset + 4];
+            let length = u32::from_be_bytes([0, header[1], header[2], header[3]]) as usize;
+            if header[0] & 0x7f == 4 {
+                let vendor = b"EchoMusic bounded lyric fixture";
+                let mut comments = Vec::new();
+                comments.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
+                comments.extend_from_slice(vendor);
+                comments.extend_from_slice(&2u32.to_le_bytes());
+                for value in ["TITLE=Kept title".to_string(), format!("LYRICS={lyric}")] {
+                    comments.extend_from_slice(&(value.len() as u32).to_le_bytes());
+                    comments.extend_from_slice(value.as_bytes());
+                }
+                let length = (comments.len() as u32).to_be_bytes();
+                result.extend_from_slice(&[header[0], length[1], length[2], length[3]]);
+                result.extend_from_slice(&comments);
+            } else {
+                result.extend_from_slice(&original[offset..offset + 4 + length]);
+            }
+            offset += 4 + length;
+            if header[0] & 0x80 != 0 {
+                break;
+            }
+        }
+        result.extend_from_slice(&original[offset..]);
+        AudioReader::new(std::io::Cursor::new(result)).unwrap()
+    }
+
+    fn sized_ttml(bytes: usize, multibyte: bool) -> String {
+        let prefix = "<tt xmlns='http://www.w3.org/ns/ttml'><head><!--";
+        let suffix = "--></head><body><p begin='0s' end='1s'>A</p></body></tt>";
+        let budget = bytes - prefix.len() - suffix.len();
+        let padding = if multibyte {
+            format!("{}{}", "歌".repeat(budget / 3), "a".repeat(budget % 3))
+        } else {
+            "a".repeat(budget)
+        };
+        format!("{prefix}{padding}{suffix}")
+    }
+
+    #[test]
+    fn real_tag_entry_preserves_large_ttml_and_exact_utf8_budget_without_truncating() {
+        for (bytes, multibyte) in [
+            (300 * 1024, false),
+            (4 * 1024 * 1024, false),
+            (4 * 1024 * 1024, true),
+        ] {
+            let lyric = sized_ttml(bytes, multibyte);
+            assert_eq!(lyric.len(), bytes);
+            let metadata = EmbeddedMetadata::from_reader(&mut reader_with_lyrics(&lyric));
+            let actual = metadata.export(None).lyric.unwrap();
+            assert_eq!(actual.len(), lyric.len());
+            assert!(
+                actual == lyric,
+                "the complete UTF-8 tag must survive without truncation"
+            );
+            assert_eq!(metadata.title.as_deref(), Some("Kept title"));
+            assert!(metadata.cover.is_some());
+        }
+    }
+    #[test]
+    fn oversized_real_tag_reports_a_separate_lyric_error_and_keeps_other_metadata() {
+        let lyric = sized_ttml(4 * 1024 * 1024 + 1, true);
+        let metadata = EmbeddedMetadata::from_reader(&mut reader_with_lyrics(&lyric));
+        let value = serde_json::to_value(metadata.export(None)).unwrap();
+        assert!(value["lyric"].is_null());
+        assert_eq!(value["lyric_error"]["kind"], "resource_limit");
+        assert_eq!(metadata.title.as_deref(), Some("Kept title"));
+        assert!(metadata.cover.is_some());
+    }
 
     #[test]
     fn real_reader_snapshot_moves_cover_and_exports_without_more_reads() {

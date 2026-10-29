@@ -412,8 +412,7 @@ void WindowsWindowBackdrop::clear()
         accent(0);
         frameBorder(m_handle, kBorderDefault);
         disableBlurBehind(m_handle);
-        extendFrame(m_handle,
-                    m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint));
+        extendFrame(m_handle, m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint));
         refreshFrame(m_handle);
     }
     m_applied = Applied::None;
@@ -638,8 +637,10 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
 }
 QVariantMap WindowsWindowBackdrop::diagnostics() const
 {
-    QVariantMap state{{"build", m_build},   {"frostEnabled", m_enabled},
-                      {"darkMode", m_dark}, {"initialized", m_initialized},
+    QVariantMap state{{"build", m_build},
+                      {"frostEnabled", m_enabled},
+                      {"darkMode", m_dark},
+                      {"initialized", m_initialized},
                       {"error", m_error}};
     if (!m_window || !m_handle || !IsWindow(m_handle)) {
         state.insert("attached", false);

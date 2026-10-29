@@ -188,7 +188,7 @@ void AppearanceCatalog::fail(AppearanceEntry *e, const QString &message)
 void AppearanceCatalog::request(const QString &action)
 {
     if (QStringList{"themes", "playback", "closePlayback", "skins", "settings", "source",
-                    "comments", "barrage"}
+                    "comments", "barrage", "closeSkinSettings"}
             .contains(action))
         emit requestRaised(action);
 }

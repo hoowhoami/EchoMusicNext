@@ -40,6 +40,9 @@ pub struct PacketCacheStats {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrackSwitchInfo {
+    /// Decoder generation whose PCM owns this output boundary. Captured by
+    /// mark_track_boundary_inner, then rechecked after dispatcher delivery.
+    pub(crate) output_generation: u64,
     pub(crate) embedded_metadata:
         Option<std::sync::Arc<crate::embedded_metadata::EmbeddedMetadata>>,
     pub url: String,
@@ -59,6 +62,7 @@ pub struct TrackSwitchInfo {
 impl TrackSwitchInfo {
     pub fn new(url: String, audio_stream_ordinal: Option<usize>, seq: u64, duration: f64) -> Self {
         Self {
+            output_generation: 0,
             embedded_metadata: None,
             url,
             audio_stream_ordinal,

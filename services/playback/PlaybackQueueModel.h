@@ -4,6 +4,7 @@
 #include <QSet>
 #include <QPointer>
 #include <QTimer>
+#include <QRandomGenerator>
 namespace EchoMusic
 {
 class SongMetadataService;
@@ -24,7 +25,8 @@ public:
         DurationText,
         ResourceId,
         Current,
-        QueuedNext
+        QueuedNext,
+        Identity
     };
     explicit PlaybackQueueModel(QObject *parent);
     void attachMetadata(SongMetadataService *service);
@@ -48,6 +50,8 @@ public:
     }
     void replace(PlaybackTracks tracks, int current = -1);
     void setCurrent(int row);
+    /// Current first, then Fisher–Yates over the other entries. Clears next priorities.
+    bool shuffle(QRandomGenerator &random);
     /// Adopt the canonical playback identity (view id + file identity) into a
     /// queue row whose persisted snapshot predates it.
     void adoptIdentity(int row, const PlaybackTrack &track);

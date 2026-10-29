@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QCryptographicHash>
 #include <cmath>
+#include <utility>
 #include <QGuiApplication>
 #include <QClipboard>
 namespace EchoMusic
@@ -28,6 +29,60 @@ QString offsetKey(const QString &track)
     return EchoMusic::SettingsKeys::Lyrics::TrackOffsetsPrefix +
            QString::fromLatin1(
                QCryptographicHash::hash(track.toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+void appendConversionTexts(const QJsonObject &row, QJsonArray &texts)
+{
+    for (const auto &field : {"text", "translation", "romanization"})
+        texts.append(row.value(field).toString());
+    for (const auto &entry : row.value("alternate_texts").toArray())
+        texts.append(entry.toObject().value("text").toString());
+    for (const auto &vocal : row.value("background_vocals").toArray())
+        appendConversionTexts(vocal.toObject(), texts);
+}
+QJsonObject convertedRow(QJsonObject row, const QJsonArray &texts, int &cursor)
+{
+    const auto converted = texts[cursor++].toString();
+    row.insert("translation", texts[cursor++].toString());
+    row.insert("romanization", texts[cursor++].toString());
+    auto words = row.value("words").toArray();
+    QString joined;
+    for (const auto &word : words)
+        joined += word.toObject().value("text").toString();
+    const auto scalars = converted.toStdU32String();
+    bool canReplace = words.isEmpty();
+    if (!words.isEmpty() && joined == row.value("text").toString() &&
+        size_t(joined.toUcs4().size()) == scalars.size()) {
+        int at = 0;
+        for (int j = 0; j < words.size(); ++j) {
+            auto word = words[j].toObject();
+            const auto size = word.value("text").toString().toUcs4().size();
+            word.insert("text", QString::fromUcs4(scalars.data() + at, size));
+            at += int(size);
+            words[j] = word;
+        }
+        row.insert("words", words);
+        canReplace = true;
+    }
+    // A count change cannot preserve exact timing. Keep that row's main text
+    // and words while still converting independent alternate/background rows.
+    if (canReplace)
+        row.insert("text", converted);
+    if (row.contains("alternate_texts")) {
+        auto alternatives = row.value("alternate_texts").toArray();
+        for (int i = 0; i < alternatives.size(); ++i) {
+            auto alternative = alternatives[i].toObject();
+            alternative.insert("text", texts[cursor++].toString());
+            alternatives[i] = alternative;
+        }
+        row.insert("alternate_texts", alternatives);
+    }
+    if (row.contains("background_vocals")) {
+        auto vocals = row.value("background_vocals").toArray();
+        for (int i = 0; i < vocals.size(); ++i)
+            vocals[i] = convertedRow(vocals[i].toObject(), texts, cursor);
+        row.insert("background_vocals", vocals);
+    }
+    return row;
 }
 } // namespace
 LyricTextController::LyricTextController(LyricModel &model, NativeBridge &native,
@@ -114,7 +169,8 @@ bool LyricTextController::replace(const QJsonObject &lyrics, const QString &trac
 void LyricTextController::clear()
 {
     ++m_revision;
-    m_request = 0;
+    if (const auto previous = std::exchange(m_request, 0))
+        m_native.cancel(previous);
     m_original = {};
     m_presented = {};
     m_track.clear();
@@ -122,6 +178,11 @@ void LyricTextController::clear()
     m_error.clear();
     m_model.clear();
     emit changed();
+}
+LyricTextController::~LyricTextController()
+{
+    if (const auto previous = std::exchange(m_request, 0))
+        m_native.cancel(previous);
 }
 void LyricTextController::setPosition(qint64 position)
 {
@@ -209,19 +270,16 @@ void LyricTextController::copyLyrics()
 void LyricTextController::apply()
 {
     ++m_revision;
-    m_request = 0;
+    if (const auto previous = std::exchange(m_request, 0))
+        m_native.cancel(previous);
     m_error.clear();
     m_presented = m_original;
     publish();
     if (m_mode == "none" || m_original.isEmpty())
         return;
     QJsonArray texts;
-    for (const auto &line : m_original.value("lines").toArray()) {
-        const auto object = line.toObject();
-        texts.append(object.value("text"));
-        texts.append(object.value("translation").toString());
-        texts.append(object.value("romanization").toString());
-    }
+    for (const auto &line : m_original.value("lines").toArray())
+        appendConversionTexts(line.toObject(), texts);
     m_request =
         m_native.submit(NativeBridge::Opencc,
                         QJsonObject{{"texts", texts}, {"profile", profile(m_mode)}}, m_revision);
@@ -237,7 +295,11 @@ void LyricTextController::publish()
         // Product offset is positive = earlier; upstream KRC offset is later.
         result.insert("offset_ms",
                       m_presented.value("offset_ms").toInteger() - m_globalOffset - m_trackOffset);
-        m_model.replace(result);
+        if (!m_model.replace(result)) {
+            m_error = tr("歌词转换结果超出数据范围");
+            emit changed();
+            return;
+        }
         m_model.setPosition(m_position);
     }
     emit changed();
@@ -255,47 +317,24 @@ void LyricTextController::completed(quint64 id, quint64 revision, bool success,
     }
     const auto result = QJsonDocument::fromJson(bytes);
     auto lines = m_original.value("lines").toArray();
-    if (!result.isArray() || result.array().size() != lines.size() * 3) {
+    QJsonArray expected;
+    for (const auto &line : lines)
+        appendConversionTexts(line.toObject(), expected);
+    if (!result.isArray() || result.array().size() != expected.size()) {
         m_error = tr("歌词转换结果不完整");
         emit changed();
         return;
     }
     const auto texts = result.array();
-    for (int i = 0; i < lines.size(); ++i) {
-        if (!texts[i * 3].isString() || !texts[i * 3 + 1].isString() ||
-            !texts[i * 3 + 2].isString()) {
+    for (const auto &text : texts)
+        if (!text.isString()) {
             m_error = tr("歌词转换结果无效");
             emit changed();
             return;
         }
-        auto line = lines[i].toObject();
-        const auto converted = texts[i * 3].toString();
-        line.insert("translation", texts[i * 3 + 1].toString());
-        line.insert("romanization", texts[i * 3 + 2].toString());
-        auto words = line.value("words").toArray();
-        QString joined;
-        for (const auto &word : words)
-            joined += word.toObject().value("text").toString();
-        const auto scalars = converted.toUcs4();
-        if (!words.isEmpty() && joined == line.value("text").toString() &&
-            joined.toUcs4().size() == scalars.size()) {
-            int at = 0;
-            for (int j = 0; j < words.size(); ++j) {
-                auto word = words[j].toObject();
-                const auto size = word.value("text").toString().toUcs4().size();
-                word.insert("text", QString::fromUcs4(scalars.constData() + at, size));
-                at += int(size);
-                words[j] = word;
-            }
-            line.insert("words", words);
-        } else if (!words.isEmpty()) {
-            // Changed character count cannot preserve the original timing split.
-            // Keep that complete line unchanged rather than corrupt karaoke timing.
-            lines[i] = line;
-            continue;
-        }
-        line.insert("text", converted);
-        lines[i] = line;
+    int cursor = 0;
+    for (int i = 0; i < lines.size(); ++i) {
+        lines[i] = convertedRow(lines[i].toObject(), texts, cursor);
     }
     m_presented = m_original;
     m_presented.insert("lines", lines);

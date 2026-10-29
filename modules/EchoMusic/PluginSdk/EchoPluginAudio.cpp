@@ -6,9 +6,11 @@
 #include <utility>
 namespace EchoMusic
 {
-EchoPluginAudio::EchoPluginAudio(EchoPluginContext &scope) : QObject(&scope), m_spectrum(scope)
+EchoPluginAudio::EchoPluginAudio(EchoPluginContext &scope)
+    : QObject(&scope), m_spectrum(scope), m_analysis(scope)
 {
     m_spectrum.setParent(this);
+    m_analysis.setParent(this);
 }
 EchoPluginSpectrumSubscription::EchoPluginSpectrumSubscription(EchoPluginContext &scope,
                                                                EchoPluginRegistration &lease,

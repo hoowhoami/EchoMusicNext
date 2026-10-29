@@ -100,6 +100,16 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         qWarning().noquote() << "System media:" << event.value("message").toString();
         return;
     }
+    // Capture A before an actual file-loaded boundary adopts B and clears the
+    // live model. Nested identities authenticate the pending native request.
+    if (!m_playback.m_cast->remoteMedia() && event.contains("transition_playback"))
+        m_playback.m_transitionPresentation->observe(event.value("transition_playback").toObject(),
+                                                     m_playback.m_audioSequence, m_playback.m_track,
+                                                     QUrl(m_playback.cover()), m_playback.m_lyrics,
+                                                     m_playback.m_lyricState,
+                                                     m_playback.m_lyricText.errorMessage().isEmpty()
+                                                         ? m_playback.m_lyricSource.errorMessage()
+                                                         : m_playback.m_lyricText.errorMessage());
     if (!m_playback.m_cast->remoteMedia() && m_playback.m_transition->handleEvent(event))
         return;
     const auto seq = event.value("track_seq");
@@ -131,6 +141,7 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         m_playback.m_loading = false;
         m_playback.m_loaded = true;
         m_playback.m_appliedEffect = m_playback.m_sourceEffect;
+        m_playback.adoptSourceFacts();
         m_playback.m_seamless = false;
         m_playback.m_position = qint64(event.value("time").toDouble() * 1000);
         m_playback.m_duration = qint64(event.value("duration").toDouble() * 1000);
@@ -153,6 +164,7 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         m_playback.m_loading = false;
         m_playback.m_loaded = true;
         m_playback.m_appliedEffect = m_playback.m_sourceEffect;
+        m_playback.adoptSourceFacts();
         m_playback.m_error.clear();
         publishMedia();
         if (m_playback.m_resumePosition >= 0) {

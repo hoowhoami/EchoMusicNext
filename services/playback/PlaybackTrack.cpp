@@ -3,8 +3,14 @@
 #include "ArtistCoverPresentation.h"
 #include <QRegularExpression>
 #include <QJsonArray>
+#include <QCryptographicHash>
 namespace EchoMusic
 {
+QString PlaybackTrack::presentationIdentity() const
+{
+    return QString::fromLatin1(
+        QCryptographicHash::hash(stableKey().toUtf8(), QCryptographicHash::Sha256).toHex());
+}
 qint64 effectAudioTrack(const QJsonArray &tracks, const QString &effect)
 {
     qint64 selected = effect == "vocal" ? 2 : 1, first = 0;

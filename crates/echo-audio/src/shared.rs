@@ -10,6 +10,7 @@ mod normalization;
 mod realtime_ring;
 mod session;
 mod stats;
+mod transition_projection;
 mod types;
 
 use ao_state::{AoBufferState, AoBufferingMetrics, AoBufferingState};
@@ -17,6 +18,8 @@ use decoded_queue::{DecodedAudioQueue, DecodedQueueItem};
 use gapless::{GaplessBoundary, GaplessPrepareState};
 use realtime_ring::RealtimeAudioRing;
 pub use session::PlaybackSession;
+pub use transition_projection::{TransitionPlaybackPhase, TransitionPlaybackSnapshot};
+pub(crate) use transition_projection::{TransitionPresentationPlan, TransitionProjectionPlan};
 pub use types::{
     AudioOutputStats, AudioSampleFormat, DecodedAudioChunk, DecodedAudioData, DecodedAudioFormat,
     FilterInput, MIX_CHANNELS, MixFormat, PacketCacheSeekableRange, PacketCacheStats,
@@ -57,7 +60,11 @@ pub struct SharedAudio {
     output_queue_wait: Mutex<()>,
     realtime_output: RealtimeAudioRing,
     decoded_queue: Mutex<DecodedAudioQueue>,
-    output_queue_changed: Condvar,
+    // Each session owns one filter producer. A persistent park token prevents
+    // realtime capacity notifications from being lost before it starts waiting.
+    output_producer: OnceLock<std::thread::Thread>,
+    #[cfg(test)]
+    before_output_queue_wait: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     decoded_queue_changed: Condvar,
     output_ring_capacity: usize,
     configured_output_buffer_samples: usize,
@@ -86,6 +93,8 @@ pub struct SharedAudio {
     pending_ao_state_buffered_secs_bits: AtomicU64,
     pending_ao_state_target_secs_bits: AtomicU64,
     pending_track_switch: Mutex<Option<TrackSwitchInfo>>,
+    transition_projection: Mutex<transition_projection::TransitionProjectionState>,
+    output_frames_consumed: AtomicU64,
     pending_playback_end: AtomicBool,
     decode_stop: AtomicBool,
     decode_generation: AtomicU64,
@@ -166,7 +175,9 @@ impl SharedAudio {
             output_queue_wait: Mutex::new(()),
             realtime_output: RealtimeAudioRing::new(output_ring_capacity),
             decoded_queue: Mutex::new(DecodedAudioQueue::default()),
-            output_queue_changed: Condvar::new(),
+            output_producer: OnceLock::new(),
+            #[cfg(test)]
+            before_output_queue_wait: Mutex::new(None),
             decoded_queue_changed: Condvar::new(),
             output_ring_capacity,
             configured_output_buffer_samples,
@@ -195,6 +206,8 @@ impl SharedAudio {
             pending_ao_state_buffered_secs_bits: AtomicU64::new(0.0f64.to_bits()),
             pending_ao_state_target_secs_bits: AtomicU64::new(0.0f64.to_bits()),
             pending_track_switch: Mutex::new(None),
+            transition_projection: Mutex::new(Default::default()),
+            output_frames_consumed: AtomicU64::new(0),
             pending_playback_end: AtomicBool::new(false),
             decode_stop: AtomicBool::new(false),
             decode_generation: AtomicU64::new(0),
@@ -239,6 +252,21 @@ impl SharedAudio {
         }
     }
 
+    pub(crate) fn register_output_producer(&self) {
+        let producer = self.output_producer.get_or_init(std::thread::current);
+        assert_eq!(
+            producer.id(),
+            std::thread::current().id(),
+            "one session must retain its single output producer"
+        );
+    }
+
+    fn wake_output_producer(&self) {
+        if let Some(producer) = self.output_producer.get() {
+            producer.unpark();
+        }
+    }
+
     pub fn request_stop(&self) {
         self.stop.store(true, Ordering::Release);
         self.output_recovering.store(false, Ordering::Release);
@@ -250,7 +278,7 @@ impl SharedAudio {
             self.interrupt_secondary();
         }
         self.wake_control_signal();
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
         self.decoded_queue_changed.notify_all();
         self.gapless_prepare_changed.notify_all();
     }
@@ -271,7 +299,7 @@ impl SharedAudio {
         // A fresh output stream should apply the current target gain directly
         // rather than ramping from whatever the previous stream last applied.
         self.reset_applied_output_gain();
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
     }
 
     pub fn try_begin_output_recovery(&self) -> bool {
@@ -305,7 +333,7 @@ impl SharedAudio {
 
     pub fn begin_output_preroll(&self) {
         self.ao_state.begin_preroll();
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
     }
 
     pub fn request_decode_stop(&self) {
@@ -316,7 +344,7 @@ impl SharedAudio {
             }
             self.interrupt_secondary();
         }
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
         self.decoded_queue_changed.notify_all();
         self.gapless_prepare_changed.notify_all();
     }
@@ -328,7 +356,7 @@ impl SharedAudio {
             }
             self.interrupt_secondary();
         }
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
         self.decoded_queue_changed.notify_all();
         self.gapless_prepare_changed.notify_all();
     }
@@ -758,14 +786,28 @@ impl SharedAudio {
                 source_frames_remaining =
                     source_frames_remaining.saturating_sub(pushed_source_frames);
                 self.publish_restart_buffering_progress(pushed_samples);
-                self.output_queue_changed.notify_all();
+                self.wake_output_producer();
                 continue;
             }
+            // Production registers in run_filter before publishing any PCM, so
+            // the callback can never observe a full ring without its wake target.
+            // Direct unit-test seed writes must not claim that producer thread.
+            #[cfg(test)]
+            self.register_output_producer();
             while self.realtime_output.buffered_samples() >= self.output_buffer_target_samples()
                 && !self.should_stop_decoding()
                 && !decode_generation.is_some_and(|value| !self.is_decode_generation_current(value))
             {
-                queue = match self.output_queue_changed.wait(queue) {
+                #[cfg(test)]
+                if let Some(before_wait) = self.before_output_queue_wait.lock().unwrap().take() {
+                    before_wait();
+                }
+                // The callback cannot take this mutex. Unlike a Condvar notify,
+                // unpark retains a token if consumption or stop happens in this
+                // check-to-sleep window. Spurious tokens simply recheck capacity.
+                drop(queue);
+                std::thread::park();
+                queue = match self.output_queue_wait.lock() {
                     Ok(queue) => queue,
                     Err(poisoned) => poisoned.into_inner(),
                 };
@@ -926,6 +968,10 @@ impl SharedAudio {
             None
         };
         let (consumed_samples, consumed_source_frames) = self.realtime_output.pop_into(output);
+        self.output_frames_consumed.fetch_add(
+            (consumed_samples / self.mix_format.channels.max(1)) as u64,
+            Ordering::Release,
+        );
         if consumed_samples > 0 {
             if let Some(active) = boundary.as_ref() {
                 apply_track_boundary_fade(
@@ -942,7 +988,7 @@ impl SharedAudio {
                     self.mix_format.channels,
                 );
             }
-            self.output_queue_changed.notify_all();
+            self.wake_output_producer();
             let underrun = consumed_samples < output.len()
                 && !self.decoded_eof.load(Ordering::Acquire)
                 && !self.eof.load(Ordering::Acquire);
@@ -1206,7 +1252,7 @@ impl SharedAudio {
         self.max_output_request_samples.store(0, Ordering::Release);
         self.output_demand_since_producer_progress
             .store(0, Ordering::Release);
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
     }
 
     fn raise_output_buffer_target(&self, required_samples: usize) {
@@ -1217,7 +1263,7 @@ impl SharedAudio {
             .output_buffer_target_samples
             .fetch_max(target, Ordering::AcqRel);
         if target > previous {
-            self.output_queue_changed.notify_all();
+            self.wake_output_producer();
         }
     }
 
@@ -1262,7 +1308,7 @@ impl SharedAudio {
     pub fn mark_eof(&self) {
         self.eof.store(true, Ordering::Release);
         self.ao_state.reset();
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
     }
 
     pub fn mark_decoded_eof(&self) {
@@ -1310,6 +1356,7 @@ impl SharedAudio {
             queue.clear();
         }
         let generation = self.decode_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        self.clear_transition_projection();
         self.filter_generation.fetch_add(1, Ordering::AcqRel);
         self.decode_stop.store(false, Ordering::Release);
         self.decoded_eof.store(false, Ordering::Release);
@@ -1336,10 +1383,14 @@ impl SharedAudio {
         self.set_position_secs(position_secs);
         self.set_speed(dsp_settings.speed);
         if let Ok(mut ring) = self.spectrum_ring.lock() {
-            *ring = SampleRing::new(self.mix_format.sample_rate as usize);
+            // The session mix format is fixed. Preserve the allocation and
+            // capture flag while advancing the analysis generation on seek,
+            // loop, and decoder resume; a replacement ring can repeat an old
+            // generation and accidentally reuse frequency smoothing/deadlines.
+            ring.clear();
         }
         self.update_dsp_settings(dsp_settings);
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
         self.decoded_queue_changed.notify_all();
         self.gapless_prepare_changed.notify_all();
         generation
@@ -1357,7 +1408,7 @@ impl SharedAudio {
         self.end_reported.store(false, Ordering::Release);
         self.set_speed(dsp_settings.speed);
         self.update_dsp_settings(dsp_settings);
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
         self.decoded_queue_changed.notify_all();
     }
 
@@ -1382,7 +1433,7 @@ impl SharedAudio {
         self.end_reported.store(false, Ordering::Release);
         self.set_speed(dsp_settings.speed);
         self.update_dsp_settings(dsp_settings);
-        self.output_queue_changed.notify_all();
+        self.wake_output_producer();
         self.decoded_queue_changed.notify_all();
     }
 
@@ -1405,6 +1456,10 @@ impl SharedAudio {
     /// Schedule a normalisation-gain change for the point in the stream that the producer is
     /// at right now (everything queued so far keeps the current gain).
     pub fn mark_gain_marker(&self, gain_db: f32) {
+        self.mark_gain_marker_inner(gain_db, None);
+    }
+
+    fn mark_gain_marker_inner(&self, gain_db: f32, transition: Option<(u64, u64)>) {
         let Ok(mut marker) = self.gain_marker.lock() else {
             return;
         };
@@ -1418,8 +1473,14 @@ impl SharedAudio {
                     .round() as usize
             })
             .unwrap_or_default();
+        let remaining_samples = output_samples.saturating_add(decoded_samples);
+        if let Some((request_id, generation)) = transition {
+            if !self.record_transition_end(request_id, generation, remaining_samples) {
+                return;
+            }
+        }
         *marker = Some(GainMarker {
-            remaining_samples: output_samples.saturating_add(decoded_samples),
+            remaining_samples,
             gain_db,
         });
     }

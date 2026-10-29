@@ -26,6 +26,28 @@
 
 支持 fps 1–60、binCount 8–512、fftSize 256–8192 的指定二次幂、smoothing 0–0.95、log / linear / mel 频率映射及可选波形。帧包含 source、state、时间、采样率、FFT 大小、频段、peak / rms 等资料。当前通过有界 JSON 传输，不提供零复制二进制 buffer。HDR 在 `graphics.hdr` 不可用时保持禁用。
 
+原生点图元使用通用 `PointMesh` 和 `graphics.pointMesh`，顶点数量/数据有界，几何归场景图；输入布局、错误及平台边界见[点网格说明](plugin-point-mesh.md)。
+
+## 整曲分析与歌曲交接
+
+`audio.analysis` / `audioAnalysis` 提供已采用音源的有界完整分析 lease。声明 `audio.analysis.transitionSources` 后，还可用实际 `transition.outgoing.sequence` 与 `transition.epoch` 选择当前授权的 outgoing 源；不接受插件路径、URL、PCM 或曲目键。精确身份、缓存、取消/排空、模型与安装材料见[音源分析说明](audio-analysis.md)。平台或材料缺失明确失败，安装事实不代表 GPU 已验证。
+
+`playback.transitionPresentation` 投影实际输出消费、成对 A/B 位置、宿主歌词与增益计划对应的 cue。歌词呈现继续使用唯一宿主时钟；不能把队列位置、已消费 overlap 比例或任意计时器替代真正的歌曲交点。
+
+`playback.transitionTransport` 为 `page.command` / `player.control` 增加
+`selectTransitionSource`。参数必须完整提供真实投影的 `epoch`、目标 `sequence`（十进制
+uint64 字符串）、`positionMs`（0..1e12 的整数）和 `playing`（布尔值）。宿主在提交和
+执行时检查 presentation scope、账号及精确转场来源；过期选择返回 `StaleTransition`，
+不会改为控制当前曲。资源 ID 相同也不能替代 sequence。原生切换通知可能晚于真实输出，
+因此该命令统一经既有曲目来源流程恢复目标与初始 seek/播放意图，可能重新解析来源并重开
+decoder，不承诺复用原读流或无缝恢复。成功仅表示已接受意图；加载、权限与错误恢复仍由
+宿主原有状态通知报告。插件不获得音源地址、账户凭据或另一套播放时钟。
+
+`playback.queueActions` 增加 `queueNext { index }` 和 `saveQueue { title }`。前者直接
+使用经两次队列代次检查的原生曲目事实，保留本地来源；后者保存命名的本地队列副本，
+沿用宿主既有四队列容量及后台持久化策略。它不是账户云歌单写入，成功不表示磁盘事务
+已经同步提交。
+
 ## 依赖与协作
 
 通过 `ctx.plugins` 查询依赖、注册服务，使用 `pluginService<Contract>()` 调用服务。对应的能力声明为 `plugins.dependencies` 和 `plugins.services`。
@@ -63,6 +85,10 @@
 `ctx.theme.registerTheme`与`ctx.ui.lyricsPage.registerSkin`将候选加入正式主题中心和换肤抽屉，注册不会自动选中。主题支持分类、默认显示模式、深浅配色、独立浮层/Mini配色、包内背景媒体和QML装饰、区域透明度、强调色渐变及页面过渡；整页皮肤可分别关闭宿主标题栏和歌词工具，完整接管正文与播放控制布局。Mini跟随同一主题，可使用专属背景或完整组件。
 
 注入组件的`plugin/page/configuration`均有明确作用域。可见实例独立撤销注册、样式、订阅、任务和异步命令；共享`ui.state`与宿主唯一的播放器、歌词、ThemeStore。隐藏、最小化、替换或账号变化释放呈现树。配置代理共用安装私有数据中的单一持久化队列，验证整个JSON后原子写入，更新/停用先排空已接受写入。
+
+`ui.presentationClosing` 提供无载荷的 `page.aboutToClose` 同步通知：普通外观关闭、隐藏、替换时，先允许当前有效呈现提交拖动草稿，再沿用原撤销和排空。回调不能等待异步任务；停用、账号变化或 scope 已失效时不触发，组件销毁之后不恢复权限。通知仅公开 typed view 信号，不向插件交付宿主 QObject 或窗口句柄。
+
+`ui.presentationVisibility` 提供 author-owned `PresentationScope` QQuickItem 容器。只读 `presented` 随祖先裁剪、几何、透明度、显隐、Item rotation/scale 和窗口隐藏/最小化更新，可作为内部预览 Loader 的按需创建条件；不暴露宿主对象、不轮询、不判断遮挡。自定义 transform 列表不在当前通知契约内。它不授予操作权限，需结合当前呈现 active 状态。
 
 `player.snapshot/lyricsInfo/lyricSnapshot/on/control`提供曲目、模式、质量、音效、收藏、FM和歌词时间上下文；`appearance.snapshot/fonts`提供语义外观和完整字体链。`windows.snapshot/command`调用现有浮窗控制器；共享`EchoPluginPlaybackControls/EchoPluginProgress/EchoPluginLyricsView`可用于整页皮肤及Mini。作者签名与例子见[外观文档](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/appearance.md)，执行证据与平台边界见[本轮记录](internal/verification/2026-10-21-plugin-p0.md)。
 
@@ -120,3 +146,13 @@
 `ctx.cover` 生成原生 SVG 主题图标封面，`ctx.ui.cover.setFallback` 接入共享 EchoCover 的空值/错误处理。多贡献按优先级及稳定键仲裁，加载失败继续下一层，撤下恢复下一贡献或当前宿主占位；保留原解码密度、裁切、过渡及池化资源释放。SVG 自定义图形限制为静态、自包含图形。
 
 feature 为 `ui.navigation/settings.host/ui.actions/cover.themed/ui.cover`；涉及读取与改变宿主的操作分别需要 navigation/hostSettings/cover 声明和首次授权，管理页可撤销。账号变化及 scope 退役撤销观察、动作与封面注册并取消在途交付；已完成的用户设置持久保留。完整签名及用法见[作者指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/host-access.md)。
+
+`appearance.metadata` 为 `appearance.snapshot.themeMetadata` 增加当前实际生效主题的
+`{ key, title, description }`；预览期间返回预览主题，内置颜色返回 `null`。字段只读，
+沿用外观 `changed` 通知，持久化选择键不充当显示标题。
+`appearance.lyricIcons` 允许主题注册时提供 `lyricsIcons`，并在同一元数据中公开名称列表。
+最多 64 个非空字符串，每项最多 128 个 UTF-16 单元；宿主不将名称解析成路径，
+不指定图标库。歌词皮肤负责解析及未知名称的呈现，主题撤销后不保留其列表。
+`playback.lyrics.metadata` 增加来源明确提供的歌词身份、段落、声部、备用文本和
+TTML 来源信息，时间与预算见[TTML 文档](lyrics-ttml.md)。两项均为通用只读数据，
+不提供额外播放器或独立时钟。

@@ -1,0 +1,77 @@
+{
+  "_comment": [
+    "The analysis model weights the installer ships: what they are, where a build gets them, and how to",
+    "know a copy is intact. Read by build/fetchModels.mjs, which puts them in models/ (by hand, and from",
+    "build/beforePack.cjs when packaging); electron-builder's extraResources takes them from there. The",
+    "app reads them from its own resources/models and downloads nothing (electron/analysis/modelPaths.cjs).",
+    "",
+    "The hash is the point of this file, not the URLs. 'Downloaded successfully' and 'usable' are",
+    "different claims, and four separate times in this project a publisher's weights arrived intact",
+    "and still would not load. A truncated or mirror-substituted model does not fail loudly - it",
+    "loads and answers confidently and wrongly, which for a beat grid means every transition lands",
+    "off the beat with nothing in the log to say why. A file already in models/ with this hash is",
+    "used as it is; a build machine without one tries the mirrors in order, first match wins.",
+    "",
+    "Both models are MIT, which is what makes shipping and hosting our own copies allowed at all. A",
+    "CC-BY-NC model could never be listed here while Folia is AGPL-3.0 - see the licence field.",
+    "",
+    "Two files, each read by both runtimes: the renderer's WebGPU path and the analysis worker's MNN",
+    "(native/folia-mnn, built into the app), which builds each network over the same tensors. The",
+    "files earlier versions downloaded - the ONNX models, htdemucs-v3.mnn, the Python runtime - stay",
+    "on the mirrors for those versions; this one deletes any copy left in userData/models",
+    "(electron/analysis/modelPaths.cjs LEGACY_FILES).",
+    "",
+    "The first mirror is this repo's own models-v1 release (a prerelease, never 'latest', so the stable",
+    "updater's releases/latest is untouched); it is the one CI builds fetch from. The others follow it."
+  ],
+  "mirrors": [
+    "https://github.com/chthollyphile/folia-major/releases/download/models-v1/{file}",
+    "https://hf-mirror.com/HUAI4236/folia-models/resolve/main/{file}",
+    "https://huggingface.co/HUAI4236/folia-models/resolve/main/{file}",
+    "https://github.com/AZURE-HUAI/folia-models/releases/download/weights-v1/{file}"
+  ],
+  "models": [
+    {
+      "name": "beat_this",
+      "file": "beat_this-wgsl.bin",
+      "bytes": 41102271,
+      "sha256": "6365ae5ba2e42922772da01fbfd0bde8dd20b7362a679018e78a5f251fe8a967",
+      "enables": "beatGrid",
+      "license": "MIT",
+      "upstream": "https://github.com/CPJKU/beat_this",
+      "note": "Beat This! (CPJKU, ISMIR 2024), the authors' own final0 checkpoint exported by build/beat_this_wgsl/export_weights.py --f16: BatchNorms and RMSNorm gammas folded, matmul weights fp16, everything else fp32, the tensor manifest packed into the same file. One file for both runtimes: the WebGPU path in the renderer (src/services/analysis/beatThisWgsl), for automix and 智能动感模式 alike, and the CPU fallback in the analysis worker, which builds the network over these tensors in MNN (native/folia-mnn/folia_beat_this.cpp). Beat and downbeat lists identical to the onnxruntime export on the seven test tracks, on both."
+    },
+    {
+      "name": "htdemucs",
+      "file": "htdemucs-wgsl.bin",
+      "bytes": 91838176,
+      "sha256": "27d5331a74a4e23b18172b3d59d0378e698fd79bc0d0fed3316da77e3a37d8d1",
+      "enables": "stems",
+      "license": "MIT",
+      "upstream": "https://huggingface.co/itamiArika/htdemucs-int8-memory",
+      "note": "htdemucs (Meta Research), the four-stem htdemucs.onnx earlier versions shipped (sha256 099b5be7...), exported by build/htdemucs_wgsl/export_weights.py --f16: the graph's own weights, fp16 where the graph stores fp16 and fp32 elsewhere, Linear weights transposed, each ConvTranspose split into its four phases, the positional and frequency embeddings and the STFT windows as the graph bakes them, the tensor manifest packed into the same file. One file for both runtimes: the renderer's WebGPU runtime (src/services/analysis/htdemucsWgsl), the drum stem of 智能动感模式, and the analysis worker's CPU stems for automix, whose network native/folia-mnn/folia_htdemucs.cpp builds over these tensors in MNN. Against onnxruntime on six 3.9 s segments: WebGPU, the drum stem's level within 0.0006 dB, every layer 73-103 dB SNR, 135 ms per segment on an M4; MNN, worst per-stem level difference drums 0.0008 / bass 0.0071 / other 0.0005 / vocals 0.0000 dB, 0.3-0.4 s per segment on an M4."
+    }
+  ],
+  "licenseTexts": [
+    {
+      "model": "beat_this",
+      "repository": "https://github.com/CPJKU/beat_this",
+      "revision": "b95c8ab0c58c2d9fcfd40508ae8dffbc05ac4f5c",
+      "source": "https://raw.githubusercontent.com/CPJKU/beat_this/b95c8ab0c58c2d9fcfd40508ae8dffbc05ac4f5c/LICENSE",
+      "file": "beat-this-LICENSE.txt",
+      "bytes": 1113,
+      "sha256": "909ab6549794a18e9bb243aacfadda4a5f308436fc2846f350755c53c4f06ae1",
+      "copyright": "Copyright (c) 2024 Institute of Computational Perception, JKU Linz, Austria"
+    },
+    {
+      "model": "htdemucs",
+      "repository": "https://github.com/facebookresearch/demucs",
+      "revision": "e976d93ecc3865e5757426930257e200846a520a",
+      "source": "https://raw.githubusercontent.com/facebookresearch/demucs/e976d93ecc3865e5757426930257e200846a520a/LICENSE",
+      "file": "demucs-LICENSE.txt",
+      "bytes": 1087,
+      "sha256": "cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173",
+      "copyright": "Copyright (c) Meta Platforms, Inc. and affiliates."
+    }
+  ]
+}

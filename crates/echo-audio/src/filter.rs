@@ -67,6 +67,10 @@ fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> &str {
 }
 
 fn run_filter(shared: Arc<SharedAudio>, initial_graph: Option<AudioFilterGraph>) {
+    // Publish the wake target before any ring Release can make PCM visible to
+    // the realtime callback. A registration deferred until the first full ring
+    // would add a second publication race to the capacity/sleep hand-off.
+    shared.register_output_producer();
     let mut generation = shared.current_filter_generation();
     let mut decode_generation = shared.current_decode_generation();
     let mut graph = match initial_graph {

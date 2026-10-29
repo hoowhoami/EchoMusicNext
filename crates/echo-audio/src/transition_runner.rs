@@ -182,6 +182,7 @@ pub struct TransitionRunner {
     /// Processed B audio waiting to be queued at hand-off. Survives `Continue`
     /// from a full output queue so `finish` can retry without dropping samples.
     handoff_samples: Vec<f32>,
+    presentation_plan: crate::shared::TransitionPresentationPlan,
 }
 
 struct RearmInfo {
@@ -226,6 +227,12 @@ impl TransitionRunner {
             },
             None => None,
         };
+        let presentation_cue = crate::transition::presentation_cue::gain_crossover(
+            plan_for_mixer.as_ref(),
+            plan.uses_plain_fade(),
+            armed.a_gain,
+            armed.b_gain,
+        );
         let mixer = match TransitionMixer::new(MixerConfig {
             sample_rate,
             channels: mix_format.channels,
@@ -240,6 +247,15 @@ impl TransitionRunner {
         }) {
             Ok(mixer) => mixer,
             Err(err) => return Err((err, Box::new(armed))),
+        };
+        let presentation_plan = crate::shared::TransitionPresentationPlan {
+            outgoing_start_secs: a_position_secs,
+            outgoing_end_secs: plan.a_end_secs,
+            outgoing_tempo_ratio: mixer.outgoing_tempo_ratio(),
+            output_speed: f64::from(speed),
+            sample_rate,
+            template: plan.template,
+            cue: presentation_cue,
         };
         let mut a = Deck::new(None, a_position_secs);
         if let Some(tail) = a_tail {
@@ -289,6 +305,7 @@ impl TransitionRunner {
             b_decoded_position_secs: plan.b_start_secs,
             speed_change_released: false,
             handoff_samples: Vec::new(),
+            presentation_plan,
         })
     }
 
@@ -448,7 +465,7 @@ impl TransitionRunner {
         }
         if !self.boundary_marked {
             if let Some(info) = self.info.take() {
-                shared.mark_track_boundary_continuous(info);
+                shared.mark_mix_boundary(info, self.projection_plan());
             }
             self.boundary_marked = true;
         }
@@ -464,6 +481,19 @@ impl TransitionRunner {
             DecodedAudioData::F32(samples),
         );
         shared.push_processed_chunk(chunk, self.generation, self.speed)
+    }
+
+    fn projection_plan(&self) -> crate::shared::TransitionProjectionPlan {
+        crate::shared::TransitionProjectionPlan {
+            request_id: self.rearm.request_id,
+            generation: self.generation,
+            outgoing_seq: self.rearm.outgoing_seq,
+            overlap_frames: (self.rearm.plan.overlap_secs.max(0.0)
+                * f64::from(self.mix_format.sample_rate.max(1))
+                / f64::from(self.speed))
+            .round() as u64,
+            presentation: Some(self.presentation_plan),
+        }
     }
 
     fn filter_deck(
@@ -626,7 +656,11 @@ impl TransitionRunner {
             // Effect tails and B's release still use reference-scaled deck gains.
             // Switch only where unscaled B resumes, not at the nominal overlap end.
             self.post_gain_marked = true;
-            shared.mark_gain_marker(self.rearm.post_overlap_normalization_gain_db);
+            shared.mark_mix_end(
+                self.rearm.post_overlap_normalization_gain_db,
+                self.rearm.request_id,
+                self.generation,
+            );
             crate::decoder::emit_decode_info(
                 shared,
                 &format!(
@@ -661,7 +695,7 @@ impl TransitionRunner {
         };
         if !self.boundary_marked {
             if let Some(info) = self.info.take() {
-                shared.mark_track_boundary_continuous(info);
+                shared.mark_mix_boundary(info, self.projection_plan());
             }
             self.boundary_marked = true;
         }

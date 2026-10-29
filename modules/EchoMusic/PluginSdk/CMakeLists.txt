@@ -1,3 +1,4 @@
+find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS GuiPrivate QuickPrivate)
 qt_add_qml_module(
     echo_plugin_sdk
     STATIC
@@ -20,8 +21,35 @@ qt_add_qml_module(
     EchoPluginAppearance.cpp
     EchoPluginViewContext.h
     EchoPluginViewContext.cpp
+    PresentationScope.h
+    PresentationScope.cpp
     EchoPluginAudio.h
     EchoPluginAudio.cpp
+    EchoPluginAudioAnalysis.h
+    EchoPluginAudioAnalysis.cpp
+    GlyphRun.h
+    GlyphRun.cpp
+    GlyphRunCanvas_p.h
+    GlyphRunCanvas.cpp
+    GlyphRunCurveGeometry_p.h
+    GlyphRunCurveGeometry.cpp
+    FloatTexture.h
+    FloatTexture.cpp
+    NativeShaderEffect.h
+    NativeShaderEffect.cpp
+    PointMesh.h
+    PointMesh.cpp
+    ImageCapture.h
+    ImageCapture.cpp
+    EchoPluginText.h
+    EchoPluginText.cpp
+    EchoPluginAssets.h
+    EchoPluginAssets.cpp
+    EchoPluginImageDropArea.h
+    EchoPluginImageDropArea.cpp
+    EchoPluginAssetAnimation.h
+    EchoPluginAssetArchive.h
+    EchoPluginAssetArchive.cpp
     EchoPluginOperation.h
     EchoPluginOperation.cpp
     EchoPluginPromise.h
@@ -42,6 +70,8 @@ qt_add_qml_module(
     EchoPluginDownloads.cpp
     EchoPluginPlayer.h
     EchoPluginPlayer.cpp
+    EchoPluginPlaybackTransition.h
+    EchoPluginPlaybackTransition.cpp
     EchoPluginContext.h
     EchoPluginContext.cpp
     EchoPluginPresentation.cpp
@@ -119,7 +149,15 @@ target_link_libraries(
            echo_playback_service
            echo_account
     PUBLIC echo_plugin_files
-    PRIVATE Qt6::Concurrent Qt6::Sql Qt6::Network Qt6::WebSockets Qt6::Widgets echo_build_options
+    PRIVATE Qt6::Sql
+            Qt6::Network
+            Qt6::WebSockets
+            Qt6::Concurrent
+            Qt6::Widgets
+            Qt6::GuiPrivate
+            Qt6::QuickPrivate
+            echo_text_segmentation
+            echo_build_options
 )
 
 qt_add_resources(echo_plugin_sdk echo_plugin_js PREFIX "/echo/plugins" FILES sdk.mjs)
@@ -136,3 +174,51 @@ if(WIN32)
 endif()
 
 target_link_libraries(echo_plugin_sdk PRIVATE echo_settings_keys)
+
+qt_add_shaders(
+    echo_plugin_sdk
+    echo_plugin_glyph_shaders
+    BATCHABLE
+    PREFIX
+    "/qt/qml/EchoMusic/PluginSdk"
+    FILES
+    shaders/glyph-run.vert
+    shaders/glyph-run.frag
+)
+
+qt_add_shaders(
+    echo_plugin_sdk
+    echo_plugin_glyph_canvas_shaders
+    PREFIX
+    "/qt/qml/EchoMusic/PluginSdk"
+    BASE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    FILES
+    shaders/glyph-canvas/quad.vert
+    shaders/glyph-canvas/filter.vert
+    shaders/glyph-canvas/rescale.frag
+    shaders/glyph-canvas/blur.frag
+    shaders/glyph-canvas/ink.frag
+    shaders/glyph-canvas/compose.frag
+)
+
+qt_add_executable(echo-plugin-asset-worker AssetImageWorker.cpp AssetSvgValidation.cpp)
+set_target_properties(echo-plugin-asset-worker PROPERTIES MACOSX_BUNDLE FALSE)
+target_include_directories(echo-plugin-asset-worker PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(
+    echo-plugin-asset-worker PRIVATE Qt6::Gui Qt6::Svg echo_ffi echo_build_options
+)
+echo_copy_rust_runtime(echo-plugin-asset-worker)
+if(APPLE)
+    set_target_properties(
+        echo-plugin-asset-worker PROPERTIES INSTALL_RPATH "@executable_path/../Frameworks"
+    )
+elseif(UNIX)
+    set_target_properties(echo-plugin-asset-worker PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+endif()
+add_dependencies(echo_plugin_sdk echo-plugin-asset-worker)
+target_compile_definitions(
+    echo_plugin_sdk PRIVATE ECHO_PLUGIN_ASSET_WORKER_PATH="$<TARGET_FILE:echo-plugin-asset-worker>"
+)
+
+include("${PROJECT_SOURCE_DIR}/cmake/AudioAnalysis.cmake")

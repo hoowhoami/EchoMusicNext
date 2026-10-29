@@ -54,11 +54,20 @@ collectLicenses(
 );
 if (platform === 'macOS') {
   const app = path.join(stage, 'echomusicnext.app');
+  const platforms = path.join(app, 'Contents/PlugIns/platforms');
+  fs.mkdirSync(platforms, { recursive: true });
+  fs.copyFileSync(
+    path.join(qt, 'plugins/platforms/libqoffscreen.dylib'),
+    path.join(platforms, 'libqoffscreen.dylib'),
+  );
+  const analysisHelper = path.join(app, 'Contents/Helpers/echo-audio-analysis-helper');
   run(path.join(qt, 'bin/macdeployqt'), [
     app,
     `-qmldir=${path.join(root, 'modules')}`,
     `-qmlimport=${path.join(build, 'qml')}`,
     `-executable=${path.join(app, 'Contents/Helpers/echo-theme-image-worker')}`,
+    `-executable=${path.join(app, 'Contents/Helpers/echo-plugin-asset-worker')}`,
+    ...(fs.existsSync(analysisHelper) ? [`-executable=${analysisHelper}`] : []),
     '-always-overwrite',
   ]);
   const sqlDrivers = path.join(app, 'Contents/PlugIns/sqldrivers');
@@ -106,7 +115,14 @@ if (platform === 'macOS') {
     '--dir',
     path.join(stage, 'bin'),
     path.join(stage, 'bin/echomusicnext.exe'),
+    ...(fs.existsSync(path.join(stage, 'bin/echo-audio-analysis-helper.exe'))
+      ? [path.join(stage, 'bin/echo-audio-analysis-helper.exe')]
+      : []),
   ]);
+  fs.copyFileSync(
+    path.join(qt, 'plugins/platforms/qoffscreen.dll'),
+    path.join(stage, 'bin/platforms/qoffscreen.dll'),
+  );
   const sqlite = path.join(stage, 'bin/sqldrivers');
   fs.mkdirSync(sqlite, { recursive: true });
   fs.copyFileSync(
@@ -165,6 +181,11 @@ if (platform === 'macOS') {
       '--executable',
       path.join(stage, 'bin/echo-theme-image-worker'),
       '--executable',
+      path.join(stage, 'bin/echo-plugin-asset-worker'),
+      ...(fs.existsSync(path.join(stage, 'bin/echo-audio-analysis-helper'))
+        ? ['--executable', path.join(stage, 'bin/echo-audio-analysis-helper')]
+        : []),
+      '--executable',
       path.join(stage, 'bin/echo-update-helper'),
       '--executable',
       path.join(stage, 'bin/crashpad_handler'),
@@ -182,7 +203,7 @@ if (platform === 'macOS') {
         QMAKE: path.join(qt, 'bin/qmake'),
         QML_SOURCES_PATHS: path.join(root, 'modules'),
         QML_MODULES_PATHS: path.join(build, 'qml'),
-        EXTRA_PLATFORM_PLUGINS: 'libqwayland-egl.so;libqwayland-generic.so',
+        EXTRA_PLATFORM_PLUGINS: 'libqwayland-egl.so;libqwayland-generic.so;libqoffscreen.so',
         EXTRA_QT_MODULES: 'waylandcompositor',
         APPIMAGE_EXTRACT_AND_RUN: '1',
         OUTPUT: name('appimage'),

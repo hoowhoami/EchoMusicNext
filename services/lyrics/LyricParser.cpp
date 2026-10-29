@@ -1,4 +1,5 @@
 #include "LyricParser.h"
+#include "TtmlParser_p.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QFutureWatcher>
@@ -84,6 +85,15 @@ struct Lyrics
     qint64 offset = 0;
     QList<Line> lines;
 };
+QJsonObject json(const Lyrics &value);
+QJsonObject ttml(const QString &text, const std::atomic_bool *canceled)
+{
+    const auto result =
+        LyricCodecs::parseTtml(text, [canceled] { return canceled && canceled->load(); });
+    if (!result.error.isEmpty())
+        throw Failure{result.code, result.error};
+    return result.lyrics;
+}
 const QRegularExpression &lrcStamp()
 {
     static const QRegularExpression value("^\\[(\\d+):(\\d+(?:\\.\\d+)?)\\]");
@@ -566,9 +576,43 @@ class Codec
         return out;
     }
 
+    QJsonObject companions(QJsonObject result, const QVariantMap &input)
+    {
+        qsizetype companion = 0;
+        for (const auto &key : {QStringLiteral("translation"), QStringLiteral("romanization")}) {
+            if (!input.contains(key))
+                continue;
+            language = {};
+            const auto auxiliary = lrc(input.value(key).toString(), true, false, false);
+            QMap<qint64, QString> byTime;
+            for (const auto &line : auxiliary.lines) {
+                auto &value = byTime[line.start];
+                if (!value.isEmpty())
+                    value += '\n';
+                value += line.text;
+            }
+            auto lines = result.value("lines").toArray();
+            for (qsizetype index = 0; index < lines.size(); ++index) {
+                check();
+                auto line = lines[index].toObject();
+                const auto value = byTime.constFind(line.value("start_ms").toInteger());
+                if (value == byTime.cend())
+                    continue;
+                companion += value->toUtf8().size();
+                limit(companion <= MaxBytes);
+                line.insert(key, *value);
+                if (key == "romanization")
+                    line.insert("romanization_segments", QJsonArray{});
+                lines[index] = line;
+            }
+            result.insert("lines", lines);
+        }
+        return result;
+    }
+
 public:
     explicit Codec(const std::atomic_bool *cancel) : canceled(cancel) {}
-    Lyrics parse(LyricParser::Source source, const QVariantMap &input)
+    QJsonObject parse(LyricParser::Source source, const QVariantMap &input)
     {
         check();
         language = {};
@@ -585,10 +629,12 @@ public:
             while (!trimmed.isEmpty() && edge(trimmed.back()))
                 trimmed = trimmed.first(trimmed.size() - 1);
             text = trimmed.toString();
+            if (LyricCodecs::isTtml(text))
+                return ttml(text, canceled);
             auto result = lrc(text, true, true, true);
             if (!result.lines.isEmpty())
-                return result;
-            return lrc(plainWithoutHeaders(text, false), false, false, false);
+                return json(result);
+            return json(lrc(plainWithoutHeaders(text, false), false, false, false));
         }
         const auto format = input.value("format").toString(),
                    encoding = input.value("encoding", "text").toString();
@@ -619,6 +665,8 @@ public:
             ++bom;
         if (bom)
             text = text.sliced(bom);
+        if (format == "ttml")
+            return companions(ttml(text, canceled), input);
         Lyrics result;
         if (format == "krc")
             result = krc(text);
@@ -639,33 +687,7 @@ public:
         if (source == LyricParser::Source::Document && format != "lrc" &&
             !text.trimmed().isEmpty() && result.lines.isEmpty())
             fail("input", "歌词文档没有有效内容");
-        qsizetype companion = 0;
-        for (const auto &key : {QStringLiteral("translation"), QStringLiteral("romanization")})
-            if (input.contains(key)) {
-                language = {};
-                auto auxiliary = lrc(input.value(key).toString(), true, false, false);
-                QMap<qint64, QString> byTime;
-                for (const auto &line : auxiliary.lines) {
-                    auto &value = byTime[line.start];
-                    if (!value.isEmpty())
-                        value += '\n';
-                    value += line.text;
-                }
-                for (auto &line : result.lines) {
-                    const auto i = byTime.constFind(line.start);
-                    if (i == byTime.cend())
-                        continue;
-                    companion += i->toUtf8().size();
-                    limit(companion <= MaxBytes);
-                    if (key == "translation")
-                        line.translation = *i;
-                    else {
-                        line.romanization = *i;
-                        line.segments.clear();
-                    }
-                }
-            }
-        return result;
+        return companions(json(result), input);
     }
 };
 QJsonObject json(const Lyrics &value)
@@ -719,7 +741,7 @@ LyricParser::Result LyricParser::parse(Source source, const QVariantMap &input,
 {
     try {
         Codec codec(canceled);
-        return {json(codec.parse(source, input)), {}, {}};
+        return {codec.parse(source, input), {}, {}};
     } catch (const Failure &error) {
         return {{}, error.message, error.code};
     } catch (const std::bad_alloc &) {

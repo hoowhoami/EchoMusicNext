@@ -61,7 +61,7 @@ public:
     {
         return m_error;
     }
-    Q_INVOKABLE bool start(int minutes, const QString &action);
+    Q_INVOKABLE bool start(qint64 minutes, const QString &action);
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void setAction(const QString &action);
     void setFinishTrack(bool finish);

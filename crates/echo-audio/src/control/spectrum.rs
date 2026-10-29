@@ -3,16 +3,27 @@ use crate::work::{Command, Work};
 
 pub fn configure_spectrum(options: Option<SpectrumOptions>) -> crate::Result<SpectrumStatus> {
     let enabled = options.as_ref().and_then(|o| o.enabled).unwrap_or(true);
-    crate::spectrum::CAPTURE_ENABLED.store(enabled, std::sync::atomic::Ordering::Release);
-    let config = SpectrumConfig::from_options(options);
-    let analyzer = crate::spectrum::SpectrumAnalyzer::new(config.clone());
+    let reset_frequency = options
+        .as_ref()
+        .and_then(|o| o.reset_frequency_data)
+        .unwrap_or(false);
+    let mut config = SpectrumConfig::from_options(options);
+    config.include_frequency_data &= enabled;
     call_core_command("configure-spectrum", move |runtime| {
+        runtime
+            .spectrum_analyzer
+            .reconfigure(config.clone(), reset_frequency);
+        if let Some(session) = runtime.session.as_ref() {
+            if let Ok(mut ring) = session.shared.spectrum_ring.lock() {
+                ring.set_frequency_capture(config.include_frequency_data, reset_frequency);
+            }
+        }
+        crate::spectrum::CAPTURE_ENABLED.store(enabled, std::sync::atomic::Ordering::Release);
         runtime.spectrum_config = config;
-        runtime.spectrum_analyzer = analyzer;
         runtime.spectrum_signal_logged = false;
         Ok(SpectrumStatus {
             available: true,
-            running: true,
+            running: enabled,
             reason: None,
         })
     })
@@ -46,7 +57,7 @@ impl Command for GetSpectrumSnapshotTask {
             let snapshot_ready = shared
                 .spectrum_ring
                 .lock()
-                .map(|ring| runtime.spectrum_analyzer.snapshot_ring(&ring))
+                .map(|mut ring| runtime.spectrum_analyzer.snapshot_ring(&mut ring))
                 .is_ok();
             let frame =
                 snapshot_ready.then(|| runtime.spectrum_analyzer.analyze_snapshot(sample_rate));

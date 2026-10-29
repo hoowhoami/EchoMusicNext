@@ -1,0 +1,219 @@
+{
+  "note": "Controlled Canvas primitive projection for GlyphRunTest, not the complete Folia stage. Keeps the original fractional primitive blur parameters. Live Folia rounds shadowBlur to whole pixels; its full-source and continuous-pose tests remain independent. Same-ink mathematical tests use their separate oracle.",
+  "revision": "a8da4437cf19723555bd75e4685ca20815fe5b82",
+  "sourceSha256": {
+    "src/components/visualizer/fume/fumeCanvasText.ts": "125e20bcbb75f3fcdd5805c14417361462cf44b6eca6e0b5b5fb7d18423c06a7",
+    "src/components/visualizer/fume/useFumeCanvasStage.ts": "6bdbcc77d78b4ad17a5d7559c8e3d000d5fe14dfbe3d8056c2b53591486c3f42",
+    "src/utils/glowBlurQuantize.ts": "71813bcb61cd010ee80e76697f4e767993d24107f83b0d1fce57b7afdf492ea2"
+  },
+  "browserBefore": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/156.0.8078.73",
+    "revision": "@2f9a11097447f226133bc1a31c787291a5eeab98",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+    "jsVersion": "15.6.75.25"
+  },
+  "browserAfter": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/156.0.8078.73",
+    "revision": "@2f9a11097447f226133bc1a31c787291a5eeab98",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+    "jsVersion": "15.6.75.25"
+  },
+  "backend": "GraphiteDawnMetal",
+  "skiaGraphiteStatus": "enabled_on",
+  "defaultContextOptions": "omitted",
+  "oldCpuNegative": {
+    "contextOptions": {
+      "willReadFrequently": true
+    },
+    "referenceEnergy": [
+      [
+        245398,
+        254645,
+        249151
+      ],
+      [
+        877297,
+        904305,
+        925965
+      ]
+    ],
+    "referenceSigma": [
+      [
+        43.99424148,
+        54.40251381,
+        62.46281285
+      ],
+      [
+        23.51704416,
+        30.43728713,
+        37.28283856
+      ]
+    ],
+    "evidenceFiles": [
+      "build/folia-halo-sweep/reference-dpr1.html",
+      "build/folia-halo-sweep/reference-dpr1.json",
+      "build/folia-halo-sweep/reference-dpr2.html",
+      "build/folia-halo-sweep/reference-dpr2.json"
+    ],
+    "acceptedAsSourceDefault": false
+  },
+  "rows": [
+    {
+      "dpr": 1,
+      "windowDpr": 1,
+      "canvasAttributes": {
+        "alpha": true,
+        "colorSpace": "srgb",
+        "colorType": "unorm8",
+        "desynchronized": false,
+        "toneMapping": {
+          "mode": "standard"
+        },
+        "willReadFrequently": false
+      },
+      "font": "780 151.54071925781247px \"Helvetica Neue\", \"Inter\", \"Noto Sans CJK SC\", \"Noto Sans JP\", \"Source Han Sans SC\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", \"Helvetica Neue\", Arial, sans-serif",
+      "zoom": 0.22,
+      "fillAlpha": 0.756,
+      "shadowAlpha": 1,
+      "cases": [
+        {
+          "blur": 127.8,
+          "mass": 211305,
+          "sigma": 40.706573261671394
+        },
+        {
+          "blur": 170.4,
+          "mass": 239852,
+          "sigma": 55.31905957300954
+        },
+        {
+          "blur": 213,
+          "mass": 243720,
+          "sigma": 62.094425289832934
+        }
+      ]
+    },
+    {
+      "dpr": 2,
+      "windowDpr": 2,
+      "canvasAttributes": {
+        "alpha": true,
+        "colorSpace": "srgb",
+        "colorType": "unorm8",
+        "desynchronized": false,
+        "toneMapping": {
+          "mode": "standard"
+        },
+        "willReadFrequently": false
+      },
+      "font": "780 151.54071925781247px \"Helvetica Neue\", \"Inter\", \"Noto Sans CJK SC\", \"Noto Sans JP\", \"Source Han Sans SC\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", \"Helvetica Neue\", Arial, sans-serif",
+      "zoom": 0.22,
+      "fillAlpha": 0.756,
+      "shadowAlpha": 1,
+      "cases": [
+        {
+          "blur": 127.8,
+          "mass": 811642,
+          "sigma": 23.529131864391168
+        },
+        {
+          "blur": 170.4,
+          "mass": 840944,
+          "sigma": 30.27929371534908
+        },
+        {
+          "blur": 213,
+          "mass": 740731,
+          "sigma": 33.022507487145376
+        }
+      ]
+    }
+  ],
+  "preservedEvidenceSha256": [
+    {
+      "file": "build/folia-halo-sweep/reference-dpr1.html",
+      "sha256": "9d59edd228728c65bd56d80b4b5c570aaac4e4a38360a15894f99114e4968f3f"
+    },
+    {
+      "file": "build/folia-halo-sweep/reference-dpr1.json",
+      "sha256": "cccf69e2650df0f09e1551827e142a70c3e3ecd13289709b012c49beaabd957f"
+    },
+    {
+      "file": "build/folia-halo-sweep/reference-default-dpr1.html",
+      "sha256": "ea1b4e5c1d2466789fe849feb88843e366eae1286de708440c79b35cacab62f9"
+    },
+    {
+      "file": "build/folia-halo-sweep/reference-default-dpr1.json",
+      "sha256": "1ad817fba35c899fccab75dccb6bd54d756aa3315dd1e1fe8a379005d9eea848"
+    },
+    {
+      "file": "build/folia-halo-sweep/reference-dpr2.html",
+      "sha256": "a94c0ad146bdc9c5a15f055c0a1381232fa38d1f0c3ab945068b87835d3aed54"
+    },
+    {
+      "file": "build/folia-halo-sweep/reference-dpr2.json",
+      "sha256": "3da89c6547648ecb0231c37996b2704f4a189282bd1a98c32a3bd4a7599db16b"
+    },
+    {
+      "file": "build/folia-halo-sweep/reference-default-dpr2.html",
+      "sha256": "27dd763d1f745320421436699d921cac84f20a732c989c2fd332261371f91a7e"
+    },
+    {
+      "file": "build/folia-halo-sweep/reference-default-dpr2.json",
+      "sha256": "b7038c6cda9762e0d8717511af71f6c96de7db023a5333df88f3fbc2aec02d96"
+    }
+  ],
+  "generatorSha256": "42a536a18dc25f882e2026230a0dfc2905c82deb101e81f7ba91b34c3d3e50d2",
+  "newAndOldMapping": [
+    {
+      "dpr": 1,
+      "blur": 127.8,
+      "oldCpuMass": 245398,
+      "oldCpuSigma": 43.99424148,
+      "defaultGraphiteMass": 211305,
+      "defaultGraphiteSigma": 40.706573261671394
+    },
+    {
+      "dpr": 1,
+      "blur": 170.4,
+      "oldCpuMass": 254645,
+      "oldCpuSigma": 54.40251381,
+      "defaultGraphiteMass": 239852,
+      "defaultGraphiteSigma": 55.31905957300954
+    },
+    {
+      "dpr": 1,
+      "blur": 213,
+      "oldCpuMass": 249151,
+      "oldCpuSigma": 62.46281285,
+      "defaultGraphiteMass": 243720,
+      "defaultGraphiteSigma": 62.094425289832934
+    },
+    {
+      "dpr": 2,
+      "blur": 127.8,
+      "oldCpuMass": 877297,
+      "oldCpuSigma": 23.51704416,
+      "defaultGraphiteMass": 811642,
+      "defaultGraphiteSigma": 23.529131864391168
+    },
+    {
+      "dpr": 2,
+      "blur": 170.4,
+      "oldCpuMass": 904305,
+      "oldCpuSigma": 30.43728713,
+      "defaultGraphiteMass": 840944,
+      "defaultGraphiteSigma": 30.27929371534908
+    },
+    {
+      "dpr": 2,
+      "blur": 213,
+      "oldCpuMass": 925965,
+      "oldCpuSigma": 37.28283856,
+      "defaultGraphiteMass": 740731,
+      "defaultGraphiteSigma": 33.022507487145376
+    }
+  ]
+}

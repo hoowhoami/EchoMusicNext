@@ -13,6 +13,7 @@ pub mod embedded_metadata;
 pub mod events;
 mod exclusive;
 mod filter;
+pub mod offline_analysis;
 mod output;
 pub use output::{get_airplay_tap_stats, set_airplay_epoch, set_airplay_tap};
 mod platform_qos;
@@ -65,6 +66,7 @@ use crate::events::{
     TrackInfo,
 };
 use crate::shared::{MixFormat, PlaybackSession, PlaybackSignal, SharedAudio, TrackSwitchInfo};
+pub use crate::shared::{TransitionPlaybackPhase, TransitionPlaybackSnapshot};
 use audio_graph::AudioGraphSnapshot;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -149,6 +151,7 @@ struct PlayerRuntime {
     current_url: Option<String>,
     current_audio_stream_ordinal: Option<usize>,
     current_seq: u64,
+    analysis_authorizations: offline_analysis::OutgoingAuthorizations,
     embedded_metadata: Option<Arc<embedded_metadata::EmbeddedMetadata>>,
     latest_load_seq: u64,
     dsp_settings: DspSettings,
@@ -233,6 +236,7 @@ struct PreparedNextSource {
     /// Loudness gain of the track that was playing when the plan was made.
     current_normalization_gain_db: f32,
     request_id: u64,
+    analysis_outgoing: Result<offline_analysis::Source, String>,
 }
 
 fn retire_prepared_next_background(prepared: Option<PreparedNextSource>, reason: &'static str) {
@@ -307,6 +311,7 @@ impl PlayerRuntime {
             current_url: None,
             current_audio_stream_ordinal: None,
             current_seq: 0,
+            analysis_authorizations: offline_analysis::OutgoingAuthorizations::default(),
             embedded_metadata: None,
             latest_load_seq: 0,
             dsp_settings: DspSettings::default(),
@@ -613,6 +618,19 @@ fn emit_native_log_event(event: &PlayerEvent) -> bool {
 }
 
 fn contextualize_runtime_event(runtime: &PlayerRuntime, mut event: PlayerEvent) -> PlayerEvent {
+    if let Some(session) = runtime.session.as_ref() {
+        runtime.analysis_authorizations.prune(
+            &session.shared,
+            runtime.current_seq,
+            runtime.armed_transition_request,
+        );
+    } else {
+        runtime.analysis_authorizations.clear();
+    }
+    event.transition_playback = runtime
+        .session
+        .as_ref()
+        .and_then(|session| session.shared.transition_playback());
     // Periodic audio ticks advance SharedAudio, not runtime.state.time_pos.
     // State changes (pause/resume/output restart) must not send an old position
     // back into the desktop lyric and mini-player clocks.
@@ -629,11 +647,17 @@ fn contextualize_runtime_event(runtime: &PlayerRuntime, mut event: PlayerEvent) 
     event.with_playback_context(runtime.current_seq, generation)
 }
 
-fn contextualize_shared_event(shared: &SharedAudio, event: PlayerEvent) -> PlayerEvent {
+fn contextualize_shared_event(shared: &SharedAudio, mut event: PlayerEvent) -> PlayerEvent {
+    event.transition_playback = shared.transition_playback();
     event.with_playback_context(
         shared.current_track_seq(),
         shared.current_decode_generation(),
     )
+}
+
+/// Actual scheduled/consumed mix state of the active output session.
+pub fn get_transition_playback() -> Result<Option<TransitionPlaybackSnapshot>> {
+    Ok(current_shared().and_then(|shared| shared.transition_playback()))
 }
 
 fn bind_seamless_source_context(runtime: &mut PlayerRuntime, shared: &SharedAudio, seq: u64) {
@@ -1095,6 +1119,7 @@ fn prepare_initial_filter_graph(
 }
 
 fn apply_prepared_source(runtime: &mut PlayerRuntime, prepared: PreparedSource) {
+    runtime.analysis_authorizations.clear();
     let PreparedSource {
         session,
         embedded_metadata,
@@ -1157,6 +1182,12 @@ fn apply_track_switch(info: TrackSwitchInfo, shared: Arc<SharedAudio>) {
                 return;
             };
             if !Arc::ptr_eq(&session.shared, &shared) {
+                return;
+            }
+            if shared.current_decode_generation() != info.output_generation
+                || shared.current_track_seq() != info.seq
+                || shared.should_stop_output()
+            {
                 return;
             }
             runtime.cancel_idle_output_release();
@@ -2310,6 +2341,12 @@ impl Command for PrepareNextSourceTask {
                 ))
             })?;
         let preparation_started = Instant::now();
+        // Worker-only immutable A handle, while A is still the adopted source.
+        // No PCM/model work; it only becomes usable after this exact native epoch starts.
+        let analysis_outgoing = current_url
+            .as_deref()
+            .ok_or_else(|| "Unavailable: outgoing source unavailable".to_string())
+            .and_then(|url| offline_analysis::capture_current(current_seq, url, current_ordinal));
         emit_event(PlayerEvent::log(
             "info",
             format!("next source preparation started: request={request_id}"),
@@ -2361,6 +2398,7 @@ impl Command for PrepareNextSourceTask {
             transition,
             current_normalization_gain_db: current_gain_db,
             request_id,
+            analysis_outgoing,
         });
 
         let url_for_log = self.url.clone();
@@ -2427,6 +2465,13 @@ fn arm_prepared_transition(runtime: &mut PlayerRuntime, prepared: PreparedNextSo
         return false;
     };
     let generation = session.shared.current_decode_generation();
+    runtime.analysis_authorizations.register(
+        &session.shared,
+        prepared.request_id,
+        runtime.current_seq,
+        prepared.seq,
+        prepared.analysis_outgoing,
+    );
     let mut info = TrackSwitchInfo::new(
         prepared.url.clone(),
         prepared.audio_stream_ordinal,
@@ -2482,6 +2527,15 @@ fn disarm_transition(runtime: &mut PlayerRuntime, reason: &'static str) {
         });
     }
     let _ = reason;
+    if let Some(session) = runtime.session.as_ref() {
+        runtime.analysis_authorizations.prune(
+            &session.shared,
+            runtime.current_seq,
+            runtime.armed_transition_request,
+        );
+    } else {
+        runtime.analysis_authorizations.clear();
+    }
 }
 
 impl Command for CommitPreparedNextSourceTask {

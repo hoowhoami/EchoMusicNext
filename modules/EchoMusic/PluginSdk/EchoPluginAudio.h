@@ -1,5 +1,6 @@
 #pragma once
 #include "EchoPluginRegistration.h"
+#include "EchoPluginAudioAnalysis.h"
 #include <QObject>
 #include <QVariant>
 namespace EchoMusic
@@ -70,8 +71,13 @@ class EchoPluginAudio final : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by plugin context")
     Q_PROPERTY(EchoMusic::EchoPluginSpectrum *spectrum READ spectrum CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginAudioAnalysis *analysis READ analysis CONSTANT)
 public:
     explicit EchoPluginAudio(EchoPluginContext &scope);
+    EchoPluginAudioAnalysis *analysis()
+    {
+        return &m_analysis;
+    }
     EchoPluginSpectrum *spectrum()
     {
         return &m_spectrum;
@@ -79,5 +85,6 @@ public:
 
 private:
     EchoPluginSpectrum m_spectrum;
+    EchoPluginAudioAnalysis m_analysis;
 };
 } // namespace EchoMusic

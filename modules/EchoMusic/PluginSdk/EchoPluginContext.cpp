@@ -30,8 +30,12 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     m_backups = new EchoPluginBackups(*this);
     m_appearance = new EchoPluginAppearance(*this);
     m_fonts = new EchoPluginFonts(*this);
+    m_text = new EchoPluginText(*this);
+    connect(m_text, &EchoPluginText::drained, this, &EchoPluginContext::resourcesDrained);
     m_windows = new EchoPluginWindows(*this);
     m_audio = new EchoPluginAudio(*this);
+    connect(m_audio->analysis(), &EchoPluginAudioAnalysis::drained, this,
+            &EchoPluginContext::resourcesDrained);
     m_player = new EchoPluginPlayer(*this, host.playback);
     m_playlist = new EchoPluginPlaylist(*this);
     m_lyrics = new EchoPluginLyrics(*this);
@@ -54,6 +58,8 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     connect(m_net, &EchoPluginNetwork::drained, this, &EchoPluginContext::resourcesDrained);
     m_sqlite = new EchoPluginSqlite(*this, dataPath + "/databases");
     connect(m_sqlite, &EchoPluginSqlite::drained, this, &EchoPluginContext::resourcesDrained);
+    m_assets = new EchoPluginAssets(*this, dataPath, activation ? activation->assets() : nullptr);
+    connect(m_assets, &EchoPluginAssets::drained, this, &EchoPluginContext::resourcesDrained);
     m_io = new EchoPluginIo(*this, std::move(dataPath));
     connect(m_io, &EchoPluginIo::drained, this, &EchoPluginContext::resourcesDrained);
     connect(&host.theme, &ThemeStore::changed, this, [this] {
@@ -403,6 +409,9 @@ void EchoPluginContext::beginRetire()
     m_net->shutdown();
     m_io->shutdown();
     m_sqlite->shutdown();
+    m_text->shutdown();
+    m_assets->shutdown();
+    m_audio->analysis()->shutdown();
     for (auto it = m_resources.crbegin(); it != m_resources.crend(); ++it)
         if (*it &&
             ((*it)->key().contains(":cleanup:") || (*it)->key().contains(":cleanup.presentation.")))
@@ -418,6 +427,7 @@ bool EchoPluginContext::drained() const
             return false;
     return m_process->isDrained() && m_webServer->isDrained() && m_net->isDrained() &&
            m_io->isDrained() && m_sqlite->isDrained() && m_appearance->drained() &&
-           m_files->isDrained();
+           m_files->isDrained() && m_text->isDrained() && m_assets->isDrained() &&
+           m_audio->analysis()->isDrained();
 }
 } // namespace EchoMusic

@@ -11,6 +11,8 @@ namespace EchoMusic
 {
 class EchoPluginContext;
 class PlaybackService;
+class EchoPluginPlaybackTransition;
+Q_MOC_INCLUDE("EchoPluginPlaybackTransition.h")
 /// Read-only projections forward incremental model notifications; plugin code
 /// cannot invoke mutation slots on the host's queue/lyric models.
 class EchoPluginReadModel final : public QAbstractListModel
@@ -24,9 +26,11 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
     Q_INVOKABLE QVariantMap row(int index) const;
+    void setSource(QAbstractItemModel &source);
 
 private:
-    QAbstractItemModel &m_source;
+    QPointer<QAbstractItemModel> m_source;
+    QList<QMetaObject::Connection> m_connections;
 };
 class EchoPluginPlayer final : public QObject
 {
@@ -51,6 +55,7 @@ class EchoPluginPlayer final : public QObject
     Q_PROPERTY(double speed READ speed NOTIFY changed)
     Q_PROPERTY(EchoMusic::EchoPluginReadModel *queue READ queue CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginReadModel *lyrics READ lyrics CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginPlaybackTransition *transition READ transition CONSTANT)
 public:
     EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &host);
     EchoPluginAudioSource *audioSource()
@@ -85,6 +90,10 @@ public:
     {
         return &m_lyrics;
     }
+    EchoPluginPlaybackTransition *transition()
+    {
+        return m_transition;
+    }
     Q_INVOKABLE EchoMusic::EchoPluginOperation *play();
     Q_INVOKABLE EchoMusic::EchoPluginOperation *pause();
     Q_INVOKABLE EchoMusic::EchoPluginOperation *toggle();
@@ -114,5 +123,6 @@ private:
     PlaybackService &m_host;
     EchoPluginAudioSource m_audioSource;
     EchoPluginReadModel m_queue, m_lyrics;
+    EchoPluginPlaybackTransition *m_transition = nullptr;
 };
 } // namespace EchoMusic
