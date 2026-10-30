@@ -6,6 +6,7 @@
 #include "LyricAppearance.h"
 #include "BackgroundMesh.h"
 #include "LyricClock.h"
+#include "LyricParser.h"
 #include "LyricSpring.h"
 #include "LyricTimeline.h"
 #include "LyricInterlude.h"
@@ -27,6 +28,7 @@
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFutureWatcher>
 #include <QHash>
 #include <QDir>
 #include <QFontDatabase>
@@ -98,6 +100,10 @@ public:
     static quint64 download(const LyricSourceController &source)
     {
         return source.m_download;
+    }
+    static QObject *parseJob(const LyricSourceController &source)
+    {
+        return source.m_parseJob;
     }
     static void complete(LyricSourceController &source, ApiClient &api, quint64 id,
                          const QByteArray &domain)
@@ -267,6 +273,51 @@ int lyricItems(QQuickItem *root)
         result += lyricItems(child);
     return result;
 }
+QByteArray downloadedLyricDocument(const QString &text)
+{
+    return QJsonDocument(QJsonObject{{"format", "lrc"},
+                                     {"encoding", "base64"},
+                                     {"content", QString::fromLatin1(text.toUtf8().toBase64())}})
+        .toJson(QJsonDocument::Compact);
+}
+// Core-only source fixture: real ApiClient/controller/parser workers, no playback or rendering.
+struct LyricSourceSession
+{
+    QTemporaryDir directory;
+    SettingsStore settings{directory.filePath("lyrics.ini")};
+    ApiClient api;
+    QTcpServer transport;
+    LyricSourceController source{api, settings};
+    bool initialize()
+    {
+        return directory.isValid() && transport.listen(QHostAddress::LocalHost) &&
+               api.setNetworkTransport(transport.serverPort());
+    }
+    static PlaybackTrack track(const QString &id)
+    {
+        PlaybackTrack value;
+        value.id = id;
+        value.songId = id == "a" ? 1 : 2;
+        value.hash = "105A2705BEEE36A8BED029A8E1A6311D";
+        value.title = "parser source " + id;
+        value.artist = "test";
+        value.durationMs = 5000;
+        return value;
+    }
+    static QByteArray candidates(const QStringList &ids)
+    {
+        QJsonArray values;
+        for (const auto &id : ids)
+            values.append(QJsonObject{{"source_id", id},
+                                      {"access_key", "test-only-key"},
+                                      {"title", id},
+                                      {"artist", "test"},
+                                      {"duration_ms", 5000},
+                                      {"word_timed", false},
+                                      {"scrollable", true}});
+        return QJsonDocument(values).toJson(QJsonDocument::Compact);
+    }
+};
 struct Session
 {
     QTemporaryDir directory;
@@ -399,13 +450,7 @@ void PlaybackPageTest::restoredTrackLoadsLyricsWithoutStartingPlayback()
         QTRY_VERIFY(Access::download(source));
         Access::complete(
             source, session.api, Access::download(source),
-            QJsonDocument(
-                QJsonObject{
-                    {"format", "lrc"},
-                    {"encoding", "base64"},
-                    {"content",
-                     QString::fromLatin1(QByteArray("[00:00.00]恢复歌曲但不启动播放").toBase64())}})
-                .toJson());
+            downloadedLyricDocument(QStringLiteral("[00:00.00]恢复歌曲但不启动播放\n[00:05.00]")));
     }
     QTRY_COMPARE_WITH_TIMEOUT(session.playback.lyricState(), QString("ready"), 30000);
     QVERIFY(session.playback.lyrics()->rowCount() > 0);
@@ -429,6 +474,110 @@ void PlaybackPageTest::restoredTrackLoadsLyricsWithoutStartingPlayback()
         QTest::qWait(200);
         QVERIFY(session.window->grabWindow().save(captures + "/restored-paused-lyrics.png"));
     }
+}
+void PlaybackPageTest::downloadedLyricParserFailurePublishesError_data()
+{
+    QTest::addColumn<QJsonObject>("document");
+    QTest::newRow("unknown-format") << QJsonObject{{"format", "unknown"}, {"content", "text"}};
+    QTest::newRow("invalid-lrc-base64")
+        << QJsonObject{{"format", "lrc"}, {"encoding", "base64"}, {"content", "!invalid!"}};
+    QTest::newRow("truncated-krc")
+        << QJsonObject{{"format", "krc"}, {"encoding", "base64"}, {"content", "a3JjMQ=="}};
+}
+void PlaybackPageTest::downloadedLyricParserFailurePublishesError()
+{
+    QFETCH(QJsonObject, document);
+    LyricSourceSession session;
+    QVERIFY(session.initialize());
+    auto &source = session.source;
+    using Access = LyricSourceControllerTestAccess;
+    QSignalSpy activated(&source, &LyricSourceController::activated);
+    source.load(LyricSourceSession::track("a"));
+    QTRY_VERIFY(Access::search(source));
+    Access::complete(source, session.api, Access::search(source),
+                     LyricSourceSession::candidates({"bad"}));
+    QTRY_VERIFY(Access::download(source));
+    QCOMPARE(source.state(), QString("loading"));
+    const auto expected =
+        LyricParser::parse(LyricParser::Source::Downloaded, document.toVariantMap());
+    QVERIFY(!expected.error.isEmpty());
+    Access::complete(source, session.api, Access::download(source),
+                     QJsonDocument(document).toJson(QJsonDocument::Compact));
+    QTRY_VERIFY(!source.previewLoading());
+    QCOMPARE(source.errorMessage(), expected.error);
+    QCOMPARE(source.state(), QString("error"));
+    QVERIFY(!source.loading());
+    QCOMPARE(activated.count(), 0);
+}
+void PlaybackPageTest::staleDownloadedLyricParserFailureCannotReplaceNewSource()
+{
+    LyricSourceSession session;
+    QVERIFY(session.initialize());
+    auto &source = session.source;
+    using Access = LyricSourceControllerTestAccess;
+    source.load(LyricSourceSession::track("a"));
+    QTRY_VERIFY(Access::search(source));
+    Access::complete(source, session.api, Access::search(source),
+                     LyricSourceSession::candidates({"old"}));
+    QTRY_VERIFY(Access::download(source));
+    Access::complete(source, session.api, Access::download(source),
+                     R"({"format":"unknown","content":"old source"})");
+    const QPointer<QObject> oldJob(Access::parseJob(source));
+    QVERIFY(oldJob);
+    const auto workers = source.findChildren<QFutureWatcherBase *>();
+    QCOMPARE(workers.size(), 1);
+    workers.constFirst()->waitForFinished();
+    QVERIFY(workers.constFirst()->isFinished());
+    QVERIFY(source.previewLoading());
+    QCOMPARE(Access::parseJob(source), oldJob.data());
+    // No event pumping between submit and replacement: even an already completed worker
+    // cannot deliver A's queued callback before B has canceled its owner and changed revision.
+    source.load(LyricSourceSession::track("b"));
+    QVERIFY(oldJob.isNull());
+    QTRY_VERIFY(Access::search(source));
+    Access::complete(source, session.api, Access::search(source),
+                     LyricSourceSession::candidates({"new"}));
+    QTRY_VERIFY(Access::download(source));
+    Access::complete(source, session.api, Access::download(source),
+                     downloadedLyricDocument("[00:00.00]new source\n[00:05.00]"));
+    QTRY_COMPARE(source.state(), QString("ready"));
+    QVERIFY(!source.previewLoading());
+    QCOMPARE(source.currentId(), QString("new"));
+    QVERIFY(source.errorMessage().isEmpty());
+    QCOMPARE(source.preview()->data(source.preview()->index(0), Qt::UserRole + 1).toString(),
+             QString("new source"));
+}
+void PlaybackPageTest::failedDownloadedPreviewPreservesActiveLyrics()
+{
+    LyricSourceSession session;
+    QVERIFY(session.initialize());
+    auto &source = session.source;
+    using Access = LyricSourceControllerTestAccess;
+    QSignalSpy activated(&source, &LyricSourceController::activated);
+    source.load(LyricSourceSession::track("a"));
+    QTRY_VERIFY(Access::search(source));
+    Access::complete(source, session.api, Access::search(source),
+                     LyricSourceSession::candidates({"good", "bad"}));
+    QTRY_VERIFY(Access::download(source));
+    Access::complete(source, session.api, Access::download(source),
+                     downloadedLyricDocument("[00:00.00]active source\n[00:05.00]"));
+    QTRY_COMPARE(source.state(), QString("ready"));
+    QCOMPARE(source.currentId(), QString("good"));
+    QCOMPARE(activated.count(), 1);
+    int bad = -1;
+    for (int row = 0; row < source.rowCount(); ++row)
+        if (source.data(source.index(row), Qt::UserRole + 1).toString() == "bad")
+            bad = row;
+    QVERIFY(bad >= 0);
+    source.select(bad);
+    QTRY_VERIFY(Access::download(source));
+    Access::complete(source, session.api, Access::download(source),
+                     R"({"format":"unknown","content":"bad preview"})");
+    QTRY_VERIFY(!source.previewLoading());
+    QVERIFY(!source.errorMessage().isEmpty());
+    QCOMPARE(source.state(), QString("ready"));
+    QCOMPARE(source.currentId(), QString("good"));
+    QCOMPARE(activated.count(), 1);
 }
 void PlaybackPageTest::queueDrawerClipsScrolledRowsInsideItsBorder()
 {
@@ -1158,12 +1307,7 @@ void PlaybackPageTest::clearingCurrentQueueClearsLyrics()
     QTRY_VERIFY(Access::download(source));
     const auto download = Access::download(source);
     const QByteArray lyrics =
-        QJsonDocument(
-            QJsonObject{{"format", "lrc"},
-                        {"encoding", "base64"},
-                        {"content",
-                         QString::fromLatin1(QByteArray("[00:00.00]清空后不能残留").toBase64())}})
-            .toJson();
+        downloadedLyricDocument(QStringLiteral("[00:00.00]清空后不能残留\n[00:05.00]"));
     Access::complete(source, session.api, download, lyrics);
     QTRY_COMPARE(session.playback.lyricState(), QString("ready"));
     QTRY_COMPARE(session.item("playbackLyricList")->property("count").toInt(), 1);

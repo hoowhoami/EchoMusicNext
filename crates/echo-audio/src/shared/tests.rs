@@ -125,6 +125,51 @@ fn output_spurious_wakeup_keeps_full_buffer_and_preserves_pcm() {
 }
 
 #[test]
+fn transition_playback_projection_follows_consumed_output_not_the_queued_mix() {
+    let shared = SharedAudio::new(
+        MixFormat::stereo_f32(100),
+        1.0,
+        8.0,
+        &DspSettings::default(),
+    );
+    shared.set_track_seq(11);
+    let (_wake, _telemetry) = bind_test_signal_senders(&shared);
+    assert!(shared.push_samples(&[0.2; 20]));
+    let mut info = TrackSwitchInfo::new("actual-incoming.wav".into(), None, 42, 30.0);
+    info.start_position_secs = 7.0;
+    info.transition = Some(crate::events::TrackTransitionInfo {
+        mode: "fade".into(),
+        overlap_secs: 0.2,
+    });
+    shared.mark_track_boundary_continuous(info);
+    assert!(shared.push_samples(&[0.3; 40]));
+    let read = || {
+        serde_json::to_value(crate::contextualize_shared_event(
+            &shared,
+            crate::events::PlayerEvent::time_update(shared.position_secs()),
+        ))
+        .unwrap()
+    };
+    let queued = read();
+    assert_eq!(
+        queued["transition_playback"]["phase"], "queued",
+        "decoded read-ahead is not an output handover"
+    );
+    assert_eq!(queued["transition_playback"]["outgoing_seq"], "11");
+    assert_eq!(queued["transition_playback"]["incoming_seq"], "42");
+    assert_eq!(queued["transition_playback"]["handed_over"], false);
+    assert_eq!(shared.current_track_seq(), 11);
+    let mut output = [0.0; 40];
+    assert_eq!(shared.pop_into(&mut output), 20);
+    let mixed = read();
+    assert_eq!(shared.current_track_seq(), 42);
+    assert_eq!(mixed["transition_playback"]["phase"], "mixing");
+    assert_eq!(mixed["transition_playback"]["handed_over"], true);
+    assert_eq!(mixed["transition_playback"]["progress"], 0.5);
+    assert_eq!(mixed["transition_playback"]["incoming_position_secs"], 7.1);
+}
+
+#[test]
 fn audio_sample_format_candidates_prefer_lossless_conversions() {
     assert_eq!(
         AudioSampleFormat::F32.best_output_formats(),

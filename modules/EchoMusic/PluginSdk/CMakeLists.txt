@@ -1,3 +1,4 @@
+find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS GuiPrivate QuickPrivate)
 qt_add_qml_module(
     echo_plugin_sdk
     STATIC
@@ -12,12 +13,6 @@ qt_add_qml_module(
     EchoGpuGlyphAtlas.cpp
     GlyphAtlas_p.h
     graphics/GpuGlyphAtlases.cpp
-    GlyphRun.h
-    GlyphRun.cpp
-    GlyphRunCanvas_p.h
-    GlyphRunCanvas.cpp
-    GlyphRunCurveGeometry_p.h
-    GlyphRunCurveGeometry.cpp
     EchoPluginGraphics.h
     EchoPluginGraphics.cpp
     EchoPluginGraphicsSharing.cpp
@@ -49,8 +44,33 @@ qt_add_qml_module(
     EchoPluginAppearanceOverrides.cpp
     EchoPluginViewContext.h
     EchoPluginViewContext.cpp
+    PresentationScope.h
+    PresentationScope.cpp
     EchoPluginAudio.h
     EchoPluginAudio.cpp
+    GlyphRun.h
+    GlyphRun.cpp
+    GlyphRunCanvas_p.h
+    GlyphRunCanvas.cpp
+    GlyphRunCurveGeometry_p.h
+    GlyphRunCurveGeometry.cpp
+    FloatTexture.h
+    FloatTexture.cpp
+    NativeShaderEffect.h
+    NativeShaderEffect.cpp
+    PointMesh.h
+    PointMesh.cpp
+    ImageCapture.h
+    ImageCapture.cpp
+    EchoPluginText.h
+    EchoPluginText.cpp
+    EchoPluginAssets.h
+    EchoPluginAssets.cpp
+    EchoPluginImageDropArea.h
+    EchoPluginImageDropArea.cpp
+    EchoPluginAssetAnimation.h
+    EchoPluginAssetArchive.h
+    EchoPluginAssetArchive.cpp
     EchoPluginOperation.h
     EchoPluginOperation.cpp
     EchoPluginPromise.h
@@ -71,6 +91,8 @@ qt_add_qml_module(
     EchoPluginDownloads.cpp
     EchoPluginPlayer.h
     EchoPluginPlayer.cpp
+    EchoPluginPlaybackTransition.h
+    EchoPluginPlaybackTransition.cpp
     EchoPluginSnapshot_p.h
     EchoPluginContext.h
     EchoPluginContext.cpp
@@ -151,7 +173,15 @@ target_link_libraries(
            echo_playback_service
            echo_account
     PUBLIC echo_plugin_files
-    PRIVATE Qt6::Concurrent Qt6::Sql Qt6::Network Qt6::WebSockets Qt6::Widgets echo_build_options
+    PRIVATE Qt6::Sql
+            Qt6::Network
+            Qt6::WebSockets
+            Qt6::Concurrent
+            Qt6::Widgets
+            Qt6::GuiPrivate
+            Qt6::QuickPrivate
+            echo_text_segmentation
+            echo_build_options
 )
 
 qt_add_resources(echo_plugin_sdk echo_plugin_js PREFIX "/echo/plugins" FILES sdk.mjs)
@@ -168,6 +198,25 @@ if(WIN32)
 endif()
 
 target_link_libraries(echo_plugin_sdk PRIVATE echo_settings_keys)
+
+qt_add_executable(echo-plugin-asset-worker AssetImageWorker.cpp AssetSvgValidation.cpp)
+set_target_properties(echo-plugin-asset-worker PROPERTIES MACOSX_BUNDLE FALSE)
+target_include_directories(echo-plugin-asset-worker PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(
+    echo-plugin-asset-worker PRIVATE Qt6::Gui Qt6::Svg echo_ffi echo_build_options
+)
+echo_copy_rust_runtime(echo-plugin-asset-worker)
+if(APPLE)
+    set_target_properties(
+        echo-plugin-asset-worker PROPERTIES INSTALL_RPATH "@executable_path/../Frameworks"
+    )
+elseif(UNIX)
+    set_target_properties(echo-plugin-asset-worker PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+endif()
+add_dependencies(echo_plugin_sdk echo-plugin-asset-worker)
+target_compile_definitions(
+    echo_plugin_sdk PRIVATE ECHO_PLUGIN_ASSET_WORKER_PATH="$<TARGET_FILE:echo-plugin-asset-worker>"
+)
 
 # QRhi is intentionally isolated inside the version-pinned host implementation.
 target_link_libraries(echo_plugin_sdk PRIVATE Qt6::GuiPrivate Qt6::QuickPrivate)

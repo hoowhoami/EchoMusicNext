@@ -1342,6 +1342,7 @@ Item {
     property alias owner: owner
     property url directory
     property int mode: EchoFileDialog.OpenFiles
+    property font pickerFont: Qt.font({pointSize: 17, weight: Font.DemiBold})
     property var selected: []
     property int acceptedCount: 0
     readonly property int selectedCount: selected.length
@@ -1351,6 +1352,8 @@ Item {
         hostItem: host
         sourceComponent: EchoFileDialog {
             title: "File picker regression"
+            font: host.pickerFont
+            currentFile: host.mode === EchoFileDialog.SaveFile ? "preselected-name" : ""
             fileMode: host.mode
             options: EchoFileDialog.DontUseNativeDialog
             currentFolder: host.directory
@@ -1403,6 +1406,11 @@ Item {
         QTRY_VERIFY(files->rowCount(folderIndex) > 0);
         // QFileDialog::selectFile intentionally leaves an already focused
         // filename editor alone on Cocoa. Drive the real editor instead.
+        QCOMPARE(dialog->font().pointSize(), 17);
+        QCOMPARE(dialog->font().weight(), QFont::DemiBold);
+        if (mode == 2)
+            QCOMPARE(QFileInfo(dialog->selectedFiles().value(0)).completeBaseName(),
+                     QString("preselected-name"));
         auto *fileName = dialog->findChild<QLineEdit *>("fileNameEdit");
         QVERIFY(fileName);
         fileName->setText(chosen);

@@ -11,6 +11,7 @@ pub mod decide;
 pub mod effects;
 pub mod mixer;
 pub mod plan;
+pub mod presentation_cue;
 
 #[allow(unused_imports)]
 pub use analysis::{TrackAnalysis, TrackAnalyzer};

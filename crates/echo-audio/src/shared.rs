@@ -10,6 +10,7 @@ mod normalization;
 mod realtime_ring;
 mod session;
 mod stats;
+mod transition_projection;
 mod types;
 
 use ao_state::{AoBufferState, AoBufferingMetrics, AoBufferingState};
@@ -17,6 +18,8 @@ use decoded_queue::{DecodedAudioQueue, DecodedQueueItem};
 use gapless::{GaplessBoundary, GaplessPrepareState};
 use realtime_ring::RealtimeAudioRing;
 pub use session::PlaybackSession;
+pub use transition_projection::{TransitionPlaybackPhase, TransitionPlaybackSnapshot};
+pub(crate) use transition_projection::{TransitionPresentationPlan, TransitionProjectionPlan};
 pub use types::{
     AudioOutputStats, AudioSampleFormat, DecodedAudioChunk, DecodedAudioData, DecodedAudioFormat,
     FilterInput, MIX_CHANNELS, MixFormat, PacketCacheSeekableRange, PacketCacheStats,
@@ -90,6 +93,8 @@ pub struct SharedAudio {
     pending_ao_state_buffered_secs_bits: AtomicU64,
     pending_ao_state_target_secs_bits: AtomicU64,
     pending_track_switch: Mutex<Option<TrackSwitchInfo>>,
+    transition_projection: Mutex<transition_projection::TransitionProjectionState>,
+    output_frames_consumed: AtomicU64,
     pending_playback_end: AtomicBool,
     decode_stop: AtomicBool,
     decode_generation: AtomicU64,
@@ -201,6 +206,8 @@ impl SharedAudio {
             pending_ao_state_buffered_secs_bits: AtomicU64::new(0.0f64.to_bits()),
             pending_ao_state_target_secs_bits: AtomicU64::new(0.0f64.to_bits()),
             pending_track_switch: Mutex::new(None),
+            transition_projection: Mutex::new(Default::default()),
+            output_frames_consumed: AtomicU64::new(0),
             pending_playback_end: AtomicBool::new(false),
             decode_stop: AtomicBool::new(false),
             decode_generation: AtomicU64::new(0),
@@ -961,6 +968,10 @@ impl SharedAudio {
             None
         };
         let (consumed_samples, consumed_source_frames) = self.realtime_output.pop_into(output);
+        self.output_frames_consumed.fetch_add(
+            (consumed_samples / self.mix_format.channels.max(1)) as u64,
+            Ordering::Release,
+        );
         if consumed_samples > 0 {
             if let Some(active) = boundary.as_ref() {
                 apply_track_boundary_fade(
@@ -1345,6 +1356,7 @@ impl SharedAudio {
             queue.clear();
         }
         let generation = self.decode_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        self.clear_transition_projection();
         self.filter_generation.fetch_add(1, Ordering::AcqRel);
         self.decode_stop.store(false, Ordering::Release);
         self.decoded_eof.store(false, Ordering::Release);
@@ -1440,6 +1452,10 @@ impl SharedAudio {
     /// Schedule a normalisation-gain change for the point in the stream that the producer is
     /// at right now (everything queued so far keeps the current gain).
     pub fn mark_gain_marker(&self, gain_db: f32) {
+        self.mark_gain_marker_inner(gain_db, None);
+    }
+
+    fn mark_gain_marker_inner(&self, gain_db: f32, transition: Option<(u64, u64)>) {
         let Ok(mut marker) = self.gain_marker.lock() else {
             return;
         };
@@ -1453,8 +1469,13 @@ impl SharedAudio {
                     .round() as usize
             })
             .unwrap_or_default();
+        let remaining_samples = output_samples.saturating_add(decoded_samples);
+        if let Some((request_id, generation)) = transition {
+            // Read-only metadata cannot veto the mixer's existing gain marker.
+            let _ = self.record_transition_end(request_id, generation, remaining_samples);
+        }
         *marker = Some(GainMarker {
-            remaining_samples: output_samples.saturating_add(decoded_samples),
+            remaining_samples,
             gain_db,
         });
     }

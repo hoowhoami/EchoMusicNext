@@ -10,6 +10,8 @@
 
 目标系统基线为 Windows 10 1809+ x64 / Windows 11 x64、ARM64，macOS 14.4+ Intel、Apple Silicon，以及 Ubuntu 22.04+ 或等价 glibc 2.35+ 的 Linux x64、ARM64（X11 / Wayland）。这些是构建与适配目标，不代表全部组合已完成实机验证。
 
+需要插件的 ICU 词语分段能力时，先按[插件文本构建说明](plugin-text.md)提供 ICU4C 78.x。POSIX 可运行 `python3.12 scripts/install-icu.py` 构建固定源码静态库，再将安装目录传给 `ICU_ROOT`。没有兼容库时宿主不导出 `text.segmentation`，必需它的插件会由兼容检查明确拒绝。
+
 ## 安装 Qt SDK
 
 在仓库根目录执行：

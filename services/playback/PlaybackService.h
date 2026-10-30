@@ -25,6 +25,7 @@
 #include "PortraitController.h"
 #include "LyricTextController.h"
 #include "LyricSourceController.h"
+#include "PlaybackTransitionPresentation.h"
 #include "PlaybackSourceRequest.h"
 #include "CloudAudioIndex.h"
 #include "PlaybackProgressState.h"
@@ -467,6 +468,10 @@ public:
     {
         return m_sourceRevision;
     }
+    PlaybackTransitionPresentation &transitionPresentation()
+    {
+        return *m_transitionPresentation;
+    }
     bool engineReady() const
     {
         return m_ready;
@@ -603,6 +608,7 @@ private:
     PortraitController m_portraits;
     LyricTextController m_lyricText;
     LyricSourceController m_lyricSource;
+    std::unique_ptr<PlaybackTransitionPresentation> m_transitionPresentation;
     PlaybackTrack m_track;
     QCache<QString, QJsonObject> m_playbackFacts{2000};
     QPointer<SongMetadataService> m_metadata;

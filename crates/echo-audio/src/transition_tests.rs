@@ -499,6 +499,98 @@ fn fade_mode_overlaps_tracks_for_the_configured_duration() {
 }
 
 #[test]
+fn actual_fade_runner_projects_its_own_request_and_consumed_mix_boundaries() {
+    let _guard = TEST_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+    set_mode(TransitionMode::Fade, 2.0);
+    let a = TestWav::new(32.0, 440.0, 120.0, 0.0, 0.0);
+    let b = TestWav::new(32.0, 880.0, 120.0, 0.0, 0.0);
+    let rig = Rig::start(&a.url());
+    prepare_and_arm(&rig, &a.url(), &b.url(), 731);
+    let mut output = [0.0; 1024];
+    let mut consumed = 0usize;
+    let mut first_handover = None;
+    let mut saw_queued = false;
+    let mut saw_mixing = false;
+    let mut completed = None;
+    let mut held_output_before_boundary = false;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        if !held_output_before_boundary && consumed >= (29.75 * f64::from(SR)) as usize {
+            // Give the real producer room to queue the first mix, then hold the
+            // callback before 30s. Merely sampling after a pop can legitimately
+            // miss a short queued phase when this test drains faster than real time.
+            held_output_before_boundary = true;
+            let preparation_deadline = Instant::now() + Duration::from_secs(2);
+            while rig.shared.transition_playback().is_none()
+                && Instant::now() < preparation_deadline
+            {
+                thread::sleep(Duration::from_millis(1));
+            }
+            let queued = rig
+                .shared
+                .transition_playback()
+                .expect("real mix was queued ahead of output");
+            assert_eq!(queued.phase, TransitionPlaybackPhase::Queued);
+            assert_eq!(queued.request_id, Some(731));
+            assert!(!queued.handed_over);
+            assert_eq!(rig.shared.current_track_seq(), 1);
+            saw_queued = true;
+        }
+        let frames = rig.shared.pop_into(&mut output);
+        consumed += frames;
+        while let Ok(()) = rig.control_rx.try_recv() {}
+        let _ = rig.shared.take_pending_control_signal();
+        if let Some(projection) = rig.shared.transition_playback() {
+            assert_eq!(projection.request_id, Some(731));
+            assert_eq!(projection.outgoing_seq, 1);
+            assert_eq!(projection.incoming_seq, 2);
+            assert_eq!(projection.mode, "fade");
+            assert_eq!(projection.overlap_frames, u64::from(SR) * 2);
+            if projection.phase == TransitionPlaybackPhase::Queued {
+                saw_queued = true;
+                assert!(!projection.handed_over);
+                assert_eq!(rig.shared.current_track_seq(), 1);
+                assert_eq!(projection.progress, 0.0);
+            } else {
+                first_handover.get_or_insert(consumed);
+                assert!(projection.handed_over);
+                assert_eq!(rig.shared.current_track_seq(), 2);
+                assert_eq!(
+                    projection.incoming_position_secs,
+                    Some(rig.shared.position_secs())
+                );
+                assert_eq!(
+                    projection.progress,
+                    (projection.output_frames as f64 / projection.overlap_frames as f64).min(1.0)
+                );
+                saw_mixing |= projection.phase == TransitionPlaybackPhase::Mixing;
+                if projection.phase == TransitionPlaybackPhase::Completed {
+                    completed = Some(projection);
+                    break;
+                }
+            }
+        }
+        if frames == 0 {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+    rig.stop();
+    assert!(
+        saw_queued,
+        "real decode read-ahead should expose queued PCM before output consumption"
+    );
+    assert!(saw_mixing);
+    let at = first_handover.expect("real first mixed output boundary") as f64 / f64::from(SR);
+    assert!(
+        (at - 30.0).abs() < 0.03,
+        "handover is overlap start at 30s, not gain midpoint: {at}"
+    );
+    let completed = completed.expect("real Promote/gain boundary reached the output");
+    assert_eq!(completed.progress, 1.0);
+    assert!(completed.output_frames >= completed.overlap_frames);
+}
+
+#[test]
 fn per_deck_dsp_transition_preserves_duration_at_non_unit_speed() {
     let _guard = TEST_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
     set_mode(TransitionMode::Fade, 2.0);
@@ -1164,6 +1256,7 @@ fn run_runtime_transition_settings_test(timing: SettingsChangeTiming) {
     // Drain to the end of both tracks, recording the boundary.
     let started = Instant::now();
     let mut switch_at = None;
+    let mut saw_public_transition_projection = false;
     loop {
         let frames = shared.pop_into(&mut buffer);
         if frames > 0 {
@@ -1177,6 +1270,36 @@ fn run_runtime_transition_settings_test(timing: SettingsChangeTiming) {
             switch_at = Some(out.len());
             if timing == SettingsChangeTiming::Playing {
                 change_settings();
+            }
+        }
+        if let Some(projection) =
+            crate::get_transition_playback().expect("public transition projection")
+        {
+            saw_public_transition_projection = true;
+            assert_eq!(projection.outgoing_seq, 1);
+            assert_eq!(projection.incoming_seq, target_seq);
+            assert_eq!(projection.generation, generation);
+            if timing != SettingsChangeTiming::Prepared {
+                assert_eq!(projection.request_id, Some(request_id));
+                assert!(
+                    projection.presentation_cue.ready,
+                    "the real fade runner must publish its actual gain-envelope crossover"
+                );
+                assert!(
+                    projection
+                        .presentation_cue
+                        .crossover
+                        .is_some_and(|position| position > 0.0 && position < 1.0)
+                );
+                assert_eq!(projection.template, None);
+                assert!(projection.cue_duration_secs > 0.0);
+            }
+            if projection.handed_over {
+                assert_eq!(shared.current_track_seq(), target_seq);
+                assert!(projection.incoming_position_secs.is_some());
+                if timing != SettingsChangeTiming::Prepared {
+                    assert!(projection.outgoing_position_secs.is_some());
+                }
             }
         }
         if started.elapsed() > Duration::from_secs(60) {
@@ -1202,6 +1325,10 @@ fn run_runtime_transition_settings_test(timing: SettingsChangeTiming) {
     eprintln!("total = {total_secs:.2}s switch = {switch_secs:?}");
     crate::destroy().ok();
     *TEST_EVENT_SINK.lock().unwrap() = None;
+    assert!(
+        saw_public_transition_projection,
+        "real LoadFile/PrepareNext/output path must expose its projection through the public getter"
+    );
     assert!(
         (final_track_gain + 3.0).abs() < 1e-6,
         "next prepare/seek must use B's own gain"

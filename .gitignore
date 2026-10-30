@@ -21,6 +21,13 @@ __pycache__/
 !/docs/formatting.md
 !/docs/plugin-sdk.md
 !/docs/plugin-packages.md
+!/docs/plugin-text.md
+!/docs/lyrics-ttml.md
+!/docs/plugin-assets.md
+!/docs/plugin-image-capture.md
+!/docs/plugin-playback-commands.md
+!/docs/plugin-point-mesh.md
+!/docs/folia-glyph-run.md
 !/docs/third-party-notices.md
 !/docs/licenses/
 !/docs/share/
@@ -31,6 +38,7 @@ __pycache__/
 !/scripts/build.py
 !/scripts/format.py
 !/scripts/install-qt.py
+!/scripts/install-icu.py
 !/scripts/qt_download.py
 !/scripts/qt_sdk.py
 !/scripts/start.py

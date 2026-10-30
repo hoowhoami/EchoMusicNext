@@ -417,6 +417,12 @@ impl TransitionMixer {
         self.rendered_frames as f32 / self.overlap_frames as f32
     }
 
+    pub(crate) fn outgoing_tempo_ratio(&self) -> f64 {
+        self.stretcher
+            .as_ref()
+            .map_or(1.0, |stretcher| f64::from(stretcher.ratio))
+    }
+
     /// Everything the mixer had to render is done; the caller continues with deck B's
     /// remaining audio directly (see [`TransitionMixer::take_b_remainder`]).
     pub fn is_finished(&self) -> bool {

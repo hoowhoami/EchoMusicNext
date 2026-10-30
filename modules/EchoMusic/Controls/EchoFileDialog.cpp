@@ -38,6 +38,9 @@ void EchoFileDialog::open()
     auto *dialog = new QFileDialog;
     m_dialog = dialog;
     dialog->setWindowTitle(m_title);
+    dialog->setObjectName(objectName());
+    if (!m_font.family().isEmpty())
+        dialog->setFont(m_font);
     dialog->setOptions(QFileDialog::Options(m_options));
     dialog->setFileMode(m_fileMode == OpenFolder  ? QFileDialog::Directory
                         : m_fileMode == OpenFiles ? QFileDialog::ExistingFiles
@@ -51,6 +54,8 @@ void EchoFileDialog::open()
     dialog->setDefaultSuffix(m_fileMode == OpenFolder ? QString{} : m_defaultSuffix);
     if (m_currentFolder.isLocalFile())
         dialog->setDirectoryUrl(m_currentFolder);
+    if (!m_currentFile.isEmpty())
+        dialog->selectFile(m_currentFile);
     dialog->setWindowModality(m_parentWindow ? Qt::WindowModal : Qt::ApplicationModal);
     // Create the raster HWND before showing the native helper, and establish
     // ownership explicitly for a Qt Quick parent (there is no QWidget parent).

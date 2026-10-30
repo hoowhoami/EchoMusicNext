@@ -15,6 +15,7 @@
 #include <QFileInfo>
 #include <QUrl>
 #include <cmath>
+#include <utility>
 namespace EchoMusic
 {
 namespace
@@ -159,6 +160,8 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
       m_dynamicCover(api, this), m_portraits(api, *m_lyricAppearance.portrait(), this),
       m_lyricText(m_lyrics, m_native, settings, this), m_lyricSource(api, settings, this)
 {
+    m_transitionPresentation =
+        std::make_unique<PlaybackTransitionPresentation>(api, m_native, settings, this);
     m_sessionController = std::make_unique<PlaybackSessionController>(*this);
     m_outputController = std::make_unique<PlaybackOutputController>(*this);
     m_queueController = std::make_unique<PlaybackQueueController>(*this);
@@ -211,6 +214,19 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
     m_personalFm = std::make_unique<PersonalFmController>(*this, api, settings);
     m_discoverQueue = std::make_unique<DiscoverQueueController>(*this, api);
     m_listenTogether = std::make_unique<ListenTogetherController>(*this, api);
+    const auto updatePresentation = [this](bool lyricsChanged) {
+        m_transitionPresentation->updateCurrent(
+            m_audioSequence, m_track, QUrl(cover()), m_lyrics, m_lyricState,
+            m_lyricText.errorMessage().isEmpty() ? m_lyricSource.errorMessage()
+                                                 : m_lyricText.errorMessage(),
+            lyricsChanged);
+    };
+    connect(this, &PlaybackService::changed, this,
+            [updatePresentation] { updatePresentation(false); });
+    connect(&m_lyrics, &LyricModel::changed, this,
+            [updatePresentation] { updatePresentation(true); });
+    connect(&m_lyricText, &LyricTextController::changed, this,
+            [updatePresentation] { updatePresentation(false); });
     connect(this, &PlaybackService::changed, &m_sleepInhibitor, [this] {
         m_sleepInhibitor.setRequired(!m_closing && m_autoplay && m_playing &&
                                      m_preferences.preventSleep());
@@ -419,8 +435,9 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
                         m_artwork.load(m_embeddedCover, m_sequence);
                     }
                 }
-                m_lyricSource.updateEmbeddedDocument(m_track.stableKey(), title, artist,
-                                                     metadata.value("lyric").toString());
+                m_lyricSource.updateEmbeddedDocument(
+                    m_track.stableKey(), title, artist, metadata.value("lyric").toString(),
+                    metadata.value("lyric_error").toObject().value("message").toString());
                 // Unmatched uploads often lack a provider duration; the
                 // demuxed stream the engine reports is authoritative.
                 if (!m_track.durationMs && m_duration > 0)

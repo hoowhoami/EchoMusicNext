@@ -1775,6 +1775,233 @@ set_tests_properties(
     artist-cover-fallback PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
 )
 echo_copy_rust_runtime(echo-artist-cover-fallback-test)
+qt_add_executable(echo-plugin-text-test PluginTextTest.cpp)
+target_include_directories(echo-plugin-text-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo-plugin-text-test
+    PRIVATE echo_themes
+            echo_themesplugin
+            echo_platform
+            echo_plugins
+            echo_pluginsplugin
+            echo_plugin_sdkplugin
+            Qt6::Test
+            Qt6::Sql
+            Qt6::Widgets
+            Qt6::Network
+)
+add_test(NAME plugin-text COMMAND echo-plugin-text-test)
+set_tests_properties(plugin-text PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+echo_copy_rust_runtime(echo-plugin-text-test)
+
+qt_add_executable(echo-plugin-view-commands-test PluginViewCommandsTest.cpp)
+target_include_directories(echo-plugin-view-commands-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo-plugin-view-commands-test
+    PRIVATE echo_themes
+            echo_themesplugin
+            echo_platform
+            echo_plugins
+            echo_pluginsplugin
+            echo_plugin_sdkplugin
+            Qt6::Test
+            Qt6::Sql
+            Qt6::Widgets
+            Qt6::Network
+)
+add_test(NAME plugin-view-commands COMMAND echo-plugin-view-commands-test)
+set_tests_properties(
+    plugin-view-commands PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
+)
+echo_copy_rust_runtime(echo-plugin-view-commands-test)
+
+qt_add_executable(echo-lyric-metadata-test LyricMetadataTest.cpp)
+target_include_directories(echo-lyric-metadata-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo-lyric-metadata-test
+    PRIVATE echo_themes
+            echo_themesplugin
+            echo_platform
+            echo_plugins
+            echo_pluginsplugin
+            echo_plugin_sdkplugin
+            Qt6::Test
+            Qt6::Sql
+            Qt6::Widgets
+            Qt6::Network
+)
+add_test(NAME lyric-metadata COMMAND echo-lyric-metadata-test)
+set_tests_properties(lyric-metadata PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+echo_copy_rust_runtime(echo-lyric-metadata-test)
+
+qt_add_executable(echo-glyph-run-canvas-rendering-test GlyphRunCanvasRenderingTest.cpp)
+set_target_properties(
+    echo-glyph-run-canvas-rendering-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE
+)
+target_link_libraries(
+    echo-glyph-run-canvas-rendering-test PRIVATE echo_plugin_sdk Qt6::Test Qt6::QuickPrivate
+                                                 Qt6::GuiPrivate
+)
+add_test(NAME glyph-run-canvas-rendering COMMAND echo-glyph-run-canvas-rendering-test)
+if(APPLE)
+    set_tests_properties(
+        glyph-run-canvas-rendering
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa;QSG_RHI_BACKEND=metal;QT_SCALE_FACTOR=1"
+    )
+else()
+    set_tests_properties(
+        glyph-run-canvas-rendering PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+endif()
+set_tests_properties(glyph-run-canvas-rendering PROPERTIES TIMEOUT 300)
+echo_copy_rust_runtime(echo-glyph-run-canvas-rendering-test)
+
+qt_add_executable(echo-presentation-scope-test PresentationScopeTest.cpp)
+target_link_libraries(echo-presentation-scope-test PRIVATE echo_plugin_sdk Qt6::Test)
+add_test(NAME presentation-scope COMMAND echo-presentation-scope-test)
+set_tests_properties(
+    presentation-scope PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
+)
+echo_copy_rust_runtime(echo-presentation-scope-test)
+
+qt_add_executable(
+    echo-image-capture-test ImageCaptureTest.cpp ../../modules/EchoMusic/PluginSdk/ImageCapture.cpp
+)
+set_target_properties(echo-image-capture-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+target_include_directories(
+    echo-image-capture-test PRIVATE ${PROJECT_SOURCE_DIR}/modules/EchoMusic/PluginSdk
+)
+target_link_libraries(echo-image-capture-test PRIVATE Qt6::Quick Qt6::Concurrent Qt6::Test)
+add_test(NAME image-capture COMMAND echo-image-capture-test)
+set_tests_properties(image-capture PROPERTIES TIMEOUT 45)
+
+qt_add_executable(
+    echo-asset-svg-validation-test AssetSvgValidationTest.cpp
+    ../../modules/EchoMusic/PluginSdk/AssetSvgValidation.cpp
+)
+target_include_directories(
+    echo-asset-svg-validation-test PRIVATE ${PROJECT_SOURCE_DIR}/modules/EchoMusic/PluginSdk
+)
+target_link_libraries(echo-asset-svg-validation-test PRIVATE Qt6::Gui Qt6::Svg Qt6::Test)
+add_test(NAME asset-svg-validation COMMAND echo-asset-svg-validation-test)
+set_tests_properties(
+    asset-svg-validation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
+)
+
+qt_add_executable(echo-plugin-asset-archive-test PluginAssetArchiveTest.cpp)
+target_include_directories(echo-plugin-asset-archive-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo-plugin-asset-archive-test
+    PRIVATE echo_themes
+            echo_themesplugin
+            echo_platform
+            echo_plugins
+            echo_pluginsplugin
+            echo_plugin_sdkplugin
+            Qt6::Test
+            Qt6::Sql
+            Qt6::Widgets
+            Qt6::Network
+)
+add_test(NAME plugin-asset-archive COMMAND echo-plugin-asset-archive-test)
+set_tests_properties(
+    plugin-asset-archive PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90
+)
+echo_copy_rust_runtime(echo-plugin-asset-archive-test)
+
+qt_add_executable(echo-plugin-assets-test PluginAssetsTest.cpp)
+target_include_directories(echo-plugin-assets-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo-plugin-assets-test
+    PRIVATE echo_themes
+            echo_themesplugin
+            echo_platform
+            echo_plugins
+            echo_pluginsplugin
+            echo_plugin_sdkplugin
+            Qt6::Test
+            Qt6::Sql
+            Qt6::Widgets
+            Qt6::Network
+)
+add_test(NAME plugin-assets COMMAND echo-plugin-assets-test)
+set_tests_properties(plugin-assets PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+echo_copy_rust_runtime(echo-plugin-assets-test)
+
+qt_add_executable(echo-plugin-asset-animation-test PluginAssetAnimationTest.cpp)
+target_include_directories(echo-plugin-asset-animation-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo-plugin-asset-animation-test
+    PRIVATE echo_themes
+            echo_themesplugin
+            echo_platform
+            echo_plugins
+            echo_pluginsplugin
+            echo_plugin_sdkplugin
+            Qt6::Test
+            Qt6::Sql
+            Qt6::Widgets
+            Qt6::Network
+)
+add_test(NAME plugin-asset-animation COMMAND echo-plugin-asset-animation-test)
+set_tests_properties(
+    plugin-asset-animation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45
+)
+echo_copy_rust_runtime(echo-plugin-asset-animation-test)
+
+qt_add_executable(
+    echo-lyric-presentation-test LyricPresentationTest.cpp
+    ${PROJECT_SOURCE_DIR}/services/playback/LyricModel.cpp
+    ${PROJECT_SOURCE_DIR}/services/playback/LyricModel.h
+)
+target_include_directories(
+    echo-lyric-presentation-test PRIVATE ${PROJECT_SOURCE_DIR}/services/playback
+)
+target_link_libraries(echo-lyric-presentation-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME lyric-presentation COMMAND echo-lyric-presentation-test)
+set_tests_properties(
+    lyric-presentation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_FATAL_WARNINGS=1"
+                                  TIMEOUT 15
+)
+
+qt_add_executable(echo-playback-transition-presentation-test PlaybackTransitionPresentationTest.cpp)
+target_include_directories(
+    echo-playback-transition-presentation-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(
+    echo-playback-transition-presentation-test
+    PRIVATE echo_themes
+            echo_themesplugin
+            echo_platform
+            echo_plugins
+            echo_pluginsplugin
+            echo_plugin_sdkplugin
+            Qt6::Test
+            Qt6::Sql
+            Qt6::Widgets
+            Qt6::Network
+)
+add_test(NAME playback-transition-presentation COMMAND echo-playback-transition-presentation-test)
+set_tests_properties(
+    playback-transition-presentation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45
+)
+echo_copy_rust_runtime(echo-playback-transition-presentation-test)
+
+find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS QuickPrivate)
+qt_add_executable(echo-point-mesh-test PointMeshTest.cpp)
+target_link_libraries(echo-point-mesh-test PRIVATE echo_plugin_sdk Qt6::QuickPrivate Qt6::Test)
+add_test(NAME point-mesh COMMAND echo-point-mesh-test)
+set_tests_properties(point-mesh PROPERTIES TIMEOUT 15)
+
+qt_add_executable(echo-lyric-ttml-test LyricTtmlTest.cpp)
+target_link_libraries(echo-lyric-ttml-test PRIVATE echo_lyrics Qt6::Test)
+target_compile_definitions(
+    echo-lyric-ttml-test
+    PRIVATE ECHO_TTML_FIXTURES="${PROJECT_SOURCE_DIR}/tests/fixtures/lyrics/ttml"
+)
+add_test(NAME lyric-ttml COMMAND echo-lyric-ttml-test)
+set_tests_properties(lyric-ttml PROPERTIES TIMEOUT 30)
+echo_copy_rust_runtime(echo-lyric-ttml-test)
 
 qt_add_executable(echo-settings-storage-test SettingsStorageTest.cpp)
 target_link_libraries(

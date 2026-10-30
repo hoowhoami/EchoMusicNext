@@ -101,6 +101,7 @@ TrackTransitionController::TrackTransitionController(PlaybackService &playback, 
                     success ? QJsonDocument::fromJson(bytes).array() : QJsonArray{},
                     m_resolved.value("effect").toString(m_playback.m_songEffect));
                 m_preparedGain = m_playback.m_audioControls.gainForSource(m_resolved);
+                m_playback.m_transitionPresentation->prepare(m_target, m_requestId, m_sequence);
                 m_playback.m_engine.prepareNext(m_urls.first(), audioTrack, m_sequence, m_requestId,
                                                 m_revision, m_preparedGain);
             });
@@ -328,6 +329,7 @@ void TrackTransitionController::queueChanged()
 }
 void TrackTransitionController::clear(bool allowRetry)
 {
+    m_playback.m_transitionPresentation->invalidate("preparation-cleared");
     ++m_revision;
     m_timeout.stop();
     m_source.cancel();
@@ -402,8 +404,10 @@ void TrackTransitionController::prepareSource()
         return;
     }
     m_preparedGain = m_playback.m_audioControls.gainForSource(m_resolved);
-    m_playback.m_engine.prepareNext(m_urls.first(), m_urlAudioTracks.value(0), m_sequence,
-                                    m_requestId, m_revision, m_preparedGain);
+    const auto audioTrack = m_urlAudioTracks.value(0);
+    m_playback.m_transitionPresentation->prepare(m_target, m_requestId, m_sequence);
+    m_playback.m_engine.prepareNext(m_urls.first(), audioTrack, m_sequence, m_requestId, m_revision,
+                                    m_preparedGain);
 }
 bool TrackTransitionController::commit(bool automatic)
 {
@@ -523,8 +527,8 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
     p.m_coverPng.clear();
     p.m_embeddedCover.clear();
     p.m_artwork.load(track.cover, p.m_sequence);
-    p.m_lyricText.clear();
     p.m_lyricState = "loading";
+    p.m_lyricText.clear();
     p.requestLyrics();
     p.requestEmbeddedMetadata();
     p.publishMedia();

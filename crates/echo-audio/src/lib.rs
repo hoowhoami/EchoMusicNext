@@ -65,6 +65,7 @@ use crate::events::{
     TrackInfo,
 };
 use crate::shared::{MixFormat, PlaybackSession, PlaybackSignal, SharedAudio, TrackSwitchInfo};
+pub use crate::shared::{TransitionPlaybackPhase, TransitionPlaybackSnapshot};
 use audio_graph::AudioGraphSnapshot;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -613,6 +614,10 @@ fn emit_native_log_event(event: &PlayerEvent) -> bool {
 }
 
 fn contextualize_runtime_event(runtime: &PlayerRuntime, mut event: PlayerEvent) -> PlayerEvent {
+    event.transition_playback = runtime
+        .session
+        .as_ref()
+        .and_then(|session| session.shared.transition_playback());
     // Periodic audio ticks advance SharedAudio, not runtime.state.time_pos.
     // State changes (pause/resume/output restart) must not send an old position
     // back into the desktop lyric and mini-player clocks.
@@ -629,11 +634,17 @@ fn contextualize_runtime_event(runtime: &PlayerRuntime, mut event: PlayerEvent) 
     event.with_playback_context(runtime.current_seq, generation)
 }
 
-fn contextualize_shared_event(shared: &SharedAudio, event: PlayerEvent) -> PlayerEvent {
+fn contextualize_shared_event(shared: &SharedAudio, mut event: PlayerEvent) -> PlayerEvent {
+    event.transition_playback = shared.transition_playback();
     event.with_playback_context(
         shared.current_track_seq(),
         shared.current_decode_generation(),
     )
+}
+
+/// Actual scheduled/consumed mix state of the active output session.
+pub fn get_transition_playback() -> Result<Option<TransitionPlaybackSnapshot>> {
+    Ok(current_shared().and_then(|shared| shared.transition_playback()))
 }
 
 fn bind_seamless_source_context(runtime: &mut PlayerRuntime, shared: &SharedAudio, seq: u64) {

@@ -1,4 +1,4 @@
-add_library(echo_lyrics STATIC LyricParser.h LyricParser.cpp)
+add_library(echo_lyrics STATIC LyricParser.h LyricParser.cpp TtmlParser_p.h TtmlParser.cpp)
 target_include_directories(echo_lyrics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
     echo_lyrics

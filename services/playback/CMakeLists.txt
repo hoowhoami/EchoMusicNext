@@ -54,6 +54,8 @@ add_library(
     LyricExtensions.cpp
     LyricModel.cpp
     LyricModel.h
+    PlaybackTransitionPresentation.h
+    PlaybackTransitionPresentation.cpp
     PlaybackClimaxModel.h
     PlaybackClimaxModel.cpp
     PlaybackClock.h
