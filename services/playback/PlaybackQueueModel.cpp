@@ -7,6 +7,14 @@ namespace EchoMusic
 {
 PlaybackQueueModel::PlaybackQueueModel(QObject *parent) : QAbstractListModel(parent)
 {
+    connect(this, &PlaybackQueueModel::changed, this, &PlaybackQueueModel::resumeTitleChanged);
+    connect(this, &QAbstractItemModel::dataChanged, this,
+            [this](const QModelIndex &first, const QModelIndex &last, const QList<int> &roles) {
+                const int row = qMax(0, m_current);
+                if (first.row() <= row && row <= last.row() &&
+                    (roles.isEmpty() || roles.contains(Title)))
+                    emit resumeTitleChanged();
+            });
     m_metadataRefresh.setSingleShot(true);
     connect(&m_metadataRefresh, &QTimer::timeout, this, &PlaybackQueueModel::watchMetadata);
     const auto schedule = [this] {
@@ -17,6 +25,11 @@ PlaybackQueueModel::PlaybackQueueModel(QObject *parent) : QAbstractListModel(par
     connect(this, &QAbstractItemModel::rowsInserted, this, schedule);
     connect(this, &QAbstractItemModel::rowsRemoved, this, schedule);
     connect(this, &QAbstractItemModel::rowsMoved, this, schedule);
+}
+QString PlaybackQueueModel::resumeTitle() const
+{
+    const auto *track = at(qMax(0, m_current));
+    return track ? track->title : QString();
 }
 void PlaybackQueueModel::attachMetadata(SongMetadataService *service)
 {
