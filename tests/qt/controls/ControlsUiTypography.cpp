@@ -1,6 +1,7 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
 #include <QFontMetricsF>
+#include <QHash>
 #include <QPainterPath>
 
 void ControlsUiTest::badgeIconAndCountUseSameInkCenter()
@@ -71,19 +72,38 @@ Window {
                 auto *label = findVisual(badge, "buttonLabel");
                 QVERIFY(glyph && label);
                 const auto color = label->property("color").value<QColor>();
+                // Classify each pixel as ink or fill by whichever reference color
+                // it is closer to. An absolute distance threshold drops the
+                // antialiased edges of a glyph and reports a center a pixel or
+                // two off, which made this comparison theme-dependent.
+                const auto distance = [](const QColor &a, const QColor &b) {
+                    return qAbs(a.red() - b.red()) + qAbs(a.green() - b.green()) +
+                           qAbs(a.blue() - b.blue());
+                };
                 const auto inkCenter = [&](QQuickItem *item) {
                     const auto bounds =
                         item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
                     const auto pixels = QRectF(bounds.topLeft() * ratio, bounds.size() * ratio)
                                             .toAlignedRect()
                                             .intersected(image.rect());
+                    // The item box is mostly fill, so its most common color is
+                    // the background reference for the nearest-color split.
+                    QHash<QRgb, int> histogram;
+                    for (int y = pixels.top(); y <= pixels.bottom(); ++y)
+                        for (int x = pixels.left(); x <= pixels.right(); ++x)
+                            ++histogram[image.pixel(x, y)];
+                    QColor fill;
+                    int most = 0;
+                    for (auto it = histogram.constBegin(); it != histogram.constEnd(); ++it)
+                        if (it.value() > most) {
+                            most = it.value();
+                            fill = QColor::fromRgb(it.key());
+                        }
                     int top = image.height(), bottom = -1;
                     for (int y = pixels.top(); y <= pixels.bottom(); ++y)
                         for (int x = pixels.left(); x <= pixels.right(); ++x) {
                             const auto p = image.pixelColor(x, y);
-                            if (qAbs(p.red() - color.red()) + qAbs(p.green() - color.green()) +
-                                    qAbs(p.blue() - color.blue()) <
-                                60) {
+                            if (distance(p, color) <= distance(p, fill)) {
                                 top = std::min(top, y);
                                 bottom = std::max(bottom, y);
                             }

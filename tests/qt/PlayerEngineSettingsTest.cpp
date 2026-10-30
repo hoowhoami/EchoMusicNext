@@ -513,7 +513,8 @@ private slots:
         ApiClient api;
         PlaybackService playback(api, settings);
         auto *preferences = playback.preferences();
-        QVERIFY(!preferences->autoNext());
+        // 自动跳过错误默认开启，仍可被显式关闭（本用例后面会校验取消路径）。
+        QVERIFY(preferences->autoNext());
         QCOMPARE(preferences->autoNextDelaySeconds(), 3);
         QCOMPARE(preferences->autoNextMaxAttempts(), 10);
         preferences->setAutoNext(true);

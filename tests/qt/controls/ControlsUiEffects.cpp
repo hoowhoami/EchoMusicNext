@@ -259,17 +259,37 @@ void ControlsUiTest::colorPresetsKeepVisibleEdgesInBothThemes()
                 return session.window->grabWindow();
             };
             const auto selected = snapshot();
-            const auto checkVisibleEdge = [&](const QImage &image, QQuickItem *swatch) {
+            const auto edgeDelta = [&](const QImage &image, QQuickItem *swatch) {
                 const auto dpr = image.width() / qreal(session.window->width());
                 const auto sample = [&](qreal x) {
                     const auto point = swatch->mapToScene({x, swatch->height() / 2}) * dpr;
-                    return image.pixelColor(qRound(point.x()), qRound(point.y()));
+                    return qGray(image.pixelColor(qRound(point.x()), qRound(point.y())).rgb());
                 };
-                return qAbs(qGray(sample(.35).rgb()) - qGray(sample(-2).rgb())) > 12;
+                // The border is a 1px logical stroke; device rounding can place a
+                // single sample on its antialiased shoulder instead of the stroke
+                // itself. Report the strongest step inside the border band.
+                const auto outside = sample(-2);
+                int strongest = 0;
+                for (const qreal inset : {1.5, 1., .65, .35, .1})
+                    if (qAbs(sample(inset) - outside) > qAbs(strongest))
+                        strongest = sample(inset) - outside;
+                return strongest;
             };
-            QVERIFY(checkVisibleEdge(selected, white));
-            QVERIFY(checkVisibleEdge(selected, nearWhite));
-            QVERIFY(checkVisibleEdge(selected, black));
+            const auto requireVisibleEdge = [&](const QImage &image, QQuickItem *swatch,
+                                                int preset) {
+                const auto delta = edgeDelta(image, swatch);
+                QVERIFY2(
+                    qAbs(delta) > 12,
+                    qPrintable(QString("preset %1 must keep a visible edge in mode %2 at scale %3: "
+                                       "inset-minus-outside=%4")
+                                   .arg(preset)
+                                   .arg(int(mode))
+                                   .arg(scale)
+                                   .arg(delta)));
+            };
+            requireVisibleEdge(selected, white, 0);
+            requireVisibleEdge(selected, nearWhite, 1);
+            requireVisibleEdge(selected, black, 2);
             const auto dpr = selected.width() / qreal(session.window->width());
             const auto center = white->mapToScene({white->width() / 2, white->height() / 2}) * dpr;
             int checkInk = 0;
@@ -284,7 +304,7 @@ void ControlsUiTest::colorPresetsKeepVisibleEdgesInBothThemes()
             QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, position);
             QTRY_COMPARE(popup->property("draft").toString(), QString("#31cfa1"));
             const auto unselected = snapshot();
-            QVERIFY(checkVisibleEdge(unselected, white));
+            requireVisibleEdge(unselected, white, 0);
             const auto captures = qEnvironmentVariable("ECHO_SELECT_COLOR_CAPTURES");
             if (!captures.isEmpty()) {
                 QDir().mkpath(captures);
@@ -924,8 +944,27 @@ void ControlsUiTest::sourceActionSurfacesAndSelectStates()
             QTRY_COMPARE(color(neutral), alpha(tone, 0.14));
             QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, point);
             Test::moveNativePointer(session.window, QPoint(700, 250));
+            // A control only paints its visual focus while its window is active,
+            // so a background window would never satisfy this assertion.
+            session.window->requestActivate();
+            if (QGuiApplication::platformName() != "offscreen")
+                QVERIFY(QTest::qWaitForWindowActive(session.window));
+            // The press above already gave the control mouse focus, and Qt only
+            // updates the focus reason on an actual focus transfer.
+            neutral->setFocus(false);
+            QTRY_VERIFY(!neutral->hasActiveFocus());
             neutral->forceActiveFocus(Qt::TabFocusReason);
-            QTRY_VERIFY(neutral->property("visualFocus").toBool());
+            QTRY_VERIFY2(
+                neutral->property("visualFocus").toBool(),
+                qPrintable(
+                    QString("activeFocus=%1 focus=%2 focusPolicy=%3 enabled=%4 windowActive=%5 "
+                            "focusReason=%6")
+                        .arg(neutral->hasActiveFocus())
+                        .arg(neutral->hasFocus())
+                        .arg(int(neutral->focusPolicy()))
+                        .arg(neutral->isEnabled())
+                        .arg(session.window->isActive())
+                        .arg(neutral->property("focusReason").toInt())));
             QTRY_COMPARE(color(neutral), alpha(tone, 0.10));
             mouse(accent);
             QTRY_COMPARE(color(accent), alpha(session.theme.accent(), 0.18));
