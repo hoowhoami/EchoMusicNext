@@ -15,6 +15,8 @@ namespace EchoMusic
 {
 class EchoPluginContext;
 class EchoGpuSurface;
+class EchoGpuGlyphAtlas;
+struct GpuGlyphAtlasState;
 class EchoPluginGraphics;
 class EchoPluginOperation;
 struct GpuRenderState;
@@ -66,6 +68,8 @@ struct GpuResourceDescription
     bool imported = false, readOnly = false;
     struct TextureSource
     {
+        std::shared_ptr<GpuGlyphAtlasState> glyphAtlas;
+        int glyphPage = 0;
         QPointer<QQuickItem> item;
         std::atomic<bool> active{true}, ready{false};
         std::atomic<qint64> generation{0};
@@ -139,6 +143,7 @@ signals:
 private:
     friend class EchoPluginGraphics;
     friend class EchoGpuSurface;
+    friend class EchoGpuGlyphAtlas;
     EchoGpuResource(EchoPluginGraphics &owner, QString id, GpuResourceDescription description);
     EchoPluginGraphics &m_owner;
     QString m_id;
@@ -181,6 +186,7 @@ public:
     bool active() const;
     bool drained() const;
     void shutdown();
+    QString atlasDomain() const;
     EchoPluginContext &scope() const
     {
         return m_scope;
@@ -205,6 +211,7 @@ signals:
 private:
     friend class EchoGpuResource;
     friend class EchoGpuSurface;
+    friend class EchoGpuGlyphAtlas;
     EchoGpuResource *
     create(QString kind, QVariantMap definition, QByteArray data = {},
            EchoGpuResource *source = nullptr, bool readOnly = false,
@@ -212,6 +219,7 @@ private:
     QByteArray shader(const QString &path, int stage);
     QByteArray bytes(const QJSValue &data, const QString &format, int maximum);
     void retire(EchoGpuResource &resource);
+    QString m_atlasDomain;
     EchoPluginContext &m_scope;
     QHash<QString, EchoGpuResource *> m_resources;
     QHash<QString, QPointer<EchoGpuResource>> m_exports;

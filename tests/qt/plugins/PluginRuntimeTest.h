@@ -21,6 +21,9 @@ private slots:
     void graphicsCubeVolumeSlicesAndRecovery();
     void graphicsSharedResourcesScopesDevicesAndRecovery();
     void graphicsQtTextureSourcesLifecycle();
+    void graphicsNativeGlyphAtlasLifecycle();
+    void graphicsStaticGlyphAtlasReuseAndReentrancy();
+    void graphicsFoliaGlyphAtlasConnection();
     void graphicsMultipleStreamsInstancesAndReflection();
     void appearancePreviewCatalogAndFloatingIsolation();
     void appearanceMaterialsAndRouteLifecycle();

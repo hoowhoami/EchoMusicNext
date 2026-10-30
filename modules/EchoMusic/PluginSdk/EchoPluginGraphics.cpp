@@ -79,6 +79,7 @@ void EchoGpuResource::dispose()
 }
 EchoPluginGraphics::EchoPluginGraphics(EchoPluginContext &scope) : QObject(&scope), m_scope(scope)
 {
+    m_atlasDomain = QUuid::createUuid().toString(QUuid::WithoutBraces);
     auto *activation = scope.activationContext();
     m_memory = activation == &scope ? std::make_shared<GpuMemoryBudget>()
                                     : activation->graphics()->memoryBudget();
@@ -86,6 +87,7 @@ EchoPluginGraphics::EchoPluginGraphics(EchoPluginContext &scope) : QObject(&scop
         connect(activation->graphics(), &EchoPluginGraphics::changed, this,
                 &EchoPluginGraphics::changed);
     connect(&scope, &EchoPluginContext::sessionInvalidated, this, [this] {
+        m_atlasDomain = QUuid::createUuid().toString(QUuid::WithoutBraces);
         shutdown();
         // The activation facade survives account changes; presentation scopes do
         // not. New account resources must never reuse the retired handles.
@@ -1015,5 +1017,14 @@ void EchoPluginGraphics::shutdown()
     emit changed();
     if (drained())
         emit drainedChanged();
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+QString EchoPluginGraphics::atlasDomain() const
+{
+    auto *root = m_scope.activationContext();
+    return root == &m_scope ? m_atlasDomain : root->graphics()->atlasDomain();
 }
 } // namespace EchoMusic

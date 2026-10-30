@@ -282,8 +282,7 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
                 session.shell.zoomIn();
             // 全局字体移入界面与外观：在 interface 分区交互全局重置。
             const QVariantMap interfaceProperties{{"initialSection", "interface"}};
-            QVERIFY(QMetaObject::invokeMethod(owner, "open",
-                                              Q_ARG(QVariant, interfaceProperties)));
+            QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, interfaceProperties)));
             QPointer<QObject> dialog = owner->property("item").value<QObject *>();
             QVERIFY(dialog);
             QTRY_VERIFY(dialog->property("opened").toBool());
@@ -314,13 +313,13 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
                 for (int attempt = 0; attempt < 40; ++attempt) {
                     const auto bounds = row->mapRectToItem(lyricContent, row->boundingRect());
                     const auto maximum =
-                        qMax(0., lyricViewport->property("contentHeight").toReal()
-                                     - lyricViewport->height());
+                        qMax(0., lyricViewport->property("contentHeight").toReal() -
+                                     lyricViewport->height());
                     lyricViewport->setProperty(
                         "contentY",
                         qBound(0., bounds.center().y() - lyricViewport->height() / 2, maximum));
-                    if (row->mapToScene(QPointF(0, row->height() / 2)).y()
-                        <= session.window->height())
+                    if (row->mapToScene(QPointF(0, row->height() / 2)).y() <=
+                        session.window->height())
                         return;
                     QTest::qWait(50);
                 }

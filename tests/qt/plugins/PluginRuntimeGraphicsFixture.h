@@ -16,12 +16,13 @@ struct GraphicsFixture
                                     {"lifecycle", "operations", "graphics.rhi", "graphics.indirect",
                                      "graphics.textureArrays", "graphics.textureDimensions",
                                      "graphics.sharedResources", "graphics.vertexStreams",
-                                     "graphics.textureSources"},
+                                     "graphics.textureSources", "graphics.glyphAtlases",
+                                     "text.glyphs", "graphics.glyphRun.canvas"},
                                     {"graphics"});
-        for (const auto &name :
-             {"fixture.vert", "fixture.frag", "solid.frag", "indirect.comp", "array.frag",
-              "array.comp", "cube.frag", "volume.frag", "volume.comp", "shared.comp",
-              "instanced.vert", "instanced.frag", "matrix.vert", "integer.vert", "source.frag"}) {
+        for (const auto &name : {"fixture.vert", "fixture.frag", "solid.frag", "indirect.comp",
+                                 "array.frag", "array.comp", "cube.frag", "volume.frag",
+                                 "volume.comp", "shared.comp", "instanced.vert", "instanced.frag",
+                                 "matrix.vert", "integer.vert", "source.frag", "glyph.frag"}) {
             QFile shader(":/test-gpu/shaders/gpu/" + QString(name) + ".qsb");
             if (!shader.open(QIODevice::ReadOnly))
                 return;

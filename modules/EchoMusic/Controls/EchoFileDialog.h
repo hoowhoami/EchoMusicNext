@@ -54,7 +54,8 @@ public:
         return m_selected.value(0);
     }
     Q_INVOKABLE void open();
-    Q_INVOKABLE void close();signals:
+    Q_INVOKABLE void close();
+signals:
     void visibleChanged();
     void selectionChanged();
     void accepted();

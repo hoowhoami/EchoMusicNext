@@ -702,9 +702,9 @@ void DesktopPagesTest::remainingSettingsProductionSections()
                 for (int i = 0; i < 5; ++i)
                     session.shell.zoomIn();
             int actionCount = 0;
-            for (const auto *key : {"interface", "window", "playback", "player",
-                                    "spatialAudio", "lyric", "shortcuts", "audioDevice", "cast",
-                                    "plugins", "data", "network", "experimental", "about"}) {
+            for (const auto *key :
+                 {"interface", "window", "playback", "player", "spatialAudio", "lyric", "shortcuts",
+                  "audioDevice", "cast", "plugins", "data", "network", "experimental", "about"}) {
                 catalog->select(key);
                 if (loader->property("status").toInt() == 2) // Loader.Loading
                     QVERIFY2(!loader->isVisible(),

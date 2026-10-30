@@ -188,14 +188,12 @@ ThemeStore::ThemeStore(EchoMusic::SettingsStore &settings, QObject *parent,
     if (savedFont == "system-ui" || QFontDatabase::hasFamily(savedFont))
         m_globalFont = savedFont;
     configureUiTypography(m_globalFont);
-    m_globalFontSizeScale =
-        qBound(80, settings.value(EchoMusic::SettingsKeys::Typography::GlobalFontSizeScale, 100)
-                        .toInt(),
-               150);
-    m_globalFontWeightOffset =
-        qBound(0, settings.value(EchoMusic::SettingsKeys::Typography::GlobalFontWeightOffset, 0)
-                       .toInt(),
-               300);
+    m_globalFontSizeScale = qBound(
+        80, settings.value(EchoMusic::SettingsKeys::Typography::GlobalFontSizeScale, 100).toInt(),
+        150);
+    m_globalFontWeightOffset = qBound(
+        0, settings.value(EchoMusic::SettingsKeys::Typography::GlobalFontWeightOffset, 0).toInt(),
+        300);
     const auto loadLyricFont = [&settings](const QString &key) {
         const auto family = settings.value(key, "follow").toString();
         return family == "follow" || family == "system-ui" || QFontDatabase::hasFamily(family)

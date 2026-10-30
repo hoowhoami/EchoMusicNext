@@ -58,7 +58,6 @@ TextField {
         // 聚焦边框严格跟随 activeFocus：所有文本框统一——聚焦高亮、
         // 失焦即恢复，且主题部件的静态边框只在未聚焦时参与绘制。
         border.width: control.activeFocus ? 1 : formPart.value("borderWidth", 0)
-        border.color: control.activeFocus ? control.colors.accent
-                                          : formPart.value("borderColor", "transparent")
+        border.color: control.activeFocus ? control.colors.accent : formPart.value("borderColor", "transparent")
     }
 }

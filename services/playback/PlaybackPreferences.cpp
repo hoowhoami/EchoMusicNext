@@ -27,7 +27,8 @@ PlaybackPreferences::PlaybackPreferences(EchoMusic::SettingsStore &settings, QOb
     m_fade = settings.value(EchoMusic::SettingsKeys::Playback::VolumeFade, true).toBool();
     m_fadeMs = qBound(
         500, settings.value(EchoMusic::SettingsKeys::Playback::VolumeFadeMs, 1000).toInt(), 3000);
-    m_viper = settings.value(EchoMusic::SettingsKeys::Playback::ViperQualityEnabled, false).toBool();
+    m_viper =
+        settings.value(EchoMusic::SettingsKeys::Playback::ViperQualityEnabled, false).toBool();
     m_compatibilityMode =
         settings.value(EchoMusic::SettingsKeys::Playback::CompatibilityMode, true).toBool();
     if (!m_viper && m_quality.startsWith("viper_"))

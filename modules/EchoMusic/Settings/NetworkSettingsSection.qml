@@ -26,8 +26,7 @@ SettingsSection {
     function applyDrafts() {
         if (network.busy)
             return;
-        network.apply(modeDraft, pacDraft, rulesDraft, usernameDraft, password.text,
-                      clearPassword, bypassDraft, apiDraft, playerDraft);
+        network.apply(modeDraft, pacDraft, rulesDraft, usernameDraft, password.text, clearPassword, bypassDraft, apiDraft, playerDraft);
     }
     function resetDrafts() {
         modeDraft = network.proxyMode;

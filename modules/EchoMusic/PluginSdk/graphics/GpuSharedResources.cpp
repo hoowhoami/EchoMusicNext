@@ -74,7 +74,10 @@ bool GpuRenderState::resourcesValid() const
 {
     for (const auto &d : snapshot.resources)
         if ((d.shared && !d.shared->active) || (d.lease && !*d.lease) ||
-            (d.textureSource && !d.textureSource->active))
+            (d.textureSource &&
+             (!d.textureSource->active || (d.textureSource->glyphAtlas &&
+                                           (!d.textureSource->glyphAtlas->active ||
+                                            !*d.textureSource->glyphAtlas->preparation->valid)))))
             return false;
     return true;
 }

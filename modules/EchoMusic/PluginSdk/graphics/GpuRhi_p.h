@@ -1,5 +1,6 @@
 #pragma once
 #include "EchoGpuSurface.h"
+#include "../GlyphAtlas_p.h"
 #include <rhi/qrhi.h>
 #include <QElapsedTimer>
 #include <QQuickWindow>
@@ -93,6 +94,8 @@ struct GpuRenderState
     bool updateTextureSource(NativeGpuResource &, const GpuResourceDescription &,
                              QSGTextureProvider *, QRhiResourceUpdateBatch *, bool &topology);
     void watchTextureSources(EchoGpuSurface &);
+    bool updateGlyphAtlases(QRhiResourceUpdateBatch *);
+    std::map<GpuGlyphAtlasState *, std::shared_ptr<GpuGlyphAtlasAllocation>> glyphAtlases;
     bool prepareOutput(QRhiRenderTarget *output);
     void composite(QRhiCommandBuffer *cb, QRhiRenderTarget *output);
     bool vertexLayout(const QVariantMap &layout, const QShader &shader,
