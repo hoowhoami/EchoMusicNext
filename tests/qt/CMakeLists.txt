@@ -693,7 +693,7 @@ add_test(
         lyricVariantSettingUsesProductionSelectAndReleasesPopup miniWidthPreferencesClampAndRestore
         lyricSettingsShareCoverPickerAndExcludeTaskbar fullscreenShortcutReachesModalPlaybackPage
         productionExperimentalIdentitySettings productionExperimentalLoggingSettings
-        productionNetworkSettingsDraftApplyResetAndTheme
+        productionNetworkSettingsAutoSaveResetAndTheme
         productionPlayerEngineSettingsDecimalInputAndLifecycle
         productionVariableDialogSizingReopens settingsDefaultsAndSourceEffectFileManager
         playbackZoomShortcutsFollowSharedScale windowSettingsNeverHideWithoutNativeRecovery
