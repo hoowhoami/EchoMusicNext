@@ -68,6 +68,10 @@ Item {
     property string alignment: "left"
     property real contentInset: 16
     property bool sourceSpacing: false
+    // Desktop secondary lines use the configured resting ink, independently
+    // of the primary line's sung color and its word-by-word progress.
+    readonly property color secondaryColor: linePart.value("secondaryForeground", content.unplayedColor)
+    readonly property real secondaryOpacity: sourceSpacing ? 1 : .72
 
     anchors.fill: parent
     anchors.margins: Math.min(contentInset, parent ? parent.height * .12 : contentInset)
@@ -244,6 +248,7 @@ Item {
                 readonly property real progress: content.line.durationMs > 0 ? Math.max(0, Math.min(1, (content.renderTime - content.line.startMs) / content.line.durationMs)) : 0
                 Label {
                     id: secondaryText
+                    objectName: "desktopLyricSecondaryText"
                     x: content.preview ? 0 : -Math.max(0, implicitWidth - secondaryRow.width) * secondaryRow.progress
                     width: content.preview ? secondaryRow.width : Math.max(secondaryRow.width, implicitWidth)
                     horizontalAlignment: content.preview && content.alignment === "both" ? (content.textAlignment === Qt.AlignLeft ? Qt.AlignRight : Qt.AlignLeft) : content.textAlignment
@@ -252,8 +257,8 @@ Item {
                     wrapMode: Text.NoWrap
                     elide: content.preview ? Text.ElideRight : Text.ElideNone
                     font: Theme.store.styledFont(content.baseFont, content.fontSize * (content.preview ? .8 : content.sourceSpacing ? .72 : .64), content.bold ? 700 : 400, 0, false, false)
-                    color: content.preview ? content.unplayedColor : content.playedColor
-                    opacity: content.sourceSpacing ? 1 : .72
+                    color: content.secondary.length > 0 || content.preview ? content.secondaryColor : content.playedColor
+                    opacity: content.secondaryOpacity
                 }
             }
         }
@@ -264,12 +269,13 @@ Item {
         width: parent.width / 2 - 6
         height: parent.height
         sourceComponent: LyricVerticalLine {
+            objectName: "desktopVerticalSecondaryInk"
             units: content.playback.lyrics.verticalText(content.secondary)
             font: Theme.store.styledFont(content.baseFont, content.fontSize * .64, content.bold ? 700 : 400, 0, false, false)
             alignment: content.textAlignment === Qt.AlignRight ? Qt.AlignBottom : content.textAlignment === Qt.AlignHCenter ? Qt.AlignVCenter : Qt.AlignTop
-            playedColor: linePart.value("foreground", content.playedColor)
-            unplayedColor: linePart.value("foreground", content.playedColor)
-            opacity: .72
+            playedColor: content.secondaryColor
+            unplayedColor: content.secondaryColor
+            opacity: content.secondaryOpacity
         }
     }
 }

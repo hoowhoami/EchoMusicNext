@@ -13,6 +13,7 @@ private slots:
     void popupFrostSamplesTheVisiblePageAndReleases();
     void untimedLyricsUseFullInkAndKeepRomanizationOnEverySurface();
     void desktopUnwrappedReadingUsesNativeCursorPositions();
+    void desktopSubtitlesUseRestingColorInBothLayouts();
     void sceneGraphPlaybackCpu();
     void pageArtworkTransitionPreservesGeometryAndReverses();
     void pageActionsStayOutOfSourceBarDuringTransitions();

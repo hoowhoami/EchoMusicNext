@@ -1,4 +1,6 @@
 #include "PlaybackPageTest.h"
+#include "FloatingPlayerController.h"
+#include "RenderedInk.h"
 #include "EchoBackdropRoot.h"
 #include "PlaybackService.h"
 #include "PlaybackRepository.h"
@@ -779,6 +781,107 @@ Item {
                     capture + QString("/untimed-floating-%1-%2.png").arg(dark).arg(scale)));
             QVERIFY(warnings.isEmpty());
         }
+}
+void PlaybackPageTest::desktopSubtitlesUseRestingColorInBothLayouts()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    QVERIFY(session.create());
+    QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+    QTRY_VERIFY(!session.page()->property("visible").toBool());
+    auto *text = session.playback.lyricText();
+    text->setWantTranslation(true);
+    text->setWantRomanization(true);
+    text->setRomanizationAsRuby(false);
+    QVERIFY(text->replace(
+        {{"lines", QJsonArray{QJsonObject{{"text", QStringLiteral("主歌词 Main")},
+                                          {"start_ms", 0},
+                                          {"duration_ms", 10000},
+                                          {"words", QJsonArray{}},
+                                          {"translation", QStringLiteral("翻译 Translation")},
+                                          {"romanization", "yin yi Romanization"}}}}},
+        "desktop-subtitle-render-only"));
+    PlaybackServiceTestAccess::position(session.playback, 1000);
+    FloatingPlayerController floating(session.settings, false);
+    floating.setDesktopEnabled(true);
+    auto *style = floating.desktop();
+    style->setShadowStrength("none");
+    QQmlComponent component(&session.engine,
+                            QUrl("qrc:/qt/qml/EchoMusic/Shell/DesktopLyricWindow.qml"));
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QScopedPointer<QObject> root(component.createWithInitialProperties(
+        {{"service", QVariant::fromValue(&floating)},
+         {"playback", QVariant::fromValue(&session.playback)}}));
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *window = qobject_cast<QQuickWindow *>(root.data());
+    QVERIFY(window && QTest::qWaitForWindowExposed(window));
+    auto *viewport = findVisual(window->contentItem(), "desktopLyricViewport");
+    QVERIFY(viewport);
+    QTRY_COMPARE(viewport->property("secondary").toString(),
+                 QString::fromUtf8("yin yi Romanization\n翻译 Translation"));
+    for (bool vertical : {false, true}) {
+        style->setLayout(vertical ? "vertical" : "horizontal");
+        window->resize(vertical ? 420 : 900, vertical ? 720 : 300);
+        QTRY_COMPARE(viewport->property("vertical").toBool(), vertical);
+        for (bool custom : {false, true}) {
+            style->setPlayedColor(custom ? "#ff3366" : "#31cfa1");
+            style->setUnplayedColor(custom ? "#3098ff" : "#7a7a7a");
+            const QColor expected(style->unplayedColor());
+            QTRY_COMPARE(viewport->property("unplayedColor").value<QColor>(), expected);
+            auto *content = findVisual(viewport, "desktopCurrentLyricContent");
+            QVERIFY(content);
+            QTRY_COMPARE(content->property("secondaryColor").value<QColor>(), expected);
+            QList<QQuickItem *> subtitles;
+            if (vertical) {
+                QQuickItem *ink = nullptr;
+                QTRY_VERIFY((ink = findVisual(content, "desktopVerticalSecondaryInk")));
+                QTRY_COMPARE(ink->property("playedColor").value<QColor>(), expected);
+                QCOMPARE(ink->property("unplayedColor").value<QColor>(), expected);
+                subtitles.append(ink);
+            } else {
+                const auto mounted = [&] {
+                    subtitles.clear();
+                    const auto visit = [&](auto &&self, QQuickItem *item) -> void {
+                        if (item->objectName() == "desktopLyricSecondaryText" && item->isVisible())
+                            subtitles.append(item);
+                        for (auto *child : item->childItems())
+                            self(self, child);
+                    };
+                    visit(visit, content);
+                    return subtitles.size() == 2;
+                };
+                QTRY_VERIFY(mounted());
+                for (auto *item : subtitles)
+                    QTRY_COMPARE(item->property("color").value<QColor>(), expected);
+            }
+            for (auto *item : subtitles)
+                QCOMPARE(item->opacity(), 1.);
+            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            window->update();
+            QTRY_VERIFY(!frames.isEmpty());
+            const auto image = window->grabWindow();
+            QVERIFY(!image.isNull());
+            for (auto *item : subtitles)
+                QVERIFY(Test::renderedInkCenter(image, window, item, expected));
+            const auto captures = qEnvironmentVariable("ECHO_DESKTOP_SUBTITLE_CAPTURE_DIR");
+            if (!captures.isEmpty()) {
+                QVERIFY(QDir().mkpath(captures));
+                QVERIFY(
+                    image.save(captures + QString("/desktop-%1-%2.png").arg(vertical).arg(custom)));
+            }
+        }
+        style->setUnplayedFollowCoverColor(true);
+        const auto accent = session.theme.lyricAccent(session.playback.coverColor());
+        QTRY_COMPARE(viewport->property("unplayedColor").value<QColor>(), accent);
+        QTRY_COMPARE(findVisual(viewport, "desktopCurrentLyricContent")
+                         ->property("secondaryColor")
+                         .value<QColor>(),
+                     accent);
+        style->setUnplayedFollowCoverColor(false);
+    }
+    QCOMPARE(warnings.size(), 0);
+    root.reset();
+    floating.shutdown();
 }
 void PlaybackPageTest::desktopUnwrappedReadingUsesNativeCursorPositions()
 {
