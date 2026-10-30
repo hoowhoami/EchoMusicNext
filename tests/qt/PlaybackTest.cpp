@@ -917,12 +917,16 @@ private slots:
         QCOMPARE(playback.quality(), QString("flac"));
         playback.setQuality("higher");
         QCOMPARE(preferences->defaultQuality(), QString("flac"));
+        preferences->setDefaultQuality("hi_res");
+        QCOMPARE(playback.quality(), QString("higher"));
+        preferences->setDefaultQuality("flac");
         playback.playFromSelection({track(0), track(1), track(2)}, 0, "All", "all", false);
         QCOMPARE(playback.queue()->rowCount(), 3);
         QCOMPARE(playback.quality(), QString("flac"));
         preferences->setViperQualityEnabled(true);
         preferences->setDefaultQuality("viper_tape");
         QCOMPARE(preferences->defaultQuality(), QString("viper_tape"));
+        QCOMPARE(playback.quality(), QString("viper_tape"));
         preferences->setViperQualityEnabled(false);
         QCOMPARE(preferences->defaultQuality(), QString("hi_res"));
         preferences->setDefaultQuality("viper_atmos");

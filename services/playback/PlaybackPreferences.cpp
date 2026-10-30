@@ -58,6 +58,7 @@ void PlaybackPreferences::setDefaultQuality(const QString &quality)
         return;
     m_quality = quality;
     m_settings.setValue(EchoMusic::SettingsKeys::Playback::DefaultQuality, quality);
+    emit defaultQualityChanged();
     emit changed();
 }
 void PlaybackPreferences::setAutoPlayOnLaunch(bool enabled)
@@ -94,6 +95,7 @@ void PlaybackPreferences::setViperQualityEnabled(bool enabled)
     if (!enabled && m_quality.startsWith("viper_")) {
         m_quality = "hi_res";
         m_settings.setValue(EchoMusic::SettingsKeys::Playback::DefaultQuality, m_quality);
+        emit defaultQualityChanged();
     }
     emit changed();
 }

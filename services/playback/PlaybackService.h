@@ -607,6 +607,9 @@ private:
     QCache<QString, QJsonObject> m_playbackFacts{2000};
     QPointer<SongMetadataService> m_metadata;
     QString m_resolvedQuality;
+    // A manual current-song choice survives default changes; inherited quality
+    // follows the default and is never overwritten by a resolved downgrade.
+    bool m_qualityOverridden = false;
     QString m_initializationError;
     bool m_startupHeld = false;
     QString m_queueTitle, m_sourceKey, m_error, m_lyricState = "idle", m_quality = "standard";

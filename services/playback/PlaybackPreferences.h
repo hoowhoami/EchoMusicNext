@@ -90,6 +90,7 @@ public:
     void setPreventSleep(bool enabled);
 signals:
     void changed();
+    void defaultQualityChanged();
     void failurePolicyChanged();
     void sourcePolicyChanged();
     void mvPolicyChanged();

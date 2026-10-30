@@ -11663,8 +11663,8 @@
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/PlaybackSettingsSection.qml" line="44"/>
-        <source>新歌曲使用此音质，当前歌曲可在播放器中调整</source>
-        <translation>新歌曲使用此音质，当前歌曲可在播放器中调整</translation>
+        <source>歌曲默认使用此音质，当前歌曲单独选择的音质保持不变</source>
+        <translation>歌曲默认使用此音质，当前歌曲单独选择的音质保持不变</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/PlaybackSettingsSection.qml" line="49"/>

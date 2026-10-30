@@ -354,6 +354,15 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
         }
         emit changed();
     });
+    connect(&m_preferences, &PlaybackPreferences::defaultQualityChanged, this, [this] {
+        if (m_qualityOverridden)
+            return;
+        m_quality = m_preferences.defaultQuality();
+        if (hasTrack() && m_track.localPath.isEmpty())
+            refreshCurrentSource();
+        else
+            emit changed();
+    });
     connect(&m_preferences, &PlaybackPreferences::changed, this, [this] {
         if (!m_preferences.viperQualityEnabled() && m_quality.startsWith("viper_"))
             setQuality("hi_res");
@@ -547,6 +556,8 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
                 m_personalFm->abandonQueue();
             stop();
             m_track = {};
+            m_qualityOverridden = false;
+            m_quality = m_preferences.defaultQuality();
             m_sourceKind = "catalog";
             m_sourceNoticeCode.clear();
             m_sourceEffect = "none";
@@ -640,6 +651,8 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
         invalidate();
         m_engine.command(AudioEngine::Stop);
         m_track = {};
+        m_qualityOverridden = false;
+        m_quality = m_preferences.defaultQuality();
         m_sourceKind = "catalog";
         m_sourcePreference.clear();
         m_sourceFailure.clear();
@@ -830,8 +843,10 @@ void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
     adoptCloudIdentity(resolved);
     m_failure->started(preserveFailureChain);
     finishHistory();
-    if (resolved.stableKey() != m_track.stableKey())
+    if (resolved.stableKey() != m_track.stableKey()) {
+        m_qualityOverridden = false;
         m_quality = m_preferences.defaultQuality();
+    }
     m_startupAutoPlayPending = false;
     invalidate();
     m_engine.command(AudioEngine::Stop);
@@ -1309,6 +1324,7 @@ void PlaybackService::setQuality(const QString &quality)
                      "viper_atmos"}
              .contains(quality))
         return;
+    m_qualityOverridden = true;
     if (m_quality == quality && m_sourceKind == "catalog" && m_sourcePreference == "catalog")
         return;
     m_sourcePreference = "catalog";

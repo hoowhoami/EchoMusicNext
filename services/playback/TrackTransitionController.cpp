@@ -484,6 +484,7 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
         p.m_personalFm->adoptTransition(track);
     if (!p.m_personalFm->active() && index >= 0)
         consumeNext(index, true);
+    p.m_qualityOverridden = p.m_qualityOverridden && track.stableKey() == p.m_track.stableKey();
     p.m_track = track;
     p.m_quality = m_nextQuality;
     p.m_sourceKind = source.value("source_kind").toString("catalog");

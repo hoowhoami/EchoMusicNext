@@ -75,6 +75,13 @@ public:
 class PlaybackServiceTestAccess
 {
 public:
+    static void seedCatalogSelection(PlaybackService &p, const PlaybackTrack &track,
+                                     const QJsonObject &rights)
+    {
+        p.m_track = track;
+        p.m_privileges = rights;
+        MembershipServiceTestAccess::ready(p.m_membership);
+    }
     static void observeEngine(PlaybackService &p)
     {
         QObject::connect(&p.m_engine, &AudioEngine::eventReceived, &p, [&p](const QJsonObject &e) {
@@ -157,6 +164,162 @@ class PlaybackSourceFallbackTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void liveCompatibilityUsesHighestAvailableQuality()
+    {
+        if (qEnvironmentVariable("ECHO_LIVE_QUALITY_COMPATIBILITY") != "1")
+            QSKIP("Opt-in selected account; stdin credentials only");
+        const std::string input((std::istreambuf_iterator<char>(std::cin)),
+                                std::istreambuf_iterator<char>());
+        const auto identity = QJsonDocument::fromJson(QByteArray::fromStdString(input)).object();
+        DeviceIdentity device{identity.value("mid").toString(),
+                              identity.value("dfid").toString(),
+                              identity.value("guid").toString(),
+                              identity.value("mac").toString(),
+                              "EchoMusicNext",
+                              identity.value("uuid").toString(),
+                              "-"};
+        ApiClient api(device);
+        QTemporaryDir dir;
+        SettingsStore settings(dir.filePath("settings.ini"));
+        settings.setValue("playback/volume", 0);
+        settings.setValue("playback/defaultQuality", "standard");
+        settings.setValue("playback/compatibilityMode", true);
+        settings.setValue("playback/transitionMode", "none");
+        settings.setValue("playback/mvAudioFallbackEnabled", false);
+        NetworkPreferences network(settings, api);
+        QVERIFY(network.transportAvailable());
+        const auto previous = QNetworkProxy::applicationProxy();
+        const auto restore = qScopeGuard([&] { QNetworkProxy::setApplicationProxy(previous); });
+        network.installApplicationTransport();
+        QVERIFY(api.setAccount(quint64(identity.value("userid").toInteger()),
+                               identity.value("token").toString(),
+                               identity.value("t1").toString()));
+        PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"), &network);
+        PlaybackServiceTestAccess::observeEngine(playback);
+        const auto cleanup = qScopeGuard([&] {
+            playback.shutdown();
+            api.shutdown();
+        });
+        PlaybackTrack track;
+        track.id = "28006146";
+        track.hash = "25a6f521a0335d52a94627e6da1291cd";
+        track.songId = 28006146;
+        track.albumId = 8513112;
+        track.title = QStringLiteral("星星和雨的夜");
+        playback.playTracks({track}, 0, "Compatibility verification", "compatibility-verification");
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() || !playback.errorMessage().isEmpty(), 30000);
+        QVERIFY2(playback.errorMessage().isEmpty(), qPrintable(playback.errorMessage()));
+        QCOMPARE(playback.resolvedQuality(), QString("standard"));
+        playback.preferences()->setDefaultQuality("hi_res");
+        QTRY_COMPARE(playback.quality(), QString("hi_res"));
+        QTRY_COMPARE_WITH_TIMEOUT(playback.resolvedQuality(), QString("flac"), 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 30000);
+        qInfo() << "Live catalog quality" << playback.quality() << playback.resolvedQuality()
+                << playback.effectiveQuality() << playback.sourceKind();
+        QCOMPARE(playback.resolvedQuality(), QString("flac"));
+        QCOMPARE(playback.preferences()->defaultQuality(), QString("hi_res"));
+    }
+    void changingDefaultUsesLadderUnlessCurrentQualityWasChosen_data()
+    {
+        QTest::addColumn<bool>("manual");
+        QTest::newRow("follow-new-default") << false;
+        QTest::newRow("preserve-current-choice") << true;
+    }
+    void changingDefaultUsesLadderUnlessCurrentQualityWasChosen()
+    {
+        QFETCH(bool, manual);
+        Fixture f;
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("settings.ini"));
+        settings.setValue("playback/defaultQuality", "standard");
+        PlaybackService playback(f.api, settings);
+        PlaybackTrack track;
+        track.id = "current-quality-selection";
+        track.hash = hashA;
+        const QJsonObject rights{
+            {"hash", hashA},
+            {"variants", QJsonArray{QJsonObject{{"quality", "128"}, {"hash", hashA}},
+                                    QJsonObject{{"quality", "320"}, {"hash", hashB}},
+                                    QJsonObject{{"quality", "flac"}, {"hash", hashC}}}}};
+        PlaybackServiceTestAccess::seedCatalogSelection(playback, track, rights);
+        quint64 previous = 0;
+        if (manual) {
+            playback.setQuality("higher");
+            QTRY_VERIFY((previous = ApiClientTestAccess::pending(f.api, "song_url_auth_merge")));
+        }
+        playback.preferences()->setDefaultQuality("hi_res");
+        QCOMPARE(playback.preferences()->defaultQuality(), QString("hi_res"));
+        QCOMPARE(playback.quality(), manual ? QString("higher") : QString("hi_res"));
+        quint64 id = 0;
+        QTRY_VERIFY((id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge")));
+        if (manual) {
+            QCOMPARE(id, previous);
+            QCOMPARE(ApiClientTestAccess::query(f.api, id).value("quality").toString(),
+                     QString("higher"));
+        } else {
+            for (const auto &quality : {QString("flac"), QString("higher"), QString("standard")}) {
+                id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+                QVERIFY(id);
+                QCOMPARE(ApiClientTestAccess::query(f.api, id).value("quality").toString(),
+                         quality);
+                ApiClientTestAccess::fail(f.api, id);
+            }
+        }
+        QVERIFY(!playback.playing());
+        playback.shutdown();
+    }
+    void missingPreferredQualityDescendsBeforeAutomaticFallback_data()
+    {
+        QTest::addColumn<int>("failures");
+        QTest::newRow("hires-missing-use-flac") << 0;
+        QTest::newRow("flac-unavailable-use-hq") << 1;
+        QTest::newRow("hq-unavailable-use-standard") << 2;
+    }
+    void missingPreferredQualityDescendsBeforeAutomaticFallback()
+    {
+        QFETCH(int, failures);
+        Fixture f;
+        QSignalSpy resolved(&f.request, &PlaybackSourceRequest::resolved);
+        PlaybackTrack track;
+        track.id = "quality-ladder";
+        track.hash = hashA;
+        track.albumId = 1;
+        track.songId = 2;
+        const QJsonObject rights{{"variants", QJsonArray{QJsonObject{{"quality", "128"},
+                                                                     {"level", 2},
+                                                                     {"hash", hashA},
+                                                                     {"privilege", 8},
+                                                                     {"service_status", 1}},
+                                                         QJsonObject{{"quality", "320"},
+                                                                     {"level", 4},
+                                                                     {"hash", hashB},
+                                                                     {"privilege", 10},
+                                                                     {"service_status", 0}},
+                                                         QJsonObject{{"quality", "flac"},
+                                                                     {"level", 5},
+                                                                     {"hash", hashC},
+                                                                     {"privilege", 10},
+                                                                     {"service_status", 0}}}}};
+        f.request.resolve(track, ApiClient::PlaybackQuality::HiRes, ApiClient::SoundEffect::None,
+                          rights, true);
+        const QStringList qualities{"flac", "higher", "standard"};
+        const QStringList hashes{hashC, hashB, hashA};
+        for (int index = 0; index <= failures; ++index) {
+            const auto id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+            QVERIFY(id);
+            const auto query = ApiClientTestAccess::query(f.api, id);
+            QCOMPARE(query.value("quality").toString(), qualities[index]);
+            QCOMPARE(query.value("hash").toString(), hashes[index]);
+            QVERIFY(!query.contains("origin_page"));
+            if (index < failures)
+                ApiClientTestAccess::fail(f.api, id);
+            else
+                ApiClientTestAccess::finish(f.api, id, source("https://example.invalid/quality"));
+        }
+        QCOMPARE(resolved.size(), 1);
+        QCOMPARE(resolved[0][4].toString(), qualities[failures]);
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+    }
     void qualityRightsRespectFreeResourcesAndUnknownFacts()
     {
         using Q = ApiClient::PlaybackQuality;
