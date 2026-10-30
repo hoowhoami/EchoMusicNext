@@ -918,6 +918,129 @@ Window {
         QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
         api.shutdown();
     }
+    void shortPlaylistKeepsExpandedHeader_data()
+    {
+        QTest::addColumn<int>("count");
+        QTest::addColumn<int>("height");
+        for (int count : {0, 1, 3, 6, 10})
+            for (int height : {500, 650, 800})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(count).arg(height)))
+                    << count << height;
+    }
+    void shortPlaylistKeepsExpandedHeader()
+    {
+        QFETCH(int, count);
+        QFETCH(int, height);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        PlaylistMutationService mutations(api);
+        PlaylistOrderModel order(api, mutations);
+        SongMetadataService metadata(api);
+        RouteController router;
+        PlaylistDetailService service(api, playback, library, mutations, order, metadata, router,
+                                      false);
+        service.registerRoutes(router);
+        ShellSettings shell(prefs);
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Shell
+import EchoMusic.Theme
+import EchoMusic.Playlists
+Window {
+ id: window
+ required property RouteController router
+ required property ShellSettings settings
+ visible: true; width: 1000; height: 800
+ color: Theme.main
+ Item {
+  width: parent.width/window.settings.uiScale; height: parent.height/window.settings.uiScale
+  scale: window.settings.uiScale; transformOrigin: Item.TopLeft
+  RouteHost { anchors.fill: parent; router: window.router; settings: window.settings }
+ }
+})",
+                          QUrl("qrc:/short-playlist.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"router", QVariant::fromValue(&router)}, {"settings", QVariant::fromValue(&shell)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        window->resize(1000, height);
+        QVERIFY(router.navigate("playlist-detail", {}, "short-playlist"));
+        auto *context = service.contextFor(router.current());
+        PlaylistDetailContextTestAccess::pending(*context, 910001, 0);
+        emit context->changed();
+        QTRY_VERIFY(playlistVisual(window->contentItem(), "songDetailSkeleton"));
+        PlaylistDetailContextTestAccess::seed(*context, "Short playlist");
+        QTest::qWait(100);
+        QJsonArray songs;
+        for (int i = 1; i <= count; ++i)
+            songs.append(playlistSong(i)["song"].toObject());
+        context->songs()->appendSongs(songs);
+        PlaylistDetailContextTestAccess::finishPending(*context, 910001);
+        PlaylistDetailContextTestAccess::markClosed(*context);
+        QTRY_VERIFY(playlistVisual(window->contentItem(), "songCatalogView"));
+        auto *view = playlistVisual(window->contentItem(), "songCatalogView");
+        auto *list = playlistVisual(view, "discoverySongs");
+        auto *header = playlistVisual(view, "songDetailHeader");
+        QVERIFY(list && header);
+        QTest::qWait(100);
+        QTRY_COMPARE_WITH_TIMEOUT(view->property("scrollTop").toReal(), 0., 1000);
+        QCOMPARE(header->property("progress").toReal(), 0.);
+        for (int i = 0; i < 3; ++i) {
+            router.replaceQuery({{"tab", "comments"}});
+            QTest::qWait(80);
+            router.replaceQuery({{"tab", "songs"}});
+            QTest::qWait(80);
+            QTRY_COMPARE_WITH_TIMEOUT(view->property("scrollTop").toReal(), 0., 1000);
+            QCOMPARE(header->property("progress").toReal(), 0.);
+        }
+        const auto artifacts = qEnvironmentVariable("ECHO_DETAIL_SCROLL_ARTIFACTS");
+        if (!artifacts.isEmpty() && count == 3 && height == 500) {
+            QVERIFY(QDir().mkpath(artifacts));
+            for (bool dark : {false, true})
+                for (double scale : {1., 1.25}) {
+                    theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+                    shell.resetZoom();
+                    if (scale > 1.)
+                        for (int i = 0; i < 5; ++i)
+                            shell.zoomIn();
+                    router.replaceQuery({{"tab", "comments"}});
+                    QTest::qWait(80);
+                    router.replaceQuery({{"tab", "songs"}});
+                    QTest::qWait(80);
+                    QTRY_COMPARE(view->property("scrollTop").toReal(), 0.);
+                    QVERIFY(window->grabWindow().save(
+                        artifacts +
+                        QString("/short-%1-%2.png").arg(dark ? "dark" : "light").arg(scale)));
+                }
+            shell.resetZoom();
+            QTest::qWait(40);
+        }
+        auto *container = view->property("pageContainer").value<QObject *>();
+        QVERIFY(container);
+        const auto maximum = qMax(0., list->property("contentHeight").toReal() +
+                                          list->property("topMargin").toReal() +
+                                          list->property("bottomMargin").toReal() - list->height());
+        const auto offset = qMin(100., maximum);
+        QVERIFY(QMetaObject::invokeMethod(container, "scrollTo", Q_ARG(double, offset)));
+        QTRY_COMPARE(view->property("scrollTop").toReal(), offset);
+        QVERIFY(QMetaObject::invokeMethod(container, "scrollTo", Q_ARG(double, 0.)));
+        QTRY_COMPARE(view->property("scrollTop").toReal(), 0.);
+        service.shutdown();
+        router.shutdown();
+        root.reset();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void nativePlaylistPage()
     {
         const bool ownedLive = qEnvironmentVariableIsSet("ECHO_PLAYLIST_LIVE_OWNED_UI");

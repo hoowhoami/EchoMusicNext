@@ -45,7 +45,8 @@ Item {
     /// Optional page-specific empty placeholder. Null keeps the shared message and retry.
     property Component emptyComponent: null
     readonly property real songToolbarRowHeight: compactSongToolbar ? 46 : 56
-    readonly property real toolbarHeight: showToolbar ? songToolbarRowHeight + (showSortHeader && !secondaryActive ? 44 : 0) : 0
+    readonly property real songToolbarHeight: showToolbar ? songToolbarRowHeight + (showSortHeader ? 44 : 0) : 0
+    readonly property real toolbarHeight: secondaryActive && showToolbar ? songToolbarRowHeight : songToolbarHeight
     property bool loading: false
     property string errorMessage: ""
     property bool resourceActive: true
@@ -69,7 +70,10 @@ Item {
             actions: page.actions
             pageContainer: viewport
             contentInset: page.contentInset
-            topMargin: page.headerTopMargin + page.expandedHeaderHeight + page.toolbarHeight
+            // The hidden song view keeps its own column-header space. Letting
+            // the comments tab shrink this margin makes Qt fix up short lists
+            // before the shared page offset can be restored.
+            topMargin: page.headerTopMargin + page.expandedHeaderHeight + page.songToolbarHeight
             bottomMargin: 48
             loading: page.loading
             errorMessage: page.errorMessage

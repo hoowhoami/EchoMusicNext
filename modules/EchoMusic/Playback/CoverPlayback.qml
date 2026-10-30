@@ -133,7 +133,7 @@ GridLayout {
             }
             // Destroy the native delegate pool on close/minimize.
             active: body.resourceActive
-            sourceComponent: CoverLyricViewport {
+            sourceComponent: PlaybackLyricViewport {
                 objectName: "playbackLyricViewport"
                 playback: body.playback
                 colors: body.colors

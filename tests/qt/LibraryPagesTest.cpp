@@ -93,6 +93,24 @@ public:
         model.m_sessionRevision = api.sessionRevision();
         model.endResetModel();
     }
+    static void seedAlbums(UserPlaylistModel &model, ApiClient &api, int count)
+    {
+        model.beginResetModel();
+        model.m_rows.clear();
+        for (int i = 1; i <= count; ++i) {
+            UserPlaylistModel::Row row;
+            row.cloudId = {quint64(i)};
+            row.creatorListId = quint64(i);
+            row.globalId = QString::number(i);
+            row.title = "Album " + QString::number(i);
+            row.sourceCode = 2;
+            model.m_rows.append(row);
+        }
+        model.m_sessionRevision = api.sessionRevision();
+        model.m_state = UserPlaylistModel::State::Ready;
+        model.endResetModel();
+        emit model.changed();
+    }
     static void seedRows(UserPlaylistModel &model, ApiClient &api,
                          const QList<QPair<QString, quint64>> &titlesToIds)
     {
@@ -2480,6 +2498,10 @@ Window {
                     PurchasedServiceTestAccess::acceptSongs(purchased, songs, 80);
                 QQuickItem *page = nullptr;
                 QTRY_VERIFY((page = find(window->contentItem(), route + "Page")));
+                auto *songList = find(page, "discoverySongs");
+                QVERIFY(songList);
+                if (route != "cloud")
+                    QCOMPARE(songList->property("topMargin").toReal(), 276.);
                 auto *row = find(page, route + "TabToolbarRow");
                 auto *divider = find(page, route + "TabDivider");
                 auto *rule = find(page, "detailTabIndicator");
@@ -2611,6 +2633,72 @@ Window {
                             QTRY_COMPARE(header->property("progress").toReal(), 0.);
                         }
                     }
+                }
+            }
+        // Audit every sibling tab with both short and scrollable collections.
+        // Model updates intentionally happen while some target views are hidden.
+        for (int count : {0, 3, 80})
+            for (int height : {500, 800}) {
+                window->resize(1150, height);
+                shell.resetZoom();
+                if (height == 500)
+                    for (int i = 0; i < 5; ++i)
+                        shell.zoomIn();
+                theme.setMode(height == 500 ? ThemeStore::Dark : ThemeStore::Light);
+                QJsonArray rows, cards, people;
+                for (int i = 1; i <= count; ++i) {
+                    rows.append(QJsonObject{{"id", QString::number(i)},
+                                            {"title", "Song " + QString::number(i)}});
+                    cards.append(QJsonObject{{"id", QString::number(i)},
+                                             {"title", "Album " + QString::number(i)}});
+                    people.append(QJsonObject{{"key", QString::number(i)},
+                                              {"user_id", i},
+                                              {"artist_id", i},
+                                              {"nickname", "Artist"}});
+                }
+                for (const auto &route : {QString("favorites"), QString("purchased")}) {
+                    QVERIFY(router.navigate(route, {{"tab", "songs"}}));
+                    auto *model = route == "favorites" ? favorites.songs() : purchased.songs();
+                    model->replaceSongs(rows);
+                    if (route == "favorites") {
+                        UserPlaylistModelTestAccess::seedAlbums(library, api, count);
+                        favorites.videos()->replaceCards(cards);
+                        favorites.singers()->replace(people);
+                        favorites.users()->replace(people);
+                    } else
+                        purchased.albums()->replaceCards(cards);
+                    auto *page = find(window->contentItem(), route + "Page");
+                    QVERIFY(page);
+                    auto *body = find(page, "catalogSongList");
+                    QVERIFY(body);
+                    auto *viewport = body->property("pageContainer").value<QObject *>();
+                    QVERIFY(viewport);
+                    QVERIFY(QMetaObject::invokeMethod(viewport, "scrollTo", Q_ARG(double, 0.)));
+                    const auto tabs =
+                        route == "favorites"
+                            ? QStringList{"singers", "users", "albums", "videos", "songs"}
+                            : QStringList{"albums", "songs"};
+                    for (int cycle = 0; cycle < 2; ++cycle)
+                        for (const auto &tab : tabs) {
+                            router.replaceQuery({{"tab", tab}});
+                            QTest::qWait(40);
+                            QTRY_COMPARE_WITH_TIMEOUT(viewport->property("scrollTop").toReal(), 0.,
+                                                      1000);
+                        }
+                    if (count == 80) {
+                        QVERIFY(
+                            QMetaObject::invokeMethod(viewport, "scrollTo", Q_ARG(double, 60.)));
+                        QTRY_COMPARE(viewport->property("scrollTop").toReal(), 60.);
+                        for (const auto &tab : tabs) {
+                            router.replaceQuery({{"tab", tab}});
+                            QTest::qWait(40);
+                            QTRY_VERIFY2_WITH_TIMEOUT(
+                                qAbs(viewport->property("scrollTop").toReal() - 60.) < .01,
+                                qPrintable(route + ":" + tab + ":" + QString::number(height)),
+                                1000);
+                        }
+                    }
+                    QCOMPARE(model->count(), count);
                 }
             }
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));

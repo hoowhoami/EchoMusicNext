@@ -2412,7 +2412,7 @@ void PlaybackPageTest::liveWickedWonderlandLineBeginnings()
           qPrintable(selected.id), lyrics->rowCount(), static_cast<long long>(shortest));
     session.playback.seek(qMax<qint64>(0, lyrics->startAt(fast) - 1800));
     QTest::qWait(300);
-    auto *timeline = session.window->findChild<LyricTimeline *>("coverLyricTimeline");
+    auto *timeline = session.window->findChild<LyricTimeline *>("playbackLyricTimeline");
     QVERIFY(timeline);
     QSet<int> activated;
     QHash<int, qint64> activationWall;
@@ -2682,6 +2682,97 @@ void PlaybackPageTest::lyricLineBeginningsUseFullInkImmediately()
     QVERIFY(warnings.isEmpty());
 }
 
+void PlaybackPageTest::lateRubyLayoutKeepsRowsSeparated_data()
+{
+    QTest::addColumn<QString>("skin");
+    QTest::addColumn<qreal>("scale");
+    QTest::addColumn<bool>("overlap");
+    for (const auto &skin : {QString("cover"), QString("portrait")})
+        for (const qreal scale : {1., 1.25})
+            for (const bool overlap : {false, true})
+                QTest::newRow(
+                    qPrintable(skin + QString::number(scale) + (overlap ? "-overlap" : "-next")))
+                    << skin << scale << overlap;
+}
+void PlaybackPageTest::lateRubyLayoutKeepsRowsSeparated()
+{
+    QFETCH(QString, skin);
+    QFETCH(qreal, scale);
+    QFETCH(bool, overlap);
+    Session session;
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QVERIFY(session.create());
+    QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+    QTRY_VERIFY(!session.item("playbackLyricList"));
+    session.root->setProperty("surfaceScale", scale);
+    QVERIFY(session.theme.extensions()->chooseSkin(skin));
+    session.playback.lyricAppearance()->portrait()->setAutoCollapse(false);
+    auto *text = session.playback.lyricText();
+    text->setWantRomanization(true);
+    text->setRomanizationAsRuby(true);
+    QJsonArray words;
+    QString title, romanization;
+    for (int i = 0; i < 12; ++i) {
+        title += QStringLiteral("歌");
+        romanization += "sayonaramata ";
+        words.append(QJsonObject{{"text", QStringLiteral("歌")},
+                                 {"start_ms", i * (overlap ? 1500 : 1000)},
+                                 {"duration_ms", overlap ? 1500 : 1000}});
+    }
+    QJsonArray rows{QJsonObject{{"text", title},
+                                {"start_ms", 0},
+                                {"duration_ms", overlap ? 18000 : 12000},
+                                {"words", words},
+                                {"romanization", romanization}},
+                    QJsonObject{{"text", QStringLiteral("当前正在演唱的歌词")},
+                                {"start_ms", 14000},
+                                {"duration_ms", 5000},
+                                {"words", QJsonArray{}}}};
+    for (int i = 2; i < 200; ++i)
+        rows.append(QJsonObject{{"text", QStringLiteral("后续歌词 %1").arg(i)},
+                                {"start_ms", 19000 + (i - 2) * 4000},
+                                {"duration_ms", 3000},
+                                {"words", QJsonArray{}}});
+    QVERIFY(text->replace({{"offset_ms", 0}, {"lines", rows}}, "late-ruby-layout-only"));
+    PlaybackServiceTestAccess::position(session.playback, 14910);
+    QVERIFY(QMetaObject::invokeMethod(session.page(), "open"));
+    QTRY_VERIFY(session.page()->property("opened").toBool());
+    QTRY_VERIFY(!session.page()->property("coverMoving").toBool());
+    QQuickItem *list = nullptr, *prefix = nullptr, *current = nullptr;
+    QTRY_VERIFY((list = session.item("playbackLyricList")));
+    QTRY_COMPARE(list->property("currentIndex").toInt(), overlap ? 0 : 1);
+    QTRY_VERIFY((prefix = session.item("lyricTextRow0")));
+    QTRY_VERIFY((current = session.item("lyricTextRow1")));
+    const auto separated = [&] {
+        const auto a = prefix->mapRectToItem(list, prefix->boundingRect());
+        const auto b = current->mapRectToItem(list, current->boundingRect());
+        const auto focus = overlap ? a : b;
+        return qAbs(a.bottom() - b.top()) < 1 &&
+               qAbs(focus.center().y() - list->property("focusCenter").toReal()) < 1;
+    };
+    QTRY_VERIFY(separated());
+    const auto rubyHeight = prefix->height();
+    QVERIFY(rubyHeight > 100);
+    // Only the first row changes height. Its y stays fixed, and the next
+    // row's own shaping stays identical throughout both reflows.
+    text->setWantRomanization(false);
+    QTRY_VERIFY(prefix->height() < rubyHeight - 20);
+    QTRY_VERIFY(separated());
+    text->setWantRomanization(true);
+    QTRY_COMPARE(prefix->height(), rubyHeight);
+    QTRY_VERIFY(separated());
+    QVERIFY(lyricItems(list) < 100);
+    const auto capture = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+    if (!capture.isEmpty()) {
+        QDir().mkpath(capture);
+        QVERIFY(session.window->grabWindow().save(
+            capture + QString("/late-ruby-%1-%2.png").arg(skin).arg(scale)));
+    }
+    QPointer<QQuickItem> released = list;
+    QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+    QTRY_VERIFY(released.isNull());
+    QVERIFY(warnings.isEmpty());
+}
 void PlaybackPageTest::lyricRowsMoveIndependentlyAndSettle()
 {
     Session session;

@@ -1,4 +1,5 @@
 #include "GpuRhi_p.h"
+#include "GpuVertexLayout_p.h"
 #include <QColor>
 #include <cstring>
 namespace EchoMusic
@@ -29,6 +30,7 @@ void GpuRenderer::synchronize(QQuickRhiItem *item)
         m_state->release();
     m_state->budget = snapshot.budget;
     m_snapshot = std::move(snapshot);
+    m_state->watchTextureSources(*surface);
     if (m_state->window != surface->window()) {
         m_state->window = surface->window();
         const auto weak = std::weak_ptr<GpuRenderState>(m_state);
@@ -137,6 +139,10 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
         for (auto &pass : s.passes) {
             if (!s.enabled || (m_snapshot.submission && m_snapshot.submission->canceled))
                 break;
+            if (!s.resourcesValid()) {
+                s.error = "Shared GPU resource or lease retired";
+                break;
+            }
             const auto &p = pass.definition;
             const auto type = p.value("type", "render").toString();
             if (type != "render" && type != "compute") {
@@ -182,49 +188,56 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
                      target->pixelSize().height() - scissor[1].toInt() - scissor[3].toInt(),
                      scissor[2].toInt(), scissor[3].toInt()});
                 const auto pipeline = s.resources.find(p.value("pipeline").toString());
-                const auto layout = pipeline->second.definition.value("vertexLayout").toMap();
+                const auto layout = pipeline->second->definition.value("vertexLayout").toMap();
                 for (const auto &draw : p.value("draws").toList()) {
                     const auto d = draw.toMap();
                     const auto indirect = d.value("indirect").toMap();
                     const bool isIndirect = d.contains("indirect");
+                    if (!isIndirect && d.value("instances", 1).toInt() > 1 &&
+                        !rhi()->isFeatureSupported(QRhi::Instancing)) {
+                        s.error = "Instancing unsupported by device";
+                        break;
+                    }
                     bool conflict = false;
                     for (const auto &value : p.value("bindings").toList()) {
                         const auto b = value.toMap();
                         const auto id = b.value("resource").toString();
                         if (b.value("access", "read") != "read" &&
-                            (id == d.value("vertexBuffer").toString() ||
-                             id == d.value("indexBuffer").toString() ||
-                             id == indirect.value("buffer").toString()))
+                            (s.resources.contains(id) &&
+                             ((s.resources.contains(d.value("vertexBuffer").toString()) &&
+                               s.resources.at(id) ==
+                                   s.resources.at(d.value("vertexBuffer").toString())) ||
+                              (s.resources.contains(d.value("indexBuffer").toString()) &&
+                               s.resources.at(id) ==
+                                   s.resources.at(d.value("indexBuffer").toString())) ||
+                              (s.resources.contains(indirect.value("buffer").toString()) &&
+                               s.resources.at(id) ==
+                                   s.resources.at(indirect.value("buffer").toString())))))
                             conflict = true;
                     }
                     if (conflict) {
                         s.error = "Draw buffers cannot be shader-writable in the same render pass";
                         break;
                     }
-                    const auto vb = s.resources.find(d.value("vertexBuffer").toString());
                     const auto ib = s.resources.find(d.value("indexBuffer").toString());
-                    QRhiCommandBuffer::VertexInput vertex;
-                    int vertexCount = 0;
-                    if (!layout.isEmpty()) {
-                        if (vb == s.resources.end() || !vb->second.buffer ||
-                            !vb->second.buffer->usage().testFlag(QRhiBuffer::VertexBuffer)) {
-                            s.error = "Draw requires a live vertex buffer";
-                            break;
+                    QVector<QRhiCommandBuffer::VertexInput> vertices;
+                    if (!s.vertexInputs(d, layout, vertices))
+                        break;
+                    bool aliasWrite = false;
+                    for (const auto &stream : gpuDrawStreams(d))
+                        for (const auto &value : p.value("bindings").toList()) {
+                            const auto binding = value.toMap();
+                            if (binding.value("access", "read") != "read" &&
+                                s.resources.contains(binding.value("resource").toString()) &&
+                                s.resources.at(binding.value("resource").toString()) ==
+                                    s.resources.at(stream.toMap().value("buffer").toString()))
+                                aliasWrite = true;
                         }
-                        const int offset = d.value("vertexOffset", 0).toInt();
-                        const int first = d.value("first", 0).toInt();
-                        if (offset < 0 || first < 0 ||
-                            qint64(offset) + qint64(ib == s.resources.end() && !isIndirect
-                                                        ? first + d.value("count").toInt()
-                                                        : 1) *
-                                                 layout.value("stride").toInt() >
-                                vb->second.buffer->size()) {
-                            s.error = "Vertex draw range exceeds buffer";
-                            break;
-                        }
-                        vertex = {vb->second.buffer.get(), quint32(offset)};
-                        vertexCount = 1;
+                    if (aliasWrite) {
+                        s.error = "Vertex streams cannot be shader-writable in the same pass";
+                        break;
                     }
+                    const int vertexCount = int(vertices.size());
                     const int first = d.value("first", 0).toInt();
                     if ((d.value("firstInstance", 0).toInt() &&
                          !rhi()->isFeatureSupported(QRhi::BaseInstance)) ||
@@ -236,24 +249,25 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
                     auto args = s.resources.end();
                     if (isIndirect) {
                         args = s.resources.find(indirect.value("buffer").toString());
-                        if (args == s.resources.end() || !args->second.buffer ||
-                            !args->second.buffer->usage().testFlag(QRhiBuffer::IndirectBuffer)) {
+                        if (args == s.resources.end() || !args->second->buffer ||
+                            !args->second->buffer->usage().testFlag(QRhiBuffer::IndirectBuffer)) {
                             s.error = "Indirect draw buffer has retired";
                             break;
                         }
                     }
                     if (ib != s.resources.end()) {
                         const int stride = d.value("indexFormat", "uint16") == "uint32" ? 4 : 2;
-                        if (!ib->second.buffer ||
-                            !ib->second.buffer->usage().testFlag(QRhiBuffer::IndexBuffer) ||
+                        if (!ib->second->buffer ||
+                            !ib->second->buffer->usage().testFlag(QRhiBuffer::IndexBuffer) ||
                             first < 0 ||
                             qint64(isIndirect ? 1 : first + d.value("count").toInt()) * stride >
-                                ib->second.buffer->size()) {
+                                ib->second->buffer->size()) {
                             s.error = "Index draw range exceeds buffer";
                             break;
                         }
-                        cb->setVertexInput(0, vertexCount, vertexCount ? &vertex : nullptr,
-                                           ib->second.buffer.get(), 0,
+                        cb->setVertexInput(0, vertexCount,
+                                           vertexCount ? vertices.constData() : nullptr,
+                                           ib->second->buffer.get(), 0,
                                            stride == 4 ? QRhiCommandBuffer::IndexUInt32
                                                        : QRhiCommandBuffer::IndexUInt16);
                         if (!isIndirect)
@@ -262,7 +276,8 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
                                             d.value("baseVertex", 0).toInt(),
                                             d.value("firstInstance", 0).toUInt());
                     } else {
-                        cb->setVertexInput(0, vertexCount, vertexCount ? &vertex : nullptr);
+                        cb->setVertexInput(0, vertexCount,
+                                           vertexCount ? vertices.constData() : nullptr);
                         if (!isIndirect)
                             cb->draw(d.value("count").toUInt(), d.value("instances", 1).toUInt(),
                                      quint32(first), d.value("firstInstance", 0).toUInt());
@@ -277,11 +292,11 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
                         const bool multi = rhi()->isFeatureSupported(QRhi::DrawIndirectMulti);
                         for (quint32 i = 0; i < count; i += multi ? count : 1) {
                             if (indexed)
-                                cb->drawIndexedIndirect(args->second.buffer.get(),
+                                cb->drawIndexedIndirect(args->second->buffer.get(),
                                                         offset + i * stride, multi ? count : 1,
                                                         stride);
                             else
-                                cb->drawIndirect(args->second.buffer.get(), offset + i * stride,
+                                cb->drawIndirect(args->second->buffer.get(), offset + i * stride,
                                                  multi ? count : 1, stride);
                         }
                     }
@@ -316,8 +331,13 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
             {{"available", true},
              {"state", s.error.isEmpty() ? "ready" : "error"},
              {"backend", rhi()->backendName()},
+             {"deviceId", gpuDeviceId(rhi())},
              {"compute", rhi()->isFeatureSupported(QRhi::Compute)},
              {"baseVertex", rhi()->isFeatureSupported(QRhi::BaseVertex)},
+             {"instancing", rhi()->isFeatureSupported(QRhi::Instancing)},
+             {"customInstanceStepRate", rhi()->isFeatureSupported(QRhi::CustomInstanceStepRate)},
+             {"integerAttributes", rhi()->isFeatureSupported(QRhi::IntAttributes)},
+             {"halfAttributes", rhi()->isFeatureSupported(QRhi::HalfAttributes)},
              {"baseInstance", rhi()->isFeatureSupported(QRhi::BaseInstance)},
              {"indirectDraw", rhi()->isFeatureSupported(QRhi::DrawIndirect)},
              {"nativeMultiDrawIndirect", rhi()->isFeatureSupported(QRhi::DrawIndirectMulti)},

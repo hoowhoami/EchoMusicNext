@@ -54,12 +54,13 @@ public:
     /// Canonical display-only load. This is not a fabricated provider fixture;
     /// production API conversion and network latency are outside this benchmark.
     static void populate(SearchModel &model, SearchModel::Kind kind, int count,
-                         const QString &coverDirectory = {})
+                         const QString &coverDirectory = {},
+                         const QString &keyword = QStringLiteral("列表验证"))
     {
         model.cancelRequests();
         model.beginResetModel();
         model.m_kind = kind;
-        model.m_keyword = QStringLiteral("列表验证");
+        model.m_keyword = keyword;
         auto &bucket = model.active();
         bucket = {};
         bucket.rows.reserve(count);
@@ -690,6 +691,42 @@ Window {
         QCOMPARE(auxiliary->property("contentY").toReal(), qreal(0));
         QCOMPARE(warnings.count(), 0);
         window->close();
+    }
+    void sharedPageSwapLaysOutHiddenTargetBeforeClamping()
+    {
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("settings.ini"));
+        ThemeStore theme(settings);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine,
+                                QUrl("qrc:/qt/qml/EchoMusic/SearchUiTests/PageScrollHarness.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties({{"rowCount", 3}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        auto *page = findVisual(window->contentItem(), "harnessPage");
+        auto *list = findVisual(window->contentItem(), "harnessList");
+        QVERIFY(page && list);
+        QTest::qWait(40);
+        root->setProperty("rowCount", 1000);
+        QVERIFY(QMetaObject::invokeMethod(list, "forceLayout"));
+        QVERIFY(QMetaObject::invokeMethod(page, "scrollTo", Q_ARG(double, 120.)));
+        // The hidden grid still has its previous short extent until layout.
+        root->setProperty("useGrid", true);
+        QTest::qWait(40);
+        QTRY_COMPARE_WITH_TIMEOUT(page->property("scrollTop").toReal(), 120., 1000);
+        root->setProperty("useGrid", false);
+        QTest::qWait(40);
+        QTRY_COMPARE_WITH_TIMEOUT(page->property("scrollTop").toReal(), 120., 1000);
+        root->setProperty("useGrid", true);
+        QVERIFY(QMetaObject::invokeMethod(page, "scrollTo", Q_ARG(double, 40.)));
+        QTest::qWait(40);
+        QTRY_COMPARE(page->property("scrollTop").toReal(), 40.);
+        root->setProperty("useGrid", false);
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "locate", Q_ARG(int, 100)));
+        QTest::qWait(40);
+        QTRY_VERIFY(page->property("scrollTop").toReal() > 4000.);
     }
     void sharedPageContentWheelIsNotBlockedByStickyLayer()
     {
@@ -1463,6 +1500,49 @@ Window {
         QVERIFY(session.engine.incubationController());
         QTRY_COMPARE(session.engine.incubationController()->incubatingObjectCount(), 0);
         QCOMPARE(warnings.count(), 0);
+    }
+    void productionCategoryChangesKeepThePageOffset()
+    {
+        Session session;
+        QVERIFY(session.create());
+        QQuickItem *page = nullptr;
+        QTRY_VERIFY((page = session.item("searchPage")));
+        for (int count : {0, 3, 100}) {
+            for (const auto kind :
+                 {SearchModel::Kind::Song, SearchModel::Kind::Playlist, SearchModel::Kind::Album,
+                  SearchModel::Kind::Artist, SearchModel::Kind::Lyric, SearchModel::Kind::Mv})
+                SearchModelTestAccess::populate(session.search, kind, count);
+            QVERIFY(QMetaObject::invokeMethod(page, "scrollTo", Q_ARG(double, 0.)));
+            for (const auto kind :
+                 {SearchModel::Kind::Song, SearchModel::Kind::Playlist, SearchModel::Kind::Album,
+                  SearchModel::Kind::Artist, SearchModel::Kind::Lyric, SearchModel::Kind::Mv,
+                  SearchModel::Kind::Song}) {
+                session.search.setKind(kind);
+                QTest::qWait(80);
+                QTRY_COMPARE_WITH_TIMEOUT(page->property("scrollTop").toReal(), 0., 1000);
+            }
+        }
+        QVERIFY(QMetaObject::invokeMethod(page, "scrollTo", Q_ARG(double, 120.)));
+        QTRY_COMPARE(page->property("scrollTop").toReal(), 120.);
+        for (const auto kind :
+             {SearchModel::Kind::Album, SearchModel::Kind::Lyric, SearchModel::Kind::Artist,
+              SearchModel::Kind::Playlist, SearchModel::Kind::Mv, SearchModel::Kind::Song}) {
+            session.search.setKind(kind);
+            QTest::qWait(80);
+            QTRY_VERIFY2_WITH_TIMEOUT(qAbs(page->property("scrollTop").toReal() - 120.) < .01,
+                                      qPrintable(QString::number(int(kind))), 1000);
+        }
+        session.search.setKind(SearchModel::Kind::Album);
+        auto *grid = session.item("searchResultGrid");
+        QVERIFY(grid);
+        QVERIFY(QMetaObject::invokeMethod(grid, "forceLayout"));
+        QVERIFY(QMetaObject::invokeMethod(page, "scrollTo", Q_ARG(double, 40.)));
+        QTest::qWait(80);
+        QTRY_COMPARE(page->property("scrollTop").toReal(), 40.);
+        SearchModelTestAccess::populate(session.search, SearchModel::Kind::Song, 100, {},
+                                        QStringLiteral("新的关键词"));
+        QTest::qWait(80);
+        QTRY_COMPARE_WITH_TIMEOUT(page->property("scrollTop").toReal(), 0., 1000);
     }
     void productionScrollbarsUsePageEdgeAndRemainInteractiveAboveStickyLayers()
     {

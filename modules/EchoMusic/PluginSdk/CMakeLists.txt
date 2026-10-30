@@ -10,6 +10,12 @@ qt_add_qml_module(
     SOURCES
     EchoPluginGraphics.h
     EchoPluginGraphics.cpp
+    EchoPluginGraphicsSharing.cpp
+    EchoGpuTextureSource.cpp
+    graphics/GpuSharedResources.cpp
+    graphics/GpuTextureSources.cpp
+    graphics/GpuVertexLayout.cpp
+    graphics/GpuVertexLayout_p.h
     EchoGpuSurface.h
     EchoGpuSurface.cpp
     graphics/GpuRhi_p.h

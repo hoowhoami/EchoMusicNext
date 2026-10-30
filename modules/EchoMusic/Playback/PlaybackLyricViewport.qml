@@ -7,6 +7,7 @@ import EchoMusic.Theme
 import EchoMusic.Controls
 import EchoMusic.Playback
 
+// Shared virtual lyric presentation for the cover, portrait and Mini layouts.
 Item {
     id: viewport
     Connections {
@@ -105,7 +106,7 @@ Item {
     }
     LyricTimeline {
         id: timeline
-        objectName: "coverLyricTimeline"
+        objectName: "playbackLyricTimeline"
         model: viewport.resourceActive ? viewport.playback.lyrics : null
         filter: viewport.filterLyrics
         timeMs: viewport.renderTime
@@ -336,6 +337,11 @@ Item {
             readonly property bool ruby: viewport.playback.lyricText.wantRomanization && viewport.playback.lyricText.romanizationAsRuby && rubyUnits.length > 0
             readonly property real mainHeight: ruby && rubyLine.item ? (rubyLine.item as LyricRubyLine).implicitHeight : lyric.textHeight
             readonly property real textRowHeight: viewport.filterLyrics && filtered ? 0 : mainHeight + (secondary.visible ? secondary.implicitHeight + viewport.secondaryGap : 0) + viewport.fontSize * .8
+            // Ruby shaping and subtitle wrapping can settle after the first
+            // follow, including in rows before the anchor. Reconcile the whole
+            // measured block so every spring uses the same settled geometry.
+            onTextRowHeightChanged: if (positioned && !pooled && viewport.resourceActive && lines.following)
+                reflow.restart()
             property bool positioned: false
             property real previousY: 0
             property real previousHeader: 0
@@ -571,8 +577,6 @@ Item {
                         y: -paintPadding
                         width: parent.width + 2 * viewport.fontSize
                         height: implicitHeight
-                        onLayoutChanged: if (timeline.ordinal(line.index) === lines.currentIndex)
-                            reflow.restart()
                         visible: !line.ruby
                         alignment: viewport.horizontalAlignment
                         text: line.lineText
@@ -609,8 +613,6 @@ Item {
                     }
                     Label {
                         id: secondary
-                        onImplicitHeightChanged: if (timeline.ordinal(line.index) === lines.currentIndex)
-                            reflow.restart()
                         y: line.mainHeight + viewport.secondaryGap
                         width: parent.width
                         visible: text.length > 0

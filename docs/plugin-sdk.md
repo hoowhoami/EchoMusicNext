@@ -129,4 +129,6 @@ feature 为 `ui.navigation/settings.host/ui.actions/cover.themed/ui.cover`；涉
 
 主题目录、内置选择、调用者拥有的预览、Mini 配色和模式快照已公开；material、浮层/对话框透明和 Bezier 过渡复用现有宿主实现。浮层背景与主界面 elevated 独立。浮窗统一走可撤销 windows 授权，提供合并快照订阅、原生状态和窗口控制；全局偏好动作与插件窗口资源生命周期分开。
 
-作者契约见 EchoMusicNextPlugins 的 `docs/gpu-submissions.md` 与 `docs/presentation-services.md`。已接入 MRT、逐附件混合、mip 视图、二维纹理数组的分层传输/渲染/读回，立方体/三维纹理的面与切片，以及 GPU 参数间接绘制。跨画布 GPU 派生资源共享及真正局部 HDR 仍需实现；平台验收另行记录。
+作者契约见 EchoMusicNextPlugins 的 `docs/gpu-submissions.md` 与 `docs/presentation-services.md`。已接入 MRT、逐附件混合、mip 视图、二维纹理数组的分层传输/渲染/读回，立方体/三维纹理的面与切片，以及 GPU 参数间接绘制。同插件/账号的跨画布资源分享、多顶点流与实例属性已接入，包含实际GPU对象复用和代际回收。共享限同RHI设备/线程，跨不兼容设备互操作和真正局部HDR仍未提供；平台验收另行记录。
+
+Qt组件纹理可通过EchoGpuSurface.importTextureSource借用到RHI采样：限当前插件/窗口的显式layer或完整provider，默认只读、按scope回收，色彩与alpha由来源约定。它不导出字形图集，不替代字体排版、GlyphRun绘制或编码文件捕获；作者用法见插件仓库docs/gpu-texture-sources.md。

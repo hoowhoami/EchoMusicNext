@@ -1865,19 +1865,19 @@
     </message>
 </context>
 <context>
-    <name>CoverLyricViewport</name>
+    <name>PlaybackLyricViewport</name>
     <message>
-        <location filename="../modules/EchoMusic/Playback/CoverLyricViewport.qml" line="549"/>
+        <location filename="../modules/EchoMusic/Playback/PlaybackLyricViewport.qml" line="693"/>
         <source>正在加载歌词…</source>
         <translation>正在加载歌词…</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Playback/CoverLyricViewport.qml" line="549"/>
+        <location filename="../modules/EchoMusic/Playback/PlaybackLyricViewport.qml" line="693"/>
         <source>歌词加载失败，点击右侧重新选择</source>
         <translation>歌词加载失败，点击右侧重新选择</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Playback/CoverLyricViewport.qml" line="549"/>
+        <location filename="../modules/EchoMusic/Playback/PlaybackLyricViewport.qml" line="693"/>
         <source>暂无歌词</source>
         <translation>暂无歌词</translation>
     </message>

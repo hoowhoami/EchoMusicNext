@@ -9,12 +9,12 @@ bool GpuRenderState::buildTransfer(NativeGpuPass &pass)
     if (type != "copy-buffer" && type != "upload-buffer")
         return true;
     const auto dst = resources.find(pass.definition.value("destination").toString());
-    if (dst == resources.end() || !dst->second.buffer) {
+    if (dst == resources.end() || !dst->second->buffer) {
         error = "Transfer buffer retired";
         return false;
     }
     if (type == "upload-buffer") {
-        if (dst->second.buffer->type() == QRhiBuffer::Dynamic ||
+        if (dst->second->buffer->type() == QRhiBuffer::Dynamic ||
             !rhi->isFeatureSupported(QRhi::Compute))
             return true;
         const auto data = pass.definition.value("data").toByteArray();
@@ -27,14 +27,14 @@ bool GpuRenderState::buildTransfer(NativeGpuPass &pass)
         pass.definition["sourceOffset"] = 0;
         pass.definition["destinationOffset"] = pass.definition.value("offset", 0);
         pass.definition["size"] = data.size();
-        return buildBufferCopy(pass, pass.stagingBuffer.get(), dst->second.buffer.get());
+        return buildBufferCopy(pass, pass.stagingBuffer.get(), dst->second->buffer.get());
     }
     const auto src = resources.find(pass.definition.value("source").toString());
-    if (src == resources.end() || !src->second.buffer) {
+    if (src == resources.end() || !src->second->buffer) {
         error = "Copy source retired";
         return false;
     }
-    return buildBufferCopy(pass, src->second.buffer.get(), dst->second.buffer.get());
+    return buildBufferCopy(pass, src->second->buffer.get(), dst->second->buffer.get());
 }
 bool GpuRenderState::buildBufferCopy(NativeGpuPass &pass, QRhiBuffer *source,
                                      QRhiBuffer *destination)
@@ -113,7 +113,7 @@ bool GpuRenderState::transfer(QRhiCommandBuffer *cb, NativeGpuPass &pass)
         return true;
     }
     if (type == "upload-buffer") {
-        auto *buffer = dst->second.buffer.get();
+        auto *buffer = dst->second->buffer.get();
         if (buffer->type() == QRhiBuffer::Dynamic)
             updates->updateDynamicBuffer(buffer, p.value("offset").toUInt(),
                                          p.value("data").toByteArray());
@@ -126,7 +126,7 @@ bool GpuRenderState::transfer(QRhiCommandBuffer *cb, NativeGpuPass &pass)
         upload.setSourceSize({size[0].toInt(), size[1].toInt()});
         upload.setDataStride(p.value("bytesPerRow").toUInt());
         upload.setDestinationTopLeft({origin[0].toInt(), origin[1].toInt()});
-        updates->uploadTexture(dst->second.texture.get(),
+        updates->uploadTexture(dst->second->texture.get(),
                                QRhiTextureUploadDescription{{p.value("layer", 0).toInt(),
                                                              p.value("level").toInt(), upload}});
     } else if (type == "copy-texture") {
@@ -140,9 +140,9 @@ bool GpuRenderState::transfer(QRhiCommandBuffer *cb, NativeGpuPass &pass)
         copy.setDestinationLayer(p.value("destinationLayer", 0).toInt());
         copy.setSourceLevel(p.value("sourceLevel").toInt());
         copy.setDestinationLevel(p.value("destinationLevel").toInt());
-        updates->copyTexture(dst->second.texture.get(), src->second.texture.get(), copy);
+        updates->copyTexture(dst->second->texture.get(), src->second->texture.get(), copy);
     } else if (type == "generate-mips")
-        updates->generateMips(dst->second.texture.get());
+        updates->generateMips(dst->second->texture.get());
     cb->resourceUpdate(updates);
     return true;
 }

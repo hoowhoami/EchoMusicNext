@@ -42,6 +42,8 @@ private slots:
     void shapedClustersKeepCompleteInk();
     void nativeGpuClustersMatchWholeQtInk();
     void lyricRowsMoveIndependentlyAndSettle();
+    void lateRubyLayoutKeepsRowsSeparated_data();
+    void lateRubyLayoutKeepsRowsSeparated();
     void lyricRowBoxClearsRightSideTools();
     void lyricViewportClearsAboveControlsSurfaces();
     void presentationScheduleMatchesUnmodifiedAmll();

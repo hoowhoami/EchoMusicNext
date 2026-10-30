@@ -669,8 +669,12 @@ void PluginRuntimeTest::graphicsMultipleTargetsMipRenderingAndLifetime()
     const auto check = [&] {
         auto *red = keep(surface.readback(a, {{"level", 1}}));
         auto *green = keep(surface.readback(b, {{"level", 1}}));
-        if (!success(red) || !success(green))
+        if (!success(red) || !success(green)) {
+            qWarning() << "MRT readback states" << (red ? red->state() : -1)
+                       << (green ? green->state() : -1) << (red ? red->errorMessage() : QString())
+                       << (green ? green->errorMessage() : QString());
             return false;
+        }
         const auto r = red->result().toMap(), g = green->result().toMap();
         if (r.value("width").toInt() != 2 || g.value("height").toInt() != 2)
             return false;
@@ -679,8 +683,10 @@ void PluginRuntimeTest::graphicsMultipleTargetsMipRenderingAndLifetime()
             return false;
         for (int i = 0; i < 16; i += 4)
             if (qAbs(int(quint8(rb[i])) - 64) > 1 || quint8(rb[i + 1]) != 0 ||
-                qAbs(int(quint8(gb[i + 1])) - (independent ? 128 : 64)) > 1 || quint8(gb[i]) != 0)
+                qAbs(int(quint8(gb[i + 1])) - (independent ? 128 : 64)) > 1 || quint8(gb[i]) != 0) {
+                qWarning() << "MRT readback pixels" << rb.toHex() << gb.toHex();
                 return false;
+            }
         return true;
     };
     QVERIFY(check());

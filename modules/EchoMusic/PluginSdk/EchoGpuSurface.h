@@ -5,6 +5,7 @@
 #include <QTimer>
 namespace EchoMusic
 {
+bool gpuTextureSourceSafe(QQuickItem *source);
 struct GpuRenderState;
 struct GpuBridge;
 /// A scene-graph item backed by the host's RHI, never a JS render-thread callback.
@@ -53,7 +54,9 @@ public:
         return m_status;
     }
     Q_INVOKABLE bool submit(const QVariantMap &frame);
+    Q_INVOKABLE EchoMusic::EchoGpuResource *importTextureSource(QQuickItem *source);
     Q_INVOKABLE void requestFrame();
+    void retireResource(const QString &id);
     Q_INVOKABLE EchoMusic::EchoPluginOperation *enqueue(const QVariantMap &commands);
     Q_INVOKABLE EchoMusic::EchoPluginOperation *
     readback(EchoMusic::EchoGpuResource *resource = nullptr, const QVariantMap &options = {});
@@ -101,6 +104,9 @@ private:
     QList<std::shared_ptr<GpuSubmission>> m_submissions;
     QList<std::weak_ptr<GpuSubmission>> m_inflight;
     QList<QPair<QVariantMap, QPointer<EchoPluginOperation>>> m_readbacks;
+    QList<QPointer<EchoGpuResource>> m_textureSources;
+    void retireTextureSources();
+    QList<QPair<QString, QPointer<EchoPluginOperation>>> m_activeReadbacks;
     std::shared_ptr<GpuMemoryBudget> m_targetBudget;
     qint64 m_targetBytes = 0;
     bool m_lastLive = false;

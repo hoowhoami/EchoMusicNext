@@ -84,7 +84,11 @@ bool EchoPluginGraphics::prepareSubmission(const QVariantMap &input, QVariantMap
             p.value(kind == "generate-mips" ? "texture" : "destination").toString();
         auto *dst = m_resources.value(targetId);
         auto *src = m_resources.value(p.value("source").toString());
-        if (!dst || !dst->active() || (kind.startsWith("copy-") && (!src || src == dst)))
+        if (!dst || !dst->active() || dst->readOnly() ||
+            (kind.startsWith("copy-") &&
+             (!src || src->m_description.textureSource || src == dst ||
+              (src->m_description.shared &&
+               src->m_description.shared == dst->m_description.shared))))
             return reject("Transfer requires distinct live resources from this scope");
         const auto &dd = dst->m_description.definition;
         if (kind == "generate-mips") {

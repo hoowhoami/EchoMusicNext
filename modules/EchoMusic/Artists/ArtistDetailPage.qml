@@ -56,6 +56,7 @@ RoutePage {
         anchors.fill: parent
         pageActive: page.pageActive
         scrollView: page.activeTab === "albums" ? albumGrid : songList.listView
+        coordinatedViews: [songList.listView, albumGrid]
         stickyHeaders: [header, toolbar]
         CatalogSongList {
             id: songList
@@ -65,7 +66,9 @@ RoutePage {
             actions: page.detail.actions
             pageContainer: viewport
             contentInset: 24
-            topMargin: page.expandedHeaderHeight + page.toolbarHeight
+            // Each view reserves its own toolbar extent even while hidden.
+            // Switching tabs must not move Qt's origin before scroll restoration.
+            topMargin: page.expandedHeaderHeight + page.songToolbarRowHeight + 44
             loading: page.detail.songsLoading && !page.detail.songs.totalCount
             errorMessage: page.detail.errorMessage
             menuSongId: page.menuSongId
@@ -82,7 +85,7 @@ RoutePage {
             width: Math.max(0, parent.width - 64 + 20)
             height: parent.height
             visible: page.activeTab === "albums"
-            topMargin: page.expandedHeaderHeight + page.toolbarHeight + 16
+            topMargin: page.expandedHeaderHeight + page.songToolbarRowHeight + 16
             bottomMargin: 48
             clip: true
             reuseItems: true

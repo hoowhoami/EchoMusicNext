@@ -1,4 +1,5 @@
 #include "GpuRhi_p.h"
+#include "GpuVertexLayout_p.h"
 #include <rhi/qshader.h>
 #include <rhi/qshaderdescription.h>
 #include <QSet>
@@ -18,7 +19,8 @@ QShaderDescription::VariableType textureType(const NativeGpuResource &resource, 
     return storage ? QShaderDescription::Image2D : QShaderDescription::Sampler2D;
 }
 bool reflectionValid(const QShader &shader, const QVariantList &bindings,
-                     const std::map<QString, NativeGpuResource> &resources, QString &error)
+                     const std::map<QString, std::shared_ptr<NativeGpuResource>> &resources,
+                     QString &error)
 {
     const auto find = [&](int binding) {
         for (const auto &value : bindings)
@@ -38,9 +40,9 @@ bool reflectionValid(const QShader &shader, const QVariantList &bindings,
         const auto r = resources.find(id);
         if (block.descriptorSet > 0 || b.value("kind").toString() != "uniform" ||
             (id == "frame" ? block.size > 96
-                           : r == resources.end() || !r->second.buffer ||
-                                 !r->second.buffer->usage().testFlag(QRhiBuffer::UniformBuffer) ||
-                                 quint64(b.value("size", r->second.buffer->size() -
+                           : r == resources.end() || !r->second->buffer ||
+                                 !r->second->buffer->usage().testFlag(QRhiBuffer::UniformBuffer) ||
+                                 quint64(b.value("size", r->second->buffer->size() -
                                                              b.value("offset", 0).toInt())
                                              .toUInt()) < quint64(block.size))) {
             error = "Shader uniform block is missing, too small or incompatible";
@@ -51,9 +53,9 @@ bool reflectionValid(const QShader &shader, const QVariantList &bindings,
         const auto b = find(block.binding);
         const auto r = resources.find(b.value("resource").toString());
         if (block.descriptorSet > 0 || b.value("kind").toString() != "storage-buffer" ||
-            r == resources.end() || !r->second.buffer ||
-            !r->second.buffer->usage().testFlag(QRhiBuffer::StorageBuffer) ||
-            quint64(r->second.buffer->size()) < quint64(block.knownSize)) {
+            r == resources.end() || !r->second->buffer ||
+            !r->second->buffer->usage().testFlag(QRhiBuffer::StorageBuffer) ||
+            quint64(r->second->buffer->size()) < quint64(block.knownSize)) {
             error = "Shader storage block is missing or incompatible";
             return false;
         }
@@ -63,9 +65,9 @@ bool reflectionValid(const QShader &shader, const QVariantList &bindings,
         const auto resource = resources.find(binding.value("resource").toString());
         if (image.descriptorSet > 0 ||
             image.type != (resource == resources.end() ? QShaderDescription::Unknown
-                                                       : textureType(resource->second, false)) ||
+                                                       : textureType(*resource->second, false)) ||
             !image.arrayDims.isEmpty() || binding.value("kind").toString() != "texture" ||
-            resource == resources.end() || !resource->second.texture) {
+            resource == resources.end() || !resource->second->texture) {
             error = "Shader sampler dimension or binding is incompatible";
             return false;
         }
@@ -82,10 +84,10 @@ bool reflectionValid(const QShader &shader, const QVariantList &bindings,
                 : QRhiTexture::UnknownFormat;
         if (image.descriptorSet > 0 ||
             image.type != (resource == resources.end() ? QShaderDescription::Unknown
-                                                       : textureType(resource->second, true)) ||
+                                                       : textureType(*resource->second, true)) ||
             !image.arrayDims.isEmpty() || binding.value("kind").toString() != "storage-image" ||
-            resource == resources.end() || !resource->second.texture ||
-            format == QRhiTexture::UnknownFormat || resource->second.texture->format() != format ||
+            resource == resources.end() || !resource->second->texture ||
+            format == QRhiTexture::UnknownFormat || resource->second->texture->format() != format ||
             (!image.imageFlags.testFlag(QShaderDescription::ReadOnlyImage) &&
              binding.value("access", "read") == "read")) {
             error = "Shader image binding is missing or incompatible";
@@ -133,7 +135,7 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
             error = "Pipeline has retired";
             return false;
         }
-        const auto &d = pipeline->second.definition;
+        const auto &d = pipeline->second->definition;
         const bool compute = p.value("type", "render") == "compute";
         if (compute && !rhi->isFeatureSupported(QRhi::Compute)) {
             error = "Compute shaders are unavailable on this backend";
@@ -192,7 +194,7 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                 error = "Binding resource has retired";
                 return false;
             }
-            const auto &r = found->second;
+            const auto &r = *found->second;
             const auto access = b.value("access", "read").toString();
             if (kind == "uniform" && r.buffer &&
                 r.buffer->usage().testFlag(QRhiBuffer::UniformBuffer)) {
@@ -206,17 +208,17 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                 }
                 nativeBindings.append(QRhiShaderResourceBinding::uniformBuffer(
                     binding, stages, r.buffer.get(), offset, size));
-                readable.insert(id);
+                readable.insert(r.identity);
             } else if (kind == "texture" && r.texture &&
                        r.definition.value("usage").toStringList().contains("sampled")) {
                 const auto sampler = resources.find(b.value("sampler").toString());
-                if (sampler == resources.end() || !sampler->second.sampler) {
+                if (sampler == resources.end() || !sampler->second->sampler) {
                     error = "Sampled texture requires a live sampler";
                     return false;
                 }
                 nativeBindings.append(QRhiShaderResourceBinding::sampledTexture(
-                    binding, stages, r.texture.get(), sampler->second.sampler.get()));
-                readable.insert(id);
+                    binding, stages, r.texture.get(), sampler->second->sampler.get()));
+                readable.insert(r.identity);
             } else if (kind == "storage-buffer" && r.buffer &&
                        r.buffer->usage().testFlag(QRhiBuffer::StorageBuffer)) {
                 if (access == "read")
@@ -233,9 +235,9 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                     return false;
                 }
                 if (access == "read")
-                    readable.insert(id);
+                    readable.insert(r.identity);
                 else
-                    writable.insert(id);
+                    writable.insert(r.identity);
             } else if (kind == "storage-image" && r.texture &&
                        r.texture->flags().testFlag(QRhiTexture::UsedWithLoadStore)) {
                 if (access == "read")
@@ -252,9 +254,9 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                     return false;
                 }
                 if (access == "read")
-                    readable.insert(id);
+                    readable.insert(r.identity);
                 else
-                    writable.insert(id);
+                    writable.insert(r.identity);
             } else {
                 error = "Binding kind is incompatible with resource usage";
                 return false;
@@ -307,17 +309,24 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                 } else {
                     depth = nullptr;
                     QSize extent;
+                    QSet<NativeGpuResource *> attachments;
                     for (const auto &value : views) {
                         const auto view = value.toMap();
                         const auto id = view.value("texture").toString();
                         const auto found = resources.find(id);
-                        if (found == resources.end() || !found->second.texture ||
-                            readable.contains(id) || writable.contains(id)) {
+                        if (found == resources.end() || !found->second->texture ||
+                            readable.contains(found->second->identity) ||
+                            writable.contains(found->second->identity)) {
                             error =
                                 "Color target is missing or aliases a shader input in this pass";
                             return false;
                         }
-                        auto *texture = found->second.texture.get();
+                        if (attachments.contains(found->second.get())) {
+                            error = "Color targets alias the same shared allocation";
+                            return false;
+                        }
+                        attachments.insert(found->second.get());
+                        auto *texture = found->second->texture.get();
                         const int level = view.value("level", 0).toInt();
                         if (texture->flags().testFlag(QRhiTexture::ThreeDimensional) &&
                             !rhi->isFeatureSupported(QRhi::RenderTo3DTextureSlice)) {
@@ -343,8 +352,13 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                     if (d.value("depthTest").toBool() || d.value("depthWrite").toBool()) {
                         const auto first = views.first().toMap();
                         auto &attachment = resources.at(first.value("texture").toString())
-                                               .depths[gpuDepthKey(first)];
+                                               ->depths[gpuDepthKey(first)];
                         if (!attachment) {
+                            if (!resources.at(first.value("texture").toString())
+                                     ->reserve(qint64(extent.width()) * extent.height() * 4)) {
+                                error = "Shared depth allocation exceeds GPU budget";
+                                return false;
+                            }
                             attachment.reset(rhi->newTexture(QRhiTexture::D32F, extent, 1,
                                                              QRhiTexture::RenderTarget));
                             if (!attachment->create()) {
@@ -381,7 +395,8 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                 for (const auto &id :
                      {draw.value("vertexBuffer").toString(), draw.value("indexBuffer").toString(),
                       draw.value("indirect").toMap().value("buffer").toString()})
-                    if (!id.isEmpty() && writable.contains(id)) {
+                    if (!id.isEmpty() && resources.contains(id) &&
+                        writable.contains(resources.at(id)->identity)) {
                         error = "Draw buffers cannot be shader-writable in the same render pass";
                         return false;
                     }
@@ -427,50 +442,8 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
             ps->setTargetBlends(blends.cbegin(), blends.cend());
             ps->setSampleCount(target->sampleCount());
             QRhiVertexInputLayout layout;
-            const auto vertexLayout = d.value("vertexLayout").toMap();
-            if (!vertexLayout.isEmpty()) {
-                const int stride = vertexLayout.value("stride").toInt();
-                if (stride < 4 || stride > 2048) {
-                    error = "Invalid vertex stride";
-                    return false;
-                }
-                layout.setBindings({QRhiVertexInputBinding(quint32(stride))});
-                QVector<QRhiVertexInputAttribute> attributes;
-                const auto definitions = vertexLayout.value("attributes").toList();
-                if (definitions.isEmpty() || definitions.size() > 16) {
-                    error = "Invalid vertex attributes";
-                    return false;
-                }
-                QSet<int> locations;
-                for (const auto &v : definitions) {
-                    const auto a = v.toMap();
-                    const int location = a.value("location").toInt(),
-                              offset = a.value("offset").toInt();
-                    const auto format = a.value("format").toString();
-                    const int components = format == "float"    ? 1
-                                           : format == "float2" ? 2
-                                           : format == "float3" ? 3
-                                           : format == "float4" ? 4
-                                                                : 0;
-                    if (!components || location < 0 || location > 15 ||
-                        locations.contains(location) || offset < 0 || offset % 4 ||
-                        offset + components * 4 > stride) {
-                        error = "Invalid vertex attribute format or range";
-                        return false;
-                    }
-                    locations.insert(location);
-                    attributes.append({0, location,
-                                       components == 1   ? QRhiVertexInputAttribute::Float
-                                       : components == 2 ? QRhiVertexInputAttribute::Float2
-                                       : components == 3 ? QRhiVertexInputAttribute::Float3
-                                                         : QRhiVertexInputAttribute::Float4,
-                                       quint32(offset)});
-                }
-                layout.setAttributes(attributes.cbegin(), attributes.cend());
-            } else if (!vertex.description().inputVariables().isEmpty()) {
-                error = "Shader requires a vertex input layout";
+            if (!vertexLayout(d.value("vertexLayout").toMap(), vertex, layout))
                 return false;
-            }
             ps->setVertexInputLayout(layout);
             auto flags = QRhiGraphicsPipeline::Flags(QRhiGraphicsPipeline::UsesScissor);
             if (indirect)

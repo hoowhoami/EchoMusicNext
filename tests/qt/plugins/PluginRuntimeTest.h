@@ -19,6 +19,9 @@ private slots:
     void graphicsIndirectGpuArgumentsAndRetirement();
     void graphicsTextureArraysTransfersAndLifetime();
     void graphicsCubeVolumeSlicesAndRecovery();
+    void graphicsSharedResourcesScopesDevicesAndRecovery();
+    void graphicsQtTextureSourcesLifecycle();
+    void graphicsMultipleStreamsInstancesAndReflection();
     void appearancePreviewCatalogAndFloatingIsolation();
     void appearanceMaterialsAndRouteLifecycle();
     void floatingWindowsNativeStateAuthorizationAndObservation();

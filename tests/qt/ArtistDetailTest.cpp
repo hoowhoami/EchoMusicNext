@@ -694,6 +694,8 @@ Window {
             artistVisual(window->contentItem(), "catalogSongList")->property("opacity").toDouble(),
             1., 2000);
         QTRY_VERIFY(artistVisual(header, "catalogPlayAll")->isVisible());
+        QTRY_COMPARE_WITH_TIMEOUT(detailViewport->property("scrollTop").toReal(), 0., 1000);
+        QTRY_COMPARE(header->property("progress").toReal(), 0.);
         const auto artifacts = qEnvironmentVariable("ECHO_ARTIST_ARTIFACTS");
         if (!artifacts.isEmpty())
             QVERIFY(QDir().mkpath(artifacts));
@@ -712,6 +714,37 @@ Window {
                         artifacts +
                         QString("/artist-%1-%2.png").arg(dark ? "dark" : "light").arg(scale)));
             }
+        // Repeated top-level tab changes cannot accumulate column-header height.
+        for (int i = 0; i < 3; ++i) {
+            router.replaceQuery({{"tab", "albums"}});
+            QTest::qWait(40);
+            QTRY_COMPARE(detailViewport->property("scrollTop").toReal(), 0.);
+            router.replaceQuery({{"tab", "songs"}});
+            QTest::qWait(40);
+            QTRY_COMPARE(detailViewport->property("scrollTop").toReal(), 0.);
+        }
+        QJsonArray cards;
+        for (int i = 1; i <= 30; ++i)
+            cards.append(QJsonObject{
+                {"id", i}, {"title", "Album " + QString::number(i)}, {"cover_url", avatarUrl}});
+        router.replaceQuery({{"tab", "albums"}});
+        context->albums()->replaceCards(cards);
+        QTRY_VERIFY(albumGrid->property("contentHeight").toReal() > albumGrid->height());
+        QTest::qWait(40);
+        router.replaceQuery({{"tab", "songs"}});
+        QTRY_COMPARE(detailViewport->property("scrollTop").toReal(), 0.);
+        context->songs()->toggleSelected("1");
+        // An explicit page command also wins over a still-pending tab restore.
+        QVERIFY(QMetaObject::invokeMethod(detailViewport, "scrollTo", Q_ARG(double, 100.)));
+        QTRY_COMPARE(detailViewport->property("scrollTop").toReal(), 100.);
+        router.replaceQuery({{"tab", "albums"}});
+        QTRY_COMPARE_WITH_TIMEOUT(detailViewport->property("scrollTop").toReal(), 100., 2000);
+        router.replaceQuery({{"tab", "songs"}});
+        QTRY_COMPARE_WITH_TIMEOUT(detailViewport->property("scrollTop").toReal(), 100., 2000);
+        QCOMPARE(context->songs()->selectedCount(), 1);
+        QCOMPARE(context->songs()->count(), 200);
+        QVERIFY(QMetaObject::invokeMethod(detailViewport, "scrollTo", Q_ARG(double, 0.)));
+        QTRY_COMPARE(detailViewport->property("scrollTop").toReal(), 0.);
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
         service.shutdown();
         router.shutdown();

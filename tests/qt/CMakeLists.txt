@@ -823,8 +823,10 @@ target_compile_definitions(
 target_include_directories(echo-plugin-runtime-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(
     echo-plugin-runtime-test
-    PRIVATE plugins/PluginRuntimeGraphics.cpp
+    PRIVATE plugins/PluginRuntimeTextureSources.cpp
+            plugins/PluginRuntimeGraphics.cpp
             plugins/PluginRuntimeGraphicsResources.cpp
+            plugins/PluginRuntimeGraphicsSharing.cpp
             plugins/PluginRuntimeTest.h
             plugins/PluginRuntimeTestFixture.h
             plugins/PluginRuntimeManagement1.cpp
@@ -1790,6 +1792,12 @@ qt_add_shaders(
     shaders/gpu/cube.frag
     shaders/gpu/volume.frag
     shaders/gpu/volume.comp
+    shaders/gpu/source.frag
+    shaders/gpu/shared.comp
+    shaders/gpu/instanced.vert
+    shaders/gpu/instanced.frag
+    shaders/gpu/matrix.vert
+    shaders/gpu/integer.vert
 )
 add_test(
     NAME plugin-runtime-graphics

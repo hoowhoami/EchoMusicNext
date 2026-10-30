@@ -5,6 +5,7 @@
 #include <QQuickWindow>
 #include <QMatrix4x4>
 #include <QMutex>
+#include <QSGTextureProvider>
 #include <map>
 #include <vector>
 namespace EchoMusic
@@ -33,10 +34,19 @@ struct GpuBridge : QObject
     void report(QVariantMap values);
     void complete(QPointer<EchoPluginOperation> operation, QVariantMap value, QString error = {});
 };
+QString gpuDeviceId(QRhi *rhi);
 struct NativeGpuResource
 {
+    ~NativeGpuResource();
+    bool reserve(qint64 bytes);
+    std::shared_ptr<GpuMemoryBudget> sharedBudget;
+    std::shared_ptr<GpuSharedResourceState> shared;
+    qint64 charged = 0;
+    QString identity;
     std::unique_ptr<QRhiBuffer> buffer;
-    std::unique_ptr<QRhiTexture> texture;
+    // Borrowed scenegraph textures use a no-op deleter; Qt retains ownership.
+    std::shared_ptr<QRhiTexture> texture;
+    std::shared_ptr<GpuResourceDescription::TextureSource> textureSource;
     std::map<int, std::unique_ptr<QRhiTexture>> depths;
     std::unique_ptr<QRhiSampler> sampler;
     quint64 revision = 0;
@@ -76,10 +86,19 @@ struct GpuRenderState
     explicit GpuRenderState(std::shared_ptr<GpuBridge> sink) : bridge(std::move(sink)) {}
     ~GpuRenderState();
     void release();
+    bool resourcesValid() const;
+    std::shared_ptr<NativeGpuResource> sharedAllocation(const GpuResourceDescription &d);
     bool updateResources(QRhiResourceUpdateBatch *updates,
                          const QHash<QString, GpuResourceDescription> &descriptions);
+    bool updateTextureSource(NativeGpuResource &, const GpuResourceDescription &,
+                             QSGTextureProvider *, QRhiResourceUpdateBatch *, bool &topology);
+    void watchTextureSources(EchoGpuSurface &);
     bool prepareOutput(QRhiRenderTarget *output);
     void composite(QRhiCommandBuffer *cb, QRhiRenderTarget *output);
+    bool vertexLayout(const QVariantMap &layout, const QShader &shader,
+                      QRhiVertexInputLayout &native);
+    bool vertexInputs(const QVariantMap &draw, const QVariantMap &layout,
+                      QVector<QRhiCommandBuffer::VertexInput> &inputs);
     bool buildPasses(const QVariantMap &frame, QRhiRenderTarget *output);
     bool buildTransfer(NativeGpuPass &pass);
     bool buildBufferCopy(NativeGpuPass &pass, QRhiBuffer *source, QRhiBuffer *destination);
@@ -97,7 +116,9 @@ struct GpuRenderState
     QPointer<QQuickWindow> window;
     std::atomic<int> objects = 0;
     std::atomic<bool> enabled = false;
-    std::map<QString, NativeGpuResource> resources;
+    std::map<QString, std::shared_ptr<NativeGpuResource>> resources;
+    QHash<QString, QPointer<QSGTextureProvider>> textureProviders;
+    QHash<QString, QList<QMetaObject::Connection>> textureSourceConnections;
     std::vector<NativeGpuPass> passes, uploads;
     std::vector<std::shared_ptr<PendingGpuReadback>> reads;
     std::unique_ptr<QRhiComputePipeline> copyPipeline;

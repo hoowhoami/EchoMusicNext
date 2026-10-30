@@ -232,7 +232,8 @@ RoutePage {
             actions: page.service.actions
             pageContainer: viewport
             contentInset: 24
-            topMargin: page.expandedHeaderHeight + page.toolbarHeight
+            // Hidden song views retain their own column-header space.
+            topMargin: page.expandedHeaderHeight + page.toolbarRowHeight + 44
             loading: page.service.songsLoading && page.service.songs.count === 0
             loadingMore: page.service.songsLoading && page.service.songs.count > 0
             errorMessage: page.service.errorMessage
