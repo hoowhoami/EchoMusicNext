@@ -13,6 +13,7 @@ Item {
     required property Component dragContent
     property var snapshotForRow: null
     property real rowHeight: 52
+    readonly property real rowStride: rowHeight + view.spacing
     property real handleLeft: 0
     property real handleRight: 0
     property bool resourceActive: true
@@ -178,11 +179,11 @@ Item {
         if (!busy)
             return 0;
         if (index === fromIndex)
-            return (toIndex - fromIndex) * rowHeight;
+            return (toIndex - fromIndex) * rowStride;
         if (fromIndex < toIndex && index > fromIndex && index <= toIndex)
-            return -rowHeight;
+            return -rowStride;
         if (toIndex < fromIndex && index >= toIndex && index < fromIndex)
-            return rowHeight;
+            return rowStride;
         return 0;
     }
     function handlerActive(handler) {

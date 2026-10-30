@@ -90,6 +90,7 @@ qt_add_qml_module(
     SidebarPlaylistHeader.qml
     SidebarLayoutPopup.qml
     SidebarLayoutSection.qml
+    SidebarLayoutEntry.qml
     SidebarShortcutPopup.qml
     PluginSurfaceHost.qml
     PlayerBar.qml

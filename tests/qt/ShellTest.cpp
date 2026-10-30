@@ -2095,6 +2095,183 @@ QtObject {
         QVERIFY(Test::prepareNativeInput(window));
         QCOMPARE(warnings.size(), 0);
     }
+    void sidebarMenuDragPreviewsAndLands_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<qreal>("scale");
+        for (bool dark : {false, true})
+            for (qreal scale : {1., 1.25})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(dark).arg(scale))) << dark << scale;
+    }
+    void sidebarMenuDragPreviewsAndLands()
+    {
+        QFETCH(bool, dark);
+        QFETCH(qreal, scale);
+        QTemporaryDir temp;
+        SettingsStore preferences(temp.filePath("settings.ini"));
+        ShellSettings settings(preferences);
+        auto *layout = settings.sidebarLayout();
+        ThemeStore theme(preferences);
+        theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import EchoMusic.Controls
+            import EchoMusic.Shell
+            Window {
+                id: host
+                required property SidebarLayoutModel layout
+                property real uiScale: 1
+                width: 1000; height: 800; visible: true
+                function openEditor() { owner.open(); }
+                Item { id: anchor; x: 40; y: 50; width: 32; height: 32 }
+                EchoPopupLoader {
+                    id: owner
+                    hostItem: host.contentItem
+                    sourceComponent: Component {
+                        SidebarLayoutPopup {
+                            layout: host.layout
+                            anchorItem: anchor
+                            uiScale: host.uiScale
+                        }
+                    }
+                }
+                Component.onCompleted: Qt.callLater(openEditor)
+            }
+        )",
+                          QUrl());
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"layout", QVariant::fromValue(layout)}, {"uiScale", scale}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        auto find = [&](const QString &name) {
+            return findVisibleVisual(window->contentItem(), name);
+        };
+        QPointer<QObject> popup;
+        QTRY_VERIFY((popup = root->findChild<QObject *>("sidebarLayoutPopup")));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        QPointer<QQuickItem> reorder = find("sidebarMenuReorder-library");
+        auto *view = find("sidebarEditorItems-library");
+        QVERIFY(reorder && view);
+        QTRY_COMPARE(view->property("count").toInt(), 3);
+        QTRY_COMPARE(view->height(), 102.);
+        QSignalSpy moves(layout, &QAbstractItemModel::rowsMoved);
+        const auto begin = [&](QQuickItem *source, QPoint target) {
+            const auto start = source->mapToScene({60, 16}).toPoint();
+            QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
+            QTest::mouseMove(window, start + QPoint(0, 14));
+            QTest::mouseMove(window, target);
+        };
+        const auto capture = [&](const QString &name) {
+            const auto path = qEnvironmentVariable("ECHO_SIDEBAR_MENU_DRAG_CAPTURE_DIR");
+            if (path.isEmpty())
+                return;
+            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            window->update();
+            QTRY_VERIFY(!frames.isEmpty());
+            QVERIFY(QDir().mkpath(path));
+            QVERIFY(window->grabWindow().save(
+                path + QString("/%1-%2-%3.png").arg(dark).arg(scale).arg(name)));
+        };
+        for (bool motion : {true, false}) {
+            theme.setMotionEnabled(motion);
+            layout->restoreDefaults();
+            QTest::qWait(200);
+            moves.clear();
+            auto *first = find("sidebarEditorItem-favorites");
+            auto *last = find("sidebarEditorItem-history");
+            QVERIFY(first && last);
+            auto *body = findVisual(last, "reorderRowBody");
+            QVERIFY(body);
+            const auto initial = body->mapToScene({0, 0}).y();
+            const auto rootY = last->y();
+            const auto target = last->mapToScene({60, 16}).toPoint();
+            const auto order = preferences.value("sidebar/entryOrder");
+            begin(first, target);
+            QTRY_VERIFY(reorder->property("dragging").toBool());
+            QTRY_COMPARE(reorder->property("toIndex").toInt(), 2);
+            QTest::qWait(40);
+            const auto displacement = (initial - body->mapToScene({0, 0}).y()) / scale;
+            QVERIFY(displacement > 1);
+            if (motion)
+                QVERIFY(displacement < 35); // Actual intermediate frame, not only final geometry.
+            QTRY_VERIFY(qAbs((initial - body->mapToScene({0, 0}).y()) / scale - 35) < .6);
+            QCOMPARE(last->y(), rootY); // ListView still owns each root's geometry.
+            QCOMPARE(moves.size(), 0);
+            QCOMPARE(preferences.value("sidebar/entryOrder"), order);
+            auto *ghost = find("sidebarMenuDragCard");
+            QVERIFY(ghost);
+            QCOMPARE(ghost->property("entryData").toMap().value("key").toString(),
+                     QString("favorites"));
+            capture(motion ? "held-motion" : "held-reduced");
+            QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, target);
+            if (motion) {
+                QVERIFY(reorder->property("settling").toBool());
+                QCOMPARE(moves.size(), 0);
+            }
+            QTRY_VERIFY(!reorder->property("busy").toBool());
+            QCOMPARE(moves.size(), 1);
+            QCOMPARE(layout->data(layout->index(2), SidebarLayoutModel::Key).toString(),
+                     QString("favorites"));
+            QCOMPARE(preferences.value("sidebar/entryOrder").toStringList(),
+                     QStringList({"cloud", "history", "favorites"}));
+            QVERIFY(!find("sidebarMenuDragCard"));
+            capture(motion ? "landed-motion" : "landed-reduced");
+        }
+        theme.setMotionEnabled(true);
+        layout->restoreDefaults();
+        QTest::qWait(200);
+        moves.clear();
+        const auto saved = preferences.value("sidebar/entryOrder");
+        auto *first = find("sidebarEditorItem-favorites");
+        auto *last = find("sidebarEditorItem-history");
+        QVERIFY(first && last);
+        auto target = last->mapToScene({60, 16}).toPoint();
+        begin(first, target);
+        QTRY_VERIFY(reorder->property("dragging").toBool());
+        window->hide();
+        QTRY_VERIFY(!reorder || !reorder->property("busy").toBool());
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, target);
+        QCOMPARE(moves.size(), 0);
+        QCOMPARE(preferences.value("sidebar/entryOrder"), saved);
+        window->show();
+        QVERIFY(Test::prepareNativeInput(window));
+        if (!popup || !popup->property("opened").toBool()) {
+            QVERIFY(QMetaObject::invokeMethod(root.data(), "openEditor"));
+            QTRY_VERIFY((popup = root->findChild<QObject *>("sidebarLayoutPopup")));
+            QTRY_VERIFY(popup->property("opened").toBool());
+        }
+        first = find("sidebarEditorItem-favorites");
+        last = find("sidebarEditorItem-history");
+        reorder = find("sidebarMenuReorder-library");
+        QVERIFY(first && last && reorder);
+        target = last->mapToScene({60, 16}).toPoint();
+        begin(first, target);
+        QTRY_VERIFY(reorder->property("dragging").toBool());
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, target);
+        QVERIFY(reorder->property("settling").toBool());
+        QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        QTRY_VERIFY(popup.isNull());
+        QCOMPARE(moves.size(), 0);
+        QCOMPARE(preferences.value("sidebar/entryOrder"), saved);
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "openEditor"));
+        QTRY_VERIFY((popup = root->findChild<QObject *>("sidebarLayoutPopup")));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        auto *eye = find("sidebarVisibility-favorites");
+        QVERIFY(eye);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          eye->mapToScene({14, 14}).toPoint());
+        QTRY_VERIFY(layout->data(layout->index(0), SidebarLayoutModel::Hidden).toBool());
+        QCOMPARE(preferences.value("sidebar/entryOrder"), saved);
+        QCOMPARE(moves.size(), 0);
+        QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        QTRY_VERIFY(popup.isNull());
+        QCOMPARE(warnings.size(), 0);
+    }
     void playerBarGroupsCenter_data()
     {
         QTest::addColumn<bool>("dark");

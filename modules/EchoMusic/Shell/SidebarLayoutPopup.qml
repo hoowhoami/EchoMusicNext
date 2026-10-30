@@ -11,6 +11,9 @@ EchoAnchoredPopup {
     objectName: "sidebarLayoutPopup"
     required property SidebarLayoutModel layout
     modal: false
+    property bool reorderActive: false
+    onAboutToShow: reorderActive = true
+    onAboutToHide: reorderActive = false
     background: EchoFloatingSurface {
         border.width: 1
         border.color: Theme.withAlpha(Theme.floatingText, 0.12)
@@ -62,14 +65,14 @@ EchoAnchoredPopup {
             ScrollBar.vertical: EchoPopupScrollBar {
                 surface: popup
                 view: sections
-                resourceActive: popup.visible
+                resourceActive: popup.visible && popup.reorderActive
             }
             delegate: SidebarLayoutSection {
                 required property var rowData
                 width: sections.width - 2
                 sectionData: rowData
                 layout: popup.layout
-                resourceActive: popup.visible
+                resourceActive: popup.visible && popup.reorderActive
             }
         }
     }

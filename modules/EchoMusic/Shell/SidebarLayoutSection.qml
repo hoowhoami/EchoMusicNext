@@ -6,7 +6,7 @@ import EchoMusic.Theme
 import EchoMusic.Shell
 
 Rectangle {
-    id: section
+    id: pane
     required property var sectionData
     required property SidebarLayoutModel layout
     property bool resourceActive: true
@@ -16,19 +16,19 @@ Rectangle {
     color: Theme.withAlpha(Theme.main, sectionData.hidden ? 0.38 : 0.64)
     border.color: Theme.withAlpha(Theme.floatingText, sectionData.hidden ? 0.1 : 0.07)
     Rectangle {
-        visible: section.sectionData.hidden
+        visible: pane.sectionData.hidden
         x: 0
-        y: section.radius
+        y: pane.radius
         width: 3
-        height: parent.height - section.radius * 2
+        height: parent.height - pane.radius * 2
         color: Theme.withAlpha(Theme.floatingText, 0.2)
     }
     Item {
         id: header
-        objectName: "sidebarEditorHeading-" + section.sectionData.key
+        objectName: "sidebarEditorHeading-" + pane.sectionData.key
         x: 8
         y: 8
-        width: section.width - 16
+        width: pane.width - 16
         height: Math.max(34, copy.height)
         Rectangle {
             width: 26
@@ -40,17 +40,17 @@ Rectangle {
                 anchors.centerIn: parent
                 width: 16
                 height: 16
-                visible: !section.sectionData.cover
-                name: section.sectionData.glyph
+                visible: !pane.sectionData.cover
+                name: pane.sectionData.glyph
                 color: Theme.iconMain
             }
             EchoCover {
                 anchors.centerIn: parent
                 width: 22
                 height: 22
-                visible: !!section.sectionData.cover
-                source: section.sectionData.cover
-                resourceActive: section.resourceActive
+                visible: !!pane.sectionData.cover
+                source: pane.sectionData.cover
+                resourceActive: pane.resourceActive
             }
         }
         Column {
@@ -61,7 +61,7 @@ Rectangle {
             spacing: 1
             Text {
                 width: parent.width
-                text: section.sectionData.title
+                text: pane.sectionData.title
                 font: Theme.font(13, Theme.strongWeight)
                 color: Theme.floatingText
                 lineHeightMode: Text.FixedHeight
@@ -70,7 +70,7 @@ Rectangle {
             }
             Text {
                 width: parent.width
-                text: section.sectionData.key === "playlists" ? qsTr("自建与收藏歌单") : section.sectionData.visibleCount + " / " + section.sectionData.itemCount + qsTr(" 项")
+                text: pane.sectionData.key === "playlists" ? qsTr("自建与收藏歌单") : pane.sectionData.visibleCount + " / " + pane.sectionData.itemCount + qsTr(" 项")
                 font: Theme.font(11, Theme.regularWeight)
                 color: Theme.floatingSecondaryText
                 lineHeightMode: Text.FixedHeight
@@ -78,23 +78,23 @@ Rectangle {
             }
         }
         EchoIconButton {
-            objectName: "sidebarSectionVisibility-" + section.sectionData.key
+            objectName: "sidebarSectionVisibility-" + pane.sectionData.key
             x: parent.width - width
             anchors.verticalCenter: parent.verticalCenter
             width: 28
             height: 28
             padding: 6.5
-            glyph: section.sectionData.hidden ? "eye-off" : "eye"
-            text: section.sectionData.key === "playlists" ? section.sectionData.hidden ? qsTr("显示整个歌单区域") : qsTr("隐藏整个歌单区域") : section.sectionData.hidden ? qsTr("显示分组") : qsTr("隐藏分组")
+            glyph: pane.sectionData.hidden ? "eye-off" : "eye"
+            text: pane.sectionData.key === "playlists" ? pane.sectionData.hidden ? qsTr("显示整个歌单区域") : qsTr("隐藏整个歌单区域") : pane.sectionData.hidden ? qsTr("显示分组") : qsTr("隐藏分组")
             colors: Theme.floating
-            onClicked: section.layout.toggleGroup(section.sectionData.key)
+            onClicked: pane.layout.toggleGroup(pane.sectionData.key)
         }
     }
     Item {
         id: items
         x: 8
         y: header.y + header.height + 6
-        width: section.width - 16
+        width: pane.width - 16
         height: entries.implicitHeight
         visible: entries.count > 0
         Rectangle {
@@ -107,6 +107,7 @@ Rectangle {
         }
         EchoBoundedListView {
             id: entries
+            objectName: "sidebarEditorItems-" + pane.sectionData.key
             x: 33
             width: parent.width - 33
             maximumViewportHeight: 240
@@ -114,84 +115,51 @@ Rectangle {
             reuseItems: true
             cacheBuffer: 32
             spacing: 3
-            model: section.sectionData.items
+            model: pane.sectionData.items
             ScrollBar.vertical: EchoPageScrollBar {
                 view: entries
-                viewActive: section.resourceActive
+                viewActive: pane.resourceActive
             }
-            delegate: Rectangle {
+            interactive: !menuReorder.busy
+            property EchoListReorder reorderController: EchoListReorder {
+                id: menuReorder
+                objectName: "sidebarMenuReorder-" + pane.sectionData.key
+                parent: entries
+                view: entries
+                sourceModel: pane.sectionData.items
+                rowHeight: 32
+                handleRight: 28
+                blocked: pane.sectionData.lockedOrder === true
+                resourceActive: pane.resourceActive
+                snapshotForRow: row => row.modelData
+                onMoveRequested: (from, to) => {
+                    const target = entries.itemAtIndex(to);
+                    if (target)
+                        pane.layout.moveBefore(snapshot.key, snapshotForRow(target).key, from < to);
+                }
+                dragContent: Component {
+                    SidebarLayoutEntry {
+                        objectName: "sidebarMenuDragCard"
+                        width: parent.width
+                        entryData: menuReorder.snapshot || ({})
+                        interactive: false
+                        lifted: true
+                        resourceActive: pane.resourceActive
+                    }
+                }
+            }
+            delegate: EchoReorderRow {
                 id: entry
                 required property var rowData
                 readonly property var modelData: rowData
                 objectName: "sidebarEditorItem-" + modelData.key
-                width: entries.width
-                height: 32
-                radius: Theme.itemRadius
-                color: modelData.hidden ? Theme.withAlpha(Theme.floatingText, 0.03) : hover.hovered ? Theme.withAlpha(Theme.floatingText, 0.05) : "transparent"
-                HoverHandler {
-                    id: hover
-                }
-                DropArea {
-                    anchors.fill: parent
-                    enabled: !entry.modelData.lockedOrder
-                    keys: ["sidebar-menu-" + section.sectionData.key]
-                    onDropped: event => {
-                        const key = event.source.objectName;
-                        const target = entry.modelData.key;
-                        const after = event.y > height / 2;
-                        const layout = section.layout;
-                        Qt.callLater(() => layout.moveBefore(key, target, after));
-                        event.acceptProposedAction();
-                    }
-                }
-                Rectangle {
-                    x: 3
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 26
-                    height: 26
-                    radius: Theme.itemRadius
-                    color: Theme.withAlpha(Theme.floatingText, 0.05)
-                    ShellActionDragHandle {
-                        anchors.centerIn: parent
-                        width: 16
-                        height: 16
-                        visible: !entry.modelData.cover
-                        actionKey: entry.modelData.key
-                        glyph: entry.modelData.glyph
-                        dragGroup: "sidebar-menu-" + section.sectionData.key
-                        resourceActive: section.resourceActive && !entry.modelData.lockedOrder
-                        foreground: Theme.iconMain
-                    }
-                    EchoCover {
-                        anchors.centerIn: parent
-                        width: 22
-                        height: 22
-                        visible: !!entry.modelData.cover
-                        source: entry.modelData.cover || ""
-                        resourceActive: section.resourceActive
-                    }
-                }
-                EchoTextTagRow {
-                    x: 36
-                    width: parent.width - x - 35
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: entry.modelData.title
-                    color: entry.modelData.hidden ? Theme.floatingSecondaryText : Theme.floatingText
-                    font: Theme.font(12.5, Theme.regularWeight)
-                    lineHeight: 18.75
-                    fillTextWidth: true
-                }
-                EchoIconButton {
-                    objectName: "sidebarVisibility-" + entry.modelData.key
-                    x: parent.width - width
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 28
-                    height: 28
-                    padding: 7
-                    glyph: entry.modelData.hidden ? "eye-off" : "eye"
-                    text: entry.modelData.hidden ? qsTr("显示入口") : qsTr("隐藏入口")
-                    colors: Theme.floating
-                    onClicked: section.layout.toggleHidden(entry.modelData.key)
+                reorder: menuReorder
+                SidebarLayoutEntry {
+                    width: entry.width
+                    entryData: entry.modelData
+                    resourceActive: pane.resourceActive && entry.contentActive
+                    interactive: !menuReorder.busy
+                    onVisibilityRequested: pane.layout.toggleHidden(entry.modelData.key)
                 }
             }
         }
