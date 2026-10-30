@@ -26,7 +26,11 @@ void PluginRuntimeTest::packageIntegrityAndCompatibility()
     QVERIFY(!PluginPackage::importDirectory(source, directory.path() + "/packages", "identity")
                  .error.isEmpty());
     QFile::remove(source + "/qmldir");
-    package(directory.path(), "throw new Error('must not execute');", {"graphics.compute"});
+    // Float processing/SDR tone mapping is not a native local HDR presenter.
+    package(directory.path(), "throw new Error('must not execute');", {"graphics.hdr"});
+    QVERIFY(PluginPackage::importDirectory(source, directory.path() + "/packages", "identity")
+                .incompatible);
+    package(directory.path(), "throw new Error('must not execute');", {"test.unsupported"});
     QVERIFY(PluginPackage::importDirectory(source, directory.path() + "/packages", "identity")
                 .incompatible);
 }

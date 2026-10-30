@@ -13,6 +13,7 @@
 #include "EchoPluginAssetArchive.h"
 #include "EchoPluginImageDropArea.h"
 #include "EchoPluginPlaybackTransition.h"
+#include "EchoGpuSurface.h"
 #include <QJsonArray>
 #include <QMetaMethod>
 #include <QMetaProperty>
@@ -58,8 +59,12 @@ QJsonObject describe(const QMetaObject &meta)
 QJsonObject pluginSdkContract()
 {
     QJsonObject types;
-    const QMetaObject *publicTypes[] = {&EchoPluginAction::staticMetaObject,
+    const QMetaObject *publicTypes[] = {&EchoGpuSurface::staticMetaObject,
+                                        &EchoPluginGraphics::staticMetaObject,
+                                        &EchoGpuResource::staticMetaObject,
+                                        &EchoPluginAction::staticMetaObject,
                                         &EchoPluginCover::staticMetaObject,
+                                        &EchoPluginAppIcons::staticMetaObject,
                                         &EchoPluginSettings::staticMetaObject,
                                         &EchoPluginNavigation::staticMetaObject,
                                         &EchoPluginProcess::staticMetaObject,

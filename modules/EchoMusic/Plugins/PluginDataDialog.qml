@@ -10,19 +10,28 @@ EchoDialog {
     id: dialog
     objectName: "pluginDataDialog"
     required property PluginRuntime runtime
+    // Empty selection is the separate archive of uninstalled/source-replaced data.
+    property string installationId: ""
+    readonly property var entries: runtime.dataEntries.filter(entry => installationId.length > 0 ? !entry.retained && entry.key === installationId : entry.retained)
     property var pending: ({})
-    heading: qsTr("插件数据")
-    description: qsTr("管理插件配置和私有文件，用户授权目录中的文件会保留。")
+    readonly property bool pendingCurrent: entries.some(entry => entry.key === pending.key)
+    heading: installationId.length > 0 ? qsTr("%1 · 插件数据").arg(entries.length > 0 ? entries[0].name || entries[0].id : qsTr("当前插件")) : qsTr("保留的插件数据")
+    description: installationId.length > 0 ? qsTr("管理当前插件的配置和私有文件，用户授权目录中的文件会保留。") : qsTr("管理卸载或更换来源后保留的配置和私有文件。")
     preferredWidth: 720
     maximumHeight: 640
     flushBody: true
     onAboutToHide: confirmation.close()
+    onInstallationIdChanged: {
+        if (confirmation)
+            confirmation.close();
+        pending = ({});
+    }
     body: Component {
         ColumnLayout {
             spacing: 12
             EchoTextLine {
                 visible: list.count === 0
-                text: qsTr("暂无插件数据")
+                text: dialog.installationId.length > 0 ? qsTr("当前插件已不可用") : qsTr("暂无保留数据")
                 color: Theme.floatingSecondaryText
                 font: Theme.font(13, Theme.regularWeight)
             }
@@ -32,7 +41,7 @@ EchoDialog {
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
                 maximumViewportHeight: 400
-                model: dialog.runtime.dataEntries
+                model: dialog.entries
                 reuseItems: true
                 spacing: 10
                 clip: true
@@ -76,6 +85,7 @@ EchoDialog {
                         EchoIconButton {
                             glyph: "folder-open"
                             text: qsTr("打开数据目录")
+                            colors: Theme.floating
                             enabled: !dialog.runtime.loading
                             onClicked: dialog.runtime.openDataDirectory(row.modelData.key)
                         }
@@ -84,7 +94,6 @@ EchoDialog {
                             glyph: "trash"
                             text: row.modelData.retained ? qsTr("删除保留数据") : qsTr("清空插件数据")
                             colors: Theme.floating
-                            hoverBackground: false
                             foreground: hovered ? Theme.floating.dangerText : Theme.floatingSecondaryText
                             enabled: !dialog.runtime.loading
                             onClicked: {
@@ -118,8 +127,8 @@ EchoDialog {
                         objectName: "pluginConfirmClearData"
                         text: qsTr("清除")
                         danger: true
-                        enabled: !dialog.runtime.loading
-                        onClicked: if (dialog.runtime.clearPluginData(dialog.pending.key))
+                        enabled: !dialog.runtime.loading && dialog.pendingCurrent
+                        onClicked: if (dialog.pendingCurrent && dialog.runtime.clearPluginData(dialog.pending.key))
                             confirm.close()
                     }
                 }

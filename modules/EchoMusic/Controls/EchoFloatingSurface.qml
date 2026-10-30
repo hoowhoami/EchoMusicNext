@@ -13,19 +13,23 @@ Item {
         active: floatingSurface.resourceActive
         properties: ["background", "radius"]
         baseValues: ({
-                background: floatingSurface.color,
+                background: floatingSurface.themedColor,
                 radius: floatingSurface.radius
             })
     }
-    readonly property color paintedColor: publicSurface.value("background", color)
+    readonly property var material: Theme.store.extensionAppearance.material || ({})
+    readonly property var surfaces: Theme.store.extensionAppearance.surface || ({})
+    readonly property real recipeOpacity: surfaces[dialogShadow ? "dialog" : "floating"] === undefined ? 1 : surfaces[dialogShadow ? "dialog" : "floating"]
+    readonly property color themedColor: Theme.withAlpha(color, color.a * recipeOpacity)
+    readonly property color paintedColor: publicSurface.value("background", themedColor)
     readonly property real paintedRadius: publicSurface.value("radius", radius)
     property real radius: Theme.popoverRadius
-    property color color: Theme.elevated
+    property color color: Theme.floating.elevated
     property bool dialogShadow: false
     property bool shadowEnabled: true
     property bool frostedEnabled: Theme.store.floatingFrosted
-    property real blurSigma: 24
-    property real backdropFillOpacity: 0.82
+    property real blurSigma: material.blurSigma === undefined ? 24 : material.blurSigma
+    property real backdropFillOpacity: material.backdropFillOpacity === undefined ? 0.82 : material.backdropFillOpacity
     property alias border: outline.border
     readonly property bool resourceActive: visible && width > 0 && height > 0 && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized
     // Software/OpenVG cannot render the QShader-based effect graph. Unknown

@@ -4,6 +4,7 @@
 #include <QRectF>
 #include <QQuickWindow>
 #include "SettingsStore.h"
+#include "AppIconService.h"
 #include <QTimer>
 #include <QtQml/qqmlregistration.h>
 #include "StartupIntegration.h"
@@ -50,6 +51,10 @@ class WindowController final : public QObject
 public:
     WindowController(EchoMusic::SettingsStore &settings, bool persist, QObject *parent = nullptr);
     ~WindowController() override;
+    AppIconService &appIcons()
+    {
+        return m_appIcons;
+    }
     void attach(QQuickWindow *window);
     void attachPluginWindow(QQuickWindow *window);
     bool mainWindowActive() const;
@@ -168,6 +173,7 @@ signals:
     void nativeMenuOpening();
 
 private:
+    AppIconService m_appIcons;
     friend class NativeMenusTestAccess;
     void activateTray(int reason);
     void captureNormalGeometry();

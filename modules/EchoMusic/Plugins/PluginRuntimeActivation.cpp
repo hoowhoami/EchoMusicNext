@@ -197,7 +197,7 @@ void PluginRuntime::activate(Entry &entry)
     connect(this, &PluginRuntime::catalogChanged, entry.context,
             [scope = QPointer<EchoPluginContext>(entry.context)] {
                 if (scope && scope->active())
-                    emit scope->plugins()->availabilityChanged();
+                    scope->plugins()->refresh();
             });
     connect(entry.context, &EchoPluginContext::callbackFailed, this,
             [this, target = &entry](const QString &message) {

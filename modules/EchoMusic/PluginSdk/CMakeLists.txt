@@ -9,6 +9,18 @@ qt_add_qml_module(
     DEPENDENCIES
     EchoMusic.Shell
     SOURCES
+    EchoPluginGraphics.h
+    EchoPluginGraphics.cpp
+    EchoGpuSurface.h
+    EchoGpuSurface.cpp
+    graphics/GpuRhi_p.h
+    graphics/GpuTextureLayout_p.h
+    graphics/GpuRhiResources.cpp
+    graphics/GpuSubmissions.cpp
+    graphics/GpuRhiTransfers.cpp
+    graphics/GpuRhiPasses.cpp
+    graphics/GpuRhiRenderer.cpp
+    graphics/GpuRhiOutput.cpp
     EchoUiPartRef.h
     EchoUiPartRef.cpp
     EchoPluginUiParts.h
@@ -19,6 +31,7 @@ qt_add_qml_module(
     EchoPluginUiStyles.cpp
     EchoPluginAppearance.h
     EchoPluginAppearance.cpp
+    EchoPluginAppearanceOverrides.cpp
     EchoPluginViewContext.h
     EchoPluginViewContext.cpp
     PresentationScope.h
@@ -70,6 +83,7 @@ qt_add_qml_module(
     EchoPluginPlayer.cpp
     EchoPluginPlaybackTransition.h
     EchoPluginPlaybackTransition.cpp
+    EchoPluginSnapshot_p.h
     EchoPluginContext.h
     EchoPluginContext.cpp
     EchoPluginPresentation.cpp
@@ -77,6 +91,8 @@ qt_add_qml_module(
     EchoPluginAction.cpp
     EchoPluginCover.h
     EchoPluginCover.cpp
+    EchoPluginAppIcons.h
+    EchoPluginAppIcons.cpp
     EchoPluginHost.h
     EchoPluginNavigation.cpp
     EchoPluginSettings.cpp
@@ -217,4 +233,29 @@ endif()
 add_dependencies(echo_plugin_sdk echo-plugin-asset-worker)
 target_compile_definitions(
     echo_plugin_sdk PRIVATE ECHO_PLUGIN_ASSET_WORKER_PATH="$<TARGET_FILE:echo-plugin-asset-worker>"
+)
+
+# QRhi is intentionally isolated inside the version-pinned host implementation.
+target_link_libraries(echo_plugin_sdk PRIVATE Qt6::GuiPrivate)
+qt_add_shaders(
+    echo_plugin_sdk
+    echo_gpu_shaders
+    PREFIX
+    /echo/graphics
+    GLSL
+    "300 es,330"
+    FILES
+    graphics/shaders/composite.vert
+    graphics/shaders/composite.frag
+)
+
+qt_add_shaders(
+    echo_plugin_sdk
+    echo_gpu_transfer_shaders
+    PREFIX
+    /echo/graphics
+    GLSL
+    "310 es,430"
+    FILES
+    graphics/shaders/copy-buffer.comp
 )

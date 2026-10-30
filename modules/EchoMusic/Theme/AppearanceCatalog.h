@@ -163,6 +163,12 @@ public:
         return m_settings;
     }
     void invalidatePresentations();
+    bool previewOwnedTheme(const QString &key, QObject *owner);
+    void cancelOwnedPreview(QObject *owner);
+    QString previewKey() const
+    {
+        return m_preview;
+    }
     Q_INVOKABLE EchoMusic::AppearanceListModel *themeGroup(const QString &type);
     Q_INVOKABLE bool chooseTheme(const QString &key);
     Q_INVOKABLE bool chooseSkin(const QString &key);
@@ -185,6 +191,9 @@ private:
     QHash<QString, QPointer<AppearanceEntry>> m_entries;
     bool m_invalidationPending = false;
     QString m_selectedTheme, m_selectedSkin = "cover", m_preview;
+    QPointer<QObject> m_previewOwner;
+    QMetaObject::Connection m_previewOwnerConnection;
+    quint64 m_previewRevision = 0;
     AppearanceListModel m_themes, m_skins;
 };
 } // namespace EchoMusic

@@ -60,8 +60,8 @@ pub struct SharedAudio {
     output_queue_wait: Mutex<()>,
     realtime_output: RealtimeAudioRing,
     decoded_queue: Mutex<DecodedAudioQueue>,
-    // Each session owns one filter producer. A persistent park token prevents
-    // realtime capacity notifications from being lost before it starts waiting.
+    // One filter producer per session. Unlike a Condvar notification, unpark
+    // retains a token when the realtime callback runs just before park.
     output_producer: OnceLock<std::thread::Thread>,
     #[cfg(test)]
     before_output_queue_wait: Mutex<Option<Box<dyn FnOnce() + Send>>>,
@@ -789,9 +789,9 @@ impl SharedAudio {
                 self.wake_output_producer();
                 continue;
             }
-            // Production registers in run_filter before publishing any PCM, so
-            // the callback can never observe a full ring without its wake target.
-            // Direct unit-test seed writes must not claim that producer thread.
+            // Production registers before publishing any PCM in run_filter.
+            // Tests also seed rings directly; only a writer that actually waits
+            // claims that test session's producer identity.
             #[cfg(test)]
             self.register_output_producer();
             while self.realtime_output.buffered_samples() >= self.output_buffer_target_samples()
@@ -802,9 +802,9 @@ impl SharedAudio {
                 if let Some(before_wait) = self.before_output_queue_wait.lock().unwrap().take() {
                     before_wait();
                 }
-                // The callback cannot take this mutex. Unlike a Condvar notify,
-                // unpark retains a token if consumption or stop happens in this
-                // check-to-sleep window. Spurious tokens simply recheck capacity.
+                // The realtime callback cannot take output_queue_wait. Retain
+                // capacity/stop notifications across this check-to-sleep gap;
+                // spurious tokens only cause another predicate check.
                 drop(queue);
                 std::thread::park();
                 queue = match self.output_queue_wait.lock() {

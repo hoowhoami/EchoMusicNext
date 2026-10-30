@@ -219,10 +219,9 @@ fn publish_seek_command(
     sender: &SyncSender<decoder::DecodeCommand>,
     command: decoder::DecodeCommand,
 ) -> Result<(), TrySendError<decoder::DecodeCommand>> {
-    // Publish the interrupt before the command. A local/cache-backed seek can
-    // finish (and clear the flag) before try_send returns on the control thread.
-    // Interrupting after that acknowledgement would cancel resumed packet reads
-    // with no pending command left to clear the flag.
+    // A local/cache-backed seek may finish and clear its interrupt before the
+    // sender resumes. Publish interruption first so an acknowledged seek never
+    // acquires a new cancellation flag with no pending command left to clear it.
     shared.request_decode_interrupt();
     let result = sender.try_send(command);
     #[cfg(test)]

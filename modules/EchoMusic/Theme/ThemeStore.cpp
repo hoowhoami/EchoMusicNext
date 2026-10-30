@@ -210,6 +210,7 @@ ThemeStore::ThemeStore(EchoMusic::SettingsStore &settings, QObject *parent,
     connect(hints, &QStyleHints::colorSchemeChanged, this, &ThemeStore::adoptSystemScheme);
 #endif
     m_extensions = new AppearanceCatalog(m_settings, this);
+    connect(&m_overrides, &AppearanceOverrides::changed, this, &ThemeStore::resolve);
     connect(m_extensions, &AppearanceCatalog::themeChanged, this, &ThemeStore::resolve);
     resolve();
     if (!m_imageId.isEmpty())
@@ -407,6 +408,7 @@ void ThemeStore::resolve()
         m_extensions ? m_extensions->resolveTheme(
                            {{"dark", dark()}, {"coverColor", m_coverColor.name(QColor::HexArgb)}})
                      : QVariantMap();
+    m_extensionAppearance = m_overrides.resolve(m_extensionAppearance, dark());
     const auto palette = m_extensionAppearance.value("palette").toMap();
     auto applyColor = [](QColor &target, const QVariantMap &values, const QString &key) {
         const QColor value(values.value(key).toString());
@@ -442,27 +444,31 @@ void ThemeStore::resolve()
                                                   : QColor("#00cc65");
     if (!m_customAccent && !m_coverAccent)
         applyColor(m_accent, palette, "accent");
-    applyColor(m_palette.elevated, m_extensionAppearance.value("floating").toMap(), "background");
+    // Temporary contributions sit above the current host preference, without
+    // changing its persisted custom/cover-accent selection.
+    applyColor(m_accent, m_overrides.resolve({}, dark()).value("palette").toMap(), "accent");
+    m_floatingBackground = m_palette.elevated;
+    applyColor(m_floatingBackground, m_extensionAppearance.value("floating").toMap(), "background");
     // Floating colors form a separate readable pair;
     // artwork text colors must not leak into menus or search popovers.
     const auto neutralColors = neutral(dark());
     m_floatingText =
-        contrast(neutralColors.text, m_palette.elevated) >= 4.5 ? neutralColors.text
-        : contrast(Qt::white, m_palette.elevated) >= contrast(Qt::black, m_palette.elevated)
+        contrast(neutralColors.text, m_floatingBackground) >= 4.5 ? neutralColors.text
+        : contrast(Qt::white, m_floatingBackground) >= contrast(Qt::black, m_floatingBackground)
             ? Qt::white
             : Qt::black;
     const QColor floatingTone =
         contrast(m_floatingText, Qt::black) >= contrast(m_floatingText, Qt::white) ? Qt::white
                                                                                    : Qt::black;
-    m_floatingCard = mix(m_palette.elevated, floatingTone, 0.06);
+    m_floatingCard = mix(m_floatingBackground, floatingTone, 0.06);
     if (contrast(m_floatingText, m_floatingCard) < 4.5)
-        m_floatingCard = m_palette.elevated;
-    m_floatingSecondary = mix(m_floatingText, m_palette.elevated, 0.25);
-    if (contrast(m_floatingSecondary, m_palette.elevated) < 4.5 ||
+        m_floatingCard = m_floatingBackground;
+    m_floatingSecondary = mix(m_floatingText, m_floatingBackground, 0.25);
+    if (contrast(m_floatingSecondary, m_floatingBackground) < 4.5 ||
         contrast(m_floatingSecondary, m_floatingCard) < 4.5)
         m_floatingSecondary = m_floatingText;
-    m_floatingBorder = mix(m_palette.elevated, m_floatingText, 0.2);
-    m_floatingAccentText = readableText(floatingAccent(), {m_palette.elevated, m_floatingCard});
+    m_floatingBorder = mix(m_floatingBackground, m_floatingText, 0.2);
+    m_floatingAccentText = readableText(floatingAccent(), {m_floatingBackground, m_floatingCard});
     const auto floating = m_extensionAppearance.value("floating").toMap();
     applyColor(m_floatingText, floating, "text");
     applyColor(m_floatingSecondary, floating, "secondaryText");

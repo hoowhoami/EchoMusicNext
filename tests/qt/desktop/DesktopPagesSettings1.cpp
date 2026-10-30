@@ -1465,6 +1465,7 @@ void DesktopPagesTest::settingsDefaultsAndSourceEffectFileManager()
     file.close();
     playback.audioControls()->registerImpulseResponse(path, QStringLiteral("本地布局检查"));
     QTRY_COMPARE(files->property("count").toInt(), 1);
+    QVERIFY(session.settleScene());
     QQuickItem *fileRow = nullptr;
     QTRY_VERIFY((fileRow = visual(files, "settingsEffectFileRow")));
     QCOMPARE(fileRow->height(), 52.);
@@ -1492,6 +1493,7 @@ void DesktopPagesTest::settingsDefaultsAndSourceEffectFileManager()
     QTRY_COMPARE(
         playback.audioControls()->impulseResponses().at(0).toMap().value("name").toString(),
         QStringLiteral("新名称"));
+    QVERIFY(session.settleScene());
     QTRY_VERIFY((fileRow = visual(files, "settingsEffectFileRow")));
     rename = visual(fileRow, "settingsEffectRename");
     QVERIFY(rename);
@@ -1499,6 +1501,7 @@ void DesktopPagesTest::settingsDefaultsAndSourceEffectFileManager()
     dialog->setProperty("currentTab", 1);
     QVERIFY(dialog->property("editingPath").toString().isEmpty());
     dialog->setProperty("currentTab", 0);
+    QVERIFY(session.settleScene());
     QTRY_VERIFY((fileRow = visual(files, "settingsEffectFileRow")));
     rename = visual(fileRow, "settingsEffectRename");
     auto *remove = visual(fileRow, "settingsEffectRemove");
@@ -1510,6 +1513,11 @@ void DesktopPagesTest::settingsDefaultsAndSourceEffectFileManager()
     QTest::qWait(150);
     if (!capture.isEmpty())
         QVERIFY(session.window->grabWindow().save(capture + "/files-renamed.png"));
+    // Model projection can replace delegates while a frame/capture is pending.
+    // Reacquire the action rather than retaining a retired row's raw pointer.
+    QTRY_VERIFY((fileRow = visual(files, "settingsEffectFileRow")));
+    remove = visual(fileRow, "settingsEffectRemove");
+    QVERIFY(remove);
     QVERIFY(QMetaObject::invokeMethod(remove, "clicked"));
     QTRY_COMPARE(files->property("count").toInt(), 0);
     // The shared catalog may be large; only visible and cached rows mount.

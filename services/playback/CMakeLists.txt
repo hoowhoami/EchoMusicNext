@@ -58,6 +58,8 @@ add_library(
     PlaybackTransitionPresentation.cpp
     PlaybackClimaxModel.h
     PlaybackClimaxModel.cpp
+    PlaybackClock.h
+    PlaybackClock.cpp
     PlaybackProgressState.h
     PlaybackProgressState.cpp
     ListeningReporter.h

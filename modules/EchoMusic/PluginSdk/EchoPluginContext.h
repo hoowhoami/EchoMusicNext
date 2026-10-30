@@ -16,6 +16,7 @@
 #include "EchoPluginUi.h"
 #include "EchoPluginHost.h"
 #include "EchoPluginCover.h"
+#include "EchoPluginAppIcons.h"
 #include "EchoPluginIo.h"
 #include "EchoPluginSqlite.h"
 #include "EchoPluginBackups.h"
@@ -26,6 +27,7 @@
 #include "EchoPluginWebServer.h"
 #include "EchoPluginRegistry.h"
 #include "EchoPluginAudio.h"
+#include "EchoPluginGraphics.h"
 #include "EchoPluginAppearance.h"
 #include "EchoPluginViewContext.h"
 #include "EchoPluginText.h"
@@ -51,6 +53,7 @@ class SidebarLayoutModel;
 class ShortcutService;
 class VerificationService;
 class BackupHost;
+class AppIconService;
 class FloatingPlayerController;
 struct PluginHost
 {
@@ -69,6 +72,7 @@ struct PluginHost
     PluginPermissionStore *permissions = nullptr;
     std::function<void(QQuickWindow *)> attachPluginWindow = {};
     ShellSettings *settings = nullptr;
+    AppIconService *appIcons = nullptr;
 };
 /// One activation's GUI-thread scope. No raw host object is exposed to JS/QML.
 /// beginRetire invalidates delivery before cleanup, then waits for SQL drain.
@@ -84,12 +88,14 @@ class EchoPluginContext final : public QObject
     Q_PROPERTY(EchoMusic::EchoPluginAssets *assets READ assets CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginWindows *windows READ windows CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginCover *cover READ cover CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginAppIcons *appIcons READ appIcons CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginSettings *settings READ settings CONSTANT)
     Q_PROPERTY(QString id READ id CONSTANT)
     Q_PROPERTY(QString installationId READ installationId CONSTANT)
     Q_PROPERTY(QString activationGeneration READ activationGeneration CONSTANT)
     Q_PROPERTY(QString contextId READ contextId CONSTANT)
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
+    Q_PROPERTY(EchoMusic::EchoPluginGraphics *graphics READ graphics CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginAudio *audio READ audio CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginLyrics *lyrics READ lyrics CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginFiles *files READ files CONSTANT)
@@ -186,6 +192,10 @@ public:
     {
         return m_committed;
     }
+    EchoPluginGraphics *graphics() const
+    {
+        return m_graphics;
+    }
     EchoPluginAudio *audio() const
     {
         return m_audio;
@@ -262,6 +272,10 @@ public:
                                           QPointer<EchoPluginRegistration> lease,
                                           const QVariantMap &arguments,
                                           bool reportRejection = false);
+    EchoPluginAppIcons *appIcons() const
+    {
+        return m_appIcons;
+    }
     EchoPluginCover *cover() const
     {
         return m_cover;
@@ -343,12 +357,14 @@ private:
     EchoPluginText *m_text;
     EchoPluginAssets *m_assets;
     EchoPluginWindows *m_windows;
+    EchoPluginGraphics *m_graphics = nullptr;
     EchoPluginAudio *m_audio;
     EchoPluginPlayer *m_player;
     EchoPluginPlaylist *m_playlist;
     EchoPluginFiles *m_files = nullptr;
     EchoPluginDownloads *m_downloads = nullptr;
     EchoPluginLyrics *m_lyrics;
+    EchoPluginAppIcons *m_appIcons = nullptr;
     EchoPluginCover *m_cover;
     EchoPluginSettings *m_settings;
     EchoPluginUi *m_ui;

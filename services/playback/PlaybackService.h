@@ -29,6 +29,7 @@
 #include "PlaybackSourceRequest.h"
 #include "CloudAudioIndex.h"
 #include "PlaybackProgressState.h"
+#include "PlaybackClock.h"
 #include "PlaybackClimaxModel.h"
 #include "ListeningReporter.h"
 #include "PersonalFmController.h"
@@ -77,6 +78,7 @@ class PlaybackService final : public QObject
     Q_PROPERTY(QString album READ album NOTIFY changed)
     Q_PROPERTY(QString cover READ cover NOTIFY changed)
     Q_PROPERTY(QColor coverColor READ coverColor NOTIFY changed)
+    Q_PROPERTY(QVariantMap clock READ clock NOTIFY clockChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY changed)
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
     Q_PROPERTY(ProgressBusyReason progressBusyReason READ progressBusyReason NOTIFY
@@ -148,6 +150,14 @@ public:
         ProgressBuffering
     };
     Q_ENUM(ProgressBusyReason)
+    QVariantMap clock() const
+    {
+        return m_clock.snapshot();
+    }
+    double clockPosition() const
+    {
+        return m_clock.position();
+    }
     ProgressBusyReason progressBusyReason() const
     {
         return static_cast<ProgressBusyReason>(
@@ -483,6 +493,7 @@ signals:
     void sleepActionRequested(const QString &action);
     void changed();
     void positionChanged();
+    void clockChanged();
     void progressBusyReasonChanged();
     /// Track/source changes and seek confirmation reset presentation interpolation.
     void timelineReset();
@@ -530,6 +541,9 @@ private:
     void consumeOutputEvent(const QJsonObject &event);
     void mediaRouteChanged();
     void publishProgressStatus();
+    void syncClock(bool sample = false, const QString &reason = {});
+    PlaybackClock m_clock;
+    bool m_clockSeeking = false;
     PlaybackProgressState m_progress;
     ProgressBusyReason m_publishedProgress = ProgressReady;
     void requestLyrics();

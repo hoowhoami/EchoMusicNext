@@ -1,5 +1,6 @@
 #pragma once
 #include "AppearanceCatalog.h"
+#include "AppearanceOverrides.h"
 #include <QColor>
 #include <atomic>
 #include <memory>
@@ -29,6 +30,7 @@ class ThemeStore final : public QObject
     QML_SINGLETON
     Q_PROPERTY(EchoMusic::AppearanceCatalog *extensions READ extensions CONSTANT)
     Q_PROPERTY(QVariantMap extensionAppearance READ extensionAppearance NOTIFY changed)
+    Q_PROPERTY(QVariantList temporaryAppearance READ temporaryAppearance NOTIFY changed)
     Q_PROPERTY(bool motionEnabled READ motionEnabled NOTIFY changed)
     Q_PROPERTY(QFont applicationFont READ applicationFont NOTIFY fontChanged)
     Q_PROPERTY(QString globalFont READ globalFont WRITE setGlobalFont NOTIFY fontChanged)
@@ -64,6 +66,7 @@ class ThemeStore final : public QObject
     Q_PROPERTY(QColor elevated READ elevated NOTIFY changed)
     Q_PROPERTY(QColor text READ text NOTIFY changed)
     Q_PROPERTY(QColor tone READ tone NOTIFY changed)
+    Q_PROPERTY(QColor floatingBackground READ floatingBackground NOTIFY changed)
     Q_PROPERTY(QColor floatingTone READ floatingTone NOTIFY changed)
     Q_PROPERTY(QColor secondaryText READ secondaryText NOTIFY changed)
     Q_PROPERTY(QColor border READ border NOTIFY changed)
@@ -98,6 +101,14 @@ class ThemeStore final : public QObject
     Q_PROPERTY(bool imageImporting READ imageImporting NOTIFY changed)
     Q_PROPERTY(QString imageError READ imageError NOTIFY changed)
 public:
+    AppearanceOverrides &overrides()
+    {
+        return m_overrides;
+    }
+    QVariantList temporaryAppearance() const
+    {
+        return m_overrides.records();
+    }
     AppearanceCatalog *extensions() const
     {
         return m_extensions;
@@ -223,6 +234,10 @@ public:
     {
         return dark() ? QColor(Qt::white) : QColor(Qt::black);
     }
+    QColor floatingBackground() const
+    {
+        return m_floatingBackground;
+    }
     QColor floatingTone() const
     {
         return contrast(m_floatingText, Qt::black) >= contrast(m_floatingText, Qt::white)
@@ -334,12 +349,18 @@ public:
     }
     bool windowFrosted() const
     {
-        return m_windowFrosted;
+        return m_extensionAppearance.value("material")
+            .toMap()
+            .value("windowFrosted", m_windowFrosted)
+            .toBool();
     }
     void setWindowFrosted(bool enabled);
     bool floatingFrosted() const
     {
-        return m_floatingFrosted;
+        return m_extensionAppearance.value("material")
+            .toMap()
+            .value("floatingFrosted", m_floatingFrosted)
+            .toBool();
     }
     void setCoverAtmosphere(bool enabled);
     void setAtmosphereHeight(int value);
@@ -432,6 +453,7 @@ private:
     void scheduleImageSample();
     void cleanImages();
     EchoMusic::SettingsStore &m_settings;
+    AppearanceOverrides m_overrides;
     AppearanceCatalog *m_extensions = nullptr;
     QVariantMap m_extensionAppearance;
     ThemePalette m_palette;
@@ -455,8 +477,8 @@ private:
     QThreadPool m_imageWorkers;
     std::shared_ptr<std::atomic_bool> m_importCancellation;
     QTimer m_sampleTimer;
-    QColor m_floatingText, m_floatingSecondary, m_floatingCard, m_floatingBorder,
-        m_floatingAccentText;
+    QColor m_floatingBackground, m_floatingText, m_floatingSecondary, m_floatingCard,
+        m_floatingBorder, m_floatingAccentText;
     QColor m_onAccent, m_accentHover, m_accentPressed, m_atmosphere;
 };
 } // namespace EchoMusic

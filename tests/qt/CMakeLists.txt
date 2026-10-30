@@ -323,7 +323,8 @@ add_test(
         echo-controls-ui-test windowCaptionSeparatesDoubleClickFromDrag
         listLocationPreservesVisibleRowsAndChecksOcclusion
         coverKeepsNativeResolutionUnderAncestorZoom coverCropAndRoundedPixels
-        iconRasterTracksZoomAndReleasesWhenHidden clearActionIsOneUserEditButProgrammaticClearIsNot
+        viewPoolResetIsCanceledWithOwner iconRasterTracksZoomAndReleasesWhenHidden
+        clearActionIsOneUserEditButProgrammaticClearIsNot
         boundedListAutoHeightSurvivesReopenAndVariableRows progressClimaxTicksAndWaitPreview
         playPauseTransitionKeepsEndpointsAndInterrupts progressBusyRendersAndRetiresNativeAnimation
         sourcePauseKeepsComparableInkToPlay disabledIconHoverIsOptInAndNeverActivates
@@ -822,7 +823,9 @@ target_compile_definitions(
 target_include_directories(echo-plugin-runtime-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(
     echo-plugin-runtime-test
-    PRIVATE plugins/PluginRuntimeTest.h
+    PRIVATE plugins/PluginRuntimeGraphics.cpp
+            plugins/PluginRuntimeGraphicsResources.cpp
+            plugins/PluginRuntimeTest.h
             plugins/PluginRuntimeTestFixture.h
             plugins/PluginRuntimeManagement1.cpp
             plugins/PluginRuntimeManagement2.cpp
@@ -831,6 +834,8 @@ target_sources(
             plugins/PluginRuntimeRuntime.cpp
             plugins/PluginRuntimeShutdown.cpp
             plugins/PluginRuntimeDependencies.cpp
+            plugins/PluginRuntimeInterop.cpp
+            plugins/PluginRuntimePresentationServices.cpp
             plugins/PluginRuntimeCapabilities.cpp
             plugins/PluginRuntimeUiParts.cpp
             plugins/PluginRuntimeAppearance.cpp
@@ -948,9 +953,13 @@ add_test(
         interruptedProcessFixture killedProcessRecovery promiseCanceledBeforeCommit
         rejectedPromiseAndLifecycleTimeout persistedInstallAndSafeMode
 )
-add_test(NAME plugin-runtime-dependencies
-         COMMAND echo-plugin-runtime-test dependentServicesActivationCancellationAndProviderReload
-                 optionalDependencyAndServiceLeasePreserveOwnership
+add_test(
+    NAME plugin-runtime-dependencies
+    COMMAND
+        echo-plugin-runtime-test publicPluginCatalogCommandsAndRetirement
+        publicPluginCatalogScopeAccountAndReplacement
+        dependentServicesActivationCancellationAndProviderReload
+        optionalDependencyAndServiceLeasePreserveOwnership
 )
 add_test(
     NAME plugin-runtime-capabilities
@@ -2005,3 +2014,48 @@ target_link_libraries(
 )
 add_test(NAME settings-storage COMMAND echo-settings-storage-test)
 set_tests_properties(settings-storage PROPERTIES TIMEOUT 45)
+
+qt_add_shaders(
+    echo-plugin-runtime-test
+    plugin_gpu_test_shaders
+    PREFIX
+    /test-gpu
+    GLSL
+    "310 es,430"
+    FILES
+    shaders/gpu/fixture.vert
+    shaders/gpu/fixture.frag
+    shaders/gpu/fixture.comp
+    shaders/gpu/mrt.frag
+    shaders/gpu/indirect.comp
+    shaders/gpu/solid.frag
+    shaders/gpu/array.frag
+    shaders/gpu/array.comp
+    shaders/gpu/cube.frag
+    shaders/gpu/volume.frag
+    shaders/gpu/volume.comp
+)
+add_test(
+    NAME plugin-runtime-graphics
+    COMMAND
+        echo-plugin-runtime-test graphicsValidationOwnershipAndAccount
+        graphicsMultipleTargetsMipRenderingAndLifetime graphicsIndirectGpuArgumentsAndRetirement
+        graphicsTextureArraysTransfersAndLifetime appearancePreviewCatalogAndFloatingIsolation
+        appearanceMaterialsAndRouteLifecycle floatingWindowsNativeStateAuthorizationAndObservation
+)
+set_tests_properties(
+    plugin-runtime-graphics PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
+)
+
+add_test(
+    NAME plugin-runtime-presentation-services
+    COMMAND
+        echo-plugin-runtime-test playbackClockNativeSamplesAndPluginLifetime
+        temporaryAppearancePriorityLiveBaseAndRevocation
+        applicationIconsPriorityNativeOwnersAndCancellation
+        completeAudioMetadataRealFilesAndCancellation shortcutIconTransactionPreservesCurrentFields
+)
+set_tests_properties(
+    plugin-runtime-presentation-services PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT
+                                                    120
+)

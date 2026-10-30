@@ -281,6 +281,7 @@ void FloatingPlayerController::attachDesktop(QQuickWindow *window)
     m_desktopWindow = window;
     if (!window) {
         syncUnlockMonitoring();
+        notifyBounds();
         emit presentationWindowChanged();
         return;
     }
@@ -311,8 +312,10 @@ void FloatingPlayerController::attachDesktop(QQuickWindow *window)
             if (!m_restoring)
                 m_desktopSave.start();
             positionUnlock();
+            notifyBounds();
         });
     applyDesktop();
+    notifyBounds();
     emit presentationWindowChanged();
 }
 void FloatingPlayerController::attachMini(QQuickWindow *window)
@@ -327,6 +330,7 @@ void FloatingPlayerController::attachMini(QQuickWindow *window)
     }
     m_miniWindow = window;
     if (!window) {
+        notifyBounds();
         emit presentationWindowChanged();
         return;
     }
@@ -356,6 +360,7 @@ void FloatingPlayerController::attachMini(QQuickWindow *window)
         connect(window, signal, this, [this] {
             if (!m_restoring)
                 m_miniSave.start();
+            notifyBounds();
         });
     connect(window, &QWindow::screenChanged, this, [this] { setMiniScale(m_requestedMiniScale); });
     applyMini();
@@ -363,6 +368,7 @@ void FloatingPlayerController::attachMini(QQuickWindow *window)
         window->raise();
         window->requestActivate();
     }
+    notifyBounds();
     emit presentationWindowChanged();
 }
 void FloatingPlayerController::attachUnlock(QQuickWindow *window)
@@ -686,5 +692,18 @@ bool FloatingPlayerController::setPluginBounds(const QString &target, const QVar
         saveDesktop();
     emit changed();
     return true;
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+void FloatingPlayerController::notifyBounds()
+{
+    if (std::exchange(m_boundsPending, true))
+        return;
+    QTimer::singleShot(0, this, [this] {
+        m_boundsPending = false;
+        emit boundsChanged();
+    });
 }
 } // namespace EchoMusic

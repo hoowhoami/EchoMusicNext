@@ -351,15 +351,78 @@ mod tests {
     }
 }
 
-/// Independent local-file probe for cloud upload, called only on a host worker.
-/// Does not create a playback core, export covers, scan the full audio or seek.
-pub fn inspect_upload_file(path: &str) -> std::io::Result<serde_json::Value> {
+/// Independent local-file probe on a host worker. No playback core, artwork
+/// export or network request; metadata is parsed once by the existing reader.
+pub fn read_file_metadata(path: &str) -> std::io::Result<serde_json::Value> {
     let input = std::fs::File::open(path)?;
     let reader =
         AudioReader::new(input).map_err(|_| std::io::Error::other("Cannot inspect local audio"))?;
     let tags = reader.metadata();
-    Ok(
-        serde_json::json!({"title":text(&tags,"title"), "artist":text(&tags,"artist"),
-        "album":text(&tags,"album"), "duration_ms":reader.duration().map(|d| d.as_millis() as u64)}),
-    )
+    Ok(file_tags(
+        &tags,
+        reader.duration().map(|d| d.as_millis() as u64),
+    ))
+}
+
+fn tag_number(tags: &HashMap<String, String>, names: &[&str]) -> Option<u32> {
+    names.iter().find_map(|name| {
+        let raw = text(tags, name)?;
+        // TRACKNUMBER/DISCNUMBER commonly contain index/total; DATE may be ISO.
+        let digits: String = raw.chars().take_while(|c| c.is_ascii_digit()).collect();
+        digits.parse().ok().filter(|value| *value > 0)
+    })
+}
+fn file_tags(tags: &HashMap<String, String>, duration_ms: Option<u64>) -> serde_json::Value {
+    let genre = text(tags, "genre").map(|value| {
+        let mut genres = Vec::new();
+        for value in value
+            .split([';', '\0'])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if !genres.contains(&value.to_string()) {
+                genres.push(value.to_string());
+            }
+        }
+        genres
+    });
+    let year = tag_number(tags, &["date", "year"]).filter(|year| *year <= 9999);
+    serde_json::json!({"title":text(tags,"title"), "artist":text(tags,"artist"),
+        "album":text(tags,"album"), "duration_ms":duration_ms, "year":year,
+        "track":tag_number(tags, &["track", "tracknumber"]),
+        "disk":tag_number(tags, &["disc", "discnumber", "disk"]), "genre":genre})
+}
+
+#[cfg(test)]
+mod file_metadata_tests {
+    use super::*;
+    #[test]
+    fn full_tags_and_unknown_values() {
+        let tags = HashMap::from([
+            ("TITLE".into(), "完整标题".into()),
+            ("date".into(), "2026-10-29".into()),
+            ("track".into(), "3/12".into()),
+            ("disc".into(), "2/3".into()),
+            ("genre".into(), "Rock; Jazz;Rock".into()),
+        ]);
+        let value = file_tags(&tags, Some(1234));
+        assert_eq!(value["title"], "完整标题");
+        assert_eq!(value["year"], 2026);
+        assert_eq!(value["track"], 3);
+        assert_eq!(value["disk"], 2);
+        assert_eq!(value["genre"], serde_json::json!(["Rock", "Jazz"]));
+        let empty = file_tags(&HashMap::new(), None);
+        for field in [
+            "title",
+            "artist",
+            "album",
+            "duration_ms",
+            "year",
+            "track",
+            "disk",
+            "genre",
+        ] {
+            assert!(empty[field].is_null(), "{field}");
+        }
+    }
 }

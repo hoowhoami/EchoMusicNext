@@ -24,7 +24,7 @@
 
 声明 `audio.spectrum` feature 和 `audioSpectrum` capability 后，可订阅播放器实际输出的 PCM 频谱。订阅提供帧、状态及暂停/释放操作；`dispose` 后句柄失效。多个订阅共享分析，暂停或没有可见订阅时停止采集与 FFT 请求。
 
-支持 fps 1–60、binCount 8–512、fftSize 256–8192 的指定二次幂、smoothing 0–0.95、log / linear / mel 频率映射及可选波形。帧包含 source、state、时间、采样率、FFT 大小、频段、peak / rms 等资料。当前通过有界 JSON 传输，不提供零复制二进制 buffer。HDR 在 `graphics.hdr` 不可用时保持禁用。
+支持 fps 1–60、binCount 8–512、fftSize 256–8192 的指定二次幂、smoothing 0–0.95、log / linear / mel 频率映射及可选波形。帧包含 source、state、时间、采样率、FFT 大小、频段、peak / rms 等资料。当前通过有界 JSON 传输，不提供零复制二进制 buffer。高级 GPU 绘图使用 `ctx.graphics` 和 `EchoGpuSurface`，支持纹理、缓冲、渲染/计算管线和局部 HDR 输入的 SDR 映射；默认 SDR，不修改宿主窗口。当前没有局部 HDR 实屏输出后端。硬件状态与接口 feature 分开查询，详见[绘图指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/graphics.md)。
 
 原生点图元使用通用 `PointMesh` 和 `graphics.pointMesh`，顶点数量/数据有界，几何归场景图；输入布局、错误及平台边界见[点网格说明](plugin-point-mesh.md)。
 
@@ -142,3 +142,13 @@ feature 为 `ui.navigation/settings.host/ui.actions/cover.themed/ui.cover`；涉
 `playback.lyrics.metadata` 增加来源明确提供的歌词身份、段落、声部、备用文本和
 TTML 来源信息，时间与预算见[TTML 文档](lyrics-ttml.md)。两项均为通用只读数据，
 不提供额外播放器或独立时钟。
+
+`plugins.catalog`、`plugins.commands`提供依赖可见的公开目录、服务方法发现、变化订阅与显式公开命令；context内部命令保持私有。使用与取消语义见[插件协作](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/plugin-cooperation.md)。
+
+`playback.clock` 公开 PlaybackService 的统一采样锚点与单调投影；`appearance.overrides` 通过授权的临时配方参与 ThemeStore 逐属性优先级解析；`app.icons` 接入实际窗口、托盘及平台快捷方式，使用可撤销租约；`files.audioMetadata` 在文件 worker 中返回完整音频标签。账号代际、授权撤销、呈现销毁和停用沿用作用域取消及资源排空。作者用法见 EchoMusicNextPlugins 的 `docs/presentation-services.md`。
+
+`graphics.resources` / `graphics.submissions` 补充有界一次性命令、资源快照和 GPU 完成 operation；支持区域上传、GPU 缓冲/纹理复制、mipmap、区域/mip 回读、uniform 范围和 viewport/scissor/base vertex/instance。非 uniform 更新使用 GPU 暂存，缓冲回读经过独立 GPU 快照和实际完成确认，不在 GUI 等待。普通窗口和 HDR 输出边界不变。
+
+主题目录、内置选择、调用者拥有的预览、Mini 配色和模式快照已公开；material、浮层/对话框透明和 Bezier 过渡复用现有宿主实现。浮层背景与主界面 elevated 独立。浮窗统一走可撤销 windows 授权，提供合并快照订阅、原生状态和窗口控制；全局偏好动作与插件窗口资源生命周期分开。
+
+作者契约见 EchoMusicNextPlugins 的 `docs/gpu-submissions.md` 与 `docs/presentation-services.md`。已接入 MRT、逐附件混合、mip 视图、二维纹理数组的分层传输/渲染/读回，立方体/三维纹理的面与切片，以及 GPU 参数间接绘制。跨画布 GPU 派生资源共享及真正局部 HDR 仍需实现；平台验收另行记录。

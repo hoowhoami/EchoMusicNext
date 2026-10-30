@@ -198,5 +198,31 @@ ApplicationWindow {
     firstCards = cards(window->contentItem());
     for (auto *card : firstCards)
         QVERIFY(card->height() + .1 >= card->implicitHeight());
+    // The production card action must open only its own installation, even
+    // when several other plugin cards are present on the same page.
+    auto *card = firstCards.first();
+    const auto expected = card->property("record").toMap().value("installationId").toString();
+    QVERIFY(!expected.isEmpty());
+    auto *data = visual(card, "pluginCardData");
+    QVERIFY(data);
+    QVERIFY(QMetaObject::invokeMethod(data, "clicked"));
+    auto *page = visual(window->contentItem(), "pluginManagementPage");
+    QVERIFY(page);
+    QPointer<QObject> dialog;
+    QTRY_VERIFY((dialog = page->findChild<QObject *>("pluginDataDialog")));
+    QCOMPARE(dialog->property("installationId").toString(), expected);
+    const auto entries = dialog->property("entries").toList();
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.first().toMap().value("key").toString(), expected);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    QTRY_VERIFY(dialog.isNull());
+    auto *retained = visual(page, "pluginDataManagement");
+    QVERIFY(retained);
+    QVERIFY(QMetaObject::invokeMethod(retained, "clicked"));
+    QTRY_VERIFY((dialog = page->findChild<QObject *>("pluginDataDialog")));
+    QVERIFY(dialog->property("installationId").toString().isEmpty());
+    QCOMPARE(dialog->property("entries").toList().size(), 0);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    QTRY_VERIFY(dialog.isNull());
     QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
 }

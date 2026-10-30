@@ -39,7 +39,23 @@ QVersionNumber PluginPackage::sdkVersion()
 }
 QStringList PluginPackage::supportedFeatures()
 {
-    QStringList features{"ui.navigation",
+    QStringList features{"playback.clock",
+                         "appearance.overrides",
+                         "app.icons",
+                         "files.audioMetadata",
+                         "graphics.rhi",
+                         "graphics.resources",
+                         "graphics.submissions",
+                         "graphics.mrt",
+                         "graphics.indirect",
+                         "graphics.textureViews",
+                         "graphics.textureArrays",
+                         "graphics.textureDimensions",
+                         "graphics.compute",
+                         "graphics.readback",
+                         "plugins.catalog",
+                         "plugins.commands",
+                         "ui.navigation",
                          "settings.host",
                          "ui.actions",
                          "cover.themed",
@@ -130,13 +146,30 @@ QStringList PluginPackage::supportedFeatures()
 }
 QStringList PluginPackage::supportedCapabilities()
 {
-    return {"localFiles",    "downloads",    "unrestrictedNetwork",
-            "audioSpectrum", "audioSource",  "lyrics",
-            "lyricEffects",  "kugouApi",     "kugouVerification",
-            "backups",       "sqlite",       "theme",
-            "lyricsPage",    "tcp",          "webServer",
-            "windows",       "process",      "serverIntercept",
-            "navigation",    "hostSettings", "cover"};
+    return {"graphics",
+            "localFiles",
+            "downloads",
+            "unrestrictedNetwork",
+            "audioSpectrum",
+            "audioSource",
+            "lyrics",
+            "lyricEffects",
+            "kugouApi",
+            "kugouVerification",
+            "backups",
+            "sqlite",
+            "theme",
+            "lyricsPage",
+            "tcp",
+            "webServer",
+            "windows",
+            "process",
+            "serverIntercept",
+            "navigation",
+            "hostSettings",
+            "cover",
+            "appearance",
+            "appIcons"};
 }
 namespace
 {

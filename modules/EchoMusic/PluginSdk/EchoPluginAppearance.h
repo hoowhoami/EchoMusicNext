@@ -1,5 +1,6 @@
 #pragma once
 #include "EchoPluginRegistration.h"
+#include "EchoPluginOperation.h"
 #include "AppearanceCatalog.h"
 #include <QJSValue>
 #include <QFont>
@@ -45,12 +46,18 @@ public:
     explicit EchoPluginAppearance(EchoPluginContext &);
     Q_INVOKABLE EchoMusic::EchoPluginAppearanceHandle *registerTheme(const QJSValue &definition);
     Q_INVOKABLE EchoMusic::EchoPluginAppearanceHandle *registerSkin(const QJSValue &definition);
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *
+    setOverride(const QString &id, const QVariantMap &definition, int priority = 0);
+    Q_INVOKABLE QVariantList themes() const;
+    Q_INVOKABLE QVariantList skins() const;
     Q_INVOKABLE bool useTheme(const QString &id);
     Q_INVOKABLE bool useSkin(const QString &id);
     Q_INVOKABLE bool previewTheme(const QString &id);
     Q_INVOKABLE void cancelPreview();
     Q_INVOKABLE void openThemes();
     Q_INVOKABLE void openSkins();
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *
+    onSnapshot(const QString &id, const QJSValue &callback, bool immediate = true);
     QVariantMap snapshot() const;
     QString errorMessage() const
     {

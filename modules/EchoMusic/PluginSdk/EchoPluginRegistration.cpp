@@ -8,6 +8,8 @@ EchoPluginRegistration::EchoPluginRegistration(QString key, quint64 revision, QO
 }
 void EchoPluginRegistration::stage(std::function<bool()> publish, std::function<void()> remove)
 {
+    if (!m_active)
+        return;
     m_publish = std::move(publish);
     m_remove = std::move(remove);
 }
@@ -17,8 +19,14 @@ bool EchoPluginRegistration::commit()
         return true;
     if (m_published)
         return true;
-    m_published = !m_publish || m_publish();
-    return m_published;
+    // Publication emits host signals. A listener may synchronously retire this
+    // scope; make revocation effective during that call and retain its callable.
+    const auto publish = m_publish;
+    m_published = true;
+    const bool success = !publish || publish();
+    if (!success)
+        m_published = false;
+    return success;
 }
 void EchoPluginRegistration::dispose()
 {

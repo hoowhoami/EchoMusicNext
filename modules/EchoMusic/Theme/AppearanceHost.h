@@ -67,7 +67,9 @@ private:
     QPointer<QQuickItem> m_item;
     QPointer<QQmlComponent> m_component;
     QPointer<QObject> m_context;
-    QMetaObject::Connection m_windowConnection, m_catalogConnection, m_warningConnection;
+    QMetaObject::Connection m_windowConnection, m_windowOpacityConnection,
+        m_windowAnimationConnection, m_catalogConnection, m_warningConnection,
+        m_selfWindowConnection, m_selfVisibleConnection;
     QObject *m_visibility = nullptr;
 };
 } // namespace EchoMusic

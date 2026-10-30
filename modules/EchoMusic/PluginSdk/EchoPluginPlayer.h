@@ -38,7 +38,8 @@ class EchoPluginPlayer final : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by EchoPluginContext")
     Q_PROPERTY(EchoMusic::EchoPluginAudioSource *audioSource READ audioSource CONSTANT)
-    Q_PROPERTY(QVariantMap snapshot READ snapshot NOTIFY changed)
+    Q_PROPERTY(QVariantMap snapshot READ snapshot NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantMap clock READ clock NOTIFY clockChanged)
     Q_PROPERTY(QVariantMap lyricsInfo READ lyricsInfo NOTIFY lyricChanged)
     Q_PROPERTY(QString revision READ revision NOTIFY changed)
     Q_PROPERTY(QString title READ title NOTIFY changed)
@@ -63,6 +64,8 @@ public:
         return &m_audioSource;
     }
     QVariantMap snapshot() const;
+    QVariantMap clock() const;
+    Q_INVOKABLE double samplePosition() const;
     QVariantMap lyricsInfo() const;
     QString revision() const;
     Q_INVOKABLE QVariantMap lyricSnapshot() const;
@@ -112,6 +115,8 @@ signals:
     void eventOccurred(const QString &event, const QVariantMap &payload);
     void changed();
     void positionChanged();
+    void clockChanged();
+    void snapshotChanged();
 
 private:
     EchoPluginOperation *command(std::function<void()> invoke);

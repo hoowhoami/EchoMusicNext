@@ -388,8 +388,8 @@ void CloudUploadService::scan(QList<QUrl> urls, bool folder, bool manual)
                 break;
             QJsonObject metadata;
             const auto encoded = path.toUtf8();
-            echo_audio_inspect_upload_file(reinterpret_cast<const uint8_t *>(encoded.constData()),
-                                           size_t(encoded.size()), metadataCallback, &metadata);
+            echo_audio_read_file_metadata(reinterpret_cast<const uint8_t *>(encoded.constData()),
+                                          size_t(encoded.size()), metadataCallback, &metadata);
             const QFileInfo after(path);
             if (readFailed || after.size() != row.size ||
                 after.lastModified().toMSecsSinceEpoch() != row.modified) {

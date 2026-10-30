@@ -22,8 +22,11 @@ qt_add_qml_module(
     SOURCES
     AppearanceConfiguration.h
     AppearanceConfiguration.cpp
+    AppearanceOverrides.h
+    AppearanceOverrides.cpp
     AppearanceCatalog.h
     AppearanceCatalog.cpp
+    ItemPresentationObserver_p.h
     AppearanceHost.h
     AppearanceHost.cpp
     ThemeStore.h

@@ -346,7 +346,7 @@ QVariant PluginFileWorker::files(quint64 id, const PluginFileOwner &owner, const
             };
             Probe probe;
             const auto path = resolved.path.toUtf8();
-            echo_audio_inspect_upload_file(
+            echo_audio_read_file_metadata(
                 reinterpret_cast<const uint8_t *>(path.constData()), size_t(path.size()),
                 [](void *context, const EchoResult *value) {
                     auto &probe = *static_cast<Probe *>(context);
@@ -358,10 +358,11 @@ QVariant PluginFileWorker::files(quint64 id, const PluginFileOwner &owner, const
             if (!probe.ok)
                 error("MetadataError", "Media metadata could not be read");
             auto metadata = QJsonDocument::fromJson(probe.bytes).object().toVariantMap();
-            result["media"] = QVariantMap{{"title", metadata.value("title")},
-                                          {"artist", metadata.value("artist")},
-                                          {"album", metadata.value("album")},
-                                          {"durationMs", metadata.value("duration_ms")}};
+            result["media"] = QVariantMap{
+                {"title", metadata.value("title")}, {"artist", metadata.value("artist")},
+                {"album", metadata.value("album")}, {"durationMs", metadata.value("duration_ms")},
+                {"year", metadata.value("year")},   {"track", metadata.value("track")},
+                {"disk", metadata.value("disk")},   {"genre", metadata.value("genre")}};
         }
         check(canceled);
         resolve(owner, ref, false);

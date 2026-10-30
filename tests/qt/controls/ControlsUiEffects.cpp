@@ -655,7 +655,10 @@ void ControlsUiTest::floatingEffectsAreOwnedByVisibleSurfaces()
     QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
     session.window->showMinimized();
     QTRY_COMPARE(samplerCount(), 0);
+    if (QGuiApplication::platformName() != "offscreen")
+        QTRY_VERIFY(!session.window->isExposed());
     session.window->showNormal();
+    QVERIFY(QTest::qWaitForWindowExposed(session.window));
     QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
     // The window contentItem's visibility is owned by QQuickWindow's
     // asynchronous expose/minimize path. Exercise an ordinary ancestor.
@@ -664,7 +667,17 @@ void ControlsUiTest::floatingEffectsAreOwnedByVisibleSurfaces()
     ancestor.setVisible(false);
     QTRY_COMPARE(samplerCount(), 0);
     ancestor.setVisible(true);
-    QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
+    QTRY_VERIFY2(
+        surface->property("hasBackdrop").toBool() == supported,
+        qPrintable(
+            QString("visible=%1 active=%2 shader=%3 frosted=%4 samplers=%5 window=%6 source=%7")
+                .arg(surface->isVisible())
+                .arg(surface->property("resourceActive").toBool())
+                .arg(surface->property("shaderEffectsSupported").toBool())
+                .arg(surface->property("frosted").toBool())
+                .arg(samplerCount())
+                .arg(surface->window() == session.window)
+                .arg(bool(session.window->property("echoBackdropRoot").value<QQuickItem *>()))));
     surface->setParentItem(session.window->contentItem());
     surface->setProperty("frostedEnabled", false);
     QTRY_COMPARE(samplerCount(), 0);
@@ -796,6 +809,14 @@ void ControlsUiTest::sourceActionSurfacesAndSelectStates()
     ControlsSession session;
     QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
     QVERIFY(session.create());
+#ifdef Q_OS_MACOS
+    if (QGuiApplication::platformName() == "cocoa") {
+        Test::moveNativePointer(session.window, QPoint(700, 250));
+        if (!Test::nativeWindowInputPolicy(session.window).value("underCursor").toBool())
+            QSKIP("The native test window is not under the actual system cursor; hover input "
+                  "cannot be accepted");
+    }
+#endif
     auto *neutral = session.item("neutralButton");
     auto *accent = session.item("accentButton");
     auto *select = session.item("styledSelect");
@@ -826,7 +847,17 @@ void ControlsUiTest::sourceActionSurfacesAndSelectStates()
             Test::moveNativePointer(session.window, QPoint(700, 250));
             QTRY_COMPARE(color(danger), alpha(QColor("#ef4444"), 0.08));
             mouse(danger);
-            QTRY_COMPARE(color(danger), alpha(QColor("#ef4444"), 0.12));
+            QTRY_VERIFY2(
+                color(danger) == alpha(QColor("#ef4444"), 0.12),
+                qPrintable(
+                    QString("danger hover=%1 cursor=%2,%3 expected=%4,%5 mode=%6 floating=%7")
+                        .arg(danger->property("hovered").toBool())
+                        .arg(session.window->mapFromGlobal(QCursor::pos()).x())
+                        .arg(session.window->mapFromGlobal(QCursor::pos()).y())
+                        .arg(danger->mapToScene({danger->width() / 2, danger->height() / 2}).x())
+                        .arg(danger->mapToScene({danger->width() / 2, danger->height() / 2}).y())
+                        .arg(int(mode))
+                        .arg(floating)));
             const auto dangerPoint =
                 danger->mapToScene(QPointF(danger->width() / 2, danger->height() / 2)).toPoint();
             QVERIFY(Test::prepareNativeInput(session.window));
@@ -868,7 +899,23 @@ void ControlsUiTest::sourceActionSurfacesAndSelectStates()
                          "The source's outer action shadow must actually render");
             }
             mouse(neutral);
-            QTRY_COMPARE(color(neutral), alpha(tone, 0.10));
+            QTRY_VERIFY(neutral->property("hovered").toBool());
+            QTRY_VERIFY2(
+                color(neutral) == alpha(tone, 0.10),
+                qPrintable(
+                    QString("hover=%1 highlight=%2 exposed=%3 active=%4 color=%5 cursor=%6,%7 "
+                            "expected=%8,%9 mode=%10 floating=%11")
+                        .arg(neutral->property("hovered").toBool())
+                        .arg(background(neutral)->property("highlighted").toBool())
+                        .arg(session.window->isExposed())
+                        .arg(session.window->isActive())
+                        .arg(color(neutral).name(QColor::HexArgb))
+                        .arg(session.window->mapFromGlobal(QCursor::pos()).x())
+                        .arg(session.window->mapFromGlobal(QCursor::pos()).y())
+                        .arg(neutral->mapToScene({neutral->width() / 2, neutral->height() / 2}).x())
+                        .arg(neutral->mapToScene({neutral->width() / 2, neutral->height() / 2}).y())
+                        .arg(int(mode))
+                        .arg(floating)));
             const auto point =
                 neutral->mapToScene(QPointF(neutral->width() / 2, neutral->height() / 2)).toPoint();
             QVERIFY(Test::prepareNativeInput(session.window));

@@ -7,6 +7,7 @@ Item {
     id: host
     required property RouteController router
     required property ShellSettings settings
+    readonly property bool presentationLive: visible && opacity > 0 && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized
     clip: true
     Repeater {
         model: host.router
@@ -16,7 +17,8 @@ Item {
             property bool leaving: false
             readonly property var recipe: Theme.store.extensionAppearance.pageTransition || {}
             readonly property real durationMs: recipe.durationMs === undefined ? 220 : recipe.durationMs
-            readonly property bool animateRoute: Theme.store.motionEnabled && recipe.enabled !== false && Object.keys(recipe).length > 0
+            readonly property var curve: recipe.easing ? [recipe.easing[0], recipe.easing[1], recipe.easing[2], recipe.easing[3], 1, 1] : Theme.easeStandard
+            readonly property bool animateRoute: host.presentationLive && Theme.store.motionEnabled && recipe.enabled !== false && Object.keys(recipe).length > 0
             anchors.fill: parent
             visible: pageContext.active || leaving
             enabled: pageContext.active
@@ -58,7 +60,7 @@ Item {
                     exiting.restart();
                 }
             }
-            onLoaded: if (pageContext.active)
+            onLoaded: if (pageContext.active && recipe.appear !== false)
                 change()
             onAnimateRouteChanged: if (!animateRoute)
                 settle()
@@ -79,35 +81,40 @@ Item {
                         property: "opacity"
                         to: 1
                         duration: pageLoader.durationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
                         target: offset
                         property: "x"
                         to: 0
                         duration: pageLoader.durationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
                         target: offset
                         property: "y"
                         to: 0
                         duration: pageLoader.durationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
                         target: scale
                         property: "xScale"
                         to: 1
                         duration: pageLoader.durationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
                         target: scale
                         property: "yScale"
                         to: 1
                         duration: pageLoader.durationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: pageLoader.curve
                     }
                 }
             }
@@ -122,35 +129,40 @@ Item {
                         property: "opacity"
                         to: pageLoader.recipe.leaveOpacity === undefined ? 0 : pageLoader.recipe.leaveOpacity
                         duration: pageLoader.durationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
                         target: offset
                         property: "x"
                         to: pageLoader.recipe.leaveX || 0
                         duration: pageLoader.durationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
                         target: offset
                         property: "y"
                         to: pageLoader.recipe.leaveY || 0
                         duration: pageLoader.durationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
                         target: scale
                         property: "xScale"
                         to: pageLoader.recipe.leaveScale || 1
                         duration: pageLoader.durationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
                         target: scale
                         property: "yScale"
                         to: pageLoader.recipe.leaveScale || 1
                         duration: pageLoader.durationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: pageLoader.curve
                     }
                 }
                 ScriptAction {

@@ -2,12 +2,16 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQml
 import QtQuick.Controls.Basic
+import QtQuick.Templates as T
 import EchoMusic.Theme
 
 // Editable decimal field with optional suffix and stacked controls.
 // Qt DoubleSpinBox owns clamping, keyboard input and held-button repeat;
 // decimals=0 retains integer behavior.
-DoubleSpinBox {
+// All visuals belong to this component. Using the template also avoids the
+// Basic style's deferred indicators being created by setDecimals() before our
+// overrides complete, leaving unfinished creations in Qt 6.12.
+T.DoubleSpinBox {
     id: control
     decimals: 0
     textFromValue: (value, decimals, locale) => {
@@ -54,6 +58,12 @@ DoubleSpinBox {
     implicitWidth: 110
     implicitHeight: EchoControlSize.heightFor(size)
     editable: true
+    validator: DoubleValidator {
+        locale: control.locale.name
+        bottom: Math.min(control.from, control.to)
+        top: Math.max(control.from, control.to)
+        decimals: control.decimals
+    }
     hoverEnabled: true
     opacity: enabled ? 1 : .5
     leftPadding: EchoControlSize.fieldPaddingFor(size)

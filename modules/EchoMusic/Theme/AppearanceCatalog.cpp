@@ -102,7 +102,7 @@ void AppearanceCatalog::remove(const QString &token)
                 m_settings.setValue(SettingsKeys::Appearance::ExtensionSkin, "cover");
             }
             if (m_preview == e->key)
-                m_preview.clear();
+                cancelPreview();
             notify(theme);
             if (e->configuration()->busy())
                 connect(e->configuration(), &AppearanceConfiguration::drained, e,
@@ -129,7 +129,10 @@ bool AppearanceCatalog::chooseTheme(const QString &key)
     if (!e || e->kind != "theme")
         return false;
     e->error.clear();
+    disconnect(m_previewOwnerConnection);
     m_preview.clear();
+    m_previewOwner = nullptr;
+    ++m_previewRevision;
     m_selectedTheme = key;
     m_settings.setValue(SettingsKeys::Appearance::ExtensionTheme, key);
     notify(true);
@@ -137,23 +140,48 @@ bool AppearanceCatalog::chooseTheme(const QString &key)
 }
 bool AppearanceCatalog::previewTheme(const QString &key)
 {
+    return previewOwnedTheme(key, nullptr);
+}
+bool AppearanceCatalog::previewOwnedTheme(const QString &key, QObject *owner)
+{
     auto e = find(key);
     if (!e || e->kind != "theme" || !e->error.isEmpty())
         return false;
+    if (m_preview == key && m_previewOwner == owner)
+        return true;
+    disconnect(m_previewOwnerConnection);
+    const auto revision = ++m_previewRevision;
     m_preview = key;
+    m_previewOwner = owner;
+    if (owner)
+        m_previewOwnerConnection = connect(owner, &QObject::destroyed, this, [this, revision] {
+            if (revision == m_previewRevision)
+                cancelPreview();
+        });
     notify(true);
     return true;
+}
+void AppearanceCatalog::cancelOwnedPreview(QObject *owner)
+{
+    if (owner && m_previewOwner == owner)
+        cancelPreview();
 }
 void AppearanceCatalog::cancelPreview()
 {
     if (m_preview.isEmpty())
         return;
+    disconnect(m_previewOwnerConnection);
     m_preview.clear();
+    m_previewOwner = nullptr;
+    ++m_previewRevision;
     notify(true);
 }
 void AppearanceCatalog::clearTheme()
 {
+    disconnect(m_previewOwnerConnection);
     m_preview.clear();
+    m_previewOwner = nullptr;
+    ++m_previewRevision;
     m_selectedTheme.clear();
     m_settings.remove(SettingsKeys::Appearance::ExtensionTheme);
     notify(true);
@@ -176,7 +204,7 @@ void AppearanceCatalog::fail(AppearanceEntry *e, const QString &message)
         return;
     e->error = message;
     if (m_preview == e->key)
-        m_preview.clear();
+        cancelPreview();
     if (e->kind == "skin" && m_selectedSkin == e->key) {
         m_selectedSkin = "cover";
         m_settings.setValue(SettingsKeys::Appearance::ExtensionSkin, "cover");

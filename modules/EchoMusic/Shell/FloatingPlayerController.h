@@ -92,12 +92,21 @@ public:
     QQuickWindow *presentationWindow() const;
     QVariantMap miniBounds() const;
     QVariantMap desktopBounds() const;
+    bool miniVisible() const
+    {
+        return m_miniWindow && m_miniWindow->isVisible();
+    }
+    bool desktopVisible() const
+    {
+        return m_desktopWindow && m_desktopWindow->isVisible();
+    }
     bool setPluginBounds(const QString &target, const QVariantMap &bounds);
     void shutdown();
     static QRect fitBounds(QRect saved, const QList<QRect> &areas, const QRect &fallback,
                            QSize size);
     static bool chooseUp(const QRect &anchor, const QRect &area, int expansionHeight = 296);
 signals:
+    void boundsChanged();
     void miniScaleChanged();
     void presentationWindowChanged();
     void changed();
@@ -110,6 +119,8 @@ signals:
 
 private:
     bool eventFilter(QObject *, QEvent *) override;
+    void notifyBounds();
+    bool m_boundsPending = false;
     void applyDesktop();
     void applyMini();
     void syncMiniPopup(QWindow *);

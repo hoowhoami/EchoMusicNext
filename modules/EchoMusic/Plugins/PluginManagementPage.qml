@@ -149,9 +149,11 @@ Item {
                             objectName: "pluginDataManagement"
                             iconOnly: true
                             glyph: "database"
-                            text: qsTr("插件数据")
+                            text: qsTr("保留数据")
                             tooltipText: text
-                            onClicked: dataOwner.open()
+                            onClicked: dataOwner.open({
+                                installationId: ""
+                            })
                         }
                         PluginActionButton {
                             iconOnly: true
@@ -404,6 +406,9 @@ Item {
                             record: modelData
                             marketplace: page.marketplace
                             manager: page.manager
+                            onDataRequested: installation => dataOwner.open({
+                                    installationId: installation
+                                })
                             onUninstallRequested: installation => {
                                 page.uninstallId = installation;
                                 uninstallOwner.open();

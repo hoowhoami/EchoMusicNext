@@ -90,6 +90,25 @@ RoutePage {
                 onClicked: adjustmentsOwner.open()
             }
         }
+        RowLayout {
+            objectName: "temporaryAppearanceNotice"
+            visible: Theme.store.temporaryAppearance.length > 0
+            Layout.fillWidth: true
+            Layout.bottomMargin: visible ? 16 : 0
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("插件外观覆盖：") + Theme.store.temporaryAppearance.map(row => row.pluginName).filter((name, index, all) => all.indexOf(name) === index).join("、")
+                elide: Text.ElideRight
+                color: Theme.secondaryText
+                font: Theme.font(12, Theme.regularWeight)
+            }
+            EchoSoftButton {
+                objectName: "manageTemporaryAppearance"
+                text: qsTr("管理插件")
+                glyph: "puzzle"
+                onClicked: page.router.navigate("plugins")
+            }
+        }
         EchoTabBar {
             objectName: "themeBrowseTabs"
             Layout.preferredWidth: 288

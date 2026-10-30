@@ -33,7 +33,7 @@ QtObject {
         const dialog = item;
         const token = revision;
         Qt.callLater(function () {
-            if (dialog && owner.item === dialog && token === owner.revision && !dialog.visible) {
+            if (owner && dialog && owner.item === dialog && token === owner.revision && !dialog.visible) {
                 owner.item = null;
                 dialog.destroy();
             }

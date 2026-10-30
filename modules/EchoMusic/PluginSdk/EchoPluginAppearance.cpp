@@ -1,3 +1,4 @@
+#include "EchoPluginSnapshot_p.h"
 #include <QTimer>
 #include "EchoPluginAppearance.h"
 #include "EchoPluginContext.h"
@@ -29,6 +30,14 @@ void EchoPluginAppearanceHandle::dispose()
 EchoPluginAppearance::EchoPluginAppearance(EchoPluginContext &s) : QObject(&s), m_scope(s)
 {
     connect(&s.host().theme, &ThemeStore::changed, this, &EchoPluginAppearance::changed);
+    auto *catalog = s.host().theme.extensions();
+    connect(catalog, &AppearanceCatalog::changed, this, &EchoPluginAppearance::changed);
+    connect(&s, &EchoPluginContext::sessionInvalidated, catalog,
+            [this, catalog] { catalog->cancelOwnedPreview(this); });
+    connect(&s, &EchoPluginContext::activeChanged, catalog, [this, catalog] {
+        if (!m_scope.active())
+            catalog->cancelOwnedPreview(this);
+    });
     connect(&s.host().theme, &ThemeStore::fontChanged, this, &EchoPluginAppearance::changed);
     connect(&s.host().theme, &ThemeStore::lyricFontsChanged, this, &EchoPluginAppearance::changed);
 }
@@ -66,8 +75,8 @@ QString EchoPluginAppearance::key(const QString &id, const QString &kind) const
 }
 bool EchoPluginAppearance::validateVisuals(const QVariantMap &values, QString &error)
 {
-    const QStringList groups{"palette", "floating",       "mini",          "background",
-                             "surface", "accentGradient", "pageTransition"};
+    const QStringList groups{"palette", "floating",       "mini",           "background",
+                             "surface", "accentGradient", "pageTransition", "material"};
     const auto invalid = [&](const QString &message) {
         error = message;
         return false;
@@ -97,15 +106,27 @@ bool EchoPluginAppearance::validateVisuals(const QVariantMap &values, QString &e
                                     "border",     "accent", "accentText"}
                             .contains(name) &&
                         QColor(value.toString()).isValid();
-            else if (group.key() == "surface")
-                valid =
-                    QStringList{"shell", "main", "sidebar", "player", "card", "elevated"}.contains(
-                        name) &&
-                    number(value, 0, 1);
-            else if (group.key() == "pageTransition") {
-                if (name == "enabled")
+            else if (group.key() == "material") {
+                if (name == "windowFrosted" || name == "floatingFrosted")
                     valid = value.metaType().id() == QMetaType::Bool;
-                else if (name == "mode")
+                else if (name == "blurSigma")
+                    valid = number(value, 0, 64);
+                else if (name == "backdropFillOpacity")
+                    valid = number(value, 0, 1);
+            } else if (group.key() == "surface")
+                valid = QStringList{"shell", "main",     "sidebar",  "player",
+                                    "card",  "elevated", "floating", "dialog"}
+                            .contains(name) &&
+                        number(value, 0, 1);
+            else if (group.key() == "pageTransition") {
+                if (name == "enabled" || name == "appear")
+                    valid = value.metaType().id() == QMetaType::Bool;
+                else if (name == "easing") {
+                    const auto curve = value.toList();
+                    valid = curve.size() == 4;
+                    for (int i = 0; valid && i < 4; ++i)
+                        valid = number(curve[i], i % 2 ? -4 : 0, i % 2 ? 4 : 1);
+                } else if (name == "mode")
                     valid = QStringList{"parallel", "out-in", "in-out"}.contains(value.toString());
                 else if (name == "durationMs")
                     valid = number(value, 0, 2000);
@@ -343,7 +364,8 @@ EchoPluginAppearanceHandle *EchoPluginAppearance::add(const QJSValue &d, const Q
             const auto result = checkedCall(*scope, resolver, state, error);
             if (!error.isEmpty())
                 return QVariantMap();
-            if (result.isError() || !result.isObject()) {
+            if (result.isError() || !result.isObject() || result.isArray() ||
+                result.property("then").isCallable()) {
                 error =
                     result.isError() ? result.toString() : "Theme resolve must return an object";
                 return QVariantMap();
@@ -391,25 +413,68 @@ EchoPluginAppearanceHandle *EchoPluginAppearance::add(const QJSValue &d, const Q
     emit changed();
     return handle;
 }
+namespace
+{
+QVariantList appearanceChoices(ThemeStore &theme, const QString &kind)
+{
+    auto *catalog = theme.extensions();
+    auto *model = kind == "theme" ? catalog->themes() : catalog->skins();
+    QVariantList rows;
+    for (int i = 0; i < model->rowCount(); ++i) {
+        const auto index = model->index(i, 0);
+        auto *entry = model->data(index, Qt::UserRole + 6).value<AppearanceEntry *>();
+        rows.append(QVariantMap{{"key", model->data(index, Qt::UserRole + 1)},
+                                {"title", model->data(index, Qt::UserRole + 2)},
+                                {"description", model->data(index, Qt::UserRole + 3)},
+                                {"preview", model->data(index, Qt::UserRole + 4)},
+                                {"selected", !entry && kind == "theme"
+                                                 ? QVariant(theme.themeKey() == "echo" &&
+                                                            catalog->selectedTheme().isEmpty())
+                                                 : model->data(index, Qt::UserRole + 5)},
+                                {"builtin", !entry},
+                                {"type", entry ? entry->type : "default"},
+                                {"error", entry ? entry->error : QString()}});
+    }
+    return rows;
+}
+} // namespace
+QVariantList EchoPluginAppearance::themes() const
+{
+    return appearanceChoices(m_scope.host().theme, "theme");
+}
+QVariantList EchoPluginAppearance::skins() const
+{
+    return appearanceChoices(m_scope.host().theme, "skin");
+}
 bool EchoPluginAppearance::useTheme(const QString &id)
 {
-    return m_scope.active() && m_scope.committed() &&
-           m_scope.host().theme.extensions()->chooseTheme(key(id, "theme"));
+    if (!m_scope.active() || !m_scope.committed())
+        return false;
+    if (id.isEmpty()) {
+        m_scope.host().theme.extensions()->clearTheme();
+        return true;
+    }
+    if (id == "echo") {
+        m_scope.host().theme.selectEcho();
+        return true;
+    }
+    return m_scope.host().theme.extensions()->chooseTheme(key(id, "theme"));
 }
 bool EchoPluginAppearance::useSkin(const QString &id)
 {
     return m_scope.active() && m_scope.committed() &&
-           m_scope.host().theme.extensions()->chooseSkin(id == "cover" ? id : key(id, "skin"));
+           m_scope.host().theme.extensions()->chooseSkin(
+               id == "cover" || id == "portrait" ? id : key(id, "skin"));
 }
 bool EchoPluginAppearance::previewTheme(const QString &id)
 {
     return m_scope.active() && m_scope.committed() &&
-           m_scope.host().theme.extensions()->previewTheme(key(id, "theme"));
+           m_scope.host().theme.extensions()->previewOwnedTheme(key(id, "theme"), this);
 }
 void EchoPluginAppearance::cancelPreview()
 {
     if (m_scope.active())
-        m_scope.host().theme.extensions()->cancelPreview();
+        m_scope.host().theme.extensions()->cancelOwnedPreview(this);
 }
 void EchoPluginAppearance::openThemes()
 {
@@ -449,6 +514,13 @@ QVariantMap EchoPluginAppearance::presentation(const QString &surface, QObject *
             {"page", QVariant::fromValue(view)},
             {"configuration", QVariant::fromValue(configuration)}};
 }
+EchoPluginRegistration *EchoPluginAppearance::onSnapshot(const QString &id,
+                                                         const QJSValue &callback, bool immediate)
+{
+    return observePluginSnapshot(m_scope, this, &EchoPluginAppearance::changed,
+                                 "appearanceSnapshot", id, callback, immediate,
+                                 [](EchoPluginAppearance *owner) { return owner->snapshot(); });
+}
 QVariantMap EchoPluginAppearance::snapshot() const
 {
     const auto &t = m_scope.host().theme;
@@ -475,17 +547,38 @@ QVariantMap EchoPluginAppearance::snapshot() const
             {"card", t.card()},
             {"elevated", t.elevated()},
             {"border", t.border()},
-            {"floating", QVariantMap{{"background", t.elevated()},
+            {"floating", QVariantMap{{"background", t.floatingBackground()},
                                      {"accent", t.floatingAccent()},
                                      {"text", t.floatingText()},
                                      {"secondaryText", t.floatingSecondaryText()},
                                      {"card", t.floatingCard()},
                                      {"border", t.floatingBorder()},
                                      {"accentText", t.floatingAccentText()}}},
+            {"mini",
+             [&t] {
+                 QVariantMap colors{{"background", t.floatingBackground()},
+                                    {"text", t.floatingText()},
+                                    {"secondaryText", t.floatingSecondaryText()},
+                                    {"card", t.floatingCard()},
+                                    {"border", t.floatingBorder()},
+                                    {"accent", t.floatingAccent()},
+                                    {"accentText", t.floatingAccentText()}};
+                 const auto patch = t.extensionAppearance().value("mini").toMap();
+                 for (auto it = patch.begin(); it != patch.end(); ++it)
+                     colors[it.key()] = QColor(it.value().toString());
+                 return colors;
+             }()},
             {"motionEnabled", t.motionEnabled()},
             {"transparency", t.transparency()},
             {"windowFrosted", t.windowFrosted()},
             {"floatingFrosted", t.floatingFrosted()},
+            {"mode", t.mode() == ThemeStore::Dark           ? "dark"
+                     : t.mode() == ThemeStore::Light        ? "light"
+                     : t.mode() == ThemeStore::ThemeDefault ? "theme"
+                                                            : "system"},
+            {"themeKey", t.themeKey()},
+            {"previewing", t.extensions()->previewing()},
+            {"previewTheme", t.extensions()->previewKey()},
             {"selectedTheme", t.extensions()->selectedTheme()},
             {"selectedSkin", t.extensions()->selectedSkin()},
             {"surfaces", t.extensionAppearance()}};

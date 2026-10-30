@@ -33,6 +33,7 @@ find_package(
     Qt6 6.12.0 EXACT REQUIRED
     COMPONENTS Core
                Gui
+               GuiPrivate
                Widgets
                Qml
                Quick
