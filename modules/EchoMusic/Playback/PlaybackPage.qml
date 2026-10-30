@@ -131,6 +131,13 @@ Popup {
         sourceDialogOwner.close();
     }
     Connections {
+        target: Theme.store.extensions
+        function onRequestRaised(action: string): void {
+            if (action === "closeSkinSettings" && page.visible)
+                skinsOwner.close();
+        }
+    }
+    Connections {
         target: page.playback
         function onPositionChanged() {
             page.syncClock(false);

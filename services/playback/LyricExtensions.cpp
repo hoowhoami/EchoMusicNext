@@ -181,7 +181,7 @@ QString LyricExtensions::validate(const QVariantMap &document)
             it.value().toString().toUtf8().size() > (it.key() == "source" ? 1024 : 1024 * 1024))
             return "Invalid or oversized lyric document field";
     if (!document.contains("content") ||
-        !QStringList{"lrc", "krc", "yrc"}.contains(document.value("format").toString()) ||
+        !QStringList{"lrc", "krc", "yrc", "ttml"}.contains(document.value("format").toString()) ||
         !QStringList{"text", "base64"}.contains(document.value("encoding", "text").toString()) ||
         (document.value("encoding").toString() == "base64" &&
          document.value("format").toString() != "krc"))

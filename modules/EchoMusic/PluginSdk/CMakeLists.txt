@@ -49,6 +49,19 @@ qt_add_qml_module(
     EchoPluginAppearanceOverrides.cpp
     EchoPluginViewContext.h
     EchoPluginViewContext.cpp
+    PresentationScope.h
+    PresentationScope.cpp
+    PointMesh.h
+    PointMesh.cpp
+    ImageCapture.h
+    ImageCapture.cpp
+    EchoPluginText.h
+    EchoPluginText.cpp
+    EchoPluginAssets.h
+    EchoPluginAssets.cpp
+    EchoPluginAssetAnimation.h
+    EchoPluginAssetArchive.h
+    EchoPluginAssetArchive.cpp
     EchoPluginAudio.h
     EchoPluginAudio.cpp
     EchoPluginOperation.h
@@ -151,7 +164,13 @@ target_link_libraries(
            echo_playback_service
            echo_account
     PUBLIC echo_plugin_files
-    PRIVATE Qt6::Concurrent Qt6::Sql Qt6::Network Qt6::WebSockets Qt6::Widgets echo_build_options
+    PRIVATE Qt6::Concurrent
+            Qt6::Sql
+            Qt6::Network
+            Qt6::WebSockets
+            Qt6::Widgets
+            echo_text_segmentation
+            echo_build_options
 )
 
 qt_add_resources(echo_plugin_sdk echo_plugin_js PREFIX "/echo/plugins" FILES sdk.mjs)
@@ -218,4 +237,23 @@ qt_add_shaders(
     shaders/glyph-canvas/blur.frag
     shaders/glyph-canvas/ink.frag
     shaders/glyph-canvas/compose.frag
+)
+
+qt_add_executable(echo-plugin-asset-worker AssetImageWorker.cpp AssetSvgValidation.cpp)
+set_target_properties(echo-plugin-asset-worker PROPERTIES MACOSX_BUNDLE FALSE)
+target_include_directories(echo-plugin-asset-worker PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(
+    echo-plugin-asset-worker PRIVATE Qt6::Gui Qt6::Svg echo_ffi echo_build_options
+)
+echo_copy_rust_runtime(echo-plugin-asset-worker)
+if(APPLE)
+    set_target_properties(
+        echo-plugin-asset-worker PROPERTIES INSTALL_RPATH "@executable_path/../Frameworks"
+    )
+elseif(UNIX)
+    set_target_properties(echo-plugin-asset-worker PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+endif()
+add_dependencies(echo_plugin_sdk echo-plugin-asset-worker)
+target_compile_definitions(
+    echo_plugin_sdk PRIVATE ECHO_PLUGIN_ASSET_WORKER_PATH="$<TARGET_FILE:echo-plugin-asset-worker>"
 )

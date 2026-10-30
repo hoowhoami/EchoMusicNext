@@ -78,7 +78,7 @@ QString installAppearance(Host &host, const QString &path, const QString &id = "
     return installation;
 }
 QByteArray definitions = R"(
- const theme=c.theme.registerTheme({id:'ocean',title:'海洋',description:'Actual theme',
+ const theme=c.theme.registerTheme({id:'ocean',title:'海洋',description:'Actual theme',lyricsIcons:['Flower','unknown-icon','Star'],
  light:{palette:{main:'#cee1ed',text:'#102030'},mini:{background:'#234567',text:'#ffffff'}},
  dark:{palette:{main:'#102030',text:'#e1f3ff'},mini:{background:'#234567',text:'#ffffff'}},
  miniComponent:'Visual.qml',settingsComponent:'Visual.qml',
@@ -140,6 +140,8 @@ void PluginRuntimeTest::appearanceCatalogConfigurationAndRetirement()
     QCOMPARE(catalog->skins()->rowCount(), 3);
     QVERIFY(catalog->theme() == nullptr);
     QVERIFY(catalog->skin() == nullptr);
+    QVERIFY(scope->appearance()->snapshot().contains("themeMetadata"));
+    QVERIFY(scope->appearance()->snapshot().value("themeMetadata").isNull());
     QVERIFY(!scope->ui()->state().value("prematurePatch").toBool());
     auto *theme = catalog->entries("theme").first();
     auto *config = theme->configuration();
@@ -156,6 +158,20 @@ void PluginRuntimeTest::appearanceCatalogConfigurationAndRetirement()
     QCOMPARE(config->values().value("amount").toDouble(), 1.5);
     QVERIFY(QFile::exists(scope->dataPath() + "/appearance/theme/ocean.json"));
     QVERIFY(scope->appearance()->useTheme("ocean"));
+    const auto metadata = scope->appearance()->snapshot().value("themeMetadata").toMap();
+    QCOMPARE(metadata.value("key").toString(), theme->key);
+    QCOMPARE(metadata.value("title").toString(), QString("海洋"));
+    QCOMPARE(metadata.value("description").toString(), QString("Actual theme"));
+    QCOMPARE(metadata.value("lyricsIcons").toStringList(),
+             QStringList({"Flower", "unknown-icon", "Star"}));
+    // Names remain theme data; each renderer owns its supported icon vocabulary.
+    // Reject malformed/unbounded contributions before they enter the catalog.
+    for (const auto &icons : QStringList{"null", "'Star'", "[true]", "['']", "['   ']",
+                                         "['a'.repeat(129)]", "Array(65).fill('Star')"}) {
+        QVERIFY(!scope->appearance()->registerTheme(host.engine.evaluate(
+            "({id:'invalid-icons',title:'Invalid',lyricsIcons:" + icons + "})")));
+        QVERIFY(!catalog->find(installation + ":theme:invalid-icons"));
+    }
     host.theme.setMode(ThemeStore::Light);
     QCOMPARE(host.theme.main(), QColor("#cee1ed"));
     host.theme.setMode(ThemeStore::Dark);

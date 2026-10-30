@@ -179,6 +179,7 @@ void LyricSourceController::clear()
     m_track = {};
     m_embeddedTitle.clear();
     m_embeddedArtist.clear();
+    m_embeddedError.clear();
     m_embeddedLyrics = {};
     m_triedKeywords.clear();
     m_currentId.clear();
@@ -405,25 +406,31 @@ void LyricSourceController::cancelParsing()
     m_embeddedParse = nullptr;
 }
 void LyricSourceController::updateEmbeddedDocument(const QString &trackKey, const QString &title,
-                                                   const QString &artist, const QString &content)
+                                                   const QString &artist, const QString &content,
+                                                   const QString &parseError)
 {
     if (trackKey != m_track.stableKey() || m_revision != m_api.sessionRevision())
         return;
     delete m_embeddedParse.data();
     m_embeddedParse = nullptr;
+    if (!parseError.isEmpty()) {
+        updateEmbedded(trackKey, title, artist, {}, parseError);
+        return;
+    }
     const auto generation = m_generation, session = m_api.sessionRevision();
     m_embeddedParse = m_extensions->parseEmbedded(
         content, this,
-        [this, generation, session, trackKey, title, artist](QJsonObject value, QString) {
+        [this, generation, session, trackKey, title, artist](QJsonObject value, QString error) {
             if (generation != m_generation || session != m_api.sessionRevision() ||
                 trackKey != m_track.stableKey())
                 return;
             m_embeddedParse = nullptr;
-            updateEmbedded(trackKey, title, artist, value);
+            updateEmbedded(trackKey, title, artist, value, error);
         });
 }
 void LyricSourceController::updateEmbedded(const QString &trackKey, const QString &title,
-                                           const QString &artist, const QJsonObject &lyrics)
+                                           const QString &artist, const QJsonObject &lyrics,
+                                           const QString &parseError)
 {
     if (trackKey != m_track.stableKey() || m_revision != m_api.sessionRevision())
         return;
@@ -442,6 +449,7 @@ void LyricSourceController::updateEmbedded(const QString &trackKey, const QStrin
     m_embeddedTitle = title;
     m_embeddedArtist = artist;
     m_embeddedLyrics = lyrics;
+    m_embeddedError = parseError.left(512);
     if (pristine)
         resetSearchFields();
     if (!lyrics.value("lines").toArray().isEmpty() &&
@@ -465,7 +473,8 @@ void LyricSourceController::updateEmbedded(const QString &trackKey, const QStrin
     if (m_manualId == "embedded" && lyrics.value("lines").toArray().isEmpty() &&
         m_currentId.isEmpty()) {
         m_state = "error";
-        m_error = tr("已选内嵌歌词暂不可用，请重新选择或恢复智能推荐");
+        m_error = m_embeddedError.isEmpty() ? tr("已选内嵌歌词暂不可用，请重新选择或恢复智能推荐")
+                                            : m_embeddedError;
     }
     if (m_currentId == "embedded" && !lyrics.value("lines").toArray().isEmpty()) {
         // A source/quality replacement may update the active reader without
@@ -629,13 +638,20 @@ void LyricSourceController::commitCandidates(const QString &recommendedId)
     // Keep its preference; only an explicit restore/apply can replace it.
     if (manualUnavailable) {
         m_state = "error";
-        m_error = tr("已选歌词版本暂不可用，请重新选择或使用智能推荐");
+        m_error = m_manualId == "embedded" && !m_embeddedError.isEmpty()
+                      ? m_embeddedError
+                      : tr("已选歌词版本暂不可用，请重新选择或使用智能推荐");
         m_activatePending = m_openAfterAuto = false;
         emit changed();
         return;
     }
     if (m_candidates.isEmpty()) {
         m_state = m_currentId.isEmpty() ? "empty" : m_state;
+        if (m_currentId.isEmpty() && !m_embeddedError.isEmpty() &&
+            (m_manualId.isEmpty() || m_manualId == "embedded")) {
+            m_error = m_embeddedError;
+            m_state = "error";
+        }
         m_activatePending = false;
         emit changed();
         if (!m_queuedKeywords.isEmpty() && m_selectionOpen) {
@@ -873,6 +889,8 @@ void LyricSourceController::succeeded(quint64 id, const QByteArray &bytes)
                 return;
             if (!error.isEmpty()) {
                 m_error = error;
+                if (m_currentId.isEmpty())
+                    m_state = "error";
                 m_activatePending = m_applyPending = m_restorePending = false;
                 emit changed();
                 return;
@@ -923,6 +941,9 @@ void LyricSourceController::failed(quint64 id, int, const QByteArray &bytes)
         keywordSearchFailed
             ? tr("搜索失败，请重试")
             : QJsonDocument::fromJson(bytes).object().value("message").toString(tr("歌词加载失败"));
+    if (m_currentId.isEmpty() && !m_embeddedError.isEmpty() &&
+        (m_manualId.isEmpty() || m_manualId == "embedded"))
+        m_error = m_embeddedError;
     if (m_currentId.isEmpty())
         m_state = "error";
     m_activatePending = m_applyPending = m_restorePending = false;

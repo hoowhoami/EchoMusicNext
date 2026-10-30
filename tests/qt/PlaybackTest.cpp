@@ -920,7 +920,9 @@ private slots:
         playback.playFromSelection({track(0), track(1), track(2)}, 0, "All", "all", false);
         QCOMPARE(playback.queue()->rowCount(), 3);
         QCOMPARE(playback.quality(), QString("flac"));
+        preferences->setViperQualityEnabled(true);
         preferences->setDefaultQuality("viper_tape");
+        QCOMPARE(preferences->defaultQuality(), QString("viper_tape"));
         preferences->setViperQualityEnabled(false);
         QCOMPARE(preferences->defaultQuality(), QString("hi_res"));
         preferences->setDefaultQuality("viper_atmos");
@@ -1171,6 +1173,8 @@ private slots:
         ApiClient api(DeviceIdentity::temporary());
         PlaybackService playback(api, settings);
         auto *controls = playback.audioControls();
+        QVERIFY(!controls->volumeNormalization());
+        controls->setVolumeNormalization(true);
         QVERIFY(controls->volumeNormalization());
         QCOMPARE(controls->referenceLufs(), -14.);
         controls->setTrackLoudness({{"loudness", -30.}, {"peak", -1.}, {"gain", 12.}});

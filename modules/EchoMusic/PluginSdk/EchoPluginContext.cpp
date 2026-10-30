@@ -30,6 +30,8 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     m_backups = new EchoPluginBackups(*this);
     m_appearance = new EchoPluginAppearance(*this);
     m_fonts = new EchoPluginFonts(*this);
+    m_text = new EchoPluginText(*this);
+    connect(m_text, &EchoPluginText::drained, this, &EchoPluginContext::resourcesDrained);
     m_windows = new EchoPluginWindows(*this);
     m_graphics = new EchoPluginGraphics(*this);
     connect(m_graphics, &EchoPluginGraphics::drainedChanged, this,
@@ -60,6 +62,8 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     connect(m_net, &EchoPluginNetwork::drained, this, &EchoPluginContext::resourcesDrained);
     m_sqlite = new EchoPluginSqlite(*this, dataPath + "/databases");
     connect(m_sqlite, &EchoPluginSqlite::drained, this, &EchoPluginContext::resourcesDrained);
+    m_assets = new EchoPluginAssets(*this, dataPath, activation ? activation->assets() : nullptr);
+    connect(m_assets, &EchoPluginAssets::drained, this, &EchoPluginContext::resourcesDrained);
     m_io = new EchoPluginIo(*this, std::move(dataPath));
     connect(m_io, &EchoPluginIo::drained, this, &EchoPluginContext::resourcesDrained);
     connect(&host.theme, &ThemeStore::changed, this, [this] {
@@ -366,13 +370,24 @@ bool EchoPluginContext::commit()
     m_committed = true;
     return true;
 }
+void EchoPluginContext::freezeStorage(bool frozen)
+{
+    auto *owner = activationContext();
+    owner->m_storageFrozen = frozen;
+    if (!frozen) {
+        owner->m_assets->resumeStorage();
+        for (auto child : owner->m_presentations)
+            if (child)
+                child->m_assets->resumeStorage();
+    }
+}
 void EchoPluginContext::storageBarrier(std::function<void()> ready)
 {
     QList<QPointer<EchoPluginContext>> scopes{this};
     for (auto child : m_presentations)
         if (child)
             scopes.append(child);
-    auto pending = std::make_shared<int>(scopes.size() * 3);
+    auto pending = std::make_shared<int>(scopes.size() * 4);
     const auto arrive = [pending, ready] {
         if (--*pending == 0)
             ready();
@@ -381,6 +396,7 @@ void EchoPluginContext::storageBarrier(std::function<void()> ready)
         scope->m_appearance->storageBarrier(arrive);
         scope->m_io->storageBarrier(arrive);
         scope->m_sqlite->storageBarrier(arrive);
+        scope->m_assets->storageBarrier(arrive);
     }
 }
 void EchoPluginContext::beginRetire()
@@ -413,6 +429,8 @@ void EchoPluginContext::beginRetire()
     m_net->shutdown();
     m_io->shutdown();
     m_sqlite->shutdown();
+    m_text->shutdown();
+    m_assets->shutdown();
     for (auto it = m_resources.crbegin(); it != m_resources.crend(); ++it)
         if (*it &&
             ((*it)->key().contains(":cleanup:") || (*it)->key().contains(":cleanup.presentation.")))
@@ -428,6 +446,7 @@ bool EchoPluginContext::drained() const
             return false;
     return m_appIcons->drained() && m_graphics->drained() && m_process->isDrained() &&
            m_webServer->isDrained() && m_net->isDrained() && m_io->isDrained() &&
-           m_sqlite->isDrained() && m_appearance->drained() && m_files->isDrained();
+           m_sqlite->isDrained() && m_appearance->drained() && m_files->isDrained() &&
+           m_text->isDrained() && m_assets->isDrained();
 }
 } // namespace EchoMusic

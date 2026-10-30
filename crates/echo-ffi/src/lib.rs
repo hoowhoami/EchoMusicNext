@@ -1,6 +1,7 @@
 //! Versioned C boundary. Callback payloads are borrowed until the callback returns.
 //! Destroy drains every accepted request; callers must destroy off the GUI thread.
 
+mod asset_archive;
 mod audio;
 mod capabilities;
 mod interception;

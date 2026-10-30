@@ -43,7 +43,12 @@ export function verifyStage(stage, platform, arch) {
           binaryDirectory,
           platform === 'Windows' ? 'crashpad_handler.exe' : 'crashpad_handler',
         );
-  const nativeExecutables = [executable, helper, crashHandler];
+  const imageHelpers = ['echo-theme-image-worker', 'echo-plugin-asset-worker'].map((name) =>
+    platform === 'macOS'
+      ? path.join(stage, 'echomusicnext.app/Contents/Helpers', name)
+      : path.join(binaryDirectory, platform === 'Windows' ? `${name}.exe` : name),
+  );
+  const nativeExecutables = [executable, helper, crashHandler, ...imageHelpers];
   if (platform === 'Windows')
     nativeExecutables.push(path.join(binaryDirectory, 'crashpad_wer.dll'));
   for (const file of nativeExecutables)

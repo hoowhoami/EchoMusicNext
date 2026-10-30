@@ -26,10 +26,21 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override
     {
-        return {{Qt::UserRole + 1, "lineText"},    {Qt::UserRole + 2, "startMs"},
-                {Qt::UserRole + 3, "durationMs"},  {Qt::UserRole + 4, "words"},
-                {Qt::UserRole + 5, "translation"}, {Qt::UserRole + 6, "romanization"},
-                {Qt::UserRole + 7, "filtered"},    {Qt::UserRole + 8, "wordTimed"}};
+        return {{Qt::UserRole + 1, "lineText"},
+                {Qt::UserRole + 2, "startMs"},
+                {Qt::UserRole + 3, "durationMs"},
+                {Qt::UserRole + 4, "words"},
+                {Qt::UserRole + 5, "translation"},
+                {Qt::UserRole + 6, "romanization"},
+                {Qt::UserRole + 7, "filtered"},
+                {Qt::UserRole + 8, "wordTimed"},
+                {Qt::UserRole + 9, "id"},
+                {Qt::UserRole + 10, "agentId"},
+                {Qt::UserRole + 11, "songPart"},
+                {Qt::UserRole + 12, "blockIndex"},
+                {Qt::UserRole + 13, "isChorus"},
+                {Qt::UserRole + 14, "backgroundVocals"},
+                {Qt::UserRole + 15, "alternateTexts"}};
     }
     Q_INVOKABLE QVariantMap lineAt(int index) const;
     Q_INVOKABLE QVariantList verticalAt(int index) const;
@@ -48,6 +59,14 @@ public:
     /// Latest ending among all rows through index, including the lyric offset.
     Q_INVOKABLE qint64 endThrough(int index) const;
     bool replace(const QJsonObject &lyrics);
+    /// Retain exactly the already parsed/converted presentation, with implicit
+    /// sharing until either model changes. No parser or timing reconstruction.
+    void copyPresentationFrom(const LyricModel &source);
+    /// Validated source facts only; no voice or section is inferred by this model.
+    QVariantMap metadata() const
+    {
+        return m_metadata;
+    }
     void clear();
     Q_INVOKABLE void setPosition(qint64 positionMs);
     bool scrollable() const
@@ -78,6 +97,8 @@ private:
         QVariantList words;
         QString translation, romanization;
         bool filtered = false;
+        QVariantMap metadata;
+        QVariantList backgroundVocals;
     };
     static QVariantList verticalUnits(const Line &line);
     QList<Line> m_lines;
@@ -88,5 +109,6 @@ private:
     int m_current = -1;
     bool m_scrollable = true;
     bool m_hasTranslation = false, m_hasRomanization = false;
+    QVariantMap m_metadata;
 };
 } // namespace EchoMusic

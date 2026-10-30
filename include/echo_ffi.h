@@ -111,6 +111,16 @@ bool echo_runtime_cancel(const struct EchoRuntime *runtime, uint64_t id);
  */
 void echo_runtime_destroy(struct EchoRuntime *runtime);
 
+/**
+ * Worker-process only bounded archive transport; all paths are host-generated.
+ * # Safety
+ * Paths must be NUL-terminated; error must address error_capacity writable bytes.
+ */
+bool echo_asset_archive(const char *request,
+                        const char *output,
+                        uint8_t *error,
+                        size_t error_capacity);
+
 struct EchoAudio *echo_audio_create(EchoCallback callback,
                                     void *context,
                                     const uint8_t *options,

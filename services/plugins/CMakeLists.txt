@@ -22,7 +22,7 @@ target_link_libraries(
     echo_plugin_packages
     PUBLIC Qt6::Core
     PRIVATE Qt6::Sql
-    PRIVATE echo_build_options
+    PRIVATE echo_build_options echo_text_segmentation
 )
 
 # Rust extraction stays behind this service; UI modules never include its ABI.

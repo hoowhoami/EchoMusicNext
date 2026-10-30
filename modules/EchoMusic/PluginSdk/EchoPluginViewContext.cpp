@@ -2,6 +2,7 @@
 #include "EchoPluginViewContext.h"
 #include "EchoPluginContext.h"
 #include "ThemeStore.h"
+#include "AppearanceHost.h"
 #include "PlaybackService.h"
 #include "ShellController.h"
 #include "FloatingPlayerController.h"
@@ -19,6 +20,13 @@ EchoPluginViewContext::EchoPluginViewContext(EchoPluginContext &s, QString surfa
     connect(s.player(), &EchoPluginPlayer::clockChanged, this, &EchoPluginViewContext::changed);
     connect(s.player(), &EchoPluginPlayer::positionChanged, this, &EchoPluginViewContext::changed);
     connect(&s, &EchoPluginContext::activeChanged, this, &EchoPluginViewContext::changed);
+    if (owner)
+        if (auto *host = qobject_cast<AppearanceHost *>(owner->parent()))
+            connect(host, &AppearanceHost::presentationClosing, this,
+                    [this, owner](QObject *closing) {
+                        if (closing == owner && active())
+                            emit aboutToClose();
+                    });
 }
 bool EchoPluginViewContext::active() const
 {
@@ -33,6 +41,10 @@ QVariantMap EchoPluginViewContext::snapshot() const
 {
     return active() ? m_scope->player()->snapshot() : QVariantMap();
 }
+EchoPluginOperation *EchoPluginViewContext::closeSkinSettings()
+{
+    return command("closeSkinSettings");
+}
 EchoPluginOperation *EchoPluginViewContext::command(const QString &action, const QVariantMap &args)
 {
     if (!m_scope)
@@ -42,15 +54,43 @@ EchoPluginOperation *EchoPluginViewContext::command(const QString &action, const
     if (args.contains("revision") && args.value("revision").toString() !=
                                          QString::number(m_scope->host().playback.sourceRevision()))
         return m_scope->rejected("Unavailable", "Track generation has changed");
-    const auto actions =
-        QStringList{"play",         "pause",      "toggle",   "stop",        "previous",
-                    "next",         "seek",       "volume",   "speed",       "mode",
-                    "quality",      "effect",     "favorite", "dislikeFm",   "translation",
-                    "romanization", "conversion", "offset",   "resetOffset", "copyLyrics",
-                    "themes",       "source",     "settings", "skins",       "closePlayback",
-                    "playback",     "comments",   "barrage",  "queue",       "addToPlaylist",
-                    "share",        "fmPlay",     "fmMode",   "fmPool",      "globalOffset",
-                    "offsetStep"};
+    const auto actions = QStringList{"play",
+                                     "pause",
+                                     "toggle",
+                                     "stop",
+                                     "previous",
+                                     "next",
+                                     "seek",
+                                     "volume",
+                                     "speed",
+                                     "mode",
+                                     "quality",
+                                     "effect",
+                                     "favorite",
+                                     "dislikeFm",
+                                     "translation",
+                                     "romanization",
+                                     "conversion",
+                                     "offset",
+                                     "resetOffset",
+                                     "copyLyrics",
+                                     "themes",
+                                     "source",
+                                     "settings",
+                                     "skins",
+                                     "closePlayback",
+                                     "playback",
+                                     "comments",
+                                     "barrage",
+                                     "queue",
+                                     "addToPlaylist",
+                                     "share",
+                                     "fmPlay",
+                                     "fmMode",
+                                     "fmPool",
+                                     "globalOffset",
+                                     "offsetStep",
+                                     "closeSkinSettings"};
     if (!actions.contains(action))
         return m_scope->rejected("InvalidArgument", "Unknown presentation command");
     const auto number = args.value("value").toDouble();
@@ -150,7 +190,12 @@ EchoPluginOperation *EchoPluginViewContext::command(const QString &action, const
                 view->m_scope->host().shell.invokePlayerCommand(ShellController::AddToPlaylist);
             else if (action == "share")
                 view->m_scope->host().shell.invokePlayerCommand(ShellController::Share);
-            else
+            else if (action == "closeSkinSettings") {
+                // Completion precedes the synchronous presentation retirement.
+                op->succeed();
+                catalog->request(action);
+                return;
+            } else
                 catalog->request(action);
             op->succeed();
         });

@@ -5,6 +5,10 @@
 #include "EchoPluginUiStyles.h"
 #include "EchoUiPartMount.h"
 #include "EchoGpuSurface.h"
+#include "PointMesh.h"
+#include "ImageCapture.h"
+#include "PresentationScope.h"
+#include "EchoPluginAssetArchive.h"
 #include <QJsonArray>
 #include <QMetaMethod>
 #include <QMetaProperty>
@@ -84,6 +88,14 @@ QJsonObject pluginSdkContract()
                                         &EchoPluginAppearance::staticMetaObject,
                                         &EchoPluginAppearanceHandle::staticMetaObject,
                                         &EchoPluginFonts::staticMetaObject,
+                                        &EchoPluginText::staticMetaObject,
+                                        &EchoPluginAssets::staticMetaObject,
+                                        &EchoPluginAssetAnimation::staticMetaObject,
+                                        &EchoPluginAssetArchive::staticMetaObject,
+                                        &PointMesh::staticMetaObject,
+                                        &ImageCapture::staticMetaObject,
+                                        &ImageCaptureLease::staticMetaObject,
+                                        &PresentationScope::staticMetaObject,
                                         &EchoPluginViewContext::staticMetaObject,
                                         &EchoPluginWindows::staticMetaObject,
                                         &EchoPluginUiParts::staticMetaObject,

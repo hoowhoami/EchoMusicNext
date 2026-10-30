@@ -419,8 +419,9 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
                         m_artwork.load(m_embeddedCover, m_sequence);
                     }
                 }
-                m_lyricSource.updateEmbeddedDocument(m_track.stableKey(), title, artist,
-                                                     metadata.value("lyric").toString());
+                m_lyricSource.updateEmbeddedDocument(
+                    m_track.stableKey(), title, artist, metadata.value("lyric").toString(),
+                    metadata.value("lyric_error").toObject().value("message").toString());
                 // Unmatched uploads often lack a provider duration; the
                 // demuxed stream the engine reports is authoritative.
                 if (!m_track.durationMs && m_duration > 0)

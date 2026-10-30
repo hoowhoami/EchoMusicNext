@@ -67,6 +67,8 @@ EchoPluginPlayer::EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &ho
     connect(host.lyrics(), &LyricModel::changed, this, &EchoPluginPlayer::lyricChanged);
     connect(host.lyrics(), &LyricModel::currentChanged, this, &EchoPluginPlayer::lyricChanged);
     connect(host.lyricText(), &LyricTextController::changed, this, &EchoPluginPlayer::lyricChanged);
+    connect(host.lyricSource(), &LyricSourceController::changed, this,
+            &EchoPluginPlayer::lyricChanged);
     connect(&host, &PlaybackService::positionChanged, this, [this] {
         if (isSignalConnected(QMetaMethod::fromSignal(&EchoPluginPlayer::eventOccurred)))
             emit eventOccurred("timeupdate", snapshot());
@@ -203,20 +205,27 @@ QVariantMap EchoPluginPlayer::lyricsInfo() const
 {
     auto *lyrics = m_host.lyrics();
     auto *text = m_host.lyricText();
-    return {{"count", lyrics->rowCount()},
-            {"currentIndex", lyrics->currentIndex()},
-            {"offsetMs", lyrics->offsetMs()},
-            {"scrollable", lyrics->scrollable()},
-            {"hasTranslation", lyrics->hasTranslation()},
-            {"hasRomanization", lyrics->hasRomanization()},
-            {"translation", text->wantTranslation()},
-            {"romanization", text->wantRomanization()},
-            {"conversion", text->conversion()},
-            {"globalOffsetMs", text->globalOffsetMs()},
-            {"trackOffsetMs", text->trackOffsetMs()},
-            {"offsetStep", text->offsetStep()},
-            {"state", m_host.lyricState()},
-            {"currentLine", lyrics->lineAt(lyrics->currentIndex())}};
+    auto result = lyrics->metadata();
+    result.insert(
+        {{"count", lyrics->rowCount()},
+         {"currentIndex", lyrics->currentIndex()},
+         {"offsetMs", lyrics->offsetMs()},
+         {"scrollable", lyrics->scrollable()},
+         {"hasTranslation", lyrics->hasTranslation()},
+         {"hasRomanization", lyrics->hasRomanization()},
+         {"translation", text->wantTranslation()},
+         {"romanization", text->wantRomanization()},
+         {"conversion", text->conversion()},
+         {"globalOffsetMs", text->globalOffsetMs()},
+         {"trackOffsetMs", text->trackOffsetMs()},
+         {"offsetStep", text->offsetStep()},
+         {"state", m_host.lyricState()},
+         {"errorMessage", !text->errorMessage().isEmpty()  ? text->errorMessage()
+                          : m_host.lyricState() == "error" ? m_host.lyricSource()->errorMessage()
+                                                           : QString()},
+         {"embeddedErrorMessage", m_host.lyricSource()->embeddedError()},
+         {"currentLine", lyrics->lineAt(lyrics->currentIndex())}});
+    return result;
 }
 QVariantMap EchoPluginPlayer::lyricSnapshot() const
 {

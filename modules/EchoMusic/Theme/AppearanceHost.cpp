@@ -123,14 +123,18 @@ void AppearanceHost::release()
     const auto context = m_context;
     const auto item = m_item;
     const auto component = m_component;
+    const QPointer<AppearanceHost> self(this);
     m_context = nullptr;
     m_item = nullptr;
     m_component = nullptr;
     // Revocation can synchronously select another contribution. Detach all
     // previous state first so its cleanup cannot discard the new component.
     if (context) {
-        context->setProperty("active", false);
-        context->setParent(nullptr);
+        emit presentationClosing(context);
+        if (context) {
+            context->setProperty("active", false);
+            context->setParent(nullptr);
+        }
     }
     const bool had = item;
     if (item) {
@@ -143,7 +147,7 @@ void AppearanceHost::release()
         context->deleteLater();
     if (component)
         component->deleteLater();
-    if (had)
+    if (had && self)
         emit loadedChanged();
 }
 void AppearanceHost::reconcile()

@@ -125,9 +125,14 @@ public:
     void load(const PlaybackTrack &);
     void clear();
     void updateEmbeddedDocument(const QString &trackKey, const QString &title,
-                                const QString &artist, const QString &content);
+                                const QString &artist, const QString &content,
+                                const QString &parseError = {});
     void updateEmbedded(const QString &trackKey, const QString &title, const QString &artist,
-                        const QJsonObject &lyrics);
+                        const QJsonObject &lyrics, const QString &parseError = {});
+    QString embeddedError() const
+    {
+        return m_embeddedError;
+    }
     void setDuration(qint64 durationMs)
     {
         if (durationMs > 0)
@@ -196,7 +201,7 @@ private:
     QJsonObject m_pluginLyrics, m_baseLyrics;
 
     QJsonObject cachedLyrics(const QString &id) const;
-    QString m_embeddedTitle, m_embeddedArtist;
+    QString m_embeddedTitle, m_embeddedArtist, m_embeddedError;
     QJsonObject m_embeddedLyrics;
     QSet<QString> m_triedKeywords;
     bool automaticSearch() const

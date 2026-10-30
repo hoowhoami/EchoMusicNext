@@ -4,6 +4,7 @@
 #include <QUrl>
 #include <QWindow>
 #include <QStringList>
+#include <QFont>
 #include <QtQml/qqmlregistration.h>
 #include <memory>
 class QFileDialog;
@@ -17,6 +18,8 @@ class EchoFileDialog : public QObject
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(QString title MEMBER m_title)
+    Q_PROPERTY(QFont font MEMBER m_font)
+    Q_PROPERTY(QString currentFile MEMBER m_currentFile)
     Q_PROPERTY(QStringList nameFilters MEMBER m_nameFilters)
     Q_PROPERTY(QString defaultSuffix MEMBER m_defaultSuffix)
     Q_PROPERTY(QUrl currentFolder MEMBER m_currentFolder)
@@ -65,7 +68,8 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
-    QString m_title, m_defaultSuffix;
+    QString m_title, m_defaultSuffix, m_currentFile;
+    QFont m_font;
     QStringList m_nameFilters;
     QUrl m_currentFolder;
     QPointer<QWindow> m_parentWindow;

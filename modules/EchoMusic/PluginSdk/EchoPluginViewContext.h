@@ -29,7 +29,11 @@ public:
     QVariantMap snapshot() const;
     Q_INVOKABLE EchoMusic::EchoPluginOperation *command(const QString &action,
                                                         const QVariantMap &arguments = {});
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *closeSkinSettings();
 signals:
+    /// Synchronous appearance close/hide/replacement notification. The view is
+    /// still active here; the existing lease is revoked immediately afterwards.
+    void aboutToClose();
     void changed();
 
 private:
