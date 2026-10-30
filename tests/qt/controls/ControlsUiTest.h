@@ -16,6 +16,7 @@ private slots:
     void imageDensityTracksScaleWithoutTrackingScroll();
     void imageDensitySharesAncestorsAndReleasesInactiveObservers();
     void coverKeepsNativeResolutionUnderAncestorZoom();
+    void viewPoolResetIsCanceledWithOwner();
     void iconRasterTracksZoomAndReleasesWhenHidden();
     void coverCropAndRoundedPixels();
     void frostedCornersRetainAntialiasCoverage();

@@ -67,6 +67,7 @@ void AppContext::createPlugins()
                           m_shortcuts.get(),
                           m_accountController->verification()};
     pluginHost.settings = m_shell.get();
+    pluginHost.appIcons = &window.appIcons();
     pluginHost.attachPluginWindow = [&window](QQuickWindow *surface) {
         window.attachPluginWindow(surface);
     };

@@ -30,11 +30,15 @@ Rectangle {
  EchoPluginPlaybackControls { anchors.bottom: progress.top; anchors.horizontalCenter: parent.horizontalCenter; page: visual.page }
  EchoPluginProgress { id: progress; anchors.bottom: parent.bottom; width: parent.width; page: visual.page }
 })";
-QString appearancePackage(Host &host, const QByteArray &body, const QString &id = "test.appearance")
+QString appearancePackage(Host &host, const QByteArray &body, const QString &id = "test.appearance",
+                          bool windows = false)
 {
+    QJsonArray capabilities{"theme", "lyricsPage"};
+    if (windows)
+        capabilities.append("windows");
     const auto path =
         pluginPackage(host.temporary.path(), id, "export function activate(c) {" + body + "}",
-                      {{"capabilities", QJsonArray{"theme", "lyricsPage"}}});
+                      {{"capabilities", capabilities}});
     write(path + "/Visual.qml", appearanceVisual);
     auto redirect = appearanceVisual;
     redirect.replace("Component.onCompleted: {",
@@ -401,6 +405,7 @@ void PluginRuntimeTest::appearanceProductionThemeSkinAndMini()
 void PluginRuntimeTest::appearanceErrorsAndActivationRollback()
 {
     Host host;
+    QSignalSpy teardownWarnings(&host.engine, &QQmlEngine::warnings);
     QSignalSpy failures(&host.runtime, &PluginRuntime::pluginFailed);
     const auto failed = installAppearance(
         host, appearancePackage(host, definitions + "throw new Error('activation rollback');"));
@@ -440,7 +445,6 @@ void PluginRuntimeTest::appearanceErrorsAndActivationRollback()
     QVERIFY(host.theme.extensions()->theme());
     QVERIFY(host.theme.extensions()->theme()->errorMessage().isEmpty());
     QCOMPARE(host.runtime.state(second), PluginRuntime::Active);
-    QSignalSpy teardownWarnings(&host.engine, &QQmlEngine::warnings);
     QVERIFY(scope->appearance()->useSkin("redirect"));
     QTRY_COMPARE(host.theme.extensions()->selectedSkin(), QString("cover"));
     QTest::qWait(20);
@@ -453,7 +457,12 @@ void PluginRuntimeTest::appearanceErrorsAndActivationRollback()
 void PluginRuntimeTest::playbackPresentationAndFloatingSdk()
 {
     Host host;
-    const auto installation = installAppearance(host, appearancePackage(host, ""));
+    connect(host.runtime.permissions(), &PluginPermissionStore::confirmationRequested,
+            host.runtime.permissions(), [&host](const QString &id, const QVariantMap &) {
+                host.runtime.permissions()->decide(id, true);
+            });
+    const auto installation =
+        installAppearance(host, appearancePackage(host, "", "test.appearance", true));
     QCOMPARE(host.runtime.state(installation), PluginRuntime::Active);
     auto *scope = host.runtime.context(installation);
     auto *player = scope->player();
@@ -488,4 +497,169 @@ void PluginRuntimeTest::playbackPresentationAndFloatingSdk()
     owner.setProperty("active", false);
     QTRY_COMPARE(pending->state(), EchoPluginOperation::Canceled);
     QCOMPARE(host.playback.volume(), 64.);
+}
+
+void PluginRuntimeTest::appearancePreviewCatalogAndFloatingIsolation()
+{
+    Host host;
+    const auto path = appearancePackage(host, definitions);
+    const auto installation = installAppearance(host, path);
+    auto *scope = host.runtime.context(installation);
+    QVERIFY(scope);
+    auto *api = scope->appearance();
+    auto *catalog = host.theme.extensions();
+    QVERIFY(api->useTheme("ocean"));
+    const auto themeKey = catalog->selectedTheme();
+    QVERIFY(api->themes().size() >= 2);
+    QCOMPARE(api->skins().size(), 3);
+    QVERIFY(api->previewTheme("ocean"));
+    auto owner = std::make_unique<QObject>();
+    auto *child = scope->createPresentation(owner.get(), "preview-test");
+    QVERIFY(child);
+    QVERIFY(child->appearance()->previewTheme(themeKey));
+    api->cancelPreview();
+    QVERIFY(catalog->previewing());
+    child->appearance()->cancelPreview();
+    QVERIFY(!catalog->previewing());
+    QVERIFY(catalog->previewTheme(themeKey));
+    api->cancelPreview();
+    QVERIFY(catalog->previewing());
+    catalog->cancelPreview();
+    auto disposable = std::make_unique<QObject>();
+    auto *transient = scope->createPresentation(disposable.get(), "preview-disposal");
+    QVERIFY(transient->appearance()->previewTheme(themeKey));
+    disposable.reset();
+    QTRY_VERIFY(!catalog->previewing());
+    QVERIFY(api->useSkin("portrait"));
+    QCOMPARE(catalog->selectedSkin(), "portrait");
+    const auto elevated = host.theme.elevated();
+    QVERIFY(host.theme.overrides().put(
+        "isolation",
+        {{"light", QVariantMap{{"floating", QVariantMap{{"background", "#122334"}}},
+                               {"mini", QVariantMap{{"background", "#abc123"}}}}},
+         {"dark", QVariantMap{{"floating", QVariantMap{{"background", "#122334"}}},
+                              {"mini", QVariantMap{{"background", "#abc123"}}}}}},
+        0, {}));
+    QCOMPARE(host.theme.elevated(), elevated);
+    QCOMPARE(host.theme.floatingBackground(), QColor("#122334"));
+    QCOMPARE(api->snapshot().value("mini").toMap().value("background").value<QColor>(),
+             QColor("#abc123"));
+    host.theme.overrides().remove("isolation");
+    QCOMPARE(host.theme.floatingBackground(), elevated);
+    host.engine.globalObject().setProperty("themeApi", host.engine.newQObject(api));
+    auto observer = host.engine.evaluate(
+        "var themeSnapshots=[]; themeApi.onSnapshot('audit', s=>themeSnapshots.push(s));");
+    QVERIFY(!observer.isError());
+    QTRY_COMPARE(host.engine.evaluate("themeSnapshots.length").toInt(), 1);
+    QVERIFY(api->useTheme("echo"));
+    QTRY_VERIFY(host.engine.evaluate("themeSnapshots.length").toInt() > 1);
+    QCOMPARE(host.theme.themeKey(), "echo");
+    QCOMPARE(catalog->selectedTheme(), "");
+    QVERIFY(api->previewTheme("ocean"));
+    QVERIFY(QMetaObject::invokeMethod(&host.api, "sessionChanged", Q_ARG(quint64, 1)));
+    QTRY_VERIFY(!catalog->previewing());
+    QTRY_VERIFY(
+        host.engine
+            .evaluate(
+                "themeSnapshots.length && !themeSnapshots[themeSnapshots.length-1].previewing")
+            .toBool());
+    const auto count = host.engine.evaluate("themeSnapshots.length").toInt();
+    host.theme.setMode(ThemeStore::Dark);
+    QTRY_VERIFY(host.engine.evaluate("themeSnapshots.length").toInt() > count);
+    owner.reset();
+    QVERIFY(host.runtime.setEnabled(installation, false));
+    QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Disabled);
+    const auto stopped = host.engine.evaluate("themeSnapshots.length").toInt();
+    host.theme.setMode(ThemeStore::Light);
+    QTest::qWait(20);
+    QCOMPARE(host.engine.evaluate("themeSnapshots.length").toInt(), stopped);
+    QQuickWindow window;
+    for (int i = 0; i < 32; ++i) {
+        auto *surface = new AppearanceHost(window.contentItem());
+        QCOMPARE(surface->window(), &window);
+        delete surface;
+    }
+    QVERIFY(window.contentItem()->childItems().isEmpty());
+}
+
+void PluginRuntimeTest::appearanceMaterialsAndRouteLifecycle()
+{
+    Host host;
+    host.theme.setFloatingFrosted(true);
+    const QVariantMap visuals{
+        {"floating", QVariantMap{{"background", "#122334"}}},
+        {"surface", QVariantMap{{"floating", .5}, {"dialog", .25}}},
+        {"material",
+         QVariantMap{{"floatingFrosted", false}, {"blurSigma", 12}, {"backdropFillOpacity", .6}}},
+        {"pageTransition", QVariantMap{{"appear", false},
+                                       {"durationMs", 400},
+                                       {"easing", QVariantList{.2, 0, .2, 1}},
+                                       {"enterOpacity", 0}}}};
+    QString error;
+    QVERIFY2(EchoPluginAppearance::validateVisuals(visuals, error), qPrintable(error));
+    QVERIFY(!EchoPluginAppearance::validateVisuals({{"material", QVariantMap{{"blurSigma", -1}}}},
+                                                   error));
+    QVERIFY(!EchoPluginAppearance::validateVisuals(
+        {{"pageTransition", QVariantMap{{"easing", QVariantList{2, 0, .2, 1}}}}}, error));
+    QVERIFY(host.theme.overrides().put("material", {{"light", visuals}, {"dark", visuals}}, 0, {}));
+    QVERIFY(!host.theme.floatingFrosted());
+    write(host.temporary.path() + "/Route.qml", R"(import QtQuick
+import EchoMusic.Shell
+Item { required property RouteContext context; required property RouteController router; required property ShellSettings settings; objectName: context.name; }
+)");
+    const auto route = QUrl::fromLocalFile(host.temporary.path() + "/Route.qml");
+    host.router.registerPage({"material-one", "/material-one", route, {}, false, false, false, {}});
+    host.router.registerPage({"material-two", "/material-two", route, {}, false, false, false, {}});
+    QVERIFY(host.router.navigate("material-one"));
+    QQmlComponent component(&host.engine);
+    component.setData(R"(import QtQuick
+import EchoMusic.Theme
+import EchoMusic.Controls
+import EchoMusic.Shell
+Window {
+ id: root
+ required property RouteController router
+ required property ShellSettings settings
+ width: 400; height: 240; visible: true; color: "transparent"
+ RouteHost { objectName: "routeHost"; anchors.fill: parent; router: root.router; settings: root.settings }
+ EchoFloatingSurface { objectName: "materialPanel"; width: 100; height: 100; radius: 0; dialogShadow: true; shadowEnabled: false }
+})",
+                      QUrl("qrc:/material-validation.qml"));
+    std::unique_ptr<QObject> object(component.createWithInitialProperties(
+        {{"router", QVariant::fromValue(&host.router)},
+         {"settings", QVariant::fromValue(&host.shellSettings)}}));
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto *window = qobject_cast<QQuickWindow *>(object.get());
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *panel = window->findChild<QQuickItem *>("materialPanel");
+    QVERIFY(panel);
+    QCOMPARE(panel->property("blurSigma").toDouble(), 12.);
+    QCOMPARE(panel->property("backdropFillOpacity").toDouble(), .6);
+    QCOMPARE(panel->property("frostedEnabled").toBool(), false);
+    QCOMPARE(panel->property("paintedColor").value<QColor>().red(), 18);
+    QVERIFY(qAbs(panel->property("paintedColor").value<QColor>().alphaF() - .25) < .001);
+    QTRY_VERIFY(visual(window->contentItem(), "material-one"));
+    auto *page = visual(window->contentItem(), "material-one");
+    QCOMPARE(page->parentItem()->opacity(), 1.);
+    auto *routeHost = window->findChild<QQuickItem *>("routeHost");
+    QVERIFY(routeHost->property("presentationLive").toBool());
+    if (qEnvironmentVariableIsSet("ECHO_TEST_NATIVE_GPU")) {
+        QTest::qWait(60);
+        const auto pixels = window->grabWindow();
+        QVERIFY(!pixels.isNull());
+        const auto pixel = pixels.pixelColor(qRound(50 * window->effectiveDevicePixelRatio()),
+                                             qRound(50 * window->effectiveDevicePixelRatio()));
+        QVERIFY(qAbs(pixel.alpha() - 64) <= 1);
+    }
+    QVERIFY(host.router.navigate("material-two"));
+    QTRY_VERIFY(visual(window->contentItem(), "material-two"));
+    window->hide();
+    QVERIFY(!routeHost->property("presentationLive").toBool());
+    auto *second = visual(window->contentItem(), "material-two");
+    QCOMPARE(second->parentItem()->opacity(), 1.);
+    host.theme.setFloatingFrosted(false);
+    host.theme.overrides().remove("material");
+    QVERIFY(!host.theme.floatingFrosted());
+    QCOMPARE(panel->property("blurSigma").toDouble(), 24.);
+    QCOMPARE(panel->property("paintedColor").value<QColor>().alpha(), 255);
 }

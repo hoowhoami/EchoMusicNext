@@ -1,5 +1,6 @@
 #include "SettingsKeys.h"
 #include "PluginRuntime.h"
+#include "AppIconService.h"
 #include "StorageSnapshot.h"
 #include "EchoPluginFilePicker.h"
 #include "PlaybackService.h"
@@ -50,6 +51,8 @@ PluginRuntime::PluginRuntime(QQmlEngine &engine, EchoMusic::SettingsStore &prefe
       m_safeMode(safeMode ||
                  preferences.value(EchoMusic::SettingsKeys::Plugins::SafeMode, false).toBool())
 {
+    if (!m_host.appIcons)
+        m_host.appIcons = new AppIconService(this);
     m_host.permissions = new PluginPermissionStore(preferences, this);
     m_fileService = new PluginFileService(m_root, this);
     m_host.files = m_fileService;

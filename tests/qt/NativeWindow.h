@@ -45,8 +45,9 @@ inline bool prepareNativeInput(QWindow *window)
 inline void moveNativePointer(QWindow *window, QPoint position)
 {
     const auto global = window->mapToGlobal(position);
-    if (QGuiApplication::platformName() != QStringLiteral("offscreen"))
-        QCursor::setPos(global);
+    // Offscreen has a virtual cursor too. Quick reconciles hover against it
+    // on later frames; leaving it behind can undo an injected hover event.
+    QCursor::setPos(global);
     // QTest sends a QPA mouse event directly, bypassing the platform plugin.
     // Complete its window enter/leave sequence too: a cursor warp alone does
     // not deliver Cocoa tracking events when a short-lived tool disappears.

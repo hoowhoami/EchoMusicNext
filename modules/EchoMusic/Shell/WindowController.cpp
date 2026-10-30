@@ -97,6 +97,8 @@ WindowController::WindowController(EchoMusic::SettingsStore &settings, bool pers
             &WindowController::updateIncubationController, Qt::QueuedConnection);
     connect(&m_floating, &FloatingPlayerController::presentationWindowChanged, this,
             &WindowController::updateIncubationController, Qt::QueuedConnection);
+    connect(&m_floating, &FloatingPlayerController::presentationWindowChanged, this,
+            [this] { m_appIcons.attach(m_floating.presentationWindow()); });
     m_remember = settings.value(EchoMusic::SettingsKeys::Window::RememberSize, true).toBool();
     m_closeToTray = settings.value(EchoMusic::SettingsKeys::Window::CloseToTray, true).toBool();
     m_hideDock =
@@ -169,6 +171,7 @@ void WindowController::attach(QQuickWindow *window)
     if (!window)
         return;
     m_window = window;
+    m_appIcons.attach(window);
     connect(window, &QWindow::activeChanged, this, [this] {
         if (mainWindowActive())
             emit mainWindowActivated();
@@ -188,9 +191,13 @@ void WindowController::attach(QQuickWindow *window)
         m_tray = std::make_unique<QSystemTrayIcon>();
         m_trayTheme = std::make_unique<TrayIconTheme>([this] {
             if (m_tray)
-                m_tray->setIcon(TrayIconTheme::icon());
+                m_tray->setIcon(m_appIcons.trayIcon(TrayIconTheme::icon()));
         });
-        m_tray->setIcon(TrayIconTheme::icon());
+        m_tray->setIcon(m_appIcons.trayIcon(TrayIconTheme::icon()));
+        connect(&m_appIcons, &AppIconService::changed, this, [this] {
+            if (m_tray)
+                m_tray->setIcon(m_appIcons.trayIcon(TrayIconTheme::icon()));
+        });
         m_tray->setToolTip("EchoMusicNext");
         // Never bind a context menu on Cocoa: AppKit then intercepts BOTH mouse
         // buttons, so left activation would also open a menu.
@@ -496,6 +503,7 @@ void WindowController::attachPluginWindow(QQuickWindow *window)
     if (m_pluginWindows.contains(window))
         return;
     m_pluginWindows.append(window);
+    m_appIcons.attach(window);
     connect(window, &QWindow::visibleChanged, this, &WindowController::updateIncubationController,
             Qt::QueuedConnection);
     connect(window, &QWindow::activeChanged, this, &WindowController::updateIncubationController,

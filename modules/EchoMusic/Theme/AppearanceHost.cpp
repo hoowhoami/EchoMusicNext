@@ -1,4 +1,5 @@
 #include "AppearanceHost.h"
+#include "ItemPresentationObserver_p.h"
 #include <QQmlEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
@@ -7,40 +8,6 @@ namespace EchoMusic
 {
 namespace
 {
-// A native observer keeps presentation work tied to effective visibility,
-// including ancestor opacity and clipped scroll positions.
-class PresentationVisibility final : public QObject
-{
-public:
-    PresentationVisibility(QQuickItem &item, std::function<void()> changed)
-        : QObject(&item), m_item(item), m_changed(std::move(changed))
-    {
-        rewire();
-    }
-
-private:
-    void rewire()
-    {
-        delete m_connections;
-        m_connections = new QObject(this);
-        for (auto *item = &m_item; item; item = item->parentItem()) {
-            connect(item, &QQuickItem::parentChanged, m_connections, [this] {
-                rewire();
-                m_changed();
-            });
-            connect(item, &QQuickItem::visibleChanged, m_connections, m_changed);
-            connect(item, &QQuickItem::opacityChanged, m_connections, m_changed);
-            connect(item, &QQuickItem::xChanged, m_connections, m_changed);
-            connect(item, &QQuickItem::yChanged, m_connections, m_changed);
-            connect(item, &QQuickItem::widthChanged, m_connections, m_changed);
-            connect(item, &QQuickItem::heightChanged, m_connections, m_changed);
-            connect(item, &QQuickItem::clipChanged, m_connections, m_changed);
-        }
-    }
-    QQuickItem &m_item;
-    std::function<void()> m_changed;
-    QObject *m_connections = nullptr;
-};
 bool ownsQmlUrl(QObject *object, const QUrl &url)
 {
     if (!object)
@@ -52,34 +19,42 @@ bool ownsQmlUrl(QObject *object, const QUrl &url)
             return true;
     return false;
 }
-bool presented(const QQuickItem &item)
-{
-    auto rect = item.mapRectToScene(item.boundingRect());
-    for (auto *ancestor = &item; ancestor; ancestor = ancestor->parentItem()) {
-        if (!ancestor->isVisible() || ancestor->opacity() <= 0)
-            return false;
-        if (ancestor->clip())
-            rect = rect.intersected(ancestor->mapRectToScene(ancestor->boundingRect()));
-    }
-    if (item.window())
-        rect = rect.intersected(QRectF(QPointF(), item.window()->size()));
-    return !rect.isEmpty();
-}
 } // namespace
 AppearanceHost::AppearanceHost(QQuickItem *p) : QQuickItem(p)
 {
-    m_visibility = new PresentationVisibility(*this, [this] { reconcile(); });
-    connect(this, &QQuickItem::visibleChanged, this, &AppearanceHost::reconcile);
-    connect(this, &QQuickItem::windowChanged, this, [this] {
+    m_visibility = new ItemPresentationObserver(*this, [this] { reconcile(); });
+    m_selfVisibleConnection =
+        connect(this, &QQuickItem::visibleChanged, this, &AppearanceHost::reconcile);
+    m_selfWindowConnection = connect(this, &QQuickItem::windowChanged, this, [this] {
         disconnect(m_windowConnection);
-        if (window())
+        disconnect(m_windowOpacityConnection);
+        disconnect(m_windowAnimationConnection);
+        if (window()) {
+            m_windowAnimationConnection =
+                connect(window(), &QQuickWindow::afterAnimating, this, [this] {
+                    const bool desired =
+                        m_active && ItemPresentationObserver::presented(*this) && window() &&
+                        window()->isVisible() && window()->visibility() != QWindow::Minimized &&
+                        available() && !m_entry->retired && m_entry->error.isEmpty();
+                    if (desired != bool(m_item || m_loading))
+                        reconcile();
+                });
+            m_windowOpacityConnection =
+                connect(window(), &QWindow::opacityChanged, this, &AppearanceHost::reconcile);
             m_windowConnection =
                 connect(window(), &QWindow::visibilityChanged, this, &AppearanceHost::reconcile);
+        }
         reconcile();
     });
 }
 AppearanceHost::~AppearanceHost()
 {
+    m_complete = false;
+    disconnect(m_selfWindowConnection);
+    disconnect(m_selfVisibleConnection);
+    disconnect(m_windowConnection);
+    disconnect(m_windowOpacityConnection);
+    disconnect(m_windowAnimationConnection);
     delete m_visibility;
     release();
 }
@@ -175,9 +150,9 @@ void AppearanceHost::reconcile()
 {
     if (!m_complete)
         return;
-    if (!m_active || !presented(*this) || !window() || !window()->isVisible() ||
-        window()->visibility() == QWindow::Minimized || width() <= 0 || height() <= 0 || !m_entry ||
-        m_entry->retired || !m_entry->error.isEmpty()) {
+    if (!m_active || !ItemPresentationObserver::presented(*this) || !window() ||
+        !window()->isVisible() || window()->visibility() == QWindow::Minimized || width() <= 0 ||
+        height() <= 0 || !m_entry || m_entry->retired || !m_entry->error.isEmpty()) {
         release();
         return;
     }

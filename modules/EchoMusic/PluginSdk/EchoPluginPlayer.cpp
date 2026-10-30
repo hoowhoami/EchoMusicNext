@@ -44,6 +44,19 @@ EchoPluginPlayer::EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &ho
     : QObject(&scope), m_scope(scope), m_host(host), m_audioSource(scope),
       m_queue(*host.queue(), this), m_lyrics(*host.lyrics(), this)
 {
+    connect(&host, &PlaybackService::clockChanged, this, [this] {
+        if (!m_scope.active())
+            return;
+        emit clockChanged();
+        if (clock().value("displayState") != m_previous.value("displayState"))
+            publishStateEvents();
+        emit snapshotChanged();
+        if (isSignalConnected(QMetaMethod::fromSignal(&EchoPluginPlayer::eventOccurred)))
+            emit eventOccurred("clock", snapshot());
+    });
+    connect(this, &EchoPluginPlayer::changed, this, &EchoPluginPlayer::snapshotChanged);
+    connect(&scope, &EchoPluginContext::activeChanged, this, &EchoPluginPlayer::clockChanged);
+    connect(&scope, &EchoPluginContext::activeChanged, this, &EchoPluginPlayer::snapshotChanged);
     m_previous = snapshot();
     publishStateEvents();
     connect(host.personalFm(), &PersonalFmController::changed, this, &EchoPluginPlayer::changed);
@@ -216,10 +229,21 @@ QVariantMap EchoPluginPlayer::lyricSnapshot() const
     result.insert("revision", revision());
     return result;
 }
+QVariantMap EchoPluginPlayer::clock() const
+{
+    return m_scope.active() ? m_host.clock() : QVariantMap();
+}
+double EchoPluginPlayer::samplePosition() const
+{
+    return m_scope.active() ? m_host.clockPosition() : 0;
+}
 QVariantMap EchoPluginPlayer::snapshot() const
 {
     const auto &track = m_host.currentTrack();
     return {
+        {"clock", clock()},
+        {"displayState", clock().value("displayState")},
+        {"busyReason", clock().value("busyReason")},
         {"revision", revision()},
         {"track",
          QVariantMap{{"id", track.id},
@@ -284,7 +308,8 @@ void EchoPluginPlayer::publishStateEvents()
     if (state.value("playing") != m_previous.value("playing"))
         emit eventOccurred(playing() ? "play" : "pause", state);
     if (state.value("loading") != m_previous.value("loading") ||
-        state.value("playing") != m_previous.value("playing"))
+        state.value("playing") != m_previous.value("playing") ||
+        state.value("displayState") != m_previous.value("displayState"))
         emit eventOccurred("statechange", state);
     if (!errorMessage().isEmpty() &&
         state.value("errorMessage") != m_previous.value("errorMessage"))
@@ -312,7 +337,7 @@ EchoPluginRegistration *EchoPluginPlayer::on(const QString &id, const QString &e
                                              const QJSValue &callback, bool immediate)
 {
     if (!callback.isCallable() || !QStringList{"trackchange", "statechange", "play", "pause",
-                                               "ended", "seek", "error", "timeupdate"}
+                                               "ended", "seek", "error", "timeupdate", "clock"}
                                        .contains(event))
         return nullptr;
     auto *lease = m_scope.registration("playbackEvent", id);

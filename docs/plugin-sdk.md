@@ -120,3 +120,13 @@
 `ctx.cover` 生成原生 SVG 主题图标封面，`ctx.ui.cover.setFallback` 接入共享 EchoCover 的空值/错误处理。多贡献按优先级及稳定键仲裁，加载失败继续下一层，撤下恢复下一贡献或当前宿主占位；保留原解码密度、裁切、过渡及池化资源释放。SVG 自定义图形限制为静态、自包含图形。
 
 feature 为 `ui.navigation/settings.host/ui.actions/cover.themed/ui.cover`；涉及读取与改变宿主的操作分别需要 navigation/hostSettings/cover 声明和首次授权，管理页可撤销。账号变化及 scope 退役撤销观察、动作与封面注册并取消在途交付；已完成的用户设置持久保留。完整签名及用法见[作者指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/host-access.md)。
+
+`plugins.catalog`、`plugins.commands`提供依赖可见的公开目录、服务方法发现、变化订阅与显式公开命令；context内部命令保持私有。使用与取消语义见[插件协作](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/plugin-cooperation.md)。
+
+`playback.clock` 公开 PlaybackService 的统一采样锚点与单调投影；`appearance.overrides` 通过授权的临时配方参与 ThemeStore 逐属性优先级解析；`app.icons` 接入实际窗口、托盘及平台快捷方式，使用可撤销租约；`files.audioMetadata` 在文件 worker 中返回完整音频标签。账号代际、授权撤销、呈现销毁和停用沿用作用域取消及资源排空。作者用法见 EchoMusicNextPlugins 的 `docs/presentation-services.md`。
+
+`graphics.resources` / `graphics.submissions` 补充有界一次性命令、资源快照和 GPU 完成 operation；支持区域上传、GPU 缓冲/纹理复制、mipmap、区域/mip 回读、uniform 范围和 viewport/scissor/base vertex/instance。非 uniform 更新使用 GPU 暂存，缓冲回读经过独立 GPU 快照和实际完成确认，不在 GUI 等待。普通窗口和 HDR 输出边界不变。
+
+主题目录、内置选择、调用者拥有的预览、Mini 配色和模式快照已公开；material、浮层/对话框透明和 Bezier 过渡复用现有宿主实现。浮层背景与主界面 elevated 独立。浮窗统一走可撤销 windows 授权，提供合并快照订阅、原生状态和窗口控制；全局偏好动作与插件窗口资源生命周期分开。
+
+作者契约见 EchoMusicNextPlugins 的 `docs/gpu-submissions.md` 与 `docs/presentation-services.md`。已接入 MRT、逐附件混合、mip 视图、二维纹理数组的分层传输/渲染/读回，立方体/三维纹理的面与切片，以及 GPU 参数间接绘制。跨画布 GPU 派生资源共享及真正局部 HDR 仍需实现；平台验收另行记录。

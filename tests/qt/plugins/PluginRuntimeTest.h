@@ -5,8 +5,23 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void playbackClockNativeSamplesAndPluginLifetime();
+    void temporaryAppearancePriorityLiveBaseAndRevocation();
+    void applicationIconsPriorityNativeOwnersAndCancellation();
+    void completeAudioMetadataRealFilesAndCancellation();
+    void shortcutIconTransactionPreservesCurrentFields();
+    void publicPluginCatalogCommandsAndRetirement();
+    void publicPluginCatalogScopeAccountAndReplacement();
     void graphicsValidationOwnershipAndAccount();
     void graphicsNativePixelsComputeAndRecovery();
+    void graphicsOrderedTransfersMipmapsAndCompletion();
+    void graphicsMultipleTargetsMipRenderingAndLifetime();
+    void graphicsIndirectGpuArgumentsAndRetirement();
+    void graphicsTextureArraysTransfersAndLifetime();
+    void graphicsCubeVolumeSlicesAndRecovery();
+    void appearancePreviewCatalogAndFloatingIsolation();
+    void appearanceMaterialsAndRouteLifecycle();
+    void floatingWindowsNativeStateAuthorizationAndObservation();
     void crossRepositoryCatalogInstallAndFailureIsolation();
     void flatDirectoriesDataManagementAndReinstallIsolation();
     void codeAndDataJournalRecovery();

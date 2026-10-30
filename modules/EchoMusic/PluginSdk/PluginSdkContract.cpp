@@ -55,6 +55,7 @@ QJsonObject pluginSdkContract()
                                         &EchoGpuResource::staticMetaObject,
                                         &EchoPluginAction::staticMetaObject,
                                         &EchoPluginCover::staticMetaObject,
+                                        &EchoPluginAppIcons::staticMetaObject,
                                         &EchoPluginSettings::staticMetaObject,
                                         &EchoPluginNavigation::staticMetaObject,
                                         &EchoPluginProcess::staticMetaObject,

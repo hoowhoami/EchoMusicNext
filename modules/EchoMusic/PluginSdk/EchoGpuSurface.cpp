@@ -1,4 +1,5 @@
 #include "EchoGpuSurface.h"
+#include "ItemPresentationObserver_p.h"
 #include "EchoPluginContext.h"
 #include "graphics/GpuRhi_p.h"
 #include <QQuickWindow>
@@ -25,6 +26,7 @@ private:
 EchoGpuSurface::EchoGpuSurface(QQuickItem *parent) : QQuickRhiItem(parent)
 {
     setAlphaBlending(true);
+    m_visibilityObserver = new ItemPresentationObserver(*this, [this] { syncActivity(); });
     m_status = {{"available", false},    {"compute", false},           {"hdr", false},
                 {"hdrRequested", false}, {"localHdrSupported", false}, {"dynamicRange", "sdr"},
                 {"state", "waiting"}};
@@ -35,19 +37,30 @@ EchoGpuSurface::EchoGpuSurface(QQuickItem *parent) : QQuickRhiItem(parent)
             update();
     });
     m_clock.setTimerType(Qt::PreciseTimer);
-    connect(this, &QQuickItem::visibleChanged, this, &EchoGpuSurface::syncActivity);
-    connect(this, &QQuickItem::widthChanged, this, &EchoGpuSurface::syncActivity);
-    connect(this, &QQuickItem::heightChanged, this, &EchoGpuSurface::syncActivity);
-    connect(this, &QQuickRhiItem::fixedColorBufferWidthChanged, this,
-            &EchoGpuSurface::syncActivity);
-    connect(this, &QQuickRhiItem::fixedColorBufferHeightChanged, this,
-            &EchoGpuSurface::syncActivity);
-    connect(this, &QQuickItem::windowChanged, this, [this](QQuickWindow *window) {
+    const auto follow = [this](QMetaObject::Connection connection) {
+        m_itemConnections.append(connection);
+    };
+    follow(connect(this, &QQuickItem::visibleChanged, this, &EchoGpuSurface::syncActivity));
+    follow(connect(this, &QQuickItem::widthChanged, this, &EchoGpuSurface::syncActivity));
+    follow(connect(this, &QQuickItem::heightChanged, this, &EchoGpuSurface::syncActivity));
+    follow(connect(this, &QQuickRhiItem::fixedColorBufferWidthChanged, this,
+                   &EchoGpuSurface::syncActivity));
+    follow(connect(this, &QQuickRhiItem::fixedColorBufferHeightChanged, this,
+                   &EchoGpuSurface::syncActivity));
+    follow(connect(this, &QQuickItem::windowChanged, this, [this](QQuickWindow *window) {
         for (const auto &c : m_windowConnections)
             disconnect(c);
         m_windowConnections.clear();
         releaseNative();
         if (window) {
+            m_windowConnections.append(connect(window, &QQuickWindow::afterAnimating, this, [this] {
+                if (live() != m_lastLive ||
+                    (this->window() &&
+                     this->window()->effectiveDevicePixelRatio() != m_lastPixelRatio))
+                    syncActivity();
+            }));
+            m_windowConnections.append(
+                connect(window, &QWindow::opacityChanged, this, &EchoGpuSurface::syncActivity));
             m_windowConnections.append(connect(window, &QQuickWindow::visibleChanged, this,
                                                &EchoGpuSurface::syncActivity));
             m_windowConnections.append(connect(window, &QQuickWindow::visibilityChanged, this,
@@ -57,10 +70,21 @@ EchoGpuSurface::EchoGpuSurface(QQuickItem *parent) : QQuickRhiItem(parent)
                 Qt::QueuedConnection));
         }
         syncActivity();
-    });
+    }));
 }
 EchoGpuSurface::~EchoGpuSurface()
 {
+    // QQuickItem detaches from its window after derived members are destroyed.
+    // Its signals must no longer reach callbacks which access those members.
+    for (const auto &connection : m_itemConnections)
+        disconnect(connection);
+    for (const auto &connection : m_windowConnections)
+        disconnect(connection);
+    disconnect(m_scopeConnection);
+    delete m_visibilityObserver;
+    m_clock.stop();
+    if (m_graphics)
+        disconnect(m_graphics, nullptr, this, nullptr);
     m_bridge->surface = nullptr;
     releaseTarget();
     releaseNative();
@@ -80,6 +104,7 @@ void EchoGpuSurface::setGraphics(EchoPluginGraphics *value)
         m_graphics->retainState(std::atomic_load(&m_renderState));
         m_graphics->detach(this);
     }
+    disconnect(m_scopeConnection);
     m_graphics = value;
     m_bridge->graphics = value;
     m_retired = false;
@@ -92,8 +117,8 @@ void EchoGpuSurface::setGraphics(EchoPluginGraphics *value)
         } else {
             connect(value, &EchoPluginGraphics::resourcesChanged, this,
                     &EchoGpuSurface::requestFrame);
-            connect(&value->scope(), &EchoPluginContext::activeChanged, this,
-                    &EchoGpuSurface::syncActivity);
+            m_scopeConnection = connect(&value->scope(), &EchoPluginContext::activeChanged, this,
+                                        &EchoGpuSurface::syncActivity);
             connect(value, &QObject::destroyed, this, [this] {
                 m_graphics = nullptr;
                 retire();
@@ -140,8 +165,9 @@ void EchoGpuSurface::setDynamicRange(const QString &v)
 bool EchoGpuSurface::live() const
 {
     return m_sizeAccepted && !m_retired && !m_paused && m_graphics && m_graphics->active() &&
-           isVisible() && width() > 0 && height() > 0 && window() && window()->isVisible() &&
-           window()->visibility() != QWindow::Minimized;
+           ItemPresentationObserver::presented(*this) && width() > 0 && height() > 0 && window() &&
+           window()->isVisible() && window()->visibility() != QWindow::Minimized &&
+           window()->rendererInterface()->graphicsApi() != QSGRendererInterface::Software;
 }
 void EchoGpuSurface::syncActivity()
 {
@@ -153,6 +179,8 @@ void EchoGpuSurface::syncActivity()
         releaseTarget();
         releaseNative();
         m_clock.stop();
+        m_lastLive = false;
+        m_lastPixelRatio = window()->effectiveDevicePixelRatio();
         m_status = {{"state", "unavailable"},
                     {"available", false},
                     {"compute", false},
@@ -169,8 +197,9 @@ void EchoGpuSurface::syncActivity()
     }
     m_sizing = true;
     const bool wants = !m_retired && !m_paused && m_graphics && m_graphics->active() &&
-                       isVisible() && width() > 0 && height() > 0 && window() &&
-                       window()->isVisible() && window()->visibility() != QWindow::Minimized;
+                       ItemPresentationObserver::presented(*this) && width() > 0 && height() > 0 &&
+                       window() && window()->isVisible() &&
+                       window()->visibility() != QWindow::Minimized;
     m_sizeAccepted = true;
     if (wants) {
         if (m_limited) {
@@ -214,8 +243,12 @@ void EchoGpuSurface::syncActivity()
     } else
         releaseTarget();
     const bool running = live();
+    m_lastLive = running;
+    m_lastPixelRatio = window() ? window()->effectiveDevicePixelRatio() : 0;
     if (running && m_continuous) {
-        m_clock.start(qMax(8, 1000 / m_fps));
+        const auto interval = qMax(8, 1000 / m_fps);
+        if (!m_clock.isActive() || m_clock.interval() != interval)
+            m_clock.start(interval);
     } else
         m_clock.stop();
     if (running)
@@ -241,6 +274,19 @@ void EchoGpuSurface::releaseTarget()
 void EchoGpuSurface::releaseNative()
 {
     const auto requests = std::exchange(m_readbacks, {});
+    for (const auto &weak : m_inflight)
+        if (auto pending = weak.lock()) {
+            pending->canceled = true;
+            if (pending->operation)
+                pending->operation->cancel();
+        }
+    m_inflight.clear();
+    const auto queued = std::exchange(m_submissions, {});
+    for (const auto &submission : queued) {
+        submission->canceled = true;
+        if (submission->operation)
+            submission->operation->cancel();
+    }
     const auto state = std::atomic_load(&m_renderState);
     for (const auto &request : requests)
         if (request.second)
@@ -295,12 +341,68 @@ bool EchoGpuSurface::submit(const QVariantMap &frame)
     requestFrame();
     return true;
 }
+EchoPluginOperation *EchoGpuSurface::enqueue(const QVariantMap &commands)
+{
+    if (!m_graphics)
+        return nullptr;
+    auto *op = m_graphics->scope().operation();
+    if (op->finished())
+        return op;
+    if (!live() || m_status.value("state") == "unavailable") {
+        op->fail("Unavailable", "GPU submissions require a visible, unpaused RHI surface");
+        return op;
+    }
+    auto submission = std::make_shared<GpuSubmission>();
+    QString error;
+    if (!m_graphics->prepareSubmission(commands, submission->frame, error)) {
+        op->fail("InvalidArgument", error);
+        return op;
+    }
+    submission->resources = m_graphics->descriptions();
+    qint64 bytes = 0;
+    for (const auto &resource : submission->resources)
+        bytes += resource.allocationBytes;
+    for (const auto &value : submission->frame.value("passes").toList())
+        bytes += value.toMap().value("data").toByteArray().size();
+    auto budget = m_graphics->memoryBudget();
+    if (m_submissions.size() >= 8 || budget->pendingSubmissions >= 32 ||
+        !budget->submissions.reserve(bytes)) {
+        op->fail("Busy", "GPU submission queue or snapshot budget exceeded");
+        return op;
+    }
+    submission->bytes = bytes;
+    submission->budget = budget;
+    ++budget->pendingSubmissions;
+    submission->retired = [sink = m_bridge] { sink->report({}); };
+    submission->operation = op;
+    submission->serial = ++m_submissionSequence;
+    const auto weak = std::weak_ptr<GpuSubmission>(submission);
+    op->start([weak] {
+        if (auto pending = weak.lock())
+            pending->canceled = true;
+    });
+    connect(op, &EchoPluginOperation::completed, op, [weak, op] {
+        if (op->state() != EchoPluginOperation::Succeeded)
+            if (auto pending = weak.lock())
+                pending->canceled = true;
+    });
+    QTimer::singleShot(5000, op, [op] {
+        if (!op->finished())
+            op->fail("GraphicsTimeout", "GPU submission timed out");
+    });
+    m_inflight.removeIf([](const auto &pending) { return pending.expired(); });
+    m_inflight.append(submission);
+    m_submissions.append(std::move(submission));
+    emit m_graphics->changed();
+    requestFrame();
+    return op;
+}
 void EchoGpuSurface::requestFrame()
 {
     if (live() && (!m_continuous || !m_clock.isActive()))
         update();
 }
-EchoPluginOperation *EchoGpuSurface::readback(EchoGpuResource *resource)
+EchoPluginOperation *EchoGpuSurface::readback(EchoGpuResource *resource, const QVariantMap &options)
 {
     if (!m_graphics)
         return nullptr;
@@ -314,7 +416,21 @@ EchoPluginOperation *EchoGpuSurface::readback(EchoGpuResource *resource)
         op->fail("InvalidResource", "Surface is inactive or resource is unavailable");
         return op;
     }
-    m_readbacks.append({resource ? resource->id() : QString(), op});
+    const auto allowed = resource && resource->kind() == "buffer"
+                             ? QStringList{"offset", "size"}
+                             : QStringList{"level", "layer", "x", "y", "width", "height"};
+    for (auto it = options.begin(); it != options.end(); ++it) {
+        bool ok = false;
+        const auto n = it.value().toDouble(&ok);
+        if (!allowed.contains(it.key()) || !ok || it.value().metaType().id() == QMetaType::Bool ||
+            !std::isfinite(n) || n != std::floor(n) || n < 0 || n > 16 * 1024 * 1024) {
+            op->fail("InvalidArgument", "Invalid GPU readback region");
+            return op;
+        }
+    }
+    auto request = options;
+    request["resource"] = resource ? resource->id() : QString();
+    m_readbacks.append({request, op});
     QTimer::singleShot(5000, op, [op] {
         if (!op->finished())
             op->fail("GraphicsTimeout", "GPU readback timed out");
@@ -334,7 +450,17 @@ EchoGpuSurface::Snapshot EchoGpuSurface::takeSnapshot()
         result.resources = m_graphics->descriptions();
         result.budget = m_graphics->memoryBudget();
     }
-    result.readbacks = std::exchange(m_readbacks, {});
+    while (!m_submissions.isEmpty() && m_submissions.first()->canceled)
+        m_submissions.removeFirst();
+    if (!m_submissions.isEmpty()) {
+        result.submission = m_submissions.takeFirst();
+        result.resources = result.submission->resources;
+        result.frame = result.submission->frame;
+        // A one-shot graph cannot alias the persistent graph's pipeline revision.
+        result.frameRevision = (quint64(1) << 63) | result.submission->serial;
+    }
+    if (m_submissions.isEmpty())
+        result.readbacks = std::exchange(m_readbacks, {});
     return result;
 }
 void EchoGpuSurface::acceptReport(const QVariantMap &report)

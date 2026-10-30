@@ -49,6 +49,9 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
     m_scroll = new EchoPluginScroll(*this);
     m_scroll->setParent(this);
     m_cover = new EchoPluginCover(*this);
+    m_appIcons = new EchoPluginAppIcons(*this);
+    connect(m_appIcons, &EchoPluginAppIcons::drainedChanged, this,
+            &EchoPluginContext::resourcesDrained, Qt::QueuedConnection);
     m_settings = new EchoPluginSettings(*this);
     m_ui = new EchoPluginUi(*this);
     m_plugins = new EchoPluginRegistry(*this);
@@ -166,12 +169,15 @@ EchoPluginRegistration *EchoPluginContext::registration(const QString &kind, con
             ++it;
     }
     const auto key = registrationKey(kind, id);
-    if (auto old = m_registrations.value(key))
-        old->dispose();
+    const auto old = m_registrations.value(key);
     auto *lease = new EchoPluginRegistration(key, ++m_revision, this);
     QQmlEngine::setObjectOwnership(lease, QQmlEngine::CppOwnership);
     m_registrations.insert(key, lease);
     m_resources.append(lease);
+    // A disposal callback can register the same ID. It must see and supersede
+    // this revision, rather than leaving a second independently active token.
+    if (old)
+        old->dispose();
     return lease;
 }
 QJSValue EchoPluginContext::call(const QJSValue &callback, const QJSValueList &args)
@@ -420,8 +426,8 @@ bool EchoPluginContext::drained() const
     for (auto child : m_presentations)
         if (child && !child->drained())
             return false;
-    return m_graphics->drained() && m_process->isDrained() && m_webServer->isDrained() &&
-           m_net->isDrained() && m_io->isDrained() && m_sqlite->isDrained() &&
-           m_appearance->drained() && m_files->isDrained();
+    return m_appIcons->drained() && m_graphics->drained() && m_process->isDrained() &&
+           m_webServer->isDrained() && m_net->isDrained() && m_io->isDrained() &&
+           m_sqlite->isDrained() && m_appearance->drained() && m_files->isDrained();
 }
 } // namespace EchoMusic

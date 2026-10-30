@@ -18,7 +18,8 @@ bool GpuRenderState::prepareOutput(QRhiRenderTarget *output)
     bool needsDepth = false;
     for (const auto &value : snapshot.frame.value("passes").toList()) {
         const auto pass = value.toMap();
-        if (pass.value("type") != "render" || pass.value("target", "surface") != "surface")
+        if (pass.value("type") != "render" || pass.contains("colorTargets") ||
+            pass.value("target", "surface") != "surface")
             continue;
         const auto pipeline =
             snapshot.resources.value(pass.value("pipeline").toString()).definition;

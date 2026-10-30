@@ -165,6 +165,13 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
     connect(&m_songCommands, &SongCommands::sharingChanged, this, &PlaybackService::sharingChanged);
 
     connect(this, &PlaybackService::changed, this, &PlaybackService::publishProgressStatus);
+    connect(this, &PlaybackService::changed, this, [this] { syncClock(); });
+    connect(this, &PlaybackService::positionChanged, this, [this] { syncClock(true); });
+    connect(this, &PlaybackService::progressBusyReasonChanged, this, [this] { syncClock(); });
+    connect(this, &PlaybackService::timelineReset, this, [this] {
+        m_clockSeeking = false;
+        syncClock(true, "reset");
+    });
     connect(&m_listening, &ListeningReporter::drained, this,
             &PlaybackService::listeningReportsDrained);
     m_dynamicCover.setNetworkPreferences(network);
@@ -680,10 +687,40 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
         if (++m_closedWorkers == (m_repository ? 5 : 4))
             emit closed();
     });
+    syncClock(true);
 }
 PlaybackService::~PlaybackService()
 {
     shutdown();
+}
+void PlaybackService::syncClock(bool sample, const QString &reason)
+{
+    if (m_clock.snapshot().value("trackSeq").toString() != QString::number(m_sequence) ||
+        m_loading || !hasTrack())
+        m_clockSeeking = false;
+    const auto busy = m_clockSeeking ? ProgressSeeking : progressBusyReason();
+    const auto state = !hasTrack()                 ? "idle"
+                       : !m_error.isEmpty()        ? "error"
+                       : m_loading                 ? "loading"
+                       : busy == ProgressSeeking   ? "seeking"
+                       : busy == ProgressBuffering ? "buffering"
+                       : m_playing                 ? "playing"
+                                                   : "paused";
+    QVariantMap values{{"trackId", trackId()},
+                       {"trackSeq", QString::number(m_sequence)},
+                       {"sourceRevision", QString::number(m_sourceRevision)},
+                       {"positionMs", m_position},
+                       {"durationMs", m_duration},
+                       {"isPlaying", m_playing},
+                       {"playbackRate", speed()},
+                       {"isAdvancing", hasTrack() && !m_closing && !m_loading &&
+                                           m_error.isEmpty() && m_playing && busy == ProgressReady},
+                       {"displayState", state},
+                       {"busyReason", busy == ProgressSeeking     ? "seek"
+                                      : busy == ProgressBuffering ? "buffering"
+                                                                  : ""}};
+    if (m_clock.observe(values, sample, reason))
+        emit clockChanged();
 }
 void PlaybackService::publishProgressStatus()
 {
@@ -1013,6 +1050,8 @@ void PlaybackService::seek(qint64 position)
     m_listening.resetPosition();
     if (!hasTrack() || m_loading)
         return;
+    m_clockSeeking = true;
+    syncClock(false, "seek");
     m_listenTogether->localSeekRequested(position);
     m_transition->clear();
     m_cast->seek(qBound<qint64>(0, position, m_duration));

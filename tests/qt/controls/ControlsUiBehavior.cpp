@@ -264,8 +264,9 @@ Item {
         auto *capture = findVisual(cover, "coverCapture");
         auto *effect = findVisual(cover, "coverMaskEffect");
         QVERIFY(capture && effect);
-        const auto texture = renderedTextureSize(session.window, capture);
-        QVERIFY(texture.width() >= needed && texture.height() >= needed);
+        QSize texture;
+        QTRY_VERIFY((texture = renderedTextureSize(session.window, capture)).width() >= needed &&
+                    texture.height() >= needed);
         QCOMPARE(effect->property("hasProxySource").toBool(), false);
         QTest::qWait(60);
         const auto frame = session.window->grabWindow();
@@ -613,6 +614,9 @@ void ControlsUiTest::progressClimaxTicksAndWaitPreview()
             QVERIFY(track);
             QVERIFY(qAbs(start->mapToItem(track, {1, 3}).x() - .25 * track->width()) < .01);
             QVERIFY(qAbs(end->mapToItem(track, {1, 3}).x() - .75 * track->width()) < .01);
+            QSignalSpy committed(session.window, &QQuickWindow::frameSwapped);
+            session.window->update();
+            QTRY_VERIFY(!committed.isEmpty());
             const auto image = session.window->grabWindow();
             const auto ratio = image.width() / qreal(session.window->width());
             const auto inside = end->mapToScene({1, .5}) * ratio;
@@ -1029,5 +1033,37 @@ void ControlsUiTest::sourceControlRolesKeepOrdinaryActionsAndLargeFormsDistinct(
             }
         }
     }
+    QCOMPARE(warnings.size(), 0);
+}
+
+void ControlsUiTest::viewPoolResetIsCanceledWithOwner()
+{
+    ControlsSession session;
+    QVERIFY(session.create());
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+Item {
+ property var rows: ["before"]
+ width: 200; height: 100
+ ListView {
+  id: view
+  anchors.fill: parent
+  model: parent.rows
+  reuseItems: true
+  EchoViewPoolGuard { targetView: view }
+  delegate: Text { required property string modelData; text: modelData }
+ }
+})",
+                      QUrl());
+    QScopedPointer<QObject> owner(component.create());
+    QVERIFY2(owner, qPrintable(component.errorString()));
+    qobject_cast<QQuickItem *>(owner.data())->setParentItem(session.window->contentItem());
+    owner->setProperty("rows", QStringList{"after"});
+    // Retire before the deferred model-reset turn; work must share the owner lifetime.
+    owner.reset();
+    QTest::qWait(20);
     QCOMPARE(warnings.size(), 0);
 }

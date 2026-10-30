@@ -59,10 +59,11 @@ Item {
         resourceActive: background.opacity > 0
     }
     Loader {
+        id: extensionGradient
         width: parent.width
         height: parent.height * ((Theme.store.extensionAppearance.accentGradient || {}).height || 70) / 100
         opacity: (Theme.store.extensionAppearance.accentGradient || {}).opacity === undefined ? 1 : Theme.store.extensionAppearance.accentGradient.opacity
-        active: background.visible && background.opacity > 0 && background.Window.window !== null && background.Window.window.visible && background.Window.window.visibility !== Window.Minimized && Object.keys(Theme.store.extensionAppearance.accentGradient || {}).length > 0
+        active: background.visible && background.opacity > 0 && background.Window.window !== null && background.Window.window.visible && background.Window.window.visibility !== Window.Minimized && Object.keys(Theme.store.extensionAppearance.accentGradient || {}).length > 0 && extensionGradient.opacity > 0
         sourceComponent: ExtensionGradient {
             recipe: Theme.store.extensionAppearance.accentGradient || {}
         }

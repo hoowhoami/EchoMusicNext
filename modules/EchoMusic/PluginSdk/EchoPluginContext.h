@@ -16,6 +16,7 @@
 #include "EchoPluginUi.h"
 #include "EchoPluginHost.h"
 #include "EchoPluginCover.h"
+#include "EchoPluginAppIcons.h"
 #include "EchoPluginIo.h"
 #include "EchoPluginSqlite.h"
 #include "EchoPluginBackups.h"
@@ -50,6 +51,7 @@ class SidebarLayoutModel;
 class ShortcutService;
 class VerificationService;
 class BackupHost;
+class AppIconService;
 class FloatingPlayerController;
 struct PluginHost
 {
@@ -68,6 +70,7 @@ struct PluginHost
     PluginPermissionStore *permissions = nullptr;
     std::function<void(QQuickWindow *)> attachPluginWindow = {};
     ShellSettings *settings = nullptr;
+    AppIconService *appIcons = nullptr;
 };
 /// One activation's GUI-thread scope. No raw host object is exposed to JS/QML.
 /// beginRetire invalidates delivery before cleanup, then waits for SQL drain.
@@ -81,6 +84,7 @@ class EchoPluginContext final : public QObject
     Q_PROPERTY(EchoMusic::EchoPluginFonts *fonts READ fonts CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginWindows *windows READ windows CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginCover *cover READ cover CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginAppIcons *appIcons READ appIcons CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginSettings *settings READ settings CONSTANT)
     Q_PROPERTY(QString id READ id CONSTANT)
     Q_PROPERTY(QString installationId READ installationId CONSTANT)
@@ -256,6 +260,10 @@ public:
                                           QPointer<EchoPluginRegistration> lease,
                                           const QVariantMap &arguments,
                                           bool reportRejection = false);
+    EchoPluginAppIcons *appIcons() const
+    {
+        return m_appIcons;
+    }
     EchoPluginCover *cover() const
     {
         return m_cover;
@@ -345,6 +353,7 @@ private:
     EchoPluginFiles *m_files = nullptr;
     EchoPluginDownloads *m_downloads = nullptr;
     EchoPluginLyrics *m_lyrics;
+    EchoPluginAppIcons *m_appIcons = nullptr;
     EchoPluginCover *m_cover;
     EchoPluginSettings *m_settings;
     EchoPluginUi *m_ui;

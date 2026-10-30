@@ -792,7 +792,7 @@ pub unsafe extern "C" fn echo_audio_stall_timeout(audio: *mut EchoAudio, seconds
 /// Borrowed UTF-8 path and result live only until this call returns; no engine
 /// singleton or playback resource is created and no upstream request is sent.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn echo_audio_inspect_upload_file(
+pub unsafe extern "C" fn echo_audio_read_file_metadata(
     path: *const u8,
     path_len: usize,
     callback: EchoCallback,
@@ -805,7 +805,7 @@ pub unsafe extern "C" fn echo_audio_inspect_upload_file(
         let Ok(path) = std::str::from_utf8(unsafe { slice::from_raw_parts(path, path_len) }) else {
             return false;
         };
-        let Ok(value) = echo_audio::embedded_metadata::inspect_upload_file(path) else {
+        let Ok(value) = echo_audio::embedded_metadata::read_file_metadata(path) else {
             return false;
         };
         let Ok(bytes) = serde_json::to_vec(&value) else {

@@ -32,6 +32,7 @@ class FloatingLyricPreferences final : public QObject
 public:
     FloatingLyricPreferences(EchoMusic::SettingsStore &settings, bool desktop,
                              QObject *parent = nullptr);
+    bool patch(const QVariantMap &values);
     bool alwaysOnTop() const
     {
         return m_alwaysOnTop;

@@ -51,6 +51,8 @@ public:
     Q_INVOKABLE EchoMusic::EchoPluginWindow *get(const QString &id);
     Q_INVOKABLE EchoMusic::EchoPluginOperation *show(const QString &id,
                                                      const QVariantMap &options = {});
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *
+    onSnapshot(const QString &id, const QJSValue &callback, bool immediate = true);
     QVariantMap snapshot() const;
     Q_INVOKABLE EchoMusic::EchoPluginOperation *
     command(const QString &target, const QString &action, const QVariantMap &arguments = {});
