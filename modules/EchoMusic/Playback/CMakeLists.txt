@@ -32,7 +32,7 @@ qt_add_qml_module(
     PlaybackBlurredBackground.qml
     BackgroundArtwork.qml
     PlaybackAlbumCover.qml
-    CoverLyricViewport.qml
+    PlaybackLyricViewport.qml
     LyricColors.qml
     FloatingLyricViewport.qml
     FloatingLyricContent.qml

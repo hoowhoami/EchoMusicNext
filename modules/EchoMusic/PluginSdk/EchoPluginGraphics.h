@@ -4,9 +4,12 @@
 #include <QVariantMap>
 #include <QPointer>
 #include <QHash>
+#include <QMutex>
 #include <memory>
 #include <atomic>
 #include <functional>
+#include <QSize>
+class QQuickItem;
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
 {
@@ -42,6 +45,15 @@ struct GpuMemoryBudget
         readbacks{32ll * 1024 * 1024}, submissions{64ll * 1024 * 1024};
     std::atomic<int> objects = 0, surfaces = 0, pendingSubmissions = 0;
 };
+struct NativeGpuResource;
+struct GpuSharedResourceState
+{
+    std::atomic<bool> active{true};
+    std::atomic<qint64> generation{0};
+    QMutex mutex;
+    void *device = nullptr, *thread = nullptr;
+    std::weak_ptr<NativeGpuResource> native;
+};
 struct GpuResourceDescription
 {
     QString kind;
@@ -49,6 +61,20 @@ struct GpuResourceDescription
     QByteArray data;
     quint64 revision = 1;
     qint64 allocationBytes = 0;
+    std::shared_ptr<GpuSharedResourceState> shared;
+    std::shared_ptr<std::atomic<bool>> lease;
+    bool imported = false, readOnly = false;
+    struct TextureSource
+    {
+        QPointer<QQuickItem> item;
+        std::atomic<bool> active{true}, ready{false};
+        std::atomic<qint64> generation{0};
+        std::atomic<int> readers{0};
+        // Accessed only by the source window's render thread.
+        quint64 handle = 0;
+        QSize extent;
+    };
+    std::shared_ptr<TextureSource> textureSource;
 };
 struct GpuSubmission
 {
@@ -70,6 +96,10 @@ class EchoGpuResource final : public QObject
     Q_PROPERTY(QString id READ id CONSTANT)
     Q_PROPERTY(QString kind READ kind CONSTANT)
     Q_PROPERTY(bool active READ active NOTIFY changed)
+    Q_PROPERTY(bool shared READ shared NOTIFY changed)
+    Q_PROPERTY(bool readOnly READ readOnly CONSTANT)
+    Q_PROPERTY(qint64 generation READ generation NOTIFY changed)
+    Q_PROPERTY(bool ready READ ready NOTIFY changed)
 public:
     QString id() const
     {
@@ -81,7 +111,26 @@ public:
     }
     bool active() const
     {
-        return m_active;
+        return m_active && (!m_imported || (m_source && m_source->active() &&
+                                            m_exportEpoch == m_source->m_exportEpoch));
+    }
+    bool shared() const
+    {
+        return !m_token.isEmpty() || m_imported;
+    }
+    bool readOnly() const
+    {
+        return m_description.readOnly;
+    }
+    qint64 generation() const
+    {
+        return m_description.textureSource ? m_description.textureSource->generation.load()
+               : m_description.shared      ? m_description.shared->generation.load()
+                                           : 0;
+    }
+    bool ready() const
+    {
+        return active() && (!m_description.textureSource || m_description.textureSource->ready);
     }
     Q_INVOKABLE void dispose();
 signals:
@@ -89,11 +138,15 @@ signals:
 
 private:
     friend class EchoPluginGraphics;
+    friend class EchoGpuSurface;
     EchoGpuResource(EchoPluginGraphics &owner, QString id, GpuResourceDescription description);
     EchoPluginGraphics &m_owner;
     QString m_id;
     GpuResourceDescription m_description;
-    bool m_active = true;
+    bool m_active = true, m_imported = false, m_exportWritable = false;
+    QPointer<EchoGpuResource> m_source;
+    QString m_token;
+    quint64 m_exportEpoch = 0;
 };
 /// GUI logical resources. QRhi objects never cross the plugin or GUI boundary.
 class EchoPluginGraphics final : public QObject
@@ -120,6 +173,11 @@ public:
     Q_INVOKABLE bool writeBuffer(EchoMusic::EchoGpuResource *resource, const QJSValue &data,
                                  int offset = 0);
     Q_INVOKABLE bool writeTexture(EchoMusic::EchoGpuResource *resource, const QJSValue &data);
+    Q_INVOKABLE QString shareResource(EchoMusic::EchoGpuResource *resource,
+                                      const QString &access = QStringLiteral("read"));
+    Q_INVOKABLE EchoMusic::EchoGpuResource *
+    importResource(const QString &token, const QString &access = QStringLiteral("read"));
+    Q_INVOKABLE bool revokeSharing(EchoMusic::EchoGpuResource *resource);
     bool active() const;
     bool drained() const;
     void shutdown();
@@ -146,12 +204,17 @@ signals:
 
 private:
     friend class EchoGpuResource;
-    EchoGpuResource *create(QString kind, QVariantMap definition, QByteArray data = {});
+    friend class EchoGpuSurface;
+    EchoGpuResource *
+    create(QString kind, QVariantMap definition, QByteArray data = {},
+           EchoGpuResource *source = nullptr, bool readOnly = false,
+           std::shared_ptr<GpuResourceDescription::TextureSource> textureSource = {});
     QByteArray shader(const QString &path, int stage);
     QByteArray bytes(const QJSValue &data, const QString &format, int maximum);
     void retire(EchoGpuResource &resource);
     EchoPluginContext &m_scope;
     QHash<QString, EchoGpuResource *> m_resources;
+    QHash<QString, QPointer<EchoGpuResource>> m_exports;
     QList<QPointer<EchoGpuSurface>> m_surfaces;
     QList<std::shared_ptr<GpuRenderState>> m_retiredStates;
     std::shared_ptr<GpuMemoryBudget> m_memory;

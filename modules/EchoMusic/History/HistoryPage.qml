@@ -52,6 +52,7 @@ RoutePage {
         anchors.fill: parent
         pageActive: page.pageActive
         scrollView: page.activeTab === "stats" ? statsView : songList.listView
+        coordinatedViews: [songList.listView, statsView]
         stickyHeaders: [header, toolbar]
         CatalogSongList {
             id: songList
@@ -61,7 +62,8 @@ RoutePage {
             actions: page.service.actions
             pageContainer: viewport
             contentInset: 24
-            topMargin: page.expandedHeaderHeight + page.toolbarHeight
+            // Tab changes do not change this view's normal-flow extent.
+            topMargin: page.expandedHeaderHeight + 56 + 44
             loading: page.service.loading && !page.service.songs.totalCount
             errorMessage: page.service.errorMessage
             menuSongId: page.menuSongId
@@ -85,7 +87,7 @@ RoutePage {
             height: parent.height
             visible: page.activeTab === "stats"
             // Content padding scrolls with the page body.
-            topMargin: page.expandedHeaderHeight + page.toolbarHeight + 20
+            topMargin: page.expandedHeaderHeight + 56 + 20
             bottomMargin: 48
             interactive: true
             boundsBehavior: Flickable.StopAtBounds

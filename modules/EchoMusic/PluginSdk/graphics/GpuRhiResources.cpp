@@ -48,6 +48,11 @@ GpuRenderState::~GpuRenderState()
 }
 void GpuRenderState::release()
 {
+    for (const auto &connections : textureSourceConnections)
+        for (const auto &connection : connections)
+            QObject::disconnect(connection);
+    textureSourceConnections.clear();
+    textureProviders.clear();
     if (!reads.empty() && rhi)
         rhi->finish();
     for (auto &read : reads) {
@@ -112,6 +117,8 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
     uploads.clear();
     qint64 wanted = 0;
     for (const auto &d : descriptions) {
+        if (d.shared)
+            continue;
         wanted += d.allocationBytes;
         if (d.kind == "buffer" && !d.definition.value("usage").toStringList().contains("uniform") &&
             rhi->isFeatureSupported(QRhi::Compute))
@@ -132,11 +139,13 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
     }
     // Depth belongs to the first color texture/layer/mip, charged until disposal.
     for (const auto &[id, resource] : resources)
-        if (descriptions.contains(id))
-            for (const auto &[level, depth] : resource.depths)
+        if (descriptions.contains(id) && !descriptions.value(id).shared)
+            for (const auto &[level, depth] : resource->depths)
                 if (depth)
                     depthTargets[id].insert(level);
     for (auto it = depthTargets.cbegin(); it != depthTargets.cend(); ++it) {
+        if (descriptions.value(it.key()).shared)
+            continue;
         const auto d = descriptions.value(it.key()).definition;
         for (const int key : it.value()) {
             const int level = key % 16;
@@ -172,10 +181,32 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
     for (auto it = descriptions.begin(); it != descriptions.end(); ++it) {
         const auto &d = it.value();
         auto [found, inserted] = resources.try_emplace(it.key());
-        auto &native = found->second;
+        if (d.shared && (!d.shared->active || (d.lease && !*d.lease))) {
+            error = "Shared GPU resource or import lease has retired";
+            return false;
+        }
         if (inserted) {
+            found->second = d.shared ? sharedAllocation(d) : std::make_shared<NativeGpuResource>();
+            if (!found->second) {
+                resources.erase(found);
+                return false;
+            }
+        }
+        auto &native = *found->second;
+        if (d.textureSource) {
+            if (!updateTextureSource(native, d, textureProviders.value(it.key()), updates,
+                                     topology))
+                return false;
+            continue;
+        }
+        if (inserted && native.ready)
+            topology = true;
+        if (inserted && !native.ready) {
             objects = int(resources.size()) + int(passes.size()) + bool(frameUniform);
             topology = true;
+            native.identity =
+                d.shared ? gpuDeviceId(rhi) + ":" + QString::number(quintptr(d.shared.get()))
+                         : it.key();
             native.kind = d.kind;
             native.definition = d.definition;
             if (d.kind == "buffer") {
@@ -296,7 +327,7 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
             error = "GPU allocation failed; recreate the resource";
             return false;
         }
-        if (d.revision != native.revision) {
+        if (d.revision != native.revision && (!d.readOnly || d.revision > native.revision)) {
             if (native.buffer) {
                 if (native.buffer->type() == QRhiBuffer::Dynamic)
                     updates->updateDynamicBuffer(native.buffer.get(), 0, d.data);
@@ -326,8 +357,10 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
             native.revision = d.revision;
         }
     }
-    if (topology)
+    if (topology) {
+        passes.clear();
         frameRevision = 0;
+    }
     objects = int(resources.size()) + int(passes.size()) + bool(frameUniform);
     return true;
 }
@@ -350,9 +383,9 @@ void GpuRenderState::readback(
                 bridge->complete(op, {}, "GPU resource retired before readback");
                 continue;
             }
-            texture = it->second.texture.get();
-            textureDefinition = it->second.definition;
-            buffer = it->second.buffer.get();
+            texture = it->second->texture.get();
+            textureDefinition = it->second->definition;
+            buffer = it->second->buffer.get();
         }
         if (buffer && (!rhi->isFeatureSupported(QRhi::ReadBackNonUniformBuffer) ||
                        buffer->type() == QRhiBuffer::Dynamic)) {

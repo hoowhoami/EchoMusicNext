@@ -16,6 +16,9 @@ Window {
     property int headerHeight: 60
     property int rowClicks: 0
     property int headerClicks: 0
+    function locate(index: int): void {
+        EchoListPositioning.positionIfNeeded(list, index, ListView.Center, page);
+    }
     function resizeHeader(height: int) {
         page.preservePosition(() => {
             headerHeight = height;

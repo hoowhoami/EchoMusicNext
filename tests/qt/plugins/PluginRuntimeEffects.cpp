@@ -42,7 +42,7 @@ import QtQuick.Controls.Basic
 import EchoMusic.Playback
 import EchoMusic.Theme
 ApplicationWindow {id:win;required property PlaybackService playback; width:1100;height:800;visible:true;
-CoverLyricViewport {colors:Theme.colors;playback:win.playback;width:550;height:700;renderTime:1500;resourceActive:true}
+PlaybackLyricViewport {colors:Theme.colors;playback:win.playback;width:550;height:700;renderTime:1500;resourceActive:true}
 FloatingLyricViewport {x:580;y:100;width:450;height:250;playback:win.playback;resourceActive:true;renderTime:1500}
 })",
                                   {{"playback", QVariant::fromValue(&host.playback)}});

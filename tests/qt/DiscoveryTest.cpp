@@ -1309,7 +1309,12 @@ Window {
                              firstName->property("resourceId").toString());
                     QVERIFY(firstName->property("resourceId").toString().toInt() >= 21);
                     peakNames = qMax(peakNames, countVisual(view, "artistNameEntry"));
-                    QVERIFY(peakNames > 0 && peakNames < 150);
+                    QVERIFY2(peakNames > 0 && peakNames < 150,
+                             qPrintable(QString("names=%1 width=%2 scale=%3 dark=%4")
+                                            .arg(peakNames)
+                                            .arg(width)
+                                            .arg(scale)
+                                            .arg(dark)));
                     if (!artifacts.isEmpty())
                         QVERIFY(
                             window->grabWindow().save(artifacts + QString("/names-%1-%2-w%3.png")

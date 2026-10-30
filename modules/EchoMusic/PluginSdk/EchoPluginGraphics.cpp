@@ -2,6 +2,7 @@
 #include "EchoGpuSurface.h"
 #include "graphics/GpuRhi_p.h"
 #include "graphics/GpuTextureLayout_p.h"
+#include "graphics/GpuVertexLayout_p.h"
 #include <QQuickWindow>
 #include "EchoPluginContext.h"
 #include <QFile>
@@ -19,11 +20,11 @@ namespace
 constexpr qint64 budget = 64ll * 1024 * 1024;
 int elementSize(const QString &format)
 {
-    if (format == "uint8")
+    if (format == "uint8" || format == "int8")
         return 1;
-    if (format == "uint16" || format == "float16")
+    if (format == "uint16" || format == "int16" || format == "float16")
         return 2;
-    if (format == "float32" || format == "uint32")
+    if (format == "float32" || format == "uint32" || format == "int32")
         return 4;
     return 0;
 }
@@ -43,6 +44,8 @@ bool keys(const QVariantMap &map, const QStringList &allowed)
 }
 qint64 cost(const GpuResourceDescription &d)
 {
+    if (d.imported || d.textureSource)
+        return 0;
     if (d.kind == "buffer")
         return d.definition.value("size").toLongLong();
     if (d.kind == "texture") {
@@ -145,6 +148,8 @@ QVariantMap EchoPluginGraphics::capabilities() const
                                    {"surfacePixels", 8 * 1024 * 1024},
                                    {"passes", 32},
                                    {"drawVertices", 1000000},
+                                   {"vertexStreams", 16},
+                                   {"vertexAttributes", 16},
                                    {"indirectCommands", 256},
                                    {"computeInvocations", 64000000},
                                    {"submissionBytes", m_memory->submissions.limit},
@@ -195,7 +200,15 @@ QByteArray EchoPluginGraphics::bytes(const QJSValue &value, const QString &forma
     for (int i = 0; i < length.toInt(); ++i) {
         const auto item = value.property(quint32(i));
         const double n = item.toNumber();
-        if (!item.isNumber() || !std::isfinite(n) ||
+        const double signedMinimum = format == "int8"    ? -128.
+                                     : format == "int16" ? -32768.
+                                                         : -2147483648.;
+        const double signedMaximum = format == "int8"    ? 127.
+                                     : format == "int16" ? 32767.
+                                                         : 2147483647.;
+        if ((format.startsWith("int") &&
+             (n < signedMinimum || n > signedMaximum || n != std::floor(n))) ||
+            !item.isNumber() || !std::isfinite(n) ||
             (format == "float16" && std::abs(n) > 65504.) ||
             (format == "float32" && std::abs(n) > 3.402823466e38) ||
             (format.startsWith("uint") && (n < 0 || n != std::floor(n) ||
@@ -206,7 +219,16 @@ QByteArray EchoPluginGraphics::bytes(const QJSValue &value, const QString &forma
             return {};
         }
         char *out = result.data() + i * stride;
-        if (format == "float32") {
+        if (format == "int32") {
+            const qint32 v = qint32(n);
+            std::memcpy(out, &v, 4);
+        } else if (format == "int16") {
+            const qint16 v = qint16(n);
+            std::memcpy(out, &v, 2);
+        } else if (format == "int8") {
+            const qint8 v = qint8(n);
+            std::memcpy(out, &v, 1);
+        } else if (format == "float32") {
             const float v = float(n);
             std::memcpy(out, &v, 4);
         } else if (format == "float16") {
@@ -256,25 +278,58 @@ QByteArray EchoPluginGraphics::shader(const QString &relative, int stage)
     }
     return result;
 }
-EchoGpuResource *EchoPluginGraphics::create(QString kind, QVariantMap definition, QByteArray data)
+EchoGpuResource *
+EchoPluginGraphics::create(QString kind, QVariantMap definition, QByteArray data,
+                           EchoGpuResource *source, bool readOnly,
+                           std::shared_ptr<GpuResourceDescription::TextureSource> textureSource)
 {
     if (!active()) {
         fail("Graphics capability is missing or its scope has retired");
         return nullptr;
     }
-    GpuResourceDescription d{kind, std::move(definition), std::move(data), 1};
+    GpuResourceDescription d;
+    d.kind = std::move(kind);
+    d.definition = std::move(definition);
+    d.data = std::move(data);
+    d.imported = source != nullptr;
+    d.readOnly = readOnly;
+    d.textureSource = std::move(textureSource);
+    if (source) {
+        d.shared = source->m_description.shared;
+        d.lease = std::make_shared<std::atomic<bool>>(true);
+    } else if (!d.textureSource &&
+               (d.kind == "texture" ||
+                (d.kind == "buffer" &&
+                 !d.definition.value("usage").toStringList().contains("uniform"))))
+        d.shared = std::make_shared<GpuSharedResourceState>();
     auto *root = m_scope.activationContext()->graphics();
     const auto used = root == this ? m_bytes : root->m_bytes;
     if (m_memory->objects >= 256 || cost(d) > budget - used) {
         fail("Plugin GPU resource budget exceeded (64 MiB)");
         return nullptr;
     }
-    d.allocationBytes = cost(d);
+    d.allocationBytes = source ? source->m_description.allocationBytes : cost(d);
     auto *resource =
         new EchoGpuResource(*this,
                             m_scope.id() + ":" + m_scope.activationGeneration() + ":" +
                                 m_scope.contextId() + ".gpu." + QString::number(++m_sequence),
                             std::move(d));
+    if (source) {
+        resource->m_description.data.clear();
+        resource->m_source = source;
+        resource->m_imported = true;
+        resource->m_exportEpoch = source->m_exportEpoch;
+        connect(source, &EchoGpuResource::changed, resource, [resource] {
+            if (!resource->active())
+                resource->dispose();
+            else
+                emit resource->changed();
+        });
+        connect(source, &QObject::destroyed, resource, [resource] { resource->dispose(); });
+        connect(&source->m_owner, &EchoPluginGraphics::resourcesChanged, resource,
+                [this] { emit resourcesChanged(); });
+    }
+    connect(this, &EchoPluginGraphics::changed, resource, &EchoGpuResource::changed);
     ++m_memory->objects;
     QObject::connect(resource, &QObject::destroyed, [memory = m_memory] { --memory->objects; });
     QQmlEngine::setObjectOwnership(resource, QQmlEngine::CppOwnership);
@@ -283,9 +338,13 @@ EchoGpuResource *EchoPluginGraphics::create(QString kind, QVariantMap definition
     if (root != this)
         root->m_bytes += cost(resource->m_description);
     m_error.clear();
+    QPointer<EchoPluginGraphics> alive(this);
+    QPointer<EchoGpuResource> retained(resource);
     emit changed();
+    if (!alive || !retained)
+        return nullptr;
     emit resourcesChanged();
-    return resource;
+    return retained;
 }
 EchoGpuResource *EchoPluginGraphics::createBuffer(const QVariantMap &input, const QJSValue &data)
 {
@@ -465,6 +524,15 @@ EchoGpuResource *EchoPluginGraphics::createRenderPipeline(const QVariantMap &inp
                 return nullptr;
             }
     }
+    if (d.contains("vertexLayout")) {
+        auto layout = d.value("vertexLayout").toMap();
+        QString error;
+        if (!gpuNormalizeVertexLayout(layout, error)) {
+            fail(error);
+            return nullptr;
+        }
+        d["vertexLayout"] = layout;
+    }
     return create("render-pipeline", d);
 }
 EchoGpuResource *EchoPluginGraphics::createComputePipeline(const QVariantMap &input)
@@ -488,6 +556,11 @@ bool EchoPluginGraphics::writeBuffer(EchoGpuResource *resource, const QJSValue &
     if (!active() || !resource || &resource->m_owner != this || !resource->active() ||
         resource->kind() != "buffer" || offset < 0 || offset % 4)
         return fail("Invalid or retired GPU buffer");
+    if (resource->m_imported) {
+        if (resource->readOnly())
+            return fail("Shared resource lease is read-only");
+        return resource->m_source->m_owner.writeBuffer(resource->m_source, data, offset);
+    }
     auto &d = resource->m_description;
     const auto size = d.definition.value("size").toInt();
     if (offset > size)
@@ -507,6 +580,11 @@ bool EchoPluginGraphics::writeTexture(EchoGpuResource *resource, const QJSValue 
     if (!active() || !resource || &resource->m_owner != this || !resource->active() ||
         resource->kind() != "texture")
         return fail("Invalid or retired GPU texture");
+    if (resource->m_imported) {
+        if (resource->readOnly())
+            return fail("Shared resource lease is read-only");
+        return resource->m_source->m_owner.writeTexture(resource->m_source, data);
+    }
     auto &d = resource->m_description;
     const auto f = d.definition.value("format").toString();
     m_error.clear();
@@ -529,8 +607,25 @@ bool EchoPluginGraphics::writeTexture(EchoGpuResource *resource, const QJSValue 
 }
 void EchoPluginGraphics::retire(EchoGpuResource &resource)
 {
+    if (!resource.m_active)
+        return;
     resource.m_active = false;
+    if (resource.m_description.textureSource) {
+        resource.m_description.textureSource->active = false;
+        resource.m_description.textureSource->ready = false;
+    }
     m_resources.remove(resource.id());
+    if (!resource.m_imported) {
+        revokeSharing(&resource);
+        if (resource.m_description.shared)
+            resource.m_description.shared->active = false;
+    }
+    if (resource.m_description.lease)
+        *resource.m_description.lease = false;
+    const auto surfaces = m_surfaces;
+    for (auto surface : surfaces)
+        if (surface)
+            surface->retireResource(resource.id());
     const auto size = cost(resource.m_description);
     m_bytes -= size;
     auto *root = m_scope.activationContext()->graphics();
@@ -548,8 +643,14 @@ QHash<QString, GpuResourceDescription> EchoPluginGraphics::descriptions() const
     QHash<QString, GpuResourceDescription> result;
     if (active())
         for (auto *r : m_resources)
-            if (r->active())
-                result.insert(r->id(), r->m_description);
+            if (r->active()) {
+                auto d = r->m_description;
+                if (r->m_imported && r->m_source) {
+                    d.data = r->m_source->m_description.data;
+                    d.revision = r->m_source->m_description.revision;
+                }
+                result.insert(r->id(), std::move(d));
+            }
     return result;
 }
 bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error) const
@@ -617,15 +718,19 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
             if (!pass.contains("colorTargets") && pass.value("target", "surface") != "surface")
                 targets.append(QVariantMap{{"texture", pass.value("target")}});
             QSet<QString> textures;
+            QSet<GpuSharedResourceState *> allocations;
             QSize extent;
             for (const auto &value : targets) {
                 const auto view = value.toMap();
                 const auto id = view.value("texture").toString();
                 const auto *r = m_resources.value(id);
                 if (!keys(view, {"texture", "level", "layer"}) || !r || r->kind() != "texture" ||
+                    r->readOnly() ||
                     !r->m_description.definition.value("usage").toStringList().contains(
                         "render-target") ||
-                    textures.contains(id)) {
+                    textures.contains(id) ||
+                    (r && r->m_description.shared &&
+                     allocations.contains(r->m_description.shared.get()))) {
                     error = "Color targets require distinct live render-target textures";
                     return false;
                 }
@@ -649,6 +754,8 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
                     return false;
                 }
                 textures.insert(id);
+                if (r->m_description.shared)
+                    allocations.insert(r->m_description.shared.get());
                 extent = size;
             }
             const auto blends = pipeline->m_description.definition.value("blends").toList();
@@ -672,6 +779,13 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
                 !QStringList{"read", "write", "read-write"}.contains(
                     b.value("access", "read").toString())) {
                 error = "Invalid binding fields";
+                return false;
+            }
+            const auto *boundResource = m_resources.value(b.value("resource").toString());
+            if (boundResource && boundResource->readOnly() &&
+                b.value("kind").toString().startsWith("storage-") &&
+                b.value("access", "read") != "read") {
+                error = "Shared resource lease is read-only";
                 return false;
             }
             const auto index = b.value("binding");
@@ -766,7 +880,7 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
                 const bool indirect = d.contains("indirect");
                 if (!keys(d, {"count", "first", "instances", "vertexBuffer", "vertexOffset",
                               "indexBuffer", "indexFormat", "baseVertex", "firstInstance",
-                              "indirect"}) ||
+                              "indirect", "vertexBuffers"}) ||
                     !integer(d.value("first", 0), 0, 1000000) ||
                     !integer(d.value("baseVertex", 0), -1000000, 1000000) ||
                     !integer(d.value("firstInstance", 0), 0, 1000000) ||
@@ -814,6 +928,33 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
                 if (commands > 256) {
                     error = "Render pass exceeds its 256 draw command budget";
                     return false;
+                }
+                if (d.contains("vertexBuffers") &&
+                    (d.contains("vertexBuffer") || d.contains("vertexOffset"))) {
+                    error = "Use vertexBuffers or the single-buffer fields";
+                    return false;
+                }
+                const auto streams = gpuDrawStreams(d);
+                if (streams.size() != pipeline->m_description.definition.value("vertexLayout")
+                                          .toMap()
+                                          .value("bindings")
+                                          .toList()
+                                          .size()) {
+                    error = "Draw stream count differs from pipeline";
+                    return false;
+                }
+                for (const auto &value : streams) {
+                    const auto b = value.toMap();
+                    const auto *r = m_resources.value(b.value("buffer").toString());
+                    if (!keys(b, {"buffer", "offset"}) || !r || r->kind() != "buffer" ||
+                        !r->m_description.definition.value("usage").toStringList().contains(
+                            "vertex") ||
+                        !integer(b.value("offset", 0), 0,
+                                 r->m_description.definition.value("size").toInt()) ||
+                        b.value("offset", 0).toInt() % 4) {
+                        error = "Invalid vertex stream owner, usage or offset";
+                        return false;
+                    }
                 }
                 for (const auto &key : {"vertexBuffer", "indexBuffer"})
                     if (d.contains(key)) {

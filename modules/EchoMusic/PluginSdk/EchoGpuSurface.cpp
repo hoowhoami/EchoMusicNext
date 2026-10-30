@@ -74,6 +74,7 @@ EchoGpuSurface::EchoGpuSurface(QQuickItem *parent) : QQuickRhiItem(parent)
 }
 EchoGpuSurface::~EchoGpuSurface()
 {
+    retireTextureSources();
     // QQuickItem detaches from its window after derived members are destroyed.
     // Its signals must no longer reach callbacks which access those members.
     for (const auto &connection : m_itemConnections)
@@ -97,6 +98,7 @@ void EchoGpuSurface::setGraphics(EchoPluginGraphics *value)
 {
     if (m_graphics == value)
         return;
+    retireTextureSources();
     releaseTarget();
     releaseNative();
     if (m_graphics) {
@@ -273,8 +275,10 @@ void EchoGpuSurface::releaseTarget()
 }
 void EchoGpuSurface::releaseNative()
 {
-    const auto requests = std::exchange(m_readbacks, {});
-    for (const auto &weak : m_inflight)
+    m_readbacks.clear();
+    const auto requests = m_activeReadbacks;
+    const auto submissions = m_inflight;
+    for (const auto &weak : submissions)
         if (auto pending = weak.lock()) {
             pending->canceled = true;
             if (pending->operation)
@@ -314,6 +318,7 @@ void EchoGpuSurface::retire()
     if (m_retired)
         return;
     m_retired = true;
+    retireTextureSources();
     m_frame.clear();
     m_status["state"] = "suspended";
     m_status["available"] = false;
@@ -360,8 +365,13 @@ EchoPluginOperation *EchoGpuSurface::enqueue(const QVariantMap &commands)
     }
     submission->resources = m_graphics->descriptions();
     qint64 bytes = 0;
-    for (const auto &resource : submission->resources)
-        bytes += resource.allocationBytes;
+    QSet<GpuSharedResourceState *> sharedSnapshots;
+    for (const auto &resource : submission->resources) {
+        if (!resource.shared || !sharedSnapshots.contains(resource.shared.get()))
+            bytes += resource.allocationBytes;
+        if (resource.shared)
+            sharedSnapshots.insert(resource.shared.get());
+    }
     for (const auto &value : submission->frame.value("passes").toList())
         bytes += value.toMap().value("data").toByteArray().size();
     auto budget = m_graphics->memoryBudget();
@@ -397,6 +407,21 @@ EchoPluginOperation *EchoGpuSurface::enqueue(const QVariantMap &commands)
     requestFrame();
     return op;
 }
+void EchoGpuSurface::retireResource(const QString &id)
+{
+    const auto submissions = m_inflight;
+    for (const auto &weak : submissions)
+        if (auto pending = weak.lock(); pending && pending->resources.contains(id)) {
+            pending->canceled = true;
+            if (pending->operation && !pending->operation->finished())
+                pending->operation->cancel();
+        }
+    const auto reads = m_activeReadbacks;
+    for (const auto &request : reads)
+        if (request.first == id && request.second && !request.second->finished())
+            request.second->cancel();
+    requestFrame();
+}
 void EchoGpuSurface::requestFrame()
 {
     if (live() && (!m_continuous || !m_clock.isActive()))
@@ -410,7 +435,8 @@ EchoPluginOperation *EchoGpuSurface::readback(EchoGpuResource *resource, const Q
     if (op->finished())
         return op;
     op->start();
-    if (!live() || m_readbacks.size() >= 8 ||
+    if (!live() || m_activeReadbacks.size() >= 8 ||
+        (resource && resource->m_description.textureSource) ||
         (resource && (!resource->active() || !m_graphics->descriptions().contains(resource->id()) ||
                       (resource->kind() != "buffer" && resource->kind() != "texture")))) {
         op->fail("InvalidResource", "Surface is inactive or resource is unavailable");
@@ -430,6 +456,14 @@ EchoPluginOperation *EchoGpuSurface::readback(EchoGpuResource *resource, const Q
     }
     auto request = options;
     request["resource"] = resource ? resource->id() : QString();
+    m_activeReadbacks.append({request.value("resource").toString(), op});
+    const auto removeRead = [this, op] {
+        m_activeReadbacks.removeIf(
+            [op](const auto &read) { return !read.second || read.second == op; });
+        m_readbacks.removeIf([op](const auto &read) { return !read.second || read.second == op; });
+    };
+    connect(op, &EchoPluginOperation::completed, this, removeRead);
+    connect(op, &QObject::destroyed, this, removeRead);
     m_readbacks.append({request, op});
     QTimer::singleShot(5000, op, [op] {
         if (!op->finished())

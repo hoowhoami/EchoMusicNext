@@ -38,6 +38,11 @@ EchoWheelForwarder {
     }
     property Flickable scrollView: null
     property bool pageActive: true
+    // Asynchronous table extents opt out of clamping until their first measured
+    // body is available. Extent readiness resumes the existing owned restore.
+    property bool extentReady: true
+    onExtentReadyChanged: if (extentReady)
+        scheduleRestore()
     property bool hideScrollbar: false
     property bool hideBackToTop: false
     property real backToTopThreshold: 300
@@ -71,6 +76,7 @@ EchoWheelForwarder {
         return Math.max(0, Math.min(height, bottom));
     }
     signal scrolled
+    signal positionCommitted
     clip: true
     wheelView: scrollView
     forwardOutsideViewOnly: true
@@ -99,7 +105,7 @@ EchoWheelForwarder {
         return Math.max(firstY(view), view.originY + view.contentHeight - view.height + view.bottomMargin);
     }
     function capturePosition() {
-        if (!pageActive || state.adjusting || !scrollView)
+        if (!pageActive || !extentReady || state.adjusting || state.restoringView || !scrollView || state.boundView !== scrollView)
             return;
         // Signal handlers can run before the derived scrollTop binding updates.
         // Read the source properties to avoid caching the preceding frame.
@@ -110,16 +116,28 @@ EchoWheelForwarder {
         scrolled();
     }
     function restorePosition() {
-        if (!pageActive || !scrollView || state.adjusting)
+        if (!pageActive || !extentReady || !scrollView || state.adjusting)
             return;
         // Extent changes (e.g. a responsive sidebar animation) can schedule a
         // restore during user movement. Qt owns that movement and its bounds;
         // refreshing the cache must not overwrite/cancel the active timeline.
         if (scrollView.moving || scrollView.EchoWheelScroll.running) {
+            state.restoringView = false;
             capturePosition();
             return;
         }
         state.adjusting = true;
+        // A previously hidden virtual view may still expose its old extent.
+        // Flush only native list/grid layout after the view-swap transaction;
+        // TableView retains its own asynchronous incubation/layout lifecycle.
+        if (state.restoringView) {
+            const list = scrollView as ListView;
+            const grid = scrollView as GridView;
+            if (list)
+                list.forceLayout();
+            else if (grid)
+                grid.forceLayout();
+        }
         const offset = isCoordinated(scrollView) ? state.groupOffset : state.independentOffset;
         const position = Math.max(firstY(scrollView), Math.min(lastY(scrollView), firstY(scrollView) + offset));
         // Qt's setContentY resets its movement timeline even for the same
@@ -127,6 +145,7 @@ EchoWheelForwarder {
         if (Math.abs(scrollView.contentY - position) > 0.001)
             scrollView.contentY = position;
         state.adjusting = false;
+        state.restoringView = false;
         capturePosition();
     }
     function scheduleRestore() {
@@ -155,15 +174,25 @@ EchoWheelForwarder {
         } finally {
             state.adjusting = false;
         }
+        state.restoringView = false;
         capturePosition();
         scheduleRestore();
+    }
+    // Explicit native positioning (locate/back-to-top) wins over a pending
+    // view restore just like scrollTo; ordinary layout notifications do not.
+    function commitPosition(): void {
+        state.restoringView = false;
+        capturePosition();
+        positionCommitted();
     }
     function scrollTo(position: real) {
         if (!pageActive || !scrollView)
             return;
+        state.restoringView = false;
         scrollView.cancelFlick();
         scrollView.contentY = Math.max(firstY(scrollView), Math.min(lastY(scrollView), firstY(scrollView) + position));
         capturePosition();
+        positionCommitted();
     }
     function scrollBy(distance: real) {
         if (scrollView)
@@ -171,6 +200,7 @@ EchoWheelForwarder {
     }
     function resetPosition() {
         state.adjusting = true;
+        state.restoringView = false;
         state.groupOffset = 0;
         state.independentOffset = 0;
         for (const view of coordinatedViews) {
@@ -191,13 +221,24 @@ EchoWheelForwarder {
     onScrollViewChanged: {
         // A fresh ListView may still report contentY=0 before laying out its
         // positive topMargin. That is not a user scroll; initial offset is zero.
-        const hadView = state.boundView !== null;
-        if (state.boundView && state.boundView !== scrollView)
-            state.boundView.cancelFlick();
-        state.boundView = scrollView;
-        // Switching to a non-coordinated view does not consume the results cache.
-        if (hadView && pageActive && scrollView && !isCoordinated(scrollView))
-            state.independentOffset = viewOffset(scrollView);
+        const hadView = state.hasBoundView;
+        const wasAdjusting = state.adjusting;
+        state.adjusting = true;
+        state.restoringView = hadView;
+        if (scrollView)
+            state.hasBoundView = true;
+        try {
+            if (state.boundView && state.boundView !== scrollView)
+                state.boundView.cancelFlick();
+            state.boundView = scrollView;
+            // Switching to a non-coordinated view does not consume the results cache.
+            if (hadView && pageActive && scrollView && !isCoordinated(scrollView))
+                state.independentOffset = viewOffset(scrollView);
+        } finally {
+            state.adjusting = wasAdjusting;
+        }
+        // Destruction, model attachment and initial fixups can emit contentY
+        // before this deferred restore. They must not overwrite the saved offset.
         scheduleRestore();
     }
     onPageActiveChanged: {
@@ -218,6 +259,8 @@ EchoWheelForwarder {
         QtObject {
             id: state
             property bool adjusting: false
+            property bool restoringView: false
+            property bool hasBoundView: false
             property Flickable boundView: null
             property real groupOffset: 0
             property real independentOffset: 0
@@ -276,7 +319,7 @@ EchoWheelForwarder {
             scrollView: page.scrollView
             viewActive: page.pageActive && !page.hideBackToTop
             threshold: page.backToTopThreshold
-            onReturnedToTop: page.capturePosition()
+            onReturnedToTop: page.commitPosition()
         },
         Connections {
             target: page.scrollView

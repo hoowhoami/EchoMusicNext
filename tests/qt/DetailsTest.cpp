@@ -1476,6 +1476,21 @@ Window {
         QVERIFY(!visual(window->contentItem(), "floorReplyComposer"));
         auto *commentList = visual(window->contentItem(), "commentsList");
         QVERIFY(commentList);
+        auto *songViewport =
+            commentList->parentItem()->property("pageContainer").value<QObject *>();
+        QVERIFY(songViewport);
+        QVERIFY(QMetaObject::invokeMethod(songViewport, "scrollTo", Q_ARG(double, 0.)));
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            auto query = router.current()->query();
+            query["tab"] = "detail";
+            router.replaceQuery(query);
+            QTest::qWait(40);
+            QTRY_COMPARE_WITH_TIMEOUT(songViewport->property("scrollTop").toReal(), 0., 1000);
+            query["tab"] = "comment";
+            router.replaceQuery(query);
+            QTest::qWait(40);
+            QTRY_COMPARE_WITH_TIMEOUT(songViewport->property("scrollTop").toReal(), 0., 1000);
+        }
         const auto commentControl = [&](const QString &name) {
             auto *container = qobject_cast<QQuickItem *>(
                 commentList->parentItem()->property("pageContainer").value<QObject *>());
@@ -1689,6 +1704,40 @@ Window {
                                                                       .arg(scale)));
                 }
             shell.resetZoom();
+            auto *viewport = catalog->property("pageContainer").value<QObject *>();
+            QVERIFY(viewport);
+            for (int count : {0, 3, 80}) {
+                QJsonArray rows;
+                for (int i = 1; i <= count; ++i)
+                    rows.append(QJsonObject{{"id", QString::number(i)},
+                                            {"title", "Song " + QString::number(i)}});
+                songs->replaceSongs(rows);
+                for (int height : {500, 800}) {
+                    window->resize(1150, height);
+                    QVERIFY(QMetaObject::invokeMethod(viewport, "scrollTo", Q_ARG(double, 0.)));
+                    for (int cycle = 0; cycle < 3; ++cycle) {
+                        router.replaceQuery({{"tab", "songs"}});
+                        QTest::qWait(40);
+                        QTRY_COMPARE_WITH_TIMEOUT(catalog->property("scrollTop").toReal(), 0.,
+                                                  1000);
+                        router.replaceQuery({{"tab", "comments"}});
+                        QTest::qWait(40);
+                        QTRY_COMPARE_WITH_TIMEOUT(catalog->property("scrollTop").toReal(), 0.,
+                                                  1000);
+                    }
+                }
+                if (count == 80) {
+                    QVERIFY(QMetaObject::invokeMethod(viewport, "scrollTo", Q_ARG(double, 120.)));
+                    QTRY_COMPARE(catalog->property("scrollTop").toReal(), 120.);
+                    router.replaceQuery({{"tab", "songs"}});
+                    QTest::qWait(80);
+                    QTRY_COMPARE_WITH_TIMEOUT(catalog->property("scrollTop").toReal(), 120., 1000);
+                    router.replaceQuery({{"tab", "comments"}});
+                    QTest::qWait(80);
+                    QTRY_COMPARE_WITH_TIMEOUT(catalog->property("scrollTop").toReal(), 120., 1000);
+                }
+            }
+            window->resize(1150, 800);
         }
         QVERIFY(router.navigate("mv-detail", {}, "33958"));
         auto *mv = service.mvFor(router.current());

@@ -588,12 +588,47 @@ Window {
         theme.setMotionEnabled(true);
         router.replaceQuery({{"tab", QString("songs")}});
         QTRY_COMPARE_WITH_TIMEOUT(songsView->property("opacity").toDouble(), 1., 2000);
+        QTRY_COMPARE_WITH_TIMEOUT(detailHeader->property("progress").toReal(), 0., 2000);
         auto *songsTab = historyVisual(window->contentItem(), "historyTabSongs");
         QVERIFY(songsTab);
         QTest::mouseClick(
             window, Qt::LeftButton, Qt::NoModifier,
             songsTab->mapToScene(QPointF(songsTab->width() / 2, songsTab->height() / 2)).toPoint());
         QTRY_COMPARE(router.current()->query().value("tab").toString(), QString("songs"));
+        auto *songBody = historyVisual(window->contentItem(), "catalogSongList");
+        QVERIFY(songBody);
+        auto *viewport = songBody->property("pageContainer").value<QObject *>();
+        QVERIFY(viewport);
+        for (int count : {0, 3, 80}) {
+            QJsonArray rows;
+            for (int i = 1; i <= count; ++i)
+                rows.append(QJsonObject{{"id", QString::number(i)},
+                                        {"title", "History " + QString::number(i)}});
+            service.songs()->replaceSongs(rows);
+            for (int height : {500, 800}) {
+                window->resize(1150, height);
+                QVERIFY(QMetaObject::invokeMethod(viewport, "scrollTo", Q_ARG(double, 0.)));
+                for (int cycle = 0; cycle < 3; ++cycle) {
+                    router.replaceQuery({{"tab", "stats"}});
+                    QTest::qWait(40);
+                    QTRY_COMPARE_WITH_TIMEOUT(viewport->property("scrollTop").toReal(), 0., 1000);
+                    router.replaceQuery({{"tab", "songs"}});
+                    QTest::qWait(40);
+                    QTRY_COMPARE_WITH_TIMEOUT(viewport->property("scrollTop").toReal(), 0., 1000);
+                }
+                if (count == 80) {
+                    QVERIFY(QMetaObject::invokeMethod(viewport, "scrollTo", Q_ARG(double, 60.)));
+                    router.replaceQuery({{"tab", "stats"}});
+                    QTest::qWait(40);
+                    QTRY_COMPARE_WITH_TIMEOUT(viewport->property("scrollTop").toReal(), 60., 1000);
+                    router.replaceQuery({{"tab", "songs"}});
+                    QTest::qWait(40);
+                    QTRY_COMPARE_WITH_TIMEOUT(viewport->property("scrollTop").toReal(), 60., 1000);
+                }
+            }
+        }
+        QVERIFY(QMetaObject::invokeMethod(viewport, "scrollTo", Q_ARG(double, 0.)));
+        window->resize(1150, 800);
         auto *clearAction = historyVisual(window->contentItem(), "historyClearAction");
         QVERIFY(clearAction);
         QTest::mouseClick(

@@ -51,6 +51,34 @@ EchoPageScrollContainer {
     readonly property real headerHeight: regularHeader.implicitHeight
     readonly property real resultStart: headerHeight + 16
     property string lastKeyword: ""
+    property real modelResetOffset: 0
+    onPositionCommitted: modelRestoreTask.stop()
+    // A category reset changes both the proxy rows and the active view. Their
+    // synchronous fixups must not become the page's new shared scroll offset.
+    // Restore after that transaction and native layout, within this page's life.
+    Timer {
+        id: modelRestoreTask
+        interval: 0
+        property bool settling: false
+        onTriggered: {
+            if (!page.pageActive || !page.showResults)
+                return;
+            // EchoViewPoolGuard reattaches changed models on an owned zero
+            // timer. Let that queued projection retire before restoring once.
+            if (settling) {
+                settling = false;
+                restart();
+                return;
+            }
+            if (page.scrollView.moving || page.scrollView.EchoWheelScroll.running)
+                return;
+            if (page.songs)
+                songList.forceLayout();
+            else
+                grid.forceLayout();
+            page.scrollTo(page.modelResetOffset);
+        }
+    }
     // Equivalent to the original intersection observer's 240px bottom margin.
     // Pagination errors inhibit automatic replay; only the retry action resumes.
     function checkPreload() {
@@ -65,9 +93,21 @@ EchoPageScrollContainer {
     }
     Connections {
         target: page.service
+        function onModelAboutToBeReset() {
+            if (page.pageActive && !modelRestoreTask.running)
+                page.modelResetOffset = page.scrollTop;
+        }
+        function onModelReset() {
+            if (page.pageActive) {
+                modelRestoreTask.settling = true;
+                modelRestoreTask.restart();
+            }
+        }
         function onChanged() {
             if (page.lastKeyword !== page.service.keyword) {
                 page.lastKeyword = page.service.keyword;
+                modelRestoreTask.stop();
+                page.modelResetOffset = 0;
                 page.resetPosition();
             }
             Qt.callLater(page.updatePinned);

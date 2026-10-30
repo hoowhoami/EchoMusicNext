@@ -25,6 +25,15 @@ Item {
     signal sectionPicked(int index)
     readonly property alias listView: list
     property bool retiringProjection: false
+    // Cached comments can create a new TableView before CommentExtent's queued
+    // first measurement. Its temporary zero height is not the final page bound.
+    readonly property bool extentReady: !showComments || !controller.hasComments || extent.totalHeight > 0
+    Binding {
+        target: root.pageContainer
+        property: "extentReady"
+        when: root.pageContainer !== null && root.pageContainer.scrollView === list
+        value: root.extentReady
+    }
     function checkMore(): void {
         if (root.resourceActive && root.showComments && root.controller.hasMore && !root.listLoading && (root.compact || !root.controller.errorMessage.length) && list.contentHeight - list.contentY - list.height < (root.compact ? 300 : 400))
             root.controller.loadMore();

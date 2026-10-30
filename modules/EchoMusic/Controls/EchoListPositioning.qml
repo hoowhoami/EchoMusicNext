@@ -23,5 +23,7 @@ QtObject {
                 return;
         }
         view.positionViewAtIndex(index, mode);
+        if (container && container.scrollView === view)
+            container.commitPosition();
     }
 }

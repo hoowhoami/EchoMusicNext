@@ -256,7 +256,7 @@ Window {
                         running: timeline.visible && window.live && window.playback.playing
                         onTriggered: timeline.renderTime = clock.sample()
                     }
-                    CoverLyricViewport {
+                    PlaybackLyricViewport {
                         objectName: "miniLyricViewport"
                         baseFont: Theme.store.miniLyricBaseFont
                         anchors.fill: parent

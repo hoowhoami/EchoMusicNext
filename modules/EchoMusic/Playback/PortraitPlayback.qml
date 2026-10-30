@@ -209,7 +209,7 @@ Item {
         anchors.topMargin: 112
         anchors.bottomMargin: 16 + portrait.controlsOpacity * (portrait.controlsHeight + portrait.controlsAboveReserve)
         clip: true
-        CoverLyricViewport {
+        PlaybackLyricViewport {
             id: viewport
             objectName: "portraitLyricViewport"
             anchors.horizontalCenter: parent.horizontalCenter
