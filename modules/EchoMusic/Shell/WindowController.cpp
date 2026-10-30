@@ -116,6 +116,9 @@ WindowController::WindowController(EchoMusic::SettingsStore &settings, bool pers
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(250);
     connect(&m_saveTimer, &QTimer::timeout, this, &WindowController::save);
+    m_geometryTimer.setSingleShot(true);
+    m_geometryTimer.setInterval(0);
+    connect(&m_geometryTimer, &QTimer::timeout, this, &WindowController::updateNormalGeometry);
 }
 WindowController::~WindowController()
 {
@@ -260,6 +263,7 @@ void WindowController::attach(QQuickWindow *window)
         if (m_window && !m_systemMoveActive && QGuiApplication::platformName() == "cocoa")
             configureMacWindow(m_window);
 #endif
+        captureNormalGeometry();
         emit changed();
     });
     // A shortcut can choose Mini while the engine is still creating Main.qml.
@@ -576,6 +580,16 @@ void WindowController::captureNormalGeometry()
 {
     if (m_frosted || m_transparency > 0)
         setAppearance(m_frosted, m_dark, m_transparency);
+    if (!m_window || m_restoring || m_shuttingDown)
+        return;
+    // Cocoa can deliver zoom geometry before Qt publishes WindowMaximized.
+    // Sample after the current native event has updated both geometry and state,
+    // instead of replacing the normal rectangle with a transient zoom frame.
+    m_geometryTimer.start();
+}
+void WindowController::updateNormalGeometry()
+{
+    m_geometryTimer.stop();
     if (!m_window || m_restoring || m_window->windowState() != Qt::WindowNoState)
         return;
     m_normal = m_window->geometry();
@@ -597,6 +611,7 @@ void WindowController::setRememberSize(bool remember)
 }
 void WindowController::minimize()
 {
+    updateNormalGeometry();
     if (m_window)
         // Keep the pre-minimize state, including content fullscreen, so its
         // retirement and the later taskbar/tray restore retain the host state.
@@ -606,6 +621,7 @@ void WindowController::toggleMaximized()
 {
     if (!m_window)
         return;
+    updateNormalGeometry();
     if (maximized() || fullscreen())
         m_window->showNormal();
     else
@@ -619,6 +635,7 @@ void WindowController::toggleFullscreen()
 {
     if (!m_window)
         return;
+    updateNormalGeometry();
     // F11/window actions retire the content layer first. In particular, an MV
     // nested in existing application fullscreen must leave that host state intact.
     if (m_contentFullscreenOwner) {
@@ -639,6 +656,7 @@ void WindowController::beginContentFullscreen(QObject *owner)
 {
     if (!owner || !m_window || m_contentFullscreenOwner == owner)
         return;
+    updateNormalGeometry();
     if (m_contentFullscreenOwner)
         endContentFullscreen(m_contentFullscreenOwner);
     m_contentFullscreenOwner = owner;
@@ -819,6 +837,7 @@ void WindowController::shutdown()
         m_trayMenu->deleteLater();
     }
     m_floating.shutdown();
+    updateNormalGeometry();
     m_saveTimer.stop();
     save();
     if (m_tray) {
