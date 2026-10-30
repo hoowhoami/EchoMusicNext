@@ -9,6 +9,10 @@ qt_add_qml_module(
     DEPENDENCIES
     EchoMusic.Shell
     SOURCES
+    EchoGpuGlyphAtlas.h
+    EchoGpuGlyphAtlas.cpp
+    GlyphAtlas_p.h
+    graphics/GpuGlyphAtlases.cpp
     EchoPluginGraphics.h
     EchoPluginGraphics.cpp
     EchoPluginGraphicsSharing.cpp
@@ -195,33 +199,6 @@ endif()
 
 target_link_libraries(echo_plugin_sdk PRIVATE echo_settings_keys)
 
-qt_add_shaders(
-    echo_plugin_sdk
-    echo_plugin_glyph_shaders
-    BATCHABLE
-    PREFIX
-    "/qt/qml/EchoMusic/PluginSdk"
-    FILES
-    shaders/glyph-run.vert
-    shaders/glyph-run.frag
-)
-
-qt_add_shaders(
-    echo_plugin_sdk
-    echo_plugin_glyph_canvas_shaders
-    PREFIX
-    "/qt/qml/EchoMusic/PluginSdk"
-    BASE
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-    FILES
-    shaders/glyph-canvas/quad.vert
-    shaders/glyph-canvas/filter.vert
-    shaders/glyph-canvas/rescale.frag
-    shaders/glyph-canvas/blur.frag
-    shaders/glyph-canvas/ink.frag
-    shaders/glyph-canvas/compose.frag
-)
-
 qt_add_executable(echo-plugin-asset-worker AssetImageWorker.cpp AssetSvgValidation.cpp)
 set_target_properties(echo-plugin-asset-worker PROPERTIES MACOSX_BUNDLE FALSE)
 target_include_directories(echo-plugin-asset-worker PRIVATE ${PROJECT_SOURCE_DIR}/include)
@@ -242,7 +219,7 @@ target_compile_definitions(
 )
 
 # QRhi is intentionally isolated inside the version-pinned host implementation.
-target_link_libraries(echo_plugin_sdk PRIVATE Qt6::GuiPrivate)
+target_link_libraries(echo_plugin_sdk PRIVATE Qt6::GuiPrivate Qt6::QuickPrivate)
 qt_add_shaders(
     echo_plugin_sdk
     echo_gpu_shaders
@@ -264,4 +241,30 @@ qt_add_shaders(
     "310 es,430"
     FILES
     graphics/shaders/copy-buffer.comp
+)
+
+qt_add_shaders(
+    echo_plugin_sdk
+    echo_plugin_glyph_shaders
+    BATCHABLE
+    PREFIX
+    "/qt/qml/EchoMusic/PluginSdk"
+    FILES
+    shaders/glyph-run.vert
+    shaders/glyph-run.frag
+)
+qt_add_shaders(
+    echo_plugin_sdk
+    echo_plugin_glyph_canvas_shaders
+    PREFIX
+    "/qt/qml/EchoMusic/PluginSdk"
+    BASE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    FILES
+    shaders/glyph-canvas/quad.vert
+    shaders/glyph-canvas/filter.vert
+    shaders/glyph-canvas/rescale.frag
+    shaders/glyph-canvas/blur.frag
+    shaders/glyph-canvas/ink.frag
+    shaders/glyph-canvas/compose.frag
 )

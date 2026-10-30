@@ -60,6 +60,8 @@ QJsonObject pluginSdkContract()
 {
     QJsonObject types;
     const QMetaObject *publicTypes[] = {&EchoGpuSurface::staticMetaObject,
+                                        &GlyphRun::staticMetaObject,
+                                        &EchoGpuGlyphAtlas::staticMetaObject,
                                         &EchoPluginGraphics::staticMetaObject,
                                         &EchoGpuResource::staticMetaObject,
                                         &EchoPluginAction::staticMetaObject,
@@ -96,7 +98,6 @@ QJsonObject pluginSdkContract()
                                         &EchoPluginImageDropArea::staticMetaObject,
                                         &EchoPluginAssetAnimation::staticMetaObject,
                                         &EchoPluginAssetArchive::staticMetaObject,
-                                        &GlyphRun::staticMetaObject,
                                         &FloatTexture::staticMetaObject,
                                         &NativeShaderEffect::staticMetaObject,
                                         &PointMesh::staticMetaObject,

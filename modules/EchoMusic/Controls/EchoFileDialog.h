@@ -6,7 +6,9 @@
 #include <QStringList>
 #include <QFont>
 #include <QtQml/qqmlregistration.h>
+#include <memory>
 class QFileDialog;
+class QEvent;
 namespace EchoMusic
 {
 /// Nonblocking native picker with a QWidget fallback. The QML owner controls
@@ -62,6 +64,9 @@ signals:
     void accepted();
     void rejected();
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     QString m_title, m_defaultSuffix, m_currentFile;
     QFont m_font;
@@ -72,5 +77,12 @@ private:
     QList<QUrl> m_selected;
     FileMode m_fileMode = OpenFile;
     int m_options = 0;
+    // The native dialog runs as a GUI-thread exec() queued behind open():
+    // Qt's worker-thread path for non-exec native dialogs deadlocks behind the
+    // taskbar lyric's UIA probe (the dialog window is created but never shown).
+    // Both flags let a teardown that lands inside the modal loop reject it and
+    // defer the dialog's deletion until the exec frame has returned.
+    bool m_inExec = false;
+    std::shared_ptr<bool> m_cancelled;
 };
 } // namespace EchoMusic

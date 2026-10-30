@@ -54,6 +54,7 @@ QStringList PluginPackage::supportedFeatures()
                          "graphics.sharedResources",
                          "graphics.vertexStreams",
                          "graphics.textureSources",
+                         "graphics.glyphAtlases",
                          "graphics.compute",
                          "graphics.readback",
                          "plugins.catalog",

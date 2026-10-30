@@ -252,6 +252,7 @@ RoutePage {
                     label: qsTr("排行榜")
                     description: qsTr("实时热门趋势")
                     emblem: "TOP"
+                    badgeGlyph: "trophy"
                     secondary: true
                     resourceActive: page.pageActive
                     onClicked: page.router.navigate("ranking")

@@ -4,6 +4,8 @@
 void DesktopPagesTest::productionQualityPopupContainsAndScrollsAllOptions()
 {
     Session session;
+    // 蝰蛇音质默认关闭：本测试校验完整音质列表，显式开启。
+    session.preferences.setValue("playback/viperQualityEnabled", true);
     session.preferences.setValue("playback/volume", 0);
     PlaybackService playback(session.api, session.preferences);
     // The production quality command is enabled only for an actual track.

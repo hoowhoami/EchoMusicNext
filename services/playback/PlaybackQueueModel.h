@@ -14,6 +14,7 @@ class PlaybackQueueModel final : public QAbstractListModel
     Q_OBJECT
     Q_PROPERTY(int count READ rowCount NOTIFY changed)
     Q_PROPERTY(int currentIndex READ currentIndex NOTIFY changed)
+    Q_PROPERTY(QString resumeTitle READ resumeTitle NOTIFY resumeTitleChanged)
 public:
     enum Role
     {
@@ -42,6 +43,8 @@ public:
     {
         return m_current;
     }
+    /// Read-only presentation of the same current-or-first row used by resumeViewedQueue.
+    QString resumeTitle() const;
     const PlaybackTrack *at(int row) const
     {
         return row >= 0 && row < m_tracks.size() ? &m_tracks[row] : nullptr;
@@ -79,6 +82,7 @@ signals:
     void changed();
     void currentRemoved();
     void presentationChanged();
+    void resumeTitleChanged();
 
 private:
     void watchMetadata();

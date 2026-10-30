@@ -1660,9 +1660,11 @@ QtObject {
         auto *modeItem = qobject_cast<QQuickItem *>(mode);
         QVERIFY(modeItem);
         QTRY_COMPARE(modeItem->implicitHeight(), 36.0);
-        auto *zoomIn = root->findChild<QQuickItem *>("settingsZoomIn");
-        auto *zoomOut = root->findChild<QQuickItem *>("settingsZoomOut");
-        QVERIFY(zoomIn && zoomOut && zoomIn->isVisible() && zoomOut->isVisible());
+        // The async section can still be incubating after its first control appears.
+        QQuickItem *zoomIn = nullptr, *zoomOut = nullptr;
+        QTRY_VERIFY((zoomIn = root->findChild<QQuickItem *>("settingsZoomIn")) &&
+                    (zoomOut = root->findChild<QQuickItem *>("settingsZoomOut")) &&
+                    zoomIn->isVisible() && zoomOut->isVisible());
         QCOMPARE(zoomIn->implicitHeight(), 36.0);
         QTRY_VERIFY(modeItem->mapToScene(QPointF(modeItem->width(), modeItem->height())).x() <=
                     window->width());

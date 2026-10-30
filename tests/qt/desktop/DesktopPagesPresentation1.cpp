@@ -630,6 +630,8 @@ void DesktopPagesTest::productionEffectPanelAlignmentAndCompactContentTabs()
 void DesktopPagesTest::productionResolvedQualityMarksPickerAndToolbar()
 {
     Session session;
+    // 蝰蛇音质默认关闭：本测试校验含蝰蛇档位的完整音质列表，显式开启。
+    session.preferences.setValue("playback/viperQualityEnabled", true);
     session.preferences.setValue("playback/volume", 0);
     PlaybackService playback(session.api, session.preferences);
     QVERIFY(session.create(&playback));

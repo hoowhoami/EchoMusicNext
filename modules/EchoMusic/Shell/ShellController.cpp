@@ -44,7 +44,7 @@ ShellController::ShellController(EchoMusic::SettingsStore &settings, RouteContro
     };
     titlebar("recognize", tr("听歌识曲"), "microphone", M::Toolbar, 10);
     titlebar("tasks", tr("任务中心"), "clipboard-list", M::Toolbar, 20);
-    titlebar("free-listen", tr("免费听"), "music-discount", M::More, 25);
+    titlebar("free-listen", tr("免费听"), "gift", M::More, 25);
     titlebar("listen-together", tr("一起听"), "headphones", M::More, 30);
     titlebar("discover-flow", tr("刷歌"), "vinyl", M::More, 35);
     titlebar("plugin-management", tr("插件管理"), "puzzle", M::More, 40);

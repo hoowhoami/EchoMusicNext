@@ -7,11 +7,13 @@
 
 namespace EchoMusic
 {
+struct GlyphAtlasPreparation;
 /// Shaped text fragments backed by immutable ink/halo atlas pages.
 class GlyphRun : public QQuickItem
 {
     Q_OBJECT
     QML_ELEMENT
+    Q_PROPERTY(bool atlasOnly READ atlasOnly WRITE setAtlasOnly NOTIFY layoutChanged)
     Q_PROPERTY(QFont font READ font WRITE setFont NOTIFY layoutChanged)
     Q_PROPERTY(
         bool measurementOnly READ measurementOnly WRITE setMeasurementOnly NOTIFY layoutChanged)
@@ -54,6 +56,13 @@ public:
     }
     explicit GlyphRun(QQuickItem *parent = nullptr);
     ~GlyphRun() override;
+    bool atlasOnly() const;
+    void setAtlasOnly(bool);
+    // C++-only authority assigned after plugin/window ownership checks.
+    void setAtlasDomain(const QString &);
+    void setAtlasConsumerActive(const QObject *, bool);
+    void retireAtlasPreparation();
+    std::shared_ptr<const GlyphAtlasPreparation> atlasPreparation() const;
     QFont font() const;
     void setFont(const QFont &);
     bool measurementOnly() const;
@@ -87,6 +96,7 @@ signals:
     void renderingChanged();
     void compositionChanged();
     void preparationChanged();
+    void atlasChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *) override;

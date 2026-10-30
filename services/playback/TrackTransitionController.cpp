@@ -35,7 +35,7 @@ TrackTransitionController::TrackTransitionController(PlaybackService &playback, 
                playback.sourceExtensions())
 {
     const auto stored =
-        settings.value(EchoMusic::SettingsKeys::Playback::TransitionMode, "automix-pro").toString();
+        settings.value(EchoMusic::SettingsKeys::Playback::TransitionMode, "none").toString();
     if (modes.contains(stored))
         m_mode = stored;
     m_fadeSeconds =

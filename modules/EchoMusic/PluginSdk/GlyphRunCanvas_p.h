@@ -1,5 +1,6 @@
 // Internal Canvas sampling data. Contains no font engine or text-layout objects.
 #pragma once
+#include "GlyphAtlas_p.h"
 #include <QColor>
 #include <QImage>
 #include <QPainterPath>
@@ -91,5 +92,8 @@ struct Status
 };
 QSGNode *updateNode(QSGNode *, QQuickWindow *, const std::shared_ptr<const Prepared> &,
                     const QList<Draw> &, const std::shared_ptr<Status> &, bool screen,
-                    qreal maximumRasterScale);
+                    qreal maximumRasterScale, const QString &domain);
+NativeGlyphAtlas acquireAtlas(QQuickWindow *, const QString &,
+                              const std::shared_ptr<const Prepared> &, const QVariantList &,
+                              QRhiResourceUpdateBatch *, QString &);
 } // namespace EchoMusic::GlyphCanvas

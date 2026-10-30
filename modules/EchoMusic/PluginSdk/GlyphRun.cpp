@@ -1,4 +1,5 @@
 #include "GlyphRun.h"
+#include "GlyphAtlas_p.h"
 #include "GlyphRunCanvas_p.h"
 #include <QDataStream>
 #include <QBuffer>
@@ -40,21 +41,61 @@ namespace
 struct TexturePage
 {
     QSGTexture *texture = nullptr;
+    std::shared_ptr<std::atomic<bool>> valid;
+    QMetaObject::Connection stopping;
+    void release()
+    {
+        if (valid)
+            *valid = false;
+        delete std::exchange(texture, nullptr);
+    }
     ~TexturePage()
     {
-        delete texture;
+        QObject::disconnect(stopping);
+        release();
     }
 };
+struct StaticAtlasCache
+{
+    QList<std::weak_ptr<TexturePage>> pages;
+    std::shared_ptr<std::atomic<bool>> valid = std::make_shared<std::atomic<bool>>(true);
+};
+std::shared_ptr<TexturePage> staticAtlasPage(const std::shared_ptr<StaticAtlasCache> &cache,
+                                             QQuickWindow *window, const QList<QImage> &images,
+                                             int index, bool &uploaded)
+{
+    if (cache->pages.size() < images.size())
+        cache->pages.resize(images.size());
+    auto page = cache->pages[index].lock();
+    if (!page || !page->texture) {
+        page = std::make_shared<TexturePage>();
+        page->valid = cache->valid;
+        page->texture = window->createTextureFromImage(images[index]);
+        if (page->texture)
+            page->texture->setFiltering(QSGTexture::Linear);
+        const auto weak = std::weak_ptr<TexturePage>(page);
+        page->stopping = QObject::connect(
+            window, &QQuickWindow::sceneGraphAboutToStop, window,
+            [weak] {
+                if (auto retained = weak.lock())
+                    retained->release();
+            },
+            Qt::DirectConnection);
+        cache->pages[index] = page;
+        uploaded = true;
+    }
+    return page;
+}
 class ReleasePages final : public QRunnable
 {
 public:
-    QList<std::shared_ptr<TexturePage>> pages;
+    // Never retain a GPU page on the GUI thread: dropped jobs then own only weak refs.
+    QList<std::weak_ptr<TexturePage>> pages;
     void run() override
     {
-        for (const auto &page : pages) {
-            delete page->texture;
-            page->texture = nullptr;
-        }
+        for (const auto &weak : pages)
+            if (auto page = weak.lock())
+                page->release();
     }
 };
 class RunMaterial final : public QSGMaterial
@@ -1003,6 +1044,11 @@ struct GlyphRun::Data
     qreal dpr = 1;
     bool released = false;
     bool measurementOnly = false;
+    bool atlasOnly = false;
+    QSet<const QObject *> atlasConsumers;
+    QString atlasDomain;
+    std::shared_ptr<StaticAtlasCache> staticCache;
+    std::shared_ptr<const GlyphAtlasPreparation> atlasSnapshot;
     bool screen = false;
     QMetaObject::Connection windowVisibility;
     QString haloSampling = QStringLiteral("static");
@@ -1051,6 +1097,159 @@ GlyphRun::~GlyphRun()
     disconnect(d->windowVisibility);
     cancelPreparation();
     releaseResources();
+}
+bool GlyphRun::atlasOnly() const
+{
+    return d->atlasOnly;
+}
+void GlyphRun::setAtlasOnly(bool value)
+{
+    if (value == d->atlasOnly)
+        return;
+    d->atlasOnly = value;
+    QPointer<GlyphRun> self(this);
+    releaseResources();
+    if (!self)
+        return;
+    rebuildForEnvironment();
+    if (self)
+        emit layoutChanged();
+}
+void GlyphRun::setAtlasDomain(const QString &domain)
+{
+    if (d->atlasDomain == domain)
+        return;
+    if (d->atlasSnapshot)
+        *d->atlasSnapshot->valid = false;
+    d->atlasSnapshot.reset();
+    d->atlasDomain = domain;
+    ++d->topologyRevision;
+    update();
+}
+void GlyphRun::setAtlasConsumerActive(const QObject *consumer, bool active)
+{
+    if (active)
+        d->atlasConsumers.insert(consumer);
+    else
+        d->atlasConsumers.remove(consumer);
+    if (!d->atlasOnly)
+        return;
+    if (d->atlasConsumers.isEmpty()) {
+        if (!d->released || d->preparing) {
+            QPointer<GlyphRun> self(this);
+            releaseResources();
+            if (self)
+                emit layoutChanged();
+        }
+    } else if (d->released && !d->preparing)
+        rebuildForEnvironment();
+}
+void GlyphRun::retireAtlasPreparation()
+{
+    d->runs.clear();
+    d->poses.clear();
+    d->atlasConsumers.clear();
+    QPointer<GlyphRun> self(this);
+    releaseResources();
+    if (self)
+        emit layoutChanged();
+}
+std::shared_ptr<const GlyphAtlasPreparation> GlyphRun::atlasPreparation() const
+{
+    if (d->released || d->preparing || d->measurementOnly)
+        return {};
+    if (d->atlasSnapshot && d->atlasSnapshot->revision == d->revision && *d->atlasSnapshot->valid)
+        return d->atlasSnapshot;
+    if (d->atlasSnapshot)
+        *d->atlasSnapshot->valid = false;
+    auto out = std::make_shared<GlyphAtlasPreparation>();
+    out->revision = d->revision;
+    out->pixelRatio = d->dpr;
+    out->metrics = d->metrics;
+    QVariantList fragments;
+    for (const auto &f : d->fragments) {
+        int end = 0;
+        for (const auto &r : d->runs) {
+            const auto run = r.toMap();
+            if (run["key"].toString() == f.key) {
+                end = run["text"].toString().size();
+                break;
+            }
+        }
+        for (int boundary : d->boundaries.value(f.key))
+            if (boundary > f.start && boundary < end)
+                end = boundary;
+        fragments.append(QVariantMap{{"key", f.key},
+                                     {"start", f.start},
+                                     {"length", end - f.start},
+                                     {"anchor", QVariantList{f.anchor.x(), f.anchor.y()}},
+                                     {"baseline", f.runBaseline}});
+    }
+    if (d->haloSampling == "canvas") {
+        auto input = d->canvas;
+        if (!input)
+            return {};
+        out->acquire = [input, fragments, domain = d->atlasDomain](
+                           QQuickWindow *w, QRhiResourceUpdateBatch *updates, QString &error) {
+            return GlyphCanvas::acquireAtlas(w, domain, input, fragments, updates, error);
+        };
+    } else {
+        // Static atlas pages are immutable once prepared; native draws and RHI consumers
+        // share QSGTexture ownership via a weak per-generation render-thread cache.
+        auto images = d->atlases;
+
+        if (!d->staticCache || !*d->staticCache->valid)
+            d->staticCache = std::make_shared<StaticAtlasCache>();
+        out->valid = d->staticCache->valid;
+        auto cache = d->staticCache;
+        auto fields = d->fragments;
+        for (auto &fragment : fields)
+            fragment.glyphs.clear();
+        out->acquire = [images, fragments, fields,
+                        cache](QQuickWindow *w, QRhiResourceUpdateBatch *updates, QString &error) {
+            NativeGlyphAtlas result;
+            struct Hold
+            {
+                QList<std::shared_ptr<TexturePage>> pages;
+            };
+            auto hold = std::make_shared<Hold>();
+            if (cache->pages.size() < images.size())
+                cache->pages.resize(images.size());
+            for (int i = 0; i < images.size(); ++i) {
+                bool uploaded = false;
+                auto page = staticAtlasPage(cache, w, images, i, uploaded);
+                result.uploads += uploaded;
+                if (!page->texture) {
+                    error = "Cannot allocate native glyph texture";
+                    result.retained = hold;
+                    return result;
+                }
+                page->texture->commitTextureOperations(w->rhi(), updates);
+                result.textures.push_back(page->texture->rhiTexture());
+                hold->pages.append(page);
+            }
+            for (int i = 0; i < fields.size(); ++i) {
+                auto f = fragments[i].toMap();
+                const auto &src = fields[i];
+                const auto size = images[src.page].size();
+                f["levels"] = QVariantList{
+                    QVariantMap{{"page", src.page},
+                                {"uv", QVariantList{double(src.pixels.x()) / size.width(),
+                                                    double(src.pixels.y()) / size.height(),
+                                                    double(src.pixels.width()) / size.width(),
+                                                    double(src.pixels.height()) / size.height()}},
+                                {"rect", QVariantList{src.rect.x(), src.rect.y(), src.rect.width(),
+                                                      src.rect.height()}},
+                                {"color", src.colorInk},
+                                {"coverage", src.colorInk ? "a" : "r"}}};
+                result.fragments.append(f);
+            }
+            result.retained = hold;
+            return result;
+        };
+    }
+    d->atlasSnapshot = out;
+    return out;
 }
 QFont GlyphRun::font() const
 {
@@ -1165,7 +1364,7 @@ bool GlyphRun::preparing() const
 bool GlyphRun::ready() const
 {
     return !d->released && !d->preparing && d->error.isEmpty() &&
-           (d->measurementOnly ||
+           (d->measurementOnly || (d->atlasOnly && (d->canvas || !d->atlases.isEmpty())) ||
             (d->haloSampling == "canvas" ? d->canvasStatus->ready.load()
                                          : d->runs.isEmpty() || d->batches.load() > 0));
 }
@@ -1245,8 +1444,9 @@ bool GlyphRun::prepareCanvas(const QVariantList &runs, const QFont &font, bool c
         setError("Canvas font strings exceed their serialization budget");
         return false;
     }
-    if (!isVisible() || (window() && (window()->visibility() == QWindow::Hidden ||
-                                      window()->visibility() == QWindow::Minimized))) {
+    if ((d->atlasOnly && d->atlasConsumers.isEmpty()) || !isVisible() ||
+        (window() && (window()->visibility() == QWindow::Hidden ||
+                      window()->visibility() == QWindow::Minimized))) {
         // Hidden items retain only requested configuration. In particular they
         // must not enqueue a new font/raster job after hiding canceled one.
         const bool posesChanged = runs != d->runs && !d->poses.isEmpty();
@@ -1537,6 +1737,10 @@ bool GlyphRun::prepareCanvas(const QVariantList &runs, const QFont &font, bool c
                 data.released = true;
                 data.canvasStatus->ready = false;
                 data.canvasStatus->batches = 0;
+                if (data.atlasSnapshot)
+                    *data.atlasSnapshot->valid = false;
+                data.atlasSnapshot.reset();
+                data.staticCache.reset();
                 ++data.revision;
             } else {
                 data.metrics = std::move(layout.metrics);
@@ -1549,6 +1753,10 @@ bool GlyphRun::prepareCanvas(const QVariantList &runs, const QFont &font, bool c
                 data.effectsAtlases.clear();
                 data.dpr = ratio;
                 data.released = false;
+                if (data.atlasSnapshot)
+                    *data.atlasSnapshot->valid = false;
+                data.atlasSnapshot.reset();
+                data.staticCache.reset();
                 ++data.revision;
                 data.draws.clear();
                 for (int i = 0; i < data.fragments.size(); ++i)
@@ -1663,7 +1871,9 @@ bool GlyphRun::rebuild(const QVariantList &runs, const QFont &baseFont, bool mea
     d->canvas.reset();
     LayoutBuildResult built;
     QString error;
-    if (!buildGlyphLayout(runs, baseFont, measurementOnly, dpr, isVisible(), false, built, error)) {
+    if (!buildGlyphLayout(runs, baseFont, measurementOnly, dpr,
+                          isVisible() && (!d->atlasOnly || !d->atlasConsumers.isEmpty()), false,
+                          built, error)) {
         setError(error);
         return false;
     }
@@ -1678,7 +1888,11 @@ bool GlyphRun::rebuild(const QVariantList &runs, const QFont &baseFont, bool mea
     d->blurLimits = std::move(built.blurLimits);
     d->haloLimits = std::move(built.haloLimits);
     d->dpr = dpr;
-    d->released = !isVisible();
+    d->released = !isVisible() || (d->atlasOnly && d->atlasConsumers.isEmpty());
+    if (d->atlasSnapshot)
+        *d->atlasSnapshot->valid = false;
+    d->atlasSnapshot.reset();
+    d->staticCache.reset();
     ++d->revision;
     d->poses.clear();
     d->draws.clear();
@@ -1856,6 +2070,10 @@ void GlyphRun::applyPoses(const QVariantList &poses, bool clearErrorOnSuccess)
 }
 QSGNode *GlyphRun::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
 {
+    if (d->atlasOnly) {
+        delete old;
+        return nullptr;
+    }
     if (d->haloSampling == "canvas") {
         if (d->released || !d->canvas || !isVisible()) {
             delete old;
@@ -1921,7 +2139,7 @@ QSGNode *GlyphRun::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
                 Qt::QueuedConnection);
         };
         return GlyphCanvas::updateNode(old, window(), d->canvas, draws, d->canvasStatus, d->screen,
-                                       d->maximumRasterScale);
+                                       d->maximumRasterScale, d->atlasDomain);
     }
     auto *root = dynamic_cast<RunRoot *>(old);
     if (!root)
@@ -1944,15 +2162,20 @@ QSGNode *GlyphRun::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
         root->batches.clear();
         if (layoutChanged) {
             d->gpuPages.clear();
-            auto upload = [&](const QList<QImage> &images) {
+            if (!d->staticCache || !*d->staticCache->valid)
+                d->staticCache = std::make_shared<StaticAtlasCache>();
+            auto images = d->atlases;
+            images.append(d->effectsAtlases);
+            int pageIndex = 0;
+            auto upload = [&](const QList<QImage> &part) {
                 QList<std::shared_ptr<TexturePage>> pages;
-                for (const auto &image : images) {
-                    auto page = std::make_shared<TexturePage>();
-                    page->texture = window()->createTextureFromImage(image);
-                    page->texture->setFiltering(QSGTexture::Linear);
+                for (int i = 0; i < part.size(); ++i) {
+                    bool uploaded = false;
+                    auto page =
+                        staticAtlasPage(d->staticCache, window(), images, pageIndex++, uploaded);
                     pages.append(page);
                     d->gpuPages.append(page);
-                    d->uploads.fetch_add(1);
+                    d->uploads.fetch_add(uploaded);
                 }
                 return pages;
             };
@@ -1993,7 +2216,9 @@ QSGNode *GlyphRun::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
         root->revision = d->revision;
         root->topologyRevision = d->topologyRevision;
         d->batches.store(int(root->batches.size()));
-        emit renderingChanged();
+        // Basic render loops also synchronize on the GUI thread. Do not let a
+        // QML receiver re-enter preparation/resource retirement under gpuMutex.
+        QMetaObject::invokeMethod(this, &GlyphRun::renderingChanged, Qt::QueuedConnection);
     }
     for (const auto &batch : root->batches) {
         auto *material = static_cast<RunMaterial *>(batch.node->material());
@@ -2112,9 +2337,7 @@ void GlyphRun::releaseResources()
     auto *job = new ReleasePages;
     {
         QMutexLocker lock(&d->gpuMutex);
-        for (const auto &weak : d->gpuPages)
-            if (auto page = weak.lock())
-                job->pages.append(std::move(page));
+        job->pages = d->gpuPages;
         d->gpuPages.clear();
     }
     if (window() && !job->pages.isEmpty())
@@ -2124,12 +2347,19 @@ void GlyphRun::releaseResources()
     d->atlases.clear();
     d->effectsAtlases.clear();
     d->released = true;
+    if (d->atlasSnapshot)
+        *d->atlasSnapshot->valid = false;
+    d->atlasSnapshot.reset();
+    d->staticCache.reset();
     ++d->revision;
     d->batches.store(0);
     update();
     // Publish cancellation only after the released state is complete. A
     // synchronous receiver may show this item and start a new generation.
+    QPointer<GlyphRun> self(this);
     cancelPreparation();
+    if (self)
+        emit atlasChanged();
 }
 void GlyphRun::itemChange(ItemChange change, const ItemChangeData &value)
 {

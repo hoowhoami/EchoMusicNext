@@ -51,6 +51,33 @@ bool GpuRenderState::updateTextureSource(NativeGpuResource &native,
         error = reason;
         return false;
     };
+    if (source->glyphAtlas) {
+        const auto &state = source->glyphAtlas;
+        auto allocation = state->native.lock();
+        if (!state->active || !*state->preparation->valid || !state->ready || !allocation ||
+            state->acknowledged != allocation->generation || source->glyphPage < 0 ||
+            source->glyphPage >= int(allocation->atlas.textures.size()))
+            return reject("Glyph atlas lease or metadata generation is not ready");
+        auto *handle = allocation->atlas.textures[size_t(source->glyphPage)];
+        if (handle->rhi() != rhi)
+            return reject("Glyph atlas belongs to another RHI device");
+        if (!native.textureSource) {
+            native.textureSource = source;
+            ++source->readers;
+        }
+        if (!native.ready || native.texture.get() != handle)
+            topology = true;
+        native.texture = std::shared_ptr<QRhiTexture>(allocation, handle);
+        source->generation = allocation->generation;
+        source->ready = true;
+        native.ready = true;
+        native.kind = "texture";
+        native.definition = description.definition;
+        native.identity =
+            gpuDeviceId(rhi) + ":glyph:" + QString::number(handle->globalResourceId());
+        native.revision = description.revision;
+        return true;
+    }
     if (!source->active || !provider || !provider->texture())
         return reject("Texture source is not ready; use an explicit layer/texture provider");
     auto *texture = provider->texture();

@@ -273,6 +273,15 @@ private slots:
             auto *view = f.find("playbackQueueList");
             auto *control = f.find("playbackQueueReorder");
             QVERIFY(view && control);
+            // EchoViewPoolGuard restores a switched model asynchronously.
+            // Wait before setting scroll or retaining any delegate pointer.
+            QTRY_COMPARE(view->property("model").value<QObject *>(), model);
+            auto *guard = view->findChild<QObject *>("viewPoolGuard");
+            QVERIFY(guard);
+            auto *reset = guard->property("resetTimer").value<QObject *>();
+            QVERIFY(reset);
+            QTRY_VERIFY(!reset->property("running").toBool());
+            QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
             view->setProperty("contentY", 200. * 56);
             QTest::qWait(50);
             model->restoreNext({model->at(300)->key()});
@@ -409,18 +418,19 @@ private slots:
         QTest::mouseRelease(f.window, Qt::LeftButton, Qt::NoModifier, f.point(view, 160, 28));
         QCOMPARE(moves.size(), 0);
         catalog->resetPreview();
+        QTRY_COMPARE(view->property("model").value<QObject *>(), model);
         view->setProperty("contentY", 0.);
         QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
-        QQuickItem *firstRow = nullptr;
-        QTRY_VERIFY(QMetaObject::invokeMethod(
-                        view, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, firstRow), Q_ARG(int, 0)) &&
-                    firstRow);
         // Leaving history removes its resume toolbar. Wait for the ancestor
         // ColumnLayout's frame before using the first row's scene geometry.
         QSignalSpy rendered(f.window, &QQuickWindow::frameSwapped);
         f.window->requestUpdate();
         QVERIFY(rendered.wait(1000));
         QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtBeginning"));
+        QQuickItem *firstRow = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(
+                        view, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, firstRow), Q_ARG(int, 0)) &&
+                    firstRow);
         auto *remove = item(firstRow, "queueRemoveButton");
         QVERIFY(remove);
         QTRY_VERIFY2(
@@ -722,6 +732,95 @@ private slots:
         catalog->setViewIndex(0);
         QTRY_VERIFY(!subtitle->isVisible());
         QTRY_COMPARE(header->height(), compactHeight);
+        QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        QTRY_VERIFY(popup.isNull());
+        QCOMPARE(warnings.size(), 0);
+    }
+    void resumePreviewPresentation_data()
+    {
+        dragCommitsOnceAndPersists_data();
+    }
+    void resumePreviewPresentation()
+    {
+        QFETCH(bool, dark);
+        QFETCH(qreal, scale);
+        Fixture f;
+        QSignalSpy warnings(&f.engine, &QQmlEngine::warnings);
+        QVERIFY(f.create(dark, scale));
+        f.theme.setMotionEnabled(false);
+        QTRY_VERIFY(!PlaybackServiceTestAccess::restoring(f.playback));
+        auto *catalog = f.playback.queueCatalog();
+        auto tracks = songs("h");
+        tracks.resize(3);
+        tracks[0].title = QStringLiteral("Dirty Kiss");
+        tracks[1].title.clear();
+        tracks[2].title = QStringLiteral("很长的续播歌名 Long resume title ").repeated(12);
+        catalog->activate("active", "当前队列", songs("a"), -1);
+        auto *history = catalog->retain("history", "我最喜爱", tracks);
+        QPointer<QObject> popup = f.open();
+        QTRY_VERIFY(popup->property("opened").toBool());
+        auto *toolbar = f.find("queueResumeToolbar");
+        auto *button = f.find("queueResumeButton");
+        auto *title = f.find("queueResumeSongTitle");
+        auto *view = f.find("playbackQueueList");
+        auto *header = f.find("queueHeader");
+        QVERIFY(toolbar && button && title && view && header);
+        QVERIFY(!toolbar->isVisible());
+        const auto sequence = PlaybackServiceTestAccess::sequence(f.playback);
+        catalog->switchPreview(1);
+        QTRY_VERIFY(toolbar->isVisible());
+        QTRY_COMPARE(title->property("text").toString(), tracks[0].title);
+        QCOMPARE(catalog->activeKey(), QString("active"));
+        QCOMPARE(PlaybackServiceTestAccess::sequence(f.playback), sequence);
+        QTRY_COMPARE(button->height(), 36.);
+        QCOMPARE(button->x(), 14.);
+        QCOMPARE(button->y(), 8.);
+        QCOMPARE(toolbar->height(), 50.);
+        QCOMPARE(button->property("glyphSize").toReal(), 14.);
+        QCOMPARE(header->height(), 78.);
+        QTRY_COMPARE(view->mapToItem(header, {0, 0}).y(), 128.);
+        const auto captures = qEnvironmentVariable("ECHO_QUEUE_REORDER_CAPTURE_DIR");
+        const auto capture = [&](const QString &state) {
+            if (captures.isEmpty())
+                return true;
+            QSignalSpy frames(f.window, &QQuickWindow::frameSwapped);
+            f.window->requestUpdate();
+            if (!frames.wait(1000))
+                return false;
+            return QDir().mkpath(captures) &&
+                   f.window->grabWindow().save(
+                       captures + QString("/resume-%1-%2-%3.png").arg(dark).arg(scale).arg(state));
+        };
+        QVERIFY(capture("first"));
+        history->setCurrent(1);
+        QTRY_COMPARE(title->property("text").toString(), QStringLiteral("这首歌"));
+        // A late metadata title arrives through dataChanged, without queue replacement.
+        history->updateFacts("h1", {}, QStringLiteral("如愿"), {}, {});
+        QTRY_COMPARE(title->property("text").toString(), QStringLiteral("如愿"));
+        QVERIFY(capture("metadata"));
+        history->setCurrent(2);
+        QTRY_COMPARE(title->property("text").toString(), tracks[2].title);
+        QTRY_COMPARE(button->width(), 220.);
+        auto *renderedTitle = title->property("textItem").value<QQuickItem *>();
+        QVERIFY(renderedTitle);
+        QTRY_VERIFY(renderedTitle->property("text").toString().endsWith(QChar(0x2026)));
+        QVERIFY(capture("long"));
+        f.window->setWidth(300);
+        QTRY_VERIFY(button->width() < 220.);
+        QTRY_VERIFY(button->width() <= (toolbar->width() - 28) * .7 + .01);
+        QVERIFY(capture("narrow"));
+        catalog->resetPreview();
+        QTRY_VERIFY(!toolbar->isVisible());
+        QTRY_COMPARE(view->mapToItem(header, {0, 0}).y(), 78.);
+        catalog->switchPreview(1);
+        QTRY_VERIFY(toolbar->isVisible());
+        QTRY_COMPARE(view->mapToItem(header, {0, 0}).y(), 128.);
+        const auto point = f.point(button, button->width() / 2, button->height() / 2);
+        Test::moveNativePointer(f.window, point);
+        QTest::mouseClick(f.window, Qt::LeftButton, Qt::NoModifier, point);
+        QTRY_COMPARE(catalog->activeKey(), QString("history"));
+        QTRY_COMPARE(f.playback.trackId(), QString("h2"));
+        QTRY_VERIFY(!toolbar->isVisible());
         QVERIFY(QMetaObject::invokeMethod(popup, "close"));
         QTRY_VERIFY(popup.isNull());
         QCOMPARE(warnings.size(), 0);

@@ -13,6 +13,7 @@ export function collectLicenses(destination, qt, version) {
   const qtModules = new Set([
     'qtbase',
     'qtdeclarative',
+    'qtimageformats',
     'qtmultimedia',
     'qtsvg',
     'qtshadertools',

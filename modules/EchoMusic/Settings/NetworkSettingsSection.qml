@@ -22,6 +22,12 @@ SettingsSection {
     readonly property list<string> modes: ["direct", "system", "auto_detect", "pac_script", "fixed_servers"]
     heading: qsTr("网络设置")
     glyph: "cloud"
+    // 输入框焦点移开即提交全部草稿（设置自动保存，无需手动应用）。
+    function applyDrafts() {
+        if (network.busy)
+            return;
+        network.apply(modeDraft, pacDraft, rulesDraft, usernameDraft, password.text, clearPassword, bypassDraft, apiDraft, playerDraft);
+    }
     function resetDrafts() {
         modeDraft = network.proxyMode;
         pacDraft = network.proxyPacScript;
@@ -41,7 +47,7 @@ SettingsSection {
     }
     Component.onDestruction: password.clear()
     SettingsNotice {
-        text: qsTr("全局代理点击“应用”后立即用于新连接；加速站是否直连由 bypass、系统或 PAC 决定")
+        text: qsTr("全局代理在输入框焦点移开后自动保存并用于新连接；加速站是否直连由 bypass、系统或 PAC 决定")
     }
     SettingsDivider {}
     SettingsRow {
@@ -55,7 +61,10 @@ SettingsSection {
             model: [qsTr("直接连接"), qsTr("跟随系统"), qsTr("自动检测（WPAD）"), qsTr("PAC 脚本"), qsTr("手动代理")]
             currentIndex: section.modes.indexOf(section.modeDraft)
             Accessible.name: qsTr("网络代理模式")
-            onActivated: section.modeDraft = section.modes[currentIndex]
+            onActivated: {
+                section.modeDraft = section.modes[currentIndex];
+                section.applyDrafts();
+            }
         }
     }
     SettingsDivider {
@@ -74,6 +83,7 @@ SettingsSection {
             placeholderText: "https://example.com/proxy.pac"
             Accessible.name: qsTr("PAC 脚本地址")
             onTextEdited: section.pacDraft = text
+            onEditingFinished: section.applyDrafts()
         }
     }
     SettingsDivider {
@@ -92,6 +102,7 @@ SettingsSection {
             placeholderText: "http://127.0.0.1:7890"
             Accessible.name: qsTr("代理规则")
             onTextEdited: section.rulesDraft = text
+            onEditingFinished: section.applyDrafts()
         }
     }
     SettingsDivider {
@@ -114,6 +125,7 @@ SettingsSection {
                 placeholderText: qsTr("用户名（可选）")
                 Accessible.name: qsTr("代理用户名")
                 onTextEdited: section.usernameDraft = text
+                onEditingFinished: section.applyDrafts()
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -133,6 +145,7 @@ SettingsSection {
                         if (text.length)
                             section.clearPassword = false;
                     }
+                    onEditingFinished: section.applyDrafts()
                 }
                 EchoSoftButton {
                     visible: section.network.hasProxyPassword
@@ -163,6 +176,7 @@ SettingsSection {
             placeholderText: "<local>"
             Accessible.name: qsTr("不代理地址")
             onTextEdited: section.bypassDraft = text
+            onEditingFinished: section.applyDrafts()
         }
     }
     SettingsDivider {}
@@ -196,6 +210,8 @@ SettingsSection {
             value: section.apiDraft
             Accessible.name: qsTr("酷狗 API 超时")
             onValueModified: section.apiDraft = value
+            onActiveFocusChanged: if (!activeFocus)
+                section.applyDrafts()
         }
     }
     SettingsDivider {}
@@ -214,19 +230,8 @@ SettingsSection {
             value: section.playerDraft
             Accessible.name: qsTr("播放器网络超时")
             onValueModified: section.playerDraft = value
-        }
-    }
-    SettingsDivider {}
-    SettingsRow {
-        heading: qsTr("应用网络设置")
-        description: qsTr("手动模式仅在代理规则包含 direct:// 时回退直连；系统和 PAC 模式遵循解析结果")
-        EchoButton {
-            objectName: "settingsApplyNetwork"
-            colors: Theme.floating
-            enabled: !section.network.busy
-            loading: section.network.busy
-            text: qsTr("应用")
-            onClicked: section.network.apply(section.modeDraft, section.pacDraft, section.rulesDraft, section.usernameDraft, password.text, section.clearPassword, section.bypassDraft, section.apiDraft, section.playerDraft)
+            onActiveFocusChanged: if (!activeFocus)
+                section.applyDrafts()
         }
     }
 }

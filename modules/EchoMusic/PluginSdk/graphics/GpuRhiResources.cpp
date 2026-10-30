@@ -103,6 +103,7 @@ void GpuRenderState::release()
     if (budget && reservedBytes)
         budget->native.release(reservedBytes);
     reservedBytes = 0;
+    glyphAtlases.clear();
     objects = 0;
     outputFormat.clear();
     frameRevision = 0;

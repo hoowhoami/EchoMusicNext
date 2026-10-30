@@ -222,6 +222,9 @@ Control {
             text: control.searchTerm
             padding: 0
             selectByMouse: true
+            // 可过滤下拉统一不显示输入光标：点击展开时只过滤文本，不再闪烁。
+            cursorVisible: false
+            onActiveFocusChanged: cursorVisible = false
             font: formPart.styledFont(control.font)
             color: formPart.value("foreground", control.colors.text)
             placeholderText: control.multiple ? (control.selectedTags.length === 0 ? control.placeholder : "") : control.displayText || control.placeholder
@@ -319,8 +322,10 @@ Control {
                     optionList.currentIndex = -1;
                     optionList.positionViewAtBeginning();
                 }
-                onOpened: if (control.filterable)
-                    searchInput.forceActiveFocus(Qt.PopupFocusReason)
+                onOpened: if (control.filterable) {
+                    searchInput.forceActiveFocus(Qt.PopupFocusReason);
+                    searchInput.cursorVisible = false;
+                }
                 onAboutToHide: {
                     // Closing animation visibility is not an open interaction state.
                     // Restore input immediately so rapid keyboard reopening works.

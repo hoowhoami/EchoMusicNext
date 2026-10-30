@@ -41,6 +41,7 @@ qint64 Memory::highWater()
 #include <QFile>
 #include <QMatrix4x4>
 #include <QMutexLocker>
+#include <QUuid>
 #include <QQuickWindow>
 #include <QSGRenderNode>
 #include <QtQuick/private/qquickwindow_p.h>
@@ -289,6 +290,8 @@ struct Curve
 class Pool final : public std::enable_shared_from_this<Pool>
 {
 public:
+    QString key =
+        QStringLiteral("glyph-canvas:") + QUuid::createUuid().toString(QUuid::WithoutBraces);
     QQuickWindow *window = nullptr;
     QRhi *rhi = nullptr;
     std::array<std::unique_ptr<QRhiTexture>, 4> textures;
@@ -309,7 +312,8 @@ public:
     std::shared_ptr<Memory> memory = std::make_shared<Memory>();
     quint64 frame = 0;
     bool passRendered = false;
-    qint64 colorBytes = 20LL * 1024 * 1024;
+    qint64 colorBytes = 0;
+    bool inkInitialized = false;
     bool initialized = false;
     ~Pool()
     {
@@ -400,10 +404,24 @@ public:
         curveCache[outline->key] = curve;
         return curve;
     }
-    bool init(QQuickWindow *w)
+    bool initInk(QQuickWindow *w)
     {
+        if (inkInitialized)
+            return rhi == w->rhi();
         window = w;
         rhi = w->rhi();
+        if (!rhi || !reserveMetadata())
+            return false;
+        zero = QImage({1024, 1024}, QImage::Format_RGBA8888_Premultiplied);
+        zero.fill(Qt::transparent);
+        inkInitialized = true;
+        return true;
+    }
+    bool init(QQuickWindow *w)
+    {
+        if (!initInk(w))
+            return false;
+        colorBytes = 20LL * 1024 * 1024;
         if (!rhi || !rhi->isTextureFormatSupported(QRhiTexture::RGBA16F, QRhiTexture::RenderTarget))
             return false;
         if (!reserveMetadata())
@@ -551,15 +569,21 @@ public:
         QQuickWindowPrivate::get(window)->context->renderNextFrame(renderer.get());
     }
 };
-std::shared_ptr<Pool> windowPool(QQuickWindow *window)
+std::shared_ptr<Pool> windowPool(QQuickWindow *window, const QString &domain)
 {
     static QMutex mutex;
-    static QHash<QQuickWindow *, std::weak_ptr<Pool>> pools;
+    static QHash<QPair<QQuickWindow *, QString>, std::weak_ptr<Pool>> pools;
     QMutexLocker lock(&mutex);
-    auto pool = pools.value(window).lock();
+    for (auto it = pools.begin(); it != pools.end();)
+        if (it.value().expired())
+            it = pools.erase(it);
+        else
+            ++it;
+    const auto key = qMakePair(window, domain);
+    auto pool = pools.value(key).lock();
     if (!pool || (pool->rhi && pool->rhi != window->rhi())) {
         pool = std::make_shared<Pool>();
-        pools[window] = pool;
+        pools[key] = pool;
     }
     return pool;
 }
@@ -567,6 +591,7 @@ class CanvasNode final : public QSGRenderNode
 {
 public:
     QQuickWindow *window = nullptr;
+    QString domain;
     std::shared_ptr<const Prepared> input;
     QList<Draw> draws;
     std::shared_ptr<Status> status;
@@ -802,10 +827,10 @@ void CanvasNode::prepare()
             status->changed({});
         return;
     }
-    if (pool && pool->rhi != window->rhi())
+    if (pool && pool->rhi && pool->rhi != window->rhi())
         releaseResources();
     if (!pool)
-        pool = windowPool(window);
+        pool = windowPool(window, domain);
     if (!pool->initialized && !pool->init(window)) {
         report("Canvas four-target initialization exceeds the native budget or is unsupported");
         return;
@@ -1153,12 +1178,65 @@ void CanvasNode::prepare()
         status->changed({});
 }
 } // namespace
+NativeGlyphAtlas acquireAtlas(QQuickWindow *window, const QString &domain,
+                              const std::shared_ptr<const Prepared> &prepared,
+                              const QVariantList &metadata, QRhiResourceUpdateBatch *updates,
+                              QString &error)
+{
+    NativeGlyphAtlas result;
+    if (prepared->fragments.isEmpty())
+        return result;
+    auto pool = windowPool(window, domain);
+    if (!pool->initInk(window)) {
+        error = "Cannot initialize glyph ink atlas pool";
+        return result;
+    }
+    // Pin immutable inks while UVs are public. Expired weak entries alone may be reclaimed.
+    struct Retained
+    {
+        std::shared_ptr<Pool> pool;
+        std::shared_ptr<const Prepared> input;
+    };
+    result.retained = std::make_shared<Retained>(Retained{pool, prepared});
+    QHash<int, int> pages;
+    for (int i = 0; i < prepared->fragments.size(); ++i) {
+        auto fragment = metadata.value(i).toMap();
+        QVariantList levels;
+        for (int level = 0; level < 4; ++level) {
+            InkLocation location;
+            bool uploaded = false;
+            if (!prepared->fragments[i].ink[level] ||
+                !pool->ink(prepared->fragments[i].ink[level], location, updates, uploaded)) {
+                error = "Glyph ink atlas exceeds the eight-page 32 MiB budget";
+                return result;
+            }
+            result.uploads += uploaded;
+            if (!pages.contains(location.page)) {
+                pages[location.page] = int(result.textures.size());
+                result.textures.push_back(pool->inkPages[location.page]->texture.get());
+            }
+            const auto rect = prepared->fragments[i].rect[level];
+            levels.append(QVariantMap{
+                {"page", pages.value(location.page)},
+                {"uv",
+                 QVariantList{location.pixels.x() / 1024., location.pixels.y() / 1024.,
+                              location.pixels.width() / 1024., location.pixels.height() / 1024.}},
+                {"rect", QVariantList{rect.x(), rect.y(), rect.width(), rect.height()}},
+                {"color", prepared->fragments[i].color},
+                {"coverage", prepared->fragments[i].color ? "a" : "r"}});
+        }
+        fragment["levels"] = levels;
+        result.fragments.append(fragment);
+    }
+    return result;
+}
 QSGNode *updateNode(QSGNode *old, QQuickWindow *window,
                     const std::shared_ptr<const Prepared> &input, const QList<Draw> &draws,
-                    const std::shared_ptr<Status> &status, bool screen, qreal maximumRasterScale)
+                    const std::shared_ptr<Status> &status, bool screen, qreal maximumRasterScale,
+                    const QString &domain)
 {
     auto *node = dynamic_cast<CanvasNode *>(old);
-    if (node && (node->input != input || node->screen != screen)) {
+    if (node && (node->input != input || node->screen != screen || node->domain != domain)) {
         delete node;
         node = nullptr;
         old = nullptr;
@@ -1167,12 +1245,17 @@ QSGNode *updateNode(QSGNode *old, QQuickWindow *window,
         delete old;
         node = new CanvasNode(window);
     }
+    node->domain = domain;
     node->input = input;
     node->draws = draws;
     node->status = status;
     node->screen = screen;
     node->maximumScale = maximumRasterScale;
-    status->sharedKey = QStringLiteral("glyph-canvas:%1").arg(quintptr(window), 0, 16);
+    if (node->pool && node->pool->rhi && node->pool->rhi != window->rhi())
+        node->releaseResources();
+    if (!node->pool)
+        node->pool = windowPool(window, domain);
+    status->sharedKey = node->pool->key;
     return node;
 }
 } // namespace EchoMusic::GlyphCanvas

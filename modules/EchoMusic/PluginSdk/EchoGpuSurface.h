@@ -1,5 +1,7 @@
 #pragma once
 #include "EchoPluginGraphics.h"
+#include "EchoGpuGlyphAtlas.h"
+#include "GlyphRun.h"
 #include "EchoPluginOperation.h"
 #include <QQuickRhiItem>
 #include <QTimer>
@@ -7,6 +9,9 @@ namespace EchoMusic
 {
 bool gpuTextureSourceSafe(QQuickItem *source);
 struct GpuRenderState;
+struct GpuGlyphAtlasState;
+class EchoGpuGlyphAtlas;
+class GlyphRun;
 struct GpuBridge;
 /// A scene-graph item backed by the host's RHI, never a JS render-thread callback.
 class EchoGpuSurface : public QQuickRhiItem
@@ -55,6 +60,7 @@ public:
     }
     Q_INVOKABLE bool submit(const QVariantMap &frame);
     Q_INVOKABLE EchoMusic::EchoGpuResource *importTextureSource(QQuickItem *source);
+    Q_INVOKABLE EchoMusic::EchoGpuGlyphAtlas *importGlyphAtlas(EchoMusic::GlyphRun *source);
     Q_INVOKABLE void requestFrame();
     void retireResource(const QString &id);
     Q_INVOKABLE EchoMusic::EchoPluginOperation *enqueue(const QVariantMap &commands);
@@ -65,6 +71,7 @@ public:
     void retire();
     struct Snapshot
     {
+        QList<std::shared_ptr<GpuGlyphAtlasState>> glyphAtlases;
         QHash<QString, GpuResourceDescription> resources;
         QVariantMap frame;
         std::shared_ptr<GpuSubmission> submission;
@@ -89,6 +96,10 @@ protected:
 
 private:
     friend class GpuRenderer;
+    friend class EchoGpuGlyphAtlas;
+    void invalidateGlyphFrame();
+    void retireGlyphAtlases();
+    QList<QPointer<EchoGpuGlyphAtlas>> m_glyphAtlases;
     void syncActivity();
     void releaseNative();
     void releaseTarget();

@@ -55,7 +55,9 @@ elseif(WIN32)
     target_sources(echomusicnext PRIVATE Application.manifest)
     enable_language(RC)
     configure_file(Application.rc.in ${CMAKE_CURRENT_BINARY_DIR}/Application.rc @ONLY)
-    target_sources(echomusicnext PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/Application.rc)
+    target_sources(
+        echomusicnext PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/Application.rc echomusicnext.exe.manifest
+    )
 elseif(UNIX)
     include(GNUInstallDirs)
     configure_file(

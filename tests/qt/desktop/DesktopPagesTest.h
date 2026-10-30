@@ -44,8 +44,8 @@ private slots:
     void productionExperimentalIdentitySettings();
     void productionExperimentalLoggingSettings_data();
     void productionExperimentalLoggingSettings();
-    void productionNetworkSettingsDraftApplyResetAndTheme_data();
-    void productionNetworkSettingsDraftApplyResetAndTheme();
+    void productionNetworkSettingsAutoSaveResetAndTheme_data();
+    void productionNetworkSettingsAutoSaveResetAndTheme();
     void productionPlayerEngineSettingsDecimalInputAndLifecycle();
     void productionVariableDialogSizingReopens();
     void settingsDefaultsAndSourceEffectFileManager();

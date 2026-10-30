@@ -67,6 +67,14 @@ def validate_sdk(prefix):
     ]
     if missing:
         raise RuntimeError(f"Incomplete Qt SDK at {prefix}: {', '.join(missing)}")
+    if sys.platform == "win32" and prefix == official_prefix().resolve():
+        # Qt core bundles only gif/ico/jpeg/svg; WebP comes from the optional
+        # qtimageformats module. The music service serves covers as WebP, so a
+        # kit without this plugin renders empty artwork instead of failing loudly.
+        if not (prefix / "plugins/imageformats/qwebp.dll").is_file():
+            raise RuntimeError(
+                f"Incomplete Qt SDK at {prefix}: plugins/imageformats/qwebp.dll is missing"
+            )
     qmake = prefix / "bin" / ("qmake.exe" if sys.platform == "win32" else "qmake")
     reported = subprocess.check_output([str(qmake), "-query", "QT_VERSION"], text=True).strip()
     if reported != VERSION:

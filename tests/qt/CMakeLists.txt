@@ -352,6 +352,16 @@ set_tests_properties(
 )
 
 qt_add_executable(echo-shell-test ShellTest.cpp)
+qt_add_executable(echo-window-geometry-test WindowGeometryTest.cpp)
+target_link_libraries(echo-window-geometry-test PRIVATE echo_shell Qt6::Test)
+if(APPLE)
+    target_sources(echo-window-geometry-test PRIVATE WindowGeometryMacTest.mm)
+    target_link_libraries(echo-window-geometry-test PRIVATE "-framework Cocoa")
+endif()
+set_target_properties(echo-window-geometry-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+add_test(NAME window-geometry COMMAND echo-window-geometry-test)
+set_tests_properties(window-geometry PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+echo_copy_rust_runtime(echo-window-geometry-test)
 qt_add_executable(echo-window-resize-test WindowResizeTest.cpp)
 target_link_libraries(echo-window-resize-test PRIVATE echo_window_resize Qt6::Qml Qt6::Test)
 add_test(NAME window-resize-sync COMMAND echo-window-resize-test)
@@ -693,7 +703,7 @@ add_test(
         lyricVariantSettingUsesProductionSelectAndReleasesPopup miniWidthPreferencesClampAndRestore
         lyricSettingsShareCoverPickerAndExcludeTaskbar fullscreenShortcutReachesModalPlaybackPage
         productionExperimentalIdentitySettings productionExperimentalLoggingSettings
-        productionNetworkSettingsDraftApplyResetAndTheme
+        productionNetworkSettingsAutoSaveResetAndTheme
         productionPlayerEngineSettingsDecimalInputAndLifecycle
         productionVariableDialogSizingReopens settingsDefaultsAndSourceEffectFileManager
         playbackZoomShortcutsFollowSharedScale windowSettingsNeverHideWithoutNativeRecovery
@@ -823,7 +833,8 @@ target_compile_definitions(
 target_include_directories(echo-plugin-runtime-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(
     echo-plugin-runtime-test
-    PRIVATE plugins/PluginRuntimeTextureSources.cpp
+    PRIVATE plugins/PluginRuntimeGlyphAtlases.cpp
+            plugins/PluginRuntimeTextureSources.cpp
             plugins/PluginRuntimeGraphics.cpp
             plugins/PluginRuntimeGraphicsResources.cpp
             plugins/PluginRuntimeGraphicsSharing.cpp
@@ -1823,23 +1834,6 @@ add_test(NAME lyric-metadata COMMAND echo-lyric-metadata-test)
 set_tests_properties(lyric-metadata PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
 echo_copy_rust_runtime(echo-lyric-metadata-test)
 
-qt_add_executable(echo-glyph-run-test GlyphRunTest.cpp)
-target_link_libraries(echo-glyph-run-test PRIVATE echo_plugin_sdk Qt6::Test)
-add_test(NAME glyph-run COMMAND echo-glyph-run-test)
-set_tests_properties(glyph-run PROPERTIES TIMEOUT 45)
-echo_copy_rust_runtime(echo-glyph-run-test)
-
-qt_add_executable(echo-glyph-run-canvas-preparation-test GlyphRunCanvasPreparationTest.cpp)
-set_target_properties(
-    echo-glyph-run-canvas-preparation-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE
-)
-target_link_libraries(echo-glyph-run-canvas-preparation-test PRIVATE echo_plugin_sdk Qt6::Test)
-add_test(NAME glyph-run-canvas-preparation COMMAND echo-glyph-run-canvas-preparation-test)
-set_tests_properties(
-    glyph-run-canvas-preparation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
-)
-echo_copy_rust_runtime(echo-glyph-run-canvas-preparation-test)
-
 qt_add_executable(echo-glyph-run-canvas-rendering-test GlyphRunCanvasRenderingTest.cpp)
 set_target_properties(
     echo-glyph-run-canvas-rendering-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE
@@ -2036,6 +2030,7 @@ qt_add_shaders(
     shaders/gpu/cube.frag
     shaders/gpu/volume.frag
     shaders/gpu/volume.comp
+    shaders/gpu/glyph.frag
     shaders/gpu/source.frag
     shaders/gpu/shared.comp
     shaders/gpu/instanced.vert
@@ -2047,9 +2042,10 @@ add_test(
     NAME plugin-runtime-graphics
     COMMAND
         echo-plugin-runtime-test graphicsValidationOwnershipAndAccount
-        graphicsMultipleTargetsMipRenderingAndLifetime graphicsIndirectGpuArgumentsAndRetirement
-        graphicsTextureArraysTransfersAndLifetime appearancePreviewCatalogAndFloatingIsolation
-        appearanceMaterialsAndRouteLifecycle floatingWindowsNativeStateAuthorizationAndObservation
+        graphicsNativeGlyphAtlasLifecycle graphicsMultipleTargetsMipRenderingAndLifetime
+        graphicsIndirectGpuArgumentsAndRetirement graphicsTextureArraysTransfersAndLifetime
+        appearancePreviewCatalogAndFloatingIsolation appearanceMaterialsAndRouteLifecycle
+        floatingWindowsNativeStateAuthorizationAndObservation
 )
 set_tests_properties(
     plugin-runtime-graphics PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
@@ -2067,3 +2063,25 @@ set_tests_properties(
     plugin-runtime-presentation-services PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT
                                                     120
 )
+
+qt_add_executable(echo-glyph-run-test GlyphRunTest.cpp)
+target_link_libraries(echo-glyph-run-test PRIVATE echo_plugin_sdk Qt6::Test)
+add_test(NAME glyph-run COMMAND echo-glyph-run-test)
+set_tests_properties(glyph-run PROPERTIES TIMEOUT 90 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+echo_copy_rust_runtime(echo-glyph-run-test)
+qt_add_executable(echo-glyph-run-canvas-preparation-test GlyphRunCanvasPreparationTest.cpp)
+set_target_properties(
+    echo-glyph-run-canvas-preparation-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE
+)
+target_link_libraries(echo-glyph-run-canvas-preparation-test PRIVATE echo_plugin_sdk Qt6::Test)
+add_test(NAME glyph-run-canvas-preparation COMMAND echo-glyph-run-canvas-preparation-test)
+set_tests_properties(
+    glyph-run-canvas-preparation PROPERTIES TIMEOUT 90 ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+echo_copy_rust_runtime(echo-glyph-run-canvas-preparation-test)
+
+if(APPLE)
+    set_tests_properties(
+        glyph-run PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa;QSG_RHI_BACKEND=metal"
+    )
+endif()

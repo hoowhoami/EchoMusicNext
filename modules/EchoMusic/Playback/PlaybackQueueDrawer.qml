@@ -248,18 +248,60 @@ Popup {
                 }
             }
         }
-        EchoSoftButton {
-            colors: Theme.floating
-            Layout.alignment: Qt.AlignHCenter
-            Layout.maximumWidth: drawer.width * .7
-            Layout.topMargin: 8
-            Layout.bottomMargin: 8
+        Item {
+            objectName: "queueResumeToolbar"
+            Layout.fillWidth: true
+            implicitHeight: resumeButton.implicitHeight + 14
             visible: !drawer.catalog.viewActive && drawer.viewedQueue && drawer.viewedQueue.count > 0
-            implicitHeight: 28
-            accent: true
-            glyph: "play"
-            text: qsTr("继续播放")
-            onClicked: drawer.playback.resumeViewedQueue()
+            // PlayerQueueDrawer's toolbar owns the 14px horizontal and 8/6px
+            // vertical insets; only the song title may shrink inside the button.
+            EchoSoftButton {
+                id: resumeButton
+                objectName: "queueResumeButton"
+                readonly property string songTitle: drawer.viewedQueue && drawer.viewedQueue.resumeTitle.length > 0 ? drawer.viewedQueue.resumeTitle : qsTr("这首歌")
+                colors: Theme.floating
+                x: 14
+                y: 8
+                width: Math.max(0, Math.min(implicitWidth, 220, (parent.width - 28) * .7))
+                height: implicitHeight
+                accent: true
+                glyph: "play"
+                glyphSize: 14
+                text: qsTr("继续播放")
+                Accessible.name: text + " " + songTitle
+                contentItem: RowLayout {
+                    visible: !resumeButton.publicPart.replaced
+                    spacing: 6
+                    EchoButtonContent {
+                        Layout.minimumWidth: implicitWidth
+                        Layout.fillHeight: true
+                        spacing: 6
+                        glyph: resumeButton.glyph
+                        glyphSize: resumeButton.glyphSize
+                        text: resumeButton.text
+                        color: resumeButton.publicPart.value("foreground", resumeButton.foreground)
+                        font: resumeButton.publicPart.styledFont(Theme.font(12, Theme.boldWeight))
+                        lineHeight: 16
+                    }
+                    EchoTextLine {
+                        objectName: "queueResumeSongTitle"
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumWidth: 0
+                        text: resumeButton.songTitle
+                        font: Theme.font(12, Theme.semiboldWeight)
+                        lineHeight: 16
+                        color: Theme.floating.secondaryText
+                        fillTextWidth: true
+                    }
+                }
+                EchoToolTip {
+                    parent: resumeButton
+                    text: resumeButton.Accessible.name
+                    requestedVisible: resumeButton.hovered
+                }
+                onClicked: drawer.playback.resumeViewedQueue()
+            }
         }
         ListView {
             id: list

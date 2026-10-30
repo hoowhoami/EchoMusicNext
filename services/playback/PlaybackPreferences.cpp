@@ -12,7 +12,7 @@ PlaybackPreferences::PlaybackPreferences(EchoMusic::SettingsStore &settings, QOb
     : QObject(parent), m_settings(settings)
 {
     m_mvFallback =
-        settings.value(EchoMusic::SettingsKeys::Playback::MvAudioFallbackEnabled, false).toBool();
+        settings.value(EchoMusic::SettingsKeys::Playback::MvAudioFallbackEnabled, true).toBool();
     m_queueMode =
         settings.value(EchoMusic::SettingsKeys::Playback::QueueMode, "context").toString() ==
                 "single"
@@ -27,12 +27,13 @@ PlaybackPreferences::PlaybackPreferences(EchoMusic::SettingsStore &settings, QOb
     m_fade = settings.value(EchoMusic::SettingsKeys::Playback::VolumeFade, true).toBool();
     m_fadeMs = qBound(
         500, settings.value(EchoMusic::SettingsKeys::Playback::VolumeFadeMs, 1000).toInt(), 3000);
-    m_viper = settings.value(EchoMusic::SettingsKeys::Playback::ViperQualityEnabled, true).toBool();
+    m_viper =
+        settings.value(EchoMusic::SettingsKeys::Playback::ViperQualityEnabled, false).toBool();
     m_compatibilityMode =
         settings.value(EchoMusic::SettingsKeys::Playback::CompatibilityMode, true).toBool();
     if (!m_viper && m_quality.startsWith("viper_"))
         m_quality = "hi_res";
-    m_autoNext = settings.value(EchoMusic::SettingsKeys::Playback::AutoNext, false).toBool();
+    m_autoNext = settings.value(EchoMusic::SettingsKeys::Playback::AutoNext, true).toBool();
     m_preventSleep = settings.value(EchoMusic::SettingsKeys::Playback::PreventSleep, true).toBool();
     bool valid = false;
     const auto delay =

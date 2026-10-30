@@ -177,6 +177,7 @@ private:
     friend class NativeMenusTestAccess;
     void activateTray(int reason);
     void captureNormalGeometry();
+    void updateNormalGeometry();
     void updateIncubationController();
     void save();
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -204,6 +205,7 @@ private:
     bool m_presentationReady = false;
     bool m_systemMoveActive = false;
     QTimer m_saveTimer;
+    QTimer m_geometryTimer;
     QRect m_normal;
     bool m_persist, m_remember = true, m_restoring = false, m_wasMaximized = false;
     bool m_closeToTray = true, m_hideDock = false, m_hideMenu = false, m_startMinimized = false,

@@ -188,6 +188,12 @@ ThemeStore::ThemeStore(EchoMusic::SettingsStore &settings, QObject *parent,
     if (savedFont == "system-ui" || QFontDatabase::hasFamily(savedFont))
         m_globalFont = savedFont;
     configureUiTypography(m_globalFont);
+    m_globalFontSizeScale = qBound(
+        80, settings.value(EchoMusic::SettingsKeys::Typography::GlobalFontSizeScale, 100).toInt(),
+        150);
+    m_globalFontWeightOffset = qBound(
+        0, settings.value(EchoMusic::SettingsKeys::Typography::GlobalFontWeightOffset, 0).toInt(),
+        300);
     const auto loadLyricFont = [&settings](const QString &key) {
         const auto family = settings.value(key, "follow").toString();
         return family == "follow" || family == "system-ui" || QFontDatabase::hasFamily(family)
@@ -282,6 +288,24 @@ void ThemeStore::setGlobalFont(const QString &family)
     configureUiTypography(family);
     // QGuiApplication does not deliver ApplicationFontChange to itself on all
     // platforms. Own writes notify explicitly, including an equal resolved font.
+    emit fontChanged();
+}
+void ThemeStore::setGlobalFontSizeScale(int scale)
+{
+    scale = qBound(80, scale, 150);
+    if (scale == m_globalFontSizeScale)
+        return;
+    m_globalFontSizeScale = scale;
+    m_settings.setValue(EchoMusic::SettingsKeys::Typography::GlobalFontSizeScale, scale);
+    emit fontChanged();
+}
+void ThemeStore::setGlobalFontWeightOffset(int offset)
+{
+    offset = qBound(0, offset, 300);
+    if (offset == m_globalFontWeightOffset)
+        return;
+    m_globalFontWeightOffset = offset;
+    m_settings.setValue(EchoMusic::SettingsKeys::Typography::GlobalFontWeightOffset, offset);
     emit fontChanged();
 }
 void ThemeStore::setLyricFontPreference(QString &preference, const QString &key,

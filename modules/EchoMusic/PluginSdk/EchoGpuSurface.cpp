@@ -1,4 +1,6 @@
 #include "EchoGpuSurface.h"
+#include "EchoGpuGlyphAtlas.h"
+#include "GlyphAtlas_p.h"
 #include "ItemPresentationObserver_p.h"
 #include "EchoPluginContext.h"
 #include "graphics/GpuRhi_p.h"
@@ -9,6 +11,16 @@ namespace EchoMusic
 {
 namespace
 {
+void filterGlyphSources(QHash<QString, GpuResourceDescription> &resources,
+                        const EchoGpuSurface *surface)
+{
+    for (auto it = resources.begin(); it != resources.end();)
+        if (it->textureSource && it->textureSource->glyphAtlas &&
+            it->textureSource->glyphAtlas->surface != surface)
+            it = resources.erase(it);
+        else
+            ++it;
+}
 class ReleaseGpu final : public QRunnable
 {
 public:
@@ -74,6 +86,7 @@ EchoGpuSurface::EchoGpuSurface(QQuickItem *parent) : QQuickRhiItem(parent)
 }
 EchoGpuSurface::~EchoGpuSurface()
 {
+    retireGlyphAtlases();
     retireTextureSources();
     // QQuickItem detaches from its window after derived members are destroyed.
     // Its signals must no longer reach callbacks which access those members.
@@ -98,6 +111,7 @@ void EchoGpuSurface::setGraphics(EchoPluginGraphics *value)
 {
     if (m_graphics == value)
         return;
+    retireGlyphAtlases();
     retireTextureSources();
     releaseTarget();
     releaseNative();
@@ -263,6 +277,13 @@ void EchoGpuSurface::syncActivity()
             m_status["state"] = "suspended";
     }
     m_sizing = false;
+    const auto leases = m_glyphAtlases;
+    for (auto lease : leases) {
+        if (lease)
+            lease->activityChanged();
+        if (!alive)
+            return;
+    }
     if (!running)
         emit statusChanged();
 }
@@ -318,6 +339,7 @@ void EchoGpuSurface::retire()
     if (m_retired)
         return;
     m_retired = true;
+    retireGlyphAtlases();
     retireTextureSources();
     m_frame.clear();
     m_status["state"] = "suspended";
@@ -364,6 +386,7 @@ EchoPluginOperation *EchoGpuSurface::enqueue(const QVariantMap &commands)
         return op;
     }
     submission->resources = m_graphics->descriptions();
+    filterGlyphSources(submission->resources, this);
     qint64 bytes = 0;
     QSet<GpuSharedResourceState *> sharedSnapshots;
     for (const auto &resource : submission->resources) {
@@ -484,6 +507,9 @@ EchoGpuSurface::Snapshot EchoGpuSurface::takeSnapshot()
         result.resources = m_graphics->descriptions();
         result.budget = m_graphics->memoryBudget();
     }
+    for (auto lease : m_glyphAtlases)
+        if (lease && lease->m_state && lease->m_state->active)
+            result.glyphAtlases.append(lease->m_state);
     while (!m_submissions.isEmpty() && m_submissions.first()->canceled)
         m_submissions.removeFirst();
     if (!m_submissions.isEmpty()) {
@@ -495,6 +521,7 @@ EchoGpuSurface::Snapshot EchoGpuSurface::takeSnapshot()
     }
     if (m_submissions.isEmpty())
         result.readbacks = std::exchange(m_readbacks, {});
+    filterGlyphSources(result.resources, this);
     return result;
 }
 void EchoGpuSurface::acceptReport(const QVariantMap &report)

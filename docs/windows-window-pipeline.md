@@ -22,20 +22,21 @@ DWM 系统 backdrop（`DWMWA_SYSTEMBACKDROP_TYPE`）已弃用：`DWMSBT_TRANSIEN
 
 ## 关键决策与原因
 
-### 1. 进程级禁用 redirection surface
+### 1. redirection surface 策略按窗口决定（不再进程级）
 
-`app/main.cpp` 设置 `QT_QPA_DISABLE_REDIRECTION_SURFACE=1`。
+历史上 `app/main.cpp` 曾设置 `QT_QPA_DISABLE_REDIRECTION_SURFACE=1`。
 Qt 默认用 `CreateSwapChainForHwnd`（HWND 交换链）把内容呈现进 GDI
 redirection bitmap，**alpha 被忽略**且 bitmap 会遮挡一切 backdrop 层；
 该环境变量让 QPA 在创建窗口时就带 `WS_EX_NOREDIRECTIONBITMAP`，
 转而走 `CreateSwapChainForComposition` + premultiplied alpha。
+它也会让**所有**光栅（QWidget）顶层弹窗失去 bitmap 而内容不可见
+（#20/#21 的弹窗空白与对话框问题），因此进程级设置已被移除：
 
-- 事后 `SetWindowLongPtr(WS_EX_NOREDIRECTIONBITMAP)` 无效（Windows 拒绝
-  对已创建窗口生效，错误 87），必须在创建前设置。
-- 该环境变量影响**所有**顶层窗口。光栅（QWidget）窗口没有 bitmap 就
-  不可见，因此 QWidget 顶层弹窗（任务栏歌词条 QMenu
-  `showTaskbarLyricMenu`、托盘菜单 `popupTrayMenu`）都在 popup 前
-  临时解除该变量，返回后恢复。新增 QWidget 顶层弹窗时必须做同样处理。
+- D3D 呈现策略现在归属主窗口 HWND：`WindowsWindowBackdrop::
+  applyWindowPolicy` 在"QQuickWindow + alpha + D3D11/D3D12"时对主窗口
+  单独加 `WS_EX_NOREDIRECTIONBITMAP`（创建时生效，事后设置无效，错误 87）。
+- 其余窗口（QWidget 弹窗、歌词条 QMenu、托盘菜单等光栅窗口）保持
+  redirection bitmap，内容可见。新增顶层弹窗**不需要**再解除任何变量。
 - 依赖 Qt 私有约定，**升级 Qt 后必须复核**（见文末清单）。
 
 ### 2. 永远不启用 DWM_BB（blur behind）
@@ -116,7 +117,9 @@ apply 在 surface 就绪前失败时也由 repair 重试。
 以下行为在 Qt 6.12.0 验证，升级后逐条复核：
 
 1. `QT_QPA_DISABLE_REDIRECTION_SURFACE` 仍存在且在创建时生效
-   （qwindowswindow.cpp `WindowCreationData::fromWindow`）。
+   （qwindowswindow.cpp `WindowCreationData::fromWindow`）。进程级已不
+   设置；`WindowsWindowBackdrop::applyWindowPolicy` 对主窗口的
+   `WS_EX_NOREDIRECTIONBITMAP` 依赖它（同一读取点）。
 2. `QQuickWindow::setDefaultAlphaBuffer(true)` 仍使
    `requestedFormat().alphaBufferSize() > 0`，从而 scenegraph 为
    交换链设置 `SurfaceHasPreMulAlpha`（qsgrenderloop.cpp）。

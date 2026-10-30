@@ -8,12 +8,24 @@ static_assert(int(EchoFileDialog::DontUseNativeDialog) == int(QFileDialog::DontU
 EchoFileDialog::EchoFileDialog(QObject *parent) : QObject(parent) {}
 EchoFileDialog::~EchoFileDialog()
 {
+    if (!m_dialog)
+        return;
+    m_dialog->disconnect(this);
+    if (m_inExec) {
+        // Teardown landed inside the queued exec frame (route retirement, page
+        // destruction). Reject the native dialog - the nested loop pumps the
+        // close through - and keep the dialog alive until that frame returns;
+        // deleting it now would free it under IFileDialog::Show.
+        if (m_cancelled)
+            *m_cancelled = true;
+        if (m_dialog->isVisible())
+            m_dialog->reject();
+        m_dialog->deleteLater();
+        return;
+    }
     // A native helper may still have a queued completion. Disconnect before
     // closing; neither it nor the fallback widget survives the QML owner.
-    if (m_dialog) {
-        m_dialog->disconnect(this);
-        delete m_dialog;
-    }
+    delete m_dialog;
 }
 bool EchoFileDialog::visible() const
 {
@@ -50,7 +62,15 @@ void EchoFileDialog::open()
     dialog->winId();
     if (m_parentWindow)
         dialog->windowHandle()->setTransientParent(m_parentWindow);
+    // The QFileDialog widget itself never shows (the native helper does), but
+    // its Show/Hide events mark the dialog session; forward them as
+    // visibleChanged so QML sees the dialog appear and disappear.
+    dialog->installEventFilter(this);
     connect(dialog, &QDialog::finished, this, [this, dialog](int result) {
+        // A programmatic accept()/reject() before the queued exec starts must
+        // not let that exec present the dialog afterwards.
+        if (m_cancelled)
+            *m_cancelled = true;
         if (m_dialog != dialog)
             return;
         if (result == QDialog::Accepted) {
@@ -65,12 +85,52 @@ void EchoFileDialog::open()
         else
             emit rejected();
     });
-    dialog->show();
-    emit visibleChanged();
+    if (m_options & DontUseNativeDialog) {
+        // The widget fallback is a plain raster window: show() is safe and
+        // keeps the loader's asynchronous close semantics.
+        dialog->show();
+        emit visibleChanged();
+        return;
+    }
+    // Qt shows non-exec native dialogs on a worker thread, and that path
+    // deadlocks behind the taskbar lyric: IFileDialog::Show creates the
+    // dialog window but never presents it while the probe runs (with
+    // taskbar/enabled=false it presents instantly). Run the native dialog as
+    // a GUI-thread exec() instead - the classical same-apartment path - queued
+    // so open() still returns immediately and no member frame ever sits under
+    // the modal loop (a teardown during the loop cannot resume into freed
+    // state).
+    m_cancelled = std::make_shared<bool>(false);
+    m_inExec = true;
+    QPointer<EchoFileDialog> guard(this);
+    QPointer<QFileDialog> dialogGuard(dialog);
+    const auto cancelled = m_cancelled;
+    QMetaObject::invokeMethod(
+        dialog,
+        [this, guard, dialogGuard, cancelled] {
+            if (*cancelled || !dialogGuard)
+                return;
+            dialogGuard->exec();
+            if (!guard)
+                return;
+            m_inExec = false;
+        },
+        Qt::QueuedConnection);
 }
 void EchoFileDialog::close()
 {
-    if (m_dialog)
-        m_dialog->reject();
+    if (!m_dialog)
+        return;
+    // Also covers the exec-pending state: reject() before the loop starts
+    // emits finished(rejected) and the queued exec then sees the cancel flag.
+    if (m_cancelled)
+        *m_cancelled = true;
+    m_dialog->reject();
+}
+bool EchoFileDialog::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_dialog && (event->type() == QEvent::Show || event->type() == QEvent::Hide))
+        emit visibleChanged();
+    return QObject::eventFilter(watched, event);
 }
 } // namespace EchoMusic

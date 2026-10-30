@@ -37,6 +37,7 @@ find_package(
                Widgets
                Qml
                Quick
+               QuickPrivate
                QuickShapes
                Multimedia
                QuickEffects

@@ -100,6 +100,22 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
     }
     s.pumpReadbacks(cb);
     auto *updates = rhi()->nextResourceUpdateBatch();
+    if (!s.updateGlyphAtlases(updates)) {
+        cb->resourceUpdate(updates);
+        cb->beginPass(renderTarget(), Qt::transparent, {1., 0});
+        cb->endPass();
+        const auto reason = s.error.isEmpty()
+                                ? QStringLiteral("Glyph atlas metadata generation is pending")
+                                : s.error;
+        for (const auto &request : m_snapshot.readbacks)
+            s.bridge->complete(request.second, {}, reason);
+        m_snapshot.readbacks.clear();
+        if (m_snapshot.submission) {
+            s.error = reason;
+            s.finishSubmission(cb, colorTexture() ? colorTexture() : resolveTexture());
+        }
+        return; // A new UV generation cannot draw with the previous vertex/command snapshot.
+    }
     const bool resourcesReady = s.error.isEmpty() &&
                                 s.updateResources(updates, m_snapshot.resources) &&
                                 s.prepareOutput(renderTarget());
