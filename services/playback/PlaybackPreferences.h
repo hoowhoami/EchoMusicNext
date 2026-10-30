@@ -100,7 +100,7 @@ private:
     QString m_queueMode = "context", m_quality = "hi_res";
     bool m_autoPlay = false, m_fade = true, m_viper = false;
     bool m_compatibilityMode = true;
-    bool m_mvFallback = true;
+    bool m_mvFallback = false;
     int m_fadeMs = 1000;
     bool m_autoNext = true;
     bool m_preventSleep = true;

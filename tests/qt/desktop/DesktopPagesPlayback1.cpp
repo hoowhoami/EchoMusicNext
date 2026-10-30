@@ -461,7 +461,7 @@ void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
     const auto captures = qEnvironmentVariable("ECHO_SOURCE_UI_CAPTURES");
     if (!captures.isEmpty())
         QVERIFY(QDir().mkpath(captures));
-    QVERIFY(playback.preferences()->mvAudioFallbackEnabled());
+    QVERIFY(!playback.preferences()->mvAudioFallbackEnabled());
     for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
         session.theme.setMode(mode);
         for (const int zoom : {100, 125}) {
@@ -485,7 +485,7 @@ void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
             QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
-            QCOMPARE(toggle->property("checked").toBool(), true);
+            QCOMPARE(toggle->property("checked").toBool(), false);
             QVERIFY(Test::prepareNativeInput(session.window));
             QTRY_VERIFY([&] {
                 const auto local = toggle->mapToItem(viewport, {0, 0});
@@ -502,8 +502,8 @@ void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
             QTest::mouseClick(
                 session.window, Qt::LeftButton, Qt::NoModifier,
                 toggle->mapToScene({toggle->width() / 2, toggle->height() / 2}).toPoint());
-            QTRY_VERIFY(!playback.preferences()->mvAudioFallbackEnabled());
-            QCOMPARE(session.preferences.value("playback/mvAudioFallbackEnabled").toBool(), false);
+            QTRY_VERIFY(playback.preferences()->mvAudioFallbackEnabled());
+            QCOMPARE(session.preferences.value("playback/mvAudioFallbackEnabled").toBool(), true);
             if (!captures.isEmpty())
                 QVERIFY(session.window->grabWindow().save(
                     captures + QString("/settings-%1-%2.png").arg(int(mode)).arg(zoom)));
