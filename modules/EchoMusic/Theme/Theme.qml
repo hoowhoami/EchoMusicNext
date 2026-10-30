@@ -70,7 +70,7 @@ QtObject {
         tone: Theme.store.floatingTone
         text: Theme.floatingText
         secondaryText: Theme.floatingSecondaryText
-        elevated: Theme.elevated
+        elevated: Theme.store.floatingBackground
         card: Theme.floatingCard
         border: Theme.floatingBorder
         accent: Theme.store.floatingAccent

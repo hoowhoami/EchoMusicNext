@@ -23,6 +23,10 @@ bool positionSupported()
 {
     return !QGuiApplication::platformName().startsWith("wayland");
 }
+bool nativeOpacity()
+{
+    return QStringList{"cocoa", "windows", "xcb"}.contains(QGuiApplication::platformName());
+}
 bool number(const QVariant &v)
 {
     bool ok;
@@ -32,9 +36,15 @@ bool number(const QVariant &v)
 }
 } // namespace
 EchoPluginWindow::EchoPluginWindow(EchoPluginContext &s, QVariantMap d)
-    : QObject(&s), m_scope(s), m_definition(std::move(d))
+    : QObject(&s), m_scope(s), m_definition(std::move(d)), m_initialDefinition(m_definition)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
+    connect(&s, &EchoPluginContext::sessionInvalidated, this, [this] {
+        release();
+        m_definition = m_initialDefinition;
+        m_error.clear();
+        emit changed();
+    });
     connect(&s, &EchoPluginContext::activeChanged, this, [this] {
         if (!m_scope.active())
             release();
@@ -55,16 +65,28 @@ EchoPluginWindow::~EchoPluginWindow()
 QVariantMap EchoPluginWindow::snapshot() const
 {
     const auto b = m_window ? m_window->geometry() : m_bounds;
-    return {{"id", id()},
-            {"visible", bool(m_window && m_window->isVisible())},
-            {"loading", bool(m_opening)},
-            {"bounds",
-             QVariantMap{{"x", b.x()}, {"y", b.y()}, {"width", b.width()}, {"height", b.height()}}},
-            {"ignoreMouseEvents", m_ignore},
-            {"alwaysOnTop", m_window ? bool(m_window->flags() & Qt::WindowStaysOnTopHint)
-                                     : m_definition.value("alwaysOnTop", false).toBool()},
-            {"positionSupported", positionSupported()},
-            {"error", m_error}};
+    return {
+        {"id", id()},
+        {"visible", bool(m_window && m_window->isVisible())},
+        {"loading", bool(m_opening)},
+        {"active", bool(m_window && m_window->isActive())},
+        {"minimized", bool(m_window && m_window->windowState() == Qt::WindowMinimized)},
+        {"opacity",
+         m_window ? (nativeOpacity() ? m_window->opacity() : m_window->contentItem()->opacity())
+                  : m_definition.value("opacity", 1).toDouble()},
+        {"opacitySupported", nativeOpacity() || m_definition.value("transparent", false).toBool()},
+        {"opacityMode", nativeOpacity()                                     ? "native"
+                        : m_definition.value("transparent", false).toBool() ? "content"
+                                                                            : "unsupported"},
+        {"title", m_window ? m_window->title()
+                           : m_definition.value("title", m_scope.package().name).toString()},
+        {"bounds",
+         QVariantMap{{"x", b.x()}, {"y", b.y()}, {"width", b.width()}, {"height", b.height()}}},
+        {"ignoreMouseEvents", m_ignore},
+        {"alwaysOnTop", m_window ? bool(m_window->flags() & Qt::WindowStaysOnTopHint)
+                                 : m_definition.value("alwaysOnTop", false).toBool()},
+        {"positionSupported", positionSupported()},
+        {"error", m_error}};
 }
 QRect EchoPluginWindow::bounded(QRect r) const
 {
@@ -120,6 +142,12 @@ void EchoPluginWindow::create(EchoPluginOperation *op, QVariantMap options)
         if (options.contains(key))
             m_definition[key] = options.value(key);
     if (m_window) {
+        m_creating = true;
+        const auto creationGuard = qScopeGuard([this] {
+            m_creating = false;
+            if (std::exchange(m_releasePending, false))
+                release();
+        });
         const bool onTop = m_definition.value("alwaysOnTop", false).toBool();
         if (bool(m_window->flags() & Qt::WindowStaysOnTopHint) != onTop) {
             m_reconfiguring = true;
@@ -193,6 +221,10 @@ void EchoPluginWindow::create(EchoPluginOperation *op, QVariantMap options)
         if (m_definition.value("alwaysOnTop", false).toBool())
             flags |= Qt::WindowStaysOnTopHint;
         w->setFlags(flags);
+        if (nativeOpacity())
+            w->setOpacity(m_definition.value("opacity", 1).toDouble());
+        else if (m_definition.value("transparent", false).toBool())
+            w->contentItem()->setOpacity(m_definition.value("opacity", 1).toDouble());
         w->setTitle(m_definition.value("title", m_scope.package().name).toString());
         w->setColor(m_definition.value("transparent", false).toBool() ? Qt::transparent
                                                                       : QColor("#202020"));
@@ -262,6 +294,12 @@ void EchoPluginWindow::create(EchoPluginOperation *op, QVariantMap options)
             release();
             return;
         }
+        connect(w, &QWindow::activeChanged, this, &EchoPluginWindow::changed);
+        connect(w, &QWindow::windowStateChanged, this, &EchoPluginWindow::changed);
+        connect(w, &QWindow::visibilityChanged, this, &EchoPluginWindow::changed);
+        connect(w, &QWindow::opacityChanged, this, &EchoPluginWindow::changed);
+        connect(w->contentItem(), &QQuickItem::opacityChanged, this, &EchoPluginWindow::changed);
+        connect(w, &QWindow::windowTitleChanged, this, &EchoPluginWindow::changed);
         connect(w, &QQuickWindow::xChanged, this, &EchoPluginWindow::changed);
         connect(w, &QQuickWindow::yChanged, this, &EchoPluginWindow::changed);
         connect(w, &QQuickWindow::widthChanged, this, &EchoPluginWindow::changed);
@@ -336,7 +374,8 @@ void EchoPluginWindow::release()
 bool EchoPluginWindow::eventFilter(QObject *o, QEvent *e)
 {
     if (!m_reconfiguring && o == m_window &&
-        (e->type() == QEvent::Close || e->type() == QEvent::Hide)) {
+        (e->type() == QEvent::Close ||
+         (e->type() == QEvent::Hide && m_window->windowState() != Qt::WindowMinimized))) {
         QTimer::singleShot(0, this, &EchoPluginWindow::release);
     }
     return QObject::eventFilter(o, e);
@@ -348,6 +387,36 @@ void EchoPluginWindow::hide()
 void EchoPluginWindow::close()
 {
     QTimer::singleShot(0, this, &EchoPluginWindow::release);
+}
+EchoPluginOperation *EchoPluginWindow::run(std::function<void(QQuickWindow *)> command)
+{
+    if (!m_window)
+        return m_scope.rejected("Unavailable", "Window is closed");
+    auto *op = m_scope.operation();
+    if (op->finished())
+        return op;
+    op->start();
+    const auto revision = m_revision, epoch = m_scope.accountEpoch();
+    const QPointer<QQuickWindow> window = m_window;
+    QTimer::singleShot(0, op, [this, op, window, revision, epoch, command = std::move(command)] {
+        if (op->finished())
+            return;
+        if (!window || window != m_window || revision != m_revision ||
+            epoch != m_scope.accountEpoch() || !m_scope.active()) {
+            op->cancel();
+            return;
+        }
+        m_creating = true;
+        const auto guard = qScopeGuard([this] {
+            m_creating = false;
+            if (std::exchange(m_releasePending, false))
+                release();
+        });
+        command(window);
+        if (!op->finished())
+            op->succeed();
+    });
+    return op;
 }
 EchoPluginOperation *EchoPluginWindow::setBounds(const QVariantMap &values)
 {
@@ -368,16 +437,13 @@ EchoPluginOperation *EchoPluginWindow::setBounds(const QVariantMap &values)
         else
             b.setHeight(i.value().toInt());
     }
-    return m_scope.execute([this, b] {
-        if (m_window)
-            m_window->setGeometry(bounded(b));
-    });
+    return run([this, b](QQuickWindow *window) { window->setGeometry(bounded(b)); });
 }
 EchoPluginOperation *EchoPluginWindow::setIgnoreMouseEvents(bool ignore)
 {
     if (!m_window)
         return m_scope.rejected("Unavailable", "Window is closed");
-    return m_scope.execute([this, ignore] {
+    return run([this, ignore](QQuickWindow *) {
         if (m_window) {
             m_ignore = ignore;
             m_reconfiguring = true;
@@ -397,7 +463,7 @@ EchoPluginOperation *EchoPluginWindow::showOnTop(bool focus)
 {
     if (!m_window)
         return m_scope.rejected("Unavailable", "Window is closed");
-    return m_scope.execute([this, focus] {
+    return run([this, focus](QQuickWindow *) {
         if (m_window) {
             if (m_window->windowState() == Qt::WindowMinimized)
                 m_window->showNormal();
@@ -406,6 +472,57 @@ EchoPluginOperation *EchoPluginWindow::showOnTop(bool focus)
                 m_window->requestActivate();
         }
     });
+}
+EchoPluginOperation *EchoPluginWindow::setAlwaysOnTop(bool value)
+{
+    if (!m_window)
+        return m_scope.rejected("Unavailable", "Window is closed");
+    return show({{"alwaysOnTop", value}, {"focus", false}});
+}
+EchoPluginOperation *EchoPluginWindow::setOpacity(double value)
+{
+    if (!std::isfinite(value) || value < 0 || value > 1)
+        return m_scope.rejected("InvalidArgument", "Opacity must be in 0..1");
+    if (!m_window)
+        return m_scope.rejected("Unavailable", "Window is closed");
+    if (!nativeOpacity() && !m_definition.value("transparent", false).toBool())
+        return m_scope.rejected(
+            "Unsupported", "This backend requires a transparent plugin window for content opacity");
+    return run([this, value](QQuickWindow *) {
+        if (m_window) {
+            m_definition["opacity"] = value;
+            if (nativeOpacity())
+                m_window->setOpacity(value);
+            else
+                m_window->contentItem()->setOpacity(value);
+        }
+    });
+}
+EchoPluginOperation *EchoPluginWindow::setTitle(const QString &value)
+{
+    if (value.size() > 256 || value.contains(QChar::Null))
+        return m_scope.rejected("InvalidArgument", "Invalid window title");
+    if (!m_window)
+        return m_scope.rejected("Unavailable", "Window is closed");
+    return run([this, value](QQuickWindow *) {
+        if (m_window) {
+            m_definition["title"] = value;
+            m_window->setTitle(value);
+        }
+    });
+}
+EchoPluginOperation *EchoPluginWindow::minimize()
+{
+    if (!m_window)
+        return m_scope.rejected("Unavailable", "Window is closed");
+    return run([this](QQuickWindow *) {
+        if (m_window)
+            m_window->showMinimized();
+    });
+}
+EchoPluginOperation *EchoPluginWindow::restore(bool focus)
+{
+    return showOnTop(focus);
 }
 Qt::Edges EchoPluginWindow::edges(const QString &d) const
 {

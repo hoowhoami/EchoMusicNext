@@ -6,12 +6,14 @@
 #include <QHash>
 #include <memory>
 #include <atomic>
+#include <functional>
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
 {
 class EchoPluginContext;
 class EchoGpuSurface;
 class EchoPluginGraphics;
+class EchoPluginOperation;
 struct GpuRenderState;
 struct GpuByteBudget
 {
@@ -37,8 +39,8 @@ struct GpuByteBudget
 struct GpuMemoryBudget
 {
     GpuByteBudget native{128ll * 1024 * 1024}, targets{256ll * 1024 * 1024},
-        readbacks{32ll * 1024 * 1024};
-    std::atomic<int> objects = 0, surfaces = 0;
+        readbacks{32ll * 1024 * 1024}, submissions{64ll * 1024 * 1024};
+    std::atomic<int> objects = 0, surfaces = 0, pendingSubmissions = 0;
 };
 struct GpuResourceDescription
 {
@@ -47,6 +49,18 @@ struct GpuResourceDescription
     QByteArray data;
     quint64 revision = 1;
     qint64 allocationBytes = 0;
+};
+struct GpuSubmission
+{
+    ~GpuSubmission();
+    std::shared_ptr<GpuMemoryBudget> budget;
+    qint64 bytes = 0;
+    quint64 serial = 0;
+    std::function<void()> retired;
+    std::atomic<bool> canceled = false;
+    QPointer<EchoPluginOperation> operation;
+    QHash<QString, GpuResourceDescription> resources;
+    QVariantMap frame;
 };
 class EchoGpuResource final : public QObject
 {
@@ -115,6 +129,7 @@ public:
     }
     QHash<QString, GpuResourceDescription> descriptions() const;
     bool validateFrame(const QVariantMap &frame, QString &error) const;
+    bool prepareSubmission(const QVariantMap &input, QVariantMap &output, QString &error);
     bool attach(EchoGpuSurface *surface);
     std::shared_ptr<GpuMemoryBudget> memoryBudget() const
     {

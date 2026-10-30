@@ -43,6 +43,10 @@ qt_add_qml_module(
     TaskbarButtonController.cpp
     TaskbarLyricGeometry.h
     TaskbarLyricGeometry.cpp
+    AppIconService.h
+    AppIconService.cpp
+    AppIconShortcuts_p.h
+    AppIconShortcuts.cpp
     WindowController.h
     WindowController.cpp
     TrayIconTheme.h
@@ -122,6 +126,7 @@ target_link_libraries(
             Qt6::QuickControls2
             Qt6::Svg
             Qt6::Widgets
+            Qt6::Concurrent
 )
 
 if(APPLE)
@@ -144,7 +149,7 @@ qt_add_resources(
 )
 target_compile_definitions(echo_shell PRIVATE ECHO_APPLICATION_ID="${ECHO_APPLICATION_ID}")
 if(WIN32)
-    target_link_libraries(echo_shell PRIVATE user32)
+    target_link_libraries(echo_shell PRIVATE user32 ole32 shell32 uuid)
 endif()
 
 qt_add_shaders(

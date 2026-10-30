@@ -13,6 +13,10 @@ namespace
 const QString prefix = SettingsKeys::Plugins::ResourcePermissionsPrefix;
 QString label(const QString &cap)
 {
+    if (cap == "appearance")
+        return QObject::tr("临时调整宿主外观");
+    if (cap == "appIcons")
+        return QObject::tr("更改应用与快捷方式图标");
     if (cap == "navigation")
         return QObject::tr("读取和操作宿主页面导航");
     if (cap == "hostSettings")
@@ -27,12 +31,12 @@ QString label(const QString &cap)
         return QObject::tr("运行插件附带的程序");
     if (cap == "serverIntercept")
         return QObject::tr("拦截并修改宿主 API 请求及响应");
-    return QObject::tr("打开独立插件窗口");
+    return QObject::tr("操作浮窗与独立插件窗口");
 }
 bool supported(const QString &cap)
 {
-    return QStringList{"tcp",        "webServer",    "windows", "process", "serverIntercept",
-                       "navigation", "hostSettings", "cover"}
+    return QStringList{"tcp",        "webServer",    "windows", "process",    "serverIntercept",
+                       "navigation", "hostSettings", "cover",   "appearance", "appIcons"}
         .contains(cap);
 }
 } // namespace

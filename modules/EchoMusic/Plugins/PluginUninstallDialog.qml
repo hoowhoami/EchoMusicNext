@@ -56,7 +56,6 @@ EchoDialog {
             }
             PluginActionButton {
                 danger: true
-                implicitHeight: 32
                 text: qsTr("卸载")
                 enabled: !dialog.runtime.loading
                 onClicked: dialog.runtime.uninstall(dialog.installationId, dialog.removeData)

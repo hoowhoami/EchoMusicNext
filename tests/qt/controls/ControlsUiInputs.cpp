@@ -594,6 +594,7 @@ void ControlsUiTest::selectSearchMultiKeyboardPlacementAndVirtualization()
 
 void ControlsUiTest::numberInputCommitsAndClampsAcrossAllInputPaths()
 {
+    QTest::failOnWarning(QRegularExpression(".*process of being created.*"));
     ControlsSession session;
     QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
     QVERIFY(session.create());

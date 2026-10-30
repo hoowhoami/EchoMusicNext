@@ -254,10 +254,10 @@ bool echo_audio_stall_timeout(struct EchoAudio *audio, double seconds);
  * Borrowed UTF-8 path and result live only until this call returns; no engine
  * singleton or playback resource is created and no upstream request is sent.
  */
-bool echo_audio_inspect_upload_file(const uint8_t *path,
-                                    size_t path_len,
-                                    EchoCallback callback,
-                                    void *context);
+bool echo_audio_read_file_metadata(const uint8_t *path,
+                                   size_t path_len,
+                                   EchoCallback callback,
+                                   void *context);
 
 /**
  * Configure the shared post-output spectrum tap without blocking the GUI.

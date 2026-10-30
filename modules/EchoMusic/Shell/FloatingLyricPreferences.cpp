@@ -1,8 +1,51 @@
+#include <QMetaProperty>
+#include <cmath>
 #include "SettingsKeys.h"
 #include "FloatingLyricPreferences.h"
 #include <QColor>
 namespace EchoMusic
 {
+namespace
+{
+bool validPreference(const QString &name, const QVariant &value, bool mini)
+{
+    if (name == "layout")
+        return QStringList{"horizontal", "vertical"}.contains(value.toString());
+    if (name == "alignment")
+        return QStringList{"left", "center", "right"}.contains(value.toString()) ||
+               (!mini && value == "both");
+    if (name == "shadowStrength")
+        return QStringList{"none", "soft", "normal", "strong"}.contains(value.toString());
+    if (name == "playedColor" || name == "unplayedColor")
+        return (mini && value.toString().isEmpty()) || QColor(value.toString()).isValid();
+    if (name == "fontWeight")
+        return value.toInt() == 400 || value.toInt() == 600 || value.toInt() == 780;
+    return true;
+}
+} // namespace
+bool FloatingLyricPreferences::patch(const QVariantMap &values)
+{
+    const auto meta = metaObject();
+    for (auto it = values.begin(); it != values.end(); ++it) {
+        const auto index = meta->indexOfProperty(it.key().toUtf8());
+        if (index < meta->propertyOffset() || !meta->property(index).isWritable())
+            return false;
+        const auto type = meta->property(index).metaType();
+        if (it.value().metaType() != type &&
+            !(type.id() == QMetaType::Int && it.value().metaType().id() == QMetaType::Double &&
+              std::isfinite(it.value().toDouble()) &&
+              it.value().toDouble() == std::floor(it.value().toDouble()) &&
+              it.value().toDouble() >= -2147483648. && it.value().toDouble() <= 2147483647.))
+            return false;
+        if (!validPreference(it.key(), it.value(), m_mini))
+            return false;
+    }
+    for (auto it = values.begin(); it != values.end(); ++it)
+        if (!setProperty(it.key().toUtf8(), it.value()))
+            return false;
+    return true;
+}
+
 FloatingLyricPreferences::FloatingLyricPreferences(EchoMusic::SettingsStore &settings, bool desktop,
                                                    QObject *parent)
     : QObject(parent), m_settings(settings),
@@ -90,7 +133,7 @@ void FloatingLyricPreferences::setShowUnlockButton(bool value)
 }
 void FloatingLyricPreferences::setLayout(QString value)
 {
-    if (value != "horizontal" && value != "vertical")
+    if (!validPreference("layout", value, m_mini))
         return;
     if (m_layout == value)
         return;
@@ -100,7 +143,7 @@ void FloatingLyricPreferences::setLayout(QString value)
 }
 void FloatingLyricPreferences::setAlignment(QString value)
 {
-    if (value != "left" && value != "center" && value != "right" && (m_mini || value != "both"))
+    if (!validPreference("alignment", value, m_mini))
         return;
     if (m_alignment == value)
         return;
@@ -110,7 +153,7 @@ void FloatingLyricPreferences::setAlignment(QString value)
 }
 void FloatingLyricPreferences::setShadowStrength(QString value)
 {
-    if (value != "none" && value != "soft" && value != "normal" && value != "strong")
+    if (!validPreference("shadowStrength", value, m_mini))
         return;
     if (m_shadowStrength == value)
         return;
@@ -136,7 +179,7 @@ void FloatingLyricPreferences::setShowNextLinePreview(bool value)
 }
 void FloatingLyricPreferences::setPlayedColor(QString value)
 {
-    if ((!value.isEmpty() || !m_mini) && !QColor(value).isValid())
+    if (!validPreference("playedColor", value, m_mini))
         return;
     if (!value.isEmpty())
         value = QColor(value).name(QColor::HexRgb);
@@ -148,7 +191,7 @@ void FloatingLyricPreferences::setPlayedColor(QString value)
 }
 void FloatingLyricPreferences::setUnplayedColor(QString value)
 {
-    if ((!value.isEmpty() || !m_mini) && !QColor(value).isValid())
+    if (!validPreference("unplayedColor", value, m_mini))
         return;
     if (!value.isEmpty())
         value = QColor(value).name(QColor::HexRgb);
@@ -203,7 +246,7 @@ void FloatingLyricPreferences::setLineGap(int value)
 }
 void FloatingLyricPreferences::setFontWeight(int value)
 {
-    if (value != 400 && value != 600 && value != 780)
+    if (!validPreference("fontWeight", value, m_mini))
         return;
     if (m_fontWeight == value)
         return;

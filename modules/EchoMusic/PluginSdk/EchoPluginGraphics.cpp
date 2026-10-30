@@ -1,6 +1,7 @@
 #include "EchoPluginGraphics.h"
 #include "EchoGpuSurface.h"
 #include "graphics/GpuRhi_p.h"
+#include "graphics/GpuTextureLayout_p.h"
 #include <QQuickWindow>
 #include "EchoPluginContext.h"
 #include <QFile>
@@ -30,7 +31,8 @@ bool integer(const QVariant &value, int minimum, int maximum)
 {
     bool ok = false;
     const double n = value.toDouble(&ok);
-    return ok && std::isfinite(n) && n == std::floor(n) && n >= minimum && n <= maximum;
+    return ok && value.metaType().id() != QMetaType::Bool && std::isfinite(n) &&
+           n == std::floor(n) && n >= minimum && n <= maximum;
 }
 bool keys(const QVariantMap &map, const QStringList &allowed)
 {
@@ -45,11 +47,17 @@ qint64 cost(const GpuResourceDescription &d)
         return d.definition.value("size").toLongLong();
     if (d.kind == "texture") {
         const auto format = d.definition.value("format", "rgba8").toString();
-        return d.definition.value("width").toLongLong() *
-               d.definition.value("height").toLongLong() *
-               (format == "rgba32f"   ? 16
-                : format == "rgba16f" ? 8
-                                      : 4);
+        qint64 pixels = 0;
+        auto w = d.definition.value("width").toInt(), h = d.definition.value("height").toInt();
+        int level = 0;
+        do {
+            pixels += qint64(w) * h * gpuTextureSlices(d.definition, level++);
+            if (!d.definition.value("mipmaps").toBool() || (w == 1 && h == 1))
+                break;
+            w = qMax(1, w / 2);
+            h = qMax(1, h / 2);
+        } while (true);
+        return pixels * (format == "rgba32f" ? 16 : format == "rgba16f" ? 8 : 4);
     }
     return 4096 + d.definition.value("vertexBytes").toByteArray().size() +
            d.definition.value("fragmentBytes").toByteArray().size() +
@@ -120,6 +128,11 @@ QVariantMap EchoPluginGraphics::capabilities() const
         values["dynamicRange"] = "sdr";
         values["reason"] = "Qt software renderer has no RHI";
     }
+    if (!active()) {
+        values["available"] = false;
+        values["state"] = "suspended";
+        values["reason"] = "Plugin graphics scope is inactive";
+    }
     values["limits"] = QVariantMap{{"logicalBytes", budget},
                                    {"nativeBytes", m_memory->native.limit},
                                    {"renderTargetBytes", m_memory->targets.limit},
@@ -127,10 +140,18 @@ QVariantMap EchoPluginGraphics::capabilities() const
                                    {"resources", 256},
                                    {"surfaces", 16},
                                    {"textureExtent", 4096},
+                                   {"textureArrayLayers", 256},
+                                   {"textureVolumeExtent", 2048},
                                    {"surfacePixels", 8 * 1024 * 1024},
                                    {"passes", 32},
                                    {"drawVertices", 1000000},
-                                   {"computeInvocations", 64000000}};
+                                   {"indirectCommands", 256},
+                                   {"computeInvocations", 64000000},
+                                   {"submissionBytes", m_memory->submissions.limit},
+                                   {"pendingSubmissions", 32},
+                                   {"surfaceSubmissions", 8}};
+    values["pendingSubmissions"] = m_memory->pendingSubmissions.load();
+    values["submissionBytes"] = m_memory->submissions.used.load();
     values["logicalResources"] = m_resources.size();
     values["logicalBytes"] = m_bytes;
     return values;
@@ -284,7 +305,7 @@ EchoGpuResource *EchoPluginGraphics::createBuffer(const QVariantMap &input, cons
         return nullptr;
     }
     for (const auto &u : usage)
-        if (!QStringList{"uniform", "vertex", "index", "storage"}.contains(u)) {
+        if (!QStringList{"uniform", "vertex", "index", "storage", "indirect"}.contains(u)) {
             fail("Unknown buffer usage");
             return nullptr;
         }
@@ -313,10 +334,29 @@ EchoGpuResource *EchoPluginGraphics::createTexture(const QVariantMap &input, con
         return nullptr;
     }
     auto d = input;
-    if (!keys(d, {"width", "height", "format", "usage"})) {
+    if ((d.contains("mipmaps") && d.value("mipmaps").metaType().id() != QMetaType::Bool)) {
+        fail("mipmaps must be boolean");
+        return nullptr;
+    }
+    if (!keys(d,
+              {"width", "height", "format", "usage", "mipmaps", "dimension", "layers", "depth"})) {
         fail("Unknown texture field");
         return nullptr;
     }
+    const auto dimension = d.value("dimension", "2d").toString();
+    if (!QStringList{"2d", "2d-array", "cube", "3d"}.contains(dimension) ||
+        (dimension != "2d-array" && d.contains("layers")) ||
+        (dimension == "2d-array" && !integer(d.value("layers"), 1, 256)) ||
+        (dimension != "3d" && d.contains("depth")) ||
+        (dimension == "3d" &&
+         (!integer(d.value("depth"), 1, 2048) || !integer(d.value("width"), 1, 2048) ||
+          !integer(d.value("height"), 1, 2048))) ||
+        (dimension == "cube" && d.value("width").toInt() != d.value("height").toInt())) {
+        fail("Invalid texture dimension, layer/depth extent or non-square cube face");
+        return nullptr;
+    }
+    d["dimension"] = dimension;
+    d["layers"] = dimension == "2d-array" ? d.value("layers").toInt() : 1;
     const auto f = d.value("format", "rgba8").toString();
     const auto usage = d.value("usage", QStringList{"sampled"}).toStringList();
     if (!integer(d.value("width"), 1, 4096) || !integer(d.value("height"), 1, 4096) ||
@@ -329,9 +369,18 @@ EchoGpuResource *EchoPluginGraphics::createTexture(const QVariantMap &input, con
             fail("Unknown texture usage");
             return nullptr;
         }
+    if (dimension == "cube" && usage.contains("storage")) {
+        fail("Cube faces use render-target or transfers; portable storage images use 2d, 2d-array "
+             "or 3d");
+        return nullptr;
+    }
     d["format"] = f;
     d["usage"] = usage;
-    const auto size = int(cost({"texture", d, {}, 1}));
+    const auto size = qint64(d.value("width").toInt()) * d.value("height").toInt() *
+                      gpuTextureSlices(d) *
+                      (f == "rgba32f"   ? 16
+                       : f == "rgba16f" ? 8
+                                        : 4);
     if (size > budget) {
         fail("Texture exceeds GPU budget");
         return nullptr;
@@ -358,7 +407,7 @@ EchoGpuResource *EchoPluginGraphics::createSampler(const QVariantMap &d)
         fail("Graphics capability is missing or scope is closed");
         return nullptr;
     }
-    if (!keys(d, {"minFilter", "magFilter", "u", "v"})) {
+    if (!keys(d, {"minFilter", "magFilter", "mipFilter", "u", "v", "w"})) {
         fail("Unknown sampler field");
         return nullptr;
     }
@@ -367,11 +416,16 @@ EchoGpuResource *EchoPluginGraphics::createSampler(const QVariantMap &d)
             fail("Invalid sampler filter");
             return nullptr;
         }
-    for (const auto &key : {"u", "v"})
+    for (const auto &key : {"u", "v", "w"})
         if (!QStringList{"clamp", "repeat", "mirror"}.contains(d.value(key, "clamp").toString())) {
             fail("Invalid sampler addressing");
             return nullptr;
         }
+    if (!QStringList{"none", "nearest", "linear"}.contains(
+            d.value("mipFilter", "none").toString())) {
+        fail("Invalid mip filter");
+        return nullptr;
+    }
     return create("sampler", d);
 }
 EchoGpuResource *EchoPluginGraphics::createRenderPipeline(const QVariantMap &input)
@@ -382,7 +436,7 @@ EchoGpuResource *EchoPluginGraphics::createRenderPipeline(const QVariantMap &inp
     }
     auto d = input;
     if (!keys(d, {"vertexShader", "fragmentShader", "topology", "blend", "cull", "depthTest",
-                  "depthWrite", "vertexLayout"}) ||
+                  "depthWrite", "vertexLayout", "blends"}) ||
         !QStringList{"none", "back", "front"}.contains(d.value("cull", "none").toString())) {
         fail("Invalid render pipeline fields");
         return nullptr;
@@ -398,6 +452,18 @@ EchoGpuResource *EchoPluginGraphics::createRenderPipeline(const QVariantMap &inp
         !QStringList{"none", "alpha", "add"}.contains(d.value("blend", "alpha").toString())) {
         fail("Invalid pipeline topology or blending");
         return nullptr;
+    }
+    if (d.contains("blends")) {
+        const auto blends = d.value("blends").toList();
+        if (blends.isEmpty() || blends.size() > 8) {
+            fail("Pipeline blends requires 1..8 attachment modes");
+            return nullptr;
+        }
+        for (const auto &blend : blends)
+            if (!QStringList{"none", "alpha", "add"}.contains(blend.toString())) {
+                fail("Invalid attachment blend mode");
+                return nullptr;
+            }
     }
     return create("render-pipeline", d);
 }
@@ -444,12 +510,17 @@ bool EchoPluginGraphics::writeTexture(EchoGpuResource *resource, const QJSValue 
     auto &d = resource->m_description;
     const auto f = d.definition.value("format").toString();
     m_error.clear();
-    const auto value = bytes(data,
-                             f == "rgba8"     ? "uint8"
-                             : f == "rgba16f" ? "float16"
-                                              : "float32",
-                             int(cost(d)));
-    if (!m_error.isEmpty() || value.size() != cost(d))
+    const auto value =
+        bytes(data,
+              f == "rgba8"     ? "uint8"
+              : f == "rgba16f" ? "float16"
+                               : "float32",
+              d.definition.value("width").toInt() * d.definition.value("height").toInt() *
+                  gpuTextureSlices(d.definition) *
+                  (f == "rgba32f"   ? 16
+                   : f == "rgba16f" ? 8
+                                    : 4));
+    if (!m_error.isEmpty() || value.size() != d.data.size())
         return fail("Texture upload must cover the complete extent");
     d.data = value;
     ++d.revision;
@@ -468,6 +539,7 @@ void EchoPluginGraphics::retire(EchoGpuResource &resource)
     resource.m_description.data.clear();
     resource.m_description.definition.clear();
     emit resource.changed();
+    emit changed();
     emit resourcesChanged();
     resource.deleteLater();
 }
@@ -500,7 +572,8 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
         const auto kind = pass.value("type", "render").toString();
         if (!keys(pass, kind == "compute" ? QStringList{"type", "pipeline", "bindings", "groups"}
                                           : QStringList{"type", "pipeline", "bindings", "target",
-                                                        "clear", "draws", "loadOp"})) {
+                                                        "clear", "draws", "loadOp", "viewport",
+                                                        "scissor", "colorTargets"})) {
             error = "Unknown pass field";
             return false;
         }
@@ -531,13 +604,56 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
             error = "Invalid pass pipeline or resource owner";
             return false;
         }
-        const auto target = pass.value("target", "surface").toString();
-        if (kind == "render" && target != "surface") {
-            const auto *r = m_resources.value(target);
-            if (!r || r->kind() != "texture" ||
-                !r->m_description.definition.value("usage").toStringList().contains(
-                    "render-target")) {
-                error = "Invalid render target";
+        if (kind == "render") {
+            if (pass.contains("target") && pass.contains("colorTargets")) {
+                error = "Use target or colorTargets, not both";
+                return false;
+            }
+            auto targets = pass.value("colorTargets").toList();
+            if (pass.contains("colorTargets") && (targets.isEmpty() || targets.size() > 8)) {
+                error = "Render pass requires 1..8 color targets";
+                return false;
+            }
+            if (!pass.contains("colorTargets") && pass.value("target", "surface") != "surface")
+                targets.append(QVariantMap{{"texture", pass.value("target")}});
+            QSet<QString> textures;
+            QSize extent;
+            for (const auto &value : targets) {
+                const auto view = value.toMap();
+                const auto id = view.value("texture").toString();
+                const auto *r = m_resources.value(id);
+                if (!keys(view, {"texture", "level", "layer"}) || !r || r->kind() != "texture" ||
+                    !r->m_description.definition.value("usage").toStringList().contains(
+                        "render-target") ||
+                    textures.contains(id)) {
+                    error = "Color targets require distinct live render-target textures";
+                    return false;
+                }
+                const auto d = r->m_description.definition;
+                const int maxLevel =
+                    d.value("mipmaps").toBool()
+                        ? int(std::floor(
+                              std::log2(qMax(d.value("width").toInt(), d.value("height").toInt()))))
+                        : 0;
+                if (!integer(view.value("level", 0), 0, maxLevel) ||
+                    !integer(view.value("layer", 0), 0,
+                             gpuTextureSlices(d, view.value("level", 0).toInt()) - 1)) {
+                    error = "Invalid color target mip level or slice";
+                    return false;
+                }
+                const int level = view.value("level", 0).toInt();
+                const QSize size(qMax(1, d.value("width").toInt() >> level),
+                                 qMax(1, d.value("height").toInt() >> level));
+                if (!extent.isEmpty() && extent != size) {
+                    error = "Color target mip extents must match";
+                    return false;
+                }
+                textures.insert(id);
+                extent = size;
+            }
+            const auto blends = pipeline->m_description.definition.value("blends").toList();
+            if (!blends.isEmpty() && blends.size() != qMax(1, int(targets.size()))) {
+                error = "Pipeline attachment blends must match color target count";
                 return false;
             }
         }
@@ -549,7 +665,8 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
         QSet<int> indices;
         for (const auto &v : bindings) {
             const auto b = v.toMap();
-            if (!keys(b, {"binding", "kind", "resource", "sampler", "access"}) ||
+            if (!keys(b, {"binding", "kind", "resource", "sampler", "access", "offset", "size",
+                          "level"}) ||
                 !QStringList{"uniform", "texture", "storage-buffer", "storage-image"}.contains(
                     b.value("kind").toString()) ||
                 !QStringList{"read", "write", "read-write"}.contains(
@@ -563,6 +680,49 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
                 (id != "frame" && !m_resources.contains(id))) {
                 error = "Invalid shader binding or resource owner";
                 return false;
+            }
+            if (b.contains("offset") || b.contains("size")) {
+                auto *r = m_resources.value(id);
+                if (b.value("kind") != "uniform" || !r || r->kind() != "buffer" ||
+                    !integer(b.value("offset", 0), 0,
+                             r->m_description.definition.value("size").toInt()) ||
+                    !integer(b.value("size", r->m_description.definition.value("size").toInt() -
+                                                 b.value("offset", 0).toInt()),
+                             1, r->m_description.definition.value("size").toInt()) ||
+                    b.value("offset", 0).toLongLong() +
+                            b.value("size", r->m_description.definition.value("size").toInt() -
+                                                b.value("offset", 0).toInt())
+                                .toLongLong() >
+                        r->m_description.definition.value("size").toInt()) {
+                    error = "Invalid uniform binding range";
+                    return false;
+                }
+            }
+            if (b.value("kind") == "storage-buffer") {
+                const auto *resource = m_resources.value(id);
+                if (!resource || resource->kind() != "buffer" ||
+                    !resource->m_description.definition.value("usage").toStringList().contains(
+                        "storage")) {
+                    error = "Storage binding requires declared storage usage";
+                    return false;
+                }
+            }
+            if (b.contains("level")) {
+                auto *r = m_resources.value(id);
+                if (b.value("kind") != "storage-image" || !r || r->kind() != "texture") {
+                    error = "Only storage-image bindings accept a mip level";
+                    return false;
+                }
+                const auto d = r->m_description.definition;
+                const int maxLevel =
+                    d.value("mipmaps").toBool()
+                        ? int(std::floor(
+                              std::log2(qMax(d.value("width").toInt(), d.value("height").toInt()))))
+                        : 0;
+                if (!integer(b.value("level"), 0, maxLevel)) {
+                    error = "Invalid storage image mip level";
+                    return false;
+                }
             }
             indices.insert(index.toInt());
             if (b.contains("sampler") &&
@@ -581,23 +741,78 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
                 return false;
             }
         } else {
+            for (const auto &key : {"viewport", "scissor"}) {
+                if (!pass.contains(key))
+                    continue;
+                const auto rectangle = pass.value(key).toList();
+                if (rectangle.size() != 4) {
+                    error = "Viewport/scissor requires four integers";
+                    return false;
+                }
+                for (int i = 0; i < 4; ++i)
+                    if (!integer(rectangle[i], i < 2 ? 0 : 1, 4096)) {
+                        error = "Invalid viewport/scissor range";
+                        return false;
+                    }
+            }
             const auto draws = pass.value("draws").toList();
             if (draws.isEmpty() || draws.size() > 256) {
                 error = "A render pass requires 1..256 draws";
                 return false;
             }
+            int commands = 0;
             for (const auto &v : draws) {
                 const auto d = v.toMap();
+                const bool indirect = d.contains("indirect");
                 if (!keys(d, {"count", "first", "instances", "vertexBuffer", "vertexOffset",
-                              "indexBuffer", "indexFormat"}) ||
+                              "indexBuffer", "indexFormat", "baseVertex", "firstInstance",
+                              "indirect"}) ||
                     !integer(d.value("first", 0), 0, 1000000) ||
+                    !integer(d.value("baseVertex", 0), -1000000, 1000000) ||
+                    !integer(d.value("firstInstance", 0), 0, 1000000) ||
                     !integer(d.value("vertexOffset", 0), 0, 16 * 1024 * 1024) ||
                     !QStringList{"uint16", "uint32"}.contains(
                         d.value("indexFormat", "uint16").toString()) ||
-                    !integer(d.value("count"), 1, 1000000) ||
-                    !integer(d.value("instances", 1), 1, 1000000) ||
-                    qint64(d.value("count").toInt()) * d.value("instances", 1).toInt() > 1000000) {
+                    (!indirect &&
+                     (!integer(d.value("count"), 1, 1000000) ||
+                      !integer(d.value("instances", 1), 1, 1000000) ||
+                      qint64(d.value("count").toInt()) * d.value("instances", 1).toInt() >
+                          1000000))) {
                     error = "Draw exceeds vertex budget";
+                    return false;
+                }
+                if (indirect) {
+                    for (const auto &key :
+                         {"count", "first", "instances", "baseVertex", "firstInstance"})
+                        if (d.contains(key)) {
+                            error = "Indirect draws take their arguments only from the buffer";
+                            return false;
+                        }
+                    const auto args = d.value("indirect").toMap();
+                    const auto *r = m_resources.value(args.value("buffer").toString());
+                    const int size = d.contains("indexBuffer") ? 20 : 16;
+                    if (!keys(args, {"buffer", "offset", "drawCount", "stride"}) || !r ||
+                        r->kind() != "buffer" ||
+                        !r->m_description.definition.value("usage").toStringList().contains(
+                            "indirect") ||
+                        !integer(args.value("offset", 0), 0, 16 * 1024 * 1024) ||
+                        args.value("offset", 0).toInt() % 4 ||
+                        !integer(args.value("drawCount", 1), 1, 256) ||
+                        !integer(args.value("stride", size), size, 16 * 1024 * 1024) ||
+                        args.value("stride", size).toInt() % 4 ||
+                        args.value("offset", 0).toLongLong() +
+                                qint64(args.value("drawCount", 1).toInt() - 1) *
+                                    args.value("stride", size).toInt() +
+                                size >
+                            r->m_description.definition.value("size").toInt()) {
+                        error = "Invalid indirect buffer owner, usage, alignment or range";
+                        return false;
+                    }
+                    commands += args.value("drawCount", 1).toInt();
+                } else
+                    ++commands;
+                if (commands > 256) {
+                    error = "Render pass exceeds its 256 draw command budget";
                     return false;
                 }
                 for (const auto &key : {"vertexBuffer", "indexBuffer"})

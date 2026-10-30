@@ -20,9 +20,9 @@ QtObject {
         }
     }
     function resetProjection(): void {
-        // callLater 的延迟执行可能晚于视图销毁（如分区切换卸载选择器），
+        // resetTimer 的延迟触发可能晚于视图销毁（如分区切换卸载选择器），
         // 此时 targetView 已为空，直接返回。
-        if (!guard.ready || guard.resetting || !guard.targetView
+        if (!guard || !guard.ready || guard.resetting || !guard.targetView
             || !guard.targetView.reuseItems)
             return;
         guard.resetting = true;
@@ -65,6 +65,11 @@ QtObject {
         reuse.destroy();
         guard.resetting = false;
     }
+    Component.onDestruction: ready = false
+    readonly property Timer resetTimer: Timer {
+        interval: 0
+        onTriggered: guard.resetProjection()
+    }
     readonly property Connections modelChanges: Connections {
         target: guard.targetView
         function onModelChanged(): void {
@@ -76,7 +81,7 @@ QtObject {
                 guard.hasSeenModel = guard.targetView.model !== null && guard.targetView.model !== undefined;
                 return;
             }
-            Qt.callLater(guard.resetProjection);
+            guard.resetTimer.restart();
         }
     }
 }

@@ -24,6 +24,11 @@ public:
     }
     QVariantMap snapshot() const;
     EchoPluginOperation *show(const QVariantMap &options = {});
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *setAlwaysOnTop(bool value);
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *setOpacity(double value);
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *setTitle(const QString &value);
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *minimize();
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *restore(bool focus = true);
     Q_INVOKABLE void hide();
     Q_INVOKABLE void close();
     Q_INVOKABLE EchoMusic::EchoPluginOperation *setBounds(const QVariantMap &bounds);
@@ -41,13 +46,14 @@ signals:
 
 private:
     bool eventFilter(QObject *, QEvent *) override;
+    EchoPluginOperation *run(std::function<void(QQuickWindow *)> command);
     void release();
     void saveBounds();
     void create(EchoPluginOperation *, QVariantMap options);
     QRect bounded(QRect) const;
     Qt::Edges edges(const QString &) const;
     EchoPluginContext &m_scope;
-    QVariantMap m_definition;
+    QVariantMap m_definition, m_initialDefinition;
     QPointer<QQuickWindow> m_window;
     QPointer<QQmlComponent> m_component;
     QPointer<QObject> m_owner;

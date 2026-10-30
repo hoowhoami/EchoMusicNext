@@ -15,33 +15,22 @@ Item {
     property bool followCurrent: true
     readonly property bool live: visible && page.active && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized
     property real renderTime: page.player.positionMs
-    function observe(reset: bool): void {
-        clock.observe(page.player.positionMs, page.player.playing, page.player.speed, reset);
-        renderTime = clock.sample();
-    }
-    LyricClock {
-        id: clock
-    }
     Connections {
         target: root.page.player
-        function onPositionChanged(): void {
-            if (root.live)
-                root.observe(false);
-        }
-        function onChanged(): void {
-            if (root.live)
-                root.observe(true);
+        function onClockChanged(): void {
+            if (root && root.live)
+                root.renderTime = root.page.player.samplePosition();
         }
         function onLyricChanged(): void {
-            if (root.followCurrent && !lines.dragging && !lines.flicking)
+            if (root && root.live && root.followCurrent && !lines.dragging && !lines.flicking)
                 lines.positionViewAtIndex(root.page.player.lyricsInfo.currentIndex, ListView.Center);
         }
     }
     onLiveChanged: if (live)
-        observe(true)
+        renderTime = page.player.samplePosition()
     FrameAnimation {
-        running: root.live && root.page.player.playing && Theme.store.motionEnabled
-        onTriggered: root.renderTime = clock.sample()
+        running: root.live && root.page.player.clock.isAdvancing === true && Theme.store.motionEnabled
+        onTriggered: root.renderTime = root.page.player.samplePosition()
     }
     ListView {
         id: lines

@@ -17,7 +17,10 @@ void activateTestApplication()
 QVariantMap nativeWindowInputPolicy(QWindow *window)
 {
     auto *view = reinterpret_cast<NSView *>(window->winId());
-    return {{"backgroundMove", bool(view.window.movableByWindowBackground)},
+    return {{"appActive", bool(NSApp.active)},
+            {"underCursor", [NSWindow windowNumberAtPoint:NSEvent.mouseLocation
+                                belowWindowWithWindowNumber:0] == view.window.windowNumber},
+            {"backgroundMove", bool(view.window.movableByWindowBackground)},
             {"viewCanMove", bool(view.mouseDownCanMoveWindow)},
             {"movable", bool(view.window.movable)},
             {"viewClass", QString::fromUtf8(object_getClassName(view))}};

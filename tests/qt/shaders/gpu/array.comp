@@ -1,0 +1,4 @@
+#version 440
+layout(local_size_x = 2, local_size_y = 2) in;
+layout(rgba8, binding = 4) uniform writeonly image2DArray outputImage;
+void main() { imageStore(outputImage, ivec3(gl_GlobalInvocationID.xy, 1), vec4(1, 0, 1, 1)); }

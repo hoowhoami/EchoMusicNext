@@ -770,8 +770,8 @@ struct Session
         // Zoom and capacity changes polish layouts and rebuild projections on
         // the next frame. Never click geometry from the preceding scene.
         QSignalSpy rendered(window, &QQuickWindow::frameSwapped);
-        window->requestUpdate();
-        return rendered.wait(1000);
+        window->update();
+        return !rendered.isEmpty() || rendered.wait(1000);
     }
     bool settingsSectionReady()
     {

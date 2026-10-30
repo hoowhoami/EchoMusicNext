@@ -11,7 +11,7 @@ EchoPluginContext *graphicsScope(Host &host)
         host.temporary.path(), "export function activate(c) {}",
         {"lifecycle", "operations", "graphics.rhi", "graphics.compute", "graphics.readback"},
         {"graphics"});
-    for (const auto &name : {"fixture.vert", "fixture.frag", "fixture.comp"}) {
+    for (const auto &name : {"fixture.vert", "fixture.frag", "fixture.comp", "mrt.frag"}) {
         QFile shader(":/test-gpu/shaders/gpu/" + QString(name) + ".qsb");
         if (!shader.open(QIODevice::ReadOnly))
             return nullptr;
@@ -32,6 +32,17 @@ QVariantMap binding(int n, const QString &kind, const QString &resource)
 } // namespace
 void PluginRuntimeTest::graphicsValidationOwnershipAndAccount()
 {
+    // Derived QQuickRhiItem members are gone when QQuickItem emits its final
+    // windowChanged(nullptr). This used to invoke a freed connection list.
+    QQuickWindow lifetimeWindow;
+    for (int i = 0; i < 32; ++i) {
+        auto *surface = new EchoGpuSurface;
+        surface->setParentItem(lifetimeWindow.contentItem());
+        QCOMPARE(surface->window(), &lifetimeWindow);
+        delete surface;
+    }
+    QVERIFY(lifetimeWindow.contentItem()->childItems().isEmpty());
+
     Host host;
     auto *scope = graphicsScope(host);
     QVERIFY(scope);
@@ -330,4 +341,395 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Disabled);
     QTRY_VERIFY(retired.isNull());
     window->hide();
+}
+
+void PluginRuntimeTest::graphicsOrderedTransfersMipmapsAndCompletion()
+{
+    if (!qEnvironmentVariableIsSet("ECHO_TEST_NATIVE_GPU"))
+        QSKIP("Requires an exposed native RHI window");
+    Host host;
+    auto *scope = graphicsScope(host);
+    QVERIFY(scope);
+    auto *gpu = scope->graphics();
+    QList<QJSValue> roots;
+    const auto keep = [&](EchoPluginOperation *operation) {
+        if (operation)
+            roots.append(host.engine.newQObject(operation));
+        return operation;
+    };
+    const auto settled = [&](EchoPluginOperation *operation) {
+        return operation && QTest::qWaitFor([&] { return operation->finished(); }, 7000);
+    };
+    auto *source = gpu->createTexture({{"width", 4},
+                                       {"height", 4},
+                                       {"mipmaps", true},
+                                       {"usage", QStringList{"sampled", "readback"}}});
+    auto *target = gpu->createTexture({{"width", 4},
+                                       {"height", 4},
+                                       {"mipmaps", true},
+                                       {"usage", QStringList{"sampled", "readback"}}});
+    auto *buffer =
+        gpu->createBuffer({{"size", 64}, {"format", "uint32"}, {"usage", QStringList{"storage"}}},
+                          host.engine.evaluate("[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]"));
+    auto *copied =
+        gpu->createBuffer({{"size", 64}, {"format", "uint32"}, {"usage", QStringList{"storage"}}});
+    QVERIFY(source && target && buffer && copied);
+    QQuickWindow window;
+    window.resize(120, 80);
+    window.setColor(Qt::transparent);
+    EchoGpuSurface surface;
+    surface.setParentItem(window.contentItem());
+    surface.setSize(window.size());
+    surface.setGraphics(gpu);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QTRY_VERIFY(surface.status().value("available").toBool());
+    QVERIFY(surface.status().value("compute").toBool());
+    const auto data = QByteArray::fromHex("ff0000ff00ff00ff000000000000ffffffffffff00000000");
+    const QVariantMap upload{
+        {"type", "upload-texture"},   {"destination", source->id()}, {"origin", QVariantList{1, 1}},
+        {"size", QVariantList{2, 2}}, {"bytesPerRow", 12},           {"data", data}};
+    const QVariantMap copy{{"type", "copy-texture"},
+                           {"source", source->id()},
+                           {"destination", target->id()},
+                           {"sourceOrigin", QVariantList{1, 1}},
+                           {"size", QVariantList{2, 2}}};
+    const QVariantMap copyBuffer{{"type", "copy-buffer"},
+                                 {"source", buffer->id()},
+                                 {"destination", copied->id()},
+                                 {"size", 64}};
+    const QVariantMap patchBuffer{{"type", "upload-buffer"},
+                                  {"destination", buffer->id()},
+                                  {"offset", 4},
+                                  {"data", QVariantList{999}}};
+    auto partialCopy = copyBuffer;
+    partialCopy["sourceOffset"] = 4;
+    partialCopy["destinationOffset"] = 8;
+    partialCopy["size"] = 4;
+    auto *submission = keep(surface.enqueue(
+        {{"passes", QVariantList{upload, copy,
+                                 QVariantMap{{"type", "generate-mips"}, {"texture", target->id()}},
+                                 copyBuffer, patchBuffer, partialCopy}}}));
+    QVERIFY(submission && !submission->finished());
+    auto *pixels = keep(surface.readback(target, {{"width", 2}, {"height", 2}}));
+    auto *values = keep(surface.readback(copied, {{"offset", 0}, {"size", 16}}));
+    auto *mip = keep(surface.readback(target, {{"level", 1}, {"width", 1}, {"height", 1}}));
+    QVERIFY(settled(submission));
+    QCOMPARE(submission->state(), EchoPluginOperation::Succeeded);
+    QVERIFY(submission->result().toMap().value("serial").toULongLong() > 0);
+    QCOMPARE(submission->result().toMap().value("backend").toString(),
+             surface.status().value("backend").toString());
+    QVERIFY(settled(pixels) && settled(values) && settled(mip));
+    QCOMPARE(pixels->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(pixels->result().toMap().value("data").toByteArray(),
+             QByteArray::fromHex("ff0000ff00ff00ff0000ffffffffffff"));
+    QCOMPARE(values->state(), EchoPluginOperation::Succeeded);
+    const auto bytes = values->result().toMap().value("data").toByteArray();
+    QCOMPARE(bytes.size(), 16);
+    quint32 numbers[4];
+    std::memcpy(numbers, bytes.constData(), 16);
+    QCOMPARE(numbers[0], 1u);
+    QCOMPARE(numbers[1], 2u);
+    QCOMPARE(numbers[2], 999u);
+    QCOMPARE(numbers[3], 4u);
+    QCOMPARE(mip->state(), EchoPluginOperation::Succeeded);
+    const auto averaged = mip->result().toMap().value("data").toByteArray();
+    QCOMPARE(averaged.size(), 4);
+    for (int i = 0; i < 3; ++i)
+        QVERIFY(quint8(averaged[i]) >= 127 && quint8(averaged[i]) <= 128);
+    QCOMPARE(quint8(averaged[3]), 255u);
+    QCOMPARE(surface.status().value("copyPipelineBuilds").toULongLong(), 1u);
+    QTRY_COMPARE(gpu->memoryBudget()->pendingSubmissions.load(), 0);
+
+    // Resource definitions are captured now; later CPU writes belong to a later frame.
+    auto *snapshot = keep(surface.enqueue({{"passes", QVariantList{copyBuffer}}}));
+    QVERIFY(gpu->writeBuffer(buffer, host.engine.evaluate("[111]")));
+    QVERIFY(settled(snapshot));
+    QCOMPARE(snapshot->state(), EchoPluginOperation::Succeeded);
+    auto *before = keep(surface.readback(copied, {{"size", 4}}));
+    QVERIFY(settled(before));
+    quint32 first = 0;
+    const auto prior = before->result().toMap().value("data").toByteArray();
+    QCOMPARE(prior.size(), 4);
+    std::memcpy(&first, prior.constData(), 4);
+    QCOMPARE(first, 1u);
+
+    QList<EchoPluginOperation *> queued;
+    for (int i = 0; i < 8; ++i) {
+        auto *op = keep(surface.enqueue({{"passes", QVariantList{copyBuffer}}}));
+        QVERIFY(op && !op->finished());
+        queued.append(op);
+    }
+    auto *overflow = keep(surface.enqueue({{"passes", QVariantList{copyBuffer}}}));
+    QCOMPARE(overflow->errorCode(), "Busy");
+    for (auto *op : queued)
+        op->cancel();
+    QTRY_COMPARE(gpu->memoryBudget()->pendingSubmissions.load(), 0);
+    auto invalid = upload;
+    invalid["origin"] = QVariantList{4, 0};
+    auto *bad = keep(surface.enqueue({{"passes", QVariantList{invalid}}}));
+    QCOMPARE(bad->errorCode(), "InvalidArgument");
+
+    // Device/window loss discards GPU-only contents; fresh CPU definitions recover.
+    auto *opacityCanceled = keep(surface.enqueue({{"passes", QVariantList{copyBuffer}}}));
+    surface.setOpacity(0);
+    QCOMPARE(opacityCanceled->state(), EchoPluginOperation::Canceled);
+    QTRY_VERIFY(surface.drained());
+    surface.setOpacity(1);
+    QTRY_VERIFY(surface.live());
+    auto *hidden = keep(surface.enqueue({{"passes", QVariantList{copyBuffer}}}));
+    window.hide();
+    QCOMPARE(hidden->state(), EchoPluginOperation::Canceled);
+    QTRY_VERIFY(surface.drained());
+    QTRY_COMPARE(gpu->memoryBudget()->submissions.used.load(), 0);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto *restored = keep(surface.enqueue({{"passes", QVariantList{copyBuffer}}}));
+    QVERIFY(settled(restored));
+    QCOMPARE(restored->state(), EchoPluginOperation::Succeeded);
+    auto *after = keep(surface.readback(copied, {{"size", 4}}));
+    QVERIFY(settled(after));
+    const auto current = after->result().toMap().value("data").toByteArray();
+    QCOMPARE(current.size(), 4);
+    std::memcpy(&first, current.constData(), 4);
+    QCOMPARE(first, 111u);
+
+    const auto alignment = surface.status().value("uniformBufferAlignment").toInt();
+    QVERIFY(alignment > 0);
+    auto *uniform =
+        gpu->createBuffer({{"size", alignment + 16}, {"usage", QStringList{"uniform"}}});
+    auto *vertices = gpu->createBuffer({{"size", 40}, {"usage", QStringList{"vertex"}}},
+                                       host.engine.evaluate("[0,0,-1,1,1,1,-1,-1,1,-1]"));
+    auto *indices =
+        gpu->createBuffer({{"size", 12}, {"usage", QStringList{"index"}}, {"format", "uint16"}},
+                          host.engine.evaluate("[0,1,2,2,1,3]"));
+    auto *white =
+        gpu->createTexture({{"width", 1}, {"height", 1}, {"usage", QStringList{"sampled"}}},
+                           host.engine.evaluate("[255,255,255,255]"));
+    auto *sampler = gpu->createSampler({{"mipFilter", "linear"}});
+    auto *pipeline = gpu->createRenderPipeline(
+        {{"vertexShader", "fixture.vert.qsb"},
+         {"fragmentShader", "fixture.frag.qsb"},
+         {"topology", "triangles"},
+         {"vertexLayout",
+          QVariantMap{
+              {"stride", 8},
+              {"attributes",
+               QVariantList{QVariantMap{{"location", 0}, {"offset", 0}, {"format", "float2"}}}}}}});
+    QVERIFY(uniform && vertices && indices && white && sampler && pipeline);
+    QVERIFY(gpu->writeBuffer(uniform, host.engine.evaluate("[.25,.5,.75,1]"), alignment));
+    QVariantMap color = binding(1, "uniform", uniform->id());
+    color["offset"] = alignment;
+    color["size"] = 16;
+    QVariantMap sample = binding(2, "texture", white->id());
+    sample["sampler"] = sampler->id();
+    const auto physical = surface.effectiveColorBufferSize();
+    QVariantMap render{
+        {"type", "render"},
+        {"pipeline", pipeline->id()},
+        {"bindings", QVariantList{binding(0, "uniform", "frame"), color, sample}},
+        {"viewport", QVariantList{0, 0, physical.width(), physical.height()}},
+        {"scissor", QVariantList{0, 0, physical.width() / 2, physical.height()}},
+        {"draws",
+         QVariantList{QVariantMap{
+             {"count", 6},
+             {"vertexBuffer", vertices->id()},
+             {"vertexOffset", surface.status().value("baseVertex").toBool() ? 0 : 8},
+             {"indexBuffer", indices->id()},
+             {"baseVertex", surface.status().value("baseVertex").toBool() ? 1 : 0},
+             {"firstInstance", surface.status().value("baseInstance").toBool() ? 1 : 0}}}}};
+    auto *rendered = keep(surface.enqueue({{"passes", QVariantList{render}}}));
+    auto *image = keep(surface.readback());
+    QVERIFY(settled(rendered) && settled(image));
+    QCOMPARE(rendered->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(image->state(), EchoPluginOperation::Succeeded);
+    const auto packet = image->result().toMap();
+    const auto imageBytes = packet.value("data").toByteArray();
+    const int width = packet.value("width").toInt(), height = packet.value("height").toInt();
+    const auto left = (height / 2 * width + width / 4) * 4,
+               right = (height / 2 * width + width * 3 / 4) * 4;
+    QVERIFY(quint8(imageBytes[left + 2]) > 210);
+    QCOMPARE(quint8(imageBytes[right + 3]), 0u);
+    if (surface.status().value("baseVertex").toBool())
+        for (const auto y : {height / 8, height * 7 / 8})
+            QVERIFY(quint8(imageBytes[(y * width + width * 3 / 8) * 4 + 3]) > 250);
+    const auto builds = surface.status().value("pipelineBuilds").toULongLong();
+    render["scissor"] =
+        QVariantList{physical.width() / 2, 0, physical.width() / 2, physical.height()};
+    auto *redraw = keep(surface.enqueue({{"passes", QVariantList{render}}}));
+    QVERIFY(settled(redraw));
+    QCOMPARE(redraw->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(surface.status().value("pipelineBuilds").toULongLong(), builds);
+    const auto memory = gpu->memoryBudget();
+    auto *retired = keep(surface.enqueue({{"passes", QVariantList{copyBuffer}}}));
+    QVERIFY(host.runtime.setEnabled(host.installation(), false));
+    QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Disabled);
+    QVERIFY(retired->finished());
+    QTRY_COMPARE(memory->pendingSubmissions.load(), 0);
+    surface.setGraphics(nullptr);
+}
+void PluginRuntimeTest::graphicsMultipleTargetsMipRenderingAndLifetime()
+{
+    Host host;
+    auto *scope = graphicsScope(host);
+    QVERIFY(scope);
+    auto *gpu = scope->graphics();
+    const auto memory = gpu->memoryBudget();
+    auto *a = gpu->createTexture({{"width", 4},
+                                  {"height", 4},
+                                  {"mipmaps", true},
+                                  {"usage", QStringList{"render-target", "readback"}}});
+    auto *b = gpu->createTexture({{"width", 4},
+                                  {"height", 4},
+                                  {"mipmaps", true},
+                                  {"usage", QStringList{"render-target", "readback"}}});
+    auto *vertices = gpu->createBuffer({{"size", 32}, {"usage", QStringList{"vertex"}}},
+                                       host.engine.evaluate("[-1,1,1,1,-1,-1,1,-1]"));
+    const QVariantMap layout{
+        {"stride", 8},
+        {"attributes",
+         QVariantList{QVariantMap{{"location", 0}, {"offset", 0}, {"format", "float2"}}}}};
+    auto definition = QVariantMap{{"vertexShader", "fixture.vert.qsb"},
+                                  {"fragmentShader", "mrt.frag.qsb"},
+                                  {"vertexLayout", layout},
+                                  {"topology", "triangle-strip"},
+                                  {"blend", "none"},
+                                  {"depthTest", true}};
+    auto *pipeline = gpu->createRenderPipeline(definition);
+    QVERIFY(a && b && vertices && pipeline);
+    QVariantList views{QVariantMap{{"texture", a->id()}, {"level", 1}},
+                       QVariantMap{{"texture", b->id()}, {"level", 1}}};
+    QVariantMap pass{
+        {"type", "render"},
+        {"pipeline", pipeline->id()},
+        {"colorTargets", views},
+        {"bindings", QVariantList{binding(0, "uniform", "frame")}},
+        {"draws", QVariantList{QVariantMap{{"count", 4}, {"vertexBuffer", vertices->id()}}}}};
+    QString error;
+    QVERIFY(gpu->validateFrame({{"passes", QVariantList{pass}}}, error));
+    auto invalid = pass;
+    invalid["target"] = "surface";
+    QVERIFY(!gpu->validateFrame({{"passes", QVariantList{invalid}}}, error));
+    invalid = pass;
+    invalid["colorTargets"] = QVariantList{views.first(), views.first()};
+    QVERIFY(!gpu->validateFrame({{"passes", QVariantList{invalid}}}, error));
+    invalid["colorTargets"] =
+        QVariantList{views.first(), QVariantMap{{"texture", b->id()}, {"level", 0}}};
+    QVERIFY(!gpu->validateFrame({{"passes", QVariantList{invalid}}}, error));
+    invalid["colorTargets"] = QVariantList{QVariantMap{{"texture", a->id()}, {"level", 3}}};
+    QVERIFY(!gpu->validateFrame({{"passes", QVariantList{invalid}}}, error));
+    invalid["colorTargets"] = QVariantList{};
+    QVERIFY(!gpu->validateFrame({{"passes", QVariantList{invalid}}}, error));
+    auto owner = std::make_unique<QObject>();
+    auto *child = scope->createPresentation(owner.get(), "mrt-owner");
+    QVERIFY(child && !child->graphics()->validateFrame({{"passes", QVariantList{pass}}}, error));
+    owner.reset();
+    if (!qEnvironmentVariableIsSet("ECHO_TEST_NATIVE_GPU"))
+        return;
+    QQuickWindow window;
+    window.resize(120, 80);
+    EchoGpuSurface surface;
+    surface.setParentItem(window.contentItem());
+    surface.setSize(window.size());
+    surface.setGraphics(gpu);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QTRY_VERIFY(surface.status().value("available").toBool());
+    if (!surface.status().value("multipleRenderTargets").toBool() ||
+        !surface.status().value("renderMipmaps").toBool())
+        QSKIP("Device lacks MRT or non-base mip rendering");
+    QList<QJSValue> roots;
+    const auto keep = [&](EchoPluginOperation *op) {
+        if (op)
+            roots.append(host.engine.newQObject(op));
+        return op;
+    };
+    const auto success = [&](EchoPluginOperation *op) {
+        return op && QTest::qWaitFor([&] { return op->finished(); }, 7000) &&
+               op->state() == EchoPluginOperation::Succeeded;
+    };
+    const bool independent = surface.status().value("independentBlend").toBool();
+    auto incomplete = pass;
+    incomplete["colorTargets"] = QVariantList{views.first()};
+    auto *missingOutput = keep(surface.enqueue({{"passes", QVariantList{incomplete}}}));
+    QVERIFY(missingOutput);
+    QTRY_VERIFY(missingOutput->finished());
+    QCOMPARE(missingOutput->state(), EchoPluginOperation::Failed);
+    QVERIFY(missingOutput->errorMessage().contains("output location"));
+    definition["depthTest"] = false;
+    definition["blends"] = QVariantList{"none", independent ? "add" : "none"};
+    auto *second = gpu->createRenderPipeline(definition);
+    QVERIFY(second);
+    auto load = pass;
+    load["pipeline"] = second->id();
+    load["loadOp"] = "load";
+    auto *submitted = keep(surface.enqueue({{"passes", QVariantList{pass, load}}}));
+    QVERIFY2(success(submitted),
+             submitted ? qPrintable(submitted->errorMessage()) : "no operation");
+    const auto check = [&] {
+        auto *red = keep(surface.readback(a, {{"level", 1}}));
+        auto *green = keep(surface.readback(b, {{"level", 1}}));
+        if (!success(red) || !success(green))
+            return false;
+        const auto r = red->result().toMap(), g = green->result().toMap();
+        if (r.value("width").toInt() != 2 || g.value("height").toInt() != 2)
+            return false;
+        const auto rb = r.value("data").toByteArray(), gb = g.value("data").toByteArray();
+        if (rb.size() != 16 || gb.size() != 16)
+            return false;
+        for (int i = 0; i < 16; i += 4)
+            if (qAbs(int(quint8(rb[i])) - 64) > 1 || quint8(rb[i + 1]) != 0 ||
+                qAbs(int(quint8(gb[i + 1])) - (independent ? 128 : 64)) > 1 || quint8(gb[i]) != 0)
+                return false;
+        return true;
+    };
+    QVERIFY(check());
+    if (surface.status().value("compute").toBool()) {
+        auto *image = gpu->createTexture({{"width", 4},
+                                          {"height", 4},
+                                          {"format", "rgba16f"},
+                                          {"mipmaps", true},
+                                          {"usage", QStringList{"storage", "readback"}}});
+        auto *values = gpu->createBuffer({{"size", 64}, {"usage", QStringList{"storage"}}});
+        auto *color = gpu->createBuffer({{"size", 16}, {"usage", QStringList{"uniform"}}},
+                                        host.engine.evaluate("[0,0,0,0]"));
+        auto *compute = gpu->createComputePipeline({{"computeShader", "fixture.comp.qsb"}});
+        QVERIFY(image && values && color && compute);
+        auto imageView = binding(4, "storage-image", image->id());
+        imageView["access"] = "write";
+        imageView["level"] = 1;
+        auto output = binding(3, "storage-buffer", values->id());
+        output["access"] = "write";
+        const QVariantMap dispatch{
+            {"type", "compute"},
+            {"pipeline", compute->id()},
+            {"groups", QVariantList{1, 1, 1}},
+            {"bindings", QVariantList{binding(1, "uniform", color->id()), output, imageView}}};
+        QVERIFY(success(keep(surface.enqueue({{"passes", QVariantList{dispatch}}}))));
+        auto *read = keep(surface.readback(image, {{"level", 1}}));
+        QVERIFY(success(read));
+        const auto bytes = read->result().toMap().value("data").toByteArray();
+        QCOMPARE(bytes.size(), 32);
+        for (int i = 0; i < 16; ++i) {
+            qfloat16 value;
+            std::memcpy(&value, bytes.constData() + i * 2, 2);
+            const float expected[] = {4., 2., .5, 1.};
+            QCOMPARE(float(value), expected[i % 4]);
+        }
+    }
+    auto *canceled = keep(surface.enqueue({{"passes", QVariantList{pass}}}));
+    window.hide();
+    QTRY_VERIFY(canceled->finished());
+    QCOMPARE(canceled->state(), EchoPluginOperation::Canceled);
+    QTRY_COMPARE(memory->pendingSubmissions.load(), 0);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QTRY_VERIFY(surface.status().value("available").toBool());
+    QVERIFY(success(keep(surface.enqueue({{"passes", QVariantList{pass, load}}}))));
+    QVERIFY(check());
+    const auto installation = scope->installationId();
+    QVERIFY(host.runtime.setEnabled(installation, false));
+    QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Disabled);
+    QTRY_COMPARE(memory->native.used.load(), 0);
+    QTRY_COMPARE(memory->targets.used.load(), 0);
 }

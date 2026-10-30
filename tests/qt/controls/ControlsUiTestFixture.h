@@ -126,7 +126,12 @@ struct ControlsSession
             return false;
         }
         window = qobject_cast<QQuickWindow *>(root.data());
-        return window && Test::prepareNativeInput(window);
+        if (!window || !Test::prepareNativeInput(window))
+            return false;
+        // Exposure alone precedes scene-graph initialization and polish.
+        QSignalSpy committed(window, &QQuickWindow::frameSwapped);
+        window->update();
+        return !committed.isEmpty() || committed.wait(2000);
     }
     QQuickItem *item(const QString &name)
     {

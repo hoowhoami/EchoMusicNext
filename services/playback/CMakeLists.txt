@@ -56,6 +56,8 @@ add_library(
     LyricModel.h
     PlaybackClimaxModel.h
     PlaybackClimaxModel.cpp
+    PlaybackClock.h
+    PlaybackClock.cpp
     PlaybackProgressState.h
     PlaybackProgressState.cpp
     ListeningReporter.h

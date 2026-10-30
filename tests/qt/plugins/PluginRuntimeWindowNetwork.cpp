@@ -8,6 +8,10 @@
 #include <QWebSocketHandshakeOptions>
 #include <thread>
 #include <atomic>
+#ifdef Q_OS_MACOS
+#include <objc/message.h>
+#include <objc/runtime.h>
+#endif
 #ifdef Q_OS_UNIX
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -16,7 +20,8 @@
 #endif
 namespace
 {
-EchoPluginContext *resources(Host &host, const QByteArray &entry = "", bool approve = true)
+EchoPluginContext *resources(Host &host, const QByteArray &entry = "", bool approve = true,
+                             bool transparent = false, bool firstMouse = true)
 {
     if (approve)
         QObject::connect(host.runtime.permissions(), &PluginPermissionStore::confirmationRequested,
@@ -24,16 +29,18 @@ EchoPluginContext *resources(Host &host, const QByteArray &entry = "", bool appr
                          [&host](const QString &id, const QVariantMap &) {
                              host.runtime.permissions()->decide(id, true);
                          });
-    const auto path = pluginPackage(host.temporary.path(), "resource-fixture",
-                                    "export function activate(c){" + entry + "}",
-                                    {{"capabilities", QJsonArray{"windows", "tcp", "webServer"}},
-                                     {"windows", QJsonArray{QJsonObject{{"id", "tools"},
-                                                                        {"title", "工具窗口"},
-                                                                        {"component", "Tools.qml"},
-                                                                        {"defaultWidth", 360},
-                                                                        {"defaultHeight", 240},
-                                                                        {"minWidth", 180},
-                                                                        {"minHeight", 100}}}}});
+    const auto path = pluginPackage(
+        host.temporary.path(), "resource-fixture", "export function activate(c){" + entry + "}",
+        {{"capabilities", QJsonArray{"windows", "tcp", "webServer"}},
+         {"windows", QJsonArray{QJsonObject{{"id", "tools"},
+                                            {"title", "工具窗口"},
+                                            {"transparent", transparent},
+                                            {"acceptFirstMouse", firstMouse},
+                                            {"component", "Tools.qml"},
+                                            {"defaultWidth", 360},
+                                            {"defaultHeight", 240},
+                                            {"minWidth", 180},
+                                            {"minHeight", 100}}}}});
     write(path + "/Tools.qml", R"(import QtQuick
 import EchoMusic.PluginSdk
 Rectangle {
@@ -607,4 +614,103 @@ void PluginRuntimeTest::resourceAuthorizationDoesNotConsumeActivationDeadline()
     QVERIFY(scope);
     QVERIFY(remainedActivating);
     QVERIFY(scope->permissions()->granted("tcp"));
+}
+
+void PluginRuntimeTest::floatingWindowsNativeStateAuthorizationAndObservation()
+{
+    Host host;
+    auto *scope = resources(host, {}, true, true, false);
+    QVERIFY(scope);
+    QList<QJSValue> roots;
+    const auto keep = [&](EchoPluginOperation *op) {
+        if (op)
+            roots.append(host.engine.newQObject(op));
+        return op;
+    };
+    const auto success = [&](EchoPluginOperation *op) {
+        return op && QTest::qWaitFor([&] { return op->finished(); }, 5000) &&
+               op->state() == EchoPluginOperation::Succeeded;
+    };
+    auto *api = scope->windows();
+    QVERIFY(success(keep(api->show("tools", {{"focus", false}}))));
+    auto *handle = api->get("tools");
+    QVERIFY(handle && pluginWindow());
+    QVERIFY(success(keep(handle->setTitle("GPU工具"))));
+    QCOMPARE(pluginWindow()->title(), "GPU工具");
+    QCOMPARE(handle->snapshot().value("title").toString(), "GPU工具");
+    QVERIFY(success(keep(handle->setOpacity(.75))));
+    QCOMPARE(handle->snapshot().value("opacity").toDouble(), .75);
+    if (handle->snapshot().value("opacityMode") == "content")
+        QCOMPARE(pluginWindow()->contentItem()->opacity(), .75);
+    else
+        QCOMPARE(pluginWindow()->opacity(), .75);
+    auto *invalid = keep(handle->setOpacity(1.5));
+    QCOMPARE(invalid->errorCode(), "InvalidArgument");
+    QVERIFY(success(keep(handle->setAlwaysOnTop(true))));
+    QVERIFY(handle->snapshot().value("alwaysOnTop").toBool());
+    QVERIFY(success(keep(handle->minimize())));
+    QTRY_VERIFY(handle->snapshot().value("minimized").toBool());
+    QVERIFY(pluginWindow());
+    QVERIFY(success(keep(handle->restore(false))));
+    QTRY_VERIFY(!handle->snapshot().value("minimized").toBool());
+    QQuickWindow mini;
+    mini.resize(400, 64);
+    host.floating.attachMini(&mini);
+    mini.show();
+#ifdef Q_OS_MACOS
+    if (QGuiApplication::platformName() == "cocoa") {
+        const auto accepts = [](QQuickWindow *window) {
+            const auto send = reinterpret_cast<signed char (*)(id, SEL, void *)>(objc_msgSend);
+            return send(reinterpret_cast<id>(window->winId()),
+                        sel_registerName("acceptsFirstMouse:"), nullptr) != 0;
+        };
+        QVERIFY(!accepts(pluginWindow()));
+        QVERIFY(accepts(&mini));
+    }
+#endif
+    host.engine.globalObject().setProperty("windowsApi", host.engine.newQObject(api));
+    QVERIFY(!host.engine
+                 .evaluate("var windowsSnapshots=[]; windowsApi.onSnapshot('audit', "
+                           "s=>windowsSnapshots.push(s));")
+                 .isError());
+    QTRY_COMPARE(host.engine.evaluate("windowsSnapshots.length").toInt(), 1);
+    const int before = host.engine.evaluate("windowsSnapshots.length").toInt();
+    mini.setPosition(123, 86);
+    mini.resize(440, 64);
+    QTRY_VERIFY(host.engine.evaluate("windowsSnapshots.length").toInt() > before);
+    QCOMPARE(api->snapshot().value("miniBounds").toMap().value("width").toInt(), mini.width());
+    QVERIFY(api->snapshot().contains("positionSupported"));
+    QVERIFY(success(keep(api->command("mini", "settings", {{"alwaysOnTop", false}}))));
+    QVERIFY(!host.floating.mini()->alwaysOnTop());
+    auto *badSettings =
+        keep(api->command("mini", "settings", {{"alwaysOnTop", true}, {"alignment", "both"}}));
+    QTRY_VERIFY(badSettings->finished());
+    QCOMPARE(badSettings->errorCode(), "InvalidArgument");
+    QVERIFY(!host.floating.mini()->alwaysOnTop());
+    const auto permission = grantId(host, "windows");
+    QVERIFY(!permission.isEmpty());
+    auto *pending = keep(api->command("mini", "settings", {{"alwaysOnTop", true}}));
+    QVERIFY(host.runtime.permissions()->revoke(permission));
+    QTRY_VERIFY(pending->finished());
+    QVERIFY(pending->state() != EchoPluginOperation::Succeeded);
+    QVERIFY(!host.floating.mini()->alwaysOnTop());
+    QTRY_VERIFY(!pluginWindow());
+    handle->hide();
+    auto *closed = keep(handle->setTitle("after-close"));
+    QVERIFY(closed->finished());
+    QCOMPARE(closed->errorCode(), "Unavailable");
+    QVERIFY(QMetaObject::invokeMethod(&host.api, "sessionChanged", Q_ARG(quint64, 1)));
+    QTest::qWait(20);
+    const int accountCount = host.engine.evaluate("windowsSnapshots.length").toInt();
+    host.floating.setMiniScale(1.1);
+    QTRY_VERIFY(host.engine.evaluate("windowsSnapshots.length").toInt() > accountCount);
+    QCOMPARE(handle->snapshot().value("title").toString(), "工具窗口");
+    const auto installation = scope->installationId();
+    QVERIFY(host.runtime.setEnabled(installation, false));
+    QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Disabled);
+    const int stopped = host.engine.evaluate("windowsSnapshots.length").toInt();
+    host.floating.setMiniScale(1.2);
+    QTest::qWait(20);
+    QCOMPARE(host.engine.evaluate("windowsSnapshots.length").toInt(), stopped);
+    host.floating.attachMini(nullptr);
 }

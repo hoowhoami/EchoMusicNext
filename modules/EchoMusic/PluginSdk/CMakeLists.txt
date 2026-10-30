@@ -13,7 +13,10 @@ qt_add_qml_module(
     EchoGpuSurface.h
     EchoGpuSurface.cpp
     graphics/GpuRhi_p.h
+    graphics/GpuTextureLayout_p.h
     graphics/GpuRhiResources.cpp
+    graphics/GpuSubmissions.cpp
+    graphics/GpuRhiTransfers.cpp
     graphics/GpuRhiPasses.cpp
     graphics/GpuRhiRenderer.cpp
     graphics/GpuRhiOutput.cpp
@@ -27,6 +30,7 @@ qt_add_qml_module(
     EchoPluginUiStyles.cpp
     EchoPluginAppearance.h
     EchoPluginAppearance.cpp
+    EchoPluginAppearanceOverrides.cpp
     EchoPluginViewContext.h
     EchoPluginViewContext.cpp
     EchoPluginAudio.h
@@ -51,6 +55,7 @@ qt_add_qml_module(
     EchoPluginDownloads.cpp
     EchoPluginPlayer.h
     EchoPluginPlayer.cpp
+    EchoPluginSnapshot_p.h
     EchoPluginContext.h
     EchoPluginContext.cpp
     EchoPluginPresentation.cpp
@@ -58,6 +63,8 @@ qt_add_qml_module(
     EchoPluginAction.cpp
     EchoPluginCover.h
     EchoPluginCover.cpp
+    EchoPluginAppIcons.h
+    EchoPluginAppIcons.cpp
     EchoPluginHost.h
     EchoPluginNavigation.cpp
     EchoPluginSettings.cpp
@@ -158,4 +165,15 @@ qt_add_shaders(
     FILES
     graphics/shaders/composite.vert
     graphics/shaders/composite.frag
+)
+
+qt_add_shaders(
+    echo_plugin_sdk
+    echo_gpu_transfer_shaders
+    PREFIX
+    /echo/graphics
+    GLSL
+    "310 es,430"
+    FILES
+    graphics/shaders/copy-buffer.comp
 )

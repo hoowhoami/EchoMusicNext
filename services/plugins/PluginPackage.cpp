@@ -39,7 +39,18 @@ QVersionNumber PluginPackage::sdkVersion()
 }
 QStringList PluginPackage::supportedFeatures()
 {
-    return {"graphics.rhi",
+    return {"playback.clock",
+            "appearance.overrides",
+            "app.icons",
+            "files.audioMetadata",
+            "graphics.rhi",
+            "graphics.resources",
+            "graphics.submissions",
+            "graphics.mrt",
+            "graphics.indirect",
+            "graphics.textureViews",
+            "graphics.textureArrays",
+            "graphics.textureDimensions",
             "graphics.compute",
             "graphics.readback",
             "ui.navigation",
@@ -94,6 +105,8 @@ QStringList PluginPackage::supportedFeatures()
             "ui.settings",
             "plugins.dependencies",
             "plugins.services",
+            "plugins.catalog",
+            "plugins.commands",
             "audio.spectrum",
             "ui.surfaces",
             "ui.state",
@@ -129,7 +142,9 @@ QStringList PluginPackage::supportedCapabilities()
             "serverIntercept",
             "navigation",
             "hostSettings",
-            "cover"};
+            "cover",
+            "appearance",
+            "appIcons"};
 }
 namespace
 {

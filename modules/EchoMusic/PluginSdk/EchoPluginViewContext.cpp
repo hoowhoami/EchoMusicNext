@@ -1,3 +1,4 @@
+#include "EchoPluginSnapshot_p.h"
 #include "EchoPluginViewContext.h"
 #include "EchoPluginContext.h"
 #include "ThemeStore.h"
@@ -15,6 +16,7 @@ EchoPluginViewContext::EchoPluginViewContext(EchoPluginContext &s, QString surfa
       m_epoch(s.accountEpoch()), m_visualScoped(owner != nullptr)
 {
     connect(s.player(), &EchoPluginPlayer::changed, this, &EchoPluginViewContext::changed);
+    connect(s.player(), &EchoPluginPlayer::clockChanged, this, &EchoPluginViewContext::changed);
     connect(s.player(), &EchoPluginPlayer::positionChanged, this, &EchoPluginViewContext::changed);
     connect(&s, &EchoPluginContext::activeChanged, this, &EchoPluginViewContext::changed);
 }
@@ -157,6 +159,10 @@ EchoPluginOperation *EchoPluginViewContext::command(const QString &action, const
 EchoPluginWindows::EchoPluginWindows(EchoPluginContext &s) : QObject(&s), m_scope(s)
 {
     if (auto f = s.host().floating) {
+        connect(f, &FloatingPlayerController::boundsChanged, this, &EchoPluginWindows::changed);
+        connect(f, &FloatingPlayerController::miniScaleChanged, this, &EchoPluginWindows::changed);
+        connect(f, &FloatingPlayerController::unlockVisibilityChanged, this,
+                &EchoPluginWindows::changed);
         connect(f, &FloatingPlayerController::changed, this, &EchoPluginWindows::changed);
         connect(f->mini(), &FloatingLyricPreferences::changed, this, &EchoPluginWindows::changed);
         connect(f->desktop(), &FloatingLyricPreferences::changed, this,
@@ -177,27 +183,6 @@ QVariantMap preferences(QObject *object)
             result.insert(p.name(), p.read(object));
     }
     return result;
-}
-bool patchPreferences(QObject *object, const QVariantMap &values)
-{
-    if (!object)
-        return false;
-    const auto meta = object->metaObject();
-    for (auto it = values.begin(); it != values.end(); ++it) {
-        auto index = meta->indexOfProperty(it.key().toUtf8());
-        if (index < meta->propertyOffset() || !meta->property(index).isWritable() ||
-            (it.value().metaType() != meta->property(index).metaType() &&
-             !(meta->property(index).metaType().id() == QMetaType::Int &&
-               it.value().metaType().id() == QMetaType::Double &&
-               std::isfinite(it.value().toDouble()) &&
-               it.value().toDouble() == std::floor(it.value().toDouble()) &&
-               it.value().toDouble() >= -2147483648. && it.value().toDouble() <= 2147483647.)))
-            return false;
-    }
-    for (auto it = values.begin(); it != values.end(); ++it)
-        if (!object->setProperty(it.key().toUtf8(), it.value()))
-            return false;
-    return true;
 }
 } // namespace
 QVariantList EchoPluginWindows::list() const
@@ -253,6 +238,13 @@ EchoPluginOperation *EchoPluginWindows::show(const QString &id, const QVariantMa
         connect(opened, &EchoPluginOperation::completed, caller, settled);
     return caller;
 }
+EchoPluginRegistration *EchoPluginWindows::onSnapshot(const QString &id, const QJSValue &callback,
+                                                      bool immediate)
+{
+    return observePluginSnapshot(m_scope, this, &EchoPluginWindows::changed, "windowsSnapshot", id,
+                                 callback, immediate,
+                                 [](EchoPluginWindows *owner) { return owner->snapshot(); });
+}
 QVariantMap EchoPluginWindows::snapshot() const
 {
     auto f = m_scope.host().floating;
@@ -260,6 +252,12 @@ QVariantMap EchoPluginWindows::snapshot() const
         return {{"available", false}};
     return {{"available", true},
             {"miniActive", f->miniActive()},
+            {"miniVisible", f->miniVisible()},
+            {"desktopVisible", f->desktopVisible()},
+            {"positionSupported", !f->wayland()},
+            {"miniScale", f->miniScale()},
+            {"unlockAvailable", f->unlockAvailable()},
+            {"unlockVisible", f->unlockVisible()},
             {"desktopEnabled", f->desktopEnabled()},
             {"locked", f->locked()},
             {"panel", f->panel()},
@@ -286,60 +284,52 @@ EchoPluginOperation *EchoPluginWindows::command(const QString &target, const QSt
     if (action == "lock" &&
         (target != "desktop" || args.value("value").metaType().id() != QMetaType::Bool))
         return m_scope.rejected("InvalidArgument", "Invalid desktop lock state");
-    auto *op = m_scope.operation();
-    if (op->finished())
-        return op;
-    op->start();
-    const auto epoch = m_scope.accountEpoch();
-    QTimer::singleShot(0, op, [this, op, f, target, action, args, epoch] {
-        if (op->finished())
-            return;
-        if (!m_scope.active() || epoch != m_scope.accountEpoch()) {
-            op->cancel();
-            return;
-        }
-        if (action == "showMain")
-            f->showMain();
-        else if (action == "show") {
-            if (target == "mini")
-                f->showMini();
-            else
-                f->setDesktopEnabled(true);
-        } else if (action == "hide") {
-            if (target == "mini")
-                f->closeMini();
-            else
-                f->setDesktopEnabled(false);
-        } else if (action == "toggle") {
-            if (target == "mini")
-                f->toggleMini();
-            else
-                f->toggleDesktop();
-        } else if (action == "panel" && target == "mini")
-            f->setPanel(args.value("value").toString());
-        else if (action == "lock" && target == "desktop")
-            f->setLocked(args.value("value").toBool());
-        else if (action == "settings") {
-            if (!patchPreferences(target == "mini" ? f->mini() : f->desktop(), args)) {
-                op->fail("InvalidArgument", "Unknown or readonly window setting");
+    return m_scope.permissions()->authorize(
+        "windows", tr("操作 Mini 播放器或桌面歌词"),
+        [this, f, target, action, args](EchoPluginOperation *op) {
+            if (op->finished())
+                return;
+            if (action == "showMain")
+                f->showMain();
+            else if (action == "show") {
+                if (target == "mini")
+                    f->showMini();
+                else
+                    f->setDesktopEnabled(true);
+            } else if (action == "hide") {
+                if (target == "mini")
+                    f->closeMini();
+                else
+                    f->setDesktopEnabled(false);
+            } else if (action == "toggle") {
+                if (target == "mini")
+                    f->toggleMini();
+                else
+                    f->toggleDesktop();
+            } else if (action == "panel" && target == "mini")
+                f->setPanel(args.value("value").toString());
+            else if (action == "lock" && target == "desktop")
+                f->setLocked(args.value("value").toBool());
+            else if (action == "settings") {
+                if (!(target == "mini" ? f->mini() : f->desktop())->patch(args)) {
+                    op->fail("InvalidArgument", "Unknown or readonly window setting");
+                    return;
+                }
+            } else if (action == "bounds") {
+                if (!f->setPluginBounds(target, args)) {
+                    op->fail("Unavailable", "Window must be open and bounds valid");
+                    return;
+                }
+            } else if (action == "move") {
+                if (target == "mini")
+                    f->moveMini();
+                else
+                    f->moveDesktop();
+            } else {
+                op->fail("InvalidArgument", "Command is not available for target");
                 return;
             }
-        } else if (action == "bounds") {
-            if (!f->setPluginBounds(target, args)) {
-                op->fail("Unavailable", "Window must be open and bounds valid");
-                return;
-            }
-        } else if (action == "move") {
-            if (target == "mini")
-                f->moveMini();
-            else
-                f->moveDesktop();
-        } else {
-            op->fail("InvalidArgument", "Command is not available for target");
-            return;
-        }
-        op->succeed();
-    });
-    return op;
+            op->succeed();
+        });
 }
 } // namespace EchoMusic

@@ -425,7 +425,7 @@ Item {
  EchoFolderDialogLoader { id: folderOwner; hostItem: host
   sourceComponent: EchoFileDialog { fileMode: EchoFileDialog.OpenFolder; options: EchoFileDialog.DontUseNativeDialog }
  }
- EchoPopupLoader { id: verificationOwner; hostItem: host.Window.window.contentItem
+ EchoPopupLoader { id: verificationOwner; hostItem: host.Window.window ? host.Window.window.contentItem : null
   sourceComponent: EchoDialog { verificationSurface: true; heading: "安全验证"; body: Item { implicitHeight: 80 } }
  }
 })",
@@ -1322,6 +1322,7 @@ void ControlsUiTest::popupAndPageTracksShareRightInsetAndRetainDragMapping()
 
 void ControlsUiTest::filePickerPreservesSelectionAndCancelsWithOwner()
 {
+    QTest::failOnWarning(QRegularExpression(".*Cannot read property.*"));
     ControlsSession session;
     QVERIFY(session.create());
     QTemporaryDir directory;

@@ -54,8 +54,9 @@ public:
     }
     Q_INVOKABLE bool submit(const QVariantMap &frame);
     Q_INVOKABLE void requestFrame();
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *enqueue(const QVariantMap &commands);
     Q_INVOKABLE EchoMusic::EchoPluginOperation *
-    readback(EchoMusic::EchoGpuResource *resource = nullptr);
+    readback(EchoMusic::EchoGpuResource *resource = nullptr, const QVariantMap &options = {});
     bool live() const;
     bool drained() const;
     void retire();
@@ -63,12 +64,13 @@ public:
     {
         QHash<QString, GpuResourceDescription> resources;
         QVariantMap frame;
+        std::shared_ptr<GpuSubmission> submission;
         bool live = false;
         bool hdr = false;
         float pixelRatio = 1;
         std::shared_ptr<GpuMemoryBudget> budget;
         quint64 frameRevision = 0;
-        QList<QPair<QString, QPointer<EchoPluginOperation>>> readbacks;
+        QList<QPair<QVariantMap, QPointer<EchoPluginOperation>>> readbacks;
     };
     Snapshot takeSnapshot();
     void acceptReport(const QVariantMap &report);
@@ -90,13 +92,19 @@ private:
     QPointer<EchoPluginGraphics> m_graphics;
     std::shared_ptr<GpuRenderState> m_renderState;
     std::shared_ptr<GpuBridge> m_bridge;
-    QList<QMetaObject::Connection> m_windowConnections;
+    QList<QMetaObject::Connection> m_windowConnections, m_itemConnections;
+    QMetaObject::Connection m_scopeConnection;
+    QObject *m_visibilityObserver = nullptr;
     QTimer m_clock;
     QVariantMap m_frame, m_status;
-    quint64 m_revision = 0;
-    QList<QPair<QString, QPointer<EchoPluginOperation>>> m_readbacks;
+    quint64 m_revision = 0, m_submissionSequence = 0;
+    QList<std::shared_ptr<GpuSubmission>> m_submissions;
+    QList<std::weak_ptr<GpuSubmission>> m_inflight;
+    QList<QPair<QVariantMap, QPointer<EchoPluginOperation>>> m_readbacks;
     std::shared_ptr<GpuMemoryBudget> m_targetBudget;
     qint64 m_targetBytes = 0;
+    bool m_lastLive = false;
+    qreal m_lastPixelRatio = 0;
     bool m_sizing = false, m_sizeAccepted = true, m_limited = false;
     bool m_paused = false, m_continuous = false, m_retired = false;
     int m_fps = 60;
