@@ -119,6 +119,8 @@ Item {
         anchors.bottomMargin: bar.lyricStyle ? 0 : 10
         spacing: 12
         RowLayout {
+            objectName: "playerbarLeftArea"
+            Layout.alignment: Qt.AlignVCenter
             Layout.fillHeight: false
             // Both side regions reserve equal space; Qt must not expand the
             // metadata layout and take width from the centered playback area.
@@ -155,6 +157,7 @@ Item {
                 Layout.preferredHeight: bar.lyricStyle ? 60 : 64
                 onWidthChanged: capacityUpdate.restart()
                 PlayerSongText {
+                    objectName: "playerbarSongText"
                     y: 4
                     width: parent.width
                     height: bar.lyricStyle ? 20 : 24
@@ -167,7 +170,7 @@ Item {
                 }
                 PlayerActionStrip {
                     objectName: "playerbarLeftActions"
-                    y: bar.lyricStyle ? 28 : 32
+                    y: bar.lyricStyle ? 28 : 34
                     width: implicitWidth
                     height: 28
                     compact: true
@@ -191,37 +194,45 @@ Item {
             Layout.fillWidth: !bar.lyricStyle
             Layout.preferredWidth: bar.lyricStyle ? centerActions.implicitWidth : -1
             Layout.minimumWidth: bar.lyricStyle ? centerActions.implicitWidth : 150
-            Layout.preferredHeight: bar.lyricStyle ? 40 : 58
+            Layout.alignment: Qt.AlignVCenter
+            Layout.preferredHeight: centerRows.implicitHeight
             onWidthChanged: capacityUpdate.restart()
             // The centered action strip can use adjacent reserved space;
             // its intrinsic width must not affect the capacity measurement.
-            PlayerActionStrip {
-                id: centerActions
-                objectName: "playerbarCenterActions"
-                x: (center.width - width) / 2
-                width: implicitWidth
-                height: 40
-                colors: bar.colors
-                playbackLoading: bar.playback && bar.playback.loading
-                lyricStyle: bar.lyricStyle
-                actions: bar.actions
-                zone: ShellActionModel.Center
-                onActionAboutToActivate: (id, anchor) => bar.lastActionAnchor = anchor
-            }
-            PlaybackProgress {
-                objectName: "playerbarProgressRow"
-                visible: !bar.lyricStyle
-                x: (center.width - width) / 2
-                y: 44
-                width: Math.max(0, Math.min(center.width, 480) - 8)
-                height: 14
-                colors: bar.colors
-                playback: bar.playback
+            // Center the whole controls/progress group independently of the
+            // metadata rows. The positioner owns the two children's vertical geometry.
+            Column {
+                id: centerRows
+                width: parent.width
+                spacing: 6
+                PlayerActionStrip {
+                    id: centerActions
+                    objectName: "playerbarCenterActions"
+                    x: (center.width - width) / 2
+                    width: implicitWidth
+                    height: 40
+                    colors: bar.colors
+                    playbackLoading: bar.playback && bar.playback.loading
+                    lyricStyle: bar.lyricStyle
+                    actions: bar.actions
+                    zone: ShellActionModel.Center
+                    onActionAboutToActivate: (id, anchor) => bar.lastActionAnchor = anchor
+                }
+                PlaybackProgress {
+                    objectName: "playerbarProgressRow"
+                    visible: !bar.lyricStyle
+                    x: (center.width - width) / 2
+                    width: Math.max(0, Math.min(center.width, 480) - 8)
+                    height: implicitHeight
+                    colors: bar.colors
+                    playback: bar.playback
+                }
             }
         }
         Item {
             id: trailing
             objectName: "playerbarRightArea"
+            Layout.alignment: Qt.AlignVCenter
             Layout.fillWidth: false
             Layout.preferredWidth: bar.sideWidth
             Layout.minimumWidth: bar.lyricStyle ? 0 : 120
@@ -295,6 +306,7 @@ Item {
                 id: overflow
                 anchorItem: more
                 actions: bar.actions
+                lyricStyle: bar.lyricStyle
                 uiScale: bar.uiScale
             }
         }

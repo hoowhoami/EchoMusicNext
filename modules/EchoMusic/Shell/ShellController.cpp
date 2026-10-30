@@ -147,6 +147,7 @@ void ShellController::setLyricPageActive(bool active)
     skin.defaultZone = ShellActionModel::Right;
     skin.order = 35;
     skin.enabled = true;
+    skin.playbackPageOnly = true;
     skin.invoke = [this] { emit playbackPopupRequested("lyric-skins"); };
     m_lyricSkinHandle = m_playerbar.registerAction(*this, std::move(skin));
     ShellActionModel::Contribution barrage;
@@ -156,6 +157,7 @@ void ShellController::setLyricPageActive(bool active)
     barrage.icon = "barrage";
     barrage.defaultZone = ShellActionModel::Left;
     barrage.order = 32;
+    barrage.playbackPageOnly = true;
     barrage.invoke = [this] { emit playbackPopupRequested("barrage"); };
     m_lyricBarrageHandle = m_playerbar.registerAction(*this, std::move(barrage));
     updateBarrageAction();

@@ -90,6 +90,51 @@ class ShellActionTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void playbackPageActionsDoNotEnterNormalProjections()
+    {
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("settings.ini"));
+        M model(settings, M::Playerbar);
+        QObject owner;
+        ShellActionProjection normal, page, overflow, editor;
+        for (auto *projection : {&normal, &page, &overflow, &editor})
+            projection->setActions(&model);
+        normal.setIncludePlaybackPageActions(false);
+        overflow.setIncludePlaybackPageActions(false);
+        overflow.setZone(M::More);
+        editor.setIncludePlaybackPageActions(false);
+        editor.setUsePreferredPlacement(true);
+        QAbstractItemModelTester normalContract(&normal), pageContract(&page);
+        model.registerAction(owner, action("shared", M::Right));
+        auto skin = action("page-skin", M::Right);
+        skin.playbackPageOnly = true;
+        const auto handle = model.registerAction(owner, skin);
+        QCOMPARE(keys(normal), QStringList{"shared"});
+        QCOMPARE(keys(overflow), QStringList{"shared"});
+        QCOMPARE(keys(editor), QStringList{"shared"});
+        QVERIFY(keys(page).contains("page-skin"));
+        model.setCapacity(M::Right, 10);
+        QVERIFY(model.setPlacement("page-skin", M::Left));
+        QCOMPARE(keys(normal), QStringList{"shared"});
+        QVERIFY(keys(overflow).isEmpty());
+        QCOMPARE(keys(editor), QStringList{"shared"});
+        normal.setIncludePlaybackPageActions(true);
+        QVERIFY(keys(normal).contains("page-skin"));
+        normal.setIncludePlaybackPageActions(false);
+        QCOMPARE(keys(normal), QStringList{"shared"});
+        QVERIFY(model.unregisterAction(handle));
+        QCOMPARE(keys(normal), QStringList{"shared"});
+
+        RouteController routes;
+        ShellController controller(settings, routes);
+        controller.setLyricPageActive(true);
+        int pageOnly = 0;
+        for (int i = 0; i < controller.playerbarActions()->rowCount(); ++i)
+            pageOnly +=
+                controller.playerbarActions()->index(i, 0).data(M::PlaybackPageOnlyRole).toBool();
+        QCOMPARE(pageOnly, 2);
+        controller.setLyricPageActive(false);
+    }
     void dragPreviewCommitsOnceAndDiscardsCatalogChanges()
     {
         QTemporaryDir directory;

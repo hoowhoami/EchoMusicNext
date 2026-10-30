@@ -15,6 +15,7 @@ private slots:
     void desktopUnwrappedReadingUsesNativeCursorPositions();
     void sceneGraphPlaybackCpu();
     void pageArtworkTransitionPreservesGeometryAndReverses();
+    void pageActionsStayOutOfSourceBarDuringTransitions();
     void artworkFlightMatchesFullResolutionCover();
     void artworkFlightMatchesFullResolutionCover_data();
     void emptyArtworkKeepsItsRadiusAcrossPageEntry();

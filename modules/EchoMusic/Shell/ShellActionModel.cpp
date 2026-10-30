@@ -27,7 +27,8 @@ QHash<int, QByteArray> actionRoles()
             {M::BadgePreferredRole, "badgePreferred"},
             {M::TooltipRole, "actionTooltip"},
             {M::BadgeTitleRole, "badgeTitle"},
-            {M::HoverRole, "actionHover"}};
+            {M::HoverRole, "actionHover"},
+            {M::PlaybackPageOnlyRole, "playbackPageOnly"}};
 }
 } // namespace
 ShellActionModel::ShellActionModel(EchoMusic::SettingsStore &preferences, Surface surface,
@@ -91,6 +92,8 @@ QVariant ShellActionModel::data(const QModelIndex &index, int role) const
         return a.badgeTitle;
     case HoverRole:
         return a.hover;
+    case PlaybackPageOnlyRole:
+        return a.playbackPageOnly;
     case BadgePreferredRole:
         return m_badges.value(a.key, a.badgeDefaultVisible).toBool();
     default:
@@ -557,6 +560,9 @@ void ShellActionProjection::reconcile()
     if (m_actions)
         for (int row = 0; row < m_actions->rowCount(); ++row) {
             const auto source = m_actions->index(row, 0);
+            if (!m_includePlaybackPageActions &&
+                source.data(ShellActionModel::PlaybackPageOnlyRole).toBool())
+                continue;
             const auto effective = source.data(ShellActionModel::EffectiveRole).toInt();
             const auto zone =
                 m_preferred ? source.data(ShellActionModel::PreferredRole).toInt() : effective;
@@ -611,6 +617,7 @@ void ShellActionProjection::sourceDataChanged(const QModelIndex &first, const QM
     // Badges/progress/labels cannot change membership. Forward them without
     // rescanning the registry; only placement/visibility needs reconciliation.
     if (roles.isEmpty() || roles.contains(ShellActionModel::EffectiveRole) ||
+        roles.contains(ShellActionModel::PlaybackPageOnlyRole) ||
         (m_preferred && roles.contains(ShellActionModel::PreferredRole)))
         reconcile();
     int start = -1;
@@ -633,6 +640,15 @@ void ShellActionProjection::setUsePreferredPlacement(bool value)
     m_preferred = value;
     reconcile();
     emit usePreferredPlacementChanged();
+}
+void ShellActionProjection::setIncludePlaybackPageActions(bool value)
+{
+    if (m_includePlaybackPageActions == value)
+        return;
+    finishReorder(false);
+    m_includePlaybackPageActions = value;
+    reconcile();
+    emit includePlaybackPageActionsChanged();
 }
 bool ShellActionModel::setPresentation(const Handle &handle, const QString &title,
                                        const QString &icon)

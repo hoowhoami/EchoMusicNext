@@ -47,7 +47,8 @@ public:
         BadgePreferredRole,
         TooltipRole,
         BadgeTitleRole,
-        HoverRole
+        HoverRole,
+        PlaybackPageOnlyRole
     };
     struct Handle
     {
@@ -63,6 +64,7 @@ public:
         int order = 1000;
         bool visible = true, enabled = false, badgeDefaultVisible = true;
         bool supportsBadge = false;
+        bool playbackPageOnly = false;
         std::function<void()> invoke;
     };
     explicit ShellActionModel(EchoMusic::SettingsStore &preferences, Surface surface,
@@ -136,6 +138,8 @@ class ShellActionProjection : public QAbstractListModel
     Q_PROPERTY(EchoMusic::ShellActionModel::Zone zone READ zone WRITE setZone NOTIFY zoneChanged)
     Q_PROPERTY(bool usePreferredPlacement READ usePreferredPlacement WRITE setUsePreferredPlacement
                    NOTIFY usePreferredPlacementChanged)
+    Q_PROPERTY(bool includePlaybackPageActions READ includePlaybackPageActions WRITE
+                   setIncludePlaybackPageActions NOTIFY includePlaybackPageActionsChanged)
 public:
     explicit ShellActionProjection(QObject *parent = nullptr);
     ShellActionModel *actions() const
@@ -153,6 +157,11 @@ public:
         return m_preferred;
     }
     void setUsePreferredPlacement(bool value);
+    bool includePlaybackPageActions() const
+    {
+        return m_includePlaybackPageActions;
+    }
+    void setIncludePlaybackPageActions(bool value);
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
@@ -165,6 +174,7 @@ signals:
     void actionsChanged();
     void zoneChanged();
     void usePreferredPlacementChanged();
+    void includePlaybackPageActionsChanged();
 
 private:
     void reconcile();
@@ -177,5 +187,6 @@ private:
     QList<QPersistentModelIndex> m_reorderStart, m_reorderPreview;
     ShellActionModel::Zone m_zone = ShellActionModel::All;
     bool m_preferred = false;
+    bool m_includePlaybackPageActions = true;
 };
 } // namespace EchoMusic

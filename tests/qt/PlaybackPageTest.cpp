@@ -238,6 +238,11 @@ public:
         playback.m_track.cover = source;
         emit playback.changed();
     }
+    static void enableBarragePresentation(PlaybackService &playback)
+    {
+        playback.m_track.hash = QString(32, QLatin1Char('a'));
+        emit playback.changed();
+    }
     static void position(PlaybackService &playback, qint64 value)
     {
         const bool jump = qAbs(playback.m_position - value) > 350;
@@ -888,6 +893,71 @@ void PlaybackPageTest::pageArtworkTransitionPreservesGeometryAndReverses()
         QCOMPARE(motion->property("travelDuration").toInt(), 400);
         QVERIFY(!session.item("playbackCoverFlight"));
         QVERIFY(warnings.isEmpty());
+    }
+}
+void PlaybackPageTest::pageActionsStayOutOfSourceBarDuringTransitions()
+{
+    for (bool animated : {false, true}) {
+        Session session;
+        QVERIFY(session.create());
+        PlaybackServiceTestAccess::enableBarragePresentation(session.playback);
+        session.theme.setMotionEnabled(animated);
+        QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+        QTRY_VERIFY(!session.page()->property("visible").toBool());
+        QQmlComponent component(&session.engine);
+        component.setData(R"(
+            import QtQuick
+            import EchoMusic.Shell
+            PlayerBar {
+                required property Item host
+                parent: host
+                width: host.width
+                height: implicitHeight
+                y: host.height - height
+                uiScale: 1
+                manageCapacity: false
+            }
+        )",
+                          QUrl());
+        QScopedPointer<QObject> source(component.createWithInitialProperties(
+            {{"host", QVariant::fromValue(session.window->contentItem())},
+             {"controller", QVariant::fromValue(&session.controller)},
+             {"router", QVariant::fromValue(&session.router)}}));
+        QVERIFY2(source, qPrintable(component.errorString()));
+        auto *sourceBar = qobject_cast<QQuickItem *>(source.data());
+        QVERIFY(sourceBar);
+        session.page()->setProperty("sourceCover", source->property("coverItem"));
+        auto *cover = source->property("coverItem").value<QQuickItem *>();
+        QVERIFY(cover);
+        QTRY_VERIFY(cover->width() > 0 && cover->height() > 0);
+        auto leaks = [&] {
+            return findVisual(sourceBar, "playerbar-action-lyric-skins") ||
+                   findVisual(sourceBar, "playerbar-action-barrage");
+        };
+        bool leakedFrame = false;
+        const auto observer = connect(session.window, &QQuickWindow::frameSwapped, source.data(),
+                                      [&] { leakedFrame |= leaks(); });
+        for (int cycle = 0; cycle < 2; ++cycle) {
+            QVERIFY(!leaks());
+            QVERIFY(QMetaObject::invokeMethod(session.page(), "open"));
+            if (animated) {
+                QTRY_VERIFY(session.page()->property("coverMoving").toBool());
+                QTest::qWait(60);
+                QVERIFY(!session.page()->property("opened").toBool());
+            }
+            QVERIFY(!leaks());
+            QTRY_VERIFY(session.page()->property("opened").toBool());
+            QTRY_VERIFY(session.item("playerbar-action-lyric-skins"));
+            QTRY_VERIFY(session.item("playerbar-action-barrage"));
+            QVERIFY(!leaks());
+            QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+            if (animated)
+                QTest::qWait(60);
+            QVERIFY(!leaks());
+            QTRY_VERIFY(!session.page()->property("visible").toBool());
+        }
+        disconnect(observer);
+        QVERIFY(!leakedFrame);
     }
 }
 void PlaybackPageTest::emptyArtworkKeepsItsRadiusAcrossPageEntry()

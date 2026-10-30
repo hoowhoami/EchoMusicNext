@@ -12,6 +12,8 @@
 #include "ThemeStore.h"
 #include "UiTypography.h"
 #include "WindowController.h"
+#include "PlaybackService.h"
+#include "RenderedInk.h"
 #include <QAbstractItemModelTester>
 #include <QFont>
 #include <QDir>
@@ -36,6 +38,27 @@
 using namespace EchoMusic;
 namespace EchoMusic
 {
+class PlaybackServiceTestAccess
+{
+public:
+    static bool restoring(const PlaybackService &playback)
+    {
+        return playback.m_queueRestorePending;
+    }
+    static void seedPlayerBar(PlaybackService &playback)
+    {
+        // Domain presentation only; no audio, provider response or real account.
+        playback.m_track.id = "playerbar-alignment";
+        playback.m_track.localPath = "/playerbar-alignment-only.wav";
+        playback.m_track.title = QStringLiteral("解释 Track");
+        playback.m_track.artist = QStringLiteral("许嵩 Artist");
+        playback.m_position = 42000;
+        playback.m_duration = 277000;
+        playback.m_playing = true;
+        emit playback.changed();
+        emit playback.positionChanged();
+    }
+};
 // Canonical UI-only catalog rows; no provider response or account is fabricated.
 class UserPlaylistModelTestAccess
 {
@@ -2071,6 +2094,180 @@ QtObject {
         window->show();
         QVERIFY(Test::prepareNativeInput(window));
         QCOMPARE(warnings.size(), 0);
+    }
+    void playerBarGroupsCenter_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<qreal>("scale");
+        QTest::addColumn<int>("fontScale");
+        for (bool dark : {false, true})
+            for (qreal scale : {1., 1.25})
+                for (int fontScale : {100, 125})
+                    QTest::newRow(
+                        qPrintable(QString("%1-%2-font%3").arg(dark).arg(scale).arg(fontScale)))
+                        << dark << scale << fontScale;
+    }
+    void playerBarGroupsCenter()
+    {
+        QFETCH(bool, dark);
+        QFETCH(qreal, scale);
+        QFETCH(int, fontScale);
+        QTemporaryDir temp;
+        SettingsStore preferences(temp.filePath("settings.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, preferences, nullptr, temp.filePath("queue.sqlite"));
+        ThemeStore theme(preferences);
+        theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+        theme.setMotionEnabled(false);
+        theme.setGlobalFontSizeScale(fontScale);
+        RouteController routes;
+        ShellController controller(preferences, routes);
+        controller.attachPlayback(playback);
+        QTRY_VERIFY(!PlaybackServiceTestAccess::restoring(playback));
+        PlaybackServiceTestAccess::seedPlayerBar(playback);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import EchoMusic.Shell
+            import EchoMusic.Theme
+            Window {
+                id: host
+                required property ShellController controller
+                required property RouteController router
+                property real uiScale: 1
+                width: 1100; height: 160; visible: true
+                color: Theme.player
+                PlayerBar {
+                    objectName: "alignmentPlayerBar"
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width / host.uiScale
+                    height: implicitHeight
+                    scale: host.uiScale
+                    transformOrigin: Item.Left
+                    controller: host.controller
+                    router: host.router
+                    uiScale: host.uiScale
+                }
+            }
+        )",
+                          QUrl());
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"controller", QVariant::fromValue(&controller)},
+                                                   {"router", QVariant::fromValue(&routes)},
+                                                   {"uiScale", scale}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        Test::moveNativePointer(window, {2, 2});
+        auto find = [&](const QString &name) { return findVisual(window->contentItem(), name); };
+        auto *bar = find("alignmentPlayerBar");
+        auto *leading = find("playerbarLeftArea");
+        auto *center = find("playerbarCenterArea");
+        auto *trailing = find("playerbarRightArea");
+        auto *song = find("playerbarSongText");
+        auto *title = find("playerbarSongTitle");
+        auto *left = find("playerbarLeftActions");
+        auto *transport = find("playerbarCenterActions");
+        auto *progress = find("playerbarProgressRow");
+        QVERIFY(bar && leading && center && trailing && song && title && left && transport &&
+                progress);
+        auto centerY = [&](QQuickItem *item) {
+            return item->mapToItem(bar, {0, item->height() / 2}).y();
+        };
+        for (int width : {900, 1400}) {
+            window->setWidth(width);
+            // Each region is centered as a group, with independent internal rows.
+            for (auto *group : {leading, center, trailing})
+                QTRY_VERIFY2(qAbs(centerY(group) - bar->height() / 2) * scale <=
+                                 1. / window->devicePixelRatio() + .01,
+                             qPrintable(QString("group=%1 center=%2 bar=%3 height=%4")
+                                            .arg(group->objectName())
+                                            .arg(centerY(group))
+                                            .arg(bar->height() / 2)
+                                            .arg(group->height())));
+            QTRY_VERIFY(centerY(transport) > centerY(song) + 2);
+            QTRY_VERIFY(centerY(progress) > centerY(left) + 2);
+            QTRY_VERIFY(qAbs(transport->mapToItem(center, {0, 0}).y()) < .01);
+            QTRY_VERIFY(qAbs(progress->mapToItem(center, {0, progress->height()}).y() -
+                             center->height()) < .01);
+            QQuickItem *pause = nullptr, *add = nullptr, *pauseVisual = nullptr,
+                       *pauseGlyph = nullptr, *addGlyph = nullptr;
+            QTRY_VERIFY((pause = find("playerbar-action-play-toggle")) &&
+                        (add = find("playerbar-action-favorite")));
+            QTRY_VERIFY((pauseVisual = findVisual(pause, "playPausePauseIcon")) &&
+                        (pauseGlyph = findVisual(pauseVisual, "iconImage")) &&
+                        (addGlyph = findVisual(add, "iconImage")) &&
+                        pauseGlyph->property("status").toInt() == 1 &&
+                        addGlyph->property("status").toInt() == 1);
+            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            window->update();
+            QTRY_VERIFY(!frames.isEmpty());
+            const auto image = window->grabWindow();
+            QVERIFY(!image.isNull());
+            const auto directory = qEnvironmentVariable("ECHO_PLAYERBAR_ALIGNMENT_CAPTURE_DIR");
+            if (!directory.isEmpty()) {
+                QVERIFY(QDir().mkpath(directory));
+                QVERIFY(image.save(directory + QString("/bar-%1-%2-font%3-%4.png")
+                                                   .arg(dark)
+                                                   .arg(scale)
+                                                   .arg(fontScale)
+                                                   .arg(width)));
+            }
+            const auto titleInk = Test::renderedInkCenter(image, window, title, theme.text());
+            const auto iconInk = [&](QQuickItem *glyph, QQuickItem *button) {
+                const auto foreground = button->property("visualForeground").value<QColor>();
+                const auto background = theme.player();
+                qreal alpha = foreground.alphaF();
+                for (auto *item = glyph; item && item != bar; item = item->parentItem())
+                    alpha *= item->opacity();
+                const auto painted = QColor::fromRgbF(
+                    foreground.redF() * alpha + background.redF() * (1 - alpha),
+                    foreground.greenF() * alpha + background.greenF() * (1 - alpha),
+                    foreground.blueF() * alpha + background.blueF() * (1 - alpha));
+                return Test::renderedInkCenter(image, window, glyph, painted);
+            };
+            const auto pauseInk = iconInk(pauseGlyph, pause);
+            const auto addInk = iconInk(addGlyph, add);
+            QVERIFY2(
+                titleInk && pauseInk && addInk,
+                qPrintable(
+                    QString("ink title=%1 pause=%2 left=%3 background=%4 rendered=%5 foreground=%6")
+                        .arg(bool(titleInk))
+                        .arg(bool(pauseInk))
+                        .arg(bool(addInk))
+                        .arg(theme.player().name())
+                        .arg(image.pixelColor(0, 0).name())
+                        .arg(pause->property("visualForeground")
+                                 .value<QColor>()
+                                 .name(QColor::HexArgb))));
+            // The allowance is one device pixel, independent of application zoom.
+            const qreal pixel = qreal(window->width()) / image.width();
+            QVERIFY2(qAbs(*titleInk - title->mapToScene({0, title->height() / 2}).y()) <=
+                         pixel + .01,
+                     qPrintable(QString("title=%1 pause=%2 pixel=%3 width=%4")
+                                    .arg(*titleInk)
+                                    .arg(*pauseInk)
+                                    .arg(pixel)
+                                    .arg(width)));
+            auto *slider = findVisual(progress, "playbackSeekSlider");
+            QVERIFY(slider);
+            QVERIFY(qAbs(*pauseInk - transport->mapToScene({0, transport->height() / 2}).y()) <=
+                    pixel + .01);
+            QVERIFY(qAbs(*addInk - left->mapToScene({0, left->height() / 2}).y()) <= pixel + .01);
+            QVERIFY(qAbs(slider->mapToScene({0, slider->height() / 2}).y() -
+                         progress->mapToScene({0, progress->height() / 2}).y()) <= pixel + .01);
+        }
+        bar->setProperty("lyricStyle", true);
+        QTRY_COMPARE(song->y(), 4.);
+        QTRY_COMPARE(left->y(), 28.);
+        QTRY_COMPARE(transport->y(), 0.);
+        QVERIFY(!progress->isVisible());
+        QCOMPARE(warnings.size(), 0);
+        playback.shutdown();
+        controller.shutdown();
     }
     void productionTitlebarPinningTasksAndVirtualization()
     {

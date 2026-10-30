@@ -10,6 +10,7 @@ EchoAnchoredPopup {
     id: menu
     objectName: "playerbarMorePopup"
     required property ShellActionModel actions
+    property bool lyricStyle: false
     property bool editing: false
     preferredWidth: editing ? 860 : 280
     maximumHeight: editing ? 620 : 520
@@ -72,6 +73,7 @@ EchoAnchoredPopup {
             model: ShellActionProjection {
                 actions: menu.visible && !menu.editing ? menu.actions : null
                 zone: ShellActionModel.More
+                includePlaybackPageActions: menu.lyricStyle
             }
             ScrollBar.vertical: EchoPopupScrollBar {
                 surface: menu
@@ -194,6 +196,7 @@ EchoAnchoredPopup {
                 id: board
                 width: editScroll.availableWidth
                 actions: menu.actions
+                lyricStyle: menu.lyricStyle
                 resourceActive: menu.visible && menu.editing
                 narrow: menu.parent ? menu.parent.width / menu.uiScale <= 640 : false
             }

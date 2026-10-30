@@ -9,6 +9,7 @@ Rectangle {
     id: board
     objectName: "playerLayoutBoard"
     required property ShellActionModel actions
+    property bool lyricStyle: false
     property bool resourceActive: true
     property bool narrow: false
     PlayerLayoutReorder {
@@ -161,6 +162,7 @@ Rectangle {
                 Repeater {
                     model: board.regions
                     delegate: PlayerLayoutZone {
+                        lyricStyle: board.lyricStyle
                         required property int index
                         required property var modelData
                         Layout.row: board.narrow ? index : 1
@@ -191,6 +193,7 @@ Rectangle {
             }
             PlayerLayoutZone {
                 id: more
+                lyricStyle: board.lyricStyle
                 x: 10
                 y: 24
                 width: parent.width - 20

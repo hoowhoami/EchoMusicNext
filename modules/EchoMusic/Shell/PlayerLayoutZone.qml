@@ -8,6 +8,7 @@ import EchoMusic.Shell
 Rectangle {
     id: pane
     required property ShellActionModel actions
+    property bool lyricStyle: false
     required property int zone
     required property string label
     property bool showLabel: true
@@ -113,6 +114,7 @@ Rectangle {
             actions: pane.resourceActive ? pane.actions : null
             zone: pane.zone
             usePreferredPlacement: true
+            includePlaybackPageActions: pane.lyricStyle
         }
         move: Transition {
             enabled: pane.nativeMotionActive

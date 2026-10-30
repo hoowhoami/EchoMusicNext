@@ -26,6 +26,7 @@ ListView {
     model: ShellActionProjection {
         actions: strip.actions
         zone: strip.zone
+        includePlaybackPageActions: strip.lyricStyle
     }
     delegate: Item {
         id: slot
