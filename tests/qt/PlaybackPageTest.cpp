@@ -728,6 +728,10 @@ void PlaybackPageTest::untimedLyricsUseFullInkAndKeepRomanizationOnEverySurface(
             QTest::qWait(450);
             QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
             QVERIFY(session.playback.lyrics()->rubyAt(0).isEmpty());
+            QQuickItem *lyricRow = nullptr;
+            QTRY_VERIFY((lyricRow = session.item("lyricTextRow0")));
+            const auto subtitles = QString::fromUtf8("zheng hang zhi xian\n同时间戳译文");
+            QTRY_COMPARE(lyricRow->parentItem()->property("secondaryText").toString(), subtitles);
             const auto capture = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
             if (!capture.isEmpty()) {
                 QDir().mkpath(capture);
@@ -767,7 +771,7 @@ Item {
                 QVERIFY(surface);
                 QTRY_COMPARE(surface->property("currentIndex").toInt(), 0);
                 QVERIFY(!surface->property("ruby").toBool());
-                QVERIFY(surface->property("secondary").toString().contains("zheng hang"));
+                QTRY_COMPARE(surface->property("secondary").toString(), subtitles);
             }
             QTest::qWait(100);
             if (!capture.isEmpty())

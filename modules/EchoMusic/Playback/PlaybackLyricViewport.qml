@@ -432,7 +432,7 @@ Item {
                     return 0;
                 return viewport.hidePassed && viewport.playback.playing && timeline.ordinal(index) < timeline.ordinal(passed) && lines.following ? 0 : timeline.highlighted(index) ? .85 : 1;
             }
-            readonly property string secondaryText: [viewport.playback.lyricText.wantTranslation ? translation : "", viewport.playback.lyricText.wantRomanization && !ruby ? romanization : ""].filter(value => value.length > 0).join("\n")
+            readonly property string secondaryText: [viewport.playback.lyricText.wantRomanization && !ruby ? romanization : "", viewport.playback.lyricText.wantTranslation ? translation : ""].filter(value => value.length > 0).join("\n")
             readonly property real edgeOpacity: {
                 if (viewport.edgeFade <= 0 || viewport.compact)
                     return 1;

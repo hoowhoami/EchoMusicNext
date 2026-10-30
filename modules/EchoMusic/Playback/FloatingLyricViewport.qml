@@ -129,7 +129,7 @@ Item {
         nextVerticalUnits = playback.lyrics.verticalAt(nextIndex);
     }
     onRenderTimeChanged: syncLines(false)
-    readonly property string secondary: currentIndex < 0 ? playback.artist : [playback.lyricText.wantTranslation ? line.translation || "" : "", playback.lyricText.wantRomanization && !ruby ? line.romanization || "" : ""].filter(value => value.length).join("\n")
+    readonly property string secondary: currentIndex < 0 ? playback.artist : [playback.lyricText.wantRomanization && !ruby ? line.romanization || "" : "", playback.lyricText.wantTranslation ? line.translation || "" : ""].filter(value => value.length).join("\n")
     readonly property bool ruby: line.wordTimed === true && !vertical && playback.lyricText.wantRomanization && playback.lyricText.romanizationAsRuby && rubyUnits.length > 0
     readonly property bool preview: secondary.length === 0 && !ruby && nextLinePreview && nextIndex >= 0
     readonly property int visualLineCount: 1 + (ruby ? 1 : 0) + (secondary.length ? secondary.split("\n").length : preview ? 1 : 0)

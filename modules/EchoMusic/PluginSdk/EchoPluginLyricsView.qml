@@ -75,7 +75,7 @@ Item {
                 id: secondary
                 y: nativeLine.textHeight + 6
                 width: parent.width
-                text: [root.page.player.lyricsInfo.translation ? line.translation : "", root.page.player.lyricsInfo.romanization ? line.romanization : ""].filter(s => s.length > 0).join("\n")
+                text: [root.page.player.lyricsInfo.romanization ? line.romanization : "", root.page.player.lyricsInfo.translation ? line.translation : ""].filter(s => s.length > 0).join("\n")
                 visible: text.length > 0
                 font: Theme.font(Math.max(12, root.baseFont.pixelSize * .6), Theme.regularWeight)
                 color: root.unplayedColor
