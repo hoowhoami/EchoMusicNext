@@ -4,6 +4,10 @@
 #include <QVariantMap>
 #include <memory>
 class QFileDialog;
+namespace EchoMusic::UiaEventGate
+{
+class Session;
+}
 namespace EchoMusic
 {
 /// Short-lived native dialog controller, allocated only by an explicit request.
@@ -35,5 +39,10 @@ private:
     // arriving before that is a programmatic completion (tests), whose
     // selection has to fall back to the dialog state.
     bool m_presented = false;
+    // Issue #1 gate: held for the dialog's lifetime (the picker deletes
+    // itself when the dialog closes) so the taskbar lyric probe drops its
+    // UIA event subscription while a native common dialog may initialize
+    // (services/platform/UiaEventGate.h).
+    std::unique_ptr<UiaEventGate::Session> m_gate;
 };
 } // namespace EchoMusic

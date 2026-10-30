@@ -1,4 +1,5 @@
 #include "EchoFileDialog.h"
+#include "UiaEventGate.h"
 #include <QApplication>
 #include <QFileDialog>
 #include <QWindow>
@@ -78,6 +79,7 @@ void EchoFileDialog::open()
             emit selectionChanged();
         }
         m_dialog = nullptr;
+        m_gateSession = nullptr;
         dialog->deleteLater();
         emit visibleChanged();
         if (result == QDialog::Accepted)
@@ -92,14 +94,29 @@ void EchoFileDialog::open()
         emit visibleChanged();
         return;
     }
-    // Qt shows non-exec native dialogs on a worker thread, and that path
-    // deadlocks behind the taskbar lyric: IFileDialog::Show creates the
-    // dialog window but never presents it while the probe runs (with
-    // taskbar/enabled=false it presents instantly). Run the native dialog as
-    // a GUI-thread exec() instead - the classical same-apartment path - queued
-    // so open() still returns immediately and no member frame ever sits under
-    // the modal loop (a teardown during the loop cannot resume into freed
-    // state).
+    // Issue #1 gate: native common dialog initialization raises MSAA events
+    // (bridged to UIA by oleacc) before it pumps a message, and while the
+    // taskbar lyric probe holds a UIA event subscription that delivery can
+    // wedge the dialog thread before Show presents anything. Hold a gate
+    // session for the dialog's lifetime: the probe drops its subscription now
+    // (bounded wait) and restores it once the dialog has closed.
+    m_gateSession = std::make_shared<UiaEventGate::Session>();
+    if (!UiaEventGate::waitDrained(1000))
+        qWarning("EchoFileDialog: taskbar lyric did not confirm the UIA "
+                 "subscription suspension in time; opening the dialog anyway");
+    if (qEnvironmentVariableIsSet("ECHO_FILE_DIALOG_LEGACY")) {
+        dialog->show();
+        emit visibleChanged();
+        return;
+    }
+    // Qt shows non-exec native dialogs on a worker thread. That path used to
+    // deadlock behind the taskbar lyric (issue #1: the lyric's UIA event
+    // subscription wedged provider-side event raises process-wide, so
+    // IFileDialog::Show created the dialog window but never presented it).
+    // The lyric side is fixed, but this wrapper keeps the single-apartment
+    // GUI-thread exec: queued so open() still returns immediately and no
+    // member frame ever sits under the modal loop (a teardown during the loop
+    // cannot resume into freed state).
     m_cancelled = std::make_shared<bool>(false);
     m_inExec = true;
     QPointer<EchoFileDialog> guard(this);
