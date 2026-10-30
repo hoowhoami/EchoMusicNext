@@ -17,6 +17,14 @@ SettingsSection {
     readonly property color defaultForeground: (Theme.store.extensionAppearance.mini || {}).text || Theme.floatingText
     heading: qsTr("Mini 歌词")
     glyph: "picture-in-picture"
+    FontFamilySettingsRow {
+        heading: qsTr("Mini 歌词字体")
+        description: qsTr("Mini 歌词使用的字体，跟随全局或单独指定")
+        selectorName: "settingsMiniLyricFont"
+        family: Theme.store.miniLyricFont
+        onFamilySelected: selectedFamily => Theme.store.miniLyricFont = selectedFamily
+    }
+    SettingsDivider {}
     LyricColorSettingsRow {
         objectName: "miniLyricColors"
         uiScale: section.uiScale

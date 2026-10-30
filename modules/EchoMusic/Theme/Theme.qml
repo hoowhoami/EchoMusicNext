@@ -12,14 +12,22 @@ QtObject {
     readonly property int extraBoldWeight: 800
     readonly property int blackWeight: 900
     readonly property font bodyFont: store.applicationFont
+    // 全局字号/字重：读取 store 属性使依赖注册进绑定，设置变更时全部
+    // 字体绑定随 fontChanged 重新求值。
     function font(pixelSize: real, weight: int): font {
-        return store.styledFont(bodyFont, pixelSize, weight, 0, false, false);
+        return store.styledFont(bodyFont, pixelSize * store.globalFontSizeScale / 100,
+                                Math.min(1000, Math.max(1, weight + store.globalFontWeightOffset)), 0, false,
+                                false);
     }
     function spacedFont(pixelSize: real, weight: int, letterSpacing: real): font {
-        return store.styledFont(bodyFont, pixelSize, weight, letterSpacing, false, false);
+        return store.styledFont(bodyFont, pixelSize * store.globalFontSizeScale / 100,
+                                Math.min(1000, Math.max(1, weight + store.globalFontWeightOffset)), letterSpacing,
+                                false, false);
     }
     function decoratedFont(pixelSize: real, weight: int, letterSpacing: real, italic: bool, underline: bool): font {
-        return store.styledFont(bodyFont, pixelSize, weight, letterSpacing, italic, underline);
+        return store.styledFont(bodyFont, pixelSize * store.globalFontSizeScale / 100,
+                                Math.min(1000, Math.max(1, weight + store.globalFontWeightOffset)), letterSpacing,
+                                italic, underline);
     }
     function withAlpha(value: color, opacity: real): color {
         return Qt.rgba(value.r, value.g, value.b, opacity);

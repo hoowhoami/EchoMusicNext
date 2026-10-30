@@ -10,6 +10,7 @@ Button {
     required property string label
     required property string description
     required property string emblem
+    property string badgeGlyph: ""
     property bool secondary: false
     property bool resourceActive: true
     implicitHeight: 72
@@ -86,7 +87,7 @@ Button {
                 anchors.centerIn: parent
                 width: 14
                 height: 14
-                name: card.secondary ? "sparkles" : "play"
+                name: card.badgeGlyph.length > 0 ? card.badgeGlyph : card.secondary ? "sparkles" : "play"
                 color: Theme.accentText
             }
         }

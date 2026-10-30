@@ -84,6 +84,7 @@ def main():
                     "qtshadertools",
                     "qtmultimedia",
                     "qtwebsockets",
+                    "qtimageformats",
                     "--archives",
                     "qtbase",
                     "qtdeclarative",

@@ -41,7 +41,7 @@ qt_add_qml_module(
     SettingsDivider.qml
     InterfaceSettingsSection.qml
     WindowSettingsSection.qml
-    FontSettingsSection.qml
+    FontFamilySettingsRow.qml
     ExperimentalSettingsSection.qml
     SettingsUserInfoDialog.qml
     PluginSettingsSection.qml

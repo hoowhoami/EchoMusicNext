@@ -14,6 +14,14 @@ SettingsSection {
     heading: qsTr("播放页")
     glyph: "play"
     readonly property color lyricAccent: Theme.store.lyricAccent(section.playback.coverColor)
+    FontFamilySettingsRow {
+        heading: qsTr("播放页歌词字体")
+        description: qsTr("播放页歌词使用的字体，跟随全局或单独指定")
+        selectorName: "settingsLyricFont"
+        family: Theme.store.lyricFont
+        onFamilySelected: selectedFamily => Theme.store.lyricFont = selectedFamily
+    }
+    SettingsDivider {}
     LyricColorSettingsRow {
         uiScale: section.uiScale
         heading: qsTr("全局歌词颜色")

@@ -22,6 +22,10 @@ TextField {
     rightPadding: leftPadding + (clearable ? (size === EchoControlSize.Small ? 20 : 24) : 0)
     font: Theme.font(size === EchoControlSize.Large ? 15 : size === EchoControlSize.Standard ? 13 : 12, Theme.mediumWeight)
     color: colors.text
+    // 光标严格跟随焦点：失焦后立即消失，避免残留闪烁的光标。
+    // （Qt 会在获得焦点时内部改写 cursorVisible，故用事件赋值而非绑定。）
+    cursorVisible: false
+    onActiveFocusChanged: cursorVisible = activeFocus
     placeholderTextColor: colors.secondaryText
     selectionColor: colors.accent
     selectedTextColor: "#000000"
@@ -49,9 +53,12 @@ TextField {
         }
     }
     background: Rectangle {
-        color: formPart.value("background", Theme.withAlpha(control.colors.tone, control.activeFocus ? 0.07 : 0.05))
+        color: formPart.value("background", Theme.withAlpha(control.colors.tone, control.activeFocus ? 0.08 : 0.05))
         radius: formPart.value("radius", Theme.controlRadius)
-        border.width: formPart.value("borderWidth", 0)
-        border.color: formPart.value("borderColor", "transparent")
+        // 聚焦边框严格跟随 activeFocus：所有文本框统一——聚焦高亮、
+        // 失焦即恢复，且主题部件的静态边框只在未聚焦时参与绘制。
+        border.width: control.activeFocus ? 1 : formPart.value("borderWidth", 0)
+        border.color: control.activeFocus ? control.colors.accent
+                                          : formPart.value("borderColor", "transparent")
     }
 }

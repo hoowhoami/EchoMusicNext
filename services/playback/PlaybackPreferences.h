@@ -97,11 +97,11 @@ signals:
 private:
     EchoMusic::SettingsStore &m_settings;
     QString m_queueMode = "context", m_quality = "hi_res";
-    bool m_autoPlay = false, m_fade = true, m_viper = true;
+    bool m_autoPlay = false, m_fade = true, m_viper = false;
     bool m_compatibilityMode = true;
-    bool m_mvFallback = false;
+    bool m_mvFallback = true;
     int m_fadeMs = 1000;
-    bool m_autoNext = false;
+    bool m_autoNext = true;
     bool m_preventSleep = true;
     int m_autoNextDelaySeconds = 3;
     int m_autoNextMaxAttempts = 10;

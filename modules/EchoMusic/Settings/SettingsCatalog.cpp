@@ -13,7 +13,8 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
 {
     // Sort settings by explicit section order; lyric subsections share one category.
     auto interfaceKeywords =
-        tr("深浅色模式 跟随系统 浅色 深色 界面缩放 放大 缩小 搜索框默认推荐词 专辑动态封面");
+        tr("深浅色模式 跟随系统 浅色 深色 界面缩放 放大 缩小 搜索框默认推荐词 专辑动态封面 "
+           "全局字体 全局字号 全局字重 字体 font");
 #if !defined(Q_OS_MACOS)
     interfaceKeywords += tr(" 全屏按钮 标题栏");
 #endif
@@ -22,9 +23,6 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
         {"window", tr("窗口与系统"), "settings",
          tr("窗口行为 记住窗口大小 窗口位置 关闭行为 最小化 托盘 开机自启动"),
          "WindowSettingsSection"},
-        {"font", tr("字体设置"), "typography",
-         tr("全局字体 播放页歌词字体 桌面歌词字体 Mini 歌词字体 任务栏歌词字体 系统默认 跟随全局"),
-         "FontSettingsSection"},
         {"playback", tr("播放体验"), "player-play",
          tr("音质 播放 音量 倍速 歌曲 收藏 过渡 淡入 音量均衡 LUFS 自动跳过错误 失败后切换延迟 "
             "最大自动切换次数 防止系统休眠 智能兼容模式 MV 音频兜底"),
@@ -36,8 +34,9 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
          "PlayerSettingsSection"},
         {"spatialAudio", tr("音效管理"), "adjustments", tr("蝰蛇 音效 DSP 卷积 IRS WAV"),
          "AudioEffectSettingsSection"},
-        {"lyric", tr("歌词设置"), "music-share",
-         tr("播放页 桌面歌词 Mini 歌词 翻译 音译 校准 字体 颜色"), "LyricSettingsSection"},
+        {"lyric", tr("歌词设置"), "typography",
+         tr("播放页 桌面歌词 Mini 歌词 任务栏歌词 翻译 音译 校准 字体 颜色 系统默认 跟随全局"),
+         "LyricSettingsSection"},
         {"shortcuts", tr("快捷键"), "keyboard", tr("全局快捷键 播放 暂停 上一首 下一首 恢复默认"),
          "ShortcutSettingsSection"},
         {"audioDevice", tr("音频设备"), "device-speaker", tr("输入 输出设备 麦克风 系统默认 独占"),
