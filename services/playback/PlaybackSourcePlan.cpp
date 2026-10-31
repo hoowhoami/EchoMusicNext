@@ -3,6 +3,17 @@
 
 namespace EchoMusic
 {
+namespace
+{
+bool legacyFree(const QJsonObject &file)
+{
+    // Observed legacy-copyright files use privilege=5 even with no payment.
+    // These facts allow an authorized attempt; the tracker still decides access.
+    return file.value("privilege").toInt() == 5 && file.value("payment_type").isDouble() &&
+           file.value("payment_type").toInt(-1) == 0 && file.value("price_units").isDouble() &&
+           file.value("price_units").toInt(-1) == 0;
+}
+} // namespace
 QString PlaybackSourcePlan::qualityKey(ApiClient::PlaybackQuality quality)
 {
     static const QStringList keys{"standard",   "higher",      "flac",       "hi_res",
@@ -75,6 +86,8 @@ QString PlaybackSourcePlan::qualityAccessReason(ApiClient::PlaybackQuality quali
     const auto file = qualityVariant(quality, privileges);
     if (!privileges.isEmpty() && privileges.value("variants").isArray() && file.isEmpty())
         return QObject::tr("歌曲不支持");
+    if (!viper && legacyFree(file))
+        return {};
     const auto right = file.value("privilege");
     if (right.isDouble()) {
         const bool paid = right.toInt() != 0;
@@ -182,6 +195,11 @@ PlaybackSourcePlan::catalog(const QString &hash, const QJsonObject &privileges,
         if (accessible && !variantHash.isEmpty()) {
             const auto key = qualityKey(order[i]);
             result.append({variantHash, order[i], Effect::None, {}, key});
+            // The default origin can reject free legacy HQ/SQ while the
+            // existing compatibility origin grants the same encoded quality.
+            // Keep that quality ahead of descending/Automatic candidates.
+            if (!key.startsWith("viper_") && legacyFree(qualityVariant(order[i], privileges)))
+                result.append({variantHash, order[i], Effect::None, "356753938", key});
         }
         if (!compatibility)
             break;

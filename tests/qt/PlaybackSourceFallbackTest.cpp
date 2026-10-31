@@ -56,6 +56,11 @@ public:
         m.m_facts = {true, true, true};
         m.m_age.start();
     }
+    static void nonVip(MembershipService &m)
+    {
+        m.m_facts = {true, false, false};
+        m.m_age.start();
+    }
 };
 class PlaybackSourceRequestTestAccess
 {
@@ -216,6 +221,102 @@ class PlaybackSourceFallbackTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void legacyFreeQualityUsesSameQualityOrigin_data()
+    {
+        QTest::addColumn<QString>("quality");
+        QTest::addColumn<bool>("compatibility");
+        QTest::newRow("hq-compatible") << QString("higher") << true;
+        QTest::newRow("sq-compatible") << QString("flac") << true;
+        QTest::newRow("hq-strict") << QString("higher") << false;
+        QTest::newRow("sq-strict") << QString("flac") << false;
+    }
+    void legacyFreeQualityUsesSameQualityOrigin()
+    {
+        QFETCH(QString, quality);
+        QFETCH(bool, compatibility);
+        using Q = ApiClient::PlaybackQuality;
+        Fixture f;
+        MembershipServiceTestAccess::nonVip(f.membership);
+        PlaybackSourceRequest request(f.api, f.membership);
+        QSignalSpy resolved(&request, &PlaybackSourceRequest::resolved);
+        PlaybackTrack track;
+        track.id = "410300671";
+        track.songId = 410300671;
+        track.albumId = 57386687;
+        track.hash = hashA;
+        const auto file = [](const QString &quality, const QString &hash) {
+            return QJsonObject{{"quality", quality},  {"hash", hash},      {"privilege", 5},
+                               {"service_status", 0}, {"payment_type", 0}, {"price_units", 0}};
+        };
+        const auto ogg = QString(32, 'd');
+        const QJsonObject rights{
+            {"variants", QJsonArray{file("128", hashA), file("320", hashB), file("flac", hashC)}},
+            {"ogg_high", QJsonObject{{"hash", ogg}}}};
+        const auto target = quality == "higher" ? Q::Higher : Q::Flac;
+        const auto hash = quality == "higher" ? hashB : hashC;
+        QVERIFY(PlaybackSourcePlan::qualityAccessReason(target, {true, false, false}, true, rights)
+                    .isEmpty());
+        request.resolve(track, target, ApiClient::SoundEffect::None, rights, compatibility);
+        const auto first = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(first);
+        QCOMPARE(ApiClientTestAccess::query(f.api, first).value("hash").toString(), hash);
+        QCOMPARE(ApiClientTestAccess::query(f.api, first).value("quality").toString(), quality);
+        QVERIFY(!ApiClientTestAccess::query(f.api, first).contains("origin_page"));
+        ApiClientTestAccess::fail(f.api, first);
+        const auto alternate = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(alternate);
+        QCOMPARE(ApiClientTestAccess::query(f.api, alternate).value("hash").toString(), hash);
+        QCOMPARE(ApiClientTestAccess::query(f.api, alternate).value("quality").toString(), quality);
+        QCOMPARE(ApiClientTestAccess::query(f.api, alternate).value("origin_page").toString(),
+                 QString("356753938"));
+        QVERIFY(resolved.isEmpty());
+        auto audio = source("https://example.invalid/authorized-legacy-quality");
+        audio["hash"] = quality == "higher" ? ogg : hash;
+        ApiClientTestAccess::finish(f.api, alternate, audio);
+        QCOMPARE(resolved.size(), 1);
+        QCOMPARE(resolved[0][4].toString(), quality);
+    }
+    void legacyFreeRequiresExplicitPaymentFacts()
+    {
+        using Q = ApiClient::PlaybackQuality;
+        const QJsonObject file{{"quality", "flac"},   {"hash", hashC},     {"privilege", 5},
+                               {"service_status", 0}, {"payment_type", 0}, {"price_units", 0}};
+        const auto rights = [](const QJsonObject &file) {
+            return QJsonObject{{"variants", QJsonArray{file}}};
+        };
+        auto fact = file;
+        fact.remove("payment_type");
+        QVERIFY(!PlaybackSourcePlan::qualityAccessReason(Q::Flac, {true, false, false}, true,
+                                                         rights(fact))
+                     .isEmpty());
+        fact = file;
+        fact.remove("price_units");
+        QVERIFY(!PlaybackSourcePlan::qualityAccessReason(Q::Flac, {true, false, false}, true,
+                                                         rights(fact))
+                     .isEmpty());
+        fact = file;
+        fact["payment_type"] = 3;
+        fact["price_units"] = 200;
+        QVERIFY(!PlaybackSourcePlan::qualityAccessReason(Q::Flac, {true, false, false}, true,
+                                                         rights(fact))
+                     .isEmpty());
+        QVERIFY(PlaybackSourcePlan::catalog(hashA, rights(fact), Q::Flac,
+                                            ApiClient::SoundEffect::None, true, true,
+                                            {true, false, false})
+                    .isEmpty());
+        fact = file;
+        fact["quality"] = "viper_tape";
+        QVERIFY(!PlaybackSourcePlan::qualityAccessReason(Q::ViperTape, {true, false, false}, true,
+                                                         rights(fact))
+                     .isEmpty());
+        const auto plan =
+            PlaybackSourcePlan::catalog(hashA, rights(file), Q::Flac, ApiClient::SoundEffect::None,
+                                        true, true, {true, false, false});
+        QCOMPARE(plan[0].quality, Q::Flac);
+        QCOMPARE(plan[1].quality, Q::Flac);
+        QCOMPARE(plan[1].originPage, QString("356753938"));
+        QCOMPARE(plan[2].quality, Q::Automatic);
+    }
     void replacedCatalogResource_data()
     {
         QTest::addColumn<bool>("known");
@@ -589,6 +690,18 @@ private slots:
             << QString("de3d63f0a6f9f867d56ff38a0159fe35") << quint64(795678654)
             << quint64(162333400) << QStringLiteral("笨鸥") << QString("standard")
             << QString("higher") << QString("higher") << true << true;
+        QTest::newRow("legacy-free-hq-compatible")
+            << QString("8C4E910D5DD7250DE34228945E8091CC") << quint64(410300671)
+            << quint64(57386687) << QStringLiteral("万能诊听器") << QString("higher")
+            << QString("higher") << QString("higher") << true << false;
+        QTest::newRow("legacy-free-sq-compatible")
+            << QString("8C4E910D5DD7250DE34228945E8091CC") << quint64(410300671)
+            << quint64(57386687) << QStringLiteral("万能诊听器") << QString("flac")
+            << QString("flac") << QString("flac") << true << false;
+        QTest::newRow("legacy-free-manual-sq-compatible")
+            << QString("8C4E910D5DD7250DE34228945E8091CC") << quint64(410300671)
+            << quint64(57386687) << QStringLiteral("万能诊听器") << QString("standard")
+            << QString("flac") << QString("flac") << true << true;
     }
     void liveCatalogQualitySelection()
     {
@@ -681,7 +794,7 @@ private slots:
             // Exercise later Vorbis block boundaries and repeated same-song
             // switches, rather than only a freshly opened stream at time zero.
             for (const auto &choice :
-                 {QString("standard"), QString("higher"), QString("standard"), QString("higher")}) {
+                 {QString("standard"), targetQuality, QString("standard"), targetQuality}) {
                 const auto previous = playback.effectiveQuality();
                 acceptedSources.clear();
                 playback.setQuality(choice);
