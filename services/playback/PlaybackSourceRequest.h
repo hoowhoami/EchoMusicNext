@@ -65,6 +65,8 @@ private:
     void publish(QJsonObject source, const QString &kind, const QString &quality = {});
     void preparePlan();
     void tryStart();
+    bool refreshMissingCatalogResource();
+    void failCatalogRefresh(const QString &message);
     void succeed(quint64 id, const QByteArray &bytes);
     void fail(quint64 id, const QByteArray &bytes);
     PlaybackSourceExtensions *m_extensions = nullptr;
@@ -88,11 +90,13 @@ private:
     MembershipService &m_membership;
     bool m_roomResolved = false;
     bool m_active = false, m_waitingPrivileges = false, m_hasPlan = false;
+    bool m_catalogRefreshTried = false;
     PlaybackTrack m_track;
     QJsonObject m_privileges;
     ApiClient::PlaybackQuality m_quality = ApiClient::PlaybackQuality::Standard;
     ApiClient::SoundEffect m_effect = ApiClient::SoundEffect::None;
     quint64 m_revision = 0, m_privilegeRequest = 0, m_sourceRequest = 0, m_roomRequest = 0;
+    quint64 m_catalogRefreshRequest = 0;
     QList<PlaybackSourceCandidate> m_candidates;
     int m_candidateIndex = -1;
     QString m_lastError, m_mvError;

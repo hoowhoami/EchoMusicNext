@@ -60,6 +60,10 @@ public:
 class PlaybackSourceRequestTestAccess
 {
 public:
+    static QString catalogHash(const PlaybackSourceRequest &s)
+    {
+        return s.m_catalogHash;
+    }
     static void exhausted(PlaybackSourceRequest &s, ApiClient &api, const PlaybackTrack &track)
     {
         s.cancel();
@@ -113,6 +117,10 @@ public:
     static bool engineReady(const PlaybackService &p)
     {
         return p.m_ready;
+    }
+    static QString catalogResource(const PlaybackService &p)
+    {
+        return PlaybackSourceRequestTestAccess::catalogHash(p.m_source);
     }
     static void event(PlaybackService &p, const QJsonObject &event)
     {
@@ -208,6 +216,211 @@ class PlaybackSourceFallbackTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void replacedCatalogResource_data()
+    {
+        QTest::addColumn<bool>("known");
+        QTest::addColumn<bool>("preloading");
+        QTest::addColumn<bool>("compatibility");
+        QTest::newRow("current-known-compatible") << true << false << true;
+        QTest::newRow("current-fetched-strict") << false << false << false;
+        QTest::newRow("preloaded-known-compatible") << true << true << true;
+        QTest::newRow("preloaded-fetched-strict") << false << true << false;
+    }
+    void replacedCatalogResource()
+    {
+        QFETCH(bool, known);
+        QFETCH(bool, preloading);
+        QFETCH(bool, compatibility);
+        Fixture f;
+        PlaybackSourceRequest request(f.api, f.membership);
+        QSignalSpy resolved(&request, &PlaybackSourceRequest::resolved);
+        QSignalSpy failed(&request, &PlaybackSourceRequest::failed);
+        PlaybackTrack track;
+        track.id = "795678654";
+        track.songId = 795678654;
+        track.albumId = 162333400;
+        track.hash = hashA;
+        const QJsonObject missing{
+            {"hash", hashA}, {"resource_error", 6}, {"variants", QJsonArray{}}};
+        request.resolve(track, ApiClient::PlaybackQuality::HiRes, ApiClient::SoundEffect::None,
+                        known ? missing : QJsonObject{}, compatibility, true, {}, {}, false, false,
+                        preloading);
+        if (!known) {
+            const auto id = ApiClientTestAccess::pending(f.api, "privilege_lite");
+            QVERIFY(id);
+            ApiClientTestAccess::finish(f.api, id, QJsonArray{missing});
+        }
+        const auto locator = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(locator);
+        // Fresh membership can settle synchronously inside startCatalog().
+        // Its reentrant continuation must not issue another old-hash query.
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "privilege_lite"));
+        const auto query = ApiClientTestAccess::query(f.api, locator);
+        QCOMPARE(query.value("hash").toString(), hashA);
+        QCOMPARE(query.value("quality").toString(), QString("automatic"));
+        QCOMPARE(query.value("song_id").toInteger(), qint64(track.songId));
+        QCOMPARE(query.value("album_id").toInteger(), qint64(track.albumId));
+        auto locatorSource = source("https://example.invalid/locator-only");
+        locatorSource["hash"] = hashB;
+        ApiClientTestAccess::finish(f.api, locator, locatorSource);
+        QVERIFY(resolved.isEmpty()); // The locator's SD URL must never be adopted.
+        const auto rights = ApiClientTestAccess::pending(f.api, "privilege_lite");
+        QVERIFY(rights);
+        QCOMPARE(ApiClientTestAccess::query(f.api, rights)
+                     .value("resources")
+                     .toArray()
+                     .first()
+                     .toObject()
+                     .value("hash")
+                     .toString(),
+                 hashB);
+        const QJsonObject current{
+            {"hash", hashB},
+            {"resource_error", 0},
+            {"variants", QJsonArray{QJsonObject{{"quality", "128"}, {"hash", hashB}},
+                                    QJsonObject{{"quality", "high"}, {"hash", hashC}}}}};
+        ApiClientTestAccess::finish(f.api, rights, QJsonArray{current});
+        const auto actual = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(actual);
+        QCOMPARE(ApiClientTestAccess::query(f.api, actual).value("hash").toString(), hashC);
+        QCOMPARE(ApiClientTestAccess::query(f.api, actual).value("quality").toString(),
+                 QString("hi_res"));
+        auto audio = source("https://example.invalid/actual-hires");
+        audio["hash"] = hashC;
+        ApiClientTestAccess::finish(f.api, actual, audio);
+        QCOMPARE(resolved.size(), 1);
+        QVERIFY(failed.isEmpty());
+        QCOMPARE(qvariant_cast<PlaybackTrack>(resolved[0][0]).stableKey(), track.stableKey());
+        QCOMPARE(resolved[0][1].toJsonObject().value("hash").toString(), hashB);
+        QCOMPARE(resolved[0][2].toJsonObject().value("urls").toArray().first().toString(),
+                 QString("https://example.invalid/actual-hires"));
+        QCOMPARE(resolved[0][4].toString(), QString("hi_res"));
+    }
+    void catalogRefreshIsBounded_data()
+    {
+        QTest::addColumn<QString>("failure");
+        for (const auto *name :
+             {"request-failed", "same-hash", "invalid-hash", "no-url", "replacement-also-missing"})
+            QTest::newRow(name) << QString(name);
+    }
+    void catalogRefreshIsBounded()
+    {
+        QFETCH(QString, failure);
+        Fixture f;
+        PlaybackSourceRequest request(f.api, f.membership);
+        QSignalSpy resolved(&request, &PlaybackSourceRequest::resolved);
+        QSignalSpy failed(&request, &PlaybackSourceRequest::failed);
+        PlaybackTrack track;
+        track.id = "old-song";
+        track.songId = 123;
+        track.albumId = 456;
+        track.hash = hashA;
+        request.resolve(track, ApiClient::PlaybackQuality::HiRes, ApiClient::SoundEffect::None,
+                        {{"hash", hashA}, {"resource_error", 6}, {"variants", QJsonArray{}}});
+        const auto id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(id);
+        if (failure == "request-failed") {
+            ApiClientTestAccess::fail(f.api, id);
+        } else {
+            auto candidate = source("https://example.invalid/locator");
+            candidate["hash"] = failure == "same-hash"      ? hashA
+                                : failure == "invalid-hash" ? QString("not-a-hash")
+                                                            : hashB;
+            if (failure == "no-url")
+                candidate["urls"] = QJsonArray{};
+            ApiClientTestAccess::finish(f.api, id, candidate);
+            if (failure == "replacement-also-missing") {
+                const auto rights = ApiClientTestAccess::pending(f.api, "privilege_lite");
+                QVERIFY(rights);
+                ApiClientTestAccess::finish(f.api, rights,
+                                            QJsonArray{QJsonObject{{"hash", hashB},
+                                                                   {"resource_error", 6},
+                                                                   {"variants", QJsonArray{}}}});
+            }
+        }
+        QCOMPARE(failed.size(), 1);
+        QVERIFY(resolved.isEmpty());
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+        QVERIFY2(!ApiClientTestAccess::pending(f.api, "privilege_lite"),
+                 qPrintable(
+                     QJsonDocument(ApiClientTestAccess::query(f.api, ApiClientTestAccess::pending(
+                                                                         f.api, "privilege_lite")))
+                         .toJson()));
+    }
+    void catalogRefreshCancellation_data()
+    {
+        QTest::addColumn<bool>("rightsStage");
+        QTest::addColumn<bool>("accountChange");
+        QTest::newRow("cancel-locator") << false << false;
+        QTest::newRow("cancel-rights") << true << false;
+        QTest::newRow("account-locator") << false << true;
+        QTest::newRow("account-rights") << true << true;
+    }
+    void catalogRefreshCancellation()
+    {
+        QFETCH(bool, rightsStage);
+        QFETCH(bool, accountChange);
+        Fixture f;
+        PlaybackSourceRequest request(f.api, f.membership);
+        QSignalSpy resolved(&request, &PlaybackSourceRequest::resolved);
+        QSignalSpy privileges(&request, &PlaybackSourceRequest::privilegesReady);
+        QSignalSpy failed(&request, &PlaybackSourceRequest::failed);
+        PlaybackTrack track;
+        track.id = "cancelled-song";
+        track.songId = 123;
+        track.albumId = 456;
+        track.hash = hashA;
+        request.resolve(track, ApiClient::PlaybackQuality::HiRes, ApiClient::SoundEffect::None,
+                        {{"hash", hashA}, {"resource_error", 6}, {"variants", QJsonArray{}}});
+        auto id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(id);
+        auto candidate = source("https://example.invalid/late");
+        candidate["hash"] = hashB;
+        if (rightsStage) {
+            ApiClientTestAccess::finish(f.api, id, candidate);
+            id = ApiClientTestAccess::pending(f.api, "privilege_lite");
+            QVERIFY(id);
+        }
+        if (accountChange)
+            QVERIFY(f.api.setAccount(900002, "other-isolated-token"));
+        else
+            request.cancel();
+        ApiClientTestAccess::finish(
+            f.api, id,
+            rightsStage
+                ? QJsonValue(QJsonArray{QJsonObject{
+                      {"hash", hashB},
+                      {"variants", QJsonArray{QJsonObject{{"quality", "high"}, {"hash", hashC}}}}}})
+                : QJsonValue(candidate));
+        QVERIFY(resolved.isEmpty());
+        QVERIFY(privileges.isEmpty());
+        QVERIFY(failed.isEmpty());
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "privilege_lite"));
+    }
+    void otherRightsFailuresDoNotRefresh_data()
+    {
+        QTest::addColumn<int>("resourceError");
+        QTest::newRow("ordinary-unsupported") << 0;
+        QTest::newRow("other-rejection") << 2;
+    }
+    void otherRightsFailuresDoNotRefresh()
+    {
+        QFETCH(int, resourceError);
+        Fixture f;
+        PlaybackSourceRequest request(f.api, f.membership);
+        QSignalSpy failed(&request, &PlaybackSourceRequest::failed);
+        PlaybackTrack track;
+        track.id = "unavailable-song";
+        track.songId = 123;
+        track.albumId = 456;
+        track.hash = hashA;
+        request.resolve(
+            track, ApiClient::PlaybackQuality::HiRes, ApiClient::SoundEffect::None,
+            {{"hash", hashA}, {"resource_error", resourceError}, {"variants", QJsonArray{}}});
+        QCOMPARE(failed.size(), 1);
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+    }
     void qualityIdentityWaitsForNativeAdoption_data()
     {
         QTest::addColumn<bool>("accepted");
@@ -368,6 +581,14 @@ private slots:
             << QString("afb1eed627ae609837004f3ef9cd4e73") << quint64(106489261)
             << quint64(15462792) << QStringLiteral("遇梦记 (洛天依ver.)") << QString("hi_res")
             << QString("hi_res") << QString("higher") << true << false;
+        QTest::newRow("replaced-hires-compatible")
+            << QString("de3d63f0a6f9f867d56ff38a0159fe35") << quint64(795678654)
+            << quint64(162333400) << QStringLiteral("笨鸥") << QString("hi_res")
+            << QString("hi_res") << QString("hi_res") << true << false;
+        QTest::newRow("replaced-manual-hq-compatible")
+            << QString("de3d63f0a6f9f867d56ff38a0159fe35") << quint64(795678654)
+            << quint64(162333400) << QStringLiteral("笨鸥") << QString("standard")
+            << QString("higher") << QString("higher") << true << true;
     }
     void liveCatalogQualitySelection()
     {
@@ -435,6 +656,11 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!acceptedSources.isEmpty(), 30000);
         QCOMPARE(playback.resolvedQuality(),
                  initialQuality == targetQuality ? actualQuality : initialQuality);
+        if (hash == "de3d63f0a6f9f867d56ff38a0159fe35") {
+            const auto current = PlaybackServiceTestAccess::catalogResource(playback);
+            QVERIFY(current.compare(hash, Qt::CaseInsensitive) != 0);
+            qInfo() << "Live catalog resource refreshed" << current;
+        }
         QTRY_VERIFY_WITH_TIMEOUT(playback.clockPosition() > 100, 10000);
         if (initialQuality != targetQuality) {
             if (manual)

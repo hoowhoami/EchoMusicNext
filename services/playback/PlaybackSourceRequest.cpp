@@ -50,10 +50,11 @@ void PlaybackSourceRequest::cancel()
     m_kind.clear();
     m_roomResolved = false;
     m_active = m_waitingPrivileges = m_hasPlan = false;
+    m_catalogRefreshTried = false;
     m_candidates.clear();
     m_candidateIndex = -1;
     for (auto *id : {&m_privilegeRequest, &m_sourceRequest, &m_roomRequest, &m_cloudRequest,
-                     &m_mvRequest, &m_loudnessRequest}) {
+                     &m_mvRequest, &m_loudnessRequest, &m_catalogRefreshRequest}) {
         const auto pending = *id;
         *id = 0;
         if (pending)
@@ -151,12 +152,38 @@ void PlaybackSourceRequest::startCatalog()
 }
 void PlaybackSourceRequest::tryStart()
 {
-    if (!m_active || m_hasPlan || m_waitingPrivileges || m_membership.loading() ||
-        m_revision != m_api.sessionRevision())
+    if (!m_active || m_hasPlan || m_waitingPrivileges || m_catalogRefreshRequest ||
+        m_membership.loading() || m_revision != m_api.sessionRevision())
+        return;
+    if (refreshMissingCatalogResource())
         return;
     m_hasPlan = true;
     preparePlan();
     requestSource();
+}
+bool PlaybackSourceRequest::refreshMissingCatalogResource()
+{
+    // A removed file can still be mapped by the authorized tracker using the
+    // retained album audio ID. This is resource discovery, not an adopted SD
+    // source: query its current rights and run the ordinary quality plan again.
+    // Other rights failures must not turn into this extra request.
+    if (m_catalogRefreshTried || m_privileges.value("resource_error").toInt() != 6 ||
+        !m_privileges.value("variants").isArray() ||
+        !m_privileges.value("variants").toArray().isEmpty())
+        return false;
+    m_catalogRefreshTried = true;
+    m_catalogRefreshRequest = m_api.playbackSource(m_catalogHash, m_track.albumId, m_track.songId,
+                                                   ApiClient::PlaybackQuality::Automatic);
+    if (!m_catalogRefreshRequest)
+        failCatalogRefresh(tr("无法发起播放地址请求"));
+    return true;
+}
+void PlaybackSourceRequest::failCatalogRefresh(const QString &message)
+{
+    m_waitingPrivileges = false;
+    m_hasPlan = true;
+    m_lastError = message;
+    afterCatalog();
 }
 void PlaybackSourceRequest::preparePlan()
 {
@@ -184,6 +211,28 @@ void PlaybackSourceRequest::succeed(quint64 id, const QByteArray &bytes)
 {
     if (m_revision != m_api.sessionRevision())
         return;
+    if (id && id == m_catalogRefreshRequest) {
+        m_catalogRefreshRequest = 0;
+        const auto source = QJsonDocument::fromJson(bytes).object();
+        const auto hash = source.value("hash").toString();
+        static const QRegularExpression validHash(QStringLiteral("^[0-9a-fA-F]{32}$"));
+        if (usableUrls(source).isEmpty() || !validHash.match(hash).hasMatch() ||
+            hash.compare(m_catalogHash, Qt::CaseInsensitive) == 0) {
+            failCatalogRefresh(tr("播放地址响应不完整"));
+            return;
+        }
+        // Preserve the playlist/queue identity. Only this resolver's catalog
+        // resource changes, and no signed locator URL is retained or published.
+        m_catalogHash = hash;
+        m_privileges = {};
+        m_waitingPrivileges = true;
+        m_privilegeRequest = m_api.songPrivileges({{m_catalogHash, m_track.albumId}});
+        if (!m_privilegeRequest) {
+            m_waitingPrivileges = false;
+            tryStart();
+        }
+        return;
+    }
     if (id && id == m_loudnessRequest) {
         m_loudnessRequest = 0;
         const auto volume = QJsonDocument::fromJson(bytes).object();
@@ -300,6 +349,12 @@ void PlaybackSourceRequest::fail(quint64 id, const QByteArray &bytes)
 {
     if (m_revision != m_api.sessionRevision())
         return;
+    if (id && id == m_catalogRefreshRequest) {
+        m_catalogRefreshRequest = 0;
+        const auto message = QJsonDocument::fromJson(bytes).object().value("message").toString();
+        failCatalogRefresh(message.isEmpty() ? tr("获取歌曲播放地址失败") : message);
+        return;
+    }
     if (id && id == m_loudnessRequest) {
         m_loudnessRequest = 0;
         publish(m_cloudPending, "cloud");
