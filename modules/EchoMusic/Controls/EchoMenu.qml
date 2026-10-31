@@ -10,7 +10,9 @@ Menu {
     EchoPopupLifecycle {
         surface: menu
     }
-    padding: 6 * uiScale
+    // Rounded so the content ListView and every stacked row land on whole DIPs;
+    // fractional offsets would smear EchoMenuSeparator's 1px line across pixels.
+    padding: Math.round(6 * uiScale)
     margins: 12 * uiScale
     property real uiScale: 1
     // Native popup windows size themselves from width/height, not Popup.scale.

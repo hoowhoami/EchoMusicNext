@@ -90,31 +90,41 @@ EchoMenu {
     }
     readonly property bool blacklistVisible: root.ready && root.commands.blacklistRevision >= 0 && root.commands.blacklistAvailable(root.songId)
     readonly property bool blacklisted: root.blacklistVisible && root.commands.blacklisted(root.songId)
+    // Direct children bypass EchoMenu's delegate, so every row carries uiScale
+    // itself; Action rows scale through the delegate instead.
     EchoMenuEntry {
+        uiScale: root.uiScale
         objectName: "songMenuPlayNow"
         text: qsTr("立即播放")
         onTriggered: root.playNow(root.songId)
     }
     EchoMenuEntry {
+        uiScale: root.uiScale
         objectName: "songMenuPlayNext"
         text: qsTr("下一首播放")
         onTriggered: root.playNext(root.songId)
     }
     EchoMenuEntry {
+        uiScale: root.uiScale
         objectName: "songMenuPlayLast"
         text: qsTr("排队候播")
         onTriggered: root.playLast(root.songId)
     }
-    EchoMenuSeparator {}
+    EchoMenuSeparator {
+        uiScale: root.uiScale
+    }
     EchoMenuEntry {
+        uiScale: root.uiScale
         objectName: "songMenuAddTo"
         text: qsTr("添加到")
         onTriggered: root.addTo(root.songId)
     }
     EchoMenuSeparator {
+        uiScale: root.uiScale
         visible: root.blacklistVisible || (root.removeVisible && root.removeAfterExtensions)
     }
     EchoMenuEntry {
+        uiScale: root.uiScale
         objectName: "songMenuBlacklist"
         text: qsTr("不感兴趣")
         visible: root.blacklistVisible && !root.blacklisted
@@ -125,6 +135,7 @@ EchoMenu {
             root.commands.addToBlacklist(root.songId)
     }
     EchoMenuEntry {
+        uiScale: root.uiScale
         objectName: "songMenuBlacklistUndo"
         text: qsTr("取消不感兴趣")
         visible: root.blacklistVisible && root.blacklisted
@@ -132,6 +143,7 @@ EchoMenu {
         onTriggered: root.commands.removeFromBlacklist(root.songId)
     }
     EchoMenuEntry {
+        uiScale: root.uiScale
         objectName: "songMenuRemoveExtension"
         visible: root.removeVisible && root.removeAfterExtensions
         enabled: root.removeEnabled
@@ -140,9 +152,11 @@ EchoMenu {
         onTriggered: root.removeTriggered()
     }
     EchoMenuSeparator {
+        uiScale: root.uiScale
         visible: root.removeVisible && !root.removeAfterExtensions
     }
     EchoMenuEntry {
+        uiScale: root.uiScale
         objectName: "songMenuRemove"
         visible: root.removeVisible && !root.removeAfterExtensions
         enabled: root.removeEnabled
@@ -150,13 +164,17 @@ EchoMenu {
         danger: true
         onTriggered: root.removeTriggered()
     }
-    EchoMenuSeparator {}
+    EchoMenuSeparator {
+        uiScale: root.uiScale
+    }
     EchoMenuEntry {
+        uiScale: root.uiScale
         objectName: "songMenuShare"
         text: qsTr("分享")
         onTriggered: root.share(root.songId)
     }
     EchoMenuEntry {
+        uiScale: root.uiScale
         objectName: "songMenuCopy"
         text: qsTr("复制信息")
         onTriggered: root.copy(root.songId)
