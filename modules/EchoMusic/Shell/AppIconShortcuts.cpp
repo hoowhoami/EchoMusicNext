@@ -60,7 +60,9 @@ QStringList AppIconShortcuts::candidates(const QString &target) const
     for (const auto &root : roots)
         if (!root.isEmpty()) {
             QDir dir(root);
-            const auto entries = dir.entryList(filters, QDir::Files | QDir::NoSymLinks);
+            // Windows 上 Qt 将 .lnk 快捷方式视为符号链接（isSymLink() 对
+            // .lnk 返回 true），NoSymLinks 会排除全部候选。
+            const auto entries = dir.entryList(filters, QDir::Files);
             for (const auto &entry : entries.mid(0, 512))
                 out << dir.filePath(entry);
         }
@@ -90,10 +92,17 @@ QString AppIconShortcuts::currentIcon(const QString &path, int *index, QString &
     const auto releaseFile = qScopeGuard([file] { file->Release(); });
     wchar_t target[32768]{}, icon[32768]{};
     if (FAILED(file->Load(reinterpret_cast<LPCOLESTR>(path.utf16()), STGM_READ)) ||
-        FAILED(link->GetPath(target, 32768, nullptr, SLGP_RAWPATH)) ||
-        QFileInfo(QString::fromWCharArray(target))
-                .canonicalFilePath()
-                .compare(executable(), Qt::CaseInsensitive) != 0) {
+        FAILED(link->GetPath(target, 32768, nullptr, SLGP_RAWPATH))) {
+        error = "Shortcut does not belong to this executable";
+        return {};
+    }
+    // 归属判定按可执行文件名而不是完整路径：固定任务栏/桌面快捷方式可以
+    // 指向同应用的另一份安装（固定副本指向已安装目录而当前从开发构建
+    // 运行），完整路径全等会让改写在那种环境里永远失败。
+    const QFileInfo targetInfo(QString::fromWCharArray(target));
+    if (targetInfo.canonicalFilePath().isEmpty() ||
+        targetInfo.fileName().compare(QFileInfo(executable()).fileName(),
+                                      Qt::CaseInsensitive) != 0) {
         error = "Shortcut does not belong to this executable";
         return {};
     }
@@ -241,6 +250,7 @@ QVariantMap AppIconShortcuts::apply(const QHash<QString, QString> &paths)
         m_previous = previous;
         return {{"error", error}, {"target", failedTarget}};
     }
+    bool restored = false;
     for (const auto &path : m_previous.keys())
         if (!desired.contains(path)) {
             const auto old = m_previous.value(path);
@@ -249,13 +259,21 @@ QVariantMap AppIconShortcuts::apply(const QHash<QString, QString> &paths)
             const auto current = currentIcon(path, &index, problem);
             if (problem.isEmpty() && current == old.applied) {
                 index = old.index;
-                update(path, old.icon, nullptr, &index, problem, old.index);
+                if (update(path, old.icon, nullptr, &index, problem, old.index))
+                    restored = true;
             }
             if (problem.isEmpty() || !QFileInfo::exists(path))
                 m_previous.remove(path);
             else
                 error = problem;
         }
+#ifdef Q_OS_WIN
+    // SHCNE_UPDATEITEM 不足以刷新 AUMID 固定按钮的图标缓存；与旧版工具
+    // 一致地广播全局关联变更并要求刷新，固定按钮即时重读图标。清除最后
+    // 一个目标时 desired 为空但发生过还原，同样必须广播。
+    if (!desired.isEmpty() || restored)
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSH, nullptr, nullptr);
+#endif
     return {{"applied", true}, {"error", error}};
 }
 QVariantMap AppIconShortcuts::restoreDefault(const QString &target,
