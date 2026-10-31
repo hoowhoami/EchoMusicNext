@@ -18,6 +18,7 @@ public:
                            const QString &sourceKey, bool selectedSong);
     void queueAndPlayTrack(const PlaybackTrack &track, const QString &title,
                            const QString &sourceKey);
+    void playInCurrentQueue(const PlaybackTrack &track);
     void appendTracks(const PlaybackTracks &tracks, bool next);
     void enqueueTracks(const PlaybackTracks &tracks, bool cut);
     void appendTracksImpl(const PlaybackTracks &tracks, bool next, bool sequential);

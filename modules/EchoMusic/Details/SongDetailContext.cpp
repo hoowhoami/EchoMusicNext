@@ -11,6 +11,7 @@ SongDetailContext::SongDetailContext(ApiClient &a, PlaybackService &p, RouteCont
       m_comments(a, r, network, this, authors), m_network(network)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
+    m_actions.setPlayInCurrentQueue(true);
     connect(&a, &ApiClient::succeeded, this, &SongDetailContext::accept);
     connect(&a, &ApiClient::failed, this,
             [this](quint64 id, int, const QByteArray &b) { fail(id, b); });

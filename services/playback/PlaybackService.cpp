@@ -769,6 +769,10 @@ void PlaybackService::queueAndPlayTrack(const PlaybackTrack &track, const QStrin
 {
     m_queueController->queueAndPlayTrack(track, title, sourceKey);
 }
+void PlaybackService::playInCurrentQueue(const PlaybackTrack &track)
+{
+    m_queueController->playInCurrentQueue(track);
+}
 void PlaybackService::appendTracks(const PlaybackTracks &tracks, bool next)
 {
     m_queueController->appendTracks(tracks, next);

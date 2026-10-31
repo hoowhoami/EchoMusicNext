@@ -20,6 +20,14 @@
 using namespace EchoMusic;
 namespace EchoMusic
 {
+class PlaybackServiceTestAccess
+{
+public:
+    static void hold(PlaybackService &p)
+    {
+        p.m_ready = false;
+    }
+};
 class RecognitionServiceTestAccess
 {
 public:
@@ -107,6 +115,37 @@ class RecognitionTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void recognizedSongPlaysInTheCurrentQueue()
+    {
+        Session s;
+        QVERIFY(s.api.setNetworkTransport(1));
+        PlaybackServiceTestAccess::hold(s.playback);
+        PlaybackTrack original;
+        original.id = "original";
+        original.hash = QString(32, 'a');
+        original.localPath = "/domain-only/original";
+        s.playback.playTracks({original}, 0, "Original queue", "original-queue");
+        s.service.setAvailable(true);
+        RecognitionServiceTestAccess::complete(s.service, domain());
+        const auto first = QJsonDocument::fromJson(domain())
+                               .array()
+                               .first()
+                               .toObject()
+                               .value("song")
+                               .toObject()
+                               .value("id")
+                               .toString();
+        QVERIFY(s.service.matches()->track(first));
+        s.service.actions()->playNow(first);
+        QCOMPARE(s.playback.sourceKey(), QString("original-queue"));
+        QCOMPARE(s.playback.queueCatalog()->activeTitle(), QString("Original queue"));
+        QCOMPARE(s.playback.queue()->rowCount(), 2);
+        QCOMPARE(s.playback.queue()->at(0)->id, QString("original"));
+        QCOMPARE(s.playback.trackId(), first);
+        QVERIFY(!s.playback.queueCatalog()->modelForKey("recognize"));
+        s.service.actions()->playNow(first);
+        QCOMPARE(s.playback.queue()->rowCount(), 2);
+    }
     void pendingPermissionCancelAndStaleStartAreHarmless()
     {
         Session s;

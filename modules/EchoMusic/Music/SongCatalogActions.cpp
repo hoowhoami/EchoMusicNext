@@ -66,9 +66,12 @@ void SongCatalogActions::play(const QString &id, bool replaceContext, bool selec
             }
         if (index < 0)
             return;
-    } else if (replaceContext && m_playback.playMode() == PlaybackService::Shuffle)
+    } else if (replaceContext && !m_playInCurrentQueue &&
+               m_playback.playMode() == PlaybackService::Shuffle)
         index = QRandomGenerator::global()->bounded(int(tracks.size()));
-    if (replaceContext)
+    if (m_playInCurrentQueue)
+        m_playback.playInCurrentQueue(tracks[index]);
+    else if (replaceContext)
         m_playback.playTracks(tracks, index, m_title, m_key);
     else
         m_playback.playFromSelection(tracks, index, m_title, m_key, true);
@@ -82,8 +85,12 @@ void SongCatalogActions::playOrToggle(const QString &id)
 }
 void SongCatalogActions::playNow(const QString &id)
 {
-    if (const auto track = m_model.track(id); track && m_model.catalogPlayable(id))
-        m_playback.queueAndPlayTrack(*track, m_title, m_key);
+    if (const auto track = m_model.track(id); track && m_model.catalogPlayable(id)) {
+        if (m_playInCurrentQueue)
+            m_playback.playInCurrentQueue(*track);
+        else
+            m_playback.queueAndPlayTrack(*track, m_title, m_key);
+    }
 }
 void SongCatalogActions::appendSelected()
 {

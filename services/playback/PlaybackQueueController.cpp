@@ -68,6 +68,22 @@ void PlaybackQueueController::queueAndPlayTrack(const PlaybackTrack &track, cons
     } else
         playTracks(merged, target, title, sourceKey);
 }
+void PlaybackQueueController::playInCurrentQueue(const PlaybackTrack &track)
+{
+    if (m_playback.m_closing || !track.playable())
+        return;
+    auto &catalog = m_playback.m_catalog;
+    auto key = catalog.activeKey();
+    // Algorithmic/room queues retain their own membership and lifetime. Use
+    // the same local destination as explicit enqueue actions in those modes.
+    if (m_playback.m_personalFm->active() || key == "queue:home-discover" ||
+        key == "queue:listen-together")
+        key = catalog.lastLocalKey();
+    if (!catalog.modelForKey(key))
+        key = "default";
+    m_playback.m_listenTogether->localTrackRequested();
+    queueAndPlayTrack(track, catalog.titleForKey(key), key);
+}
 
 void PlaybackQueueController::appendTracks(const PlaybackTracks &tracks, bool next)
 {

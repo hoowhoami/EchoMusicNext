@@ -79,6 +79,10 @@ public:
 class PlaybackServiceTestAccess
 {
 public:
+    static void hold(PlaybackService &p)
+    {
+        p.m_ready = false;
+    }
     static void current(PlaybackService &p)
     {
         p.m_track =
@@ -453,6 +457,48 @@ class DetailsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void songDetailEntryUsesTheCurrentQueue_data()
+    {
+        QTest::addColumn<bool>("menu");
+        QTest::newRow("header-play") << false;
+        QTest::newRow("menu-play-now") << true;
+    }
+    void songDetailEntryUsesTheCurrentQueue()
+    {
+        QFETCH(bool, menu);
+        QTemporaryDir dir;
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        PlaybackServiceTestAccess::hold(playback);
+        PlaybackTrack original;
+        original.id = "original";
+        original.hash = QString(32, 'a');
+        original.localPath = "/domain-only/original";
+        playback.playTracks({original}, 0, "Original queue", "original-queue");
+        RouteController router;
+        DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("song-detail", {}, "32042818"));
+        auto *song = service.songFor(router.current());
+        QVERIFY(song);
+        DetailsTestAccess::seed(*song);
+        if (menu)
+            song->actions()->playNow("32042818");
+        else
+            song->actions()->play();
+        QCOMPARE(playback.sourceKey(), QString("original-queue"));
+        QCOMPARE(playback.queueCatalog()->activeTitle(), QString("Original queue"));
+        QCOMPARE(playback.queue()->rowCount(), 2);
+        QCOMPARE(playback.queue()->at(0)->id, QString("original"));
+        QCOMPARE(playback.trackId(), QString("32042818"));
+        QVERIFY(!playback.queueCatalog()->modelForKey("queue:song-detail:32042818"));
+        service.shutdown();
+        router.shutdown();
+        playback.shutdown();
+        api.shutdown();
+    }
     void commentThreadsMatchSourceLayout()
     {
         QTemporaryDir dir;

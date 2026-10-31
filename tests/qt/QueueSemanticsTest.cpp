@@ -123,6 +123,98 @@ class QueueSemanticsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void standaloneEntryUsesActiveQueue_data()
+    {
+        QTest::addColumn<QString>("queueMode");
+        QTest::addColumn<QString>("command");
+        for (const auto *mode : {"context", "single"})
+            for (const auto *command : {"row", "menu", "header"})
+                QTest::newRow(qPrintable(QString(mode) + "-" + command))
+                    << QString(mode) << QString(command);
+    }
+    void standaloneEntryUsesActiveQueue()
+    {
+        QFETCH(QString, queueMode);
+        QFETCH(QString, command);
+        Fixture f;
+        const auto list = tracks();
+        f.playback->preferences()->setQueueMode(queueMode);
+        f.playback->setPlayMode(PlaybackService::Shuffle);
+        f.playback->playTracks(list.mid(0, 2), 0, "Current", "current");
+        f.playback->queue()->restoreNext({list[1].key()});
+        auto *catalog = f.playback->queueCatalog();
+        catalog->retain("preview", "Preview", {list[4]});
+        catalog->setViewIndex(catalog->rowCount() - 1);
+        SongCatalogModel model;
+        model.replaceSongs({list[2].toCatalog(), list[3].toCatalog()});
+        SongCatalogActions actions(model, *f.playback);
+        actions.setQueueContext("Standalone", "standalone");
+        actions.setPlayInCurrentQueue(true);
+        if (command == "menu")
+            actions.playNow("c");
+        else if (command == "row")
+            actions.play("c", false);
+        else
+            actions.play();
+        QCOMPARE(f.playback->sourceKey(), QString("current"));
+        QCOMPARE(catalog->activeTitle(), QString("Current"));
+        QCOMPARE(ids(*f.playback->queue()), (QStringList{"a", "b", "c"}));
+        QCOMPARE(f.playback->trackId(), QString("c"));
+        QCOMPARE(f.playback->queue()->nextKeys(), QStringList{list[1].key()});
+        QCOMPARE(ids(*catalog->modelForKey("preview")), QStringList{"e"});
+        QVERIFY(!catalog->modelForKey("standalone"));
+        const auto sequence = PlaybackServiceTestAccess::sequence(*f.playback);
+        actions.playNow("c");
+        QCOMPARE(PlaybackServiceTestAccess::sequence(*f.playback), sequence);
+        QCOMPARE(f.playback->queue()->rowCount(), 3);
+        QCOMPARE(f.playback->preferences()->queueMode(), queueMode);
+    }
+    void standaloneEntryMaterializesTheDefaultQueue()
+    {
+        Fixture f;
+        f.playback->playInCurrentQueue(track("a"));
+        QCOMPARE(f.playback->sourceKey(), QString("default"));
+        QCOMPARE(ids(*f.playback->queue()), QStringList{"a"});
+        QCOMPARE(f.playback->queueCatalog()->rowCount(), 1);
+        f.playback->playInCurrentQueue(track("b"));
+        QCOMPARE(ids(*f.playback->queue()), (QStringList{"a", "b"}));
+        QCOMPARE(f.playback->queueCatalog()->rowCount(), 1);
+    }
+    void standaloneEntryLeavesDynamicMembershipIntact_data()
+    {
+        QTest::addColumn<QString>("source");
+        QTest::newRow("fm") << PersonalFmController::queueKey();
+        QTest::newRow("discover") << DiscoverQueueController::queueKey();
+        QTest::newRow("room") << QString("queue:listen-together");
+    }
+    void standaloneEntryLeavesDynamicMembershipIntact()
+    {
+        QFETCH(QString, source);
+        Fixture f;
+        PlaybackServiceTestAccess::context(*f.playback, {track("a"), track("b")}, 0, "local");
+        PlaybackServiceTestAccess::context(*f.playback, {track("d")}, 0, source);
+        f.playback->playInCurrentQueue(track("d"));
+        QCOMPARE(f.playback->sourceKey(), QString("local"));
+        QCOMPARE(ids(*f.playback->queue()), (QStringList{"a", "b", "d"}));
+        QCOMPARE(f.playback->trackId(), QString("d"));
+        if (source == "queue:listen-together")
+            QCOMPARE(ids(*f.playback->queueCatalog()->modelForKey(source)), QStringList{"d"});
+        else
+            QVERIFY(!f.playback->queueCatalog()->modelForKey(source));
+    }
+    void ordinaryCatalogKeepsItsSourceQueue()
+    {
+        Fixture f;
+        f.playback->playTracks({track("a")}, 0, "Current", "current");
+        SongCatalogModel model;
+        model.replaceSongs({track("c").toCatalog()});
+        SongCatalogActions actions(model, *f.playback);
+        actions.setQueueContext("Album", "album");
+        actions.playNow("c");
+        QCOMPARE(f.playback->sourceKey(), QString("album"));
+        QCOMPARE(ids(*f.playback->queue()), QStringList{"c"});
+        QCOMPARE(ids(*f.playback->queueCatalog()->modelForKey("current")), QStringList{"a"});
+    }
     void ordinaryQueuesAndPreferencesSurviveAccountSwitches()
     {
         Fixture f;

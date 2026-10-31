@@ -19,6 +19,7 @@ RecognitionService::RecognitionService(ApiClient &api, PlaybackService &playback
     if (m_source != "mic")
         m_source = "system";
     m_actions.setQueueContext(tr("听歌识曲"), "recognize");
+    m_actions.setPlayInCurrentQueue(true);
     connect(&router, &RouteController::pageActivated, this, [this](RouteContext *context) {
         if (context->name() != "recognize")
             setAvailable(false);

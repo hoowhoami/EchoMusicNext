@@ -19,6 +19,11 @@ class SongCatalogActions final : public QObject
 public:
     SongCatalogActions(SongCatalogModel &, PlaybackService &, QObject *parent = nullptr);
     void setQueueContext(const QString &title, const QString &key);
+    /// Standalone detail/recognition entries play one song in the active queue.
+    void setPlayInCurrentQueue(bool enabled)
+    {
+        m_playInCurrentQueue = enabled;
+    }
     quint64 favoriteRevision() const
     {
         return m_revision;
@@ -70,5 +75,6 @@ private:
     PlaybackService &m_playback;
     QString m_title, m_key;
     quint64 m_revision = 0;
+    bool m_playInCurrentQueue = false;
 };
 } // namespace EchoMusic

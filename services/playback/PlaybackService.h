@@ -435,6 +435,8 @@ public:
                            const QString &sourceKey, bool selectedSong);
     void queueAndPlayTrack(const PlaybackTrack &track, const QString &title,
                            const QString &sourceKey);
+    /// Standalone song entries append/reuse a track in the active local queue.
+    void playInCurrentQueue(const PlaybackTrack &track);
     void appendTracks(const PlaybackTracks &tracks, bool next = false);
     void enqueueTracks(const PlaybackTracks &tracks, bool cut);
     Q_INVOKABLE void playIndex(int index);
