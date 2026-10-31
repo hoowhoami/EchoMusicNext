@@ -89,6 +89,35 @@ public:
         p.m_resolvedQuality = "standard";
         p.m_sourceKind = p.m_sourcePreference = "catalog";
     }
+    static void runningCatalog(PlaybackService &p)
+    {
+        p.m_engine.blockSignals(true); // Isolate the controlled native acknowledgements.
+        p.m_loaded = p.m_playing = p.m_ready = true;
+        p.m_audioSequence = p.m_audioSerial = 17;
+        p.m_sourceRevision = 1;
+        p.m_resolvedQuality = "standard";
+        p.m_sourceKind = p.m_sourcePreference = "catalog";
+    }
+    static void nativeNotifications(PlaybackService &p)
+    {
+        p.m_engine.blockSignals(false);
+    }
+    static quint64 sourceRevision(PlaybackService &p)
+    {
+        return p.m_sourceRevision;
+    }
+    static bool sourcePrepared(const PlaybackService &p)
+    {
+        return p.m_pendingSourceIdentity.has_value();
+    }
+    static bool engineReady(const PlaybackService &p)
+    {
+        return p.m_ready;
+    }
+    static void event(PlaybackService &p, const QJsonObject &event)
+    {
+        p.consumeOutputEvent(event);
+    }
     static void observeEngine(PlaybackService &p, QList<QJsonObject> *acceptedSources = nullptr)
     {
         QObject::connect(
@@ -179,6 +208,70 @@ class PlaybackSourceFallbackTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void qualityIdentityWaitsForNativeAdoption_data()
+    {
+        QTest::addColumn<bool>("accepted");
+        QTest::newRow("adopt") << true;
+        QTest::newRow("retain-old-on-rejection") << false;
+    }
+    void qualityIdentityWaitsForNativeAdoption()
+    {
+        QFETCH(bool, accepted);
+        Fixture f;
+        QTemporaryDir dir;
+        SettingsStore settings(dir.filePath("settings.ini"));
+        PlaybackService playback(f.api, settings, nullptr, dir.filePath("playback.sqlite"));
+        QTRY_VERIFY(PlaybackServiceTestAccess::engineReady(playback));
+        PlaybackTrack track;
+        track.id = "source-adoption";
+        track.hash = hashA;
+        const QJsonObject rights{
+            {"variants", QJsonArray{QJsonObject{{"quality", "128"}, {"hash", hashA}},
+                                    QJsonObject{{"quality", "320"}, {"hash", hashB}}}}};
+        PlaybackServiceTestAccess::seedCatalogSelection(playback, track, rights);
+        PlaybackServiceTestAccess::runningCatalog(playback);
+        const auto restore =
+            qScopeGuard([&] { PlaybackServiceTestAccess::nativeNotifications(playback); });
+        QSignalSpy failure(&playback, &PlaybackService::sourceOperationFailed);
+        playback.setQuality("higher");
+        quint64 request = 0;
+        QTRY_VERIFY((request = ApiClientTestAccess::pending(f.api, "song_url_auth_merge")));
+        auto candidate = source("https://example.invalid/prepared-hq");
+        candidate["hash"] = hashB;
+        ApiClientTestAccess::finish(f.api, request, candidate);
+        QTRY_VERIFY(PlaybackServiceTestAccess::sourcePrepared(playback));
+        QCOMPARE(playback.quality(), QString("higher"));
+        QCOMPARE(playback.resolvedQuality(), QString("standard"));
+        QCOMPARE(playback.effectiveQuality(), QString("standard"));
+        const auto revision = PlaybackServiceTestAccess::sourceRevision(playback);
+        PlaybackServiceTestAccess::event(playback, {{"event", "source-switched"},
+                                                    {"track_seq", 17},
+                                                    {"source_revision", qint64(revision - 1)},
+                                                    {"time", 1.},
+                                                    {"duration", 60.}});
+        QCOMPARE(playback.effectiveQuality(), QString("standard"));
+        if (accepted) {
+            PlaybackServiceTestAccess::event(playback, {{"event", "source-switched"},
+                                                        {"track_seq", 17},
+                                                        {"source_revision", qint64(revision)},
+                                                        {"time", 1.},
+                                                        {"duration", 60.}});
+            QCOMPARE(playback.resolvedQuality(), QString("higher"));
+            QVERIFY(failure.isEmpty());
+        } else {
+            PlaybackServiceTestAccess::event(
+                playback,
+                {{"event", "error"},
+                 {"track_seq", 17},
+                 {"source_revision", qint64(revision)},
+                 {"message",
+                  "source switch cancelled: insufficient prepared audio; old source kept"}});
+            QCOMPARE(failure.size(), 1);
+            QCOMPARE(playback.resolvedQuality(), QString("standard"));
+            QCOMPARE(playback.effectiveQuality(), QString("standard"));
+            QVERIFY(playback.playing());
+        }
+    }
     void selectingQualityDifferentFromActualSourceDoesNotShortCircuit()
     {
         Fixture f;
@@ -305,6 +398,7 @@ private slots:
         settings.setValue("playback/volume", 0);
         settings.setValue("playback/defaultQuality", initialQuality);
         settings.setValue("playback/compatibilityMode", compatibility);
+        settings.setValue("playerEngine/audioSamplerate", "48000");
         settings.setValue("playback/transitionMode", "none");
         settings.setValue("playback/mvAudioFallbackEnabled", false);
         NetworkPreferences network(settings, api);
@@ -318,6 +412,7 @@ private slots:
         QList<QJsonObject> acceptedSources;
         PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"), &network);
         PlaybackServiceTestAccess::observeEngine(playback, &acceptedSources);
+        QSignalSpy sourceFailures(&playback, &PlaybackService::sourceOperationFailed);
         QSignalSpy playbackClosed(&playback, &PlaybackService::closed);
         QSignalSpy apiClosed(&api, &ApiClient::closed);
         const auto cleanup = qScopeGuard([&] {
@@ -342,6 +437,8 @@ private slots:
                  initialQuality == targetQuality ? actualQuality : initialQuality);
         QTRY_VERIFY_WITH_TIMEOUT(playback.clockPosition() > 100, 10000);
         if (initialQuality != targetQuality) {
+            if (manual)
+                QTRY_VERIFY_WITH_TIMEOUT(playback.clockPosition() > 5000, 15000);
             acceptedSources.clear();
             if (manual)
                 playback.setQuality(targetQuality);
@@ -354,6 +451,23 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 30000);
         const auto adoptedPosition = playback.clockPosition();
         QTRY_VERIFY_WITH_TIMEOUT(playback.clockPosition() > adoptedPosition + 100, 10000);
+        if (manual) {
+            // Exercise later Vorbis block boundaries and repeated same-song
+            // switches, rather than only a freshly opened stream at time zero.
+            for (const auto &choice :
+                 {QString("standard"), QString("higher"), QString("standard"), QString("higher")}) {
+                const auto previous = playback.effectiveQuality();
+                acceptedSources.clear();
+                playback.setQuality(choice);
+                QCOMPARE(playback.effectiveQuality(), previous);
+                QTRY_COMPARE_WITH_TIMEOUT(playback.resolvedQuality(), choice, 30000);
+                QTRY_VERIFY_WITH_TIMEOUT(!acceptedSources.isEmpty(), 30000);
+                QVERIFY(sourceFailures.isEmpty());
+                const auto position = playback.clockPosition();
+                QTRY_VERIFY_WITH_TIMEOUT(playback.clockPosition() > position + 1000, 10000);
+            }
+        }
+        QVERIFY(sourceFailures.isEmpty());
         QVERIFY2(playback.errorMessage().isEmpty(), qPrintable(playback.errorMessage()));
         qInfo() << "Live catalog quality" << title << "compatibility" << compatibility << "manual"
                 << manual << playback.quality() << playback.resolvedQuality()

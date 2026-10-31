@@ -493,6 +493,7 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
     p.m_sourcePreference.clear();
     p.m_sourceFailure.clear();
     p.m_mvFailure.clear();
+    p.m_pendingSourceIdentity.reset();
     p.m_resolvedQuality = m_resolvedQuality;
     p.m_audioSequence = sequence;
     p.m_engine.adoptSequence(sequence);

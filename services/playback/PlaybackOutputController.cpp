@@ -123,6 +123,10 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
     if (kind == "source-switched" ||
         (kind == "file-loaded" &&
          quint64(event.value("seq").toDouble()) == m_playback.m_audioSequence))
+        m_playback.adoptResolvedSource();
+    if (kind == "source-switched" ||
+        (kind == "file-loaded" &&
+         quint64(event.value("seq").toDouble()) == m_playback.m_audioSequence))
         m_playback.requestEmbeddedMetadata();
     if (kind == "source-switched") {
         m_playback.m_failure->sourceAdopted();
@@ -247,7 +251,7 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
             m_playback.m_seamless = false;
             m_playback.m_loading = true;
             m_playback.m_resumePosition =
-                m_playback.m_sourceKind == "mv" ? -1 : m_playback.m_position;
+                m_playback.loadingSourceKind() == "mv" ? -1 : m_playback.m_position;
             m_playback.loadNextUrl();
         } else if (mediaFailure && m_playback.recoverSource(m_playback.m_error)) {
             emit m_playback.changed();
@@ -257,7 +261,9 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
             if (!m_playback.m_seamless)
                 m_playback.m_listening.flush();
             m_playback.m_loading = false;
+            m_playback.m_pendingSourceIdentity.reset();
             m_playback.m_failure->failed();
+            m_playback.m_seamless = false;
             emit m_playback.changed();
         }
     }

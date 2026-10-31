@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include <QCache>
 #include <QTemporaryDir>
 #include "ApiClient.h"
@@ -530,6 +531,8 @@ private:
     PlaybackTrack mergeResolvedTrack(const PlaybackTrack &track) const;
     void resolve();
     void loadNextUrl();
+    void adoptResolvedSource();
+    QString loadingSourceKind() const;
     void refreshCurrentSource();
     ApiClient::SoundEffect apiEffect() const;
     void onEvent(const QJsonObject &event);
@@ -607,6 +610,12 @@ private:
     QCache<QString, QJsonObject> m_playbackFacts{2000};
     QPointer<SongMetadataService> m_metadata;
     QString m_resolvedQuality;
+    struct SourceIdentity
+    {
+        QString kind;
+        QString quality;
+    };
+    std::optional<SourceIdentity> m_pendingSourceIdentity;
     // A manual current-song choice survives default changes; inherited quality
     // follows the default and is never overwritten by a resolved downgrade.
     bool m_qualityOverridden = false;

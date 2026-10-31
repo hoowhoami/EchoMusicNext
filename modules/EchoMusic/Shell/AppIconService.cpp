@@ -347,9 +347,8 @@ void AppIconService::apply()
     if (generation != m_applyRevision)
         return;
     const auto windows = m_windows;
-    const auto windowImage = winners.contains("window")
-                                 ? winners["window"].icons.images.value("window")
-                                 : QImage();
+    const auto windowImage =
+        winners.contains("window") ? winners["window"].icons.images.value("window") : QImage();
     for (auto it = windows.begin(); it != windows.end(); ++it) {
         if (!m_windows.contains(it.key()))
             continue;

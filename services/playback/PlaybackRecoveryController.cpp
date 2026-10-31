@@ -24,6 +24,7 @@ PlaybackRecoveryController::PlaybackRecoveryController(PlaybackService &playback
         // Never leave a stalled reload pinned to a progress guard indefinitely.
         cancel();
         p.m_source.cancel();
+        p.m_pendingSourceIdentity.reset();
         p.m_loading = false;
         p.m_error = tr("播放恢复超时，请重试");
         p.m_playing = false;

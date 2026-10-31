@@ -16,6 +16,7 @@ void PlaybackSessionController::invalidate(bool preserveLyrics)
     m_playback.m_progress.reset();
     m_playback.publishProgressStatus();
     m_playback.m_resolvedQuality.clear();
+    m_playback.m_pendingSourceIdentity.reset();
     m_playback.m_failure->cancel();
     m_playback.m_failure->sourceAdopted();
     m_playback.m_recovery->cancel();

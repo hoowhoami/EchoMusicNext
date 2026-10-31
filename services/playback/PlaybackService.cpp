@@ -246,15 +246,18 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
                 const auto accepted = mergeResolvedTrack(track);
                 m_track = accepted;
                 m_privileges = privileges;
-                m_sourceKind = source.value("source_kind")
-                                   .toString(track.localPath.isEmpty() ? "catalog" : "local");
+                const auto kind = source.value("source_kind")
+                                      .toString(track.localPath.isEmpty() ? "catalog" : "local");
+                // A URL is a prepared candidate, not an adopted audio source.
+                // Publish its identity only after the matching engine ack.
+                m_pendingSourceIdentity = SourceIdentity{kind, resolvedQuality};
                 m_sourceEffect = source.value("effect").toString(fallback ? "none" : m_songEffect);
                 m_sourceNoticeCode = source.value("notice_code").toString();
-                if (m_sourceKind != "mv") {
+                if (kind != "mv") {
                     m_sourceFailure.clear();
                     m_mvFailure.clear();
                 }
-                if (m_sourceKind == "mv") {
+                if (kind == "mv") {
                     m_loaded = false;
                     m_seamless = false;
                     if (!m_mvRecovery) {
@@ -269,7 +272,6 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
                     emit timelineReset();
                     emit positionChanged();
                 }
-                m_resolvedQuality = resolvedQuality;
                 m_effectFallback = fallback;
                 m_effectError = fallback ? tr("所选音效暂未生效，继续使用原声") : QString();
                 m_pendingLoudness = {{"loudness", source.value("loudness")},
@@ -300,11 +302,14 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
             return;
         m_recovery->cancel();
         m_loading = false;
-        m_playing = false;
+        m_pendingSourceIdentity.reset();
+        if (!m_seamless)
+            m_playing = false;
         if (!m_sourceFailure.isEmpty() && m_source.mvAttempted())
             m_mvFailure = message;
         m_error = m_sourceFailure.isEmpty() ? message : m_sourceFailure;
         m_failure->failed();
+        m_seamless = false;
         emit changed();
     });
     connect(&m_lyricSource, &LyricSourceController::changed, this, [this] {
@@ -907,6 +912,18 @@ void PlaybackService::resolve()
                                                                   : QString(),
                      m_sourcePreference, m_audioControls.volumeNormalization());
 }
+QString PlaybackService::loadingSourceKind() const
+{
+    return m_pendingSourceIdentity ? m_pendingSourceIdentity->kind : m_sourceKind;
+}
+void PlaybackService::adoptResolvedSource()
+{
+    if (!m_pendingSourceIdentity)
+        return;
+    m_sourceKind = m_pendingSourceIdentity->kind;
+    m_resolvedQuality = m_pendingSourceIdentity->quality;
+    m_pendingSourceIdentity.reset();
+}
 void PlaybackService::loadNextUrl()
 {
     if (m_urlIndex >= m_urls.size()) {
@@ -917,6 +934,7 @@ void PlaybackService::loadNextUrl()
             m_playing = false;
         if (m_error.isEmpty())
             m_error = tr("无法加载歌曲音频");
+        m_pendingSourceIdentity.reset();
         m_failure->failed();
         emit changed();
         return;
@@ -1258,6 +1276,7 @@ void PlaybackService::refreshCurrentSource()
     // Keep catalog/lyrics identity stable; retire replacement work immediately,
     // before awaiting a new URL. A separate revision rejects old switch acks.
     m_transition->clear();
+    m_pendingSourceIdentity.reset();
     ++m_sourceRevision;
     m_engine.cancelSourceReplacement();
     m_source.cancel();
@@ -1426,7 +1445,7 @@ void PlaybackService::finishHistory()
 
 bool EchoMusic::PlaybackService::tryMvFallback(const QString &reason)
 {
-    if (m_closing || !m_preferences.mvAudioFallbackEnabled() || m_sourceKind == "mv" ||
+    if (m_closing || !m_preferences.mvAudioFallbackEnabled() || loadingSourceKind() == "mv" ||
         !m_track.localPath.isEmpty())
         return false;
     if (!m_track.songId) {
@@ -1456,7 +1475,7 @@ bool EchoMusic::PlaybackService::recoverSource(const QString &reason)
 {
     if (m_closing || !hasTrack() || !m_track.localPath.isEmpty())
         return false;
-    const bool mv = m_sourceKind == "mv";
+    const bool mv = loadingSourceKind() == "mv";
     if (!mv) {
         if (m_sourceFailure.isEmpty())
             m_sourceFailure = reason;

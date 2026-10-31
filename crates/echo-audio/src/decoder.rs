@@ -74,8 +74,24 @@ pub enum DecodeCommand {
     Stop,
 }
 
+#[derive(Debug)]
+enum ChunkReadError {
+    Read(AudioError),
+    Materialize(String),
+}
+impl std::fmt::Display for ChunkReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read(error) => write!(f, "failed to decode audio source: {error}"),
+            Self::Materialize(error) => f.write_str(error),
+        }
+    }
+}
+
 pub struct DecoderData {
     reader: AudioReader,
+    chunk_end: Option<f64>,
+    lookahead: Option<Result<Option<DecodedAudioChunk>, ChunkReadError>>,
     embedded_metadata: Arc<crate::embedded_metadata::EmbeddedMetadata>,
     interrupt: Arc<AtomicBool>,
     duration: Option<Duration>,
@@ -131,6 +147,8 @@ impl DecoderData {
         let mix_sample_rate = mix_sample_rate.unwrap_or_else(|| source_sample_rate(source_info));
         Ok(Self {
             reader,
+            chunk_end: None,
+            lookahead: None,
             embedded_metadata,
             interrupt,
             duration,
@@ -209,6 +227,8 @@ impl DecoderData {
             .duration
             .is_some_and(|duration| seek_position_is_at_end(target, duration))
         {
+            self.lookahead = None;
+            self.chunk_end = None;
             self.seeked_to_end = true;
             self.pending_playback_restart_position = None;
             return Ok(started.elapsed().as_millis());
@@ -231,6 +251,10 @@ impl DecoderData {
                     )
                 })
             })?;
+        // The reader has moved even if cancellation arrives just after seek.
+        // Never retain a PCM frame from its previous position in that case.
+        self.lookahead = None;
+        self.chunk_end = None;
         if is_cancelled() {
             return Err("decoder seek cancelled".to_string());
         }
@@ -243,22 +267,50 @@ impl DecoderData {
         self.pending_playback_restart_position = Some(position_secs.max(0.0));
     }
 
+    fn read_chunk(&mut self) -> Result<Option<DecodedAudioChunk>, ChunkReadError> {
+        self.reader
+            .receive_frame()
+            .map_err(ChunkReadError::Read)?
+            .map(|frame| decoded_chunk_from_frame(&frame).map_err(ChunkReadError::Materialize))
+            .transpose()
+    }
+
+    fn receive_chunk(&mut self) -> Result<Option<DecodedAudioChunk>, ChunkReadError> {
+        let next = match self.lookahead.take() {
+            Some(next) => next,
+            None => self.read_chunk(),
+        }?;
+        let Some(mut chunk) = next else {
+            return Ok(None);
+        };
+        if let (Some(expected), Some(start)) = (self.chunk_end, chunk.pts_secs) {
+            let tolerance = 1.0e-3 + 2.0e-6;
+            let duration = chunk.frames as f64 / f64::from(chunk.format.sample_rate.max(1));
+            if (start - expected).abs() > tolerance && (start - expected).abs() <= duration {
+                let following = self.read_chunk();
+                if let Ok(Some(following)) = &following {
+                    repair_isolated_chunk_timestamp(&mut chunk, expected, following);
+                }
+                // Preserve both the next PCM frame and read errors. Looking ahead
+                // must neither skip samples nor swallow an interrupted/tail read.
+                self.lookahead = Some(following);
+            }
+        }
+        self.chunk_end = Some(decoded_chunk_end_secs(
+            &chunk,
+            self.chunk_end.unwrap_or(0.0),
+        ));
+        Ok(Some(chunk))
+    }
+
     pub fn decode_next_chunk(&mut self) -> Result<Option<DecodedAudioChunk>, String> {
         loop {
-            let chunk = self
-                .reader
-                .receive_frame()
-                .map_err(|err| format!("failed to decode audio source: {err}"))?
-                .map(|frame| decoded_chunk_from_frame(&frame))
-                .transpose()?;
-            let Some(mut chunk) = chunk else {
+            let Some(mut chunk) = self.receive_chunk().map_err(|error| error.to_string())? else {
                 return Ok(None);
             };
-            // Honour a pending sample-accurate alignment (seek landed on an earlier frame).
-            if !align_switched_chunk(&mut chunk, &mut self.discard_before_secs) {
-                continue;
+            if align_switched_chunk(&mut chunk, &mut self.discard_before_secs) {
+                return Ok(Some(chunk));
             }
-            return Ok(Some(chunk));
         }
     }
 
@@ -981,111 +1033,108 @@ fn decode_worker_loop(
         let decode_result = if data.seeked_to_end {
             Ok(None)
         } else {
-            data.reader.receive_frame()
+            data.receive_chunk()
         };
         match decode_result {
-            Ok(Some(frame)) => match decoded_chunk_from_frame(&frame) {
-                Ok(mut chunk) => {
-                    if !align_switched_chunk(&mut chunk, &mut data.discard_before_secs) {
-                        continue;
+            Ok(Some(mut chunk)) => {
+                if !align_switched_chunk(&mut chunk, &mut data.discard_before_secs) {
+                    continue;
+                }
+                data.publish_packet_cache_stats(&shared);
+                if !shared.is_decode_generation_current(generation) {
+                    continue;
+                }
+                if let Some(requested_position) = data.pending_playback_restart_position {
+                    if chunk.frames > 0 {
+                        let position = chunk.pts_secs.unwrap_or(requested_position);
+                        shared.mark_playback_restart_ready_for_generation(position, generation);
+                        data.pending_playback_restart_position = None;
                     }
-                    data.publish_packet_cache_stats(&shared);
-                    if !shared.is_decode_generation_current(generation) {
-                        continue;
-                    }
-                    if let Some(requested_position) = data.pending_playback_restart_position {
-                        if chunk.frames > 0 {
-                            let position = chunk.pts_secs.unwrap_or(requested_position);
-                            shared.mark_playback_restart_ready_for_generation(position, generation);
-                            data.pending_playback_restart_position = None;
-                        }
-                    }
-                    if produced_frames > 0 {
-                        if let Some(actual_pts) = chunk.pts_secs {
-                            if let Some(delta_secs) = decoded_pts_discontinuity(
+                }
+                if produced_frames > 0 {
+                    if let Some(actual_pts) = chunk.pts_secs {
+                        if let Some(delta_secs) = decoded_pts_discontinuity(
+                            state.decoded_position_secs,
+                            actual_pts,
+                            chunk.format.sample_rate,
+                        ) {
+                            state.pts_warnings.report(
+                                (state.live_seq, generation),
                                 state.decoded_position_secs,
                                 actual_pts,
-                                chunk.format.sample_rate,
-                            ) {
-                                state.pts_warnings.report(
-                                    (state.live_seq, generation),
-                                    state.decoded_position_secs,
-                                    actual_pts,
-                                    delta_secs,
-                                    Instant::now(),
-                                );
-                            }
+                                delta_secs,
+                                Instant::now(),
+                            );
                         }
                     }
-                    let chunk_start_secs = chunk.pts_secs.unwrap_or(state.decoded_position_secs);
-                    let chunk_end_secs =
-                        decoded_chunk_end_secs(&chunk, state.decoded_position_secs);
+                }
+                let chunk_start_secs = chunk.pts_secs.unwrap_or(state.decoded_position_secs);
+                let chunk_end_secs = decoded_chunk_end_secs(&chunk, state.decoded_position_secs);
 
-                    // ---- Armed transition reaching its cut point ---------------------------
-                    let reaches_cut = state
+                // ---- Armed transition reaching its cut point ---------------------------
+                let reaches_cut = state
+                    .armed_transition
+                    .as_ref()
+                    .is_some_and(|armed| armed.should_start(chunk_end_secs));
+                if reaches_cut {
+                    let armed = state
                         .armed_transition
-                        .as_ref()
-                        .is_some_and(|armed| armed.should_start(chunk_end_secs));
-                    if reaches_cut {
-                        let armed = state
-                            .armed_transition
-                            .take()
-                            .expect("armed transition checked above");
-                        let cut = armed.plan.a_cut_secs.max(chunk_start_secs);
-                        let (head, tail) = split_chunk_at(chunk, chunk_start_secs, cut);
-                        let mut preroll = state.take_recent_chunks();
-                        if let Some(head) = head.as_ref() {
-                            preroll.push(head.clone());
-                        }
-                        if let Some(head) = head {
-                            produced_frames = produced_frames.saturating_add(head.frames as u64);
-                            state.decoded_position_secs =
-                                decoded_chunk_end_secs(&head, state.decoded_position_secs);
-                            if !shared.push_decoded_chunk_for_generation(head, generation) {
-                                if shared.should_stop_decoding() {
-                                    return (!shared.stop.load(Ordering::Acquire)).then_some(data);
-                                }
-                                continue;
-                            }
-                        }
-                        let mut armed = armed;
-                        armed.rebase_to(state.decoded_position_secs);
-                        if let Err((err, armed)) = begin_transition(
-                            &shared, &mut data, armed, tail, preroll, &mut state, generation,
-                        ) {
-                            emit_decode_warning(format!(
-                                "song transition could not start; falling back to gapless: {err}"
-                            ));
-                            // Keep the outgoing track playing to its end, then hand off.
-                            state.armed_transition = Some(armed);
-                            if let Some(armed) = state.armed_transition.as_mut() {
-                                armed.plan.overlap_secs = 0.0;
-                                armed.plan.a_cut_secs = f64::MAX;
-                            }
-                        }
-                        continue;
+                        .take()
+                        .expect("armed transition checked above");
+                    let cut = armed.plan.a_cut_secs.max(chunk_start_secs);
+                    let (head, tail) = split_chunk_at(chunk, chunk_start_secs, cut);
+                    let mut preroll = state.take_recent_chunks();
+                    if let Some(head) = head.as_ref() {
+                        preroll.push(head.clone());
                     }
-
-                    produced_frames = produced_frames.saturating_add(chunk.frames as u64);
-                    state.decoded_position_secs = chunk_end_secs;
-                    state.remember_chunk(&chunk);
-
-                    if !shared.push_decoded_chunk_for_generation(chunk, generation) {
-                        if shared.should_stop_decoding() {
-                            return (!shared.stop.load(Ordering::Acquire)).then_some(data);
+                    if let Some(head) = head {
+                        produced_frames = produced_frames.saturating_add(head.frames as u64);
+                        state.decoded_position_secs =
+                            decoded_chunk_end_secs(&head, state.decoded_position_secs);
+                        if !shared.push_decoded_chunk_for_generation(head, generation) {
+                            if shared.should_stop_decoding() {
+                                return (!shared.stop.load(Ordering::Acquire)).then_some(data);
+                            }
+                            continue;
                         }
-                        continue;
                     }
+                    let mut armed = armed;
+                    armed.rebase_to(state.decoded_position_secs);
+                    if let Err((err, armed)) = begin_transition(
+                        &shared, &mut data, armed, tail, preroll, &mut state, generation,
+                    ) {
+                        emit_decode_warning(format!(
+                            "song transition could not start; falling back to gapless: {err}"
+                        ));
+                        // Keep the outgoing track playing to its end, then hand off.
+                        state.armed_transition = Some(armed);
+                        if let Some(armed) = state.armed_transition.as_mut() {
+                            armed.plan.overlap_secs = 0.0;
+                            armed.plan.a_cut_secs = f64::MAX;
+                        }
+                    }
+                    continue;
                 }
-                Err(err) => {
-                    shared.mark_decode_failed();
-                    emit_decode_error(
-                        &shared,
-                        format!("failed to materialize decoded audio frame: {err}"),
-                    );
-                    return None;
+
+                produced_frames = produced_frames.saturating_add(chunk.frames as u64);
+                state.decoded_position_secs = chunk_end_secs;
+                state.remember_chunk(&chunk);
+
+                if !shared.push_decoded_chunk_for_generation(chunk, generation) {
+                    if shared.should_stop_decoding() {
+                        return (!shared.stop.load(Ordering::Acquire)).then_some(data);
+                    }
+                    continue;
                 }
-            },
+            }
+            Err(ChunkReadError::Materialize(err)) => {
+                shared.mark_decode_failed();
+                emit_decode_error(
+                    &shared,
+                    format!("failed to materialize decoded audio frame: {err}"),
+                );
+                return None;
+            }
             Ok(None) => {
                 data.publish_packet_cache_stats(&shared);
                 if !shared.is_decode_generation_current(generation) {
@@ -1140,7 +1189,7 @@ fn decode_worker_loop(
                 shared.mark_decoded_eof();
                 return Some(data);
             }
-            Err(err) => {
+            Err(ChunkReadError::Read(err)) => {
                 data.publish_packet_cache_stats(&shared);
                 if data.interrupt.load(Ordering::Acquire)
                     || shared.should_stop_decoding()
@@ -1824,6 +1873,32 @@ impl Drop for PendingSourceSwitch {
 
 const SOURCE_SWITCH_MIN_BUFFER_SECS: f64 = 0.2;
 
+// Vorbis short/long-block boundaries can label one PCM frame late and the
+// following frame back on the sample clock. Only repair that isolated outlier
+// when the independent next PTS proves continuity. Genuine gaps stay gaps;
+// the hand-off's reserve/continuity checks are deliberately unchanged.
+fn repair_isolated_chunk_timestamp(
+    chunk: &mut DecodedAudioChunk,
+    expected: f64,
+    following: &DecodedAudioChunk,
+) {
+    let (Some(start), Some(next)) = (chunk.pts_secs, following.pts_secs) else {
+        return;
+    };
+    let duration = chunk.frames as f64 / f64::from(chunk.format.sample_rate.max(1));
+    let tolerance = 1.0e-3 + 2.0e-6;
+    if expected.is_finite()
+        && start.is_finite()
+        && next.is_finite()
+        && chunk.format == following.format
+        && (start - expected).abs() > tolerance
+        && (start - expected).abs() <= duration
+        && (next - expected - duration).abs() <= tolerance
+    {
+        chunk.pts_secs = Some(expected);
+    }
+}
+
 fn align_source_switch_buffer(chunks: &mut Vec<DecodedAudioChunk>, handoff: f64) -> f64 {
     let mut discard_before = Some(handoff);
     chunks.retain_mut(|chunk| align_switched_chunk(chunk, &mut discard_before));
@@ -2022,6 +2097,40 @@ mod tests {
             frames,
             data: DecodedAudioData::F32(vec![0.25; frames * 2]),
         }
+    }
+
+    #[test]
+    fn source_switch_repairs_observed_vorbis_block_pts_without_changing_pcm() {
+        let rate = 44_100.0;
+        let expected = 2.0 + 6840.0 / rate;
+        let mut first = switch_test_chunk(2.0, 6840);
+        let mut outlier = switch_test_chunk(expected + 448.0 / rate, 576);
+        let mut following = switch_test_chunk(expected + 576.0 / rate, 128);
+        let mut tail = switch_test_chunk(expected + 704.0 / rate, 22050);
+        for chunk in [&mut first, &mut outlier, &mut following, &mut tail] {
+            chunk.format.sample_rate = rate as u32;
+        }
+        let pcm = outlier.data.clone();
+        let mut raw = vec![
+            first.clone(),
+            outlier.clone(),
+            following.clone(),
+            tail.clone(),
+        ];
+        assert_eq!(align_source_switch_buffer(&mut raw, 2.0), 0.0);
+        repair_isolated_chunk_timestamp(&mut outlier, expected, &following);
+        assert_eq!(outlier.pts_secs, Some(expected));
+        assert_eq!(outlier.data, pcm);
+        let mut corrected = vec![first, outlier.clone(), following.clone(), tail];
+        assert!(align_source_switch_buffer(&mut corrected, 2.0) > 0.6);
+
+        // A real discontinuity persists in the next timestamp: do not hide it.
+        let mut gap = outlier.clone();
+        gap.pts_secs = Some(expected + 448.0 / rate);
+        following.pts_secs = Some(expected + (448.0 + 576.0) / rate);
+        repair_isolated_chunk_timestamp(&mut gap, expected, &following);
+        assert_ne!(gap.pts_secs, Some(expected));
+        assert_eq!(gap.data, pcm);
     }
 
     #[test]

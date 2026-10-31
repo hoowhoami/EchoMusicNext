@@ -101,8 +101,8 @@ QString AppIconShortcuts::currentIcon(const QString &path, int *index, QString &
     // 运行），完整路径全等会让改写在那种环境里永远失败。
     const QFileInfo targetInfo(QString::fromWCharArray(target));
     if (targetInfo.canonicalFilePath().isEmpty() ||
-        targetInfo.fileName().compare(QFileInfo(executable()).fileName(),
-                                      Qt::CaseInsensitive) != 0) {
+        targetInfo.fileName().compare(QFileInfo(executable()).fileName(), Qt::CaseInsensitive) !=
+            0) {
         error = "Shortcut does not belong to this executable";
         return {};
     }
