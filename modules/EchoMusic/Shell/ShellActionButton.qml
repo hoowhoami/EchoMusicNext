@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Shapes
 import EchoMusic.Controls
+import EchoMusic.Playback
 import EchoMusic.Theme
 import EchoMusic.Shell
 
@@ -23,6 +24,7 @@ EchoIconButton {
     readonly property string builtinId: actionKey.startsWith("host/") ? actionId : ""
     property bool player: false
     property bool playbackLoading: false
+    property PlaybackService playback: null
     property bool lyricStyle: false
     property bool compact: false
     property int projection: ShellActionModel.All
@@ -32,7 +34,8 @@ EchoIconButton {
     animatePlayPause: player && builtinId === "play-toggle"
     playIconOffset: 1
     text: actionTitle
-    tooltipText: actionTooltip !== actionTitle || badgeTitle.length > 0 ? actionTooltip + (badgeVisible && badgeTitle.length > 0 ? " · " + badgeTitle + ": " + actionBadge : "") : builtinId === "barrage" ? actionActive ? qsTr("弹幕已开启 · 设置与发送") : qsTr("弹幕已关闭 · 设置与发送") : text
+    readonly property string volumeTooltip: player && builtinId === "volume" && playback ? qsTr("音量·%1").arg(Math.round(playback.volume)) : ""
+    tooltipText: volumeTooltip.length > 0 ? volumeTooltip : actionTooltip !== actionTitle || badgeTitle.length > 0 ? actionTooltip + (badgeVisible && badgeTitle.length > 0 ? " · " + badgeTitle + ": " + actionBadge : "") : builtinId === "barrage" ? actionActive ? qsTr("弹幕已开启 · 设置与发送") : qsTr("弹幕已关闭 · 设置与发送") : text
     enabled: actionEnabled || player && builtinId === "play-toggle" && playbackLoading
     hoverBackground: !player
     hoverWhenDisabled: !player
@@ -65,6 +68,19 @@ EchoIconButton {
                     button.aboutToActivate(button.builtinId, button);
                 button.actions.activate(button.actionKey);
             }
+        }
+    }
+    WheelHandler {
+        // Hovering the playerbar volume tile: one wheel notch steps the volume
+        // by 1; setVolume clamps and the tooltip binding follows live.
+        enabled: button.visible && button.visualContentActive && button.player
+                 && button.builtinId === "volume" && button.playback !== null && button.enabled
+        onWheel: event => {
+            // Horizontal-only pans must not step the volume nor swallow the
+            // event; vertical notches accumulate fractionally and setVolume clamps.
+            if (event.angleDelta.y !== 0)
+                button.playback.volume += event.angleDelta.y / 120;
+            event.accepted = true;
         }
     }
     Loader {
