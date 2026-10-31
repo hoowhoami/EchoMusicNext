@@ -15,8 +15,95 @@
 #include <QSaveFile>
 #include <QSet>
 #include <QRegularExpression>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 namespace EchoMusic
 {
+#ifdef Q_OS_WIN
+namespace
+{
+// 运行中任务栏按钮的实时图标：QWindow::setIcon 的 WM_SETICON 不总能让
+// AUMID 固定按钮刷新，与 Electron 的 BrowserWindow.setIcon 一致地显式
+// 发送两种尺寸。HICON 由本表持有，替换时销毁上一份。
+QHash<QWindow *, QPair<HICON, HICON>> g_runtimeWindowIcons;
+
+HICON alphaHIconFromImage(const QImage &source, int size)
+{
+    const QImage scaled = source.scaled(size, size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                              .convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    BITMAPV5HEADER header = {};
+    header.bV5Size = sizeof(BITMAPV5HEADER);
+    header.bV5Width = scaled.width();
+    header.bV5Height = scaled.height();
+    header.bV5Planes = 1;
+    header.bV5BitCount = 32;
+    header.bV5Compression = BI_BITFIELDS;
+    header.bV5RedMask = 0x00FF0000;
+    header.bV5GreenMask = 0x0000FF00;
+    header.bV5BlueMask = 0x000000FF;
+    header.bV5AlphaMask = 0xFF000000;
+    void *bits = nullptr;
+    const auto screenDc = GetDC(nullptr);
+    HBITMAP color = CreateDIBSection(screenDc, reinterpret_cast<const BITMAPINFO *>(&header),
+                                     DIB_RGB_COLORS, &bits, nullptr, 0);
+    ReleaseDC(nullptr, screenDc);
+    if (!color || !bits) {
+        if (color)
+            DeleteObject(color);
+        return nullptr;
+    }
+    // DIB 自下而上，QImage 自上而下；ARGB32_Premultiplied 的内存布局即
+    // 小端 BGRA，与上面的掩码一致。
+    for (int y = 0; y < scaled.height(); ++y)
+        memcpy(static_cast<char *>(bits) + y * scaled.width() * 4,
+               scaled.constScanLine(scaled.height() - 1 - y), size_t(scaled.width()) * 4);
+    // 1bpp AND 掩码每行按 WORD 对齐；DPI 缩放的图标尺寸（如 125% 下的
+    // SM_CXSMICON=20）不是 16 的倍数，按整图字节数分配会越界读。
+    const DWORD maskStride = ((DWORD(scaled.width()) + 15) / 16) * 2;
+    const QByteArray maskBytes(QByteArray(size_t(maskStride) * size_t(scaled.height()), char(0)));
+    HBITMAP mask = CreateBitmap(scaled.width(), scaled.height(), 1, 1, maskBytes.constData());
+    ICONINFO info = {TRUE, 0, 0, mask, color};
+    HICON icon = CreateIconIndirect(&info);
+    DeleteObject(color);
+    DeleteObject(mask);
+    return icon;
+}
+
+void sendRuntimeWindowIcon(QWindow *window, const QImage &image)
+{
+    if (!window->handle())
+        return;
+    const auto hwnd = reinterpret_cast<HWND>(window->winId());
+    auto &slot = g_runtimeWindowIcons[window];
+    HICON hBig = alphaHIconFromImage(image, GetSystemMetrics(SM_CXICON));
+    HICON hSmall = alphaHIconFromImage(image, GetSystemMetrics(SM_CXSMICON));
+    SendMessage(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(hBig));
+    SendMessage(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(hSmall));
+    if (slot.first)
+        DeleteObject(slot.first);
+    if (slot.second)
+        DeleteObject(slot.second);
+    slot = {hBig, hSmall};
+}
+
+void releaseRuntimeWindowIcons(QWindow *window)
+{
+    // 仅释放句柄：窗口销毁回调里不得再触碰 QWindow 本体。
+    const auto slot = g_runtimeWindowIcons.take(window);
+    if (slot.first)
+        DeleteObject(slot.first);
+    if (slot.second)
+        DeleteObject(slot.second);
+}
+
+void clearRuntimeWindowIcon(QWindow *window, const QIcon &fallback)
+{
+    window->setIcon(fallback);
+    releaseRuntimeWindowIcons(window);
+}
+} // namespace
+#endif
 struct AppIconService::ShortcutState
 {
     AppIconShortcuts store;
@@ -210,7 +297,13 @@ void AppIconService::attach(QWindow *window)
     m_windows[window] = window->icon().cacheKey() == QGuiApplication::windowIcon().cacheKey()
                             ? m_default
                             : window->icon();
-    connect(window, &QObject::destroyed, this, [this, window] { m_windows.remove(window); });
+    connect(window, &QObject::destroyed, this, [this, window] {
+#ifdef Q_OS_WIN
+        // 窗口没了：只释放我们持有的 HICON，不得触碰 QWindow 本体。
+        releaseRuntimeWindowIcons(window);
+#endif
+        m_windows.remove(window);
+    });
     const Entry *winner = nullptr;
     for (const auto &entry : m_entries)
         if (entry.icons.images.contains("window") &&
@@ -254,10 +347,20 @@ void AppIconService::apply()
     if (generation != m_applyRevision)
         return;
     const auto windows = m_windows;
+    const auto windowImage = winners.contains("window")
+                                 ? winners["window"].icons.images.value("window")
+                                 : QImage();
     for (auto it = windows.begin(); it != windows.end(); ++it) {
         if (!m_windows.contains(it.key()))
             continue;
         it.key()->setIcon(winners.contains("window") ? icon : it.value());
+#ifdef Q_OS_WIN
+        // 运行中的任务栏按钮实时跟随窗口图标（与 Electron 一致）。
+        if (winners.contains("window") && !windowImage.isNull())
+            sendRuntimeWindowIcon(it.key(), windowImage);
+        else
+            clearRuntimeWindowIcon(it.key(), it.value());
+#endif
         if (generation != m_applyRevision)
             return;
     }
