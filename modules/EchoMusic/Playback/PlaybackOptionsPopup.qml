@@ -219,6 +219,7 @@ EchoAnchoredPopup {
                 ] : []
                 delegate: ColumnLayout {
                     id: optionRow
+                    objectName: "playbackOptionRow-" + modelData.value
                     required property var modelData
                     Layout.fillWidth: true
                     spacing: 0

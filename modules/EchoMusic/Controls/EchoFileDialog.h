@@ -9,6 +9,10 @@
 #include <memory>
 class QFileDialog;
 class QEvent;
+namespace EchoMusic::UiaEventGate
+{
+class Session;
+}
 namespace EchoMusic
 {
 /// Nonblocking native picker with a QWidget fallback. The QML owner controls
@@ -78,11 +82,17 @@ private:
     FileMode m_fileMode = OpenFile;
     int m_options = 0;
     // The native dialog runs as a GUI-thread exec() queued behind open():
-    // Qt's worker-thread path for non-exec native dialogs deadlocks behind the
-    // taskbar lyric's UIA probe (the dialog window is created but never shown).
+    // Qt's worker-thread path for non-exec native dialogs is avoided on
+    // principle (it wedged behind the taskbar lyric's UIA event subscription,
+    // issue #1 - fixed on the lyric side, and the single-apartment exec is
+    // the safer default anyway).
     // Both flags let a teardown that lands inside the modal loop reject it and
     // defer the dialog's deletion until the exec frame has returned.
     bool m_inExec = false;
     std::shared_ptr<bool> m_cancelled;
+    // Issue #1 gate: held for the native dialog's lifetime so the taskbar
+    // lyric probe drops its UIA event subscription while a native common
+    // dialog may initialize (services/platform/UiaEventGate.h).
+    std::shared_ptr<UiaEventGate::Session> m_gateSession;
 };
 } // namespace EchoMusic

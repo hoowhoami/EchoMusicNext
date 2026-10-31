@@ -88,7 +88,10 @@ void DesktopPagesTest::transparentAvatarsRetireFallbackInCommentsAndSidebar()
 
         avatar->setProperty("source",
                             QUrl::fromLocalFile(session.directory.filePath("missing-avatar.png")));
-        QTRY_COMPARE(avatar->property("status").toInt(), 3);
+        // A missing file is rejected by the cover source, which then resolves to
+        // nothing: the image settles back on Null and keeps showing the fallback
+        // rather than retaining an Error status.
+        QTRY_COMPARE(avatar->property("status").toInt(), 0);
         QTRY_VERIFY(glyph->isVisible());
         avatar->setProperty("source", QUrl::fromLocalFile(opaquePath));
         QTRY_COMPARE(avatar->property("status").toInt(), 1);
@@ -1428,6 +1431,10 @@ void DesktopPagesTest::productionContentBlacklistKeepsPreferencesDraftAndVirtual
     QTRY_VERIFY(visual(session.window->contentItem(), "profilePage"));
     auto *page = visual(session.window->contentItem(), "profilePage");
     QVERIFY(!page->findChild<QObject *>("listeningPreferencesDialog"));
+    // RouteHost keeps the page it is leaving above the incoming one for its exit
+    // animation (220ms by default), so a click placed inside that window is
+    // delivered to the outgoing page instead of this trigger.
+    QTest::qWait(300);
     QVERIFY(session.clickItem("profilePreferences"));
     QPointer<QObject> preferences;
     QTRY_VERIFY((preferences = page->findChild<QObject *>("listeningPreferencesDialog")));

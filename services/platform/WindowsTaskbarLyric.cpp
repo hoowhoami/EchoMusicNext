@@ -15,13 +15,12 @@
 //    elements, truncated enumeration, provider missing) marks the layout
 //    unreliable and consumers must fall back to hiding.
 #include "WindowsTaskbarLyric.h"
+#include "UiaEventGate.h"
 #include <QDebug>
 #include <QLoggingCategory>
 #include <QMetaObject>
 #include <algorithm>
 #include <atomic>
-#include <condition_variable>
-#include <mutex>
 #include <optional>
 #include <thread>
 
@@ -55,6 +54,14 @@ constexpr int kElementLimit = 2048;
 /// EchoMusic free_intervals: every occupied span widens by ±6 px so a lyric
 /// seat never abuts icons and icon-group gaps never count as seats.
 constexpr int kSlotMarginPx = 6;
+
+// Issue #1 root-cause bisection: each switch removes exactly one lyric
+// subsystem at runtime so a regression can be attributed at runtime.
+// ECHO_LYRIC_DISABLE_PROBE     - no UIA session at all (no client, no probes)
+// ECHO_LYRIC_DISABLE_HOOKS     - watcher thread pumps without WinEvent hooks
+// ECHO_LYRIC_DISABLE_STRIP     - the strip window is never re-parented into
+//                                the taskbar
+// All are unset in production; diagnostic use only.
 /// Window procedure of the mounted strip.
 ///
 /// The strip is a child of Shell_TrayWnd. Left clicks reach it through the
@@ -565,16 +572,19 @@ bool computeLayout(IUIAutomation *automation, HWND shell, TaskbarLayout &layout,
 }
 
 /// UIA structure-change listener: any child added/removed/reordered inside the
-/// taskbar means the button layout may have changed. The handler only bumps an
-/// atomic counter (it fires on COM threads: no work, no waits here).
+/// taskbar means the button layout may have changed. UIA invokes the handler
+/// through the message pump of the thread that subscribed (the probe worker,
+/// an STA), so it runs on that thread and must stay trivial: it only bumps the
+/// wake counter. It must never wait: a provider raise elsewhere in the process
+/// stays synchronous with this acknowledgement.
+/// XAML taskbar buttons are not HWNDs, so the watcher's WinEvent hooks cannot
+/// see their add/remove - this subscription is the push channel for those.
+/// The subscription only exists while no native dialog session is open (see
+/// UiaEventGate.h for why it must be dropped around native dialogs).
 class StructureChangeHandler final : public IUIAutomationStructureChangedEventHandler
 {
 public:
-    explicit StructureChangeHandler(std::atomic<quint64> &generation, std::mutex *mutex,
-                                    std::condition_variable *wake)
-        : m_generation(generation), m_mutex(mutex), m_wake(wake)
-    {
-    }
+    explicit StructureChangeHandler(std::atomic<quint64> &generation) : m_generation(generation) {}
     ULONG STDMETHODCALLTYPE AddRef() override
     {
         return ++m_ref;
@@ -613,19 +623,12 @@ public:
             changeType != StructureChangeType_ChildrenBulkRemoved &&
             changeType != StructureChangeType_ChildrenReordered)
             return S_OK;
-        // Bump and wake under the waiter's mutex: notify() alone could race a
-        // waiter that is between the predicate check and the idle-block, and a
-        // bump without any notify would at best shorten the next idle poll.
-        std::lock_guard<std::mutex> lock(*m_mutex);
         m_generation.fetch_add(1, std::memory_order_relaxed);
-        m_wake->notify_all();
         return S_OK;
     }
 
 private:
     std::atomic<quint64> &m_generation;
-    std::mutex *m_mutex;
-    std::condition_variable *m_wake;
     std::atomic<ULONG> m_ref{1};
 };
 
@@ -653,19 +656,15 @@ struct WindowsTaskbarLyric::Worker
     // cursor owns one.
     std::thread watcherThread;
     std::atomic<bool> watcherQuit{false};
-    std::mutex mutex;
-    std::condition_variable wake;
+    // The one shared wake counter. Written from the watcher thread (WinEvent
+    // callbacks) and from the probe thread itself (UIA event deliveries) and
+    // polled by the probe's pump loop, so it stays atomic.
     std::atomic<quint64> generation{0};
     std::atomic<bool> quit{false};
     // Cleared when the session dies: the worker must not publish to a dead
     // object any more.
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>>(true);
     HWND child = nullptr;
-
-    void notify()
-    {
-        wake.notify_all();
-    }
 
     static std::shared_ptr<Worker> &wakeSink()
     {
@@ -690,15 +689,11 @@ struct WindowsTaskbarLyric::Worker
         // second - pins the probe permanently busy.
         if (event == EVENT_SYSTEM_FOREGROUND) {
             winEventForeground = reinterpret_cast<qintptr>(hwnd);
-            std::lock_guard<std::mutex> lock(sink->mutex);
             sink->generation.fetch_add(1, std::memory_order_relaxed);
-            sink->wake.notify_all();
             return;
         }
         if (event == EVENT_SYSTEM_CAPTUREEND) {
-            std::lock_guard<std::mutex> lock(sink->mutex);
             sink->generation.fetch_add(1, std::memory_order_relaxed);
-            sink->wake.notify_all();
             return;
         }
         bool foregroundEnded = false;
@@ -717,9 +712,7 @@ struct WindowsTaskbarLyric::Worker
             (hwnd == shell || (shellPid && pid == shellPid && GetAncestor(hwnd, GA_ROOT) == shell));
         if (!shellChanged && !(idObject == OBJID_WINDOW && foregroundEnded))
             return;
-        std::lock_guard<std::mutex> lock(sink->mutex);
         sink->generation.fetch_add(1, std::memory_order_relaxed);
-        sink->wake.notify_all();
     }
 
     void runWatcher(const std::shared_ptr<Worker> &self)
@@ -732,16 +725,29 @@ struct WindowsTaskbarLyric::Worker
         // nothing so a return to the app itself also schedules a probe.
         const DWORD selfFlags = WINEVENT_OUTOFCONTEXT;
         const DWORD foreignFlags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+        // Bisection: ECHO_LYRIC_DISABLE_HOOKS keeps the pump thread (it still
+        // owns the queue) but arms no hooks, removing only the hook factor.
+        const bool hooksDisabled = qEnvironmentVariableIsSet("ECHO_LYRIC_DISABLE_HOOKS");
         const HWINEVENTHOOK hooks[] = {
-            SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
-                            &Worker::winEventHookProc, 0, 0, selfFlags),
-            SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_NAMECHANGE, nullptr,
-                            &Worker::winEventHookProc, 0, 0, foreignFlags),
-            SetWinEventHook(EVENT_SYSTEM_CAPTUREEND, EVENT_SYSTEM_CAPTUREEND, nullptr,
-                            &Worker::winEventHookProc, 0, 0, foreignFlags),
-            SetWinEventHook(EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED, nullptr,
-                            &Worker::winEventHookProc, 0, 0, foreignFlags),
+            hooksDisabled
+                ? nullptr
+                : SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
+                                  &Worker::winEventHookProc, 0, 0, selfFlags),
+            hooksDisabled
+                ? nullptr
+                : SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_NAMECHANGE, nullptr,
+                                  &Worker::winEventHookProc, 0, 0, foreignFlags),
+            hooksDisabled
+                ? nullptr
+                : SetWinEventHook(EVENT_SYSTEM_CAPTUREEND, EVENT_SYSTEM_CAPTUREEND, nullptr,
+                                  &Worker::winEventHookProc, 0, 0, foreignFlags),
+            hooksDisabled
+                ? nullptr
+                : SetWinEventHook(EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED, nullptr,
+                                  &Worker::winEventHookProc, 0, 0, foreignFlags),
         };
+        if (hooksDisabled)
+            qCInfo(taskbarLyricLog) << "WinEvent hooks disabled (ECHO_LYRIC_DISABLE_HOOKS)";
         MSG message{};
         while (!watcherQuit.load(std::memory_order_acquire)) {
             const int got = GetMessageW(&message, nullptr, 0, 0);
@@ -759,8 +765,42 @@ struct WindowsTaskbarLyric::Worker
     void run(WindowsTaskbarLyric *owner)
     {
         qCInfo(taskbarLyricLog).nospace() << "probe thread up";
-        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        qCInfo(taskbarLyricLog).nospace() << "COM initialized";
+        if (qEnvironmentVariableIsSet("ECHO_LYRIC_DISABLE_PROBE")) {
+            // Bisection: the probe subsystem (UIA client, StructureChanged
+            // subscription, layout scans) stays completely idle; only the
+            // watcher and the mounted strip remain.
+            qCInfo(taskbarLyricLog) << "probe disabled (ECHO_LYRIC_DISABLE_PROBE)";
+            TaskbarLayout lost;
+            lost.available = false;
+            publish(owner, lost);
+            return;
+        }
+        // The probe thread is a conventional UIA client thread: an STA that
+        // pumps messages while it waits, so its own cross-process UIA calls
+        // stay re-entrant and incoming COM calls are always serviced. The
+        // first worker slept on a condition variable without pumping, and the
+        // native file dialog's IFileDialog::Show wedged behind it during
+        // modal initialization (issue #1) - see UiaEventGate.h for the full
+        // mechanism and the gate protocol below.
+        if (CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED) != S_OK) {
+            qCWarning(taskbarLyricLog) << "STA COM initialization failed; the probe thread stops";
+            TaskbarLayout lost;
+            lost.available = false;
+            publish(owner, lost);
+            return;
+        }
+        // The gate's picker side only waits while a probe is alive; a dead or
+        // disabled probe leaves it trivially drained.
+        struct GateOwnerGuard
+        {
+            ~GateOwnerGuard()
+            {
+                UiaEventGate::publishDrained(true);
+                UiaEventGate::ownerAlive().store(false, std::memory_order_release);
+            }
+        } gateOwnerGuard;
+        UiaEventGate::ownerAlive().store(true, std::memory_order_release);
+        qCInfo(taskbarLyricLog).nospace() << "COM initialized (STA)";
         IUIAutomation *automation = nullptr;
         const bool automationOk =
             SUCCEEDED(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
@@ -774,12 +814,18 @@ struct WindowsTaskbarLyric::Worker
             CoUninitialize();
             return;
         }
-        StructureChangeHandler handler(generation, &mutex, &wake);
-        IUIAutomationElement *subscribed = nullptr;
-        bool subscribedHandler = false;
         HWND lastShell = nullptr;
         DWORD cooldown = 0;
         quint64 seenGeneration = 0;
+        unsigned long long seenGateEpoch = 0;
+        // The gate-driven subscription (UiaEventGate.h): present only while no
+        // native dialog session is open. `handler` and `subscribed` follow the
+        // desired state each iteration; epoch changes wake the pump wait so
+        // both the suspend and the restore react within one iteration.
+        StructureChangeHandler handler(generation);
+        IUIAutomationElement *subscribed = nullptr;
+        HWND subscribedShell = nullptr;
+        bool subscribedHandler = false;
         // The taskbar is still filling its buttons right after the shell
         // starts; the first probe can see a half built taskbar and report a
         // gap that does not exist a moment later. Publish only when two
@@ -810,27 +856,55 @@ struct WindowsTaskbarLyric::Worker
             publish(owner, value);
         };
         for (;;) {
-            {
-                std::unique_lock lock(mutex);
-                if (quit)
+            // Probe immediately on start, then a short settle cadence until
+            // the layout is confirmed; afterwards wait for change events,
+            // cooldowns and the idle safety poll. A layout that is still
+            // waiting for its confirming second probe keeps the short cadence
+            // too (kIdlePollMs here would make icon changes apply only after
+            // the next 10 s tick).
+            const DWORD wait = lastShell == nullptr ? 0
+                               : cooldown           ? cooldown
+                               : confirmedKey.isEmpty() || pendingKey != confirmedKey
+                                   ? 400
+                                   : kIdlePollMs;
+            // Message-pump wait instead of a condition-variable sleep: a UIA
+            // client thread is expected to service incoming calls, and the
+            // pump keeps the probe's own cross-process UIA calls re-entrant.
+            const ULONGLONG deadline = GetTickCount64() + wait;
+            for (;;) {
+                if (quit.load(std::memory_order_acquire))
                     break;
-                // Probe immediately on start, then a short settle cadence
-                // until the layout is confirmed; afterwards wait for change
-                // events, cooldowns and the idle safety poll. A layout that
-                // is still waiting for its confirming second probe keeps the
-                // short cadence too (kIdlePollMs here would make icon
-                // changes apply only after the next 10 s tick).
-                const DWORD wait = lastShell == nullptr ? 0
-                                   : cooldown           ? cooldown
-                                   : confirmedKey.isEmpty() || pendingKey != confirmedKey
-                                       ? 400
-                                       : kIdlePollMs;
-                wake.wait_for(lock, std::chrono::milliseconds(wait),
-                              [&] { return quit || generation != seenGeneration; });
-                if (quit)
+                if (generation.load(std::memory_order_relaxed) != seenGeneration)
                     break;
+                if (UiaEventGate::epoch().load(std::memory_order_acquire) != seenGateEpoch)
+                    break;
+                const ULONGLONG now = GetTickCount64();
+                if (now >= deadline)
+                    break;
+                // Slice the wait: the gate's epoch bump is a plain atomic, not
+                // a message, so a single long MsgWait would sleep through it
+                // and the picker's bounded suspension wait would time out
+                // before the subscription is dropped (the wedge then returns).
+                const ULONGLONG sliceEnd = now + 100 < deadline ? now + 100 : deadline;
+                const DWORD waited = MsgWaitForMultipleObjectsEx(
+                    0, nullptr, static_cast<DWORD>(sliceEnd - now), QS_ALLINPUT,
+                    MWMO_INPUTAVAILABLE);
+                if (waited == WAIT_OBJECT_0) {
+                    MSG message{};
+                    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+                        if (message.message == WM_QUIT) {
+                            quit.store(true, std::memory_order_release);
+                            break;
+                        }
+                        TranslateMessage(&message);
+                        DispatchMessageW(&message);
+                    }
+                }
             }
+            if (quit.load(std::memory_order_acquire))
+                break;
             seenGeneration = generation;
+            seenGateEpoch = UiaEventGate::epoch().load(std::memory_order_acquire);
             // Startup stage markers: without them a worker that never reaches
             // the probe heartbeat is indistinguishable from a silent UIA stall.
             // Bounded to the first three iterations.
@@ -843,9 +917,21 @@ struct WindowsTaskbarLyric::Worker
             // Coalesce bursts: one probe covers every change within the window.
             Sleep(kDebounceMs);
             HWND shell = findShellTrayWnd();
-            if (shell != lastShell) {
-                // (Re)subscribe structure changes on the current taskbar. Both
-                // add and remove live on IUIAutomation and address the element.
+            if (shell != lastShell)
+                lastShell = shell;
+            // Gate-driven subscription (UiaEventGate.h): drop it while a
+            // native dialog session is open, restore it afterwards. Both the
+            // suspend and the restore happen here, woken by the gate's epoch
+            // bump through the pump wait above.
+            const bool wantSubscription =
+                UiaEventGate::users().load(std::memory_order_acquire) == 0;
+            if (!wantSubscription && subscribed) {
+                if (subscribedHandler)
+                    automation->RemoveStructureChangedEventHandler(subscribed, &handler);
+                subscribed->Release();
+                subscribed = nullptr;
+                subscribedHandler = false;
+            } else if (wantSubscription && (!subscribed || shell != subscribedShell)) {
                 if (subscribed) {
                     if (subscribedHandler)
                         automation->RemoveStructureChangedEventHandler(subscribed, &handler);
@@ -853,19 +939,20 @@ struct WindowsTaskbarLyric::Worker
                     subscribed = nullptr;
                     subscribedHandler = false;
                 }
-                if (shell) {
-                    if (SUCCEEDED(automation->ElementFromHandle(shell, &subscribed)) &&
-                        subscribed) {
-                        subscribedHandler = SUCCEEDED(automation->AddStructureChangedEventHandler(
-                            subscribed, TreeScope_Subtree, nullptr, &handler));
-                    }
-                    if (!subscribedHandler && subscribed) {
-                        subscribed->Release();
-                        subscribed = nullptr;
-                    }
+                if (shell && SUCCEEDED(automation->ElementFromHandle(shell, &subscribed)) &&
+                    subscribed) {
+                    subscribedHandler = SUCCEEDED(automation->AddStructureChangedEventHandler(
+                        subscribed, TreeScope_Subtree, nullptr, &handler));
                 }
-                lastShell = shell;
+                if (subscribed && !subscribedHandler) {
+                    subscribed->Release();
+                    subscribed = nullptr;
+                }
+                subscribedShell = shell;
             }
+            // Drained = no subscription exists. The picker side waits for this
+            // before letting a native dialog initialize.
+            UiaEventGate::publishDrained(subscribed == nullptr);
             TaskbarLayout layout;
             // Self-healing: Qt may silently recreate the native window (style/
             // format churn), which drops the mount. Detect and re-mount.
@@ -985,6 +1072,12 @@ bool WindowsTaskbarLyric::mountWindow(QWindow *window)
 #ifdef Q_OS_WIN
     if (!window)
         return false;
+    if (qEnvironmentVariableIsSet("ECHO_LYRIC_DISABLE_STRIP")) {
+        // Bisection: the strip never joins the taskbar's window tree; the
+        // QQuickWindow stays a plain hidden popup owned by this process.
+        qCInfo(taskbarLyricLog) << "strip mount disabled (ECHO_LYRIC_DISABLE_STRIP)";
+        return false;
+    }
     // Never touch the Qt parent/flags here: QWindow::setParent recreates the
     // platform window, which would leave the mount pointing at a stale handle
     // and drop a fresh top-level window at the default position. The strip is
@@ -1140,15 +1233,14 @@ void WindowsTaskbarLyric::stopWorker()
             m_worker->watcherThread.detach();
     }
     m_worker->quit = true;
-    {
-        std::lock_guard lock(m_worker->mutex);
-        m_worker->wake.notify_all();
-    }
     if (m_worker->thread.joinable()) {
+        // WM_QUIT also breaks the probe's message-pump wait; the quit flag
+        // covers the windows where the pump is inside a probe.
+        const auto handle = reinterpret_cast<HANDLE>(m_worker->thread.native_handle());
+        PostThreadMessageW(GetThreadId(handle), WM_QUIT, 0, 0);
         // Wait with a timeout: the worker may sit in a cross process UIA call
         // that never returns on its own. Letting it finish on its own is safe
         // because the shared state keeps it valid.
-        const auto handle = reinterpret_cast<HANDLE>(m_worker->thread.native_handle());
         if (WaitForSingleObject(handle, 2000) == WAIT_OBJECT_0)
             m_worker->thread.join();
         else

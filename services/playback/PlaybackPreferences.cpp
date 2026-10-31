@@ -12,7 +12,7 @@ PlaybackPreferences::PlaybackPreferences(EchoMusic::SettingsStore &settings, QOb
     : QObject(parent), m_settings(settings)
 {
     m_mvFallback =
-        settings.value(EchoMusic::SettingsKeys::Playback::MvAudioFallbackEnabled, true).toBool();
+        settings.value(EchoMusic::SettingsKeys::Playback::MvAudioFallbackEnabled, false).toBool();
     m_queueMode =
         settings.value(EchoMusic::SettingsKeys::Playback::QueueMode, "context").toString() ==
                 "single"

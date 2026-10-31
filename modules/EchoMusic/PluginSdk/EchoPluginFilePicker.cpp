@@ -1,4 +1,5 @@
 #include "EchoPluginFilePicker.h"
+#include "UiaEventGate.h"
 #include <QFileDialog>
 #include <QGuiApplication>
 #include <QRegularExpression>
@@ -115,11 +116,25 @@ void EchoPluginFilePicker::open()
         m_dialog->winId();
         m_dialog->windowHandle()->setTransientParent(parent);
     }
-    // Qt shows non-exec native dialogs on a worker thread, and that path
-    // deadlocks behind the taskbar lyric (the dialog window is created but
-    // never presented). Run the native dialog as a GUI-thread exec(), queued
-    // so open() still returns immediately and no member frame sits under the
-    // modal loop.
+    // Issue #1 gate: hold it before any native presentation (see
+    // UiaEventGate.h); released when the picker deletes itself with the
+    // dialog.
+    m_gate = std::make_unique<UiaEventGate::Session>();
+    if (!UiaEventGate::waitDrained(1000))
+        qWarning("EchoPluginFilePicker: taskbar lyric did not confirm the UIA "
+                 "subscription suspension in time; opening the dialog anyway");
+    // Qt shows non-exec native dialogs on a worker thread. That path used to
+    // deadlock behind the taskbar lyric (issue #1, fixed at the source: the
+    // lyric's UIA event subscription wedged provider-side event raises). Run
+    // the native dialog as a GUI-thread exec(), queued so open() still
+    // returns immediately and no member frame sits under the modal loop.
+    // Issue #1 diagnostic/regression switch: ECHO_FILE_DIALOG_LEGACY=1 keeps
+    // the worker-thread path reachable for regression verification.
+    if (qEnvironmentVariableIsSet("ECHO_FILE_DIALOG_LEGACY")) {
+        m_presented = true;
+        m_dialog->show();
+        return;
+    }
     m_cancelled = std::make_shared<bool>(false);
     m_inExec = true;
     QPointer<EchoPluginFilePicker> guard(this);

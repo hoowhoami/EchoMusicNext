@@ -1802,6 +1802,11 @@ elif sys.argv[1] == 'dispatch':
         const auto whole = theme.styledFont(base, 25, 650, 0.1, false, false);
         const auto half = theme.styledFont(base, 12.5, 650, 0.1, false, false);
         QCOMPARE(whole.pixelSize(), 25);
+        // The fractional path converts through QFontInfo, which needs a font
+        // engine to report points per pixel. The offscreen platform can expose
+        // no font database at all.
+        if (QFontDatabase::families().isEmpty())
+            QSKIP("This platform exposes no font database to measure");
         QVERIFY(qAbs(half.pointSizeF() * 2 - QFontInfo(whole).pointSizeF()) < 0.01);
         QCOMPARE(half.families(), base.families());
         QCOMPARE(half.weight(), QFont::Weight(650));
@@ -1820,6 +1825,10 @@ elif sys.argv[1] == 'dispatch':
                 break;
             }
         }
+        // Per-surface lyric fonts can only be told apart when the platform
+        // offers a second installed family to select.
+        if (selected.isEmpty())
+            QSKIP("This platform exposes no alternative font family");
         QVERIFY(!selected.isEmpty());
         theme.setGlobalFont(selected);
         QCOMPARE(theme.lyricBaseFont(), theme.applicationFont());

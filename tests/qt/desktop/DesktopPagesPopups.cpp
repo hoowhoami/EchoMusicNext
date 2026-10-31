@@ -50,14 +50,17 @@ void DesktopPagesTest::productionQualityPopupContainsAndScrollsAllOptions()
                     QTRY_VERIFY(qAbs(view->height() - contentHeight) < .5);
                     // Canonical display inputs exercise both two-line states;
                     // these are UI data, not fabricated upstream API samples.
+                    // The option control copies its delegate model as a read-only
+                    // property, so the delegate owner is what accepts an override.
                     for (const auto &quality : playback.qualities()) {
                         auto data = quality.toMap();
                         const auto key = data.value("value").toString();
                         data["detail"] =
                             key == "standard" ? "2.3 MB" : QStringLiteral("暂无该音质");
-                        auto *row = visual(session.window->contentItem(), "playbackOption-" + key);
-                        QVERIFY(row);
-                        row->setProperty("modelData", data);
+                        auto *owner =
+                            visual(session.window->contentItem(), "playbackOptionRow-" + key);
+                        QVERIFY(owner);
+                        owner->setProperty("modelData", data);
                     }
                     QTest::qWait(100);
                     const auto image = session.window->grabWindow();
@@ -129,9 +132,23 @@ void DesktopPagesTest::productionQualityPopupContainsAndScrollsAllOptions()
                         const auto titleInk = inkBounds(titleText);
                         const auto detailInk = inkBounds(detailText);
                         const auto tagInk = inkBounds(tagText);
-                        QVERIFY(titleInk.second >= titleInk.first);
-                        QVERIFY(detailInk.second >= detailInk.first);
-                        QVERIFY(tagInk.second >= tagInk.first);
+                        const auto inkMessage = [&](const char *part, const QPair<int, int> &ink,
+                                                    const QString &text) {
+                            return qPrintable(QString("%1 has no ink for %2 (text=%3, ink=%4..%5)")
+                                                  .arg(part)
+                                                  .arg(key)
+                                                  .arg(text)
+                                                  .arg(ink.first)
+                                                  .arg(ink.second));
+                        };
+                        QVERIFY2(
+                            titleInk.second >= titleInk.first,
+                            inkMessage("title", titleInk, titleText->property("text").toString()));
+                        QVERIFY2(detailInk.second >= detailInk.first,
+                                 inkMessage("detail", detailInk,
+                                            detailText->property("text").toString()));
+                        QVERIFY2(tagInk.second >= tagInk.first,
+                                 inkMessage("tag", tagInk, tag->property("text").toString()));
                         const auto textCenter =
                             (titleInk.first + detailInk.second + 1) / (2 * ratio);
                         const auto tagCenter = (tagInk.first + tagInk.second + 1) / (2 * ratio);

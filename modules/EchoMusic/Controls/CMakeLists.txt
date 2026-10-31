@@ -283,6 +283,7 @@ qt_add_shaders(
 target_link_libraries(
     echo_controls
     PRIVATE echo_build_options
+            echo_platform
             echo_theme
             echo_themeplugin
             Qt6::Widgets

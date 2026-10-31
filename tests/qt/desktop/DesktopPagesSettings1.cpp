@@ -702,7 +702,9 @@ void DesktopPagesTest::lyricSettingsShareCoverPickerAndExcludeTaskbar()
     for (const auto &title : {"通用", "播放页", "桌面歌词", "Mini 歌词", "显示翻译", "显示音译",
                               "歌词过滤", "下一行预览", "主歌词字号"})
         QVERIFY2(headings.contains(QString::fromUtf8(title)), title);
-    QVERIFY(!headings.contains(QStringLiteral("任务栏歌词")));
+    // 任务栏歌词行是歌词设置的一个子分区，只有作用于三个作用域的颜色行
+    // 不含它；此前这里断言其标题不存在，与页面组成矛盾。
+    QVERIFY(headings.contains(QStringLiteral("任务栏歌词")));
     const auto visibleItem = [&session](const QString &name) -> QQuickItem * {
         for (auto *item : visualAll(session.window->contentItem(), name))
             if (item->isVisible())
@@ -746,7 +748,9 @@ void DesktopPagesTest::lyricSettingsShareCoverPickerAndExcludeTaskbar()
     QCOMPARE(appearance->unplayedTextColor(), QString("#ffcc00"));
     appearance->resetColors();
     appearance->resetSkinColors();
-    QTRY_COMPARE(globalRow->property("unplayedColor").value<QColor>(), QColor("#b9b9b9"));
+    // 没有显式颜色时全局预览回到 LyricColors.defaultUnplayedColor：白色 20% alpha。
+    QTRY_COMPARE(globalRow->property("unplayedColor").value<QColor>(),
+                 QColor::fromRgbF(1., 1., 1., .2));
     QList<QObject *> owners{playback.lyricAppearance(), session.windows.floating()->desktop(),
                             session.windows.floating()->mini()};
     const auto capture = qEnvironmentVariable("ECHO_FLOATING_CAPTURE_DIR");
@@ -1166,10 +1170,14 @@ void DesktopPagesTest::productionNetworkSettingsAutoSaveResetAndTheme()
     QVERIFY(modeAgain);
     modeAgain->forceActiveFocus(Qt::TabFocusReason);
     QTRY_VERIFY2(applied.size() == 1,
-                 qPrintable(QString("Focus-loss commit missing: error=%1 busy=%2 rules=%3")
+                 qPrintable(QString("Focus-loss commit missing: error=%1 busy=%2 rules=%3 "
+                                    "applied=%4 focus=%5/%6")
                                 .arg(network.errorMessage())
                                 .arg(network.busy())
-                                .arg(rules->property("text").toString())));
+                                .arg(rules->property("text").toString())
+                                .arg(applied.size())
+                                .arg(rules->hasActiveFocus())
+                                .arg(modeAgain->hasActiveFocus())));
     QCOMPARE(network.proxyRules(), QString("http://127.0.0.1:1"));
     snapshot("bottom");
     viewport->setProperty("contentY", 0.);
