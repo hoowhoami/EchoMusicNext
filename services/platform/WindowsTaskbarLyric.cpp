@@ -729,22 +729,18 @@ struct WindowsTaskbarLyric::Worker
         // owns the queue) but arms no hooks, removing only the hook factor.
         const bool hooksDisabled = qEnvironmentVariableIsSet("ECHO_LYRIC_DISABLE_HOOKS");
         const HWINEVENTHOOK hooks[] = {
-            hooksDisabled
-                ? nullptr
-                : SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
-                                  &Worker::winEventHookProc, 0, 0, selfFlags),
-            hooksDisabled
-                ? nullptr
-                : SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_NAMECHANGE, nullptr,
-                                  &Worker::winEventHookProc, 0, 0, foreignFlags),
-            hooksDisabled
-                ? nullptr
-                : SetWinEventHook(EVENT_SYSTEM_CAPTUREEND, EVENT_SYSTEM_CAPTUREEND, nullptr,
-                                  &Worker::winEventHookProc, 0, 0, foreignFlags),
-            hooksDisabled
-                ? nullptr
-                : SetWinEventHook(EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED, nullptr,
-                                  &Worker::winEventHookProc, 0, 0, foreignFlags),
+            hooksDisabled ? nullptr
+                          : SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+                                            nullptr, &Worker::winEventHookProc, 0, 0, selfFlags),
+            hooksDisabled ? nullptr
+                          : SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_NAMECHANGE, nullptr,
+                                            &Worker::winEventHookProc, 0, 0, foreignFlags),
+            hooksDisabled ? nullptr
+                          : SetWinEventHook(EVENT_SYSTEM_CAPTUREEND, EVENT_SYSTEM_CAPTUREEND,
+                                            nullptr, &Worker::winEventHookProc, 0, 0, foreignFlags),
+            hooksDisabled ? nullptr
+                          : SetWinEventHook(EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED, nullptr,
+                                            &Worker::winEventHookProc, 0, 0, foreignFlags),
         };
         if (hooksDisabled)
             qCInfo(taskbarLyricLog) << "WinEvent hooks disabled (ECHO_LYRIC_DISABLE_HOOKS)";
@@ -862,11 +858,10 @@ struct WindowsTaskbarLyric::Worker
             // waiting for its confirming second probe keeps the short cadence
             // too (kIdlePollMs here would make icon changes apply only after
             // the next 10 s tick).
-            const DWORD wait = lastShell == nullptr ? 0
-                               : cooldown           ? cooldown
-                               : confirmedKey.isEmpty() || pendingKey != confirmedKey
-                                   ? 400
-                                   : kIdlePollMs;
+            const DWORD wait = lastShell == nullptr                                   ? 0
+                               : cooldown                                             ? cooldown
+                               : confirmedKey.isEmpty() || pendingKey != confirmedKey ? 400
+                                                                                      : kIdlePollMs;
             // Message-pump wait instead of a condition-variable sleep: a UIA
             // client thread is expected to service incoming calls, and the
             // pump keeps the probe's own cross-process UIA calls re-entrant.
@@ -886,9 +881,9 @@ struct WindowsTaskbarLyric::Worker
                 // and the picker's bounded suspension wait would time out
                 // before the subscription is dropped (the wedge then returns).
                 const ULONGLONG sliceEnd = now + 100 < deadline ? now + 100 : deadline;
-                const DWORD waited = MsgWaitForMultipleObjectsEx(
-                    0, nullptr, static_cast<DWORD>(sliceEnd - now), QS_ALLINPUT,
-                    MWMO_INPUTAVAILABLE);
+                const DWORD waited =
+                    MsgWaitForMultipleObjectsEx(0, nullptr, static_cast<DWORD>(sliceEnd - now),
+                                                QS_ALLINPUT, MWMO_INPUTAVAILABLE);
                 if (waited == WAIT_OBJECT_0) {
                     MSG message{};
                     while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {

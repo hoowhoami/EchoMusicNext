@@ -1,15 +1,70 @@
 use echo_api::util::{crypto, signature};
 use std::collections::BTreeMap;
 #[test]
-fn automatic_tracker_quality_preserves_empty_quality_and_explicit_origin() {
+fn tracker_rejection_keeps_only_safe_protocol_diagnostics() {
+    // Failure-envelope scalars observed in the local recognize-source capture;
+    // this checks error projection, not an unobserved success response.
+    let bytes = br#"{"status":2,"error_code":"20010","msg":"private upstream text","data":{"auth":"secret"}}"#;
+    let error = echo_api::module::song_url_auth::convert(bytes)
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, "business");
+    assert_eq!(error.code, Some(20010));
+    let value = serde_json::to_value(error).unwrap();
+    assert_eq!(value["diagnostics"]["phase"], "tracker_response");
+    assert_eq!(value["diagnostics"]["service_status"], 2);
+    let encoded = serde_json::to_string(&value).unwrap();
+    assert!(!encoded.contains("private upstream text"));
+    assert!(!encoded.contains("secret"));
+    let no_code = echo_api::module::song_url_auth::convert(br#"{"status":0}"#)
+        .err()
+        .unwrap();
+    assert_eq!(no_code.code, None);
+}
+#[test]
+fn automatic_tracker_quality_uses_reference_wire_default_and_preserves_origin() {
     use echo_api::module::{song_url_auth, song_url_auth_merge::Query};
     let query: Query = serde_json::from_value(serde_json::json!({
         "hash": "105A2705BEEE36A8BED029A8E1A6311D", "album_id": 960399,
         "song_id": 32042818, "quality": "automatic", "origin_page": "356753938"
     }))
     .unwrap();
-    assert_eq!(song_url_auth::tracker_quality(&query), "");
+    // server/module/song_url_auth.js: quality: quality || 128.
+    assert_eq!(song_url_auth::tracker_quality(&query), "128");
     assert_eq!(query.origin_page, "356753938");
+}
+#[test]
+fn user_authorization_uses_status_and_auth_without_an_extra_valid_gate() {
+    use echo_api::module::user_verify;
+    // Input boundary cases from api/music.ts and server/module/user_verify.js;
+    // these are not claims of captured provider responses.
+    for data in [
+        serde_json::json!({"auth":"fixture-only","valid":0}),
+        serde_json::json!({"auth":"fixture-only"}),
+    ] {
+        let response =
+            serde_json::to_vec(&serde_json::json!({"status":1,"error_code":0,"data":data}))
+                .unwrap();
+        let auth = user_verify::convert(&response).unwrap();
+        assert_eq!(auth.authorization, "fixture-only");
+        assert!(!auth.valid);
+    }
+    for invalid in [
+        serde_json::json!(""),
+        serde_json::json!("  "),
+        serde_json::json!(123),
+        serde_json::json!({}),
+    ] {
+        let response = serde_json::to_vec(
+            &serde_json::json!({"status":1,"error_code":0,"data":{"valid":1,"auth":invalid}}),
+        )
+        .unwrap();
+        assert!(user_verify::convert(&response).is_err());
+    }
+    let denied = user_verify::convert(br#"{"status":0,"error_code":35005,"data":""}"#)
+        .err()
+        .unwrap();
+    assert_eq!(denied.kind, "authentication");
 }
 #[test]
 fn captured_tracker_effects_use_magic_protocol_names() {

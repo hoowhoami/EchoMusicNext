@@ -116,6 +116,13 @@ void EchoPluginFilePicker::open()
         m_dialog->winId();
         m_dialog->windowHandle()->setTransientParent(parent);
     }
+#ifndef Q_OS_WIN
+    // Keep non-Windows pickers asynchronous; the common-dialog/UIA workaround
+    // must not place a Cocoa or widget caller under a nested exec frame.
+    m_presented = true;
+    m_dialog->show();
+    return;
+#endif
     // Issue #1 gate: hold it before any native presentation (see
     // UiaEventGate.h); released when the picker deletes itself with the
     // dialog.

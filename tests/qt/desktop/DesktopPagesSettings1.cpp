@@ -327,6 +327,9 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
             };
             for (const auto &name : {"settingsLyricFont", "settingsDesktopLyricFont",
                                      "settingsMiniLyricFont", "settingsTaskbarLyricFont"}) {
+                if (QString::fromLatin1(name) == "settingsTaskbarLyricFont" &&
+                    !session.windows.taskbar()->available())
+                    continue;
                 QQuickItem *select = nullptr;
                 QTRY_VERIFY((select = visual(session.window->contentItem(), name)));
                 scrollIntoView(select);
@@ -367,7 +370,8 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
             QCOMPARE(session.theme.lyricFont(), family);
             QCOMPARE(session.theme.desktopLyricFont(), family);
             QCOMPARE(session.theme.miniLyricFont(), family);
-            QCOMPARE(session.theme.taskbarLyricFont(), family);
+            QCOMPARE(session.theme.taskbarLyricFont(),
+                     session.windows.taskbar()->available() ? family : QString("follow"));
             if (!captures.isEmpty()) {
                 QTest::qWait(100);
                 QVERIFY(session.window->grabWindow().save(
@@ -378,6 +382,9 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
             for (const auto &name :
                  {"settingsLyricFontReset", "settingsDesktopLyricFontReset",
                   "settingsMiniLyricFontReset", "settingsTaskbarLyricFontReset"}) {
+                if (QString::fromLatin1(name) == "settingsTaskbarLyricFontReset" &&
+                    !session.windows.taskbar()->available())
+                    continue;
                 auto *reset = visual(session.window->contentItem(), name);
                 QVERIFY(reset && reset->isVisible());
                 auto *viewport = visual(session.window->contentItem(), "settingsContentViewport");

@@ -8,10 +8,10 @@ use std::collections::BTreeMap;
 type Wire = crate::util::response::Envelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    valid: u32,
-    #[serde(default, deserialize_with = "crate::util::response::text")]
-    auth: String,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    valid: Option<u32>,
+    #[serde(default)]
+    auth: serde_json::Value,
 }
 #[derive(Serialize)]
 pub struct UserAuthorization {
@@ -22,17 +22,33 @@ pub fn convert(bytes: &[u8]) -> Result<UserAuthorization, ApiError> {
     let wire: Wire = request::decode(bytes)?;
     // Its authentication failure contains a string, not the successful auth object.
     if wire.status == 0 && wire.error_code == 35005 {
-        return Err(ApiError::authentication(wire.error_code));
+        return Err(
+            ApiError::authentication(wire.error_code).at_service_response(
+                "user_authorization_response",
+                wire.status,
+                bytes.len(),
+            ),
+        );
     }
-    request::success(wire.status, wire.error_code)?;
+    request::success(wire.status, wire.error_code).map_err(|error| {
+        error.at_service_response("user_authorization_response", wire.status, bytes.len())
+    })?;
     let data: Data =
         crate::util::response::from_value(wire.data).map_err(|_| ApiError::decode())?;
-    if data.valid != 1 || data.auth.is_empty() {
-        return Err(ApiError::new("authentication", "播放授权无效"));
-    }
+    // api/music.ts accepts a successful response with nonempty auth; the
+    // ancillary valid flag is reported, not an extra playback admission gate.
+    let Some(authorization) = data.auth.as_str().filter(|value| !value.trim().is_empty()) else {
+        return Err(
+            ApiError::new("authentication", "播放授权无效").at_service_response(
+                "user_authorization_response",
+                wire.status,
+                bytes.len(),
+            ),
+        );
+    };
     Ok(UserAuthorization {
-        valid: true,
-        authorization: data.auth,
+        valid: data.valid == Some(1),
+        authorization: authorization.into(),
     })
 }
 pub async fn authorization(

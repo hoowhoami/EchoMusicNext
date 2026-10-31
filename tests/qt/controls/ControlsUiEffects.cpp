@@ -674,9 +674,10 @@ void ControlsUiTest::floatingEffectsAreOwnedByVisibleSurfaces()
     session.window->show();
     QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
     session.window->showMinimized();
+    QTRY_COMPARE(session.window->visibility(), QWindow::Minimized);
     QTRY_COMPARE(samplerCount(), 0);
-    if (QGuiApplication::platformName() != "offscreen")
-        QTRY_VERIFY(!session.window->isExposed());
+    // Windows can retain exposure while minimized. Visibility is the public
+    // lifecycle input; actual sampler destruction is the resource contract.
     session.window->showNormal();
     QVERIFY(QTest::qWaitForWindowExposed(session.window));
     QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);

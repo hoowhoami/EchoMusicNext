@@ -11,6 +11,10 @@ pub struct RequestDiagnostics {
     pub received_bytes: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub io_kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_status: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<&'static str>,
 }
 
 impl RequestDiagnostics {
@@ -26,6 +30,8 @@ impl RequestDiagnostics {
             http_status,
             received_bytes,
             io_kind: None,
+            service_status: None,
+            quality: None,
         }
     }
 }
@@ -101,5 +107,15 @@ impl ApiError {
     pub(crate) fn with_diagnostics(mut self, diagnostics: RequestDiagnostics) -> Self {
         self.diagnostics = Some(diagnostics);
         self
+    }
+    pub(crate) fn at_service_response(
+        self,
+        phase: &'static str,
+        status: u32,
+        bytes: usize,
+    ) -> Self {
+        let mut diagnostics = RequestDiagnostics::capture(phase, Instant::now(), None, bytes);
+        diagnostics.service_status = Some(status);
+        self.with_diagnostics(diagnostics)
     }
 }

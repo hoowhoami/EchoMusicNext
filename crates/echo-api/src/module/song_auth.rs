@@ -20,11 +20,19 @@ pub struct SongAuthorization {
 }
 pub fn convert(bytes: &[u8]) -> Result<SongAuthorization, ApiError> {
     let wire: Wire = request::decode(bytes)?;
-    request::success(wire.status, wire.error_code)?;
+    request::success(wire.status, wire.error_code).map_err(|error| {
+        error.at_service_response("song_authorization_response", wire.status, bytes.len())
+    })?;
     let data: Data =
         crate::util::response::from_value(wire.data).map_err(|_| ApiError::decode())?;
     if data.auth.is_empty() {
-        return Err(ApiError::new("authentication", "无法取得歌曲授权"));
+        return Err(
+            ApiError::new("authentication", "无法取得歌曲授权").at_service_response(
+                "song_authorization_response",
+                wire.status,
+                bytes.len(),
+            ),
+        );
     }
     Ok(SongAuthorization {
         authorization: data.auth,

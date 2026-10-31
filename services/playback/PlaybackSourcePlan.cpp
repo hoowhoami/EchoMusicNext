@@ -9,6 +9,35 @@ QString PlaybackSourcePlan::qualityKey(ApiClient::PlaybackQuality quality)
                                   "viper_tape", "viper_clear", "viper_atmos"};
     return keys.value(int(quality));
 }
+QString PlaybackSourcePlan::sourceQuality(const QJsonObject &source,
+                                          const PlaybackSourceCandidate &candidate,
+                                          const QJsonObject &privileges)
+{
+    const auto hash = source.value("hash").toString();
+    const bool automatic = candidate.quality == ApiClient::PlaybackQuality::Automatic;
+    if (!automatic && (hash.isEmpty() || hash.compare(candidate.hash, Qt::CaseInsensitive) == 0))
+        return candidate.resolvedQuality;
+    if (hash.isEmpty())
+        return {};
+    for (const auto &pair :
+         {qMakePair("ogg_standard", "standard"), qMakePair("ogg_high", "higher")})
+        if (hash.compare(privileges.value(pair.first).toObject().value("hash").toString(),
+                         Qt::CaseInsensitive) == 0)
+            return pair.second;
+    auto variants = privileges.value("variants").toArray();
+    variants.prepend(privileges.value("primary"));
+    const QStringList wire{"128",        "320",         "flac",       "high",
+                           "viper_tape", "viper_clear", "viper_atmos"};
+    for (const auto &value : variants) {
+        const auto row = value.toObject();
+        if (hash.compare(row.value("hash").toString(), Qt::CaseInsensitive) != 0)
+            continue;
+        const auto index = wire.indexOf(row.value("quality").toString());
+        if (index >= 0)
+            return qualityKey(ApiClient::PlaybackQuality(index));
+    }
+    return {};
+}
 QJsonObject PlaybackSourcePlan::qualityVariant(ApiClient::PlaybackQuality quality,
                                                const QJsonObject &privileges)
 {
@@ -144,7 +173,6 @@ PlaybackSourcePlan::catalog(const QString &hash, const QJsonObject &privileges,
         }
         return QString();
     };
-    QString fallbackQuality;
     bool hasAccessibleCandidate = false;
     for (int i = order.indexOf(preferred); i >= 0; --i) {
         const bool accessible =
@@ -153,8 +181,6 @@ PlaybackSourcePlan::catalog(const QString &hash, const QJsonObject &privileges,
         const auto variantHash = candidateHash(order[i]);
         if (accessible && !variantHash.isEmpty()) {
             const auto key = qualityKey(order[i]);
-            if (fallbackQuality.isEmpty())
-                fallbackQuality = key;
             result.append({variantHash, order[i], Effect::None, {}, key});
         }
         if (!compatibility)
@@ -164,9 +190,9 @@ PlaybackSourcePlan::catalog(const QString &hash, const QJsonObject &privileges,
     // mode omits descending qualities/default-page fallback, but keeps the
     // explicit compatibility-page request; it is not a lower-quality loop.
     if (compatibility && hasAccessibleCandidate)
-        result.append({hash, Quality::Automatic, Effect::None, {}, fallbackQuality});
+        result.append({hash, Quality::Automatic, Effect::None, {}, {}});
     if (hasAccessibleCandidate)
-        result.append({hash, Quality::Automatic, Effect::None, "356753938", fallbackQuality});
+        result.append({hash, Quality::Automatic, Effect::None, "356753938", {}});
     return result;
 }
 } // namespace EchoMusic

@@ -465,6 +465,7 @@ void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
     for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
         session.theme.setMode(mode);
         for (const int zoom : {100, 125}) {
+            const bool initialMvFallback = playback.preferences()->mvAudioFallbackEnabled();
             session.shell.resetZoom();
             for (int z = 100; z < zoom; z += 5)
                 session.shell.zoomIn();
@@ -485,7 +486,7 @@ void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
             QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
-            QCOMPARE(toggle->property("checked").toBool(), false);
+            QCOMPARE(toggle->property("checked").toBool(), initialMvFallback);
             QVERIFY(Test::prepareNativeInput(session.window));
             QTRY_VERIFY([&] {
                 const auto local = toggle->mapToItem(viewport, {0, 0});
@@ -502,8 +503,9 @@ void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
             QTest::mouseClick(
                 session.window, Qt::LeftButton, Qt::NoModifier,
                 toggle->mapToScene({toggle->width() / 2, toggle->height() / 2}).toPoint());
-            QTRY_VERIFY(playback.preferences()->mvAudioFallbackEnabled());
-            QCOMPARE(session.preferences.value("playback/mvAudioFallbackEnabled").toBool(), true);
+            QTRY_COMPARE(playback.preferences()->mvAudioFallbackEnabled(), !initialMvFallback);
+            QCOMPARE(session.preferences.value("playback/mvAudioFallbackEnabled").toBool(),
+                     !initialMvFallback);
             if (!captures.isEmpty())
                 QVERIFY(session.window->grabWindow().save(
                     captures + QString("/settings-%1-%2.png").arg(int(mode)).arg(zoom)));
@@ -1214,11 +1216,36 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
     const auto click = [](QQuickWindow *window, QQuickItem *item) {
         QVERIFY(item);
         QVERIFY(Test::prepareNativeInput(window));
-        QSignalSpy frame(window, &QQuickWindow::frameSwapped);
-        window->requestUpdate();
-        QTRY_VERIFY(!frame.isEmpty());
+        QPointer<QQuickItem> retained(item);
+        QRectF previous;
+        int stable = 0;
+        for (int turn = 0; turn < 60 && stable < 2; ++turn) {
+            QSignalSpy frame(window, &QQuickWindow::frameSwapped);
+            window->update();
+            QTRY_VERIFY(!frame.isEmpty());
+            QVERIFY(retained);
+            const auto bounds = retained->mapRectToScene(retained->boundingRect());
+            const QRectF windowBounds(QPointF(), QSizeF(window->size()));
+            const bool ready = retained->window() == window &&
+                               window->contentItem()->size() == QSizeF(window->size()) &&
+                               windowBounds.contains(bounds.center());
+            stable = ready && bounds == previous ? stable + 1 : 0;
+            previous = bounds;
+        }
+        QVERIFY2(
+            stable >= 2,
+            qPrintable(
+                QString("Mini scene did not settle: window=%1x%2 content=%3x%4 item=%5,%6 %7x%8")
+                    .arg(window->width())
+                    .arg(window->height())
+                    .arg(window->contentItem()->width())
+                    .arg(window->contentItem()->height())
+                    .arg(previous.x())
+                    .arg(previous.y())
+                    .arg(previous.width())
+                    .arg(previous.height())));
         const auto p = item->mapToScene({item->width() / 2, item->height() / 2}).toPoint();
-        QVERIFY(window->contentItem()->boundingRect().contains(p));
+        QVERIFY(QRectF(QPointF(), QSizeF(window->size())).contains(p));
         Test::moveNativePointer(window, p);
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, p);
     };

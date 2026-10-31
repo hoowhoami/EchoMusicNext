@@ -857,7 +857,7 @@ private slots:
         QCOMPARE(plan[8].quality, Quality::Automatic);
         QVERIFY(plan[8].originPage.isEmpty());
         QCOMPARE(plan[9].originPage, QString("356753938"));
-        QCOMPARE(plan[9].resolvedQuality, QString("viper_tape"));
+        QVERIFY(plan[9].resolvedQuality.isEmpty());
         const auto strict = PlaybackSourcePlan::catalog("original", privileges, Quality::Flac,
                                                         Effect::None, false, true);
         QCOMPARE(strict.size(), 2);
@@ -874,7 +874,7 @@ private slots:
                                                          Effect::None, true, true);
         QCOMPARE(missing.size(), 3);
         QCOMPARE(missing[0].quality, Quality::Flac);
-        QCOMPARE(missing[1].resolvedQuality, QString("flac"));
+        QVERIFY(missing[1].resolvedQuality.isEmpty());
         const auto unknown =
             PlaybackSourcePlan::catalog("original", {}, Quality::HiRes, Effect::None, false, true);
         QCOMPARE(unknown.size(), 1);

@@ -81,11 +81,11 @@ private:
     QList<QUrl> m_selected;
     FileMode m_fileMode = OpenFile;
     int m_options = 0;
-    // The native dialog runs as a GUI-thread exec() queued behind open():
+    // On Windows the native dialog runs as a GUI-thread exec() queued behind open():
     // Qt's worker-thread path for non-exec native dialogs is avoided on
     // principle (it wedged behind the taskbar lyric's UIA event subscription,
     // issue #1 - fixed on the lyric side, and the single-apartment exec is
-    // the safer default anyway).
+    // the safer Windows default anyway). Other platforms show asynchronously.
     // Both flags let a teardown that lands inside the modal loop reject it and
     // defer the dialog's deletion until the exec frame has returned.
     bool m_inExec = false;

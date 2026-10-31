@@ -354,12 +354,36 @@ void click(QQuickWindow *window, QQuickItem *item)
 {
     QPointer<QQuickItem> target(item);
     QVERIFY2(target, "Native click target must be mounted");
+    if (target->window())
+        window = target->window();
     QVERIFY(Test::prepareNativeInput(window));
-    QSignalSpy frames(window, &QQuickWindow::frameSwapped);
-    window->requestUpdate();
-    QTRY_VERIFY(!frames.isEmpty());
-    QVERIFY2(target, "Native click target was retired during window activation");
-    QTRY_VERIFY(target && target->width() > 0 && target->height() > 0);
+    QRectF previous;
+    int stable = 0;
+    bool settled = false;
+    for (int turn = 0; turn < 60 && target; ++turn) {
+        QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+        window->update();
+        if (frames.isEmpty() && !frames.wait(1000))
+            break;
+        if (!target)
+            break;
+        const auto bounds = target->mapRectToScene(target->boundingRect());
+        const bool ready = target->window() == window && target->isVisible() && !bounds.isEmpty() &&
+                           QRectF(QPointF(), window->size()).contains(bounds.center()) &&
+                           window->contentItem()->size() == QSizeF(window->size());
+        stable = ready && bounds == previous ? stable + 1 : 0;
+        if (stable >= 2) {
+            settled = true;
+            break;
+        }
+        previous = bounds;
+    }
+    QVERIFY2(settled, qPrintable(QString("Native click geometry did not settle for %1: %2,%3 %4x%5")
+                                     .arg(target ? target->objectName() : "retired")
+                                     .arg(previous.x())
+                                     .arg(previous.y())
+                                     .arg(previous.width())
+                                     .arg(previous.height())));
     const auto point =
         target->mapToScene(QPointF(target->width() / 2, target->height() / 2)).toPoint();
     Test::moveNativePointer(window, point);
@@ -1098,6 +1122,30 @@ Window {
             visit(visit, list);
             return result;
         };
+        const auto settledPositions = [&](QMap<QString, qreal> &result) {
+            QMap<QString, qreal> previous;
+            qreal previousExtent = -1;
+            int stable = 0;
+            for (int turn = 0; turn < 60; ++turn) {
+                QSignalSpy rendered(window, &QQuickWindow::frameSwapped);
+                window->update();
+                if (rendered.isEmpty() && !rendered.wait(1000))
+                    return false;
+                const auto current = positions();
+                const auto height = list->property("contentHeight").toReal();
+                stable = !list->property("moving").toBool() && current == previous &&
+                                 height == previousExtent
+                             ? stable + 1
+                             : 0;
+                if (stable >= 3) {
+                    result = current;
+                    return !result.isEmpty();
+                }
+                previous = current;
+                previousExtent = height;
+            }
+            return false;
+        };
         const bool measure = qEnvironmentVariableIsSet("ECHO_COMMENTS_PERF");
         const auto footprint = []() -> qint64 {
 #ifdef Q_OS_MACOS
@@ -1154,7 +1202,9 @@ Window {
             }
             QTRY_VERIFY(!list->property("moving").toBool());
             if (direction == -1) {
-                const auto anchored = positions();
+                QMap<QString, qreal> anchored;
+                QVERIFY2(settledPositions(anchored),
+                         "Comment geometry did not settle before pagination");
                 QVERIFY(!anchored.isEmpty());
                 QVERIFY(list->property("contentY").toReal() > 500);
                 auto updated = DetailsTestAccess::row(1);
@@ -1165,14 +1215,21 @@ Window {
                     *song->comments(), 900001,
                     {{"comments", QJsonArray{updated, DetailsTestAccess::row(rowCount + 1)}},
                      {"total", rowCount + 1}});
-                QTest::qWait(120);
-                const auto after = positions();
+                QMap<QString, qreal> after;
+                QVERIFY2(settledPositions(after),
+                         "Comment geometry did not settle after pagination");
                 int retained = 0;
                 for (const auto &[id, y] : anchored.asKeyValueRange())
                     if (after.contains(id)) {
                         ++retained;
                         QVERIFY2(qAbs(after[id] - y) <= 1.,
-                                 "Pagination displaced an existing visible comment");
+                                 qPrintable(QString("Pagination displaced comment %1: %2 -> %3, "
+                                                    "contentY=%4 originY=%5")
+                                                .arg(id)
+                                                .arg(y)
+                                                .arg(after[id])
+                                                .arg(list->property("contentY").toReal())
+                                                .arg(list->property("originY").toReal())));
                     }
                 qInfo() << "comment_pagination_retained_anchors" << retained << "of"
                         << anchored.size();
@@ -1749,10 +1806,10 @@ Window {
         QVERIFY(mvScroll);
         scrollTo(window, mvScroll, next);
         click(window, next);
-        QCOMPARE(mv->versionIndex(), 1);
+        QTRY_COMPARE(mv->versionIndex(), 1);
         auto *prev = visual(window->contentItem(), "mvPreviousVersion");
         click(window, prev);
-        QCOMPARE(mv->versionIndex(), 0);
+        QTRY_COMPARE(mv->versionIndex(), 0);
         for (int cycle = 0; cycle < 3; ++cycle) {
             auto *barrage = visual(window->contentItem(), "mvBarrageButton");
             QVERIFY(barrage);

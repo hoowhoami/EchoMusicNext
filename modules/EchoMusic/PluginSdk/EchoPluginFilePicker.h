@@ -29,13 +29,13 @@ signals:
 
 private:
     QPointer<QFileDialog> m_dialog;
-    // The native dialog runs as a GUI-thread exec() queued behind open(); the
+    // On Windows the native dialog runs as a GUI-thread exec() queued behind open(); the
     // flags keep a teardown that lands inside the modal loop from freeing the
     // dialog under IFileDialog::Show.
     bool m_inExec = false;
     std::shared_ptr<bool> m_cancelled;
     bool m_directory = false;
-    // True once the queued exec actually presented the dialog; an accepted()
+    // True once show(), or the queued Windows exec, presented the dialog; an accepted()
     // arriving before that is a programmatic completion (tests), whose
     // selection has to fall back to the dialog state.
     bool m_presented = false;

@@ -17,6 +17,8 @@ use std::collections::BTreeMap;
 struct Status {
     #[serde(deserialize_with = "crate::util::response::scalar")]
     status: u32,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    error_code: Option<i64>,
 }
 #[derive(Deserialize)]
 struct Wire {
@@ -74,7 +76,11 @@ pub struct PlaybackSource {
 pub fn convert(bytes: &[u8]) -> Result<PlaybackSource, ApiError> {
     let status: Status = request::decode(bytes)?;
     if status.status != 1 {
-        return Err(ApiError::new("business", "音乐服务未返回播放地址"));
+        // Captured tracker failures include numeric error_code (for example
+        // 20010). Keep only protocol counters, never msg/data/URLs/auth tokens.
+        let mut error = ApiError::new("business", "音乐服务未返回播放地址");
+        error.code = status.error_code;
+        return Err(error.at_service_response("tracker_response", status.status, bytes.len()));
     }
     let wire: Wire = request::decode(bytes)?;
     Ok(PlaybackSource {
@@ -104,7 +110,9 @@ pub fn tracker_quality(query: &Query) -> &'static str {
         Quality::ViperTape => "viper_tape",
         Quality::ViperClear => "viper_clear",
         Quality::ViperAtmos => "viper_atmos",
-        Quality::Automatic => "",
+        // EchoMusic passes an empty selector for original-hash fallbacks, but
+        // song_url_auth.js normalizes it with `quality || 128` on the wire.
+        Quality::Automatic => "128",
     };
     match query.effect {
         SoundEffect::None => quality,
@@ -163,5 +171,10 @@ pub async fn resolve(
             vec![],
         )
         .await?;
-    convert(&bytes)
+    convert(&bytes).map_err(|mut error| {
+        if let Some(diagnostics) = &mut error.diagnostics {
+            diagnostics.quality = Some(quality);
+        }
+        error
+    })
 }

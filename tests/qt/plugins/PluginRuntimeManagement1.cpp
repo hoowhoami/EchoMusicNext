@@ -1149,9 +1149,9 @@ ApplicationWindow {
     QCOMPARE(installPackage->property("text").toString(), QString("安装插件"));
     // The picker is the EchoFileDialog QML bridge over a native QFileDialog.
     // Native dialogs run as a GUI-thread exec() queued behind open(); the
-    // modal loop suspends the test frame at its first qWait, so a scheduled
-    // closer dismisses the dialog from inside that loop and records that it
-    // was visible.
+    // Windows' native modal loop suspends the test frame at its first qWait;
+    // the scheduled closer works inside that loop and with asynchronous
+    // pickers, recording that the dialog was visible before dismissal.
     QPointer<QObject> fileDialog;
     bool pickerSeenVisible = false;
     QTimer pickerCloser;
@@ -1174,12 +1174,13 @@ ApplicationWindow {
     QCOMPARE(fileDialog->property("nameFilters").toStringList(),
              QStringList{QString("EchoMusicNext 插件 (*.echomod)")});
     QTRY_VERIFY(pickerSeenVisible);
-    QVERIFY(QMetaObject::invokeMethod(fileDialog, "close"));
+    if (fileDialog)
+        QVERIFY(QMetaObject::invokeMethod(fileDialog, "close"));
     QTRY_VERIFY(!fileDialog);
     pickerCloser.stop();
     // The native picker must remain usable after complete destruction and
     // be released on route retirement as well as explicit close. The route
-    // change lands before the queued exec starts, so close() cancels it.
+    // change must cancel a queued Windows exec or an already shown async picker.
     QVERIFY(QMetaObject::invokeMethod(installPackage, "clicked"));
     fileDialog = root->findChild<QObject *>("pluginPackageFileDialog");
     QVERIFY(fileDialog);

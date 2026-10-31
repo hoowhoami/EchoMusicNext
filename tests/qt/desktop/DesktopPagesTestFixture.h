@@ -750,6 +750,7 @@ struct Session
     ShellSettings shell{preferences};
     WindowController windows;
     ApiClient api{DeviceIdentity::temporary()};
+    QSignalSpy apiClosed{&api, &ApiClient::closed};
     Test::AccountUiFixture accounts{api};
     ProfileService profile{api, accounts.account};
     SearchModel search{api};
@@ -866,7 +867,7 @@ struct Session
     }
     bool clickPlayerAction(const QString &id)
     {
-        if (!settleScene())
+        if (!Test::prepareNativeInput(window) || !settleScene())
             return false;
         QQuickItem *item = nullptr;
         (void)QTest::qWaitFor(
@@ -988,6 +989,11 @@ struct Session
         if (window)
             window->close();
         root.reset();
+        // Shutdown is asynchronous. A new data row must not start while the
+        // previous native runtime still owns sockets, callbacks or threads.
+        // Observe from construction so explicitly closed sessions also work.
+        if (!QTest::qWaitFor([this] { return !apiClosed.isEmpty(); }, 15000))
+            QTest::qFail("Session API runtime did not drain", __FILE__, __LINE__);
     }
 };
 [[maybe_unused]] QByteArray account(quint64 id)

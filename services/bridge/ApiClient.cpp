@@ -961,12 +961,12 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
             summary += QStringLiteral(" code=%1").arg(code.toInteger());
         const auto diagnostics = error.value("diagnostics").toObject();
         // Only fixed protocol labels and counters, never arbitrary error text.
-        for (const auto &key : {"phase", "io_kind"}) {
+        for (const auto &key : {"phase", "io_kind", "quality"}) {
             const auto value = diagnostics.value(key).toString();
             if (!value.isEmpty())
                 summary += QStringLiteral(" %1=%2").arg(QString::fromLatin1(key), value);
         }
-        for (const auto &key : {"elapsed_ms", "http_status", "received_bytes"}) {
+        for (const auto &key : {"elapsed_ms", "http_status", "received_bytes", "service_status"}) {
             const auto value = diagnostics.value(key);
             if (value.isDouble())
                 summary +=

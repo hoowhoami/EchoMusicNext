@@ -63,6 +63,7 @@ include(CTest)
 include(cmake/Rust.cmake)
 
 include(cmake/ProjectOptions.cmake)
+include(cmake/MsvcLinkResponse.cmake)
 include(cmake/TextSegmentation.cmake)
 set(ECHO_RELEASE_VERSION
     "${PROJECT_VERSION}"

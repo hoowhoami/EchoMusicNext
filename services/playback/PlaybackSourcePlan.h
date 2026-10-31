@@ -25,6 +25,11 @@ public:
             ApiClient::PlaybackQuality preferred, ApiClient::SoundEffect effect, bool compatibility,
             bool viperEnabled, MembershipFacts membership = {});
     static QString qualityKey(ApiClient::PlaybackQuality quality);
+    /// Match the returned file, especially for original-hash Automatic requests.
+    /// An empty result means the actual quality is unknown, never the preference.
+    static QString sourceQuality(const QJsonObject &source,
+                                 const PlaybackSourceCandidate &candidate,
+                                 const QJsonObject &privileges);
     static QString qualityAccessReason(ApiClient::PlaybackQuality quality,
                                        MembershipFacts membership, bool viperEnabled,
                                        const QJsonObject &privileges = {});

@@ -125,8 +125,12 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(fixture.picker(), "accept", Qt::DirectConnection));
         QTRY_COMPARE_WITH_TIMEOUT(save->state(), EchoPluginOperation::Succeeded, 15000);
         QVERIFY(QFileInfo(zipPath).size() > 0);
+        // Success publishes the output; capacity is released after physical
+        // cleanup and the storage barrier, not after a guessed time delay.
+        QTRY_VERIFY(assets->isDrained());
         auto *lease = assets->openImageArchive({"meta.json", "pool.json"});
         QVERIFY(lease);
+        QVERIFY2(lease->errorString().isEmpty(), qPrintable(lease->errorString()));
         QTRY_VERIFY(fixture.picker());
         fixture.picker()->selectFile(zipPath);
         QVERIFY(QMetaObject::invokeMethod(fixture.picker(), "accept", Qt::DirectConnection));

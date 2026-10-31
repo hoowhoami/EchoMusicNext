@@ -1325,7 +1325,8 @@ void PlaybackService::setQuality(const QString &quality)
              .contains(quality))
         return;
     m_qualityOverridden = true;
-    if (m_quality == quality && m_sourceKind == "catalog" && m_sourcePreference == "catalog")
+    if (m_quality == quality && m_sourceKind == "catalog" && m_sourcePreference == "catalog" &&
+        (m_resolvedQuality.isEmpty() || m_resolvedQuality == quality))
         return;
     m_sourcePreference = "catalog";
     m_quality = quality;

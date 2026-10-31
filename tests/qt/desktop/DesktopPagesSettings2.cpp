@@ -1222,10 +1222,12 @@ void DesktopPagesTest::productionProfileSettingsAndSidebarOverlays()
              qMin(620.0, parent->height() - (parent->width() <= 640 ? 32 : 96)));
     catalog->select("interface");
     QTRY_VERIFY(visual(session.window->contentItem(), "settingsGlobalFont"));
-    QTRY_VERIFY(!visual(session.window->contentItem(), "settingsDefaultSearch"));
+    // Search recommendations now belong to the same interface section.
+    QTRY_VERIFY(visual(session.window->contentItem(), "settingsDefaultSearch"));
     catalog->select("experimental");
     catalog->setFilter("no-such-option");
     QTRY_VERIFY(!visual(session.window->contentItem(), "settingsGlobalFont"));
+    QTRY_VERIFY(!visual(session.window->contentItem(), "settingsDefaultSearch"));
     QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
     QTRY_VERIFY(dialog.isNull());
     session.router.navigate("settings");

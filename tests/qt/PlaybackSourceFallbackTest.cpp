@@ -82,17 +82,32 @@ public:
         p.m_privileges = rights;
         MembershipServiceTestAccess::ready(p.m_membership);
     }
-    static void observeEngine(PlaybackService &p)
+    static void downshiftedSelection(PlaybackService &p)
     {
-        QObject::connect(&p.m_engine, &AudioEngine::eventReceived, &p, [&p](const QJsonObject &e) {
-            const auto kind = e.value("event").toString();
-            if (kind == "file-loaded" || kind == "error" || kind == "source-switched")
-                qInfo() << "Source probe engine" << kind << "seq" << e.value("seq").toInteger()
-                        << "track" << e.value("track_seq").toInteger() << "revision"
-                        << e.value("source_revision").toInteger() << "expected" << p.m_audioSequence
-                        << p.m_sourceRevision << "source" << p.sourceKind() << "loading"
-                        << p.loading() << "error" << p.errorMessage();
-        });
+        // Domain presentation state of an HQ preference currently playing SD.
+        p.m_quality = "higher";
+        p.m_resolvedQuality = "standard";
+        p.m_sourceKind = p.m_sourcePreference = "catalog";
+    }
+    static void observeEngine(PlaybackService &p, QList<QJsonObject> *acceptedSources = nullptr)
+    {
+        QObject::connect(
+            &p.m_engine, &AudioEngine::eventReceived, &p,
+            [&p, acceptedSources](const QJsonObject &e) {
+                const auto kind = e.value("event").toString();
+                if (acceptedSources &&
+                    e.value("track_seq").toInteger() == qint64(p.m_audioSequence) &&
+                    (kind == "file-loaded" ||
+                     (kind == "source-switched" &&
+                      e.value("source_revision").toInteger() == qint64(p.m_sourceRevision))))
+                    acceptedSources->append(e);
+                if (kind == "file-loaded" || kind == "error" || kind == "source-switched")
+                    qInfo() << "Source probe engine" << kind << "seq" << e.value("seq").toInteger()
+                            << "track" << e.value("track_seq").toInteger() << "revision"
+                            << e.value("source_revision").toInteger() << "expected"
+                            << p.m_audioSequence << p.m_sourceRevision << "source" << p.sourceKind()
+                            << "loading" << p.loading() << "error" << p.errorMessage();
+            });
     }
     static void failAudio(PlaybackService &p)
     {
@@ -164,10 +179,116 @@ class PlaybackSourceFallbackTest : public QObject
 {
     Q_OBJECT
 private slots:
-    void liveCompatibilityUsesHighestAvailableQuality()
+    void selectingQualityDifferentFromActualSourceDoesNotShortCircuit()
     {
-        if (qEnvironmentVariable("ECHO_LIVE_QUALITY_COMPATIBILITY") != "1")
+        Fixture f;
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("settings.ini"));
+        PlaybackService playback(f.api, settings);
+        PlaybackTrack track;
+        track.id = "downshifted-selection";
+        track.hash = hashA;
+        const QJsonObject rights{
+            {"variants", QJsonArray{QJsonObject{{"quality", "128"}, {"hash", hashA}},
+                                    QJsonObject{{"quality", "320"}, {"hash", hashB}}}}};
+        PlaybackServiceTestAccess::seedCatalogSelection(playback, track, rights);
+        PlaybackServiceTestAccess::downshiftedSelection(playback);
+        QCOMPARE(playback.effectiveQuality(), QString("standard"));
+        playback.setQuality("higher");
+        quint64 id = 0;
+        QTRY_VERIFY((id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge")));
+        QCOMPARE(ApiClientTestAccess::query(f.api, id).value("quality").toString(),
+                 QString("higher"));
+        playback.shutdown();
+    }
+    void automaticFallbackUsesReturnedFileQuality_data()
+    {
+        QTest::addColumn<QString>("returnedHash");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("actual-standard") << hashA << QString("standard");
+        QTest::newRow("actual-ogg-high") << QString(32, 'd') << QString("higher");
+        QTest::newRow("unidentified-file") << QString(32, 'e') << QString("unknown");
+    }
+    void automaticFallbackUsesReturnedFileQuality()
+    {
+        QFETCH(QString, returnedHash);
+        QFETCH(QString, expected);
+        Fixture f;
+        QSignalSpy resolved(&f.request, &PlaybackSourceRequest::resolved);
+        PlaybackTrack track;
+        track.id = "automatic-quality";
+        track.hash = hashA;
+        const QJsonObject rights{
+            {"variants", QJsonArray{QJsonObject{{"quality", "128"}, {"hash", hashA}},
+                                    QJsonObject{{"quality", "320"}, {"hash", hashB}},
+                                    QJsonObject{{"quality", "flac"}, {"hash", hashC}}}},
+            {"ogg_high", QJsonObject{{"hash", QString(32, 'd')}}}};
+        f.request.resolve(track, ApiClient::PlaybackQuality::HiRes, ApiClient::SoundEffect::None,
+                          rights, true);
+        for (const auto &quality : {"flac", "higher", "standard"}) {
+            const auto id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+            QVERIFY(id);
+            QCOMPARE(ApiClientTestAccess::query(f.api, id).value("quality").toString(), quality);
+            ApiClientTestAccess::fail(f.api, id);
+        }
+        const auto automatic = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QCOMPARE(ApiClientTestAccess::query(f.api, automatic).value("quality").toString(),
+                 QString("automatic"));
+        auto returned = source("https://example.invalid/automatic");
+        returned.insert("hash", returnedHash);
+        ApiClientTestAccess::finish(f.api, automatic, returned);
+        QCOMPARE(resolved.size(), 1);
+        QCOMPARE(resolved[0][4].toString(), expected);
+    }
+    void liveCatalogQualitySelection_data()
+    {
+        QTest::addColumn<QString>("hash");
+        QTest::addColumn<quint64>("songId");
+        QTest::addColumn<quint64>("albumId");
+        QTest::addColumn<QString>("title");
+        QTest::addColumn<QString>("initialQuality");
+        QTest::addColumn<QString>("targetQuality");
+        QTest::addColumn<QString>("actualQuality");
+        QTest::addColumn<bool>("compatibility");
+        QTest::addColumn<bool>("manual");
+        QTest::newRow("default-hires-descends-to-sq")
+            << QString("25a6f521a0335d52a94627e6da1291cd") << quint64(28006146) << quint64(8513112)
+            << QStringLiteral("星星和雨的夜") << QString("standard") << QString("hi_res")
+            << QString("flac") << true << false;
+        QTest::newRow("yumeng-default-hq-strict")
+            << QString("afb1eed627ae609837004f3ef9cd4e73") << quint64(106489261)
+            << quint64(15462792) << QStringLiteral("遇梦记 (洛天依ver.)") << QString("higher")
+            << QString("higher") << QString("higher") << false << false;
+        QTest::newRow("yumeng-manual-hq-strict")
+            << QString("afb1eed627ae609837004f3ef9cd4e73") << quint64(106489261)
+            << quint64(15462792) << QStringLiteral("遇梦记 (洛天依ver.)") << QString("standard")
+            << QString("higher") << QString("higher") << false << true;
+        QTest::newRow("yumeng-default-hq-compatible")
+            << QString("afb1eed627ae609837004f3ef9cd4e73") << quint64(106489261)
+            << quint64(15462792) << QStringLiteral("遇梦记 (洛天依ver.)") << QString("higher")
+            << QString("higher") << QString("higher") << true << false;
+        QTest::newRow("yumeng-manual-hq-compatible")
+            << QString("afb1eed627ae609837004f3ef9cd4e73") << quint64(106489261)
+            << quint64(15462792) << QStringLiteral("遇梦记 (洛天依ver.)") << QString("standard")
+            << QString("higher") << QString("higher") << true << true;
+        QTest::newRow("yumeng-start-hires-compatible")
+            << QString("afb1eed627ae609837004f3ef9cd4e73") << quint64(106489261)
+            << quint64(15462792) << QStringLiteral("遇梦记 (洛天依ver.)") << QString("hi_res")
+            << QString("hi_res") << QString("higher") << true << false;
+    }
+    void liveCatalogQualitySelection()
+    {
+        if (qEnvironmentVariable("ECHO_LIVE_CATALOG_QUALITY") != "1")
             QSKIP("Opt-in selected account; stdin credentials only");
+        QFETCH(QString, hash);
+        QFETCH(quint64, songId);
+        QFETCH(quint64, albumId);
+        QFETCH(QString, title);
+        QFETCH(QString, initialQuality);
+        QFETCH(QString, targetQuality);
+        QFETCH(QString, actualQuality);
+        QFETCH(bool, compatibility);
+        QFETCH(bool, manual);
         const std::string input((std::istreambuf_iterator<char>(std::cin)),
                                 std::istreambuf_iterator<char>());
         const auto identity = QJsonDocument::fromJson(QByteArray::fromStdString(input)).object();
@@ -182,8 +303,8 @@ private slots:
         QTemporaryDir dir;
         SettingsStore settings(dir.filePath("settings.ini"));
         settings.setValue("playback/volume", 0);
-        settings.setValue("playback/defaultQuality", "standard");
-        settings.setValue("playback/compatibilityMode", true);
+        settings.setValue("playback/defaultQuality", initialQuality);
+        settings.setValue("playback/compatibilityMode", compatibility);
         settings.setValue("playback/transitionMode", "none");
         settings.setValue("playback/mvAudioFallbackEnabled", false);
         NetworkPreferences network(settings, api);
@@ -194,31 +315,57 @@ private slots:
         QVERIFY(api.setAccount(quint64(identity.value("userid").toInteger()),
                                identity.value("token").toString(),
                                identity.value("t1").toString()));
+        QList<QJsonObject> acceptedSources;
         PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"), &network);
-        PlaybackServiceTestAccess::observeEngine(playback);
+        PlaybackServiceTestAccess::observeEngine(playback, &acceptedSources);
+        QSignalSpy playbackClosed(&playback, &PlaybackService::closed);
+        QSignalSpy apiClosed(&api, &ApiClient::closed);
         const auto cleanup = qScopeGuard([&] {
             playback.shutdown();
             api.shutdown();
+            QVERIFY2(QTest::qWaitFor(
+                         [&] { return !playbackClosed.isEmpty() && !apiClosed.isEmpty(); }, 15000),
+                     "Live quality probe did not drain playback and API before teardown");
         });
         PlaybackTrack track;
-        track.id = "28006146";
-        track.hash = "25a6f521a0335d52a94627e6da1291cd";
-        track.songId = 28006146;
-        track.albumId = 8513112;
-        track.title = QStringLiteral("星星和雨的夜");
-        playback.playTracks({track}, 0, "Compatibility verification", "compatibility-verification");
+        track.id = QString::number(songId);
+        track.hash = hash;
+        track.songId = songId;
+        track.albumId = albumId;
+        track.title = title;
+        playback.playTracks({track}, 0, "Catalog quality verification",
+                            "catalog-quality-verification");
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing() || !playback.errorMessage().isEmpty(), 30000);
         QVERIFY2(playback.errorMessage().isEmpty(), qPrintable(playback.errorMessage()));
-        QCOMPARE(playback.resolvedQuality(), QString("standard"));
-        playback.preferences()->setDefaultQuality("hi_res");
-        QTRY_COMPARE(playback.quality(), QString("hi_res"));
-        QTRY_COMPARE_WITH_TIMEOUT(playback.resolvedQuality(), QString("flac"), 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(!acceptedSources.isEmpty(), 30000);
+        QCOMPARE(playback.resolvedQuality(),
+                 initialQuality == targetQuality ? actualQuality : initialQuality);
+        QTRY_VERIFY_WITH_TIMEOUT(playback.clockPosition() > 100, 10000);
+        if (initialQuality != targetQuality) {
+            acceptedSources.clear();
+            if (manual)
+                playback.setQuality(targetQuality);
+            else
+                playback.preferences()->setDefaultQuality(targetQuality);
+            QTRY_COMPARE(playback.quality(), targetQuality);
+            QTRY_COMPARE_WITH_TIMEOUT(playback.resolvedQuality(), actualQuality, 30000);
+            QTRY_VERIFY_WITH_TIMEOUT(!acceptedSources.isEmpty(), 30000);
+        }
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 30000);
-        qInfo() << "Live catalog quality" << playback.quality() << playback.resolvedQuality()
-                << playback.effectiveQuality() << playback.sourceKind();
-        QCOMPARE(playback.resolvedQuality(), QString("flac"));
-        QCOMPARE(playback.preferences()->defaultQuality(), QString("hi_res"));
+        const auto adoptedPosition = playback.clockPosition();
+        QTRY_VERIFY_WITH_TIMEOUT(playback.clockPosition() > adoptedPosition + 100, 10000);
+        QVERIFY2(playback.errorMessage().isEmpty(), qPrintable(playback.errorMessage()));
+        qInfo() << "Live catalog quality" << title << "compatibility" << compatibility << "manual"
+                << manual << playback.quality() << playback.resolvedQuality()
+                << playback.effectiveQuality() << playback.sourceKind() << "position advanced"
+                << playback.clockPosition();
+        QCOMPARE(playback.quality(), targetQuality);
+        QCOMPARE(playback.resolvedQuality(), actualQuality);
+        QCOMPARE(playback.effectiveQuality(), actualQuality);
+        QCOMPARE(playback.sourceKind(), QString("catalog"));
+        QCOMPARE(playback.preferences()->defaultQuality(), manual ? initialQuality : targetQuality);
     }
+
     void changingDefaultUsesLadderUnlessCurrentQualityWasChosen_data()
     {
         QTest::addColumn<bool>("manual");

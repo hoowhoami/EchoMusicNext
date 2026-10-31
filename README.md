@@ -57,7 +57,7 @@
 - Qt **6.12.0** SDK。
 - Rust **1.99.0**，版本由 `rust-toolchain.toml` 固定。
 - CMake **3.28+**、Ninja 和 C++20 编译器。
-- 使用仓库辅助脚本时需要 Python **3.12+**；格式工具另需 Node.js **24** / npm。
+- 使用仓库辅助脚本或 MSVC / Ninja 链接启动器时需要 Python **3.12+**；格式工具另需 Node.js **24** / npm。
 
 #### macOS
 

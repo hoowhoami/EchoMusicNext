@@ -122,6 +122,10 @@ Item {
                 zone: ShellActionModel.Toolbar
             }
             property int reorderEpoch: 0
+            readonly property var reorderLifetime: ({
+                    active: true
+                })
+            Component.onDestruction: reorderLifetime.active = false
             readonly property bool motionActive: visible && bar.window.visible && bar.window.visibility !== Window.Minimized && Theme.store.motionEnabled
             onMotionActiveChanged: if (!motionActive) {
                 moveAnimation.complete();
@@ -176,17 +180,19 @@ Item {
                         const point = toolbar.mapFromItem(null, position.x, position.y);
                         const inside = point.x >= 0 && point.x <= toolbar.width && point.y >= 0 && point.y <= toolbar.height;
                         const epoch = toolbar.reorderEpoch;
+                        const lifetime = toolbar.reorderLifetime;
                         Qt.callLater(() => {
-                            if (epoch === toolbar.reorderEpoch)
+                            if (lifetime.active && epoch === toolbar.reorderEpoch)
                                 toolbarProjection.finishReorder(inside);
                         });
                     }
                     onReorderCanceled: {
                         const epoch = ++toolbar.reorderEpoch;
+                        const lifetime = toolbar.reorderLifetime;
                         // Pool/removal notifications can arrive inside a model
                         // transaction; restore after that notification completes.
                         Qt.callLater(() => {
-                            if (epoch === toolbar.reorderEpoch) {
+                            if (lifetime.active && epoch === toolbar.reorderEpoch) {
                                 toolbarProjection.finishReorder(false);
                                 // A hidden view does not get a render/polish turn.
                                 // Apply its restored order before it is shown again.

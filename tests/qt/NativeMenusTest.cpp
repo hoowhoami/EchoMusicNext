@@ -88,6 +88,10 @@ class NativeMenusTest : public QObject
 private slots:
     void exportedTrayModelSurvivesRemoteCloseAndKeepsActionsCurrent()
     {
+#ifndef Q_OS_LINUX
+        QSKIP("The exported D-BusMenu model is a Linux tray protocol; other platforms use "
+              "temporary menus");
+#endif
         QTemporaryDir dir;
         EchoMusic::SettingsStore settings(dir.filePath("exported-menu.ini"));
         ApiClient api(DeviceIdentity::temporary());

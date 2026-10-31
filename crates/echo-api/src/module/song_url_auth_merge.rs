@@ -17,7 +17,7 @@ pub enum Quality {
     ViperTape,
     ViperClear,
     ViperAtmos,
-    /// Original-hash fallback sends an empty tracker quality, not standard.
+    /// Original-hash fallback; the tracker receives 128 after reference normalization.
     Automatic,
 }
 #[derive(Clone, Copy, Default, Deserialize)]

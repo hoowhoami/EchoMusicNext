@@ -292,7 +292,8 @@ void PlaybackSourceRequest::succeed(quint64 id, const QByteArray &bytes)
             return;
         }
         const auto candidate = m_candidates.value(m_candidateIndex);
-        publish(source, "catalog", candidate.resolvedQuality);
+        publish(source, "catalog",
+                PlaybackSourcePlan::sourceQuality(source, candidate, m_privileges));
     }
 }
 void PlaybackSourceRequest::fail(quint64 id, const QByteArray &bytes)
@@ -386,8 +387,11 @@ void EchoMusic::PlaybackSourceRequest::publish(QJsonObject source, const QString
         m_kind = kind;
         const auto fallback = candidate.value("effect").toString("none") !=
                               extensionContext().value("effect").toString();
+        const auto actualQuality = candidate.value("quality").toString(quality);
+        // Keep the plugin source contract's empty quality, while preventing UI
+        // presentation from falling back to the requested quality as a fact.
         emit resolved(m_track, m_privileges, candidate, fallback,
-                      candidate.value("quality").toString(quality));
+                      actualQuality.isEmpty() ? QStringLiteral("unknown") : actualQuality);
     };
     if (m_extensions && (kind == "catalog" || kind == "cloud"))
         m_extensionJob = m_extensions->transform(kind, extensionContext(), source, this, complete);

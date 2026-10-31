@@ -526,12 +526,16 @@ void DesktopPagesTest::productionCollectionAndSocialEntrypoints()
                 R"({"msgid":"local-ui-ack","tag":"local-ui-tag","addtime":1792242093})");
             QTRY_COMPARE(draft->property("text").toString(), QString());
             QTRY_COMPARE(session.profile.chatMessages().size(), 1);
-            QQuickItem *bubble = nullptr, *meta = nullptr;
-            QTRY_VERIFY((bubble = visual(session.window->contentItem(), "profileChatBubble")) &&
-                        (meta = visual(session.window->contentItem(), "profileChatMeta")));
-            QTest::qWait(100);
-            QVERIFY(qAbs(bubble->mapToScene({bubble->width(), 0}).x() -
-                         meta->mapToScene({meta->width(), 0}).x()) < .01);
+            // The delayed chat refresh can replace both delegates. Look up and
+            // measure the current row in one event turn, without retaining raw
+            // pointers across an asynchronous wait.
+            QTRY_VERIFY([&] {
+                auto *bubble = visual(session.window->contentItem(), "profileChatBubble");
+                auto *meta = visual(session.window->contentItem(), "profileChatMeta");
+                return bubble && meta && bubble->isVisible() && meta->isVisible() &&
+                       qAbs(bubble->mapToScene({bubble->width(), 0}).x() -
+                            meta->mapToScene({meta->width(), 0}).x()) < .01;
+            }());
             if (!capture.isEmpty())
                 QVERIFY(session.window->grabWindow().save(
                     capture + QString("/chat-ack-%1-%2.png").arg(int(mode)).arg(scale)));
@@ -1242,23 +1246,27 @@ void DesktopPagesTest::productionSidebarCardsMenusAndLayout()
     QVERIFY(section && groupEye && rowEye);
     QCOMPARE(groupEye->mapToScene(QPointF(groupEye->width(), 0)).x(),
              rowEye->mapToScene(QPointF(rowEye->width(), 0)).x());
-    QCOMPARE(item("shellDragHandle-favorites")->width(), 16.0);
+    auto *menuReorder = item("sidebarMenuReorder-library");
+    QVERIFY(menuReorder);
+    QVERIFY(menuReorder->property("usable").toBool());
     QVERIFY(capture("sidebar-editor-dark"));
-    auto *historyPointer = item("shellDragPointer-history");
+    auto *historyRow = item("sidebarEditorItem-history");
     auto *first = item("sidebarEditorItem-favorites");
-    QVERIFY(historyPointer && first);
+    QVERIFY(historyRow && first);
     QCOMPARE(popup->property("side").toInt(), 1);
     const auto anchor = popup->property("anchorRect").toRectF();
     QCOMPARE(popup->property("x").toReal(), anchor.right() + 8);
-    const auto dragStart = center(historyPointer);
+    const auto dragStart = center(historyRow);
     const auto dragEnd = first->mapToScene(QPointF(first->width() / 2, 5)).toPoint();
     QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, dragStart);
     QTest::mouseMove(session.window, dragStart + QPoint(0, -10), 20);
     QTest::mouseMove(session.window, dragEnd, 40);
-    auto *dragVisual = historyPointer->parentItem()->findChild<QQuickItem *>("history");
-    QVERIFY(dragVisual);
-    QVERIFY(dragVisual->isVisible());
-    QVERIFY(QQmlProperty(dragVisual, "Drag.active", qmlContext(dragVisual)).read().toBool());
+    QTRY_VERIFY(menuReorder->property("dragging").toBool());
+    QTRY_COMPARE(menuReorder->property("toIndex").toInt(), 0);
+    QQuickItem *dragVisual = nullptr;
+    QTRY_VERIFY((dragVisual = item("sidebarMenuDragCard")) && dragVisual->isVisible());
+    QCOMPARE(layout->data(layout->index(0), SidebarLayoutModel::Key).toString(),
+             QString("favorites"));
     QTest::mouseMove(session.window, dragEnd + QPoint(1, 1), 20);
     QVERIFY(capture("sidebar-editor-dragging"));
     QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, dragEnd);

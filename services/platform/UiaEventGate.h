@@ -82,8 +82,7 @@ inline void publishDrained(bool value)
 /// timeout (caller proceeds; a hung probe must never block a dialog).
 inline bool waitDrained(int timeoutMs)
 {
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(timeoutMs);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
     while (std::chrono::steady_clock::now() < deadline) {
         if (!ownerAlive().load(std::memory_order_acquire) ||
             drained().load(std::memory_order_acquire))

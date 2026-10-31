@@ -1497,6 +1497,10 @@ void EchoPluginAssets::cleanupArchive(const std::shared_ptr<EchoPluginArchiveSes
             retained.append(directory);
             qWarning("Asset archive cleanup failed; its reservation remains charged");
         }
+        // Capacity belongs to the completed cleanup, not the deferred lifetime
+        // of a picker/watcher callback which may still retain this session.
+        if (m_store->archive.lock() == session)
+            m_store->archive.reset();
         if (session->pendingHeld) {
             session->pendingHeld = false;
             --m_store->pending;

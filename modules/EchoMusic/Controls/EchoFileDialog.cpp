@@ -94,6 +94,13 @@ void EchoFileDialog::open()
         emit visibleChanged();
         return;
     }
+#ifndef Q_OS_WIN
+    // The GUI-thread exec workaround is specific to Windows common dialogs.
+    // Cocoa sheets and other helpers retain their nonblocking show/close flow.
+    dialog->show();
+    emit visibleChanged();
+    return;
+#endif
     // Issue #1 gate: native common dialog initialization raises MSAA events
     // (bridged to UIA by oleacc) before it pumps a message, and while the
     // taskbar lyric probe holds a UIA event subscription that delivery can
