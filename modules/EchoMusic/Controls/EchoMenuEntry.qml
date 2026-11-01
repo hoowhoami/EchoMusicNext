@@ -21,7 +21,9 @@ MenuItem {
     bottomPadding: 8 * uiScale
     implicitWidth: Math.max(168 * uiScale, measure.advanceWidth + entry.leftPadding + entry.rightPadding)
     // Hidden rows collapse inside the ListView.
-    implicitHeight: entry.visible ? Math.max(36 * uiScale, body.implicitHeight + entry.topPadding + entry.bottomPadding) : 0
+    // Ceil keeps the ListView's accumulated row offsets on whole DIPs so
+    // EchoMenuSeparator's 1px line never straddles a pixel boundary.
+    implicitHeight: entry.visible ? Math.ceil(Math.max(36 * uiScale, body.implicitHeight + entry.topPadding + entry.bottomPadding)) : 0
     TextMetrics {
         id: measure
         font: entry.font

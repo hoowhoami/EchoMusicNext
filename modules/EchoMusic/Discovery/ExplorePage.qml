@@ -367,8 +367,7 @@ RoutePage {
             SongContextMenu {
                 id: songMenu
                 parent: Overlay.overlay
-                scale: page.settings.uiScale
-                transformOrigin: Popup.TopLeft
+                uiScale: page.settings.uiScale
                 commands: page.actions
                 onClosed: page.menuSongId = ""
             }

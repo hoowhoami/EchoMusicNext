@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import EchoMusic.Shell
+import EchoMusic.Playback
 import EchoMusic.Theme
 import EchoMusic.Controls
 
@@ -10,6 +11,7 @@ ListView {
     required property int zone
     property bool compact: false
     property bool playbackLoading: false
+    property PlaybackService playback: null
     property bool lyricStyle: false
     property ThemeColors colors: Theme.colors
     signal actionAboutToActivate(string id, Item anchor)
@@ -64,6 +66,7 @@ ListView {
             actionHover: slot.actionHover
             actionTooltip: slot.actionTooltip
             badgeTitle: slot.badgeTitle
+            playback: strip.playback
             visualContentActive: !slot.pooled
             projection: strip.zone
             player: true

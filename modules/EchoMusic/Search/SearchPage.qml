@@ -323,8 +323,7 @@ EchoPageScrollContainer {
             SongContextMenu {
                 id: songMenu
                 parent: Overlay.overlay
-                scale: page.uiScale
-                transformOrigin: Popup.TopLeft
+                uiScale: page.uiScale
                 commands: page.service
                 onClosed: page.menuSongId = ""
             }

@@ -181,6 +181,7 @@ Item {
                     spacing: 12
                     colors: bar.colors
                     playbackLoading: bar.playback && bar.playback.loading
+                    playback: bar.playback
                     lyricStyle: bar.lyricStyle
                     actions: bar.actions
                     zone: ShellActionModel.Left
@@ -213,6 +214,7 @@ Item {
                     height: 40
                     colors: bar.colors
                     playbackLoading: bar.playback && bar.playback.loading
+                    playback: bar.playback
                     lyricStyle: bar.lyricStyle
                     actions: bar.actions
                     zone: ShellActionModel.Center
@@ -253,6 +255,7 @@ Item {
                     spacing: 4
                     colors: bar.colors
                     playbackLoading: bar.playback && bar.playback.loading
+                    playback: bar.playback
                     lyricStyle: bar.lyricStyle
                     actions: bar.actions
                     zone: ShellActionModel.Right
