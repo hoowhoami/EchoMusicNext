@@ -296,6 +296,10 @@ EchoPluginRegistration *EchoPluginContext::registerCommand(const QString &id,
 EchoPluginOperation *EchoPluginContext::executeCommand(const QString &id,
                                                        const QVariantMap &arguments)
 {
+    // Presentations (dialogs, windows, UI parts) render the activation's own UI, so their
+    // "plugin" scope dispatches the commands registered on the main context.
+    if (auto *root = activationContext(); root != this)
+        return root->executeCommand(id, arguments);
     if (!m_commands.contains(id))
         return rejected("Unavailable", "Command is not registered");
     return invokeRegistered(m_commands.value(id),

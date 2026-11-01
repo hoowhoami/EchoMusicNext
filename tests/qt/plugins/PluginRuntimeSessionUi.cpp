@@ -2,11 +2,14 @@
 #include "PluginRuntimeEcosystemFixture.h"
 #include "EchoPluginDialog.h"
 #include "ApiInterceptors.h"
+#include "ShellActionModel.h"
 namespace
 {
 EchoPluginContext *sessionPlugin(Host &host)
 {
-    auto path = pluginPackage(host.temporary.path(), "session-ui", "export function activate(c){}",
+    auto path = pluginPackage(host.temporary.path(), "session-ui",
+                              "export function activate(c){ c.registerCommand('panel-ping', "
+                              "(args) => ({ pong: args.n + 1 })); }",
                               {{"capabilities", QJsonArray{"kugouAuth"}}});
     write(path + "/Panel.qml", R"(import QtQuick
 import EchoMusic.PluginSdk
@@ -19,6 +22,16 @@ Item {
     objectName: "sessionUiPanel"
     implicitHeight: content.implicitHeight
     property alias draft: draftInput.text
+    property int pong: 0
+    Component.onCompleted: {
+        const op = panel.plugin.executeCommand('panel-ping', {n: 41})
+        const poll = () => {
+            if (op.state < 2)
+                return Qt.callLater(poll)
+            panel.pong = op.state === 2 ? op.result.pong : -1
+        }
+        Qt.callLater(poll)
+    }
     Column {
         id: content
         width: parent.width
@@ -165,6 +178,9 @@ ApplicationWindow {
     QCOMPARE(host.router.current(), route);
     auto *panel = handle->findChild<QQuickItem *>("sessionUiPanel");
     QVERIFY(panel);
+    // The dialog renders through a presentation scope whose plugin must dispatch the
+    // commands registered on the main context.
+    QTRY_COMPARE(panel->property("pong").toInt(), 42);
     const auto captureDir = qEnvironmentVariable("ECHO_PLUGIN_UI_CAPTURE_DIR");
     if (!captureDir.isEmpty()) {
         QDir().mkpath(captureDir);
@@ -217,6 +233,9 @@ ApplicationWindow {
     QCOMPARE(again->state(), EchoPluginOperation::Succeeded);
     auto *second = again->result().value<EchoPluginDialog *>();
     QVERIFY(second && second->active());
+    auto *reopened = second->findChild<QQuickItem *>("sessionUiPanel");
+    QVERIFY(reopened);
+    QTRY_COMPARE(reopened->property("pong").toInt(), 42);
     auto *secondPopup = second->findChild<QObject *>("pluginDialog");
     QVERIFY(secondPopup);
     QVERIFY(!secondPopup->property("modal").toBool());
@@ -244,4 +263,88 @@ ApplicationWindow {
     QVERIFY(lastHandle);
     mainWindow->hide();
     QTRY_VERIFY(!lastHandle->active());
+}
+void PluginRuntimeTest::pluginTitlebarActionRapidActivationDialogRace()
+{
+    Host host;
+    auto path = pluginPackage(
+        host.temporary.path(), "double-open",
+        "export function activate(c) {"
+        " let n = 0; const results = {};"
+        " c.ui.registerTitlebarActionDefinition('open-panel', {"
+        "  title: '自动组队', icon: 'star', defaultPlacement: 'toolbar',"
+        "  onClick: () => {"
+        "   const op = c.ui.showDialog({component: 'Panel.qml', width: 400});"
+        "   const index = ++n;"
+        "   const poll = () => {"
+        "    if (op.state < 2) return Qt.callLater(poll);"
+        "    results['dialog' + index] = op.state === 2 ? 'ok' : String(op.errorCode);"
+        "    c.ui.setState(results);"
+        "   };"
+        "   Qt.callLater(poll);"
+        " }"
+        " });"
+        "}");
+    write(path + "/Panel.qml", R"(import QtQuick
+import EchoMusic.PluginSdk
+Item {
+    required property EchoPluginContext plugin
+    required property EchoPluginDialog dialog
+    objectName: "racePanel"
+    implicitHeight: 80
+})");
+    host.runtime.importDirectory(path);
+    QVERIFY(QTest::qWaitFor(
+        [&] {
+            return host.runtime.state(host.runtime.installationForId("double-open")) ==
+                   PluginRuntime::Active;
+        },
+        5000));
+    auto *scope = host.runtime.context(host.runtime.installationForId("double-open"));
+    QVERIFY(scope);
+    auto window = ecosystemWindow(host, R"(import QtQuick
+import QtQuick.Controls.Basic
+ApplicationWindow {
+    id: testWindow
+    width: 800; height: 600; visible: true
+})");
+    auto *mainWindow = qobject_cast<QQuickWindow *>(window.get());
+    QVERIFY(mainWindow);
+    host.mainWindow = mainWindow;
+    QVERIFY(QTest::qWaitForWindowExposed(mainWindow));
+    auto *model = host.shell.titlebarActions();
+    QString key;
+    for (int row = 0; row < model->rowCount() && key.isEmpty(); ++row) {
+        const auto index = model->index(row, 0);
+        if (model->data(index, ShellActionModel::IdRole).toString() == "open-panel")
+            key = model->data(index, ShellActionModel::KeyRole).toString();
+    }
+    QVERIFY(!key.isEmpty());
+    const auto activeDialogCount = [scope] {
+        int count = 0;
+        for (auto *dialog : scope->findChildren<EchoPluginDialog *>())
+            count += dialog->active() ? 1 : 0;
+        return count;
+    };
+    const auto closeAll = [scope] {
+        for (auto *dialog : scope->findChildren<EchoPluginDialog *>())
+            dialog->close();
+    };
+    // Back-to-back activations: the action model's busy guard rejects the second
+    // invoke while the first onClick operation is still running, so one dialog opens.
+    QVERIFY(model->activate(key));
+    QVERIFY(!model->activate(key));
+    QTRY_COMPARE(scope->ui()->state().value("dialog1").toString(), "ok");
+    QCOMPARE(activeDialogCount(), 1);
+    closeAll();
+    QTRY_COMPARE(activeDialogCount(), 0);
+    // Spaced re-activation opens a second stacked dialog. A mask press that arrives
+    // while an opening dialog's body still loads cancels that opening operation;
+    // dialog authors must treat the Canceled rejection as a dismissal, not a failure.
+    QVERIFY(model->activate(key));
+    QTRY_COMPARE(scope->ui()->state().value("dialog2").toString(), "ok");
+    QVERIFY(model->activate(key));
+    QTRY_COMPARE(scope->ui()->state().value("dialog3").toString(), "ok");
+    QCOMPARE(activeDialogCount(), 2);
+    closeAll();
 }
