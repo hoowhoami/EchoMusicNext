@@ -554,10 +554,11 @@ Window {
                             glyph: window.playback.volume > 0 ? "volume" : "volume-off"
                             text: qsTr("音量")
                             onClicked: volumePopupOwner.visible ? volumePopupOwner.close() : volumePopupOwner.open()
-                            WheelHandler {
-                                onWheel: event => {
-                                    window.playback.volume += event.angleDelta.y / 120 * 5;
-                                }
+                            PlayerVolumeWheelArea {
+                                anchors.fill: parent
+                                playback: window.playback
+                                wheelStep: 5
+                                enabled: volumeAction.visible && volumeAction.enabled
                             }
                         }
                     }

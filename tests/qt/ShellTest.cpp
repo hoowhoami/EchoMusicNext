@@ -29,6 +29,8 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QNetworkProxy>
+#include <QWheelEvent>
+#include <QPointingDevice>
 #include "BrowserVerificationSession.h"
 #include <QtTest>
 #ifdef Q_OS_MACOS
@@ -2271,6 +2273,208 @@ QtObject {
         QVERIFY(QMetaObject::invokeMethod(popup, "close"));
         QTRY_VERIFY(popup.isNull());
         QCOMPARE(warnings.size(), 0);
+    }
+    void volumeWheelSupportsMouseAndTouchpad_data()
+    {
+        QTest::addColumn<bool>("mini");
+        QTest::addColumn<qreal>("scale");
+        QTest::newRow("playerbar-100") << false << qreal(1);
+        QTest::newRow("playerbar-125") << false << qreal(1.25);
+        QTest::newRow("mini-100") << true << qreal(1);
+        QTest::newRow("mini-125") << true << qreal(1.25);
+    }
+    void volumeWheelSupportsMouseAndTouchpad()
+    {
+        QFETCH(bool, mini);
+        QFETCH(qreal, scale);
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("settings.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, settings);
+        ThemeStore theme(settings);
+        theme.setMotionEnabled(false);
+        RouteController routes;
+        ShellController controller(settings, routes);
+        controller.attachPlayback(playback);
+        WindowController windows(settings, false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        QScopedPointer<QObject> root;
+        QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
+        const auto cleanup = qScopeGuard([&] {
+            windows.shutdown();
+            root.reset();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            controller.shutdown();
+            routes.shutdown();
+            playback.shutdown();
+            api.shutdown();
+            (void)QTest::qWaitFor([&] { return !closed.isEmpty() && !apiClosed.isEmpty(); }, 15000);
+        });
+        if (mini) {
+            auto *floating = windows.floating();
+            floating->setMiniScale(scale);
+            floating->showMini();
+            component.loadUrl(QUrl("qrc:/qt/qml/EchoMusic/Shell/MiniPlayerWindow.qml"));
+            root.reset(component.createWithInitialProperties(
+                {{"service", QVariant::fromValue(floating)},
+                 {"playback", QVariant::fromValue(&playback)}}));
+        } else {
+            component.setData(R"(
+                import QtQuick
+                import EchoMusic.Shell
+                Window {
+                    id: host
+                    required property ShellController controller
+                    required property RouteController router
+                    required property real uiScale
+                    property int passedWheels: 0
+                    visible: true; width: 1400; height: 160
+                    MouseArea {
+                        anchors.fill: parent
+                        onWheel: event => { host.passedWheels++; event.accepted = true; }
+                    }
+                    PlayerBar {
+                        width: parent.width / host.uiScale
+                        height: implicitHeight
+                        scale: host.uiScale; transformOrigin: Item.TopLeft
+                        controller: host.controller; router: host.router; uiScale: host.uiScale
+                    }
+                }
+            )",
+                              QUrl());
+            root.reset(component.createWithInitialProperties(
+                {{"controller", QVariant::fromValue(&controller)},
+                 {"router", QVariant::fromValue(&routes)},
+                 {"uiScale", scale}}));
+        }
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        QQuickItem *volume = nullptr;
+        const QString name = mini ? "miniPlayerVolume" : "playerbar-action-volume";
+        QTRY_VERIFY((volume = findVisibleVisual(window->contentItem(), name)));
+        Test::moveNativePointer(
+            window, volume->mapToScene({volume->width() / 2, volume->height() / 2}).toPoint());
+        if (mini)
+            QTRY_VERIFY(root->property("showControls").toBool());
+        QPointingDevice mouse("volume test mouse", 9001, QInputDevice::DeviceType::Mouse,
+                              QPointingDevice::PointerType::Generic,
+                              QInputDevice::Capability::Position, 1, 3);
+        QPointingDevice touchpad("volume test touchpad", 9002, QInputDevice::DeviceType::TouchPad,
+                                 QPointingDevice::PointerType::Finger,
+                                 QInputDevice::Capability::Position, 1, 0);
+        ulong timestamp = 1000;
+        const auto send = [&](const QPointingDevice *device, QPoint pixels, QPoint angles,
+                              Qt::ScrollPhase phase = Qt::NoScrollPhase, bool inverted = false) {
+            const QPointF point = volume->mapToScene({volume->width() / 2, volume->height() / 2});
+            QWheelEvent event(point, window->mapToGlobal(point.toPoint()), pixels, angles,
+                              Qt::NoButton, Qt::NoModifier, phase, inverted,
+                              Qt::MouseEventNotSynthesized, device);
+            event.setTimestamp(timestamp += 16);
+            event.setAccepted(false);
+            QCoreApplication::sendEvent(window, &event);
+        };
+        const double step = mini ? 5 : 1;
+        playback.setVolume(50);
+        const auto initialPassed = root->property("passedWheels").toInt();
+        send(&mouse, {}, {0, 120}, Qt::NoScrollPhase);
+        QCOMPARE(playback.volume(), 50 + step);
+        if (!mini)
+            QCOMPARE(root->property("passedWheels").toInt(), initialPassed);
+        send(&mouse, {}, {0, -120}, Qt::NoScrollPhase);
+        QCOMPARE(playback.volume(), 50.);
+        for (int index = 0; index < 8; ++index)
+            send(&mouse, {}, {0, 15}, Qt::NoScrollPhase);
+        QCOMPARE(playback.volume(), 50 + step);
+        playback.setVolume(50);
+        send(&touchpad, {}, {}, Qt::ScrollBegin);
+        // Both deltas are often present. Pixels must win, without double counting.
+        send(&touchpad, {0, 10}, {0, 120}, Qt::ScrollUpdate);
+        QCOMPARE(playback.volume(), 50.5);
+        // Qt Quick suppresses a zero-angle ScrollUpdate following an accepted
+        // native event as its compatibility packet. Do not count that twice.
+        send(&touchpad, {0, 10}, {}, Qt::ScrollUpdate);
+        QCOMPARE(playback.volume(), 50.5);
+        for (int index = 0; index < 10; ++index)
+            send(&touchpad, {0, 1}, {0, 2}, Qt::ScrollUpdate);
+        QVERIFY2(qAbs(playback.volume() - 51.) < .000001,
+                 qPrintable(QString("volume=%1 passed=%2")
+                                .arg(playback.volume(), 0, 'g', 16)
+                                .arg(root->property("passedWheels").toInt())));
+        send(&touchpad, {0, -20}, {0, -40}, Qt::ScrollUpdate);
+        QVERIFY(qAbs(playback.volume() - 50.) < .000001);
+        send(&touchpad, {}, {}, Qt::ScrollEnd);
+        // The same physical upward gesture has opposite deltas when the OS
+        // enables natural scrolling. Both must increase this numeric control.
+        send(&touchpad, {0, -20}, {0, -40}, Qt::ScrollUpdate, true);
+        QCOMPARE(playback.volume(), 51.);
+        send(&touchpad, {0, 20}, {0, 40}, Qt::ScrollUpdate, true);
+        QCOMPARE(playback.volume(), 50.);
+        send(&touchpad, {}, {}, Qt::ScrollEnd);
+        send(&touchpad, {0, -10}, {}, Qt::NoScrollPhase, true);
+        QCOMPARE(playback.volume(), 50.5);
+        send(&touchpad, {0, 10}, {}, Qt::NoScrollPhase, true);
+        QCOMPARE(playback.volume(), 50.);
+        send(&touchpad, {}, {0, -120}, Qt::NoScrollPhase, true);
+        QCOMPARE(playback.volume(), 50 + step);
+        send(&touchpad, {}, {0, 120}, Qt::NoScrollPhase, true);
+        QCOMPARE(playback.volume(), 50.);
+        send(&mouse, {}, {0, -120}, Qt::NoScrollPhase, true);
+        QCOMPARE(playback.volume(), 50 + step);
+        send(&mouse, {}, {0, 120}, Qt::NoScrollPhase, true);
+        QCOMPARE(playback.volume(), 50.);
+        // Platforms without scroll phases can also deliver pixel-only input.
+        send(&touchpad, {0, 20}, {});
+        QCOMPARE(playback.volume(), 51.);
+        send(&touchpad, {0, -20}, {});
+        QCOMPARE(playback.volume(), 50.);
+        const auto before = playback.volume();
+        const auto passed = root->property("passedWheels").toInt();
+        send(&touchpad, {20, 0}, {0, 120});
+        send(&touchpad, {20, 1}, {});
+        send(&mouse, {}, {120, 0}, Qt::NoScrollPhase);
+        QCOMPARE(playback.volume(), before);
+        if (!mini)
+            QCOMPARE(root->property("passedWheels").toInt(), passed + 3);
+        // Touchpads without pixel deltas use the existing angle convention.
+        send(&touchpad, {}, {0, 120});
+        QCOMPARE(playback.volume(), before + step);
+        playback.setVolume(149.75);
+        send(&touchpad, {0, 20}, {});
+        QCOMPARE(playback.volume(), 150.);
+        playback.setVolume(.25);
+        send(&touchpad, {0, -20}, {});
+        QCOMPARE(playback.volume(), 0.);
+        playback.setVolume(50);
+        volume->setEnabled(false);
+        send(&touchpad, {0, 20}, {});
+        QCOMPARE(playback.volume(), 50.);
+        volume->setEnabled(true);
+        volume->setVisible(false);
+        send(&mouse, {}, {0, 120}, Qt::NoScrollPhase);
+        QCOMPARE(playback.volume(), 50.);
+        volume->setVisible(true);
+        send(&touchpad, {0, 20}, {});
+        QCOMPARE(playback.volume(), 51.);
+        if (!mini)
+            QCOMPARE(volume->property("tooltipText").toString(), QStringLiteral("音量·51"));
+        QVERIFY(!root->findChild<QObject *>("miniPlayerVolumePopup"));
+        QSignalSpy popups(&controller, &ShellController::playbackPopupRequested);
+        const auto point =
+            volume->mapToScene({volume->width() / 2, volume->height() / 2}).toPoint();
+        Test::moveNativePointer(window, point);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
+        if (mini) {
+            QObject *popup = nullptr;
+            QTRY_VERIFY((popup = root->findChild<QObject *>("miniPlayerVolumePopup")));
+            QTRY_VERIFY(popup->property("opened").toBool());
+            QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        } else {
+            QCOMPARE(popups.size(), 1);
+            QCOMPARE(popups.first().first().toString(), QString("volume"));
+        }
     }
     void playerBarGroupsCenter_data()
     {

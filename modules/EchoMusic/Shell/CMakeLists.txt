@@ -59,6 +59,8 @@ qt_add_qml_module(
     PluginSurfaceModel.cpp
     ShellController.h
     ShellController.cpp
+    PlayerVolumeWheelArea.h
+    PlayerVolumeWheelArea.cpp
     ToastService.h
     ToastService.cpp
     TaskCenterModel.h

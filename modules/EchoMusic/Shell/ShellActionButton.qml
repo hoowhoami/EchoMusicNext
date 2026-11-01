@@ -70,18 +70,10 @@ EchoIconButton {
             }
         }
     }
-    WheelHandler {
-        // Hovering the playerbar volume tile: one wheel notch steps the volume
-        // by 1; setVolume clamps and the tooltip binding follows live.
-        enabled: button.visible && button.visualContentActive && button.player
-                 && button.builtinId === "volume" && button.playback !== null && button.enabled
-        onWheel: event => {
-            // Horizontal-only pans must not step the volume nor swallow the
-            // event; vertical notches accumulate fractionally and setVolume clamps.
-            if (event.angleDelta.y !== 0)
-                button.playback.volume += event.angleDelta.y / 120;
-            event.accepted = true;
-        }
+    PlayerVolumeWheelArea {
+        anchors.fill: parent
+        playback: button.playback
+        enabled: button.visible && button.visualContentActive && button.player && button.builtinId === "volume" && button.playback !== null && button.enabled
     }
     Loader {
         anchors.centerIn: parent
