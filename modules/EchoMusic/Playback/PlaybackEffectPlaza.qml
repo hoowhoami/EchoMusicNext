@@ -8,9 +8,86 @@ import EchoMusic.Playback
 
 Item {
     id: plaza
+    objectName: "effectPlaza"
     required property AudioEffectCatalog catalog
     required property Popup surface
     property bool resourceActive: false
+    property string displayedView: ""
+    property bool restoring: true
+    property bool positioning: false
+    function remember() {
+        const view = brands.visible ? brands : effects;
+        if (!resourceActive || restoring || !displayedView.length || view.count === 0)
+            return;
+        const index = view.indexAt(24, view.contentY + 4);
+        const item = index >= 0 ? view.itemAtIndex(index) : null;
+        catalog.savePosition(displayedView, catalog.keyAt(index), item ? item.y - view.contentY : 0, view.contentY);
+    }
+    function restore() {
+        if (!restoring || positioning || !resourceActive)
+            return;
+        const view = brands.visible ? brands : effects;
+        if (!view.model || view.height <= 0)
+            return;
+        positioning = true;
+        view.forceLayout();
+        const position = catalog.position();
+        const index = position.key ? catalog.indexOfKey(position.key) : -1;
+        if (index >= 0)
+            view.positionViewAtIndex(index, ListView.Beginning);
+        view.forceLayout();
+        const item = index >= 0 ? view.itemAtIndex(index) : null;
+        const y = item ? item.y - position.offset : position.y || 0;
+        const start = view.originY - view.topMargin;
+        view.contentY = Math.max(start, Math.min(y, Math.max(start, view.originY + view.contentHeight - view.height + view.bottomMargin)));
+        positioning = false;
+    }
+    function beginRestore() {
+        displayedView = catalog.viewId;
+        restoring = true;
+        restoreDeadline.restart();
+        Qt.callLater(restore);
+    }
+    function stopRestore() {
+        restoring = false;
+        restoreDeadline.stop();
+    }
+    onResourceActiveChanged: {
+        if (resourceActive) {
+            catalog.browsingActive = true;
+            beginRestore();
+        } else {
+            restoreDeadline.stop();
+            catalog.browsingActive = false;
+        }
+    }
+    Component.onCompleted: {
+        catalog.browsingActive = resourceActive;
+        beginRestore();
+    }
+    Component.onDestruction: {
+        if (catalog)
+            catalog.browsingActive = false;
+    }
+    Timer {
+        id: restoreDeadline
+        interval: 500
+        onTriggered: {
+            plaza.restore();
+            plaza.restoring = false;
+        }
+    }
+    Connections {
+        target: plaza.catalog
+        function onProjectionAboutToChange() {
+            plaza.remember();
+            plaza.restoring = true;
+            restoreDeadline.stop();
+        }
+        function onProjectionChanged() {
+            plaza.beginRestore();
+        }
+    }
     ColumnLayout {
         anchors.fill: parent
         spacing: 9
@@ -67,10 +144,38 @@ Item {
             currentIndex: ["artist", "headphone", "market"].indexOf(plaza.catalog.category)
             onPicked: index => plaza.catalog.selectCategory(["artist", "headphone", "market"][index])
         }
+        EchoTextField {
+            id: search
+            objectName: "effectPlazaSearch"
+            Layout.fillWidth: true
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            size: EchoControlSize.Compact
+            colors: Theme.floating
+            clearable: true
+            maximumLength: 128
+            placeholderText: plaza.catalog.searchPlaceholder
+            text: plaza.catalog.query
+            Accessible.name: placeholderText
+            onTextEdited: if (!inputMethodComposing)
+                plaza.catalog.query = text
+            onInputMethodComposingChanged: if (!inputMethodComposing && activeFocus)
+                plaza.catalog.query = text
+        }
+        Label {
+            objectName: "effectPlazaCoverage"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            text: plaza.catalog.coverageText
+            color: Theme.floating.secondaryText
+            font: Theme.font(9, Theme.regularWeight)
+            elide: Text.ElideRight
+        }
         RowLayout {
             Layout.fillHeight: false
             spacing: 5
-            visible: plaza.catalog.category === "market" || plaza.catalog.brandName.length > 0
+            visible: plaza.catalog.category === "market" || plaza.catalog.brandName.length > 0 || plaza.catalog.query.trim().length > 0
             Layout.fillWidth: true
             Layout.leftMargin: 12
             Layout.rightMargin: 12
@@ -78,11 +183,21 @@ Item {
                 objectName: "effectPlazaSortTabs"
                 compact: true
                 colors: Theme.floating
-                visible: plaza.catalog.category === "market"
+                visible: plaza.catalog.category === "market" && plaza.catalog.query.trim().length === 0
                 Layout.preferredWidth: 220
                 labels: [qsTr("推荐"), qsTr("最热"), qsTr("最新")]
                 currentIndex: plaza.catalog.sort - 2
                 onPicked: index => plaza.catalog.sort = index + 2
+            }
+            EchoTabBar {
+                objectName: "effectPlazaSearchSort"
+                compact: true
+                colors: Theme.floating
+                visible: plaza.catalog.query.trim().length > 0
+                Layout.preferredWidth: 180
+                labels: [qsTr("相关度"), qsTr("原列表顺序")]
+                currentIndex: plaza.catalog.relevance ? 0 : 1
+                onPicked: index => plaza.catalog.relevance = index === 0
             }
             EchoSoftButton {
                 colors: Theme.floating
@@ -115,6 +230,7 @@ Item {
             Layout.fillHeight: true
             ListView {
                 id: effects
+                objectName: "effectPlazaResults"
                 anchors.fill: parent
                 visible: !plaza.catalog.brands
                 clip: true
@@ -128,6 +244,14 @@ Item {
                 rightMargin: 12
                 bottomMargin: 12
                 model: plaza.resourceActive && visible ? plaza.catalog : null
+                onContentYChanged: {
+                    if (moving || dragging || EchoWheelScroll.running)
+                        plaza.stopRestore();
+                    plaza.remember();
+                }
+                onContentHeightChanged: plaza.restore()
+                onHeightChanged: plaza.restore()
+                onCountChanged: plaza.restore()
                 delegate: PlaybackEffectCard {
                     required property int index
                     catalog: plaza.catalog
@@ -146,7 +270,7 @@ Item {
                         anchors.centerIn: parent
                         width: parent.width
                         implicitHeight: 30
-                        visible: plaza.catalog.hasMore && plaza.catalog.rowCount() > 0 && plaza.catalog.errorMessage.length === 0
+                        visible: plaza.catalog.hasMore
                         enabled: !plaza.catalog.loading
                         text: plaza.catalog.loading ? qsTr("加载中…") : qsTr("加载更多")
                         onClicked: plaza.catalog.loadMore()
@@ -156,10 +280,13 @@ Item {
                     surface: plaza.surface
                     view: effects
                     resourceActive: plaza.resourceActive && effects.visible
+                    onPressedChanged: if (pressed)
+                        plaza.stopRestore()
                 }
             }
             GridView {
                 id: brands
+                objectName: "effectPlazaBrands"
                 anchors.fill: parent
                 visible: plaza.catalog.brands
                 clip: true
@@ -173,6 +300,14 @@ Item {
                 cellWidth: (width - 24) / 3
                 cellHeight: 64
                 model: plaza.resourceActive && visible ? plaza.catalog : null
+                onContentYChanged: {
+                    if (moving || dragging || EchoWheelScroll.running)
+                        plaza.stopRestore();
+                    plaza.remember();
+                }
+                onContentHeightChanged: plaza.restore()
+                onHeightChanged: plaza.restore()
+                onCountChanged: plaza.restore()
                 header: Column {
                     width: brands.width - 24
                     height: visible ? implicitHeight : 0
@@ -236,7 +371,7 @@ Item {
                         border.color: brand.hovered ? Theme.floating.accent : Theme.floating.controlBorder
                         color: brand.hovered ? Theme.withAlpha(Theme.floating.accent, .07) : Theme.floating.mutedSurface
                     }
-                    onClicked: plaza.catalog.selectBrand(index)
+                    onClicked: plaza.catalog.activateKey(brand.effect.key)
                 }
                 footer: Item {
                     width: brands.width - 24
@@ -246,7 +381,7 @@ Item {
                         anchors.centerIn: parent
                         width: parent.width
                         implicitHeight: 30
-                        visible: plaza.catalog.hasMore && plaza.catalog.rowCount() > 0 && plaza.catalog.errorMessage.length === 0
+                        visible: plaza.catalog.hasMore
                         enabled: !plaza.catalog.loading
                         text: plaza.catalog.loading ? qsTr("加载中…") : qsTr("更多品牌")
                         onClicked: plaza.catalog.loadMore()
@@ -256,12 +391,14 @@ Item {
                     surface: plaza.surface
                     view: brands
                     resourceActive: plaza.resourceActive && brands.visible
+                    onPressedChanged: if (pressed)
+                        plaza.stopRestore()
                 }
             }
             Label {
                 anchors.centerIn: parent
-                visible: plaza.catalog.rowCount() === 0 && !plaza.catalog.errorMessage.length
-                text: plaza.catalog.loading ? qsTr("正在加载音效…") : qsTr("暂无音效")
+                visible: plaza.catalog.resultCount === 0 && !plaza.catalog.errorMessage.length
+                text: plaza.catalog.searching ? qsTr("正在搜索…") : plaza.catalog.query.trim().length > 0 ? plaza.catalog.complete ? qsTr("没有匹配的音效") : qsTr("已缓存目录中暂无匹配") : plaza.catalog.loading ? qsTr("正在加载音效…") : qsTr("暂无缓存音效")
                 color: Theme.floating.secondaryText
                 font: Theme.font(11, Theme.regularWeight)
             }
@@ -299,13 +436,14 @@ Item {
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             Label {
-                text: qsTr("正在下载音效")
+                text: plaza.catalog.validating ? qsTr("正在联网确认音效…") : qsTr("正在下载音效")
                 font: Theme.font(10, Theme.regularWeight)
                 color: Theme.floating.secondaryText
             }
             ProgressBar {
                 Layout.fillWidth: true
                 value: plaza.catalog.downloadProgress
+                indeterminate: plaza.catalog.validating
             }
         }
     }

@@ -6,10 +6,13 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QLoggingCategory>
+#include <QCoreApplication>
 namespace EchoMusic
 {
 namespace
 {
+Q_LOGGING_CATEGORY(effectDownloads, "echo.playback.effect.download")
 constexpr qint64 limit = 64 * 1024 * 1024;
 bool permitted(const QUrl &url)
 {
@@ -86,6 +89,12 @@ private:
         m_bytes = 0;
         m_throttle.start();
         QNetworkRequest request{QUrl(m_urls[m_url++])};
+        // The resource CDN rejects requests without a User-Agent. Keep the
+        // application identity explicit for both primary and fallback hosts.
+        const auto version = QCoreApplication::applicationVersion().toUtf8();
+        request.setRawHeader("User-Agent", version.isEmpty()
+                                               ? QByteArray("EchoMusicNext")
+                                               : QByteArray("EchoMusicNext/") + version);
         request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                              QNetworkRequest::ManualRedirectPolicy);
         request.setTransferTimeout(20000);
@@ -118,6 +127,10 @@ private:
                 complete(true, {});
                 return;
             }
+            qCDebug(effectDownloads)
+                << "Resource attempt failed" << reply->url().host() << "network_error"
+                << int(reply->error()) << "http_status"
+                << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             m_file.reset();
             next();
         });

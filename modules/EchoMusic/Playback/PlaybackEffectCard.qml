@@ -12,7 +12,7 @@ Rectangle {
     required property AudioEffectCatalog catalog
     required property int row
     property bool resourceActive: true
-    readonly property string unavailable: effect.unavailable_reason || (effect.vpf_urls && effect.vpf_urls.length > 0 ? qsTr("此音效需要支持 VPF 的音效引擎") : "")
+    readonly property string unavailable: effect.needs_validation ? "" : effect.unavailable_reason || (effect.vpf_urls && effect.vpf_urls.length > 0 ? qsTr("此音效需要支持 VPF 的音效引擎") : "")
     implicitHeight: Math.max(64, copy.implicitHeight + 20)
     radius: Theme.cardRadius
     border.width: 1
@@ -69,8 +69,18 @@ Rectangle {
             }
             Label {
                 Layout.fillWidth: true
-                visible: card.unavailable.length > 0 || card.effect.user_count > 0
-                text: card.unavailable.length > 0 ? card.unavailable : card.effect.user_count >= 10000 ? (card.effect.user_count / 10000).toFixed(card.effect.user_count >= 100000 ? 0 : 1) + qsTr(" 万人使用") : String(card.effect.user_count) + qsTr(" 人使用")
+                visible: !!card.effect.aliases && card.effect.aliases.length > 0
+                text: qsTr("适用型号：") + [card.effect.name].concat(Array.from(card.effect.aliases || [])).join(" / ")
+                color: Theme.floating.secondaryText
+                font: Theme.font(9, Theme.regularWeight)
+                wrapMode: Text.Wrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: card.effect.needs_validation || card.unavailable.length > 0 || card.effect.user_count > 0
+                text: card.effect.needs_validation ? qsTr("本地缓存 · 使用前联网确认") : card.unavailable.length > 0 ? card.unavailable : card.effect.user_count >= 10000 ? (card.effect.user_count / 10000).toFixed(card.effect.user_count >= 100000 ? 0 : 1) + qsTr(" 万人使用") : String(card.effect.user_count) + qsTr(" 人使用")
                 font: Theme.font(card.unavailable.length > 0 ? 9 : 10, Theme.regularWeight)
                 color: Theme.floating.secondaryText
                 wrapMode: Text.Wrap
@@ -92,8 +102,8 @@ Rectangle {
             accent: !!card.effect.active
             enabled: card.unavailable.length === 0 && !card.effect.active && !card.catalog.downloading
             glyph: card.effect.active ? "check" : card.effect.downloaded || card.unavailable.length > 0 ? "" : "cloud-download"
-            text: card.effect.active ? qsTr("使用中") : card.unavailable.length > 0 ? qsTr("不可用") : card.effect.downloaded ? qsTr("使用") : qsTr("下载")
-            onClicked: card.catalog.activate(card.row)
+            text: card.effect.active ? qsTr("使用中") : card.unavailable.length > 0 ? qsTr("不可用") : card.effect.downloaded ? qsTr("使用") : card.effect.needs_validation ? qsTr("验证并下载") : qsTr("下载")
+            onClicked: card.catalog.activateKey(card.effect.key || "")
         }
     }
 }

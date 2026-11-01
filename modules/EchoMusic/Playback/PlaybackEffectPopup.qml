@@ -101,8 +101,6 @@ EchoAnchoredPopup {
                         }
                         onClicked: {
                             popup.tab = index;
-                            if (index === 3 && popup.catalog.rowCount() === 0 && !popup.catalog.loading)
-                                popup.catalog.refresh();
                         }
                     }
                 }

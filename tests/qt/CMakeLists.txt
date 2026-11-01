@@ -809,6 +809,36 @@ add_test(NAME crash-diagnostics COMMAND echo-crash-diagnostics-test)
 set_tests_properties(crash-diagnostics PROPERTIES TIMEOUT 180)
 
 qt_add_executable(echo-playback-test PlaybackTest.cpp)
+qt_add_executable(echo-effect-catalog-test AudioEffectCatalogTest.cpp)
+qt_add_qml_module(
+    echo-effect-catalog-test URI EchoMusic.EffectSearchTests QML_FILES EffectSearchHarness.qml
+)
+target_link_libraries(
+    echo-effect-catalog-test
+    PRIVATE echo_playback
+            echo_playbackplugin
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            Qt6::Widgets
+            Qt6::QuickControls2
+            Qt6::Test
+            Qt6::Sql
+)
+add_test(
+    NAME effect-catalog
+    COMMAND
+        echo-effect-catalog-test searchAcrossPagesAndStableActivation
+        relevantOrderAndSupersededSearch categoriesBrandsAndAliasesRetainTheirQueries
+        completenessPauseResumeAndRepeatedPage diskCacheNeverRestoresAuthorizationOrSignedUrls
+        validationFindsLaterPagesAndRetiresRemovedEntries cacheFailuresAndTruncatedCoverage
+        largeDirectorySearchAndCoverageLimit
+)
+set_tests_properties(effect-catalog PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+add_test(NAME effect-catalog-ui COMMAND echo-effect-catalog-test productionPopupSearchAndReopen)
+set_tests_properties(effect-catalog-ui PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+echo_copy_rust_runtime(echo-effect-catalog-test)
 qt_add_executable(echo-player-engine-settings-test PlayerEngineSettingsTest.cpp)
 target_link_libraries(echo-player-engine-settings-test PRIVATE echo_playback_service Qt6::Test)
 add_test(NAME player-engine-settings COMMAND echo-player-engine-settings-test)
@@ -1568,6 +1598,7 @@ set(ECHO_RENDERED_TEST_GROUPS
     song-playback-ui
     shell
     playback-page
+    effect-catalog-ui
     discovery
     details
     ${ECHO_DESKTOP_TEST_GROUPS}
@@ -1644,6 +1675,7 @@ if(APPLE)
     foreach(
         echo_test_target IN
         ITEMS echo-song-playback-ui-test
+              echo-effect-catalog-test
               echo-controls-ui-test
               echo-tab-count-alignment-test
               echo-background-banding-test
@@ -1669,7 +1701,9 @@ if(APPLE)
 endif()
 
 if(APPLE)
-    foreach(echo_native_ui_target IN ITEMS echo-controls-ui-test echo-desktop-pages-test)
+    foreach(echo_native_ui_target IN ITEMS echo-controls-ui-test echo-desktop-pages-test
+                                           echo-effect-catalog-test
+    )
         set_target_properties(
             ${echo_native_ui_target}
             PROPERTIES MACOSX_BUNDLE TRUE

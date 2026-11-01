@@ -12,6 +12,10 @@ add_library(
     SongShareText.cpp
     AudioEffectCatalog.h
     AudioEffectCatalog.cpp
+    AudioEffectCatalogCache.h
+    AudioEffectCatalogCache.cpp
+    AudioEffectSearch.h
+    AudioEffectSearch.cpp
     DspProviderRegistry_p.h
     DspProviderRegistry.h
     DspProviderRegistry.cpp
