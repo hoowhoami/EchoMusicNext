@@ -271,6 +271,19 @@ quint64 ApiClient::registerDevice()
 {
     return m_auth->registerDevice();
 }
+QString ApiClient::pluginAuthorizationSnapshot() const
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    return ApiInterceptChain::logicalAuthorization({{"token", m_token},
+                                                    {"userid", qint64(m_userId)},
+                                                    {"t1", m_t1},
+                                                    {"dfid", m_device.dfid},
+                                                    {"mid", m_device.mid},
+                                                    {"uuid", m_device.uuid},
+                                                    {"guid", m_device.guid},
+                                                    {"device_name", m_device.deviceName},
+                                                    {"mac", m_device.mac}});
+}
 QString ApiClient::diagnosticAuthorization() const
 {
     QStringList parts;

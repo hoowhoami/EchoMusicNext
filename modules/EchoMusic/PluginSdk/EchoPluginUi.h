@@ -58,6 +58,7 @@ public:
                                                                         const QJSValue &definition);
     Q_INVOKABLE EchoMusic::EchoPluginRegistration *registerSongMenuItem(const QString &id,
                                                                         const QJSValue &definition);
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *showDialog(const QVariantMap &options);
     Q_INVOKABLE bool setState(const QVariantMap &values);
     Q_INVOKABLE EchoMusic::EchoPluginRegistration *
     registerSurface(const QString &id, const QString &target, const QString &component);

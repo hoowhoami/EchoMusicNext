@@ -1,3 +1,4 @@
+#include "EchoPluginDialog.h"
 #include "PluginSdkContract.h"
 #include "EchoPluginContext.h"
 #include "EchoPluginTask.h"
@@ -106,6 +107,8 @@ QJsonObject pluginSdkContract()
                                         &EchoPluginContext::staticMetaObject,
                                         &EchoPluginPlayer::staticMetaObject,
                                         &EchoPluginReadModel::staticMetaObject,
+                                        &EchoPluginDialog::staticMetaObject,
+                                        &EchoPluginClipboard::staticMetaObject,
                                         &EchoPluginUi::staticMetaObject,
                                         &EchoPluginIo::staticMetaObject,
                                         &EchoPluginBackups::staticMetaObject,

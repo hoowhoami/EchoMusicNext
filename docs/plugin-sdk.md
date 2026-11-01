@@ -153,3 +153,11 @@ Qt组件纹理可通过EchoGpuSurface.importTextureSource借用到RHI采样：�
 
 
 字形图集使用 `GlyphRun` 与 `EchoGpuSurface.importGlyphAtlas`：原生字体准备、回退/连字/RTL 和默认绘制继续保留；租约提供实际 GPU ink 页、UTF-16 安全范围、UV/局部几何、原生指标及代际。`atlasOnly` 允许客户端拥有完整绘制。按插件/账号隔离，隐藏/暂停/停用回收，设备恢复整体发布；作者说明见[字形图集指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/gpu-glyph-atlases.md)。
+
+### 会话快照、主窗口弹窗与剪贴板
+
+`ctx.kugou.authSnapshot()` 需要声明 `kugouAuth` 并由用户单独授权，返回 `{ Authorization, revision }`。Authorization 与 `server.intercept` API 阶段的同名头一致：token、userid、t1、dfid、KUGOU_API_MID、uuid、KUGOU_API_GUID、KUGOU_API_DEV、KUGOU_API_MAC；空值省略。它只读当前内存会话，不发请求、不等流量。订阅 `ctx.kugou.accountChanged` 后重新读取，处理取消与拒绝；不要记录或持久化该结果。普通 `kugouApi` 不允许此读取。
+
+`ctx.ui.showDialog({ component: 'Panel.qml', width: 400, modal: true, closeOnMask: true })` 返回 operation，正文准备完成后得到 `EchoPluginDialog` 句柄；`close()` 关闭，`active`/`closed` 通知生命周期。可选 `title` 默认插件名，width 为160..2048逻辑px并受主窗口约束。QML 根必须是 Item，声明 `required property EchoPluginContext plugin` 和 `required property EchoPluginDialog dialog`，通过 `dialog.close()` 关闭。默认模态、Escape关闭及点击遮罩关闭，使用共享主题、应用缩放和浮层；不离开路由、不创建OS窗口。取消打开operation、账号变化、调用者退休或宿主隐藏会清理，最小化保留实例。最多同时8个弹窗，正文自行提供自然高度及必要滚动。
+
+`ctx.clipboard.write(text)` 返回可等待的operation，写系统文本剪贴板，上限1MiB UTF-8，可传空文本；不读取剪贴板、不需要焦点。账号变化/停用会取消尚未执行的写入。三项能力可分别通过 `kugou.authSnapshot`、`ui.dialogs`、`clipboard.write` feature 声明。

@@ -138,7 +138,10 @@ QStringList PluginPackage::supportedFeatures()
                          "appearance.metadata",
                          "appearance.lyricIcons",
                          "ui.presentationClosing",
-                         "ui.presentationVisibility"};
+                         "ui.presentationVisibility",
+                         "kugou.authSnapshot",
+                         "ui.dialogs",
+                         "clipboard.write"};
 #ifdef ECHO_HAS_ICU_SEGMENTATION
     features.append("text.segmentation");
 #endif
@@ -155,6 +158,7 @@ QStringList PluginPackage::supportedCapabilities()
             "lyrics",
             "lyricEffects",
             "kugouApi",
+            "kugouAuth",
             "kugouVerification",
             "backups",
             "sqlite",

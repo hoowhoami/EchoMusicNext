@@ -41,6 +41,9 @@
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QBuffer>
 #include <QtTest>
 #ifdef Q_OS_WIN
 #include "WindowsWindowBackdrop.h"
@@ -64,6 +67,14 @@ public:
         service.m_track.cover = source;
         service.m_track.title = QStringLiteral("Transparent playback material");
         emit service.changed();
+    }
+    static quint64 artworkSequence(const PlaybackService &service)
+    {
+        return service.m_sequence;
+    }
+    static void lateArtwork(PlaybackService &service, quint64 sequence)
+    {
+        emit service.m_artwork.ready(sequence, QByteArray("retired pixels"), Qt::blue);
     }
 };
 } // namespace EchoMusic
@@ -1762,6 +1773,185 @@ elif sys.argv[1] == 'dispatch':
         session.shellController.toasts()->dismiss(id);
         QCOMPARE(warnings.count(), 0);
     }
+    void trackAccentWaitsForReplacementArtwork_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<double>("zoom");
+        QTest::newRow("light-100") << false << 1.;
+        QTest::newRow("light-125") << false << 1.25;
+        QTest::newRow("dark-100") << true << 1.;
+        QTest::newRow("dark-125") << true << 1.25;
+    }
+    void trackAccentWaitsForReplacementArtwork()
+    {
+        QFETCH(bool, dark);
+        QFETCH(double, zoom);
+        ThemeSession session;
+        session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+        for (int step = 0; step < qRound((zoom - 1) * 20); ++step)
+            session.shell.zoomIn();
+        session.theme.useCoverAccent();
+        QVERIFY(session.create());
+        PlaybackService playback(session.api, session.preferences);
+        playback.preferences()->setAutoNext(false);
+        // Same binding as AccountBootstrap; all observers see every published
+        // state, including synchronous selection and asynchronous decode.
+        connect(&playback, &PlaybackService::changed, &session.theme,
+                [&] { session.theme.setCoverColor(playback.coverColor()); });
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        QHash<QString, QPointer<QTcpSocket>> requests;
+        QList<QColor> colors;
+        const auto shutdown = qScopeGuard([&] {
+            playback.shutdown();
+            (void)QTest::qWaitFor([&] { return !closed.isEmpty(); }, 15000);
+        });
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (auto *socket = server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, &server, [&, socket] {
+                    const auto bytes =
+                        socket->property("request").toByteArray() + socket->readAll();
+                    socket->setProperty("request", bytes);
+                    if (bytes.contains("\r\n\r\n"))
+                        requests.insert(QString::fromLatin1(bytes.split(' ').value(1)), socket);
+                });
+            }
+        });
+        const auto respond = [&](const QString &path, const QColor &color) {
+            auto *socket = requests.value(path).data();
+            if (!socket || socket->state() != QAbstractSocket::ConnectedState)
+                return false;
+            QImage image(32, 32, QImage::Format_RGB32);
+            image.fill(color);
+            QByteArray bytes;
+            QBuffer buffer(&bytes);
+            buffer.open(QIODevice::WriteOnly);
+            if (!image.save(&buffer, "PNG"))
+                return false;
+            socket->write("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: " +
+                          QByteArray::number(bytes.size()) + "\r\nConnection: close\r\n\r\n" +
+                          bytes);
+            socket->disconnectFromHost();
+            return true;
+        };
+        const auto song = [&](int index, const QString &path) {
+            PlaybackTrack track;
+            track.id = QString::number(index);
+            track.title = QString("Artwork %1").arg(index);
+            track.localPath = session.directory.filePath(QString("missing-%1.wav").arg(index));
+            if (!path.isEmpty())
+                track.cover = QString("http://127.0.0.1:%1%2").arg(server.serverPort()).arg(path);
+            return track;
+        };
+        const auto capture = [&](const QString &stage) {
+            render(session.window);
+            const auto directory = qEnvironmentVariable("ECHO_THEME_SCREENSHOTS");
+            if (directory.isEmpty())
+                return true;
+            QDir().mkpath(directory);
+            return session.window->grabWindow().save(
+                directory + QString("/track-accent-%1-%2.png").arg(QTest::currentDataTag(), stage));
+        };
+        const QColor red("#d03050"), green("#20b060");
+        playback.playTracks({song(1, "/red")}, 0, "Artwork", "artwork-test");
+        QTRY_VERIFY(requests.contains("/red"));
+        QVERIFY(respond("/red", red));
+        QTRY_COMPARE(playback.coverColor(), red);
+        QVERIFY(capture("red"));
+        connect(&playback, &PlaybackService::changed, &playback,
+                [&] { colors.append(playback.coverColor()); });
+        playback.playTracks({song(2, "/blue")}, 0, "Artwork", "artwork-test");
+        const auto retired = PlaybackServiceTestAccess::artworkSequence(playback);
+        QTRY_VERIFY(requests.contains("/blue"));
+        QCOMPARE(playback.coverColor(), red);
+        QCOMPARE(session.theme.accent(), normalizeAccent(red, dark));
+        QVERIFY(capture("waiting"));
+        // Select again before the previous HTTP response arrives.
+        playback.playTracks({song(3, "/green")}, 0, "Artwork", "artwork-test");
+        QTRY_VERIFY(requests.contains("/green"));
+        PlaybackServiceTestAccess::lateArtwork(playback, retired);
+        QCOMPARE(playback.coverColor(), red);
+        QVERIFY(respond("/green", green));
+        QTRY_COMPARE(playback.coverColor(), green);
+        QCOMPARE(session.theme.accent(), normalizeAccent(green, dark));
+        QVERIFY(capture("green"));
+        // Empty metadata, failed download and an achromatic image cannot
+        // introduce a default-color pulse either.
+        playback.playTracks({song(4, {})}, 0, "Artwork", "artwork-test");
+        playback.loadCurrentArtwork();
+        QCOMPARE(playback.coverColor(), green);
+        playback.playTracks({song(5, "/failure")}, 0, "Artwork", "artwork-test");
+        QTRY_VERIFY(requests.contains("/failure"));
+        requests.value("/failure")->abort();
+        playback.playTracks({song(6, "/gray")}, 0, "Artwork", "artwork-test");
+        QTRY_VERIFY(requests.contains("/gray"));
+        QVERIFY(respond("/gray", QColor("#808080")));
+        QTRY_VERIFY(!playback.coverPng().isEmpty());
+        QCOMPARE(playback.coverColor(), green);
+        QVERIFY(!colors.isEmpty());
+        for (const auto &color : colors)
+            QVERIFY(color == red || color == green);
+        // A regenerated theme cover must keep both its texture and rounded
+        // presentation while Image.Loading. Exercise every themed recipe
+        // through the same controlled network delay, with real rendered pixels.
+        const QStringList recipes{"Music/ThemedIconCover", "Discovery/DiscoveryThemedCover",
+                                  "Discovery/FreeListenCover"};
+        const bool gpuRendering =
+            session.window->rendererInterface()->graphicsApi() != QSGRendererInterface::Software;
+        for (int index = 0; index < recipes.size(); ++index) {
+            QQmlComponent component(&session.engine,
+                                    QUrl("qrc:/qt/qml/EchoMusic/" + recipes[index] + ".qml"));
+            QVariantMap properties{
+                {"width", 120}, {"height", 120}, {"x", 350}, {"y", 100}, {"z", 10000}};
+            if (index == 0)
+                properties.insert("iconPath", "M9 18V5l12-2v13");
+            QScopedPointer<QQuickItem> cover(
+                qobject_cast<QQuickItem *>(component.createWithInitialProperties(properties)));
+            QVERIFY2(cover, qPrintable(component.errorString()));
+            cover->setParentItem(session.window->contentItem());
+            cover->setTransformOrigin(QQuickItem::TopLeft);
+            cover->setScale(zoom);
+            QTRY_COMPARE(cover->property("status").toInt(), 1); // Image.Ready
+            render(session.window);
+            const qreal dpr = qreal(session.window->grabWindow().width()) / session.window->width();
+            const QRect region(qRound((350 + 5 * zoom) * dpr), qRound((100 + 5 * zoom) * dpr),
+                               qRound(110 * zoom * dpr), qRound(110 * zoom * dpr));
+            const auto before = session.window->grabWindow().copy(region);
+            QVERIFY(capture(QString("cover-%1-before").arg(index)));
+            QPointer<QQuickItem> mask = visual(cover.data(), "coverMaskEffect");
+            QVERIFY(mask);
+            const auto path = QString("/theme-cover-%1").arg(index);
+            cover->setProperty("source",
+                               QString("http://127.0.0.1:%1%2").arg(server.serverPort()).arg(path));
+            QTRY_VERIFY(requests.contains(path));
+            QCOMPARE(cover->property("status").toInt(), 2); // Image.Loading
+            QVERIFY(cover->property("hasArtwork").toBool());
+            QCOMPARE(visual(cover.data(), "coverMaskEffect"), mask.data());
+            render(session.window);
+            if (gpuRendering)
+                QCOMPARE(session.window->grabWindow().copy(region), before);
+            QVERIFY(capture(QString("cover-%1-waiting").arg(index)));
+            QVERIFY(respond(path, green));
+            QTRY_COMPARE(cover->property("status").toInt(), 1);
+            render(session.window);
+            QVERIFY(capture(QString("cover-%1-ready").arg(index)));
+            if (gpuRendering)
+                QTRY_VERIFY_WITH_TIMEOUT(
+                    (session.window->update(), session.window->grabWindow().copy(region) != before),
+                    3000);
+            cover->setProperty("resourceActive", false);
+            QTRY_VERIFY(!visual(cover.data(), "coverMaskEffect"));
+            QVERIFY(!cover->property("hasArtwork").toBool());
+        }
+        playback.stop();
+        QCOMPARE(playback.coverColor(), green);
+        playback.queue()->clear();
+        QVERIFY(!playback.coverColor().isValid());
+        QVERIFY(!playback.hasTrack());
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+    }
     void coverAndAppearancePreferencesShareTheProductionStore()
     {
         QTemporaryDir directory;
@@ -2068,7 +2258,9 @@ elif sys.argv[1] == 'dispatch':
         QTRY_COMPARE(tabs->width(), 288.0);
         QCOMPARE(tabs->height(), 44.0);
         QCOMPARE(tabs->property("inset").toReal(), 4.0);
-        QVERIFY(visual(tabs, "tab-2")->isEnabled());
+        QQuickItem *thirdTab = nullptr;
+        QTRY_VERIFY((thirdTab = visual(tabs, "tab-2")));
+        QVERIFY(thirdTab->isEnabled());
         // A selected background is insufficient: the shared check must load.
         QQuickItem *selectionCheck = nullptr;
         QTRY_VERIFY((selectionCheck = session.item("selectionCheck")));

@@ -97,6 +97,10 @@ qt_add_qml_module(
     EchoPluginHost.h
     EchoPluginNavigation.cpp
     EchoPluginSettings.cpp
+    EchoPluginDialog.h
+    EchoPluginDialog.cpp
+    EchoPluginClipboard.h
+    EchoPluginClipboard.cpp
     EchoPluginUi.h
     EchoPluginUi.cpp
     EchoPluginUiEntries.cpp
@@ -148,6 +152,7 @@ qt_add_qml_module(
     PluginSdkContract.h
     PluginSdkContract.cpp
     QML_FILES
+    EchoPluginDialogOwner.qml
     EchoPluginPage.qml
     EchoPluginPlaybackControls.qml
     EchoPluginProgress.qml

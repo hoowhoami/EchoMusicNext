@@ -29,6 +29,8 @@ QString label(const QString &cap)
         return QObject::tr("启动本机 HTTP / WebSocket 服务");
     if (cap == "process")
         return QObject::tr("运行插件附带的程序");
+    if (cap == "kugouAuth")
+        return QObject::tr("读取当前酷狗账号凭证及设备身份");
     if (cap == "serverIntercept")
         return QObject::tr("拦截并修改宿主 API 请求及响应");
     return QObject::tr("操作浮窗与独立插件窗口");
@@ -36,7 +38,8 @@ QString label(const QString &cap)
 bool supported(const QString &cap)
 {
     return QStringList{"tcp",        "webServer",    "windows", "process",    "serverIntercept",
-                       "navigation", "hostSettings", "cover",   "appearance", "appIcons"}
+                       "navigation", "hostSettings", "cover",   "appearance", "appIcons",
+                       "kugouAuth"}
         .contains(cap);
 }
 } // namespace

@@ -130,6 +130,7 @@ struct Host
     ShortcutService shortcuts{settings, false};
     VerificationService verification{api};
     QQmlEngine engine;
+    QPointer<QQuickWindow> mainWindow;
     PluginRuntime runtime{engine,
                           settings,
                           {playback,
@@ -146,7 +147,9 @@ struct Host
                            nullptr,
                            nullptr,
                            {},
-                           &shellSettings},
+                           &shellSettings,
+                           nullptr,
+                           [this] { return mainWindow.data(); }},
                           temporary.path() + "/plugins"};
     explicit Host(const std::function<void(const QString &)> &prepareRoot = {})
     {

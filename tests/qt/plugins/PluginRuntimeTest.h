@@ -5,6 +5,9 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void authSnapshotAuthorizationCurrentSessionAndCancellation();
+    void pluginClipboardWritesAndScopeCancellation();
+    void pluginMainWindowDialogsLifecycle();
     void playbackClockNativeSamplesAndPluginLifetime();
     void temporaryAppearancePriorityLiveBaseAndRevocation();
     void applicationIconsPriorityNativeOwnersAndCancellation();

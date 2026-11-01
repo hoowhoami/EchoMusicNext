@@ -14,8 +14,12 @@ Item {
     // a cover shadow can keep their existing scene-graph/material ownership.
     property real artworkOpacity: 1
     readonly property int status: cover.status
+    // Theme-generated artwork represents the same cover while its color is
+    // re-rendered. Ordinary/recycled song covers keep their placeholder policy.
+    property bool retainWhileLoading: false
+    readonly property bool hasArtwork: cover.status === Image.Ready || retainWhileLoading && cover.status === Image.Loading && cover.previouslyReady
     // Public static artwork for short, frozen compositor transitions.
-    readonly property Item transitionArtwork: cover.status === Image.Ready ? cover : placeholder
+    readonly property Item transitionArtwork: hasArtwork ? cover : placeholder
     // A flight applies its own corner mask. Instantiate this square recipe only
     // during that flight, so a small cover's rounded corners are not baked in.
     readonly property Component transitionPlaceholder: Component {
@@ -87,7 +91,7 @@ Item {
         opacity: control.artworkOpacity
         // Transparent pixels in a real avatar must not reveal a fallback user
         // icon. Keep only the existing base surface beneath decoded artwork.
-        glyphVisible: cover.status !== Image.Ready
+        glyphVisible: !control.hasArtwork
     }
     Image {
         id: cover
@@ -95,8 +99,14 @@ Item {
         anchors.fill: parent
         source: metrics.resolvedSource
         asynchronous: true
+        retainWhileLoading: control.retainWhileLoading
+        property bool previouslyReady: false
         sourceSize: metrics.decodeSize
         onStatusChanged: {
+            if (status === Image.Ready)
+                previouslyReady = true;
+            else if (status !== Image.Loading)
+                previouslyReady = false;
             if (status === Image.Error)
                 coverSource.reject(metrics.source);
         }
@@ -107,7 +117,7 @@ Item {
         objectName: "coverMaskOwner"
         opacity: control.artworkOpacity
         anchors.fill: parent
-        active: control.resourceActive && cover.status === Image.Ready
+        active: control.resourceActive && control.hasArtwork
         // The effect and its texture provider share one lifetime. A pooled
         // delegate must not leave an effect referencing a destroyed mask.
         sourceComponent: Item {

@@ -109,7 +109,6 @@ void PlaybackService::attachMetadata(SongMetadataService &metadata)
             if (const auto source = cover(); source != beforeCover) {
                 if (source.isEmpty()) {
                     m_coverPng.clear();
-                    m_coverColor = QColor();
                 }
                 m_artwork.load(source, m_sequence);
             }
@@ -535,7 +534,10 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
             [this](quint64 sequence, const QByteArray &png, const QColor &color) {
                 if (m_closing || sequence != m_sequence)
                     return;
-                m_coverColor = color;
+                // Missing/achromatic artwork has no replacement accent. Keep
+                // the last usable sample shared by theme, lyrics and plugins.
+                if (color.isValid())
+                    m_coverColor = color;
                 m_coverPng = png;
                 publishMedia();
                 emit changed();
@@ -793,10 +795,9 @@ void PlaybackService::loadCurrentArtwork()
 {
     const auto source = cover();
     if (source.isEmpty()) {
-        m_coverColor = QColor();
         m_coverPng.clear();
-        return;
     }
+    // Even an empty source must retire an older in-flight artwork request.
     m_artwork.load(source, m_sequence);
 }
 void PlaybackService::startIndex(int index, bool preserveFailureChain)
@@ -874,7 +875,8 @@ void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
     queue()->consumePlayedPriority(resolved.id.isEmpty() ? resolved.key() : resolved.id);
     m_pendingLoudness = {};
     m_audioControls.setTrackLoudness({});
-    m_coverColor = {};
+    // A track change invalidates pixels, not the last usable accent. Publish
+    // the next accent only when its asynchronous artwork sample is ready.
     m_coverPng.clear();
     m_artwork.load(m_track.cover, m_sequence);
     m_loaded = false;

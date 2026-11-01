@@ -82,6 +82,8 @@ public:
     bool setDeviceIdentity(DeviceIdentity device);
     /// Trusted diagnostic commands only; never exposed through the QML metaobject.
     QString diagnosticAuthorization() const;
+    // GUI-thread, current account/device only; callers must authorize credential disclosure.
+    QString pluginAuthorizationSnapshot() const;
     QVariantList diagnosticIdentityEntries() const;
     quint64 currentAccountUserId() const
     {

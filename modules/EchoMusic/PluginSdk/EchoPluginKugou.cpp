@@ -94,6 +94,18 @@ EchoPluginKugou::EchoPluginKugou(EchoPluginContext &scope) : QObject(&scope), m_
                          error.value("message").toString("Business request failed"));
             });
 }
+EchoPluginOperation *EchoPluginKugou::authSnapshot()
+{
+    return m_scope.permissions()->authorize(
+        "kugouAuth",
+        tr("读取当前账号的 token、userid、t1 及设备标识；插件可用它们代表您请求酷狗服务。"),
+        [this](auto *op) {
+            // Read only after authorization, so a prompt never captures stale credentials.
+            op->succeed(
+                QVariantMap{{"Authorization", m_scope.host().api.pluginAuthorizationSnapshot()},
+                            {"revision", QString::number(m_scope.accountEpoch())}});
+        });
+}
 QVariantMap EchoPluginKugou::account() const
 {
     return {{"userId", QString::number(m_scope.host().api.currentAccountUserId())},

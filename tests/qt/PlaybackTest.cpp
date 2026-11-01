@@ -21,6 +21,7 @@
 #include <QJsonArray>
 #include <QDataStream>
 #include <QFile>
+#include <QImage>
 #include <QSqlQuery>
 #include <QTcpServer>
 #include <QtTest>
@@ -989,6 +990,11 @@ private slots:
             auto t = track(j);
             t.localPath = path;
             t.durationMs = 10000;
+            const auto cover = dir.filePath(QString("cover%1.png").arg(j));
+            QImage image(32, 32, QImage::Format_RGB32);
+            image.fill(j == 0 ? QColor("#d03050") : QColor("#20b060"));
+            QVERIFY(image.save(cover));
+            t.cover = QUrl::fromLocalFile(cover).toString();
             tracks.append(t);
         }
         EchoMusic::SettingsStore settings(dir.filePath("settings.ini"));
@@ -1001,6 +1007,10 @@ private slots:
         QCOMPARE(notices.size(), 0); // Settings and preparation are not audible boundaries.
         playback.playTracks(tracks, 0, "Transition", "transition-test");
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing(), 15000);
+        QTRY_COMPARE(playback.coverColor(), QColor("#d03050"));
+        QList<QColor> accents;
+        connect(&playback, &PlaybackService::changed, &playback,
+                [&] { accents.append(playback.coverColor()); });
         QTRY_VERIFY_WITH_TIMEOUT(
             TrackTransitionControllerTestAccess::prepared(*playback.transition()), 15000);
         QCOMPARE(playback.queue()->currentIndex(), 0);
@@ -1010,6 +1020,9 @@ private slots:
         // natural boundary waits for the already prepared native deck.
         QTRY_COMPARE_WITH_TIMEOUT(playback.currentTrack().key(), tracks[1].key(), 15000);
         QCOMPARE(playback.queue()->currentIndex(), 1);
+        QTRY_COMPARE(playback.coverColor(), QColor("#20b060"));
+        for (const auto &accent : accents)
+            QVERIFY(accent == QColor("#d03050") || accent == QColor("#20b060"));
         QTRY_COMPARE(notices.size(), 1);
         QCOMPARE(notices.first().first().toString(), QString("无缝"));
         QVERIFY2(playback.errorMessage().isEmpty(), qPrintable(playback.errorMessage()));

@@ -1,9 +1,11 @@
+#include "EchoPluginDialog.h"
 #include "EchoPluginUi.h"
 #include "EchoPluginContext.h"
 #include "EchoPluginTask.h"
 #include "ShellController.h"
 #include "RouteController.h"
 #include <memory>
+#include <cmath>
 #include <QTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -26,6 +28,60 @@ QVariantMap EchoPluginUi::m_scopeState() const
 {
     const auto root = m_scope.activationContext();
     return root != &m_scope ? root->ui()->state() : m_state;
+}
+EchoPluginOperation *EchoPluginUi::showDialog(const QVariantMap &options)
+{
+    auto *op = m_scope.operation();
+    if (op->finished())
+        return op;
+    for (auto it = options.begin(); it != options.end(); ++it)
+        if (!QStringList{"component", "width", "title", "modal", "closeOnMask"}.contains(
+                it.key())) {
+            op->fail("InvalidArgument", "Unknown dialog option");
+            return op;
+        }
+    if (options.value("component").metaType().id() != QMetaType::QString ||
+        (options.contains("title") &&
+         options.value("title").metaType().id() != QMetaType::QString) ||
+        (options.contains("modal") && options.value("modal").metaType().id() != QMetaType::Bool) ||
+        (options.contains("closeOnMask") &&
+         options.value("closeOnMask").metaType().id() != QMetaType::Bool)) {
+        op->fail("InvalidArgument", "Invalid dialog option type");
+        return op;
+    }
+    const auto path = m_scope.package().resolve(options.value("component").toString());
+    bool widthValid = false;
+    const double width = options.value("width", 400).toDouble(&widthValid);
+    if (path.isEmpty() || !path.endsWith(".qml") || !widthValid || !std::isfinite(width) ||
+        width < 160 || width > 2048 || options.value("title").toString().size() > 256) {
+        op->fail("InvalidArgument", "Invalid package component or dialog dimensions");
+        return op;
+    }
+    // Count the whole activation, including presentation callers.
+    int count = 0;
+    for (auto *dialog : m_scope.activationContext()->findChildren<EchoPluginDialog *>())
+        count += dialog->active();
+    if (count >= 8) {
+        op->fail("LimitExceeded", "Too many open plugin dialogs");
+        return op;
+    }
+    QVariantMap definition{{"component", QUrl::fromLocalFile(path)},
+                           {"width", width},
+                           {"title", options.value("title", m_scope.package().name)},
+                           {"modal", options.value("modal", true)},
+                           {"closeOnMask", options.value("closeOnMask", true)}};
+    auto *dialog = new EchoPluginDialog(m_scope, op);
+    op->start();
+    // Defer creation so activation, cancellation and signal connections settle first.
+    connect(op, &EchoPluginOperation::completed, dialog, [dialog, op] {
+        if (op->state() != EchoPluginOperation::Succeeded && !dialog->active())
+            dialog->deleteLater();
+    });
+    QTimer::singleShot(0, op, [dialog = QPointer(dialog), definition, op] {
+        if (dialog && !op->finished())
+            dialog->open(definition, op);
+    });
+    return op;
 }
 bool EchoPluginUi::setState(const QVariantMap &values)
 {

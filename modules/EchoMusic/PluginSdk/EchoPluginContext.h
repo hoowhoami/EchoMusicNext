@@ -14,6 +14,7 @@
 #include "EchoPluginLyricEffects.h"
 #include "EchoPluginKugou.h"
 #include "EchoPluginUi.h"
+#include "EchoPluginClipboard.h"
 #include "EchoPluginHost.h"
 #include "EchoPluginCover.h"
 #include "EchoPluginAppIcons.h"
@@ -73,6 +74,7 @@ struct PluginHost
     std::function<void(QQuickWindow *)> attachPluginWindow = {};
     ShellSettings *settings = nullptr;
     AppIconService *appIcons = nullptr;
+    std::function<QQuickWindow *()> mainWindow = {};
 };
 /// One activation's GUI-thread scope. No raw host object is exposed to JS/QML.
 /// beginRetire invalidates delivery before cleanup, then waits for SQL drain.
@@ -103,6 +105,7 @@ class EchoPluginContext final : public QObject
     Q_PROPERTY(EchoMusic::EchoPluginPlaylist *playlist READ playlist CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginPlayer *player READ player CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginUi *ui READ ui CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginClipboard *clipboard READ clipboard CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginShortcuts *shortcuts READ shortcuts CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginToast *toast READ toast CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPluginKugou *kugou READ kugou CONSTANT)
@@ -211,6 +214,10 @@ public:
     EchoPluginPlayer *player()
     {
         return m_player;
+    }
+    EchoPluginClipboard *clipboard() const
+    {
+        return m_clipboard;
     }
     EchoPluginUi *ui()
     {
@@ -368,6 +375,7 @@ private:
     EchoPluginCover *m_cover;
     EchoPluginSettings *m_settings;
     EchoPluginUi *m_ui;
+    EchoPluginClipboard *m_clipboard;
     EchoPluginTasks *m_tasks;
     EchoPluginShortcuts *m_shortcuts;
     EchoPluginToast *m_toast;

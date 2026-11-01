@@ -7,6 +7,7 @@ import EchoMusic.Controls
 // Decode once at the requested size rather than on every scroll step.
 EchoCover {
     id: cover
+    retainWhileLoading: true
     property string day: ""
     property bool ranking: false
     property string glyph: ranking ? "trophy" : ""

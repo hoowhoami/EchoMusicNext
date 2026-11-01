@@ -33,6 +33,7 @@ public:
     ~ApiInterceptChain() override;
     void run(QJsonObject request, ApiInterceptNext transport, ApiInterceptDone complete);
     void cancel();
+    static QString logicalAuthorization(const QJsonObject &identity);
     static QJsonObject publicRequest(const QJsonObject &);
     static QJsonObject applyQueryPatch(QJsonObject request, const QJsonObject &patch);
 

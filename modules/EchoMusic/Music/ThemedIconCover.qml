@@ -8,6 +8,7 @@ import EchoMusic.Controls
 // Inline color avoids currentColor resolution differences in Qt SVG.
 EchoCover {
     id: cover
+    retainWhileLoading: true
     objectName: "themedDetailCover"
     /// Tabler 24x24 stroke path, exactly as bundled under Controls/icons.
     property string iconPath: ""

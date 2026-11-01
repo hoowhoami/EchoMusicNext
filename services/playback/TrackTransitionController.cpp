@@ -521,7 +521,8 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
     p.m_error.clear();
     p.m_seamless = false;
     p.m_resumePosition = -1;
-    p.m_coverColor = {};
+    // Match manual selection: keep the last sampled accent across the audible
+    // handoff until the new cover has actually been decoded and sampled.
     p.m_coverPng.clear();
     p.m_embeddedCover.clear();
     p.m_artwork.load(track.cover, p.m_sequence);

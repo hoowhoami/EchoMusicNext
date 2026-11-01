@@ -859,6 +859,7 @@ target_sources(
             plugins/PluginRuntimeBusiness.cpp
             plugins/PluginRuntimeSources.cpp
             plugins/PluginRuntimeHostAccess.cpp
+            plugins/PluginRuntimeSessionUi.cpp
             plugins/PluginRuntimeProcessIntercept.cpp
             plugins/PluginRuntimeWindowNetwork.cpp
             plugins/PluginRuntimeBackups.cpp

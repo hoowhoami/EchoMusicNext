@@ -66,6 +66,12 @@ void AppContext::createPlugins()
                           m_shell->sidebarLayout(),
                           m_shortcuts.get(),
                           m_accountController->verification()};
+    pluginHost.mainWindow = [&engine]() -> QQuickWindow * {
+        for (auto *object : engine.rootObjects())
+            if (auto *window = qobject_cast<QQuickWindow *>(object))
+                return window;
+        return nullptr;
+    };
     pluginHost.settings = m_shell.get();
     pluginHost.appIcons = &window.appIcons();
     pluginHost.attachPluginWindow = [&window](QQuickWindow *surface) {

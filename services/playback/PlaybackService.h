@@ -294,6 +294,8 @@ public:
     {
         return m_coverPng;
     }
+    /// Last usable artwork accent. Retained while replacement artwork loads
+    /// or has no chromatic sample; cleared when the selection/session retires.
     QColor coverColor() const
     {
         return m_coverColor;

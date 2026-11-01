@@ -56,6 +56,7 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
             &EchoPluginContext::resourcesDrained, Qt::QueuedConnection);
     m_settings = new EchoPluginSettings(*this);
     m_ui = new EchoPluginUi(*this);
+    m_clipboard = new EchoPluginClipboard(*this);
     m_plugins = new EchoPluginRegistry(*this);
     m_dataPath = dataPath;
     m_net = new EchoPluginNetwork(*this);

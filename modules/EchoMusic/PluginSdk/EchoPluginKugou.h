@@ -5,7 +5,7 @@
 namespace EchoMusic
 {
 class EchoPluginContext;
-/// Whitelisted business commands; credentials and verification proofs stay in ApiClient.
+/// Business commands plus explicitly authorized current-session credential snapshots.
 class EchoPluginKugou final : public QObject
 {
     Q_OBJECT
@@ -18,6 +18,7 @@ public:
     explicit EchoPluginKugou(EchoPluginContext &scope);
     Q_INVOKABLE EchoMusic::EchoPluginOperation *request(const QString &method,
                                                         const QVariantMap &arguments = {});
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *authSnapshot();
     Q_INVOKABLE EchoMusic::EchoPluginOperation *verify(const QString &eventId);
 
 signals:

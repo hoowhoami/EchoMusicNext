@@ -63,17 +63,8 @@ ApiInterceptChain::~ApiInterceptChain()
 {
     cancel();
 }
-QJsonObject ApiInterceptChain::publicRequest(const QJsonObject &request)
+QString ApiInterceptChain::logicalAuthorization(const QJsonObject &identity)
 {
-    if (request.value("stage") == "transport")
-        return request;
-    auto query = request.value("query").toObject();
-    // Some typed variants use top-level arguments (album_detail.id, follow.id),
-    // others use a query object. Present both through the same public query.
-    for (auto it = request.begin(); it != request.end(); ++it)
-        if (it.key() != "operation" && it.key() != "identity" && it.key() != "query")
-            query[it.key()] = it.value();
-    const auto identity = request.value("identity").toObject();
     QStringList authorization;
     const auto add = [&](const char *field, const char *name) {
         const auto value = identity.value(field);
@@ -90,10 +81,23 @@ QJsonObject ApiInterceptChain::publicRequest(const QJsonObject &request)
     add("guid", "KUGOU_API_GUID");
     add("device_name", "KUGOU_API_DEV");
     add("mac", "KUGOU_API_MAC");
+    return authorization.join(';');
+}
+QJsonObject ApiInterceptChain::publicRequest(const QJsonObject &request)
+{
+    if (request.value("stage") == "transport")
+        return request;
+    auto query = request.value("query").toObject();
+    // Some typed variants use top-level arguments (album_detail.id, follow.id),
+    // others use a query object. Present both through the same public query.
+    for (auto it = request.begin(); it != request.end(); ++it)
+        if (it.key() != "operation" && it.key() != "identity" && it.key() != "query")
+            query[it.key()] = it.value();
     return {{"stage", "api"},
             {"operation", request.value("operation")},
             {"query", sanitize(query)},
-            {"headers", QJsonObject{{"Authorization", authorization.join(';')}}}};
+            {"headers", QJsonObject{{"Authorization",
+                                     logicalAuthorization(request.value("identity").toObject())}}}};
 }
 QJsonObject ApiInterceptChain::applyQueryPatch(QJsonObject request, const QJsonObject &patch)
 {

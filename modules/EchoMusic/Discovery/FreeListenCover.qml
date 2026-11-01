@@ -7,6 +7,7 @@ import EchoMusic.Controls
 // Inline the icon color because Qt SVG does not resolve the iconify body's currentColor.
 EchoCover {
     id: cover
+    retainWhileLoading: true
     readonly property color base: Theme.accent
     readonly property real hue: Math.max(0, base.hslHue)
     readonly property real saturation: base.hslSaturation
