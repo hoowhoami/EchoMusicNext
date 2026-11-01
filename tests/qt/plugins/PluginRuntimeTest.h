@@ -8,6 +8,7 @@ private slots:
     void authSnapshotAuthorizationCurrentSessionAndCancellation();
     void pluginClipboardWritesAndScopeCancellation();
     void pluginMainWindowDialogsLifecycle();
+    void pluginTitlebarActionRapidActivationDialogRace();
     void playbackClockNativeSamplesAndPluginLifetime();
     void temporaryAppearancePriorityLiveBaseAndRevocation();
     void applicationIconsPriorityNativeOwnersAndCancellation();
