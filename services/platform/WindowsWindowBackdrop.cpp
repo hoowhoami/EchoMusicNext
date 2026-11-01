@@ -609,6 +609,33 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
         }
         return DefSubclassProc(window, message, wParam, lParam);
     }
+    if (message == WM_NCCALCSIZE && wParam && !self->fullscreen() && IsZoomed(window)) {
+        // Windows maximizes a WS_THICKFRAME window over the work area plus the
+        // invisible resize border on every edge, while Qt's frameless
+        // WM_NCCALCSIZE branch (QWindowsGeometryHint::handleCalculateSize)
+        // unconditionally keeps the client equal to that whole window rect.
+        // The border strip then hangs off-screen on the top/left/right and
+        // under the taskbar at the bottom, cutting the shell content by the
+        // border width. Clamp the client to the work area of the window's
+        // monitor; windowed and fullscreen states keep Qt's edge-to-edge
+        // client. Returning without DefSubclassProc also leaves QPA's
+        // handleResized correction idle: it now sees the work-area client size
+        // it would otherwise force with a competing SetWindowPos.
+        MONITORINFO monitor{sizeof(MONITORINFO)};
+        if (GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor)) {
+            RECT &client = reinterpret_cast<NCCALCSIZE_PARAMS *>(lParam)->rgrc[0];
+            const RECT &work = monitor.rcWork;
+            if (client.left < work.left)
+                client.left = work.left;
+            if (client.top < work.top)
+                client.top = work.top;
+            if (client.right > work.right)
+                client.right = work.right;
+            if (client.bottom > work.bottom)
+                client.bottom = work.bottom;
+            return 0;
+        }
+    }
     if (self->fullscreen()) {
         // Qt excludes synchronously sent WM_SYSCOMMAND / WM_SIZING / WM_MOVING
         // from global native filters. Guard them on the real HWND subclass
