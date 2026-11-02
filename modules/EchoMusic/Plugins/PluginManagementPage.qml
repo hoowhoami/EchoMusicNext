@@ -32,6 +32,7 @@ Item {
         sourcesOwner.close();
         uninstallOwner.close();
         failureOwner.close();
+        networkFailureOwner.close();
         pluginSettingsOwner.close();
         grantsOwner.close();
         dataOwner.close();
@@ -318,31 +319,52 @@ Item {
                             onClicked: page.manager.updateAll()
                         }
                     }
-                    Rectangle {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        implicitHeight: Math.max(36, sourceErrorRow.implicitHeight + 16)
                         visible: page.marketplace && page.manager.sourceError.length > 0
-                        radius: Theme.controlRadius
-                        color: Theme.withAlpha("#f59e0b", 0.08)
-                        border.color: Theme.withAlpha("#f59e0b", 0.22)
-                        RowLayout {
-                            id: sourceErrorRow
-                            x: 12
-                            y: 8
-                            width: parent.width - 24
-                            spacing: 8
-                            EchoIcon {
-                                name: "alert-triangle"
-                                Layout.preferredWidth: 15
-                                Layout.preferredHeight: 15
-                                color: Theme.dark ? "#fbbf24" : "#b45309"
-                            }
-                            Label {
+                        spacing: 8
+                        Repeater {
+                            model: page.manager.sources
+                            delegate: Rectangle {
+                                id: sourceFailure
+                                required property var pluginRecord
+                                objectName: "pluginSourceFailure-" + pluginRecord.id
                                 Layout.fillWidth: true
-                                text: page.manager.sourceError
-                                color: Theme.dark ? "#fbbf24" : "#b45309"
-                                font: Theme.font(12, Theme.semiboldWeight)
-                                wrapMode: Text.Wrap
+                                visible: !!pluginRecord.enabled && !!pluginRecord.lastError
+                                implicitHeight: Math.max(36, sourceErrorRow.implicitHeight + 16)
+                                radius: Theme.controlRadius
+                                color: Theme.withAlpha("#f59e0b", 0.08)
+                                border.color: Theme.withAlpha("#f59e0b", 0.22)
+                                RowLayout {
+                                    id: sourceErrorRow
+                                    x: 12
+                                    y: 8
+                                    width: parent.width - 24
+                                    spacing: 8
+                                    EchoIcon {
+                                        name: "alert-triangle"
+                                        Layout.preferredWidth: 15
+                                        Layout.preferredHeight: 15
+                                        color: Theme.dark ? "#fbbf24" : "#b45309"
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: sourceFailure.pluginRecord.name + "：" + sourceFailure.pluginRecord.lastError
+                                        color: Theme.dark ? "#fbbf24" : "#b45309"
+                                        font: Theme.font(12, Theme.semiboldWeight)
+                                        wrapMode: Text.Wrap
+                                    }
+                                    PluginActionButton {
+                                        objectName: "pluginSourceErrorDetailsAction"
+                                        text: qsTr("详情")
+                                        visible: !!sourceFailure.pluginRecord.lastErrorDetail
+                                        onClicked: networkFailureOwner.open({
+                                            failure: Object.assign({
+                                                sourceName: sourceFailure.pluginRecord.name
+                                            }, sourceFailure.pluginRecord.lastErrorDetail)
+                                        })
+                                    }
+                                }
                             }
                         }
                     }
@@ -505,6 +527,9 @@ Item {
                 id: sources
                 manager: page.manager
                 uiScale: page.settings.uiScale
+                onNetworkSettingsRequested: page.router.navigate("settings", {
+                    section: "network"
+                })
             }
         }
     }
@@ -532,6 +557,17 @@ Item {
                 installationId: page.failureId
                 uiScale: page.settings.uiScale
             }
+        }
+    }
+    EchoPopupLoader {
+        id: networkFailureOwner
+        objectName: "pluginNetworkErrorDialogOwner"
+        hostItem: page
+        sourceComponent: PluginNetworkErrorDialog {
+            uiScale: page.settings.uiScale
+            onNetworkSettingsRequested: page.router.navigate("settings", {
+                section: "network"
+            })
         }
     }
     EchoPopupLoader {

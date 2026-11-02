@@ -757,8 +757,10 @@ ApplicationWindow {
         }
         Connections {
             target: mainWindow.router
-            function onSettingsRequested() {
-                preferencesOwner.open();
+            function onSettingsRequested(section: string): void {
+                preferencesOwner.open({
+                    initialSection: section
+                });
             }
             function onDismissOverlays() {
                 preferencesOwner.close();

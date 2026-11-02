@@ -34,7 +34,9 @@ signals:
     void changed();
 
 private:
+    QVariantMap information() const;
     QString writeKey() const;
+    quint64 m_documentRevision = 0;
     EchoPluginContext &m_scope;
     QPointer<EchoPluginRegistration> m_write;
 };

@@ -157,7 +157,7 @@ signals:
     void registryChanged();
     void routeChanged();
     void cacheChanged();
-    void settingsRequested();
+    void settingsRequested(const QString &section = {});
     void dismissOverlays();
     void navigationRejected(const QString &name);
     void pageActivated(EchoMusic::RouteContext *page);

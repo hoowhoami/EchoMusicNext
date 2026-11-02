@@ -1094,12 +1094,13 @@ void DesktopPagesTest::productionNetworkSettingsAutoSaveResetAndTheme()
     session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
     for (int step = 0; step < qRound((scale - 1) / .05); ++step)
         session.shell.zoomIn();
-    session.router.navigate("settings");
+    session.router.navigate("settings", {{"section", "network"}});
     auto *dialog = session.root->findChild<QObject *>("settingsDialog");
     QVERIFY(dialog);
     QTRY_VERIFY(dialog->property("opened").toBool());
     auto *catalog = dialog->property("catalog").value<SettingsCatalog *>();
     QVERIFY(catalog);
+    QTRY_COMPARE(catalog->current(), QString("network"));
     auto *searchTrigger = visual(session.window->contentItem(), "settingsSearchTrigger");
     QVERIFY(searchTrigger);
     searchTrigger->forceActiveFocus(Qt::TabFocusReason);

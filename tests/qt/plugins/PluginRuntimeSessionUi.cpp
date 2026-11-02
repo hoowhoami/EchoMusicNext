@@ -61,11 +61,12 @@ void PluginRuntimeTest::authSnapshotAuthorizationCurrentSessionAndCancellation()
     QVERIFY(host.api.setAccount(9007199254740993ULL, "fake-token", "fake-t1"));
     QSignalSpy prompts(host.runtime.permissions(), &PluginPermissionStore::confirmationRequested);
     auto *denied = scope->kugou()->authSnapshot();
-    QCOMPARE(prompts.size(), 1);
+    QTRY_COMPARE(prompts.size(), 1);
     QVERIFY(!denied->finished());
     host.runtime.permissions()->decide(prompts.last()[0].toString(), false);
     QCOMPARE(denied->errorCode(), "PermissionDenied");
     auto *first = scope->kugou()->authSnapshot();
+    QTRY_COMPARE(prompts.size(), 2);
     host.runtime.permissions()->decide(prompts.last()[0].toString(), true);
     QCOMPARE(first->state(), EchoPluginOperation::Succeeded);
     auto snapshot = first->result().toMap();
@@ -95,6 +96,7 @@ void PluginRuntimeTest::authSnapshotAuthorizationCurrentSessionAndCancellation()
     QVERIFY(host.api.setAccount(0, {}, {}));
     QCOMPARE(pending->state(), EchoPluginOperation::Canceled);
     auto *loggedOut = scope->kugou()->authSnapshot();
+    QTRY_COMPARE(prompts.size(), 3);
     host.runtime.permissions()->decide(prompts.last()[0].toString(), true);
     QVERIFY(!loggedOut->result().toMap().value("Authorization").toString().contains("token="));
     // An ordinary API capability does not grant credential access.

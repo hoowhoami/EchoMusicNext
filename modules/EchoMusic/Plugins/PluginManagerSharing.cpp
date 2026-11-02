@@ -237,7 +237,7 @@ void PluginManager::refreshStatistics(bool force)
     const auto generation = m_generation;
     get(
         QUrl(statisticsEndpoint + "/v1/plugins/stats"), 1024 * 1024,
-        [this, requested, generation](QByteArray bytes, QString error) {
+        [this, requested, generation](QByteArray bytes, QString error, QVariantMap) {
             m_statsLoading = false;
             if (generation != m_generation)
                 return;
@@ -276,7 +276,7 @@ void PluginManager::reportInstallation(const QVariantMap &record, bool success)
     // account/device/activation identity or private paths.
     get(
         QUrl(statisticsEndpoint + "/v1/plugins/events"), 1024 * 1024,
-        [this](QByteArray, QString error) {
+        [this](QByteArray, QString error, QVariantMap) {
             if (error.isEmpty())
                 refreshStatistics(true);
         },

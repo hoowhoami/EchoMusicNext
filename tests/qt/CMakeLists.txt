@@ -943,7 +943,8 @@ add_test(
     NAME plugin-runtime-window-network
     COMMAND
         echo-plugin-runtime-test customWindowsRealEntryScopesAndRetirement
-        resourceAuthorizationDenialCancelAndIsolation
+        resourceAuthorizationDenialCancelAndIsolation resourceAuthorizationBatchesAndSerializes
+        resourceAuthorizationCancelBatchAndAccount
         resourceAuthorizationDoesNotConsumeActivationDeadline
         tcpRealBinaryCancellationAndRevocation tcpHalfCloseReceivesResponseAfterFin
         localHttpRealRequestsChunkingAndErrors localWebSocketUpgradeBinaryPingAndLimits
@@ -980,6 +981,7 @@ add_test(
         localBatchContinuesAfterInvalidPackage arrivingInstallFilesCompleteDependencyBatch
         qtFileOpenQueuesBeforeServiceInitialization githubMirrorFallbackAndPostShareUnifiedProxy
         sourceCatalogNetworkCacheAndOfficialProtection managementHeaderAndLoadingContentStayAligned
+        marketplaceNetworkFailureClassification marketplaceNetworkFailureDetailsUi
         managementPageUsesProductionModelsAndDialogs
         marketplaceInstallsActualPackageAndRejectsTampering
 )
@@ -1043,6 +1045,12 @@ set_tests_properties(
     ${ECHO_PLUGINS_TEST_GROUPS} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90
 )
 echo_copy_rust_runtime(echo-plugin-runtime-test)
+add_test(NAME plugin-runtime-lyric-snapshots COMMAND echo-plugin-runtime-test
+                                                     lyricSnapshotsShareDocumentsAcrossLineChanges
+)
+set_tests_properties(
+    plugin-runtime-lyric-snapshots PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45
+)
 
 add_test(
     NAME plugin-application-smoke

@@ -10,6 +10,7 @@ EchoDialog {
     id: dialog
     objectName: "pluginSourceDialog"
     required property PluginManager manager
+    signal networkSettingsRequested
     heading: qsTr("插件源")
     description: qsTr("添加 GitHub 仓库地址后，EchoMusic 会读取 echo-plugins.json 索引并同步插件清单。")
     preferredWidth: 680
@@ -17,6 +18,15 @@ EchoDialog {
     windowHeightMargin: 120
     flushBody: true
     readonly property bool compactLayout: parent && parent.width / uiScale <= 720
+    EchoPopupLoader {
+        id: failureOwner
+        objectName: "pluginSourceNetworkErrorOwner"
+        hostItem: dialog.contentItem
+        sourceComponent: PluginNetworkErrorDialog {
+            uiScale: dialog.uiScale
+            onNetworkSettingsRequested: dialog.networkSettingsRequested()
+        }
+    }
     body: Component {
         ColumnLayout {
             spacing: 16
@@ -144,6 +154,17 @@ EchoDialog {
                                 font: Theme.font(12, Theme.semiboldWeight)
                                 color: Theme.dark ? "#fbbf24" : "#b45309"
                                 wrapMode: Text.Wrap
+                            }
+                            PluginActionButton {
+                                objectName: "pluginSourceNetworkDetailsAction"
+                                text: qsTr("错误详情")
+                                colors: Theme.floating
+                                visible: !!row.pluginRecord.lastError && !!row.pluginRecord.lastErrorDetail
+                                onClicked: failureOwner.open({
+                                    failure: Object.assign({
+                                        sourceName: row.pluginRecord.name
+                                    }, row.pluginRecord.lastErrorDetail)
+                                })
                             }
                         }
                         RowLayout {

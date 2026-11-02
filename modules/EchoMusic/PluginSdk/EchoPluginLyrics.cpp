@@ -5,11 +5,15 @@
 #include "LyricExtensions.h"
 #include <QJSValueIterator>
 #include <QTimer>
+#include <QJsonDocument>
 #include <cmath>
+#include <limits>
 namespace EchoMusic
 {
 EchoPluginLyrics::EchoPluginLyrics(EchoPluginContext &scope) : QObject(&scope), m_scope(scope)
 {
+    connect(scope.host().playback.lyrics(), &LyricModel::changed, this,
+            [this] { ++m_documentRevision; });
     connect(scope.player(), &EchoPluginPlayer::lyricChanged, this, &EchoPluginLyrics::changed);
     connect(scope.player(), &EchoPluginPlayer::changed, this, &EchoPluginLyrics::changed);
     connect(scope.host().playback.lyricSource(), &LyricSourceController::changed, this,
@@ -17,7 +21,14 @@ EchoPluginLyrics::EchoPluginLyrics(EchoPluginContext &scope) : QObject(&scope), 
 }
 QVariantMap EchoPluginLyrics::snapshot() const
 {
-    auto result = m_scope.player()->lyricSnapshot();
+    auto result = information();
+    result["lines"] = m_scope.player()->lyricSnapshot().value("lines");
+    return result;
+}
+QVariantMap EchoPluginLyrics::information() const
+{
+    auto result = m_scope.player()->lyricsInfo();
+    result["revision"] = m_scope.player()->revision();
     const auto *source = m_scope.host().playback.lyricSource();
     result["sourceId"] = source->currentId();
     result["source"] = source->activeSource();
@@ -122,20 +133,58 @@ EchoPluginRegistration *EchoPluginLyrics::onSnapshot(const QString &id, const QJ
     auto connection = std::make_shared<QMetaObject::Connection>();
     auto pending = std::make_shared<bool>(false);
     auto previous = std::make_shared<QVariantMap>();
-    const auto deliver = [this, lease, callback, pending, previous] {
+    auto documentRevision = std::make_shared<quint64>(std::numeric_limits<quint64>::max());
+    auto lines = std::make_shared<QJSValue>();
+    const auto deliver = [this, lease, callback, pending, previous, documentRevision, lines] {
         if (*pending || !lease->active() || !m_scope.active())
             return;
         *pending = true;
-        QTimer::singleShot(0, lease, [this, lease, callback, pending, previous] {
-            *pending = false;
-            if (!lease->active() || !m_scope.active())
-                return;
-            const auto value = snapshot();
-            if (*previous == value)
-                return;
-            *previous = value;
-            m_scope.call(callback, {m_scope.engine().toScriptValue(value)});
-        });
+        QTimer::singleShot(
+            0, lease, [this, lease, callback, pending, previous, documentRevision, lines] {
+                *pending = false;
+                if (!lease->active() || !m_scope.active())
+                    return;
+                const auto value = information();
+                const bool documentChanged = *documentRevision != m_documentRevision;
+                if (!documentChanged && *previous == value)
+                    return;
+                if (documentChanged) {
+                    // Keep the immutable document outside the line-change payload.
+                    // The cache belongs to this subscription, not a global store;
+                    // disposing its lease releases the JS graph and old documents.
+                    auto prepareDocument = m_scope.engine().evaluate(QStringLiteral(
+                        "(function(json){"
+                        "var mutations={copyWithin:true,fill:true,pop:true,push:true,reverse:true,"
+                        "shift:true,sort:true,splice:true,unshift:true};"
+                        "var deny=function(){throw new TypeError('Lyric document is read-only');};"
+                        "function readonly(v){if(v===null||typeof v!=='object')return v;"
+                        "Object.keys(v).forEach(function(k){v[k]=readonly(v[k]);});"
+                        "Object.freeze(v);var array=Array.isArray(v);"
+                        "return new Proxy(v,{get:function(t,k,r){"
+                        "if(array&&mutations[k]===true)return deny;return Reflect.get(t,k,r);},"
+                        "set:deny,defineProperty:deny,deleteProperty:deny,setPrototypeOf:deny});}"
+                        "return readonly(JSON.parse(json));})"));
+                    // Materialize plain JS data once. Qt 6.12 array mutators can
+                    // bypass Object.freeze; proxies also reject borrowed writes.
+                    const auto encoded =
+                        QJsonDocument::fromVariant(m_scope.player()->lyricSnapshot().value("lines"))
+                            .toJson(QJsonDocument::Compact);
+                    *lines = prepareDocument.call({QJSValue(QString::fromUtf8(encoded))});
+                    if (lines->isError()) {
+                        emit m_scope.callbackFailed("Unable to prepare read-only lyric snapshot");
+                        return;
+                    }
+                    *documentRevision = m_documentRevision;
+                }
+                *previous = value;
+                // A native QVariantMap wrapper would convert assigned arrays
+                // back to QVariant, losing their JS identity and immutability.
+                auto argument = m_scope.engine().newObject();
+                for (auto it = value.cbegin(); it != value.cend(); ++it)
+                    argument.setProperty(it.key(), m_scope.engine().toScriptValue(it.value()));
+                argument.setProperty("lines", *lines);
+                m_scope.call(callback, {argument});
+            });
     };
     lease->stage(
         [this, lease, immediate, connection, deliver] {

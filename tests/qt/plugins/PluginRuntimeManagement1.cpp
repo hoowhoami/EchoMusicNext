@@ -1,7 +1,194 @@
 #include <QApplication>
 #include <QTimer>
+#include <QClipboard>
+#include <QMimeData>
+#include <QScopeGuard>
 #include "PluginRuntimeTest.h"
 #include "PluginRuntimeTestFixture.h"
+#include "PluginNetworkFailure.h"
+
+void PluginRuntimeTest::marketplaceNetworkFailureClassification_data()
+{
+    QTest::addColumn<int>("networkError");
+    QTest::addColumn<int>("status");
+    QTest::addColumn<bool>("rateLimited");
+    QTest::addColumn<bool>("offline");
+    QTest::addColumn<QString>("category");
+    const auto row = [](const char *name, QNetworkReply::NetworkError error, int status,
+                        const QString &category, bool rate = false, bool offline = false) {
+        QTest::newRow(name) << int(error) << status << rate << offline << category;
+    };
+    row("dns", QNetworkReply::HostNotFoundError, 0, "dns");
+    row("timeout", QNetworkReply::TimeoutError, 0, "timeout");
+    row("proxy-timeout", QNetworkReply::ProxyTimeoutError, 0, "proxy");
+    row("proxy-auth", QNetworkReply::NoError, 407, "proxy");
+    row("tls", QNetworkReply::SslHandshakeFailedError, 0, "tls");
+    row("refused", QNetworkReply::ConnectionRefusedError, 0, "refused");
+    row("reset", QNetworkReply::RemoteHostClosedError, 0, "reset");
+    row("offline", QNetworkReply::UnknownNetworkError, 0, "offline", false, true);
+    row("429", QNetworkReply::UnknownContentError, 429, "rate-limit");
+    row("403-is-not-proof-of-rate-limit", QNetworkReply::ContentAccessDenied, 403, "forbidden");
+    row("403-with-rate-limit-header", QNetworkReply::ContentAccessDenied, 403, "rate-limit", true);
+    row("missing-index", QNetworkReply::ContentNotFoundError, 404, "not-found");
+    row("service-error", QNetworkReply::UnknownServerError, 503, "http");
+    row("received-http-despite-offline-hint", QNetworkReply::UnknownServerError, 503, "http", false,
+        true);
+    row("unknown", QNetworkReply::UnknownNetworkError, 0, "unknown");
+}
+void PluginRuntimeTest::marketplaceNetworkFailureClassification()
+{
+    QFETCH(int, networkError);
+    QFETCH(int, status);
+    QFETCH(bool, rateLimited);
+    QFETCH(bool, offline);
+    QFETCH(QString, category);
+    const QUrl url("https://github.com/owner/repo/echo-plugins.json?ref=main&cache=123#view");
+    const auto detail = PluginNetworkFailure::classify(
+        QNetworkReply::NetworkError(networkError), status, url,
+        "fixture error at " + url.toString(), false, rateLimited, offline);
+    QCOMPARE(detail.value("category").toString(), category);
+    QCOMPARE(detail.value("httpStatus").toInt(), status);
+    QCOMPARE(detail.value("url").toString(), url.toString());
+    QVERIFY(detail.value("message").toString().contains(url.toString()));
+    QVERIFY(!detail.value("hint").toString().isEmpty());
+    if (!status)
+        QVERIFY(!detail.value("title").toString().contains("HTTP 0"));
+    const QUrl credentials(
+        "https://alice:fixture-password@proxy.invalid/index?ref=main&access_token=fixture-secret");
+    const auto hidden =
+        PluginNetworkFailure::classify(QNetworkReply::ProxyAuthenticationRequiredError, 407,
+                                       credentials, "Error at " + credentials.toString());
+    for (const auto &field : {"url", "message"}) {
+        const auto value = hidden.value(field).toString();
+        QVERIFY(!value.contains("fixture-password") && !value.contains("fixture-secret"));
+        QVERIFY(value.contains("ref=main"));
+    }
+}
+void PluginRuntimeTest::marketplaceNetworkFailureDetailsUi()
+{
+    Host host;
+    auto *clipboard = QGuiApplication::clipboard();
+    auto previous = std::make_unique<QMimeData>();
+    if (const auto *mime = clipboard->mimeData())
+        for (const auto &format : mime->formats())
+            previous->setData(format, mime->data(format));
+    const auto restore = qScopeGuard([&] { clipboard->setMimeData(previous.release()); });
+    QSignalSpy settingsRequested(&host.router, &RouteController::settingsRequested);
+    host.theme.setMotionEnabled(false);
+    PluginManager manager(host.runtime, host.settings);
+    auto source = manager.m_sources.first().toMap();
+    const auto failure = PluginNetworkFailure::classify(
+        QNetworkReply::TimeoutError, 0,
+        QUrl("https://raw.githubusercontent.com/owner/repo/main/echo-plugins.json?ref=main"),
+        "fixture timeout");
+    source["lastError"] = failure.value("title");
+    source["lastErrorDetail"] = failure;
+    auto second = source;
+    second["id"] = "github:second/source";
+    second["name"] = "第二插件源";
+    second["enabled"] = false;
+    manager.m_sources = {source, second};
+    manager.m_loaded = true;
+    manager.rebuild();
+    host.router.registerPage({"plugin-management",
+                              "/main/settings/plugins",
+                              QUrl("qrc:/qt/qml/EchoMusic/Plugins/PluginManagementPage.qml"),
+                              {"view"},
+                              true,
+                              false,
+                              false,
+                              {}});
+    QVERIFY(host.router.navigate("plugin-management", {{"view", "marketplace"}}));
+    ShellSettings settings(host.settings);
+    QQmlComponent component(&host.engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Theme
+import EchoMusic.Plugins
+import EchoMusic.Shell
+ApplicationWindow {
+ id: win
+ required property PluginManager manager
+ required property RouteController router
+ required property ShellSettings settings
+ width: 1000; height: 800; visible: true; color: Theme.main
+ Item {
+  width: win.width / win.settings.uiScale; height: win.height / win.settings.uiScale
+  scale: win.settings.uiScale; transformOrigin: Item.TopLeft
+  PluginManagementPage { anchors.fill: parent; manager: win.manager; router: win.router; context: win.router.current; settings: win.settings }
+ }
+})",
+                      QUrl("qrc:/plugin-network-error-test.qml"));
+    std::unique_ptr<QObject> root(
+        component.createWithInitialProperties({{"manager", QVariant::fromValue(&manager)},
+                                               {"router", QVariant::fromValue(&host.router)},
+                                               {"settings", QVariant::fromValue(&settings)}}));
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(window && Test::prepareNativeInput(window));
+    const auto secondRow = "pluginSourceFailure-" + second.value("id").toString();
+    auto *row = visual(window->contentItem(), secondRow);
+    QVERIFY(row && !row->isVisible());
+    second["enabled"] = true;
+    manager.m_sources[1] = second;
+    manager.rebuild();
+    QTRY_VERIFY((row = visual(window->contentItem(), secondRow)) && row->isVisible());
+    const auto show = [&](const QString &name) {
+        auto *action = visual(window->contentItem(), name);
+        return action && QMetaObject::invokeMethod(action, "clicked");
+    };
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+        for (bool zoom : {false, true}) {
+            host.theme.setMode(mode);
+            settings.resetZoom();
+            if (zoom)
+                for (int i = 0; i < 5; ++i)
+                    settings.zoomIn();
+            QVERIFY(show("pluginSourceErrorDetailsAction"));
+            QObject *dialog = nullptr;
+            QTRY_VERIFY((dialog = root->findChild<QObject *>("pluginNetworkErrorDialog")));
+            QTRY_VERIFY(dialog->property("opened").toBool());
+            QVERIFY(host.engine.newQObject(dialog)
+                        .property("metadata")
+                        .property(7)
+                        .toString()
+                        .contains("ref=main"));
+            QVERIFY(dialog->property("rawDetails").toString().contains("fixture timeout"));
+            QVERIFY(show("pluginNetworkErrorCopy"));
+            QCOMPARE(clipboard->text(), dialog->property("rawDetails").toString());
+            const auto requests = settingsRequested.size();
+            QVERIFY(show("pluginNetworkOpenSettings"));
+            QCOMPARE(settingsRequested.size(), requests + 1);
+            QCOMPARE(settingsRequested.last()[0].toString(), QString("network"));
+            QCOMPARE(host.router.current()->name(), QString("plugin-management"));
+            QTRY_VERIFY(!root->findChild<QObject *>("pluginNetworkErrorDialog"));
+            QVERIFY(show("pluginSourceManage"));
+            QObject *sources = nullptr;
+            QTRY_VERIFY((sources = root->findChild<QObject *>("pluginSourceDialog")));
+            QTRY_VERIFY(sources->property("opened").toBool());
+            QVERIFY(show("pluginSourceNetworkDetailsAction"));
+            QTRY_VERIFY((dialog = root->findChild<QObject *>("pluginNetworkErrorDialog")));
+            QTRY_VERIFY(dialog->property("opened").toBool());
+            const auto captures = qEnvironmentVariable("ECHO_PLUGIN_IMPROVEMENT_CAPTURES");
+            if (!captures.isEmpty()) {
+                QDir().mkpath(captures);
+                QTest::qWait(60);
+                QVERIFY(window->grabWindow().save(
+                    captures +
+                    QString("/network-%1-%2.png")
+                        .arg(mode == ThemeStore::Dark ? "dark" : "light", zoom ? "125" : "100")));
+            }
+            QVERIFY(show("pluginNetworkOpenSettings"));
+            QCOMPARE(settingsRequested.size(), requests + 2);
+            QCOMPARE(settingsRequested.last()[0].toString(), QString("network"));
+            QTRY_VERIFY(!root->findChild<QObject *>("pluginNetworkErrorDialog"));
+            QVERIFY(sources->property("visible").toBool());
+            QVERIFY(QMetaObject::invokeMethod(sources, "close"));
+            QTRY_VERIFY(!root->findChild<QObject *>("pluginSourceDialog"));
+        }
+    manager.shutdown();
+}
 
 void PluginRuntimeTest::sharedPluginVersionWarnings_data()
 {
@@ -817,10 +1004,12 @@ void PluginRuntimeTest::githubMirrorFallbackAndPostShareUnifiedProxy()
     int completed = 0;
     QByteArray result;
     QString failure;
-    const auto finish = [&](QByteArray bytes, QString error) {
+    QVariantMap failureDetail;
+    const auto finish = [&](QByteArray bytes, QString error, QVariantMap detail) {
         ++completed;
         result = bytes;
         failure = error;
+        failureDetail = detail;
     };
     const QUrl source("https://github.com/owner/repo/releases/download/v1/package.zip");
     manager.get(source, 1024, finish);
@@ -842,6 +1031,11 @@ void PluginRuntimeTest::githubMirrorFallbackAndPostShareUnifiedProxy()
     QCOMPARE(resolved[2], source);
     QCOMPARE(requests.size(), 3);
     QVERIFY(requests[2].startsWith("POST http://plugin-source.invalid/origin/"));
+    QCOMPARE(failureDetail.value("httpStatus").toInt(), 503);
+    manager.get(source, 1024, finish);
+    QTRY_COMPARE(completed, 3);
+    QCOMPARE(failureDetail.value("attempts").toList().size(), 2);
+    QCOMPARE(requests.size(), 5);
     manager.shutdown();
 }
 
@@ -900,6 +1094,16 @@ void PluginRuntimeTest::sourceCatalogNetworkCacheAndOfficialProtection()
     QTRY_VERIFY(!manager.catalogLoading());
     QCOMPARE(manager.catalog()->rowCount(), 1);
     QVERIFY(manager.sourceError().contains("503"));
+    QCOMPARE(manager.sourceErrorDetail().value("category").toString(), QString("http"));
+    QCOMPARE(manager.sourceErrorDetail().value("httpStatus").toInt(), 503);
+    fail = false;
+    manager.refreshCatalog(true);
+    QTRY_VERIFY(!manager.catalogLoading());
+    QVERIFY(manager.sourceError().isEmpty());
+    QVERIFY(manager.sourceErrorDetail().isEmpty());
+    fail = true;
+    manager.refreshCatalog(true);
+    QTRY_VERIFY(!manager.catalogLoading());
     QVERIFY(manager.patchSource("github:hoowhoami/echomusicnextplugins", "Official", false));
     QCOMPARE(manager.catalog()->rowCount(), 0);
     QCOMPARE(manager.sourceOptions().size(), 2);

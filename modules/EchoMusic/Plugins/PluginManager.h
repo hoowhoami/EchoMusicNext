@@ -34,6 +34,7 @@ class PluginManager final : public QObject
     Q_PROPERTY(QString search READ search WRITE setSearch NOTIFY changed)
     Q_PROPERTY(QString sourceFilter READ sourceFilter WRITE setSourceFilter NOTIFY changed)
     Q_PROPERTY(QString sourceError READ sourceError NOTIFY changed)
+    Q_PROPERTY(QVariantMap sourceErrorDetail READ sourceErrorDetail NOTIFY changed)
     Q_PROPERTY(QString fetchedAt READ fetchedAt NOTIFY changed)
     Q_PROPERTY(QString installingKey READ installingKey NOTIFY changed)
     Q_PROPERTY(QVariantList sourceOptions READ sourceOptions NOTIFY changed)
@@ -98,6 +99,7 @@ public:
         return m_sourceFilter;
     }
     QString sourceError() const;
+    QVariantMap sourceErrorDetail() const;
     QString fetchedAt() const
     {
         return m_fetchedAt;
@@ -162,9 +164,10 @@ private:
     friend class ::PluginRuntimeTest;
     std::function<QUrl(const QUrl &)> m_resolveUrl;
     QPointer<NetworkPreferences> m_networkPreferences;
-    using Completion = std::function<void(QByteArray, QString)>;
+    using Completion = std::function<void(QByteArray, QString, QVariantMap)>;
     void getAttempt(const QUrl &url, const QUrl &origin, qint64 limit, Completion complete,
-                    const QByteArray &body, int timeout, bool fallback);
+                    const QByteArray &body, int timeout, bool fallback,
+                    const QVariantList &attempts = {});
     void get(const QUrl &url, qint64 limit, Completion complete, const QByteArray &body = {},
              int timeout = 30000);
     void fetchSource(QVariantMap source, quint64 generation,

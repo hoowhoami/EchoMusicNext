@@ -1276,6 +1276,10 @@ QtObject {
         QSignalSpy settings(&routes, &RouteController::settingsRequested);
         routes.navigate("settings");
         QCOMPARE(settings.size(), 1);
+        QVERIFY(settings.first()[0].toString().isEmpty());
+        QVERIFY(routes.navigate("settings", {{"section", "network"}}));
+        QCOMPARE(settings.size(), 2);
+        QCOMPARE(settings.last()[0].toString(), QString("network"));
         QCOMPARE(routes.current(), original.data());
         routes.refresh();
         const auto refreshedKey = routes.current()->key();

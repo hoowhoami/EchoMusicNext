@@ -3,8 +3,9 @@
 #include "SettingsStore.h"
 #include <QPointer>
 #include <QRect>
+#include <QSet>
 #include <functional>
-class QMessageBox;
+class QDialog;
 namespace EchoMusic
 {
 class EchoPluginContext;
@@ -17,6 +18,7 @@ class PluginPermissionStore final : public QObject
     Q_PROPERTY(QVariantList records READ records NOTIFY changed)
 public:
     explicit PluginPermissionStore(EchoMusic::SettingsStore &, QObject *parent);
+    ~PluginPermissionStore() override;
     QVariantList records() const;
     QRect windowBounds(const QString &installation, const QString &id) const;
     void saveWindowBounds(const QString &installation, const QString &id, const QRect &bounds);
@@ -39,15 +41,24 @@ private:
     {
         QPointer<EchoPluginContext> scope;
         QPointer<EchoPluginOperation> operation;
-        QString permissionKey;
+        QString permissionKey, prompt, purpose;
         QVariantMap record;
-        quint64 epoch;
+        quint64 epoch, order;
         std::function<void()> ready;
     };
     QString key(const EchoPluginContext &, const QString &, const QString &resource = {}) const;
     void prunePrompts();
-    QHash<QString, QString> m_promptKeys;
-    QHash<QString, QPointer<QMessageBox>> m_dialogs;
+    void schedulePrompt();
+    void presentPrompt();
+    QVariantMap promptRequest(const QString &) const;
+    void closePrompt();
+    QHash<QString, QString> m_promptOwners;
+    QStringList m_promptOrder;
+    QString m_activePrompt;
+    QSet<QString> m_presented;
+    QPointer<QDialog> m_dialog;
+    bool m_scheduled = false;
+    quint64 m_nextRequest = 0;
     EchoMusic::SettingsStore &m_settings;
     QHash<QString, Pending> m_pending;
     QHash<QString, QVariantMap> m_session;

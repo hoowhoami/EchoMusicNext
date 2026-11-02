@@ -47,7 +47,7 @@ bool PluginManager::install(const QString &key)
     m_installingKey = key;
     rebuild();
     get(QUrl(e.value("artifactUrl").toString()), 128 * 1024 * 1024,
-        [this, e](QByteArray bytes, QString error) {
+        [this, e](QByteArray bytes, QString error, QVariantMap) {
             if (!error.isEmpty())
                 finishInstall(false, error);
             else

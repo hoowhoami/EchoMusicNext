@@ -74,6 +74,8 @@
 
 `player.snapshot/lyricsInfo/lyricSnapshot/on/control`提供曲目、模式、质量、音效、收藏、FM和歌词时间上下文；`appearance.snapshot/fonts`提供语义外观和完整字体链。`windows.snapshot/command`调用现有浮窗控制器；共享`EchoPluginPlaybackControls/EchoPluginProgress/EchoPluginLyricsView`可用于整页皮肤及Mini。作者签名与例子见[外观文档](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/appearance.md)，执行证据与平台边界见[本轮记录](internal/verification/2026-10-21-plugin-p0.md)。
 
+`lyrics.onSnapshot`在同一歌词文档内复用只读的`lines`及嵌套数据，换行只更新当前行等轻量信息；歌词内容、过滤或偏移变化后发布新的行数组。需要改写数据时先自行复制，避免在每次回调中深度遍历不变的整首歌词。订阅释放后宿主回收其缓存，调用者显式保留的旧快照继续保持原值。
+
 音源解析/转换（playback.audioSource）与多队列（playback.queues）已接入正常播放、预加载及宿主队列目录。作者用法见[音源与队列](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/audio-sources-and-queues.md)。
 
 `ctx.lyrics`支持LRC/KRC/YRC resolver、来源预览、类型化快照与临时写入。手动来源优先，切歌/账号取消，停用撤回写入与来源结果；作者用法见[歌词接口](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/lyrics.md)。
@@ -116,6 +118,8 @@
 
 三类资源分别声明 `windows/tcp/webServer` capability，首次使用由宿主确认授权，绑定安装和当前包内容。插件管理“插件授权”可撤销；取消、账号变化、窗口作用域退出或停用关闭资源并丢弃迟到结果。详细签名与窗口配方见作者 SDK 的 `docs/windows-network.md`。
 
+同一插件在同一轮事件处理中发起的多个首次授权请求合并为一个清单，权限与用途分别列出；可用 `Promise.all` 并发请求相互独立的权限。授权仍按安装、包内容和具体资源分别保存、撤销。不同插件的提示排队；清单显示后新请求的权限进入下一次确认，避免旧确认授予未展示的权限。
+
 
 包内程序用 `ctx.process.launch/terminate`，声明 `process`；首次启动按可执行内容授权，进程随 scope、账号和停用清理。`ctx.server.intercept` 声明 `serverIntercept`，支持签名前参数和 Wire 转换前原始传输两个阶段、优先级与一次性转发。管理页“插件授权”支持撤销；类型与使用边界见[作者 SDK](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/sdk.md#包内程序与宿主请求)。
 
@@ -156,7 +160,7 @@ Qt组件纹理可通过EchoGpuSurface.importTextureSource借用到RHI采样：�
 
 ### 会话快照、主窗口弹窗与剪贴板
 
-`ctx.kugou.authSnapshot()` 需要声明 `kugouAuth` 并由用户单独授权，返回 `{ Authorization, revision }`。Authorization 与 `server.intercept` API 阶段的同名头一致：token、userid、t1、dfid、KUGOU_API_MID、uuid、KUGOU_API_GUID、KUGOU_API_DEV、KUGOU_API_MAC；空值省略。它只读当前内存会话，不发请求、不等流量。订阅 `ctx.kugou.accountChanged` 后重新读取，处理取消与拒绝；不要记录或持久化该结果。普通 `kugouApi` 不允许此读取。
+`ctx.kugou.authSnapshot()` 需要声明 `kugouAuth` 并由用户明确授权，返回 `{ Authorization, revision }`。Authorization 与 `server.intercept` API 阶段的同名头一致：token、userid、t1、dfid、KUGOU_API_MID、uuid、KUGOU_API_GUID、KUGOU_API_DEV、KUGOU_API_MAC；空值省略。它只读当前内存会话，不发请求、不等流量。订阅 `ctx.kugou.accountChanged` 后重新读取，处理取消与拒绝；不要记录或持久化该结果。普通 `kugouApi` 不允许此读取。
 
 `ctx.ui.showDialog({ component: 'Panel.qml', width: 400, modal: true, closeOnMask: true })` 返回 operation，正文准备完成后得到 `EchoPluginDialog` 句柄；`close()` 关闭，`active`/`closed` 通知生命周期。可选 `title` 默认插件名，width 为160..2048逻辑px并受主窗口约束。QML 根必须是 Item，声明 `required property EchoPluginContext plugin` 和 `required property EchoPluginDialog dialog`，通过 `dialog.close()` 关闭。默认模态、Escape关闭及点击遮罩关闭，使用共享主题、应用缩放和浮层；不离开路由、不创建OS窗口。取消打开operation、账号变化、调用者退休或宿主隐藏会清理，最小化保留实例。最多同时8个弹窗，正文自行提供自然高度及必要滚动。
 

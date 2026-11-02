@@ -48,6 +48,12 @@ private slots:
     void hostAccessAuthorizationCancellationAndDisable();
     void customWindowsRealEntryScopesAndRetirement();
     void resourceAuthorizationDenialCancelAndIsolation();
+    void resourceAuthorizationBatchesAndSerializes();
+    void resourceAuthorizationCancelBatchAndAccount();
+    void marketplaceNetworkFailureClassification_data();
+    void marketplaceNetworkFailureClassification();
+    void marketplaceNetworkFailureDetailsUi();
+    void lyricSnapshotsShareDocumentsAcrossLineChanges();
     void resourceAuthorizationDoesNotConsumeActivationDeadline();
     void tcpRealBinaryCancellationAndRevocation();
     void tcpHalfCloseReceivesResponseAfterFin();

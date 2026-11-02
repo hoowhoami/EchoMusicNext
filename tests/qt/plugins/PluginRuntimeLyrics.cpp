@@ -60,6 +60,101 @@ QVariantMap lyricDocument(const QString &text)
     return {{"format", "lrc"}, {"content", "[00:01]" + text}, {"source", "Writer"}};
 }
 } // namespace
+void PluginRuntimeTest::lyricSnapshotsShareDocumentsAcrossLineChanges()
+{
+    Host host;
+    auto *scope = lyricsPlugin(host, "lyric-snapshot-cache", "");
+    QVERIFY(scope);
+    QJsonArray lines;
+    for (int i = 0; i < 1000; ++i)
+        lines.append(QJsonObject{
+            {"text", QString("line %1").arg(i)},
+            {"start_ms", i * 100},
+            {"duration_ms", 100},
+            {"words", QJsonArray{QJsonObject{
+                          {"text", "word"}, {"start_ms", i * 100}, {"duration_ms", 100}}}}});
+    QJsonObject document{{"lines", lines}, {"offset_ms", 0}};
+    QVERIFY(host.playback.lyrics()->replace(document));
+    QElapsedTimer timer;
+    timer.start();
+    for (int i = 0; i < 100; ++i) {
+        host.playback.lyrics()->setPosition(i * 100);
+        const auto legacy = host.engine.toScriptValue(scope->lyrics()->snapshot());
+        QCOMPARE(legacy.property("lines").property("length").toInt(), 1000);
+        QCoreApplication::processEvents();
+    }
+    const auto fullProjectionMs = timer.elapsed();
+    host.engine.collectGarbage();
+    host.engine.evaluate(R"(
+      var cachedLyricCalls=0,cachedLyricReuses=0,cachedLyricDocuments=0,cachedLyricLast=null,cachedLyricFirst=null;
+      var cachedLyricImmutable=true,cachedLyricIndex=-1;
+    )");
+    auto *lease = scope->lyrics()->onSnapshot("cache", host.engine.evaluate(R"((function(v){
+      ++cachedLyricCalls;
+      if(cachedLyricLast===v.lines)++cachedLyricReuses;else ++cachedLyricDocuments;
+      cachedLyricLast=v.lines;if(!cachedLyricFirst)cachedLyricFirst=v.lines;
+      cachedLyricImmutable=cachedLyricImmutable&&Array.isArray(v.lines)&&Array.isArray(v.lines[0].words);
+      cachedLyricIndex=v.currentIndex;
+    }))"));
+    QVERIFY(lease);
+    const auto global = host.engine.globalObject();
+    QTRY_COMPARE(global.property("cachedLyricCalls").toInt(), 1);
+    timer.restart();
+    for (int i = 100; i < 200; ++i) {
+        host.playback.lyrics()->setPosition(i * 100);
+        QCoreApplication::processEvents();
+        QCOMPARE(global.property("cachedLyricIndex").toInt(), i);
+    }
+    const auto subscriptionMs = timer.elapsed();
+    QCOMPARE(global.property("cachedLyricDocuments").toInt(), 1);
+    QVERIFY(global.property("cachedLyricReuses").toInt() >= 100);
+    QVERIFY(global.property("cachedLyricImmutable").toBool());
+    const auto mutation = host.engine.evaluate(R"((function(){
+      var before=cachedLyricLast.length,caught=false;
+      try{cachedLyricLast.push({});}catch(e){caught=true;}
+      try{cachedLyricLast[0].lineText='changed';}catch(e){}
+      try{cachedLyricLast[0].words[0].text='changed';}catch(e){}
+      try{Array.prototype.push.call(cachedLyricLast,{});}catch(e){}
+      try{delete cachedLyricLast[0];}catch(e){}
+      return JSON.stringify({before:before,after:cachedLyricLast.length,caught:caught});
+    })())");
+    qInfo() << "Read-only document mutation check:" << mutation.toString();
+    const auto mutationResult = QJsonDocument::fromJson(mutation.toString().toUtf8()).object();
+    QCOMPARE(mutationResult.value("before").toInt(), 1000);
+    QCOMPARE(mutationResult.value("after").toInt(), 1000);
+    QVERIFY(mutationResult.value("caught").toBool());
+    QCOMPARE(global.property("cachedLyricLast").property(0).property("lineText").toString(),
+             "line 0");
+    QCOMPARE(global.property("cachedLyricLast")
+                 .property(0)
+                 .property("words")
+                 .property(0)
+                 .property("text")
+                 .toString(),
+             "word");
+    qInfo() << "100 line changes / 1000 rows, full projection ms:" << fullProjectionMs
+            << "leased projection ms:" << subscriptionMs;
+    host.playback.lyrics()->setFilter(true, "^line 0$");
+    QTRY_COMPARE(global.property("cachedLyricDocuments").toInt(), 2);
+    QVERIFY(global.property("cachedLyricLast").property(0).property("filtered").toBool());
+    QVERIFY(!global.property("cachedLyricFirst").property(0).property("filtered").toBool());
+    document["offset_ms"] = 125;
+    QVERIFY(host.playback.lyrics()->replace(document));
+    QTRY_COMPARE(global.property("cachedLyricDocuments").toInt(), 3);
+    QCOMPARE(global.property("cachedLyricLast").property(0).property("startMs").toInt(), 125);
+    lease->dispose();
+    const auto calls = global.property("cachedLyricCalls").toInt();
+    host.playback.lyrics()->setPosition(1000);
+    QTest::qWait(10);
+    QCOMPARE(global.property("cachedLyricCalls").toInt(), calls);
+    auto *reopened = scope->lyrics()->onSnapshot("cache", host.engine.evaluate(R"((function(v){
+      cachedLyricImmutable=cachedLyricImmutable&&v.lines!==cachedLyricLast;
+      ++cachedLyricCalls;
+    }))"));
+    QVERIFY(reopened);
+    QTRY_VERIFY(global.property("cachedLyricCalls").toInt() > calls);
+    QVERIFY(global.property("cachedLyricImmutable").toBool());
+}
 void PluginRuntimeTest::lyricResolversFormatsAndManualPriority()
 {
     Host host;

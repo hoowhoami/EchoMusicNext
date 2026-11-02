@@ -205,7 +205,7 @@ bool RouteController::goTo(const QString &name, const QVariantMap &query, const 
         return true;
     }
     if (name == "settings") {
-        emit settingsRequested();
+        emit settingsRequested(query.value("section").toString());
         return true;
     }
     Location location{name, resourceId, query};

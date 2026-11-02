@@ -27,6 +27,7 @@ qt_add_qml_module(
     PluginFailureDialog.qml
     PluginSettingsDialog.qml
     PluginLocalInstallOverlay.qml
+    PluginNetworkErrorDialog.qml
 )
 target_include_directories(echo_plugins PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
@@ -51,6 +52,7 @@ target_sources(
 )
 
 target_sources(
-    echo_plugins PRIVATE PluginManagerHelpers_p.h PluginManagerCatalog.cpp
-                         PluginManagerInstallation.cpp PluginManagerSharing.cpp
+    echo_plugins
+    PRIVATE PluginManagerHelpers_p.h PluginManagerCatalog.cpp PluginManagerInstallation.cpp
+            PluginManagerSharing.cpp PluginNetworkFailure.cpp PluginNetworkFailure.h
 )

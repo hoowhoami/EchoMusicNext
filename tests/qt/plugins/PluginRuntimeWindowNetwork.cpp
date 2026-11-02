@@ -6,6 +6,9 @@
 #include <QNetworkAccessManager>
 #include <QWebSocket>
 #include <QWebSocketHandshakeOptions>
+#include <QApplication>
+#include <QDialog>
+#include <QPlainTextEdit>
 #include <thread>
 #include <atomic>
 #ifdef Q_OS_MACOS
@@ -213,7 +216,7 @@ void PluginRuntimeTest::resourceAuthorizationDenialCancelAndIsolation()
                              host.runtime.permissions()->decide(id, false);
                          });
     auto *op = scope->net()->tcp()->connect({{"host", "127.0.0.1"}, {"port", 12345}});
-    QCOMPARE(op->state(), EchoPluginOperation::Failed);
+    QTRY_COMPARE(op->state(), EchoPluginOperation::Failed);
     QCOMPARE(op->errorCode(), "PermissionDenied");
     QCOMPARE(prompts.size(), 1);
     QVERIFY(host.runtime.permissions()->records().isEmpty());
@@ -268,6 +271,103 @@ void PluginRuntimeTest::resourceAuthorizationDenialCancelAndIsolation()
     EchoMusic::SettingsStore reopened(host.settings.fileName());
     PluginPermissionStore store(reopened, nullptr);
     QVERIFY(store.granted(*scope, "tcp"));
+}
+void PluginRuntimeTest::resourceAuthorizationBatchesAndSerializes()
+{
+    Host host;
+    auto *scope = resources(host, {}, false);
+    QVERIFY(scope);
+    auto *store = host.runtime.permissions();
+    QSignalSpy prompts(store, &PluginPermissionStore::confirmationRequested);
+    auto *tcp = scope->permissions()->request("tcp", "连接本机设备");
+    auto *windows = scope->permissions()->request("windows", "显示控制面板");
+    auto *duplicate = scope->permissions()->request("windows", "显示辅助面板");
+    QCOMPARE(prompts.size(), 0);
+    QTRY_COMPARE(prompts.size(), 1);
+    const auto rows = prompts.first()[1].toMap().value("permissions").toList();
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(rows[1].toMap().value("purposes").toStringList().size(), 2);
+    const auto visibleDialogs = [] {
+        QList<QDialog *> result;
+        for (auto *widget : QApplication::topLevelWidgets())
+            if (widget->objectName() == "pluginPermissionPrompt" && widget->isVisible())
+                result.append(qobject_cast<QDialog *>(widget));
+        return result;
+    };
+    QTRY_COMPARE(visibleDialogs().size(), 1);
+    auto *body = visibleDialogs().first()->findChild<QPlainTextEdit *>("pluginPermissionList");
+    QVERIFY(body && body->isReadOnly());
+    QVERIFY(body->toPlainText().contains("连接本机设备"));
+    QVERIFY(body->toPlainText().contains("显示辅助面板"));
+    const auto captures = qEnvironmentVariable("ECHO_PLUGIN_IMPROVEMENT_CAPTURES");
+    if (!captures.isEmpty()) {
+        QDir().mkpath(captures);
+        QVERIFY(visibleDialogs().first()->grab().save(captures + "/permissions.png"));
+    }
+    auto package = scope->package();
+    package.installationId = "another-owner";
+    auto *other = new EchoPluginContext(package, 901, host.engine, scope->host(),
+                                        host.temporary.path() + "/other", &host.runtime);
+    auto *otherCall = other->permissions()->request("tcp", "另一个插件");
+    auto *late = scope->permissions()->request("webServer", "弹窗显示后才发起的新权限");
+    tcp->cancel();
+    QTest::qWait(10);
+    QCOMPARE(prompts.size(), 1);
+    QCOMPARE(visibleDialogs().size(), 1);
+    // An old confirmation must never grant a permission added after display.
+    store->decide(prompts.first()[0].toString(), true);
+    QCOMPARE(windows->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(duplicate->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(tcp->state(), EchoPluginOperation::Canceled);
+    QVERIFY(!late->finished() && !otherCall->finished());
+    QVERIFY(!scope->permissions()->granted("tcp"));
+    QTRY_COMPARE(prompts.size(), 2);
+    QCOMPARE(prompts.last()[1].toMap().value("installationId").toString(),
+             QString("another-owner"));
+    QCOMPARE(visibleDialogs().size(), 1);
+    store->decide(prompts.last()[0].toString(), false);
+    QCOMPARE(otherCall->errorCode(), QString("PermissionDenied"));
+    QTRY_COMPARE(prompts.size(), 3);
+    QCOMPARE(prompts.last()[1].toMap().value("permissions").toList().size(), 1);
+    store->decide(prompts.last()[0].toString(), true);
+    QCOMPARE(late->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(store->records().size(), 2);
+    QVERIFY(store->revoke(grantId(host, "windows")));
+    QVERIFY(!scope->permissions()->granted("windows"));
+    QVERIFY(scope->permissions()->granted("webServer"));
+    QTRY_VERIFY(visibleDialogs().isEmpty());
+    other->beginRetire();
+    QTRY_VERIFY(other->drained());
+    delete other;
+}
+void PluginRuntimeTest::resourceAuthorizationCancelBatchAndAccount()
+{
+    Host host;
+    auto *scope = resources(host, {}, false);
+    QVERIFY(scope);
+    auto *store = host.runtime.permissions();
+    QSignalSpy prompts(store, &PluginPermissionStore::confirmationRequested);
+    auto *one = scope->permissions()->request("tcp", "第一次");
+    auto *two = scope->permissions()->request("windows", "第一次");
+    one->cancel();
+    two->cancel();
+    QTest::qWait(10);
+    QCOMPARE(prompts.size(), 0);
+    one = scope->permissions()->request("tcp", "第二次");
+    two = scope->permissions()->request("windows", "第二次");
+    QTRY_COMPARE(prompts.size(), 1);
+    QVERIFY(host.api.setAccount(42, "fixture-token", "fixture-t1"));
+    QTRY_COMPARE(one->state(), EchoPluginOperation::Canceled);
+    QTRY_COMPARE(two->state(), EchoPluginOperation::Canceled);
+    store->decide(prompts.last()[0].toString(), true);
+    QVERIFY(store->records().isEmpty());
+    QVERIFY(!store->waiting(scope->installationId()));
+    auto *again = scope->permissions()->request("tcp", "新会话");
+    QTRY_COMPARE(prompts.size(), 2);
+    host.runtime.setEnabled(scope->installationId(), false);
+    QTRY_COMPARE(again->state(), EchoPluginOperation::Canceled);
+    store->decide(prompts.last()[0].toString(), true);
+    QVERIFY(store->records().isEmpty());
 }
 void PluginRuntimeTest::tcpRealBinaryCancellationAndRevocation()
 {
