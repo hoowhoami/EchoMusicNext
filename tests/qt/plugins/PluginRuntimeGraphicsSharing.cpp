@@ -101,6 +101,15 @@ void PluginRuntimeTest::graphicsSharedResourcesScopesDevicesAndRecovery()
     QVERIFY(QTest::qWaitForWindowExposed(&window));
     QVERIFY2(f.success(producer.enqueue({{"passes", QVariantList{dispatch}}})),
              qPrintable(a->errorMessage()));
+    // An unrelated command must not discard GPU-only results from the previous
+    // submission, even before another canvas has acquired those allocations.
+    auto *scratch = a->createBuffer({{"size", 16}, {"usage", QStringList{"storage"}}});
+    QVERIFY(scratch);
+    QVERIFY(f.success(producer.enqueue(
+        {{"passes", QVariantList{QVariantMap{{"type", "upload-buffer"},
+                                             {"destination", scratch->id()},
+                                             {"data", QVariantList{1, 2, 3, 4}}}}}})));
+    QVERIFY(floats(f, producer, writeValues, 31));
     QVERIFY(floats(f, consumer, readValues, 31));
     QVERIFY(f.pixels(consumer, readImage, {}, 64, 128, 191));
     auto *samplePipeline = b->createRenderPipeline(
@@ -161,10 +170,18 @@ void PluginRuntimeTest::graphicsSharedResourcesScopesDevicesAndRecovery()
     otherWindow.show();
     QVERIFY(QTest::qWaitForWindowExposed(&otherWindow));
     QTRY_VERIFY(!other.status().value("deviceId").toString().isEmpty());
+    // An unused import is harmless; actually requesting it must still enforce
+    // the device boundary instead of silently reconstructing a CPU replica.
+    QCOMPARE(other.status().value("state").toString(), "ready");
+    auto *foreignRead = f.keep(other.readback(foreignImage));
+    QVERIFY(foreignRead);
+    QTRY_VERIFY(foreignRead->finished());
     if (other.status().value("deviceId") != consumer.status().value("deviceId")) {
+        QCOMPARE(foreignRead->state(), EchoPluginOperation::Failed);
         QTRY_COMPARE(other.status().value("state").toString(), QString("error"));
         QVERIFY(other.status().value("reason").toString().contains("different RHI"));
     } else {
+        QCOMPARE(foreignRead->state(), EchoPluginOperation::Succeeded);
         QVERIFY(f.pixels(other, foreignImage, {}, 64, 128, 191));
     }
     other.setVisible(false);

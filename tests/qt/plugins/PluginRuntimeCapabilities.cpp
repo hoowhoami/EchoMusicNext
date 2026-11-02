@@ -423,9 +423,13 @@ ApplicationWindow {
                 window->setProperty("uiScale", scale);
                 QTest::qWait(180);
                 auto *layer = visual(window->contentItem(), "spectrumVisualizerLayer");
+                auto *lyricBar = visual(window->contentItem(), "spectrumLyricPlayerBar");
+                auto *lyricLayer = lyricBar ? visual(lyricBar, "spectrumVisualizerLayer") : nullptr;
                 auto *miniLayer = visual(mini->contentItem(), "spectrumVisualizerLayer");
-                QVERIFY(layer && miniLayer);
-                QVERIFY(layer->property("frame").toMap().value("source") == "player");
+                QVERIFY(layer && lyricLayer && miniLayer);
+                for (auto *mounted : {layer, lyricLayer, miniLayer})
+                    QTRY_COMPARE(mounted->property("frame").toMap().value("source").toString(),
+                                 "player");
                 QVERIFY(!window->grabWindow().isNull());
                 int curveCount = 0, gpuCount = 0;
                 const bool requiresGpu =
@@ -449,21 +453,14 @@ ApplicationWindow {
                         verifyVectors(child);
                 };
                 verifyVectors(layer);
+                verifyVectors(lyricLayer);
                 verifyVectors(miniLayer);
                 if (requiresGpu) {
-                    QVERIFY2(
-                        gpuCount >= 2,
-                        qPrintable(
-                            QString("GPU count %1; main live %2 failed %3; mini live %4 failed %5")
-                                .arg(gpuCount)
-                                .arg(layer->property("live").toBool())
-                                .arg(layer->property("gpuFailed").toBool())
-                                .arg(miniLayer->property("live").toBool())
-                                .arg(miniLayer->property("gpuFailed").toBool())));
-                    QVERIFY(!layer->property("gpuFailed").toBool());
-                    QVERIFY(!miniLayer->property("gpuFailed").toBool());
+                    QCOMPARE(gpuCount, 3);
+                    for (auto *mounted : {layer, lyricLayer, miniLayer})
+                        QVERIFY(!mounted->property("gpuFailed").toBool());
                 } else
-                    QVERIFY(curveCount >= 2);
+                    QVERIFY(curveCount >= 3);
                 if (!artifacts.isEmpty()) {
                     const auto name = QString("/%1-%2-%3.png").arg(mode, theme).arg(scale);
                     QVERIFY(window->grabWindow().save(artifacts + name));

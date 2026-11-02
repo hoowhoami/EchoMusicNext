@@ -1,9 +1,27 @@
 #include "GpuRhi_p.h"
 #include "GpuVertexLayout_p.h"
 #include <QColor>
+#include <QSet>
 #include <cstring>
 namespace EchoMusic
 {
+namespace
+{
+void referencedResources(const QVariant &value, QSet<QString> &ids)
+{
+    if (value.metaType().id() == QMetaType::QString)
+        ids.insert(value.toString());
+    else if (value.metaType().id() == QMetaType::QVariantMap) {
+        const auto entries = value.toMap();
+        for (const auto &entry : entries)
+            referencedResources(entry, ids);
+    } else if (value.metaType().id() == QMetaType::QVariantList) {
+        const auto entries = value.toList();
+        for (const auto &entry : entries)
+            referencedResources(entry, ids);
+    }
+}
+} // namespace
 GpuRenderer::GpuRenderer(std::shared_ptr<GpuBridge> bridge)
     : m_state(std::make_shared<GpuRenderState>(std::move(bridge))), m_snapshot(m_state->snapshot)
 {
@@ -35,6 +53,18 @@ void GpuRenderer::synchronize(QQuickRhiItem *item)
     if (m_state->budget != snapshot.budget)
         m_state->release();
     m_state->budget = snapshot.budget;
+    QSet<QString> needed;
+    referencedResources(snapshot.frame, needed);
+    for (const auto &request : snapshot.readbacks)
+        needed.insert(request.first.value("resource").toString());
+    // A graphics scope can serve independent windows. Do not acquire another
+    // canvas's unused allocations on this RHI. Keep allocations already used
+    // here alive so GPU-only results survive subsequent command submissions.
+    for (auto it = snapshot.resources.begin(); it != snapshot.resources.end();)
+        if (!needed.contains(it.key()) && !m_state->resources.contains(it.key()))
+            it = snapshot.resources.erase(it);
+        else
+            ++it;
     m_snapshot = std::move(snapshot);
     m_state->watchTextureSources(*surface);
     if (m_state->window != surface->window()) {
