@@ -4,6 +4,8 @@ class PlaybackPageTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void progressReleaseWaitsForSeekConfirmation_data();
+    void progressReleaseWaitsForSeekConfirmation();
     void portraitGalleryCancelsCachesAndUsesPreferredCategory();
     void portraitSkinPreferencesAndProductionLifecycle();
     void portraitCollapseKeepsMotionAndAvoidsVisibleControls();

@@ -172,6 +172,15 @@ public:
 class PlaybackServiceTestAccess
 {
 public:
+    static void deliver(PlaybackService &playback, const QJsonObject &event)
+    {
+        playback.onEvent(event);
+    }
+    static void restoreEvents(PlaybackService &playback)
+    {
+        QObject::connect(&playback.m_engine, &AudioEngine::eventReceived, &playback,
+                         &PlaybackService::onEvent);
+    }
     static AudioEngine *engine(PlaybackService &playback)
     {
         return &playback.m_engine;
@@ -339,6 +348,181 @@ struct Session
     }
 };
 } // namespace
+void PlaybackPageTest::progressReleaseWaitsForSeekConfirmation_data()
+{
+    QTest::addColumn<int>("width");
+    QTest::addColumn<bool>("edgeToEdge");
+    QTest::newRow("playerbar") << 480 << false;
+    QTest::newRow("playback-page") << 900 << true;
+    QTest::newRow("mini") << 253 << true;
+}
+void PlaybackPageTest::progressReleaseWaitsForSeekConfirmation()
+{
+    QFETCH(int, width);
+    QFETCH(bool, edgeToEdge);
+    QStringList warnings;
+    Session session;
+    connect(&session.engine, &QQmlEngine::warnings, &session.engine,
+            [&](const QList<QQmlError> &errors) {
+                for (const auto &error : errors)
+                    warnings.append(error.toString());
+            });
+    session.playback.setVolume(0);
+    const auto qml = session.directory.filePath("seek.qml");
+    QFile harness(qml);
+    QVERIFY(harness.open(QIODevice::WriteOnly));
+    harness.write(R"(
+import QtQuick
+import EchoMusic.Playback
+import EchoMusic.Shell
+Window {
+    id: window
+    required property PlaybackService playback
+    required property ShellController controller
+    required property RouteController router
+    width: 960
+    height: 100
+    visible: true
+    PlaybackProgress {
+        objectName: "seekProgress"
+        x: 20
+        y: 30
+        width: 900
+        playback: window.playback
+    }
+})");
+    harness.close();
+    QVERIFY(session.create(false, QUrl::fromLocalFile(qml).toString()));
+    QTRY_VERIFY_WITH_TIMEOUT(session.playback.engineReady(), 15000);
+    QTRY_VERIFY(!PlaybackServiceTestAccess::queueRestorePending(session.playback));
+    const auto path = session.directory.filePath("seek.wav");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QDataStream data(&file);
+    data.setByteOrder(QDataStream::LittleEndian);
+    constexpr quint32 bytes = 16000 * 2 * 60;
+    data.writeRawData("RIFF", 4);
+    data << quint32(36 + bytes);
+    data.writeRawData("WAVEfmt ", 8);
+    data << quint32(16) << quint16(1) << quint16(1) << quint32(16000) << quint32(32000)
+         << quint16(2) << quint16(16);
+    data.writeRawData("data", 4);
+    data << bytes;
+    const QByteArray silence(bytes, '\0');
+    data.writeRawData(silence.constData(), silence.size());
+    file.close();
+    PlaybackTrack track;
+    track.id = "seek-release";
+    track.title = "Seek release";
+    track.localPath = path;
+    session.playback.playTracks({track}, 0, "Seek release", "seek-release");
+    QTRY_VERIFY(session.playback.playing() && !session.playback.loading());
+    session.playback.pause();
+    QTRY_VERIFY(!session.playback.playing());
+    session.playback.seek(5000);
+    QTRY_VERIFY(qAbs(session.playback.positionMs() - 5000) < 100);
+    const auto oldPosition = session.playback.positionMs();
+    auto *progress = session.item("seekProgress");
+    QVERIFY(progress);
+    progress->setWidth(width);
+    progress->setProperty("edgeToEdge", edgeToEdge);
+    progress->ensurePolished();
+    auto *slider = session.item("playbackSeekSlider");
+    QVERIFY(slider);
+    QTRY_VERIFY(slider->width() > 100);
+    auto *handle = slider->property("handle").value<QQuickItem *>();
+    QVERIFY(handle);
+    // Delay delivery, not execution: all confirmations below come from the real
+    // decoder/output. This exposes even a one-tick release-to-old-position jump.
+    auto *engine = PlaybackServiceTestAccess::engine(session.playback);
+    QList<QJsonObject> pending;
+    QObject::disconnect(engine, &AudioEngine::eventReceived, &session.playback, nullptr);
+    const auto capture = connect(engine, &AudioEngine::eventReceived, &session.playback,
+                                 [&](const QJsonObject &event) { pending.append(event); });
+    auto restore = qScopeGuard([&] {
+        QObject::disconnect(capture);
+        PlaybackServiceTestAccess::restoreEvents(session.playback);
+    });
+    const auto start = handle->mapToScene({handle->width() / 2, handle->height() / 2}).toPoint();
+    const auto end = slider->mapToScene({slider->width() * .75, slider->height() / 2}).toPoint();
+    QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, start);
+    QTest::mouseMove(session.window, end, 20);
+    QVERIFY(slider->property("pressed").toBool());
+    const auto target = slider->property("value").toDouble();
+    QVERIFY(target > 30000);
+    const auto handleBeforeRelease = handle->mapToScene({0, 0});
+    auto *positionText = session.item("playbackPositionText");
+    QVERIFY(positionText);
+    const auto previewText = positionText->property("text").toString();
+    QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, end);
+    QVERIFY(!slider->property("pressed").toBool());
+    QVERIFY(qAbs(slider->property("value").toDouble() - target) <= 1);
+    QVERIFY(qAbs(handle->mapToScene({0, 0}).x() - handleBeforeRelease.x()) <= 1);
+    QCOMPARE(positionText->property("text").toString(), previewText);
+    QCOMPARE(session.playback.positionMs(), oldPosition);
+    // Opening another progress surface during this seek must still initialize
+    // it from the service, rather than freezing a new slider at its zero default.
+    QQmlComponent followerComponent(&session.engine);
+    followerComponent.loadFromModule("EchoMusic.Playback", "PlaybackProgress");
+    std::unique_ptr<QObject> follower(followerComponent.createWithInitialProperties(
+        {{"playback", QVariant::fromValue(&session.playback)}}));
+    QVERIFY2(follower, qPrintable(followerComponent.errorString()));
+    auto *followerSlider =
+        findVisual(qobject_cast<QQuickItem *>(follower.get()), "playbackSeekSlider");
+    QVERIFY(followerSlider);
+    QCOMPARE(followerSlider->property("value").toDouble(), double(oldPosition));
+    QTRY_VERIFY(std::any_of(pending.cbegin(), pending.cend(), [](const QJsonObject &event) {
+        return event.value("event") == "seeked";
+    }));
+    QVERIFY(qAbs(slider->property("value").toDouble() - target) <= 1);
+    for (const auto &event : std::exchange(pending, {}))
+        PlaybackServiceTestAccess::deliver(session.playback, event);
+    QVERIFY(qAbs(session.playback.positionMs() - target) < 100);
+    QTRY_VERIFY(qAbs(slider->property("value").toDouble() - session.playback.positionMs()) <= 1);
+    QObject::disconnect(capture);
+    PlaybackServiceTestAccess::restoreEvents(session.playback);
+    restore.dismiss();
+    // Also exercise backward dragging during playback and successive keyboard
+    // changes with normal engine delivery, rather than held confirmations.
+    session.playback.play();
+    QTRY_VERIFY(session.playback.playing());
+    QSignalSpy sought(&session.playback, &PlaybackService::seekCompleted);
+    const auto backStart =
+        handle->mapToScene({handle->width() / 2, handle->height() / 2}).toPoint();
+    const auto backEnd =
+        slider->mapToScene({slider->width() * .25, slider->height() / 2}).toPoint();
+    QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, backStart);
+    QTest::mouseMove(session.window, backEnd, 20);
+    const auto backward = slider->property("value").toDouble();
+    QVERIFY(backward < 30000);
+    QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, backEnd);
+    QVERIFY(qAbs(slider->property("value").toDouble() - backward) < 500);
+    QTRY_VERIFY(!sought.isEmpty());
+    QVERIFY(qAbs(session.playback.positionMs() - backward) < 500);
+    sought.clear();
+    slider->forceActiveFocus();
+    slider->setProperty("stepSize", 1000);
+    for (int i = 0; i < 3; ++i)
+        QTest::keyClick(session.window, Qt::Key_Right);
+    const auto keyboard = slider->property("value").toDouble();
+    QVERIFY(keyboard > backward + 1000);
+    QTRY_VERIFY(!sought.isEmpty());
+    QTRY_VERIFY(qAbs(session.playback.positionMs() - keyboard) < 500);
+    // A song replacement during the gesture must not seek the new song.
+    const auto cancelStart =
+        handle->mapToScene({handle->width() / 2, handle->height() / 2}).toPoint();
+    const auto cancelEnd =
+        slider->mapToScene({slider->width() * .65, slider->height() / 2}).toPoint();
+    QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, cancelStart);
+    QTest::mouseMove(session.window, cancelEnd, 20);
+    track.id = "replacement";
+    session.playback.playTracks({track}, 0, "Replacement", "replacement");
+    QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, cancelEnd);
+    QTRY_VERIFY(session.playback.playing() && !session.playback.loading());
+    QTRY_VERIFY(!slider->property("previewing").toBool());
+    QVERIFY(session.playback.positionMs() < 5000);
+    QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+}
 void PlaybackPageTest::restoredTrackLoadsLyricsWithoutStartingPlayback_data()
 {
     QTest::addColumn<bool>("restoreWhileOpen");
