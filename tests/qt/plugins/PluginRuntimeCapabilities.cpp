@@ -62,7 +62,9 @@ void PluginRuntimeTest::spectrumCapabilityAndOwnerLifetime()
     QCOMPARE(host.playback.spectrum()->subscriberCount(), 0);
 }
 
-void PluginRuntimeTest::builtAuthorPackageCommands()
+namespace
+{
+void verifyAuthorPackage(bool entryOnly)
 {
     const auto source = qEnvironmentVariable("ECHO_AUTHOR_PLUGIN_PACKAGE");
     if (source.isEmpty())
@@ -97,22 +99,27 @@ void PluginRuntimeTest::builtAuthorPackageCommands()
     QTRY_COMPARE(host.shell.pluginSurfaces()->entries().size(), 3);
     QCOMPARE(scope->ui()->state().value("showLyricControls").toBool(), true);
     QCOMPARE(scope->ui()->state().value("showPlayerBar").toBool(), false);
-    QPointer<EchoPluginOperation> patch = retain(scope->executeCommand(
-        "settings.patch",
-        {{"showPlayerBar", true}, {"showMiniPlayer", true}, {"mode", "hybrid"}, {"fps", 30}}));
+    const auto initialMode = entryOnly ? QStringLiteral("centered") : QStringLiteral("hybrid");
+    QPointer<EchoPluginOperation> patch =
+        retain(scope->executeCommand("settings.patch", {{"showPlayerBar", !entryOnly},
+                                                        {"showMiniPlayer", !entryOnly},
+                                                        {"mode", initialMode},
+                                                        {"fps", entryOnly ? 15 : 30}}));
     QTRY_VERIFY(patch && patch->finished());
     QCOMPARE(patch->state(), EchoPluginOperation::Succeeded);
     QPointer<EchoPluginOperation> stored = retain(scope->io()->readValue("settings"));
     QTRY_COMPARE(stored->state(), EchoPluginOperation::Succeeded);
-    QCOMPARE(stored->result().toMap().value("mode").toString(), "hybrid");
+    QCOMPARE(stored->result().toMap().value("mode").toString(), initialMode);
     QVERIFY(!scope->ui()->settingsComponent().isEmpty());
     QStringList warnings;
-    connect(&host.engine, &QQmlEngine::warnings, &host.engine, [&](const QList<QQmlError> &errors) {
-        for (const auto &error : errors)
-            warnings.append(error.toString());
-    });
+    QObject::connect(&host.engine, &QQmlEngine::warnings, &host.engine,
+                     [&](const QList<QQmlError> &errors) {
+                         for (const auto &error : errors)
+                             warnings.append(error.toString());
+                     });
     FloatingPlayerController floating(host.settings, false);
-    floating.toggleMini();
+    if (!entryOnly)
+        floating.toggleMini();
     QQmlComponent component(&host.engine);
     component.setData(R"(
 import QtQuick
@@ -142,12 +149,25 @@ ApplicationWindow {
         }
     }
     property real uiScale: 1
+    property bool lyricVisible: true
+    property real lyricOpacity: 1
     width: 1100; height: 340; visible: true; color: Theme.main
     Item {
         width: win.width / win.uiScale; height: win.height / win.uiScale
         scale: win.uiScale; transformOrigin: Item.TopLeft
         PlayerBar { width: parent.width; y: 20; controller: win.shell; router: win.router; uiScale: win.uiScale; manageCapacity: false }
-        PlayerBar { width: parent.width; y: 230; lyricStyle: true; controller: win.shell; router: win.router; uiScale: win.uiScale; manageCapacity: false }
+        PlayerBar {
+            objectName: "spectrumLyricPlayerBar"
+            width: parent.width
+            y: 230
+            visible: win.lyricVisible
+            opacity: win.lyricOpacity
+            lyricStyle: true
+            controller: win.shell
+            router: win.router
+            uiScale: win.uiScale
+            manageCapacity: false
+        }
     }
     MiniPlayerWindow { objectName: "spectrumMini"; service: win.floating; playback: win.playback; pluginSurfaces: win.shell.pluginSurfaces }
 })",
@@ -176,7 +196,7 @@ ApplicationWindow {
     };
     describe(window->contentItem());
     describe(mini->contentItem());
-    QTRY_COMPARE(host.playback.spectrum()->subscriberCount(), 3);
+    QTRY_COMPARE(host.playback.spectrum()->subscriberCount(), entryOnly ? 1 : 3);
     QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
     QTRY_VERIFY_WITH_TIMEOUT(host.playback.engineReady(), 15000);
     // Quiet, real local PCM passes through the production decoder, mixer,
@@ -254,6 +274,70 @@ ApplicationWindow {
     QTRY_VERIFY(frames.count() > 0);
     sub->dispose();
     QTRY_VERIFY(sub.isNull());
+    if (entryOnly) {
+        const auto artifacts = qEnvironmentVariable("ECHO_SPECTRUM_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QDir().mkpath(artifacts);
+        patch = retain(scope->executeCommand(
+            "settings.patch", {{"mode", "centered"}, {"fps", 15}, {"showBackdrop", false}}));
+        QTRY_VERIFY(patch && patch->finished());
+        QCOMPARE(patch->state(), EchoPluginOperation::Succeeded);
+        // Recreate the production asynchronous lyric contribution while real
+        // PCM is playing. Sample entry frames, rather than only settled UI.
+        for (double scale : {1.0, 1.25}) {
+            window->setProperty("uiScale", scale);
+            for (int cycle = 0; cycle < 3; ++cycle) {
+                window->setProperty("lyricVisible", false);
+                QTRY_COMPARE(host.playback.spectrum()->subscriberCount(), 0);
+                window->setProperty("lyricOpacity", 0.0);
+                window->setProperty("lyricVisible", true);
+                for (int entry = 0; entry < 24; ++entry) {
+                    window->setProperty("lyricOpacity", qMin(1.0, (entry + 1) / 12.0));
+                    const auto image = window->grabWindow();
+                    QVERIFY(!image.isNull());
+                    if (!artifacts.isEmpty() && cycle == 0 &&
+                        (entry == 0 || entry == 11 || entry == 23))
+                        QVERIFY(image.save(artifacts +
+                                           QString("/entry-%1-%2.png").arg(scale).arg(entry)));
+                    const auto sx = image.width() / double(window->width());
+                    const auto sy = image.height() / double(window->height());
+                    const QRect region(0, qRound(148 * scale * sy), image.width(),
+                                       qRound(82 * scale * sy));
+                    int magenta = 0, samples = 0;
+                    for (int y = region.top(); y <= qMin(region.bottom(), image.height() - 1);
+                         y += 2)
+                        for (int x = 0; x < region.width(); x += qMax(1, qRound(2 * sx))) {
+                            const auto pixel = image.pixelColor(x, y);
+                            magenta +=
+                                pixel.red() >= 250 && pixel.green() <= 5 && pixel.blue() >= 250;
+                            ++samples;
+                        }
+                    QVERIFY2(magenta < samples / 4,
+                             qPrintable(QString("Magenta entry frame: scale %1 cycle %2 frame %3")
+                                            .arg(scale)
+                                            .arg(cycle)
+                                            .arg(entry)));
+                    QTest::qWait(8);
+                }
+                QTRY_COMPARE(host.playback.spectrum()->subscriberCount(), 1);
+                auto *bar = visual(window->contentItem(), "spectrumLyricPlayerBar");
+                QVERIFY(bar);
+                auto *surface = visual(bar, "spectrumGpuSurface");
+                QVERIFY(surface);
+                QTRY_VERIFY(surface->property("status").toMap().value("available").toBool());
+                auto *layer = visual(bar, "spectrumVisualizerLayer");
+                QVERIFY(layer);
+                QTRY_COMPARE(layer->property("frame").toMap().value("source").toString(), "player");
+            }
+        }
+        window->hide();
+        QTRY_COMPARE(host.playback.spectrum()->subscriberCount(), 0);
+        QVERIFY(host.runtime.setEnabled(installation, false));
+        QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Disabled);
+        QTRY_VERIFY(!host.runtime.context(installation));
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        return;
+    }
     // Opt-in Release measurement of the real output/SDK/production surfaces.
     // Process CPU includes every thread; setup, screenshots and SQL writes
     // are excluded from each steady-state interval.
@@ -367,7 +451,15 @@ ApplicationWindow {
                 verifyVectors(layer);
                 verifyVectors(miniLayer);
                 if (requiresGpu) {
-                    QVERIFY(gpuCount >= 2);
+                    QVERIFY2(
+                        gpuCount >= 2,
+                        qPrintable(
+                            QString("GPU count %1; main live %2 failed %3; mini live %4 failed %5")
+                                .arg(gpuCount)
+                                .arg(layer->property("live").toBool())
+                                .arg(layer->property("gpuFailed").toBool())
+                                .arg(miniLayer->property("live").toBool())
+                                .arg(miniLayer->property("gpuFailed").toBool())));
                     QVERIFY(!layer->property("gpuFailed").toBool());
                     QVERIFY(!miniLayer->property("gpuFailed").toBool());
                 } else
@@ -549,4 +641,15 @@ ApplicationWindow {
     QVERIFY(host.runtime.setEnabled(installation, false));
     QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Disabled);
     QCOMPARE(host.playback.spectrum()->subscriberCount(), 0);
+}
+} // namespace
+void PluginRuntimeTest::builtAuthorPackageCommands()
+{
+    verifyAuthorPackage(false);
+}
+void PluginRuntimeTest::builtAuthorPackageSpectrumEntry()
+{
+    if (!qEnvironmentVariableIsSet("ECHO_TEST_NATIVE_GPU"))
+        QSKIP("Native GPU opt-in; run on an exposed native window");
+    verifyAuthorPackage(true);
 }

@@ -1014,7 +1014,7 @@ add_test(
     COMMAND
         echo-plugin-runtime-test settingsContributionRetiresWithScope
         statisticsUseSampledWireAndRejectInvalidNumbers spectrumCapabilityAndOwnerLifetime
-        builtAuthorPackageCommands
+        builtAuthorPackageCommands builtAuthorPackageSpectrumEntry
 )
 
 add_test(
@@ -2043,10 +2043,10 @@ add_test(
     NAME plugin-runtime-graphics
     COMMAND
         echo-plugin-runtime-test graphicsValidationOwnershipAndAccount
-        graphicsNativeGlyphAtlasLifecycle graphicsMultipleTargetsMipRenderingAndLifetime
-        graphicsIndirectGpuArgumentsAndRetirement graphicsTextureArraysTransfersAndLifetime
-        appearancePreviewCatalogAndFloatingIsolation appearanceMaterialsAndRouteLifecycle
-        floatingWindowsNativeStateAuthorizationAndObservation
+        graphicsNativeInitialOutputIsTransparent graphicsNativeGlyphAtlasLifecycle
+        graphicsMultipleTargetsMipRenderingAndLifetime graphicsIndirectGpuArgumentsAndRetirement
+        graphicsTextureArraysTransfersAndLifetime appearancePreviewCatalogAndFloatingIsolation
+        appearanceMaterialsAndRouteLifecycle floatingWindowsNativeStateAuthorizationAndObservation
 )
 set_tests_properties(
     plugin-runtime-graphics PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60

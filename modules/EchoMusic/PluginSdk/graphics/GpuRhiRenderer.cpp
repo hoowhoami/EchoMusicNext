@@ -12,7 +12,7 @@ GpuRenderer::~GpuRenderer()
 {
     m_state->release();
 }
-void GpuRenderer::initialize(QRhiCommandBuffer *)
+void GpuRenderer::initialize(QRhiCommandBuffer *cb)
 {
     if (m_state->rhi != rhi()) {
         m_state->release();
@@ -20,6 +20,12 @@ void GpuRenderer::initialize(QRhiCommandBuffer *)
     }
     if (!m_state->clock.isValid())
         m_state->clock.start();
+    // Qt may composite a newly allocated output even when render() cannot
+    // draw yet (for example during page entry). Never expose undefined texels.
+    if (rhi()->backend() != QRhi::Null && !rhi()->isDeviceLost()) {
+        cb->beginPass(renderTarget(), Qt::transparent, {1., 0});
+        cb->endPass();
+    }
 }
 void GpuRenderer::synchronize(QQuickRhiItem *item)
 {

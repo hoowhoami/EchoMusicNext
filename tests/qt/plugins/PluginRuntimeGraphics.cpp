@@ -98,6 +98,34 @@ void PluginRuntimeTest::graphicsValidationOwnershipAndAccount()
     QVERIFY(host.runtime.setEnabled(host.installation(), false));
     QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Disabled);
 }
+void PluginRuntimeTest::graphicsNativeInitialOutputIsTransparent()
+{
+    if (!qEnvironmentVariableIsSet("ECHO_TEST_NATIVE_GPU"))
+        QSKIP("Native GPU opt-in; run on an exposed native window");
+    Host host;
+    auto *scope = graphicsScope(host);
+    QVERIFY(scope);
+    QQuickWindow window;
+    window.setColor(QColor("#19334d"));
+    window.resize(320, 180);
+    EchoGpuSurface surface(window.contentItem());
+    surface.setPaused(true);
+    surface.setGraphics(scope->graphics());
+    surface.setPosition({20, 20});
+    surface.setSize({280, 82});
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    for (const auto size : {QSizeF(280, 82), QSizeF(240, 70), QSizeF(290, 90)}) {
+        surface.setSize(size);
+        surface.update();
+        const auto image = window.grabWindow();
+        QVERIFY(!image.isNull());
+        const auto pixel = image.pixelColor(image.width() / 2, image.height() / 3);
+        QVERIFY2(qAbs(pixel.red() - 25) <= 1 && qAbs(pixel.green() - 51) <= 1 &&
+                     qAbs(pixel.blue() - 77) <= 1,
+                 qPrintable(QString("Uninitialized GPU output: %1").arg(pixel.name())));
+    }
+}
 void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
 {
     if (!qEnvironmentVariableIsSet("ECHO_TEST_NATIVE_GPU"))

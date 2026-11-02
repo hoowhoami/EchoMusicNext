@@ -22,6 +22,7 @@ private slots:
     void publicPluginCatalogScopeAccountAndReplacement();
     void graphicsValidationOwnershipAndAccount();
     void graphicsNativePixelsComputeAndRecovery();
+    void graphicsNativeInitialOutputIsTransparent();
     void graphicsOrderedTransfersMipmapsAndCompletion();
     void graphicsMultipleTargetsMipRenderingAndLifetime();
     void graphicsIndirectGpuArgumentsAndRetirement();
@@ -135,6 +136,7 @@ private slots:
     void marketplaceInstallsActualPackageAndRejectsTampering();
     void spectrumCapabilityAndOwnerLifetime();
     void builtAuthorPackageCommands();
+    void builtAuthorPackageSpectrumEntry();
     void packageIntegrityAndCompatibility();
     void backupBarrierDrainsScopesWithoutChangingEnabledPreference();
     void realActivationSdkAndRetirement();
