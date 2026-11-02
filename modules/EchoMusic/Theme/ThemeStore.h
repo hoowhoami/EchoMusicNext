@@ -486,7 +486,7 @@ private:
     QString m_imageDirectory, m_imageId, m_imageError;
     QSize m_imageSize;
     QRectF m_crop;
-    QColor m_imageText = Qt::white, m_imageAccent = QColor("#00cc65"), m_imageSample;
+    QColor m_imageText = Qt::white, m_imageAccent = QColor("#0071e3"), m_imageSample;
     int m_imageShade = 0, m_pendingImports = 0;
     bool m_importing = false, m_sampleRunning = false;
     quint64 m_importRevision = 0, m_sampleRevision = 0;

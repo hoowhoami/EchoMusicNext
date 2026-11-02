@@ -6,7 +6,7 @@ import EchoMusic.Theme
 // to persist. Grayscale/black edits retain hue so the next drag is predictable.
 Item {
     id: picker
-    property string value: "#31cfa1"
+    property string value: "#0071e3"
     property real hue: 0
     property real saturation: 1
     property real brightness: 1

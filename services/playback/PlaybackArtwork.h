@@ -24,6 +24,8 @@ public:
     void load(const QString &url, quint64 sequence);
     void cancel();
 signals:
+    // Terminal result of the current request, including missing/failed artwork.
+    // Empty PNG/color denote failure; cancelled or superseded requests never emit.
     void ready(quint64 sequence, const QByteArray &png, const QColor &dominant);
 
 private:

@@ -330,7 +330,7 @@ ColumnLayout {
                 title: qsTr("背景强调色")
                 uiScale: editor.uiScale
                 value: Theme.store.backgroundAccent.toString()
-                presets: ["#00cc65", "#ffdd00", "#ff9f0a", "#ff6b81", "#c4a0ff", "#6ac8ff", "#ffffff", "#000000"]
+                presets: ["#0071e3", "#ffdd00", "#ff9f0a", "#ff6b81", "#c4a0ff", "#6ac8ff", "#ffffff", "#000000"]
                 onConfirmed: color => {
                     if (editor.resourceActive)
                         Theme.store.setBackgroundAccent(color);

@@ -759,3 +759,112 @@ Window {
     QCOMPARE(first->property("text").toString(), QStringLiteral("拼音"));
     QCOMPARE(warnings.size(), 0);
 }
+
+void ControlsUiTest::caretsStayOnTheWindowDevicePixelGrid()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Theme
+Window {
+ id: host; visible: true; width: 740; height: 440; color: "white"
+ property real zoom: 1
+ property real phase: 0
+ Item {
+  id: content; x: 20 + host.phase; y: 20 + host.phase
+  scale: host.zoom; transformOrigin: Item.TopLeft
+  EchoTextField { objectName: "plain"; x: .1; width: 240; height: 36; text: "150" }
+  EchoSpinBox {
+   objectName: "front"; x: .3; y: 60; width: 240
+   from: 0; to: 4096; decimals: 12; suffix: "MB"; value: 150
+  }
+  EchoSpinBox {
+   objectName: "back"; x: .6; y: 120; width: 240
+   from: 0; to: 4096; decimals: 12; suffix: "MB"; value: 50
+  }
+  EchoTextArea { objectName: "multiline"; x: .8; y: 180; width: 240; height: 60; text: "50" }
+ }
+})",
+                      QUrl());
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    const auto previousFlash = QGuiApplication::styleHints()->cursorFlashTime();
+    const auto restoreFlash =
+        qScopeGuard([&] { QGuiApplication::styleHints()->setCursorFlashTime(previousFlash); });
+    QGuiApplication::styleHints()->setCursorFlashTime(0);
+    const auto captures = qEnvironmentVariable("ECHO_CARET_PIXEL_CAPTURES");
+    if (!captures.isEmpty())
+        QDir().mkpath(captures);
+    const auto foreground = QColor("#d02060");
+    for (const auto zoom : {1., 1.25}) {
+        session.root->setProperty("zoom", zoom);
+        for (const auto phase : {0., .17, .43, .79}) {
+            session.root->setProperty("phase", phase);
+            for (const auto name : {"plain", "front", "back", "multiline"}) {
+                auto *owner = session.item(name);
+                QVERIFY(owner);
+                auto *editor = findVisual(owner, "numberInputField");
+                if (!editor)
+                    editor = owner;
+                editor->forceActiveFocus();
+                editor->setProperty("cursorVisible", true);
+                for (const auto position : {0, int(editor->property("text").toString().size())}) {
+                    editor->setProperty("cursorPosition", position);
+                    QQuickItem *glyph = nullptr;
+                    QTRY_VERIFY((glyph = findVisual(editor, "textCursorGlyph")));
+                    QTRY_VERIFY(glyph->isVisible());
+                    glyph->setProperty("color", foreground);
+                    QTest::qWait(10);
+                    const auto frame = session.window->grabWindow();
+                    QVERIFY(!frame.isNull());
+                    const qreal ratio = frame.devicePixelRatio();
+                    // The image extent rounds to whole pixels, so width/window
+                    // width is not an exact DPR at fractional scale factors.
+                    QCOMPARE(ratio, session.window->devicePixelRatio());
+                    QVERIFY(qAbs(frame.width() - session.window->width() * ratio) <= 1);
+                    const auto scene =
+                        glyph->mapRectToScene(QRectF(0, 0, glyph->width(), glyph->height()));
+                    const QRectF pixels(scene.topLeft() * ratio, scene.size() * ratio);
+                    for (const auto edge :
+                         {pixels.left(), pixels.right(), pixels.top(), pixels.bottom()})
+                        QVERIFY2(qAbs(edge - qRound(edge)) < .001,
+                                 qPrintable(QString("%1 zoom %2 phase %3 edge %4 DPR %5")
+                                                .arg(name)
+                                                .arg(zoom)
+                                                .arg(phase)
+                                                .arg(edge, 0, 'f', 6)
+                                                .arg(ratio)));
+                    const int expectedWidth = qMax(1, qRound(zoom * ratio));
+                    QCOMPARE(qRound(pixels.width()), expectedWidth);
+                    const auto bounds =
+                        pixels.toAlignedRect().adjusted(-2, -2, 2, 2).intersected(frame.rect());
+                    int paintedColumns = 0;
+                    for (int x = bounds.left(); x <= bounds.right(); ++x) {
+                        const int y = qRound(pixels.center().y());
+                        const auto color = frame.pixelColor(x, y);
+                        // Other foreground in this region is grayscale text.
+                        // A pink fringe reveals partial coverage of a caret edge.
+                        if (color.red() > color.green() + 1 && color.blue() > color.green() + 1) {
+                            ++paintedColumns;
+                            QCOMPARE(color, foreground);
+                        }
+                    }
+                    QCOMPARE(paintedColumns, expectedWidth);
+                    if (!captures.isEmpty() && phase == .43 && position > 0)
+                        QVERIFY(frame.save(
+                            captures +
+                            QString("/dpr%1-zoom%2-%3.png").arg(ratio).arg(zoom).arg(name)));
+                }
+                editor->setFocus(false);
+            }
+        }
+    }
+    qInfo() << "caret rendered device ratio" << session.window->devicePixelRatio();
+    QCOMPARE(warnings.size(), 0);
+}

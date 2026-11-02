@@ -94,8 +94,7 @@ void PlaybackArtwork::load(const QString &source, quint64 sequence)
                         watcher->future().isCanceled())
                         return;
                     const auto result = watcher->result();
-                    if (!result.png.isEmpty())
-                        emit ready(sequence, result.png, result.dominant);
+                    emit ready(sequence, result.png, result.dominant);
                 });
         watcher->setFuture(QtConcurrent::run(&m_pool, [path = u.toLocalFile()] {
             QFile file(path);
@@ -105,8 +104,18 @@ void PlaybackArtwork::load(const QString &source, quint64 sequence)
         }));
         return;
     }
-    if (u.scheme() != "https" && u.scheme() != "http")
+    if (u.scheme() != "https" && u.scheme() != "http") {
+        // load() may run in the middle of track adoption. Deliver even an empty
+        // source asynchronously, and let a replacement/cancel retire this result.
+        QMetaObject::invokeMethod(
+            this,
+            [this, sequence, generation] {
+                if (m_sequence == sequence && m_generation == generation)
+                    emit ready(sequence, {}, {});
+            },
+            Qt::QueuedConnection);
         return;
+    }
     QNetworkRequest request(u);
     request.setTransferTimeout(15000);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
@@ -122,11 +131,15 @@ void PlaybackArtwork::load(const QString &source, quint64 sequence)
         if (m_sequence != sequence || m_generation != generation || m_reply != reply)
             return;
         m_reply = nullptr;
-        if (reply->error() != QNetworkReply::NoError)
+        if (reply->error() != QNetworkReply::NoError) {
+            emit ready(sequence, {}, {});
             return;
+        }
         const auto bytes = reply->readAll();
-        if (bytes.size() > 2 * 1024 * 1024)
+        if (bytes.size() > 2 * 1024 * 1024) {
+            emit ready(sequence, {}, {});
             return;
+        }
         auto *watcher = new QFutureWatcher<ArtworkResult>(this);
         connect(watcher, &QFutureWatcher<ArtworkResult>::finished, this,
                 [this, watcher, sequence, generation] {
@@ -135,8 +148,7 @@ void PlaybackArtwork::load(const QString &source, quint64 sequence)
                         watcher->future().isCanceled())
                         return;
                     const auto result = watcher->result();
-                    if (!result.png.isEmpty())
-                        emit ready(sequence, result.png, result.dominant);
+                    emit ready(sequence, result.png, result.dominant);
                 });
         watcher->setFuture(QtConcurrent::run(&m_pool, [bytes] { return decode(bytes); }));
     });

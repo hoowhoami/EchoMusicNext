@@ -36,6 +36,7 @@
 #include <QQmlProperty>
 #include <QQmlIncubationController>
 #include <QQuickItem>
+#include <QQuickItemGrabResult>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QRegularExpression>
@@ -1773,6 +1774,89 @@ elif sys.argv[1] == 'dispatch':
         session.shellController.toasts()->dismiss(id);
         QCOMPARE(warnings.count(), 0);
     }
+    void artworkTerminalResultsAndCancellation()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        PlaybackArtwork artwork;
+        QSignalSpy ready(&artwork, &PlaybackArtwork::ready);
+        quint64 sequence = 0;
+        for (const auto &color :
+             {QColor(Qt::gray), QColor(Qt::black), QColor(Qt::white), QColor(Qt::transparent)}) {
+            QImage image(16, 16, QImage::Format_ARGB32);
+            image.fill(color);
+            const auto path = directory.filePath(QString::number(++sequence) + ".png");
+            QVERIFY(image.save(path));
+            artwork.load(QUrl::fromLocalFile(path).toString(), sequence);
+            QTRY_COMPARE(ready.size(), 1);
+            const auto result = ready.takeFirst();
+            QCOMPARE(result[0].toULongLong(), sequence);
+            QVERIFY(!result[1].toByteArray().isEmpty());
+            QVERIFY(!result[2].value<QColor>().isValid());
+        }
+        const auto invalid = directory.filePath("invalid.png");
+        QFile file(invalid);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("invalid image");
+        file.close();
+        for (const auto &source :
+             {QString(), QString("unsupported:cover"), QUrl::fromLocalFile(invalid).toString(),
+              QUrl::fromLocalFile(directory.filePath("missing.png")).toString()}) {
+            artwork.load(source, ++sequence);
+            QTRY_COMPARE(ready.size(), 1);
+            const auto result = ready.takeFirst();
+            QCOMPARE(result[0].toULongLong(), sequence);
+            QVERIFY(result[1].toByteArray().isEmpty());
+            QVERIFY(!result[2].value<QColor>().isValid());
+        }
+        // Even two requests for the same playback sequence have separate generations.
+        const auto valid = directory.filePath("replacement.png");
+        QImage image(16, 16, QImage::Format_RGB32);
+        image.fill(QColor("#d03050"));
+        QVERIFY(image.save(valid));
+        artwork.load({}, ++sequence);
+        artwork.load(QUrl::fromLocalFile(valid).toString(), sequence);
+        QTRY_COMPARE(ready.size(), 1);
+        QCOMPARE(ready.takeFirst()[2].value<QColor>(), QColor("#d03050"));
+        artwork.load({}, ++sequence);
+        artwork.cancel();
+        QCoreApplication::processEvents();
+        QVERIFY(ready.isEmpty());
+    }
+    void defaultBrandAccentIsBlue()
+    {
+        QTemporaryDir directory;
+        SettingsStore preferences(directory.filePath("preferences.ini"));
+        ThemeStore theme(preferences);
+        const QColor brand("#0071e3");
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            QCOMPARE(theme.accent(), brand);
+            QCOMPARE(theme.previewPalette(theme.dark(), {}, false).value("accent").value<QColor>(),
+                     brand);
+            QCOMPARE(theme.previewPalette(theme.dark(), QColor("#abcdef"), true)
+                         .value("accent")
+                         .value<QColor>(),
+                     QColor("#abcdef"));
+        }
+        theme.setAccent(QColor("#20b060"));
+        ThemeStore restored(preferences);
+        QCOMPARE(restored.customColor(), QColor("#20b060"));
+        theme.resetAppearanceAdjustments();
+        QCOMPARE(theme.accent(), brand);
+        const auto imagePath = directory.filePath("background.png");
+        QImage image(16, 16, QImage::Format_RGB32);
+        image.fill(QColor("#d03050"));
+        QVERIFY(image.save(imagePath));
+        theme.importBackground(QUrl::fromLocalFile(imagePath));
+        QTRY_VERIFY(!theme.imageImporting());
+        QVERIFY(theme.imageError().isEmpty());
+        QCOMPARE(theme.accent(), brand);
+        theme.setBackgroundAccent(QColor("#20b060"));
+        QCOMPARE(theme.accent(), QColor("#20b060"));
+        theme.resetBackgroundAdjustments();
+        QCOMPARE(theme.accent(), brand);
+    }
     void trackAccentWaitsForReplacementArtwork_data()
     {
         QTest::addColumn<bool>("dark");
@@ -1876,22 +1960,44 @@ elif sys.argv[1] == 'dispatch':
         QTRY_COMPARE(playback.coverColor(), green);
         QCOMPARE(session.theme.accent(), normalizeAccent(green, dark));
         QVERIFY(capture("green"));
-        // Empty metadata, failed download and an achromatic image cannot
-        // introduce a default-color pulse either.
-        playback.playTracks({song(4, {})}, 0, "Artwork", "artwork-test");
-        playback.loadCurrentArtwork();
-        QCOMPARE(playback.coverColor(), green);
-        playback.playTracks({song(5, "/failure")}, 0, "Artwork", "artwork-test");
-        QTRY_VERIFY(requests.contains("/failure"));
-        requests.value("/failure")->abort();
-        playback.playTracks({song(6, "/gray")}, 0, "Artwork", "artwork-test");
-        QTRY_VERIFY(requests.contains("/gray"));
-        QVERIFY(respond("/gray", QColor("#808080")));
-        QTRY_VERIFY(!playback.coverPng().isEmpty());
-        QCOMPARE(playback.coverColor(), green);
+        // Waiting for replacement pixels must not flash the default accent.
         QVERIFY(!colors.isEmpty());
         for (const auto &color : colors)
             QVERIFY(color == red || color == green);
+        // A terminal empty source, network failure or achromatic image must
+        // release the previous song's accent instead of retaining it forever.
+        const QColor brand("#0071e3");
+        playback.playTracks({song(4, {})}, 0, "Artwork", "artwork-test");
+        playback.loadCurrentArtwork();
+        QTRY_COMPARE(playback.coverColor(), brand);
+        playback.playTracks({song(5, "/before-failure")}, 0, "Artwork", "artwork-test");
+        QTRY_VERIFY(requests.contains("/before-failure"));
+        QVERIFY(respond("/before-failure", red));
+        QTRY_COMPARE(playback.coverColor(), red);
+        playback.playTracks({song(6, "/failure")}, 0, "Artwork", "artwork-test");
+        QTRY_VERIFY(requests.contains("/failure"));
+        QCOMPARE(playback.coverColor(), red);
+        // An explicit HTTP error finishes the request deterministically. A bare
+        // socket close can trigger Qt's transparent GET retry until its timeout.
+        requests.value("/failure")
+            ->write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: "
+                    "close\r\n\r\n");
+        requests.value("/failure")->disconnectFromHost();
+        QTRY_COMPARE(playback.coverColor(), brand);
+        playback.playTracks({song(7, "/before-gray")}, 0, "Artwork", "artwork-test");
+        QTRY_VERIFY(requests.contains("/before-gray"));
+        QVERIFY(respond("/before-gray", green));
+        QTRY_COMPARE(playback.coverColor(), green);
+        playback.playTracks({song(8, "/gray")}, 0, "Artwork", "artwork-test");
+        QTRY_VERIFY(requests.contains("/gray"));
+        QCOMPARE(playback.coverColor(), green);
+        QVERIFY(respond("/gray", QColor("#808080")));
+        QTRY_COMPARE(playback.coverColor(), brand);
+        QVERIFY(!playback.coverPng().isEmpty());
+        QCOMPARE(session.theme.accent(), normalizeAccent(brand, dark));
+        QVERIFY(capture("fallback-blue"));
+        PlaybackServiceTestAccess::lateArtwork(playback, retired);
+        QCOMPARE(playback.coverColor(), brand);
         // A regenerated theme cover must keep both its texture and rounded
         // presentation while Image.Loading. Exercise every themed recipe
         // through the same controlled network delay, with real rendered pixels.
@@ -1945,7 +2051,7 @@ elif sys.argv[1] == 'dispatch':
             QVERIFY(!cover->property("hasArtwork").toBool());
         }
         playback.stop();
-        QCOMPARE(playback.coverColor(), green);
+        QCOMPARE(playback.coverColor(), brand);
         playback.queue()->clear();
         QVERIFY(!playback.coverColor().isValid());
         QVERIFY(!playback.hasTrack());
@@ -2176,8 +2282,8 @@ elif sys.argv[1] == 'dispatch':
         QCOMPARE(restored.mode(), ThemeStore::System);
         EchoColorValue value(nullptr);
         QCOMPARE(value.normalize(" #aBc "), QString("#aabbcc"));
-        QCOMPARE(value.normalize("not-a-color"), QString("#31cfa1"));
-        QCOMPARE(value.normalize("red"), QString("#31cfa1"));
+        QCOMPARE(value.normalize("not-a-color"), QString("#0071e3"));
+        QCOMPARE(value.normalize("red"), QString("#0071e3"));
     }
     void customEditorUsesTheRealCropAndClosesItsSubsurfaces()
     {
@@ -2268,14 +2374,24 @@ elif sys.argv[1] == 'dispatch':
         const QString screenshots = qEnvironmentVariable("ECHO_THEME_SCREENSHOTS");
         if (!screenshots.isEmpty()) {
             QDir().mkpath(screenshots);
+            const auto captureThumbnail = [&](const QString &name) {
+                auto *thumbnail = session.item("themeThumbnail");
+                if (!thumbnail)
+                    return false;
+                const auto grab = thumbnail->grabToImage();
+                return grab && QTest::qWaitFor([&] { return !grab->image().isNull(); }) &&
+                       grab->saveToFile(screenshots + name);
+            };
             session.theme.setMode(ThemeStore::Light);
             render(session.window);
             QTest::qWait(220);
             QVERIFY(session.window->grabWindow().save(screenshots + "/theme-catalog-light.png"));
+            QVERIFY(captureThumbnail("/theme-thumbnail-light.png"));
             session.theme.setMode(ThemeStore::Dark);
             render(session.window);
             QTest::qWait(220);
             QVERIFY(session.window->grabWindow().save(screenshots + "/theme-catalog-dark.png"));
+            QVERIFY(captureThumbnail("/theme-thumbnail-dark.png"));
             session.theme.setMode(ThemeStore::Light);
         }
         auto *first = visual(tabs, "tab-0");
@@ -2328,7 +2444,7 @@ elif sys.argv[1] == 'dispatch':
         QVERIFY(clear && clear->isVisible());
         click(session.window, clear);
         QTRY_COMPARE(picker->property("draft").toString(), QString());
-        QCOMPARE(picker->property("normalized").toString(), QString("#31cfa1"));
+        QCOMPARE(picker->property("normalized").toString(), QString("#0071e3"));
         QCOMPARE(session.theme.seedColor(), QColor("#7da3ce"));
         click(session.window, session.item("colorCancelAction"));
         QTRY_VERIFY(picker.isNull());

@@ -34,7 +34,8 @@ Button {
             radius: Theme.mediaRadius
             Layout.fillWidth: true
             solid: false
-            seed: "#00cc65"
+            resourceActive: card.previewSource.toString().length === 0
+            seed: "#0071e3"
             paletteOverride: (card.variants[Theme.dark ? "dark" : "light"] || {}).palette || ({})
             Loader {
                 anchors.fill: parent

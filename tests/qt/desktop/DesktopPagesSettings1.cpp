@@ -1268,6 +1268,29 @@ void DesktopPagesTest::productionPlayerEngineSettingsDecimalInputAndLifecycle()
             QCOMPARE(visual(session.window->contentItem(), "settingsEngineAudioBufferSecs"),
                      retainedBuffer.data());
             QVERIFY(viewport->property("contentWidth").toReal() <= viewport->width() + .5);
+            qreal previousCaretWidth = -1;
+            for (const auto *name :
+                 {"settingsEngineDemuxerMaxMb", "settingsEngineDemuxerMaxBackMb"}) {
+                auto *number = visual(session.window->contentItem(), name);
+                QVERIFY(number);
+                auto *input = visual(number, "numberInputField");
+                QVERIFY(input);
+                QVERIFY(session.clickItem(input));
+                QTest::keyClick(session.window, Qt::Key_End);
+                QQuickItem *glyph = nullptr;
+                QTRY_VERIFY((glyph = visual(input, "textCursorGlyph")));
+                QTest::qWait(20);
+                const auto rect =
+                    glyph->mapRectToScene(QRectF(0, 0, glyph->width(), glyph->height()));
+                const qreal dpr = session.window->devicePixelRatio();
+                const QRectF pixels(rect.topLeft() * dpr, rect.size() * dpr);
+                for (const auto edge :
+                     {pixels.left(), pixels.right(), pixels.top(), pixels.bottom()})
+                    QVERIFY(qAbs(edge - qRound(edge)) < .001);
+                if (previousCaretWidth > 0)
+                    QVERIFY(qAbs(pixels.width() - previousCaretWidth) < .001);
+                previousCaretWidth = pixels.width();
+            }
             if (!capture.isEmpty())
                 QVERIFY(session.window->grabWindow().save(
                     capture + QString("/engine-%1-%2.png")

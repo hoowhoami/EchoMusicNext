@@ -2,6 +2,100 @@
 #include "PluginRuntimeTestFixture.h"
 #include "PluginSourceEntry.h"
 
+void PluginRuntimeTest::marketplaceFreshContentAndValidationFallback()
+{
+    Host host;
+    NetworkPreferences preferences(host.settings, host.api);
+    preferences.setGithubProxyUrl("https://mirror.invalid/");
+    PluginManager manager(host.runtime, host.settings);
+    manager.setNetworkPreferences(&preferences);
+    QFile manifestFile(QFINDTESTDATA("../fixtures/plugins/marketplace/manifest.json"));
+    QFile archiveFile(QFINDTESTDATA("../fixtures/plugins/marketplace/archive.echomod"));
+    QVERIFY(manifestFile.open(QIODevice::ReadOnly));
+    QVERIFY(archiveFile.open(QIODevice::ReadOnly));
+    const auto manifest = manifestFile.readAll(), archive = archiveFile.readAll();
+    const auto checksum =
+        QString::fromLatin1(QCryptographicHash::hash(archive, QCryptographicHash::Sha256).toHex());
+    const auto index =
+        QJsonDocument(
+            QJsonObject{{"schemaVersion", 2},
+                        {"plugins", QJsonArray{QJsonObject{{"id", "org.test.catalog"},
+                                                           {"ref", "release/v1"},
+                                                           {"path", "plugin space"},
+                                                           {"artifact", "artifacts/plugin.echomod"},
+                                                           {"sha256", checksum}}}}})
+            .toJson();
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    QList<QUrl> resolved;
+    QList<QByteArray> headers;
+    bool invalidOrigin = false;
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+        auto *socket = server.nextPendingConnection();
+        connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+            auto request = socket->property("bytes").toByteArray() + socket->readAll();
+            socket->setProperty("bytes", request);
+            if (!request.contains("\r\n\r\n") || socket->property("answered").toBool())
+                return;
+            socket->setProperty("answered", true);
+            if (request.startsWith("GET "))
+                headers.append(request);
+            const auto target = QUrl::fromEncoded(
+                QByteArray::fromPercentEncoding(request.split(' ').value(1).mid(1)));
+            const bool mirror = target.host() == "mirror.invalid";
+            const auto body = mirror || invalidOrigin ? QByteArray("<html>not a plugin</html>")
+                              : target.path().endsWith("echo-plugins.json") ? index
+                              : target.path().endsWith(".echomod")          ? archive
+                                                                            : manifest;
+            socket->write("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: " +
+                          QByteArray::number(body.size()) + "\r\n\r\n" + body);
+            socket->disconnectFromHost();
+            connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        });
+    });
+    manager.m_resolveUrl = [&](const QUrl &url) {
+        if (url.host() == "github.com" || url.host() == "raw.githubusercontent.com" ||
+            url.host() == "mirror.invalid")
+            resolved.append(url);
+        return QUrl("http://127.0.0.1:" + QString::number(server.serverPort()) + '/' +
+                    QString::fromLatin1(QUrl::toPercentEncoding(url.toString(QUrl::FullyEncoded))));
+    };
+    manager.refreshCatalog(true);
+    QTRY_VERIFY(!manager.catalogLoading());
+    QCOMPARE(manager.catalogCount(), 1);
+    QVERIFY(manager.sourceError().isEmpty());
+    QCOMPARE(resolved.size(), 4);
+    QCOMPARE(resolved[0], QUrl("https://mirror.invalid/https://github.com/hoowhoami/"
+                               "EchoMusicNextPlugins/raw/HEAD/echo-plugins.json"));
+    QCOMPARE(resolved[1], QUrl("https://github.com/hoowhoami/EchoMusicNextPlugins/raw/HEAD/"
+                               "echo-plugins.json"));
+    QCOMPARE(resolved[3].toString(QUrl::FullyEncoded),
+             QString("https://github.com/hoowhoami/echomusicnextplugins/raw/release%2Fv1/"
+                     "plugin%20space/manifest.json"));
+    for (const auto &header : headers) {
+        QVERIFY(header.contains("Cache-Control: no-cache, max-age=0\r\n"));
+        QVERIFY(header.contains("Pragma: no-cache\r\n"));
+    }
+    const auto row = manager.catalog()->data(manager.catalog()->index(0), Qt::UserRole + 1).toMap();
+    // A refresh route must not become the stored source/artifact identity.
+    QCOMPARE(row.value("ref").toString(), QString("release/v1"));
+    QVERIFY(row.value("artifactUrl").toString().startsWith("https://raw.githubusercontent.com/"));
+    QVERIFY(manager.install(row.value("key").toString()));
+    QTRY_VERIFY(!manager.busy());
+    QCOMPARE(resolved.size(), 6);
+    QVERIFY(resolved[4].toString().startsWith("https://mirror.invalid/https://github.com/"));
+    QVERIFY(resolved[5].toString().startsWith("https://github.com/"));
+    QCOMPARE(host.runtime.state(host.runtime.installationForId("org.test.catalog")),
+             PluginRuntime::Active);
+    invalidOrigin = true;
+    manager.refreshCatalog(true);
+    QTRY_VERIFY(!manager.catalogLoading());
+    QCOMPARE(manager.catalogCount(), 1);
+    QCOMPARE(manager.sourceErrorDetail().value("attempts").toList().size(), 2);
+    QCOMPARE(manager.sourceErrorDetail().value("category").toString(), QString("invalid-content"));
+    manager.shutdown();
+}
+
 void PluginRuntimeTest::crossRepositoryCatalogInstallAndFailureIsolation()
 {
     Host host;

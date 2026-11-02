@@ -36,6 +36,21 @@ inline QString raw(const QVariantMap &source, const QString &path)
     return "https://raw.githubusercontent.com/" + source.value("repository").toString() + "/HEAD/" +
            path;
 }
+inline QUrl freshGithubContentUrl(const QUrl &url)
+{
+    if (url.host().compare("raw.githubusercontent.com", Qt::CaseInsensitive) != 0)
+        return url;
+    const auto parts = url.path(QUrl::FullyEncoded).split('/', Qt::SkipEmptyParts);
+    if (parts.size() < 4)
+        return url;
+    // GitHub resolves a moving ref and redirects to its immutable commit URL.
+    // A query nonce on raw.githubusercontent.com can still hit the same CDN entry.
+    auto fresh = QUrl::fromEncoded(
+        ("https://github.com/" + parts[0] + '/' + parts[1] + "/raw/" + parts.mid(2).join('/'))
+            .toUtf8());
+    fresh.setQuery(url.query());
+    return fresh;
+}
 inline bool sameMarketplaceSource(const QVariantMap &installed, const QVariantMap &entry)
 {
     const auto origin = installed.value("origin").toMap();

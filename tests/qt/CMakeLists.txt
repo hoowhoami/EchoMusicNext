@@ -283,6 +283,7 @@ add_test(
         selectProjectionKeepsTypedValuesAndTracksModelChanges
         selectSearchMultiKeyboardPlacementAndVirtualization
         numberInputCommitsAndClampsAcrossAllInputPaths textEditorsShareFocusCaretAndSurfaces
+        caretsStayOnTheWindowDevicePixelGrid
 )
 add_test(
     NAME controls-ui-popups
@@ -980,9 +981,9 @@ add_test(
         directoryActionOpensTheDisplayedRoot managementUpdateRollsBackPackageAndPrivateData
         localBatchContinuesAfterInvalidPackage arrivingInstallFilesCompleteDependencyBatch
         qtFileOpenQueuesBeforeServiceInitialization githubMirrorFallbackAndPostShareUnifiedProxy
-        sourceCatalogNetworkCacheAndOfficialProtection managementHeaderAndLoadingContentStayAligned
-        marketplaceNetworkFailureClassification marketplaceNetworkFailureDetailsUi
-        managementPageUsesProductionModelsAndDialogs
+        marketplaceFreshContentAndValidationFallback sourceCatalogNetworkCacheAndOfficialProtection
+        managementHeaderAndLoadingContentStayAligned marketplaceNetworkFailureClassification
+        marketplaceNetworkFailureDetailsUi managementPageUsesProductionModelsAndDialogs
         marketplaceInstallsActualPackageAndRejectsTampering
 )
 add_test(NAME plugin-runtime-runtime

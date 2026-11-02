@@ -18,7 +18,7 @@ QString EchoColorValue::normalize(const QString &text) const
 {
     static const QRegularExpression hex("^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$");
     const auto raw = text.trimmed();
-    return hex.match(raw).hasMatch() ? QColor(raw).name() : QStringLiteral("#31cfa1");
+    return hex.match(raw).hasMatch() ? QColor(raw).name() : QStringLiteral("#0071e3");
 }
 qreal EchoColorValue::contrast(const QColor &a, const QColor &b) const
 {

@@ -7,10 +7,10 @@ import EchoMusic.Theme
 
 EchoDialog {
     id: picker
-    property string value: "#31cfa1"
+    property string value: "#0071e3"
     property list<string> presets: []
     // A presentation draft only: the caller owns the persisted theme command.
-    property string draft: "#31cfa1"
+    property string draft: "#0071e3"
     readonly property string normalized: dynamicDraft ? EchoColorValue.normalize(dynamicColor.toString()) : EchoColorValue.normalize(draft)
     readonly property alias spectrumPopup: spectrumSurfaceOwner.item
     property string dynamicLabel: ""

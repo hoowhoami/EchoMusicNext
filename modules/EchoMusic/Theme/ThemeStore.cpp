@@ -465,7 +465,7 @@ void ThemeStore::resolve()
             ? (m_key == "custom" ? m_selectedAccent : normalizeAccent(m_selectedAccent, accentDark))
         : !extensionSelected && m_key == "custom" ? m_imageAccent
         : !extensionSelected && m_key == "solid"  ? m_seed
-                                                  : QColor("#00cc65");
+                                                  : QColor("#0071e3");
     if (!m_customAccent && !m_coverAccent)
         applyColor(m_accent, palette, "accent");
     // Temporary contributions sit above the current host preference, without
@@ -526,7 +526,7 @@ QVariantMap ThemeStore::previewPalette(bool dark, const QColor &seed, bool solid
     const auto p = solid && opaque(seed) ? fromSeed(seed, dark) : neutral(dark);
     return {{"shell", p.shell},         {"main", p.main},
             {"player", p.player},       {"text", p.text},
-            {"secondary", p.secondary}, {"accent", solid ? seed : QColor("#00cc65")}};
+            {"secondary", p.secondary}, {"accent", solid ? seed : QColor("#0071e3")}};
 }
 void ThemeStore::save()
 {
@@ -738,7 +738,7 @@ void ThemeStore::restoreBackgroundDraft(const QJsonObject &draft)
         m_crop = {};
     const QColor text(draft.value("text").toString()), accent(draft.value("accent").toString());
     m_imageText = opaque(text) ? text : QColor(Qt::white);
-    m_imageAccent = opaque(accent) ? accent : QColor("#00cc65");
+    m_imageAccent = opaque(accent) ? accent : QColor("#0071e3");
     m_imageShade = qBound(0, draft.value("shade").toInt(), 85);
     m_imageSample = {};
 }
@@ -880,7 +880,7 @@ void ThemeStore::resetBackgroundAdjustments()
     beginBackground();
     m_crop = {};
     m_imageText = Qt::white;
-    m_imageAccent = QColor("#00cc65");
+    m_imageAccent = QColor("#0071e3");
     m_imageShade = 0;
     ++m_sampleRevision;
     m_sampleTimer.start();

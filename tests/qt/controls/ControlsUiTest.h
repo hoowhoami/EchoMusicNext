@@ -47,6 +47,7 @@ private slots:
     void tooltipPressPreservesClickAndRelease();
     void numberInputCommitsAndClampsAcrossAllInputPaths();
     void textEditorsShareFocusCaretAndSurfaces();
+    void caretsStayOnTheWindowDevicePixelGrid();
     void dialogHeaderBodyAndFooterShareInsets();
     void drawerFixedActionsSurviveLongTitlesAndVisibilityChanges();
     void textTagAlignmentAcrossProductionRecipes();

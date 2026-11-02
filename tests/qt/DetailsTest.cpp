@@ -549,8 +549,10 @@ Window {
                         const qreal caretBaseline =
                             glyph->mapToItem(area, {0, 0}).y() +
                             QFontMetricsF(area->property("font").value<QFont>()).ascent();
+                        // Device-grid snapping can move the painted caret by
+                        // at most half a physical pixel from its native baseline.
                         QVERIFY(qAbs(caretBaseline - placeholder->y() -
-                                     placeholder->baselineOffset()) < .01);
+                                     placeholder->baselineOffset()) <= .5 / (dpr * zoom) + .001);
                         const auto focusedFrame = window->grabWindow();
                         area->setFocus(false);
                         area->setProperty("text", area->property("placeholderText"));
@@ -672,7 +674,7 @@ Window {
                             glyph->mapToItem(area, {0, 0}).y() +
                             QFontMetricsF(area->property("font").value<QFont>()).ascent();
                         return qAbs(caretBaseline - placeholder->y() -
-                                    placeholder->baselineOffset()) < .01;
+                                    placeholder->baselineOffset()) <= .5 / (dpr * zoom) + .001;
                     };
                     QTRY_VERIFY(checkCaret());
                     const auto focusedFrame = window->grabWindow();

@@ -537,10 +537,9 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
             [this](quint64 sequence, const QByteArray &png, const QColor &color) {
                 if (m_closing || sequence != m_sequence)
                     return;
-                // Missing/achromatic artwork has no replacement accent. Keep
-                // the last usable sample shared by theme, lyrics and plugins.
-                if (color.isValid())
-                    m_coverColor = color;
+                // Keep the previous accent only while sampling. Once this
+                // request finishes, missing/achromatic artwork uses brand blue.
+                m_coverColor = color.isValid() ? color : QColor("#0071e3");
                 m_coverPng = png;
                 publishMedia();
                 emit changed();

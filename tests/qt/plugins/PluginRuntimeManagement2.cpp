@@ -298,7 +298,8 @@ ApplicationWindow {
     QVERIFY(manager.install(key));
     QTRY_VERIFY(!manager.busy());
     QVERIFY(notice.last()[1].toBool());
-    QVERIFY(notice.last()[0].toString().contains("SHA-256"));
+    QVERIFY(notice.last()[0].toString().contains("已停止安装"));
+    QVERIFY(!notice.last()[0].toString().contains("SHA-256"));
     QCOMPARE(host.runtime.context(installation)->activationGeneration(), generation);
     archive = originalArchive;
     manifest.replace("1.0.0\"", "1.1.0\"");

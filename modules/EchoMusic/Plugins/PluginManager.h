@@ -165,13 +165,14 @@ private:
     std::function<QUrl(const QUrl &)> m_resolveUrl;
     QPointer<NetworkPreferences> m_networkPreferences;
     using Completion = std::function<void(QByteArray, QString, QVariantMap)>;
+    using ResponseValidator = std::function<QString(const QByteArray &)>;
     void getAttempt(const QUrl &url, const QUrl &origin, qint64 limit, Completion complete,
-                    const QByteArray &body, int timeout, bool fallback,
-                    const QVariantList &attempts = {});
+                    const QByteArray &body, int timeout, bool fallback, ResponseValidator validate,
+                    bool fresh, const QVariantList &attempts = {});
     void get(const QUrl &url, qint64 limit, Completion complete, const QByteArray &body = {},
-             int timeout = 30000);
+             int timeout = 30000, ResponseValidator validate = {}, bool fresh = false);
     void fetchSource(QVariantMap source, quint64 generation,
-                     std::function<void(QVariantMap, QVariantList)> complete);
+                     std::function<void(QVariantMap, QVariantList)> complete, bool fresh = true);
     void rebuild();
     void refreshStatistics(bool force = false);
     void reportInstallation(const QVariantMap &record, bool success);
