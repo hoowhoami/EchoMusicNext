@@ -526,7 +526,7 @@ Item {
                                     view: chatList
                                 }
                             }
-                            Rectangle {
+                            EchoInputBackground {
                                 id: composerSurface
                                 objectName: "listenComposerSurface"
                                 Layout.fillWidth: true
@@ -535,9 +535,9 @@ Item {
                                 Layout.bottomMargin: 9
                                 implicitHeight: composerRow.implicitHeight + 16
                                 radius: Theme.cardRadius
-                                color: Theme.colors.mutedSurface
+                                focused: composer.activeFocus
                                 border.width: 1
-                                border.color: composer.activeFocus ? Theme.mix(Theme.border, Theme.accent, 0.38) : Theme.border
+                                border.color: Theme.border
                                 opacity: session.room.activeRoom.chat_code === 1 ? 1 : 0.55
                                 TapHandler {
                                     onTapped: composer.forceActiveFocus()
@@ -550,8 +550,9 @@ Item {
                                     anchors.topMargin: 8
                                     anchors.bottomMargin: 8
                                     spacing: 7
-                                    TextArea {
+                                    EchoTextArea {
                                         id: composer
+                                        EchoInputFocus.boundary: composerSurface
                                         objectName: "listenMessageComposer"
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: Math.min(72, Math.max(30, contentHeight + 14))

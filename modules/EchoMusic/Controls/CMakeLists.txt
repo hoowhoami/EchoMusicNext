@@ -11,6 +11,8 @@ qt_add_qml_module(
     URI
     EchoMusic.Controls
     SOURCES
+    EchoInputFocus.h
+    EchoInputFocus.cpp
     EchoFileDialog.h
     EchoFileDialog.cpp
     EchoUiPartRegistration.h
@@ -58,6 +60,8 @@ qt_add_qml_module(
     EchoSpinner.qml
     EchoControlSize.qml
     EchoButton.qml
+    EchoInputBackground.qml
+    EchoTextCursor.qml
     EchoTextField.qml
     EchoIcon.qml
     EchoIconButton.qml

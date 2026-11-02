@@ -46,6 +46,7 @@ private slots:
     void nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover();
     void tooltipPressPreservesClickAndRelease();
     void numberInputCommitsAndClampsAcrossAllInputPaths();
+    void textEditorsShareFocusCaretAndSurfaces();
     void dialogHeaderBodyAndFooterShareInsets();
     void drawerFixedActionsSurviveLongTitlesAndVisibilityChanges();
     void textTagAlignmentAcrossProductionRecipes();

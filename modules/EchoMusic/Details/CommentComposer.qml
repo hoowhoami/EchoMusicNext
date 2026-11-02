@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import EchoMusic.Controls
 import EchoMusic.Theme
 
-Rectangle {
+EchoInputBackground {
     id: root
     required property CommentsController controller
     property bool compact: false
@@ -13,9 +13,10 @@ Rectangle {
     readonly property int characterCount: Array.from(editor.text).length
     implicitHeight: row.implicitHeight + 20
     radius: Theme.cardRadius
-    color: Theme.elevated
+    baseColor: Theme.elevated
+    focused: editor.activeFocus
     border.width: 1
-    border.color: editor.activeFocus ? Theme.withAlpha(Theme.accent, .55) : Theme.border
+    border.color: Theme.border
     RowLayout {
         id: row
         anchors.fill: parent
@@ -23,8 +24,9 @@ Rectangle {
         anchors.leftMargin: 12
         anchors.rightMargin: 12
         spacing: 12
-        TextArea {
+        EchoTextArea {
             id: editor
+            EchoInputFocus.boundary: root
             objectName: "commentDraft"
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignBottom
@@ -36,13 +38,17 @@ Rectangle {
             text: root.controller.draft
             enabled: !root.controller.busy
             padding: 4
+            leftPadding: 4
+            rightPadding: 4
             topPadding: 6
             bottomPadding: 6
             background: null
             placeholderText: root.controller.signedIn ? qsTr("写下你的评论…") : qsTr("登录后即可发送")
+            placeholderBaseline: paragraphStyle.firstLineBaseline
             Accessible.name: root.label
             Accessible.description: qsTr("Enter 发送，Shift + Enter 换行")
             CommentTextStyle {
+                id: paragraphStyle
                 document: editor.textDocument
                 lineHeight: 20
             }

@@ -7,7 +7,7 @@ import EchoMusic.Controls
 import EchoMusic.Search
 import EchoMusic.Shell
 
-Rectangle {
+EchoInputBackground {
     id: box
     required property SearchModel service
     required property RouteController router
@@ -17,7 +17,7 @@ Rectangle {
     property int activeSuggestion: -1
     implicitHeight: 30
     radius: Theme.controlRadius
-    color: input.activeFocus ? Theme.fieldFocus : Theme.mutedSurface
+    focused: input.activeFocus
     function dismissSearch() {
         if (panelOwner.item)
             panelOwner.close();
@@ -142,12 +142,16 @@ Rectangle {
                 onTapped: box.focusSearch()
             }
         }
-        TextField {
+        EchoTextField {
             id: input
             objectName: "searchInput"
+            EchoInputFocus.boundary: box
+            EchoInputFocus.extension: panelOwner.item ? panelOwner.item.contentItem : null
             Layout.fillWidth: true
             Layout.fillHeight: true
             padding: 0
+            leftPadding: 0
+            rightPadding: 0
             font: Theme.font(13, Theme.mediumWeight)
             color: Theme.text
             placeholderText: box.service.suggestions.defaultKeyword || qsTr("搜索音乐、歌手、专辑")

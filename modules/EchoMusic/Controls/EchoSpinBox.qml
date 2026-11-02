@@ -46,7 +46,7 @@ T.DoubleSpinBox {
     // Commit and park the focus on an invisible scope of this control: the
     // caret stops without moving focus back and forth against the spin box's
     // own focus handling (a fight that spins the event loop). A press outside
-    // the text field (see SpinBoxCommitFilter) and Enter both commit this way.
+    // the text field (see EchoInputFocus) and Enter both commit this way.
     function commitDraft(): void {
         commit();
         park.forceActiveFocus();
@@ -72,6 +72,11 @@ T.DoubleSpinBox {
     contentItem: TextInput {
         id: input
         objectName: "numberInputField"
+        EchoInputFocus.boundary: input
+        EchoInputFocus.onOutsidePressed: control.commitDraft()
+        cursorDelegate: EchoTextCursor {
+            editor: input
+        }
         selectByMouse: true
         // Qt commits and emits valueModified for Return; consumers read after it.
         onAccepted: {
@@ -122,11 +127,12 @@ T.DoubleSpinBox {
         font: control.suffixFont
         color: control.colors.secondaryText
     }
-    background: Rectangle {
-        color: control.colors.mutedSurface
+    background: EchoInputBackground {
+        colors: control.colors
+        focused: input.activeFocus
         radius: Theme.controlRadius
         border.width: 1
-        border.color: control.activeFocus ? Theme.mix(control.colors.controlBorder, control.colors.accent, .35) : control.colors.controlBorder
+        border.color: control.colors.controlBorder
     }
     up.indicator: Rectangle {
         x: control.width - width - 1

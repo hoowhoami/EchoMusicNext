@@ -14,6 +14,7 @@ class CommentTextStyle : public QObject
     QML_ELEMENT
     Q_PROPERTY(QQuickTextDocument *document READ document WRITE setDocument NOTIFY documentChanged)
     Q_PROPERTY(qreal lineHeight READ lineHeight WRITE setLineHeight NOTIFY lineHeightChanged)
+    Q_PROPERTY(qreal firstLineBaseline READ firstLineBaseline NOTIFY layoutChanged)
 public:
     explicit CommentTextStyle(QObject *p = nullptr) : QObject(p) {}
     QQuickTextDocument *document() const
@@ -26,16 +27,18 @@ public:
         return m_lineHeight;
     }
     void setLineHeight(qreal height);
+    qreal firstLineBaseline() const;
 signals:
     void documentChanged();
     void lineHeightChanged();
+    void layoutChanged();
 
 private:
     void attach();
     void apply();
     QPointer<QQuickTextDocument> m_document;
     QPointer<QTextDocument> m_text;
-    QMetaObject::Connection m_documentChanged, m_contents;
+    QMetaObject::Connection m_documentChanged, m_contents, m_layoutUpdate;
     bool m_applying = false;
     qreal m_lineHeight = 24.5;
 };

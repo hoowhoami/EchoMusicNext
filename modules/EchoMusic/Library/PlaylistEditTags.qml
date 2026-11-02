@@ -35,13 +35,13 @@ ColumnLayout {
         }
     }
     spacing: 5
-    Rectangle {
+    EchoInputBackground {
+        id: inputSurface
+        colors: Theme.floating
+        focused: input.activeFocus
         Layout.fillWidth: true
         implicitHeight: Math.max(36, flow.implicitHeight + 10)
-        color: Theme.floating.mutedSurface
         radius: Theme.controlRadius
-        border.width: 1
-        border.color: input.activeFocus ? Theme.withAlpha(Theme.floating.accent, 0.35) : "transparent"
         Flow {
             id: flow
             x: 8
@@ -92,6 +92,7 @@ ColumnLayout {
             }
             EchoTextField {
                 id: input
+                EchoInputFocus.boundary: inputSurface
                 objectName: "playlistEditTagsInput"
                 width: flow.remaining >= 100 ? flow.remaining : flow.width
                 height: 24

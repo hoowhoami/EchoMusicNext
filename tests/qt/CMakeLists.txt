@@ -282,7 +282,7 @@ add_test(
         imageDensityTracksScaleWithoutTrackingScroll
         selectProjectionKeepsTypedValuesAndTracksModelChanges
         selectSearchMultiKeyboardPlacementAndVirtualization
-        numberInputCommitsAndClampsAcrossAllInputPaths
+        numberInputCommitsAndClampsAcrossAllInputPaths textEditorsShareFocusCaretAndSurfaces
 )
 add_test(
     NAME controls-ui-popups

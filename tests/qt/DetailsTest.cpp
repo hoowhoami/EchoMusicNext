@@ -1,5 +1,6 @@
 #include "DetailsService.h"
 #include "CommentExtent.h"
+#include "BarrageController.h"
 #include "ArtistDetailService.h"
 #include "AlbumDetailService.h"
 #include "PlaylistDetailService.h"
@@ -457,6 +458,259 @@ class DetailsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void inputPlaceholderAndDocumentShareBaseline()
+    {
+        QTemporaryDir dir;
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Details
+import EchoMusic.Theme
+Window {
+ id: host; visible: true; width: 720; height: 420; color: Theme.main
+ property real zoom: 1
+ property real editorSize: 13
+ property real paragraphHeight: 20
+ Item {
+  scale: host.zoom; transformOrigin: Item.TopLeft
+  EchoTextArea {
+   id: area; objectName: "alignmentArea"; x: 30; y: 30; width: 400; height: 64
+   padding: 4; leftPadding: 4; rightPadding: 4; topPadding: 6; bottomPadding: 6
+   font: Theme.font(host.editorSize, Theme.regularWeight)
+   placeholderText: "写下你的评论… Write"; placeholderTextColor: color
+   placeholderBaseline: host.paragraphHeight > 0 ? style.firstLineBaseline : NaN
+   CommentTextStyle {
+    id: style; document: host.paragraphHeight > 0 ? area.textDocument : null
+    lineHeight: host.paragraphHeight > 0 ? host.paragraphHeight : 20
+   }
+  }
+ }
+})",
+                          QUrl());
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        auto *area = visual(window->contentItem(), "alignmentArea");
+        QVERIFY(area);
+        auto *placeholder = visual(area, "inputPlaceholder");
+        QVERIFY(placeholder);
+        const auto captures = qEnvironmentVariable("ECHO_INPUT_ALIGNMENT_CAPTURES");
+        if (!captures.isEmpty())
+            QDir().mkpath(captures);
+        // Keep one live editor while its font, paragraph style and transform
+        // change. Compare painted pixels, not just the two QML item boxes.
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (const auto size : {13., 17.}) {
+                root->setProperty("editorSize", size);
+                for (const auto lineHeight : {20., 20.8, 0.}) {
+                    root->setProperty("paragraphHeight", lineHeight);
+                    for (const auto zoom : {1., 1.25}) {
+                        root->setProperty("zoom", zoom);
+                        area->setFocus(false);
+                        area->setProperty("text", QString());
+                        QTest::qWait(40);
+                        QTRY_COMPARE(area->mapToScene({400, 0}).x() - area->mapToScene({0, 0}).x(),
+                                     400 * zoom);
+                        const auto region =
+                            area->mapRectToScene(QRectF(0, 0, area->width(), area->height()));
+                        const qreal dpr = window->devicePixelRatio();
+                        const auto pixels =
+                            QRectF(region.topLeft() * dpr, region.size() * dpr).toAlignedRect();
+                        const auto foreground = area->property("color").value<QColor>();
+                        const auto emptyFrame = window->grabWindow();
+                        const auto placeholderInk =
+                            Test::renderedInkBounds(emptyFrame, pixels, foreground);
+                        QVERIFY(placeholderInk);
+                        area->forceActiveFocus();
+                        area->setProperty("cursorVisible", true);
+                        QTRY_VERIFY(area->hasActiveFocus());
+                        auto *doc = area->property("textDocument").value<QQuickTextDocument *>();
+                        QVERIFY(doc);
+                        const auto *layout = doc->textDocument()->begin().layout();
+                        const auto line = layout->lineAt(0);
+                        const qreal nativeBaseline = area->property("topPadding").toReal() +
+                                                     layout->position().y() + line.y() +
+                                                     line.ascent();
+                        if (lineHeight > 0)
+                            QTRY_VERIFY(qAbs(placeholder->y() + placeholder->baselineOffset() -
+                                             nativeBaseline) < .01);
+                        auto *cursor = visual(area, "textCursor");
+                        QTRY_VERIFY((cursor = visual(area, "textCursor")));
+                        QQuickItem *glyph = nullptr;
+                        QTRY_VERIFY((glyph = visual(cursor, "textCursorGlyph")));
+                        const qreal caretBaseline =
+                            glyph->mapToItem(area, {0, 0}).y() +
+                            QFontMetricsF(area->property("font").value<QFont>()).ascent();
+                        QVERIFY(qAbs(caretBaseline - placeholder->y() -
+                                     placeholder->baselineOffset()) < .01);
+                        const auto focusedFrame = window->grabWindow();
+                        area->setFocus(false);
+                        area->setProperty("text", area->property("placeholderText"));
+                        area->setProperty("cursorVisible", false);
+                        QTest::qWait(40);
+                        const auto filledFrame = window->grabWindow();
+                        const auto inputInk =
+                            Test::renderedInkBounds(filledFrame, pixels, foreground);
+                        QVERIFY(inputInk);
+                        if (!captures.isEmpty()) {
+                            const auto name = QString("/%1-font%2-line%3-zoom%4")
+                                                  .arg(int(mode))
+                                                  .arg(size)
+                                                  .arg(lineHeight)
+                                                  .arg(zoom);
+                            QVERIFY(emptyFrame.save(captures + name + "-placeholder.png"));
+                            QVERIFY(filledFrame.save(captures + name + "-typed.png"));
+                            QVERIFY(focusedFrame.save(captures + name + "-focused.png"));
+                        }
+                        QVERIFY2(qAbs(placeholderInk->top() - inputInk->top()) <= 1,
+                                 "Placeholder and typed glyph tops differ by more than one "
+                                 "physical pixel");
+                        QVERIFY2(qAbs(placeholderInk->bottom() - inputInk->bottom()) <= 1,
+                                 "Placeholder and typed glyph bottoms differ by more than one "
+                                 "physical pixel");
+                    }
+                }
+            }
+        }
+        QCOMPARE(warnings.size(), 0);
+    }
+    void barrageDraftPlaceholderAndCaretStayAligned()
+    {
+        QTemporaryDir dir;
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(42, "fixture-only-never-sent"));
+        BarrageController lyrics(api, nullptr, false, nullptr, true);
+        BarrageController video(api, nullptr, false, nullptr, false);
+        ShellSettings settings(prefs);
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Details
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window {
+ id: host; visible: true; width: 1000; height: 800; color: Theme.main
+ required property BarrageController lyricController
+ required property BarrageController videoController
+ required property ShellSettings settings
+ property bool lyric: true
+ property real zoom: 1
+ property alias panel: owner.item
+ function openPanel() { owner.open() }
+ Item { id: anchor; x: 480; y: 760; width: 20; height: 20 }
+ EchoPopupLoader {
+  id: owner; hostItem: anchor
+  sourceComponent: BarragePanel {
+   controller: host.lyric ? host.lyricController : host.videoController
+   settings: host.settings; lyric: host.lyric; uiScale: host.zoom; anchorItem: anchor
+  }
+ }
+})",
+                          QUrl());
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"lyricController", QVariant::fromValue(&lyrics)},
+             {"videoController", QVariant::fromValue(&video)},
+             {"settings", QVariant::fromValue(&settings)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        const auto captures = qEnvironmentVariable("ECHO_INPUT_ALIGNMENT_CAPTURES");
+        if (!captures.isEmpty())
+            QDir().mkpath(captures);
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (const bool song : {true, false}) {
+                root->setProperty("lyric", song);
+                auto &controller = song ? lyrics : video;
+                for (const auto zoom : {1., 1.25}) {
+                    root->setProperty("zoom", zoom);
+                    QVERIFY(QMetaObject::invokeMethod(root.data(), "openPanel"));
+                    QPointer<QObject> panel = root->property("panel").value<QObject *>();
+                    QVERIFY(panel);
+                    QTRY_VERIFY(panel->property("opened").toBool());
+                    QVERIFY(Test::prepareNativeInput(window));
+                    auto *area = visual(window->contentItem(),
+                                        song ? "lyricBarrageDraft" : "mvBarrageDraft");
+                    QVERIFY(area);
+                    auto *placeholder = visual(area, "inputPlaceholder");
+                    QVERIFY(placeholder);
+                    controller.setDraft({});
+                    area->setFocus(false);
+                    area->setProperty("cursorVisible", false);
+                    QTest::qWait(40);
+                    const auto region =
+                        area->mapRectToScene(QRectF(0, 0, area->width(), area->height()));
+                    const qreal dpr = window->devicePixelRatio();
+                    const auto pixels =
+                        QRectF(region.topLeft() * dpr, region.size() * dpr).toAlignedRect();
+                    const auto emptyFrame = window->grabWindow();
+                    const auto emptyInk = Test::renderedInkBounds(
+                        emptyFrame, pixels, area->property("placeholderTextColor").value<QColor>());
+                    QVERIFY(emptyInk);
+                    const auto checkCaret = [&]() {
+                        area->forceActiveFocus();
+                        area->setProperty("cursorVisible", true);
+                        auto *glyph = visual(area, "textCursorGlyph");
+                        if (!glyph)
+                            return false;
+                        const auto caretBaseline =
+                            glyph->mapToItem(area, {0, 0}).y() +
+                            QFontMetricsF(area->property("font").value<QFont>()).ascent();
+                        return qAbs(caretBaseline - placeholder->y() -
+                                    placeholder->baselineOffset()) < .01;
+                    };
+                    QTRY_VERIFY(checkCaret());
+                    const auto focusedFrame = window->grabWindow();
+                    controller.setDraft(area->property("placeholderText").toString());
+                    area->setFocus(false);
+                    area->setProperty("cursorVisible", false);
+                    QTest::qWait(40);
+                    const auto typedFrame = window->grabWindow();
+                    const auto typedInk = Test::renderedInkBounds(
+                        typedFrame, pixels, area->property("color").value<QColor>());
+                    QVERIFY(typedInk);
+                    QVERIFY(qAbs(emptyInk->top() - typedInk->top()) <= 1);
+                    QVERIFY(qAbs(emptyInk->bottom() - typedInk->bottom()) <= 1);
+                    controller.setDraft({});
+                    QTRY_VERIFY(area->property("text").toString().isEmpty());
+                    QTRY_VERIFY(placeholder->isVisible());
+                    QTRY_VERIFY(checkCaret());
+                    if (!captures.isEmpty()) {
+                        const auto name = QString("/barrage-%1-theme%2-zoom%3")
+                                              .arg(song ? "lyrics" : "mv")
+                                              .arg(int(mode))
+                                              .arg(zoom);
+                        QVERIFY(emptyFrame.save(captures + name + "-placeholder.png"));
+                        QVERIFY(focusedFrame.save(captures + name + "-focused.png"));
+                        QVERIFY(typedFrame.save(captures + name + "-typed.png"));
+                        QVERIFY(window->grabWindow().save(captures + name + "-cleared.png"));
+                    }
+                    QVERIFY(QMetaObject::invokeMethod(panel, "close"));
+                    QTRY_VERIFY(panel.isNull());
+                }
+            }
+        }
+        QCOMPARE(warnings.size(), 0);
+        root.reset();
+        lyrics.shutdown();
+        video.shutdown();
+        api.shutdown();
+    }
     void songDetailEntryUsesTheCurrentQueue_data()
     {
         QTest::addColumn<bool>("menu");

@@ -191,7 +191,11 @@ EchoAnchoredPopup {
                         color: Theme.subtleBorder
                     }
                 }
-                Rectangle {
+                EchoInputBackground {
+                    id: draftSurface
+                    colors: Theme.floating
+                    baseColor: Theme.elevated
+                    focused: draft.activeFocus
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumWidth: 0
@@ -199,9 +203,8 @@ EchoAnchoredPopup {
                     Layout.horizontalStretchFactor: 23
                     implicitHeight: composerColumn.implicitHeight + 20
                     radius: Theme.cardRadius
-                    color: Theme.elevated
                     border.width: 1
-                    border.color: draft.activeFocus ? Theme.withAlpha(Theme.accent, .55) : Theme.border
+                    border.color: Theme.border
                     ColumnLayout {
                         id: composerColumn
                         anchors.fill: parent
@@ -211,6 +214,7 @@ EchoAnchoredPopup {
                         spacing: 12
                         EchoTextArea {
                             id: draft
+                            EchoInputFocus.boundary: draftSurface
                             colors: Theme.floating
                             objectName: popup.lyric ? "lyricBarrageDraft" : "mvBarrageDraft"
                             Layout.fillWidth: true

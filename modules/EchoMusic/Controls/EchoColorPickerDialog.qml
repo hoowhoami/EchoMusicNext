@@ -91,10 +91,6 @@ EchoDialog {
                         picker.draft = text;
                         picker.dynamicDraft = false;
                     }
-                    background: Rectangle {
-                        radius: Theme.controlRadius
-                        color: Theme.withAlpha(Theme.store.floatingTone, hexField.activeFocus || hexField.hovered ? 0.07 : 0.05)
-                    }
                 }
             }
             GridLayout {

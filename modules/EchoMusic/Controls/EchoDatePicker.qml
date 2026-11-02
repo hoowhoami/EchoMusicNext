@@ -71,9 +71,9 @@ Control {
     onEnabledChanged: if (!enabled && !EchoPopupCoordinator.interactionSuspended(picker.Window.window))
         calendarOwner.close()
     Component.onCompleted: sync()
-    background: Rectangle {
-        radius: Theme.controlRadius
-        color: Theme.withAlpha(picker.colors.tone, picker.activeFocus ? 0.07 : 0.05)
+    background: EchoInputBackground {
+        colors: picker.colors
+        focused: picker.activeFocus || year.activeFocus || month.activeFocus || day.activeFocus
     }
     contentItem: RowLayout {
         spacing: 0
@@ -108,12 +108,17 @@ Control {
                     id: dateSegments
                     spacing: 0
                     anchors.verticalCenter: parent.verticalCenter
-                    TextField {
+                    EchoTextField {
                         id: year
                         objectName: "dateYear"
                         Layout.preferredWidth: 44
                         Layout.preferredHeight: 28
                         padding: 2
+                        leftPadding: 2
+                        rightPadding: 2
+                        colors: picker.colors
+                        EchoInputFocus.boundary: picker
+                        EchoInputFocus.extension: calendarOwner.item ? calendarOwner.item.contentItem : null
                         color: picker.colors.text
                         font: picker.font
                         horizontalAlignment: TextInput.AlignHCenter
@@ -121,10 +126,7 @@ Control {
                             bottom: 1900
                             top: new Date().getFullYear()
                         }
-                        background: Rectangle {
-                            radius: Theme.detailRadius
-                            color: year.activeFocus ? Theme.withAlpha(picker.colors.accent, 0.12) : "transparent"
-                        }
+                        background: null
                         onTextEdited: picker.segmentDirty = true
                         onEditingFinished: picker.commitSegments()
                         KeyNavigation.right: month
@@ -135,12 +137,17 @@ Control {
                         color: picker.colors.text
                         font: Theme.font(13, Theme.regularWeight)
                     }
-                    TextField {
+                    EchoTextField {
                         id: month
                         objectName: "dateMonth"
                         Layout.preferredWidth: 26
                         Layout.preferredHeight: 28
                         padding: 2
+                        leftPadding: 2
+                        rightPadding: 2
+                        colors: picker.colors
+                        EchoInputFocus.boundary: picker
+                        EchoInputFocus.extension: calendarOwner.item ? calendarOwner.item.contentItem : null
                         color: picker.colors.text
                         font: picker.font
                         horizontalAlignment: TextInput.AlignHCenter
@@ -148,10 +155,7 @@ Control {
                             bottom: 1
                             top: 12
                         }
-                        background: Rectangle {
-                            radius: Theme.detailRadius
-                            color: month.activeFocus ? Theme.withAlpha(picker.colors.accent, 0.12) : "transparent"
-                        }
+                        background: null
                         onTextEdited: picker.segmentDirty = true
                         onEditingFinished: picker.commitSegments()
                         KeyNavigation.left: year
@@ -163,12 +167,17 @@ Control {
                         color: picker.colors.text
                         font: Theme.font(13, Theme.regularWeight)
                     }
-                    TextField {
+                    EchoTextField {
                         id: day
                         objectName: "dateDay"
                         Layout.preferredWidth: 26
                         Layout.preferredHeight: 28
                         padding: 2
+                        leftPadding: 2
+                        rightPadding: 2
+                        colors: picker.colors
+                        EchoInputFocus.boundary: picker
+                        EchoInputFocus.extension: calendarOwner.item ? calendarOwner.item.contentItem : null
                         color: picker.colors.text
                         font: picker.font
                         horizontalAlignment: TextInput.AlignHCenter
@@ -176,10 +185,7 @@ Control {
                             bottom: 1
                             top: 31
                         }
-                        background: Rectangle {
-                            radius: Theme.detailRadius
-                            color: day.activeFocus ? Theme.withAlpha(picker.colors.accent, 0.12) : "transparent"
-                        }
+                        background: null
                         onTextEdited: picker.segmentDirty = true
                         onEditingFinished: picker.commitSegments()
                         KeyNavigation.left: month

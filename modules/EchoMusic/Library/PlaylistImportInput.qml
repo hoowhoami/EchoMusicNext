@@ -25,6 +25,8 @@ ColumnLayout {
                 Layout.fillWidth: true
                 implicitHeight: 64
                 padding: 16
+                leftPadding: 16
+                rightPadding: 16
                 onClicked: {
                     pane.draft.mode = index;
                     if (index === 1)
@@ -68,7 +70,7 @@ ColumnLayout {
         visible: pane.draft.mode === 0
         Layout.fillWidth: true
         spacing: 12
-        TextArea {
+        EchoTextArea {
             id: linkInput
             objectName: "playlistImportLink"
             text: pane.draft.linkText
@@ -76,6 +78,8 @@ ColumnLayout {
             Layout.fillWidth: true
             implicitHeight: 112
             padding: 16
+            leftPadding: 16
+            rightPadding: 16
             topPadding: 12
             placeholderText: qsTr("粘贴外部平台的歌单链接")
             color: Theme.floatingText
@@ -83,10 +87,11 @@ ColumnLayout {
             font: Theme.font(13, Theme.mediumWeight)
             wrapMode: TextEdit.Wrap
             selectByMouse: true
-            background: Rectangle {
+            colors: Theme.floating
+            background: EchoInputBackground {
+                colors: linkInput.colors
+                focused: linkInput.activeFocus
                 radius: Theme.cardRadius
-                color: Theme.floating.mutedSurface
-                border.color: linkInput.activeFocus ? Theme.floating.accent : Theme.floating.controlBorder
             }
         }
     }

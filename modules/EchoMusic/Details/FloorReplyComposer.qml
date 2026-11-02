@@ -76,12 +76,14 @@ Rectangle {
                     border.color: Theme.border
                 }
                 CommentTextStyle {
+                    id: paragraphStyle
                     document: draft.textDocument
                     lineHeight: 20.8
                 }
                 text: composer.controller.replyDraft
                 enabled: !composer.controller.busy
                 placeholderText: composer.controller.signedIn ? qsTr("写下你的回复…") : qsTr("登录后即可回复")
+                placeholderBaseline: paragraphStyle.firstLineBaseline
                 Accessible.name: qsTr("回复 %1").arg(composer.target.user_name || "")
                 Accessible.description: qsTr("Enter 发送，Shift + Enter 换行")
                 onTextChanged: composer.controller.replyDraft = text

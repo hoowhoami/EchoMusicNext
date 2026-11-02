@@ -129,14 +129,17 @@ ColumnLayout {
             }
         }
     }
-    Rectangle {
+    EchoInputBackground {
+        id: draftSurface
+        colors: Theme.floating
+        baseColor: Theme.floating.elevated
+        focused: draft.activeFocus
         Layout.fillWidth: true
         Layout.margins: 12
         Layout.topMargin: 10
         implicitHeight: composer.implicitHeight + 20
         radius: Theme.cardRadius
-        color: Theme.floating.elevated
-        border.color: draft.activeFocus ? Theme.withAlpha(Theme.accent, .55) : Theme.floatingBorder
+        border.color: Theme.floatingBorder
         RowLayout {
             id: composer
             anchors.fill: parent
@@ -144,8 +147,10 @@ ColumnLayout {
             anchors.leftMargin: 12
             anchors.rightMargin: 12
             spacing: 12
-            TextArea {
+            EchoTextArea {
                 id: draft
+                colors: Theme.floating
+                EchoInputFocus.boundary: draftSurface
                 objectName: "profileChatDraft"
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0

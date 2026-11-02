@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Shapes
 import EchoMusic.Theme
@@ -183,11 +182,11 @@ Rectangle {
             Item {
                 Layout.fillWidth: true
             }
-            Rectangle {
+            EchoInputBackground {
                 Layout.preferredWidth: 180
                 Layout.preferredHeight: 36
                 radius: Theme.controlRadius
-                color: filter.activeFocus ? Theme.fieldFocus : Theme.mutedSurface
+                focused: filter.activeFocus
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 10
@@ -199,11 +198,14 @@ Rectangle {
                         Layout.preferredHeight: 14
                         color: Theme.iconMain
                     }
-                    TextField {
+                    EchoTextField {
                         id: filter
                         objectName: "searchResultFilter"
+                        EchoInputFocus.boundary: parent.parent
                         Layout.fillWidth: true
                         padding: 0
+                        leftPadding: 0
+                        rightPadding: 0
                         font: Theme.font(12, Theme.regularWeight)
                         color: Theme.text
                         placeholderTextColor: Theme.secondaryText
@@ -221,7 +223,11 @@ Rectangle {
                         Layout.preferredWidth: 20
                         Layout.preferredHeight: 20
                         padding: 5
-                        onClicked: toolbar.service.results.query = ""
+                        focusPolicy: Qt.NoFocus
+                        onClicked: {
+                            toolbar.service.results.query = "";
+                            filter.forceActiveFocus();
+                        }
                     }
                 }
             }

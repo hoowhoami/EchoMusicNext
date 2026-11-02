@@ -213,7 +213,7 @@ Control {
             colors: control.colors
             text: "+" + control.overflowCount
         }
-        TextField {
+        EchoTextField {
             id: searchInput
             objectName: "selectSearchInput"
             Layout.fillWidth: true
@@ -221,11 +221,13 @@ Control {
             visible: control.filterable
             text: control.searchTerm
             padding: 0
+            leftPadding: 0
+            rightPadding: 0
             selectByMouse: true
-            // 可过滤下拉统一不显示输入光标：点击展开时只过滤文本，不再闪烁。
-            cursorVisible: false
-            onActiveFocusChanged: cursorVisible = false
+            EchoInputFocus.boundary: control
+            EchoInputFocus.extension: control.popup ? control.popup.contentItem : null
             font: formPart.styledFont(control.font)
+            colors: control.colors
             color: formPart.value("foreground", control.colors.text)
             placeholderText: control.multiple ? (control.selectedTags.length === 0 ? control.placeholder : "") : control.displayText || control.placeholder
             placeholderTextColor: formPart.value("secondaryForeground", control.colors.secondaryText)
@@ -289,8 +291,9 @@ Control {
     background: EchoActionBackground {
         publicPart: formPart
         colors: control.colors
-        accent: control.popupActive
+        accent: control.popupActive && !control.filterable
         highlighted: !control.popupActive && control.enabled && (control.hovered || control.visualFocus)
+        color: formPart.value("background", control.filterable ? Theme.withAlpha(control.colors.tone, searchInput.activeFocus ? 0.07 : 0.05) : accent ? Theme.withAlpha(control.colors.accent, 0.12) : highlighted ? control.colors.hover : control.colors.mutedSurface)
     }
     // ListView remains virtualized with variable-height wrapped delegates too;
     // never inherit the reference DOM's non-virtual wrapped-list limitation.

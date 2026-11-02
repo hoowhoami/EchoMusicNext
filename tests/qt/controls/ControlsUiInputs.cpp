@@ -621,9 +621,141 @@ void ControlsUiTest::numberInputCommitsAndClampsAcrossAllInputPaths()
     QTest::keyClick(session.window, Qt::Key_3);
     QTest::keyClick(session.window, Qt::Key_Return);
     QTRY_COMPARE(number->property("value").toInt(), 3);
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, point(30, 20));
+    QTest::keyClick(session.window, Qt::Key_A, Qt::ControlModifier);
+    QTest::keyClick(session.window, Qt::Key_4);
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier,
+                      point(number->width() - 14, number->height() / 4));
+    QTRY_COMPARE(number->property("value").toInt(), 5);
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, point(30, 20));
+    QTest::keyClick(session.window, Qt::Key_A, Qt::ControlModifier);
+    QTest::keyClick(session.window, Qt::Key_3);
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, QPoint(710, 280));
+    QTRY_COMPARE(number->property("value").toInt(), 3);
     number->setEnabled(false);
     QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier,
                       point(number->width() - 14, number->height() / 4));
     QCOMPARE(number->property("value").toInt(), 3);
+    QCOMPARE(warnings.size(), 0);
+}
+
+void ControlsUiTest::textEditorsShareFocusCaretAndSurfaces()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+import EchoMusic.Theme
+Window {
+ id: testWindow
+ visible: true; width: 700; height: 540; color: Theme.main
+ property real zoom: 1
+ property int clicks: 0
+ Item {
+  width: parent.width / scale; height: parent.height / scale; scale: testWindow.zoom
+  transformOrigin: Item.TopLeft
+  EchoTextField {
+   objectName: "first"; x: 20; y: 20; width: 240; height: 36
+   text: "中文 input"; clearable: true
+  }
+  EchoTextField { objectName: "second"; x: 20; y: 80; width: 240; height: 36 }
+  EchoTextArea { objectName: "area"; x: 20; y: 140; width: 240; height: 100 }
+  EchoSoftButton {
+   objectName: "action"; x: 300; y: 20; text: "action"; focusPolicy: Qt.NoFocus
+   onClicked: testWindow.clicks++
+  }
+ }
+})",
+                      QUrl());
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    auto *first = session.item("first");
+    auto *second = session.item("second");
+    auto *area = session.item("area");
+    QVERIFY(first && second && area);
+    auto click = [&](QQuickItem *item) {
+        QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier,
+                          item->mapToScene(QPointF(12, item->height() / 2)).toPoint());
+    };
+    auto *surface = first->property("background").value<QQuickItem *>();
+    QVERIFY(surface);
+    const auto captures = qEnvironmentVariable("ECHO_INPUT_CAPTURES");
+    for (const auto &mode : {QStringLiteral("light"), QStringLiteral("dark")}) {
+        session.theme.setMode(mode == "dark" ? ThemeStore::Dark : ThemeStore::Light);
+        for (const auto zoom : {1., 1.25}) {
+            session.root->setProperty("zoom", zoom);
+            QTRY_COMPARE(first->mapToScene(QPointF(first->width(), 0)).x() -
+                             first->mapToScene(QPointF(0, 0)).x(),
+                         first->width() * zoom);
+            QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, {640, 460});
+            const auto idle = surface->property("color").value<QColor>();
+            if (!captures.isEmpty()) {
+                QDir().mkpath(captures);
+                QTest::qWait(60);
+                QVERIFY(session.window->grabWindow().save(captures + "/" + mode + "-" +
+                                                          QString::number(zoom) + "-idle.png"));
+            }
+            click(first);
+            QTRY_VERIFY(first->hasActiveFocus());
+            QTRY_VERIFY(surface->property("color").value<QColor>().alphaF() > idle.alphaF());
+            QCOMPARE(QQmlProperty(surface, "border.width").read().toReal(), 0.);
+            auto *cursor = findVisual(first, "textCursor");
+            QTRY_VERIFY((cursor = findVisual(first, "textCursor")));
+            QCOMPARE(cursor->width(), 1.);
+            QTRY_VERIFY(cursor->isVisible());
+            QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier,
+                              first->mapToScene({40, 18}).toPoint());
+            QTest::mouseMove(session.window, first->mapToScene({90, 18}).toPoint());
+            QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier,
+                                first->mapToScene({90, 18}).toPoint());
+            QVERIFY(first->hasActiveFocus());
+            QMetaObject::invokeMethod(first, "selectAll");
+            QTRY_VERIFY(!first->property("selectedText").toString().isEmpty());
+            QMetaObject::invokeMethod(first, "deselect");
+            if (!captures.isEmpty()) {
+                QDir().mkpath(captures);
+                QTest::qWait(60);
+                QVERIFY(session.window->grabWindow().save(captures + "/" + mode + "-" +
+                                                          QString::number(zoom) + ".png"));
+            }
+            click(second);
+            QTRY_VERIFY(second->hasActiveFocus());
+            QVERIFY(!first->hasActiveFocus());
+            QCOMPARE(surface->property("color").value<QColor>(), idle);
+            click(area);
+            QTRY_VERIFY(area->hasActiveFocus());
+            QTRY_VERIFY((cursor = findVisual(area, "textCursor")));
+            QCOMPARE(cursor->width(), 1.);
+            click(session.item("action"));
+            QTRY_VERIFY(!area->hasActiveFocus());
+        }
+    }
+    QCOMPARE(session.root->property("clicks").toInt(), 4);
+    first->setProperty("text", "draft");
+    click(first);
+    auto *clear = findVisual(first, "clearTextAction");
+    QVERIFY(clear);
+    click(clear);
+    QTRY_VERIFY(first->property("text").toString().isEmpty());
+    QTRY_VERIFY(first->hasActiveFocus());
+    QTest::keyClick(session.window, Qt::Key_Tab);
+    QTRY_VERIFY(second->hasActiveFocus());
+    first->forceActiveFocus(Qt::BacktabFocusReason);
+    QInputMethodEvent preedit(QStringLiteral("拼"), {});
+    QCoreApplication::sendEvent(session.window, &preedit);
+    QTRY_VERIFY(first->property("inputMethodComposing").toBool());
+    QInputMethodEvent commit;
+    commit.setCommitString(QStringLiteral("拼音"));
+    QCoreApplication::sendEvent(session.window, &commit);
+    QTRY_COMPARE(first->property("text").toString(), QStringLiteral("拼音"));
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, {640, 460});
+    QTRY_VERIFY(!first->hasActiveFocus());
+    QCOMPARE(first->property("text").toString(), QStringLiteral("拼音"));
     QCOMPARE(warnings.size(), 0);
 }
