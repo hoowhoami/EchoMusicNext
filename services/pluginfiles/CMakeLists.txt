@@ -18,3 +18,6 @@ target_link_libraries(
     PUBLIC Qt6::Core
     PRIVATE Qt6::Network Qt6::Gui echo_ffi echo_build_options echo_plugin_packages
 )
+
+# Foreign QML registrations consume this service target's complete metaobject.
+qt_extract_metatypes(echo_plugin_files)

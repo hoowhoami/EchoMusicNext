@@ -336,7 +336,8 @@ QVariantMap AppIconShortcuts::apply(const QHash<QString, QString> &paths)
         save(ignored);
         return {{"error", error}, {"target", failedTarget}};
     }
-    bool restored = false;
+    // Only Windows needs the aggregate result to refresh its shell icon cache.
+    [[maybe_unused]] bool restored = false;
     for (const auto &path : m_previous.keys())
         if (!desired.contains(path)) {
             const auto old = m_previous.value(path);
@@ -370,7 +371,8 @@ QVariantMap AppIconShortcuts::restoreDefault(const QString &target,
     if (!load(journalError))
         return {{"error", journalError}};
     QStringList entries = candidates(target);
-    bool restored = false;
+    // Only Windows needs the aggregate result to refresh its shell icon cache.
+    [[maybe_unused]] bool restored = false;
     for (const auto &path : entries) {
         if (canceled && canceled->load())
             return {{"canceled", true}};

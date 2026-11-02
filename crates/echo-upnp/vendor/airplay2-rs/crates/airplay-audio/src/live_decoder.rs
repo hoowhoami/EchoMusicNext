@@ -209,7 +209,7 @@ impl LiveAudioDecoder {
     /// NOTE: The default receive timeout is 5ms to prevent blocking the streamer
     /// loop when the capture catches up. This allows the streamer to continue
     /// running and sending buffered frames even when no new data is available.
-    pub fn new(rx: Receiver<LiveEnvelope>, sample_rate: u32, channels: u8) -> Self {
+    fn new(rx: Receiver<LiveEnvelope>, sample_rate: u32, channels: u8) -> Self {
         Self {
             rx,
             sample_rate,
@@ -238,11 +238,6 @@ impl LiveAudioDecoder {
         let mut decoder = Self::new(rx, sample_rate, channels);
         decoder.reset = reset;
         (sender, decoder)
-    }
-
-    /// Replace the shared reset signal (used by `create_pair` only).
-    pub(crate) fn attach_reset_signal(&mut self, signal: Arc<ResetSignal>) {
-        self.reset = signal;
     }
 
     /// Set the receive timeout.

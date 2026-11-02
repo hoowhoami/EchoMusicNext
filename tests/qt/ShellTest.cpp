@@ -266,9 +266,20 @@ private slots:
                     row->setProperty("title", title);
                     for (int width : {166, 184, 200}) {
                         row->setWidth(width);
-                        Test::moveNativePointer(window, {340, 160});
-                        QTRY_VERIFY(!row->property("hovered").toBool());
-                        QVERIFY(render());
+                        // Input notifications and layout polish can land in different
+                        // frames on Cocoa. Establish the actual unfocused/full-width
+                        // baseline together; never snapshot the preceding hover layout.
+                        const auto baselineReady = [&] {
+                            window->contentItem()->forceActiveFocus(Qt::OtherFocusReason);
+                            Test::moveNativePointer(window, {340, 160});
+                            if (window->grabWindow().isNull())
+                                return false;
+                            return !row->property("hovered").toBool() && !edit->isVisible() &&
+                                   qAbs(label->mapToItem(row, {label->width(), 0}).x() -
+                                        (row->width() - row->property("rightPadding").toReal())) <
+                                       .01;
+                        };
+                        QTRY_VERIFY(baselineReady());
                         const auto height = label->height();
                         const auto center = label->mapToScene({0, label->height() / 2}).y();
                         const auto glyphCenter = inkCenter();
@@ -280,6 +291,7 @@ private slots:
                         Test::moveNativePointer(window, row->mapToScene({10, 20}).toPoint());
                         QTRY_VERIFY(edit->isVisible());
                         QVERIFY(render());
+                        QTRY_VERIFY(text->width() < textWidth);
                         QCOMPARE(label->height(), height);
                         QVERIFY(qAbs(label->mapToScene({0, label->height() / 2}).y() - center) <
                                 .01);
@@ -291,7 +303,6 @@ private slots:
                                      .y() -
                                  baseline) < .01);
                         QCOMPARE(text->property("lineCount").toInt(), 1);
-                        QVERIFY(text->width() < textWidth);
                         const auto textRight = text->mapToScene({text->width(), 0}).x();
                         QVERIFY(textRight <= edit->mapToScene({0, 0}).x());
                         const auto captures = qEnvironmentVariable("ECHO_SIDEBAR_ROW_CAPTURE_DIR");
@@ -1815,12 +1826,17 @@ QtObject {
                         QVERIFY(frames());
                         auto *content = menu->property("contentItem").value<QQuickItem *>();
                         QVERIFY(content);
-                        auto *shortLabel = findVisual(content, kind + "MoreLabel-" + shortKey);
-                        auto *longLabel = findVisual(content, kind + "MoreLabel-" + longKey);
-                        QVERIFY(shortLabel && longLabel);
-                        auto *shortText = shortLabel->property("textItem").value<QQuickItem *>();
-                        auto *longText = longLabel->property("textItem").value<QQuickItem *>();
-                        QVERIFY(shortText && longText);
+                        QPointer<QQuickItem> shortLabel, longLabel, shortText, longText;
+                        const auto resolveLabels = [&] {
+                            shortLabel = findVisual(content, kind + "MoreLabel-" + shortKey);
+                            longLabel = findVisual(content, kind + "MoreLabel-" + longKey);
+                            if (!shortLabel || !longLabel)
+                                return false;
+                            shortText = shortLabel->property("textItem").value<QQuickItem *>();
+                            longText = longLabel->property("textItem").value<QQuickItem *>();
+                            return shortText && longText;
+                        };
+                        QTRY_VERIFY(resolveLabels());
                         auto *actions = kind == "titlebar" ? controller.titlebarActions()
                                                            : controller.playerbarActions();
                         for (const QString title :
@@ -1830,7 +1846,11 @@ QtObject {
                             QVERIFY(actions->setPresentation(shortHandles.value(actions), title,
                                                              "music"));
                             QVERIFY(frames());
-                            QCOMPARE(shortText->property("text").toString(), title);
+                            // Presentation changes rebuild the menu's row recipe.
+                            // Resolve the live delegate after polish, never retain
+                            // a raw text pointer across model notifications.
+                            QTRY_VERIFY(resolveLabels() &&
+                                        shortText->property("text").toString() == title);
                             QCOMPARE(shortText->property("lineCount").toInt(), 1);
                         }
                         if (kind == "titlebar")

@@ -10,9 +10,8 @@ pub mod stft_upmix;
 
 use std::f64::consts::PI;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
-use std::sync::Arc;
 
-use self::stft_upmix::{Channels51, StftUpmixConfig, StftUpmixer};
+use self::stft_upmix::{StftUpmixConfig, StftUpmixer};
 
 // ---------------------------------------------------------------------------
 // Configuration types

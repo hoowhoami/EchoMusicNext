@@ -180,7 +180,7 @@ void SettingsDataService::answerConfirmation(bool accepted, bool settings, bool 
                item.manifest.value("includes").toObject().value("settings").toBool();
     plugins = plugins && requested.value("plugins").toBool() &&
               item.manifest.value("includes").toObject().value("plugins").toBool();
-    if ((!settings && !plugins) || m_guard && !m_guard() || !m_relaunch.automaticRestart()) {
+    if ((!settings && !plugins) || (m_guard && !m_guard()) || !m_relaunch.automaticRestart()) {
         done({{}, "Unavailable", tr("当前无法恢复并重启，应用数据未更改")});
         return;
     }

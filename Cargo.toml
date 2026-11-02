@@ -28,6 +28,8 @@ codegen-units = 1
 # FFI catches panics; abort would invalidate that error boundary.
 panic = "unwind"
 
+[profile.bench]
+debug = true
 
 [patch.crates-io]
 libspa = { path = "crates/echo-audio/vendor/libspa" }

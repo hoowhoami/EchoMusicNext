@@ -330,6 +330,11 @@ mod bundled {
             build.flag("-fPIC");
             build.flag("-msimd128");
         }
+        if os == "macos" {
+            // ff_table_4_3_exp is a 32 KiB tentative definition. Mach-O common
+            // symbols infer alignment from size; BSS preserves its C alignment.
+            build.flag("-fno-common");
+        }
         build.warnings(false);
         build.compile("ffmpeg_audio");
 

@@ -38,7 +38,7 @@ Item {
                 },
                 currentIndex: viewport.focusLine,
                 scrollIndex: lines.currentIndex,
-                lyricsMode: playback.lyricText.wantTranslation ? playback.lyricText.wantRomanization ? "both" : "translation" : playback.lyricText.wantRomanization ? "romanization" : "none",
+                lyricsMode: viewport.playback.lyricText.wantTranslation ? viewport.playback.lyricText.wantRomanization ? "both" : "translation" : viewport.playback.lyricText.wantRomanization ? "romanization" : "none",
                 lineCount: viewport.playback.lyrics.count,
                 following: lines.following,
                 browsing: !lines.following,
@@ -201,11 +201,11 @@ Item {
         // item selection. Large seeks/opening snap directly to the live slice.
         lines.currentIndex = timeline.ordinal(target);
         lines.forceLayout();
-        let measured = lines.itemAtIndex(timeline.ordinal(target));
+        let measured = lines.itemAtIndex(timeline.ordinal(target)) as LyricRow;
         if (!measured) {
             lines.positionViewAtIndex(timeline.ordinal(target), ListView.Center);
             lines.forceLayout();
-            measured = lines.itemAtIndex(timeline.ordinal(target));
+            measured = lines.itemAtIndex(timeline.ordinal(target)) as LyricRow;
         }
         if (!measured)
             return;
@@ -311,353 +311,7 @@ Item {
                 event.accepted = false;
             }
         }
-        delegate: Item {
-            id: line
-            required property int sourceRow
-            readonly property int index: sourceRow
-            required property string lineText
-            required property real startMs
-            required property real durationMs
-            required property bool wordTimed
-            required property var words
-            required property string translation
-            required property string romanization
-            required property bool filtered
-            property bool pooled: false
-            readonly property bool active: {
-                const revision = timeline.revision;
-                return !viewport.playback.lyrics.scrollable || timeline.active(index);
-            }
-            readonly property bool inViewport: !pooled && y + height >= Math.min(lines.contentY, scrollY) - 64 && y <= Math.max(lines.contentY, scrollY) + lines.height + 64
-            readonly property real scrollY: scrollMotion.value
-            property bool animatePosition: false
-            property bool freshPosition: true
-            readonly property real headerHeight: viewport.interlude && index === viewport.nextLineIndex(timeline.gapAnchor) ? viewport.interludeRowHeight : 0
-            readonly property var rubyUnits: wordTimed && romanization.length > 0 ? viewport.playback.lyrics.rubyAt(line.index) : []
-            readonly property bool ruby: viewport.playback.lyricText.wantRomanization && viewport.playback.lyricText.romanizationAsRuby && rubyUnits.length > 0
-            readonly property real mainHeight: ruby && rubyLine.item ? (rubyLine.item as LyricRubyLine).implicitHeight : lyric.textHeight
-            readonly property real textRowHeight: viewport.filterLyrics && filtered ? 0 : mainHeight + (secondary.visible ? secondary.implicitHeight + viewport.secondaryGap : 0) + viewport.fontSize * .8
-            // Ruby shaping and subtitle wrapping can settle after the first
-            // follow, including in rows before the anchor. Reconcile the whole
-            // measured block so every spring uses the same settled geometry.
-            onTextRowHeightChanged: if (positioned && !pooled && viewport.resourceActive && lines.following)
-                reflow.restart()
-            property bool positioned: false
-            property real previousY: 0
-            property real previousHeader: 0
-            property bool dotsPositioned: false
-            onYChanged: {
-                if (positioned && lines.initialized && !pooled) {
-                    scrollMotion.shift(y - previousY);
-                    dotMotion.shift(y - previousY);
-                }
-                previousY = y;
-            }
-            onHeaderHeightChanged: {
-                if (positioned && lines.initialized && !pooled)
-                    scrollMotion.shift(headerHeight - previousHeader);
-                previousHeader = headerHeight;
-                dotsPositioned = false;
-            }
-            LyricSpring {
-                id: dotMotion
-            }
-            LyricSpring {
-                id: scrollMotion
-            }
-            Component.onCompleted: {
-                scrollMotion.snap(lines.contentY);
-                dotMotion.snap(lines.contentY);
-                previousY = y;
-                previousHeader = headerHeight;
-                positioned = true;
-            }
-            FrameAnimation {
-                running: (scrollMotion.running || dotMotion.running) && viewport.presentationMotionEnabled && viewport.resourceActive && !line.pooled
-                onTriggered: {
-                    scrollMotion.advance();
-                    dotMotion.advance();
-                }
-            }
-            Connections {
-                target: lines
-                function onFollowingChanged(): void {
-                    if (!lines.following) {
-                        line.animatePosition = false;
-                        scrollMotion.snap(lines.contentY);
-                        dotMotion.snap(lines.contentY);
-                    }
-                }
-            }
-            Connections {
-                target: viewport
-                function onSettleMotion(): void {
-                    scrollMotion.snap(lines.contentY);
-                    dotMotion.snap(lines.contentY);
-                    lineMotion.settle();
-                }
-                function onScrollRequested(from: real, destination: real, animate: bool): void {
-                    if (line.headerHeight > 0) {
-                        if (!animate || !line.dotsPositioned)
-                            dotMotion.snap(destination);
-                        else
-                            dotMotion.retarget(destination, 0, 0, viewport.springEnabled);
-                        line.dotsPositioned = true;
-                    } else {
-                        dotMotion.snap(destination);
-                    }
-                    if (!animate || line.pooled || !line.inViewport || line.freshPosition) {
-                        line.animatePosition = false;
-                        scrollMotion.snap(destination);
-                    } else {
-                        line.animatePosition = true;
-                        const previous = timeline.previousRow(viewport.focusLine);
-                        const interval = previous >= 0 ? timeline.startAt(viewport.focusLine) - timeline.startAt(previous) : 0;
-                        scrollMotion.retarget(destination, viewport.waiting || viewport.seekingLayout ? 0 : interval, viewport.seekingLayout || !viewport.staggerEnabled ? 0 : Math.round(viewport.delayFor(line.index)), viewport.springEnabled);
-                    }
-                    line.freshPosition = false;
-                }
-            }
-            readonly property real distance: {
-                const revision = timeline.revision;
-                const row = timeline.ordinal(index), focus = timeline.ordinal(viewport.focusLine);
-                return row < focus ? focus - row + 1 : Math.abs(row - timeline.ordinal(timeline.latestIndex));
-            }
-            readonly property real lineOpacity: {
-                const revision = timeline.revision;
-                const passed = viewport.waiting ? timeline.nextRow(timeline.gapAnchor) : viewport.focusLine;
-                // Resting ink already carries its opacity, including plain LRC.
-                // A second row fade would reduce the 20% default to 4%.
-                if (viewport.compact && viewport.playback.lyrics.scrollable && index !== viewport.focusLine)
-                    return 0;
-                return viewport.hidePassed && viewport.playback.playing && timeline.ordinal(index) < timeline.ordinal(passed) && lines.following ? 0 : timeline.highlighted(index) ? .85 : 1;
-            }
-            readonly property string secondaryText: [viewport.playback.lyricText.wantRomanization && !ruby ? romanization : "", viewport.playback.lyricText.wantTranslation ? translation : ""].filter(value => value.length > 0).join("\n")
-            readonly property real edgeOpacity: {
-                if (viewport.edgeFade <= 0 || viewport.compact)
-                    return 1;
-                const top = y + headerHeight + viewport.fontSize * .4 - (lines.following ? scrollY : lines.contentY);
-                const bottom = top + textRowHeight - viewport.fontSize * .8;
-                return Math.max(0, Math.min(1, top / viewport.edgeFade, (viewport.height - bottom) / viewport.edgeFade));
-            }
-            width: lines.width
-            height: viewport.filterLyrics && filtered ? 0 : textRowHeight + headerHeight
-            visible: !viewport.filterLyrics || !filtered
-            ListView.onPooled: {
-                pooled = true;
-                freshPosition = true;
-                animatePosition = false;
-                scrollMotion.snap(lines.contentY);
-                dotMotion.snap(lines.contentY);
-                dotsPositioned = false;
-                lineMotion.settle();
-            }
-            ListView.onReused: {
-                freshPosition = true;
-                animatePosition = false;
-                scrollMotion.snap(lines.contentY);
-                dotMotion.snap(lines.contentY);
-                dotsPositioned = false;
-                pooled = false;
-                lineMotion.settle();
-            }
-            Loader {
-                active: line.headerHeight > 0 && viewport.resourceActive
-                width: line.width
-                height: line.headerHeight
-                transform: Translate {
-                    y: lines.following ? lines.contentY - dotMotion.value : 0
-                }
-                sourceComponent: Component {
-                    Item {
-                        objectName: "lyricInterludeRow"
-                        InterludeDots {
-                            objectName: "lyricInterludeDots"
-                            x: viewport.horizontalAlignment === Qt.AlignHCenter ? (parent.width - width) / 2 : viewport.horizontalAlignment === Qt.AlignRight ? parent.width - width : 0
-                            y: viewport.fontSize * .4
-                            width: implicitWidth
-                            height: implicitHeight
-                            fontSize: viewport.fontSize
-                            pageHeight: viewport.pageHeight
-                            animation: interludeAnimation
-                            color: viewport.textColor
-                            motionEnabled: Theme.store.motionEnabled
-                        }
-                    }
-                }
-            }
-            Item {
-                objectName: "lyricTextRow" + line.index
-                opacity: line.edgeOpacity
-                y: line.headerHeight
-                width: line.width
-                height: line.textRowHeight
-                transform: Translate {
-                    y: lines.following ? lines.contentY - line.scrollY : 0
-                }
-                Rectangle {
-                    objectName: "lyricRowBackground"
-                    visible: viewport.rowBackgroundEnabled && (!viewport.compact || line.index === viewport.focusLine)
-                    anchors.fill: parent
-                    anchors.leftMargin: viewport.rowBackgroundInset
-                    anchors.rightMargin: viewport.overlayRightReserve + viewport.rowBackgroundInset
-                    radius: viewport.fontSize * .25
-                    color: Theme.withAlpha(viewport.textColor, tap.pressed ? .03 : hover.hovered ? .07 : 0)
-                }
-                Item {
-                    id: visual
-                    x: viewport.fontSize + lyricPart.value("translateX", 0)
-                    y: viewport.fontSize * .4 + lyricPart.value("translateY", 0)
-                    width: parent.width - viewport.fontSize * 2
-                    height: parent.height - viewport.fontSize * .8
-                    opacity: lineMotion.opacity
-                    scale: lyricPart.value("scale", lineMotion.scale)
-                    transformOrigin: Item.Left
-                    readonly property real blurAmount: lineMotion.blur
-                    LyricLineMotion {
-                        id: lineMotion
-                        objectName: "appleMusicLineMotion"
-                        activeLine: line.active
-                        resourceActive: viewport.resourceActive && !line.pooled
-                        animationEnabled: line.inViewport && viewport.presentationMotionEnabled
-                        springEnabled: viewport.springEnabled && !line.freshPosition
-                        shrinkInactive: viewport.scaleEnabled && viewport.playback.playing
-                        blurInactive: viewport.softFocus && viewport.blurEnabled && lines.following
-                        inactiveBlur: Math.min(5, (1 + line.distance) * (viewport.width <= 1024 ? .8 : 1))
-                        targetOpacity: lyricPart.value("opacity", line.lineOpacity)
-                    }
-                    layer.enabled: viewport.resourceActive && line.inViewport && blurAmount > .01
-                    layer.effect: MultiEffect {
-                        blurEnabled: true
-                        blurMax: 12
-                        blur: visual.blurAmount / 12
-                        autoPaddingEnabled: true
-                    }
-                    LyricLine {
-                        id: lyric
-                        EchoUiPart {
-                            id: lyricPart
-                            target: visual
-                            role: "lyrics.line"
-                            key: viewport.playback.trackId + ":" + String(line.startMs) + ":" + String(line.index)
-                            surface: "playback"
-                            active: viewport.resourceActive && !line.pooled
-                            properties: ["foreground", "secondaryForeground", "font", "fontSize", "fontWeight", "letterSpacing", "opacity", "scale", "translateX", "translateY"]
-                            baseValues: observed ? ({
-                                    foreground: viewport.textColor,
-                                    secondaryForeground: viewport.unplayedColor,
-                                    font: Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false),
-                                    opacity: line.lineOpacity,
-                                    scale: lineMotion.scale,
-                                    translateX: 0,
-                                    translateY: 0
-                                }) : ({})
-                            state: observed ? ({
-                                    scope: "page",
-                                    index: line.index,
-                                    text: line.lineText,
-                                    words: line.words,
-                                    glyphs: lyric.visible ? lyric.glyphs : [],
-                                    rubyUnits: line.rubyUnits,
-                                    timelineMs: viewport.renderTime,
-                                    startMs: line.startMs,
-                                    durationMs: line.durationMs,
-                                    current: line.active,
-                                    distance: line.distance,
-                                    browsing: !lines.following,
-                                    reducedMotion: !Theme.store.motionEnabled
-                                }) : ({})
-                            actions: ["seek"]
-                            onActionRequested: (action, arguments) => {
-                                if (action === "seek")
-                                    viewport.playback.seek(Math.max(0, Math.round(line.startMs)));
-                            }
-                        }
-                        x: -paintPadding
-                        y: -paintPadding
-                        width: parent.width + 2 * viewport.fontSize
-                        height: implicitHeight
-                        visible: !line.ruby
-                        alignment: viewport.horizontalAlignment
-                        text: line.lineText
-                        words: line.words
-                        startMs: line.startMs - viewport.playback.lyrics.offsetMs
-                        durationMs: line.durationMs
-                        // Activation follows the shared early schedule; the GPU
-                        // word sweep continues to use immutable source timing.
-                        highlightAmount: lineMotion.highlight
-                        current: line.active || highlightAmount > .001
-                        timeMs: (line.active || highlightAmount > .001) && line.inViewport && viewport.resourceActive ? viewport.renderTime - viewport.playback.lyrics.offsetMs : -1
-                        font: lyricPart.styledFont(Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false))
-                        playedColor: lyricPart.value("foreground", viewport.textColor)
-                        unplayedColor: lyricPart.value("secondaryForeground", viewport.unplayedColor)
-                        fadeWidth: viewport.wordFade
-                        animateWords: viewport.scaleEnabled && viewport.presentationMotionEnabled
-                    }
-                    Loader {
-                        id: rubyLine
-                        active: line.ruby && !line.pooled && viewport.resourceActive
-                        width: parent.width
-                        sourceComponent: LyricRubyLine {
-                            effectSurface: "playback"
-                            alignment: viewport.horizontalAlignment
-                            units: line.rubyUnits
-                            font: lyricPart.styledFont(Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false))
-                            timeMs: line.inViewport ? viewport.renderTime - viewport.playback.lyrics.offsetMs : -1
-                            current: line.active || lineMotion.highlight > .001
-                            highlightAmount: lineMotion.highlight
-                            playedColor: lyricPart.value("foreground", viewport.textColor)
-                            unplayedColor: lyricPart.value("secondaryForeground", viewport.unplayedColor)
-                            animateWords: viewport.presentationMotionEnabled
-                        }
-                    }
-                    Label {
-                        id: secondary
-                        y: line.mainHeight + viewport.secondaryGap
-                        width: parent.width
-                        visible: text.length > 0
-                        text: line.secondaryText
-                        textFormat: Text.PlainText
-                        wrapMode: Text.Wrap
-                        lineHeightMode: Text.FixedHeight
-                        lineHeight: viewport.secondaryFontSize * 1.5
-                        font: Theme.store.styledFont(viewport.baseFont, viewport.secondaryFontSize, Math.min(650, viewport.textWeight), 0, false, false)
-                        horizontalAlignment: viewport.horizontalAlignment
-                        color: viewport.textColor
-                        opacity: .3
-                    }
-                }
-                HoverHandler {
-                    id: hover
-                }
-                TapHandler {
-                    id: tap
-                    enabled: viewport.playback.lyrics.scrollable && line.lineOpacity > 0
-                    acceptedButtons: Qt.LeftButton
-                    gesturePolicy: TapHandler.DragThreshold
-                    onDoubleTapped: line.jumpToLine()
-                }
-            }
-            // Model row starts include display offsets; the presentation schedule
-            // also advances activation. Seek the immutable singing timestamp.
-            function jumpToLine(): void {
-                if (!viewport.resourceActive || line.pooled || !tap.enabled)
-                    return;
-                const sourceTime = line.wordTimed && line.words.length > 0 ? line.words[0].start_ms : line.startMs - viewport.playback.lyrics.offsetMs;
-                if (!Number.isFinite(sourceTime))
-                    return;
-                lines.cancelFlick();
-                lines.following = true;
-                resume.stop();
-                viewport.playback.seek(Math.max(0, Math.round(sourceTime)));
-                if (!viewport.playback.playing)
-                    viewport.playback.play();
-                viewport.follow(false);
-            }
-            Accessible.role: viewport.playback.lyrics.scrollable ? Accessible.Button : Accessible.StaticText
-            Accessible.name: line.lineText
-            Accessible.onPressAction: line.jumpToLine()
-        }
+        delegate: LyricRow {}
     }
     Connections {
         target: lines.currentItem
@@ -693,5 +347,352 @@ Item {
         text: viewport.playback.lyricState === "loading" ? qsTr("正在加载歌词…") : viewport.playback.lyricState === "error" ? qsTr("歌词加载失败，点击右侧重新选择") : qsTr("暂无歌词")
         color: viewport.colors.secondaryText
         font: Theme.font(16, Theme.mediumWeight)
+    }
+    component LyricRow: Item {
+        id: line
+        required property int sourceRow
+        readonly property int index: sourceRow
+        required property string lineText
+        required property real startMs
+        required property real durationMs
+        required property bool wordTimed
+        required property var words
+        required property string translation
+        required property string romanization
+        required property bool filtered
+        property bool pooled: false
+        readonly property bool active: {
+            const revision = timeline.revision;
+            return !viewport.playback.lyrics.scrollable || timeline.active(index);
+        }
+        readonly property bool inViewport: !pooled && y + height >= Math.min(lines.contentY, scrollY) - 64 && y <= Math.max(lines.contentY, scrollY) + lines.height + 64
+        readonly property real scrollY: scrollMotion.value
+        property bool animatePosition: false
+        property bool freshPosition: true
+        readonly property real headerHeight: viewport.interlude && index === viewport.nextLineIndex(timeline.gapAnchor) ? viewport.interludeRowHeight : 0
+        readonly property var rubyUnits: wordTimed && romanization.length > 0 ? viewport.playback.lyrics.rubyAt(line.index) : []
+        readonly property bool ruby: viewport.playback.lyricText.wantRomanization && viewport.playback.lyricText.romanizationAsRuby && rubyUnits.length > 0
+        readonly property real mainHeight: ruby && rubyLine.item ? (rubyLine.item as LyricRubyLine).implicitHeight : lyric.textHeight
+        readonly property real textRowHeight: viewport.filterLyrics && filtered ? 0 : mainHeight + (secondary.visible ? secondary.implicitHeight + viewport.secondaryGap : 0) + viewport.fontSize * .8
+        // Ruby shaping and subtitle wrapping can settle after the first
+        // follow, including in rows before the anchor. Reconcile the whole
+        // measured block so every spring uses the same settled geometry.
+        onTextRowHeightChanged: if (positioned && !pooled && viewport.resourceActive && lines.following)
+            reflow.restart()
+        property bool positioned: false
+        property real previousY: 0
+        property real previousHeader: 0
+        property bool dotsPositioned: false
+        onYChanged: {
+            if (positioned && lines.initialized && !pooled) {
+                scrollMotion.shift(y - previousY);
+                dotMotion.shift(y - previousY);
+            }
+            previousY = y;
+        }
+        onHeaderHeightChanged: {
+            if (positioned && lines.initialized && !pooled)
+                scrollMotion.shift(headerHeight - previousHeader);
+            previousHeader = headerHeight;
+            dotsPositioned = false;
+        }
+        LyricSpring {
+            id: dotMotion
+        }
+        LyricSpring {
+            id: scrollMotion
+        }
+        Component.onCompleted: {
+            scrollMotion.snap(lines.contentY);
+            dotMotion.snap(lines.contentY);
+            previousY = y;
+            previousHeader = headerHeight;
+            positioned = true;
+        }
+        FrameAnimation {
+            running: (scrollMotion.running || dotMotion.running) && viewport.presentationMotionEnabled && viewport.resourceActive && !line.pooled
+            onTriggered: {
+                scrollMotion.advance();
+                dotMotion.advance();
+            }
+        }
+        Connections {
+            target: lines
+            function onFollowingChanged(): void {
+                if (!lines.following) {
+                    line.animatePosition = false;
+                    scrollMotion.snap(lines.contentY);
+                    dotMotion.snap(lines.contentY);
+                }
+            }
+        }
+        Connections {
+            target: viewport
+            function onSettleMotion(): void {
+                scrollMotion.snap(lines.contentY);
+                dotMotion.snap(lines.contentY);
+                lineMotion.settle();
+            }
+            function onScrollRequested(from: real, destination: real, animate: bool): void {
+                if (line.headerHeight > 0) {
+                    if (!animate || !line.dotsPositioned)
+                        dotMotion.snap(destination);
+                    else
+                        dotMotion.retarget(destination, 0, 0, viewport.springEnabled);
+                    line.dotsPositioned = true;
+                } else {
+                    dotMotion.snap(destination);
+                }
+                if (!animate || line.pooled || !line.inViewport || line.freshPosition) {
+                    line.animatePosition = false;
+                    scrollMotion.snap(destination);
+                } else {
+                    line.animatePosition = true;
+                    const previous = timeline.previousRow(viewport.focusLine);
+                    const interval = previous >= 0 ? timeline.startAt(viewport.focusLine) - timeline.startAt(previous) : 0;
+                    scrollMotion.retarget(destination, viewport.waiting || viewport.seekingLayout ? 0 : interval, viewport.seekingLayout || !viewport.staggerEnabled ? 0 : Math.round(viewport.delayFor(line.index)), viewport.springEnabled);
+                }
+                line.freshPosition = false;
+            }
+        }
+        readonly property real distance: {
+            const revision = timeline.revision;
+            const row = timeline.ordinal(index), focus = timeline.ordinal(viewport.focusLine);
+            return row < focus ? focus - row + 1 : Math.abs(row - timeline.ordinal(timeline.latestIndex));
+        }
+        readonly property real lineOpacity: {
+            const revision = timeline.revision;
+            const passed = viewport.waiting ? timeline.nextRow(timeline.gapAnchor) : viewport.focusLine;
+            // Resting ink already carries its opacity, including plain LRC.
+            // A second row fade would reduce the 20% default to 4%.
+            if (viewport.compact && viewport.playback.lyrics.scrollable && index !== viewport.focusLine)
+                return 0;
+            return viewport.hidePassed && viewport.playback.playing && timeline.ordinal(index) < timeline.ordinal(passed) && lines.following ? 0 : timeline.highlighted(index) ? .85 : 1;
+        }
+        readonly property string secondaryText: [viewport.playback.lyricText.wantRomanization && !ruby ? romanization : "", viewport.playback.lyricText.wantTranslation ? translation : ""].filter(value => value.length > 0).join("\n")
+        readonly property real edgeOpacity: {
+            if (viewport.edgeFade <= 0 || viewport.compact)
+                return 1;
+            const top = y + headerHeight + viewport.fontSize * .4 - (lines.following ? scrollY : lines.contentY);
+            const bottom = top + textRowHeight - viewport.fontSize * .8;
+            return Math.max(0, Math.min(1, top / viewport.edgeFade, (viewport.height - bottom) / viewport.edgeFade));
+        }
+        width: lines.width
+        height: viewport.filterLyrics && filtered ? 0 : textRowHeight + headerHeight
+        visible: !viewport.filterLyrics || !filtered
+        ListView.onPooled: {
+            pooled = true;
+            freshPosition = true;
+            animatePosition = false;
+            scrollMotion.snap(lines.contentY);
+            dotMotion.snap(lines.contentY);
+            dotsPositioned = false;
+            lineMotion.settle();
+        }
+        ListView.onReused: {
+            freshPosition = true;
+            animatePosition = false;
+            scrollMotion.snap(lines.contentY);
+            dotMotion.snap(lines.contentY);
+            dotsPositioned = false;
+            pooled = false;
+            lineMotion.settle();
+        }
+        Loader {
+            active: line.headerHeight > 0 && viewport.resourceActive
+            width: line.width
+            height: line.headerHeight
+            transform: Translate {
+                y: lines.following ? lines.contentY - dotMotion.value : 0
+            }
+            sourceComponent: Component {
+                Item {
+                    objectName: "lyricInterludeRow"
+                    InterludeDots {
+                        objectName: "lyricInterludeDots"
+                        x: viewport.horizontalAlignment === Qt.AlignHCenter ? (parent.width - width) / 2 : viewport.horizontalAlignment === Qt.AlignRight ? parent.width - width : 0
+                        y: viewport.fontSize * .4
+                        width: implicitWidth
+                        height: implicitHeight
+                        fontSize: viewport.fontSize
+                        pageHeight: viewport.pageHeight
+                        animation: interludeAnimation
+                        color: viewport.textColor
+                        motionEnabled: Theme.store.motionEnabled
+                    }
+                }
+            }
+        }
+        Item {
+            objectName: "lyricTextRow" + line.index
+            opacity: line.edgeOpacity
+            y: line.headerHeight
+            width: line.width
+            height: line.textRowHeight
+            transform: Translate {
+                y: lines.following ? lines.contentY - line.scrollY : 0
+            }
+            Rectangle {
+                objectName: "lyricRowBackground"
+                visible: viewport.rowBackgroundEnabled && (!viewport.compact || line.index === viewport.focusLine)
+                anchors.fill: parent
+                anchors.leftMargin: viewport.rowBackgroundInset
+                anchors.rightMargin: viewport.overlayRightReserve + viewport.rowBackgroundInset
+                radius: viewport.fontSize * .25
+                color: Theme.withAlpha(viewport.textColor, tap.pressed ? .03 : hover.hovered ? .07 : 0)
+            }
+            Item {
+                id: visual
+                x: viewport.fontSize + lyricPart.value("translateX", 0)
+                y: viewport.fontSize * .4 + lyricPart.value("translateY", 0)
+                width: parent.width - viewport.fontSize * 2
+                height: parent.height - viewport.fontSize * .8
+                opacity: lineMotion.opacity
+                scale: lyricPart.value("scale", lineMotion.scale)
+                transformOrigin: Item.Left
+                readonly property real blurAmount: lineMotion.blur
+                LyricLineMotion {
+                    id: lineMotion
+                    objectName: "appleMusicLineMotion"
+                    activeLine: line.active
+                    resourceActive: viewport.resourceActive && !line.pooled
+                    animationEnabled: line.inViewport && viewport.presentationMotionEnabled
+                    springEnabled: viewport.springEnabled && !line.freshPosition
+                    shrinkInactive: viewport.scaleEnabled && viewport.playback.playing
+                    blurInactive: viewport.softFocus && viewport.blurEnabled && lines.following
+                    inactiveBlur: Math.min(5, (1 + line.distance) * (viewport.width <= 1024 ? .8 : 1))
+                    targetOpacity: lyricPart.value("opacity", line.lineOpacity)
+                }
+                layer.enabled: viewport.resourceActive && line.inViewport && blurAmount > .01
+                layer.effect: MultiEffect {
+                    blurEnabled: true
+                    blurMax: 12
+                    blur: visual.blurAmount / 12
+                    autoPaddingEnabled: true
+                }
+                LyricLine {
+                    id: lyric
+                    EchoUiPart {
+                        id: lyricPart
+                        target: visual
+                        role: "lyrics.line"
+                        key: viewport.playback.trackId + ":" + String(line.startMs) + ":" + String(line.index)
+                        surface: "playback"
+                        active: viewport.resourceActive && !line.pooled
+                        properties: ["foreground", "secondaryForeground", "font", "fontSize", "fontWeight", "letterSpacing", "opacity", "scale", "translateX", "translateY"]
+                        baseValues: observed ? ({
+                                foreground: viewport.textColor,
+                                secondaryForeground: viewport.unplayedColor,
+                                font: Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false),
+                                opacity: line.lineOpacity,
+                                scale: lineMotion.scale,
+                                translateX: 0,
+                                translateY: 0
+                            }) : ({})
+                        state: observed ? ({
+                                scope: "page",
+                                index: line.index,
+                                text: line.lineText,
+                                words: line.words,
+                                glyphs: lyric.visible ? lyric.glyphs : [],
+                                rubyUnits: line.rubyUnits,
+                                timelineMs: viewport.renderTime,
+                                startMs: line.startMs,
+                                durationMs: line.durationMs,
+                                current: line.active,
+                                distance: line.distance,
+                                browsing: !lines.following,
+                                reducedMotion: !Theme.store.motionEnabled
+                            }) : ({})
+                        actions: ["seek"]
+                        onActionRequested: (action, arguments) => {
+                            if (action === "seek")
+                                viewport.playback.seek(Math.max(0, Math.round(line.startMs)));
+                        }
+                    }
+                    x: -paintPadding
+                    y: -paintPadding
+                    width: parent.width + 2 * viewport.fontSize
+                    height: implicitHeight
+                    visible: !line.ruby
+                    alignment: viewport.horizontalAlignment
+                    text: line.lineText
+                    words: line.words
+                    startMs: line.startMs - viewport.playback.lyrics.offsetMs
+                    durationMs: line.durationMs
+                    // Activation follows the shared early schedule; the GPU
+                    // word sweep continues to use immutable source timing.
+                    highlightAmount: lineMotion.highlight
+                    current: line.active || highlightAmount > .001
+                    timeMs: (line.active || highlightAmount > .001) && line.inViewport && viewport.resourceActive ? viewport.renderTime - viewport.playback.lyrics.offsetMs : -1
+                    font: lyricPart.styledFont(Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false))
+                    playedColor: lyricPart.value("foreground", viewport.textColor)
+                    unplayedColor: lyricPart.value("secondaryForeground", viewport.unplayedColor)
+                    fadeWidth: viewport.wordFade
+                    animateWords: viewport.scaleEnabled && viewport.presentationMotionEnabled
+                }
+                Loader {
+                    id: rubyLine
+                    active: line.ruby && !line.pooled && viewport.resourceActive
+                    width: parent.width
+                    sourceComponent: LyricRubyLine {
+                        effectSurface: "playback"
+                        alignment: viewport.horizontalAlignment
+                        units: line.rubyUnits
+                        font: lyricPart.styledFont(Theme.store.styledFont(viewport.baseFont, viewport.fontSize, viewport.textWeight, 0, false, false))
+                        timeMs: line.inViewport ? viewport.renderTime - viewport.playback.lyrics.offsetMs : -1
+                        current: line.active || lineMotion.highlight > .001
+                        highlightAmount: lineMotion.highlight
+                        playedColor: lyricPart.value("foreground", viewport.textColor)
+                        unplayedColor: lyricPart.value("secondaryForeground", viewport.unplayedColor)
+                        animateWords: viewport.presentationMotionEnabled
+                    }
+                }
+                Label {
+                    id: secondary
+                    y: line.mainHeight + viewport.secondaryGap
+                    width: parent.width
+                    visible: text.length > 0
+                    text: line.secondaryText
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                    lineHeightMode: Text.FixedHeight
+                    lineHeight: viewport.secondaryFontSize * 1.5
+                    font: Theme.store.styledFont(viewport.baseFont, viewport.secondaryFontSize, Math.min(650, viewport.textWeight), 0, false, false)
+                    horizontalAlignment: viewport.horizontalAlignment
+                    color: viewport.textColor
+                    opacity: .3
+                }
+            }
+            HoverHandler {
+                id: hover
+            }
+            TapHandler {
+                id: tap
+                enabled: viewport.playback.lyrics.scrollable && line.lineOpacity > 0
+                acceptedButtons: Qt.LeftButton
+                gesturePolicy: TapHandler.DragThreshold
+                onDoubleTapped: line.jumpToLine()
+            }
+        }
+        // Model row starts include display offsets; the presentation schedule
+        // also advances activation. Seek the immutable singing timestamp.
+        function jumpToLine(): void {
+            if (!viewport.resourceActive || line.pooled || !tap.enabled)
+                return;
+            const sourceTime = line.wordTimed && line.words.length > 0 ? line.words[0].start_ms : line.startMs - viewport.playback.lyrics.offsetMs;
+            if (!Number.isFinite(sourceTime))
+                return;
+            lines.cancelFlick();
+            lines.following = true;
+            resume.stop();
+            viewport.playback.seek(Math.max(0, Math.round(sourceTime)));
+            if (!viewport.playback.playing)
+                viewport.playback.play();
+            viewport.follow(false);
+        }
+        Accessible.role: viewport.playback.lyrics.scrollable ? Accessible.Button : Accessible.StaticText
+        Accessible.name: line.lineText
+        Accessible.onPressAction: line.jumpToLine()
     }
 }

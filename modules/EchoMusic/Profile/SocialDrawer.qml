@@ -105,9 +105,10 @@ EchoDrawer {
                     horizontalInset: 12
                     currentUserId: drawer.profile.account.userId
                     pending: {
-                        drawer.profile.socialTab;
-                        drawer.profile.socialLoading;
-                        return drawer.profile.socialPending(userId);
+                        // These notifications invalidate the per-user projection.
+                        const tab = drawer.profile.socialTab;
+                        const loading = drawer.profile.socialLoading;
+                        return drawer.profile.socialPending(socialRow.userId);
                     }
                     listLoading: drawer.profile.socialLoading
                     onFollowRequested: drawer.profile.toggleSocialFollow(entryKey)

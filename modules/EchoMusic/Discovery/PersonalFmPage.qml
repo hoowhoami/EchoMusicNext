@@ -245,6 +245,7 @@ RoutePage {
                                         }
                                     }
                                     Button {
+                                        id: fmPlayButton
                                         objectName: "personalFmPlay"
                                         implicitWidth: 52
                                         implicitHeight: 52
@@ -255,7 +256,7 @@ RoutePage {
                                         background: Rectangle {
                                             radius: 26
                                             color: Theme.accent
-                                            border.width: parent.visualFocus ? 2 : 0
+                                            border.width: fmPlayButton.visualFocus ? 2 : 0
                                             border.color: "white"
                                         }
                                         contentItem: Item {

@@ -26,7 +26,9 @@ public:
 private:
     /// ITaskbarList3*, owned here. Opaque so no Windows header reaches the
     /// shell module.
+#ifdef Q_OS_WIN
     void *m_taskbar = nullptr;
     bool m_attempted = false;
+#endif
 };
 } // namespace EchoMusic

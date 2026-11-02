@@ -18,7 +18,7 @@ ColumnLayout {
             accentPickerOwner.close();
         }
     }
-    readonly property EchoColorPickerDialog textColorDialog: textPickerOwner.item
+    readonly property EchoColorPickerDialog textColorDialog: textPickerOwner.item as EchoColorPickerDialog
     readonly property bool hasImage: Theme.store.backgroundImage.toString() !== ""
     spacing: 16
     RowLayout {

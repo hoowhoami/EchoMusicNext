@@ -7,7 +7,6 @@ use crate::stream::{ReadSeek, StreamOptions, open_stream};
 use crate::transition_runner::{
     AbortedTransition, ArmedTransition, RunnerStep, TransitionRunner, split_chunk_at,
 };
-use crate::work::{Command, Work};
 use ffmpeg_audio::{AudioError, AudioReader, PacketCacheOptions, RawAudioData, SeekMode, sys};
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};

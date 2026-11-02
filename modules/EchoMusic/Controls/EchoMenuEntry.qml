@@ -12,7 +12,10 @@ MenuItem {
     // Action-driven rows read the same flag from the Action's dynamic property.
     // Action carries `danger` as a dynamic property; subscript access avoids
     // declaring every Action subclass used by callers.
-    readonly property bool actionDanger: action !== null && action !== undefined && action["danger"] === true
+    function actionHasDanger(candidate: var): bool {
+        return candidate["danger"] === true;
+    }
+    readonly property bool actionDanger: action !== null && action !== undefined && actionHasDanger(action)
     readonly property color labelColor: entry.danger || entry.actionDanger ? Theme.floating.dangerText : Theme.floatingText
     font: Theme.font(13 * uiScale, Theme.semiboldWeight)
     leftPadding: 10 * uiScale

@@ -112,10 +112,6 @@ pub struct TransitionPlan {
 }
 
 impl TransitionPlan {
-    pub fn is_gapless(&self) -> bool {
-        self.overlap_secs <= 0.0
-    }
-
     /// Plain fades use a sample-wise amplitude envelope, independent of DJ automation.
     pub fn uses_plain_fade(&self) -> bool {
         self.template.is_none() && self.overlap_secs > 0.0
@@ -668,7 +664,7 @@ mod tests {
             a_position_secs: 0.0,
         })
         .unwrap();
-        assert!(plan.is_gapless());
+        assert_eq!(plan.overlap_secs, 0.0);
         assert_eq!(plan.a_end_secs, 199.0);
         assert_eq!(plan.a_cut_secs, 199.0);
         assert_eq!(plan.b_start_secs, 0.4);

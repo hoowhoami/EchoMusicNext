@@ -59,3 +59,14 @@ airplay-core = { path = "../echo-upnp/vendor/airplay2-rs/crates/airplay-core" }
 Do not remove these patches during an upstream refresh — in particular the `yield_now()` in `browser.rs`. If a future upstream release makes `browse()` cooperative, drop the patch and route `discoverEach` through a progress-aware path of its own.
 
 Upstream issue #8 (`Encrypted RTSP response parsing hangs/times out`) is an unrelated hang in a different crate; do not assume one supersedes the other.
+## 2026-11-02 build diagnostics
+
+Removed unused imports/copies and Linux-only scheduling arithmetic on other
+platforms. `LiveAudioDecoder::new` is private because its envelope is private;
+callers continue to use `create_pair`, which owns the shared reset signal. Removed
+the unused alternate reset setter. Public upstream timing, RTSP plist/connection,
+pairing-handler and RTP payload helpers are now re-exported by their crate facade.
+Retained lifetime state is explicitly named with an underscore. The deprecated
+`TransientPairSetup` API remains deprecated for callers; two narrowly scoped
+`expect(deprecated)` attributes cover only its definition/re-export implementation.
+The host continues to use the supported SRP pairing path.

@@ -26,7 +26,7 @@ EchoDialog {
                 color: Theme.floatingText
             }
             EchoBoundedListView {
-                id: resources
+                id: resourceList
                 objectName: "pluginResourcePermissions"
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
@@ -37,13 +37,13 @@ EchoDialog {
                 reuseItems: true
                 ScrollBar.vertical: EchoPopupScrollBar {
                     surface: dialog
-                    view: resources
+                    view: resourceList
                     resourceActive: dialog.visible
                 }
                 delegate: Item {
                     id: resourceRow
                     required property var modelData
-                    width: resources.width
+                    width: resourceList.width
                     height: 48
                     RowLayout {
                         anchors.fill: parent
@@ -67,7 +67,7 @@ EchoDialog {
             }
             EchoTextLine {
                 Layout.fillWidth: true
-                visible: resources.count === 0
+                visible: resourceList.count === 0
                 text: qsTr("暂无宿主与系统资源授权")
                 font: Theme.font(13, Theme.regularWeight)
                 color: Theme.floatingSecondaryText

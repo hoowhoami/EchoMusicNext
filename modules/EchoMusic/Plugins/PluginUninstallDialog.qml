@@ -4,7 +4,6 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import EchoMusic.Theme
 import EchoMusic.Controls
-import EchoMusic.PluginSdk
 import EchoMusic.Plugins
 
 EchoDialog {

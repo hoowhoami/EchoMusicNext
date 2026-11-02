@@ -4,20 +4,20 @@ import EchoMusic.Theme
 
 // Shared visual surface; public count and tag semantics remain on EchoBadge and EchoTag.
 Item {
-    id: surface
+    id: labelSurface
     property string partRole: "control.tag"
     EchoUiPart {
         id: labelPart
-        target: surface
-        role: surface.partRole
-        key: surface.parent ? surface.parent.objectName : surface.objectName
+        target: labelSurface
+        role: labelSurface.partRole
+        key: labelSurface.parent ? labelSurface.parent.objectName : labelSurface.objectName
         properties: ["foreground", "background", "borderColor", "borderWidth", "radius", "font", "fontSize", "fontWeight", "letterSpacing"]
         baseValues: ({
-                foreground: surface.foreground,
-                background: surface.fillColor,
-                borderColor: surface.ringColor,
-                radius: surface.radius,
-                font: surface.labelFont
+                foreground: labelSurface.foreground,
+                background: labelSurface.fillColor,
+                borderColor: labelSurface.ringColor,
+                radius: labelSurface.radius,
+                font: labelSurface.labelFont
             })
     }
     readonly property color paintedForeground: labelPart.value("foreground", foreground)
@@ -53,16 +53,16 @@ Item {
     }
     Rectangle {
         anchors.fill: parent
-        radius: labelPart.value("radius", surface.pill ? height / 2 : surface.radius)
-        color: labelPart.value("background", surface.fillColor)
+        radius: labelPart.value("radius", labelSurface.pill ? height / 2 : labelSurface.radius)
+        color: labelPart.value("background", labelSurface.fillColor)
     }
     Rectangle {
         anchors.fill: parent
-        radius: labelPart.value("radius", surface.pill ? height / 2 : surface.radius)
+        radius: labelPart.value("radius", labelSurface.pill ? height / 2 : labelSurface.radius)
         color: "transparent"
-        visible: surface.borderVisible
-        border.width: labelPart.value("borderWidth", surface.pill ? 0 : 1)
-        border.color: labelPart.value("borderColor", surface.ringColor)
+        visible: labelSurface.borderVisible
+        border.width: labelPart.value("borderWidth", labelSurface.pill ? 0 : 1)
+        border.color: labelPart.value("borderColor", labelSurface.ringColor)
     }
     // Exactly one content branch exists. A custom icon/count recipe does not
     // keep an invisible default Text and ink observer beside it.
@@ -71,9 +71,9 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         // The original Text used Qt's default center rounding. Custom content
         // used an unrounded Loader; retain both placement contracts.
-        anchors.alignWhenCentered: surface.contentComponent === null
-        width: surface.contentComponent !== null ? content.implicitWidth : Math.max(0, surface.width - surface.horizontalPadding * 2)
-        y: surface.contentComponent !== null ? (surface.height - content.height) / 2 : 0
-        sourceComponent: surface.contentComponent !== null ? surface.contentComponent : EchoControlContent.text
+        anchors.alignWhenCentered: labelSurface.contentComponent === null
+        width: labelSurface.contentComponent !== null ? content.implicitWidth : Math.max(0, labelSurface.width - labelSurface.horizontalPadding * 2)
+        y: labelSurface.contentComponent !== null ? (labelSurface.height - content.height) / 2 : 0
+        sourceComponent: labelSurface.contentComponent !== null ? labelSurface.contentComponent : EchoControlContent.text
     }
 }

@@ -212,25 +212,6 @@ impl DeckEffectChain {
             total_frames: frames,
         });
     }
-
-    /// Feed silence through the chain to drain reverb/echo tails. Returns the number of
-    /// frames written (`output` is resized to hold them).
-    pub fn drain_tail(&mut self, frames: usize, pos: f32, output: &mut Vec<f32>) {
-        output.clear();
-        if !self.has_tail() || frames == 0 {
-            return;
-        }
-        output.resize(frames * self.channels, 0.0);
-        let channels = self.channels;
-        for stage in &mut self.stages {
-            stage.process(output, pos, channels);
-        }
-        if (self.trim_gain - 1.0).abs() > f32::EPSILON {
-            for sample in output.iter_mut() {
-                *sample *= self.trim_gain;
-            }
-        }
-    }
 }
 
 impl EffectStage {
@@ -818,8 +799,8 @@ mod tests {
         assert!(chain.has_tail());
         let input = sine(440.0, SR as usize, 2);
         let _ = run_chain_over_window(&mut chain, &input, 2);
-        let mut tail = Vec::new();
-        chain.drain_tail(4_800, 1.0, &mut tail);
+        let mut tail = vec![0.0; 9_600];
+        chain.process_block(&mut tail, 1.0);
         assert_eq!(tail.len(), 9_600);
         assert!(
             rms(&tail) > 1.0e-4,
@@ -840,8 +821,8 @@ mod tests {
         echo_chain.process_block(&mut burst, 0.9);
         assert!(burst[0].abs() > 0.99);
         assert!(burst[4_800 - 1].abs() < 1.0e-6);
-        let mut tail = Vec::new();
-        echo_chain.drain_tail(4_800, 1.0, &mut tail);
+        let mut tail = vec![0.0; 4_800];
+        echo_chain.process_block(&mut tail, 1.0);
         // First repeat lands 0.1 s (4800 frames) after the impulse: at index 0 of the tail.
         assert!(tail[0].abs() > 0.9, "echo repeat missing: {}", tail[0]);
         assert!(tail[1..].iter().all(|s| s.abs() < 1.0e-3));

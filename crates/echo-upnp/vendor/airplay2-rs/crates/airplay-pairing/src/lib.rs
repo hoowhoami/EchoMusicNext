@@ -24,7 +24,9 @@ mod traits;
 pub use channel::EncryptedChannel;
 pub use controller::ControllerIdentity;
 pub use fairplay::FairPlaySetup;
-pub use pair_setup::{PairSetup, TransientPairSetup};
+pub use pair_setup::PairSetup;
+#[expect(deprecated, reason = "Re-export preserves the upstream deprecation for callers")]
+pub use pair_setup::TransientPairSetup;
 pub use pair_verify::PairVerify;
 pub use session::{PairingSession, PairingStep};
-pub use traits::{PairingHandler, Transport};
+pub use traits::{DefaultPairingHandler, PairingHandler, Transport};

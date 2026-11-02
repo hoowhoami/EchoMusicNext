@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import EchoMusic.Controls
-import EchoMusic.Theme
 
 Window {
     id: window

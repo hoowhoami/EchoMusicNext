@@ -358,7 +358,7 @@ pub async fn timing_sync_loop(
 /// The AirPlay receiver sends NTP timing requests to verify clock synchronization.
 /// This server listens on a UDP port and responds with accurate timestamps.
 pub struct NtpTimingServer {
-    socket: Arc<TokioUdpSocket>,
+    _socket: Arc<TokioUdpSocket>,
     port: u16,
     shutdown_tx: watch::Sender<bool>,
     task_handle: Option<tokio::task::JoinHandle<()>>,
@@ -380,7 +380,7 @@ impl NtpTimingServer {
         });
 
         Ok(Self {
-            socket,
+            _socket: socket,
             port,
             shutdown_tx,
             task_handle: Some(task_handle),

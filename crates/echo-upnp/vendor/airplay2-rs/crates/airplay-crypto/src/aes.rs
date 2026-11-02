@@ -7,8 +7,8 @@
 
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit, StreamCipher};
 use aes::Aes128;
-use aes_gcm::aead::{Aead, KeyInit as AeadKeyInit};
-use aes_gcm::{Aes128Gcm, Nonce as GcmNonce, Tag};
+use aes_gcm::aead::Aead;
+use aes_gcm::{Aes128Gcm, Nonce as GcmNonce};
 use airplay_core::error::CryptoError;
 use ctr::cipher::KeyIvInit;
 use zeroize::ZeroizeOnDrop;

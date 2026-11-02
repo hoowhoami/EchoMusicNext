@@ -32,7 +32,7 @@ Item {
             id: surface
             required property var modelData
             anchors.fill: parent
-            implicitHeight: loader.item ? loader.item.implicitHeight : 0
+            implicitHeight: loader.item instanceof Item ? (loader.item as Item).implicitHeight : 0
             Loader {
                 id: loader
                 anchors.fill: parent

@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Window
-import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import EchoMusic.Theme
 import EchoMusic.Controls
@@ -110,9 +109,9 @@ Window {
     readonly property real chromeWidth: coverWidth + 4 + 8 + 8 + 4
     // The reference sizes the four buttons to the cover height and caps them
     // on narrow strips (.controls --control-size: min(vh - 16, (vw-112)/5)).
-    readonly property real controlSize: Math.max(22, Math.min(stripHeight - 16, (Math.max(112, controller.currentWidth) - 112) / 5))
+    readonly property real controlSize: Math.max(22, Math.min(window.stripHeight - 16, (Math.max(112, controller.currentWidth) - 112) / 5))
     readonly property real contentWidth: Math.min(maxWidth, Math.max(160, naturalWidth + chromeWidth))
-    readonly property real coverWidth: Math.max(24, stripHeight - 16)
+    readonly property real coverWidth: Math.max(24, window.stripHeight - 16)
     // 参考实现 useTaskbarLyrics：行键就是「主行 \0 副行」文本，键变化整块滚动。
     // 分隔符走运行期 fromCharCode：字面 NUL 会被 qmlcachegen 内联进生成的
     // C++ 字符串常量，直接编译失败（C2001）。
@@ -228,7 +227,7 @@ Window {
         width: window.expanded ? window.controller.currentWidth : copy.appliedWidth
         // The reference keeps the strip 8px shorter than the taskbar row; the
         // window's own height is stale for an externally sized window.
-        height: Math.max(0, stripHeight - 8)
+        height: Math.max(0, window.stripHeight - 8)
         y: 4
         x: window.anchorRight ? parent.width - width : 0
         radius: Theme.controlRadius
@@ -354,8 +353,8 @@ Window {
 
                         property bool rolling: false
                         property real appliedWidth: 0
-                        property Item currentGroup: groupA
-                        property Item standbyGroup: groupB
+                        property LyricPair currentGroup: groupA
+                        property LyricPair standbyGroup: groupB
                         property Item rollOutGroup: null
                         property Item rollInGroup: null
 
@@ -388,7 +387,7 @@ Window {
                             if (!rolling)
                                 return;
                             rolling = false;
-                            syncWidth();
+                            window.syncWidth();
                         }
 
                         // 行键在一个绑定刷新里可能变化多次（文本先落、行尾/
@@ -430,7 +429,7 @@ Window {
                                     entering.opacity = 0;
                                     leaving.frozen = false;
                                     entering.frozen = false;
-                                    syncWidth();
+                                    window.syncWidth();
                                 }
                                 return;
                             }
@@ -526,17 +525,17 @@ Window {
                             text: window.songTitle
                             color: window.fg
                             font.family: Theme.store.taskbarLyricBaseFont.family
-                            font.pixelSize: Math.min(window.fontSize, Math.max(11, (stripHeight - 21) / 1.9))
+                            font.pixelSize: Math.min(window.fontSize, Math.max(11, (window.stripHeight - 21) / 1.9))
                             elide: Text.ElideRight
                             horizontalAlignment: window.anchorRight ? Text.AlignRight : Text.AlignLeft
                         }
                         Text {
                             width: songInfo.width
-                            visible: stripHeight > 44 && window.roomForDetails
+                            visible: window.stripHeight > 44 && window.roomForDetails
                             text: window.artist
                             color: window.muted
                             font.family: Theme.store.taskbarLyricBaseFont.family
-                            font.pixelSize: Math.min(window.fontSize, Math.max(11, (stripHeight - 21) / 1.9)) * 0.82
+                            font.pixelSize: Math.min(window.fontSize, Math.max(11, (window.stripHeight - 21) / 1.9)) * 0.82
                             elide: Text.ElideRight
                             horizontalAlignment: window.anchorRight ? Text.AlignRight : Text.AlignLeft
                         }

@@ -701,6 +701,7 @@ pub struct TransientPairSetup {
     shared_secret: Option<[u8; 32]>,
 }
 
+#[expect(deprecated, reason = "Implementation of the retained upstream deprecated API")]
 impl TransientPairSetup {
     /// Create a new transient pair-setup with the given Ed25519 identity.
     pub fn new(identity: IdentityKeyPair) -> Self {

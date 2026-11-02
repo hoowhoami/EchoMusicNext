@@ -288,7 +288,6 @@ fn analyse_window(
         let analyzer = analyzer.get_or_insert_with(|| {
             TrackAnalyzer::new(
                 chunk.format.sample_rate,
-                1,
                 duration,
                 if start > 0.0 { chunk_start } else { 0.0 },
             )

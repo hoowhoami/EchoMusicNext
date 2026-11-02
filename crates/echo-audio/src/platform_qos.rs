@@ -11,15 +11,22 @@
 //! does not help, because the ring is empty of decoded PCM, not of
 //! network bytes.
 
+#[cfg(any(target_os = "windows", test))]
 const PROCESS_POWER_THROTTLING_CURRENT_VERSION: u32 = 1;
+#[cfg(any(target_os = "windows", test))]
 const THREAD_POWER_THROTTLING_CURRENT_VERSION: u32 = 1;
+#[cfg(any(target_os = "windows", test))]
 const PROCESS_POWER_THROTTLING_EXECUTION_SPEED: u32 = 0x1;
+#[cfg(any(target_os = "windows", test))]
 const THREAD_POWER_THROTTLING_EXECUTION_SPEED: u32 = 0x1;
 // PROCESS_INFORMATION_CLASS / THREAD_INFORMATION_CLASS ordinals from
 // processthreadsapi.h. windows 0.58 does not always export these aliases.
+#[cfg(any(target_os = "windows", test))]
 const PROCESS_INFORMATION_PROCESS_POWER_THROTTLING: i32 = 4;
+#[cfg(any(target_os = "windows", test))]
 const THREAD_INFORMATION_THREAD_POWER_THROTTLING: i32 = 3;
 
+#[cfg(any(target_os = "windows", test))]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PowerThrottlingState {
@@ -28,6 +35,7 @@ struct PowerThrottlingState {
     state_mask: u32,
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn disabled_execution_speed(version: u32, execution_speed_flag: u32) -> PowerThrottlingState {
     PowerThrottlingState {
         version,

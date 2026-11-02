@@ -223,10 +223,10 @@ private:
     {
         QString title, artists, album, cover, duration, extra, id;
         quint64 durationMs = 0;
-        PlaybackTrack track;
+        PlaybackTrack track{};
         bool original = false;
-        QVariantList badges;
-        QString quality;
+        QVariantList badges{};
+        QString quality{};
     };
     struct Bucket
     {

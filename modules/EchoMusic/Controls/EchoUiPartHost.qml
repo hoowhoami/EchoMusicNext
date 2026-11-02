@@ -6,17 +6,17 @@ import QtQuick
 Item {
     id: host
     default property alias content: nativeBody.data
-    property alias partRole: publicPart.role
-    property alias partKey: publicPart.key
+    property alias partRole: hostPart.role
+    property alias partKey: hostPart.key
     property string partSurface: ""
-    property alias partActions: publicPart.actions
-    readonly property alias publicPart: publicPart
+    property alias partActions: hostPart.actions
+    readonly property alias publicPart: hostPart
     readonly property string echoUiSurface: partSurface
     signal partActionRequested(string action, var arguments)
-    opacity: publicPart.value("opacity", 1)
+    opacity: hostPart.value("opacity", 1)
     data: [
         EchoUiPart {
-            id: publicPart
+            id: hostPart
             target: host
             surface: host.partSurface
             replaceable: true
@@ -25,18 +25,18 @@ Item {
         },
         Loader {
             anchors.fill: host
-            active: host.visible && host.Window.window !== null && host.Window.window.visible && host.Window.window.visibility !== Window.Minimized && !publicPart.replaced && Object.keys(publicPart.overrides).some(name => name !== "opacity")
+            active: host.visible && host.Window.window !== null && host.Window.window.visible && host.Window.window.visibility !== Window.Minimized && !hostPart.replaced && Object.keys(hostPart.overrides).some(name => name !== "opacity")
             sourceComponent: Rectangle {
-                color: publicPart.value("background", "transparent")
-                radius: publicPart.value("radius", 0)
-                border.width: publicPart.value("borderWidth", 0)
-                border.color: publicPart.value("borderColor", "transparent")
+                color: hostPart.value("background", "transparent")
+                radius: hostPart.value("radius", 0)
+                border.width: hostPart.value("borderWidth", 0)
+                border.color: hostPart.value("borderColor", "transparent")
             }
         },
         Item {
             id: nativeBody
             anchors.fill: host
-            visible: !publicPart.replaced
+            visible: !hostPart.replaced
         }
     ]
 }

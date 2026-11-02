@@ -3,7 +3,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import EchoMusic.Controls
 import EchoMusic.PluginSdk
-import EchoMusic.Theme
 
 QtObject {
     id: owner
@@ -17,18 +16,18 @@ QtObject {
     signal finished
     signal failed
     function open(): void {
-        popup.open();
-        if (!popup.item)
+        popupOwner.open();
+        if (!popupOwner.item)
             failed();
     }
     function close(): void {
-        if (popup.item)
-            popup.close();
+        if (popupOwner.item)
+            popupOwner.close();
         else
             finished();
     }
     property EchoPopupLoader popup: EchoPopupLoader {
-        id: popup
+        id: popupOwner
         hostItem: owner.hostItem
         keepOnMinimize: true
         sourceComponent: Component {

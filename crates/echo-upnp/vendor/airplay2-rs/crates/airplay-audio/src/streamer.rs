@@ -2,7 +2,7 @@
 
 use crate::encoder::{create_encoder, AudioEncoder};
 use crate::eq::{EqConfig, EqParams, Equalizer};
-use crate::spatial::{Position, SpatialMixer, SpatialParams, SpatialSnapshot, SpeakerConfig};
+use crate::spatial::{SpatialMixer, SpatialParams, SpatialSnapshot, SpeakerConfig};
 use crate::{AudioBuffer, AudioDecoder, LiveAudioDecoder, RtpSender};
 use airplay_core::{error::Result, StreamConfig};
 use airplay_timing::{unix_to_ntp, Clock, ClockOffset};
@@ -179,8 +179,8 @@ fn sender_thread_main(
     disable_wifi_power_save();
 
     let burst_size = burst_size.max(1); // Minimum 1
-    let frame_duration_ns = frame_duration.as_nanos() as u64;
-    let burst_duration_ns = frame_duration_ns * burst_size as u64;
+    #[cfg(target_os = "linux")]
+    let burst_duration_ns = frame_duration.as_nanos() as u64 * burst_size as u64;
     #[cfg(target_os = "linux")]
     let mut next_deadline_ns = monotonic_now_ns();
     #[cfg(not(target_os = "linux"))]

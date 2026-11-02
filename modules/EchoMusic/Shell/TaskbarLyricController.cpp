@@ -315,6 +315,8 @@ void TaskbarLyricController::setStripAlpha(int alpha)
     // Native alpha instead of QWindow::setOpacity: the toolkit may rebuild the
     // platform window when the opacity changes, which unmounts the strip.
     SetLayeredWindowAttributes(hwnd, 0, BYTE(alpha), LWA_ALPHA);
+#else
+    Q_UNUSED(alpha);
 #endif
 }
 

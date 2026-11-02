@@ -784,7 +784,11 @@ struct Session
         // the next frame. Never click geometry from the preceding scene.
         QSignalSpy rendered(window, &QQuickWindow::frameSwapped);
         window->update();
-        return !rendered.isEmpty() || rendered.wait(1000);
+        const bool ready = !rendered.isEmpty() || rendered.wait(1000);
+        if (!ready)
+            qWarning() << "Scene preparation received no swapped frame" << window->isExposed()
+                       << window->isActive() << window->visibility() << window->size();
+        return ready;
     }
     bool settingsSectionReady()
     {
@@ -879,24 +883,40 @@ struct Session
     }
     bool clickPlayerAction(const QString &id)
     {
-        if (!Test::prepareNativeInput(window) || !settleScene())
+        // Capacity/zoom projections can retire a delegate during preparation.
+        // clickItem returns false before delivering any input, so only a retired
+        // target may be resolved again; other input failures remain failures.
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            if (!Test::prepareNativeInput(window) || !settleScene())
+                return false;
+            QQuickItem *item = nullptr;
+            (void)QTest::qWaitFor(
+                [&] {
+                    item = visual(window->contentItem(), "playerbar-action-" + id);
+                    return item && item->isVisible();
+                },
+                500);
+            if (item && item->isVisible()) {
+                const QPointer<QQuickItem> selected = item;
+                if (clickItem(item))
+                    return true;
+                if (!selected)
+                    continue;
+                qWarning() << "Player action preparation failed" << id;
+                return false;
+            }
+            if (!clickItem("playerbarMoreAction"))
+                return false;
+            const auto *actions = commands.playerbarActions();
+            for (int row = 0; row < actions->rowCount(); ++row)
+                if (actions->index(row, 0).data(ShellActionModel::IdRole).toString() == id)
+                    return clickItem(
+                        "playerbarMenuAction-" +
+                        actions->index(row, 0).data(ShellActionModel::KeyRole).toString());
+            qWarning() << "Player action missing from catalog" << id << actions->rowCount();
             return false;
-        QQuickItem *item = nullptr;
-        (void)QTest::qWaitFor(
-            [&] {
-                item = visual(window->contentItem(), "playerbar-action-" + id);
-                return item && item->isVisible();
-            },
-            500);
-        if (item && item->isVisible())
-            return clickItem(item);
-        if (!clickItem("playerbarMoreAction"))
-            return false;
-        const auto *actions = commands.playerbarActions();
-        for (int row = 0; row < actions->rowCount(); ++row)
-            if (actions->index(row, 0).data(ShellActionModel::IdRole).toString() == id)
-                return clickItem("playerbarMenuAction-" +
-                                 actions->index(row, 0).data(ShellActionModel::KeyRole).toString());
+        }
+        qWarning() << "Player action projection kept retiring its target" << id;
         return false;
     }
     QPointer<QObject> openPlayerPopup(const QString &action, const QString &name)

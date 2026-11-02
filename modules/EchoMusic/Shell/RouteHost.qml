@@ -29,7 +29,7 @@ Item {
                     id: offset
                 },
                 Scale {
-                    id: scale
+                    id: pageScale
                     origin.x: pageLoader.width / 2
                     origin.y: pageLoader.height / 2
                 }
@@ -41,8 +41,8 @@ Item {
                 opacity = 1;
                 offset.x = 0;
                 offset.y = 0;
-                scale.xScale = 1;
-                scale.yScale = 1;
+                pageScale.xScale = 1;
+                pageScale.yScale = 1;
             }
             function change(): void {
                 settle();
@@ -52,8 +52,8 @@ Item {
                     opacity = recipe.enterOpacity === undefined ? 0 : recipe.enterOpacity;
                     offset.x = recipe.enterX || 0;
                     offset.y = recipe.enterY || 0;
-                    scale.xScale = recipe.enterScale || 1;
-                    scale.yScale = scale.xScale;
+                    pageScale.xScale = recipe.enterScale || 1;
+                    pageScale.yScale = pageScale.xScale;
                     entering.restart();
                 } else {
                     leaving = true;
@@ -101,7 +101,7 @@ Item {
                         easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
-                        target: scale
+                        target: pageScale
                         property: "xScale"
                         to: 1
                         duration: pageLoader.durationMs
@@ -109,7 +109,7 @@ Item {
                         easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
-                        target: scale
+                        target: pageScale
                         property: "yScale"
                         to: 1
                         duration: pageLoader.durationMs
@@ -149,7 +149,7 @@ Item {
                         easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
-                        target: scale
+                        target: pageScale
                         property: "xScale"
                         to: pageLoader.recipe.leaveScale || 1
                         duration: pageLoader.durationMs
@@ -157,7 +157,7 @@ Item {
                         easing.bezierCurve: pageLoader.curve
                     }
                     NumberAnimation {
-                        target: scale
+                        target: pageScale
                         property: "yScale"
                         to: pageLoader.recipe.leaveScale || 1
                         duration: pageLoader.durationMs

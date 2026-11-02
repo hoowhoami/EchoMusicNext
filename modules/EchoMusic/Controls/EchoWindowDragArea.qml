@@ -33,7 +33,7 @@ MouseArea {
             return;
         const position = mapToItem(null, mouse.x, mouse.y);
         const distance = Math.hypot(position.x - pressPosition.x, position.y - pressPosition.y);
-        if (distance >= Qt.styleHints.startDragDistance) {
+        if (distance >= EchoPageScrollMetrics.startDragDistance) {
             moveStarted = true;
             moveRequested();
         }

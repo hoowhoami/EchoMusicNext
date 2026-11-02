@@ -645,7 +645,9 @@ private:
 /// Cross-thread by design and the only shared state between them: the WinEvent
 /// pump writes it, the probe worker reads it, so it stays atomic (never a
 /// plain pointer that a pump callback could free under the worker).
+#ifdef Q_OS_WIN
 static std::atomic<qintptr> winEventForeground{0};
+#endif
 
 struct WindowsTaskbarLyric::Worker
 {
@@ -1184,6 +1186,8 @@ void WindowsTaskbarLyric::setStripOffset(int x)
     const int target = qBound(0, x, maxOffset);
     m_stripOffset = target;
     moveStrip(hwnd, target);
+#else
+    Q_UNUSED(x);
 #endif
 }
 

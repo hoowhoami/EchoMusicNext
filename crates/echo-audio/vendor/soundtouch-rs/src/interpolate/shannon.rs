@@ -118,7 +118,7 @@ pub fn shannon_transpose_mono(
             // Sinc computation: window * (sin(pi * x) / (pi * x))
             let num = kaiser_pi_blocks[i] * sin_simd;
             let computed_weights = num * x_simd.recip();
-            let weights = mask.blend(kaiser_fb_blocks[i], computed_weights);
+            let weights = mask.select(kaiser_fb_blocks[i], computed_weights);
 
             let in_slice = &src[src_idx + i * SIMD_WIDTH..src_idx + (i + 1) * SIMD_WIDTH];
             let in_array: [f32; 8] = in_slice.try_into().unwrap();

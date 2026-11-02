@@ -323,9 +323,7 @@ unsafe fn build_and_start_stream(
                     }),
                 );
             } else {
-                unsafe {
-                    release_raw_objects(stream_raw, output_raw, queue_raw);
-                }
+                release_raw_objects(stream_raw, output_raw, queue_raw);
                 complete_waiter(
                     &waiter_for_start,
                     Err(format!(

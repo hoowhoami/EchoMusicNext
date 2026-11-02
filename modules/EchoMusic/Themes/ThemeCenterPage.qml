@@ -9,8 +9,8 @@ import EchoMusic.Controls
 RoutePage {
     id: page
     objectName: "themeCenterPage"
-    readonly property EchoColorPickerDialog skinColorDialog: skinPickerOwner.item
-    readonly property ThemeAppearanceDrawer appearanceDrawer: adjustmentsOwner.item
+    readonly property EchoColorPickerDialog skinColorDialog: skinPickerOwner.item as EchoColorPickerDialog
+    readonly property ThemeAppearanceDrawer appearanceDrawer: adjustmentsOwner.item as ThemeAppearanceDrawer
     property WindowController windowService: null
     property int tab: 0
     Component.onCompleted: {

@@ -98,7 +98,9 @@ struct EmbeddedCoverCache::State
                     if (records.size() >= 512)
                         break;
                     const auto row = value.toObject();
-                    Record r{row["scope"].toString(), row["file"].toString()};
+                    Record r{};
+                    r.scope = row["scope"].toString();
+                    r.file = row["file"].toString();
                     for (const auto &key : row["keys"].toArray())
                         if (validKey(key.toString()) && r.keys.size() < 2)
                             r.keys.append(key.toString());

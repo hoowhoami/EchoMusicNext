@@ -37,9 +37,6 @@ name = "spectral_bench"
 harness = false
 required-features = ["spectral"]
 
-[profile.bench]
-debug = true
-
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }

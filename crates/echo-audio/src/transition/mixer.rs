@@ -423,10 +423,6 @@ impl TransitionMixer {
         self.finished
     }
 
-    pub fn a_finished(&self) -> bool {
-        self.a.state == DeckState::Finished
-    }
-
     /// Release the current blend into dry B without dropping any of B's queued audio.
     pub fn finish_early(&mut self) {
         if self.finished || self.early_finish.is_some() {
@@ -1011,7 +1007,7 @@ mod tests {
         for _ in 0..1_000 {
             let out = mixer.render(2_048);
             rendered_until_a_done += out.samples.len() / 2;
-            if mixer.a_finished() || out.samples.is_empty() {
+            if mixer.a.state == DeckState::Finished || out.samples.is_empty() {
                 break;
             }
         }

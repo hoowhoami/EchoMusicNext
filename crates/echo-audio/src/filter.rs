@@ -1,6 +1,5 @@
 use crate::audio_graph::{AudioFilterGraph, process_format_for_output};
 use crate::shared::{FilterGraphUpdate, FilterInput, SharedAudio};
-use crate::work::{Command, Work};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};

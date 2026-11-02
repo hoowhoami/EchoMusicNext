@@ -62,3 +62,12 @@ pnpm --dir native/echo-audio-player build:debug
 ```
 
 The native player's global runtime tests require serial execution. HTTP tests bind loopback listeners and need a runner that permits local sockets. The three upstream tests requiring `tests/server.go` remain opt-in. Build/load checks do not replace Electron playback or Windows/Linux runtime validation.
+
+## 2026-11-02 macOS common-symbol alignment
+
+`ffmpeg_audio_sys/build.rs` passes `-fno-common` only when compiling the bundled
+FFmpeg C sources for macOS. The tentative `ff_table_4_3_exp` byte array (0x803c
+bytes) otherwise becomes a Mach-O common symbol with size-derived alignment,
+causing Apple's linker to reduce `__DATA,__common` alignment from 0x8000 to
+0x4000. BSS definitions retain the C type's actual alignment; explicitly aligned
+SIMD data and other platforms keep their existing requirements.

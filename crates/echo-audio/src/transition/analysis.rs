@@ -135,22 +135,15 @@ impl TrackAnalysis {
 /// Incrementally accumulates mono samples for one analysis window.
 pub struct TrackAnalyzer {
     sample_rate: u32,
-    channels: usize,
     duration_secs: f64,
     window_start_secs: f64,
     mono: Vec<f32>,
 }
 
 impl TrackAnalyzer {
-    pub fn new(
-        sample_rate: u32,
-        channels: usize,
-        duration_secs: f64,
-        window_start_secs: f64,
-    ) -> Self {
+    pub fn new(sample_rate: u32, duration_secs: f64, window_start_secs: f64) -> Self {
         Self {
             sample_rate: sample_rate.max(1),
-            channels: channels.max(1),
             duration_secs: duration_secs.max(0.0),
             window_start_secs: window_start_secs.max(0.0),
             mono: Vec::new(),
@@ -160,16 +153,6 @@ impl TrackAnalyzer {
     /// Seconds of audio accumulated so far.
     pub fn collected_secs(&self) -> f64 {
         self.mono.len() as f64 / f64::from(self.sample_rate)
-    }
-
-    /// Push interleaved samples (any channel count matching the analyzer).
-    pub fn push_interleaved(&mut self, samples: &[f32]) {
-        let channels = self.channels;
-        self.mono.reserve(samples.len() / channels);
-        for frame in samples.chunks_exact(channels) {
-            let sum: f32 = frame.iter().copied().sum();
-            self.mono.push(sum / channels as f32);
-        }
     }
 
     pub fn push_mono(&mut self, samples: &[f32]) {
@@ -626,7 +609,7 @@ mod tests {
 
     #[test]
     fn beat_grid_recovers_tempo_phase_and_downbeat_of_a_click_track() {
-        let mut analyzer = TrackAnalyzer::new(SR, 1, 40.0, 0.0);
+        let mut analyzer = TrackAnalyzer::new(SR, 40.0, 0.0);
         analyzer.push_mono(&click_track(128.0, 40.0, 0.25, None));
         let analysis = analyzer.finish();
         let bpm = analysis.bpm.expect("bpm");
@@ -652,7 +635,7 @@ mod tests {
 
     #[test]
     fn section_boundary_lands_near_the_texture_change() {
-        let mut analyzer = TrackAnalyzer::new(SR, 1, 40.0, 0.0);
+        let mut analyzer = TrackAnalyzer::new(SR, 40.0, 0.0);
         analyzer.push_mono(&click_track(120.0, 40.0, 0.0, Some(20.0)));
         let analysis = analyzer.finish();
         assert!(!analysis.sections.is_empty(), "no sections found");
@@ -670,10 +653,9 @@ mod tests {
 
     #[test]
     fn window_offsets_are_applied_to_timestamps() {
-        let mut analyzer = TrackAnalyzer::new(SR, 2, 300.0, 250.0);
+        let mut analyzer = TrackAnalyzer::new(SR, 300.0, 250.0);
         let mono = click_track(100.0, 50.0, 0.0, None);
-        let stereo: Vec<f32> = mono.iter().flat_map(|s| [*s, *s]).collect();
-        analyzer.push_interleaved(&stereo);
+        analyzer.push_mono(&mono);
         let analysis = analyzer.finish();
         assert!(analysis.covers_end());
         assert!(!analysis.covers_start());

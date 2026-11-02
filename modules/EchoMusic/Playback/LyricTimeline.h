@@ -14,7 +14,7 @@ class LyricTimeline : public QObject
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(QAbstractItemModel *rows READ rows CONSTANT)
-    Q_PROPERTY(LyricModel *model READ model WRITE setModel NOTIFY modelChanged)
+    Q_PROPERTY(EchoMusic::LyricModel *model READ model WRITE setModel NOTIFY modelChanged)
     Q_PROPERTY(bool filter READ filter WRITE setFilter NOTIFY modelChanged)
     Q_PROPERTY(double timeMs READ timeMs WRITE setTimeMs NOTIFY timeChanged)
     Q_PROPERTY(int focusIndex READ focusIndex NOTIFY changed)

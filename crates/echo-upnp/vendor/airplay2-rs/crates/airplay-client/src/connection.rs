@@ -19,7 +19,6 @@ use airplay_audio::{
 use airplay_core::stream::TimingProtocol;
 use airplay_crypto::chacha::AudioCipher;
 use airplay_crypto::chacha::ControlCipher;
-use airplay_crypto::keys::SharedSecret;
 use airplay_timing::{
     run_bmca_yield_flow, run_ptp_group_master_flow, run_ptp_slave, ClockOffset, NtpTimingServer,
     PtpMaster, PTP_EVENT_PORT,
@@ -444,7 +443,6 @@ impl Connection {
         let controller = persistent_id
             .to_controller()
             .ok_or_else(|| RtspError::SetupFailed("Invalid persisted identity".into()))?;
-        let identity = controller.keypair().clone();
 
         // 1. TCP connect
         let ip_addr =

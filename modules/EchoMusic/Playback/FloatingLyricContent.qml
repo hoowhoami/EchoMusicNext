@@ -53,6 +53,7 @@ Item {
     property real fontSize: 40
     property font baseFont: Theme.store.desktopLyricBaseFont
     readonly property font textFont: Theme.store.styledFont(baseFont, fontSize, bold ? 700 : 400, 0, false, false)
+    readonly property var loadedLine: main.item
     property var line: ({})
     property var nextLine: ({})
     property var rubyUnits: []
@@ -104,7 +105,7 @@ Item {
                 durationMs: content.line.durationMs || 0,
                 current: true,
                 reducedMotion: !Theme.store.motionEnabled,
-                glyphs: main.item && main.item.glyphSnapshot !== undefined ? main.item.glyphSnapshot : []
+                glyphs: main.item && content.loadedLine.glyphSnapshot !== undefined ? content.loadedLine.glyphSnapshot : []
             }) : ({})
     }
     opacity: linePart.value("opacity", 1) * baseOpacity

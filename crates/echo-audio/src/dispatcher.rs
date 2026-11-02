@@ -23,7 +23,6 @@ const CORE_COMMAND_REPLY_TIMEOUT: Duration = Duration::from_secs(2);
 const CORE_BLOCKING_COMMAND_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 const EVENT_QUEUE_CAPACITY: usize = 256;
 const CRITICAL_DISPATCH_QUEUE_RETRY_BUDGET: Duration = Duration::from_secs(1);
-const CRITICAL_CALLBACK_QUEUE_RETRY_BUDGET: Duration = Duration::from_secs(2);
 const EVENT_QUEUE_RETRY_DELAY: Duration = Duration::from_millis(1);
 
 thread_local! {
@@ -90,26 +89,6 @@ fn dispatch_event_to_callback(mut event: PlayerEvent) {
         // Owned sink runs on the event dispatcher, never the audio callback.
         callback(event);
     }
-}
-
-fn queue_full_retry_allowed(
-    droppable: bool,
-    callback_registered: bool,
-    dispatcher_stopping: bool,
-    elapsed: Duration,
-) -> bool {
-    !droppable
-        && callback_registered
-        && !dispatcher_stopping
-        && elapsed < CRITICAL_CALLBACK_QUEUE_RETRY_BUDGET
-}
-
-fn callback_is_registered(callback: &Arc<EventCallback>) -> bool {
-    EVENT_CALLBACK.lock().is_ok_and(|guard| {
-        guard
-            .as_ref()
-            .is_some_and(|registered| Arc::ptr_eq(registered, callback))
-    })
 }
 
 fn dispatch_queue_retry_allowed(dispatcher_stopping: bool, elapsed: Duration) -> bool {
@@ -531,26 +510,6 @@ mod event_queue_tests {
 
     #[test]
     fn queue_full_retry_is_bounded_and_shutdown_aware() {
-        assert!(queue_full_retry_allowed(
-            false,
-            true,
-            false,
-            CRITICAL_CALLBACK_QUEUE_RETRY_BUDGET - Duration::from_millis(1),
-        ));
-        assert!(!queue_full_retry_allowed(true, true, false, Duration::ZERO,));
-        assert!(!queue_full_retry_allowed(
-            false,
-            false,
-            false,
-            Duration::ZERO,
-        ));
-        assert!(!queue_full_retry_allowed(false, true, true, Duration::ZERO,));
-        assert!(!queue_full_retry_allowed(
-            false,
-            true,
-            false,
-            CRITICAL_CALLBACK_QUEUE_RETRY_BUDGET,
-        ));
         assert!(dispatch_queue_retry_allowed(
             false,
             CRITICAL_DISPATCH_QUEUE_RETRY_BUDGET - Duration::from_millis(1),

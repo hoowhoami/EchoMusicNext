@@ -49,3 +49,9 @@ rsync -a --delete --exclude .git \
 After syncing, update the `Vendored commit` value above; re-apply the Cargo feature, exports, README, lockfile, and compatibility patches listed above; review local diffs; and run the native player checks. In particular, verify that `src/spectral/LICENSE-SIGNALSMITH.md` is still present before committing.
 
 Do not commit `native/echo-audio-player/vendor/soundtouch-rs/.git`; the vendor tree should remain regular files in the EchoMusic repository.
+
+## 2026-11-02 build diagnostics
+
+The Shannon interpolator uses `wide`'s `select` for the full-bit comparison mask
+in place of deprecated `blend`, preserving the true/false operand order. The
+ignored nested `[profile.bench]` moved to the host workspace root.

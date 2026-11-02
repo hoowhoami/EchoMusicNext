@@ -331,7 +331,7 @@ EchoPluginOperation *EchoPluginWindows::command(const QString &target, const QSt
         return m_scope.rejected("InvalidArgument", "Invalid desktop lock state");
     return m_scope.permissions()->authorize(
         "windows", tr("操作 Mini 播放器或桌面歌词"),
-        [this, f, target, action, args](EchoPluginOperation *op) {
+        [f, target, action, args](EchoPluginOperation *op) {
             if (op->finished())
                 return;
             if (action == "showMain")

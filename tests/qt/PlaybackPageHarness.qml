@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
-import EchoMusic.Theme
 import EchoMusic.Controls
 import EchoMusic.Playback
 import EchoMusic.Shell
@@ -15,7 +14,7 @@ ApplicationWindow {
     required property ShellController controller
     required property RouteController router
     property real surfaceScale: 1
-    readonly property alias page: page
+    readonly property alias page: playbackPage
     EchoCover {
         id: smallCover
         objectName: "transitionSourceCover"
@@ -26,11 +25,11 @@ ApplicationWindow {
         // This source sits outside the scaled page in the harness.
         minimumDecodeSize: 380 * window.surfaceScale
         source: window.playback.cover
-        opacity: page.coverMoving ? 0 : 1
+        opacity: playbackPage.coverMoving ? 0 : 1
     }
     PlaybackPage {
-        id: page
-        controlsTopReserve: (page.controlsItem as PlayerBar)?.aboveControlsHeight ?? 0
+        id: playbackPage
+        controlsTopReserve: (playbackPage.controlsItem as PlayerBar)?.aboveControlsHeight ?? 0
         sourceCover: smallCover
         playback: window.playback
         uiScale: window.surfaceScale
@@ -40,7 +39,7 @@ ApplicationWindow {
                 router: window.router
                 lyricStyle: true
                 uiScale: window.surfaceScale
-                colors: page.colors
+                colors: playbackPage.colors
             }
         }
     }
@@ -48,8 +47,8 @@ ApplicationWindow {
         target: window.controller
         function onPlaybackPopupRequested(kind) {
             if (kind === "lyric-skins")
-                page.openSkins();
+                playbackPage.openSkins();
         }
     }
-    Component.onCompleted: page.open()
+    Component.onCompleted: playbackPage.open()
 }

@@ -39,7 +39,6 @@ Item {
         spacing: content.spacing
         layoutDirection: content.glyphAfterText ? Qt.RightToLeft : Qt.LeftToRight
         Loader {
-            anchors.alignWhenCentered: false
             active: content.loading && content.visible
             visible: content.loading
             Layout.preferredWidth: 16
@@ -61,7 +60,6 @@ Item {
         // sizing responsibility, but center the glyph inside the full-height
         // slot so half-pixel text line boxes retain the same visual center.
         Loader {
-            anchors.alignWhenCentered: false
             active: content.glyph.length > 0 && content.visible
             visible: content.glyph.length > 0
             Layout.preferredWidth: content.glyphSize

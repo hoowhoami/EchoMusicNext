@@ -14,7 +14,7 @@ Popup {
     objectName: "themeAppearanceDrawer"
     property WindowController windowService: null
     required property real uiScale
-    readonly property EchoColorPickerDialog colorDialog: accentPickerOwner.item
+    readonly property EchoColorPickerDialog colorDialog: accentPickerOwner.item as EchoColorPickerDialog
     readonly property list<string> accentPresets: ["#0071e3", "#ef4444", "#ec4899", "#8b5cf6", "#6366f1", "#0ea5e9", "#14b8a6", "#22c55e", "#f59e0b", "#f97316"]
     parent: Overlay.overlay
     scale: uiScale

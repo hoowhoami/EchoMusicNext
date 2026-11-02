@@ -33,7 +33,7 @@ void PlaybackOutputController::mediaRouteChanged()
     m_playback.m_transition->clear();
     m_playback.m_recovery->cancel();
     m_playback.cancelTrackProbe();
-    const bool autoplay = m_playback.m_playing || m_playback.m_loading && m_playback.m_autoplay;
+    const bool autoplay = m_playback.m_playing || (m_playback.m_loading && m_playback.m_autoplay);
     m_playback.m_resumePosition = m_playback.m_position;
     m_playback.m_engine.command(AudioEngine::Pause);
     m_playback.m_playing = false;

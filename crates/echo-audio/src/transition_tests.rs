@@ -390,7 +390,10 @@ fn same_source_repeat_runs_every_selected_transition_mode() {
         assert!((info.start_position_secs - start).abs() < 0.05);
         let transition = info.transition.expect("selected repeat mode");
         assert_eq!(transition.mode, mode.as_str());
-        assert_eq!(transition.overlap_secs > 0.0, mode.overlaps());
+        assert_eq!(
+            transition.overlap_secs > 0.0,
+            mode != TransitionMode::Gapless
+        );
         assert!(at_samples > 0 && at_samples < out.len());
         assert!(out.iter().all(|sample| sample.is_finite()));
         assert!(rms(&out) > 0.01, "repeat must produce audio for {mode:?}");

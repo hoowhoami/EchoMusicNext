@@ -432,7 +432,7 @@ pub struct PtpClient {
     state: PtpState,
     event_socket: Option<UdpSocket>,
     general_socket: Option<UdpSocket>,
-    clock: Clock,
+    _clock: Clock,
     sequence_id: u16,
 
     // Timing state for offset calculation
@@ -452,7 +452,7 @@ impl PtpClient {
             state: PtpState::Unsynchronized,
             event_socket: None,
             general_socket: None,
-            clock: Clock::new(sample_rate),
+            _clock: Clock::new(sample_rate),
             sequence_id: 0,
             t1: None,
             t2: None,

@@ -1484,7 +1484,7 @@ ApplicationWindow {
     QVERIFY(!root->findChild<QObject *>("pluginLocalInstallOverlay"));
     QMimeData draggedPackage;
     draggedPackage.setUrls({QUrl::fromLocalFile(source)});
-    QDragEnterEvent enter(QPoint(300, 300), Qt::CopyAction, &draggedPackage, Qt::LeftButton,
+    QDragEnterEvent enter(QPointF(300, 300), Qt::CopyAction, &draggedPackage, Qt::LeftButton,
                           Qt::NoModifier);
     QCoreApplication::sendEvent(window, &enter);
     QVERIFY(enter.isAccepted());

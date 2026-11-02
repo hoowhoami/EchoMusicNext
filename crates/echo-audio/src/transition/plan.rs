@@ -50,7 +50,15 @@ pub enum PlanTemplate {
     FallbackExchange,
     /// Outgoing echo tail with a linear incoming fade.
     EchoTail,
-    /// Late outgoing fade with low-pass filtering and a high-pass incoming sweep.
+    /// Retained filter template. The current automatic fallback selects LayeredFilter;
+    /// it is not a user-selectable template and has not been declared obsolete.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Retained template; automatic fallback currently selects LayeredFilter"
+        )
+    )]
     SmoothFilter,
     /// Denser control-point variant of [`PlanTemplate::SmoothFilter`].
     LayeredFilter,
@@ -336,11 +344,6 @@ impl Automation {
         }
     }
 
-    /// Final value once the overlap has completed.
-    pub fn end_value(&self) -> f32 {
-        self.evaluate(f32::INFINITY.min(1.0e9))
-    }
-
     /// Evaluate a gain automation (values in dB) as a linear amplitude. Piecewise ramps
     /// with the equal-power curve types interpolate between the linear end-points so the
     /// mirrored A/B pair conserves power; everything else converts the dB value.
@@ -516,7 +519,7 @@ mod tests {
         assert_eq!(automation.evaluate(0.6), 4000.0);
         assert_eq!(automation.evaluate(0.9), 4000.0);
         assert_eq!(automation.evaluate(2.5), 4000.0);
-        assert_eq!(automation.end_value(), 4000.0);
+        assert_eq!(automation.evaluate(1.0e9), 4000.0);
     }
 
     #[test]

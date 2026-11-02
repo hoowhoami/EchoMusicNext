@@ -244,11 +244,6 @@ fn sample_waveform(window: &[f32]) -> Vec<f64> {
         .collect()
 }
 
-#[cfg(test)]
-fn frequency_to_fft_bin(frequency: f64, sample_rate: u32) -> usize {
-    ((frequency / sample_rate as f64) * SPECTRUM_FFT_SIZE as f64).round() as usize
-}
-
 fn magnitude_to_unit(magnitude: f64) -> f64 {
     if magnitude <= f64::EPSILON {
         return 0.0;

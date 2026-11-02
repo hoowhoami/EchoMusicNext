@@ -292,13 +292,15 @@ int TrackTransitionController::failureIndex()
 {
     reconcileShuffle();
     const auto *queue = m_playback.queue();
-    for (const auto id : m_shuffleRemaining)
+    for (const auto &id : m_shuffleRemaining)
         for (int i = 0; i < queue->rowCount(); ++i)
             if (queueTrackId(*queue->at(i)) == id && queue->at(i)->playable()) {
+                // Erasing the shuffle prefix invalidates id's reference.
+                const QString selectedId = id;
                 const auto position = m_shuffleRemaining.indexOf(id);
                 m_shuffleRemaining.erase(m_shuffleRemaining.begin(),
                                          m_shuffleRemaining.begin() + position + 1);
-                m_shufflePlayed.insert(id);
+                m_shufflePlayed.insert(selectedId);
                 return i;
             }
     return -1;

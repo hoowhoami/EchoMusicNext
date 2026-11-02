@@ -4,9 +4,7 @@ pub use work::{EngineError, Result};
 pub mod model;
 mod sys_media;
 
-use model::{
-    MediaControlEvent, MetadataPayload, PlayStatePayload, SkipIntervalPayload, TimelinePayload,
-};
+use model::{MetadataPayload, PlayStatePayload, SkipIntervalPayload, TimelinePayload};
 use std::sync::RwLock;
 use sys_media::{SystemMediaControls, create_platform_controls};
 

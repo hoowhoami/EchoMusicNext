@@ -1,6 +1,6 @@
 //! Audio encoding for AirPlay streaming.
 
-use airplay_core::{error::Result, AudioCodec, AudioFormat, SampleRate};
+use airplay_core::{error::Result, AudioCodec, AudioFormat};
 
 /// Encoded audio packet.
 #[derive(Debug, Clone)]

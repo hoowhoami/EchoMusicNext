@@ -1,10 +1,8 @@
 //! PCM framing for the AirPlay feeder.
 //!
-//! The realtime callback only tries to enqueue. A full queue is an overrun, not a
-//! blocked audio thread. The feeder retries a timed-out send instead of dropping
-//! that frame. Samples are i16; this path does not preserve 24-bit audio.
-
-use std::collections::VecDeque;
+//! The player owns PCM conversion and the bounded callback queue. This receiver
+//! decodes the wire frame and resamples for transport. Samples are i16; this path
+//! does not preserve 24-bit audio.
 
 pub const TRANSPORT_FORMAT: &str = "ALAC 44100 Hz 16-bit stereo; input i16";
 pub const INPUT_BITS: u8 = 16;
@@ -17,35 +15,8 @@ pub struct PcmFrame {
     pub samples: Vec<i16>,
 }
 
-pub fn f32_to_i16(sample: f32) -> i16 {
-    if !sample.is_finite() {
-        return 0;
-    }
-    let scaled = sample.clamp(-1.0, 1.0) * 32767.0;
-    scaled.round() as i16
-}
-
-/// Interleaved f32 device frames to stereo i16. Mono is duplicated. Extra channels
-/// keep the first two, which are the mapped L/R after the existing output map.
-pub fn to_stereo_i16(input: &[f32], channels: usize) -> Vec<i16> {
-    let channels = channels.max(1);
-    let frames = input.len() / channels;
-    let mut out = Vec::with_capacity(frames * 2);
-    for frame in 0..frames {
-        let base = frame * channels;
-        let left = f32_to_i16(*input.get(base).unwrap_or(&0.0));
-        let right = if channels == 1 {
-            left
-        } else {
-            f32_to_i16(*input.get(base + 1).unwrap_or(&0.0))
-        };
-        out.push(left);
-        out.push(right);
-    }
-    out
-}
-
-pub fn encode_frame(frame: &PcmFrame) -> Vec<u8> {
+#[cfg(test)]
+fn encode_frame(frame: &PcmFrame) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(18 + frame.samples.len() * 2);
     bytes.extend_from_slice(&frame.epoch.to_le_bytes());
     bytes.extend_from_slice(&frame.sample_rate.to_le_bytes());
@@ -81,10 +52,6 @@ pub fn decode_frame(bytes: &[u8]) -> Option<PcmFrame> {
     })
 }
 
-pub fn keep_epoch(current: u64, frame: u64) -> bool {
-    frame == current
-}
-
 /// Linear resample to the fixed 44100 Hz transport rate. Same-rate input is copied.
 pub fn resample_stereo_i16(input: &[i16], from_rate: u32, to_rate: u32) -> Vec<i16> {
     if from_rate == 0 || to_rate == 0 || from_rate == to_rate || input.len() < 2 {
@@ -108,85 +75,9 @@ pub fn resample_stereo_i16(input: &[i16], from_rate: u32, to_rate: u32) -> Vec<i
     out
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SendOutcome {
-    Sent,
-    /// The remote queue was full. The same frame stays pending.
-    Retry,
-    /// Seek or disconnect made this frame obsolete.
-    Drop,
-}
-
-pub fn after_send_timeout(frame_epoch: u64, current_epoch: u64) -> SendOutcome {
-    if keep_epoch(current_epoch, frame_epoch) {
-        SendOutcome::Retry
-    } else {
-        SendOutcome::Drop
-    }
-}
-
-#[derive(Debug)]
-pub struct CallbackQueue {
-    capacity: usize,
-    frames: VecDeque<PcmFrame>,
-    overruns: u64,
-}
-
-impl CallbackQueue {
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            capacity: capacity.max(1),
-            frames: VecDeque::new(),
-            overruns: 0,
-        }
-    }
-
-    pub fn overruns(&self) -> u64 {
-        self.overruns
-    }
-
-    /// Never blocks and never grows past capacity.
-    pub fn try_push(&mut self, frame: PcmFrame) -> bool {
-        if self.frames.len() >= self.capacity {
-            self.overruns = self.overruns.saturating_add(1);
-            return false;
-        }
-        self.frames.push_back(frame);
-        true
-    }
-
-    pub fn pop_current(&mut self, epoch: u64) -> Option<PcmFrame> {
-        while let Some(front) = self.frames.front() {
-            if keep_epoch(epoch, front.epoch) {
-                return self.frames.pop_front();
-            }
-            self.frames.pop_front();
-        }
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn i16_clips_and_does_not_claim_24_bit() {
-        assert_eq!(f32_to_i16(0.0), 0);
-        assert_eq!(f32_to_i16(1.0), 32767);
-        assert_eq!(f32_to_i16(-1.0), -32767);
-        assert_eq!(f32_to_i16(4.0), 32767);
-        assert_eq!(f32_to_i16(f32::NAN), 0);
-        assert_eq!(INPUT_BITS, 16);
-        assert!(TRANSPORT_FORMAT.contains("16-bit"));
-        assert!(TRANSPORT_FORMAT.contains("i16"));
-    }
-
-    #[test]
-    fn mono_is_duplicated_and_extra_channels_keep_lr() {
-        assert_eq!(to_stereo_i16(&[1.0], 1), vec![32767, 32767]);
-        assert_eq!(to_stereo_i16(&[0.0, -1.0, 1.0], 3), vec![0, -32767]);
-    }
 
     #[test]
     fn known_frame_bytes_match_the_player_tap() {
@@ -223,37 +114,5 @@ mod tests {
         let bytes = encode_frame(&frame);
         assert_eq!(decode_frame(&bytes), Some(frame));
         assert_eq!(decode_frame(&bytes[..bytes.len() - 1]), None);
-    }
-
-    #[test]
-    fn timeout_retries_the_same_epoch_and_seek_drops_it() {
-        assert_eq!(after_send_timeout(4, 4), SendOutcome::Retry);
-        assert_eq!(after_send_timeout(4, 5), SendOutcome::Drop);
-    }
-
-    #[test]
-    fn full_callback_queue_counts_an_overrun_and_seek_discards_old_frames() {
-        let mut queue = CallbackQueue::new(1);
-        assert!(queue.try_push(PcmFrame {
-            epoch: 1,
-            sample_rate: 44_100,
-            channels: 2,
-            samples: vec![1, 1],
-        }));
-        assert!(!queue.try_push(PcmFrame {
-            epoch: 1,
-            sample_rate: 44_100,
-            channels: 2,
-            samples: vec![2, 2],
-        }));
-        assert_eq!(queue.overruns(), 1);
-        assert_eq!(queue.pop_current(2), None);
-        assert!(queue.try_push(PcmFrame {
-            epoch: 2,
-            sample_rate: 44_100,
-            channels: 2,
-            samples: vec![3, 3],
-        }));
-        assert_eq!(queue.pop_current(2).unwrap().samples, vec![3, 3]);
     }
 }

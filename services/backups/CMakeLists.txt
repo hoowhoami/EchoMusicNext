@@ -10,3 +10,6 @@ target_link_libraries(
 )
 
 target_link_libraries(echo_backups PUBLIC echo_settings_keys)
+
+# Foreign QML registrations consume this service target's complete metaobject.
+qt_extract_metatypes(echo_backups)

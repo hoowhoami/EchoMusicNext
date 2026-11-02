@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls.Basic
 import EchoMusic.Controls
 import EchoMusic.Theme
 

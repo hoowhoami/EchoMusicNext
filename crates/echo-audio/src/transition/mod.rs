@@ -65,12 +65,6 @@ impl TransitionMode {
     pub fn is_automix(self) -> bool {
         matches!(self, Self::AutomixBasic | Self::AutomixPro)
     }
-
-    /// Whether the mode produces an overlap that needs the next track prepared well ahead
-    /// of the end of the current one.
-    pub fn overlaps(self) -> bool {
-        matches!(self, Self::Fade | Self::AutomixBasic | Self::AutomixPro)
-    }
 }
 
 /// User-selected transition mode and timed-fade duration.
@@ -163,8 +157,6 @@ mod tests {
         }
         .sanitized();
         assert_eq!(nan.fade_secs, DEFAULT_FADE_SECS);
-        assert!(TransitionMode::AutomixPro.overlaps());
-        assert!(!TransitionMode::Gapless.overlaps());
         assert!(settings.prefetch_lead_secs() > 30.0);
     }
 }
