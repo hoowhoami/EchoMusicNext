@@ -19,6 +19,7 @@ pub trait SystemMediaControls: Send + Sync {
     fn update_metadata(&self, payload: &MetadataPayload);
     fn update_play_state(&self, payload: &PlayStatePayload);
     fn update_timeline(&self, payload: &TimelinePayload);
+    /// Optional platform interval support; macOS keeps track navigation on compact cards.
     fn update_skip_intervals(&self, _payload: &SkipIntervalPayload) {}
     fn set_event_callback(&mut self, callback: EventCallback);
 }
