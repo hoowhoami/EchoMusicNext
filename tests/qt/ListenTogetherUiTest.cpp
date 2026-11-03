@@ -5,6 +5,7 @@
 #include "ThemeStore.h"
 #include "AccountService.h"
 #include "NetworkPreferences.h"
+#include "RenderedInk.h"
 #include <QJsonDocument>
 #include <QFile>
 #include <QFileInfo>
@@ -47,6 +48,11 @@ public:
                             {"member_count", 5 + n},
                             {"owner", QVariantMap{{"id", "900001"}, {"name", "测试房主"}}}});
         room.updateRoomsProjection();
+    }
+    static void chatCode(ListenTogetherController &room, int code)
+    {
+        room.m_activeRoom.insert("chat_code", code);
+        emit room.changed();
     }
     static void joined(ListenTogetherController &room)
     {
@@ -120,6 +126,221 @@ class ListenTogetherUiTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void chatPanelMatchesSourceAcrossWidths()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(900001, "offline-chat-layout"));
+        PlaybackService player(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        auto &room = *player.listenTogether();
+        ListenTogetherControllerTestAccess::rooms(room);
+        ListenTogetherControllerTestAccess::joined(room);
+        QCOMPARE(room.currentUserId(), QString("900001"));
+        const auto message = [](const QString &id, const QString &who, const QString &text,
+                                int kind = 0) {
+            return QVariantMap{
+                {"id", id},
+                {"author",
+                 QVariantMap{{"id", who}, {"name", who == "900001" ? "whoami" : "听众 Friend"}}},
+                {"text", text},
+                {"kind_code", kind},
+                {"sent_at_seconds", 1793678400}};
+        };
+        const QVariantList rows{
+            message("self", "900001", "hello"),
+            message("peer", "77",
+                    QStringLiteral("长消息自动换行，保留原来的文字和间距。\n").repeated(3)),
+            message("system", "77", "加入了房间", 4001)};
+        room.messages()->replace(rows);
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Theme
+import EchoMusic.Playback
+import EchoMusic.ListenTogether
+Window {
+    id: host
+    required property ListenTogetherController room
+    property real uiScale: 1
+    property real panelWidth: 460
+    width: 900
+    height: 800
+    visible: true
+    color: Theme.main
+    ListenChatPanel {
+        anchors.centerIn: parent
+        width: host.panelWidth
+        height: 580
+        scale: host.uiScale
+        room: host.room
+    }
+})",
+                          QUrl("qrc:/listen-chat-source.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"room", QVariant::fromValue(&room)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        const auto capture = qEnvironmentVariable("ECHO_TOGETHER_CHAT_ARTIFACTS");
+        if (!capture.isEmpty())
+            QVERIFY(QDir().mkpath(capture));
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (double scale : {1., 1.25})
+                for (int width : {320, 460}) {
+                    theme.setMode(mode);
+                    root->setProperty("uiScale", scale);
+                    root->setProperty("panelWidth", width);
+                    QTest::qWait(80);
+                    auto *list = visual(window->contentItem(), "listenChatList");
+                    QVERIFY(list);
+                    QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtBeginning"));
+                    const auto frame = window->grabWindow();
+                    QVERIFY(!frame.isNull());
+                    const auto messages = visuals(window->contentItem(), "listenChatMessage");
+                    QCOMPARE(messages.size(), 3);
+                    for (auto *row : messages) {
+                        QCOMPARE(row->x(), 0.);
+                        auto *bubble = visual(row, "listenChatBubble");
+                        auto *avatar = visual(row, "listenChatAvatar");
+                        QVERIFY(bubble && avatar);
+                        if (row->property("system").toBool()) {
+                            auto *system = visual(row, "listenChatSystemBubble");
+                            QVERIFY(system && system->isVisible());
+                            QVERIFY(!bubble->isVisible());
+                            QCOMPARE(system->x() + system->width() / 2, row->width() / 2);
+                            continue;
+                        }
+                        QVERIFY(bubble->isVisible());
+                        QCOMPARE(avatar->width(), 27.);
+                        const auto avatarBox = avatar->mapRectToItem(row, avatar->boundingRect());
+                        const auto bubbleBox = bubble->mapRectToItem(row, bubble->boundingRect());
+                        const bool self = row->property("self").toBool();
+                        QVERIFY(self ? qAbs(avatarBox.right() - row->width() + 11) < .01
+                                     : qAbs(avatarBox.left() - 11) < .01);
+                        QVERIFY(self ? bubbleBox.right() <= avatarBox.left() - 7.9
+                                     : bubbleBox.left() >= avatarBox.right() + 7.9);
+                        auto *time = visual(row, "listenChatTime");
+                        QVERIFY(time && !time->property("text").toString().isEmpty());
+                        auto *meta = visual(row, "listenChatMeta");
+                        auto *name = visual(row, "listenChatName");
+                        QVERIFY(meta && name);
+                        const auto metaBox = meta->mapRectToItem(row, meta->boundingRect());
+                        QVERIFY(self ? qAbs(metaBox.right() - bubbleBox.right()) < .01
+                                     : qAbs(metaBox.left() - bubbleBox.left()) < .01);
+                        QVERIFY(qAbs(time->width() - time->implicitWidth()) <= 1);
+                        QVERIFY(name->width() <= name->implicitWidth() + 1);
+                        QVERIFY(qAbs(meta->width() - name->width() - time->width() - 7) <= 1);
+                        auto *body = visual(row, "listenChatBody");
+                        QVERIFY(body);
+                        const auto ink = Test::renderedInkCenter(
+                            frame, window, body, body->property("color").value<QColor>());
+                        QVERIFY(ink);
+                        const auto center = bubble->mapToScene(bubble->boundingRect().center());
+                        QVERIFY(qAbs(*ink - center.y()) *
+                                    (qreal(frame.width()) / window->width()) <=
+                                2);
+                        QCOMPARE(bubble->property("color").value<QColor>(),
+                                 self ? theme.accent() : theme.mutedSurface());
+                    }
+                    auto *composer = visual(window->contentItem(), "listenMessageComposer");
+                    auto *send = visual(window->contentItem(), "listenSendMessage");
+                    auto *surface = visual(window->contentItem(), "listenComposerSurface");
+                    QVERIFY(composer && send && surface);
+                    QCOMPARE(composer->parentItem(), send->parentItem());
+                    QVERIFY(!send->isEnabled());
+                    QCOMPARE(send->width(), 36.);
+                    QCOMPARE(send->property("glyph").toString(), QString("send"));
+                    QCOMPARE(surface->x(), 9.);
+                    QVERIFY(visual(window->contentItem(), "listenChatKicker"));
+                    auto *counter = visual(window->contentItem(), "listenChatCharacterCount");
+                    QVERIFY(counter && counter->isVisible());
+                    QCOMPARE(counter->property("text").toString(), QString("0 / 200"));
+                    const auto counterBox =
+                        counter->mapRectToItem(surface, counter->boundingRect());
+                    const auto sendBox = send->mapRectToItem(surface, send->boundingRect());
+                    const auto composerBox =
+                        composer->mapRectToItem(surface, composer->boundingRect());
+                    QVERIFY(counterBox.left() >= composerBox.right() + 11.9);
+                    QVERIFY(counterBox.right() <= sendBox.left() - 11.9);
+                    QCOMPARE(counterBox.bottom(), sendBox.bottom());
+                    QVERIFY(counterBox.bottom() <= surface->height() - 7);
+                    QCOMPARE(counter->parentItem(), send->parentItem());
+                    if (!capture.isEmpty())
+                        QVERIFY(frame.save(
+                            capture +
+                            QString("/chat-%1-%2-%3.png").arg(int(mode)).arg(scale).arg(width)));
+                    room.messages()->replace({});
+                    QTest::qWait(40);
+                    auto *empty = visual(window->contentItem(), "listenChatEmpty");
+                    QVERIFY(empty && empty->isVisible());
+                    auto *label =
+                        qobject_cast<QQuickItem *>(empty->property("textItem").value<QObject *>());
+                    QVERIFY(label);
+                    QCOMPARE(label->width(), empty->width());
+                    QCOMPARE(label->property("horizontalAlignment").toInt(), int(Qt::AlignHCenter));
+                    const auto labelBox = label->mapRectToItem(list, label->boundingRect());
+                    QCOMPARE(labelBox.center().x(), list->width() / 2);
+                    QCOMPARE(empty->height(), 76.);
+                    QCOMPARE(empty->y(), 10.);
+                    const auto emptyFrame = window->grabWindow();
+                    const auto emptyBox = empty->mapRectToScene(empty->boundingRect());
+                    const qreal ratio = qreal(emptyFrame.width()) / window->width();
+                    const auto emptyInk = Test::renderedInkBounds(
+                        emptyFrame,
+                        QRectF(emptyBox.topLeft() * ratio, emptyBox.size() * ratio).toAlignedRect(),
+                        empty->property("color").value<QColor>());
+                    QVERIFY(emptyInk);
+                    QVERIFY(qAbs((emptyInk->left() + emptyInk->right() + 1) / 2. -
+                                 emptyBox.center().x() * ratio) <= 2);
+                    QVERIFY(qAbs((emptyInk->top() + emptyInk->bottom() + 1) / 2. -
+                                 emptyBox.center().y() * ratio) <= 2);
+                    if (!capture.isEmpty())
+                        QVERIFY(emptyFrame.save(
+                            capture +
+                            QString("/empty-%1-%2-%3.png").arg(int(mode)).arg(scale).arg(width)));
+                    room.messages()->replace(rows);
+                    QTest::qWait(40);
+                }
+        auto *composer = visual(window->contentItem(), "listenMessageComposer");
+        auto *counter = visual(window->contentItem(), "listenChatCharacterCount");
+        QVERIFY(counter);
+        composer->setProperty("text", "中文a");
+        QCOMPARE(counter->property("text").toString(), QString("3 / 200"));
+        composer->setProperty("text", QString(201, QChar(u'文')));
+        QCOMPARE(composer->property("text").toString(), QString(200, QChar(u'文')));
+        QCOMPARE(counter->property("text").toString(), QString("200 / 200"));
+        const auto emoji = QString::fromUtf8("😀");
+        composer->setProperty("text", emoji.repeated(101));
+        QCOMPARE(composer->property("text").toString(), emoji.repeated(100));
+        QCOMPARE(counter->property("text").toString(), QString("200 / 200"));
+        composer->setProperty("text", "");
+        QCOMPARE(counter->property("text").toString(), QString("0 / 200"));
+        composer->setProperty("text", "保留草稿");
+        ListenTogetherControllerTestAccess::chatCode(room, 2);
+        QVERIFY(!composer->isEnabled());
+        QCOMPARE(composer->property("text").toString(), QString("保留草稿"));
+        ListenTogetherControllerTestAccess::chatCode(room, 1);
+        QVERIFY(composer->isEnabled());
+        QVariantList large;
+        for (int i = 0; i < 2000; ++i)
+            large.append(message(QString::number(i), i % 2 ? "77" : "900001", "有界消息列表"));
+        room.messages()->replace(large);
+        QTest::qWait(80);
+        QVERIFY(visuals(window->contentItem(), "listenChatMessage").size() < 100);
+        QVERIFY(warnings.isEmpty());
+        root.reset();
+        QSignalSpy closed(&player, &PlaybackService::closed);
+        player.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void liveProductionPrivateRoom()
     {
         if (!qEnvironmentVariableIsSet("ECHO_LIVE_LISTEN_TOGETHER_UI"))
@@ -562,9 +783,11 @@ private slots:
                 auto *composer = visual(window->contentItem(), "listenMessageComposer");
                 auto *send = visual(window->contentItem(), "listenSendMessage");
                 auto *surface = visual(window->contentItem(), "listenComposerSurface");
-                QVERIFY(composer && send && surface);
+                auto *counter = visual(window->contentItem(), "listenChatCharacterCount");
+                QVERIFY(composer && send && surface && counter);
                 QCOMPARE(composer->parentItem(), send->parentItem());
-                QCOMPARE(composer->parentItem()->parentItem(), surface);
+                QCOMPARE(composer->parentItem(), counter->parentItem());
+                QCOMPARE(counter->parentItem()->parentItem(), surface);
                 QVERIFY(send->mapToItem(surface, QPointF{}).x() + send->width() <=
                         surface->width() - 7.5);
                 QSignalSpy frames(window, &QQuickWindow::frameSwapped);

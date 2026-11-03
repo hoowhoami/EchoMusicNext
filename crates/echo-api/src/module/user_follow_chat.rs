@@ -70,6 +70,11 @@ pub async fn execute(
                 params: BTreeMap::new(),
                 body,
                 headers: &[
+                    // Preserve the chat gateway's client-identification headers.
+                    ("KG-RC", "1"),
+                    ("KG-THash", "5d816a0"),
+                    ("KG-Rec", "1"),
+                    ("KG-RF", "B9EDA08A64250DEFFBCADDEE00F8F25F"),
                     (
                         "User-Agent",
                         "Android15-AndroidPhone-11440-201-0-ChatSend-wifi",

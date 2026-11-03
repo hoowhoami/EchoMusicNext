@@ -4,6 +4,106 @@
 #include <QHash>
 #include <QPainterPath>
 
+void ControlsUiTest::sendButtonKeepsIconGeometryAndBusyState()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    session.theme.setMotionEnabled(false);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Theme
+Window {
+ id: host; visible: true; width: 300; height: 180; color: Theme.main
+ property real uiScale: 1
+ property bool busy: false
+ property int seconds: 0
+ property bool allowed: true
+ EchoSendButton {
+  id: send; objectName: "sendSample"; anchors.centerIn: parent; scale: host.uiScale
+  actionLabel: qsTr("发送评论"); loading: host.busy; cooldownSeconds: host.seconds
+  enabled: host.allowed && !loading && cooldownSeconds === 0
+ }
+})",
+                      QUrl("qrc:/shared-send-button.qml"));
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window);
+    QVERIFY(Test::prepareNativeInput(session.window));
+    auto *button = findVisual(session.window->contentItem(), "sendSample");
+    QVERIFY(button);
+    QSignalSpy clicked(button, SIGNAL(clicked()));
+    const auto captures = qEnvironmentVariable("ECHO_SEND_BUTTON_CAPTURES");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+        for (qreal scale : {1., 1.25}) {
+            session.theme.setMode(mode);
+            session.root->setProperty("uiScale", scale);
+            session.root->setProperty("busy", false);
+            session.root->setProperty("allowed", true);
+            QTest::qWait(50);
+            QCOMPARE(button->width(), 36.);
+            QCOMPARE(button->height(), 36.);
+            QVERIFY(button->property("text").toString().isEmpty());
+            QQuickItem *glyph = nullptr;
+            QTRY_VERIFY(glyph = findVisual(button, "buttonGlyph"));
+            QCOMPARE(glyph->property("name").toString(), QString("send"));
+            QCOMPARE(glyph->width(), 17.);
+            const auto center = glyph->mapToItem(button, glyph->boundingRect().center());
+            // Odd-sized icons pass through Qt's native layout quantization;
+            // retain a fixed physical-pixel bound across application scales.
+            const qreal density = session.window->devicePixelRatio() * scale;
+            QVERIFY2(qAbs(center.x() - 18) * density <= 2 && qAbs(center.y() - 18) * density <= 2,
+                     qPrintable(QString("Send glyph center %1,%2 in %3x%4")
+                                    .arg(center.x())
+                                    .arg(center.y())
+                                    .arg(button->width())
+                                    .arg(button->height())));
+            QTRY_COMPARE(glyph->property("status").toInt(), 1);
+            if (!captures.isEmpty())
+                QVERIFY(session.window->grabWindow().save(
+                    captures + QString("/send-%1-%2.png").arg(int(mode)).arg(scale)));
+            const auto point = button->mapToScene(button->boundingRect().center()).toPoint();
+            const int before = clicked.size();
+            QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, point);
+            QCOMPARE(clicked.size(), before + 1);
+            session.root->setProperty("busy", true);
+            QQuickItem *spinner = nullptr;
+            QTRY_VERIFY(spinner = findVisual(button, "buttonSpinner"));
+            QVERIFY(!findVisual(button, "buttonGlyph"));
+            QVERIFY(!button->isEnabled());
+            QCOMPARE(button->width(), 36.);
+            QCOMPARE(button->height(), 36.);
+            QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, point);
+            QCOMPARE(clicked.size(), before + 1);
+            if (!captures.isEmpty())
+                QVERIFY(session.window->grabWindow().save(
+                    captures + QString("/busy-%1-%2.png").arg(int(mode)).arg(scale)));
+            session.root->setProperty("busy", false);
+            QTRY_VERIFY(!findVisual(button, "buttonSpinner"));
+            QTRY_VERIFY(findVisual(button, "buttonGlyph"));
+            session.root->setProperty("seconds", 3);
+            QTRY_VERIFY(!findVisual(button, "buttonGlyph"));
+            QVERIFY(!button->isEnabled());
+            auto *count = findVisual(button, "buttonLabel");
+            QVERIFY(count);
+            QCOMPARE(count->property("text").toString(), QString("3s"));
+            QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, point);
+            QCOMPARE(clicked.size(), before + 1);
+            QCOMPARE(button->width(), 36.);
+            session.root->setProperty("seconds", 0);
+            QTRY_VERIFY(findVisual(button, "buttonGlyph"));
+            session.root->setProperty("allowed", false);
+            QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, point);
+            QCOMPARE(clicked.size(), before + 1);
+        }
+    QVERIFY(warnings.isEmpty());
+}
+
 void ControlsUiTest::badgeIconAndCountUseSameInkCenter()
 {
     ControlsSession session;

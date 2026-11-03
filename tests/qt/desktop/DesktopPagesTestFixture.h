@@ -397,6 +397,17 @@ public:
 class ProfileServiceTestAccess
 {
 public:
+    static void presentChat(ProfileService &p, const QString &text, bool self)
+    {
+        // Canonical presentation only: no history conversion or message write.
+        p.m_chatTarget = {{"user_id", 77}, {"nickname", "Friend"}};
+        p.m_chatMessages = {QVariantMap{{"id", "layout-message"},
+                                        {"text", text},
+                                        {"isSelf", self},
+                                        {"nickname", self ? "whoami" : "Friend"},
+                                        {"time", "11-03 12:30"}}};
+        emit p.changed();
+    }
     static void seed(ProfileService &p, int tab, QJsonArray rows)
     {
         const auto old = std::exchange(p.m_social[tab].request, 0);
@@ -517,6 +528,11 @@ public:
 class ApiClientTestAccess
 {
 public:
+    static void expireMessageCooldown(ApiClient &api)
+    {
+        api.m_messageSendDeadline = QDeadlineTimer();
+        api.updateMessageSendCooldown();
+    }
     static QJsonObject request(const ApiClient &api, quint64 id)
     {
         return api.m_pending.value(id).request;

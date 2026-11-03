@@ -257,10 +257,13 @@ EchoAnchoredPopup {
                                 color: Array.from(draft.text).length > 100 ? Theme.floating.dangerText : Theme.floatingSecondaryText
                                 font: Theme.font(12, Theme.regularWeight)
                             }
-                            EchoSoftButton {
+                            EchoSendButton {
+                                objectName: popup.lyric ? "lyricBarrageSend" : "mvBarrageSend"
                                 colors: Theme.floating
-                                text: popup.controller.busy ? qsTr("发送中…") : qsTr("发送")
-                                enabled: popup.controller.signedIn && !popup.controller.busy && draft.text.trim().length > 0 && Array.from(draft.text).length <= 100
+                                actionLabel: qsTr("发送弹幕")
+                                loading: popup.controller.busy
+                                cooldownSeconds: popup.controller.sendCooldownSeconds
+                                enabled: popup.controller.signedIn && !popup.controller.busy && cooldownSeconds === 0 && draft.text.trim().length > 0 && Array.from(draft.text).length <= 100
                                 onClicked: popup.controller.send()
                             }
                         }

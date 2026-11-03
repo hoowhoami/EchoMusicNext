@@ -116,10 +116,12 @@ Rectangle {
                 font: Theme.font(11, Theme.regularWeight)
                 color: Theme.secondaryText
             }
-            EchoButton {
+            EchoSendButton {
                 objectName: "replySend"
-                text: composer.controller.busy ? qsTr("发送中…") : qsTr("发送回复")
-                enabled: composer.controller.signedIn && !composer.controller.busy && draft.text.trim().length > 0 && Array.from(draft.text).length <= 200
+                actionLabel: qsTr("发送回复")
+                loading: composer.controller.busy
+                cooldownSeconds: composer.controller.sendCooldownSeconds
+                enabled: composer.controller.signedIn && !composer.controller.busy && cooldownSeconds === 0 && draft.text.trim().length > 0 && Array.from(draft.text).length <= 200
                 onClicked: composer.controller.submitReply()
             }
         }

@@ -126,6 +126,8 @@ CommentsController::CommentsController(ApiClient &a, RouteContext *r, bool netwo
     : QObject(p), m_authors(authors), m_api(a), m_route(r), m_model(this), m_network(network)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
+    connect(&a, &ApiClient::messageSendCooldownChanged, this,
+            &CommentsController::sendCooldownChanged);
     if (m_authors)
         connect(m_authors, &CommentAuthorService::changed, this, [this] {
             rebuild();
@@ -816,7 +818,7 @@ void CommentsController::mutation(quint64 id, Operation op, const QString &draft
 }
 void CommentsController::send()
 {
-    if (busy() || !active())
+    if (busy() || !active() || sendCooldownSeconds() > 0)
         return;
     if (!signedIn()) {
         emit notice(tr("请先登录后再评论"), true);
@@ -838,7 +840,7 @@ void CommentsController::send()
 void CommentsController::reply(const QVariantMap &target, const QString &rootId,
                                const QString &content)
 {
-    if (busy() || !active())
+    if (busy() || !active() || sendCooldownSeconds() > 0)
         return;
     if (!signedIn()) {
         emit notice(tr("请先登录后再评论"), true);

@@ -937,6 +937,277 @@ pub fn success(status: u32, code: i64) -> Result<(), ApiError> {
 #[cfg(test)]
 mod tests {
     #[tokio::test]
+    async fn private_history_discovers_both_tag_orders_and_merges_message_ids() {
+        // Controlled wire cases derived from the sampled text-history shape.
+        for mode in 0..3 {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let server = std::thread::spawn(move || {
+                let mut tags = Vec::new();
+                for _ in 0..if mode == 2 { 1 } else { 2 } {
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    let mut socket = loop {
+                        match listener.accept() {
+                            Ok((socket, _)) => break socket,
+                            Err(error)
+                                if error.kind() == std::io::ErrorKind::WouldBlock
+                                    && Instant::now() < deadline =>
+                            {
+                                std::thread::sleep(Duration::from_millis(2));
+                            }
+                            other => panic!("Missing history orientation: {other:?}"),
+                        }
+                    };
+                    socket.set_nonblocking(false).unwrap();
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut incoming = Vec::new();
+                    while !incoming.windows(4).any(|v| v == b"\r\n\r\n") {
+                        let mut bytes = [0; 2048];
+                        let n = socket.read(&mut bytes).unwrap();
+                        assert!(n > 0);
+                        incoming.extend_from_slice(&bytes[..n]);
+                        assert!(incoming.len() < 32 * 1024);
+                    }
+                    let head = String::from_utf8(incoming).unwrap();
+                    let path = head
+                        .lines()
+                        .next()
+                        .unwrap()
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap();
+                    let url = reqwest::Url::parse(&format!("http://localhost{path}")).unwrap();
+                    assert_eq!(url.path(), "/msg.mobile/v3/msgtag/history");
+                    let params: BTreeMap<String, String> = url.query_pairs().into_owned().collect();
+                    assert_eq!(params["filter"], "1");
+                    assert_eq!(params["maxid"], "0");
+                    assert_eq!(params["pagesize"], "30");
+                    let tag = params["tag"].clone();
+                    let row = |id: &str, sender: u64, time: u64| {
+                        serde_json::json!({
+                            "msgid":id,"uid":sender,"addtime":time,"tag":tag,
+                            "message":{"msgtype":201,"alert":"text","nickname":"fixture"}
+                        })
+                    };
+                    let rows = if tag == "chat:123_77" {
+                        vec![row("new", 123, 4), row("same", 123, 3)]
+                    } else {
+                        assert_eq!(tag, "chat:77_123");
+                        if mode == 1 {
+                            vec![row("same", 123, 3), row("old", 77, 1)]
+                        } else {
+                            vec![]
+                        }
+                    };
+                    let body = serde_json::to_vec(
+                        &serde_json::json!({"status":1,"errcode":0,"is_end":1,"list":rows}),
+                    )
+                    .unwrap();
+                    write!(
+                        socket,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .unwrap();
+                    socket.write_all(&body).unwrap();
+                    tags.push(tag);
+                }
+                tags.sort();
+                tags
+            });
+            let identity:Identity=serde_json::from_value(serde_json::json!({"userid":123,"token":"fixture","mid":"fixture","dfid":"fixture"})).unwrap();
+            let mut client = ApiClient::new().unwrap();
+            client.base_url = format!("http://{address}");
+            client.set_timeout_seconds(3.);
+            let bytes = crate::module::user_follow_message::execute(
+                &client,
+                &identity,
+                crate::module::user_follow_message::Query {
+                    target: 77,
+                    tag: if mode == 2 {
+                        Some("chat:123_77".into())
+                    } else {
+                        None
+                    },
+                },
+            )
+            .await
+            .unwrap();
+            let tags = server.join().unwrap();
+            assert_eq!(
+                tags,
+                if mode == 2 {
+                    vec!["chat:123_77"]
+                } else {
+                    vec!["chat:123_77", "chat:77_123"]
+                }
+            );
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            let ids: Vec<_> = value["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v["id"].as_str().unwrap())
+                .collect();
+            assert_eq!(
+                ids,
+                if mode == 1 {
+                    vec!["old", "same", "new"]
+                } else {
+                    vec!["same", "new"]
+                }
+            );
+            assert!(value["tag"].as_str().is_some_and(|tag| !tag.is_empty()));
+            assert_eq!(value["ended"], true);
+        }
+    }
+
+    #[tokio::test]
+    async fn social_chat_wire_preserves_target_headers_and_signed_body() {
+        // Signatures were independently computed with the reference Android
+        // signer at clienttime=1700000000, using only synthetic credentials.
+        for (tag, expected_signature) in [
+            (None, "8e3acdfa85ad6ae985b3dad04e0a843f"),
+            (Some("chat:77_123"), "5a0718dd4b94f262a0cefdd9c42352cc"),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let server = std::thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let mut socket = loop {
+                    match listener.accept() {
+                        Ok((socket, _)) => break socket,
+                        Err(error)
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                                && Instant::now() < deadline =>
+                        {
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                        other => panic!("chat request did not reach loopback: {other:?}"),
+                    }
+                };
+                socket.set_nonblocking(false).unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut incoming = Vec::new();
+                loop {
+                    let mut buffer = [0; 2048];
+                    let count = socket.read(&mut buffer).unwrap();
+                    assert!(count > 0);
+                    incoming.extend_from_slice(&buffer[..count]);
+                    assert!(incoming.len() < 32 * 1024);
+                    if let Some(end) = incoming.windows(4).position(|v| v == b"\r\n\r\n") {
+                        let headers =
+                            String::from_utf8_lossy(&incoming[..end]).to_ascii_lowercase();
+                        let length: usize = headers
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length: "))
+                            .unwrap()
+                            .parse()
+                            .unwrap();
+                        if incoming.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                // Only an error envelope is needed; this is a wire test, not a
+                // fabricated successful send or provider response fixture.
+                let response = br#"{"status":0,"errcode":2001}"#;
+                write!(
+                    socket,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    response.len()
+                )
+                .unwrap();
+                socket.write_all(response).unwrap();
+                String::from_utf8(incoming).unwrap()
+            });
+            let identity: Identity = serde_json::from_value(serde_json::json!({
+                "userid":123,"token":"fixture-token","mid":"fixture-mid","dfid":"fixture-dfid"
+            }))
+            .unwrap();
+            let mut client = ApiClient::new().unwrap();
+            client.base_url = format!("http://{address}");
+            assert!(client.set_timeout_seconds(2.));
+            let error = crate::module::user_follow_chat::execute(
+                &client,
+                &identity,
+                crate::module::user_follow_chat::Query {
+                    target: 77,
+                    tag: tag.map(str::to_owned),
+                    text: "Hello / 你好\n\"quoted\"".into(),
+                    nickname: "Fixture".into(),
+                },
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(error.kind, "business");
+            assert_eq!(error.code, Some(2001));
+            let sent = server.join().unwrap();
+            let (headers, body) = sent.split_once("\r\n\r\n").unwrap();
+            let url = reqwest::Url::parse(&format!(
+                "http://localhost{}",
+                headers
+                    .lines()
+                    .next()
+                    .unwrap()
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap()
+            ))
+            .unwrap();
+            assert!(headers.starts_with("POST /v1/chat/send?"));
+            let mut params: BTreeMap<String, String> = url.query_pairs().into_owned().collect();
+            let signature = params.remove("signature").unwrap();
+            assert_eq!(signature, signature::android(&params, body.as_bytes()));
+            assert_eq!(params["appid"], "3116");
+            assert_eq!(params["clientver"], "11440");
+            assert_eq!(params["userid"], "123");
+            assert_eq!(params["token"], "fixture-token");
+            assert_eq!(params["uuid"], "-");
+            params.insert("clienttime".into(), "1700000000".into());
+            assert_eq!(
+                signature::android(&params, body.as_bytes()),
+                expected_signature
+            );
+            let mut expected = serde_json::json!({"message":{
+                "msgtype":201,"alert":"Hello / 你好\n\"quoted\"","nickname":"Fixture",
+                "source":0,"follow_source":0,"nt":""
+            }});
+            if let Some(tag) = tag {
+                expected["tag"] = tag.into();
+            } else {
+                expected["tuid"] = 77.into();
+            }
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(body).unwrap(),
+                expected
+            );
+            assert!(body.contains("\\/"));
+            let headers = headers.to_ascii_lowercase();
+            for expected in [
+                "x-router: msg.mobile.kugou.com\r\n",
+                "user-agent: android15-androidphone-11440-201-0-chatsend-wifi\r\n",
+                "content-type: text/plain; charset=utf-8\r\n",
+                "kg-rc: 1\r\n",
+                "kg-thash: 5d816a0\r\n",
+                "kg-rec: 1\r\n",
+                "kg-rf: b9eda08a64250deffbcaddee00f8f25f\r\n",
+            ] {
+                assert!(
+                    (headers.clone() + "\r\n").contains(expected),
+                    "missing {expected}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn bss_complete_sends_explicit_zero_length_post_and_preserves_retry_after() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();

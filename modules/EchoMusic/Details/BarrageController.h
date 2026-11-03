@@ -13,11 +13,16 @@ class BarrageController final : public QObject
     QML_UNCREATABLE("Owned by a resource service")
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
+    Q_PROPERTY(int sendCooldownSeconds READ sendCooldownSeconds NOTIFY sendCooldownChanged)
     Q_PROPERTY(bool empty READ empty NOTIFY changed)
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(QString draft READ draft WRITE setDraft NOTIFY changed)
 public:
+    int sendCooldownSeconds() const
+    {
+        return m_api.messageSendCooldownSeconds();
+    }
     BarrageController(ApiClient &, RouteContext *, bool network, QObject *parent,
                       bool song = false);
     ~BarrageController() override;
@@ -55,6 +60,7 @@ public:
     Q_INVOKABLE void send();
     void shutdown();
 signals:
+    void sendCooldownChanged();
     void changed();
     void resetFlights();
     void ownReady();

@@ -16,6 +16,8 @@ qt_add_qml_module(
     ListenTogetherPage.qml
     ListenRoomCard.qml
     ListenSession.qml
+    ListenChatPanel.qml
+    ListenChatMessage.qml
     ListenRoomDialogs.qml
     ListenSongPickerDialog.qml
 )

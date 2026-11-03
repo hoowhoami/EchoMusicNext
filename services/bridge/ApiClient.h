@@ -5,6 +5,8 @@
 #include "ListenTogetherApi.h"
 #include <QHash>
 #include <QElapsedTimer>
+#include <QDeadlineTimer>
+#include <QTimer>
 #include <QJsonObject>
 #include <QList>
 #include <QObject>
@@ -52,6 +54,8 @@ public:
         return m_runtime != nullptr && !m_closing;
     }
     quint64 capabilities();
+    /// One monotonic, account-scoped interval across explicit message writes.
+    int messageSendCooldownSeconds() const;
     quint64 addInterceptor(double priority, decltype(ApiInterceptor::invoke) invoke,
                            bool transport = false);
     void removeInterceptor(quint64 id);
@@ -485,6 +489,7 @@ signals:
     void verificationDismissed();
     void authenticationExpired();
     void sessionChanged(quint64 revision);
+    void messageSendCooldownChanged();
 
 private:
     struct AuthClient;
@@ -518,6 +523,9 @@ private:
         quint64 verifiesRequest = 0;
     };
     quint64 submit(QJsonObject request, bool includeIdentity = true, RequestOptions options = {});
+    void startMessageSendCooldown();
+    void updateMessageSendCooldown();
+    void resetMessageSendCooldown();
     quint64 submitPrepared(Pending pending);
     static void interceptCallback(void *, uint64_t, uint64_t, uint64_t, unsigned int,
                                   const uint8_t *, size_t) noexcept;
@@ -562,5 +570,7 @@ private:
     quint64 m_userId = 0;
     QString m_token;
     QString m_t1;
+    QDeadlineTimer m_messageSendDeadline;
+    QTimer m_messageSendTimer;
 };
 } // namespace EchoMusic

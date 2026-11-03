@@ -38,8 +38,13 @@ class ProfileService final : public QObject
     Q_PROPERTY(QVariantList chatMessages READ chatMessages NOTIFY changed)
     Q_PROPERTY(bool chatLoading READ chatLoading NOTIFY changed)
     Q_PROPERTY(bool chatSending READ chatSending NOTIFY changed)
+    Q_PROPERTY(int sendCooldownSeconds READ sendCooldownSeconds NOTIFY sendCooldownChanged)
     Q_PROPERTY(QString chatError READ chatError NOTIFY changed)
 public:
+    int sendCooldownSeconds() const
+    {
+        return m_api.messageSendCooldownSeconds();
+    }
     bool chatActive() const
     {
         return !m_chatTarget.isEmpty();
@@ -171,6 +176,7 @@ public:
                                  const QString &city);
     void shutdown();
 signals:
+    void sendCooldownChanged();
     void changed();
     void notice(const QString &message, bool warning);
     /// Editor feedback raised as a toast so the scrollable form never hides it.

@@ -11,6 +11,8 @@ ListenTogetherController::ListenTogetherController(PlaybackService &playback, Ap
     : QObject(&playback), m_playback(playback), m_api(api)
 {
     m_retryClock.start();
+    connect(&api, &ApiClient::messageSendCooldownChanged, this,
+            &ListenTogetherController::sendCooldownChanged);
     connect(&api, &ApiClient::succeeded, this, &ListenTogetherController::succeeded);
     connect(&api, &ApiClient::failed, this,
             [this](quint64 id, int, const QByteArray &body) { failed(id, body); });

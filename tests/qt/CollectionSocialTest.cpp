@@ -14,6 +14,11 @@ namespace EchoMusic
 class ApiClientTestAccess
 {
 public:
+    static void expireMessageCooldown(ApiClient &api)
+    {
+        api.m_messageSendDeadline = QDeadlineTimer();
+        api.updateMessageSendCooldown();
+    }
     static QJsonObject request(ApiClient &a, quint64 id)
     {
         return a.m_pending.value(id).request;
@@ -401,6 +406,133 @@ private slots:
         QCOMPARE(blacklist.entries()->index(0, 0).data(ContentBlacklistModel::Key).toString(),
                  QString("77"));
     }
+    void messageCooldownCoversEveryWriteAndSurvivesFailure()
+    {
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(sink.serverPort()));
+        QVERIFY(api.setAccount(900001, "isolated-cooldown"));
+        ApiClient::CommentWrite comment;
+        comment.id = "42";
+        comment.content = "text";
+        comment.commentId = "1";
+        ListenChatRequest room;
+        room.action = ListenChatAction::Send;
+        room.roomId = "test-room";
+        room.text = "text";
+        const QList<std::function<quint64()>> writes{
+            [&] { return api.sendSocialMessage(77, {}, "text", "Test"); },
+            [&] {
+                comment.resource = ApiClient::CommentResource::Music;
+                return api.sendComment(comment);
+            },
+            [&] {
+                comment.resource = ApiClient::CommentResource::Album;
+                return api.sendComment(comment);
+            },
+            [&] {
+                comment.resource = ApiClient::CommentResource::Playlist;
+                return api.sendComment(comment);
+            },
+            [&] { return api.replyComment(comment); },
+            [&] { return api.sendSongBarrage("105A2705BEEE36A8BED029A8E1A6311D", "test", "text"); },
+            [&] {
+                return api.sendVideoBarrage("105A2705BEEE36A8BED029A8E1A6311D", "test", "text");
+            },
+            [&] { return api.listenTogetherChat(room); }};
+        QSignalSpy changed(&api, &ApiClient::messageSendCooldownChanged);
+        QSignalSpy failed(&api, &ApiClient::failed);
+        const auto first = writes[0]();
+        QVERIFY(first);
+        QCOMPARE(api.messageSendCooldownSeconds(), 3);
+        for (const auto &write : writes)
+            QCOMPARE(write(), quint64(0));
+        QTRY_VERIFY_WITH_TIMEOUT(!failed.isEmpty(), 2000);
+        QVERIFY(api.messageSendCooldownSeconds() > 0);
+        QTRY_COMPARE_WITH_TIMEOUT(api.messageSendCooldownSeconds(), 0, 4000);
+        QVERIFY(changed.size() >= 3);
+        for (const auto &write : writes) {
+            ApiClientTestAccess::expireMessageCooldown(api);
+            const auto id = write();
+            QVERIFY(id);
+            QCOMPARE(api.messageSendCooldownSeconds(), 3);
+            for (const auto &blocked : writes)
+                QCOMPARE(blocked(), quint64(0));
+            const auto read = api.socialMessages(77, {});
+            QVERIFY(read);
+            api.cancel(read);
+            api.cancel(id);
+            QVERIFY(api.messageSendCooldownSeconds() > 0);
+        }
+        QVERIFY(api.setAccount(900001, "refreshed-token"));
+        QVERIFY(api.messageSendCooldownSeconds() > 0);
+        QVERIFY(api.setAccount(900002, "other-account"));
+        QCOMPARE(api.messageSendCooldownSeconds(), 0);
+        QVERIFY(writes[0]());
+        quint64 reentrant = 0;
+        connect(&api, &ApiClient::sessionChanged, &api, [&] {
+            if (api.currentAccountUserId() == 900003)
+                reentrant = writes[0]();
+        });
+        QVERIFY(api.setAccount(900003, "reentrant-account"));
+        QVERIFY(reentrant);
+        QCOMPARE(api.messageSendCooldownSeconds(), 3);
+        api.shutdown();
+        QCOMPARE(api.messageSendCooldownSeconds(), 0);
+    }
+    void chatHistoryReopensMergesAcksAndRestoresTag()
+    {
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(sink.serverPort()));
+        AccountService account(api);
+        ProfileService profile(api, account);
+        QVERIFY(AccountServiceTestAccess::adopt(account));
+        ProfileServiceTestAccess::seed(profile, 0,
+                                       {QJsonObject{{"key", "user:77"},
+                                                    {"user_id", 77},
+                                                    {"nickname", "Friend"},
+                                                    {"avatar_url", "peer-avatar"},
+                                                    {"following", true}}});
+        const auto history =
+            R"({"records":[{"id":"past-self","sender_id":900001,"sender_nickname":"Self","text":"saved self","sent_at_seconds":1790607092},{"id":"past-peer","sender_id":77,"sender_nickname":"Peer","text":"saved peer","sent_at_seconds":1790607093}],"tag":"chat:77_900001","unmapped_records":[],"ended":true})";
+        profile.openChat("user:77");
+        const auto read = ProfileServiceTestAccess::chatRead(profile);
+        ProfileServiceTestAccess::accept(profile, read, history);
+        QCOMPARE(profile.chatMessages().size(), 2);
+        QVERIFY(profile.chatMessages()[0].toMap()["isSelf"].toBool());
+        QVERIFY(!profile.chatMessages()[1].toMap()["isSelf"].toBool());
+        QCOMPARE(profile.chatMessages()[1].toMap()["avatar"].toString(), QString("peer-avatar"));
+        QVERIFY(!profile.chatMessages()[0].toMap()["time"].toString().isEmpty());
+        profile.closeChat();
+        QVERIFY(profile.chatMessages().isEmpty());
+        profile.openChat("user:77");
+        const auto reopen = ProfileServiceTestAccess::chatRead(profile);
+        ProfileServiceTestAccess::accept(profile, read, history);
+        QVERIFY(profile.chatMessages().isEmpty());
+        ProfileServiceTestAccess::accept(profile, reopen, history);
+        QCOMPARE(profile.chatMessages().size(), 2);
+        profile.sendChat("new text");
+        const auto write = ProfileServiceTestAccess::chatWrite(profile);
+        QCOMPARE(ApiClientTestAccess::request(api, write)["query"].toObject()["tag"].toString(),
+                 QString("chat:77_900001"));
+        ProfileServiceTestAccess::accept(
+            profile, write,
+            R"({"msgid":"new-message","tag":"chat:77_900001","addtime":1790607100})");
+        QCOMPARE(profile.chatMessages().size(), 3);
+        profile.refreshChat();
+        ProfileServiceTestAccess::accept(profile, ProfileServiceTestAccess::chatRead(profile),
+                                         history);
+        QCOMPARE(profile.chatMessages().size(), 3);
+        const auto confirmed =
+            R"({"records":[{"id":"new-message","sender_id":900001,"sender_nickname":"Self","text":"new text","sent_at_seconds":1790607100}],"tag":"chat:77_900001","unmapped_records":[],"ended":true})";
+        profile.refreshChat();
+        ProfileServiceTestAccess::accept(profile, ProfileServiceTestAccess::chatRead(profile),
+                                         confirmed);
+        QCOMPARE(profile.chatMessages().size(), 3);
+        QCOMPARE(profile.chatMessages().last().toMap()["id"].toString(), QString("new-message"));
+        profile.closeChat();
+        ProfileServiceTestAccess::accept(profile, reopen, history);
+        QVERIFY(profile.chatMessages().isEmpty());
+    }
     void chatAckFailureCloseAndNoAutomaticSendReplay()
     {
         ApiClient api;
@@ -431,6 +563,13 @@ private slots:
         QCOMPARE(ProfileServiceTestAccess::chatWrite(profile), write);
         ProfileServiceTestAccess::fail(profile, write);
         QVERIFY(profile.chatMessages().isEmpty());
+        profile.sendChat("Hello / 你好");
+        QVERIFY(!ProfileServiceTestAccess::chatWrite(profile));
+        profile.closeChat();
+        profile.openChat("user:77");
+        profile.sendChat("Hello / 你好");
+        QVERIFY(!ProfileServiceTestAccess::chatWrite(profile));
+        ApiClientTestAccess::expireMessageCooldown(api);
         profile.sendChat("Hello / 你好");
         write = ProfileServiceTestAccess::chatWrite(profile);
         QSignalSpy sent(&profile, &ProfileService::chatSent);

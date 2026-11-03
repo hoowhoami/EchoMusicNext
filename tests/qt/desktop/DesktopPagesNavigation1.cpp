@@ -1,5 +1,128 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
+#include "RenderedInk.h"
+
+void DesktopPagesTest::productionChatBubblesKeepBalancedTextInsets()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    session.theme.attachToEngine(session.engine);
+    ProfileServiceTestAccess::presentChat(session.profile, "1", true);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Account
+import EchoMusic.Theme
+import EchoMusic.Profile
+Window {
+    id: window
+    required property ProfileService profile
+    property real uiScale: 1
+    visible: true
+    width: 760
+    height: 650
+    color: Theme.main
+    SocialDrawer {
+        profile: window.profile
+        uiScale: window.uiScale
+        Component.onCompleted: open()
+    }
+})",
+                      QUrl("qrc:/chat-bubble-layout.qml"));
+    session.root.reset(component.createWithInitialProperties(
+        {{"profile", QVariant::fromValue(&session.profile)}}));
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window);
+    const auto captures = qEnvironmentVariable("ECHO_CHAT_BUBBLE_CAPTURES");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    const QStringList texts{
+        "1", "你好 World", "第一行\n第二行",
+        QStringLiteral("没有空格的长消息用于验证自动换行和气泡高度").repeated(6)};
+    for (bool self : {true, false})
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (qreal scale : {1., 1.25})
+                for (int i = 0; i < texts.size(); ++i) {
+                    session.theme.setMode(mode);
+                    session.root->setProperty("uiScale", scale);
+                    ProfileServiceTestAccess::presentChat(session.profile, texts[i], self);
+                    QVERIFY(session.settleScene());
+                    QQuickItem *bubble = nullptr, *body = nullptr;
+                    QTRY_VERIFY(
+                        (bubble = visual(session.window->contentItem(), "profileChatBubble")) &&
+                        (body = visual(session.window->contentItem(), "profileChatBody")) &&
+                        body->property("text").toString() == texts[i]);
+                    QTest::qWait(40);
+                    const auto frame = session.window->grabWindow();
+                    QVERIFY(!frame.isNull());
+                    if (!captures.isEmpty())
+                        QVERIFY(frame.save(captures + QString("/chat-%1-%2-%3-%4.png")
+                                                          .arg(self)
+                                                          .arg(int(mode))
+                                                          .arg(scale)
+                                                          .arg(i)));
+                    const auto ink = Test::renderedInkCenter(
+                        frame, session.window, body, body->property("color").value<QColor>());
+                    QVERIFY(ink);
+                    const auto bounds = bubble->mapRectToScene(bubble->boundingRect());
+                    const qreal ratio = qreal(frame.width()) / session.window->width();
+                    // Allow one raster pixel at each antialiased edge; this
+                    // device-pixel tolerance stays fixed across UI scales.
+                    QVERIFY2(
+                        qAbs(*ink - bounds.center().y()) * ratio <= 2,
+                        qPrintable(QString("Unbalanced bubble: text=%1 height=%2 ink=%3 center=%4")
+                                       .arg(i)
+                                       .arg(bubble->height())
+                                       .arg(*ink)
+                                       .arg(bounds.center().y())));
+                    QVERIFY(body->width() <= bubble->width() - 21.9);
+                    if (i == 0)
+                        QVERIFY2(
+                            bubble->height() < 40,
+                            qPrintable(
+                                QString("One-character bubble height %1").arg(bubble->height())));
+                    auto *draft = visual(session.window->contentItem(), "profileChatDraft");
+                    auto *counter =
+                        visual(session.window->contentItem(), "profileChatCharacterCount");
+                    auto *send = visual(session.window->contentItem(), "profileChatSend");
+                    auto *surface =
+                        visual(session.window->contentItem(), "profileChatDraftSurface");
+                    QVERIFY(draft && counter && send && surface);
+                    QCOMPARE(send->width(), 36.);
+                    QCOMPARE(send->property("glyph").toString(), QString("send"));
+                    draft->setProperty("text", i % 2 ? "第一行\n第二行" : "");
+                    QVERIFY(session.settleScene());
+                    QCOMPARE(counter->property("text").toString(),
+                             i % 2 ? QString("7 / 200") : QString("0 / 200"));
+                    QCOMPARE(counter->height(), 18.);
+                    QCOMPARE(counter->parentItem(), send->parentItem());
+                    const auto counterBox =
+                        counter->mapRectToItem(surface, counter->boundingRect());
+                    const auto sendBox = send->mapRectToItem(surface, send->boundingRect());
+                    const auto draftBox = draft->mapRectToItem(
+                        surface, QRectF(0, 0, draft->width(), draft->height()));
+                    QCOMPARE(counterBox.bottom(), sendBox.bottom());
+                    QCOMPARE(draftBox.bottom(), sendBox.bottom());
+                    QVERIFY(counterBox.left() >= draftBox.right() + 11.9);
+                    QVERIFY(sendBox.left() >= counterBox.right() + 11.9);
+                    const auto composerFrame = session.window->grabWindow();
+                    const auto counterInk =
+                        Test::renderedInkCenter(composerFrame, session.window, counter,
+                                                counter->property("color").value<QColor>());
+                    QVERIFY(counterInk);
+                    const auto counterScene = counter->mapRectToScene(counter->boundingRect());
+                    QVERIFY(qAbs(*counterInk - counterScene.center().y()) * ratio <= 2);
+                    if (!captures.isEmpty())
+                        QVERIFY(composerFrame.save(captures + QString("/composer-%1-%2-%3-%4.png")
+                                                                  .arg(self)
+                                                                  .arg(int(mode))
+                                                                  .arg(scale)
+                                                                  .arg(i)));
+                }
+    session.root.reset();
+    session.window = nullptr;
+}
 
 void DesktopPagesTest::productionPopupsFollowRequestOwnership()
 {
@@ -501,6 +624,7 @@ void DesktopPagesTest::productionCollectionAndSocialEntrypoints()
                                                R"({"records":[],"ended":true})");
             QTRY_VERIFY(visual(session.window->contentItem(), "profileChatDraft"));
             auto *draft = visual(session.window->contentItem(), "profileChatDraft");
+            ApiClientTestAccess::expireMessageCooldown(session.api);
             draft->setProperty("text", QString("Hello / 你好"));
             auto *send = visual(session.window->contentItem(), "profileChatSend");
             QVERIFY(send && send->isEnabled());
@@ -518,6 +642,12 @@ void DesktopPagesTest::productionCollectionAndSocialEntrypoints()
             QVERIFY(Test::prepareNativeInput(session.window));
             draft->forceActiveFocus(Qt::OtherFocusReason);
             QTRY_VERIFY(draft->hasActiveFocus());
+            QTest::keyClick(session.window, Qt::Key_Return);
+            QCOMPARE(ProfileServiceTestAccess::chatWrite(session.profile), quint64(0));
+            QCOMPARE(draft->property("text").toString(), QString("Hello / 你好"));
+            QVERIFY(!send->isEnabled());
+            ApiClientTestAccess::expireMessageCooldown(session.api);
+            QTRY_VERIFY(send->isEnabled());
             QTest::keyClick(session.window, Qt::Key_Return);
             const auto accepted = ProfileServiceTestAccess::chatWrite(session.profile);
             QVERIFY(accepted);

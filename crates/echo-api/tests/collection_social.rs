@@ -58,6 +58,59 @@ fn sampled_artist_and_social_mutations() {
     );
 }
 #[test]
+fn current_private_history_maps_sampled_text_sender_and_conversation() {
+    let bytes = payload("user_follow_message", "next-current-2-20261103");
+    let history = module::user_follow_message::convert(&bytes).unwrap();
+    assert_eq!(history.records.len(), 1);
+    let row = &history.records[0];
+    assert_eq!(row.id, "900004");
+    assert_eq!(row.sender_id, 900001);
+    assert_eq!(row.sent_at_seconds, Some(1790607092));
+    assert_eq!(row.text, "[redacted]");
+    assert_eq!(history.tag.as_deref(), Some("chat:900003_900001"));
+    assert!(history.unmapped_records.is_empty());
+    assert_eq!(history.ended, Some(true));
+    for n in [1, 3, 4, 5] {
+        let empty = module::user_follow_message::convert(&payload(
+            "user_follow_message",
+            &format!("next-current-{n}-20261103"),
+        ))
+        .unwrap();
+        assert!(empty.records.is_empty());
+    }
+    // Controlled mutations test tolerance; these are not provider samples.
+    let mut raw: Value = serde_json::from_slice(&bytes).unwrap();
+    let mut unknown = raw["list"][0].clone();
+    unknown["message"]["msgtype"] = 202.into();
+    raw["list"].as_array_mut().unwrap().push(unknown);
+    let mixed = module::user_follow_message::convert(&serde_json::to_vec(&raw).unwrap()).unwrap();
+    assert_eq!(mixed.records.len(), 1);
+    assert_eq!(mixed.unmapped_records.len(), 1);
+}
+
+#[test]
+fn acknowledged_outgoing_messages_live_under_the_other_tag_order() {
+    let empty = module::user_follow_message::convert(&payload(
+        "user_follow_message",
+        "next-current-1-ci-matrix-20261103-reversefalse-filter1",
+    ))
+    .unwrap();
+    let outgoing = module::user_follow_message::convert(&payload(
+        "user_follow_message",
+        "next-current-1-ci-matrix-20261103-reversetrue-filter1",
+    ))
+    .unwrap();
+    assert!(empty.records.is_empty());
+    assert_eq!(outgoing.records.len(), 6);
+    assert_eq!(outgoing.tag.as_deref(), Some("chat:900001_900002"));
+    assert!(outgoing.records.iter().all(|row| row.sender_id == 900001));
+    assert_eq!(
+        outgoing.records.last().unwrap().sent_at_seconds,
+        Some(1793685306)
+    );
+}
+
+#[test]
 fn real_empty_histories_and_message_ack() {
     for n in 1..=12 {
         let page = module::user_follow_message::convert(&payload(

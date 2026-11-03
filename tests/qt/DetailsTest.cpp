@@ -649,6 +649,11 @@ Window {
                     auto *area = visual(window->contentItem(),
                                         song ? "lyricBarrageDraft" : "mvBarrageDraft");
                     QVERIFY(area);
+                    auto *send =
+                        visual(window->contentItem(), song ? "lyricBarrageSend" : "mvBarrageSend");
+                    QVERIFY(send);
+                    QCOMPARE(send->width(), 36.);
+                    QCOMPARE(send->property("glyph").toString(), QString("send"));
                     auto *placeholder = visual(area, "inputPlaceholder");
                     QVERIFY(placeholder);
                     controller.setDraft({});

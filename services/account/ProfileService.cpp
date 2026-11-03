@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QThread>
 #include <utility>
+#include <algorithm>
 #include <QFile>
 #include <QBuffer>
 #include <QImageReader>
@@ -18,6 +19,8 @@ ProfileService::ProfileService(ApiClient &api, AccountService &account, QObject 
       m_revision(api.sessionRevision())
 {
     m_chatRefresh.setSingleShot(true);
+    connect(&api, &ApiClient::messageSendCooldownChanged, this,
+            &ProfileService::sendCooldownChanged);
     m_chatRefresh.setInterval(350);
     connect(&m_chatRefresh, &QTimer::timeout, this, &ProfileService::refreshChat);
     for (auto &tab : m_social)
@@ -276,7 +279,7 @@ void ProfileService::refreshChat()
 }
 void ProfileService::sendChat(const QString &draft)
 {
-    if (!current() || !chatActive() || m_chatWrite)
+    if (!current() || !chatActive() || m_chatWrite || sendCooldownSeconds() > 0)
         return;
     const auto text = draft.trimmed();
     if (text.isEmpty() || text.size() > 200) {
@@ -502,10 +505,45 @@ void ProfileService::succeeded(quint64 id, const QByteArray &payload)
     const auto document = QJsonDocument::fromJson(payload);
     if (id == m_chatRead) {
         m_chatRead = 0;
-        m_unmappedChatRecords = document.object()["records"].toArray();
-        // No sampled nonempty history contract yet. Retain provider records
-        // without guessing identities or replacing acknowledged outgoing rows.
-        m_chatError = m_unmappedChatRecords.isEmpty() ? QString() : tr("暂无法显示这些历史消息");
+        const auto history = document.object();
+        m_unmappedChatRecords = history["unmapped_records"].toArray();
+        if (!history["tag"].toString().isEmpty())
+            m_chatTag = history["tag"].toString();
+        for (const auto &value : history["records"].toArray()) {
+            const auto record = value.toObject();
+            const bool self = quint64(record["sender_id"].toInteger()) == m_account.userId();
+            const auto seconds = record["sent_at_seconds"].toInteger();
+            const auto nickname = self ? m_account.nickname() : m_chatTarget["nickname"].toString();
+            QVariantMap message{
+                {"id", record["id"].toString()},
+                {"text", record["text"].toString()},
+                {"isSelf", self},
+                {"nickname", nickname.isEmpty() ? record["sender_nickname"].toString() : nickname},
+                {"avatar", self ? m_account.avatarUrl() : m_chatTarget["avatar_url"].toString()},
+                {"sent_at_seconds", seconds},
+                {"time", seconds > 0
+                             ? QDateTime::fromSecsSinceEpoch(seconds).toString("MM-dd HH:mm")
+                             : QString()}};
+            const auto msgid = message["id"].toString();
+            const auto existing = std::find_if(
+                m_chatMessages.begin(), m_chatMessages.end(), [&msgid](const QVariant &item) {
+                    return !msgid.isEmpty() && item.toMap()["id"].toString() == msgid;
+                });
+            if (existing == m_chatMessages.end())
+                m_chatMessages.append(message);
+            else
+                *existing = message;
+        }
+        // A read can lag a successful send. Merge by message ID so it neither
+        // duplicates the ACK nor removes it before the provider catches up.
+        std::stable_sort(m_chatMessages.begin(), m_chatMessages.end(),
+                         [](const QVariant &a, const QVariant &b) {
+                             return a.toMap()["sent_at_seconds"].toLongLong() <
+                                    b.toMap()["sent_at_seconds"].toLongLong();
+                         });
+        m_chatError = m_unmappedChatRecords.isEmpty() || !m_chatMessages.isEmpty()
+                          ? QString()
+                          : tr("暂无法显示这些历史消息");
         emit changed();
         return;
     }
@@ -530,6 +568,7 @@ void ProfileService::succeeded(quint64 id, const QByteArray &payload)
                             {"isSelf", true},
                             {"nickname", m_account.nickname()},
                             {"avatar", m_account.avatarUrl()},
+                            {"sent_at_seconds", o["addtime"].toInteger()},
                             {"time", o["addtime"].isDouble()
                                          ? QDateTime::fromSecsSinceEpoch(o["addtime"].toInteger())
                                                .toString("MM-dd HH:mm")

@@ -303,11 +303,12 @@ add_test(
 add_test(
     NAME controls-ui-typography
     COMMAND
-        echo-controls-ui-test badgeIconAndCountUseSameInkCenter
-        textTagAlignmentAcrossProductionRecipes plainTextRetainsInkWithoutTagLayouts
-        sharedControlsRetireUnusedContent badgesAndTagsKeepDistinctContracts
-        globalTypographyRetainsFallbackAndLocalStyles centeredContentAcrossSizesAndPadding
-        iconTextContentCentersRenderedInk allBundledGlyphsTintAndPreserveAlpha
+        echo-controls-ui-test sendButtonKeepsIconGeometryAndBusyState
+        badgeIconAndCountUseSameInkCenter textTagAlignmentAcrossProductionRecipes
+        plainTextRetainsInkWithoutTagLayouts sharedControlsRetireUnusedContent
+        badgesAndTagsKeepDistinctContracts globalTypographyRetainsFallbackAndLocalStyles
+        centeredContentAcrossSizesAndPadding iconTextContentCentersRenderedInk
+        allBundledGlyphsTintAndPreserveAlpha
 )
 add_test(
     NAME controls-ui-effects
@@ -750,10 +751,11 @@ add_test(
         echo-desktop-pages-test productionPopupsFollowRequestOwnership
         playerMetadataLinksUseProductionRoutes profileWritesRejectInvalidDraftAndCancelOlderRead
         avatarUploadRejectsInvalidFilesAndIgnoresOldAccountCompletion
-        productionCollectionAndSocialEntrypoints socialAndDeviceCachesBelongToAccountAndTab
-        productionSidebarImportEntranceAndModes productionSidebarOrderEditor
-        sidebarHomeAndDragTransaction sidebarHistoryNavigationRevealsPlaylistSection
-        productionSidebarScrollbar productionSidebarCardsMenusAndLayout
+        productionCollectionAndSocialEntrypoints productionChatBubblesKeepBalancedTextInsets
+        socialAndDeviceCachesBelongToAccountAndTab productionSidebarImportEntranceAndModes
+        productionSidebarOrderEditor sidebarHomeAndDragTransaction
+        sidebarHistoryNavigationRevealsPlaylistSection productionSidebarScrollbar
+        productionSidebarCardsMenusAndLayout
         sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots
         accountProfileAndGradeRejectOldAccountResult
         fixedProfileSocialAndSidebarActionsKeepIntrinsicWidths productionProfileNameTagsStayAligned

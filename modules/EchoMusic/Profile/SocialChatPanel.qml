@@ -87,16 +87,16 @@ ColumnLayout {
                             implicitHeight: body.implicitHeight + 18
                             radius: Theme.cardRadius
                             color: messageRow.modelData.isSelf ? Theme.accent : Theme.floating.mutedSurface
-                            Label {
+                            EchoTextTagRow {
                                 id: body
+                                objectName: "profileChatBody"
                                 width: parent.width - 22
                                 x: 11
                                 y: 9
                                 text: messageRow.modelData.text
-                                textFormat: Text.PlainText
-                                wrapMode: Text.Wrap
+                                wrap: true
                                 font: Theme.font(12, 650)
-                                lineHeight: 1.55
+                                lineHeight: font.pixelSize * 1.55
                                 color: messageRow.modelData.isSelf ? Theme.accentForeground : Theme.floatingText
                             }
                         }
@@ -131,6 +131,7 @@ ColumnLayout {
     }
     EchoInputBackground {
         id: draftSurface
+        objectName: "profileChatDraftSurface"
         colors: Theme.floating
         baseColor: Theme.floating.elevated
         focused: draft.activeFocus
@@ -154,6 +155,7 @@ ColumnLayout {
                 objectName: "profileChatDraft"
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
+                Layout.alignment: Qt.AlignBottom
                 Layout.preferredHeight: Math.max(32, Math.min(112, contentHeight + 12))
                 padding: 6
                 leftPadding: 4
@@ -187,19 +189,20 @@ ColumnLayout {
                 }
             }
             EchoTextTagRow {
+                objectName: "profileChatCharacterCount"
                 Layout.alignment: Qt.AlignBottom
-                lineHeight: 36
+                lineHeight: 18
                 text: draft.text.length + " / 200"
                 color: Theme.floatingSecondaryText
-                font: Theme.font(12, Theme.mediumWeight)
+                font: Theme.font(12, Theme.regularWeight)
             }
-            EchoButton {
+            EchoSendButton {
                 objectName: "profileChatSend"
                 Layout.alignment: Qt.AlignBottom
-                text: panel.profile.chatSending ? qsTr("发送中…") : qsTr("发送")
+                actionLabel: qsTr("发送私信")
                 loading: panel.profile.chatSending
-                enabled: !panel.profile.chatSending && draft.text.trim().length > 0 && draft.text.length <= 200
-                accent: true
+                cooldownSeconds: panel.profile.sendCooldownSeconds
+                enabled: !panel.profile.chatSending && cooldownSeconds === 0 && draft.text.trim().length > 0 && draft.text.length <= 200
                 colors: Theme.floating
                 onClicked: panel.profile.sendChat(draft.text)
             }

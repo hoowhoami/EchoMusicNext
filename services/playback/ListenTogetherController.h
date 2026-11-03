@@ -28,6 +28,8 @@ class ListenTogetherController final : public QObject
     Q_PROPERTY(bool playbackDetached READ playbackDetached NOTIFY changed)
     Q_PROPERTY(QString roomId READ roomId NOTIFY changed)
     Q_PROPERTY(QString nickname READ nickname NOTIFY changed)
+    Q_PROPERTY(QString currentUserId READ currentUserId NOTIFY changed)
+    Q_PROPERTY(int sendCooldownSeconds READ sendCooldownSeconds NOTIFY sendCooldownChanged)
     Q_PROPERTY(int onlineCount READ onlineCount NOTIFY changed)
     Q_PROPERTY(QVariantMap activeRoom READ activeRoom NOTIFY changed)
     Q_PROPERTY(QVariantMap previewRoom READ previewRoom NOTIFY changed)
@@ -88,6 +90,15 @@ public:
     bool owner() const;
     bool playbackDetached() const;
     QString nickname() const;
+    QString currentUserId() const
+    {
+        const auto id = m_api.currentAccountUserId();
+        return id ? QString::number(id) : QString();
+    }
+    int sendCooldownSeconds() const
+    {
+        return m_api.messageSendCooldownSeconds();
+    }
     int onlineCount() const;
     QString roomId() const
     {
@@ -203,6 +214,7 @@ public:
     void localTrackRequested();
     bool roomSourceAllowed(const PlaybackTrack &) const;
 signals:
+    void sendCooldownChanged();
     void changed();
     void previewRequested();
     void previewClosed();

@@ -17,6 +17,14 @@ namespace EchoMusic
 {
 namespace
 {
+bool messageWrite(const QJsonObject &request)
+{
+    const auto op = request.value("operation").toString();
+    return op == "user_follow_chat" || op == "song_barrage_send" || op == "video_barrage_send" ||
+           (op.startsWith("comment_") && op.endsWith("_send")) ||
+           (op == "listen_together_chat" &&
+            request.value("query").toObject().value("action") == "send");
+}
 // This object has no parent: shutdown owns its lifetime beyond ApiClient deletion.
 class Dispatcher final : public QObject
 {
@@ -30,6 +38,9 @@ ApiClient::ApiClient(QObject *parent) : ApiClient(DeviceIdentity::temporary(), p
 ApiClient::ApiClient(DeviceIdentity device, QObject *parent)
     : QObject(parent), m_device(std::move(device))
 {
+    m_messageSendTimer.setSingleShot(true);
+    m_messageSendTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_messageSendTimer, &QTimer::timeout, this, &ApiClient::updateMessageSendCooldown);
     m_auth = std::make_unique<AuthClient>(*this);
     m_catalog = std::make_unique<CatalogClient>(*this);
     m_cloud = std::make_unique<CloudClient>(*this);
@@ -60,6 +71,37 @@ quint64 ApiClient::capabilities()
 {
     return submit({{"operation", "capabilities"}}, false);
 }
+int ApiClient::messageSendCooldownSeconds() const
+{
+    const auto remaining = m_messageSendDeadline.remainingTime();
+    return remaining > 0 ? int((remaining + 999) / 1000) : 0;
+}
+void ApiClient::startMessageSendCooldown()
+{
+    m_messageSendDeadline = QDeadlineTimer(3000, Qt::PreciseTimer);
+    m_messageSendTimer.start(1000);
+    // Publish after the caller has stored its request ID; direct UI listeners
+    // must not change accounts halfway through assigning an accepted write.
+    QTimer::singleShot(0, this, [this] {
+        if (!m_closing)
+            emit messageSendCooldownChanged();
+    });
+}
+void ApiClient::updateMessageSendCooldown()
+{
+    const auto remaining = m_messageSendDeadline.remainingTime();
+    if (remaining > 0)
+        m_messageSendTimer.start(int(qMin<qint64>(1000, remaining)));
+    else
+        m_messageSendTimer.stop();
+    emit messageSendCooldownChanged();
+}
+void ApiClient::resetMessageSendCooldown()
+{
+    m_messageSendDeadline = QDeadlineTimer();
+    m_messageSendTimer.stop();
+    emit messageSendCooldownChanged();
+}
 bool ApiClient::setNetworkTimeout(double seconds)
 {
     Q_ASSERT(QThread::currentThread() == thread());
@@ -74,6 +116,9 @@ quint64 ApiClient::submit(QJsonObject request, bool includeIdentity, RequestOpti
 {
     Q_ASSERT(QThread::currentThread() == thread());
     if (m_closing)
+        return 0;
+    const bool throttledWrite = messageWrite(request);
+    if (throttledWrite && messageSendCooldownSeconds() > 0)
         return 0;
     if (includeIdentity) {
         const auto &device = options.authentication == AuthenticationMode::IndependentDevice
@@ -147,9 +192,14 @@ quint64 ApiClient::submit(QJsonObject request, bool includeIdentity, RequestOpti
                         emit failed(id, reply.status, reply.payload);
                 });
         });
+        if (throttledWrite)
+            startMessageSendCooldown();
         return id;
     }
-    return submitPrepared(std::move(pending));
+    const auto id = submitPrepared(std::move(pending));
+    if (id && throttledWrite)
+        startMessageSendCooldown();
+    return id;
 }
 
 quint64 ApiClient::addInterceptor(double priority, decltype(ApiInterceptor::invoke) invoke,
@@ -807,11 +857,20 @@ bool ApiClient::setAccount(quint64 userId, QString token, QString t1)
         return false;
     if (userId == m_userId && token == m_token && t1 == m_t1 && m_loginConfirmation.isEmpty())
         return true;
+    const bool changedUser = userId != m_userId;
     auto confirmations = std::exchange(m_loginConfirmation, {});
     m_userId = userId;
     m_token = std::move(token);
     m_t1 = std::move(t1);
+    // Session listeners may start a send for the newly adopted account. Clear
+    // the old deadline before publishing, never after those direct callbacks.
+    if (changedUser) {
+        m_messageSendDeadline = QDeadlineTimer();
+        m_messageSendTimer.stop();
+    }
     advanceSession(); // Direct dismissal slots now see the new account snapshot.
+    if (changedUser)
+        emit messageSendCooldownChanged();
     const auto revision = m_revision;
     // Rebuild identity only for the explicitly confirmed login event. Posting
     // lets AccountService and all model reset listeners finish before replay.
@@ -1353,6 +1412,7 @@ void ApiClient::shutdown()
     Q_ASSERT(QThread::currentThread() == thread());
     if (std::exchange(m_closing, true))
         return;
+    resetMessageSendCooldown();
     clearInterceptions();
     auto runtime = std::exchange(m_runtime, nullptr);
     m_pending.clear();

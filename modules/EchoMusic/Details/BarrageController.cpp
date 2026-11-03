@@ -9,6 +9,8 @@ BarrageController::BarrageController(ApiClient &a, RouteContext *r, bool network
     : QObject(p), m_api(a), m_route(r), m_song(song), m_network(network)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
+    connect(&a, &ApiClient::messageSendCooldownChanged, this,
+            &BarrageController::sendCooldownChanged);
     connect(&a, &ApiClient::succeeded, this, &BarrageController::accept);
     connect(&a, &ApiClient::failed, this,
             [this](quint64 id, int, const QByteArray &b) { fail(id, b); });
@@ -168,7 +170,8 @@ void BarrageController::markFlying(const QVariantMap &v, int ms)
 }
 void BarrageController::send()
 {
-    if (m_closed || (m_route && !m_route->active()) || !m_presented || m_hash.isEmpty() || busy())
+    if (m_closed || (m_route && !m_route->active()) || !m_presented || m_hash.isEmpty() || busy() ||
+        sendCooldownSeconds() > 0)
         return;
     if (!signedIn()) {
         emit notice(tr("请先登录后再发送弹幕"), true);

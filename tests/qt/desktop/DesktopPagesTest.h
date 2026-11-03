@@ -20,6 +20,7 @@ private slots:
     void lyricFontSettingsApplyToProductionWindows();
     void lyricVariantSettingUsesProductionSelectAndReleasesPopup();
     void productionPopupsFollowRequestOwnership();
+    void productionChatBubblesKeepBalancedTextInsets();
     void floatingLyricsFollowRealAudioAndStopMotionOnPause();
     void desktopLyricsKeepRenderingUnderTranslucentOcclusion_data();
     void desktopLyricsKeepRenderingUnderTranslucentOcclusion();

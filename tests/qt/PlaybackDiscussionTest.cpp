@@ -394,6 +394,10 @@ Window {
             DetailsTestAccess::seed(*discussion->comments());
         }
         QTRY_VERIFY(visual(window->contentItem(), "commentContent"));
+        auto *commentSend = visual(window->contentItem(), "commentSend");
+        QVERIFY(commentSend);
+        QCOMPARE(commentSend->width(), 36.);
+        QCOMPARE(commentSend->property("glyph").toString(), QString("send"));
         QCOMPARE(visual(window->contentItem(), "commentContent")
                      ->property("font")
                      .value<QFont>()
@@ -415,6 +419,10 @@ Window {
             click(window, visual(window->contentItem(), "commentReply"));
             QQuickItem *reply = nullptr;
             QTRY_VERIFY(reply = visual(window->contentItem(), "replyDraft"));
+            auto *send = visual(window->contentItem(), "replySend");
+            QVERIFY(send);
+            QCOMPARE(send->width(), 36.);
+            QCOMPARE(send->property("glyph").toString(), QString("send"));
             QVERIFY(reply->setProperty("text", "行内回复草稿 🎵"));
             QCOMPARE(discussion->comments()->replyDraft(), QString("行内回复草稿 🎵"));
             click(window, visual(window->contentItem(), "cancelFloorReply"));

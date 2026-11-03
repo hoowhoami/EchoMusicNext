@@ -58,6 +58,7 @@ class CommentsController final : public QObject
     Q_PROPERTY(bool hasComments READ hasComments NOTIFY changed)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
+    Q_PROPERTY(int sendCooldownSeconds READ sendCooldownSeconds NOTIFY sendCooldownChanged)
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(QString draft READ draft WRITE setDraft NOTIFY changed)
@@ -92,6 +93,10 @@ public:
     bool hasComments() const;
     bool hasMore() const;
     bool busy() const;
+    int sendCooldownSeconds() const
+    {
+        return m_api.messageSendCooldownSeconds();
+    }
     bool signedIn() const;
     QString errorMessage() const;
     QString totalText() const;
@@ -134,6 +139,7 @@ signals:
     void scopeReset();
     void notice(const QString &, bool warning);
     void submitted(bool reply);
+    void sendCooldownChanged();
 
 private:
     friend class DetailsTestAccess;

@@ -64,6 +64,7 @@ qt_add_qml_module(
     EchoSpinner.qml
     EchoControlSize.qml
     EchoButton.qml
+    EchoSendButton.qml
     EchoInputBackground.qml
     EchoTextCursor.qml
     EchoTextField.qml

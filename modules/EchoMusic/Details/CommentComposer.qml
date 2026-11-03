@@ -78,12 +78,13 @@ EchoInputBackground {
             lineHeight: 18
             color: root.characterCount > 200 ? Theme.colors.dangerText : Theme.secondaryText
         }
-        EchoButton {
+        EchoSendButton {
             objectName: "commentSend"
             Layout.alignment: Qt.AlignBottom
-            Layout.minimumWidth: 60
-            text: root.controller.busy ? qsTr("发送中…") : qsTr("发送")
-            enabled: root.controller.signedIn && !root.controller.busy && editor.text.trim().length > 0 && root.characterCount <= 200
+            actionLabel: qsTr("发送评论")
+            loading: root.controller.busy
+            cooldownSeconds: root.controller.sendCooldownSeconds
+            enabled: root.controller.signedIn && !root.controller.busy && cooldownSeconds === 0 && editor.text.trim().length > 0 && root.characterCount <= 200
             onClicked: root.controller.send()
         }
     }

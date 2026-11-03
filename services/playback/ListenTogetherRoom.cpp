@@ -224,8 +224,8 @@ void ListenTogetherController::loadMessages(std::function<void()> terminal)
 void ListenTogetherController::sendMessage(const QString &raw)
 {
     const auto text = raw.trimmed();
-    if (!joined() || m_sendingMessage || text.isEmpty() || text.size() > 200 ||
-        m_activeRoom.value("chat_code").toInt() != 1)
+    if (!joined() || m_sendingMessage || sendCooldownSeconds() > 0 || text.isEmpty() ||
+        text.size() > 200 || m_activeRoom.value("chat_code").toInt() != 1)
         return;
     ListenChatRequest request;
     request.action = ListenChatAction::Send;
