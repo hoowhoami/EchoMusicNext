@@ -27,7 +27,7 @@ SongDetailHeader {
             EchoSoftButton {
                 objectName: "playlistEditButton"
                 visible: header.detailContext.editListId > 0
-                text: qsTr("编辑歌单")
+                text: qsTr("编辑")
                 glyph: "pencil"
                 onClicked: header.editRequested()
             }
@@ -57,7 +57,7 @@ SongDetailHeader {
             EchoIconButton {
                 objectName: "playlistEditCollapsed"
                 visible: header.detailContext.editListId > 0
-                text: qsTr("编辑歌单")
+                text: qsTr("编辑")
                 glyph: "pencil"
                 onClicked: header.editRequested()
             }

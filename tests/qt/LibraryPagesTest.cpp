@@ -2087,6 +2087,31 @@ ApplicationWindow {
         QTest::qWait(100);
         if (!artifacts.isEmpty())
             QVERIFY(window->grabWindow().save(artifacts + "/manual-results.png"));
+        // Regression: edits in the manual form must survive the service-wide
+        // `changed` emissions a manual search fires; the fields are seeded
+        // from the embedded tags once, never re-bound.
+        auto *titleField = find(window->contentItem(), "cloudUploadManualTitle");
+        QVERIFY(titleField);
+        QCOMPARE(titleField->property("text").toString(),
+                 upload.manualFile().value("title").toString());
+        QVERIFY(QMetaObject::invokeMethod(titleField, "forceActiveFocus"));
+        for (const auto ch : QStringLiteral(" Remix"))
+            QTest::keyClick(window, ch.toLatin1());
+        const auto editedTitle = titleField->property("text").toString();
+        QVERIFY(editedTitle != upload.manualFile().value("title").toString());
+        auto *searchButton = find(window->contentItem(), "cloudUploadSearch");
+        QVERIFY(searchButton);
+        QVERIFY(searchButton->isEnabled());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          searchButton->mapToScene({searchButton->width() / 2, searchButton->height() / 2})
+                              .toPoint());
+        QVERIFY(upload.searching());
+        QCOMPARE(titleField->property("text").toString(), editedTitle);
+        QTRY_VERIFY(upload.paused());
+        QCOMPARE(titleField->property("text").toString(), editedTitle);
+        upload.stop();
+        QVERIFY(!upload.busy());
+        QCOMPARE(titleField->property("text").toString(), editedTitle);
         gone = popup;
         QVERIFY(QMetaObject::invokeMethod(root.data(), "hideUpload"));
         QTRY_VERIFY(gone.isNull());

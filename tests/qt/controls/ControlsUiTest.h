@@ -18,6 +18,7 @@ private slots:
     void coverKeepsNativeResolutionUnderAncestorZoom();
     void viewPoolResetIsCanceledWithOwner();
     void iconRasterTracksZoomAndReleasesWhenHidden();
+    void pixelSnapTracksScenePositionAcrossReparentAndWindows();
     void coverCropAndRoundedPixels();
     void frostedCornersRetainAntialiasCoverage();
     void floatingPanelEdgesAndMenuHeight();

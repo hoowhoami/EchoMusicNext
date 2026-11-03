@@ -29,13 +29,30 @@ Item {
         active: control.resourceActive && control.visible
         source: image.source
     }
-    Image {
-        id: image
-        objectName: "iconImage"
-        anchors.fill: parent
-        source: control.resourceActive && control.visible ? EchoIconSource.urlFor(control.name, control.color) : ""
-        sourceSize: Qt.size(control.rasterSize, control.rasterSize)
-        fillMode: Image.PreserveAspectFit
-        asynchronous: true
+    // Device-pixel alignment, mirroring EchoCover: a glyph whose physical
+    // position rides a half-device-pixel boundary flips a whole pixel on
+    // every re-quantization. The attached scene position re-syncs wherever
+    // layout carries the icon. Callers that animate `scale` still snap at
+    // their rest state.
+    readonly property point snapScene: EchoPixelSnap.scenePosition
+    readonly property real snapDpr: EchoPixelSnap.devicePixelRatio
+    Item {
+        id: alignedSurface
+        objectName: "iconAlignedSurface"
+        x: Math.round(control.snapScene.x * control.snapDpr) / control.snapDpr
+            - control.snapScene.x
+        y: Math.round(control.snapScene.y * control.snapDpr) / control.snapDpr
+            - control.snapScene.y
+        width: Math.round(control.width * control.snapDpr) / control.snapDpr
+        height: Math.round(control.height * control.snapDpr) / control.snapDpr
+        Image {
+            id: image
+            objectName: "iconImage"
+            anchors.fill: parent
+            source: control.resourceActive && control.visible ? EchoIconSource.urlFor(control.name, control.color) : ""
+            sourceSize: Qt.size(control.rasterSize, control.rasterSize)
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+        }
     }
 }

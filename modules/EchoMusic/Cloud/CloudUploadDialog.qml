@@ -168,31 +168,36 @@ EchoDialog {
                     font: Theme.font(12, Theme.regularWeight)
                     elide: Text.ElideMiddle
                 }
+                // The fields are seeded once instead of binding to
+                // manualFile: that property notifies the service-wide
+                // `changed` signal, so a bound text would revert user edits
+                // on every search state flip. The Loader rebuilds the form
+                // whenever the manual step is re-entered.
                 EchoTextField {
                     id: titleInput
                     objectName: "cloudUploadManualTitle"
                     Layout.fillWidth: true
-                    text: dialog.service.manualFile.title ?? ""
                     placeholderText: qsTr("歌名（必填）")
                     enabled: !dialog.service.searching && !dialog.service.paused
                     onTextEdited: manualForm.querySignature = ""
                     onAccepted: manualForm.search()
+                    Component.onCompleted: text = dialog.service.manualFile.title ?? ""
                 }
                 EchoTextField {
                     id: artistInput
                     Layout.fillWidth: true
-                    text: dialog.service.manualFile.artist ?? ""
                     placeholderText: qsTr("歌手")
                     enabled: titleInput.enabled
                     onTextEdited: manualForm.querySignature = ""
                     onAccepted: manualForm.search()
+                    Component.onCompleted: text = dialog.service.manualFile.artist ?? ""
                 }
                 EchoTextField {
                     Layout.fillWidth: true
-                    text: dialog.service.manualFile.album ?? ""
                     placeholderText: qsTr("专辑（可选）")
                     enabled: titleInput.enabled
                     onAccepted: manualForm.search()
+                    Component.onCompleted: text = dialog.service.manualFile.album ?? ""
                 }
                 EchoButton {
                     Layout.alignment: Qt.AlignRight

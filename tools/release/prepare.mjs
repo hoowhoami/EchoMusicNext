@@ -32,20 +32,24 @@ if (process.platform === 'win32') {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   const file = path.join(directory, `vc_redist.${arch}.exe`);
   await download(`https://aka.ms/vc14/vc_redist.${arch}.exe`, file);
-  const result = spawnSync(
-    'powershell.exe',
-    [
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-File',
-      path.join(root, 'tools/release/verify-redist.ps1'),
-      '-File',
-      file,
-    ],
-    { encoding: 'utf8' },
-  );
+  const args = [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    path.join(root, 'tools/release/verify-redist.ps1'),
+    '-File',
+    file,
+  ];
+  // Windows PowerShell 5.1 is being stripped from recent Insider builds and
+  // cannot load its Security module there; fall back to PowerShell 7.
+  const shells = ['powershell.exe', 'pwsh.exe'];
+  let result = spawnSync(shells[0], args, { encoding: 'utf8' });
+  if (result.status !== 0) {
+    const fallback = spawnSync(shells[1], args, { encoding: 'utf8' });
+    if (fallback.status === 0) result = fallback;
+  }
   if (result.status !== 0)
     throw new Error('Microsoft runtime signature validation failed: ' + result.stderr);
   const version = result.stdout.trim();
