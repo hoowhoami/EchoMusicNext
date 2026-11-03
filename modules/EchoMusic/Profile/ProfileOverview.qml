@@ -170,10 +170,9 @@ Rectangle {
                 tags: overview.account.identityTags
             }
         }
-        Rectangle {
+        EchoDivider {
+            lineColor: Theme.subtleBorder
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.subtleBorder
         }
         GridLayout {
             objectName: "profileStatistics"

@@ -352,10 +352,9 @@ EchoDialog {
                                             }
                                         }
                                     }
-                                    Rectangle {
+                                    EchoDivider {
+                                        lineColor: Theme.floating.subtleBorder
                                         Layout.fillWidth: true
-                                        implicitHeight: 1
-                                        color: Theme.floating.subtleBorder
                                     }
                                     Label {
                                         Layout.fillWidth: true

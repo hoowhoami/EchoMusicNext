@@ -153,11 +153,10 @@ EchoDialog {
                             }
                         }
                     }
-                    Rectangle {
+                    EchoDivider {
+                        lineColor: Theme.withAlpha(Theme.floating.text, 0.08)
                         Layout.fillWidth: true
                         Layout.topMargin: 13
-                        implicitHeight: 1
-                        color: Theme.withAlpha(Theme.floating.text, 0.08)
                     }
                     RowLayout {
                         Layout.fillHeight: false

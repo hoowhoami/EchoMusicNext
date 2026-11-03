@@ -16,29 +16,9 @@ MenuSeparator {
     contentItem: Item {
         id: lineHost
         implicitHeight: 1
-        Rectangle {
-            id: line
-            anchors.left: parent.left
-            anchors.right: parent.right
-            // Fractional DPRs (Windows 125%) turn a 1-DIP line into 1.25 device
-            // pixels whose phase differs per separator. Render exactly one
-            // device pixel on the window's grid instead: height 1/dpr, shifted
-            // so the top edge lands on a whole device row. The ancestor walk
-            // reads each y, keeping the snap reactive to layout and scrolling;
-            // offsets above the list are common to all lines, so they stay
-            // mutually consistent.
-            readonly property real dpr: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
-            height: 1 / dpr
-            y: {
-                let absolute = 0;
-                for (let node = lineHost, hop = 0; node && hop < 16; ++hop) {
-                    absolute += node.y;
-                    node = node.parent;
-                }
-                const device = absolute * dpr;
-                return (Math.round(device) - device) / dpr;
-            }
-            color: Theme.floating.subtleBorder
+        EchoDivider {
+            anchors.fill: parent
+            lineColor: Theme.floating.subtleBorder
         }
     }
 }

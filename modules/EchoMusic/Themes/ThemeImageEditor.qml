@@ -246,10 +246,9 @@ ColumnLayout {
     ColumnLayout {
         Layout.fillWidth: true
         spacing: 12
-        Rectangle {
+        EchoDivider {
+            lineColor: Theme.subtleBorder
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.subtleBorder
         }
         RowLayout {
             Layout.fillHeight: false

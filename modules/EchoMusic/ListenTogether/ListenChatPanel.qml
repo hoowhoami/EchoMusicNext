@@ -73,10 +73,9 @@ Rectangle {
                 onClicked: panel.room.setChatEnabled(panel.room.activeRoom.chat_code !== 1)
             }
         }
-        Rectangle {
+        EchoDivider {
+            lineColor: Theme.border
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.border
         }
         ListView {
             id: chatList

@@ -403,10 +403,9 @@ Item {
                 font: Theme.font(11, Theme.regularWeight)
             }
         }
-        Rectangle {
+        EchoDivider {
+            lineColor: Theme.floating.controlBorder
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.floating.controlBorder
         }
         Label {
             Layout.fillWidth: true

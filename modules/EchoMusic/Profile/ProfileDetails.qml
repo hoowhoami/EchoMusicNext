@@ -112,10 +112,9 @@ Rectangle {
                 }
             }
         }
-        Rectangle {
+        EchoDivider {
+            lineColor: Theme.subtleBorder
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.subtleBorder
         }
         GridLayout {
             Layout.fillWidth: true
