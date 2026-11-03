@@ -11,16 +11,17 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QMap>
+#include <memory>
 namespace EchoMusic
 {
 class PlaylistDetailContextTestAccess;
-/// One router-owned resource lifetime. Hidden pages cancel transport; cached
-/// data belongs to this object, and eviction destroys requests and its model.
+/// Shared playlist loading for a route or a single background playback intent.
+/// Route eviction or completion of the intent releases requests and its model.
 class PlaylistDetailContext final : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("Owned by a mounted route")
+    QML_UNCREATABLE("Owned by the playlist service")
     Q_PROPERTY(EchoMusic::CommentsController *comments READ comments CONSTANT)
     Q_PROPERTY(EchoMusic::SongCatalogModel *songs READ songs CONSTANT)
     Q_PROPERTY(EchoMusic::SongCatalogActions *actions READ actions CONSTANT)
@@ -58,12 +59,15 @@ public:
     }
     Q_INVOKABLE void toggleCollection()
     {
-        if (m_collections && m_route.active())
+        if (m_collections && active())
             m_collections->toggle(false, m_detail);
     }
     PlaylistDetailContext(ApiClient &, PlaybackService &, UserPlaylistModel &,
                           PlaylistMutationService &, SongMetadataService &, RouteContext &,
                           bool networkEnabled, CommentAuthorService *authors = nullptr);
+    PlaylistDetailContext(ApiClient &, PlaybackService &, UserPlaylistModel &,
+                          PlaylistMutationService &, SongMetadataService &,
+                          const QString &resourceId, bool networkEnabled, QObject *parent);
     ~PlaylistDetailContext() override;
     SongCatalogModel *songs()
     {
@@ -119,7 +123,7 @@ public:
     }
     CommentsController *comments()
     {
-        return &m_comments;
+        return m_comments.get();
     }
     Q_INVOKABLE void activateComments();
     Q_INVOKABLE void reload();
@@ -132,6 +136,14 @@ signals:
 
 private:
     friend class PlaylistDetailContextTestAccess;
+    PlaylistDetailContext(ApiClient &, PlaybackService &, UserPlaylistModel &,
+                          PlaylistMutationService &, SongMetadataService &, RouteContext *,
+                          const QString &resourceId, bool networkEnabled, QObject *parent,
+                          CommentAuthorService *);
+    bool active() const
+    {
+        return !m_closed && (!m_route || m_route->active());
+    }
     struct Pending
     {
         quint32 page;
@@ -167,10 +179,11 @@ private:
     UserPlaylistModel &m_library;
     SongMetadataService &m_metadata;
     PlaylistMutationService &m_mutations;
-    RouteContext &m_route;
+    RouteContext *const m_route;
+    const QString m_resourceId;
     SongCatalogModel m_songs;
     SongCatalogActions m_actions;
-    CommentsController m_comments;
+    std::unique_ptr<CommentsController> m_comments;
     QHash<quint64, Pending> m_requests;
     QMap<quint32, QJsonObject> m_pages;
     QMap<quint32, QString> m_pageErrors;

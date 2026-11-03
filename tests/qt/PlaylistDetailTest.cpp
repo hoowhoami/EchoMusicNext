@@ -5,6 +5,8 @@
 #include "NetworkPreferences.h"
 #include "PlaybackLibraryActions.h"
 #include "SidebarPlaylistModel.h"
+#include "AccountService.h"
+#include "SharingCommands.h"
 #include <iostream>
 #include <memory>
 #include <QNetworkProxy>
@@ -37,6 +39,11 @@ public:
 class UserPlaylistModelTestAccess
 {
 public:
+    static void defaultKind(UserPlaylistModel &model, quint32 kind)
+    {
+        model.m_rows[0].defaultKind = kind;
+        emit model.changed();
+    }
     static void setKind(UserPlaylistModel &model, const QString &kind)
     {
         auto &row = model.m_rows[0];
@@ -94,6 +101,18 @@ public:
 class PlaylistDetailContextTestAccess
 {
 public:
+    static void finishPlayback(PlaylistDetailContext &c, const QJsonArray &songs)
+    {
+        c.cancel();
+        c.m_network = false;
+        c.m_songs.setMetadataActive(false);
+        c.m_detail = {{"global_id", c.m_resourceId}, {"title", "Inline playlist"}};
+        c.m_actions.setQueueContext("Inline playlist", "queue:playlist:" + c.m_resourceId);
+        c.m_songs.replaceSongs(songs);
+        c.m_complete = true;
+        c.m_total = songs.size();
+        emit c.changed();
+    }
     static void pending(PlaylistDetailContext &c, quint64 id, quint32 page)
     {
         c.m_requests.insert(id, {page, c.m_api.sessionRevision(), c.m_generation});
@@ -112,14 +131,14 @@ public:
     static void seed(PlaylistDetailContext &c, const QString &title,
                      const QString &description = QStringLiteral("歌单介绍 Description"))
     {
-        c.m_detail = {{"global_id", c.m_route.resourceId()},
+        c.m_detail = {{"global_id", c.m_resourceId},
                       {"title", title},
                       {"creator_id", 100},
                       {"creator_name", "Donyean 中文"},
                       {"published_at", "2021-04-05"},
                       {"description", description},
                       {"tags", "韩语,R&B,安静"}};
-        c.m_actions.setQueueContext(title, "queue:playlist:" + c.m_route.resourceId());
+        c.m_actions.setQueueContext(title, "queue:playlist:" + c.m_resourceId);
         emit c.changed();
     }
     static void setSize(PlaylistDetailContext &c, quint32 size)
@@ -156,6 +175,14 @@ public:
     static bool completing(const PlaylistDetailContext &c)
     {
         return !c.m_metadataRequests.isEmpty();
+    }
+};
+class PlaylistDetailServiceTestAccess
+{
+public:
+    static PlaylistDetailContext *pending(PlaylistDetailService &service)
+    {
+        return service.m_pendingPlayback;
     }
 };
 class ApiClientTestAccess
@@ -445,6 +472,97 @@ Window {
         playback.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
         api.shutdown();
+    }
+    void sidebarPlaybackLoadsWithoutMountingAPageAndCancelsOldIntents()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(100, "inline-play-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api);
+        UserPlaylistModelTestAccess::setKind(library, "owned");
+        PlaylistMutationService mutations(api);
+        LibraryController controller(api, library, mutations);
+        SongMetadataService metadata(api);
+        RouteController router;
+        router.registerPage({"home", "/home", QUrl("qrc:/unused-home.qml")});
+        QVERIFY(router.navigate("home"));
+        PlaylistDetailService service(api, playback, library, mutations, *controller.order(),
+                                      metadata, router, true);
+        service.attachLibraryController(controller);
+        const auto route = router.current();
+        const auto mounted = router.mountedCount();
+        QVERIFY(controller.playPlaylist(7));
+        QPointer<PlaylistDetailContext> first = PlaylistDetailServiceTestAccess::pending(service);
+        QVERIFY(first);
+        QVERIFY(first->loading());
+        QVERIFY(!first->comments());
+        QVERIFY(controller.playPlaylist(7));
+        auto *second = PlaylistDetailServiceTestAccess::pending(service);
+        QVERIFY(second && second != first);
+        QCOMPARE(controller.pendingPlayListId(), quint64(7));
+        const QJsonArray songs{playlistSong(1)["song"], playlistSong(2)["song"]};
+        // A stale completion from the canceled intent cannot start playback.
+        PlaylistDetailContextTestAccess::finishPlayback(*first, songs);
+        QCOMPARE(playback.queue()->rowCount(), 0);
+        PlaylistDetailContextTestAccess::finishPlayback(*second, songs);
+        QCOMPARE(playback.queue()->rowCount(), 2);
+        QCOMPARE(playback.sourceKey(), "queue:playlist:cover-playlist");
+        QCOMPARE(controller.pendingPlayListId(), quint64(0));
+        QCOMPARE(router.current(), route);
+        QCOMPARE(router.mountedCount(), mounted);
+        QVERIFY(!PlaylistDetailServiceTestAccess::pending(service));
+        QVERIFY(controller.playPlaylist(7));
+        QVERIFY(PlaylistDetailServiceTestAccess::pending(service));
+        const auto tracks = playback.queue()->tracks();
+        playback.playTracks(tracks, 1, "Another queue", "queue:test-other");
+        QVERIFY(!PlaylistDetailServiceTestAccess::pending(service));
+        QCOMPARE(controller.pendingPlayListId(), quint64(0));
+        // Empty/failed loads leave the current queue intact and release busy.
+        QSignalSpy notices(&service, &PlaylistDetailService::notice);
+        QVERIFY(controller.playPlaylist(7));
+        auto *empty = PlaylistDetailServiceTestAccess::pending(service);
+        QVERIFY(empty);
+        PlaylistDetailContextTestAccess::finishPlayback(*empty, {});
+        QCOMPARE(playback.queue()->rowCount(), 2);
+        QCOMPARE(controller.pendingPlayListId(), quint64(0));
+        QCOMPARE(notices.size(), 1);
+        QVERIFY(controller.playPlaylist(7));
+        auto *failed = PlaylistDetailServiceTestAccess::pending(service);
+        QVERIFY(failed);
+        PlaylistDetailContextTestAccess::pending(*failed, 99011, 0);
+        PlaylistDetailContextTestAccess::fail(*failed, 99011);
+        QCOMPARE(playback.queue()->rowCount(), 2);
+        QCOMPARE(controller.pendingPlayListId(), quint64(0));
+        QCOMPARE(notices.size(), 2);
+        QVERIFY(controller.playPlaylist(7));
+        QVERIFY(PlaylistDetailServiceTestAccess::pending(service));
+        QVERIFY(QMetaObject::invokeMethod(&api, "sessionChanged", Q_ARG(quint64, 1000)));
+        QVERIFY(!PlaylistDetailServiceTestAccess::pending(service));
+        QCOMPARE(controller.pendingPlayListId(), quint64(0));
+        QCOMPARE(playback.queue()->rowCount(), 2);
+        // A ready current page is reused without creating a second reader.
+        UserPlaylistModelTestAccess::seed(library, api);
+        UserPlaylistModelTestAccess::setKind(library, "owned");
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("playlist-detail", {}, "cover-playlist"));
+        auto *ready = service.contextFor(router.current());
+        PlaylistDetailContextTestAccess::finishPlayback(*ready, songs);
+        const auto detailRoute = router.current();
+        QVERIFY(controller.playPlaylist(7));
+        QVERIFY(!PlaylistDetailServiceTestAccess::pending(service));
+        QCOMPARE(controller.pendingPlayListId(), quint64(0));
+        QCOMPARE(router.current(), detailRoute);
+        QCOMPARE(playback.queue()->rowCount(), 2);
+        // Successful deletion leaves only the matching detail. No write is sent.
+        emit controller.removed("another-playlist");
+        QCOMPARE(router.current(), detailRoute);
+        emit controller.removed("cover-playlist");
+        QCOMPARE(router.current(), route);
+        service.shutdown();
+        router.shutdown();
     }
     void confirmedTrackPagesKeepUnchangedRowsAndDetails()
     {
@@ -1621,14 +1739,19 @@ Window {
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "order-test-token"));
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        AccountService account(api);
+        SharingCommands sharing(account);
+        playback.songCommands()->attachSharing(sharing);
         UserPlaylistModel library(api);
         UserPlaylistModelTestAccess::seed(library, api);
         PlaylistMutationService mutations(api);
+        LibraryController controller(api, library, mutations);
         PlaylistOrderModel order(api, mutations);
         RouteController router;
         SongMetadataService songMetadata(api);
         PlaylistDetailService service(api, playback, library, mutations, order, songMetadata,
                                       router, false);
+        service.attachLibraryController(controller);
         service.registerRoutes(router);
         QVERIFY(router.navigate("playlist-detail", {}, "cover-playlist"));
         auto *context = service.contextFor(router.current());
@@ -1645,12 +1768,17 @@ Window {
 import QtQuick
 import QtQuick.Window
 import EchoMusic.Shell
+import EchoMusic.Theme
 Window {
  id: window
  required property RouteController router
  required property ShellSettings settings
- visible: true; width: 1000; height: 750
- RouteHost { anchors.fill: parent; router: window.router; settings: window.settings }
+ visible: true; width: 1000; height: 750; color: Theme.main
+ Item {
+  width: parent.width / window.settings.uiScale; height: parent.height / window.settings.uiScale
+  scale: window.settings.uiScale; transformOrigin: Item.TopLeft
+  RouteHost { anchors.fill: parent; router: window.router; settings: window.settings }
+ }
 })",
                           QUrl("qrc:/playlist-order-production.qml"));
         QScopedPointer<QObject> root(component.createWithInitialProperties(
@@ -1663,6 +1791,81 @@ Window {
             QVERIFY(QTest::qWaitForWindowActive(window));
         QQuickItem *page = nullptr;
         QTRY_VERIFY((page = playlistVisual(window->contentItem(), "playlistDetailPage")));
+        auto *removeOwner = page->findChild<QObject *>("playlistRemoveDialogOwner");
+        QVERIFY(removeOwner);
+        QVERIFY(!removeOwner->property("item").value<QObject *>());
+        auto *remove = playlistVisual(page, "playlistRemoveButton");
+        auto *edit = playlistVisual(page, "playlistEditButton");
+        QTRY_VERIFY(remove && remove->isVisible() && edit && edit->isVisible());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          remove->mapToScene(remove->boundingRect().center()).toPoint());
+        QTRY_VERIFY(removeOwner->property("item").value<QObject *>());
+        QPointer<QObject> removeDialog = removeOwner->property("item").value<QObject *>();
+        QCOMPARE(removeDialog->property("cloudId").toULongLong(), quint64(7));
+        QCOMPARE(removeDialog->property("playlistTitle").toString(),
+                 context->detail().value("title").toString());
+        QVERIFY(removeDialog->property("owned").toBool());
+        auto *cancel = playlistVisual(window->contentItem(), "playlistRemoveCancel");
+        QTRY_VERIFY(cancel && cancel->isVisible());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          cancel->mapToScene(cancel->boundingRect().center()).toPoint());
+        QTRY_VERIFY(removeDialog.isNull());
+        QVERIFY(!removeOwner->property("item").value<QObject *>());
+        UserPlaylistModelTestAccess::setKind(library, "collected");
+        QTRY_VERIFY(!remove->isVisible());
+        UserPlaylistModelTestAccess::setKind(library, "owned");
+        UserPlaylistModelTestAccess::defaultKind(library, 1);
+        QTRY_VERIFY(!remove->isVisible());
+        UserPlaylistModelTestAccess::defaultKind(library, 0);
+        QTRY_VERIFY(remove->isVisible());
+        const auto artifacts = qEnvironmentVariable("ECHO_PLAYLIST_ACTION_ARTIFACTS");
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (const double scale : {1., 1.25})
+                for (const int width : {1000, 650}) {
+                    theme.setMode(mode);
+                    shell.resetZoom();
+                    if (scale > 1.)
+                        for (int i = 0; i < 5; ++i)
+                            shell.zoomIn();
+                    window->resize(width, 750);
+                    QTest::qWait(120);
+                    const auto frame = window->grabWindow();
+                    QVERIFY(!frame.isNull());
+                    const auto *content = remove->property("contentItem").value<QQuickItem *>();
+                    QVERIFY(content);
+                    QCOMPARE(content->property("text").toString(),
+                             page->width() < 680 ? QString() : QStringLiteral("删除"));
+                    QCOMPARE(remove->property("text").toString(), QStringLiteral("删除"));
+                    QVERIFY2(
+                        remove->mapToScene({remove->width(), 0}).x() <= window->width(),
+                        qPrintable(QString("Delete outside width %1 at %2").arg(width).arg(scale)));
+                    if (!artifacts.isEmpty()) {
+                        QVERIFY(QDir().mkpath(artifacts));
+                        QVERIFY(frame.save(artifacts + QString("/actions-%1-%2-w%3.png")
+                                                           .arg(int(mode))
+                                                           .arg(scale)
+                                                           .arg(width)));
+                    }
+                }
+        shell.resetZoom();
+        window->resize(1000, 750);
+        // Feed the production header its fully collapsed scroll position.
+        auto *header = playlistVisual(page, "songDetailHeader");
+        QVERIFY(header);
+        header->setProperty("scrollTop", header->property("expandedHeight").toReal());
+        auto *collapsedRemove = playlistVisual(header, "playlistRemoveCollapsed");
+        QTRY_VERIFY(collapsedRemove && collapsedRemove->isVisible());
+        QTest::mouseClick(
+            window, Qt::LeftButton, Qt::NoModifier,
+            collapsedRemove->mapToScene(collapsedRemove->boundingRect().center()).toPoint());
+        QTRY_VERIFY(removeOwner->property("item").value<QObject *>());
+        removeDialog = removeOwner->property("item").value<QObject *>();
+        cancel = playlistVisual(window->contentItem(), "playlistRemoveCancel");
+        QTRY_VERIFY(cancel && cancel->isVisible());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          cancel->mapToScene(cancel->boundingRect().center()).toPoint());
+        QTRY_VERIFY(removeDialog.isNull());
+        header->setProperty("scrollTop", 0);
         auto *owner = page->findChild<QObject *>("playlistOrderDialogOwner");
         QVERIFY(owner);
         QVERIFY(!owner->property("item").value<QObject *>());

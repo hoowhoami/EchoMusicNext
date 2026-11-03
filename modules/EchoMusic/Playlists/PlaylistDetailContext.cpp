@@ -12,9 +12,33 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
                                              PlaylistMutationService &mutations,
                                              SongMetadataService &metadata, RouteContext &route,
                                              bool networkEnabled, CommentAuthorService *authors)
-    : QObject(&route), m_api(api), m_playback(playback), m_library(library), m_metadata(metadata),
-      m_mutations(mutations), m_route(route), m_actions(m_songs, playback, this),
-      m_comments(api, route, networkEnabled, this, authors), m_network(networkEnabled)
+    : PlaylistDetailContext(api, playback, library, mutations, metadata, &route, route.resourceId(),
+                            networkEnabled, &route, authors)
+{
+}
+PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &playback,
+                                             UserPlaylistModel &library,
+                                             PlaylistMutationService &mutations,
+                                             SongMetadataService &metadata,
+                                             const QString &resourceId, bool networkEnabled,
+                                             QObject *parent)
+    : PlaylistDetailContext(api, playback, library, mutations, metadata, nullptr, resourceId,
+                            networkEnabled, parent, nullptr)
+{
+}
+PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &playback,
+                                             UserPlaylistModel &library,
+                                             PlaylistMutationService &mutations,
+                                             SongMetadataService &metadata, RouteContext *route,
+                                             const QString &resourceId, bool networkEnabled,
+                                             QObject *parent, CommentAuthorService *authors)
+    : QObject(parent), m_api(api), m_playback(playback), m_library(library), m_metadata(metadata),
+      m_mutations(mutations), m_route(route), m_resourceId(resourceId),
+      m_actions(m_songs, playback, this),
+      m_comments(
+          route ? std::make_unique<CommentsController>(api, *route, networkEnabled, this, authors)
+                : nullptr),
+      m_network(networkEnabled)
 {
     m_songs.attachMetadata(&metadata);
     // QML borrows this application-owned object, including explicit invokable
@@ -26,7 +50,8 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
             [this](quint64 id, int, const QByteArray &bytes) { fail(id, bytes); });
     connect(&api, &ApiClient::sessionChanged, this, &PlaylistDetailContext::reload);
     connect(&api, &ApiClient::closed, this, &PlaylistDetailContext::shutdown);
-    connect(&route, &RouteContext::activeChanged, this, &PlaylistDetailContext::activate);
+    if (route)
+        connect(route, &RouteContext::activeChanged, this, &PlaylistDetailContext::activate);
     connect(&library, &UserPlaylistModel::changed, this, [this] {
         if (m_resolving)
             resolveSource();
@@ -41,7 +66,7 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
                 if (!m_metadataRequests.contains(ticket))
                     return;
                 const auto pending = m_metadataRequests.take(ticket);
-                if (m_closed || !m_route.active() || pending.session != m_api.sessionRevision() ||
+                if (m_closed || !active() || pending.session != m_api.sessionRevision() ||
                     pending.generation != m_generation)
                     return;
                 m_songs.applyPresentations(values);
@@ -104,8 +129,7 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
     connect(&m_playback, &PlaybackService::trackFactsApplied, this,
             &PlaylistDetailContext::applyPlaybackFacts);
     connect(m_playback.cloudSources(), &CloudAudioIndex::settled, this, [this] {
-        if (m_closed || m_reconcilingTracks || !m_cloud || !m_route.active() ||
-            !enrichCloudEntries())
+        if (m_closed || m_reconcilingTracks || !m_cloud || !active() || !enrichCloudEntries())
             return;
         QJsonArray songs;
         for (const auto &entry : std::as_const(m_cloudEntries)) {
@@ -121,7 +145,8 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
             &PlaylistDetailContext::applyTrackReadback);
     // Directory membership/metadata already flows through the shared library.
     // It does not invalidate the songs of every retained playlist page.
-    connect(&route, &RouteContext::queryChanged, this, &PlaylistDetailContext::activateComments);
+    if (route)
+        connect(route, &RouteContext::queryChanged, this, &PlaylistDetailContext::activateComments);
     connect(this, &PlaylistDetailContext::changed, this, &PlaylistDetailContext::activateComments);
     activate();
 }
@@ -149,13 +174,15 @@ void PlaylistDetailContext::shutdown()
     if (m_closed)
         return;
     m_closed = true;
-    m_comments.shutdown();
+    if (m_comments)
+        m_comments->shutdown();
     cancel();
     disconnect(&m_api, nullptr, this, nullptr);
 }
 void PlaylistDetailContext::cancel()
 {
-    m_comments.suspend();
+    if (m_comments)
+        m_comments->suspend();
     ++m_generation;
     for (auto ticket : m_metadataRequests.keys())
         m_metadata.cancel(ticket);
@@ -170,10 +197,10 @@ void PlaylistDetailContext::cancel()
 }
 void PlaylistDetailContext::activate()
 {
-    m_songs.setMetadataActive(!m_closed && m_network && m_route.active());
+    m_songs.setMetadataActive(!m_closed && m_network && active());
     if (m_closed)
         return;
-    if (!m_route.active()) {
+    if (!active()) {
         cancel();
         emit changed();
         return;
@@ -217,9 +244,9 @@ void PlaylistDetailContext::reload()
     m_nextPage = 1;
     m_complete = false;
     m_error.clear();
-    if (m_route.active() && m_network) {
-        const auto id = m_api.playlistDetails({{m_route.resourceId()}},
-                                              {AuthenticationMode::CurrentAccount, false});
+    if (active() && m_network) {
+        const auto id =
+            m_api.playlistDetails({{m_resourceId}}, {AuthenticationMode::CurrentAccount, false});
         if (id)
             m_requests.insert(id, {0, m_api.sessionRevision(), m_generation});
         else
@@ -234,7 +261,7 @@ void PlaylistDetailContext::applyTrackReadback(const QJsonObject &snapshot, quin
         quint64(snapshot["cloud_list_id"].toInteger()) != m_cloud->value ||
         (m_revision && quint64(snapshot["revision"].toInteger()) < *m_revision))
         return;
-    if (!m_route.active()) {
+    if (!active()) {
         m_pendingTrackReadback = snapshot;
         return;
     }
@@ -289,7 +316,7 @@ quint64 PlaylistDetailContext::editListId() const
 }
 void PlaylistDetailContext::resolveSource()
 {
-    if (m_closed || !m_route.active() || !m_network || m_detail.isEmpty())
+    if (m_closed || !active() || !m_network || m_detail.isEmpty())
         return;
     m_resolving = false;
     m_cloud.reset();
@@ -329,7 +356,7 @@ void PlaylistDetailContext::resolveSource()
 }
 void PlaylistDetailContext::requestPage(quint32 page)
 {
-    if (m_closed || !m_network || !m_route.active() || !m_error.isEmpty())
+    if (m_closed || !m_network || !active() || !m_error.isEmpty())
         return;
     const auto id = m_cloud
                         ? m_api.cloudPlaylistTracks(*m_cloud, page, m_pageSize)
@@ -346,7 +373,7 @@ void PlaylistDetailContext::accept(quint64 id, const QByteArray &bytes)
         return;
     const auto pending = m_requests.take(id);
     if (m_closed || pending.session != m_api.sessionRevision() ||
-        pending.generation != m_generation || !m_route.active())
+        pending.generation != m_generation || !active())
         return;
     if (pending.page && m_complete)
         return;
@@ -514,7 +541,7 @@ void PlaylistDetailContext::completePage(const QJsonArray &songs)
 }
 void PlaylistDetailContext::publishCover()
 {
-    if (!m_cloud || !m_complete || !m_revision || !m_route.active())
+    if (!m_cloud || !m_complete || !m_revision || !active())
         return;
     QString cover;
     // Entries already have stable sort ascending order, independent of arrival.
@@ -648,7 +675,7 @@ void PlaylistDetailContext::fail(quint64 id, const QByteArray &bytes)
     if (!m_requests.contains(id))
         return;
     const auto pending = m_requests.take(id);
-    if (m_closed || !m_route.active() || pending.session != m_api.sessionRevision() ||
+    if (m_closed || !active() || pending.session != m_api.sessionRevision() ||
         pending.generation != m_generation)
         return;
     const auto message =
@@ -667,7 +694,7 @@ bool PlaylistDetailContext::removeSong(const QString &id)
 {
     // 只有歌单所有者可删除曲目；写操作由共享服务串行执行。
     // 成功后复用 trackPageReconciled 读回，增量同步受影响的歌曲行。
-    if (m_closed || !m_cloud || !m_revision || !m_complete || !m_route.active())
+    if (m_closed || !m_cloud || !m_revision || !m_complete || !active())
         return false;
     quint64 file = 0;
     for (const auto &entry : m_cloudEntries)
@@ -684,7 +711,7 @@ void PlaylistDetailContext::failMessage(const QString &message)
     cancel();
     m_error = message;
     emit changed();
-    if (!m_closed && m_route.active())
+    if (!m_closed && active())
         emit notice(message, true);
 }
 } // namespace EchoMusic
@@ -693,10 +720,10 @@ namespace EchoMusic
 {
 void PlaylistDetailContext::activateComments()
 {
-    if (m_closed)
+    if (m_closed || !m_comments || !m_route)
         return;
-    if (!m_route.active() || m_route.query().value("tab").toString() != "comments") {
-        m_comments.suspend();
+    if (!active() || m_route->query().value("tab").toString() != "comments") {
+        m_comments->suspend();
         return;
     }
     auto id = m_detail.value("global_id").toString();
@@ -709,9 +736,9 @@ void PlaylistDetailContext::activateComments()
             id = QString("collection_3_%1_%2_0").arg(creator).arg(list);
     }
     if (id.isEmpty())
-        id = m_route.resourceId();
-    m_comments.configure(ApiClient::CommentResource::Playlist, id,
-                         m_detail.value("title").toString());
-    m_comments.start();
+        id = m_resourceId;
+    m_comments->configure(ApiClient::CommentResource::Playlist, id,
+                          m_detail.value("title").toString());
+    m_comments->start();
 }
 } // namespace EchoMusic

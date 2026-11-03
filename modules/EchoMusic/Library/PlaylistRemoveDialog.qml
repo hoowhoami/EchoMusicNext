@@ -30,12 +30,14 @@ EchoDialog {
             Layout.fillWidth: true
         }
         EchoSoftButton {
+            objectName: "playlistRemoveCancel"
             text: qsTr("取消")
             enabled: !dialog.service.busy
             colors: Theme.floating
             onClicked: dialog.close()
         }
         EchoSoftButton {
+            objectName: "playlistRemoveConfirm"
             text: dialog.service.busy ? qsTr("处理中…") : dialog.owned ? qsTr("删除") : qsTr("取消收藏")
             danger: true
             enabled: !dialog.service.busy

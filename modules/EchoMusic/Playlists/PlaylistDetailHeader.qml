@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import EchoMusic.Controls
 import EchoMusic.Theme
@@ -9,13 +10,19 @@ SongDetailHeader {
     id: header
     required property PlaylistDetailContext detailContext
     signal editRequested
+    signal removeRequested
+    property bool removalAvailable: false
+    property bool removalBusy: false
     property string shareFallbackId: ""
     readonly property var info: detailContext.detail
+    // Five labeled actions need room beside the expanded artwork and metadata.
+    compactExpandedActions: width < 680
     additionalActions: Component {
         RowLayout {
             spacing: 8
             EchoSoftButton {
                 objectName: "detailCollectButton"
+                display: header.compactExpandedActions ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
                 visible: header.detailContext.collectionAvailable
                 text: header.detailContext.collected ? qsTr("已收藏") : qsTr("收藏")
                 glyph: header.detailContext.collected ? "heart-filled" : "heart"
@@ -26,6 +33,7 @@ SongDetailHeader {
 
             EchoSoftButton {
                 objectName: "playlistEditButton"
+                display: header.compactExpandedActions ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
                 visible: header.detailContext.editListId > 0
                 text: qsTr("编辑")
                 glyph: "pencil"
@@ -33,10 +41,21 @@ SongDetailHeader {
             }
             EchoSoftButton {
                 objectName: "detailShareButton"
+                display: header.compactExpandedActions ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
                 visible: !!header.detailContext.actions.sharing
                 text: qsTr("分享")
                 glyph: "share"
                 onClicked: header.detailContext.actions.sharing.sharePlaylist(header.info, header.shareFallbackId)
+            }
+            EchoSoftButton {
+                objectName: "playlistRemoveButton"
+                display: header.compactExpandedActions ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
+                visible: header.removalAvailable
+                enabled: !header.removalBusy
+                text: qsTr("删除")
+                glyph: "trash"
+                danger: true
+                onClicked: header.removeRequested()
             }
         }
     }
@@ -67,6 +86,15 @@ SongDetailHeader {
                 text: qsTr("分享")
                 glyph: "share"
                 onClicked: header.detailContext.actions.sharing.sharePlaylist(header.info, header.shareFallbackId)
+            }
+            EchoIconButton {
+                objectName: "playlistRemoveCollapsed"
+                visible: header.removalAvailable
+                enabled: !header.removalBusy
+                text: qsTr("删除歌单")
+                glyph: "trash"
+                foreground: Theme.colors.dangerText
+                onClicked: header.removeRequested()
             }
         }
     }

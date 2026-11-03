@@ -28,6 +28,7 @@ Item {
     property bool showPlaybackActions: true
     /// Pages control the visibility of the shared header actions.
     property bool showBatchAction: true
+    property bool compactExpandedActions: false
     property Component leadingActions
     property bool loading: false
     property real expandedHeight: 176 + (description.length > 0 ? 28 : 0)
@@ -243,6 +244,7 @@ Item {
                 }
                 EchoSoftButton {
                     objectName: "catalogPlayAll"
+                    display: header.compactExpandedActions ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
                     visible: header.showPlaybackActions
                     text: qsTr("播放")
                     glyph: "play"
@@ -252,6 +254,7 @@ Item {
                 }
                 EchoSoftButton {
                     objectName: "catalogBatch"
+                    display: header.compactExpandedActions ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
                     visible: header.showPlaybackActions && header.showBatchAction
                     text: qsTr("批量")
                     glyph: "list"

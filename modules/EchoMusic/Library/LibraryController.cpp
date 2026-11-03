@@ -25,6 +25,7 @@ LibraryController::LibraryController(ApiClient &api, UserPlaylistModel &source,
         m_command = Command::None;
         m_error.clear();
         m_removing.clear();
+        m_pendingPlayListId = 0;
         emit changed();
     });
     connect(&mutations, &PlaylistMutationService::completed, this, [this](const QByteArray &) {
@@ -140,6 +141,21 @@ bool LibraryController::remove(quint64 cloudId)
 }
 bool LibraryController::openPlaylist(quint64 cloudId)
 {
+    return requestPlaylist(cloudId, false);
+}
+bool LibraryController::playPlaylist(quint64 cloudId)
+{
+    return requestPlaylist(cloudId, true);
+}
+void LibraryController::finishPlaylistPlayback(quint64 cloudId)
+{
+    if (!cloudId || m_pendingPlayListId != cloudId)
+        return;
+    m_pendingPlayListId = 0;
+    emit changed();
+}
+bool LibraryController::requestPlaylist(quint64 cloudId, bool play)
+{
     const int row = m_projection.sourceRow(cloudId);
     const auto index = m_source.index(row, 0);
     if (!index.isValid() || index.data(UserPlaylistModel::SourceCodeRole).toUInt() == 2)
@@ -151,7 +167,12 @@ bool LibraryController::openPlaylist(quint64 cloudId)
             .toString();
     if (id.isEmpty())
         return false;
-    emit playlistRequested(id, cloudId, owned);
+    if (play) {
+        m_pendingPlayListId = cloudId;
+        emit changed();
+        emit playlistPlayRequested(id, cloudId);
+    } else
+        emit playlistRequested(id, cloudId, owned);
     return true;
 }
 } // namespace EchoMusic

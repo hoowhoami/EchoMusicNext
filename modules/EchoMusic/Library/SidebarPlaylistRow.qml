@@ -19,10 +19,9 @@ ItemDelegate {
     property bool selected: false
     property bool resourceActive: true
     property bool busy: false
-    readonly property bool canEdit: kind === "owned" && !defaultKind
     signal openRequested(double cloudId)
-    signal editRequested(double cloudId)
-    signal removeRequested(double cloudId, string title, bool owned)
+    property bool playbackBusy: false
+    signal playRequested(double cloudId)
     height: collapsed ? 42 : 40
     padding: collapsed ? 5 : 14
     topPadding: collapsed ? 5 : 6
@@ -37,11 +36,13 @@ ItemDelegate {
     contentItem: RowLayout {
         spacing: 12
         EchoCover {
+            id: playlistCover
             objectName: "sidebarPlaylistCover"
 
             Layout.preferredWidth: row.collapsed ? 32 : 28
             Layout.preferredHeight: row.collapsed ? 32 : 28
             source: row.coverUrl
+            placeholderOpacity: playAction.visible ? 0 : 0.3
             resourceActive: row.resourceActive
         }
         EchoTextLine {
@@ -51,7 +52,6 @@ ItemDelegate {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.alignment: Qt.AlignVCenter
-            Layout.rightMargin: (editAction.visible ? 32 : 0) + (removeAction.visible ? 32 : 0)
             text: row.title
             color: row.selected ? Theme.accentText : Theme.text
             font: Theme.font(14, row.selected ? Theme.semiboldWeight : Theme.regularWeight)
@@ -60,39 +60,44 @@ ItemDelegate {
         }
     }
     EchoIconButton {
-        id: editAction
-        objectName: "sidebarPlaylistEdit"
-        visible: !row.collapsed && row.canEdit && (row.hovered || row.visualFocus || hovered || removeAction.hovered)
-        enabled: !row.busy
-        anchors.right: parent.right
-        anchors.rightMargin: 42
-        anchors.verticalCenter: parent.verticalCenter
-        width: 28
-        height: 28
+        id: playAction
+        objectName: "sidebarPlaylistPlay"
+        parent: playlistCover
+        visible: !row.collapsed && (row.hovered || row.visualFocus || hovered || visualFocus || row.playbackBusy)
+        enabled: !row.busy && !row.playbackBusy
+        visualContentActive: row.resourceActive
+        anchors.fill: parent
         padding: 7
-        glyph: "pencil"
-        text: qsTr("编辑")
-        onClicked: row.editRequested(row.cloudListId)
+        foreground: "white"
+        glyph: row.playbackBusy ? "loader-2" : "play"
+        text: row.playbackBusy ? qsTr("正在读取歌单…") : qsTr("播放歌单")
+        background: Rectangle {
+            radius: playlistCover.cornerRadius
+            color: Qt.rgba(0, 0, 0, playAction.down ? .6 : .45)
+        }
+        onClicked: row.playRequested(row.cloudListId)
     }
-    EchoIconButton {
-        id: removeAction
-        objectName: "sidebarPlaylistRemove"
-        visible: !row.collapsed && !row.defaultKind && (row.hovered || row.visualFocus || hovered || editAction.hovered)
-        enabled: !row.busy
-        anchors.right: parent.right
-        anchors.rightMargin: 10
-        anchors.verticalCenter: parent.verticalCenter
-        width: 28
-        height: 28
-        padding: 7
-        glyph: "trash"
-        text: row.kind === "owned" ? qsTr("删除歌单") : qsTr("取消收藏")
-        onClicked: row.removeRequested(row.cloudListId, row.title, row.kind === "owned")
+    // A disabled child button otherwise passes its click to the playlist row.
+    MouseArea {
+        parent: playlistCover
+        anchors.fill: playAction
+        enabled: playAction.visible && !playAction.enabled
+        acceptedButtons: Qt.LeftButton
+    }
+    RotationAnimator {
+        target: playAction.contentItem
+        from: 0
+        to: 360
+        duration: 900
+        loops: Animation.Infinite
+        running: row.playbackBusy && row.resourceActive && playAction.visible && row.Window.window !== null && row.Window.window.visible && row.Window.window.visibility !== Window.Minimized && Theme.store.motionEnabled
+        onRunningChanged: if (!running && playAction.contentItem)
+            playAction.contentItem.rotation = 0
     }
     EchoToolTip {
         parent: row
         // The row stays hovered over child actions; their own hints take priority.
-        requestedVisible: row.hovered && !editAction.hovered && !removeAction.hovered && (row.collapsed || titleLabel.isTruncated())
+        requestedVisible: row.hovered && !playAction.hovered && (row.collapsed || titleLabel.isTruncated())
         text: row.title
     }
 }

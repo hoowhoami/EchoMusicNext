@@ -8,9 +8,9 @@ Item {
     id: backdrop
     property url source
     property bool resourceActive: true
-    // Carries the URL whose decode failed, so the owner can retire it from its
-    // own gallery (the artist-portrait controller drops it and rotates on).
-    signal failed(url imageUrl)
+    property real materialOpacity: 1
+    // Shared by the media composite and the page's no-image reading scrim.
+    readonly property vector3d scrim: Qt.vector3d(Math.min(300, height), .45, .78)
     property url firstSource: ""
     property url secondSource: ""
     property int currentSlot: -1
@@ -73,10 +73,8 @@ Item {
         }
     }
     function imageFailed(slot: int): void {
-        if (slot !== pendingSlot)
-            return;
-        failed(pendingSlot === 0 ? firstSource : secondSource);
-        clear();
+        if (slot === pendingSlot)
+            clear();
     }
     onSourceChanged: updateSource()
     onResourceActiveChanged: updateSource()
@@ -88,6 +86,8 @@ Item {
         opacity: 0
         sourceComponent: DiscoverFlowArtwork {
             imageUrl: backdrop.firstSource
+            materialOpacity: backdrop.materialOpacity
+            scrim: backdrop.scrim
             onReady: backdrop.imageReady(0)
             onFailed: backdrop.imageFailed(0)
         }
@@ -99,6 +99,8 @@ Item {
         opacity: 0
         sourceComponent: DiscoverFlowArtwork {
             imageUrl: backdrop.secondSource
+            materialOpacity: backdrop.materialOpacity
+            scrim: backdrop.scrim
             onReady: backdrop.imageReady(1)
             onFailed: backdrop.imageFailed(1)
         }

@@ -73,6 +73,32 @@ class SidebarNavigationTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void playlistPlayDoesNotNavigateOrUseTheCreatorIdAsALocalId()
+    {
+        Session session;
+        QVERIFY(session.router.navigate("home"));
+        const auto current = session.router.current();
+        const auto mounted = session.router.mountedCount();
+        QSignalSpy navigation(&session.library, &LibraryController::playlistRequested);
+        QSignalSpy plays(&session.library, &LibraryController::playlistPlayRequested);
+        QVERIFY(session.library.playPlaylist(1));
+        QCOMPARE(plays.size(), 1);
+        QCOMPARE(plays.last()[0].toString(), "owned-global");
+        QCOMPARE(session.library.pendingPlayListId(), quint64(1));
+        session.library.setTab(1);
+        QVERIFY(session.library.playPlaylist(2));
+        QCOMPARE(plays.last()[0].toString(), "creator-public");
+        QCOMPARE(plays.last()[1].toULongLong(), quint64(2));
+        session.library.finishPlaylistPlayback(1);
+        QCOMPARE(session.library.pendingPlayListId(), quint64(2));
+        session.library.finishPlaylistPlayback(2);
+        QCOMPARE(session.library.pendingPlayListId(), quint64(0));
+        QVERIFY(!session.library.playPlaylist(999));
+        QCOMPARE(plays.size(), 2);
+        QVERIFY(navigation.isEmpty());
+        QCOMPARE(session.router.current(), current);
+        QCOMPARE(session.router.mountedCount(), mounted);
+    }
     void backAndForwardRevealTheCurrentPlaylistSection()
     {
         Session session;

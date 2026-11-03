@@ -5,6 +5,7 @@
 #include "ExploreService.h"
 #include "DiscoveryRouteCoordinator.h"
 #include "PlaybackService.h"
+#include "PortraitController.h"
 #include "PlaybackRepository.h"
 #include "AccountService.h"
 #include "RouteController.h"
@@ -64,6 +65,17 @@ public:
     static int state(const ExploreService &s, ExploreService::Part part)
     {
         return s.m_states[part];
+    }
+};
+class PortraitControllerTestAccess
+{
+public:
+    static void present(PortraitController &gallery, const QUrl &source)
+    {
+        gallery.setActive(true);
+        gallery.m_urls = {source.toString()};
+        gallery.m_index = 0;
+        gallery.publish();
     }
 };
 class DiscoveryServiceTestAccess
@@ -278,8 +290,12 @@ Window {
  id: window
  required property RouteController router
  required property ShellSettings settings
+ property color desktopColor: "#e4e0d4"
+ property bool desktopVisible: true
+ color: "transparent"
  visible: true; width: 850; height: 600
- Rectangle { anchors.fill: parent; color: Theme.main }
+ Rectangle { anchors.fill: parent; color: window.desktopColor; visible: window.desktopVisible }
+ ThemeBackground { anchors.fill: parent; baseColor: Theme.main; opacity: 1 - Theme.store.transparency / 100 }
  Item {
   width: parent.width / window.settings.uiScale
   height: parent.height / window.settings.uiScale
@@ -305,6 +321,24 @@ Window {
         QVERIFY(stage && actions && title && artist);
         QTRY_VERIFY(findVisual(page, "discoverFlowArtwork"));
         QTRY_COMPARE(findVisual(page, "discoverFlowArtwork")->property("status").toInt(), 1);
+        // A different track's playback gallery must never supply discovery
+        // artwork or acquire a discovery-owned activation lease.
+        QImage portrait(800, 800, QImage::Format_RGB32);
+        portrait.fill(QColor("#db517e"));
+        const auto portraitPath = dir.filePath("other-track-portrait.png");
+        QVERIFY(portrait.save(portraitPath));
+        const auto portraitUrl = QUrl::fromLocalFile(portraitPath);
+        auto *gallery = playback.portraits();
+        PortraitControllerTestAccess::present(*gallery, portraitUrl);
+        gallery->setActive(false);
+        QCOMPARE(gallery->source(), QUrl());
+        PortraitControllerTestAccess::present(*gallery, portraitUrl);
+        auto *background = findVisual(page, "discoverFlowBackdrop");
+        QVERIFY(background);
+        QCOMPARE(background->property("source").toUrl(), QUrl::fromLocalFile(cover));
+        auto *quality = findVisual(page, "discoverFlowQuality");
+        QVERIFY(quality);
+        QCOMPARE(quality->property("text").toString(), "SQ");
         const auto artifacts = qEnvironmentVariable("ECHO_FLOW_ARTIFACTS");
         for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
             theme.setMode(mode);
@@ -344,12 +378,21 @@ Window {
             QVERIFY(next && play);
             QCOMPARE(next->size(), QSizeF(36, 36));
             QCOMPARE(play->size(), QSizeF(52, 52));
-            // A uniform source isolates the media from cover content. The
-            // artwork renders at full strength (no top entrance, no scrim);
-            // probe the stage gap, away from all foreground glyphs.
+            // A uniform source isolates the top entrance and adjusted scrim from cover
+            // content. Probe the stage gap, away from all foreground glyphs.
             if (QGuiApplication::platformName() != "offscreen") {
                 const auto ratio = image.width() / qreal(window->width());
                 const auto x = (page->width() - (narrow ? 80 : 100)) * zoom;
+                const auto mask = [](qreal t) {
+                    const QList<QPointF> stops{{0, 0},   {.05, .10}, {.12, .45}, {.20, .82},
+                                               {.28, 1}, {.58, 1},   {1, 1}};
+                    for (int i = 1; i < stops.size(); ++i)
+                        if (t <= stops[i].x()) {
+                            const auto a = stops[i - 1], b = stops[i];
+                            return a.y() + (b.y() - a.y()) * (t - a.x()) / (b.x() - a.x());
+                        }
+                    return 0.;
+                };
                 QList<qreal> ys;
                 for (const auto t : {0., .025, .05, .085, .12, .16, .20, .24, .28, .58})
                     ys.append(t * page->height());
@@ -360,6 +403,11 @@ Window {
                 for (const auto y : ys) {
                     const int py = qBound(0, qRound(y * zoom * ratio), image.height() - 1);
                     const auto logicalY = (py + .5) / (zoom * ratio);
+                    const auto distance = page->height() - logicalY;
+                    const auto scrim = distance >= 300   ? 0.
+                                       : distance >= 120 ? .45 * (300 - distance) / 180
+                                                         : .45 + .33 * (120 - distance) / 120;
+                    const auto alpha = mask(logicalY / page->height()) * (1 - scrim);
                     const auto pixel = image.pixelColor(qRound(x * ratio), py);
                     for (int channel = 0; channel < 3; ++channel) {
                         const auto c = [channel](const QColor &color) {
@@ -367,7 +415,7 @@ Window {
                                    : channel == 1 ? color.green()
                                                   : color.blue();
                         };
-                        const auto expected = c(coverColor);
+                        const auto expected = qRound(c(base) * (1 - alpha) + c(coverColor) * alpha);
                         QVERIFY2(
                             qAbs(c(pixel) - expected) <= 3,
                             qPrintable(QString("source alpha y=%1 channel=%2 actual=%3 expected=%4")
@@ -377,10 +425,9 @@ Window {
                                            .arg(expected)));
                     }
                 }
-                // The media must leave the shell's rounded bottom corners
-                // clear. Check actual pixels at each scale and theme,
-                // including the inside of the arc, rather than just a radius
-                // property.
+                // Both media and scrim must leave the shell's rounded bottom
+                // corners clear. Check actual pixels at each scale and theme,
+                // including the inside of the arc, rather than just a radius property.
                 for (const bool right : {false, true}) {
                     const int edgeX = right ? image.width() - 2 : 1;
                     const auto outside = image.pixelColor(edgeX, image.height() - 2);
@@ -392,6 +439,100 @@ Window {
                     QVERIFY(qAbs(inside.green() - base.green()) > 8);
                 }
             }
+        }
+        if (QString(QTest::currentDataTag()) == "normal" || zoom > 1.) {
+            for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+                theme.setMode(mode);
+                for (const int transparency : {25, 65, 100}) {
+                    theme.setTransparency(transparency);
+                    const qreal strength = 1 - transparency / 100.;
+                    if (strength > 0) {
+                        QTRY_COMPARE(background->property("imageCount").toInt(), 1);
+                        QTRY_COMPARE(
+                            findVisual(page, "discoverFlowArtwork")->property("status").toInt(), 1);
+                    } else
+                        QTRY_COMPARE(background->property("imageCount").toInt(), 0);
+                    for (const auto desktop : {QColor("#e4e0d4"), QColor("#242738")}) {
+                        root->setProperty("desktopVisible", true);
+                        root->setProperty("desktopColor", desktop);
+                        const auto frame = window->grabWindow();
+                        QVERIFY(!frame.isNull());
+                        if (!artifacts.isEmpty())
+                            QVERIFY(frame.save(artifacts + QString("/transparent-%1-%2-%3-%4.png")
+                                                               .arg(QTest::currentDataTag())
+                                                               .arg(int(mode))
+                                                               .arg(transparency)
+                                                               .arg(desktop.lightness() > 128
+                                                                        ? "light-backdrop"
+                                                                        : "dark-backdrop")));
+                        if (QGuiApplication::platformName() == "offscreen")
+                            continue;
+                        const auto ratio = frame.width() / qreal(window->width());
+                        const auto channel = [](QColor color, int c) {
+                            return c == 0 ? color.redF() : c == 1 ? color.greenF() : color.blueF();
+                        };
+                        for (const qreal fraction : {.085, .58, .96}) {
+                            const int py = qRound(page->height() * fraction * zoom * ratio);
+                            const auto y = (py + .5) / (zoom * ratio);
+                            const auto top =
+                                fraction < .12 ? .10 + .35 * (y / page->height() - .05) / .07 : 1.;
+                            const auto p = qBound(
+                                0., 1 - (page->height() - y) / qMin(300., page->height()), 1.);
+                            const auto shade = p < .6 ? .45 * p / .6 : .45 + .33 * (p - .6) / .4;
+                            const auto coverage = strength * (top * (1 - shade) + shade);
+                            const auto pixel =
+                                frame.pixelColor(qRound((page->width() - 100) * zoom * ratio), py);
+                            for (int c = 0; c < 3; ++c) {
+                                const auto base = strength * channel(theme.main(), c) +
+                                                  (1 - strength) * channel(desktop, c);
+                                const auto media =
+                                    strength * (top * (1 - shade) * channel(QColor("#75b9a5"), c) +
+                                                shade * channel(theme.main(), c));
+                                const auto expected = media + (1 - coverage) * base;
+                                QVERIFY2(
+                                    qAbs(channel(pixel, c) - expected) <= 4. / 255,
+                                    qPrintable(
+                                        QString(
+                                            "transparent=%1 y=%2 channel=%3 actual=%4 expected=%5")
+                                            .arg(transparency)
+                                            .arg(y)
+                                            .arg(c)
+                                            .arg(channel(pixel, c))
+                                            .arg(expected)));
+                            }
+                        }
+                    }
+                    // Read the native RGBA target itself, independently of any
+                    // wallpaper. Business text and controls must stay opaque.
+                    root->setProperty("desktopVisible", false);
+                    if (QGuiApplication::platformName() != "offscreen") {
+                        const auto frame = window->grabWindow();
+                        const auto ratio = frame.width() / qreal(window->width());
+                        const auto pixel =
+                            frame.pixelColor(qRound((page->width() - 100) * zoom * ratio),
+                                             qRound(page->height() * .4 * zoom * ratio));
+                        QVERIFY(qAbs(pixel.alphaF() - (2 * strength - strength * strength)) <=
+                                3. / 255);
+                        for (const auto &name : {"discoverFlowTitle", "discoverFlowPlay"}) {
+                            auto *item = findVisual(page, name);
+                            QVERIFY(item);
+                            const auto rect = item->mapRectToScene(item->boundingRect());
+                            const auto region =
+                                frame.copy(QRectF(rect.topLeft() * ratio, rect.size() * ratio)
+                                               .toAlignedRect());
+                            int peakAlpha = 0;
+                            for (int y = 0; y < region.height(); ++y)
+                                for (int x = 0; x < region.width(); ++x)
+                                    peakAlpha = qMax(peakAlpha, region.pixelColor(x, y).alpha());
+                            QVERIFY(peakAlpha >= 250);
+                        }
+                    }
+                }
+            }
+            root->setProperty("desktopVisible", true);
+            theme.setTransparency(0);
+            QTRY_COMPARE(background->property("imageCount").toInt(), 1);
+            QTRY_COMPARE(findVisual(page, "discoverFlowArtwork")->property("status").toInt(), 1);
         }
         if (QString(QTest::currentDataTag()) == "normal") {
             auto *backdrop = findVisual(page, "discoverFlowBackdrop");
@@ -418,6 +559,8 @@ Window {
             QTRY_COMPARE_WITH_TIMEOUT(title->property("text").toString(),
                                       second["title"].toString(), 2000);
             QTRY_COMPARE_WITH_TIMEOUT(backdrop->property("imageCount").toInt(), 1, 2000);
+            QCOMPARE(backdrop->property("source").toUrl(), QUrl::fromLocalFile(bandPath));
+            QCOMPARE(gallery->source(), portraitUrl);
             QTRY_VERIFY_WITH_TIMEOUT(!info->property("running").toBool(), 2000);
             QVERIFY(!backdrop->property("running").toBool());
             QCOMPARE(playback.queue()->rowCount(), 0); // Presentation is not playback intent.
@@ -425,11 +568,13 @@ Window {
                 const auto frame = window->grabWindow();
                 const auto dpr = frame.width() / qreal(window->width());
                 const qreal x = page->width() - 100, y = page->height() * .3;
-                // The media has no fades; compare the 35% vertical source crop
-                // directly against the rendered pixel.
+                // At y=.3 the top mask is fully opaque. Undo only the known
+                // bottom scrim before comparing the 35% vertical source crop.
+                const auto distance = page->height() - y;
+                const auto scrim = distance >= 300 ? 0. : .45 * (300 - distance) / 180;
                 const auto crop = page->height() / page->width();
                 const auto uv = (1 - crop) * .35 + (y / page->height()) * crop;
-                const auto expected = qRound(uv * 255);
+                const auto expected = qRound(uv * 255 * (1 - scrim) + theme.main().red() * scrim);
                 const auto pixel = frame.pixelColor(qRound(x * dpr), qRound(y * dpr));
                 QVERIFY2(qAbs(pixel.red() - expected) <= 3,
                          qPrintable(QString("35 percent crop actual=%1 expected=%2")
@@ -452,6 +597,7 @@ Window {
             QVERIFY(retired);
             QVERIFY(router.navigate("free-listen"));
             QTRY_VERIFY(retired.isNull());
+            QCOMPARE(gallery->source(), portraitUrl);
             router.back();
             QTRY_COMPARE(backdrop->property("imageCount").toInt(), 1);
             QTRY_VERIFY(findVisual(page, "discoverFlowArtwork"));
@@ -466,16 +612,19 @@ Window {
                 QVERIFY(!window->grabWindow().isNull());
                 QTest::qWait(100);
                 QSignalSpy frames(window, &QQuickWindow::frameSwapped);
-                QTest::qWait(350);
-                // A returned native window may still present one queued
-                // finalization frame. It must not become a persistent clock.
-                const auto finalizationFrames = frames.size();
-                frames.clear();
-                QTest::qWait(350);
-                qInfo() << "FLOW return finalization_frames=" << finalizationFrames
-                        << "following_idle_350ms_frames=" << frames.size();
-                QVERIFY(finalizationFrames <= 1);
-                QCOMPARE(frames.size(), 0);
+                // Native upload/material retirement can present a late frame.
+                // Require two quiet intervals within a bounded drain, while a
+                // persistent animation clock still fails this observation.
+                int quietIntervals = 0, settlingFrames = 0;
+                for (int interval = 0; interval < 8 && quietIntervals < 2; ++interval) {
+                    frames.clear();
+                    QTest::qWait(250);
+                    settlingFrames += frames.size();
+                    quietIntervals = frames.isEmpty() ? quietIntervals + 1 : 0;
+                }
+                qInfo() << "FLOW return settling_frames=" << settlingFrames
+                        << "consecutive_idle_250ms_intervals=" << quietIntervals;
+                QCOMPARE(quietIntervals, 2);
             }
         }
         QCOMPARE(warnings.size(), 0);

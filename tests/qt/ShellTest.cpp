@@ -238,8 +238,8 @@ private slots:
         auto *host = findVisual(window->contentItem(), "rowHost");
         auto *row = findVisual(host, "sidebarPlaylistRow");
         auto *label = findVisual(row, "sidebarPlaylistTitle");
-        auto *edit = findVisual(row, "sidebarPlaylistEdit");
-        QVERIFY(row && label && edit);
+        auto *play = findVisual(row, "sidebarPlaylistPlay");
+        QVERIFY(row && label && play);
         auto *text = label->property("textItem").value<QQuickItem *>();
         QVERIFY(text);
         const auto render = [&] {
@@ -274,7 +274,8 @@ private slots:
                             Test::moveNativePointer(window, {340, 160});
                             if (window->grabWindow().isNull())
                                 return false;
-                            return !row->property("hovered").toBool() && !edit->isVisible() &&
+                            return !row->property("hovered").toBool() && !play->isVisible() &&
+                                   qAbs(text->width() - label->width()) < .01 &&
                                    qAbs(label->mapToItem(row, {label->width(), 0}).x() -
                                         (row->width() - row->property("rightPadding").toReal())) <
                                        .01;
@@ -289,9 +290,9 @@ private slots:
                         const auto textWidth = text->width();
                         QCOMPARE(text->property("lineCount").toInt(), 1);
                         Test::moveNativePointer(window, row->mapToScene({10, 20}).toPoint());
-                        QTRY_VERIFY(edit->isVisible());
+                        QTRY_VERIFY(play->isVisible());
                         QVERIFY(render());
-                        QTRY_VERIFY(text->width() < textWidth);
+                        QCOMPARE(text->width(), textWidth);
                         QCOMPARE(label->height(), height);
                         QVERIFY(qAbs(label->mapToScene({0, label->height() / 2}).y() - center) <
                                 .01);
@@ -304,7 +305,12 @@ private slots:
                                  baseline) < .01);
                         QCOMPARE(text->property("lineCount").toInt(), 1);
                         const auto textRight = text->mapToScene({text->width(), 0}).x();
-                        QVERIFY(textRight <= edit->mapToScene({0, 0}).x());
+                        QVERIFY(textRight <=
+                                row->mapToScene(
+                                       {row->width() - row->property("rightPadding").toReal(), 0})
+                                    .x());
+                        QVERIFY(label->mapToScene({0, 0}).x() >=
+                                play->mapToScene({play->width(), 0}).x());
                         const auto captures = qEnvironmentVariable("ECHO_SIDEBAR_ROW_CAPTURE_DIR");
                         if (!captures.isEmpty() && width == 184) {
                             QVERIFY(QDir().mkpath(captures));
@@ -318,39 +324,52 @@ private slots:
                 }
             }
         }
-        auto *remove = findVisual(row, "sidebarPlaylistRemove");
-        QVERIFY(remove);
-        QSignalSpy edits(row, SIGNAL(editRequested(double)));
-        QSignalSpy removals(row, SIGNAL(removeRequested(double, QString, bool)));
+        QVERIFY(!findVisual(row, "sidebarPlaylistEdit"));
+        QVERIFY(!findVisual(row, "sidebarPlaylistRemove"));
+        QSignalSpy plays(row, SIGNAL(playRequested(double)));
+        QSignalSpy opens(row, SIGNAL(openRequested(double)));
         host->setScale(1);
         row->setWidth(184);
         for (const auto &kind : {QStringLiteral("owned"), QStringLiteral("collected")}) {
             row->setProperty("kind", kind);
             Test::moveNativePointer(window, row->mapToScene({10, 20}).toPoint());
             QVERIFY(render());
-            QCOMPARE(edit->isVisible(), kind == "owned");
-            QVERIFY(remove->isVisible());
-            QCOMPARE(remove->property("text").toString(),
-                     kind == "owned" ? QStringLiteral("删除歌单") : QStringLiteral("取消收藏"));
+            QTRY_VERIFY(play->isVisible());
+            QCOMPARE(play->property("text").toString(), QStringLiteral("播放歌单"));
             QTest::mouseClick(window, Qt::RightButton, Qt::NoModifier,
                               row->mapToScene({10, 20}).toPoint());
             row->forceActiveFocus(Qt::TabFocusReason);
             QTest::keyClick(window, Qt::Key_Menu);
             QTest::keyClick(window, Qt::Key_F10, Qt::ShiftModifier);
-            QCOMPARE(edits.count(), 0);
-            if (kind == "owned") {
-                QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-                                  edit->mapToScene(edit->boundingRect().center()).toPoint());
-                QCOMPARE(edits.count(), 1);
-                edits.clear();
-            }
+            QCOMPARE(plays.count(), 0);
+            const auto point = play->mapToScene(play->boundingRect().center()).toPoint();
+            Test::moveNativePointer(window, point);
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
+            QCOMPARE(plays.count(), 1);
+            QCOMPARE(plays.first()[0].toDouble(), 7.);
+            QCOMPARE(opens.count(), 0);
+            plays.clear();
         }
+        row->setProperty("playbackBusy", true);
+        QVERIFY(!play->isEnabled());
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-                          remove->mapToScene(remove->boundingRect().center()).toPoint());
-        QCOMPARE(removals.count(), 1);
-        QCOMPARE(removals.first().at(0).toDouble(), 7.);
-        QCOMPARE(removals.first().at(2).toBool(), false);
-        QCOMPARE(edits.count(), 0);
+                          play->mapToScene(play->boundingRect().center()).toPoint());
+        QCOMPARE(plays.count(), 0);
+        QCOMPARE(opens.count(), 0);
+        row->setProperty("playbackBusy", false);
+        const auto titlePoint = label->mapToScene(label->boundingRect().center()).toPoint();
+        Test::moveNativePointer(window, titlePoint);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, titlePoint);
+        QCOMPARE(opens.count(), 1);
+        row->setProperty("collapsed", true);
+        row->setWidth(42);
+        QVERIFY(render());
+        QVERIFY(!play->isVisible());
+        const auto coverPoint = play->mapToScene(play->boundingRect().center()).toPoint();
+        Test::moveNativePointer(window, coverPoint);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, coverPoint);
+        QCOMPARE(opens.count(), 2);
+        QCOMPARE(plays.count(), 0);
     }
     void smsRequestsShareOneSubmissionLifetime()
     {

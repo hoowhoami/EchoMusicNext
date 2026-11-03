@@ -23,6 +23,7 @@ class LibraryController final : public QObject
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
+    Q_PROPERTY(quint64 pendingPlayListId READ pendingPlayListId NOTIFY changed)
 public:
     LibraryController(ApiClient &api, UserPlaylistModel &source, PlaylistMutationService &mutations,
                       QObject *parent = nullptr);
@@ -68,12 +69,19 @@ public:
     Q_INVOKABLE bool create(const QString &title, bool isPrivate);
     Q_INVOKABLE bool remove(quint64 cloudId);
     Q_INVOKABLE bool openPlaylist(quint64 cloudId);
+    Q_INVOKABLE bool playPlaylist(quint64 cloudId);
+    quint64 pendingPlayListId() const
+    {
+        return m_pendingPlayListId;
+    }
+    void finishPlaylistPlayback(quint64 cloudId);
 signals:
     void changed();
     void notice(const QString &message, bool warning);
     void created();
     void removed(const QString &resourceId);
     void playlistRequested(const QString &resourceId, quint64 cloudId, bool owned);
+    void playlistPlayRequested(const QString &resourceId, quint64 cloudId);
 
 private:
     enum class Command
@@ -93,5 +101,7 @@ private:
     Command m_command = Command::None;
     QString m_error, m_removing;
     bool m_removingOwned = false;
+    quint64 m_pendingPlayListId = 0;
+    bool requestPlaylist(quint64 cloudId, bool play);
 };
 } // namespace EchoMusic

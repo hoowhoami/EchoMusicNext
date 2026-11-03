@@ -7,6 +7,8 @@ import EchoMusic.Theme
 Item {
     id: artwork
     required property url imageUrl
+    required property real materialOpacity
+    required property vector3d scrim
     signal ready
     signal failed
     Image {
@@ -36,6 +38,8 @@ Item {
         // This route meets the shell's bottom edge. Clip the actual media in
         // its existing quad; no page-sized offscreen layer is needed.
         property vector3d viewport: Qt.vector3d(width, height, Math.min(Theme.shellRadius, width / 2, height / 2))
+        property real materialOpacity: artwork.materialOpacity
+        property vector3d scrim: artwork.scrim
         fragmentShader: "qrc:/qt/qml/EchoMusic/Discovery/shaders/discover-artwork.frag.qsb"
     }
     Component.onCompleted: {

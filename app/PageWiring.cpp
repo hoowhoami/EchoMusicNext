@@ -89,6 +89,7 @@ void AppContext::createPages()
         api, playback, userPlaylists, playlistMutations, *libraryController.order(), songMetadata,
         router, !smoke, nullptr, &commentAuthors);
     auto &playlistDetails = *m_playlistDetails;
+    playlistDetails.attachLibraryController(libraryController);
     // 页面服务只创建数据所有者；RouteCatalog 在统一阶段显式挂载路由。
     m_favorites = std::make_unique<FavoritesService>(
         api, playback, userPlaylists, *libraryController.order(), songMetadata, router, !smoke);

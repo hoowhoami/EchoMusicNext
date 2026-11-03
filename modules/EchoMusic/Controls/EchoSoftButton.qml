@@ -57,13 +57,21 @@ Button {
         }
     }
     Accessible.name: text
+    Loader {
+        active: button.display === AbstractButton.IconOnly && button.text.length > 0
+        sourceComponent: EchoToolTip {
+            parent: button
+            requestedVisible: button.hovered && button.enabled
+            text: button.text
+        }
+    }
     contentItem: EchoButtonContent {
         visible: !button.publicPart.replaced
         spacing: button.size === EchoControlSize.Small ? 6 : 8
         glyph: button.glyph
         glyphSize: button.glyphSize
         loading: button.loading
-        text: button.text
+        text: button.display === AbstractButton.IconOnly ? "" : button.text
         color: button.publicPart.value("foreground", button.foreground)
         font: button.publicPart.styledFont(button.font)
     }

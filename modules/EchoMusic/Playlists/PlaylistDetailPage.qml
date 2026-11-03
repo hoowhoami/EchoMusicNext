@@ -19,6 +19,7 @@ RoutePage {
         songMenuOwner.close();
         orderDialogOwner.close();
         editDialogOwner.close();
+        removeDialogOwner.close();
     }
     // Open at the pointer or keyboard-reported row edge in scene coordinates.
     // Keep the target row highlighted until the menu closes.
@@ -69,6 +70,8 @@ RoutePage {
         headerComponent: Component {
             PlaylistDetailHeader {
                 detailContext: page.detail
+                removalAvailable: page.service.libraryController !== null && page.detail.editListId > 0
+                removalBusy: page.service.libraryController !== null && page.service.libraryController.busy
                 shareFallbackId: page.context.resourceId
                 scrollTop: catalog.scrollTop
                 showPlaybackActions: !page.commentsActive
@@ -78,6 +81,11 @@ RoutePage {
                 onIntroRequested: introOwner.open()
                 onEditRequested: editDialogOwner.open({
                     cloudId: page.detail.editListId
+                })
+                onRemoveRequested: removeDialogOwner.open({
+                    cloudId: page.detail.editListId,
+                    playlistTitle: page.detail.detail.title || "",
+                    owned: true
                 })
             }
         }
@@ -105,6 +113,17 @@ RoutePage {
                     tracksListId: page.orderTargetListId,
                     tracksTitle: page.detail.detail.title || ""
                 });
+            }
+        }
+    }
+    EchoPopupLoader {
+        id: removeDialogOwner
+        objectName: "playlistRemoveDialogOwner"
+        hostItem: page
+        sourceComponent: Component {
+            PlaylistRemoveDialog {
+                service: page.service.libraryController
+                uiScale: page.settings.uiScale
             }
         }
     }

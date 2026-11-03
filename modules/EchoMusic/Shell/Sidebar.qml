@@ -117,29 +117,6 @@ Item {
             }
         }
     }
-    EchoPopupLoader {
-        id: editDialogOwner
-        objectName: "sidebarPlaylistEditDialogOwner"
-        hostItem: sidebar
-        sourceComponent: Component {
-            PlaylistEditDialog {
-                editor: sidebar.libraryController.editor
-                uiScale: sidebar.uiScale
-            }
-        }
-    }
-    EchoPopupLoader {
-        id: removeDialogOwner
-        objectName: "playlistRemoveDialogOwner"
-        hostItem: sidebar
-        sourceComponent: Component {
-            PlaylistRemoveDialog {
-                id: removeDialog
-                service: sidebar.libraryController
-                uiScale: sidebar.uiScale
-            }
-        }
-    }
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -245,16 +222,8 @@ Item {
                     resourceActive: sidebar.visible && !playlistDelegate.pooled
                     selected: sidebar.router.current && sidebar.router.current.name === "playlist-detail" && sidebar.router.current.resourceId === (kind === "owned" ? globalId : creatorGlobalId)
                     onOpenRequested: cloudId => sidebar.libraryController.openPlaylist(cloudId)
-                    onEditRequested: cloudId => editDialogOwner.open({
-                            cloudId: cloudId
-                        })
-                    onRemoveRequested: (cloudId, title, owned) => {
-                        removeDialogOwner.open({
-                            cloudId: cloudId,
-                            playlistTitle: title,
-                            owned: owned
-                        });
-                    }
+                    playbackBusy: sidebar.libraryController.pendingPlayListId === cloudListId
+                    onPlayRequested: cloudId => sidebar.libraryController.playPlaylist(cloudId)
                 }
             }
             footer: ColumnLayout {
