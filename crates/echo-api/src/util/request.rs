@@ -1729,7 +1729,7 @@ mod metadata_batch_tests {
                     serde_json::from_slice(&input[offset..offset + length]).unwrap();
                 let entities = body["data"].as_array().unwrap();
                 assert_eq!(entities.len(), 50);
-                assert_eq!(body["fields"], "album_info,base,authors.base");
+                assert_eq!(body["fields"], "album_info,base,authors.base,extra");
                 let ids = entities
                     .iter()
                     .map(|v| v["entity_id"].as_u64().unwrap())

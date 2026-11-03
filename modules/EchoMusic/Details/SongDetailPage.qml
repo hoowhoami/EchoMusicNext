@@ -70,6 +70,11 @@ RoutePage {
                     id: detailSections
                     width: comments.listView.width
                     spacing: 16
+                    SongInformationSection {
+                        width: parent.width
+                        detailContext: page.detail
+                        router: page.router
+                    }
                     Repeater {
                         model: [
                             {
@@ -280,14 +285,6 @@ RoutePage {
                         text: qsTr("重试")
                         onClicked: page.detail.reload()
                     }
-                    Label {
-                        width: parent.width
-                        visible: !page.detail.loading && !page.detail.errorMessage.length && !page.detail.rankings.length && !page.detail.qualities.length
-                        text: qsTr("暂无更多歌曲详情")
-                        color: Theme.secondaryText
-                        horizontalAlignment: Text.AlignHCenter
-                        font: Theme.font(12, Theme.regularWeight)
-                    }
                 }
             }
         }
@@ -318,43 +315,57 @@ RoutePage {
                     }
                 }
                 detailsComponent: Component {
-                    EchoArtistLinks {
-                        objectName: "songArtistLink"
-                        artists: page.detail.artistLinks
-                        font: Theme.font(13, Theme.semiboldWeight)
-                        color: Theme.accentText
-                        lineHeight: 20
-                        requireCompleteName: true
-                        onArtistRequested: id => page.router.navigate("artist-detail", {}, id)
+                    RowLayout {
+                        spacing: 8
+                        EchoArtistLinks {
+                            objectName: "songArtistLink"
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.maximumWidth: implicitWidth
+                            artists: page.detail.artistLinks
+                            font: Theme.font(13, Theme.semiboldWeight)
+                            color: Theme.accentText
+                            lineHeight: 20
+                            requireCompleteName: true
+                            onArtistRequested: id => page.router.navigate("artist-detail", {}, id)
+                        }
+                        EchoTextTagRow {
+                            visible: page.music
+                            text: "•"
+                            font: Theme.font(13, Theme.semiboldWeight)
+                            lineHeight: 20
+                            color: Theme.secondaryText
+                        }
+                        EchoSoftButton {
+                            objectName: "songAlbumLink"
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.maximumWidth: implicitWidth
+                            visible: page.music
+                            text: page.detail.detail.album || qsTr("单曲")
+                            plain: true
+                            leftPadding: 0
+                            rightPadding: 0
+                            implicitHeight: 20
+                            font: Theme.font(13, Theme.semiboldWeight)
+                            foreground: enabled ? Theme.accentText : Theme.secondaryText
+                            enabled: page.detail.albumNavigationId.length > 0
+                            onClicked: page.router.navigate("album-detail", {}, page.detail.albumNavigationId)
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                        }
                     }
                 }
                 secondaryDetailsComponent: Component {
                     Flow {
+                        objectName: "songHeaderMetadata"
                         visible: page.music
                         spacing: 8
-                        RowLayout {
-                            spacing: 8
-                            EchoSoftButton {
-                                objectName: "songAlbumLink"
-                                text: page.detail.detail.album || qsTr("单曲")
-                                plain: true
-                                leftPadding: 0
-                                rightPadding: 0
-                                implicitHeight: 18.7
-                                font: Theme.font(11, Theme.semiboldWeight)
-                                foreground: enabled ? Theme.accentText : Theme.secondaryText
-                                enabled: page.detail.albumNavigationId.length > 0
-                                onClicked: page.router.navigate("album-detail", {}, page.detail.albumNavigationId)
-                            }
-                            EchoTextTagRow {
-                                text: "•"
-                                font: Theme.font(11, Theme.semiboldWeight)
-                                lineHeight: 18.7
-                                color: Theme.secondaryText
-                            }
-                        }
                         Repeater {
-                            model: [page.detail.detail.language || qsTr("未知"), qsTr("%1 收藏").arg(page.countText(page.detail.detail.favorite_count)), qsTr("%1 评论").arg(page.countText(page.detail.detail.comment_count))]
+                            id: headerCounts
+                            model: [qsTr("%1 收藏").arg(page.countText(page.detail.detail.favorite_count)), qsTr("%1 评论").arg(page.countText(page.detail.detail.comment_count))]
                             delegate: EchoTextTagRow {
                                 id: metadataItem
                                 required property string modelData
@@ -365,7 +376,7 @@ RoutePage {
                                 spacing: 8
                                 color: Theme.secondaryText
                                 EchoTextTagRow {
-                                    visible: metadataItem.index < 2
+                                    visible: metadataItem.index < headerCounts.count - 1
                                     text: "•"
                                     font: Theme.font(11, Theme.semiboldWeight)
                                     lineHeight: 18.7

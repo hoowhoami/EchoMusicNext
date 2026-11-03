@@ -10,6 +10,7 @@ class SongDetailContext final : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by a detail route")
     Q_PROPERTY(QVariantMap detail READ detail NOTIFY changed)
+    Q_PROPERTY(QVariantMap information READ information NOTIFY changed)
     Q_PROPERTY(QVariantList rankings READ rankings NOTIFY changed)
     Q_PROPERTY(QVariantList rankingDetails READ rankingDetails NOTIFY changed)
     Q_PROPERTY(QStringList qualities READ qualities NOTIFY changed)
@@ -30,6 +31,7 @@ public:
     {
         return m_detail.toVariantMap();
     }
+    QVariantMap information() const;
     QVariantList rankings() const
     {
         return m_ranking.value("info").toArray().toVariantList();
@@ -97,6 +99,7 @@ private:
     void activate();
     void cancel();
     void hydrate();
+    void requestMetadata();
     void rankingsAndComments();
     void startComments();
     void updateSong();

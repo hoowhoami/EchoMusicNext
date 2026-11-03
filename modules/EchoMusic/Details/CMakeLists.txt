@@ -32,6 +32,7 @@ qt_add_qml_module(
     PlaybackDiscussionHost.qml
     PlaybackCommentDrawer.qml
     SongDetailPage.qml
+    SongInformationSection.qml
     MvDetailPage.qml
     CommentListState.qml
     CommentsView.qml

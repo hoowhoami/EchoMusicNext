@@ -216,6 +216,19 @@ QString SongDetailContext::albumNavigationId() const
         id = positiveNavigationId(m_detail.value("album_id").toVariant());
     return id;
 }
+QVariantMap SongDetailContext::information() const
+{
+    auto info = m_detail.value("information").toObject();
+    const auto metadata = m_track.value("metadata").toObject();
+    // Catalog entry facts remain useful while the richer shared read loads.
+    for (const auto &key : {"published_at", "language"})
+        if (info.value(key).isNull() || info.value(key).isUndefined() ||
+            info.value(key).toString().trimmed().isEmpty())
+            info[key] = metadata.value(key).toString().trimmed().isEmpty() ? m_detail.value(key)
+                                                                           : metadata.value(key);
+    info["duration_ms"] = m_track.value("duration_ms");
+    return info.toVariantMap();
+}
 bool SongDetailContext::loading() const
 {
     if (m_metadataTicket)
@@ -293,6 +306,8 @@ void SongDetailContext::reload()
                         {{m_hash, m_album ? std::optional<quint64>(m_album) : std::nullopt}},
                         {AuthenticationMode::CurrentAccount, true}),
                     Privilege);
+        else if (m_mix)
+            requestMetadata();
         else
             rankingsAndComments();
     }
@@ -313,6 +328,20 @@ void SongDetailContext::rankingsAndComments()
     if (!loading())
         startComments();
     emit changed();
+}
+void SongDetailContext::requestMetadata()
+{
+    if (auto *metadata = m_playback.metadata()) {
+        m_metadataTicket = metadata->request({QString::number(m_mix)});
+        if (m_metadataTicket)
+            return;
+    } else {
+        const auto id = m_api.songMetadata({m_mix}, {AuthenticationMode::CurrentAccount, true});
+        request(id, Metadata);
+        if (id)
+            return;
+    }
+    rankingsAndComments();
 }
 void SongDetailContext::startComments()
 {
@@ -383,13 +412,9 @@ void SongDetailContext::accept(quint64 id, const QByteArray &bytes)
             updateSong();
         }
         // Author and album IDs come from metadata, never from name guesses.
-        if (m_mix && !a.isEmpty()) {
-            if (auto *metadata = m_playback.metadata())
-                m_metadataTicket = metadata->request({QString::number(m_mix)});
-            else
-                request(m_api.songMetadata({m_mix}, {AuthenticationMode::CurrentAccount, true}),
-                        Metadata);
-        } else
+        if (m_mix)
+            requestMetadata();
+        else
             rankingsAndComments();
         break;
     }
@@ -427,6 +452,18 @@ void SongDetailContext::applyMetadata(const QJsonArray &values)
     const auto &a = values;
     if (!a.isEmpty()) {
         auto v = a[0].toObject();
+        if (v.value("information").isObject()) {
+            auto information = m_detail.value("information").toObject();
+            const auto incoming = v.value("information").toObject();
+            for (auto it = incoming.begin(); it != incoming.end(); ++it)
+                if (!it.value().isNull() &&
+                    (!it.value().isString() || !it.value().toString().trimmed().isEmpty()))
+                    information[it.key()] = it.value();
+            m_detail["information"] = information;
+            if (m_detail.value("language").toString().trimmed().isEmpty() &&
+                !information.value("language").toString().trimmed().isEmpty())
+                m_detail["language"] = information.value("language");
+        }
         for (const auto &key : {"title", "album_title", "album_id", "cover_url", "artists"})
             if (!v.value(key).isNull() && !v.value(key).isUndefined())
                 m_track[key] = v.value(key);
@@ -467,7 +504,9 @@ void SongDetailContext::fail(quint64 id, const QByteArray &bytes)
     m_error = QJsonDocument::fromJson(bytes).object().value("message").toString();
     if (m_error.isEmpty())
         m_error = tr("部分歌曲详情加载失败，请重试");
-    if (p.kind == Privilege || p.kind == Metadata)
+    if (p.kind == Privilege && m_mix)
+        requestMetadata();
+    else if (p.kind == Privilege || p.kind == Metadata)
         rankingsAndComments();
     if (m_rankingsStarted && !loading())
         startComments();

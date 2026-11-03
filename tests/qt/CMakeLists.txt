@@ -2096,3 +2096,27 @@ if(APPLE)
         glyph-run PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa;QSG_RHI_BACKEND=metal"
     )
 endif()
+
+qt_add_executable(echo-song-information-test SongInformationTest.cpp)
+target_link_libraries(
+    echo-song-information-test
+    PRIVATE echo_details
+            echo_detailsplugin
+            echo_shell
+            echo_shellplugin
+            echo_theme
+            echo_themeplugin
+            echo_music
+            echo_musicplugin
+            Qt6::Quick
+            Qt6::QuickControls2
+            Qt6::Test
+)
+add_test(NAME song-information COMMAND echo-song-information-test)
+set_tests_properties(
+    song-information PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 RUN_SERIAL TRUE
+)
+echo_copy_rust_runtime(echo-song-information-test)
+if(APPLE)
+    target_link_libraries(echo-song-information-test PRIVATE echo_native_test_support)
+endif()
