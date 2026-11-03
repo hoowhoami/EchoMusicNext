@@ -709,7 +709,7 @@ void ControlsUiTest::playPauseTransitionKeepsEndpointsAndInterrupts()
             QTRY_VERIFY(!icon->property("transitioning").toBool());
             QCOMPARE(icon->property("phase").toReal(), 1.);
             QCOMPARE(pause->opacity(), 1.);
-            QCOMPARE(pause->scale(), 1.);
+            QCOMPARE(pause->property("visualScale").toReal(), 1.);
             QCOMPARE(play->opacity(), 0.);
             const auto active = frame();
             QVERIFY(active != idle && active != middle);

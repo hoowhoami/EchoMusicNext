@@ -272,12 +272,7 @@ Item {
                     implicitHeight: 36
                     padding: 8
                     foreground: hovered || visualFocus ? bar.colors.accentText : bar.colors.iconMain
-                    scale: down ? 0.9 : hovered ? 1.1 : 1
-                    Behavior on scale {
-                        NumberAnimation {
-                            duration: Theme.normalDuration
-                        }
-                    }
+                    scaleFeedback: true
                     onClicked: {
                         bar.lastActionAnchor = more;
                         overflowOwner.open();

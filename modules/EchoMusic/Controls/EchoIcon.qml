@@ -11,6 +11,9 @@ Item {
     // A short glyph scale transition can rasterize at its stable endpoint
     // density instead of reloading the SVG on every animation frame.
     property Item rasterizationItem: control
+    // Scale the already aligned raster, without re-quantizing its geometry or
+    // requesting another SVG texture at every frame of hover feedback.
+    property real visualScale: 1
     property alias asynchronous: image.asynchronous
     readonly property alias status: image.status
     // Rasterize glyphs 1:1 at device pixels: the artwork bucket floor (32px)
@@ -33,8 +36,8 @@ Item {
     // position rides a half-device-pixel boundary flips a whole pixel on
     // every re-quantization. The attached scene position re-syncs wherever
     // layout carries the icon; the density divisor includes the ancestor scale
-    // chain because the compensation is applied in local coordinates. Callers
-    // that animate `scale` still snap at their rest state.
+    // chain because the compensation is applied in local coordinates. Feedback
+    // scales the inner surface after alignment; layout zoom remains tracked.
     readonly property bool snapEnabled: EchoPixelSnap.enabled
     readonly property point snapScene: EchoPixelSnap.scenePosition
     readonly property real snapDpr: EchoPixelSnap.devicePixelRatio
@@ -43,6 +46,7 @@ Item {
     Item {
         id: alignedSurface
         objectName: "iconAlignedSurface"
+        scale: control.visualScale
         x: control.snapEnabled ? (Math.round(control.snapScene.x * control.snapDpr) - control.snapScene.x * control.snapDpr) / control.snapDensityX : 0
         y: control.snapEnabled ? (Math.round(control.snapScene.y * control.snapDpr) - control.snapScene.y * control.snapDpr) / control.snapDensityY : 0
         width: control.snapEnabled ? Math.round(control.width * control.snapDensityX) / control.snapDensityX : control.width

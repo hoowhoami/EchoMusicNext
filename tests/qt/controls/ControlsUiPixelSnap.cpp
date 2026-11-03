@@ -3,6 +3,138 @@
 #include "EchoPixelSnap.h"
 #include <cmath>
 
+void ControlsUiTest::iconButtonHoverScalesStableRasterAndHitRegion()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Theme
+import EchoMusic.Controls
+Window {
+    id: host
+    width: 440; height: 220; visible: true; color: Theme.player
+    property real uiScale: 1
+    Item {
+        x: 70.3; y: 70.6; scale: host.uiScale
+        EchoIconButton {
+            objectName: "hoverScaleButton"
+            width: 38; height: 38; padding: 9
+            text: "播放"; glyph: animatePlayPause ? "play" : "player-skip-forward"
+            scaleFeedback: true; hoverBackground: false
+        }
+    }
+})",
+                      QUrl("qrc:/hover-scale.qml"));
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    auto *button = session.item("hoverScaleButton");
+    QVERIFY(button);
+    const auto capture = qEnvironmentVariable("ECHO_HOVER_SCALE_CAPTURES");
+    if (!capture.isEmpty())
+        QVERIFY(QDir().mkpath(capture));
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (qreal zoom : {1., 1.25}) {
+            session.root->setProperty("uiScale", zoom);
+            for (bool playPause : {false, true}) {
+                Test::moveNativePointer(session.window, {2, 2});
+                QTRY_VERIFY(!button->property("hovered").toBool());
+                button->setProperty("animatePlayPause", playPause);
+                QTRY_COMPARE(button->property("visualScale").toReal(), 1.);
+                QTRY_VERIFY(button->property("scaleAnimationAllowed").toBool());
+                QQuickItem *image = nullptr;
+                QTRY_VERIFY((image = findVisual(button, "iconImage")) &&
+                            image->property("status").toInt() == 1);
+                auto *surface = findVisual(button, "iconAlignedSurface");
+                QVERIFY(surface);
+                const auto raster = image->property("sourceSize");
+                const auto origin = surface->position();
+                const auto size = surface->size();
+                const auto hitRect = button->mapRectToScene(button->boundingRect());
+                QSignalSpy rasterChanges(image, SIGNAL(sourceSizeChanged()));
+                QSignalSpy scaleChanges(button, SIGNAL(visualScaleChanged()));
+                const auto idle = session.window->grabWindow();
+                const QPoint center = hitRect.center().toPoint();
+                Test::moveNativePointer(session.window, center);
+                QTRY_VERIFY(button->property("hovered").toBool());
+                QSet<int> samples;
+                QElapsedTimer elapsed;
+                elapsed.start();
+                while (elapsed.elapsed() < 220) {
+                    Test::moveNativePointer(session.window, center);
+                    const qreal value = button->property("visualScale").toReal();
+                    QVERIFY(value >= 1. && value <= 1.1);
+                    samples.insert(qRound(value * 10000));
+                    QCOMPARE(button->mapRectToScene(button->boundingRect()), hitRect);
+                    QCOMPARE(surface->position(), origin);
+                    QCOMPARE(surface->size(), size);
+                    QCOMPARE(image->property("sourceSize"), raster);
+                    const auto frame = session.window->grabWindow();
+                    QVERIFY(!frame.isNull());
+                    if (!capture.isEmpty())
+                        QVERIFY(frame.save(capture + QString("/%1-%2-%3-%4.png")
+                                                         .arg(int(mode))
+                                                         .arg(zoom)
+                                                         .arg(playPause)
+                                                         .arg(elapsed.elapsed())));
+                    QTest::qWait(8);
+                }
+                Test::moveNativePointer(session.window, center);
+                QVERIFY2(
+                    scaleChanges.size() >= 3,
+                    qPrintable(QString("mode=%1 zoom=%2 playPause=%3 renderedScales=%4 changes=%5")
+                                   .arg(int(mode))
+                                   .arg(zoom)
+                                   .arg(playPause)
+                                   .arg(samples.size())
+                                   .arg(scaleChanges.size())));
+                QTRY_COMPARE(button->property("visualScale").toReal(), 1.1);
+                QCOMPARE(rasterChanges.size(), 0);
+                QVERIFY(session.window->grabWindow() != idle);
+                // A pointer just beyond the fixed hit area must not be held by
+                // the enlarged glyph. Rapid reversal resumes the current scale.
+                Test::moveNativePointer(session.window, {qCeil(hitRect.right()) + 1, center.y()});
+                QTRY_VERIFY(!button->property("hovered").toBool());
+                QTest::qWait(32);
+                const qreal reverse = button->property("visualScale").toReal();
+                Test::moveNativePointer(session.window, center);
+                QVERIFY(qAbs(button->property("visualScale").toReal() - reverse) < .025);
+                QTRY_COMPARE(button->property("visualScale").toReal(), 1.1);
+                QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, center);
+                QTRY_COMPARE(button->property("visualScale").toReal(), .9);
+                QCOMPARE(button->mapRectToScene(button->boundingRect()), hitRect);
+                Test::moveNativePointer(session.window, {2, 2});
+                QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, {2, 2});
+                QTRY_COMPARE(button->property("visualScale").toReal(), 1.);
+                Test::moveNativePointer(session.window, center);
+                QTRY_COMPARE(button->property("visualScale").toReal(), 1.1);
+                session.theme.setMotionEnabled(false);
+                Test::moveNativePointer(session.window, {2, 2});
+                QTRY_COMPARE(button->property("visualScale").toReal(), 1.);
+                Test::moveNativePointer(session.window, center);
+                QTRY_COMPARE(button->property("visualScale").toReal(), 1.1);
+                session.theme.setMotionEnabled(true);
+                Test::moveNativePointer(session.window, {2, 2});
+                QTest::qWait(32);
+                session.window->hide();
+                QTRY_VERIFY(!button->property("scaleAnimationAllowed").toBool());
+                QTRY_COMPARE(button->property("visualScale").toReal(), 1.);
+                const qreal parked = button->property("visualScale").toReal();
+                QTest::qWait(220);
+                QCOMPARE(button->property("visualScale").toReal(), parked);
+                session.window->show();
+                QVERIFY(Test::prepareNativeInput(session.window));
+            }
+        }
+    }
+    QCOMPARE(warnings.size(), 0);
+}
+
 void ControlsUiTest::pixelSnapTracksScenePositionAcrossReparentAndWindows()
 {
     ControlsSession session;

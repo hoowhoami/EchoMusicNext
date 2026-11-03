@@ -37,6 +37,21 @@ ToolButton {
     // Semantic buttons keep their focus/actions while optional row visuals sleep.
     property bool visualContentActive: true
     property real playIconOffset: 0
+    property bool scaleFeedback: false
+    property real pressedScale: 0.9
+    readonly property bool scaleAnimationAllowed: visualContentActive && visible && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized && Theme.store.motionEnabled
+    property real visualScale: scaleFeedback && enabled && visualContentActive && visible ? down ? pressedScale : hovered ? 1.1 : 1 : 1
+    onScaleAnimationAllowedChanged: if (!scaleAnimationAllowed)
+        scaleAnimation.complete()
+    Behavior on visualScale {
+        enabled: control.scaleAnimationAllowed
+        NumberAnimation {
+            id: scaleAnimation
+            duration: Theme.normalDuration
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: Theme.easeStandard
+        }
+    }
     property ThemeColors colors: Theme.colors
     property bool hoverBackground: true
     property bool hoverWhenDisabled: false

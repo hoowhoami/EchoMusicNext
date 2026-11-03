@@ -9,6 +9,7 @@ Item {
     property bool covered: false
     property color color: Theme.text
     property real playOffset: 0
+    property real visualScale: 1
     property real phase: playing ? 1 : 0
     property bool initialized: false
     property bool revealPending: false
@@ -70,7 +71,7 @@ Item {
         rasterizationItem: root
         color: root.color
         opacity: 1 - root.phase
-        scale: 1 - 0.18 * root.phase
+        visualScale: root.visualScale * (1 - 0.18 * root.phase)
     }
     EchoIcon {
         id: pauseIcon
@@ -80,7 +81,7 @@ Item {
         rasterizationItem: root
         color: root.color
         opacity: root.phase
-        scale: 0.82 + 0.18 * root.phase
+        visualScale: root.visualScale * (0.82 + 0.18 * root.phase)
     }
     NumberAnimation {
         id: transition

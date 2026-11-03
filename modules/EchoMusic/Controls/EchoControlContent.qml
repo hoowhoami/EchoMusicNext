@@ -11,6 +11,7 @@ QtObject {
     readonly property Component icon: Component {
         EchoIcon {
             id: glyphIcon
+            visualScale: ((glyphIcon.parent as EchoContentLoader)?.owner as EchoIconButton)?.visualScale ?? 1
             name: ((glyphIcon.parent as EchoContentLoader)?.owner as EchoIconButton)?.glyph ?? ""
             color: {
                 const owner = ((glyphIcon.parent as EchoContentLoader)?.owner as EchoIconButton);
@@ -21,6 +22,7 @@ QtObject {
     readonly property Component playPauseIcon: Component {
         EchoPlayPauseIcon {
             id: transitionIcon
+            visualScale: ((transitionIcon.parent as EchoContentLoader)?.owner as EchoIconButton)?.visualScale ?? 1
             playing: ((transitionIcon.parent as EchoContentLoader)?.owner as EchoIconButton)?.glyph === "pause"
             covered: ((transitionIcon.parent as EchoContentLoader)?.owner as EchoIconButton)?.iconCovered ?? false
             color: {
@@ -34,6 +36,7 @@ QtObject {
     readonly property Component iconButtonBackground: Component {
         Rectangle {
             id: plate
+            scale: ((plate.parent as EchoContentLoader)?.owner as EchoIconButton)?.visualScale ?? 1
             radius: ((plate.parent as EchoContentLoader)?.owner as EchoIconButton)?.publicPart.value("radius", Theme.controlRadius) ?? Theme.controlRadius
             color: ((plate.parent as EchoContentLoader)?.owner as EchoIconButton)?.publicPart.value("background", ((plate.parent as EchoContentLoader)?.owner as EchoIconButton)?.hoverBackground && ((plate.parent as EchoContentLoader)?.owner as EchoIconButton)?.hoverHighlighted ? ((plate.parent as EchoContentLoader)?.owner as EchoIconButton).colors.hover : "transparent") ?? Qt.rgba(0, 0, 0, 0)
             border.width: ((plate.parent as EchoContentLoader)?.owner as EchoIconButton)?.publicPart.value("borderWidth", ((plate.parent as EchoContentLoader)?.owner as EchoIconButton)?.visualFocus ? 2 : 0) ?? 0

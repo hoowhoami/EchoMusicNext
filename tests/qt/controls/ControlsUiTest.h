@@ -29,6 +29,7 @@ private slots:
     void boundedListAutoHeightSurvivesReopenAndVariableRows();
     void progressClimaxTicksAndWaitPreview();
     void playPauseTransitionKeepsEndpointsAndInterrupts();
+    void iconButtonHoverScalesStableRasterAndHitRegion();
     void progressBusyRendersAndRetiresNativeAnimation();
     void sourcePauseKeepsComparableInkToPlay();
     void disabledIconHoverIsOptInAndNeverActivates();

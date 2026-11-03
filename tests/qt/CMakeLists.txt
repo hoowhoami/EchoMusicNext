@@ -334,6 +334,12 @@ add_test(
         shadowsReleaseTheirNativeMaterials
         sourceControlRolesKeepOrdinaryActionsAndLargeFormsDistinct
 )
+add_test(NAME controls-ui-hover-scale COMMAND echo-controls-ui-test
+                                              iconButtonHoverScalesStableRasterAndHitRegion
+)
+set_tests_properties(
+    controls-ui-hover-scale PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
+)
 add_test(NAME controls-ui-pixel-snap-disabled COMMAND echo-controls-ui-test
                                                       pixelSnapDisabledUsesLogicalGeometry
 )

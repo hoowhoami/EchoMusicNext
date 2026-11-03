@@ -48,12 +48,8 @@ EchoIconButton {
     // Titlebar actions use neutral interaction colors.
     // The player accent is reserved for playback controls.
     foreground: player && builtinId === "favorite" && actionActive ? button.colors.danger : player && (actionActive || hoverHighlighted || visualFocus || builtinId === "play-toggle" && playbackLoading) ? button.colors.accentText : hoverHighlighted || visualFocus ? button.colors.text : button.colors.iconMain
-    scale: player && enabled ? down ? builtinId === "play-toggle" ? 0.95 : 0.9 : hovered ? 1.1 : 1 : 1
-    Behavior on scale {
-        NumberAnimation {
-            duration: Theme.normalDuration
-        }
-    }
+    scaleFeedback: player
+    pressedScale: builtinId === "play-toggle" ? 0.95 : 0.9
     signal aboutToActivate(string id, Item anchor)
     onClicked: {
         if (builtinId.length > 0)
@@ -76,6 +72,7 @@ EchoIconButton {
         enabled: button.visible && button.visualContentActive && button.player && button.builtinId === "volume" && button.playback !== null && button.enabled
     }
     Loader {
+        scale: button.visualScale
         anchors.centerIn: parent
         width: 18
         height: 18
@@ -88,6 +85,7 @@ EchoIconButton {
         }
     }
     Shape {
+        scale: button.visualScale
         anchors.centerIn: parent
         width: 16
         height: 16
@@ -114,6 +112,7 @@ EchoIconButton {
         }
     }
     background: Rectangle {
+        scale: button.visualScale
         radius: button.player && button.builtinId === "play-toggle" ? 19 : Theme.controlRadius
         color: button.player && button.builtinId === "play-toggle" ? button.playbackLoading || button.lyricStyle && button.hoverHighlighted || !button.lyricStyle && Theme.dark ? button.colors.hover : button.colors.mutedSurface : !button.player && button.hoverHighlighted ? button.colors.hover : "transparent"
         border.width: button.visualFocus ? 2 : 0
@@ -130,6 +129,7 @@ EchoIconButton {
         }
     }
     EchoBadge {
+        scale: button.visualScale
         objectName: "actionBadge"
         visible: button.badgeVisible
         count: button.actionBadge
