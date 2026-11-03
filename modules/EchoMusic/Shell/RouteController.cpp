@@ -12,11 +12,10 @@ RouteController::RouteController(QObject *parent) : QAbstractListModel(parent)
 {
     // Register routes only for available page components.
     // Metadata controls caching and refresh behavior.
-    const QStringList excluded = {"sidebar-home",    "login",       "loading",
-                                  "error",           "song-detail", "mv-detail",
-                                  "share-resolve",   "search",      "plugin-share-resolve",
-                                  "listen-together", "profile",     "settings",
-                                  "themes"};
+    const QStringList excluded = {
+        "sidebar-home",    "login",     "loading",       "error",  "song-detail",
+        "song-comments",   "mv-detail", "share-resolve", "search", "plugin-share-resolve",
+        "listen-together", "profile",   "settings",      "themes"};
     const QList<QPair<QString, QString>> routes = {{"sidebar-home", "/main"},
                                                    {"loading", "/"},
                                                    {"login", "/login"},
@@ -42,6 +41,7 @@ RouteController::RouteController(QObject *parent) : QAbstractListModel(parent)
                                                    {"artist-detail", "/main/artist/:id"},
                                                    {"album-detail", "/main/album/:id"},
                                                    {"song-detail", "/main/detail/:id"},
+                                                   {"song-comments", "/main/comments/:id"},
                                                    {"mv-detail", "/main/mv/:id"},
                                                    {"share-resolve", "/main/share"},
                                                    {"plugin-share-resolve", "/main/plugin-share"},
@@ -60,8 +60,8 @@ RouteController::RouteController(QObject *parent) : QAbstractListModel(parent)
         definition.accountScoped = name != "themes" && name != "search" &&
                                    name != "plugin-management" && name != "plugin-share-resolve";
         definition.skipHistory = name == "loading" || name == "login";
-        if (name == "song-detail")
-            definition.tabQueryKeys = {"tab", "mainTab", "commentTab"};
+        if (name == "song-comments")
+            definition.tabQueryKeys = {"commentTab"};
         if (name == "plugin-management")
             definition.tabQueryKeys = {"view"};
         m_definitions.insert(name, definition);

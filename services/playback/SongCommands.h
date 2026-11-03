@@ -35,6 +35,10 @@ public:
     {
         emit detailsRequested(track);
     }
+    void openComments(const PlaybackTrack &track)
+    {
+        emit commentsRequested(track);
+    }
     void openMv(const PlaybackTrack &track)
     {
         emit mvRequested(track);
@@ -61,6 +65,7 @@ signals:
     void artistRequested(const QString &id);
     void albumRequested(const QString &id);
     void detailsRequested(const EchoMusic::PlaybackTrack &track);
+    void commentsRequested(const EchoMusic::PlaybackTrack &track);
     void mvRequested(const EchoMusic::PlaybackTrack &track);
     /// tone 与 ToastService::Tone 同序（0 Info / 1 Success / 2 Warning / 3 Danger）。
     void notice(const QString &message, int tone);

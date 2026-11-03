@@ -24,7 +24,7 @@ DetailsService::~DetailsService()
 }
 SongDetailContext *DetailsService::songFor(RouteContext *r)
 {
-    if (m_closed || !r || r->name() != "song-detail")
+    if (m_closed || !r || (r->name() != "song-detail" && r->name() != "song-comments"))
         return nullptr;
     if (auto *c = m_songs.value(r).data())
         return c;
@@ -98,7 +98,15 @@ void DetailsService::registerRoutes(RouteController &router)
     router.registerPage({"song-detail",
                          "/main/detail/:id",
                          QUrl("qrc:/qt/qml/EchoMusic/Details/SongDetailPage.qml"),
-                         {"tab", "mainTab", "commentTab"},
+                         {},
+                         false,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
+    router.registerPage({"song-comments",
+                         "/main/comments/:id",
+                         QUrl("qrc:/qt/qml/EchoMusic/Details/SongDetailPage.qml"),
+                         {"commentTab"},
                          false,
                          true,
                          false,

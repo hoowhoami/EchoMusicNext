@@ -101,6 +101,7 @@ Item {
                 onDoubleClicked: root.actions.play(resourceId, false)
                 onFavoriteRequested: id => root.actions.toggleFavorite(id)
                 onDetailsRequested: id => root.actions.openDetails(id)
+                onCommentsRequested: id => root.actions.openComments(id)
                 onArtistRequested: id => root.actions.openArtist(id)
                 onAlbumRequested: id => root.actions.openAlbum(id)
                 onMvRequested: id => root.actions.openMv(id)

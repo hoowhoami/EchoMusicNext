@@ -53,7 +53,7 @@ Item {
         id: body
         active: false
         anchors.right: parent.right
-        anchors.rightMargin: 24
+        anchors.rightMargin: 12
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 16
         width: 36

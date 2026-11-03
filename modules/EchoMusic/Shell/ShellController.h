@@ -43,7 +43,8 @@ public:
         Effect,
         DesktopLyric,
         Cast,
-        Queue
+        Queue,
+        SongDetails
     };
     Q_ENUM(PlayerCommand)
     explicit ShellController(EchoMusic::SettingsStore &settings, RouteController &router,
@@ -93,12 +94,14 @@ signals:
     void taskCenterRequested();
     /// Native entry facts are handed off before navigation; URL queries stay scalar.
     void songDetailOpening(const EchoMusic::PlaybackTrack &track);
+    void songPageOpened();
     void playbackChanged();
     void playbackPopupRequested(const QString &kind);
 
 private:
     void refreshTitlebar();
     /// 通过共享路由打开评论或 MV；目标页不可用时隐藏入口。
+    bool openSongPage(const PlaybackTrack &, const QString &route, bool replace = false);
     void openComments();
     void openMv();
     void openMv(const PlaybackTrack &track);

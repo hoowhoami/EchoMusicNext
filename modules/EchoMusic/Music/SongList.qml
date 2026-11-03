@@ -21,6 +21,7 @@ ListView {
     property string menuSongId: ""
     signal favoriteRequested(string id)
     signal detailsRequested(string id)
+    signal commentsRequested(string id)
     signal artistRequested(string id)
     signal albumRequested(string id)
     signal mvRequested(string id)
@@ -66,6 +67,7 @@ ListView {
         onPlayRequested: id => list.playRequested(id)
         onFavoriteRequested: id => list.favoriteRequested(id)
         onDetailsRequested: id => list.detailsRequested(id)
+        onCommentsRequested: id => list.commentsRequested(id)
         onArtistRequested: id => list.artistRequested(id)
         onAlbumRequested: id => list.albumRequested(id)
         onMvRequested: id => list.mvRequested(id)

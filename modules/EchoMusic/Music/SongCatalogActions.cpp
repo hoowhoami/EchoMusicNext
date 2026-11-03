@@ -139,6 +139,11 @@ void SongCatalogActions::shareSong(const QString &id)
     if (t)
         m_playback.songCommands()->share(*t);
 }
+void SongCatalogActions::openComments(const QString &id)
+{
+    if (const auto track = m_model.track(id))
+        m_playback.songCommands()->openComments(*track);
+}
 void SongCatalogActions::openDetails(const QString &id)
 {
     if (const auto track = m_model.track(id))

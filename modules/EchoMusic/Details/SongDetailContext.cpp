@@ -34,15 +34,8 @@ SongDetailContext::SongDetailContext(ApiClient &a, PlaybackService &p, RouteCont
     connect(&m_comments, &CommentsController::notice, this, &SongDetailContext::notice);
     connect(&m_comments, &CommentsController::readFailed, this,
             [this](const QString &message) { emit notice(message, true); });
-    connect(&m_comments, &CommentsController::initialFinished, this, [this] {
-        if (!m_network || !m_route.active() || m_headerStatsRequested)
-            return;
-        m_headerStatsRequested = true;
-        if (m_mix)
-            request(m_api.favoriteCount(m_mix), FavoriteCount);
-        if (!m_hash.isEmpty())
-            request(m_api.commentCount(m_hash), CommentCount);
-    });
+    connect(&m_comments, &CommentsController::initialFinished, this,
+            &SongDetailContext::requestHeaderStats);
     if (auto *metadata = p.metadata())
         connect(metadata, &SongMetadataService::completed, this,
                 [this](quint64 ticket, const QJsonArray &values) {
@@ -273,8 +266,9 @@ void SongDetailContext::shutdown()
 void SongDetailContext::activate()
 {
     const bool music = m_route.query().value("type", "music").toString() == "music";
-    m_songs.attachMetadata(music ? m_playback.metadata() : nullptr);
-    m_songs.setMetadataActive(!m_closed && m_network && m_route.active() && music);
+    m_songs.attachMetadata(music && !commentsPage() ? m_playback.metadata() : nullptr);
+    m_songs.setMetadataActive(!m_closed && m_network && m_route.active() && music &&
+                              !commentsPage());
     if (m_closed)
         return;
     if (!m_route.active()) {
@@ -282,7 +276,7 @@ void SongDetailContext::activate()
         emit changed();
     } else if (!m_loaded)
         reload();
-    else
+    else if (commentsPage())
         m_comments.start();
 }
 void SongDetailContext::reload()
@@ -296,7 +290,9 @@ void SongDetailContext::reload()
     m_loaded = false;
     if (m_network && m_route.active()) {
         const auto type = m_route.query().value("type", "music").toString();
-        if (type != "music") {
+        // A known resource can read comments without waiting for catalog facts
+        // or rankings used only by the separate information page.
+        if (commentsPage() && (type != "music" || m_mix)) {
             startComments();
             emit changed();
             return;
@@ -343,9 +339,29 @@ void SongDetailContext::requestMetadata()
     }
     rankingsAndComments();
 }
+bool SongDetailContext::commentsPage() const
+{
+    const auto type = m_route.query().value("type", "music").toString();
+    return m_route.name() == "song-comments" || type != "music";
+}
+void SongDetailContext::requestHeaderStats()
+{
+    if (!m_network || !m_route.active() || m_headerStatsRequested)
+        return;
+    m_headerStatsRequested = true;
+    if (m_mix)
+        request(m_api.favoriteCount(m_mix), FavoriteCount);
+    if (!m_hash.isEmpty())
+        request(m_api.commentCount(m_hash), CommentCount);
+}
 void SongDetailContext::startComments()
 {
     m_loaded = true;
+    if (!commentsPage()) {
+        requestHeaderStats();
+        emit changed();
+        return;
+    }
     if (m_commentsStarted)
         return;
     m_commentsStarted = true;
@@ -412,7 +428,9 @@ void SongDetailContext::accept(quint64 id, const QByteArray &bytes)
             updateSong();
         }
         // Author and album IDs come from metadata, never from name guesses.
-        if (m_mix)
+        if (commentsPage())
+            startComments();
+        else if (m_mix)
             requestMetadata();
         else
             rankingsAndComments();
@@ -504,7 +522,9 @@ void SongDetailContext::fail(quint64 id, const QByteArray &bytes)
     m_error = QJsonDocument::fromJson(bytes).object().value("message").toString();
     if (m_error.isEmpty())
         m_error = tr("部分歌曲详情加载失败，请重试");
-    if (p.kind == Privilege && m_mix)
+    if (p.kind == Privilege && commentsPage())
+        startComments();
+    else if (p.kind == Privilege && m_mix)
         requestMetadata();
     else if (p.kind == Privilege || p.kind == Metadata)
         rankingsAndComments();

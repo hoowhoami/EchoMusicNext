@@ -190,6 +190,7 @@ EchoPageScrollContainer {
         onPlayRequested: id => page.service.playSong(id)
         onFavoriteRequested: id => page.service.toggleFavorite(id)
         onDetailsRequested: id => page.service.openDetails(id)
+        onCommentsRequested: id => page.service.openComments(id)
         onArtistRequested: id => page.service.openArtist(id)
         onAlbumRequested: id => page.service.openAlbum(id)
         onMvRequested: id => page.service.openMv(id)

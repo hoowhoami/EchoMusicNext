@@ -269,7 +269,7 @@ private slots:
         auto *button = s.item("backToTopButton");
         const QRectF rect = button->mapRectToScene(button->boundingRect());
         QCOMPARE(rect.size(), QSizeF(36 * scale, 36 * scale));
-        QCOMPARE(s.window->width() - rect.right(), 24 * scale);
+        QCOMPARE(s.window->width() - rect.right(), 12 * scale);
         QCOMPARE(s.window->height() - rect.bottom(), 16 * scale);
         const auto path = qEnvironmentVariable("ECHO_BACK_TO_TOP_ARTIFACTS");
         if (!path.isEmpty()) {

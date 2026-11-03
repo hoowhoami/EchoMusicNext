@@ -1880,6 +1880,44 @@ QtObject {
                         }
                         QVERIFY(content->mapRectToScene(content->boundingRect())
                                     .contains(longText->mapRectToScene(longText->boundingRect())));
+                        for (const auto &key : {shortKey, longKey}) {
+                            auto *action = findVisual(content, kind + "MenuAction-" + key);
+                            QVERIFY(action);
+                            auto *tip = action->findChild<QObject *>("moreActionToolTip");
+                            QVERIFY(tip);
+                            const auto point =
+                                action->mapToScene({action->width() / 2, action->height() / 2})
+                                    .toPoint();
+                            Test::moveNativePointer(window, point);
+                            QTRY_VERIFY(action->property("hovered").toBool());
+                            const bool clipped = key == longKey && kind == "playerbar";
+                            QTRY_COMPARE(tip->property("requestedVisible").toBool(), clipped);
+                            if (clipped)
+                                QTRY_VERIFY(tip->property("visible").toBool());
+                            else {
+                                QTest::qWait(550);
+                                QVERIFY(!tip->property("popup").value<QObject *>());
+                            }
+                        }
+                        if (mode == ThemeStore::Light && scale == 1. && width == 850) {
+                            const QString description = QStringLiteral("打开歌词字体与显示设置");
+                            QVERIFY(actions->setInteraction(shortHandles.value(actions),
+                                                            description, {}, false));
+                            QVERIFY(frames());
+                            auto *action = findVisual(content, kind + "MenuAction-" + shortKey);
+                            QVERIFY(action);
+                            auto *tip = action->findChild<QObject *>("moreActionToolTip");
+                            QVERIFY(tip);
+                            Test::moveNativePointer(
+                                window,
+                                action->mapToScene({action->width() / 2, action->height() / 2})
+                                    .toPoint());
+                            QTRY_VERIFY(tip->property("visible").toBool());
+                            QCOMPARE(tip->property("text").toString(), description);
+                            QVERIFY(actions->setInteraction(shortHandles.value(actions), {}, {},
+                                                            false));
+                            QVERIFY(frames());
+                        }
                         if (!captures.isEmpty())
                             QVERIFY(window->grabWindow().save(
                                 captures + QString("/%1-%2-%3-%4.png")

@@ -356,7 +356,7 @@ private slots:
         QCOMPARE(f.router.current()->name(), QString("song-detail"));
         QCOMPARE(f.router.current()->resourceId(), QString("32042818"));
         QCOMPARE(f.router.current()->query().value("hash").toString(), hash);
-        QCOMPARE(f.router.current()->query().value("mainTab").toString(), QString("detail"));
+        QVERIFY(!f.router.current()->query().contains("mainTab"));
         QCOMPARE(f.playback.queue()->rowCount(), 0);
         f.router.back();
         QCOMPARE(f.router.current()->name(), QString("home"));

@@ -58,6 +58,7 @@ ItemDelegate {
     property string qualityLabel: ""
     signal favoriteRequested(string id)
     signal detailsRequested(string id)
+    signal commentsRequested(string id)
     signal mvRequested(string id)
     // Context menus support pointer, Menu and Shift+F10 invocation.
     // Inline icons keep the MV, details and favorite order.
@@ -219,7 +220,7 @@ ItemDelegate {
                     id: detailsAction
                     objectName: "songDetailsAction"
                     glyph: "message-circle"
-                    text: qsTr("详情及评论")
+                    text: qsTr("评论")
                     tooltipText: text
                     Layout.preferredWidth: 28
                     Layout.preferredHeight: 28
@@ -227,7 +228,7 @@ ItemDelegate {
                     hoverBackground: false
                     enabled: row.resourceId.length > 0
                     opacity: row.hovered || row.visualFocus || rowActions.focusWithin ? 1 : 0
-                    onClicked: row.detailsRequested(row.resourceId)
+                    onClicked: row.commentsRequested(row.resourceId)
                 }
                 RowAction {
                     id: favoriteAction

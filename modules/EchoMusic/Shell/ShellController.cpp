@@ -79,8 +79,9 @@ ShellController::ShellController(EchoMusic::SettingsStore &settings, RouteContro
     playerbar(Speed, "speed", tr("倍速"), "gauge", M::Center, 7);
     playerbar(Favorite, "favorite", tr("收藏"), "heart", M::Left, 8);
     playerbar(AddToPlaylist, "add-to-playlist", tr("添加到"), "text-plus", M::Left, 10, false);
-    playerbar(Comments, "comments", tr("详情及评论"), "message-circle", M::Left, 20, false);
+    playerbar(Comments, "comments", tr("评论"), "message-circle", M::Left, 20, false);
     playerbar(Mv, "mv", tr("播放 MV"), "brand-youtube", M::Left, 30, false);
+    playerbar(SongDetails, "song-details", tr("歌曲详情"), "info-circle", M::More, 39, false);
     playerbar(Share, "share", tr("分享"), "share", M::More, 40, false);
     playerbar(Quality, "quality", tr("音质"), "wave-sine", M::Right, 42);
     playerbar(Effect, "effect", tr("音效"), "adjustments-horizontal", M::Right, 44);
@@ -127,9 +128,6 @@ void ShellController::setLyricPageActive(bool active)
 {
     if (m_closed || active == (m_lyricSkinHandle.generation != 0))
         return;
-    // 播放页使用「评论」，主播放栏使用「详情及评论」。
-    m_playerbar.setPresentation(m_playerHandles.value(Comments),
-                                active ? tr("评论") : tr("详情及评论"), "message-circle");
     if (!active) {
         m_playerbar.unregisterAction(m_lyricBarrageHandle);
         m_lyricBarrageHandle = {};
@@ -267,6 +265,8 @@ void ShellController::attachPlayback(PlaybackService &service)
             [this](const QString &id) { m_router.navigate("album-detail", {}, id); });
     connect(service.songCommands(), &SongCommands::detailsRequested, this,
             [this](const PlaybackTrack &track) { openSongDetails(track); });
+    connect(service.songCommands(), &SongCommands::commentsRequested, this,
+            [this](const PlaybackTrack &track) { openSongPage(track, "song-comments"); });
     connect(service.songCommands(), &SongCommands::mvRequested, this,
             [this](const PlaybackTrack &track) { openMv(track); });
     connect(service.transition(), &TrackTransitionController::notice, this,
@@ -285,6 +285,10 @@ void ShellController::attachPlayback(PlaybackService &service)
     bindPlayerAction(service, PlayMode, [this] { emit playbackPopupRequested("play-mode"); });
     bindPlayerAction(service, SleepTimer, [this] { emit playbackPopupRequested("sleep-timer"); });
     bindPlayerAction(service, Comments, [this] { openComments(); });
+    bindPlayerAction(service, SongDetails, [this] {
+        if (m_playback)
+            openSongDetails(m_playback->currentTrack());
+    });
     bindPlayerAction(service, Mv, [this] { openMv(); });
     bindPlayerAction(service, Share, [this] {
         if (m_playback)
@@ -387,7 +391,10 @@ void ShellController::attachPlayback(PlaybackService &service)
         // 无当前曲目时隐藏这些动作。
         const auto &track = service.currentTrack();
         const bool commentsReady =
-            service.hasTrack() && m_router.available(QStringLiteral("song-detail"));
+            service.hasTrack() && m_router.available(QStringLiteral("song-comments"));
+        const bool detailsReady = service.hasTrack() && m_router.available("song-detail");
+        m_playerbar.setState(m_playerHandles.value(SongDetails), detailsReady, detailsReady, false,
+                             {});
         const bool mvReady = service.hasTrack() && track.songId != 0 &&
                              m_router.available(QStringLiteral("mv-detail"));
         const bool shareReady = service.hasTrack() && isSongShareHash(track.hash);
@@ -413,7 +420,7 @@ void ShellController::attachPlayback(PlaybackService &service)
     connect(service.audioControls(), &PlaybackAudioControls::changed, this, update);
     connect(service.queue(), &PlaybackQueueModel::changed, this, update);
     connect(service.sleepTimer(), &EchoMusic::SleepTimer::changed, this, update);
-    // 目标页面注册/注销会改变详情及评论与 MV 的可用性。
+    // Route registration controls detail, comment and MV entry availability.
     connect(&m_router, &RouteController::registryChanged, this, update);
     update();
     emit playbackChanged();
@@ -425,14 +432,17 @@ void ShellController::openComments()
     if (m_lyricSkinHandle.generation)
         emit playbackPopupRequested("comments");
     else
-        openSongDetails(m_playback->currentTrack());
+        openSongPage(m_playback->currentTrack(), "song-comments");
 }
 bool ShellController::openSongDetails(const PlaybackTrack &track, bool replace)
 {
-    if (m_closed || track.id.isEmpty() || !m_router.available("song-detail"))
+    return openSongPage(track, "song-detail", replace);
+}
+bool ShellController::openSongPage(const PlaybackTrack &track, const QString &route, bool replace)
+{
+    if (m_closed || track.id.isEmpty() || !m_router.available(route))
         return false;
     QVariantMap query;
-    query.insert("mainTab", "detail");
     query.insert("type", "music");
     if (!track.hash.isEmpty())
         query.insert("hash", track.hash);
@@ -459,8 +469,11 @@ bool ShellController::openSongDetails(const PlaybackTrack &track, bool replace)
     if (replace && (m_closed || !origin || m_router.current() != origin))
         return false;
     const auto id = track.songId ? QString::number(track.songId) : track.id;
-    return replace ? m_router.replace("song-detail", query, id)
-                   : m_router.navigate("song-detail", query, id);
+    const bool opened =
+        replace ? m_router.replace(route, query, id) : m_router.navigate(route, query, id);
+    if (opened)
+        emit songPageOpened();
+    return opened;
 }
 void ShellController::openMv()
 {

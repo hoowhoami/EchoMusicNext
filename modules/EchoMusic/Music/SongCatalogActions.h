@@ -53,6 +53,7 @@ public:
     Q_INVOKABLE void playNow(const QString &id);
     Q_INVOKABLE void copySong(const QString &id);
     Q_INVOKABLE void openDetails(const QString &id);
+    Q_INVOKABLE void openComments(const QString &id);
     Q_INVOKABLE void openMv(const QString &id);
     Q_INVOKABLE void openArtist(const QString &id);
     Q_INVOKABLE void openAlbum(const QString &id);

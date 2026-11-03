@@ -119,6 +119,13 @@ EchoMenu {
         text: qsTr("添加到")
         onTriggered: root.addTo(root.songId)
     }
+    EchoMenuEntry {
+        uiScale: root.uiScale
+        objectName: "songMenuDetails"
+        text: qsTr("歌曲详情")
+        enabled: root.ready && root.songId.length > 0
+        onTriggered: root.commands.openDetails(root.songId)
+    }
     EchoMenuSeparator {
         uiScale: root.uiScale
         visible: root.blacklistVisible || (root.removeVisible && root.removeAfterExtensions)

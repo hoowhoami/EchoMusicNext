@@ -12,7 +12,7 @@ RoutePage {
     required property DetailsService service
     readonly property SongDetailContext detail: service.songFor(context)
     readonly property bool music: !context.query.type || context.query.type === "music"
-    readonly property bool commentTab: !music || String(context.query.tab || context.query.mainTab || "detail") === "comment"
+    readonly property bool commentTab: context.name === "song-comments" || !music
     objectName: "songDetailPage"
     property string expandedRanking: ""
     function rankingItems(rank: var): var {
@@ -24,13 +24,6 @@ RoutePage {
             return "—";
         const number = Number(value);
         return number < 10000 ? String(number) : (number / 10000).toFixed(number >= 100000 ? 0 : 1).replace(/\.0$/, "") + "w";
-    }
-    function chooseTab(index: int): void {
-        const query = Object.assign({}, context.query, {
-            tab: index === 0 ? "detail" : "comment"
-        });
-        delete query.mainTab;
-        router.replaceQuery(query);
     }
     function syncCommentTab(): void {
         const tabs = ["all", "classify", "hotword"];
@@ -51,13 +44,13 @@ RoutePage {
         pageActive: page.pageActive
         backToTopThreshold: 360
         scrollView: comments.listView
-        stickyHeaders: page.music ? [header, tabs] : [header]
+        stickyHeaders: [header]
         CommentsView {
             id: comments
             anchors.fill: parent
             controller: page.detail.comments
             pageContainer: viewport
-            topMargin: 196 + (page.music ? 52 : 20)
+            topMargin: 216
             showComments: page.commentTab
             showSections: page.music
             onSectionPicked: index => page.router.replaceQuery(Object.assign({}, page.context.query, {
@@ -290,6 +283,7 @@ RoutePage {
         }
         EchoPageStickyHeader {
             id: header
+            objectName: "songPageHeader"
             container: viewport
             flowPosition: 0
             height: heading.implicitHeight
@@ -299,7 +293,7 @@ RoutePage {
                 expandedHeight: 196
                 coverSize: 170
                 heading: page.detail.detail.title || (page.music ? qsTr("歌曲") : qsTr("评论"))
-                typeLabel: page.music ? "SONG" : String(page.context.query.type || "COMMENTS").toUpperCase()
+                typeLabel: page.commentTab ? "COMMENT" : "SONG"
                 subtitle: page.detail.detail.artist || ""
                 scrollTop: viewport.scrollTop
                 resourceActive: page.pageActive
@@ -321,7 +315,10 @@ RoutePage {
                             objectName: "songArtistLink"
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
-                            Layout.maximumWidth: implicitWidth
+                            // RowLayout rounds allocations; reserve enough room
+                            // for a complete name before enabling its link.
+                            Layout.preferredWidth: Math.ceil(implicitWidth)
+                            Layout.maximumWidth: Math.ceil(implicitWidth)
                             artists: page.detail.artistLinks
                             font: Theme.font(13, Theme.semiboldWeight)
                             color: Theme.accentText
@@ -404,23 +401,6 @@ RoutePage {
                     }
                 }
                 onPlayRequested: page.detail.actions.play()
-            }
-        }
-        EchoPageStickyHeader {
-            id: tabs
-            objectName: "songDetailMainTabs"
-            visible: page.music
-            container: viewport
-            flowPosition: 196
-            stickyTop: header.height
-            height: 52
-            EchoDetailTabs {
-                x: 24
-                height: parent.height
-                labels: [qsTr("详情"), qsTr("评论")]
-                labelWeight: Theme.semiboldWeight
-                currentIndex: page.commentTab ? 1 : 0
-                onPicked: index => page.chooseTab(index)
             }
         }
     }

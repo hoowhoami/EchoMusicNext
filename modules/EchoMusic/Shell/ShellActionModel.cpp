@@ -661,7 +661,11 @@ bool ShellActionModel::setPresentation(const Handle &handle, const QString &titl
         return true;
     action.title = title;
     action.icon = icon;
-    emit dataChanged(index(row), index(row), {TitleRole, IconRole});
+    QList<int> roles{TitleRole, IconRole};
+    // The default tooltip follows the title; notify its consumers as well.
+    if (action.tooltip.isEmpty())
+        roles.append(TooltipRole);
+    emit dataChanged(index(row), index(row), roles);
     return true;
 }
 } // namespace EchoMusic

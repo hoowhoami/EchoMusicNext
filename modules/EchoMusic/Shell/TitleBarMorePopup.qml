@@ -91,8 +91,9 @@ EchoAnchoredPopup {
                                 menu.actions.activate(row.actionKey)
                         }
                         EchoToolTip {
+                            objectName: "moreActionToolTip"
                             parent: action
-                            requestedVisible: action.hovered && action.enabled && !row.pooled
+                            requestedVisible: action.hovered && action.enabled && !row.pooled && (itemLabel.truncated || row.actionTooltip.trim().length > 0 && row.actionTooltip.trim() !== row.actionTitle.trim())
                             text: row.actionTooltip
                         }
                         EchoBadge {

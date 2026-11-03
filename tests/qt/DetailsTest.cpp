@@ -1,4 +1,5 @@
 #include "DetailsService.h"
+#include <algorithm>
 #include "CommentExtent.h"
 #include "BarrageController.h"
 #include "ArtistDetailService.h"
@@ -98,6 +99,11 @@ public:
 class DetailsTestAccess
 {
 public:
+    static void finishDetailReads(SongDetailContext &c)
+    {
+        c.cancel();
+        c.startComments();
+    }
     static QJsonObject row(int id, bool own = false)
     {
         return {{"id", QString::number(id)},
@@ -769,7 +775,7 @@ Window {
         RouteController router;
         DetailsService service(api, playback, router, false);
         service.registerRoutes(router);
-        QVERIFY(router.navigate("song-detail", {{"tab", "comment"}}, "32042818"));
+        QVERIFY(router.navigate("song-comments", {}, "32042818"));
         auto *controller = service.songFor(router.current())->comments();
         DetailsTestAccess::styledThread(*controller);
         ShellSettings shell(prefs);
@@ -1054,6 +1060,108 @@ Window {
         QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
         api.shutdown();
     }
+    void commentAndDetailEntrypointsStaySeparate()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        PlaybackServiceTestAccess::hold(playback);
+        RouteController router;
+        DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
+        ShellController shell(prefs, router);
+        shell.attachPlayback(playback);
+        service.attachShell(shell);
+        PlaybackServiceTestAccess::current(playback);
+        const auto queueSize = playback.queue()->rowCount();
+        QSignalSpy opened(&shell, &ShellController::songPageOpened);
+        QVERIFY(shell.invokePlayerCommand(ShellController::Comments));
+        QCOMPARE(router.current()->name(), QString("song-comments"));
+        QCOMPARE(router.current()->resourceId(), QString("32042818"));
+        QVERIFY(!router.current()->query().contains("mainTab"));
+        QVERIFY(service.songFor(router.current()));
+        QVERIFY(shell.invokePlayerCommand(ShellController::SongDetails));
+        QCOMPARE(router.current()->name(), QString("song-detail"));
+        QCOMPARE(opened.size(), 2);
+        QCOMPARE(playback.queue()->rowCount(), queueSize);
+        auto *actions = shell.playerbarActions();
+        bool found = false;
+        for (int row = 0; row < actions->rowCount(); ++row) {
+            const auto index = actions->index(row);
+            if (actions->data(index, ShellActionModel::KeyRole).toString() != "host/song-details")
+                continue;
+            found = true;
+            QCOMPARE(actions->data(index, ShellActionModel::TitleRole).toString(),
+                     QString("歌曲详情"));
+            QCOMPARE(actions->data(index, ShellActionModel::PreferredRole).toInt(),
+                     int(ShellActionModel::More));
+        }
+        QVERIFY(found);
+        auto *detail = service.songFor(router.current());
+        DetailsTestAccess::seed(*detail);
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent menu(&engine);
+        menu.setData("import EchoMusic.Music\nSongContextMenu { songId: \"32042818\" }", QUrl());
+        QScopedPointer<QObject> menuObject(menu.createWithInitialProperties(
+            {{"commands", QVariant::fromValue(detail->actions())}}));
+        QVERIFY2(menuObject, qPrintable(menu.errorString()));
+        auto *entry = menuObject->findChild<QObject *>("songMenuDetails");
+        QVERIFY(entry);
+        QCOMPARE(entry->property("text").toString(), QString("歌曲详情"));
+        QSignalSpy detailRequested(playback.songCommands(), &SongCommands::detailsRequested);
+        QVERIFY(QMetaObject::invokeMethod(entry, "triggered"));
+        QCOMPARE(detailRequested.size(), 1);
+        shell.setLyricPageActive(true);
+        QSignalSpy popup(&shell, &ShellController::playbackPopupRequested);
+        QVERIFY(shell.invokePlayerCommand(ShellController::Comments));
+        QCOMPARE(popup.size(), 1);
+        QCOMPARE(popup[0][0].toString(), QString("comments"));
+        QCOMPARE(router.current()->name(), QString("song-detail"));
+        service.shutdown();
+        router.shutdown();
+        playback.shutdown();
+        api.shutdown();
+    }
+    void commentReadsDoNotWaitForDetailsAndDetailsDoNotLoadComments()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QStringList calls;
+        const auto interceptor = api.addInterceptor(
+            100, [&](const QJsonObject &request, ApiInterceptNext, ApiInterceptDone) {
+                calls.append(request.value("operation").toString());
+                return std::function<void()>([] {});
+            });
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        DetailsService service(api, playback, router, true);
+        service.registerRoutes(router);
+        const QVariantMap query{{"mixSongId", "32042818"},
+                                {"hash", "105A2705BEEE36A8BED029A8E1A6311D"}};
+        QVERIFY(router.navigate("song-comments", query, "32042818"));
+        QVERIFY(service.songFor(router.current()));
+        QTRY_VERIFY(!calls.isEmpty());
+        QVERIFY(std::all_of(calls.begin(), calls.end(),
+                            [](const QString &call) { return call.startsWith("comment_"); }));
+        calls.clear();
+        QVERIFY(router.navigate("song-detail", query, "32042818"));
+        auto *detail = service.songFor(router.current());
+        QVERIFY(detail);
+        QTRY_VERIFY(!calls.isEmpty());
+        DetailsTestAccess::finishDetailReads(*detail);
+        QTRY_VERIFY(calls.contains("favorite_count") && calls.contains("comment_count"));
+        QVERIFY(std::none_of(calls.begin(), calls.end(),
+                             [](const QString &call) { return call.startsWith("comment_music"); }));
+        service.shutdown();
+        router.shutdown();
+        playback.shutdown();
+        api.removeInterceptor(interceptor);
+        api.shutdown();
+    }
     void detailNavigationUsesTypeAndAssociatedIdentities()
     {
         QTemporaryDir dir;
@@ -1284,7 +1392,7 @@ Window {
         DetailsService service(api, playback, router, false);
         service.registerRoutes(router);
         ThemeStore theme(prefs);
-        QVERIFY(router.navigate("song-detail", {{"tab", "comment"}}, "32042818"));
+        QVERIFY(router.navigate("song-comments", {}, "32042818"));
         auto *song = service.songFor(router.current());
         DetailsTestAccess::seed(*song);
         for (int count : {30, 400, 2000}) {
@@ -1392,7 +1500,7 @@ Window {
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window && QTest::qWaitForWindowExposed(window));
-        QVERIFY(router.navigate("song-detail", {{"tab", "comment"}}, "32042818"));
+        QVERIFY(router.navigate("song-comments", {}, "32042818"));
         auto *song = service.songFor(router.current());
         DetailsTestAccess::seed(*song);
         DetailsTestAccess::variedComments(*song->comments(), rowCount);
@@ -1672,6 +1780,8 @@ Window {
         const auto projectionMs = projectionTime.elapsed();
         QTRY_VERIFY_WITH_TIMEOUT(visual(window->contentItem(), "songDetailPage"), 4000);
         QTRY_VERIFY_WITH_TIMEOUT(visual(window->contentItem(), "songRankingToggle"), 4000);
+        QCOMPARE(visual(window->contentItem(), "songDetailTypeTag")->property("text").toString(),
+                 QString("SONG"));
         QTRY_VERIFY2(visual(window->contentItem(), "songArtistLink") &&
                          visual(window->contentItem(), "songAlbumLink"),
                      qPrintable(errors.join('\n')));
@@ -1684,6 +1794,9 @@ Window {
         auto *artistLink = visual(window->contentItem(), "songArtistLink");
         auto *albumLink = visual(window->contentItem(), "songAlbumLink");
         QVERIFY(artistLink && albumLink);
+        // This branch exercises the scalar route fallback; named artists keep
+        // their own identities and must not inherit a scalar ID.
+        DetailsTestAccess::artists(*song, {});
         DetailsTestAccess::navigation(*song, "0", "0");
         QTRY_VERIFY(visual(artistLink, "artistLink-0"));
         QTRY_VERIFY(!visual(artistLink, "artistLink-0")->isEnabled() && !albumLink->isEnabled());
@@ -1692,7 +1805,17 @@ Window {
         click(window, albumLink);
         QCOMPARE(router.current(), originalRoute.data());
         DetailsTestAccess::navigation(*song, "3520", "960399");
-        QTRY_VERIFY(visual(artistLink, "artistLink-0")->isEnabled() && albumLink->isEnabled());
+        QTRY_VERIFY2(
+            visual(artistLink, "artistLink-0")->isEnabled() && albumLink->isEnabled(),
+            qPrintable(QString("artists=%1 album=%2 artistWidth=%3 linkWidth=%4 artistEnabled=%5 "
+                               "albumEnabled=%6")
+                           .arg(QString::fromUtf8(QJsonDocument::fromVariant(song->artistLinks())
+                                                      .toJson(QJsonDocument::Compact)))
+                           .arg(song->albumNavigationId())
+                           .arg(visual(artistLink, "artistLink-0")->width())
+                           .arg(artistLink->width())
+                           .arg(visual(artistLink, "artistLink-0")->isEnabled())
+                           .arg(albumLink->isEnabled())));
         click(window, albumLink);
         QTRY_COMPARE(router.current()->name(), QString("album-detail"));
         QCOMPARE(router.current()->resourceId(), QString("960399"));
@@ -1800,16 +1923,20 @@ Window {
         window->setWidth(1150);
         theme.setMode(ThemeStore::Light);
         QVariantMap commentQuery = router.current()->query();
-        commentQuery.insert("tab", "comment");
-        router.replaceQuery(commentQuery);
+        QVERIFY(router.navigate("song-comments", commentQuery, "32042818"));
+        song = service.songFor(router.current());
+        QVERIFY(song);
+        DetailsTestAccess::seed(*song);
         QTRY_VERIFY(visual(window->contentItem(), "commentDraft"));
         QCOMPARE(service.songFor(router.current()), song);
         QTRY_VERIFY(visual(window->contentItem(), "commentReply"));
         auto *sections = visual(window->contentItem(), "commentSections");
         QVERIFY(sections);
         QVERIFY(sections->mapToScene(QPointF()).y() < 300);
-        auto *artist = visual(window->contentItem(), "songArtistLink");
-        QVERIFY(artist);
+        QQuickItem *artist = nullptr;
+        QTRY_VERIFY(artist = visual(window->contentItem(), "songArtistLink"));
+        QCOMPARE(visual(window->contentItem(), "songDetailTypeTag")->property("text").toString(),
+                 QString("COMMENT"));
         QVERIFY(artist->mapToScene(QPointF()).x() < 300);
         QVERIFY(visualCount(window->contentItem(), "commentContent") < 50);
         qInfo() << "fixture_rows=1000 model_prepare_ms=" << projectionMs
@@ -1844,17 +1971,9 @@ Window {
             commentList->parentItem()->property("pageContainer").value<QObject *>();
         QVERIFY(songViewport);
         QVERIFY(QMetaObject::invokeMethod(songViewport, "scrollTo", Q_ARG(double, 0.)));
-        for (int cycle = 0; cycle < 3; ++cycle) {
-            auto query = router.current()->query();
-            query["tab"] = "detail";
-            router.replaceQuery(query);
-            QTest::qWait(40);
-            QTRY_COMPARE_WITH_TIMEOUT(songViewport->property("scrollTop").toReal(), 0., 1000);
-            query["tab"] = "comment";
-            router.replaceQuery(query);
-            QTest::qWait(40);
-            QTRY_COMPARE_WITH_TIMEOUT(songViewport->property("scrollTop").toReal(), 0., 1000);
-        }
+        QVERIFY(!visual(window->contentItem(), "songDetailMainTabs"));
+        QVERIFY(!visual(window->contentItem(), "songInformationSection"));
+        QTRY_COMPARE_WITH_TIMEOUT(songViewport->property("scrollTop").toReal(), 0., 1000);
         const auto commentControl = [&](const QString &name) {
             auto *container = qobject_cast<QQuickItem *>(
                 commentList->parentItem()->property("pageContainer").value<QObject *>());
@@ -1915,12 +2034,12 @@ Window {
                     QSignalSpy commentFrame(window, &QQuickWindow::frameSwapped);
                     window->update();
                     QTRY_VERIFY(commentFrame.size() > 0);
-                    auto *mainTabs = visual(window->contentItem(), "songDetailMainTabs");
+                    auto *header = visual(window->contentItem(), "songPageHeader");
                     auto *subTabs = visual(window->contentItem(), "commentSections");
-                    QVERIFY(mainTabs && subTabs);
+                    QVERIFY(header && subTabs);
                     QTRY_VERIFY(qAbs(subTabs->mapToScene(QPointF()).y() -
-                                     mainTabs->mapToScene(QPointF(0, mainTabs->height())).y() -
-                                     22 * scale) < 1.);
+                                     header->mapToScene(QPointF(0, header->height())).y() -
+                                     42 * scale) < 1.);
                     QQuickItem *firstRow = nullptr;
                     QTRY_VERIFY(QMetaObject::invokeMethod(commentList, "rowItemAt",
                                                           Q_RETURN_ARG(QQuickItem *, firstRow),
@@ -1930,7 +2049,7 @@ Window {
                                      subTabs->mapToScene(QPointF(0, subTabs->height())).y() -
                                      (16 + (tab ? 54 : 0)) * scale) < 1.);
                     qInfo() << "comment_spacing" << tab << scale << "main_bottom"
-                            << mainTabs->mapToScene(QPointF(0, mainTabs->height())).y()
+                            << header->mapToScene(QPointF(0, header->height())).y()
                             << "sections_top" << subTabs->mapToScene(QPointF()).y()
                             << "first_row_top" << firstRow->mapToScene(QPointF()).y();
                     auto *selection = visual(subTabs, "tabSelection");
@@ -2032,7 +2151,7 @@ Window {
                 QCOMPARE(button->property("hoverBackground").toBool(), false);
                 click(window, button);
                 QCOMPARE(router.current()->name(), entry == "songDetailsAction"
-                                                       ? QString("song-detail")
+                                                       ? QString("song-comments")
                                                        : QString("mv-detail"));
                 if (entry == "songMvAction") {
                     QCOMPARE(router.current()->query().value("albumAudioId").toString(),
@@ -2436,7 +2555,7 @@ Window {
             return;
         }
         QVERIFY(commands.invokePlayerCommand(ShellController::Comments));
-        QCOMPARE(router.current()->name(), QString("song-detail"));
+        QCOMPARE(router.current()->name(), QString("song-comments"));
         QCOMPARE(router.current()->query().value("mixSongId").toString(), QString("32042818"));
         auto *song = service.songFor(router.current());
         QVERIFY(song);
@@ -2449,21 +2568,13 @@ Window {
         QCOMPARE(song->detail().value("artist").toString(), QString("周杰伦"));
         qInfo() << "LIVE comments rows=" << song->comments()->model()->rowCount();
         for (const auto &operation :
-             {"privilege_lite", "krm_audio", "song_ranking", "song_ranking_filter", "comment_music",
-              "user_batch_union_vipinfo", "favorite_count", "comment_count"})
+             {"comment_music", "user_batch_union_vipinfo", "favorite_count", "comment_count"})
             QVERIFY2(trace.contains(operation), operation);
-        QVERIFY(trace.indexOf("privilege_lite") < trace.indexOf("krm_audio"));
-        QVERIFY(trace.indexOf("krm_audio") < trace.indexOf("song_ranking"));
-        QVERIFY(trace.indexOf("song_ranking_filter") < trace.indexOf("comment_music"));
         QVERIFY(trace.indexOf("comment_music") < trace.indexOf("user_batch_union_vipinfo"));
         QVERIFY(trace.indexOf("user_batch_union_vipinfo") < trace.indexOf("comment_count"));
-        auto query = router.current()->query();
-        query.insert("tab", "comment");
-        router.replaceQuery(query);
+        QVERIFY(!trace.contains("song_ranking") && !trace.contains("song_ranking_filter"));
         QTRY_VERIFY(visual(window->contentItem(), "commentContent"));
-        auto *commentTab = visual(window->contentItem(), "detailTab-1");
-        QVERIFY(commentTab);
-        QTest::qWait(250); // Let the source tab underline transition finish before capture.
+        QVERIFY(!visual(window->contentItem(), "songDetailMainTabs"));
         const auto artifacts = qEnvironmentVariable("ECHO_DETAILS_ARTIFACTS");
         if (!artifacts.isEmpty()) {
             QVERIFY(QDir().mkpath(artifacts));

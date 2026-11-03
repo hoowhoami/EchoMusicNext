@@ -110,8 +110,9 @@ EchoAnchoredPopup {
                         menu.actions.activate(row.actionKey)
                 }
                 EchoToolTip {
+                    objectName: "moreActionToolTip"
                     parent: row
-                    requestedVisible: !row.pooled && row.hovered && row.enabled && row.actionTooltip.length > 0
+                    requestedVisible: !row.pooled && row.hovered && row.enabled && (actionLabel.truncated || row.actionTooltip.trim().length > 0 && row.actionTooltip.trim() !== row.actionTitle.trim() || row.badgeVisible && row.badgeTitle.trim().length > 0)
                     text: row.actionTooltip + (row.badgeVisible && row.badgeTitle.length > 0 ? " · " + row.badgeTitle + ": " + row.actionBadge : "")
                 }
                 onClicked: {
@@ -143,6 +144,7 @@ EchoAnchoredPopup {
                         }
                     }
                     EchoTextTagRow {
+                        id: actionLabel
                         objectName: "playerbarMoreLabel-" + row.actionKey
                         text: row.actionTitle
                         color: row.hovered || row.visualFocus ? Theme.floatingAccentText : Theme.floatingText

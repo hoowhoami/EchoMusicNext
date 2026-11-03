@@ -771,6 +771,11 @@ void SearchModel::copySong(const QString &id)
     if (m_playback)
         m_playback->songCommands()->copyInfo(rowTrack(id));
 }
+void SearchModel::openComments(const QString &id)
+{
+    if (m_playback)
+        m_playback->songCommands()->openComments(rowTrack(id));
+}
 void SearchModel::openDetails(const QString &id)
 {
     if (m_playback)

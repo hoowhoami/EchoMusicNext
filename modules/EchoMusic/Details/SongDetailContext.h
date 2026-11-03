@@ -101,6 +101,8 @@ private:
     void hydrate();
     void requestMetadata();
     void rankingsAndComments();
+    bool commentsPage() const;
+    void requestHeaderStats();
     void startComments();
     void updateSong();
     void applyMetadata(const QJsonArray &values);

@@ -723,6 +723,9 @@ ApplicationWindow {
         }
         Connections {
             target: mainWindow.shellController
+            function onSongPageOpened() {
+                playbackPageLoader.close();
+            }
             function onPlaybackPopupRequested(kind) {
                 if (kind === "lyric-skins" && playbackPageLoader.item) {
                     (playbackPageLoader.item as PlaybackPage).openSkins();
