@@ -615,16 +615,19 @@ void WindowController::setRememberSize(bool remember)
 void WindowController::minimize()
 {
     updateNormalGeometry();
-    if (m_window)
+    if (m_window) {
+        m_backdrop.prepareWindowTransition();
         // Keep the pre-minimize state, including content fullscreen, so its
         // retirement and the later taskbar/tray restore retain the host state.
         m_window->setWindowStates(m_window->windowStates() | Qt::WindowMinimized);
+    }
 }
 void WindowController::toggleMaximized()
 {
     if (!m_window)
         return;
     updateNormalGeometry();
+    m_backdrop.prepareWindowTransition();
     if (maximized() || fullscreen())
         m_window->showNormal();
     else
@@ -690,6 +693,8 @@ void WindowController::endContentFullscreen(QObject *owner)
         m_backgroundState = restoreState(state);
     if (!fullscreen())
         return;
+    if (state.testFlag(Qt::WindowMaximized))
+        m_backdrop.prepareWindowTransition();
     m_window->setWindowStates(state);
     // Combined state bits can change while the effective state stays Minimized,
     // in which case QWindow::windowStateChanged does not notify our projections.
@@ -776,12 +781,14 @@ void WindowController::showWindow()
     if (!m_background)
         m_backgroundState = restoreState(m_window->windowStates());
     setBackground(false);
-    if (m_backgroundState == Qt::WindowMaximized)
+    if (m_backgroundState == Qt::WindowMaximized) {
+        m_backdrop.prepareWindowTransition();
         m_window->showMaximized();
-    else if (m_backgroundState == Qt::WindowFullScreen)
+    } else if (m_backgroundState == Qt::WindowFullScreen) {
         m_window->showFullScreen();
-    else
+    } else {
         m_window->showNormal();
+    }
     m_window->raise();
     m_window->requestActivate();
 }

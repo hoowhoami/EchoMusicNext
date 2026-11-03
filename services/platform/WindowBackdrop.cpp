@@ -111,4 +111,11 @@ QString WindowBackdrop::apply(bool enabled, bool dark, int transparency)
     return m_error;
 #endif
 }
+void WindowBackdrop::prepareWindowTransition()
+{
+#ifdef Q_OS_WIN
+    if (m_windows)
+        m_windows->prepareWindowTransition();
+#endif
+}
 } // namespace EchoMusic

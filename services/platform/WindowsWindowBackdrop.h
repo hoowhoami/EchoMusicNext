@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QTimer>
 #include <QVariantMap>
 #include <qt_windows.h>
 class QWindow;
@@ -22,6 +23,12 @@ public:
     void attach(QWindow *window);
     bool supported() const;
     QString apply(bool enabled, bool dark, int transparency = 0);
+    /// Call right before the app minimizes, maximizes or restores the window:
+    /// adds the transient caption that gates the DWM window transitions
+    /// (ensureCaption). The caption outlives the state change by a beat so
+    /// the animation is not cut short; the timer's timeout re-queues the
+    /// repair that strips it again.
+    void prepareWindowTransition();
     QVariantMap diagnostics() const;
     bool nativeEventFilter(const QByteArray &type, void *message, qintptr *result) override;
 
@@ -65,5 +72,8 @@ private:
     bool m_framelessForFullscreen = false;
     bool m_initialized = false, m_subclassInstalled = false;
     Applied m_applied = Applied::None;
+    // Keeps the transient transition caption alive until the DWM animation
+    // has played out; the timeout re-queues the repair that strips it.
+    QTimer m_transitionCaption;
 };
 } // namespace EchoMusic
