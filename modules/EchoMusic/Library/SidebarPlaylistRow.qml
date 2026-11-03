@@ -71,7 +71,7 @@ ItemDelegate {
         height: 28
         padding: 7
         glyph: "pencil"
-        text: qsTr("编辑歌单")
+        text: qsTr("编辑")
         onClicked: row.editRequested(row.cloudListId)
     }
     EchoIconButton {
