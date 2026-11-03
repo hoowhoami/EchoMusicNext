@@ -27,12 +27,13 @@ code is reached.
   equivalent as `width != 0 && height != 0`.
 - `src/buffer/meta.rs`: inline the `spa_meta_first` C macro equivalent by
   reading `spa_meta.data`.
-- `src/param/video/raw.rs`: remove initialization and debug output for the
-  missing `flags` field.
+- `src/param/video/raw.rs`: zero-initialize `spa_video_info_raw` in
+  `VideoInfoRaw::new` to remain compatible with both older sys bindings (missing
+  `flags`) and newer sys bindings (present `flags`).
 - `src/param/video/raw.rs`: remove `VideoInfoRaw::set_flags` and
   `VideoInfoRaw::flags`.
-- `src/param/video/raw.rs`: cast `modifier` between the Rust API's `u64` and
-  the generated binding's `i64`.
+- `src/param/video/raw.rs`: cast `modifier` to `_` to adapt to both `i64` and
+  `u64` sys binding types.
 
 These patches are compatibility fixes for the crate/sys binding mismatch. The
 EchoMusic audio path does not use these video metadata helpers.
