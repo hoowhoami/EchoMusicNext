@@ -13,6 +13,7 @@ ListView {
     property bool playbackAvailable: false
     property string activeTrackId: ""
     property bool playing: false
+    property bool playbackLoading: false
     /// Search rows surface the same context menu and row actions as the
     /// shared catalogs; the page injects the favorite lookup so this control
     /// keeps no business state.
@@ -56,6 +57,7 @@ ListView {
         playbackAvailable: list.playbackAvailable
         active: resourceId.length > 0 && resourceId === list.activeTrackId
         playing: list.playing
+        playbackLoading: list.playbackLoading
         actionsAvailable: list.actionsAvailable
         favorite: list.favoriteLookup !== null && list.favoriteLookup(resourceId)
         contextTarget: list.menuSongId.length > 0 && resourceId === list.menuSongId

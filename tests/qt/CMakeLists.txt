@@ -195,6 +195,34 @@ set_tests_properties(
     song-playback-ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90 RUN_SERIAL TRUE
 )
 echo_copy_rust_runtime(echo-song-playback-ui-test)
+qt_add_executable(echo-playback-button-ui-test PlaybackButtonUiTest.cpp)
+target_link_libraries(
+    echo-playback-button-ui-test
+    PRIVATE echo_discovery
+            echo_discoveryplugin
+            echo_search
+            echo_searchplugin
+            echo_playback
+            echo_playbackplugin
+            echo_music
+            echo_musicplugin
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            Qt6::Quick
+            Qt6::QuickControls2
+            Qt6::Test
+)
+add_test(NAME playback-button-ui COMMAND echo-playback-button-ui-test)
+set_tests_properties(
+    playback-button-ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 RUN_SERIAL
+                                  TRUE
+)
+echo_copy_rust_runtime(echo-playback-button-ui-test)
+if(APPLE)
+    target_link_libraries(echo-playback-button-ui-test PRIVATE echo_native_test_support)
+endif()
 qt_add_executable(echo-search-model-test SearchModelTest.cpp)
 target_link_libraries(echo-search-model-test PRIVATE echo_search echo_storage Qt6::Test)
 add_test(NAME search-model COMMAND echo-search-model-test)

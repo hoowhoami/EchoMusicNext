@@ -10,6 +10,10 @@ Popup {
     id: drawer
     objectName: "playbackQueueDrawer"
     required property PlaybackService playback
+    component QueueIconButton: EchoIconButton {
+        scaleFeedback: true
+        foreground: hoverHighlighted || visualFocus ? colors.accentText : colors.iconMain
+    }
     property real uiScale: 1
     property real playerBarHeight: 88
     readonly property PlaybackQueueCatalog catalog: playback.queueCatalog
@@ -112,7 +116,7 @@ Popup {
                             elide: Text.ElideRight
                         }
                     }
-                    EchoIconButton {
+                    QueueIconButton {
                         objectName: "queueCloseButton"
                         colors: Theme.floating
                         glyph: "x"
@@ -143,7 +147,7 @@ Popup {
                         spacing: 12
                         Repeater {
                             model: [-1, 1]
-                            delegate: EchoIconButton {
+                            delegate: QueueIconButton {
                                 colors: Theme.floating
                                 required property int modelData
                                 glyph: modelData < 0 ? "arrow-left" : "arrow-right"
@@ -166,7 +170,7 @@ Popup {
                         Layout.fillWidth: false
                         Layout.fillHeight: false
                         spacing: 4
-                        EchoIconButton {
+                        QueueIconButton {
                             objectName: "queueScrollTopButton"
                             colors: Theme.floating
                             glyph: "arrow-up"
@@ -176,7 +180,7 @@ Popup {
                             padding: 6
                             onClicked: list.positionViewAtBeginning()
                         }
-                        EchoIconButton {
+                        QueueIconButton {
                             objectName: "queueLocateButton"
                             colors: Theme.floating
                             glyph: "current-location"
@@ -187,7 +191,7 @@ Popup {
                             padding: 6
                             onClicked: drawer.locateCurrent()
                         }
-                        EchoIconButton {
+                        QueueIconButton {
                             objectName: "queueAddButton"
                             colors: Theme.floating
                             glyph: "text-plus"
@@ -199,7 +203,7 @@ Popup {
                             enabled: drawer.viewedQueue && drawer.viewedQueue.count > 0
                             onClicked: drawer.addToPlaylistRequested()
                         }
-                        EchoIconButton {
+                        QueueIconButton {
                             objectName: "queueClearButton"
                             colors: Theme.floating
                             glyph: "trash"
@@ -349,6 +353,7 @@ Popup {
                     isCurrent: row.isCurrent
                     viewActive: drawer.catalog.viewActive
                     playing: drawer.playback.playing
+                    playbackLoading: drawer.playback.loading
                     resourceActive: row.contentActive
                     actionsEnabled: !queueReorder.busy
                     onPlayRequested: index => drawer.playback.playViewedIndex(index)

@@ -58,6 +58,7 @@ class SearchModel final : public QAbstractListModel
     Q_PROPERTY(QString discoveryError READ discoveryError NOTIFY discoveryChanged)
     Q_PROPERTY(QString currentTrackId READ currentTrackId NOTIFY playbackChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playbackChanged)
+    Q_PROPERTY(bool playbackLoading READ playbackLoading NOTIFY playbackChanged)
     Q_PROPERTY(EchoMusic::HotSearchModel *hotGroups READ hotGroups CONSTANT)
     Q_PROPERTY(EchoMusic::SearchResultModel *results READ results CONSTANT)
     Q_PROPERTY(EchoMusic::SearchSuggestionModel *suggestions READ suggestions CONSTANT)
@@ -105,6 +106,7 @@ public:
     void attachPlayback(PlaybackService &playback);
     QString currentTrackId() const;
     bool playing() const;
+    bool playbackLoading() const;
     ~SearchModel() override;
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;

@@ -31,26 +31,20 @@ ItemDelegate {
                 source: card.entry.coverUrl
                 resourceActive: card.resourceActive
             }
-            EchoIconButton {
+            EchoPlaybackButton {
                 objectName: "homeSongPlay"
                 anchors.fill: parent
-                padding: 14
-                glyph: card.pendingPlay ? "" : card.currentSong && card.service.playback.playing ? "pause" : "play"
-                foreground: "white"
-                text: card.pendingPlay ? qsTr("加载中") : card.currentSong && card.service.playback.playing ? qsTr("暂停") : qsTr("播放")
+                padding: 16
+                playing: card.currentSong && card.service.playback.playing
+                loading: card.pendingPlay
+                enabled: !loading
+                visualContentActive: card.resourceActive
+                foreground: card.currentSong || hoverHighlighted || visualFocus ? Theme.accentText : "white"
                 hoverBackground: false
                 visible: card.hovered || card.visualFocus || hovered || card.pendingPlay || card.currentSong && card.service.playback.playing
                 background: Rectangle {
                     radius: Theme.mediaRadius
                     color: "#66000000"
-                }
-                EchoSpinner {
-                    anchors.centerIn: parent
-                    width: 18
-                    height: 18
-                    color: "white"
-                    visible: card.pendingPlay
-                    resourceActive: card.resourceActive
                 }
                 onClicked: {
                     if (card.pendingPlay)
@@ -103,6 +97,7 @@ ItemDelegate {
         }
     }
     TapHandler {
-        onDoubleTapped: card.service.play(card.service.styleSongs, card.entry.resourceId, false)
+        onDoubleTapped: if (!card.pendingPlay)
+            card.service.play(card.service.styleSongs, card.entry.resourceId, false)
     }
 }

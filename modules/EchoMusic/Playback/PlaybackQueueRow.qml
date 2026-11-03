@@ -14,9 +14,11 @@ ItemDelegate {
     required property bool isCurrent
     property bool viewActive: false
     property bool playing: false
+    property bool playbackLoading: false
     property bool resourceActive: true
     property bool actionsEnabled: true
     readonly property bool active: isCurrent && viewActive
+    readonly property bool pendingPlay: active && playbackLoading
     signal playRequested(int index)
     signal removeRequested(int index)
     width: parent ? parent.width : 0
@@ -26,7 +28,7 @@ ItemDelegate {
     rightPadding: 12
     topPadding: 0
     bottomPadding: 0
-    onDoubleClicked: if (actionsEnabled)
+    onDoubleClicked: if (actionsEnabled && !pendingPlay)
         playRequested(index)
     background: Rectangle {
         radius: Theme.controlRadius
@@ -44,16 +46,20 @@ ItemDelegate {
                 font: Theme.font(12, Theme.regularWeight)
                 color: Theme.floating.secondaryText
             }
-            EchoIconButton {
+            EchoPlaybackButton {
+                objectName: "queuePlayButton"
                 colors: Theme.floating
                 anchors.centerIn: parent
-                visible: row.hovered || row.active
+                visualContentActive: row.resourceActive
+                visible: row.hovered || row.active || row.pendingPlay
+                enabled: row.actionsEnabled && !loading
+                playing: row.active && row.playing
+                loading: row.pendingPlay
                 glyph: row.active && row.playing ? "player-pause" : "play"
-                text: row.active && row.playing ? qsTr("暂停") : qsTr("播放")
-                foreground: row.active ? Theme.floating.accentText : Theme.floating.text
+                foreground: row.active || hoverHighlighted || visualFocus ? Theme.floating.accentText : Theme.floating.text
                 implicitWidth: 28
                 implicitHeight: 28
-                padding: 6
+                padding: 7
                 background: Item {}
                 onClicked: row.playRequested(row.index)
             }
@@ -78,10 +84,11 @@ ItemDelegate {
                 elide: Text.ElideRight
             }
             Label {
+                objectName: "queueArtistText"
                 Layout.fillWidth: true
                 text: row.artistText
                 font: Theme.font(12, Theme.regularWeight)
-                color: Theme.floating.secondaryText
+                color: row.active ? Theme.floating.accentText : Theme.floating.secondaryText
                 elide: Text.ElideRight
             }
         }
@@ -93,6 +100,10 @@ ItemDelegate {
                 anchors.centerIn: parent
                 visible: row.actionsEnabled && row.hovered && row.viewActive
                 objectName: "queueRemoveButton"
+                visualContentActive: row.resourceActive && visible
+                scaleFeedback: true
+                hoverBackground: false
+                foreground: hoverHighlighted || visualFocus ? Theme.floating.accentText : Theme.floating.secondaryText
                 glyph: "x"
                 text: qsTr("移出队列")
                 implicitWidth: 24

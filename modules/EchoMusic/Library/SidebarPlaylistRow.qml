@@ -59,17 +59,17 @@ ItemDelegate {
             stableElisionBaseline: true
         }
     }
-    EchoIconButton {
+    EchoPlaybackButton {
         id: playAction
         objectName: "sidebarPlaylistPlay"
         parent: playlistCover
         visible: !row.collapsed && (row.hovered || row.visualFocus || hovered || visualFocus || row.playbackBusy)
         enabled: !row.busy && !row.playbackBusy
         visualContentActive: row.resourceActive
+        loading: row.playbackBusy
         anchors.fill: parent
         padding: 7
-        foreground: "white"
-        glyph: row.playbackBusy ? "loader-2" : "play"
+        foreground: hoverHighlighted || visualFocus ? Theme.accentText : "white"
         text: row.playbackBusy ? qsTr("正在读取歌单…") : qsTr("播放歌单")
         background: Rectangle {
             radius: playlistCover.cornerRadius
@@ -83,16 +83,6 @@ ItemDelegate {
         anchors.fill: playAction
         enabled: playAction.visible && !playAction.enabled
         acceptedButtons: Qt.LeftButton
-    }
-    RotationAnimator {
-        target: playAction.contentItem
-        from: 0
-        to: 360
-        duration: 900
-        loops: Animation.Infinite
-        running: row.playbackBusy && row.resourceActive && playAction.visible && row.Window.window !== null && row.Window.window.visible && row.Window.window.visibility !== Window.Minimized && Theme.store.motionEnabled
-        onRunningChanged: if (!running && playAction.contentItem)
-            playAction.contentItem.rotation = 0
     }
     EchoToolTip {
         parent: row

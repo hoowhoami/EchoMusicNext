@@ -13,6 +13,7 @@ class SongCatalogActions final : public QObject
     QML_UNCREATABLE("Owned by an application page service")
     Q_PROPERTY(QString currentTrackId READ currentTrackId NOTIFY playbackChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playbackChanged)
+    Q_PROPERTY(bool playbackLoading READ playbackLoading NOTIFY playbackChanged)
     Q_PROPERTY(EchoMusic::SharingCommands *sharing READ sharing NOTIFY sharingChanged)
     Q_PROPERTY(quint64 favoriteRevision READ favoriteRevision NOTIFY favoritesChanged)
     Q_PROPERTY(quint64 blacklistRevision READ blacklistRevision NOTIFY blacklistChanged)
@@ -44,6 +45,10 @@ public:
         return m_playback.playing();
     }
     Q_INVOKABLE void playOrToggle(const QString &id);
+    bool playbackLoading() const
+    {
+        return m_playback.loading();
+    }
     Q_INVOKABLE void appendSelected();
     Q_INVOKABLE void addSelection();
     Q_INVOKABLE bool isFavorite(const QString &id) const;

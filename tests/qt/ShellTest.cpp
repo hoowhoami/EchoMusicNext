@@ -312,6 +312,13 @@ private slots:
                         QVERIFY(label->mapToScene({0, 0}).x() >=
                                 play->mapToScene({play->width(), 0}).x());
                         const auto captures = qEnvironmentVariable("ECHO_SIDEBAR_ROW_CAPTURE_DIR");
+                        if (width == 184) {
+                            Test::moveNativePointer(
+                                window, play->mapToScene(play->boundingRect().center()).toPoint());
+                            QTRY_COMPARE(play->property("visualScale").toReal(), 1.1);
+                            QCOMPARE(play->property("foreground").value<QColor>(),
+                                     theme.property("accentText").value<QColor>());
+                        }
                         if (!captures.isEmpty() && width == 184) {
                             QVERIFY(QDir().mkpath(captures));
                             QVERIFY(window->grabWindow().save(
@@ -352,11 +359,15 @@ private slots:
         }
         row->setProperty("playbackBusy", true);
         QVERIFY(!play->isEnabled());
+        QQuickItem *busySpinner = nullptr;
+        QTRY_VERIFY(busySpinner = findVisibleVisual(play, "playbackButtonSpinner"));
+        QPointer<QObject> retiredSpinner = busySpinner;
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
                           play->mapToScene(play->boundingRect().center()).toPoint());
         QCOMPARE(plays.count(), 0);
         QCOMPARE(opens.count(), 0);
         row->setProperty("playbackBusy", false);
+        QTRY_VERIFY(retiredSpinner.isNull());
         const auto titlePoint = label->mapToScene(label->boundingRect().center()).toPoint();
         Test::moveNativePointer(window, titlePoint);
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, titlePoint);

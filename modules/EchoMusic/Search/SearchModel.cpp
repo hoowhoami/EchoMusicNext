@@ -257,6 +257,10 @@ bool SearchModel::playing() const
 {
     return m_playback && m_playback->playing();
 }
+bool SearchModel::playbackLoading() const
+{
+    return m_playback && m_playback->loading();
+}
 SearchModel::~SearchModel()
 {
     shutdown();
@@ -703,7 +707,8 @@ void SearchModel::requestPlayback(const QString &id, bool selectedSong)
                        : 0;
     if (selectedSong && selected >= 0 && m_playback && !id.isEmpty() &&
         id == m_playback->trackId()) {
-        m_playback->toggle();
+        if (!m_playback->loading())
+            m_playback->toggle();
         return;
     }
     if (selected >= 0)

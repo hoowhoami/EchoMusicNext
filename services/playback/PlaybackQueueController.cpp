@@ -151,6 +151,9 @@ void PlaybackQueueController::clearHistory()
 void PlaybackQueueController::playViewedIndex(int index)
 {
     if (m_playback.m_catalog.viewActive() && index == m_playback.queue()->currentIndex() &&
+        m_playback.m_loading)
+        return;
+    if (m_playback.m_catalog.viewActive() && index == m_playback.queue()->currentIndex() &&
         m_playback.m_loaded) {
         m_playback.toggle();
         return;

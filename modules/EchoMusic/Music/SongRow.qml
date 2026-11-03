@@ -16,7 +16,7 @@ ItemDelegate {
         properties: ["foreground", "secondaryForeground", "background", "radius", "borderColor", "borderWidth", "font", "fontSize", "fontWeight", "letterSpacing"]
         actions: ["play", "details", "favorite", "album"]
         onActionRequested: (action, arguments) => {
-            if (action === "play" && row.playbackAvailable)
+            if (action === "play" && row.playbackAvailable && !row.pendingPlay)
                 row.playRequested(row.resourceId);
             else if (action === "details")
                 row.detailsRequested(row.resourceId);
@@ -48,6 +48,8 @@ ItemDelegate {
     property bool favorite: false
     property bool active: false
     property bool playing: false
+    property bool playbackLoading: false
+    readonly property bool pendingPlay: active && playbackLoading
     property bool catalogPlayable: true
     // The context target keeps a distinct background until its menu closes.
     // This fill takes precedence over the current-song selection background.
@@ -108,7 +110,7 @@ ItemDelegate {
                 font: publicRow.styledFont(row.geometry.numberFont)
                 visible: !row.hovered && !row.visualFocus && !row.active
             }
-            EchoIconButton {
+            EchoPlaybackButton {
                 objectName: "songIndexPlay"
                 visualContentActive: row.resourceActive && visible
                 scaleFeedback: true
@@ -118,11 +120,11 @@ ItemDelegate {
                 width: 30
                 height: 30
                 padding: 8
-                glyph: row.active && row.playing ? "pause" : "play"
-                text: row.active && row.playing ? qsTr("暂停") : qsTr("播放")
+                playing: row.active && row.playing
+                loading: row.pendingPlay
                 foreground: row.active || hoverHighlighted || visualFocus ? Theme.accentText : Theme.iconMain
-                visible: row.hovered || row.visualFocus || row.active
-                enabled: row.playbackAvailable && (row.active || row.catalogPlayable)
+                visible: row.hovered || row.visualFocus || row.active || row.pendingPlay
+                enabled: row.playbackAvailable && (row.active || row.catalogPlayable) && !loading
                 onClicked: row.playRequested(row.resourceId)
             }
         }

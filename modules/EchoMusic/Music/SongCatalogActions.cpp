@@ -78,9 +78,10 @@ void SongCatalogActions::play(const QString &id, bool replaceContext, bool selec
 }
 void SongCatalogActions::playOrToggle(const QString &id)
 {
-    if (!id.isEmpty() && id == m_playback.trackId() && m_model.track(id))
-        m_playback.toggle();
-    else
+    if (!id.isEmpty() && id == m_playback.trackId() && m_model.track(id)) {
+        if (!m_playback.loading())
+            m_playback.toggle();
+    } else
         play(id, false);
 }
 void SongCatalogActions::playNow(const QString &id)

@@ -88,6 +88,7 @@ Item {
                 geometry: songs.geometry
                 active: resourceId.length > 0 && root.activeTrackId === resourceId
                 playing: root.actions.playing
+                playbackLoading: root.actions.playbackLoading
                 resourceActive: root.resourceActive && !root.loading && !pooled
                 playbackAvailable: !root.loading
                 actionsAvailable: true
@@ -98,7 +99,8 @@ Item {
                 ListView.onReused: pooled = false
                 contextTarget: root.menuSongId.length > 0 && resourceId === root.menuSongId
                 onPlayRequested: id => root.actions.playOrToggle(id)
-                onDoubleClicked: root.actions.play(resourceId, false)
+                onDoubleClicked: if (!row.pendingPlay)
+                    root.actions.play(resourceId, false)
                 onFavoriteRequested: id => root.actions.toggleFavorite(id)
                 onDetailsRequested: id => root.actions.openDetails(id)
                 onCommentsRequested: id => root.actions.openComments(id)

@@ -183,6 +183,7 @@ EchoPageScrollContainer {
         playbackAvailable: true
         activeTrackId: page.service.currentTrackId
         playing: page.service.playing
+        playbackLoading: page.service.playbackLoading
         showOriginal: true
         actionsAvailable: true
         menuSongId: page.menuSongId

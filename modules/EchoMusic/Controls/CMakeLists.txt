@@ -70,6 +70,7 @@ qt_add_qml_module(
     EchoTextField.qml
     EchoIcon.qml
     EchoIconButton.qml
+    EchoPlaybackButton.qml
     EchoPlayPauseIcon.qml
     EchoCover.qml
     EchoArtistLinks.qml
