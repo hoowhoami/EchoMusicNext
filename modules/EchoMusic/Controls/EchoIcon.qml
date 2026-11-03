@@ -32,19 +32,21 @@ Item {
     // Device-pixel alignment, mirroring EchoCover: a glyph whose physical
     // position rides a half-device-pixel boundary flips a whole pixel on
     // every re-quantization. The attached scene position re-syncs wherever
-    // layout carries the icon. Callers that animate `scale` still snap at
-    // their rest state.
+    // layout carries the icon; the density divisor includes the ancestor scale
+    // chain because the compensation is applied in local coordinates. Callers
+    // that animate `scale` still snap at their rest state.
+    readonly property bool snapEnabled: EchoPixelSnap.enabled
     readonly property point snapScene: EchoPixelSnap.scenePosition
     readonly property real snapDpr: EchoPixelSnap.devicePixelRatio
+    readonly property real snapDensityX: EchoPixelSnap.densityX
+    readonly property real snapDensityY: EchoPixelSnap.densityY
     Item {
         id: alignedSurface
         objectName: "iconAlignedSurface"
-        x: Math.round(control.snapScene.x * control.snapDpr) / control.snapDpr
-            - control.snapScene.x
-        y: Math.round(control.snapScene.y * control.snapDpr) / control.snapDpr
-            - control.snapScene.y
-        width: Math.round(control.width * control.snapDpr) / control.snapDpr
-        height: Math.round(control.height * control.snapDpr) / control.snapDpr
+        x: control.snapEnabled ? (Math.round(control.snapScene.x * control.snapDpr) - control.snapScene.x * control.snapDpr) / control.snapDensityX : 0
+        y: control.snapEnabled ? (Math.round(control.snapScene.y * control.snapDpr) - control.snapScene.y * control.snapDpr) / control.snapDensityY : 0
+        width: control.snapEnabled ? Math.round(control.width * control.snapDensityX) / control.snapDensityX : control.width
+        height: control.snapEnabled ? Math.round(control.height * control.snapDensityY) / control.snapDensityY : control.height
         Image {
             id: image
             objectName: "iconImage"

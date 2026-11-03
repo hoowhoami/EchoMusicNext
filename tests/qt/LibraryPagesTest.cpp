@@ -2102,9 +2102,10 @@ ApplicationWindow {
         auto *searchButton = find(window->contentItem(), "cloudUploadSearch");
         QVERIFY(searchButton);
         QVERIFY(searchButton->isEnabled());
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-                          searchButton->mapToScene({searchButton->width() / 2, searchButton->height() / 2})
-                              .toPoint());
+        QTest::mouseClick(
+            window, Qt::LeftButton, Qt::NoModifier,
+            searchButton->mapToScene({searchButton->width() / 2, searchButton->height() / 2})
+                .toPoint());
         QVERIFY(upload.searching());
         QCOMPARE(titleField->property("text").toString(), editedTitle);
         QTRY_VERIFY(upload.paused());

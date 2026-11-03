@@ -9,7 +9,7 @@
 
 namespace EchoMusic
 {
-class EchoImageTransformObserver;
+class EchoItemObserver;
 // Artwork density follows the native item scale chain, not scrolling positions.
 // Keep one bounded high-water resolution per visible source to avoid decoding
 // smaller copies at every step of a collapsing header.
@@ -73,7 +73,7 @@ private:
     void rebuild();
     void updateSize();
     QPointer<QQuickItem> m_item;
-    QSharedPointer<EchoImageTransformObserver> m_observer;
+    QSharedPointer<EchoItemObserver> m_observer;
     QList<QMetaObject::Connection> m_connections;
     QUrl m_source;
     QSize m_pixels, m_decodePixels, m_deviceSize;

@@ -1,19 +1,29 @@
 #include "EchoPixelSnap.h"
+#include "EchoItemObserver.h"
+#include <QDebug>
 #include <QQuickWindow>
-#include <QtGui/qguiapplication.h>
+#include <QtMath>
+#include <cmath>
 
 namespace EchoMusic
 {
 namespace
 {
 // A/B and field diagnostics: ECHO_PIXEL_SNAP=0 parks every compensation at
-// zero; ECHO_PIXEL_SNAP_TRACE=<substring> logs scene/dpr changes for items
+// zero; ECHO_PIXEL_SNAP_TRACE=<substring> logs scene/density changes for items
 // whose object-name chain matches the substring. Both are read once; attached
 // objects are created per item and must not race on a shared cache.
 const QString &traceFilterValue()
 {
     static const QString value = qEnvironmentVariable("ECHO_PIXEL_SNAP_TRACE");
     return value;
+}
+// A collapsing transition can drive the ancestor scale through (or to) zero.
+// Treat that as "no scaling" so the inner surface does not derive an unbounded
+// device-pixel size, and keep the compression path invisible instead.
+qreal density(qreal dpr, qreal transformLength)
+{
+    return qIsFinite(transformLength) && transformLength > 0.001 ? dpr * transformLength : dpr;
 }
 } // namespace
 
@@ -24,43 +34,14 @@ bool EchoPixelSnapAttached::snapEnabled()
 }
 
 EchoPixelSnapAttached::EchoPixelSnapAttached(QObject *parent)
-    : QObject(parent)
-    , m_item(qobject_cast<QQuickItem *>(parent))
+    : QObject(parent), m_item(qobject_cast<QQuickItem *>(parent))
 {
-    watchChain();
-}
-
-void EchoPixelSnapAttached::watchChain()
-{
-    disconnectChain();
-    if (!m_item)
+    if (!snapEnabled() || !m_item)
         return;
-    // A new window carries a new device pixel ratio; a new parent can
-    // replace the whole ancestor chain that carries the item around.
-    // Rebuilt on every pass so a re-parent keeps the window tracked.
-    m_connections.push_back(
-        connect(m_item, &QQuickItem::windowChanged, this, &EchoPixelSnapAttached::refresh));
-    // Layout-driven movement always shows up as x/y (or scale) changes along
-    // the ancestor chain, so watching those catches every carrier including
-    // scroll views, anchored repositions and responsive reflows.
-    for (QQuickItem *item = m_item.data(); item; item = item->parentItem()) {
-        m_connections.push_back(
-            connect(item, &QQuickItem::xChanged, this, &EchoPixelSnapAttached::refresh));
-        m_connections.push_back(
-            connect(item, &QQuickItem::yChanged, this, &EchoPixelSnapAttached::refresh));
-        m_connections.push_back(
-            connect(item, &QQuickItem::scaleChanged, this, &EchoPixelSnapAttached::refresh));
-        m_connections.push_back(
-            connect(item, &QQuickItem::parentChanged, this, &EchoPixelSnapAttached::watchChain));
-    }
+    m_observer = observeItem(m_item.data());
+    connect(m_observer.data(), &EchoItemObserver::sceneChanged, this,
+            &EchoPixelSnapAttached::refresh);
     refresh();
-}
-
-void EchoPixelSnapAttached::disconnectChain()
-{
-    for (const QMetaObject::Connection &connection : m_connections)
-        disconnect(connection);
-    m_connections.clear();
 }
 
 void EchoPixelSnapAttached::refresh()
@@ -68,10 +49,17 @@ void EchoPixelSnapAttached::refresh()
     if (!m_item)
         return;
     const QPointF scene = m_item->mapToScene(QPointF(0, 0));
-    const qreal dpr = m_item->window() ? m_item->window()->devicePixelRatio() : 1.0;
-    const bool changed = scene != m_scenePosition
-        || !qFuzzyCompare(dpr, m_devicePixelRatio);
-    if (!changed)
+    const QPointF unitX = m_item->mapToScene(QPointF(1, 0)) - scene;
+    const QPointF unitY = m_item->mapToScene(QPointF(0, 1)) - scene;
+    const QQuickWindow *window = m_item->window();
+    const qreal dpr = window ? window->effectiveDevicePixelRatio() : 1.0;
+    const qreal densityX = density(dpr, std::hypot(unitX.x(), unitX.y()));
+    const qreal densityY = density(dpr, std::hypot(unitY.x(), unitY.y()));
+    const bool positionChanged = scene != m_scenePosition;
+    const bool ratioChanged = !qFuzzyCompare(dpr + 1.0, m_devicePixelRatio + 1.0);
+    const bool densityValueChanged = !qFuzzyCompare(densityX + 1.0, m_densityX + 1.0) ||
+                                     !qFuzzyCompare(densityY + 1.0, m_densityY + 1.0);
+    if (!positionChanged && !ratioChanged && !densityValueChanged)
         return;
     const QString &filter = traceFilterValue();
     if (!filter.isEmpty()) {
@@ -82,15 +70,19 @@ void EchoPixelSnapAttached::refresh()
                 joined = name + u'/' + joined;
         }
         if (joined.contains(filter)) {
-            qWarning("pixel-snap: %s scene=(%.3f, %.3f) dpr=%.3f",
-                     qUtf8Printable(joined), scene.x(), scene.y(), dpr);
+            qWarning("pixel-snap: %s scene=(%.3f, %.3f) dpr=%.3f density=(%.3f, %.3f)",
+                     qUtf8Printable(joined), scene.x(), scene.y(), dpr, densityX, densityY);
         }
     }
     m_scenePosition = scene;
     m_devicePixelRatio = dpr;
-    if (!snapEnabled())
-        return;
-    emit scenePositionChanged();
-    emit devicePixelRatioChanged();
+    m_densityX = densityX;
+    m_densityY = densityY;
+    if (positionChanged)
+        emit scenePositionChanged();
+    if (ratioChanged)
+        emit devicePixelRatioChanged();
+    if (densityValueChanged)
+        emit densityChanged();
 }
 } // namespace EchoMusic

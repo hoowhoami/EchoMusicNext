@@ -43,15 +43,22 @@ if (process.platform === 'win32') {
     file,
   ];
   // Windows PowerShell 5.1 is being stripped from recent Insider builds and
-  // cannot load its Security module there; fall back to PowerShell 7.
-  const shells = ['powershell.exe', 'pwsh.exe'];
-  let result = spawnSync(shells[0], args, { encoding: 'utf8' });
-  if (result.status !== 0) {
-    const fallback = spawnSync(shells[1], args, { encoding: 'utf8' });
-    if (fallback.status === 0) result = fallback;
+  // cannot load its Security module there; fall back to PowerShell 7. Report
+  // every attempted shell, otherwise a missing executable hides the real error
+  // behind the fallback's unrelated failure.
+  const failures = [];
+  let result = null;
+  for (const shell of ['powershell.exe', 'pwsh.exe']) {
+    const attempt = spawnSync(shell, args, { encoding: 'utf8' });
+    if (attempt.status === 0) {
+      result = attempt;
+      break;
+    }
+    const detail = attempt.error?.message || attempt.stderr || `exit ${attempt.status}`;
+    failures.push(`${shell}: ${String(detail).trim()}`);
   }
-  if (result.status !== 0)
-    throw new Error('Microsoft runtime signature validation failed: ' + result.stderr);
+  if (!result)
+    throw new Error('Microsoft runtime signature validation failed: ' + failures.join('; '));
   const version = result.stdout.trim();
   if (!/^14\.\d+\.\d+\.\d+$/.test(version)) throw new Error('Invalid Microsoft runtime version');
   fs.writeFileSync(

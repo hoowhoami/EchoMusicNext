@@ -88,20 +88,24 @@ Item {
     // riding a half-device-pixel boundary flips a whole visible pixel whenever
     // rendering re-quantizes it (the mask below thresholds coverage at 0.5).
     // Parking the artwork surface on whole device pixels — position and size —
-    // removes the fraction that rounding feeds on. The attached scene position
-    // re-syncs the compensation wherever layout carries this cover; callers
-    // that animate `scale` on the cover still snap at their rest state.
+    // removes the fraction that rounding feeds on. Scene position is converted
+    // with the window DPR, but the compensation is written in this item's local
+    // coordinates, so the width/height divisor also includes the ancestor scale
+    // chain (density = DPR × scale). The attached properties re-sync wherever
+    // layout carries this cover; callers that animate `scale` still snap at
+    // their rest state.
+    readonly property bool snapEnabled: EchoPixelSnap.enabled
     readonly property point snapScene: EchoPixelSnap.scenePosition
     readonly property real snapDpr: EchoPixelSnap.devicePixelRatio
+    readonly property real snapDensityX: EchoPixelSnap.densityX
+    readonly property real snapDensityY: EchoPixelSnap.densityY
     Item {
         id: alignedSurface
         objectName: "coverAlignedSurface"
-        x: Math.round(control.snapScene.x * control.snapDpr) / control.snapDpr
-            - control.snapScene.x
-        y: Math.round(control.snapScene.y * control.snapDpr) / control.snapDpr
-            - control.snapScene.y
-        width: Math.round(control.width * control.snapDpr) / control.snapDpr
-        height: Math.round(control.height * control.snapDpr) / control.snapDpr
+        x: control.snapEnabled ? (Math.round(control.snapScene.x * control.snapDpr) - control.snapScene.x * control.snapDpr) / control.snapDensityX : 0
+        y: control.snapEnabled ? (Math.round(control.snapScene.y * control.snapDpr) - control.snapScene.y * control.snapDpr) / control.snapDensityY : 0
+        width: control.snapEnabled ? Math.round(control.width * control.snapDensityX) / control.snapDensityX : control.width
+        height: control.snapEnabled ? Math.round(control.height * control.snapDensityY) / control.snapDensityY : control.height
         CoverPlaceholder {
             id: placeholder
             objectName: "coverPlaceholder"

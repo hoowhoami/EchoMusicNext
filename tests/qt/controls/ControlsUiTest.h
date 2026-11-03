@@ -19,6 +19,7 @@ private slots:
     void viewPoolResetIsCanceledWithOwner();
     void iconRasterTracksZoomAndReleasesWhenHidden();
     void pixelSnapTracksScenePositionAcrossReparentAndWindows();
+    void pixelSnapDisabledUsesLogicalGeometry();
     void coverCropAndRoundedPixels();
     void frostedCornersRetainAntialiasCoverage();
     void floatingPanelEdgesAndMenuHeight();

@@ -325,13 +325,20 @@ add_test(
         echo-controls-ui-test windowCaptionSeparatesDoubleClickFromDrag
         listLocationPreservesVisibleRowsAndChecksOcclusion
         coverKeepsNativeResolutionUnderAncestorZoom coverCropAndRoundedPixels
-        viewPoolResetIsCanceledWithOwner iconRasterTracksZoomAndReleasesWhenHidden
-        clearActionIsOneUserEditButProgrammaticClearIsNot
+        pixelSnapTracksScenePositionAcrossReparentAndWindows viewPoolResetIsCanceledWithOwner
+        iconRasterTracksZoomAndReleasesWhenHidden clearActionIsOneUserEditButProgrammaticClearIsNot
         boundedListAutoHeightSurvivesReopenAndVariableRows progressClimaxTicksAndWaitPreview
         playPauseTransitionKeepsEndpointsAndInterrupts progressBusyRendersAndRetiresNativeAnimation
         sourcePauseKeepsComparableInkToPlay disabledIconHoverIsOptInAndNeverActivates
         shadowsReleaseTheirNativeMaterials
         sourceControlRolesKeepOrdinaryActionsAndLargeFormsDistinct
+)
+add_test(NAME controls-ui-pixel-snap-disabled COMMAND echo-controls-ui-test
+                                                      pixelSnapDisabledUsesLogicalGeometry
+)
+set_tests_properties(
+    controls-ui-pixel-snap-disabled
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;ECHO_PIXEL_SNAP=0" TIMEOUT 45
 )
 
 target_compile_definitions(
