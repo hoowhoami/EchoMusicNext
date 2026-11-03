@@ -1,6 +1,7 @@
 #include "TrayIconTheme.h"
 #include <QApplication>
 #include <QPainter>
+#include <QPalette>
 #include <QSettings>
 #include <QStyleHints>
 #include <QEvent>
