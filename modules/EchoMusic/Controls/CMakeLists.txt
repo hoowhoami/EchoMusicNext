@@ -39,6 +39,8 @@ qt_add_qml_module(
     EchoIconSource.cpp
     EchoImageMetrics.h
     EchoImageMetrics.cpp
+    EchoPixelSnap.h
+    EchoPixelSnap.cpp
     EchoColorValue.h
     EchoColorValue.cpp
     EchoSelectModel.h

@@ -83,80 +83,100 @@ Item {
             name: control.placeholderGlyph
         }
     }
-    CoverPlaceholder {
-        id: placeholder
-        objectName: "coverPlaceholder"
-        anchors.fill: parent
-        radius: control.cornerRadius
-        opacity: control.artworkOpacity
-        // Transparent pixels in a real avatar must not reveal a fallback user
-        // icon. Keep only the existing base surface beneath decoded artwork.
-        glyphVisible: !control.hasArtwork
-    }
-    Image {
-        id: cover
-        objectName: "coverImage"
-        anchors.fill: parent
-        source: metrics.resolvedSource
-        asynchronous: true
-        retainWhileLoading: control.retainWhileLoading
-        property bool previouslyReady: false
-        sourceSize: metrics.decodeSize
-        onStatusChanged: {
-            if (status === Image.Ready)
-                previouslyReady = true;
-            else if (status !== Image.Loading)
-                previouslyReady = false;
-            if (status === Image.Error)
-                coverSource.reject(metrics.source);
+    // Device-pixel alignment. Qt serves the scene at an integral logical size
+    // while the native client rect moves in single device pixels, so an edge
+    // riding a half-device-pixel boundary flips a whole visible pixel whenever
+    // rendering re-quantizes it (the mask below thresholds coverage at 0.5).
+    // Parking the artwork surface on whole device pixels — position and size —
+    // removes the fraction that rounding feeds on. The attached scene position
+    // re-syncs the compensation wherever layout carries this cover; callers
+    // that animate `scale` on the cover still snap at their rest state.
+    readonly property point snapScene: EchoPixelSnap.scenePosition
+    readonly property real snapDpr: EchoPixelSnap.devicePixelRatio
+    Item {
+        id: alignedSurface
+        objectName: "coverAlignedSurface"
+        x: Math.round(control.snapScene.x * control.snapDpr) / control.snapDpr
+            - control.snapScene.x
+        y: Math.round(control.snapScene.y * control.snapDpr) / control.snapDpr
+            - control.snapScene.y
+        width: Math.round(control.width * control.snapDpr) / control.snapDpr
+        height: Math.round(control.height * control.snapDpr) / control.snapDpr
+        CoverPlaceholder {
+            id: placeholder
+            objectName: "coverPlaceholder"
+            anchors.fill: parent
+            radius: control.cornerRadius
+            opacity: control.artworkOpacity
+            // Transparent pixels in a real avatar must not reveal a fallback user
+            // icon. Keep only the existing base surface beneath decoded artwork.
+            glyphVisible: !control.hasArtwork
         }
-        fillMode: Image.PreserveAspectCrop
-        visible: false
-    }
-    Loader {
-        objectName: "coverMaskOwner"
-        opacity: control.artworkOpacity
-        anchors.fill: parent
-        active: control.resourceActive && control.hasArtwork
-        // The effect and its texture provider share one lifetime. A pooled
-        // delegate must not leave an effect referencing a destroyed mask.
-        sourceComponent: Item {
-            ShaderEffectSource {
-                id: capture
-                objectName: "coverCapture"
-                sourceItem: cover
-                sourceRect: Qt.rect(0, 0, control.width, control.height)
-                textureSize: metrics.pixelSize
-                visible: false
-                live: true
-                recursive: false
+        Image {
+            id: cover
+            objectName: "coverImage"
+            anchors.fill: parent
+            source: metrics.resolvedSource
+            asynchronous: true
+            retainWhileLoading: control.retainWhileLoading
+            property bool previouslyReady: false
+            sourceSize: metrics.decodeSize
+            onStatusChanged: {
+                if (status === Image.Ready)
+                    previouslyReady = true;
+                else if (status !== Image.Loading)
+                    previouslyReady = false;
+                if (status === Image.Error)
+                    coverSource.reject(metrics.source);
             }
-            Item {
-                id: mask
-                objectName: "coverRoundedMask"
-                anchors.fill: parent
-                visible: false
-                layer.enabled: true
-                layer.smooth: true
-                layer.textureSize: metrics.pixelSize
-                Rectangle {
-                    anchors.fill: parent
-                    radius: control.cornerRadius
-                    antialiasing: true
-                    color: "white"
+            fillMode: Image.PreserveAspectCrop
+            visible: false
+        }
+        Loader {
+            objectName: "coverMaskOwner"
+            opacity: control.artworkOpacity
+            anchors.fill: parent
+            active: control.resourceActive && control.hasArtwork
+            // The effect and its texture provider share one lifetime. A pooled
+            // delegate must not leave an effect referencing a destroyed mask.
+            sourceComponent: Item {
+                ShaderEffectSource {
+                    id: capture
+                    objectName: "coverCapture"
+                    sourceItem: cover
+                    sourceRect: Qt.rect(0, 0, alignedSurface.width, alignedSurface.height)
+                    textureSize: metrics.pixelSize
+                    visible: false
+                    live: true
+                    recursive: false
                 }
-            }
-            MultiEffect {
-                objectName: "coverMaskEffect"
-                anchors.fill: parent
-                source: capture
-                // Default thresholds turn the mask's fractional coverage into
-                // a hard edge. Preserve Qt Rectangle AA at every cover size.
-                maskEnabled: true
-                maskThresholdMin: 0.5
-                maskSpreadAtMin: 1
-                autoPaddingEnabled: false
-                maskSource: mask
+                Item {
+                    id: mask
+                    objectName: "coverRoundedMask"
+                    anchors.fill: parent
+                    visible: false
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.textureSize: metrics.pixelSize
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: control.cornerRadius
+                        antialiasing: true
+                        color: "white"
+                    }
+                }
+                MultiEffect {
+                    objectName: "coverMaskEffect"
+                    anchors.fill: parent
+                    source: capture
+                    // Default thresholds turn the mask's fractional coverage into
+                    // a hard edge. Preserve Qt Rectangle AA at every cover size.
+                    maskEnabled: true
+                    maskThresholdMin: 0.5
+                    maskSpreadAtMin: 1
+                    autoPaddingEnabled: false
+                    maskSource: mask
+                }
             }
         }
     }

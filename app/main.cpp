@@ -43,7 +43,11 @@ int main(int argc, char *argv[])
     EchoMusic::initializeNetworkEnvironment();
     // Keep every Qt Quick surface alpha-capable from its first native creation.
     // The theme paints an opaque skin when transparency is disabled.
-    QQuickWindow::setDefaultAlphaBuffer(true);
+    // ECHO_WINDOW_ALPHA=0 builds the swapchain without alpha (HWND flip +
+    // DXGI_SCALING_NONE instead of the DirectComposition STRETCH path).
+    // Probing on Win11 26300 shows the interactive-resize DWM stretch is
+    // identical on both paths, so this is a present-path A/B switch only.
+    QQuickWindow::setDefaultAlphaBuffer(qEnvironmentVariable("ECHO_WINDOW_ALPHA") != "0");
     // D3D redirection policy belongs to the attached main HWND. A process
     // switch would also disable raster backing stores for widget dialogs.
     // Qt Widgets supplies native tray menus; the application UI stays Qt Quick.

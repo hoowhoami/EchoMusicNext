@@ -225,6 +225,7 @@ target_sources(
             controls/ControlsUiMemory.cpp
             controls/ControlsUiEffects.cpp
             controls/ControlsUiBehavior.cpp
+            controls/ControlsUiPixelSnap.cpp
 )
 qt_add_executable(echo-tab-count-alignment-test TabCountAlignmentTest.cpp)
 qt_add_executable(echo-background-banding-test BackgroundBandingTest.cpp)
