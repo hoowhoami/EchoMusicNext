@@ -6,6 +6,7 @@
 #include "PlaybackLibraryActions.h"
 #include "SidebarPlaylistModel.h"
 #include <iostream>
+#include <memory>
 #include <QNetworkProxy>
 #include <QScopeGuard>
 #include <QAbstractItemModelTester>
@@ -249,6 +250,202 @@ class PlaylistDetailTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void hashlessPlaylistRowsDoNotStopPaginationOrEnterPlayback_data()
+    {
+        QTest::addColumn<bool>("cloud");
+        QTest::newRow("public-detail") << false;
+        QTest::newRow("cloud-detail") << true;
+    }
+    void hashlessPlaylistRowsDoNotStopPaginationOrEnterPlayback()
+    {
+        QFETCH(bool, cloud);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        PlaylistMutationService mutations(api);
+        SongMetadataService metadata(api);
+        RouteController router;
+        router.registerPage({"playlist-detail", "/playlist/:id", QUrl("qrc:/unused.qml")});
+        QVERIFY(router.navigate("playlist-detail", {}, "filter-playlist"));
+        auto context = std::make_unique<PlaylistDetailContext>(api, playback, library, mutations,
+                                                               metadata, *router.current(), false);
+        PlaylistDetailContextTestAccess::seed(*context, "Filtered playlist");
+        if (cloud)
+            PlaylistDetailContextTestAccess::cloud(*context);
+        const auto acceptPage = [&](int number, int total, const QJsonArray &items) {
+            const QJsonObject page{
+                {"page", number}, {"page_size", 2}, {"total", total}, {"items", items}};
+            PlaylistDetailContextTestAccess::pending(*context, 99000 + number, number);
+            PlaylistDetailContextTestAccess::accept(
+                *context, 99000 + number,
+                cloud ? QJsonObject{{"revision", 9}, {"page", page}} : page);
+        };
+        auto hashless = playlistSong(90);
+        auto hashlessSong = hashless["song"].toObject();
+        hashlessSong["hash"] = " \t ";
+        hashless["song"] = hashlessSong;
+        // An entirely filtered page is still a received page, including a
+        // named row without an audio hash. It must not end the playlist load.
+        acceptPage(1, 6, {QJsonObject{{"song", QJsonObject{}}}, hashless});
+        QCOMPARE(context->songs()->totalCount(), 0);
+        QCOMPARE(context->total(), quint64(6));
+        QVERIFY(!context->complete());
+        QCOMPARE(context->filteredInvalidCount(), quint64(2));
+        // Missing presentation alone is not a reason to discard a resource.
+        const auto sparseSong =
+            QJsonObject{{"id", "1"}, {"hash", playlistSong(1)["song"].toObject()["hash"]}};
+        acceptPage(2, 6, {QJsonObject{{"song", sparseSong}}, playlistSong(2)});
+        QCOMPARE(context->songs()->totalCount(), 2);
+        QVERIFY(!context->complete());
+        QCOMPARE(context->filteredInvalidCount(), quint64(2));
+        acceptPage(3, 6, {hashless, playlistSong(3)});
+        QVERIFY(context->complete());
+        QCOMPARE(context->songs()->totalCount(), 3);
+        QCOMPARE(context->total(), quint64(6));
+        QCOMPARE(context->filteredInvalidCount(), quint64(3));
+        const auto tracks = context->songs()->tracks();
+        QCOMPARE(tracks[0].id, QString("1"));
+        QCOMPARE(tracks[1].id, QString("2"));
+        QCOMPARE(tracks[2].id, QString("3"));
+        context->actions()->play();
+        QCOMPARE(playback.queue()->rowCount(), 3);
+        for (const auto &track : playback.queue()->tracks())
+            QVERIFY(!track.hash.trimmed().isEmpty());
+        // An entirely invalid playlist completes with an empty catalog too.
+        context->reload();
+        QCOMPARE(context->filteredInvalidCount(), quint64(0));
+        if (cloud)
+            PlaylistDetailContextTestAccess::cloud(*context);
+        acceptPage(1, 2, {hashless, QJsonObject{{"song", QJsonObject{}}}});
+        QVERIFY(context->complete());
+        QCOMPARE(context->songs()->totalCount(), 0);
+        QCOMPARE(context->total(), quint64(2));
+        QCOMPARE(context->filteredInvalidCount(), quint64(2));
+        context.reset();
+        router.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
+    void filteredCountHeaderHintUpdatesAndClearsOnRefresh()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        PlaylistMutationService mutations(api);
+        SongMetadataService metadata(api);
+        RouteController router;
+        router.registerPage({"playlist-detail", "/playlist/:id", QUrl("qrc:/unused.qml")});
+        QVERIFY(router.navigate("playlist-detail", {}, "filter-playlist"));
+        PlaylistDetailContext context(api, playback, library, mutations, metadata,
+                                      *router.current(), false);
+        PlaylistDetailContextTestAccess::seed(context, "歌单过滤提示");
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Theme
+import EchoMusic.Playlists
+Window {
+    id: filterWindow
+    required property PlaylistDetailContext detail
+    property real uiScale: 1
+    visible: true
+    width: 1000
+    height: 320
+    color: Theme.main
+    Item {
+        width: filterWindow.width / filterWindow.uiScale
+        height: filterWindow.height / filterWindow.uiScale
+        scale: filterWindow.uiScale
+        transformOrigin: Item.TopLeft
+        PlaylistDetailHeader {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            detailContext: filterWindow.detail
+        }
+    }
+})",
+                          QUrl("qrc:/playlist-filter-header.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"detail", QVariant::fromValue(&context)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QTRY_VERIFY(playlistVisual(window->contentItem(), "playlistFilterInfo"));
+        auto *info = playlistVisual(window->contentItem(), "playlistFilterInfo");
+        QVERIFY(!info->isVisible());
+        auto page = domainPage(1, {1});
+        page["items"] = QJsonArray{playlistSong(1), QJsonObject{{"song", QJsonObject{}}}};
+        page["total"] = 2;
+        PlaylistDetailContextTestAccess::pending(context, 99101, 1);
+        PlaylistDetailContextTestAccess::accept(context, 99101, page);
+        QTRY_VERIFY(info->isVisible());
+        QCOMPARE(info->property("text").toString(), QString("查看无效歌曲过滤说明"));
+        QCOMPARE(info->property("tooltipText").toString(),
+                 QString("当前列表已过滤 1 首无效歌曲\n通常是因为歌曲信息缺失无法参与播放"));
+        const auto artifacts = qEnvironmentVariable("ECHO_PLAYLIST_FILTER_CAPTURES");
+        if (!artifacts.isEmpty())
+            QVERIFY(QDir().mkpath(artifacts));
+        for (bool dark : {false, true})
+            for (double scale : {1., 1.25})
+                for (int width : {1000, 650}) {
+                    QTest::mouseMove(window, QPoint(1, 1));
+                    theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+                    root->setProperty("uiScale", scale);
+                    window->resize(width, 320);
+                    QTest::qWait(60);
+                    auto *count = playlistVisual(window->contentItem(), "playlistSongCount");
+                    QVERIFY(count);
+                    const auto countBounds = count->mapRectToScene(count->boundingRect());
+                    const auto infoBounds = info->mapRectToScene(info->boundingRect());
+                    QVERIFY(infoBounds.left() >= countBounds.right());
+                    QVERIFY(qAbs(countBounds.center().y() - infoBounds.center().y()) < .6);
+                    QVERIFY(window->contentItem()->boundingRect().contains(infoBounds));
+                    QTest::mouseMove(window, infoBounds.center().toPoint());
+                    QTRY_VERIFY(info->property("hovered").toBool());
+                    QTRY_VERIFY(info->findChild<QObject *>("iconButtonToolTip"));
+                    auto *tip = info->findChild<QObject *>("iconButtonToolTip");
+                    QTRY_VERIFY(tip->property("visible").toBool());
+                    const auto frame = window->grabWindow();
+                    QVERIFY(!frame.isNull());
+                    if (!artifacts.isEmpty())
+                        QVERIFY(frame.save(artifacts + QString("/filter-%1-%2-%3.png")
+                                                           .arg(dark ? "dark" : "light")
+                                                           .arg(scale)
+                                                           .arg(width)));
+                }
+        context.reload();
+        QCOMPARE(context.filteredInvalidCount(), quint64(0));
+        QTRY_VERIFY(!info->isVisible());
+        // A clean readback must also clear the previous filtered count.
+        PlaylistDetailContextTestAccess::cloud(context);
+        PlaylistDetailContextTestAccess::pending(context, 99102, 1);
+        PlaylistDetailContextTestAccess::accept(context, 99102,
+                                                QJsonObject{{"revision", 9}, {"page", page}});
+        QCOMPARE(context.filteredInvalidCount(), quint64(1));
+        mutations.trackPageReconciled(
+            QJsonObject{
+                {"user_id", 0},
+                {"cloud_list_id", 7},
+                {"revision", 10},
+                {"page", QJsonObject{{"items", QJsonArray{playlistSong(2)}}, {"total", 1}}}},
+            api.sessionRevision());
+        QCOMPARE(context.filteredInvalidCount(), quint64(0));
+        root.reset();
+        context.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void confirmedTrackPagesKeepUnchangedRowsAndDetails()
     {
         QTemporaryDir dir;

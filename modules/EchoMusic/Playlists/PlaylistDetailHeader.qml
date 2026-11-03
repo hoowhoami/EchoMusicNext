@@ -118,18 +118,33 @@ SongDetailHeader {
         Flow {
             objectName: "playlistMetadataTags"
             spacing: 8
-            EchoButtonContent {
-                objectName: "playlistSongCount"
+            RowLayout {
                 width: implicitWidth
                 height: implicitHeight
-                // Flow aligns item tops; keep each tag's full line box in the shared content.
-                lineHeight: 18
-                glyph: "music"
-                glyphSize: 12
                 spacing: 4
-                text: String(header.detailContext.total)
-                font: Theme.font(11, Theme.semiboldWeight)
-                color: Theme.secondaryText
+                EchoButtonContent {
+                    objectName: "playlistSongCount"
+                    // Flow aligns item tops; keep the same line box as the tags.
+                    lineHeight: 18
+                    glyph: "music"
+                    glyphSize: 12
+                    spacing: 4
+                    text: String(header.detailContext.total)
+                    font: Theme.font(11, Theme.semiboldWeight)
+                    color: Theme.secondaryText
+                }
+                EchoIconButton {
+                    objectName: "playlistFilterInfo"
+                    visible: header.detailContext.filteredInvalidCount > 0
+                    visualContentActive: header.resourceActive && visible
+                    glyph: "info-circle"
+                    text: qsTr("查看无效歌曲过滤说明")
+                    tooltipText: qsTr("当前列表已过滤 %1 首无效歌曲\n通常是因为歌曲信息缺失无法参与播放").arg(header.detailContext.filteredInvalidCount)
+                    implicitWidth: 18
+                    implicitHeight: 18
+                    padding: 2
+                    foreground: hovered || visualFocus ? "#d97706" : "#f59e0b"
+                }
             }
             Repeater {
                 model: String(header.info.tags || "").split(",").filter(tag => tag.trim().length > 0)

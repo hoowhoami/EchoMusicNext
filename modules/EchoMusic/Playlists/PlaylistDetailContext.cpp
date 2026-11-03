@@ -213,6 +213,7 @@ void PlaylistDetailContext::reload()
     m_revision.reset();
     m_total = 0;
     m_received = 0;
+    m_filteredInvalidCount = 0;
     m_nextPage = 1;
     m_complete = false;
     m_error.clear();
@@ -244,6 +245,7 @@ void PlaylistDetailContext::applyTrackReadback(const QJsonObject &snapshot, quin
     m_cloudEntryRows.clear();
     m_cloudEntryIds.clear();
     m_received = 0;
+    m_filteredInvalidCount = 0;
     m_nextPage = 1;
     m_pageSize = 300; // Same first-page size used by the shared write readback.
     m_complete = false;
@@ -386,12 +388,19 @@ void PlaylistDetailContext::consumeBatch()
         const auto page = m_pages.take(m_nextPage);
         const auto items = page["items"].toArray();
         m_received += quint64(items.size());
+        // Hashless entries cannot be played. Count every upstream entry for
+        // pagination, but keep hashless rows out of the catalog and play queue.
+        QJsonArray visibleItems;
+        for (const auto &value : items)
+            if (!value.toObject()["song"].toObject()["hash"].toString().trimmed().isEmpty())
+                visibleItems.append(value);
+        m_filteredInvalidCount += quint64(items.size() - visibleItems.size());
         QJsonArray songs;
         const auto total = quint64(page["total"].toInteger());
         m_total = total;
         QJsonArray accepted;
         QSet<QString> acceptedIds;
-        for (const auto &v : items) {
+        for (const auto &v : visibleItems) {
             const auto entry = v.toObject();
             auto song = entry["song"].toObject();
             song.insert("metadata", entry["metadata"]);
@@ -406,7 +415,7 @@ void PlaylistDetailContext::consumeBatch()
             // Cloud order is supplied by the server sort index, not transport
             // array order. Sorting inside each page is insufficient; merge all
             // loaded entries below before replacing only if their order differs.
-            for (const auto &v : items) {
+            for (const auto &v : visibleItems) {
                 auto entry = v.toObject();
                 // Unmatched uploads reach playlists with id "0" and most facts
                 // stripped. The audio hash is the only identity shared with the

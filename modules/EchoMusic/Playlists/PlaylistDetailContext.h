@@ -33,6 +33,7 @@ class PlaylistDetailContext final : public QObject
     Q_PROPERTY(quint64 orderListId READ orderListId NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(quint64 total READ total NOTIFY changed)
+    Q_PROPERTY(quint64 filteredInvalidCount READ filteredInvalidCount NOTIFY changed)
     Q_PROPERTY(bool collectionAvailable READ collectionAvailable NOTIFY changed)
     Q_PROPERTY(bool collected READ collected NOTIFY changed)
     Q_PROPERTY(bool collectionBusy READ collectionBusy NOTIFY changed)
@@ -112,6 +113,10 @@ public:
     {
         return m_total;
     }
+    quint64 filteredInvalidCount() const
+    {
+        return m_filteredInvalidCount;
+    }
     CommentsController *comments()
     {
         return &m_comments;
@@ -175,6 +180,7 @@ private:
     QHash<QString, int> m_cloudEntryRows;
     QHash<quint64, Pending> m_metadataRequests;
     quint64 m_received = 0;
+    quint64 m_filteredInvalidCount = 0;
     QString m_error, m_publicId;
     std::optional<ApiClient::CloudPlaylistId> m_cloud;
     quint64 m_generation = 0, m_total = 0;
