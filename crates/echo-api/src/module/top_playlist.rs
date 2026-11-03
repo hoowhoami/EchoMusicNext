@@ -16,7 +16,8 @@ pub struct Query {
 type Wire = crate::util::response::Envelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::list")]
+    // Successful category responses may contain only OlexpIds, without a list.
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     special_list: Vec<Playlist>,
 }
 #[derive(Deserialize)]
@@ -129,17 +130,32 @@ pub fn convert(bytes: &[u8]) -> Result<Vec<PlaylistCard>, ApiError> {
         })
         .collect()
 }
+fn request_body(q: &Query, id: &Identity, now: &str) -> Result<Vec<u8>, ApiError> {
+    let key = format!(
+        "{:x}",
+        Md5::digest(format!("3116LnT6xpN3khm36zse0QzvmgTZ3waWdRSA11440{now}").as_bytes())
+    );
+    // The source IPC stringifies these query values before the module's ||
+    // defaults. In particular, "0" stays zero instead of selecting one.
+    serde_json::to_vec(&serde_json::json!({
+        "appid": 3116, "mid": id.mid, "clientver": 11440,
+        "platform": "android", "clienttime": now, "userid": id.userid,
+        "module_id": 1, "page": 1, "pagesize": 30, "key": key,
+        "special_recommend": {
+            "withtag": "1", "withsong": "0", "sort": 1, "ugc": 1,
+            "is_selected": 0, "withrecommend": 1, "area_code": 1,
+            "categoryid": q.category_id
+        },
+        "req_multi": 1, "retrun_min": 5, "return_special_falg": 1
+    }))
+    .map_err(|_| ApiError::encoding())
+}
 pub async fn execute(client: &ApiClient, q: Query, id: &Identity) -> Result<Vec<u8>, ApiError> {
     if crate::util::recommendation_song::decimal(&q.category_id).is_err() {
         return Err(ApiError::new("input", "推荐歌单分类无效"));
     }
     let now = request::unix_seconds()?.to_string();
-    let key = format!(
-        "{:x}",
-        Md5::digest(format!("3116LnT6xpN3khm36zse0QzvmgTZ3waWdRSA11440{now}").as_bytes())
-    );
-    // A zero withsong value selects the protocol default of one.
-    let body=serde_json::to_vec(&serde_json::json!({"appid":3116,"mid":id.mid,"clientver":11440,"platform":"android","clienttime":now,"userid":id.userid,"module_id":1,"page":1,"pagesize":30,"key":key,"special_recommend":{"withtag":1,"withsong":1,"sort":1,"ugc":1,"is_selected":0,"withrecommend":1,"area_code":1,"categoryid":q.category_id},"req_multi":1,"retrun_min":5,"return_special_falg":1})).map_err(|_|ApiError::encoding())?;
+    let body = request_body(&q, id, &now)?;
     let bytes = client
         .request(
             id,
@@ -151,4 +167,55 @@ pub async fn execute(client: &ApiClient, q: Query, id: &Identity) -> Result<Vec<
         )
         .await?;
     request::encode(&convert(&bytes)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn category_request_preserves_the_zero_song_flag_after_serialization() {
+        let identity: Identity =
+            serde_json::from_value(json!({"mid": "fixture-mid", "dfid": "fixture-dfid"})).unwrap();
+        let body = request_body(
+            &Query {
+                category_id: "660".into(),
+            },
+            &identity,
+            "1793678400",
+        )
+        .unwrap();
+        let sent: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(sent["special_recommend"]["withsong"], "0");
+        assert_eq!(sent["special_recommend"]["withtag"], "1");
+        assert_eq!(sent["special_recommend"]["categoryid"], "660");
+        assert_eq!(sent["pagesize"], 30);
+    }
+
+    #[test]
+    fn empty_category_success_does_not_require_a_playlist_field() {
+        for data in [
+            json!({"OlexpIds": "category-experiment"}),
+            json!({"special_list": null}),
+            json!({"special_list": []}),
+        ] {
+            let bytes =
+                serde_json::to_vec(&json!({"status": 1, "error_code": 0, "data": data})).unwrap();
+            assert!(convert(&bytes).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn empty_category_handling_keeps_business_and_decode_errors() {
+        let business = convert(br#"{"status":0,"error_code":152,"data":{}}"#).unwrap_err();
+        assert_eq!(business.kind, "business");
+        assert_eq!(business.code, Some(152));
+        for bytes in [
+            &b"not JSON"[..],
+            &br#"{"status":1,"error_code":0,"data":{"special_list":"invalid"}}"#[..],
+        ] {
+            assert_eq!(convert(bytes).unwrap_err().kind, "decode");
+        }
+    }
 }

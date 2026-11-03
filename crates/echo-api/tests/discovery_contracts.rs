@@ -41,6 +41,36 @@ fn playlist_category_count_and_editor_filter_are_not_guessed() {
     assert!(expected > 0);
 }
 #[test]
+fn live_category_captures_keep_populated_and_omitted_lists_distinct() {
+    for (name, expected) in [
+        ("current-587-0-20261103.json", 30),
+        ("current-660-1-20261103.json", 0),
+    ] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/api/top_playlist")
+            .join(name);
+        let record: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(record["http_status"], 200);
+        let payload = &record["payload"];
+        assert_eq!(payload["status"], 1);
+        assert_eq!(payload["error_code"], 0);
+        let cards = top_playlist::convert(&bytes(payload)).unwrap();
+        assert_eq!(cards.len(), expected);
+        if expected == 0 {
+            assert!(payload["data"].get("special_list").is_none());
+            assert!(payload["data"].get("OlexpIds").is_some());
+        } else {
+            for (card, wire) in cards
+                .iter()
+                .zip(payload["data"]["special_list"].as_array().unwrap())
+            {
+                assert_eq!(card.id, wire["global_collection_id"].as_str().unwrap());
+                assert_eq!(card.title, wire["specialname"].as_str().unwrap());
+            }
+        }
+    }
+}
+#[test]
 fn daily_current_and_anonymous_preserve_seconds_and_metadata() {
     for name in ["daily-current", "daily-anonymous"] {
         let v = raw("everyday_recommend", name);
