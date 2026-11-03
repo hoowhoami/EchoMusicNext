@@ -1076,6 +1076,7 @@ Window {
         PlaybackServiceTestAccess::current(playback);
         const auto queueSize = playback.queue()->rowCount();
         QSignalSpy opened(&shell, &ShellController::songPageOpened);
+        QSignalSpy mvOpened(&shell, &ShellController::mvPageOpened);
         QVERIFY(shell.invokePlayerCommand(ShellController::Comments));
         QCOMPARE(router.current()->name(), QString("song-comments"));
         QCOMPARE(router.current()->resourceId(), QString("32042818"));
@@ -1120,8 +1121,23 @@ Window {
         QCOMPARE(popup.size(), 1);
         QCOMPARE(popup[0][0].toString(), QString("comments"));
         QCOMPARE(router.current()->name(), QString("song-detail"));
+        const auto *beforeDetails = router.current();
+        const auto openedBefore = opened.size();
+        QVERIFY(shell.invokePlayerCommand(ShellController::SongDetails));
+        QCOMPARE(popup.last()[0].toString(), QString("song-details"));
+        QCOMPARE(router.current(), beforeDetails);
+        QCOMPARE(opened.size(), openedBefore);
+        QVERIFY(shell.invokePlayerCommand(ShellController::Mv));
+        QCOMPARE(router.current()->name(), QString("mv-detail"));
+        QCOMPARE(mvOpened.size(), 1);
+        PlaybackTrack missingId;
+        missingId.id = "missing-catalog-id";
+        playback.songCommands()->openMv(missingId);
+        QCOMPARE(mvOpened.size(), 1);
         service.shutdown();
         router.shutdown();
+        playback.songCommands()->openMv(playback.currentTrack());
+        QCOMPARE(mvOpened.size(), 1);
         playback.shutdown();
         api.shutdown();
     }

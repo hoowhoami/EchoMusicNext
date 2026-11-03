@@ -7,11 +7,30 @@ namespace EchoMusic
 {
 SongDetailContext::SongDetailContext(ApiClient &a, PlaybackService &p, RouteContext &r,
                                      bool network, CommentAuthorService *authors)
-    : QObject(&r), m_api(a), m_playback(p), m_route(r), m_songs(this), m_actions(m_songs, p, this),
-      m_comments(a, r, network, this, authors), m_network(network)
+    : SongDetailContext(a, p, &r, std::nullopt, network, &r, authors)
+{
+}
+SongDetailContext::SongDetailContext(ApiClient &a, PlaybackService &p, const PlaybackTrack &track,
+                                     bool network, QObject *parent, CommentAuthorService *authors)
+    : SongDetailContext(a, p, nullptr, track, network, parent, authors)
+{
+}
+SongDetailContext::SongDetailContext(ApiClient &a, PlaybackService &p, RouteContext *r,
+                                     std::optional<PlaybackTrack> entry, bool network,
+                                     QObject *parent, CommentAuthorService *authors)
+    : QObject(parent), m_api(a), m_playback(p), m_route(r), m_entryTrack(std::move(entry)),
+      m_songs(this), m_actions(m_songs, p, this), m_comments(a, r, network, this, authors),
+      m_network(network)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_actions.setPlayInCurrentQueue(true);
+    if (m_entryTrack) {
+        const auto &track = *m_entryTrack;
+        m_entryQuery = {{"type", "music"},      {"mixSongId", QString::number(track.songId)},
+                        {"hash", track.hash},   {"albumId", QString::number(track.albumId)},
+                        {"title", track.title}, {"artist", track.artist},
+                        {"album", track.album}, {"cover", track.cover}};
+    }
     connect(&a, &ApiClient::succeeded, this, &SongDetailContext::accept);
     connect(&a, &ApiClient::failed, this,
             [this](quint64 id, int, const QByteArray &b) { fail(id, b); });
@@ -25,12 +44,14 @@ SongDetailContext::SongDetailContext(ApiClient &a, PlaybackService &p, RouteCont
         m_rankingDetails = {};
         m_comments.clear();
         hydrate();
-        if (m_route.active())
+        if (active())
             reload();
     });
     connect(&a, &ApiClient::closed, this, &SongDetailContext::shutdown);
-    connect(&r, &RouteContext::activeChanged, this, &SongDetailContext::activate);
-    connect(&r, &RouteContext::queryChanged, this, &SongDetailContext::changed);
+    if (r) {
+        connect(r, &RouteContext::activeChanged, this, &SongDetailContext::activate);
+        connect(r, &RouteContext::queryChanged, this, &SongDetailContext::changed);
+    }
     connect(&m_comments, &CommentsController::notice, this, &SongDetailContext::notice);
     connect(&m_comments, &CommentsController::readFailed, this,
             [this](const QString &message) { emit notice(message, true); });
@@ -42,7 +63,7 @@ SongDetailContext::SongDetailContext(ApiClient &a, PlaybackService &p, RouteCont
                     if (!ticket || ticket != m_metadataTicket)
                         return;
                     m_metadataTicket = 0;
-                    if (!m_closed && m_route.active()) {
+                    if (!m_closed && active()) {
                         applyMetadata(values);
                         rankingsAndComments();
                         emit changed();
@@ -74,15 +95,33 @@ SongDetailContext::~SongDetailContext()
 {
     shutdown();
 }
+QVariantMap SongDetailContext::query() const
+{
+    return m_route ? m_route->query() : m_entryQuery;
+}
+QString SongDetailContext::resourceId() const
+{
+    return m_route ? m_route->resourceId() : m_entryTrack ? m_entryTrack->id : QString();
+}
+bool SongDetailContext::active() const
+{
+    return !m_closed && (m_route ? m_route->active() : m_presented);
+}
+void SongDetailContext::setPresented(bool presented)
+{
+    if (m_route || m_closed || m_presented == presented)
+        return;
+    m_presented = presented;
+    activate();
+}
 void SongDetailContext::hydrate()
 {
-    const auto q = m_route.query();
-    m_mix = q.value("mixSongId", m_route.resourceId()).toULongLong();
+    const auto q = query();
+    m_mix = q.value("mixSongId", resourceId()).toULongLong();
     m_album = q.value("albumId").toULongLong();
     m_hash = q.value("hash").toString();
-    if (m_hash.isEmpty() &&
-        QRegularExpression("^[0-9a-fA-F]{32}$").match(m_route.resourceId()).hasMatch())
-        m_hash = m_route.resourceId();
+    if (m_hash.isEmpty() && QRegularExpression("^[0-9a-fA-F]{32}$").match(resourceId()).hasMatch())
+        m_hash = resourceId();
     m_detail = QJsonObject::fromVariantMap({{"title", q.value("title")},
                                             {"artist", q.value("artist")},
                                             {"album", q.value("album")},
@@ -120,12 +159,15 @@ void SongDetailContext::hydrate()
         m_detail["artist"] = current.songId == m_mix ? current.artist : QString();
     if (m_detail.value("cover_url").toString().isEmpty())
         m_detail["cover_url"] = m_track.value("cover_url");
-    updateSong();
+    if (m_entryTrack)
+        adoptEntryTrack(*m_entryTrack);
+    else
+        updateSong();
 }
 void SongDetailContext::adoptEntryTrack(const PlaybackTrack &track)
 {
-    if (m_route.query().value("type", "music").toString() != "music" ||
-        (m_mix ? track.songId != m_mix : track.id != m_route.resourceId()) ||
+    if (query().value("type", "music").toString() != "music" ||
+        (m_mix ? track.songId != m_mix : track.id != resourceId()) ||
         (!m_hash.isEmpty() && m_hash != track.hash))
         return;
     m_track = track.toDomain();
@@ -147,7 +189,7 @@ void SongDetailContext::updateSong()
     m_track["title"] = m_detail.value("title");
     m_track["cover_url"] = m_detail.value("cover_url");
     m_actions.setQueueContext(m_detail.value("title").toString(),
-                              "queue:song-detail:" + m_route.resourceId());
+                              "queue:song-detail:" + resourceId());
     if (m_mix && !m_hash.isEmpty())
         m_songs.replaceSongs({m_track});
     emit changed();
@@ -163,11 +205,11 @@ QString positiveNavigationId(const QVariant &value)
 } // namespace
 QString SongDetailContext::artistNavigationId() const
 {
-    const auto type = m_route.query().value("type").toString();
+    const auto type = query().value("type").toString();
     if (!type.isEmpty() && type != "music")
         return {};
     // Explicit route identity takes precedence over fetched metadata.
-    auto id = positiveNavigationId(m_route.query().value("artistId"));
+    auto id = positiveNavigationId(query().value("artistId"));
     if (id.isEmpty())
         id = positiveNavigationId(m_detail.value("artist_id").toVariant());
     return id;
@@ -190,7 +232,7 @@ QVariantList SongDetailContext::artistLinks() const
         first["id"] = artistNavigationId();
         links[0] = first;
     }
-    const auto type = m_route.query().value("type").toString();
+    const auto type = query().value("type").toString();
     if (!type.isEmpty() && type != "music")
         for (auto &link : links) {
             auto entry = link.toMap();
@@ -201,10 +243,10 @@ QVariantList SongDetailContext::artistLinks() const
 }
 QString SongDetailContext::albumNavigationId() const
 {
-    const auto type = m_route.query().value("type").toString();
+    const auto type = query().value("type").toString();
     if (!type.isEmpty() && type != "music")
         return {};
-    auto id = positiveNavigationId(m_route.query().value("albumId"));
+    auto id = positiveNavigationId(query().value("albumId"));
     if (id.isEmpty())
         id = positiveNavigationId(m_detail.value("album_id").toVariant());
     return id;
@@ -265,13 +307,12 @@ void SongDetailContext::shutdown()
 }
 void SongDetailContext::activate()
 {
-    const bool music = m_route.query().value("type", "music").toString() == "music";
+    const bool music = query().value("type", "music").toString() == "music";
     m_songs.attachMetadata(music && !commentsPage() ? m_playback.metadata() : nullptr);
-    m_songs.setMetadataActive(!m_closed && m_network && m_route.active() && music &&
-                              !commentsPage());
+    m_songs.setMetadataActive(!m_closed && m_network && active() && music && !commentsPage());
     if (m_closed)
         return;
-    if (!m_route.active()) {
+    if (!active()) {
         cancel();
         emit changed();
     } else if (!m_loaded)
@@ -288,8 +329,8 @@ void SongDetailContext::reload()
     m_error.clear();
     m_rankingsStarted = false;
     m_loaded = false;
-    if (m_network && m_route.active()) {
-        const auto type = m_route.query().value("type", "music").toString();
+    if (m_network && active()) {
+        const auto type = query().value("type", "music").toString();
         // A known resource can read comments without waiting for catalog facts
         // or rankings used only by the separate information page.
         if (commentsPage() && (type != "music" || m_mix)) {
@@ -341,12 +382,12 @@ void SongDetailContext::requestMetadata()
 }
 bool SongDetailContext::commentsPage() const
 {
-    const auto type = m_route.query().value("type", "music").toString();
-    return m_route.name() == "song-comments" || type != "music";
+    const auto type = query().value("type", "music").toString();
+    return (m_route && m_route->name() == "song-comments") || type != "music";
 }
 void SongDetailContext::requestHeaderStats()
 {
-    if (!m_network || !m_route.active() || m_headerStatsRequested)
+    if (!m_network || !active() || m_headerStatsRequested)
         return;
     m_headerStatsRequested = true;
     if (m_mix)
@@ -365,13 +406,13 @@ void SongDetailContext::startComments()
     if (m_commentsStarted)
         return;
     m_commentsStarted = true;
-    const auto type = m_route.query().value("type", "music").toString();
+    const auto type = query().value("type", "music").toString();
     const auto resource = type == "album"      ? ApiClient::CommentResource::Album
                           : type == "playlist" ? ApiClient::CommentResource::Playlist
                                                : ApiClient::CommentResource::Music;
     m_comments.configure(resource,
                          resource == ApiClient::CommentResource::Music ? QString::number(m_mix)
-                                                                       : m_route.resourceId(),
+                                                                       : resourceId(),
                          m_detail.value("title").toString(),
                          resource == ApiClient::CommentResource::Music ? m_mix : 0);
     m_comments.start();
@@ -382,7 +423,7 @@ void SongDetailContext::accept(quint64 id, const QByteArray &bytes)
     if (!m_pending.contains(id))
         return;
     auto p = m_pending.take(id);
-    if (p.epoch != m_epoch || p.session != m_api.sessionRevision() || !m_route.active() || m_closed)
+    if (p.epoch != m_epoch || p.session != m_api.sessionRevision() || !active() || m_closed)
         return;
     auto doc = QJsonDocument::fromJson(bytes);
     switch (p.kind) {
@@ -498,8 +539,7 @@ void SongDetailContext::applyMetadata(const QJsonArray &values)
             if (!name.isEmpty())
                 artistNames.append(name);
         }
-        if (m_route.query().value("artist").toString().trimmed().isEmpty() &&
-            !artistNames.isEmpty())
+        if (query().value("artist").toString().trimmed().isEmpty() && !artistNames.isEmpty())
             m_detail["artist"] = artistNames.join(" / ");
         if (!m_detail.value("artist_id").toVariant().toULongLong() && !artists.isEmpty())
             m_detail["artist_id"] = artists[0].toObject().value("id");

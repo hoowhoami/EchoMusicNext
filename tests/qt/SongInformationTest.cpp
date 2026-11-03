@@ -18,6 +18,16 @@
 using namespace EchoMusic;
 namespace EchoMusic
 {
+class PlaybackServiceTestAccess
+{
+public:
+    static void current(PlaybackService &playback, PlaybackTrack track)
+    {
+        ++playback.m_sequence;
+        playback.m_track = std::move(track);
+        emit playback.changed();
+    }
+};
 class DetailsTestAccess
 {
 public:
@@ -82,6 +92,64 @@ private slots:
     {
         QQuickStyle::setStyle("Basic");
         configureUiTypography();
+    }
+    void playbackDetailsKeepOpeningSnapshotWithoutNavigation()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("settings.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("song-detail", {}, "77"));
+        auto *route = router.current();
+        PlaybackTrack first;
+        first.id = "32042818";
+        first.songId = 32042818;
+        first.hash = "105A2705BEEE36A8BED029A8E1A6311D";
+        first.title = "Opening song";
+        first.artist = "Opening artist";
+        first.durationMs = 240000;
+        PlaybackServiceTestAccess::current(playback, first);
+        QVERIFY(playback.hasTrack());
+        QPointer<SongDetailContext> detail = service.openPlaybackDetails();
+        QVERIFY(detail);
+        QCOMPARE(router.current(), route);
+        DetailsTestAccess::ready(*detail, presentation());
+        const auto original = detail->detail();
+        PlaybackTrack next = first;
+        next.id = "20";
+        next.songId = 20;
+        next.title = "Next song";
+        PlaybackServiceTestAccess::current(playback, next);
+        QCOMPARE(detail->detail(), original);
+        QCOMPARE(detail->songId(), QString("32042818"));
+        DetailsTestAccess::pending(*detail, 991003);
+        detail->setPresented(false);
+        DetailsTestAccess::deliver(*detail, 991003, {{"title", "Late response"}});
+        QCOMPARE(detail->detail(), original);
+        api.advanceSession();
+        QCOMPARE(detail->detail().value("title").toString(), QString("Opening song"));
+        QVERIFY(!detail->information().contains("composer"));
+        PlaybackServiceTestAccess::current(playback, next);
+        QPointer<SongDetailContext> replacement = service.openPlaybackDetails();
+        QVERIFY(replacement && replacement != detail);
+        service.closePlaybackDetails(detail);
+        QTRY_VERIFY(detail.isNull());
+        detail = replacement;
+        QVERIFY(detail);
+        QCOMPARE(detail->songId(), QString("20"));
+        QCOMPARE(detail->detail().value("title").toString(), QString("Next song"));
+        QCOMPARE(router.current(), route);
+        service.closePlaybackDetails(detail);
+        QTRY_VERIFY(detail.isNull());
+        service.shutdown();
+        router.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
     }
     void sharedCacheProvidesInformationWithoutAHash()
     {

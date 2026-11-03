@@ -143,6 +143,7 @@ signals:
 
 private:
     friend class DetailsTestAccess;
+    friend class SongDetailContext;
     CommentsController(ApiClient &, RouteContext *, bool network, QObject *,
                        CommentAuthorService *);
     bool active() const

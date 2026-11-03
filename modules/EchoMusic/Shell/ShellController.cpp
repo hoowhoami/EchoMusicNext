@@ -286,7 +286,9 @@ void ShellController::attachPlayback(PlaybackService &service)
     bindPlayerAction(service, SleepTimer, [this] { emit playbackPopupRequested("sleep-timer"); });
     bindPlayerAction(service, Comments, [this] { openComments(); });
     bindPlayerAction(service, SongDetails, [this] {
-        if (m_playback)
+        if (m_lyricSkinHandle.generation)
+            emit playbackPopupRequested("song-details");
+        else if (m_playback)
             openSongDetails(m_playback->currentTrack());
     });
     bindPlayerAction(service, Mv, [this] { openMv(); });
@@ -505,7 +507,8 @@ void ShellController::openMv(const PlaybackTrack &track)
     if (!track.album.isEmpty())
         query.insert("album", track.album);
     query.insert("albumAudioId", QString::number(albumAudioId));
-    m_router.navigate("mv-detail", query, QString::number(albumAudioId));
+    if (m_router.navigate("mv-detail", query, QString::number(albumAudioId)))
+        emit mvPageOpened();
 }
 void ShellController::copyCurrentSongInfo()
 {

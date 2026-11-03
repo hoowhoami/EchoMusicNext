@@ -5,6 +5,7 @@
 #include "VideoCollectionService.h"
 #include "WindowController.h"
 #include <optional>
+#include <QSet>
 namespace EchoMusic
 {
 class ShellController;
@@ -23,6 +24,8 @@ public:
     ~DetailsService() override;
     Q_INVOKABLE EchoMusic::SongDetailContext *songFor(EchoMusic::RouteContext *);
     Q_INVOKABLE EchoMusic::MvDetailContext *mvFor(EchoMusic::RouteContext *);
+    Q_INVOKABLE EchoMusic::SongDetailContext *openPlaybackDetails();
+    Q_INVOKABLE void closePlaybackDetails(EchoMusic::SongDetailContext *);
     PlaybackDiscussion *playbackDiscussion()
     {
         return &m_discussion;
@@ -50,6 +53,7 @@ private:
     PlaybackDiscussion m_discussion;
     QHash<RouteContext *, QPointer<SongDetailContext>> m_songs;
     QHash<RouteContext *, QPointer<MvDetailContext>> m_videos;
+    QSet<SongDetailContext *> m_playbackDetails;
     bool m_network, m_closed = false;
 };
 } // namespace EchoMusic

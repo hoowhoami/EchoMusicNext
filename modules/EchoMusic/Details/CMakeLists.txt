@@ -31,6 +31,8 @@ qt_add_qml_module(
     QML_FILES
     PlaybackDiscussionHost.qml
     PlaybackCommentDrawer.qml
+    PlaybackSongDetailDrawer.qml
+    SongDetailContent.qml
     SongDetailPage.qml
     SongInformationSection.qml
     MvDetailPage.qml

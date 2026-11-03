@@ -11,6 +11,9 @@ ColumnLayout {
     id: section
     required property SongDetailContext detailContext
     required property RouteController router
+    property ThemeColors colors: Theme.colors
+    property bool compact: false
+    signal navigated
     readonly property var information: detailContext.information
     objectName: "songInformationSection"
     spacing: 12
@@ -42,22 +45,24 @@ ColumnLayout {
         Layout.fillWidth: true
         text: qsTr("歌曲资料")
         font: Theme.font(14, Theme.boldWeight)
-        color: Theme.text
+        color: section.colors.text
     }
     Rectangle {
+        id: informationCard
         Layout.fillWidth: true
-        implicitHeight: fields.implicitHeight + 40
-        color: Theme.mutedSurface
+        readonly property real contentInset: section.compact ? 16 : 20
+        implicitHeight: fields.implicitHeight + contentInset * 2
+        color: section.colors.mutedSurface
         radius: Theme.cardRadius
         GridLayout {
             id: fields
-            x: 20
-            y: 20
-            width: parent.width - 40
-            columns: width < 480 ? 1 : width < 760 ? 2 : 3
+            x: informationCard.contentInset
+            y: informationCard.contentInset
+            width: informationCard.width - informationCard.contentInset * 2
+            columns: section.compact ? width < 320 ? 1 : 2 : width < 480 ? 1 : width < 760 ? 2 : 3
             uniformCellWidths: true
-            columnSpacing: 24
-            rowSpacing: 20
+            columnSpacing: section.compact ? 20 : 24
+            rowSpacing: section.compact ? 16 : 20
             Repeater {
                 model: [
                     {
@@ -107,11 +112,11 @@ ColumnLayout {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.alignment: Qt.AlignTop
-                    spacing: 8
+                    spacing: section.compact ? 6 : 8
                     EchoTextLine {
                         Layout.fillWidth: true
                         text: field.modelData.label
-                        color: Theme.secondaryText
+                        color: section.colors.secondaryText
                         font: Theme.font(12, Theme.regularWeight)
                         lineHeight: 18
                     }
@@ -124,7 +129,7 @@ ColumnLayout {
                             EchoTextLine {
                                 objectName: "songInformationValue-" + field.modelData.key
                                 text: field.value || (section.detailContext.loading ? qsTr("加载中…") : "—")
-                                color: field.value ? Theme.text : Theme.secondaryText
+                                color: field.value ? section.colors.text : section.colors.secondaryText
                                 font: Theme.font(13, Theme.mediumWeight)
                                 lineHeight: 19.5
                                 wrap: true
@@ -143,9 +148,12 @@ ColumnLayout {
             artists: section.detailContext.artistLinks
             font: Theme.font(13, Theme.mediumWeight)
             lineHeight: 19.5
-            color: Theme.accentText
+            color: section.colors.accentText
             requireCompleteName: true
-            onArtistRequested: id => section.router.navigate("artist-detail", {}, id)
+            onArtistRequested: id => {
+                if (section.router.navigate("artist-detail", {}, id))
+                    section.navigated();
+            }
         }
     }
     Component {
@@ -159,7 +167,7 @@ ColumnLayout {
             rightPadding: 0
             implicitHeight: Math.max(19.5, contentItem.implicitHeight)
             font: Theme.font(13, Theme.mediumWeight)
-            foreground: Theme.accentText
+            foreground: section.colors.accentText
             contentItem: EchoButtonContent {
                 text: album.text
                 wrap: true
@@ -168,7 +176,10 @@ ColumnLayout {
                 lineHeight: 19.5
                 color: album.foreground
             }
-            onClicked: section.router.navigate("album-detail", {}, section.detailContext.albumNavigationId)
+            onClicked: {
+                if (section.router.navigate("album-detail", {}, section.detailContext.albumNavigationId))
+                    section.navigated();
+            }
         }
     }
 }

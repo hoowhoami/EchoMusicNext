@@ -95,6 +95,7 @@ signals:
     /// Native entry facts are handed off before navigation; URL queries stay scalar.
     void songDetailOpening(const EchoMusic::PlaybackTrack &track);
     void songPageOpened();
+    void mvPageOpened();
     void playbackChanged();
     void playbackPopupRequested(const QString &kind);
 

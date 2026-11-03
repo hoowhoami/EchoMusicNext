@@ -61,7 +61,7 @@ ItemDelegate {
     signal commentsRequested(string id)
     signal mvRequested(string id)
     // Context menus support pointer, Menu and Shift+F10 invocation.
-    // Inline icons keep the MV, details and favorite order.
+    // Inline icons keep the MV, comments and favorite order.
     signal moreRequested(string id, real sceneX, real sceneY)
     signal playRequested(string id)
     Keys.onPressed: event => {
@@ -73,15 +73,8 @@ ItemDelegate {
     }
     component RowAction: EchoIconButton {
         visualContentActive: row.resourceActive && row.visible && (opacity > 0 || activeFocus)
-        foreground: hovered ? Theme.accentText : Theme.secondaryText
-        scale: hovered && enabled && row.resourceActive && Theme.store.motionEnabled ? 1.1 : 1
-        Behavior on scale {
-            enabled: row.resourceActive && Theme.store.motionEnabled
-            NumberAnimation {
-                duration: Theme.fastDuration
-                easing.type: Easing.OutCubic
-            }
-        }
+        foreground: hoverHighlighted || visualFocus ? Theme.accentText : Theme.secondaryText
+        scaleFeedback: true
     }
     height: 60
     padding: 0
@@ -118,6 +111,7 @@ ItemDelegate {
             EchoIconButton {
                 objectName: "songIndexPlay"
                 visualContentActive: row.resourceActive && visible
+                scaleFeedback: true
                 hoverBackground: false
                 x: 1
                 anchors.verticalCenter: parent.verticalCenter
@@ -126,7 +120,7 @@ ItemDelegate {
                 padding: 8
                 glyph: row.active && row.playing ? "pause" : "play"
                 text: row.active && row.playing ? qsTr("暂停") : qsTr("播放")
-                foreground: row.active ? Theme.accentText : Theme.iconMain
+                foreground: row.active || hoverHighlighted || visualFocus ? Theme.accentText : Theme.iconMain
                 visible: row.hovered || row.visualFocus || row.active
                 enabled: row.playbackAvailable && (row.active || row.catalogPlayable)
                 onClicked: row.playRequested(row.resourceId)

@@ -21,6 +21,8 @@ DetailsService::~DetailsService()
         delete c.data();
     for (auto c : std::as_const(m_videos))
         delete c.data();
+    for (auto *detail : m_playbackDetails.values())
+        delete detail;
 }
 SongDetailContext *DetailsService::songFor(RouteContext *r)
 {
@@ -53,6 +55,28 @@ MvDetailContext *DetailsService::mvFor(RouteContext *r)
     connect(r, &QObject::destroyed, this, [this, r] { m_videos.remove(r); });
     return c;
 }
+SongDetailContext *DetailsService::openPlaybackDetails()
+{
+    if (m_closed || !m_playback.hasTrack())
+        return nullptr;
+    // One scope per demanded surface; a retiring surface cannot release the
+    // context of a newer opening during Qt's deferred Popup destruction.
+    auto *detail = new SongDetailContext(m_api, m_playback, m_playback.currentTrack(), m_network,
+                                         this, m_authors);
+    m_playbackDetails.insert(detail);
+    connect(detail, &SongDetailContext::notice, this, &DetailsService::notice);
+    connect(detail, &QObject::destroyed, this,
+            [this, detail] { m_playbackDetails.remove(detail); });
+    return detail;
+}
+void DetailsService::closePlaybackDetails(SongDetailContext *detail)
+{
+    if (detail && m_playbackDetails.remove(detail)) {
+        detail->shutdown();
+        disconnect(detail, nullptr, this, nullptr);
+        detail->deleteLater();
+    }
+}
 void DetailsService::attachShell(ShellController &shell)
 {
     disconnect(m_entryConnection);
@@ -80,6 +104,8 @@ void DetailsService::shutdown()
     m_closed = true;
     disconnect(m_entryConnection);
     m_entryTrack.reset();
+    for (auto *detail : std::as_const(m_playbackDetails))
+        detail->shutdown();
     m_collection.shutdown();
     m_discussion.shutdown();
     for (auto c : std::as_const(m_songs))

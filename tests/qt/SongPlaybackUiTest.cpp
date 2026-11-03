@@ -91,6 +91,142 @@ class SongPlaybackUiTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void songRowButtonsAnimateWithoutRerasterizing()
+    {
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("settings.ini"));
+        ThemeStore theme(settings);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Music
+import EchoMusic.Theme
+Window {
+ id: host
+ width: 1080; height: 220; visible: true; color: Theme.main
+ property real zoom: 1
+ property int playRequests: 0
+ SongRow {
+  objectName: "hoverSongRow"
+  x: 16.3; y: 50.6; width: (host.width - 32) / host.zoom
+  scale: host.zoom; transformOrigin: Item.TopLeft
+  geometry: SongListGeometry { rowCount: 1 }
+  index: 0; title: "歌曲 Song"; artistText: "歌手 Artist"
+  albumText: "专辑 Album"; coverUrl: ""; durationText: "4:25"
+  extraText: ""; resourceId: "123"; artistLinks: []; albumId: ""
+  playbackAvailable: true; actionsAvailable: true
+  onPlayRequested: host.playRequests++
+ }
+})",
+                          QUrl("qrc:/song-row-hover.qml"));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        auto *row = find(window->contentItem(), "hoverSongRow");
+        QVERIFY(row);
+        const auto capture = qEnvironmentVariable("ECHO_SONG_ROW_HOVER_CAPTURES");
+        if (!capture.isEmpty())
+            QVERIFY(QDir().mkpath(capture));
+        const auto center = [](QQuickItem *item) {
+            return item->mapToScene({item->width() / 2, item->height() / 2}).toPoint();
+        };
+        for (auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (qreal zoom : {1., 1.25}) {
+                root->setProperty("zoom", zoom);
+                const auto neutral = row->mapToScene({200, 30}).toPoint();
+                QColor idlePlayColor;
+                for (const auto &name :
+                     {"songIndexPlay", "songMvAction", "songDetailsAction", "songFavoriteAction"}) {
+                    Test::moveNativePointer(window, neutral);
+                    QTRY_VERIFY(row->property("hovered").toBool());
+                    auto *button = find(row, name);
+                    QVERIFY(button);
+                    QTRY_COMPARE(button->property("visualScale").toReal(), 1.);
+                    if (QByteArray(name) == "songIndexPlay")
+                        idlePlayColor = button->property("foreground").value<QColor>();
+                    QQuickItem *image = nullptr;
+                    QTRY_VERIFY((image = find(button, "iconImage")) &&
+                                image->property("status").toInt() == 1);
+                    auto *surface = find(button, "iconAlignedSurface");
+                    QVERIFY(surface);
+                    const auto raster = image->property("sourceSize");
+                    const auto position = surface->position();
+                    const auto size = surface->size();
+                    const auto hit = button->mapRectToScene(button->boundingRect());
+                    QSignalSpy rasters(image, SIGNAL(sourceSizeChanged()));
+                    QSignalSpy scales(button, SIGNAL(visualScaleChanged()));
+                    QElapsedTimer elapsed;
+                    Test::moveNativePointer(window, center(button));
+                    QTRY_VERIFY(button->property("hovered").toBool());
+                    elapsed.start();
+                    while (elapsed.elapsed() < 220) {
+                        Test::moveNativePointer(window, center(button));
+                        const auto value = button->property("visualScale").toReal();
+                        QVERIFY(value >= 1. && value <= 1.1);
+                        QCOMPARE(button->scale(), 1.);
+                        QCOMPARE(button->mapRectToScene(button->boundingRect()), hit);
+                        QCOMPARE(surface->position(), position);
+                        QCOMPARE(surface->size(), size);
+                        QCOMPARE(image->property("sourceSize"), raster);
+                        QVERIFY(!window->grabWindow().isNull());
+                        QTest::qWait(8);
+                    }
+                    Test::moveNativePointer(window, center(button));
+                    QTRY_COMPARE(button->property("visualScale").toReal(), 1.1);
+                    QVERIFY(scales.size() >= 3);
+                    QCOMPARE(rasters.size(), 0);
+                    const auto foreground = button->property("foreground").value<QColor>();
+                    QCOMPARE(foreground, QByteArray(name) == "songFavoriteAction"
+                                             ? QColor("#dc2626")
+                                             : theme.property("accentText").value<QColor>());
+                    QVERIFY(!button->property("hoverBackground").toBool());
+                    if (!capture.isEmpty())
+                        QVERIFY(window->grabWindow().save(
+                            capture + QString("/%1-%2-%3.png").arg(int(mode)).arg(zoom).arg(name)));
+                    Test::moveNativePointer(window, neutral);
+                    QTest::qWait(32);
+                    const qreal reversing = button->property("visualScale").toReal();
+                    Test::moveNativePointer(window, center(button));
+                    QVERIFY(qAbs(button->property("visualScale").toReal() - reversing) < .025);
+                    QTRY_COMPARE(button->property("visualScale").toReal(), 1.1);
+                }
+                auto *play = find(row, "songIndexPlay");
+                QVERIFY(play);
+                Test::moveNativePointer(window, center(play));
+                QTRY_COMPARE(play->property("visualScale").toReal(), 1.1);
+                row->setProperty("playbackAvailable", false);
+                QTRY_COMPARE(play->property("visualScale").toReal(), 1.);
+                QCOMPARE(play->property("foreground").value<QColor>(), idlePlayColor);
+                row->setProperty("playbackAvailable", true);
+                QPointer<QObject> retired = find(play, "iconImage");
+                row->setProperty("resourceActive", false);
+                QTRY_COMPARE(play->property("visualScale").toReal(), 1.);
+                QTRY_VERIFY(retired.isNull());
+                row->setProperty("resourceActive", true);
+                theme.setMotionEnabled(false);
+                Test::moveNativePointer(window, neutral);
+                QTRY_COMPARE(play->property("visualScale").toReal(), 1.);
+                Test::moveNativePointer(window, center(play));
+                QCOMPARE(play->property("visualScale").toReal(), 1.1);
+                theme.setMotionEnabled(true);
+                Test::moveNativePointer(window, {2, 2});
+                row->setProperty("active", true);
+                row->setProperty("playing", true);
+                QTRY_COMPARE(play->property("glyph").toString(), QString("pause"));
+                QCOMPARE(play->property("foreground").value<QColor>(),
+                         theme.property("accentText").value<QColor>());
+                row->setProperty("active", false);
+                row->setProperty("playing", false);
+            }
+        }
+        QCOMPARE(root->property("playRequests").toInt(), 0);
+        QCOMPARE(warnings.size(), 0);
+    }
     void batchDrawerSelectionLayoutAndLifetime()
     {
         QTemporaryDir directory;

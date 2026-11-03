@@ -2,13 +2,14 @@
 #include "CommentsController.h"
 #include "SongCatalogActions.h"
 #include "SongCatalogModel.h"
+#include <optional>
 namespace EchoMusic
 {
 class SongDetailContext final : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("Owned by a detail route")
+    QML_UNCREATABLE("Owned by DetailsService or a detail route")
     Q_PROPERTY(QVariantMap detail READ detail NOTIFY changed)
     Q_PROPERTY(QVariantMap information READ information NOTIFY changed)
     Q_PROPERTY(QVariantList rankings READ rankings NOTIFY changed)
@@ -25,6 +26,8 @@ class SongDetailContext final : public QObject
     Q_PROPERTY(EchoMusic::CommentsController *comments READ comments CONSTANT)
 public:
     SongDetailContext(ApiClient &, PlaybackService &, RouteContext &, bool,
+                      CommentAuthorService *authors = nullptr);
+    SongDetailContext(ApiClient &, PlaybackService &, const PlaybackTrack &, bool, QObject *parent,
                       CommentAuthorService *authors = nullptr);
     ~SongDetailContext() override;
     QVariantMap detail() const
@@ -73,6 +76,7 @@ public:
         return &m_comments;
     }
     Q_INVOKABLE void reload();
+    Q_INVOKABLE void setPresented(bool);
     void shutdown();
 signals:
     void changed();
@@ -81,6 +85,11 @@ signals:
 private:
     friend class DetailsTestAccess;
     friend class DetailsService;
+    SongDetailContext(ApiClient &, PlaybackService &, RouteContext *, std::optional<PlaybackTrack>,
+                      bool, QObject *, CommentAuthorService *);
+    QVariantMap query() const;
+    QString resourceId() const;
+    bool active() const;
     void adoptEntryTrack(const PlaybackTrack &);
     enum Kind
     {
@@ -111,7 +120,9 @@ private:
     void fail(quint64, const QByteArray &);
     ApiClient &m_api;
     PlaybackService &m_playback;
-    RouteContext &m_route;
+    QPointer<RouteContext> m_route;
+    std::optional<PlaybackTrack> m_entryTrack;
+    QVariantMap m_entryQuery;
     SongCatalogModel m_songs;
     SongCatalogActions m_actions;
     CommentsController m_comments;
@@ -121,7 +132,8 @@ private:
     quint64 m_mix = 0, m_album = 0, m_epoch = 0;
     QString m_hash, m_error;
     QStringList m_qualities, m_effects;
-    bool m_network, m_closed = false, m_loaded = false, m_rankingsStarted = false,
-                    m_commentsStarted = false, m_headerStatsRequested = false;
+    bool m_network, m_presented = true, m_closed = false, m_loaded = false,
+                    m_rankingsStarted = false, m_commentsStarted = false,
+                    m_headerStatsRequested = false;
 };
 } // namespace EchoMusic

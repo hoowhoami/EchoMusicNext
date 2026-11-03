@@ -71,6 +71,7 @@ void AppContext::mountUi()
          {QStringLiteral("logService"), QVariant::fromValue(m_logging)},
          {QStringLiteral("relaunchService"), QVariant::fromValue(&relaunch)},
          {QStringLiteral("playbackDiscussion"), QVariant::fromValue(details.playbackDiscussion())},
+         {QStringLiteral("songDetails"), QVariant::fromValue(&details)},
          {QStringLiteral("playbackService"), QVariant::fromValue(&playback)},
          {QStringLiteral("libraryController"), QVariant::fromValue(&libraryController)},
          {QStringLiteral("accountController"), QVariant::fromValue(&accountController)},

@@ -64,6 +64,7 @@ ApplicationWindow {
     required property AccountController accountController
     required property LibraryController libraryController
     property PlaybackDiscussion playbackDiscussion: null
+    property DetailsService songDetails: null
     property PlaybackService playbackService: null
     readonly property real uiScale: shellSettings.uiScale
     property NetworkPreferences networkPreferences: null
@@ -571,6 +572,37 @@ ApplicationWindow {
                     }
                 }
                 discussionComponent: mainWindow.playbackDiscussion ? discussionRecipe : null
+                EchoPopupLoader {
+                    id: songDetailsOwner
+                    objectName: "playbackSongDetailDrawerOwner"
+                    hostItem: nativePlaybackPage.contentItem
+                    sourceComponent: PlaybackSongDetailDrawer {
+                        router: mainWindow.router
+                        uiScale: mainWindow.uiScale
+                        onPageRequested: playbackPageLoader.close()
+                        Component.onDestruction: if (mainWindow.songDetails)
+                            mainWindow.songDetails.closePlaybackDetails(detailContext)
+                    }
+                }
+                Connections {
+                    target: mainWindow.shellController
+                    function onPlaybackPopupRequested(kind): void {
+                        if (kind !== "song-details" || !nativePlaybackPage.discussionActive || !mainWindow.songDetails || !songDetailsOwner.available)
+                            return;
+                        if (songDetailsOwner.item) {
+                            songDetailsOwner.open();
+                            return;
+                        }
+                        const detail = mainWindow.songDetails.openPlaybackDetails();
+                        if (detail) {
+                            songDetailsOwner.open({
+                                detailContext: detail
+                            });
+                            if (!songDetailsOwner.item)
+                                mainWindow.songDetails.closePlaybackDetails(detail);
+                        }
+                    }
+                }
                 Component {
                     id: discussionRecipe
                     PlaybackDiscussionHost {
@@ -726,7 +758,14 @@ ApplicationWindow {
             function onSongPageOpened() {
                 playbackPageLoader.close();
             }
+            function onMvPageOpened() {
+                playbackPageLoader.close();
+            }
             function onPlaybackPopupRequested(kind) {
+                // This surface belongs to the open playback page, not the
+                // generic transport-options popup below.
+                if (kind === "song-details")
+                    return;
                 if (kind === "lyric-skins" && playbackPageLoader.item) {
                     (playbackPageLoader.item as PlaybackPage).openSkins();
                 } else if ((kind === "comments" || kind === "barrage") && playbackPageLoader.item) {

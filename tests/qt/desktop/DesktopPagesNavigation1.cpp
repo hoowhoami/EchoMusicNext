@@ -2,6 +2,18 @@
 #include "DesktopPagesTestFixture.h"
 #include "RenderedInk.h"
 
+namespace EchoMusic
+{
+class DetailsTestAccess
+{
+public:
+    static bool presented(const MvDetailContext &context)
+    {
+        return context.m_presented;
+    }
+};
+} // namespace EchoMusic
+
 void DesktopPagesTest::productionChatBubblesKeepBalancedTextInsets()
 {
     Session session;
@@ -241,6 +253,8 @@ void DesktopPagesTest::productionPopupsFollowRequestOwnership()
 void DesktopPagesTest::playerMetadataLinksUseProductionRoutes()
 {
     Session session;
+    session.theme.setMotionEnabled(false);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
     PlaybackService playback(session.api, session.preferences, nullptr,
                              session.directory.filePath("playback.sqlite"));
     playback.setVolume(0);
@@ -269,6 +283,9 @@ void DesktopPagesTest::playerMetadataLinksUseProductionRoutes()
     QVERIFY(art.save(coverPath));
     track.cover = QUrl::fromLocalFile(coverPath).toString();
     QVERIFY(session.create(&playback));
+    session.root->setProperty("songDetails", QVariant::fromValue(&details));
+    session.root->setProperty("playbackDiscussion",
+                              QVariant::fromValue(details.playbackDiscussion()));
     const auto destroyUi = qScopeGuard([&] {
         session.root.reset();
         session.window = nullptr;
@@ -293,6 +310,7 @@ void DesktopPagesTest::playerMetadataLinksUseProductionRoutes()
     };
     auto *actions = session.commands.playerbarActions();
     QVERIFY(actions->setPlacement("host/mv", ShellActionModel::Left));
+    QVERIFY(actions->setPlacement("host/song-details", ShellActionModel::Left));
     for (const bool dark : {false, true})
         for (const qreal scale : {1., 1.25}) {
             session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
@@ -324,7 +342,91 @@ void DesktopPagesTest::playerMetadataLinksUseProductionRoutes()
                 QVERIFY(session.window->grabWindow().save(
                     captures +
                     QString("/player-links-%1-%2.png").arg(dark ? "dark" : "light").arg(scale)));
+            auto page = session.openOwnedPopup("playbackPageOwner");
+            QVERIFY(page);
+            auto *content = page->property("contentItem").value<QQuickItem *>();
+            QVERIFY(content);
+            const auto routeBefore = session.router.current();
+            auto *detailsOwner = page->findChild<QObject *>("playbackSongDetailDrawerOwner");
+            QVERIFY(detailsOwner);
+            QVERIFY(!detailsOwner->property("item").value<QObject *>());
+            QQuickItem *detailsButton = nullptr;
+            QTRY_VERIFY((detailsButton = visual(content, "playerbar-action-song-details")) &&
+                        detailsButton->isEnabled());
+            QTRY_VERIFY(page->property("acceptingInput").toBool());
+            click(detailsButton);
+            QPointer<QObject> drawer;
+            QTRY_VERIFY((drawer = detailsOwner->property("item").value<QObject *>()) &&
+                        drawer->property("opened").toBool());
+            QPointer<SongDetailContext> drawerDetail =
+                drawer->property("detailContext").value<SongDetailContext *>();
+            QVERIFY(drawerDetail);
+            auto *optionsOwner = session.root->findChild<QObject *>("playbackOptionsPopupOwner");
+            QVERIFY(optionsOwner);
+            QVERIFY(!optionsOwner->property("item").value<QObject *>());
+            QCOMPARE(drawerDetail->detail().value("title").toString(), QString("Song"));
+            QCOMPARE(session.router.current(), routeBefore);
+            QVERIFY(page && page->property("opened").toBool());
+            const qreal detailsWidth = drawer->property("width").toReal();
+            const qreal detailsX = drawer->property("x").toReal();
+            auto *drawerContent = drawer->property("contentItem").value<QQuickItem *>();
+            auto *artistField = visual(drawerContent, "songInformation-artist");
+            auto *albumField = visual(drawerContent, "songInformation-album");
+            QVERIFY(artistField && albumField);
+            QTRY_VERIFY(qAbs(artistField->mapToScene({}).y() - albumField->mapToScene({}).y()) < 1);
+            QVERIFY(albumField->mapToScene({}).x() >=
+                    artistField->mapToScene({artistField->width(), 0}).x());
+            if (!captures.isEmpty())
+                QVERIFY(session.window->grabWindow().save(
+                    captures + QString("/playback-song-details-%1-%2.png")
+                                   .arg(dark ? "dark" : "light")
+                                   .arg(scale)));
+            auto *detailScroll = visual(drawerContent, "playbackSongDetailScroll");
+            auto *language = visual(drawerContent, "songInformationValue-language");
+            QVERIFY(detailScroll && language);
+            detailScroll->setProperty("contentY",
+                                      qMax(0., detailScroll->property("contentHeight").toReal() -
+                                                   detailScroll->height()));
+            QTRY_VERIFY(language->mapRectToItem(detailScroll, language->boundingRect()).bottom() <=
+                        detailScroll->height() + 1);
+            QTest::keyClick(session.window, Qt::Key_Escape);
+            QTRY_VERIFY(drawer.isNull());
+            QTRY_VERIFY(drawerDetail.isNull());
+            QVERIFY(page && page->property("opened").toBool());
+            auto *commentsButton = visual(content, "playerbar-action-comments");
+            QVERIFY(commentsButton && commentsButton->isEnabled());
+            click(commentsButton);
+            QPointer<QObject> commentDrawer;
+            QTRY_VERIFY(
+                (commentDrawer = session.root->findChild<QObject *>("playbackCommentDrawer")) &&
+                commentDrawer->property("opened").toBool());
+            QCOMPARE(commentDrawer->property("width").toReal(), detailsWidth);
+            QCOMPARE(commentDrawer->property("x").toReal(), detailsX);
+            QVERIFY(QMetaObject::invokeMethod(commentDrawer, "close"));
+            QTRY_VERIFY(commentDrawer.isNull());
+            QQuickItem *pageMv = nullptr;
+            QTRY_VERIFY((pageMv = visual(content, "playerbar-action-mv")) && pageMv->isEnabled());
+            QTRY_VERIFY(page->property("acceptingInput").toBool());
+            QSignalSpy mvClicks(pageMv, SIGNAL(clicked()));
+            click(pageMv);
+            QCOMPARE(mvClicks.size(), 1);
+            QTRY_COMPARE(session.router.current()->name(), QString("mv-detail"));
+            QTRY_VERIFY(page.isNull());
+            auto *video = details.mvFor(session.router.current());
+            QVERIFY(video);
+            QTRY_VERIFY(DetailsTestAccess::presented(*video));
+            // Cover an existing MV and manually close the playback page too:
+            // effective visibility must restore the media presentation gate.
+            page = session.openOwnedPopup("playbackPageOwner");
+            QVERIFY(page);
+            QTRY_VERIFY(!DetailsTestAccess::presented(*video));
+            QVERIFY(QMetaObject::invokeMethod(page, "close"));
+            QTRY_VERIFY(page.isNull());
+            QTRY_VERIFY(DetailsTestAccess::presented(*video));
+            QCOMPARE(playback.queue()->rowCount(), 1);
+            QVERIFY(!playback.playing());
         }
+    QCOMPARE(warnings.size(), 0);
 }
 
 void DesktopPagesTest::profileWritesRejectInvalidDraftAndCancelOlderRead()
