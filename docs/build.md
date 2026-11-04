@@ -139,7 +139,7 @@ node tools/release/package.mjs --qt=/path/to/Qt/6.12.0/kit
 
 Qt SDK 按 runner、架构、安装脚本、原生依赖和许可材料脚本生成缓存键。恢复后仍校验版本与模块，首次安装验证通过后立即保存；后续应用编译或打包失败不会丢掉已保存的 SDK。不缓存 Qt 源码或其编译树。
 
-应用 C/C++ 编译通过固定版本的 sccache 使用 GitHub Actions 缓存，按 runner/架构隔离，并由 sccache 校验编译器、选项、源码和头文件。仅应用配置启用 compiler launcher，Qt 源码构建不占用此缓存。Windows Release 使用 `/Z7` 将调试数据嵌入对象文件，最终仍通过 `/DEBUG:FULL` 生成供归档的 PDB。sccache 的 post 步骤报告命中与未缓存原因；缓存服务不可用时允许调用实际编译器继续，编译错误仍令任务失败。
+应用 C/C++ 编译通过固定版本的 sccache 使用 GitHub Actions 缓存，按 runner/架构隔离，并由 sccache 校验编译器、选项、源码和头文件。仅应用配置启用 compiler launcher，Qt 源码构建不占用此缓存。Windows Release 仅向 C/C++ 编译传入 `/Z7` 将调试数据嵌入对象文件，汇编编译不接收该选项，最终仍通过 `/DEBUG:FULL` 生成供归档的 PDB。sccache 的 post 步骤报告命中与未缓存原因；缓存服务不可用时允许调用实际编译器继续，编译错误仍令任务失败。
 
 不同发布 tag 无法读取彼此的缓存，但可以读取默认分支缓存。默认分支为 `main`：SDK 安装脚本、依赖清单、许可材料脚本或桌面工作流变化时，自动在相同六平台矩阵预热 Qt、Cargo Release 依赖与 C/C++ 缓存；普通业务源码提交不触发这项构建。也可手动运行桌面工作流，选择 `main` 并勾选 `cache_only`，在发布前主动更新缓存。预热只准备 SDK 和以普通构建模式编译应用，不依赖发行日志就绪，不执行静态检查、测试、打包或上传发行工件，不发布 Release。发行模式相关对象在正式构建时按实际选项重新编译。
 
