@@ -171,6 +171,14 @@ if (platform === 'macOS') {
     path.join(root, 'tools/release/installer.nsi'),
   ]);
 } else {
+  // linuxdeploy's Qt plugin scans every SQL driver. This host uses only SQLite;
+  // other SDK drivers require external database clients (for example Oracle).
+  const sqlDrivers = path.join(qt, 'plugins/sqldrivers');
+  if (!fs.existsSync(path.join(sqlDrivers, 'libqsqlite.so')))
+    throw new Error('Qt SQLite driver is missing from the SDK');
+  for (const file of fs.readdirSync(sqlDrivers)) {
+    if (file !== 'libqsqlite.so') fs.rmSync(path.join(sqlDrivers, file), { recursive: true });
+  }
   const appdir = path.dirname(stage),
     marker = path.join(stage, 'share/echomusicnext/package-type');
   fs.mkdirSync(path.dirname(marker), { recursive: true });

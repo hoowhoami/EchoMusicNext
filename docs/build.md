@@ -131,7 +131,7 @@ node tools/release/package.mjs --qt=/path/to/Qt/6.12.0/kit
 
 - macOS：通过 `macdeployqt` 部署 Qt，生成临时签名的 DMG 和 ZIP；当前没有 Developer ID 签名和公证。
 - Windows：需要 NSIS 3.11，默认读取 `Program Files (x86)/NSIS/makensis.exe`，也可传 `--nsis=...`；通过 `windeployqt` 部署后生成当前用户安装程序，包含协议与 `.echomod` 关联；缺少运行库时安装已验证 Microsoft 签名的官方 VC14 Redistributable，可能请求系统授权。
-- Linux：x64 在 Ubuntu 22.04、ARM64 在 Ubuntu 24.04 构建。需要 Ruby/FPM 1.17.0、rpm、zstd、libarchive-tools、libfuse2；准备步骤下载并校验锁定的 linuxdeploy / Qt 插件。部署 Qt 6.12 的 `libqwayland.so`、offscreen 平台插件及 Wayland 客户端配套插件，保留 X11 支持。传 `--linuxdeploy=build/release-tools/linuxdeploy-x86_64.AppImage`（ARM64 使用 `aarch64`）生成 AppImage、DEB、RPM、Arch 包和 tar.gz。tar.gz 解压后运行 `echomusicnext/AppRun`。
+- Linux：x64 在 Ubuntu 22.04、ARM64 在 Ubuntu 24.04 构建。需要 Ruby/FPM 1.17.0、rpm、zstd、libarchive-tools、libfuse2；准备步骤下载并校验锁定的 linuxdeploy / Qt 插件。部署 Qt 6.12 的 `libqwayland.so`、offscreen 平台插件及 Wayland 客户端配套插件，保留 X11 支持。打包前会从所选 SDK 的 SQL 驱动目录移除非 SQLite 驱动；Qt Multimedia 后端保留，系统依赖清单包含 GStreamer Base、Play/Photography 和 GL 库。传 `--linuxdeploy=build/release-tools/linuxdeploy-x86_64.AppImage`（ARM64 使用 `aarch64`）生成 AppImage、DEB、RPM、Arch 包和 tar.gz。tar.gz 解压后运行 `echomusicnext/AppRun`。
 
 安装包保留项目许可、第三方许可、Qt SPDX 或源码通知，以及锁定的 Rust 依赖清单。应用运行时不部署 Node.js、Python 或 Qt WebEngine。
 
