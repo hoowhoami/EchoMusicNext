@@ -1,27 +1,9 @@
 name: Build EchoMusicNext Desktop
 on:
   push:
-    branches: [main]
-    # Populate default-branch caches only when the SDK/build infrastructure changes.
-    # Tag runs can restore these caches; caches from other tags are inaccessible.
-    paths:
-      - '.github/workflows/build.yml'
-      - 'scripts/qt_sdk.py'
-      - 'scripts/qt_download.py'
-      - 'scripts/install-qt.py'
-      - 'scripts/build-qt.py'
-      - 'tools/qt/**'
-      - 'tools/release/licenses.mjs'
-      - 'tools/release/qt-licenses.mjs'
-      - 'tools/release/license-files.mjs'
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      cache_only:
-        description: 'Warm build caches only (select main to share with release tags)'
-        type: boolean
-        default: false
+  workflow_dispatch: {}
 
 concurrency:
   group: release-${{ github.ref }}
@@ -35,7 +17,6 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       matrix: ${{ steps.release.outputs.matrix }}
-      cache_only: ${{ (github.event_name == 'push' && github.ref_type == 'branch') || inputs.cache_only == true }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -52,10 +33,8 @@ jobs:
           echo "version=$(node tools/release/contract.mjs version)" >> "$GITHUB_OUTPUT"
           echo "matrix=$(node tools/release/contract.mjs matrix)" >> "$GITHUB_OUTPUT"
       - name: Prepare current-version release notes
-        if: ${{ !((github.event_name == 'push' && github.ref_type == 'branch') || inputs.cache_only == true) }}
         run: node tools/release/changelog.mjs prepare
       - uses: actions/upload-artifact@v4
-        if: ${{ !((github.event_name == 'push' && github.ref_type == 'branch') || inputs.cache_only == true) }}
         with:
           name: release-notes
           path: build/release-notes/CHANGELOG.md
@@ -63,7 +42,7 @@ jobs:
           retention-days: 7
   build:
     needs: prepare
-    name: ${{ needs.prepare.outputs.cache_only == 'true' && 'Warm cache' || 'Build' }} (${{ matrix.platform }} ${{ matrix.arch }})
+    name: Build (${{ matrix.platform }} ${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
@@ -78,7 +57,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
-        if: needs.prepare.outputs.cache_only != 'true'
         with:
           name: release-notes
           path: build/release-notes
@@ -101,10 +79,10 @@ jobs:
           xargs -a tools/qt/linux-packages.txt sudo apt-get install -y
           pkg-config --modversion libpipewire-0.3 libspa-0.2 alsa libpulse
       - name: Linux packaging tools
-        if: runner.os == 'Linux' && needs.prepare.outputs.cache_only != 'true'
+        if: runner.os == 'Linux'
         run: sudo gem install fpm -v 1.17.0 --no-document
       - name: Windows packaging tools
-        if: runner.os == 'Windows' && needs.prepare.outputs.cache_only != 'true'
+        if: runner.os == 'Windows'
         run: choco install nsis --version=3.11 -y --no-progress
       - name: Rust toolchain
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
@@ -114,10 +92,8 @@ jobs:
           key: ${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('tools/qt/linux-packages.txt') }}
           cache-on-failure: true
       - name: Rust static analysis
-        if: needs.prepare.outputs.cache_only != 'true'
         run: node tools/release/rust-check.mjs lint-production
       - name: FFI header check
-        if: needs.prepare.outputs.cache_only != 'true'
         run: cargo run --release --locked -p ffi-header -- --check
       - name: Restore pinned Qt SDK
         id: qt-cache
@@ -149,29 +125,17 @@ jobs:
         env:
           CMAKE_C_COMPILER_LAUNCHER: sccache
           CMAKE_CXX_COMPILER_LAUNCHER: sccache
-          CACHE_ONLY: ${{ needs.prepare.outputs.cache_only }}
-        run: |
-          if [ "$CACHE_ONLY" = true ]; then
-            # Warm ordinary objects without depending on release-note readiness.
-            unset ECHO_CHANGELOG_FILE
-            python scripts/build.py --preset release --configure-only --no-tests
-          else
-            python scripts/build.py --preset release --configure-only --distribution --no-tests
-          fi
+        run: python scripts/build.py --preset release --configure-only --distribution --no-tests
       - name: Build
         run: cmake --build --preset release
       - name: QML lint
-        if: needs.prepare.outputs.cache_only != 'true'
         run: cmake --build build/release --target all_qmllint
       - name: Prepare deployment materials
-        if: needs.prepare.outputs.cache_only != 'true'
         run: node tools/release/prepare.mjs
       - name: Package
-        if: needs.prepare.outputs.cache_only != 'true'
         shell: bash
         run: node tools/release/package.mjs --arch=${{ matrix.arch }} "--qt=$QT_PREFIX" --linuxdeploy=build/release-tools/linuxdeploy-${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}.AppImage
       - uses: actions/upload-artifact@v4
-        if: needs.prepare.outputs.cache_only != 'true'
         with:
           name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: build/packages/*
