@@ -627,8 +627,11 @@ void WindowController::toggleMaximized()
     if (!m_window)
         return;
     updateNormalGeometry();
-    m_backdrop.prepareWindowTransition();
-    if (maximized() || fullscreen())
+    const bool maximizing = !(maximized() || fullscreen());
+    // Maximizes run caption-less so they land on the bare work area; windowed
+    // restores keep the transition caption (see maximizeInfoToWork).
+    m_backdrop.prepareWindowTransition(maximizing);
+    if (!maximizing)
         m_window->showNormal();
     else
         m_window->showMaximized();
@@ -693,8 +696,10 @@ void WindowController::endContentFullscreen(QObject *owner)
         m_backgroundState = restoreState(state);
     if (!fullscreen())
         return;
-    if (state.testFlag(Qt::WindowMaximized))
-        m_backdrop.prepareWindowTransition();
+    // No prepareWindowTransition here: the call would be swallowed by its
+    // fullscreen() guard, and the exit's maximize (setWindowStates below)
+    // runs after Qt restores the pre-fullscreen style - caption-less, so it
+    // lands on the bare work area without the ring.
     m_window->setWindowStates(state);
     // Combined state bits can change while the effective state stays Minimized,
     // in which case QWindow::windowStateChanged does not notify our projections.
@@ -782,7 +787,9 @@ void WindowController::showWindow()
         m_backgroundState = restoreState(m_window->windowStates());
     setBackground(false);
     if (m_backgroundState == Qt::WindowMaximized) {
-        m_backdrop.prepareWindowTransition();
+        // Maximize must start caption-less (prepareWindowTransition's maximizing
+        // branch): a caption would land the resize-border ring over the taskbar.
+        m_backdrop.prepareWindowTransition(true);
         m_window->showMaximized();
     } else if (m_backgroundState == Qt::WindowFullScreen) {
         m_window->showFullScreen();

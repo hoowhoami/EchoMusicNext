@@ -26,7 +26,7 @@ public:
     /// Call right before minimizing/maximizing/restoring the window so the
     /// DWM window transitions animate (a transient caption on Windows;
     /// no-op elsewhere).
-    void prepareWindowTransition();
+    void prepareWindowTransition(bool maximizing = false);
 
 signals:
     void completed(const QString &error);

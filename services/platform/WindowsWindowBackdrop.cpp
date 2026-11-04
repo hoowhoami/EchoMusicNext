@@ -2,8 +2,6 @@
 #include <QCoreApplication>
 #include <QOperatingSystemVersion>
 #include <QWindow>
-#include <QQuickWindow>
-#include <QSGRendererInterface>
 #include <QJsonDocument>
 #include <QLoggingCategory>
 #include <QColor>
@@ -47,6 +45,20 @@ SetComposition compositionReadApi()
     return module ? reinterpret_cast<SetComposition>(
                         GetProcAddress(module, "GetWindowCompositionAttribute"))
                   : nullptr;
+}
+bool ensureBlurBehind(HWND handle)
+{
+    // Re-arm Qt's own opt-in (qwindowswindow applyBlurBehindWindow): the
+    // -1,-1,0,0 region keeps DWM's legacy blur surface empty, while the enable
+    // bit still gates whole-window alpha compositing for the swapchain.
+    DWM_BLURBEHIND options{};
+    options.dwFlags = DWM_BB_ENABLE;
+    options.fEnable = TRUE;
+    options.hRgnBlur = CreateRectRgn(-1, -1, 0, 0);
+    const bool ok = SUCCEEDED(DwmEnableBlurBehindWindow(handle, &options));
+    if (options.hRgnBlur)
+        DeleteObject(options.hRgnBlur);
+    return ok;
 }
 bool disableBlurBehind(HWND handle)
 {
@@ -96,35 +108,55 @@ void ensureCaption(HWND window)
         return;
     SetWindowLongPtrW(window, GWL_STYLE, style | WS_CAPTION);
 }
-// Windows maximizes a captioned window over the work area plus the invisible
-// resize-border ring, and enforces that rect below message level; it also
-// plays the maximize animation only for that captioned transition. A
-// caption-less window instead takes the WM_GETMINMAXINFO ptMaxSize answer
-// verbatim - Qt's frameless handler proposes the bare work area. Qt derives
-// the frame margins it caches for the maximized state from the same ring
-// (calculateFullFrameMargins), and those margins position the scene: with the
-// window at the ring rect and the margins at the ring, the scene covers
-// exactly the visible work area. A maximized window that lands on the bare
-// work area instead finds ring margins cached earlier and shrinks the scene
-// by them - the blank right/bottom strips. maximizeInfoToRing() therefore
-// gives the caption-less maximize the same ring rect, so both maximized
-// states agree with the cached margins.
-void maximizeInfoToRing(HWND window, MINMAXINFO *info)
+// Mirror of ensureCaption: a maximize must start without the caption so the
+// maximize engine lands on the bare work area instead of the invisible
+// resize-border ring (see maximizeInfoToWork). The repair restores the
+// policy's caption after the state settles.
+void removeCaption(HWND window)
 {
-    const UINT dpi = GetDpiForWindow(window);
-    const int padding = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-    const int borderX = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + padding;
-    const int borderY = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + padding;
+    const LONG_PTR style = GetWindowLongPtrW(window, GWL_STYLE);
+    if (!(style & WS_CAPTION))
+        return;
+    SetWindowLongPtrW(window, GWL_STYLE, style & ~WS_CAPTION);
+}
+// Shrink a zoomed window onto the bare work area of its monitor. The ring a
+// captioned maximize lands is continuously re-enforced on any resize, so the
+// caller must have uncaptioned the window first - uncaptioned maximized
+// windows are freely resizable and the shrink sticks exactly on the work
+// area (measured 2026-11-05).
+void shrinkMaximizedToWork(HWND window)
+{
+    MONITORINFO monitor{sizeof(MONITORINFO)};
+    if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
+        return;
+    const RECT &work = monitor.rcWork;
+    SetWindowPos(window, nullptr, work.left, work.top, work.right - work.left,
+                 work.bottom - work.top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+// Windows maximizes a captioned window over the work area plus the invisible
+// resize-border ring, and enforces that rect below message level - for any
+// resize of the captioned maximized window (a SetWindowPos onto the work area
+// is re-forced to the ring). Uncaptioned maximizes take the WM_GETMINMAXINFO
+// ptMaxSize answer verbatim, and once the caption is gone an uncaptioned
+// maximized window is freely resizable. The pipeline uses this: maximizes
+// start captioned (the DWM animation plays, the ring lands), and the queued
+// repair settles by uncaptioning and shrinking the window onto the bare work
+// area - no ring overlap with the taskbar for topmost windows, and the client
+// keeps equal to the window rect so Qt's margin cache stays zero. This
+// rewrite is the belt for the caption-less maximize paths that skip the
+// transient-caption hook (aero snap, exotic entries): their engine takes this
+// ptMaxSize directly, landing the bare work area in one step.
+void maximizeInfoToWork(HWND window, MINMAXINFO *info)
+{
     MONITORINFO monitor{sizeof(MONITORINFO)};
     if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
         return;
     const RECT &work = monitor.rcWork;
     // ptMaxPosition is in workspace coordinates: relative to the monitor the
     // window maximizes onto.
-    info->ptMaxPosition = POINT{work.left - monitor.rcMonitor.left - borderX,
-                                work.top - monitor.rcMonitor.top - borderY};
-    info->ptMaxSize =
-        POINT{work.right - work.left + 2 * borderX, work.bottom - work.top + 2 * borderY};
+    info->ptMaxPosition = POINT{work.left - monitor.rcMonitor.left,
+                                work.top - monitor.rcMonitor.top};
+    info->ptMaxSize = POINT{work.right - work.left, work.bottom - work.top};
 }
 } // namespace
 WindowsWindowBackdrop::WindowsWindowBackdrop()
@@ -174,6 +206,7 @@ void WindowsWindowBackdrop::attach(QWindow *window)
     m_framelessForFullscreen = false;
     m_restoreFullscreen = false;
     m_geometryQueued = false;
+    m_maximizeSettlePending = false;
     clear();
     releaseSurface();
     disconnect(m_visibilityConnection);
@@ -235,17 +268,14 @@ void WindowsWindowBackdrop::applyWindowPolicy()
 {
     if (!m_handle || !IsWindow(m_handle))
         return;
-    // Set once before the first exposed swapchain, and repair Qt style changes
-    // on this HWND only. Raster dialogs and non-D3D backends need redirection.
-    const auto *quick = qobject_cast<QQuickWindow *>(m_window.data());
-    const auto api =
-        quick ? quick->rendererInterface()->graphicsApi() : QSGRendererInterface::Unknown;
-    if (m_build >= 22621 && quick && quick->requestedFormat().alphaBufferSize() > 0 &&
-        (api == QSGRendererInterface::Direct3D11 || api == QSGRendererInterface::Direct3D12)) {
-        const auto style = GetWindowLongPtrW(m_handle, GWL_EXSTYLE);
-        if (!(style & WS_EX_NOREDIRECTIONBITMAP))
-            SetWindowLongPtrW(m_handle, GWL_EXSTYLE, style | WS_EX_NOREDIRECTIONBITMAP);
-    }
+    // The window keeps its GDI redirection surface by design: the
+    // WS_EX_NOREDIRECTIONBITMAP runtime attempt is a post-creation style set
+    // that user32 rejects (error 87 - the bit only takes effect when Qt's
+    // WindowCreationData applies it, and the process-level QPA variable was
+    // dropped because raster popups lose their content without a redirection
+    // bitmap). Every presentation resize therefore reallocates that surface,
+    // and queueRepair/applyFullscreenGeometryNow zero it (PatBlt BLACKNESS)
+    // since the pure-D3D window holds no GDI content.
     const bool translucent = m_enabled || m_transparency > 0;
     // While the theme is translucent the window goes frameless: Qt then omits
     // the frame margins (shouldOmitFrameAdjustment) and the swapchain covers
@@ -292,37 +322,31 @@ void WindowsWindowBackdrop::applyWindowPolicy()
         // to Qt - keeps the QML caption the sole painter, so no native buttons
         // appear, while the taskbar toggle and the system menu entries work.
         //
-        // Translucent: the frameless presentation keeps the resize border
-        // (WS_THICKFRAME) for the DWM shadow, native resize and snapping, but
-        // never WS_CAPTION - DWM paints its native caption buttons underneath
-        // the client surface, and with the DirectComposition presentation (no
-        // redirection bitmap) they bleed through every translucent pixel of
-        // the custom caption. Opaque: the caption returns for the
-        // minimize/restore animation; the opaque QML covers the buttons.
+        // Both skin states present frameless (POPUP + THICKFRAME, no
+        // CAPTION): THICKFRAME keeps the DWM shadow, native resize and
+        // snapping; the caption must stay off - DWM paints its native caption
+        // buttons underneath the client surface and they bleed through every
+        // translucent pixel of the custom caption on the DirectComposition
+        // presentation, and a caption present at a maximize start makes
+        // user32 land the resize-border ring rect whose transparent rows
+        // cover the taskbar for topmost windows while writing the ring
+        // margins into Qt's frozen margin cache (2026-11-05). The transient
+        // transition caption (minimize / windowed-restore animations) is the
+        // one exception: it stays until the DWM animation has played out
+        // (m_transitionCaption), whose timeout re-queues the repair that
+        // strips it. Maximize transitions run caption-less by design.
         LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_STYLE);
-        LONG_PTR withFrame;
-        if (wantFrameless) {
-            // The frameless presentation keeps the resize border
-            // (WS_THICKFRAME) for the DWM shadow, native resize and snapping,
-            // but never WS_CAPTION - DWM paints its native caption buttons
-            // underneath the client surface, and with the DirectComposition
-            // presentation (no redirection bitmap) they bleed through every
-            // translucent pixel of the custom caption. The transient
-            // transition caption is the one exception: it stays until the
-            // DWM animation has played out (m_transitionCaption), whose
-            // timeout re-queues the repair that strips it.
-            withFrame = (style | WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) &
-                        ~LONG_PTR(WS_CAPTION);
-            if (m_transitionCaption.isActive())
-                withFrame |= WS_CAPTION;
-        } else if (!fullscreenActive) {
-            // Opaque windowed: the caption returns for the minimize/restore
-            // animation; the opaque QML covers the native caption buttons.
-            withFrame = style | WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
-        } else {
-            // Opaque fullscreen: the dance below owns the style bits.
-            withFrame = style;
-        }
+        LONG_PTR withFrame = (style | WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX |
+                              WS_MAXIMIZEBOX) & ~LONG_PTR(WS_CAPTION);
+        // Keep the transient transition caption alive while its timer runs -
+        // except on a maximized window: the maximize settle has already
+        // uncaptioned it to free the ring enforcement, and re-adding would
+        // bring the ring (and the native buttons bleeding through translucent
+        // pixels) back for the remainder of the timer. Minimize and windowed
+        // restores are never zoomed at this point, so their animations keep
+        // their caption.
+        if (m_transitionCaption.isActive() && !IsZoomed(m_handle))
+            withFrame |= WS_CAPTION;
         if (style != withFrame) {
             SetWindowLongPtrW(m_handle, GWL_STYLE, withFrame);
             // The changed frame bits reach the window manager only after a
@@ -417,8 +441,10 @@ void WindowsWindowBackdrop::applyFullscreenGeometryNow()
     // Qt may still publish FullScreen while it has already restored the saved
     // native frame on the way out; never undo that exit.
     const LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_STYLE);
-    if (style & WS_THICKFRAME)
+    if (style & WS_THICKFRAME) {
+        qCDebug(windowLog) << "fullscreen-settle skip: thickframe present";
         return;
+    }
     // A repair that ran before the frameless hint was applied can leave frame
     // bits behind. Strip them without touching Qt's saved normal geometry,
     // activation or minimize/restore ownership.
@@ -446,12 +472,25 @@ void WindowsWindowBackdrop::applyFullscreenGeometryNow()
     // QQuickWindow root item can keep its pre-fullscreen size (a transparent
     // strip at the right/bottom edge even though the window covers the monitor).
     // Nudge the window by one pixel and back to make the scene geometry follow.
-    const auto *content = m_window->property("contentItem").value<QObject *>();
-    if (content && (content->property("width").toDouble() != m_window->width() ||
-                    content->property("height").toDouble() != m_window->height())) {
-        const QSize size = m_window->size();
-        m_window->resize(size - QSize(1, 1));
-        m_window->resize(size);
+    const QSize size = m_window->size();
+    m_window->resize(size - QSize(1, 1));
+    m_window->resize(size);
+    // 2026-11-05 fullscreen white strip: the window keeps a GDI redirection
+    // surface (no WS_EX_NOREDIRECTIONBITMAP on this presentation path), and
+    // DWM composites it between the DirectComposition swapchain and the
+    // Accent backdrop. The fullscreen transition reallocates that surface;
+    // its grown rows come up uninitialized (white) and are never drawn by
+    // either GDI or the scene, so the translucent skin shows them as a
+    // full-width white strip along the old work-area bottom line. No DWM
+    // knob refreshes it (accent off/on, blur-behind toggle, extend frame,
+    // border color, cloak pulse all verified ineffective). The surface has
+    // no GDI content on this pure-D3D window, so zero it whole - the rows
+    // then composite as transparent and the backdrop shows through.
+    if (const HDC hdc = GetDC(m_handle)) {
+        RECT client{};
+        GetClientRect(m_handle, &client);
+        PatBlt(hdc, 0, 0, client.right, client.bottom, BLACKNESS);
+        ReleaseDC(m_handle, hdc);
     }
 }
 bool WindowsWindowBackdrop::supported() const
@@ -480,7 +519,15 @@ void WindowsWindowBackdrop::clear()
         accent(0);
         frameBorder(m_handle, kBorderDefault);
         disableBlurBehind(m_handle);
-        extendFrame(m_handle, m_window && m_window->flags().testFlag(Qt::ExpandedClientAreaHint));
+        // Reset the frame extension unconditionally. The system backdrop it
+        // once served is never written by this adapter, and a glass fill left
+        // extended washes over the desktop that shows through the swapchain
+        // whenever the material is off - the frost-less transparency mode
+        // (applyMaterialState keeps the accent at 0 there and never re-touches
+        // the extension). The legacy Accent acrylic is independent of it; the
+        // extension used to stay at -1 forever after the first opaque
+        // fullscreen suspension.
+        extendFrame(m_handle, false);
         refreshFrame(m_handle);
     }
     m_applied = Applied::None;
@@ -514,13 +561,29 @@ QString WindowsWindowBackdrop::apply(bool enabled, bool dark, int transparency)
     logState("apply");
     return {};
 }
-void WindowsWindowBackdrop::prepareWindowTransition()
+void WindowsWindowBackdrop::prepareWindowTransition(bool maximizing)
 {
     if (!m_handle || !IsWindow(m_handle) || fullscreen())
         return;
     // The app-side maximize/minimize/restore entries bypass the system menu,
     // so the transient transition caption has to be added here; see
     // ensureCaption for why, and m_transitionCaption for how long it stays.
+    // Maximizes also carry the caption: the DWM animation is caption-gated,
+    // and the ring rect the captioned engine lands is shrunk onto the bare
+    // work area by the settle once the animation has played out. An already
+    // maximized window (shown back from hide/mini without ever leaving the
+    // zoomed state) has no geometry change to animate - Qt's show_sys runs
+    // SW_SHOWMAXIMIZED for it, and with a caption that re-maximize lands the
+    // ring and the settle shrink becomes a visible jump. Skip both; the
+    // uncaptioned engine takes the bare work area verbatim.
+    if (maximizing) {
+        if (IsZoomed(m_handle))
+            return;
+        m_maximizeSettlePending = true;
+        m_transitionCaption.start();
+        ensureCaption(m_handle);
+        return;
+    }
     m_transitionCaption.start();
     ensureCaption(m_handle);
 }
@@ -534,12 +597,18 @@ bool WindowsWindowBackdrop::applyMaterialState(bool enabled, bool dark, int tran
     m_transparency = transparency;
     m_dark = dark;
     applyWindowPolicy();
-    // A fullscreen surface is opaque - the QML covers the monitor - and the
-    // temporary frameless hint Qt applies for its duration turns the window
-    // layered, which cannot host the system backdrop. Suspend the material
-    // for that state instead of reporting a failure the user cannot act on;
-    // the repair that runs after leaving fullscreen re-applies it.
-    if (fullscreen()) {
+    // A fullscreen surface is only opaque when the request is opaque - a
+    // translucent skin keeps showing the desktop through the monitor-sized
+    // window. Suspending the material for every fullscreen state made it
+    // accent(0) + DWM_BB off: the frost vanished for the whole session, and
+    // because Qt re-enables DWM_BB only on creation, flag and composition
+    // changes (none of which the fullscreen dance runs), the opt-in stayed
+    // disabled after the exit repair re-applied the accent - the window
+    // rendered opaque until restart. The legacy Accent acrylic is independent
+    // of the layered bit the dance re-pairs (applyWindowPolicy strips it
+    // again), so translucent requests keep their material in fullscreen and
+    // only an opaque request suspends.
+    if (fullscreen() && !enabled && transparency <= 0) {
         clear();
         m_initialized = true;
         m_error.clear();
@@ -553,9 +622,16 @@ bool WindowsWindowBackdrop::applyMaterialState(bool enabled, bool dark, int tran
     // DWM's built-in tint follows the resolved light/dark variant.
     const BOOL darkMode = dark;
     DwmSetWindowAttribute(m_handle, 20, &darkMode, sizeof(darkMode));
-    // DWM_BB stays as Qt keeps it: the region is the alpha-compositing opt-in
-    // for the whole window on this build - disabling it here made the entire
-    // transparency mode render opaque (the backdrop experiment, 2026-11-04).
+    // The enable bit is the alpha-compositing opt-in for the whole window on
+    // this build - disabling it made the entire transparency mode render
+    // opaque (the backdrop experiment, 2026-11-04). clear() turns it off on
+    // attach, teardown and opaque-fullscreen suspension, and Qt only turns it
+    // back on on creation, flag and composition changes - none of which run
+    // while the material re-applies. Re-arm it whenever the skin is
+    // translucent, or the premultiplied alpha of the swapchain stops being
+    // composited after a fullscreen round trip.
+    if (enabled || transparency > 0)
+        ensureBlurBehind(m_handle);
     // Frosted: the legacy Accent acrylic (SetWindowCompositionAttribute,
     // ACCENT_ENABLE_ACRYLICBLURBEHIND) - more transparent than the system
     // backdrop material (DWMSBT_TRANSIENTWINDOW washes the backdrop toward a
@@ -591,6 +667,24 @@ void WindowsWindowBackdrop::queueRepair()
             m_repairQueued = false;
             if (!m_window || !m_handle || !IsWindow(m_handle))
                 return;
+            // Maximize settle: the captioned maximize landed the resize-border
+            // ring and the DWM animation is playing. Uncaption and shrink onto
+            // the bare work area now, while the morph still covers the screen -
+            // the ring is only enforced while the window carries a caption
+            // (measured 2026-11-05: SetWindowPos onto the work area is re-forced
+            // to the ring for a captioned maximized window but sticks for an
+            // uncaptioned one), and the client keeps equalling the whole window
+            // rect so QTBUG-117704's guard never writes ring margins into the
+            // frozen cache. The morph plays on regardless (mid-transition
+            // caption removal does not abort it), so the composited geometry is
+            // the work area from early on and no jump is visible.
+            if (m_maximizeSettlePending) {
+                m_maximizeSettlePending = false;
+                if (IsZoomed(m_handle) && !fullscreen()) {
+                    removeCaption(m_handle);
+                    shrinkMaximizedToWork(m_handle);
+                }
+            }
             // A hidden fullscreen window loses the emulated state; restore it
             // once the show/minimize transition has completely settled.
             if (m_restoreFullscreen && m_window->isVisible()) {
@@ -615,6 +709,50 @@ void WindowsWindowBackdrop::queueRepair()
             } else {
                 applyWindowPolicy();
             }
+            // Fallback net for ring rects the flag settle does not cover: a
+            // maximize that ran while a transition caption from an earlier
+            // minimize/restore was still alive (aero snap inside its 350ms
+            // window - no SC_MAXIMIZE, no flag) landed the ring, and the
+            // policy above has since stripped that caption. An uncaptioned
+            // maximized window is freely resizable, so pull it onto the bare
+            // work area; maximized windows that are already there are a
+            // no-op EqualRect.
+            if (IsZoomed(m_handle) && !fullscreen()) {
+                MONITORINFO monitor{sizeof(MONITORINFO)};
+                RECT bounds{};
+                if (GetMonitorInfoW(MonitorFromWindow(m_handle, MONITOR_DEFAULTTONEAREST),
+                                    &monitor)
+                    && GetWindowRect(m_handle, &bounds)
+                    && !EqualRect(&bounds, &monitor.rcWork)) {
+                    removeCaption(m_handle);
+                    shrinkMaximizedToWork(m_handle);
+                }
+            }
+            // The GDI redirection surface is reallocated by every presentation
+            // resize (maximize, restore, fullscreen) and its grown rows come up
+            // uninitialized white; composited between the swapchain and the
+            // Accent backdrop they show through the translucent skin as a
+            // strip along the old geometry's bottom line (2026-11-05). The
+            // surface holds no GDI content on this pure-D3D window - zero it
+            // whole so the backdrop shows through the translucent rows.
+            if (m_handle && IsWindow(m_handle)) {
+                if (const HDC hdc = GetDC(m_handle)) {
+                    RECT client{};
+                    GetClientRect(m_handle, &client);
+                    PatBlt(hdc, 0, 0, client.right, client.bottom, BLACKNESS);
+                    ReleaseDC(m_handle, hdc);
+                }
+            }
+            // 2026-11-05 topmost strip: report window vs client geometry so a
+            // maximized state that did not land on the work area is visible in
+            // the log alongside the native client rect.
+            RECT windowRect{}, clientRect{};
+            GetWindowRect(m_handle, &windowRect);
+            GetClientRect(m_handle, &clientRect);
+            qCDebug(windowLog) << "repair-geometry window-rect" << windowRect.left
+                               << windowRect.top << windowRect.right << windowRect.bottom
+                               << "client" << clientRect.right << clientRect.bottom
+                               << "window" << m_window->width() << m_window->height();
             logState("repair");
         },
         Qt::QueuedConnection);
@@ -678,41 +816,39 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
         return DefSubclassProc(window, message, wParam, lParam);
     }
     // Transient transition caption, see ensureCaption. Opaque windows carry
-    // it anyway (no-op there); fullscreen belongs to the dance below.
+    // it anyway (no-op there); fullscreen belongs to the dance below. Every
+    // maximize - including a minimized window restoring into the maximized
+    // state (WPF_RESTORETOMAXIMIZED runs the same maximize engine) - carries
+    // the caption so the DWM animation plays; the captioned engine lands the
+    // resize-border ring rect and m_maximizeSettlePending marks the queued
+    // settle that uncaptions and shrinks the window onto the bare work area
+    // (see the repair callback).
     if (message == WM_SYSCOMMAND && !self->fullscreen()) {
         const auto command = wParam & 0xfff0;
-        if (command == SC_MAXIMIZE || command == SC_MINIMIZE || command == SC_RESTORE) {
+        if (command == SC_MAXIMIZE) {
+            self->m_maximizeSettlePending = true;
             self->m_transitionCaption.start();
             ensureCaption(window);
+        } else if (command == SC_MINIMIZE || command == SC_RESTORE) {
+            WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
+            if (GetWindowPlacement(window, &placement)
+                && !(placement.flags & WPF_RESTORETOMAXIMIZED)) {
+                self->m_transitionCaption.start();
+                ensureCaption(window);
+            } else {
+                self->m_maximizeSettlePending = true;
+                self->m_transitionCaption.start();
+                ensureCaption(window);
+            }
         }
     }
-    if (message == WM_NCCALCSIZE && wParam && !self->fullscreen() && IsZoomed(window)) {
-        // Windows maximizes a WS_THICKFRAME window over the work area plus the
-        // invisible resize border on every edge, while Qt's frameless
-        // WM_NCCALCSIZE branch (QWindowsGeometryHint::handleCalculateSize)
-        // unconditionally keeps the client equal to that whole window rect.
-        // The border strip then hangs off-screen on the top/left/right and
-        // under the taskbar at the bottom, cutting the shell content by the
-        // border width. Clamp the client to the work area of the window's
-        // monitor; windowed and fullscreen states keep Qt's edge-to-edge
-        // client. Returning without DefSubclassProc also leaves QPA's
-        // handleResized correction idle: it now sees the work-area client size
-        // it would otherwise force with a competing SetWindowPos.
-        MONITORINFO monitor{sizeof(MONITORINFO)};
-        if (GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor)) {
-            RECT &client = reinterpret_cast<NCCALCSIZE_PARAMS *>(lParam)->rgrc[0];
-            const RECT &work = monitor.rcWork;
-            if (client.left < work.left)
-                client.left = work.left;
-            if (client.top < work.top)
-                client.top = work.top;
-            if (client.right > work.right)
-                client.right = work.right;
-            if (client.bottom > work.bottom)
-                client.bottom = work.bottom;
-            return 0;
-        }
-    }
+    // No WM_NCCALCSIZE override: Qt's frameless branch keeps the client equal
+    // to the whole window rect for every state. While a captioned maximize
+    // momentarily lands the resize-border ring the client covers it too (the
+    // shell paints the ring rows until the settle shrinks the window onto the
+    // bare work area), and because client size == window size throughout,
+    // Qt's QTBUG-117704 guard never writes the ring into the frozen margin
+    // cache - the cache stays at its windowed value of zero forever.
     if (self->fullscreen()) {
         // Qt excludes synchronously sent WM_SYSCOMMAND / WM_SIZING / WM_MOVING
         // from global native filters. Guard them on the real HWND subclass
@@ -743,15 +879,15 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
     if (!guard || self->m_handle != window)
         return result;
     // The maximize engine reads the MINMAXINFO only after the whole window
-    // procedure chain returns, so rewriting it here overrides the bare work
-    // area Qt's frameless handler proposed - see maximizeInfoToRing. For a
-    // captioned maximize this is a no-op (user32 places those over the ring
-    // regardless of this struct); it matters for every caption-less maximized
-    // layout, including the relayout that follows the transient transition
-    // caption being stripped again. ptMaxSize is consumed by a maximize alone,
-    // so windowed moves and resizes are unaffected.
+    // procedure chain returns, so rewriting it here overrides whatever Qt's
+    // handler proposed - see maximizeInfoToWork. A captioned maximize ignores
+    // this struct entirely (user32 places those over the ring regardless,
+    // proven with rewritten proposals); it matters for every caption-less
+    // maximized layout, including the relayout that follows the transient
+    // transition caption being stripped again. ptMaxSize is consumed by a
+    // maximize alone, so windowed moves and resizes are unaffected.
     if (message == WM_GETMINMAXINFO && lParam && !self->fullscreen())
-        maximizeInfoToRing(window, reinterpret_cast<MINMAXINFO *>(lParam));
+        maximizeInfoToWork(window, reinterpret_cast<MINMAXINFO *>(lParam));
     if (message == WM_EXITSIZEMOVE || message == WM_CANCELMODE) {
         self->queueRepair();
     } else if (message == WM_DWMCOMPOSITIONCHANGED || message == WM_STYLECHANGED ||

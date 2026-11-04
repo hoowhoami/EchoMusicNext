@@ -33,9 +33,13 @@ redirection bitmap，**alpha 被忽略**且 bitmap 会遮挡一切 backdrop 层�
 它也会让**所有**光栅（QWidget）顶层弹窗失去 bitmap 而内容不可见
 （#20/#21 的弹窗空白与对话框问题），因此进程级设置已被移除：
 
-- D3D 呈现策略现在归属主窗口 HWND：`WindowsWindowBackdrop::
-  applyWindowPolicy` 在"QQuickWindow + alpha + D3D11/D3D12"时对主窗口
-  单独加 `WS_EX_NOREDIRECTIONBITMAP`（创建时生效，事后设置无效，错误 87）。
+- D3D 呈现策略现在归属主窗口 HWND。**主窗口保留 GDI redirection
+  surface（实测无 `WS_EX_NOREDIRECTIONBITMAP`）**：该位只在 Qt 的
+  `WindowCreationData` 创建期生效，运行时 `SetWindowLongPtrW` 设置
+  被拒绝（错误 87），进程级 QPA 变量又因光栅弹窗不可用（见下）。
+  重定向面由每次呈现 resize 重分配；纯 D3D 窗口其上无任何 GDI 内容，
+  `queueRepair`/`applyFullscreenGeometryNow` 用 `PatBlt(BLACKNESS)`
+  全量清零防止未初始化白行透出（2026-11-05 白条根治）。
 - 其余窗口（QWidget 弹窗、歌词条 QMenu、托盘菜单等光栅窗口）保持
   redirection bitmap，内容可见。新增顶层弹窗**不需要**再解除任何变量。
 - 依赖 Qt 私有约定，**升级 Qt 后必须复核**（见文末清单）。
@@ -51,10 +55,14 @@ D3D 呈现（NRB + `CreateSwapChainForComposition`）下关闭它会让交换链
 premultiplied alpha 不再被合成，整个窗口（含不透明内容）渲染为不透明
 底色，透明度滑杆与毛玻璃同时失效。两种材质都无法接受。
 
-现状：**适配器不碰 DWM_BB，保持 Qt 的启用状态**。模糊效果由 legacy
-Accent 亚克力承担（不依赖 DWM_BB），DWM_BB 只贡献 alpha 通道的合成
-资格。升级 Qt 或调整呈现路径时，任何"优化掉 DWM_BB"的想法都必须先
-复核 alpha 合成是否仍然成立。
+现状：**适配器不主动关闭 DWM_BB；半透明材质路径会重武装它**（见
+`ensureBlurBehind`）。模糊效果由 legacy Accent 亚克力承担（不依赖
+DWM_BB），DWM_BB 只贡献 alpha 通道的合成资格。这半步是必须的：
+`clear()`（attach/析构/不透明全屏挂起）会关掉它，而 Qt 只在创建、
+flags 与合成设置变化时重新启用——全屏进出循环不跑这三者，退出后
+alpha 合成就永久失效，窗口渲染为不透明底色（2026-11-04 全屏回归）。
+升级 Qt 或调整呈现路径时，任何"优化掉 DWM_BB"的想法都必须先复核
+alpha 合成是否仍然成立。
 
 ### 3. 所有材质统一无边框呈现（核心）
 
@@ -93,52 +101,91 @@ L6/T0/R7/B7 物理像素）：窗口的**客户区 ≠ 外框**，而几何持�
 | --- | --- | --- | --- | --- |
 | 毛玻璃开 | ✓ | POPUP+THICKFRAME，无 CAPTION | `ACCENT_ENABLE_ACRYLICBLURBEHIND`(4)，tint 0x01000000 | - |
 | 毛玻璃关、透明度>0 | ✓ | 同上 | `ACCENT_DISABLED`(0) | - |
-| 不透明 | ✓ | +CAPTION（转场动画） | `ACCENT_DISABLED`(0) | 默认 |
+| 不透明 | ✓ | 同上（2026-11-05 起不再补回 CAPTION，见 §4b） | `ACCENT_DISABLED`(0) | 默认 |
 
-- 毛玻璃：legacy Accent 亚克力（`SetWindowCompositionAttribute`），
-  Win10/Win11 同一路径；策略是窗口级的，Qt 冻结边距留下的缺口带
-  （QTBUG-117704，若存在）也显示同一材质，不会成环。
+- 半透明请求（毛玻璃开，或透明度>0）**在全屏期间不挂起材质**：半透明
+  皮肤并不因窗口盖住监视器而变成不透明，材质照常应用、DWM_BB 由
+  apply 路径重武装。只有不透明请求才在全屏挂起（历史行为，见
+  applyMaterialState 的全屏分支注释）。
 - 半透明状态剥离 `WS_CAPTION`——原生按钮会穿透半透明 QML 标题栏
-  （无 redirection bitmap 遮挡）；不透明状态补回 CAPTION，原生按钮
-  画在客户面之下，被不透明 QML 覆盖。转场期间的临时 CAPTION 是唯一
+  （无 redirection bitmap 遮挡）；**不透明状态同样无常驻 CAPTION**
+  （2026-11-05 起）：带 CAPTION 的最大化会让 user32 强制落环矩形
+  （见 §4b 最大化几何），其无边框透明环在置顶时盖住任务栏，且会把环
+  边距写进 Qt 的冻结边距缓存。原生按钮本就只在有 CAPTION 时才绘制，
+  无边框下不存在，两种状态视觉等价。转场期间的临时 CAPTION 是唯一
   例外（见下文转场管线）。
 - 系统 backdrop（38）从不写入；clear 时对所有构建统一复位边框色、
   DWM_BB 与扩展框架，防御 Qt 在 initialize 期间的回置。
 
-### 4b. 最大化几何与转场管线
+### 4b. 最大化几何与转场管线（2026-11-05 第三版：动画先行、落地收缩）
 
-**最大化矩形（ring rect）**。Windows 把带 `WS_CAPTION` 的最大化窗口
-放在"工作区 + 四周不可见 resize-border 环"上，且该矩形在消息层之下
-强制执行（改写 `WM_WINDOWPOSCHANGING` 提案无效）。Qt 在
-`handleGeometryChange → calculateFullFrameMargins` 里把同样的环缓存为
-帧补偿边距，而 QTBUG-117704 的"客户区==窗口尺寸则冻结缓存"守卫使该
-缓存在整个最大化期间不再刷新。因此**边距与矩形必须配对一致**：
+**背景**。Windows 把带 `WS_CAPTION` 的最大化窗口放在"工作区 + 四周
+不可见 resize-border 环"上并在消息层之下持续强制。对无边框窗口，环区
+在客户区之外无人绘制、全透明；**窗口置顶时下环盖在任务栏顶上，壁纸
+透出**——"最大化后任务栏上出现透明条带"的根因。
 
-- 带 CAPTION 的最大化：矩形 = 环（user32 强制），缓存 = 环边距
-  （尺寸不等触发重算）→ 场景精确覆盖可见工作区。
-- 无 CAPTION 的最大化：矩形逐字采用 `WM_GETMINMAXINFO` 的
-  `ptMaxSize`——Qt 的无边框分支提的是裸工作区，与遗留的环边距不配对，
-  场景缩小一圈 = 右/下空白条带。
+环强制与动画门控的实测矩阵（最小窗口对照 + 应用实测，勿再重复验证）：
 
-适配器的对策：`windowProcedure` 在 post-`DefSubclassProc` 阶段改写
-MINMAXINFO（`maximizeInfoToRing`，maximize 引擎在窗口过程链返回后才
-读取该结构），让**所有**最大化（含无 CAPTION 的）都落在环矩形上；
-`WM_NCCALCSIZE` 钳制（最大化时客户区=工作区）保证客户区同样覆盖
-工作区。带 CAPTION 的最大化对 ptMaxSize 不敏感（user32 直接给环），
-所以该改写对两种透明度状态都安全。
+- 环不派生自 `WS_THICKFRAME`：CAPTION 无 THICKFRAME 同样落环；
+- 带 CAPTION 的最大化**无视改写的 ptMaxSize**（裸工作区/收缩补偿两种
+  提案均落同一环）；
+- 环的强制**以窗口当时带 CAPTION 为条件**：带 CAPTION 时任何
+  SetWindowPos 都被拉回环；**摘除 CAPTION（保持 WS_MAXIMIZE）后即可
+  自由缩放**，缩到裸工作区精确停止、IsZoomed 保持；
+- Qt 6.12.0 **没有** handleResized 的最大化纠偏（6.12 分支较新提交才
+  有）；QTBUG-117704 守卫使边距缓存在客户区尺寸==窗口尺寸时冻结。
+
+**现行方案：动画先行、落地收缩**。最大化转场照常加临时 CAPTION——
+DWM 动画照播、引擎落环；**首次 queued repair（状态变更后约 10-30ms，
+变形动画刚开始）执行 settle**：摘除 CAPTION 并 SetWindowPos 缩到裸
+工作区。三段式：
+
+1. **转场**：`WM_SYSCOMMAND` SC_MAXIMIZE（含 `WPF_RESTORETOMAXIMIZED`
+   的还原回最大化）与 `prepareWindowTransition(true)` 都加 CAPTION 并
+   置 `m_maximizeSettlePending`；引擎落环矩形，DWM 动画注册并开始。
+2. **settle（首次 repair，约 10-30ms）**：先 `removeCaption` 再
+   `SetWindowPos(裸工作区, FRAMECHANGED)`。摘 CAPTION 后环不再强制，
+   缩放精确停在裸工作区，IsZoomed 保持。settle 发生在变形动画早期，
+   跳变被变形完全遮盖。
+3. **动画期至结束**：DWM 变形继续播完（转场中途摘 CAPTION 不中断
+   动画），合成目标为实时窗口矩形（已在工作区），动画结束即稳定：
+   `geometry_sys = 工作区 - 0`，场景精确覆盖客户区，置顶窗口与任务栏
+   零重叠。
+
+**不钳制 WM_NCCALCSIZE**——Qt 无边框分支保持客户区==整窗（任何状态），
+QTBUG-117704 守卫使边距缓存**永不写入**、恒为 0，配对问题不存在。
+**材质重放的 CAPTION 回加按 `IsZoomed` 抑制**：repair 会经
+`m_transitionCaption.isActive()` 回加 CAPTION 保护最小化/还原动画，
+最大化窗口已被 settle 摘除，回加会复活环强制与按钮穿透；最小化与
+还原到窗口态时 IsZoomed 为 false，动画 CAPTION 不受影响。
+
+`maximizeInfoToWork`（MINMAXINFO 改写为裸工作区）保留作兜底：跳过
+临时 CAPTION 钩子的无 CAPTION 最大化路径（aero snap 拖顶、外来入口）
+引擎逐字采用该提案，一步落裸工作区。repair 末尾另有**兜底网**：最大化
+且无 CAPTION 且矩形≠工作区时收缩到裸工作区——覆盖"还原动画的
+350ms CAPTION 存活期内发生 aero snap 最大化"（无 SC_MAXIMIZE、无
+settle 标记、引擎带 CAPTION 落环）与外来工具带 CAPTION 最大化后策略
+剥离 CAPTION 的残留环；已在工作区时为 no-op。
+
+**已知边界**：
+
+- settle（约 30ms）前窗口物理上是环矩形，被变形动画遮盖不可见；settle
+  使壳层按工作区重新布局（动画期按环尺寸的一次布局随后被取代，成本
+  可忽略）。
+- settle 缩放不触碰 rcNormalPosition，还原几何不受影响（实测）。
+- 变形动画的目标矩形若在注册时采样（环），动画结束帧与实际内容
+  （工作区）差一圈边框宽度，属不可察觉的内容切换（与原生转场结束时
+  的内容切换等价）。
 
 **窗口转场动画**。DWM 的最小化/最大化/还原转场以**转场开始时的
-`WS_CAPTION` 位**为门控：半透明窗口常驻无 CAPTION，三个转场全部无
-动画。对策：转场开始前临时加 CAPTION（`ensureCaption`）——入口有
-两处：`WM_SYSCOMMAND` 的 SC_MAXIMIZE/SC_MINIMIZE/SC_RESTORE（原生
-路径：任务栏、Win+方向键、系统菜单），与 `WindowController` 调用的
-`prepareWindowTransition()`（QML 按钮、托盘恢复等绕过系统菜单的
-路径）。单发计时器 `m_transitionCaption`（350ms）让 CAPTION 存活到
-动画播完——repair 在状态变更后立即剥离会把最小化动画掐断；超时后
-repair 恢复常态剥离。转场中途移除 CAPTION 不会中断动画。由于无边框
-`WM_NCCALCSIZE` 保证客户区=整窗，临时 CAPTION 不产生任何布局变化；
-最大化期间它也不改变矩形（带 CAPTION 的最大化 = 环，与上面的
-ptMaxSize 改写同值）。
+`WS_CAPTION` 位**为门控。入口两处：`WM_SYSCOMMAND` 的
+SC_MAXIMIZE/SC_MINIMIZE/SC_RESTORE（原生路径：任务栏、Win+方向键、
+系统菜单），与 `WindowController` 调用的 `prepareWindowTransition()`
+（QML 按钮、托盘恢复等绕过系统菜单的路径）。单发计时器
+`m_transitionCaption`（350ms）让 CAPTION 存活到动画播完，超时 repair
+恢复常态剥离；最大化的 CAPTION 由 settle 提前摘除。转场中途移除
+CAPTION 不会中断动画；无边框 `WM_NCCALCSIZE` 保证客户区=整窗，临时
+CAPTION 不产生任何布局变化。
 
 **转场期间的材质**。DWM 转场路径不合成 legacy Accent 的亚克力模糊：
 动画期间交换链内容直接铺在裸桌面上（锐利透底），动画结束材质回归。
@@ -157,6 +204,8 @@ apply 在 surface 就绪前失败时也由 repair 重试。
 
 ## 已知边界
 
+- 最大化转场采用"动画先行、落地收缩"（见 §4b）：settle（约 30ms）
+  前窗口物理上是环矩形，被变形动画遮盖；settle 缩放使壳层重新布局。
 - 毛玻璃转场期间 Accent 亚克力不被 DWM 转场路径合成，材质短暂消失
   （锐利透底），动画结束回归。tint 着色层可合成，提为主题底色洗是
   现成的缓解手段（见 §4b），观感取舍待定故未启用。
@@ -196,12 +245,19 @@ apply 在 surface 就绪前失败时也由 repair 重试。
    ——边距缓存写入的来源。
 8. `WindowCreationData::initialize` 仍对 accelerated+alpha 窗口
    自动调用 `applyBlurBehindWindow`，且 DWM_BB 仍是整窗 alpha 的
-   合成 opt-in（关闭即整窗不透明，见 §2）。
+   合成 opt-in（关闭即整窗不透明，见 §2）。同时复核 Qt 是否新增了
+   其他重新启用 DWM_BB 的时机——适配器半透明路径的重武装
+   （ensureBlurBehind）正是为 Qt 不在全屏循环里重启用而补的。
 9. `windowFlags()` 创建即无边框仍成立；若 Qt 对无边框 + alpha 窗口
    的 `WS_EX_LAYERED` 行为变化，复核 `applyWindowPolicy` 的剥离条件。
-10. 无 CAPTION 的最大化仍逐字采用 `WM_GETMINMAXINFO` 的 ptMaxSize
-    （maximizeInfoToRing 的前提）；带 CAPTION 的最大化仍被 user32
-    强制放到环上且忽略 ptMaxSize。
+10. 环强制的实测矩阵仍成立（见 §4b）：带 CAPTION 的最大化无视改写的
+    ptMaxSize 且持续强制环；**摘除 CAPTION（保持 WS_MAXIMIZE）后可
+    自由缩放**——settle 收缩依赖这一行为。无 WM_NCCALCSIZE 钳制时
+    `calculateFullFrameMargins` 的 QTBUG-117704 守卫（客户区尺寸==
+    窗口尺寸则早退）是边距缓存恒 0 的关键——它若被移除，环边距会在
+    动画期写入缓存，settle 后场景缩小一圈。同时复核 Qt 是否新增了
+    无边框最大化的 handleResized 自动纠偏（6.12.0 尚无）——若新增，
+    它会在动画期与引擎的环强制互相拉扯。
 11. DWM 窗口转场仍以转场开始时的 `WS_CAPTION` 为门控，且转场中途
     移除 CAPTION 不中断动画；转场路径仍不合成 legacy Accent 的
     亚克力（tint 仍合成）。
