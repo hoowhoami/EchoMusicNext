@@ -26,6 +26,7 @@ class NetworkPreferences final : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(double apiTimeoutSeconds READ apiTimeoutSeconds NOTIFY timeoutsChanged)
     Q_PROPERTY(double playerTimeoutSeconds READ playerTimeoutSeconds NOTIFY timeoutsChanged)
+    Q_PROPERTY(QString playerUserAgent READ playerUserAgent NOTIFY playerUserAgentChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorChanged)
 public:
     explicit NetworkPreferences(EchoMusic::SettingsStore &settings, ApiClient &api,
@@ -103,6 +104,13 @@ public:
     {
         return m_playerSeconds;
     }
+    QString playerUserAgent() const
+    {
+        return m_playerUserAgent;
+    }
+    /// Applies only to subsequently opened audio readers; never interrupts playback.
+    Q_INVOKABLE bool applyPlayerUserAgent(const QString &value);
+    Q_INVOKABLE void regeneratePlayerUserAgent();
     QString errorMessage() const
     {
         return m_error;
@@ -118,6 +126,7 @@ signals:
     void notice(const QString &message);
     void applied();
     void timeoutsChanged();
+    void playerUserAgentChanged();
     void errorChanged();
     void mediaRequestRejected(const QString &token, int status);
 
@@ -132,6 +141,7 @@ private:
     ApiClient &m_api;
     double m_apiSeconds = 0;
     double m_playerSeconds = 60;
+    QString m_playerUserAgent;
     QString m_error;
     NetworkConfiguration m_configuration;
     std::unique_ptr<NetworkTransport> m_transport;

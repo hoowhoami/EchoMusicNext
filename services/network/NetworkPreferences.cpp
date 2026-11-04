@@ -6,6 +6,8 @@
 #include <QStandardPaths>
 #include <cmath>
 #include <memory>
+#include <algorithm>
+#include <QRandomGenerator>
 #include <QNetworkProxyFactory>
 #include <QUuid>
 #include <QRegularExpression>
@@ -115,6 +117,12 @@ NetworkPreferences::NetworkPreferences(EchoMusic::SettingsStore &settings, ApiCl
     m_configuration.playerTimeoutSeconds = m_playerSeconds;
     m_passwordId = saved.value("passwordId").toString();
     m_githubProxy = settings.value(EchoMusic::SettingsKeys::Network::GithubProxyUrl).toString();
+    const auto userAgent = settings.value(SettingsKeys::Network::PlayerUserAgent).toString();
+    if (userAgent.size() <= 512 &&
+        std::all_of(userAgent.cbegin(), userAgent.cend(),
+                    [](QChar ch) { return ch.unicode() >= 0x20 && ch.unicode() <= 0x7e; }) &&
+        !userAgent.trimmed().isEmpty())
+        m_playerUserAgent = userAgent.trimmed();
     m_transport = std::make_unique<NetworkTransport>();
     connect(m_transport.get(), &NetworkTransport::mediaRequestRejected, this,
             &NetworkPreferences::mediaRequestRejected);
@@ -336,6 +344,40 @@ void NetworkPreferences::setGithubProxyUrl(const QString &value)
     }
     m_githubProxy = normalized;
     emit changed();
+}
+bool NetworkPreferences::applyPlayerUserAgent(const QString &value)
+{
+    if (value.size() > 512 || !std::all_of(value.cbegin(), value.cend(), [](QChar ch) {
+            return ch.unicode() >= 0x20 && ch.unicode() <= 0x7e;
+        })) {
+        setError(tr("User-Agent 仅支持最多 512 个可打印英文字符"));
+        return false;
+    }
+    const auto normalized = value.trimmed();
+    if (normalized == m_playerUserAgent) {
+        setError({});
+        return true;
+    }
+    auto writer = freshWriter(m_settings);
+    writer->setValue(SettingsKeys::Network::PlayerUserAgent, normalized);
+    writer->sync();
+    if (writer->status() != SettingsStore::NoError) {
+        setError(tr("无法保存音频 User-Agent"));
+        return false;
+    }
+    m_playerUserAgent = normalized;
+    setError({});
+    emit playerUserAgentChanged();
+    return true;
+}
+void NetworkPreferences::regeneratePlayerUserAgent()
+{
+    constexpr char alphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    QString value;
+    value.reserve(32);
+    for (int index = 0; index < 32; ++index)
+        value += QLatin1Char(alphabet[QRandomGenerator::global()->bounded(62)]);
+    applyPlayerUserAgent(value);
 }
 bool NetworkPreferences::applyTimeouts(double apiSeconds, double playerSeconds)
 {

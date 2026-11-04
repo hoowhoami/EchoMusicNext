@@ -8,22 +8,34 @@ import { root, releaseVersion } from './contract.mjs';
 const digest = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const owned =
   /^(?:echomusicnext|echo[-_]\w[\w-]*|libecho_ffi|crashpad_handler|crashpad_wer)(?:\.(?:exe|dll|so|dylib))?$/i;
-function walk(directory, result = []) {
+function walk(directory, result = [], includeDeps = false) {
   if (!fs.existsSync(directory)) return result;
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     if (entry.isSymbolicLink()) continue;
     const file = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       if (
-        !/^(?:CMakeFiles|deps|incremental|qml|qt-official|qt-sdk|package-staging)$/.test(
-          entry.name,
-        ) &&
+        !/^(?:CMakeFiles|incremental|qml|qt-official|qt-sdk|package-staging)$/.test(entry.name) &&
+        (includeDeps || entry.name !== 'deps') &&
         !entry.name.endsWith('-src')
       )
-        walk(file, result);
+        walk(file, result, includeDeps);
     } else result.push(file);
   }
   return result;
+}
+function nativeBuildFiles(build) {
+  const files = walk(build);
+  const cache = path.join(build, 'CMakeCache.txt');
+  if (!fs.existsSync(cache)) return files;
+  // Rust.cmake permits a shared Cargo cache outside the CMake build tree.
+  // Use its configured location for both Rust PDBs and original DWARF ELFs.
+  const directory = /^ECHO_CARGO_DIR:[^=]+=(.*)$/m
+    .exec(fs.readFileSync(cache, 'utf8'))?.[1]
+    .replace(/\r$/, '');
+  if (directory && path.resolve(build, directory) !== path.resolve(build))
+    walk(path.resolve(build, directory), files, true);
+  return files;
 }
 export function peDebugIdentity(bytes) {
   const pe = bytes.readUInt32LE(0x3c);
@@ -94,8 +106,9 @@ export function collectSymbols({
   if (!binaries.some((file) => /^echomusicnext(?:\.exe)?$/.test(path.basename(file))))
     throw new Error('No staged application for symbols');
   fs.mkdirSync(output, { recursive: true });
-  const pdbs = platform === 'Windows' ? walk(build).filter((file) => file.endsWith('.pdb')) : [];
-  const linuxBuildFiles = platform === 'Linux' ? walk(build) : [];
+  const nativeFiles = platform === 'Windows' || platform === 'Linux' ? nativeBuildFiles(build) : [];
+  const pdbs = platform === 'Windows' ? nativeFiles.filter((file) => /\.pdb$/i.test(file)) : [];
+  const linuxBuildFiles = platform === 'Linux' ? nativeFiles : [];
   const records = [];
   for (const file of binaries) {
     const name = path.basename(file);

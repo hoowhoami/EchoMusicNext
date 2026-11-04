@@ -51,7 +51,8 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
         {"network", tr("网络设置"), "cloud",
          tr("全局网络代理 系统代理 手动代理 自动检测 WPAD PAC 脚本 proxyRules SOCKS "
             "代理认证 代理用户名 代理密码 不代理地址 bypass GitHub 加速站 GitHub 加速地址 "
-            "在线插件源 插件下载 酷狗 API 超时 播放器网络超时 应用网络设置 代理 超时"),
+            "在线插件源 插件下载 酷狗 API 超时 播放器网络超时 音频 User-Agent useragent UA "
+            "随机生成 随机 应用网络设置 代理 超时"),
          "NetworkSettingsSection"},
         {"experimental", tr("实验性功能"), "flask",
          tr("页面缓存 最大缓存页面数 日志级别 API 响应体日志 临时诊断日志 诊断并重启 开启启动诊断 "

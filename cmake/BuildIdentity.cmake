@@ -27,7 +27,9 @@ configure_file(
 )
 # Preserve optimized native symbols in Release as well as RelWithDebInfo.
 if(MSVC)
-    add_compile_options("$<$<CONFIG:Release>:/Zi>")
+    # Embed per-object debug data so compiler-cache hits do not depend on a
+    # shared compilation PDB. /DEBUG:FULL still emits the final release PDB.
+    add_compile_options("$<$<CONFIG:Release>:/Z7>")
     add_link_options(
         "$<$<CONFIG:Release>:/DEBUG:FULL>" "$<$<CONFIG:Release>:/OPT:REF>"
         "$<$<CONFIG:Release>:/OPT:ICF>"

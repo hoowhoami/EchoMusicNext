@@ -71,6 +71,7 @@ private slots:
         ApiClient api(DeviceIdentity::temporary());
         TestProxyStore store;
         NetworkPreferences preferences(settings, api, nullptr, &store);
+        QVERIFY(preferences.applyPlayerUserAgent("StartupAudio/2.0"));
         QTcpServer first, second;
         first.setProxy(QNetworkProxy::NoProxy);
         second.setProxy(QNetworkProxy::NoProxy);
@@ -90,6 +91,7 @@ private slots:
         const QByteArray silence(dataSize, '\0');
         QCOMPARE(stream.writeRawData(silence.constData(), silence.size()), silence.size());
         QStringList routes;
+        QHash<QString, QByteArray> userAgents;
         const auto serve = [&](QTcpServer &server, const QString &label) {
             connect(&server, &QTcpServer::newConnection, &server, [&, listener = &server, label] {
                 while (listener->hasPendingConnections()) {
@@ -115,6 +117,9 @@ private slots:
                         peer->setProperty("answered", true);
                         routes.append(label + ':' +
                                       QString::fromLatin1(header.left(header.indexOf("\r\n"))));
+                        for (const auto &line : header.split('\n'))
+                            if (line.toLower().startsWith("user-agent:"))
+                                userAgents.insert(routes.last(), line.mid(11).trimmed());
                         qint64 offset = 0;
                         for (const auto &line : header.split('\n'))
                             if (line.toLower().startsWith("range: bytes="))
@@ -161,6 +166,8 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(probes.size(), 1, 10000);
         QVERIFY(probes[0][2].toBool());
         QVERIFY(routes.contains("first:GET http://audio-source.invalid/probe.wav HTTP/1.1"));
+        QCOMPARE(userAgents.value("first:GET http://audio-source.invalid/probe.wav HTTP/1.1"),
+                 QByteArray("StartupAudio/2.0"));
         const auto loaded = [&](quint64 sequence) {
             for (const auto &entry : events) {
                 const auto event = entry[0].toJsonObject();
@@ -173,11 +180,21 @@ private slots:
         engine.load("http://audio-source.invalid/first.wav", 992);
         QTRY_VERIFY_WITH_TIMEOUT(loaded(992), 10000);
         QVERIFY(routes.contains("first:GET http://audio-source.invalid/first.wav HTTP/1.1"));
+        QCOMPARE(userAgents.value("first:GET http://audio-source.invalid/first.wav HTTP/1.1"),
+                 QByteArray("StartupAudio/2.0"));
+        QVERIFY(preferences.applyPlayerUserAgent("RuntimeAudio/3.0"));
         selectProxy(second);
         QTRY_COMPARE(applied.size(), 2);
         engine.load("http://audio-source.invalid/second.wav", 993);
         QTRY_VERIFY_WITH_TIMEOUT(loaded(993), 10000);
         QVERIFY(routes.contains("second:GET http://audio-source.invalid/second.wav HTTP/1.1"));
+        QCOMPARE(userAgents.value("second:GET http://audio-source.invalid/second.wav HTTP/1.1"),
+                 QByteArray("RuntimeAudio/3.0"));
+        QVERIFY(preferences.applyPlayerUserAgent(""));
+        engine.load("http://audio-source.invalid/empty.wav", 994);
+        QTRY_VERIFY_WITH_TIMEOUT(loaded(994), 10000);
+        QVERIFY(routes.contains("second:GET http://audio-source.invalid/empty.wav HTTP/1.1"));
+        QVERIFY(!userAgents.contains("second:GET http://audio-source.invalid/empty.wav HTTP/1.1"));
         QSignalSpy closed(&playback, &PlaybackService::closed);
         playback.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);

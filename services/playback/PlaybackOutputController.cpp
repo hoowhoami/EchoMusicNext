@@ -66,6 +66,8 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
             m_playback.m_networkPreferences
                 ? m_playback.m_networkPreferences->playerTimeoutSeconds()
                 : 60);
+        if (m_playback.m_networkPreferences)
+            m_playback.m_engine.userAgent(m_playback.m_networkPreferences->playerUserAgent());
         m_playback.m_engine.command(AudioEngine::Volume, m_playback.localVolume());
         m_playback.m_engine.command(AudioEngine::Speed, m_playback.m_speed);
         m_playback.m_audioControls.initialize();

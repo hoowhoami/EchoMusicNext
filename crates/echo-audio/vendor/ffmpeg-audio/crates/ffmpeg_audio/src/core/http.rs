@@ -70,6 +70,9 @@ pub struct HttpAudioSourceOptions {
     pub connect_timeout: Duration,
     pub recv_timeout: Duration,
     pub proxy_url: Option<String>,
+    /// Header shared by probe, range requests and reconnects. Some("") omits it;
+    /// None retains this library's default for callers without an explicit policy.
+    pub user_agent: Option<String>,
 }
 
 impl Default for HttpAudioSourceOptions {
@@ -78,6 +81,7 @@ impl Default for HttpAudioSourceOptions {
             connect_timeout: CONNECT_TIMEOUT,
             recv_timeout: RECV_TIMEOUT,
             proxy_url: None,
+            user_agent: None,
         }
     }
 }
@@ -281,6 +285,10 @@ impl HttpAudioSource {
             .map_err(|e| HttpError::Transport(e.to_string()))?;
 
         let mut client_builder = Client::builder().connect_timeout(options.connect_timeout);
+        let user_agent = options.user_agent.as_deref().unwrap_or(USER_AGENT);
+        if !user_agent.is_empty() {
+            client_builder = client_builder.user_agent(user_agent);
+        }
         if let Some(proxy_url) = options.proxy_url.as_deref() {
             let proxy = Proxy::all(proxy_url)
                 .map_err(|err| HttpError::Transport(format!("invalid proxy url: {err}")))?;
@@ -385,11 +393,7 @@ impl HttpAudioSource {
     ) -> Result<(Option<u64>, bool, Option<u64>, AsyncReader)> {
         let response = tokio::time::timeout(
             recv_timeout,
-            client
-                .get(url)
-                .header(header::USER_AGENT, USER_AGENT)
-                .header(header::RANGE, "bytes=0-")
-                .send(),
+            client.get(url).header(header::RANGE, "bytes=0-").send(),
         )
         .await
         .map_err(|_| HttpError::Timeout)?
@@ -492,7 +496,6 @@ impl HttpAudioSource {
             self.recv_timeout,
             self.client
                 .get(&self.url)
-                .header(header::USER_AGENT, USER_AGENT)
                 .header(header::RANGE, range_header)
                 .send(),
         )
@@ -572,10 +575,7 @@ impl HttpAudioSource {
         &self,
         target_pos: u64,
     ) -> Result<(AsyncReader, Option<u64>)> {
-        let mut request = self
-            .client
-            .get(&self.url)
-            .header(header::USER_AGENT, USER_AGENT);
+        let mut request = self.client.get(&self.url);
         if self.range_supported {
             request = request.header(header::RANGE, format!("bytes={target_pos}-"));
         }
@@ -1049,6 +1049,7 @@ mod tests {
             connect_timeout: Duration::from_secs(1),
             recv_timeout,
             proxy_url: None,
+            user_agent: None,
         }
     }
 
@@ -1095,6 +1096,84 @@ mod tests {
                 stream.write_all(response).unwrap();
             }
         })
+    }
+
+    fn check_user_agent_requests(value: Option<&str>, expected: Option<&str>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/audio", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let mut requests = Vec::new();
+            for offset in [0, 4, 4] {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let mut socket = loop {
+                    match listener.accept() {
+                        Ok((socket, _)) => break socket,
+                        Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline, "missing HTTP request");
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("accept: {error}"),
+                    }
+                };
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut header = Vec::new();
+                while !header.windows(4).any(|value| value == b"\r\n\r\n") {
+                    let mut bytes = [0; 1024];
+                    let count = socket.read(&mut bytes).unwrap();
+                    assert!(count > 0 && header.len() < 8192);
+                    header.extend_from_slice(&bytes[..count]);
+                }
+                requests.push(String::from_utf8(header).unwrap());
+                let body = &b"0123456789"[offset..];
+                write!(socket, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {offset}-9/10\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+                socket.write_all(body).unwrap();
+            }
+            requests
+        });
+        let mut options = local_options(Duration::from_secs(2));
+        options.user_agent = value.map(str::to_string);
+        let source = HttpAudioSource::new_with_options(&url, options).unwrap();
+        let runtime = source.rt.as_ref().unwrap();
+        assert!(matches!(
+            runtime.block_on(source.execute_seek_request(4)),
+            FetchAction::Success(..)
+        ));
+        runtime
+            .block_on(source.execute_reconnect_request(4))
+            .unwrap();
+        for request in server.join().unwrap() {
+            let agents: Vec<_> = request
+                .lines()
+                .filter(|line| line.to_ascii_lowercase().starts_with("user-agent:"))
+                .collect();
+            if let Some(expected) = expected {
+                assert_eq!(agents.len(), 1);
+                assert_eq!(agents[0].split_once(':').unwrap().1.trim(), expected);
+            } else {
+                assert!(
+                    agents.is_empty(),
+                    "empty configuration must omit User-Agent"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn custom_user_agent_is_retained_for_probe_seek_and_reconnect() {
+        check_user_agent_requests(Some("customRandomToken123"), Some("customRandomToken123"));
+    }
+
+    #[test]
+    fn empty_user_agent_is_omitted_for_probe_seek_and_reconnect() {
+        check_user_agent_requests(Some(""), None);
+    }
+
+    #[test]
+    fn unspecified_user_agent_retains_vendor_default() {
+        check_user_agent_requests(None, Some(USER_AGENT));
     }
 
     #[test]

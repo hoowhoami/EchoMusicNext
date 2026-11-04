@@ -255,6 +255,14 @@ bool echo_audio_disconnect_policy(struct EchoAudio *audio, bool pause);
 bool echo_audio_network_timeout(struct EchoAudio *audio, double seconds);
 
 /**
+ * Changes HTTP headers for new audio readers only. Existing readers retain their
+ * captured User-Agent for all range/reconnect requests, without interrupting playback.
+ * # Safety
+ * Audio must be live; value must reference length readable bytes for this call.
+ */
+bool echo_audio_user_agent(struct EchoAudio *audio, const uint8_t *value, size_t length);
+
+/**
  * Changes stall detection on the serial core owner without rebuilding output.
  */
 bool echo_audio_stall_timeout(struct EchoAudio *audio, double seconds);

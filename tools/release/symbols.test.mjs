@@ -90,6 +90,86 @@ test('unsupported symbol containers fail explicitly', () => {
   assert.throws(() => peDebugIdentity(Buffer.alloc(256)), /Invalid PE/);
 });
 
+test('Rust PDB lookup follows the configured external Cargo directory and keeps identity matching', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'echo-cargo-symbols-'));
+  try {
+    const build = path.join(directory, 'build'),
+      cargo = path.join(directory, 'shared Cargo cache'),
+      stage = path.join(directory, 'stage'),
+      output = path.join(directory, 'out');
+    fs.mkdirSync(path.join(build, 'generated'), { recursive: true });
+    fs.mkdirSync(path.join(cargo, 'release/deps'), { recursive: true });
+    fs.mkdirSync(stage);
+    fs.writeFileSync(path.join(build, 'generated/EchoBuildInfo.h'), 'test');
+    fs.writeFileSync(path.join(build, 'CMakeCache.txt'), `ECHO_CARGO_DIR:PATH=${cargo}\r\n`);
+    const appGuid = '00112233445566778899aabbccddeeff',
+      rustGuid = '11223344556677889900aabbccddeeff';
+    fs.writeFileSync(path.join(stage, 'echomusicnext.exe'), pe(appGuid, 4));
+    fs.writeFileSync(path.join(build, 'echomusicnext.pdb'), pdb(appGuid, 4));
+    fs.writeFileSync(path.join(stage, 'echo_ffi.dll'), pe(rustGuid, 7));
+    fs.writeFileSync(path.join(build, 'echo_ffi.pdb'), pdb(rustGuid, 6));
+    const rustPdb = path.join(cargo, 'release/deps/echo_ffi.pdb');
+    fs.writeFileSync(rustPdb, pdb(rustGuid, 7));
+    const options = { build, stage, output, platform: 'Windows', arch: 'x64', version: '0.1.0' };
+    const result = collectSymbols(options);
+    const rust = result.files.find((file) => file.file === 'echo_ffi.dll');
+    assert.deepEqual(rust.debugIdentity, { guid: rustGuid, age: 7 });
+    assert.deepEqual(pdbDebugIdentity(fs.readFileSync(path.join(output, 'echo_ffi.pdb'))), {
+      guid: rustGuid,
+      age: 7,
+    });
+    fs.writeFileSync(rustPdb, pdb(appGuid, 7));
+    assert.throws(() => collectSymbols(options), /Missing matching PDB for echo_ffi.dll/);
+    fs.writeFileSync(rustPdb, pdb(rustGuid, 8));
+    assert.throws(() => collectSymbols(options), /Missing matching PDB for echo_ffi.dll/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('Rust ELF symbols are found in the configured Cargo output with their original build ID', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'echo-cargo-elf-'));
+  try {
+    const build = path.join(directory, 'build'),
+      cargo = path.join(directory, 'cargo'),
+      stage = path.join(directory, 'stage'),
+      output = path.join(directory, 'out');
+    fs.mkdirSync(path.join(build, 'generated'), { recursive: true });
+    fs.mkdirSync(path.join(cargo, 'release'), { recursive: true });
+    fs.mkdirSync(stage);
+    fs.writeFileSync(path.join(build, 'generated/EchoBuildInfo.h'), 'test');
+    fs.writeFileSync(path.join(build, 'CMakeCache.txt'), `ECHO_CARGO_DIR:PATH=${cargo}\n`);
+    fs.writeFileSync(path.join(stage, 'echomusicnext'), 'app');
+    fs.writeFileSync(path.join(build, 'echomusicnext'), 'app-dwarf');
+    fs.writeFileSync(path.join(stage, 'libecho_ffi.so'), 'rust-stripped');
+    fs.writeFileSync(path.join(cargo, 'release/libecho_ffi.so'), 'rust-dwarf');
+    let rustId = 'cc33';
+    const run = (_, args) => ({
+      status: 0,
+      stdout:
+        args[0] === '--notes'
+          ? `Build ID: ${args[1].startsWith(cargo) ? rustId : args[1].endsWith('libecho_ffi.so') ? 'cc33' : 'aa22'}`
+          : '.debug_info',
+    });
+    const options = {
+      build,
+      stage,
+      output,
+      platform: 'Linux',
+      arch: 'arm64',
+      version: '0.1.0',
+      run,
+    };
+    const result = collectSymbols(options);
+    assert.equal(result.files.find((file) => file.file === 'libecho_ffi.so').debugIdentity, 'cc33');
+    assert.equal(fs.readFileSync(path.join(output, 'libecho_ffi.so'), 'utf8'), 'rust-dwarf');
+    rustId = 'dd44';
+    assert.throws(() => collectSymbols(options), /Missing matching DWARF ELF for libecho_ffi.so/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('stripped Linux deployment retains only DWARF with the same ELF build ID', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'echo-elf-symbols-'));
   try {

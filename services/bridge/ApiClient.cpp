@@ -166,7 +166,8 @@ quint64 ApiClient::submit(QJsonObject request, bool includeIdentity, RequestOpti
                 return;
             chain->run(
                 pending.request,
-                [this, pending, id](QJsonObject request, ApiInterceptDone done) mutable {
+                // Own mutable request state independently of the outer const closure.
+                [this, pending = pending, id](QJsonObject request, ApiInterceptDone done) mutable {
                     const auto original = pending.request;
                     pending.request = std::move(request);
                     m_interceptForward[id] = std::move(done);

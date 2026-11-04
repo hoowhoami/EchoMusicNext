@@ -2,6 +2,7 @@
 * text=auto eol=lf
 # Unified diff context lines may contain a single space.
 cmake/patches/*.patch whitespace=-blank-at-eol
+crates/echo-upnp/vendor/fdk-aac-sys/patches/*.patch whitespace=-blank-at-eol
 *.png binary
 *.jpg binary
 *.jpeg binary

@@ -14,6 +14,11 @@ This directory vendors `ffmpeg-audio` as ordinary source files, not as a Git sub
 
 - Keep EchoMusic's packet-cache/multi-audio-stream/raw-frame API surface used by the native player.
 - Keep `HttpAudioSourceOptions` for player network timeout and HTTP proxy settings.
+- Accept an optional per-reader `user_agent` in `HttpAudioSourceOptions`. Configure
+  the immutable reqwest client default header so initial probes, range seeks and
+  reconnects all use the same caller-supplied value. The host owns persistence
+  and explicit regeneration; the vendor never changes it automatically. An explicit
+  empty string omits the header; None retains the library default for other callers.
 - Bridge EchoMusic's `Arc<AtomicBool>` decode interrupt flag to upstream's `HttpCancelHandle`.
 - Keep packet-cache pause-wait support, seek timeout, interrupt lifetime, and retained-range recovery.
 - Use upstream `Timeline` for cache timestamps and seeks; restore scan cursors with raw ticks through the cache worker. Capture pending frames before scans and restore their exact trim so cached and physical seeks keep their frame boundaries.

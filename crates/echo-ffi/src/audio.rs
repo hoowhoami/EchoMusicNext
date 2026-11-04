@@ -769,6 +769,38 @@ pub unsafe extern "C" fn echo_audio_network_timeout(audio: *mut EchoAudio, secon
     .unwrap_or(false)
 }
 
+/// Changes HTTP headers for new audio readers only. Existing readers retain their
+/// captured User-Agent for all range/reconnect requests, without interrupting playback.
+/// # Safety
+/// Audio must be live; value must reference length readable bytes for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn echo_audio_user_agent(
+    audio: *mut EchoAudio,
+    value: *const u8,
+    length: usize,
+) -> bool {
+    if audio.is_null() || value.is_null() || length > 512 {
+        return false;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let Ok(value) = std::str::from_utf8(unsafe { slice::from_raw_parts(value, length) }) else {
+            return false;
+        };
+        let Ok(value) = echo_audio::normalize_http_user_agent(value) else {
+            return false;
+        };
+        enqueue(
+            unsafe { &*audio },
+            Job {
+                sequence: None,
+                kind: JobKind::Control,
+                action: Box::new(move || echo_audio::set_http_user_agent(value)),
+            },
+        )
+    }))
+    .unwrap_or(false)
+}
+
 /// Changes stall detection on the serial core owner without rebuilding output.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn echo_audio_stall_timeout(audio: *mut EchoAudio, seconds: f64) -> bool {

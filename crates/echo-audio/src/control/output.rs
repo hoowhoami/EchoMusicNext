@@ -97,6 +97,16 @@ pub fn set_network_timeout(seconds: f64) -> crate::Result<()> {
     })
 }
 
+/// Changes only future reader snapshots; active HTTP clients retain their headers.
+pub fn set_http_user_agent(value: String) -> crate::Result<()> {
+    let value =
+        crate::normalize_http_user_agent(&value).map_err(crate::EngineError::from_reason)?;
+    call_core_command("set-http-user-agent", move |runtime| {
+        runtime.config.http_user_agent = value;
+        Ok(())
+    })
+}
+
 pub fn set_http_proxy(proxy: String) -> crate::Result<()> {
     let proxy = (!proxy.trim().is_empty()).then(|| proxy.trim().to_string());
     call_core_command("set-http-proxy", move |runtime| {

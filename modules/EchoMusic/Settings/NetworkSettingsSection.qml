@@ -18,6 +18,7 @@ SettingsSection {
     property string bypassDraft: network.proxyBypassRules
     property double apiDraft: network.apiTimeoutSeconds
     property double playerDraft: network.playerTimeoutSeconds
+    property string userAgentDraft: network.playerUserAgent
     property bool clearPassword: false
     readonly property list<string> modes: ["direct", "system", "auto_detect", "pac_script", "fixed_servers"]
     heading: qsTr("网络设置")
@@ -43,6 +44,9 @@ SettingsSection {
         target: section.network
         function onApplied() {
             section.resetDrafts();
+        }
+        function onPlayerUserAgentChanged() {
+            section.userAgentDraft = section.network.playerUserAgent;
         }
     }
     Component.onDestruction: password.clear()
@@ -184,6 +188,7 @@ SettingsSection {
         heading: qsTr("GitHub 加速地址")
         description: qsTr("用于更新和在线插件；失败后自动切回原始 GitHub，两段均服从全局代理规则")
         EchoTextField {
+            id: githubProxyAddress
             objectName: "settingsGithubProxyUrl"
             colors: Theme.floating
             implicitWidth: 240
@@ -212,6 +217,39 @@ SettingsSection {
             onValueModified: section.apiDraft = value
             onActiveFocusChanged: if (!activeFocus)
                 section.applyDrafts()
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("音频 User-Agent")
+        description: qsTr("用于音频请求，保存后下次加载生效；留空不发送，随机生成后固定使用")
+        ColumnLayout {
+            Layout.preferredWidth: githubProxyAddress.implicitWidth
+            Layout.fillHeight: false
+            spacing: 8
+            EchoTextField {
+                objectName: "settingsPlayerUserAgent"
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                colors: Theme.floating
+                clearable: true
+                maximumLength: 512
+                text: section.userAgentDraft
+                placeholderText: qsTr("留空不发送 User-Agent")
+                Accessible.name: qsTr("音频 User-Agent")
+                onTextEdited: section.userAgentDraft = text
+                onEditingFinished: {
+                    if (section.network.applyPlayerUserAgent(text))
+                        section.userAgentDraft = section.network.playerUserAgent;
+                }
+            }
+            EchoSoftButton {
+                objectName: "settingsRegeneratePlayerUserAgent"
+                Layout.alignment: Qt.AlignRight
+                colors: Theme.floating
+                text: qsTr("随机生成")
+                onClicked: section.network.regeneratePlayerUserAgent()
+            }
         }
     }
     SettingsDivider {}

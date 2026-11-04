@@ -26,6 +26,7 @@ public:
     explicit AudioEngine(QObject *parent = nullptr, const QJsonObject &options = {});
     void stallTimeout(double seconds);
     void networkTimeout(double seconds);
+    void userAgent(const QString &value);
     ~AudioEngine() override;
     void load(const QString &source, quint64 sequence, qint64 audioTrack = 0);
     void switchSource(const QString &source, quint64 sequence, qint64 audioTrack = 0,

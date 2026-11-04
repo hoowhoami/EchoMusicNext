@@ -101,6 +101,16 @@ void AudioEngine::networkTimeout(double seconds)
                 sink->push({{"event", "control-error"}, {"message", "网络超时设置未被接受"}});
         });
 }
+void AudioEngine::userAgent(const QString &value)
+{
+    if (!m_closing)
+        QMetaObject::invokeMethod(m_worker, [sink = m_sink, bytes = value.toUtf8()] {
+            if (!echo_audio_user_agent(sink->handle,
+                                       reinterpret_cast<const uint8_t *>(bytes.constData()),
+                                       size_t(bytes.size())))
+                sink->push({{"event", "control-error"}, {"message", "User-Agent 设置未被接受"}});
+        });
+}
 void AudioEngine::load(const QString &source, quint64 sequence, qint64 audioTrack)
 {
     if (m_closing)

@@ -640,7 +640,7 @@ static const FIXP_DBL invCubeRootCorrection[3] = {0x40000000, 0x50A28BE6,
  *
  */
 static
-#ifdef __arm__
+#if defined(__arm__) && (defined(__GNUC__) || defined(__clang__))
     FIXP_DBL __attribute__((always_inline))
     invCubeRootNorm2(FIXP_DBL op_m, INT* op_e)
 #else
@@ -762,7 +762,7 @@ static const FIXP_DBL invFourthRootCorrection[4] = {0x40000000, 0x4C1BF829,
 /* #define INVFOURTHROOTNORM2_LINEAR_INTERPOLATE_HQ */
 
 static
-#ifdef __arm__
+#if defined(__arm__) && (defined(__GNUC__) || defined(__clang__))
     FIXP_DBL __attribute__((always_inline))
     invFourthRootNorm2(FIXP_DBL op_m, INT* op_e)
 #else
@@ -878,7 +878,7 @@ static const FIXP_DBL inv3EigthRootCorrection[8] = {
 /* #define INVTHREEIGTHROOTNORM2_LINEAR_INTERPOLATE_HQ */
 
 static
-#ifdef __arm__
+#if defined(__arm__) && (defined(__GNUC__) || defined(__clang__))
     FIXP_DBL __attribute__((always_inline))
     inv3EigthRootNorm2(FIXP_DBL op_m, INT* op_e)
 #else

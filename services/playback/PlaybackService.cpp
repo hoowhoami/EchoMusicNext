@@ -27,6 +27,7 @@ QJsonObject engineStartupOptions(const PlayerEnginePreferences &engine,
     // configuration. Initialize its deadline with the engine, rather than rely
     // solely on a queued command after ready that could race the first probe.
     options.insert("network_timeout_secs", network ? network->playerTimeoutSeconds() : 60);
+    options.insert("http_user_agent", network ? network->playerUserAgent() : QString());
     if (network)
         options.insert("http_proxy", network->transportEndpoint().toString(QUrl::FullyEncoded));
     return options;
@@ -200,13 +201,18 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
         m_dynamicCover.setTrack(m_track);
         m_portraits.setTrack(m_track);
     });
-    // The application owns network policy. Only an immutable deadline is copied
-    // to the audio actor; playback does not persist a second network preference.
-    if (network)
+    // The application owns network policy. New readers snapshot HTTP preferences;
+    // playback does not persist a second copy or interrupt existing readers.
+    if (network) {
         connect(network, &NetworkPreferences::timeoutsChanged, this, [this] {
             if (m_ready && !m_closing)
                 m_engine.networkTimeout(m_networkPreferences->playerTimeoutSeconds());
         });
+        connect(network, &NetworkPreferences::playerUserAgentChanged, this, [this] {
+            if (m_ready && !m_closing)
+                m_engine.userAgent(m_networkPreferences->playerUserAgent());
+        });
+    }
     connect(&m_membership, &MembershipService::changed, this, &PlaybackService::changed);
     m_transition = std::make_unique<TrackTransitionController>(*this, api, settings);
     m_recovery = std::make_unique<PlaybackRecoveryController>(*this);

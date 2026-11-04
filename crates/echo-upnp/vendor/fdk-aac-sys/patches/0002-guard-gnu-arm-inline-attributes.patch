@@ -1,0 +1,29 @@
+--- a/aac/libSBRdec/src/hbe.cpp
++++ b/aac/libSBRdec/src/hbe.cpp
+@@ -640,7 +640,7 @@
+  *
+  */
+ static
+-#ifdef __arm__
++#if defined(__arm__) && (defined(__GNUC__) || defined(__clang__))
+     FIXP_DBL __attribute__((always_inline))
+     invCubeRootNorm2(FIXP_DBL op_m, INT* op_e)
+ #else
+@@ -762,7 +762,7 @@
+ /* #define INVFOURTHROOTNORM2_LINEAR_INTERPOLATE_HQ */
+ 
+ static
+-#ifdef __arm__
++#if defined(__arm__) && (defined(__GNUC__) || defined(__clang__))
+     FIXP_DBL __attribute__((always_inline))
+     invFourthRootNorm2(FIXP_DBL op_m, INT* op_e)
+ #else
+@@ -878,7 +878,7 @@
+ /* #define INVTHREEIGTHROOTNORM2_LINEAR_INTERPOLATE_HQ */
+ 
+ static
+-#ifdef __arm__
++#if defined(__arm__) && (defined(__GNUC__) || defined(__clang__))
+     FIXP_DBL __attribute__((always_inline))
+     inv3EigthRootNorm2(FIXP_DBL op_m, INT* op_e)
+ #else

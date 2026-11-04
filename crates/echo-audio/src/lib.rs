@@ -38,8 +38,8 @@ pub use control::{
     get_spectrum_status, get_transition_diagnostics, get_transition_settings, inspect_dsp_provider,
     pause_with_fade, play_with_fade, set_audio_effect, set_audio_graph_parameter,
     set_audio_graph_plan, set_audio_output, set_equalizer, set_http_proxies, set_http_proxy,
-    set_network_timeout, set_normalization_gain, set_pause_on_device_disconnect, set_speed,
-    set_stall_timeout, set_transition_settings,
+    set_http_user_agent, set_network_timeout, set_normalization_gain,
+    set_pause_on_device_disconnect, set_speed, set_stall_timeout, set_transition_settings,
 };
 use control::{
     PreparationCancellation, PreparedTransitionInputs, SeekPlan, armed_transition_from_prepared,
@@ -50,8 +50,8 @@ use control::{
 };
 pub use control::{SeekTask, seek};
 
-pub use crate::config::PlayerConfigOptions;
 use crate::config::{GaplessAudioPolicy, PlayerConfig, SpectrumConfig};
+pub use crate::config::{PlayerConfigOptions, normalize_http_user_agent};
 use crate::decoder::{
     audio_stream_ordinal_from_track_id, list_tracks_for_url, open_decoder,
     open_decoder_with_interrupt,

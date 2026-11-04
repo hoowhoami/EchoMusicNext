@@ -12,7 +12,11 @@ const DEVICE_EVENT_DEBOUNCE: Duration = Duration::from_millis(250);
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) enum PlaybackOutputDeviceEvent {
     DefaultRouteChanged,
+    // Bound-device notifications are produced by WASAPI; keep the shared event
+    // shape for consumers and coalescing tests on the other backends.
+    #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
     BoundDeviceChanged(String),
+    #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
     BoundDeviceUnavailable(String),
 }
 

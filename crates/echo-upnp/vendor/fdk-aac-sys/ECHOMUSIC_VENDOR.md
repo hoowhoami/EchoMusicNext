@@ -16,13 +16,18 @@ MSVC does not define __aarch64__; without these checks Windows ARM64 reaches
 the unsupported-architecture #warning, which current MSVC rejects in its
 normal C++ language mode (C1188).
 
-Only architecture detection changes. The codec uses the established ARMv8
+patches/0002-guard-gnu-arm-inline-attributes.patch keeps the three ARM
+always_inline declarations in hbe.cpp behind GNU/Clang compiler guards.
+MSVC uses the existing plain declarations with the same function bodies.
+
+Only architecture detection and compiler-specific declaration guards change. The codec uses the established ARMv8
 coefficient layout and MSVC-compatible generic arithmetic; GNU assembly remains
 guarded by its existing compiler conditions. No language-standard override,
 warning suppression, C ABI change or AAC feature removal is applied.
 
 ## Removal
 
-When a published fdk-aac-sys release includes Windows ARM64 architecture detection,
+When a published fdk-aac-sys release includes Windows ARM64 architecture detection
+and compatible compiler-specific inline declarations,
 remove the root Cargo patch, this vendor directory and its lockfile path entry,
 then verify Windows ARM64 with MSVC and the other supported architectures.

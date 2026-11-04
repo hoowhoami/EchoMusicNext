@@ -17,6 +17,7 @@
 #include <QSslCertificate>
 #include <QSslKey>
 #include <QScopeGuard>
+#include <QRegularExpression>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QUdpSocket>
@@ -30,6 +31,45 @@ class NetworkTransportTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void playerUserAgentPersistsAndRegeneratesOnlyOnRequest()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("network.ini");
+        QString generated;
+        {
+            SettingsStore settings(path);
+            ApiClient api(DeviceIdentity::temporary());
+            TestProxyStore store;
+            NetworkPreferences preferences(settings, api, nullptr, &store);
+            QCOMPARE(preferences.playerUserAgent(), QString());
+            QSignalSpy changed(&preferences, &NetworkPreferences::playerUserAgentChanged);
+            QVERIFY(preferences.applyPlayerUserAgent("  CustomAudio/2.0  "));
+            QCOMPARE(preferences.playerUserAgent(), QString("CustomAudio/2.0"));
+            QCOMPARE(changed.size(), 1);
+            for (const auto &bad :
+                 {QString("bad\r\nX-Injected: yes"), QString("bad\tvalue"), QString(QChar(0)),
+                  QString::fromUtf8("中文"), QString(513, 'a')}) {
+                QVERIFY(!preferences.applyPlayerUserAgent(bad));
+                QCOMPARE(preferences.playerUserAgent(), QString("CustomAudio/2.0"));
+            }
+            QCOMPARE(changed.size(), 1);
+            preferences.regeneratePlayerUserAgent();
+            generated = preferences.playerUserAgent();
+            QVERIFY(QRegularExpression("^[A-Za-z0-9]{32}$").match(generated).hasMatch());
+            QVERIFY(!generated.contains("EchoMusicNext"));
+            QTest::qWait(20);
+            QCOMPARE(preferences.playerUserAgent(), generated);
+        }
+        SettingsStore settings(path);
+        ApiClient api(DeviceIdentity::temporary());
+        TestProxyStore store;
+        NetworkPreferences restored(settings, api, nullptr, &store);
+        QCOMPARE(restored.playerUserAgent(), generated);
+        restored.regeneratePlayerUserAgent();
+        QVERIFY(restored.playerUserAgent() != generated);
+        QVERIFY(restored.applyPlayerUserAgent(" "));
+        QCOMPARE(restored.playerUserAgent(), QString());
+    }
     void pacDnsSharesEvaluationDeadlineAndHonorsCancellation()
     {
         ProxyPacDns dns;

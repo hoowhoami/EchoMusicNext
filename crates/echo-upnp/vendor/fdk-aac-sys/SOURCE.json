@@ -6,7 +6,8 @@
   "repository": "https://github.com/haileys/fdk-aac-rs",
   "revision": "e3ca3de45aac24d15eb611ce627fee4d5733c1fc",
   "patches": [
-    "patches/0001-recognize-msvc-arm64.patch"
+    "patches/0001-recognize-msvc-arm64.patch",
+    "patches/0002-guard-gnu-arm-inline-attributes.patch"
   ],
   "reference": "https://github.com/mstorsjo/fdk-aac/blob/master/libFDK/include/FDK_archdef.h"
 }
