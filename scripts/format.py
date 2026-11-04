@@ -29,6 +29,37 @@ def run(args, **kwargs):
     return subprocess.run([str(arg) for arg in args], cwd=ROOT, check=True, **kwargs)
 
 
+def run_file_batches(command, files, limit=30000):
+    # CreateProcessW allows 32767 UTF-16 units including quoting and the NUL.
+    # Keep a margin and use the same bounded invocations on every platform.
+    command = [str(arg) for arg in command]
+    batches = []
+    current = []
+    for file in files:
+        file = str(file)
+        candidate = [*command, *current, file]
+        size = len(subprocess.list2cmdline(candidate).encode("utf-16-le")) // 2 + 1
+        if size > limit:
+            if not current:
+                raise RuntimeError(f"Formatter command is too long for {file}")
+            batches.append([*command, *current])
+            current = []
+            size = len(subprocess.list2cmdline([*command, file]).encode("utf-16-le")) // 2 + 1
+            if size > limit:
+                raise RuntimeError(f"Formatter command is too long for {file}")
+        current.append(file)
+    if current:
+        batches.append([*command, *current])
+    failure = None
+    for args in batches:
+        try:
+            run(args)
+        except subprocess.CalledProcessError as error:
+            failure = error
+    if failure:
+        raise failure
+
+
 def install():
     if sys.version_info < (3, 12):
         raise RuntimeError("Use Python 3.12+ for --install (for example python3.12 on macOS).")
@@ -124,10 +155,13 @@ def format_sources(qmlformat, check):
     ]
     failures = []
 
-    def batch(label, args):
+    def batch(label, args, paths=None):
         print(f"{label}", flush=True)
         try:
-            run(args)
+            if paths is None:
+                run(args)
+            else:
+                run_file_batches(args, paths)
         except subprocess.CalledProcessError:
             failures.append(label)
 
@@ -137,8 +171,8 @@ def format_sources(qmlformat, check):
             BIN / ("clang-format" + EXE),
             "--style=file",
             *(["--dry-run", "--Werror"] if check else ["-i"]),
-            *cpp,
         ],
+        cpp,
     )
     # GLSL's C-like syntax is handled explicitly; qsb remains the syntax validator.
     for shader in shaders:
@@ -186,13 +220,14 @@ def format_sources(qmlformat, check):
             "--config-files",
             ROOT / ".cmake-format.json",
             *(["--check"] if check else ["-i"]),
-            *cmake,
         ],
+        cmake,
     )
-    batch("Python", [BIN / ("black" + EXE), *(["--check"] if check else []), *python])
+    batch("Python", [BIN / ("black" + EXE), *(["--check"] if check else [])], python)
     batch(
         "JavaScript / configuration",
-        ["node", prettier, "--check" if check else "--write", *js, *configs],
+        ["node", prettier, "--check" if check else "--write"],
+        [*js, *configs],
     )
     if failures:
         print("Formatting failed: " + ", ".join(failures), file=sys.stderr)

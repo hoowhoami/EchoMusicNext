@@ -80,6 +80,8 @@ Linux 还需要 `libproxy-dev` 和 `libglib2.0-dev`。系统代理与 PAC 功能
 
 Rust 音频后端同时编译 ALSA、PipeWire/SPA 和 PulseAudio。Ubuntu 需要 `pkg-config`、`libasound2-dev`、`libpipewire-0.3-dev`、`libspa-0.2-dev`、`libpulse-dev`，绑定生成还需要 `clang` 和 `libclang-dev`；这些依赖已包含在共享清单中，须在 Rust 检查前安装。可用 `pkg-config --modversion libpipewire-0.3 libspa-0.2 alsa libpulse` 确认当前构建环境可以发现开发库。
 
+Windows ARM64 的 FDK AAC 绑定通过根 `Cargo.toml` 的 patch 使用仓库内同版本源码，补齐 MSVC `_M_ARM64` 架构识别；来源与独立补丁见 `crates/echo-upnp/vendor/fdk-aac-sys/`。该依赖无需额外开启 C++23 preview，绑定与编解码库的许可文件随依赖保留。
+
 验证码使用系统默认浏览器，应用不部署 Qt WebEngine。正式部署仍需包含实际使用的 Qt 插件、Multimedia 后端和第三方库，并附带相应许可材料。
 
 ## 检查
@@ -98,7 +100,7 @@ cmake --build build/release --target all_qmllint
 
 格式规则见[代码格式与检查](formatting.md)。ABI 修改后使用 `cargo run --locked -p ffi-header -- --write` 生成头文件，再检查差异并重新构建。普通构建只校验生成头，不修改源码。
 
-发布 CI 保留 Rust Clippy 生产目标静态检查（`lint-production`）、FFI 头一致性、全仓格式、构建和打包校验，不运行 Rust、Qt、tooling 或发布契约的自动测试，并通过 `scripts/build.py --no-tests` 关闭 CMake 测试目标构建。上面的完整 lint/test 命令供本地按需执行，手动 `quality-reports.yml` 仍按原职责执行质量测试和覆盖率。Rust 格式由全仓格式检查统一覆盖。Cargo 依赖缓存按 runner、架构、工具链、依赖清单与原生包清单隔离，失败的构建也保存已完成的依赖编译；默认不归档宿主 crate 或增量编译产物。首次运行或缓存失效仍需要编译依赖，缓存效果以实际 CI 命中和步骤耗时为准。
+发布 CI 保留 Rust Clippy 生产目标静态检查（`lint-production`）、FFI 头一致性、构建和打包校验，不运行全仓格式门禁、Rust、Qt、tooling 或发布契约的自动测试，并通过 `scripts/build.py --no-tests` 关闭 CMake 测试目标构建。格式工具安装和检查移出发布矩阵，格式在本地通过统一入口维护。上面的完整 lint/test 命令供本地按需执行，手动 `quality-reports.yml` 仍按原职责执行质量测试和覆盖率。Cargo 依赖缓存按 runner、架构、工具链、依赖清单与原生包清单隔离，失败的构建也保存已完成的依赖编译；默认不归档宿主 crate 或增量编译产物。首次运行或缓存失效仍需要编译依赖，缓存效果以实际 CI 命中和步骤耗时为准。
 
 运行日志在终端和文件中统一为 UTF-8 单行文本，时间使用本地 `yyyy-MM-dd HH:mm:ss.SSS`。文件名为 `echomusicnext-yyyy-MM-dd_HH-mm-ss-SSS-PID.log`；启动默认清理超过7天未写的运行日志和轮转文件，活跃会话与独立崩溃现场保留。标准 info 不逐条记录正常 API 成功/取消，可用 `--log-level debug` 查看请求诊断。
 

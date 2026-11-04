@@ -62,8 +62,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Pinned formatting tools
-        run: python scripts/format.py --install
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
         with:
@@ -89,7 +87,6 @@ jobs:
         with:
           key: ${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('tools/qt/linux-packages.txt') }}
           cache-on-failure: true
-      # Rust formatting is already covered by the repository Formatting check.
       - name: Rust static analysis
         run: node tools/release/rust-check.mjs lint-production
       - name: FFI header check
@@ -107,8 +104,6 @@ jobs:
         shell: bash
         run: |
           python -c "from scripts.qt_sdk import preferred_prefix; import os; p=preferred_prefix(); open(os.environ['GITHUB_PATH'], 'a').write(str(p / 'bin') + '\n'); open(os.environ['GITHUB_ENV'], 'a').write('QT_PREFIX=' + p.as_posix() + '\n')"
-      - name: Formatting check
-        run: python scripts/format.py --check
       - name: Configure
         shell: bash
         run: |

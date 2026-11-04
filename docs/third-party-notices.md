@@ -13,6 +13,7 @@ EchoMusicNext 采用 GPL-3.0-only。第三方代码、库和资源保留各自�
 | Tabler Icons / Paweł Kuna | `Controls/icons` 中的 Tabler SVG，以及内联的主题插图路径；来源 `@iconify/icons-tabler` 1.2.95、图标集 2.40.0 | Copyright (c) 2020-2023 Paweł Kuna；[MIT 原文](licenses/tabler-icons-MIT.txt)、[上游版本](https://github.com/tabler/tabler-icons/tree/v2.40.0)；各资源保留来源注释 |
 | FFmpeg / SoundTouch / CPAL 及音频依赖 | `echo-audio/vendor` 中实际构建的音频库；Qt Multimedia 后端另使用其部署的 FFmpeg 库 | 各目录的 LICENSE / COPYING 及对应构建配置；发布时附实际部署版本材料 |
 | rupnp / airplay2-rs | `echo-upnp/vendor` 中的设备发现与 AirPlay 协议代码 | 各 vendor 目录的 LICENSE 和上游 manifest；airplay2-rs 为 GPL-3.0-or-later |
+| FDK AAC / fdk-aac-sys | AirPlay AAC 编解码依赖，`echo-upnp/vendor/fdk-aac-sys` 中的同版本本地源码 | Rust绑定的 MIT `LICENSE` 与编解码库的 `aac/NOTICE`；原始源码版权头保留 |
 | OpenCC / BYVoid 及贡献者 | `echo-opencc/dicts` 的字词典，来源 revision `8cf737a4e193db27d675b2ce9867d84aace33745`；反向字典按上游规则生成，词语字典未修改 | [Apache-2.0 原文](licenses/opencc-Apache-2.0.txt)、[字典来源说明](../crates/echo-opencc/dicts/README.md) |
 | libcurl / Daniel Stenberg 及贡献者 | Windows 构建固定 SHA-256 的 curl 8.23.0，应用[原生 HTTP Digest 选择补丁](../cmake/patches/curl-8.23.0-native-http-digest.patch)，保留 Schannel / SSPI；macOS 和 Linux 使用系统动态库，最低版本和特性见[构建指南](build.md) | [版权许可](licenses/curl-LICENSE.txt)、[THANKS](licenses/curl-THANKS.txt)；系统库以实际部署版本材料为准 |
 | Linux GLib / GIO | 系统动态链接 `gio-2.0`，使用 GSettings 和 GAppInfo | 相关公开头及库的 LGPL-2.1-or-later，含 Codethink Limited 等原作者版权；按实际部署版本保留许可和源码提供材料 |

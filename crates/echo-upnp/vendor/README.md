@@ -4,6 +4,12 @@
 
 规则：只允许在仓库内修改这些拷贝；任何改动以追加补丁文件方式记录并说明原因；构建必须走本目录，不引用外部路径。
 
+## fdk-aac-sys 0.5.0
+
+- 来源：crates.io 同版本，归档哈希、Rust上游修订与补丁见 `fdk-aac-sys/SOURCE.json`。
+- 保留绑定的 MIT `LICENSE`、编解码库的 `aac/NOTICE` 及原有源码版权头。
+- `patches/0001-recognize-msvc-arm64.patch` 按 FDK 上游补充 `_M_ARM64` 的 ARM/ARMv8 识别，避免 Windows ARM64 错入未知架构 `#warning` 并触发 MSVC C1188；不更改全局 C++ 标准、关闭诊断或删除 AAC 能力。
+
 ## rupnp 3.0.0 — `native/echo-upnp/vendor/rupnp`
 
 - 来源：crates.io `rupnp`，版本 3.0.0（research 转载源码 commit `00ec066e75f95a0874aaef238baebb643b354f83`）。
