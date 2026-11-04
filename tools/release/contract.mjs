@@ -6,8 +6,8 @@ import { spawnSync } from 'node:child_process';
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const appId = 'io.github.hoowhoami.echomusicnext';
 export const matrix = [
-  { platform: 'macOS', arch: 'arm64', runner: 'macos-15', kinds: ['dmg', 'zip'] },
-  { platform: 'macOS', arch: 'x64', runner: 'macos-15-intel', kinds: ['dmg', 'zip'] },
+  { platform: 'macOS', arch: 'arm64', runner: 'macos-26', kinds: ['dmg', 'zip'] },
+  { platform: 'macOS', arch: 'x64', runner: 'macos-26-intel', kinds: ['dmg', 'zip'] },
   {
     platform: 'Linux',
     arch: 'x64',

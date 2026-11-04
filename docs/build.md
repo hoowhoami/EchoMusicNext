@@ -149,6 +149,8 @@ Qt SDK 按 runner、架构、安装脚本、原生依赖和许可材料脚本生
 
 [桌面工作流](../.github/workflows/build.yml) 仅接受 `v*` 标签推送和手动运行，普通分支推送不触发。手动运行只上传保留 7 天的构建产物；标签发布必须完成六个平台的构建和打包，再统一校验文件名、版本、平台、大小及 SHA-512，上传到草稿 Release，完整后才公开。任一平台失败均不发布不完整版本。分享页面使用独立的手动工作流。
 
+macOS CI 使用 `macos-26`（ARM64）和 `macos-26-intel`（x64）。构建机器的系统版本与最低运行版本分别设置；C++ 和 Rust 的 deployment target 仍为 macOS 14.4，不因 runner 升级而提高。
+
 发行版本由 Git 标签决定，例如 `v0.2.0`、`v0.2.0-beta.1`；发版无需修改 CMake 或 Cargo 版本。完整 SemVer 自动传入应用、安装包和更新清单，系统需要的数字版本从其主/次/补丁号生成，预发布标签同时设置 GitHub prerelease。`Cargo.toml` 只管理 Rust crate 版本，与应用发行版本独立。`CHANGELOG.md` 的版本标题和正文均由维护者手动编辑，发布前移除该版本的“未发布”标记。
 
 本地构建在当前提交恰好有 `v*` 版本标签时使用该版本，其余提交和不含 Git 元数据的源码包默认显示 `0.1.0-dev`；该缺省值无需随发版修改。手动工作流选择标签时使用标签版本，选择普通分支时生成开发版本且不发布 Release。离线构建特定版本可在配置时传入 `-DECHO_RELEASE_VERSION=0.2.0-beta.1`，打包工具同时设置 `RELEASE_VERSION=0.2.0-beta.1`；与标签冲突或不符合 SemVer 的输入会失败。若复用早期缓存中固定了版本的构建目录，先用 `cmake -U ECHO_RELEASE_VERSION -S . -B build/release` 清除覆盖。打包前核对已配置版本，旧版本构建目录不能被标成新版本。
