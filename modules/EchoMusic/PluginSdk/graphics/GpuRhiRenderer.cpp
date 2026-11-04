@@ -48,7 +48,7 @@ void GpuRenderer::initialize(QRhiCommandBuffer *cb)
 void GpuRenderer::synchronize(QQuickRhiItem *item)
 {
     auto *surface = static_cast<EchoGpuSurface *>(item);
-    std::atomic_store(&surface->m_renderState, m_state);
+    surface->publishRenderState(m_state);
     auto snapshot = surface->takeSnapshot();
     if (m_state->budget != snapshot.budget)
         m_state->release();

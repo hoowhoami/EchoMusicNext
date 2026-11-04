@@ -130,8 +130,8 @@ void DlnaSession::action(const QString &service, const QString &name, const Argu
     }
     QString xml;
     QXmlStreamWriter writer(&xml);
-    for (const auto &[name, value] : arguments)
-        writer.writeTextElement(name, value);
+    for (const auto &[argumentName, argumentValue] : arguments)
+        writer.writeTextElement(argumentName, argumentValue);
     const auto id = m_native.submit(
         NativeBridge::UpnpAction,
         QJsonObject{

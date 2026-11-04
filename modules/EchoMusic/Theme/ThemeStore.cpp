@@ -368,19 +368,19 @@ bool ThemeStore::eventFilter(QObject *object, QEvent *event)
 QColor ThemeStore::controlHover() const
 {
     auto c = tone();
-    c.setAlphaF(0.10);
+    c.setAlphaF(0.10f);
     return c;
 }
 QColor ThemeStore::mutedSurface() const
 {
     auto c = tone();
-    c.setAlphaF(0.05);
+    c.setAlphaF(0.05f);
     return c;
 }
 QColor ThemeStore::selectedSurface() const
 {
     auto c = m_accent;
-    c.setAlphaF(0.12);
+    c.setAlphaF(0.12f);
     return c;
 }
 QColor ThemeStore::panelColor() const

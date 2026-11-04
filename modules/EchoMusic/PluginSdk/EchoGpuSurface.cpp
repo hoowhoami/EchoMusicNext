@@ -4,6 +4,7 @@
 #include "ItemPresentationObserver_p.h"
 #include "EchoPluginContext.h"
 #include "graphics/GpuRhi_p.h"
+#include <QMutexLocker>
 #include <QQuickWindow>
 #include <QRunnable>
 #include <cmath>
@@ -35,6 +36,19 @@ private:
     std::shared_ptr<GpuRenderState> m_state;
 };
 } // namespace
+std::shared_ptr<GpuRenderState> EchoGpuSurface::renderState() const
+{
+    QMutexLocker locker(&m_renderStateMutex);
+    return m_renderState;
+}
+void EchoGpuSurface::publishRenderState(std::shared_ptr<GpuRenderState> state)
+{
+    {
+        QMutexLocker locker(&m_renderStateMutex);
+        m_renderState.swap(state);
+    }
+    // The old state can own render resources. Release it only after unlocking.
+}
 EchoGpuSurface::EchoGpuSurface(QQuickItem *parent) : QQuickRhiItem(parent)
 {
     setAlphaBlending(true);
@@ -103,7 +117,7 @@ EchoGpuSurface::~EchoGpuSurface()
     releaseTarget();
     releaseNative();
     if (m_graphics) {
-        m_graphics->retainState(std::atomic_load(&m_renderState));
+        m_graphics->retainState(renderState());
         m_graphics->detach(this);
     }
 }
@@ -117,7 +131,7 @@ void EchoGpuSurface::setGraphics(EchoPluginGraphics *value)
     releaseNative();
     if (m_graphics) {
         disconnect(m_graphics, nullptr, this, nullptr);
-        m_graphics->retainState(std::atomic_load(&m_renderState));
+        m_graphics->retainState(renderState());
         m_graphics->detach(this);
     }
     disconnect(m_scopeConnection);
@@ -312,7 +326,7 @@ void EchoGpuSurface::releaseNative()
         if (submission->operation)
             submission->operation->cancel();
     }
-    const auto state = std::atomic_load(&m_renderState);
+    const auto state = renderState();
     for (const auto &request : requests)
         if (request.second)
             request.second->cancel();
@@ -331,7 +345,7 @@ void EchoGpuSurface::releaseResources()
 }
 bool EchoGpuSurface::drained() const
 {
-    const auto state = std::atomic_load(&m_renderState);
+    const auto state = renderState();
     return !state || state->objects == 0;
 }
 void EchoGpuSurface::retire()

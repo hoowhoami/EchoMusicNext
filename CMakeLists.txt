@@ -1,4 +1,12 @@
 cmake_minimum_required(VERSION 3.28)
+# Let CMake de-duplicate static archives only when the linker can rescan them.
+# Traditional Unix linkers still retain the repetitions needed for resolution.
+if(POLICY CMP0156)
+    cmake_policy(SET CMP0156 NEW)
+endif()
+if(POLICY CMP0179)
+    cmake_policy(SET CMP0179 NEW)
+endif()
 if(CMAKE_HOST_APPLE
    AND NOT CMAKE_OSX_SYSROOT
    AND "$ENV{SDKROOT}" STREQUAL ""

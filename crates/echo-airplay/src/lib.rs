@@ -3,6 +3,8 @@
 
 #![deny(unsafe_code)]
 
+// The native dns-sd adapter is used only by the macOS discovery path.
+#[cfg(target_os = "macos")]
 mod bonjour;
 mod pcm;
 mod session;

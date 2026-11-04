@@ -75,10 +75,11 @@ quint64 PluginFileService::request(const PluginFileOwner &owner, const QString &
 {
     // Keep bounded control capacity so a full I/O queue cannot prevent grant
     // revocation or the track-change cancellation of an active transfer.
-    const bool control = method == "revoke" || method == "removeGrant" ||
-                         method == "downloadCancel" || method == "releaseMedia" ||
-                         (method == "grant" && input.contains("replaceId"));
-    if ((m_snapshot && !control) || m_closing || m_pending.size() >= (control ? 40 : 32))
+    const bool controlRequest = method == "revoke" || method == "removeGrant" ||
+                                method == "downloadCancel" || method == "releaseMedia" ||
+                                (method == "grant" && input.contains("replaceId"));
+    if ((m_snapshot && !controlRequest) || m_closing ||
+        m_pending.size() >= (controlRequest ? 40 : 32))
         return 0;
     std::function<QSet<QString>(const QVariant &)> references = [&](const QVariant &value) {
         QSet<QString> result;

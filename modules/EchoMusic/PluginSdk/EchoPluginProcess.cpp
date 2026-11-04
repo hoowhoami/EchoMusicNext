@@ -137,7 +137,7 @@ public:
 #endif
         return true;
     }
-    void killTree(bool force)
+    void killTree([[maybe_unused]] bool force)
     {
         if (!pid)
             return;
@@ -158,10 +158,10 @@ public:
     bool treeStopped() const
     {
 #ifdef Q_OS_WIN
-        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info{};
-        return !job || (QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &info,
-                                                  sizeof(info), nullptr) &&
-                        info.ActiveProcesses == 0);
+        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION jobInfo{};
+        return !job || (QueryInformationJobObject(job, JobObjectBasicAccountingInformation,
+                                                  &jobInfo, sizeof(jobInfo), nullptr) &&
+                        jobInfo.ActiveProcesses == 0);
 #else
         return true;
 #endif

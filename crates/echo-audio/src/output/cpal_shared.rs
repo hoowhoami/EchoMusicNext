@@ -1038,6 +1038,7 @@ fn process_output_signal(
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn can_copy_graph_to_device(
     shared: &SharedAudio,
     output_sample_rate: u32,

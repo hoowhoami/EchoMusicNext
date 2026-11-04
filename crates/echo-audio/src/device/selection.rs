@@ -8,6 +8,7 @@ use cpal::{Stream, StreamConfig};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(not(target_os = "windows"))]
 const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 pub(crate) const DEVICE_KEY_SEPARATOR: &str = "\u{1f}";
 pub const DEFAULT_DEVICE_NAME: &str = "auto";
@@ -143,6 +144,7 @@ fn preferred_output_sample_rate_uncached(device_name: &str, exclusive: bool) -> 
         .map(|config| config.sample_rate())
 }
 
+#[cfg(not(target_os = "windows"))]
 pub fn resolve_output_sample_rate(device_name: &str, exclusive: bool) -> u32 {
     preferred_output_sample_rate(device_name, exclusive).unwrap_or(FALLBACK_SAMPLE_RATE)
 }

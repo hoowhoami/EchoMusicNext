@@ -191,18 +191,18 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
             auto details = std::make_shared<QVariantList>();
             QSet<QString> ids;
             for (const auto &value : doc.value("plugins").toArray()) {
-                QString failure;
+                QString parseFailure;
                 auto entry =
                     PluginSourceEntry::parse(value.toObject().toVariantMap(),
-                                             source.value("repository").toString(), failure);
+                                             source.value("repository").toString(), parseFailure);
                 const auto id = entry.value("id").toString();
-                if (failure.isEmpty() && ids.contains(id))
-                    failure = tr("插件索引包含重复 ID：%1").arg(id);
-                if (!failure.isEmpty()) {
-                    errors->append(failure);
+                if (parseFailure.isEmpty() && ids.contains(id))
+                    parseFailure = tr("插件索引包含重复 ID：%1").arg(id);
+                if (!parseFailure.isEmpty()) {
+                    errors->append(parseFailure);
                     if (details->size() < 16)
                         details->append(PluginNetworkFailure::content(
-                            failure, QUrl(raw(source, "echo-plugins.json"))));
+                            parseFailure, QUrl(raw(source, "echo-plugins.json"))));
                     continue;
                 }
                 ids.insert(id);

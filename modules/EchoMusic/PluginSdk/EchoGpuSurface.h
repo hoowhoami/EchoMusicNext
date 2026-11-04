@@ -3,8 +3,10 @@
 #include "EchoGpuGlyphAtlas.h"
 #include "GlyphRun.h"
 #include "EchoPluginOperation.h"
+#include <QMutex>
 #include <QQuickRhiItem>
 #include <QTimer>
+#include <memory>
 namespace EchoMusic
 {
 bool gpuTextureSourceSafe(QQuickItem *source);
@@ -102,8 +104,13 @@ private:
     QList<QPointer<EchoGpuGlyphAtlas>> m_glyphAtlases;
     void syncActivity();
     void releaseNative();
+    std::shared_ptr<GpuRenderState> renderState() const;
+    void publishRenderState(std::shared_ptr<GpuRenderState> state);
     void releaseTarget();
     QPointer<EchoPluginGraphics> m_graphics;
+    // Apple libc++ lacks atomic<shared_ptr>; publish the same retained state
+    // under a short lock on every platform. Resource retirement stays outside it.
+    mutable QMutex m_renderStateMutex;
     std::shared_ptr<GpuRenderState> m_renderState;
     std::shared_ptr<GpuBridge> m_bridge;
     QList<QMetaObject::Connection> m_windowConnections, m_itemConnections;

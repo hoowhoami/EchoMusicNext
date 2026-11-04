@@ -150,8 +150,7 @@ mod windows_impl {
 
 #[cfg(target_os = "windows")]
 pub use windows_impl::{
-    MultimediaTask, boost_audio_output_thread, boost_audio_producer_thread,
-    opt_out_process_power_throttling,
+    boost_audio_output_thread, boost_audio_producer_thread, opt_out_process_power_throttling,
 };
 
 #[cfg(target_os = "macos")]

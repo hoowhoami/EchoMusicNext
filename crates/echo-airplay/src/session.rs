@@ -1,6 +1,7 @@
 //! Owns the AirPlay client on one thread and feeds it post-DSP PCM.
 //! A timed-out send keeps the same frame. An older epoch is discarded.
 
+#[cfg(target_os = "macos")]
 use crate::bonjour;
 use crate::pcm::{self, PcmFrame, TRANSPORT_FORMAT};
 use airplay_audio::AlacEncoder;

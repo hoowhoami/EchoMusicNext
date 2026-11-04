@@ -45,8 +45,8 @@ bool EchoPluginGraphics::prepareSubmission(const QVariantMap &input, QVariantMap
     QVariantList normalized;
     qint64 uploads = 0;
     QSet<QString> consumedUniforms;
-    for (const auto &value : passes) {
-        auto p = value.toMap();
+    for (const auto &passValue : passes) {
+        auto p = passValue.toMap();
         const auto kind = p.value("type", "render").toString();
         if (kind == "render" || kind == "compute") {
             if (!validateFrame({{"passes", QVariantList{p}}}, error))

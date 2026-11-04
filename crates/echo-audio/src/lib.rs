@@ -11,6 +11,8 @@ mod dispatcher;
 mod dsp;
 pub mod embedded_metadata;
 pub mod events;
+// Windows owns exclusive mode directly in the WASAPI backend.
+#[cfg(not(target_os = "windows"))]
 mod exclusive;
 mod filter;
 mod output;

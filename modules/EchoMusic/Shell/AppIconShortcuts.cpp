@@ -285,10 +285,10 @@ QVariantMap AppIconShortcuts::apply(const QHash<QString, QString> &paths)
     for (auto it = paths.begin(); it != paths.end(); ++it) {
         bool found = false;
         for (const auto &path : candidates(it.key())) {
-            QString error;
+            QString shortcutError;
             int index = 0;
-            currentIcon(path, &index, error);
-            if (error.isEmpty()) {
+            currentIcon(path, &index, shortcutError);
+            if (shortcutError.isEmpty()) {
                 desired[path] = it.value();
                 targets[path] = it.key();
                 found = true;

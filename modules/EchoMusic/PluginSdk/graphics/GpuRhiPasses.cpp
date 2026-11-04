@@ -100,7 +100,7 @@ bool reflectionValid(const QShader &shader, const QVariantList &bindings,
 bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *output)
 {
     const auto incoming = frame.value("passes").toList();
-    const auto topology = [](QVariantMap definition) {
+    const auto pipelineStructure = [](QVariantMap definition) {
         bool indirect = false;
         for (const auto &value : definition.value("draws").toList())
             indirect |= value.toMap().contains("indirect");
@@ -111,7 +111,8 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
     };
     bool reuse = passes.size() == size_t(incoming.size());
     for (int i = 0; reuse && i < incoming.size(); ++i)
-        reuse = topology(passes[size_t(i)].definition) == topology(incoming[i].toMap());
+        reuse = pipelineStructure(passes[size_t(i)].definition) ==
+                pipelineStructure(incoming[i].toMap());
     if (reuse) {
         for (int i = 0; i < incoming.size(); ++i)
             passes[size_t(i)].definition = incoming[i].toMap();
@@ -119,9 +120,9 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
     }
     ++pipelineBuilds;
     passes.clear();
-    for (const auto &value : frame.value("passes").toList()) {
+    for (const auto &passValue : frame.value("passes").toList()) {
         NativeGpuPass pass;
-        pass.definition = value.toMap();
+        pass.definition = passValue.toMap();
         const auto &p = pass.definition;
         const auto command = p.value("type", "render").toString();
         if (command != "render" && command != "compute") {

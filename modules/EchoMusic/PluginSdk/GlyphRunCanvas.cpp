@@ -933,7 +933,8 @@ void CanvasNode::prepare()
         report("Canvas exceeds 32 render target pipeline formats");
         return;
     }
-    const int pipelineCount = mainPipelines.size() + (pipelineIndex < 0 ? 1 : 0);
+    // The pipeline cache is bounded by MaxMainPipelines above.
+    const int pipelineCount = static_cast<int>(mainPipelines.size()) + (pipelineIndex < 0 ? 1 : 0);
     const int slotCount = std::max(int(uniformSlots.size()), slotIndex + 1);
     const int priorBytes =
         slotIndex < int(uniformSlots.size()) ? uniformSlots[slotIndex]->bytes : 0;
@@ -1131,7 +1132,7 @@ void CanvasNode::prepare()
             report("Canvas target pipeline creation failed");
             return;
         }
-        pipelineIndex = mainPipelines.size();
+        pipelineIndex = static_cast<int>(mainPipelines.size());
         mainPipelines.push_back(std::move(entry));
     }
     mainPipeline = mainPipelines[pipelineIndex]->pipeline.get();

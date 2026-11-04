@@ -219,9 +219,11 @@ QJsonObject inspect(const QStringList &arguments)
         if (!container.seek(container.size() - 1) || container.read(1) != QByteArray(1, '\x3b'))
             return error("GIF animation is missing its trailer");
     } else if (format == "webp") {
-        const auto header = container.read(12);
-        if (header.size() != 12 || header.first(4) != "RIFF" || header.mid(8, 4) != "WEBP" ||
-            quint64(qFromLittleEndian<quint32>(header.constData() + 4)) + 8 != quint64(info.size()))
+        const auto webpHeader = container.read(12);
+        if (webpHeader.size() != 12 || webpHeader.first(4) != "RIFF" ||
+            webpHeader.mid(8, 4) != "WEBP" ||
+            quint64(qFromLittleEndian<quint32>(webpHeader.constData() + 4)) + 8 !=
+                quint64(info.size()))
             return error("WebP animation container is incomplete");
     }
     const auto size = reader.size();

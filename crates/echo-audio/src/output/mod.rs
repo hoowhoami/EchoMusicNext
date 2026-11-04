@@ -2,6 +2,7 @@ mod airplay_tap;
 pub use airplay_tap::{get_airplay_tap_stats, set_airplay_epoch, set_airplay_tap};
 mod cpal_shared;
 
+#[cfg(not(target_os = "windows"))]
 pub(crate) const MIN_REALTIME_BUFFER_FRAMES: usize = 32_768;
 
 use crate::events::{PlayerErrorCode, PlayerEvent};
@@ -274,10 +275,12 @@ pub(crate) fn output_buffer_mode_for_frames(frames: u32) -> String {
     }
 }
 
+#[cfg(any(not(target_os = "windows"), test))]
 pub(crate) fn is_disconnect_recovery_reason(reason: &str) -> bool {
     reason == "device-not-available" || reason == "stream-invalidated"
 }
 
+#[cfg(not(target_os = "windows"))]
 pub(crate) fn emit_output_runtime_error(
     shared: &SharedAudio,
     stop: &OutputStopToken,

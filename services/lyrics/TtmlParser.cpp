@@ -148,9 +148,9 @@ struct Node
     QString ns, name;
     QMap<QPair<QString, QString>, QString> attributes;
     QList<Part> children;
-    const QString *attr(const QString &ns, const QString &name) const
+    const QString *attr(const QString &space, const QString &local) const
     {
-        const auto it = attributes.constFind({ns, name});
+        const auto it = attributes.constFind({space, local});
         return it == attributes.cend() ? nullptr : &*it;
     }
     bool is(const QString &space, const QString &local) const
