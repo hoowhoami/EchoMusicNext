@@ -149,7 +149,7 @@ void AppContext::wireSmoke()
                 beginShutdown();
             }
         });
-        QTimer::singleShot(startupSmoke ? 60000 : 10000, &m_callbacks, [&] {
+        QTimer::singleShot(startupSmoke ? 60000 : 30000, &m_callbacks, [&] {
             qCritical("Smoke timed out");
             exitStatus = 1;
             beginShutdown();

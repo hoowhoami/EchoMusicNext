@@ -356,7 +356,7 @@ class Codec
                     auto m = krcLine().match(source);
                     if (m.hasMatch()) {
                         auto row = krcRow(m);
-                        schedules.append({row.start});
+                        schedules.append(QList<qint64>{row.start});
                         rows.append(std::move(row));
                         limit(rows.size() <= MaxRows);
                     }

@@ -166,7 +166,7 @@ bool library(const QString &method, Arguments &a, ApiClient &api, std::function<
             a.valid = false;
         QList<ApiClient::PlaylistTrackFileId> files;
         for (auto value : a.identifiers("files"))
-            files.append({value});
+            files.append(ApiClient::PlaylistTrackFileId{value});
         command = [&api, id, files] { return api.removePlaylistTracks(id, files); };
     }
     if (method == "sortPlaylistTracks") {
