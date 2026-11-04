@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { root, matrix, assetName, writeManifest } from './contract.mjs';
+import { prepareChangelog } from './changelog.mjs';
 test(
   'publishing stages the complete release and keeps failed uploads as draft',
   { skip: process.platform === 'win32' },
@@ -16,19 +17,19 @@ test(
         assets = path.join(directory, 'build/release-assets'),
         bin = path.join(directory, 'bin');
       for (const subdir of [releaseTools, assets, bin]) fs.mkdirSync(subdir, { recursive: true });
-      for (const name of ['contract.mjs', 'publish.mjs'])
+      for (const name of ['contract.mjs', 'publish.mjs', 'changelog.mjs'])
         fs.copyFileSync(path.join(root, 'tools/release', name), path.join(releaseTools, name));
       fs.writeFileSync(
-        path.join(directory, 'CMakeLists.txt'),
-        'project(EchoMusicNext VERSION 0.1.0 LANGUAGES CXX)',
+        path.join(directory, 'CHANGELOG.md'),
+        '# 更新记录\n\n## 未发布\n\n下次版本草稿。\n\n## 0.1.0-beta.1\n\n实际版本说明。\n\n## 0.0.1\n\n旧版本说明。\n',
       );
-      fs.writeFileSync(
-        path.join(directory, 'Cargo.toml'),
-        '[workspace.package]\nversion = "0.1.0"',
-      );
+      const notesDirectory = path.join(directory, 'build/release-notes');
+      prepareChangelog(directory, version, notesDirectory);
+      const notesFile = path.join(notesDirectory, 'CHANGELOG.md');
+      // The release job must use the same snapshot as all package jobs.
       fs.writeFileSync(
         path.join(directory, 'CHANGELOG.md'),
-        '# 更新记录\n\n## 0.1.0（未发布）\n\n实际版本说明。\n',
+        '## 0.1.0-beta.1\n\n工作区中的其它说明。\n',
       );
       for (const target of matrix) {
         for (const kind of target.kinds)
@@ -70,6 +71,8 @@ else if (args[0] === 'release' && args[1] === 'upload') {
         PATH: bin + path.delimiter + process.env.PATH,
         GITHUB_EVENT_NAME: 'push',
         GITHUB_REF: `refs/tags/v${version}`,
+        RELEASE_VERSION: version,
+        ECHO_CHANGELOG_FILE: notesFile,
         GITHUB_REPOSITORY: 'hoowhoami/EchoMusicNext',
         TEST_STATE: state,
       };
@@ -96,6 +99,10 @@ else if (args[0] === 'release' && args[1] === 'upload') {
       assert.equal(published.release.draft, true);
       fs.unlinkSync(state);
       result = run({ GITHUB_EVENT_NAME: 'workflow_dispatch' });
+      assert.notEqual(result.status, 0);
+      assert.ok(!fs.existsSync(state));
+      fs.writeFileSync(notesFile, '## 9.0.0\n\n不匹配的版本。\n');
+      result = run({});
       assert.notEqual(result.status, 0);
       assert.ok(!fs.existsSync(state));
     } finally {

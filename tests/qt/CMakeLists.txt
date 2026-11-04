@@ -92,8 +92,10 @@ target_link_libraries(
 add_test(NAME about-service COMMAND echo-about-service-test)
 set_tests_properties(about-service PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
 find_program(ECHO_NODE_EXECUTABLE NAMES node REQUIRED)
-add_test(NAME update-release-contract COMMAND ${ECHO_NODE_EXECUTABLE} --test
-                                              ${PROJECT_SOURCE_DIR}/tools/release/contract.test.mjs
+add_test(
+    NAME update-release-contract
+    COMMAND ${ECHO_NODE_EXECUTABLE} --test ${PROJECT_SOURCE_DIR}/tools/release/contract.test.mjs
+            ${PROJECT_SOURCE_DIR}/tools/release/changelog.test.mjs
 )
 add_test(
     NAME update-helper
@@ -229,7 +231,12 @@ add_test(NAME search-model COMMAND echo-search-model-test)
 add_test(NAME qml-smoke COMMAND echomusicnext --smoke-test --log-dir
                                 "${CMAKE_CURRENT_BINARY_DIR}/logs"
 )
-set_tests_properties(qml-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 20)
+# The application has a 30s smoke deadline; reserve time for asynchronous drain
+# and the plugin wrapper's own 45s deadline before CTest terminates the process.
+set(ECHO_SMOKE_TEST_TIMEOUT 50)
+set_tests_properties(
+    qml-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT ${ECHO_SMOKE_TEST_TIMEOUT}
+)
 echo_copy_rust_runtime(echo-search-model-test)
 echo_copy_rust_runtime(echo-foundation-test)
 echo_copy_rust_runtime(echo-playlist-mutation-test)
@@ -1123,7 +1130,8 @@ add_test(
         "${CMAKE_CURRENT_SOURCE_DIR}/PluginApplicationSmoke.cmake"
 )
 set_tests_properties(
-    plugin-application-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 25
+    plugin-application-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT
+                                        ${ECHO_SMOKE_TEST_TIMEOUT}
 )
 
 # Real ABI2 library exercises the host catalog and audio actor without network.
@@ -1186,7 +1194,8 @@ add_test(
         --log-dir "${CMAKE_CURRENT_BINARY_DIR}/plugin-share-logs"
 )
 set_tests_properties(
-    plugin-share-application-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 25
+    plugin-share-application-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT
+                                              ${ECHO_SMOKE_TEST_TIMEOUT}
 )
 
 qt_add_executable(echo-playback-page-test PlaybackPageTest.cpp PlaybackPageTest.h)
@@ -1696,7 +1705,8 @@ add_test(
             --log-dir "${CMAKE_CURRENT_BINARY_DIR}/share-logs"
 )
 set_tests_properties(
-    share-application-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 25
+    share-application-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT
+                                       ${ECHO_SMOKE_TEST_TIMEOUT}
 )
 
 target_link_libraries(

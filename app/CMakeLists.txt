@@ -168,7 +168,7 @@ if(APPLE)
             RUNTIME DESTINATION "echomusicnext.app/Contents/Helpers"
     )
     install(FILES "$<TARGET_FILE:echo_ffi>" DESTINATION "echomusicnext.app/Contents/Frameworks")
-    install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${PROJECT_SOURCE_DIR}/CHANGELOG.md"
+    install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${ECHO_PACKAGED_CHANGELOG_FILE}"
                   "${PROJECT_SOURCE_DIR}/docs/third-party-notices.md"
             DESTINATION "echomusicnext.app/Contents/Resources/licenses"
     )
@@ -182,7 +182,7 @@ else()
     install(FILES "$<TARGET_FILE:echo_ffi>"
             DESTINATION "$<IF:$<BOOL:${WIN32}>,${CMAKE_INSTALL_BINDIR},${CMAKE_INSTALL_LIBDIR}>"
     )
-    install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${PROJECT_SOURCE_DIR}/CHANGELOG.md"
+    install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${ECHO_PACKAGED_CHANGELOG_FILE}"
                   "${PROJECT_SOURCE_DIR}/docs/third-party-notices.md"
             DESTINATION share/echomusicnext/licenses
     )

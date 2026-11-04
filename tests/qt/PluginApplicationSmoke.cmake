@@ -5,7 +5,9 @@ execute_process(
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
     ERROR_VARIABLE errors
-    TIMEOUT 20
+    # Allow the application's 30s deadline and asynchronous plugin/service drain.
+    # CTest has a separate 50s outer deadline to collect this wrapper's result.
+    TIMEOUT 45
 )
 set(transcript "${output}\n${errors}")
 message("${transcript}")
@@ -22,13 +24,21 @@ endforeach()
 # Verify the production composition executes dependency stages in order and
 # completes asynchronous shutdown after real plugin deactivation.
 set(previous -1)
-foreach(marker
-        "Bootstrap phase: createShell" "Bootstrap phase: createNetworkPlayback"
-        "Bootstrap phase: createAccount" "Bootstrap phase: createPages"
-        "Bootstrap phase: createPlugins" "Bootstrap phase: registerRoutes" "Bootstrap phase: wireShutdown"
-        "Bootstrap phase: wireSmoke" "Bootstrap phase: mountUi"
-        "Application shutdown started" "Plugin application fixture deactivated"
-        "Application shutdown complete")
+foreach(
+    marker
+    "Bootstrap phase: createShell"
+    "Bootstrap phase: createNetworkPlayback"
+    "Bootstrap phase: createAccount"
+    "Bootstrap phase: createPages"
+    "Bootstrap phase: createPlugins"
+    "Bootstrap phase: registerRoutes"
+    "Bootstrap phase: wireShutdown"
+    "Bootstrap phase: wireSmoke"
+    "Bootstrap phase: mountUi"
+    "Application shutdown started"
+    "Plugin application fixture deactivated"
+    "Application shutdown complete"
+)
     string(FIND "${transcript}" "${marker}" position)
     if(position LESS_EQUAL previous)
         message(FATAL_ERROR "Composition lifecycle marker missing/out of order: ${marker}")

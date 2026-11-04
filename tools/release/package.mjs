@@ -3,7 +3,14 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { verifyStage } from './verify-stage.mjs';
 import { collectLicenses } from './licenses.mjs';
-import { root, matrix, releaseVersion, assetName, writeManifest } from './contract.mjs';
+import {
+  root,
+  matrix,
+  releaseVersion,
+  assetName,
+  writeManifest,
+  verifyReleaseBuild,
+} from './contract.mjs';
 const options = Object.fromEntries(
   process.argv.slice(2).map((value) => {
     const [key, ...rest] = value.replace(/^--/, '').split('=');
@@ -25,6 +32,7 @@ if (
 )
   throw new Error('Build and output must be managed build directories; --qt is required');
 const staging = path.join(build, 'package-staging');
+verifyReleaseBuild(build, version);
 fs.rmSync(staging, { recursive: true, force: true });
 fs.mkdirSync(staging, { recursive: true });
 fs.mkdirSync(output, { recursive: true });

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { releaseVersion, root, validateRelease } from './contract.mjs';
+import { releaseChangelog } from './changelog.mjs';
 if (process.env.GITHUB_EVENT_NAME !== 'push' || !process.env.GITHUB_REF?.startsWith('refs/tags/v'))
   throw new Error('Only a pushed version tag may publish');
 const version = releaseVersion(),
@@ -10,16 +11,8 @@ const repo = process.env.GITHUB_REPOSITORY;
 if (repo !== 'hoowhoami/EchoMusicNext') throw new Error('Publishing repository mismatch');
 const directory = path.resolve(root, 'build/release-assets');
 const files = await validateRelease(directory, version);
-const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-const sections = [
-  ...changelog.matchAll(
-    /^##\s+\[?v?([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?)\]?[^\n]*\n([\s\S]*?)(?=^##\s|$(?![\s\S]))/gm,
-  ),
-];
-const body =
-  sections.find((match) => match[1] === version)?.[2]?.trim() ||
-  sections.find((match) => match[1] === version.split(/[-+]/)[0])?.[2]?.trim();
-if (!body) throw new Error(`Missing changelog section for ${version}`);
+const notesFile = process.env.ECHO_CHANGELOG_FILE || path.join(root, 'CHANGELOG.md');
+const { body } = releaseChangelog(fs.readFileSync(notesFile, 'utf8'), version);
 function gh(args, input) {
   const result = spawnSync('gh', args, {
     encoding: 'utf8',

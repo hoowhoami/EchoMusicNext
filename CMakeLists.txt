@@ -23,9 +23,10 @@ if(CMAKE_HOST_APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
         CACHE STRING "Minimum macOS version" FORCE
     )
 endif()
+include(cmake/ApplicationVersion.cmake)
 project(
     EchoMusicNext
-    VERSION 0.1.0
+    VERSION "${ECHO_RELEASE_CORE}"
     LANGUAGES C CXX
 )
 if(APPLE)
@@ -73,15 +74,8 @@ include(cmake/Rust.cmake)
 include(cmake/ProjectOptions.cmake)
 include(cmake/MsvcLinkResponse.cmake)
 include(cmake/TextSegmentation.cmake)
-set(ECHO_RELEASE_VERSION
-    "${PROJECT_VERSION}"
-    CACHE STRING "Full release version including prerelease suffix"
-)
-string(REGEX REPLACE "[-+].*$" "" ECHO_RELEASE_CORE "${ECHO_RELEASE_VERSION}")
-if(NOT ECHO_RELEASE_CORE STREQUAL PROJECT_VERSION)
-    message(FATAL_ERROR "ECHO_RELEASE_VERSION must use the declared project version")
-endif()
 option(ECHO_DISTRIBUTION_BUILD "Enable packaged application lifecycle actions" OFF)
+include(cmake/ReleaseNotes.cmake)
 include(cmake/BuildIdentity.cmake)
 include(cmake/Crashpad.cmake)
 add_subdirectory(tools/update-helper)

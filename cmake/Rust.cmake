@@ -16,7 +16,6 @@ set(ECHO_CARGO_DIR
 # IMPORTED_LOCATION itself does not evaluate generator expressions.
 set(ECHO_CARGO_OPTIMIZED "$<CONFIG:Release,RelWithDebInfo,MinSizeRel>")
 set(ECHO_CARGO_PROFILE "$<IF:${ECHO_CARGO_OPTIMIZED},release,debug>")
-set(ECHO_CARGO_SONAME_FLAG)
 if(WIN32)
     set(ECHO_RUST_FILENAME echo_ffi.dll)
     set(ECHO_RUST_IMPLIB "${ECHO_CARGO_DIR}/${ECHO_CARGO_PROFILE}/echo_ffi.dll.lib")
@@ -24,10 +23,6 @@ elseif(APPLE)
     set(ECHO_RUST_FILENAME libecho_ffi.dylib)
 else()
     set(ECHO_RUST_FILENAME libecho_ffi.so)
-    set(ECHO_CARGO_SONAME_FLAG
-        --config
-        "target.\"cfg(all())\".rustflags=[\"-C\", \"link-arg=-Wl,-soname,${ECHO_RUST_FILENAME}\"]"
-    )
 endif()
 set(ECHO_RUST_LIBRARY "${ECHO_CARGO_DIR}/${ECHO_CARGO_PROFILE}/${ECHO_RUST_FILENAME}")
 
@@ -37,7 +32,7 @@ add_custom_target(
     echo_cargo
     COMMAND ${ECHO_CARGO_COMMAND} run --locked -p ffi-header -- --check
     COMMAND ${ECHO_CARGO_COMMAND} build --locked -p echo-ffi --target-dir "${ECHO_CARGO_DIR}"
-            ${ECHO_CARGO_SONAME_FLAG} "$<${ECHO_CARGO_OPTIMIZED}:--release>"
+            "$<${ECHO_CARGO_OPTIMIZED}:--release>"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     BYPRODUCTS "${ECHO_RUST_LIBRARY}" ${ECHO_RUST_IMPLIB}
     USES_TERMINAL VERBATIM COMMAND_EXPAND_LISTS

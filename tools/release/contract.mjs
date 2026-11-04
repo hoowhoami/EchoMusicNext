@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const appId = 'io.github.hoowhoami.echomusicnext';
 export const matrix = [
@@ -44,23 +45,46 @@ export function validVersion(version) {
       .some((part) => /^\d+$/.test(part) && part.length > 1 && part.startsWith('0')),
   );
 }
-export function releaseVersion(repository = root, ref = process.env.GITHUB_REF || '') {
-  const cmake = fs.readFileSync(path.join(repository, 'CMakeLists.txt'), 'utf8');
-  const base = /project\(\s*EchoMusicNext\s+VERSION\s+([0-9.]+)/.exec(cmake)?.[1];
-  const cargo = /^version\s*=\s*"([^"]+)"/m.exec(
-    fs.readFileSync(path.join(repository, 'Cargo.toml'), 'utf8'),
-  )?.[1];
-  if (!base || base !== cargo) throw new Error('CMake and Cargo application versions must match');
-  const version = ref.startsWith('refs/tags/')
-    ? ref.slice('refs/tags/'.length).replace(/^v/, '')
-    : base;
-  if (
-    !validVersion(version) ||
-    version.split(/[-+]/)[0] !== base ||
-    (ref.startsWith('refs/tags/') && !ref.startsWith('refs/tags/v'))
-  )
-    throw new Error('Tag version must match the declared application version');
+export function releaseVersion(
+  repository = root,
+  ref = process.env.GITHUB_REF || '',
+  override = process.env.RELEASE_VERSION || '',
+) {
+  const tagged = ref.startsWith('refs/tags/');
+  if (tagged && !ref.startsWith('refs/tags/v')) throw new Error('Release tags must start with v');
+  let version = tagged ? ref.slice('refs/tags/v'.length) : override;
+  if (!version && !ref) {
+    const tag = spawnSync(
+      'git',
+      ['describe', '--tags', '--exact-match', '--match', 'v[0-9]*', 'HEAD'],
+      {
+        cwd: repository,
+        encoding: 'utf8',
+      },
+    );
+    if (tag.status === 0) version = tag.stdout.trim().slice(1);
+  }
+  if (!tagged && !version) version = '0.1.0-dev';
+  if (!validVersion(version)) throw new Error('Application version must be strict SemVer');
+  if (tagged && override && override !== version)
+    throw new Error('RELEASE_VERSION differs from the release tag');
   return version;
+}
+export function verifyBuildVersion(build, version) {
+  const info = fs.readFileSync(path.join(build, 'generated/EchoBuildInfo.h'), 'utf8');
+  const actual = /^#define ECHO_RELEASE_VERSION "([^"]+)"$/m.exec(info)?.[1];
+  if (actual !== version)
+    throw new Error(
+      `Build version ${actual || '(missing)'} differs from package version ${version}; reconfigure and rebuild first`,
+    );
+}
+export function verifyReleaseBuild(build, version) {
+  verifyBuildVersion(build, version);
+  const cache = fs.readFileSync(path.join(build, 'CMakeCache.txt'), 'utf8');
+  if (!/^ECHO_DISTRIBUTION_BUILD:BOOL=(?:ON|TRUE|YES|1)$/im.test(cache))
+    throw new Error(
+      'Packages require a distribution build; reconfigure with --distribution and rebuild first',
+    );
 }
 export function assetName(version, platform, arch, kind) {
   if (
