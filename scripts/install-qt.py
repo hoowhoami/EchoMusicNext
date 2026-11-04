@@ -1,7 +1,7 @@
 """Install the pinned Qt SDK once, separately from application builds.
 
-Windows/macOS use official prebuilt packages, downloaded by aqtinstall.
-Linux uses the source SDK to preserve the Ubuntu 22.04/glibc 2.35 baseline.
+All desktop targets use official prebuilt packages, downloaded by aqtinstall.
+Linux ARM64 uses an Ubuntu 24.04/glibc 2.39 baseline for its official kit.
 Qt Online Installer kits also work with build.py/start.py --qt-prefix.
 """
 
@@ -49,7 +49,7 @@ def main():
     args = parser.parse_args()
     if sys.version_info < (3, 12):
         parser.error("Use Python 3.12 or newer")
-    source = args.source or sys.platform.startswith("linux")
+    source = args.source
     prefix = source_prefix() if source else official_prefix()
     if args.check:
         print(f"Qt SDK: {validate_sdk(prefix)}")
@@ -63,6 +63,11 @@ def main():
             run([sys.executable, ROOT / "scripts/build-qt.py"])
         else:
             host, arch, _ = official_kit()
+            archives = ["qtbase", "qtdeclarative", "qtsvg", "qttools"]
+            if sys.platform.startswith("linux"):
+                # Both Linux base packages provide these as separate archives.
+                # Keep Wayland QPA/client support and the SDK's matching ICU.
+                archives.extend(("qtwayland", "icu"))
             download_directory = ROOT / "build/qt-downloads"
             download_directory.mkdir(parents=True, exist_ok=True)
             run(
@@ -86,10 +91,7 @@ def main():
                     "qtwebsockets",
                     "qtimageformats",
                     "--archives",
-                    "qtbase",
-                    "qtdeclarative",
-                    "qtsvg",
-                    "qttools",
+                    *archives,
                     "-k",
                     "-d",
                     download_directory,

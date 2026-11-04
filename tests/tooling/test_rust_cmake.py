@@ -45,7 +45,10 @@ class RustCMakeTest(unittest.TestCase):
         (source / "header/Cargo.toml").write_text(
             '[package]\nname = "ffi-header"\nversion = "0.1.0"\nedition = "2024"\n'
         )
-        (source / "header/src/main.rs").write_text("fn main() {}\n")
+        (source / "header/src/main.rs").write_text(
+            'fn main() { std::fs::write("header-profile.txt", '
+            'if cfg!(debug_assertions) { "debug" } else { "release" }).unwrap(); }\n'
+        )
         (source / "main.cpp").write_text(
             'extern "C" int echo_profile();\nextern "C" int echo_user_flag();\n'
             "int main() { return echo_profile() == EXPECTED && "
@@ -120,6 +123,7 @@ class RustCMakeTest(unittest.TestCase):
                             else "debug"
                         )
                         self.assertEqual(Path(imported.strip()).parent, source / "target" / profile)
+                        self.assertEqual((source / "header-profile.txt").read_text(), profile)
 
     @unittest.skipUnless(
         sys.platform.startswith("linux") and shutil.which("readelf"), "Linux ELF tools required"

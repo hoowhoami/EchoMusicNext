@@ -8,7 +8,7 @@
 - Windows：MSVC 2022 开发环境；macOS：Xcode Command Line Tools。
 - Linux：编译器、OpenGL/EGL、X11/XCB、Wayland、字体、音频和桌面集成开发库，完整软件包列表见 [共享依赖清单](../tools/qt/linux-packages.txt)。
 
-目标系统基线为 Windows 10 1809+ x64 / Windows 11 x64、ARM64，macOS 14.4+ Intel、Apple Silicon，以及 Ubuntu 22.04+ 或等价 glibc 2.35+ 的 Linux x64、ARM64（X11 / Wayland）。这些是构建与适配目标，不代表全部组合已完成实机验证。
+目标系统基线为 Windows 10 1809+ x64 / Windows 11 x64、ARM64，macOS 14.4+ Intel、Apple Silicon，以及 Linux x64 的 Ubuntu 22.04+ / glibc 2.35+、Linux ARM64 的 Ubuntu 24.04+ / glibc 2.39+（X11 / Wayland）。这些是构建与适配目标，不代表全部组合已完成实机验证。
 
 需要插件的 ICU 词语分段能力时，先按[插件文本构建说明](plugin-text.md)提供 ICU4C 78.x。POSIX 可运行 `python3.12 scripts/install-icu.py` 构建固定源码静态库，再将安装目录传给 `ICU_ROOT`。没有兼容库时宿主不导出 `text.segmentation`，必需它的插件会由兼容检查明确拒绝。
 
@@ -21,11 +21,11 @@ python3.12 scripts/install-qt.py
 python3.12 scripts/install-qt.py --check
 ```
 
-Windows 使用对应版本的 `python`。Windows/macOS 安装官方预编译 SDK；Linux 为匹配 glibc 2.35 基线独立构建源码 SDK。安装工具及其依赖固定在 `tools/qt/requirements.txt`，仅用于开发。
+Windows 使用对应版本的 `python`。全部桌面平台默认安装官方预编译 SDK。Linux x64 使用 `linux_gcc_64` / `gcc_64`，ARM64 使用 `linux_gcc_arm64` / `gcc_arm64`；ARM64 官方包的 glibc 基线为 2.39。安装工具及其依赖固定在 `tools/qt/requirements.txt`，仅用于开发。
 
-默认 SDK 位于 `build/qt-official/6.12.0/<kit>` 或 `build/qt-sdk/6.12.0`。也可通过 Qt 官方安装器安装相同版本和所需模块，随后传入 `--qt-prefix /path/to/Qt/6.12.0/kit`。脚本会检查 SDK 版本及 Core、Gui、Widgets、Qml、Quick、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql、Network、WebSockets、ShaderTools、LinguistTools 等所需模块。
+默认 SDK 位于 `build/qt-official/6.12.0/<kit>`，显式源码 SDK 位于 `build/qt-sdk/6.12.0`。也可通过 Qt 官方安装器安装相同版本和所需模块，随后传入 `--qt-prefix /path/to/Qt/6.12.0/kit`。脚本会检查 SDK 版本及 Core、Gui、Widgets、Qml、Quick、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql、Network、WebSockets、ShaderTools、LinguistTools 等所需模块。
 
-需要源码 SDK 时显式运行 `python3.12 scripts/install-qt.py --source`。日常构建和启动不会下载或重新构建 Qt。
+下载失败不会自动回退到源码编译。需要源码 SDK 时显式运行 `python3.12 scripts/install-qt.py --source`。日常构建和启动不会下载或重新构建 Qt。
 
 ## 构建和启动
 
@@ -42,7 +42,7 @@ python3.12 scripts/start.py --no-build --log-level debug
 
 Windows、macOS 和 Linux 均通过 Crashpad 在独立进程采集原生崩溃，现场写入同一日志目录的 `crashes/database`。报告仅在本机保存，上传关闭且未配置接收地址；未接入 Sentry 服务。`qFatal` 的脱敏原因另行同步写入会话 `.jsonl`，避免异步日志队列在退出前来不及排空。再次启动会将新 dump 的异常码、线程、故障地址、模块及偏移、构建标识写入运行日志，并生成 `.summary.json`。崩溃定位请保留整个 `logs` 目录；dump 包含线程栈和进程内存片段，分享前应检查其中的私人数据。
 
-Release 同样生成调试资料；Windows 文件版本和日志包含真实产品版本，另有构建时间、源 revision 和工作树状态标识。六平台发布构建在安装包之外保存匹配的符号工件：Windows 验证 PE/PDB GUID 与 age，macOS 验证二进制/dSYM UUID，Linux 保留含 DWARF 的原生二进制。CI 的 `symbols-*` 工件保存 90 天，维护者应下载归档需要长期维护的版本；这些符号不进入自动更新清单或发行附件。必须使用对应构建的符号，重新编译的同版本文件不能替代。
+Release 使用优化配置，应用 C/C++ 不额外注入 `-g`、`/Z7` 或 `/DEBUG:FULL`；Rust Release 为 `debug=0`、`strip="debuginfo"`。发布 CI 不生成或上传 `symbols-*` 工件。Windows 文件版本和日志仍包含真实产品版本、构建时间、源 revision 和工作树状态标识；Crashpad 保留原始 dump 和模块定位信息。维护者如需源码级崩溃定位，应另外准备诊断构建和对应的匹配符号；已有发行符号仍需按对应版本保留。
 
 配置阶段通过 SHA-256 固定的归档获取 Crashpad 及子依赖，需要联网或预先填充 CMake FetchContent 缓存。`crashpad_handler` 必须随三端应用部署，Windows 还需 `crashpad_wer.dll`；macOS 位于应用包的 `Contents/Helpers`，其余平台与主程序同目录。正常运行不初始化第二个 Qt 界面。系统强杀、断电、内核/OOM 终止或损坏严重到无法采集的情形不能保证生成 dump；下次启动仍通过会话记录标记未正常退出，不将其误判为已定位的崩溃。
 
@@ -82,7 +82,7 @@ Rust 音频后端同时编译 ALSA、PipeWire/SPA 和 PulseAudio。Ubuntu 需要
 
 Windows ARM64 的 FDK AAC 绑定通过根 `Cargo.toml` 的 patch 使用仓库内同版本源码，补齐 MSVC `_M_ARM64` 架构识别；来源与独立补丁见 `crates/echo-upnp/vendor/fdk-aac-sys/`。该依赖无需额外开启 C++23 preview，绑定与编解码库的许可文件随依赖保留。
 
-Windows/Linux 符号归档同时搜索 CMake 构建目录和 `CMakeCache.txt` 中实际配置的 `ECHO_CARGO_DIR`，支持 Cargo 输出位于构建树之外；Windows DLL/PDB 的 GUID 与 age、Linux ELF 的 build ID 仍须匹配。
+按需使用符号归档工具时，Windows/Linux 同时搜索 CMake 构建目录和 `CMakeCache.txt` 中实际配置的 `ECHO_CARGO_DIR`，支持 Cargo 输出位于构建树之外；Windows DLL/PDB 的 GUID 与 age、Linux ELF 的 build ID 仍须匹配。
 
 验证码使用系统默认浏览器，应用不部署 Qt WebEngine。正式部署仍需包含实际使用的 Qt 插件、Multimedia 后端和第三方库，并附带相应许可材料。
 
@@ -102,7 +102,7 @@ cmake --build build/release --target all_qmllint
 
 格式规则见[代码格式与检查](formatting.md)。ABI 修改后使用 `cargo run --locked -p ffi-header -- --write` 生成头文件，再检查差异并重新构建。普通构建只校验生成头，不修改源码。
 
-发布 CI 保留 Rust Clippy 生产目标静态检查（`lint-production`）、FFI 头一致性、构建和打包校验，不运行全仓格式门禁、Rust、Qt、tooling 或发布契约的自动测试，并通过 `scripts/build.py --no-tests` 关闭 CMake 测试目标构建。格式工具安装和检查移出发布矩阵，格式在本地通过统一入口维护。上面的完整 lint/test 命令供本地按需执行，手动 `quality-reports.yml` 仍按原职责执行质量测试和覆盖率。Cargo 依赖缓存按 runner、架构、工具链、依赖清单与原生包清单隔离，失败的构建也保存已完成的依赖编译；默认不归档宿主 crate 或增量编译产物。首次运行或缓存失效仍需要编译依赖，缓存效果以实际 CI 命中和步骤耗时为准。
+发布 CI 保留 Rust Clippy 生产目标静态检查（`lint-production`，内部使用 `cargo clippy --release`）、FFI 头一致性、构建和打包校验，不运行全仓格式门禁、Rust、Qt、tooling 或发布契约的自动测试，并通过 `scripts/build.py --no-tests` 关闭 CMake 测试目标构建。格式工具安装和检查移出发布矩阵，格式在本地通过统一入口维护。上面的完整 lint/test 命令供本地按需执行，手动 `quality-reports.yml` 仍按原职责执行质量测试和覆盖率。发布 CI 的 Clippy、独立 FFI 头校验，以及 Release CMake 调用的 FFI 头工具和原生 Rust 库统一使用 Cargo release profile；本地显式 Debug 配置仍使用 dev profile。Cargo 依赖缓存按 runner、架构、工具链、依赖清单与原生包清单隔离，失败的构建也保存已完成的依赖编译；默认不归档宿主 crate 或增量编译产物。首次运行或缓存失效仍需要编译依赖，缓存效果以实际 CI 命中和步骤耗时为准。
 
 运行日志在终端和文件中统一为 UTF-8 单行文本，时间使用本地 `yyyy-MM-dd HH:mm:ss.SSS`。文件名为 `echomusicnext-yyyy-MM-dd_HH-mm-ss-SSS-PID.log`；启动默认清理超过7天未写的运行日志和轮转文件，活跃会话与独立崩溃现场保留。标准 info 不逐条记录正常 API 成功/取消，可用 `--log-level debug` 查看请求诊断。
 
@@ -131,15 +131,15 @@ node tools/release/package.mjs --qt=/path/to/Qt/6.12.0/kit
 
 - macOS：通过 `macdeployqt` 部署 Qt，生成临时签名的 DMG 和 ZIP；当前没有 Developer ID 签名和公证。
 - Windows：需要 NSIS 3.11，默认读取 `Program Files (x86)/NSIS/makensis.exe`，也可传 `--nsis=...`；通过 `windeployqt` 部署后生成当前用户安装程序，包含协议与 `.echomod` 关联；缺少运行库时安装已验证 Microsoft 签名的官方 VC14 Redistributable，可能请求系统授权。
-- Linux：在 Ubuntu 22.04 构建。需要 Ruby/FPM 1.17.0、rpm、zstd、libarchive-tools、libfuse2；准备步骤下载并校验锁定的 linuxdeploy / Qt 插件。传 `--linuxdeploy=build/release-tools/linuxdeploy-x86_64.AppImage`（ARM64 使用 `aarch64`）生成 AppImage、DEB、RPM、Arch 包和 tar.gz。tar.gz 解压后运行 `echomusicnext/AppRun`。
+- Linux：x64 在 Ubuntu 22.04、ARM64 在 Ubuntu 24.04 构建。需要 Ruby/FPM 1.17.0、rpm、zstd、libarchive-tools、libfuse2；准备步骤下载并校验锁定的 linuxdeploy / Qt 插件。传 `--linuxdeploy=build/release-tools/linuxdeploy-x86_64.AppImage`（ARM64 使用 `aarch64`）生成 AppImage、DEB、RPM、Arch 包和 tar.gz。tar.gz 解压后运行 `echomusicnext/AppRun`。
 
 安装包保留项目许可、第三方许可、Qt SPDX 或源码通知，以及锁定的 Rust 依赖清单。应用运行时不部署 Node.js、Python 或 Qt WebEngine。
 
 ### CI 缓存
 
-Qt SDK 按 runner、架构、安装脚本、原生依赖和许可材料脚本生成缓存键。恢复后仍校验版本与模块，首次安装验证通过后立即保存；后续应用编译或打包失败不会丢掉已保存的 SDK。不缓存 Qt 源码或其编译树。
+Qt SDK 按 runner、架构、安装脚本、原生依赖和许可材料脚本生成缓存键。只缓存官方预编译 SDK，使用独立的 `qt-prebuilt-6.12.0` 缓存键前缀。恢复后仍校验版本与模块，首次安装验证通过后立即保存；后续应用编译或打包失败不会丢掉已保存的 SDK。不缓存 Qt 源码或其编译树。
 
-应用 C/C++ 编译通过固定版本的 sccache 使用 GitHub Actions 缓存，按 runner/架构隔离，并由 sccache 校验编译器、选项、源码和头文件。仅应用配置启用 compiler launcher，Qt 源码构建不占用此缓存。Windows Release 仅向 C/C++ 编译传入 `/Z7` 将调试数据嵌入对象文件，汇编编译不接收该选项，最终仍通过 `/DEBUG:FULL` 生成供归档的 PDB。sccache 的 post 步骤报告命中与未缓存原因；缓存服务不可用时允许调用实际编译器继续，编译错误仍令任务失败。
+应用 C/C++ 编译通过固定版本的 sccache 使用 GitHub Actions 缓存，按 runner/架构隔离，并由 sccache 校验编译器、选项、源码和头文件。仅应用配置启用 compiler launcher，Qt 源码构建不占用此缓存。应用 Release 不额外生成调试符号，Windows 的 C/C++ 与汇编均不注入 `/Z7`，链接不强制 `/DEBUG:FULL`。sccache 的 post 步骤报告命中与未缓存原因；缓存服务不可用时允许调用实际编译器继续，编译错误仍令任务失败。
 
 不同发布 tag 无法读取彼此的缓存，但可以读取默认分支缓存。默认分支为 `main`：SDK 安装脚本、依赖清单、许可材料脚本或桌面工作流变化时，自动在相同六平台矩阵预热 Qt、Cargo Release 依赖与 C/C++ 缓存；普通业务源码提交不触发这项构建。也可手动运行桌面工作流，选择 `main` 并勾选 `cache_only`，在发布前主动更新缓存。预热只准备 SDK 和以普通构建模式编译应用，不依赖发行日志就绪，不执行静态检查、测试、打包或上传发行工件，不发布 Release。发行模式相关对象在正式构建时按实际选项重新编译。
 

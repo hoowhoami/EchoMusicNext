@@ -69,9 +69,9 @@
 
 #### Linux
 
-适配目标为 **Ubuntu 22.04+ 或等价 glibc 2.35+ 环境**，覆盖 x64、ARM64 及 X11 / Wayland。需要 Qt、音频、图形和桌面集成开发库；软件包列表见[构建指南](docs/build.md)与 [CI 配置](.github/workflows/build.yml)。
+适配目标为 **x64：Ubuntu 22.04+ / glibc 2.35+；ARM64：Ubuntu 24.04+ / glibc 2.39+**，覆盖 X11 / Wayland。需要 Qt、音频、图形和桌面集成开发库；软件包列表见[构建指南](docs/build.md)与 [CI 配置](.github/workflows/build.yml)。
 
-Linux SDK 使用独立源码构建流程，以匹配 glibc 基线。以上均为适配目标，具体支持状态以对应平台的实际验证结果为准。
+Linux x64、ARM64 均下载官方 Qt 6.12.0 预编译 SDK；源码 SDK 仅在显式指定 `--source` 时构建。以上均为适配目标，具体支持状态以对应平台的实际验证结果为准。
 
 ### 本地开发
 
@@ -90,7 +90,7 @@ Linux SDK 使用独立源码构建流程，以匹配 glibc 基线。以上均为
    python3.12 scripts/install-qt.py
    ```
 
-   Windows 使用对应 Python 3.12+ 的 `python` 命令。Windows/macOS 默认准备官方预编译 SDK，Linux 准备源码 SDK。已安装 SDK 的路径和检查方式见[构建指南](docs/build.md)。
+   Windows 使用对应 Python 3.12+ 的 `python` 命令。Windows、macOS、Linux 均默认准备官方预编译 SDK。已安装 SDK 的路径和检查方式见[构建指南](docs/build.md)。
 
 3. **构建并启动**
 

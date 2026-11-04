@@ -30,7 +30,8 @@ set(ECHO_RUST_LIBRARY "${ECHO_CARGO_DIR}/${ECHO_CARGO_PROFILE}/${ECHO_RUST_FILEN
 # dependency graph. Header checking never rewrites committed source during a build.
 add_custom_target(
     echo_cargo
-    COMMAND ${ECHO_CARGO_COMMAND} run --locked -p ffi-header -- --check
+    COMMAND ${ECHO_CARGO_COMMAND} run --locked -p ffi-header --target-dir "${ECHO_CARGO_DIR}"
+            "$<${ECHO_CARGO_OPTIMIZED}:--release>" -- --check
     COMMAND ${ECHO_CARGO_COMMAND} build --locked -p echo-ffi --target-dir "${ECHO_CARGO_DIR}"
             "$<${ECHO_CARGO_OPTIMIZED}:--release>"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"

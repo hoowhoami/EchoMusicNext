@@ -234,7 +234,7 @@ ProxyResolution ProxyResolver::evaluatePac(const QString &script, QUrl target,
     target.setFragment({});
     if (target.scheme() == "https" || target.scheme() == "wss") {
         target.setPath("/");
-        target.setQuery({});
+        target.setQuery(QString{});
     }
     auto finder = engine.globalObject().property("FindProxyForURL");
     QJSValue result;
@@ -255,7 +255,7 @@ ProxyResolution ProxyResolver::resolve(const NetworkConfiguration &config, QUrl 
     target.setFragment({});
     if (target.scheme() == "https" || target.scheme() == "wss") {
         target.setPath("/");
-        target.setQuery({});
+        target.setQuery(QString{});
     }
     using Mode = NetworkConfiguration::Mode;
     if (config.mode == Mode::Direct || ProxyRouting::implicitBypass(target)) {

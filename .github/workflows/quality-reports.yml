@@ -32,8 +32,7 @@ jobs:
         with:
           path: |
             build/qt-official
-            build/qt-sdk
-          key: qt-6.12.0-ubuntu-22.04-x64-${{ hashFiles('scripts/qt_sdk.py', 'scripts/qt_download.py', 'scripts/install-qt.py', 'scripts/build-qt.py', 'tools/qt/requirements.txt', 'tools/release/licenses.mjs') }}
+          key: qt-prebuilt-6.12.0-ubuntu-22.04-x64-${{ hashFiles('scripts/qt_sdk.py', 'scripts/qt_download.py', 'scripts/install-qt.py', 'scripts/build-qt.py', 'tools/qt/requirements.txt', 'tools/qt/linux-packages.txt', 'tools/release/licenses.mjs', 'tools/release/qt-licenses.mjs', 'tools/release/license-files.mjs') }}
       - name: Prepare pinned Qt and instrumented build
         run: |
           python scripts/install-qt.py

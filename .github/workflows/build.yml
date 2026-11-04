@@ -118,16 +118,15 @@ jobs:
         run: node tools/release/rust-check.mjs lint-production
       - name: FFI header check
         if: needs.prepare.outputs.cache_only != 'true'
-        run: cargo run --locked -p ffi-header -- --check
+        run: cargo run --release --locked -p ffi-header -- --check
       - name: Restore pinned Qt SDK
         id: qt-cache
         uses: actions/cache/restore@v4
         with:
           path: |
             build/qt-official
-            build/qt-sdk
-          key: qt-6.12.0-${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('scripts/qt_sdk.py', 'scripts/qt_download.py', 'scripts/install-qt.py', 'scripts/build-qt.py', 'tools/qt/requirements.txt', 'tools/qt/linux-packages.txt', 'tools/release/licenses.mjs', 'tools/release/qt-licenses.mjs', 'tools/release/license-files.mjs') }}
-      - name: Prepare and validate SDK
+          key: qt-prebuilt-6.12.0-${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('scripts/qt_sdk.py', 'scripts/qt_download.py', 'scripts/install-qt.py', 'scripts/build-qt.py', 'tools/qt/requirements.txt', 'tools/qt/linux-packages.txt', 'tools/release/licenses.mjs', 'tools/release/qt-licenses.mjs', 'tools/release/license-files.mjs') }}
+      - name: Prepare and validate official SDK
         run: python scripts/install-qt.py
       # Save only a validated SDK, before an unrelated compile/package failure.
       - name: Save validated Qt SDK
@@ -136,7 +135,6 @@ jobs:
         with:
           path: |
             build/qt-official
-            build/qt-sdk
           key: ${{ steps.qt-cache.outputs.cache-primary-key }}
       - name: SDK runtime path
         shell: bash
@@ -172,16 +170,6 @@ jobs:
         if: needs.prepare.outputs.cache_only != 'true'
         shell: bash
         run: node tools/release/package.mjs --arch=${{ matrix.arch }} "--qt=$QT_PREFIX" --linuxdeploy=build/release-tools/linuxdeploy-${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}.AppImage
-      - name: Preserve matching native symbols
-        if: needs.prepare.outputs.cache_only != 'true'
-        run: node tools/release/symbols.mjs ${{ matrix.arch }}
-      - uses: actions/upload-artifact@v4
-        if: needs.prepare.outputs.cache_only != 'true'
-        with:
-          name: symbols-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.run_id }}
-          path: build/symbols/*
-          if-no-files-found: error
-          retention-days: 90
       - uses: actions/upload-artifact@v4
         if: needs.prepare.outputs.cache_only != 'true'
         with:

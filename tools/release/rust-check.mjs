@@ -23,6 +23,7 @@ const lint = [
   'clippy',
   '--locked',
   '--no-deps',
+  ...(mode === 'lint-production' ? ['--release'] : []),
   ...(mode === 'lint' ? ['--all-targets'] : []),
   ...packages,
   '--',

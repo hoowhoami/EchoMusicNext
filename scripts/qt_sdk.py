@@ -29,7 +29,7 @@ COMPONENTS = (
 
 
 def official_kit():
-    """Native desktop kits; Linux's product glibc baseline uses a source SDK."""
+    """Official native desktop kits; Linux ARM64 requires glibc 2.39 or newer."""
     if sys.platform == "darwin":
         return "mac", "clang_64", "macos"
     if sys.platform == "win32":
@@ -39,7 +39,13 @@ def official_kit():
             if arm
             else ("windows", "win64_msvc2022_64", "msvc2022_64")
         )
-    raise RuntimeError("Linux/glibc 2.35 needs the source SDK: scripts/install-qt.py --source")
+    if sys.platform.startswith("linux"):
+        machine = platform.machine().lower()
+        if machine in {"x86_64", "amd64"}:
+            return "linux", "linux_gcc_64", "gcc_64"
+        if machine in {"arm64", "aarch64"}:
+            return "linux_arm64", "linux_gcc_arm64", "gcc_arm64"
+    raise RuntimeError("No official desktop Qt kit for this platform; use --source explicitly")
 
 
 def official_prefix():
@@ -51,7 +57,7 @@ def source_prefix():
 
 
 def preferred_prefix():
-    if not sys.platform.startswith("linux") and official_prefix().is_dir():
+    if official_prefix().is_dir():
         return official_prefix()
     return source_prefix()
 

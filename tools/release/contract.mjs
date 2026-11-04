@@ -17,7 +17,7 @@ export const matrix = [
   {
     platform: 'Linux',
     arch: 'arm64',
-    runner: 'ubuntu-22.04-arm',
+    runner: 'ubuntu-24.04-arm',
     kinds: ['appimage', 'deb', 'rpm', 'pacman', 'tar'],
   },
   { platform: 'Windows', arch: 'x64', runner: 'windows-2022', kinds: ['nsis'] },

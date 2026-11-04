@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @unittest.skipUnless(shutil.which("cmake") and shutil.which("ninja"), "CMake/Ninja required")
 class BuildIdentityTest(unittest.TestCase):
-    def test_msvc_release_symbols_do_not_leak_into_assemblers(self):
+    def test_release_does_not_force_symbols_on_mixed_native_targets(self):
         with tempfile.TemporaryDirectory(prefix="echo-build-identity-") as temporary:
             source = Path(temporary) / "source"
             child = source / "mixed"
@@ -62,11 +62,12 @@ class BuildIdentityTest(unittest.TestCase):
                     commands = json.loads((build / "compile_commands.json").read_text("utf-8"))
                     self.assertEqual(len(commands), 5)
                     for entry in commands:
-                        name = Path(entry["file"]).name
-                        expected = configuration == "Release" and name in ("main.c", "helper.cpp")
-                        self.assertEqual("/Z7" in entry["command"], expected, entry["command"])
+                        self.assertNotIn("/Z7", entry["command"])
+                        self.assertNotIn("/Zi", entry["command"])
+                        if configuration == "Release":
+                            self.assertNotRegex(entry["command"], r"(?:^|\s)-g(?:\d|\s|$)")
                     ninja = (build / "build.ninja").read_text("utf-8")
-                    self.assertEqual("/DEBUG:FULL" in ninja, configuration == "Release")
+                    self.assertNotIn("/DEBUG:FULL", ninja)
 
 
 if __name__ == "__main__":

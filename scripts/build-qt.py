@@ -1,8 +1,9 @@
-"""Build exact Qt sources on the target host, including the Linux glibc baseline.
+"""Explicitly build exact Qt sources on the target host when requested.
 
 Includes Multimedia for optional album video; verification uses the system browser.
 The source superproject pins its module commits. This
-script is used by CI; a matching preinstalled SDK also works via CMAKE_PREFIX_PATH.
+script is only selected by install-qt.py --source; default SDK/CI installation
+uses official prebuilt packages. A matching preinstalled SDK also works.
 """
 
 import pathlib
