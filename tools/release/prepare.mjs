@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { root } from './contract.mjs';
+import { prepareQtLicenseTexts } from './qt-licenses.mjs';
 const directory = path.join(root, 'build/release-tools');
 fs.mkdirSync(directory, { recursive: true });
 async function download(url, file, expected) {
@@ -74,6 +75,17 @@ for (const name of ['GPL-2.0-only', 'GPL-3.0-only', 'LGPL-3.0-only', 'Qt-GPL-exc
     `https://raw.githubusercontent.com/qt/qtbase/v6.12.0/LICENSES/${name}.txt`,
     path.join(licenses, `${name}.txt`),
   );
+const configuredQt = /(?:^|\n)Qt6_DIR:[^=]+=([^\r\n]+)/.exec(
+  fs.existsSync(path.join(root, 'build/release/CMakeCache.txt'))
+    ? fs.readFileSync(path.join(root, 'build/release/CMakeCache.txt'), 'utf8')
+    : '',
+)?.[1];
+const qt =
+  process.argv.find((value) => value.startsWith('--qt='))?.slice(5) ||
+  process.env.QT_PREFIX ||
+  (configuredQt ? path.resolve(configuredQt, '../../..') : null);
+if (!qt) throw new Error('Qt SDK is required to prepare license texts; pass --qt=/path/to/sdk');
+await prepareQtLicenseTexts(licenses, qt);
 
 // Packaging inventories cover the locked graph across platforms. Host-only
 // builds do not necessarily populate every license source used by metadata.

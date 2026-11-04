@@ -97,6 +97,42 @@ class FormatGateTest(unittest.TestCase):
             {"modules/EchoMusic/Controls/Control.qml", "tests/tooling/test_example.py"},
         )
 
+    def test_utf8_sources_and_manifests_ignore_windows_default_encoding(self):
+        catalogs = self.root / "modules/EchoMusic/App"
+        catalogs.mkdir(parents=True)
+        xml = catalogs / "zh_CN.ts"
+        typescript = catalogs / "example.ts"
+        typescript.write_text("// 丁\nexport const title = '音乐';\n", encoding="utf-8")
+        (self.root / "Cargo.toml").write_text(
+            '# 丁\n[workspace]\nmembers = ["crate"]\n', encoding="utf-8"
+        )
+        (self.root / "crate").mkdir()
+        (self.root / "crate/Cargo.toml").write_text(
+            '# 丁\n[package]\nname = "fixture"\n', encoding="utf-8"
+        )
+        original_read_text = Path.read_text
+
+        def windows_read_text(path, *args, **kwargs):
+            # UTF-8 for 丁 contains 0x81, which is undefined in cp1252.
+            kwargs.setdefault("encoding", "cp1252")
+            return original_read_text(path, *args, **kwargs)
+
+        for bom in (b"", b"\xef\xbb\xbf"):
+            with self.subTest(bom=bool(bom)):
+                xml.write_bytes(bom + '<?xml version="1.0"?><TS>音乐丁</TS>\n'.encode("utf-8"))
+                original = {path: path.read_bytes() for path in (xml, typescript)}
+                with (
+                    patch.object(Path, "read_text", autospec=True, side_effect=windows_read_text),
+                    patch.object(formatter, "verify_tools", return_value=Path("prettier.cjs")),
+                    patch.object(formatter, "run") as commands,
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    self.assertEqual(formatter.format_sources(QMLFORMAT, True), 0)
+                prettier = commands.call_args_list[-1].args[0]
+                self.assertIn(typescript.relative_to(self.root), prettier)
+                self.assertNotIn(xml.relative_to(self.root), prettier)
+                self.assertEqual({path: path.read_bytes() for path in original}, original)
+
 
 if __name__ == "__main__":
     unittest.main()

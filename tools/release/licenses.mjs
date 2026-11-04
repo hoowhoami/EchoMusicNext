@@ -3,55 +3,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { root } from './contract.mjs';
 import { rustSbom, vendorInventory } from './sbom.mjs';
+import { copyNotices } from './license-files.mjs';
+import { collectQtLicenses } from './qt-licenses.mjs';
 export function collectLicenses(destination, qt, version) {
   const output = path.join(destination, 'deployment');
   fs.mkdirSync(output, { recursive: true });
-  const source = path.join(root, 'build/release-tools/qt-license-texts');
-  if (!fs.existsSync(source))
-    throw new Error('Run node tools/release/prepare.mjs before packaging');
-  fs.cpSync(source, path.join(output, 'Qt/licenses'), { recursive: true });
-  const qtModules = new Set([
-    'qtbase',
-    'qtdeclarative',
-    'qtimageformats',
-    'qtmultimedia',
-    'qtsvg',
-    'qtshadertools',
-    'qtwayland',
-  ]);
-  const sbom = path.join(qt, 'sbom');
-  if (fs.existsSync(sbom))
-    for (const name of fs.readdirSync(sbom)) {
-      if (name.endsWith('.spdx.json') && qtModules.has(name.split('-6.')[0]))
-        fs.copyFileSync(path.join(sbom, name), path.join(output, 'Qt', name));
-    }
-  function copyNotices(directory, target, all = false) {
-    if (!fs.existsSync(directory)) return;
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (entry.isSymbolicLink() || ['.git', 'target', 'node_modules'].includes(entry.name))
-        continue;
-      const file = path.join(directory, entry.name),
-        to = path.join(target, entry.name);
-      if (entry.isDirectory()) copyNotices(file, to, all || /^licen[sc]es?$/i.test(entry.name));
-      else if (
-        all ||
-        /^(licen[sc]e|copying|copyright|notice|authors)([.\-_]|$)/i.test(entry.name)
-      ) {
-        fs.mkdirSync(target, { recursive: true });
-        fs.copyFileSync(file, to);
-      }
-    }
-  }
-  const cachedNotices = path.join(qt, 'share/echomusicnext-qt-notices');
-  for (const module of qtModules)
-    copyNotices(
-      path.join(root, 'build/qt-sources/6.12.0', module),
-      path.join(cachedNotices, module),
-    );
-  if (fs.existsSync(cachedNotices))
-    fs.cpSync(cachedNotices, path.join(output, 'Qt/source-notices'), { recursive: true });
-  else if (!fs.existsSync(sbom))
-    throw new Error('Qt source notices or SDK SPDX inventory required');
+  collectQtLicenses(output, qt);
   const result = spawnSync('cargo', ['metadata', '--locked', '--offline', '--format-version=1'], {
     cwd: root,
     encoding: 'utf8',
@@ -92,8 +49,13 @@ export function collectLicenses(destination, qt, version) {
     path.join(output, 'vendor-inventory.json'),
     JSON.stringify(vendorInventory(root), null, 2) + '\n',
   );
+  const revision = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  const sourceRef =
+    revision.status === 0 && /^[0-9a-f]{40}$/.test(revision.stdout.trim())
+      ? revision.stdout.trim()
+      : `v${version}`;
   fs.writeFileSync(
     path.join(output, 'SOURCE.txt'),
-    `EchoMusicNext ${version}\nGPL-3.0-only\nSource: https://github.com/hoowhoami/EchoMusicNext/tree/v${version}\nDependency versions and upstream source locations: Rust/dependencies.json and Qt/*.spdx.json\nBuild instructions: docs/build.md in the source repository.\n`,
+    `EchoMusicNext ${version}\nGPL-3.0-only\nSource: https://github.com/hoowhoami/EchoMusicNext/tree/${sourceRef}\nThis distribution uses Qt under its available open-source license terms.\nQt module sources and revisions: Qt/modules.json and Qt/NOTICE.txt\nDependency versions, copyright and license records: Rust/dependencies.json and Qt/*.spdx.json\nBuild instructions: https://github.com/hoowhoami/EchoMusicNext/blob/${sourceRef}/docs/build.md\n`,
   );
 }

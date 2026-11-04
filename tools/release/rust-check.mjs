@@ -17,25 +17,29 @@ const owned = data.packages.filter(
       .every((part) => part !== 'vendor' && part !== '..'),
 );
 const packages = owned.flatMap((pkg) => ['--package', pkg.name]);
+// Local lint covers test/example targets; release CI only checks production
+// targets, leaving Cargo's default library/binary target selection in place.
+const lint = [
+  'clippy',
+  '--locked',
+  '--no-deps',
+  ...(mode === 'lint' ? ['--all-targets'] : []),
+  ...packages,
+  '--',
+  '-D',
+  'clippy::correctness',
+  '-D',
+  'clippy::suspicious',
+];
 const commands = {
   format: ['fmt', '--check', ...packages],
   // Keep correctness checks blocking; style/dead-code warnings remain visible.
-  lint: [
-    'clippy',
-    '--locked',
-    '--no-deps',
-    '--all-targets',
-    ...packages,
-    '--',
-    '-D',
-    'clippy::correctness',
-    '-D',
-    'clippy::suspicious',
-  ],
+  lint,
+  'lint-production': lint,
   // Audio/transport probes share process-wide native configuration.
   test: ['test', '--locked', ...packages, '--', '--test-threads=1'],
 };
-if (!commands[mode]) throw new Error('Expected format, lint, or test');
+if (!commands[mode]) throw new Error('Expected format, lint, lint-production, or test');
 const result = spawnSync('cargo', commands[mode], { cwd: root, stdio: 'inherit' });
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

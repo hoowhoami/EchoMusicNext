@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { verifyStage } from './verify-stage.mjs';
 import { collectLicenses } from './licenses.mjs';
+import { verifyQtDeployment } from './qt-licenses.mjs';
 import {
   root,
   matrix,
@@ -53,13 +54,11 @@ function name(kind) {
 const stage =
   platform === 'Linux' ? path.join(staging, 'AppDir/usr') : path.join(staging, 'install');
 run('cmake', ['--install', build, '--prefix', stage, '--config', 'Release']);
-collectLicenses(
+const licenseDirectory =
   platform === 'macOS'
     ? path.join(stage, 'echomusicnext.app/Contents/Resources/licenses')
-    : path.join(stage, 'share/echomusicnext/licenses'),
-  qt,
-  version,
-);
+    : path.join(stage, 'share/echomusicnext/licenses');
+collectLicenses(licenseDirectory, qt, version);
 if (platform === 'macOS') {
   const app = path.join(stage, 'echomusicnext.app');
   const platforms = path.join(app, 'Contents/PlugIns/platforms');
@@ -93,6 +92,7 @@ if (platform === 'macOS') {
     app,
   ]);
   run('codesign', ['--verify', '--deep', '--strict', app]);
+  verifyQtDeployment(stage, licenseDirectory);
   verifyStage(stage, platform, arch);
   fs.symlinkSync('/Applications', path.join(stage, 'Applications'));
   run('hdiutil', [
@@ -133,6 +133,7 @@ if (platform === 'macOS') {
     path.join(qt, 'plugins/sqldrivers/qsqlite.dll'),
     path.join(sqlite, 'qsqlite.dll'),
   );
+  verifyQtDeployment(stage, licenseDirectory);
   verifyStage(stage, platform, arch);
   const redist = path.join(root, `build/release-tools/vc_redist.${arch}.exe`);
   const redistVersion = JSON.parse(
@@ -219,6 +220,7 @@ if (platform === 'macOS') {
     },
   );
   if (!fs.existsSync(name('appimage'))) throw new Error('AppImage output missing');
+  verifyQtDeployment(stage, licenseDirectory);
   verifyStage(stage, platform, arch);
   const osArch = arch === 'x64' ? 'x86_64' : 'aarch64';
   const match = /^([0-9.]+)(?:-(.*))?$/.exec(version.split('+')[0]);

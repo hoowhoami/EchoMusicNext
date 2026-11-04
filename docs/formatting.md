@@ -31,6 +31,8 @@ Windows 使用对应版本的 `python`。Python 工具安装到 `build/format-ve
 
 第三方 vendor、生成头、锁文件和测试数据保留来源或生成器格式；不遍历 build、target、node_modules 或 Python 缓存。`include/echo_ffi.h` 使用 `cargo run --locked -p ffi-header -- --check` 验证。
 
+仓库文本按 UTF-8 读取，不依赖 Windows 等系统的默认代码页；Qt Linguist XML 检测同时接受 UTF-8 BOM。
+
 新增语言或源码目录时同步更新入口和测试。源码注释应说明当前契约、设计原因、线程、所有权与平台限制；版权、许可及必要来源声明保留。
 
 ## 自动检查

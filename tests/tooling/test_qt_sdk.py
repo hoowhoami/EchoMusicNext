@@ -81,6 +81,19 @@ class QtSdkTest(unittest.TestCase):
             build.build_app("release", self.prefix, configure_only=True)
             self.assertIn("-DECHO_DISTRIBUTION_BUILD=OFF", commands.call_args.args[0])
 
+    def test_test_targets_are_disabled_only_when_explicitly_requested(self):
+        with (
+            patch.object(build, "ROOT", self.root),
+            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.0\n"),
+            patch.object(build.subprocess, "run") as commands,
+        ):
+            build.build_app("release", self.prefix, configure_only=True, no_tests=True)
+            self.assertIn("-DBUILD_TESTING=OFF", commands.call_args.args[0])
+            build.build_app("release", self.prefix, configure_only=True)
+            self.assertFalse(
+                any(arg.startswith("-DBUILD_TESTING=") for arg in commands.call_args.args[0])
+            )
+
     def test_complete_cached_install_does_not_bootstrap_or_download(self):
         with (
             patch.object(installer, "official_prefix", return_value=self.prefix),

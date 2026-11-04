@@ -105,6 +105,10 @@ add_test(
         ${ECHO_NODE_EXECUTABLE} --test ${PROJECT_SOURCE_DIR}/tools/update-helper/helper.test.mjs
 )
 set_tests_properties(update-helper PROPERTIES TIMEOUT 30)
+add_test(NAME release-licenses COMMAND ${ECHO_NODE_EXECUTABLE} --test
+                                       ${PROJECT_SOURCE_DIR}/tools/release/qt-licenses.test.mjs
+)
+set_tests_properties(release-licenses PROPERTIES TIMEOUT 30)
 qt_add_executable(echo-shortcut-service-test ShortcutServiceTest.cpp)
 if(APPLE)
     set_target_properties(

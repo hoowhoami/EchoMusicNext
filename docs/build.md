@@ -78,6 +78,8 @@ HTTP 代理认证使用 libcurl：macOS 链接系统库，Linux 需要 `libcurl4
 
 Linux 还需要 `libproxy-dev` 和 `libglib2.0-dev`。系统代理与 PAC 功能依赖桌面环境提供的 libproxy 配置和 JavaScript 插件，CI 的安装列表包含所需软件包。源码 Qt Multimedia SDK 需要 FFmpeg 及相应音频开发库。
 
+Rust 音频后端同时编译 ALSA、PipeWire/SPA 和 PulseAudio。Ubuntu 需要 `pkg-config`、`libasound2-dev`、`libpipewire-0.3-dev`、`libspa-0.2-dev`、`libpulse-dev`，绑定生成还需要 `clang` 和 `libclang-dev`；这些依赖已包含在共享清单中，须在 Rust 检查前安装。可用 `pkg-config --modversion libpipewire-0.3 libspa-0.2 alsa libpulse` 确认当前构建环境可以发现开发库。
+
 验证码使用系统默认浏览器，应用不部署 Qt WebEngine。正式部署仍需包含实际使用的 Qt 插件、Multimedia 后端和第三方库，并附带相应许可材料。
 
 ## 检查
@@ -95,6 +97,8 @@ cmake --build build/release --target all_qmllint
 ```
 
 格式规则见[代码格式与检查](formatting.md)。ABI 修改后使用 `cargo run --locked -p ffi-header -- --write` 生成头文件，再检查差异并重新构建。普通构建只校验生成头，不修改源码。
+
+发布 CI 保留 Rust Clippy 生产目标静态检查（`lint-production`）、FFI 头一致性、全仓格式、构建和打包校验，不运行 Rust、Qt、tooling 或发布契约的自动测试，并通过 `scripts/build.py --no-tests` 关闭 CMake 测试目标构建。上面的完整 lint/test 命令供本地按需执行，手动 `quality-reports.yml` 仍按原职责执行质量测试和覆盖率。Rust 格式由全仓格式检查统一覆盖。Cargo 依赖缓存按 runner、架构、工具链、依赖清单与原生包清单隔离，失败的构建也保存已完成的依赖编译；默认不归档宿主 crate 或增量编译产物。首次运行或缓存失效仍需要编译依赖，缓存效果以实际 CI 命中和步骤耗时为准。
 
 运行日志在终端和文件中统一为 UTF-8 单行文本，时间使用本地 `yyyy-MM-dd HH:mm:ss.SSS`。文件名为 `echomusicnext-yyyy-MM-dd_HH-mm-ss-SSS-PID.log`；启动默认清理超过7天未写的运行日志和轮转文件，活跃会话与独立崩溃现场保留。标准 info 不逐条记录正常 API 成功/取消，可用 `--log-level debug` 查看请求诊断。
 
@@ -174,3 +178,7 @@ CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/fuzz cargo +nightly-2026-10-20 fuzz 
 磁盘审计默认只读：`python3.12 tools/verification/development-disk.py`。清理需明确指定允许的缓存路径和已保留证据目录，先检查 Git、符号链接、打开文件与活动进程。
 
 分发材料额外包含锁定 Cargo 图的 CycloneDX 1.6 SBOM 和 vendor 来源/归档 SHA-256 清单。它包括开发、构建和平台条件依赖，Qt SPDX 单独附带；清单不表示全部依赖在当前平台加载，也不代替许可证人工审查。
+
+Qt 许可材料随包位于 `licenses/deployment/Qt/`（具体安装根见对应平台布局），包含 Qt GPL/LGPL 原文、SPDX 中引用的标准许可证/例外文本、模块 SPDX 或源码版权通知、`NOTICE.txt` 和 `modules.json` 中的上游仓库及版本/提交链接。准备材料时可显式指定 SDK：`node tools/release/prepare.mjs --qt=/path/to/Qt/6.12.0/kit`；CI 使用已配置的 SDK。下载使用 SPDX 官方标准许可文本并核对标识，Qt 自定义许可文本保留在对应 SPDX 文档中。
+
+Qt 许可收集包含 `qtwebsockets`。Qt 部署结束后检查实际库和原生插件的许可覆盖；模块缺材料、SDK SPDX 无效、所引用许可文本缺失或新 Qt 库没有已审计归属时停止打包，不以一个空目录视为齐全。应用源码继续通过对应 GitHub 发行标签提供，Qt 模块另列各自的上游位置；安装包不附加完整源码归档。这些指引与材料检查不替代对实际依赖及对应源码可获取性的维护。

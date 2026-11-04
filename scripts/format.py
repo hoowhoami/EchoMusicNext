@@ -110,7 +110,10 @@ def format_sources(qmlformat, check):
         p
         for p in files
         if p.suffix in {".mjs", ".js", ".ts", ".html"}
-        and not (p.suffix == ".ts" and (ROOT / p).read_text().lstrip().startswith("<?xml"))
+        and not (
+            p.suffix == ".ts"
+            and (ROOT / p).read_text(encoding="utf-8-sig").lstrip().startswith("<?xml")
+        )
     ]
     configs = [
         Path("CMakePresets.json"),
@@ -156,9 +159,11 @@ def format_sources(qmlformat, check):
             failures.append("QML")
     # Cargo automatically includes vendored path dependencies in a workspace;
     # format only the explicit host packages, preserving third-party sources.
-    members = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
+    members = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["workspace"][
+        "members"
+    ]
     packages = [
-        tomllib.loads((ROOT / member / "Cargo.toml").read_text())["package"]["name"]
+        tomllib.loads((ROOT / member / "Cargo.toml").read_text(encoding="utf-8"))["package"]["name"]
         for member in members
     ]
     batch(

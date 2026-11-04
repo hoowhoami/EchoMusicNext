@@ -5,6 +5,9 @@ zstd
 libarchive-tools
 libfuse2
 build-essential
+pkg-config
+clang
+libclang-dev
 libgl1-mesa-dev
 libegl1-mesa-dev
 libgles2-mesa-dev
@@ -49,6 +52,9 @@ libavformat-dev
 libavutil-dev
 libswresample-dev
 libswscale-dev
+libasound2-dev
+libpipewire-0.3-dev
+libspa-0.2-dev
 libpulse-dev
 libva-dev
 libssl-dev

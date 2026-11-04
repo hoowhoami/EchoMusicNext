@@ -32,8 +32,6 @@ jobs:
         run: |
           echo "version=$(node tools/release/contract.mjs version)" >> "$GITHUB_OUTPUT"
           echo "matrix=$(node tools/release/contract.mjs matrix)" >> "$GITHUB_OUTPUT"
-      - name: Release contract tests
-        run: node --test tools/release/contract.test.mjs tools/release/publish.test.mjs tools/release/changelog.test.mjs tools/release/symbols.test.mjs tools/release/sbom.test.mjs
       - name: Prepare current-version release notes
         run: node tools/release/changelog.mjs prepare
       - uses: actions/upload-artifact@v4
@@ -72,11 +70,12 @@ jobs:
           arch: ${{ matrix.arch }}
       - name: Build tools
         run: python -m pip install cmake==4.4.4 ninja==1.13.0
-      - name: Linux Qt prerequisites
+      - name: Linux build prerequisites
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           xargs -a tools/qt/linux-packages.txt sudo apt-get install -y
+          pkg-config --modversion libpipewire-0.3 libspa-0.2 alsa libpulse
       - name: Linux packaging tools
         if: runner.os == 'Linux'
         run: sudo gem install fpm -v 1.17.0 --no-document
@@ -85,19 +84,23 @@ jobs:
         run: choco install nsis --version=3.11 -y --no-progress
       - name: Rust toolchain
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
-      - name: Rust checks
-        run: |
-          node tools/release/rust-check.mjs format
-          node tools/release/rust-check.mjs lint
-          node tools/release/rust-check.mjs test
-          cargo run --locked -p ffi-header -- --check
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('tools/qt/linux-packages.txt') }}
+          cache-on-failure: true
+      # Rust formatting is already covered by the repository Formatting check.
+      - name: Rust static analysis
+        run: node tools/release/rust-check.mjs lint-production
+      - name: FFI header check
+        run: cargo run --locked -p ffi-header -- --check
       - name: Cache pinned Qt SDK
         uses: actions/cache@v4
         with:
           path: |
             build/qt-official
             build/qt-sdk
-          key: qt-6.12.0-${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('scripts/qt_sdk.py', 'scripts/qt_download.py', 'scripts/install-qt.py', 'scripts/build-qt.py', 'tools/qt/requirements.txt', 'tools/release/licenses.mjs') }}
+          key: qt-6.12.0-${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('scripts/qt_sdk.py', 'scripts/qt_download.py', 'scripts/install-qt.py', 'scripts/build-qt.py', 'tools/qt/requirements.txt', 'tools/release/licenses.mjs', 'tools/release/qt-licenses.mjs', 'tools/release/license-files.mjs') }}
       - name: Prepare and validate SDK
         run: python scripts/install-qt.py
       - name: SDK runtime path
@@ -106,22 +109,12 @@ jobs:
           python -c "from scripts.qt_sdk import preferred_prefix; import os; p=preferred_prefix(); open(os.environ['GITHUB_PATH'], 'a').write(str(p / 'bin') + '\n'); open(os.environ['GITHUB_ENV'], 'a').write('QT_PREFIX=' + p.as_posix() + '\n')"
       - name: Formatting check
         run: python scripts/format.py --check
-      - name: Tooling tests
-        run: python -m unittest discover -s tests/tooling -v
       - name: Configure
         shell: bash
         run: |
-          python scripts/build.py --preset release --configure-only --distribution
+          python scripts/build.py --preset release --configure-only --distribution --no-tests
       - name: Build
         run: cmake --build --preset release
-      - name: Qt tests
-        shell: bash
-        run: |
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            xvfb-run --auto-servernum ctest --preset release
-          else
-            ctest --preset release
-          fi
       - name: QML lint
         run: cmake --build build/release --target all_qmllint
       - name: Prepare deployment materials

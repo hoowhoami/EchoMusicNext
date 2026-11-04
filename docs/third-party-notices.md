@@ -35,3 +35,5 @@ EchoMusic 派生资源包括 `Profile.vue` 等级星球插画、平台应用图�
 发布包须按实际目标、链接方式和构建选项附带第三方许可、版权以及适用的源码提供材料。完整依赖清单、SBOM 和部署许可核查仍需在分发前完成。
 
 歌词 KRC 解压使用 zlib：Windows 复用上述固定 revision 的 Chromium zlib 静态依赖与[许可](licenses/crashpad/chromium-zlib.txt)，macOS/Linux 使用系统 zlib；不新增另一份下载或运行库。
+
+发行安装包的 Qt 详细材料见随包 `licenses/deployment/Qt/NOTICE.txt`、模块 SPDX、源码版权通知和完整标准许可文本（各平台许可证目录根略有差异）；`modules.json` 记录 Qt 模块版本、可取得的精确提交或发行标签及上游源码链接。实际部署库和原生插件须通过模块许可材料覆盖检查，包含 Qt WebSockets。Qt 自定义许可证正文保留在对应 SPDX 文档的 extracted licensing info 中，原组件版权与许可不因本项目采用 GPL-3.0-only 而被替换。
