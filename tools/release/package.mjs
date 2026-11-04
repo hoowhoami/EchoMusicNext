@@ -205,7 +205,7 @@ if (platform === 'macOS') {
         QMAKE: path.join(qt, 'bin/qmake'),
         QML_SOURCES_PATHS: path.join(root, 'modules'),
         QML_MODULES_PATHS: path.join(build, 'qml'),
-        EXTRA_PLATFORM_PLUGINS: 'libqwayland-egl.so;libqwayland-generic.so;libqoffscreen.so',
+        EXTRA_PLATFORM_PLUGINS: 'libqwayland.so;libqoffscreen.so',
         EXTRA_QT_MODULES: 'waylandcompositor',
         APPIMAGE_EXTRACT_AND_RUN: '1',
         OUTPUT: name('appimage'),
