@@ -306,7 +306,7 @@ public:
     }
     bool loading() const
     {
-        return m_loading;
+        return m_loading || m_startPending;
     }
     bool hasTrack() const
     {
@@ -649,5 +649,8 @@ private:
     PlayMode m_mode = ListLoop;
     bool m_playing = false, m_loading = false, m_autoplay = false, m_ready = false,
          m_closing = false, m_startupAutoPlayPending = false;
+    // Source resolution and native Play acknowledgement are separate stages.
+    // Keep presentation busy across their hand-off without blocking recovery.
+    bool m_startPending = false;
 };
 } // namespace EchoMusic

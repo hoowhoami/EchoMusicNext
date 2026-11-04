@@ -29,6 +29,10 @@ public:
     static void hold(PlaybackService &p)
     {
         p.m_ready = false;
+        // Drive the production event reducer at distinct source/transport
+        // boundaries, without an unrelated native Stop racing these samples.
+        QObject::disconnect(&p.m_engine, &AudioEngine::eventReceived, &p,
+                            &PlaybackService::onEvent);
     }
     static quint64 sequence(const PlaybackService &p)
     {
@@ -38,15 +42,25 @@ public:
     {
         return p.m_autoplay;
     }
-    // Complete the controlled pre-resolution boundary; real media transport is
-    // covered by SongPlaybackUiTest's WAV playback cases.
-    static void finish(PlaybackService &p, bool failed = false)
+    static void loaded(PlaybackService &p)
     {
-        p.m_loading = false;
-        p.m_loaded = !failed;
-        p.m_playing = !failed;
-        p.m_error = failed ? QStringLiteral("fixture failure") : QString();
-        emit p.changed();
+        p.consumeOutputEvent({{"event", "file-loaded"},
+                              {"seq", qint64(p.m_audioSequence)},
+                              {"track_seq", qint64(p.m_audioSequence)},
+                              {"source_revision", qint64(p.m_sourceRevision)}});
+    }
+    static void acknowledge(PlaybackService &p, bool playing, qint64 sequence = -1)
+    {
+        p.consumeOutputEvent({{"event", "state-change"},
+                              {"track_seq", sequence < 0 ? qint64(p.m_audioSequence) : sequence},
+                              {"source_revision", qint64(p.m_sourceRevision)},
+                              {"state", QJsonObject{{"playing", playing}, {"paused", !playing}}}});
+    }
+    static void fail(PlaybackService &p)
+    {
+        p.consumeOutputEvent({{"event", "error"},
+                              {"error_code", "device"},
+                              {"message", "fixture output device failure"}});
     }
 };
 class SearchModelTestAccess
@@ -83,6 +97,52 @@ class PlaybackButtonUiTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void pendingStartCanBeCancelledAndRejectsStaleAcknowledgements()
+    {
+        QTemporaryDir dir;
+        SettingsStore settings(dir.filePath("settings.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        api.addInterceptor(100, [](const QJsonObject &, ApiInterceptNext, ApiInterceptDone) {
+            return std::function<void()>([] {});
+        });
+        PlaybackService playback(api, settings, nullptr, dir.filePath("queue.sqlite"));
+        QTRY_VERIFY_WITH_TIMEOUT(PlaybackServiceTestAccess::ready(playback), 15000);
+        PlaybackServiceTestAccess::hold(playback);
+        PlaybackTrack track;
+        track.id = "pending-start";
+        track.hash = QString(32, 'a');
+        track.title = "Pending start";
+        const auto start = [&] {
+            playback.playTracks({track}, 0, "Pending", "pending");
+            PlaybackServiceTestAccess::loaded(playback);
+            QVERIFY(playback.loading());
+            QVERIFY(!playback.playing());
+        };
+        start();
+        PlaybackServiceTestAccess::acknowledge(playback, false);
+        QVERIFY(playback.loading()); // Initial paused state is not a Play ACK.
+        PlaybackServiceTestAccess::acknowledge(playback, true, 0);
+        QVERIFY(playback.loading());
+        QVERIFY(!playback.playing());
+        playback.toggle();
+        QVERIFY(!playback.loading());
+        QVERIFY(!PlaybackServiceTestAccess::autoplay(playback));
+        start();
+        playback.stop();
+        QVERIFY(!playback.loading());
+        start();
+        PlaybackServiceTestAccess::fail(playback);
+        QVERIFY(!playback.loading());
+        playback.playTracks({track}, 0, "Pending", "pending");
+        playback.pause();
+        PlaybackServiceTestAccess::loaded(playback);
+        QVERIFY(!playback.loading());
+        QVERIFY(!playback.playing());
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void loadingFollowsOnlyTheCurrentTrack_data()
     {
         QTest::addColumn<bool>("dark");
@@ -213,7 +273,20 @@ Window {
                 QVERIFY(frame.save(
                     captures + QString("/%1-%2-list%3.png").arg(dark).arg(zoom).arg(searchMode)));
             QPointer<QObject> spinner = find(button, "playbackButtonSpinner");
-            PlaybackServiceTestAccess::finish(playback);
+            PlaybackServiceTestAccess::loaded(playback);
+            QTest::qWait(40);
+            QVERIFY(!window->grabWindow().isNull());
+            QVERIFY(playback.loading());
+            QVERIFY(!playback.playing());
+            QVERIFY(spinner);
+            QVERIFY(button->property("iconCovered").toBool());
+            QVERIFY(!button->isEnabled());
+            actions.playOrToggle("2");
+            search.playSong("2");
+            playback.playViewedIndex(playback.queue()->currentIndex());
+            QCOMPARE(PlaybackServiceTestAccess::sequence(playback), sequence);
+            QVERIFY(PlaybackServiceTestAccess::autoplay(playback));
+            PlaybackServiceTestAccess::acknowledge(playback, true);
             QTRY_VERIFY(spinner.isNull());
             QVERIFY(button->isEnabled());
             QTRY_COMPARE(button->property("glyph").toString(),
@@ -238,7 +311,11 @@ Window {
         click(homePlay);
         QTRY_COMPARE(playback.trackId(), QString("1"));
         QTRY_VERIFY(find(homePlay, "playbackButtonSpinner"));
-        PlaybackServiceTestAccess::finish(playback);
+        // The reverse ordering must also stay covered until the source is ready.
+        PlaybackServiceTestAccess::acknowledge(playback, true);
+        QVERIFY(playback.loading());
+        QVERIFY(find(homePlay, "playbackButtonSpinner"));
+        PlaybackServiceTestAccess::loaded(playback);
         Test::moveNativePointer(window, {window->width() - 4, 4});
         QTRY_VERIFY(!homePlay->property("hovered").toBool());
         QTRY_COMPARE(homePlay->property("foreground").value<QColor>(),
@@ -265,7 +342,7 @@ Window {
         window->show();
         QVERIFY(Test::prepareNativeInput(window));
         QTRY_VERIFY(find(homePlay, "playbackButtonSpinner"));
-        PlaybackServiceTestAccess::finish(playback, true);
+        PlaybackServiceTestAccess::fail(playback);
         QTRY_VERIFY(!find(homePlay, "playbackButtonSpinner"));
         QVERIFY(homePlay->isEnabled());
         auto *drawer = root->findChild<QObject *>("queueFixture");
@@ -305,6 +382,14 @@ Window {
         QCOMPARE(artist->property("color").value<QColor>(),
                  theme.property("floatingAccentText").value<QColor>());
         QPointer<QObject> queueSpinner = find(queuePlay, "playbackButtonSpinner");
+        PlaybackServiceTestAccess::loaded(playback);
+        QTest::qWait(40);
+        QVERIFY(!window->grabWindow().isNull());
+        QVERIFY(queueSpinner);
+        QVERIFY(queuePlay->property("iconCovered").toBool());
+        PlaybackServiceTestAccess::acknowledge(playback, true);
+        QTRY_VERIFY(queueSpinner.isNull());
+        QCOMPARE(queuePlay->property("glyph").toString(), QString("player-pause"));
         playback.stop();
         QTRY_VERIFY(queueSpinner.isNull());
         QVERIFY(queuePlay->isEnabled());

@@ -1064,8 +1064,14 @@ void PluginRuntimeTest::sourceCatalogNetworkCacheAndOfficialProtection()
                 fail ? QByteArray("unavailable")
                 : request.startsWith("GET /echo-plugins.json ")
                     ? QByteArray(
-                          R"({"schemaVersion":2,"plugins":[{"id":"test.runtime","path":"plugins/test","artifact":"artifacts/test.echomod","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}]})")
-                    : manifest;
+                          R"({"schemaVersion":2,"plugins":[{"id":"test.runtime","path":"plugins/test"}]})")
+                    : QJsonDocument([&] {
+                          auto published = QJsonDocument::fromJson(manifest).object();
+                          published["distribution"] = QJsonObject{
+                              {"artifact", "artifacts/test.echomod"}, {"sha256", QString(64, '0')}};
+                          return published;
+                      }())
+                          .toJson();
             socket->write(
                 QByteArray(fail ? "HTTP/1.1 503 Unavailable\r\n" : "HTTP/1.1 200 OK\r\n") +
                 "Content-Length: " + QByteArray::number(body.size()) +

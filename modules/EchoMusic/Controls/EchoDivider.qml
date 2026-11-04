@@ -24,19 +24,10 @@ Item {
     readonly property real densityY: EchoPixelSnap.densityY
     Rectangle {
         id: line
-        x: !divider.horizontal && divider.snap
-                ? (Math.round(divider.scene.x * divider.dpr) - divider.scene.x * divider.dpr)
-                        / divider.densityX
-                : 0
-        y: divider.horizontal && divider.snap
-                ? (Math.round(divider.scene.y * divider.dpr) - divider.scene.y * divider.dpr)
-                        / divider.densityY
-                : 0
-        width: divider.horizontal ? parent.width
-                                  : divider.snap ? Math.round(1 * divider.densityX) / divider.densityX : 1
-        height: divider.horizontal
-                ? (divider.snap ? Math.round(1 * divider.densityY) / divider.densityY : 1)
-                : parent.height
+        x: !divider.horizontal && divider.snap ? (Math.round(divider.scene.x * divider.dpr) - divider.scene.x * divider.dpr) / divider.densityX : 0
+        y: divider.horizontal && divider.snap ? (Math.round(divider.scene.y * divider.dpr) - divider.scene.y * divider.dpr) / divider.densityY : 0
+        width: divider.horizontal ? parent.width : divider.snap ? Math.round(1 * divider.densityX) / divider.densityX : 1
+        height: divider.horizontal ? (divider.snap ? Math.round(1 * divider.densityY) / divider.densityY : 1) : parent.height
         color: divider.lineColor
     }
 }

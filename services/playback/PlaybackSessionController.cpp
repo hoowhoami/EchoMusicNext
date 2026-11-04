@@ -12,6 +12,7 @@ namespace EchoMusic
 {
 void PlaybackSessionController::invalidate(bool preserveLyrics)
 {
+    m_playback.m_startPending = false;
     m_playback.m_climax.clear();
     m_playback.m_progress.reset();
     m_playback.publishProgressStatus();

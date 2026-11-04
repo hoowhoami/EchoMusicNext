@@ -1,4 +1,5 @@
 #pragma once
+#include <QByteArray>
 #include <QVariantMap>
 #include <QUrl>
 namespace EchoMusic
@@ -9,6 +10,8 @@ struct PluginSourceEntry
     static QString repository(const QString &url);
     static bool relativePath(const QString &path, bool empty = false);
     static QString raw(const QString &repository, const QString &ref, const QString &path);
+    static QVariantMap publication(const QVariantMap &entry, const QByteArray &bytes,
+                                   QString &error);
     static QVariantMap parse(const QVariantMap &record, const QString &sourceRepository,
                              QString &error);
 };

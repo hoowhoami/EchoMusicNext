@@ -62,6 +62,9 @@ private slots:
     void localWebSocketUpgradeBinaryPingAndLimits();
     void resourceAccountAndDisableDrainRealTransports();
     void ecosystemTasksActionsRetentionAndAccountLifetime();
+    void marketplaceUpdateTasksFilterDismissAndReplace();
+    void marketplaceUpdateTasksRunBatchAndRetry();
+    void marketplaceStartupCheckDefersRecoversAndStops();
     void ecosystemSidebarSongMenuAndPresentation();
     void ecosystemShortcutsToastAndScroll();
     void ecosystemLyricsNativeContextsStylesAndReclamation();

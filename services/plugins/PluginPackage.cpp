@@ -245,6 +245,8 @@ PluginPackage PluginPackage::inspectManifest(const QByteArray &bytes)
     if (parse.error != QJsonParseError::NoError || !document.isObject())
         return fail("Invalid manifest JSON");
     const auto object = document.object();
+    if (object.contains("distribution"))
+        return fail("Distribution metadata must remain outside the plugin package");
     result.manifest = object.toVariantMap();
     result.id = object.value("id").toString();
     result.name = object.value("name").toString();

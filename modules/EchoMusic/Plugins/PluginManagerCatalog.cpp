@@ -157,7 +157,8 @@ void PluginManager::getAttempt(const QUrl &url, const QUrl &origin, qint64 limit
             });
 }
 void PluginManager::fetchSource(QVariantMap source, quint64 generation,
-                                std::function<void(QVariantMap, QVariantList)> complete, bool fresh)
+                                std::function<void(QVariantMap, QVariantList)> complete, bool fresh,
+                                bool installedOnly)
 {
     const auto validateIndex = [](const QByteArray &bytes) -> QString {
         QJsonParseError parse;
@@ -170,8 +171,8 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
     };
     get(
         QUrl(raw(source, "echo-plugins.json")), 256 * 1024,
-        [this, source, generation, complete, fresh](QByteArray bytes, QString error,
-                                                    QVariantMap failure) mutable {
+        [this, source, generation, complete, fresh, installedOnly](QByteArray bytes, QString error,
+                                                                   QVariantMap failure) mutable {
             if (generation != m_generation)
                 return;
             source["catalogValid"] = false;
@@ -213,7 +214,7 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
             auto next = std::make_shared<std::function<void()>>();
             std::weak_ptr<std::function<void()>> weakNext = next;
             *next = [this, source, generation, complete, entries, errors, details, results, current,
-                     weakNext, fresh]() mutable {
+                     weakNext, fresh, installedOnly]() mutable {
                 const auto next = weakNext.lock();
                 if (!next)
                     return;
@@ -221,6 +222,13 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                     *next = {};
                     return;
                 }
+                // Startup reads each source index but only follows installed IDs
+                // to their author manifests. Opening the market still loads all.
+                while (installedOnly && *current < entries->size() &&
+                       m_runtime
+                           .installationForId(entries->at(*current).toMap().value("id").toString())
+                           .isEmpty())
+                    ++*current;
                 if (*current >= entries->size()) {
                     source["lastError"] =
                         errors->isEmpty()
@@ -240,7 +248,7 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                         source["lastErrorDetail"] = detail;
                     }
                     source["catalogValid"] = true;
-                    source["pluginCount"] = results->size();
+                    source["pluginCount"] = installedOnly ? entries->size() : results->size();
                     source["lastFetchedAt"] = QDateTime::currentDateTime().toString(Qt::ISODate);
                     auto finish = complete;
                     *next = {};
@@ -248,11 +256,11 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                     return;
                 }
                 const auto entry = entries->at((*current)++).toMap();
-                const auto validateManifest = [entry](const QByteArray &bytes) -> QString {
-                    const auto package = PluginPackage::inspectManifest(bytes);
-                    if (!package.error.isEmpty() && !package.incompatible)
-                        return package.error;
-                    return package.id != entry.value("id") ? tr("插件 ID 与索引不一致") : QString();
+                const auto validatePublication = [entry](const QByteArray &bytes) -> QString {
+                    QString error;
+                    PluginSourceEntry::publication(entry, bytes, error);
+                    return error.isEmpty() ? QString()
+                                           : tr("作者仓库的插件发布信息无效，请联系作者修复后刷新");
                 };
                 get(
                     QUrl(entry.value("manifestUrl").toString()), 256 * 1024,
@@ -262,7 +270,11 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                             *next = {};
                             return;
                         }
-                        auto package = PluginPackage::inspectManifest(bytes);
+                        QString publicationError;
+                        const auto resolved =
+                            PluginSourceEntry::publication(entry, bytes, publicationError);
+                        const auto package = PluginPackage::inspectManifest(
+                            QJsonDocument::fromVariant(resolved.value("manifest")).toJson());
                         if (!failure.isEmpty()) {
                             errors->append(entry.value("id").toString() + ": " + failure);
                             if (detail.isEmpty())
@@ -276,7 +288,8 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                                 if (cached.value("sourceId") == source.value("id") &&
                                     cached.value("id") == entry.value("id") &&
                                     cached.value("repository") == entry.value("repository") &&
-                                    cached.value("sha256") == entry.value("sha256")) {
+                                    cached.value("ref") == entry.value("ref") &&
+                                    cached.value("path") == entry.value("path")) {
                                     cached["stale"] = true;
                                     cached["refreshError"] = failure;
                                     cached["refreshErrorDetail"] = detail;
@@ -286,7 +299,7 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                             }
                         } else {
                             auto record = package.manifest;
-                            for (auto it = entry.begin(); it != entry.end(); ++it)
+                            for (auto it = resolved.begin(); it != resolved.end(); ++it)
                                 record[it.key()] = it.value();
                             record["key"] = source.value("id").toString() + ':' + package.id;
                             record["sourceId"] = source.value("id");
@@ -310,7 +323,7 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                         auto continueFetch = *next;
                         continueFetch();
                     },
-                    {}, 30000, validateManifest, fresh);
+                    {}, 30000, validatePublication, fresh);
             };
             auto begin = *next;
             begin();
@@ -319,9 +332,14 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
 }
 void PluginManager::refreshCatalog(bool force)
 {
+    refreshCatalogImpl(force, false);
+}
+void PluginManager::refreshCatalogImpl(bool force, bool installedOnly)
+{
     if (force)
         m_shareInstallError.clear();
-    if (m_closing || m_catalogLoading || m_busy || (m_loaded && !force))
+    if (m_closing || m_catalogLoading || m_busy || m_batch || m_localBatch ||
+        (m_loaded && !force && (installedOnly || m_catalogComplete)))
         return;
     m_catalogLoading = true;
     emit changed();
@@ -333,6 +351,7 @@ void PluginManager::refreshCatalog(bool force)
     if (!*pending) {
         m_catalogLoading = false;
         m_loaded = true;
+        m_catalogComplete = !installedOnly;
         rebuild();
         save();
         return;
@@ -343,7 +362,8 @@ void PluginManager::refreshCatalog(bool force)
             continue;
         fetchSource(
             source, generation,
-            [this, generation, pending, force](QVariantMap source, QVariantList plugins) {
+            [this, generation, pending, force, installedOnly](QVariantMap source,
+                                                              QVariantList plugins) {
                 if (generation != m_generation)
                     return;
                 const auto id = source.value("id");
@@ -352,20 +372,26 @@ void PluginManager::refreshCatalog(bool force)
                         value = source;
                 if (source.value("catalogValid").toBool()) {
                     for (int i = int(m_entries.size()) - 1; i >= 0; --i)
-                        if (m_entries[i].toMap().value("sourceId") == id)
+                        if (m_entries[i].toMap().value("sourceId") == id &&
+                            (!installedOnly ||
+                             !m_runtime
+                                  .installationForId(m_entries[i].toMap().value("id").toString())
+                                  .isEmpty()))
                             m_entries.removeAt(i);
                     m_entries.append(plugins);
                 }
                 if (--*pending == 0) {
                     m_catalogLoading = false;
                     m_loaded = true;
+                    m_catalogComplete = !installedOnly;
                     m_fetchedAt = QDateTime::currentDateTime().toString(Qt::ISODate);
                     save();
-                    refreshStatistics(force);
+                    if (!installedOnly)
+                        refreshStatistics(force);
                 }
                 rebuild();
             },
-            force);
+            force, installedOnly);
     }
 }
 QVariantList PluginManager::sourceOptions() const

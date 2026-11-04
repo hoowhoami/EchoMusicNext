@@ -484,13 +484,13 @@ void DesktopPagesTest::playbackLoadingRevealsFinalPlayPauseIcon()
     const auto observation =
         connect(session.window, &QQuickWindow::afterAnimating, session.window, [&] {
             auto *icon = visual(button, "playPauseIcon");
-            if (!icon || !icon->isVisible() || playback.loading() ||
-                button->property("glyph").toString() != "pause")
+            if (!icon || !icon->isVisible() || playback.loading() || !playback.hasTrack())
                 return;
             ++revealedFrames;
             const auto phase = icon->property("phase").toReal();
-            if (phase < 1.)
-                intermediateFrames.append(QString::number(phase));
+            if (button->property("glyph").toString() != "pause" || phase < 1.)
+                intermediateFrames.append(button->property("glyph").toString() + ':' +
+                                          QString::number(phase));
         });
     const auto disconnectObservation = qScopeGuard([&] { disconnect(observation); });
     for (int cycle = 0; cycle < 3; ++cycle) {

@@ -90,6 +90,7 @@ void AppContext::createPlugins()
          });
     m_pluginManager = std::make_unique<PluginManager>(plugins, settings);
     auto &pluginManager = *m_pluginManager;
+    pluginManager.attachTasks(*shellController.tasks());
     pluginManager.attachSharing(shareCommands);
     m_shareResolver = std::make_unique<ShareResolveService>(api, shareCommands, router,
                                                             shellController, window, !smoke);

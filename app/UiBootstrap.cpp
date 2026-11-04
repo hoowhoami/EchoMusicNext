@@ -93,6 +93,8 @@ void AppContext::mountUi()
     };
     startBusiness = [&] {
         plugins.start(m_pluginDirectories);
+        if (!smoke)
+            m_pluginManager->startStartupUpdateCheck();
         pluginStartupReady = true;
         deliverUrls();
         const auto maintenanceError =

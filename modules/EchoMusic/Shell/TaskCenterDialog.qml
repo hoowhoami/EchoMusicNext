@@ -281,14 +281,15 @@ EchoDialog {
                     }
                     ProgressBar {
                         id: taskProgress
+                        objectName: "taskProgress-" + task.taskId
                         Layout.fillWidth: true
                         Layout.preferredHeight: 5
                         Layout.topMargin: -6
                         from: 0
                         to: 100
                         value: Math.max(0, task.taskPercent)
-                        visible: task.taskHasProgress
-                        indeterminate: task.taskPercent < 0 && task.inViewport && dialog.visible
+                        visible: task.taskPercent >= 0 || task.taskStatus === TaskCenterModel.Running
+                        indeterminate: task.taskStatus === TaskCenterModel.Running && task.taskPercent < 0 && task.inViewport && dialog.visible
                         contentItem: Item {
                             clip: true
                             Rectangle {

@@ -26,6 +26,7 @@ PlaybackRecoveryController::PlaybackRecoveryController(PlaybackService &playback
         p.m_source.cancel();
         p.m_pendingSourceIdentity.reset();
         p.m_loading = false;
+        p.m_startPending = false;
         p.m_error = tr("播放恢复超时，请重试");
         p.m_playing = false;
         p.m_engine.command(AudioEngine::Pause);
@@ -89,6 +90,7 @@ void PlaybackRecoveryController::recover(bool stall)
         p.m_error = tr("播放失败，已达到最大自动恢复次数");
         cancel();
         p.m_playing = false;
+        p.m_startPending = false;
         p.m_engine.command(AudioEngine::Pause);
         p.m_failure->failed();
         emit p.changed();
@@ -107,6 +109,7 @@ void PlaybackRecoveryController::recover(bool stall)
     p.m_loaded = false;
     p.m_seamless = false;
     p.m_loading = true;
+    p.m_startPending = false;
     p.m_resumePosition = m_target;
     p.m_error.clear();
     p.m_engine.command(AudioEngine::Stop);

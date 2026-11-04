@@ -1,5 +1,8 @@
 #include "PluginSourceEntry.h"
 #include "PluginPaths.h"
+#include "PluginPackage.h"
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 namespace EchoMusic
 {
@@ -46,7 +49,8 @@ QString PluginSourceEntry::raw(const QString &repo, const QString &ref, const QS
 QVariantMap PluginSourceEntry::parse(const QVariantMap &record, const QString &sourceRepository,
                                      QString &error)
 {
-    const QStringList keys{"id", "repo", "ref", "path", "artifact", "sha256"};
+    error.clear();
+    const QStringList keys{"id", "repo", "ref", "path"};
     for (auto it = record.begin(); it != record.end(); ++it)
         if (!keys.contains(it.key()) || it.value().metaType().id() != QMetaType::QString) {
             error = "Invalid plugin index field";
@@ -57,14 +61,52 @@ QVariantMap PluginSourceEntry::parse(const QVariantMap &record, const QString &s
                                               : sourceRepository.toLower();
     const auto ref = record.value("ref", "HEAD").toString();
     const auto path = record.value("path").toString();
-    const auto artifact = record.value("artifact").toString();
     static const QRegularExpression validRef("^[A-Za-z0-9_][A-Za-z0-9_./-]{0,255}$");
-    static const QRegularExpression checksum("^[a-f0-9]{64}$");
     if (!PluginPaths::validId(id) || repo.isEmpty() || !validRef.match(ref).hasMatch() ||
-        ref.contains("..") || ref.endsWith('/') || !record.contains("path") ||
-        !relativePath(path, true) ||
-        !checksum.match(record.value("sha256").toString()).hasMatch()) {
-        error = "Invalid plugin repository, ID, path, ref or SHA-256";
+        ref.contains("..") || ref.endsWith('/') || !relativePath(path, true)) {
+        error = "Invalid plugin repository, ID, path or ref";
+        return {};
+    }
+    auto result = record;
+    result["repository"] = repo;
+    result["repo"] = "https://github.com/" + repo;
+    result["ref"] = ref;
+    result["path"] = path;
+    result["manifestUrl"] =
+        raw(repo, ref, path.isEmpty() ? "manifest.json" : path + "/manifest.json");
+    return result;
+}
+QVariantMap PluginSourceEntry::publication(const QVariantMap &entry, const QByteArray &bytes,
+                                           QString &error)
+{
+    error.clear();
+    QJsonParseError parse;
+    const auto document = QJsonDocument::fromJson(bytes, &parse);
+    if (parse.error != QJsonParseError::NoError || !document.isObject() ||
+        bytes.size() > 256 * 1024 || !document.object().value("distribution").isObject()) {
+        error = "Invalid published plugin manifest";
+        return {};
+    }
+    auto object = document.object();
+    const auto publication = object.take("distribution").toObject().toVariantMap();
+    if (publication.size() != 2 || !publication.contains("artifact") ||
+        !publication.contains("sha256")) {
+        error = "Invalid plugin distribution fields";
+        return {};
+    }
+    const auto manifest = QJsonDocument(object).toJson(QJsonDocument::Compact);
+    const auto package = PluginPackage::inspectManifest(manifest);
+    if ((!package.error.isEmpty() && !package.incompatible) ||
+        package.id != entry.value("id").toString()) {
+        error = package.error.isEmpty() ? "Published plugin ID differs from index" : package.error;
+        return {};
+    }
+    const auto artifact = publication.value("artifact").toString();
+    static const QRegularExpression checksum("^[a-f0-9]{64}$");
+    if (publication.value("artifact").metaType().id() != QMetaType::QString ||
+        publication.value("sha256").metaType().id() != QMetaType::QString ||
+        !checksum.match(publication.value("sha256").toString()).hasMatch()) {
+        error = "Invalid plugin distribution artifact or SHA-256";
         return {};
     }
     QString artifactUrl;
@@ -74,7 +116,8 @@ QVariantMap PluginSourceEntry::parse(const QVariantMap &record, const QString &s
             error = "Invalid plugin artifact path";
             return {};
         }
-        artifactUrl = raw(repo, ref, artifact);
+        artifactUrl =
+            raw(entry.value("repository").toString(), entry.value("ref").toString(), artifact);
     } else {
         if (!absolute.isValid() || absolute.scheme() != "https" || absolute.host().isEmpty() ||
             !absolute.userInfo().isEmpty() || absolute.hasFragment() ||
@@ -84,13 +127,11 @@ QVariantMap PluginSourceEntry::parse(const QVariantMap &record, const QString &s
         }
         artifactUrl = absolute.toString(QUrl::FullyEncoded);
     }
-    auto result = record;
-    result["repository"] = repo;
-    result["repo"] = "https://github.com/" + repo;
-    result["ref"] = ref;
+    auto result = entry;
+    result["artifact"] = artifact;
+    result["sha256"] = publication.value("sha256");
     result["artifactUrl"] = artifactUrl;
-    result["manifestUrl"] =
-        raw(repo, ref, path.isEmpty() ? "manifest.json" : path + "/manifest.json");
+    result["manifest"] = package.manifest;
     return result;
 }
 } // namespace EchoMusic

@@ -187,6 +187,7 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
             return;
         if (m_castRefreshSequence == m_sequence) {
             m_loading = m_playing = false;
+            m_startPending = false;
             m_error = tr("投放音源已过期，请重试");
             m_failure->failed();
             emit changed();
@@ -304,6 +305,7 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
             return;
         m_recovery->cancel();
         m_loading = false;
+        m_startPending = false;
         m_pendingSourceIdentity.reset();
         if (!m_seamless)
             m_playing = false;
@@ -1016,7 +1018,7 @@ void PlaybackService::toggle()
             m_listenTogether->localPauseRequested();
         if (!m_autoplay)
             m_engine.command(AudioEngine::Pause);
-    } else if (m_playing)
+    } else if (m_startPending || m_playing)
         pause();
     else
         play();
@@ -1037,7 +1039,7 @@ void PlaybackService::play()
         return;
     }
     m_autoplay = true;
-    if (m_loading)
+    if (loading())
         return;
     if (!m_loaded || !m_error.isEmpty()) {
         if (m_personalFm->active() && m_personalFm->m_resetPending) {
@@ -1063,6 +1065,9 @@ void PlaybackService::pause()
     m_recovery->cancel();
     m_listening.resetPosition();
     m_autoplay = false;
+    const bool startWasPending = std::exchange(m_startPending, false);
+    if (startWasPending)
+        emit changed();
     m_sleepInhibitor.setRequired(false);
     if (m_cast->remoteMedia()) {
         m_cast->pauseMedia();
@@ -1306,6 +1311,7 @@ void PlaybackService::refreshCurrentSource()
     // replacement can retain the MV when its hand-off buffer is unavailable.
     m_seamless = m_loaded && m_playing && !m_cast->remoteMedia() && m_sourceKind != "mv";
     m_loading = true;
+    m_startPending = false;
     if (!m_seamless) {
         m_resumePosition = m_position;
         m_autoplay = m_playing || m_autoplay;
@@ -1473,6 +1479,7 @@ bool EchoMusic::PlaybackService::tryMvFallback(const QString &reason)
     m_audioSequence = ++m_audioSerial;
     ++m_sourceRevision;
     m_loading = true;
+    m_startPending = false;
     m_loaded = false;
     m_seamless = false;
     m_error.clear();
@@ -1483,6 +1490,7 @@ bool EchoMusic::PlaybackService::recoverSource(const QString &reason)
 {
     if (m_closing || !hasTrack() || !m_track.localPath.isEmpty())
         return false;
+    m_startPending = false;
     const bool mv = loadingSourceKind() == "mv";
     if (!mv) {
         if (m_sourceFailure.isEmpty())

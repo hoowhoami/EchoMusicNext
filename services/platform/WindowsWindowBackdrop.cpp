@@ -123,8 +123,8 @@ void maximizeInfoToRing(HWND window, MINMAXINFO *info)
     // window maximizes onto.
     info->ptMaxPosition = POINT{work.left - monitor.rcMonitor.left - borderX,
                                 work.top - monitor.rcMonitor.top - borderY};
-    info->ptMaxSize = POINT{work.right - work.left + 2 * borderX,
-                            work.bottom - work.top + 2 * borderY};
+    info->ptMaxSize =
+        POINT{work.right - work.left + 2 * borderX, work.bottom - work.top + 2 * borderY};
 }
 } // namespace
 WindowsWindowBackdrop::WindowsWindowBackdrop()

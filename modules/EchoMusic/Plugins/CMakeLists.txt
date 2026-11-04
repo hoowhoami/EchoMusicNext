@@ -53,6 +53,11 @@ target_sources(
 
 target_sources(
     echo_plugins
-    PRIVATE PluginManagerHelpers_p.h PluginManagerCatalog.cpp PluginManagerInstallation.cpp
-            PluginManagerSharing.cpp PluginNetworkFailure.cpp PluginNetworkFailure.h
+    PRIVATE PluginManagerHelpers_p.h
+            PluginManagerCatalog.cpp
+            PluginManagerInstallation.cpp
+            PluginManagerSharing.cpp
+            PluginManagerTasks.cpp
+            PluginNetworkFailure.cpp
+            PluginNetworkFailure.h
 )

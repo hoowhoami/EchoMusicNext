@@ -47,6 +47,10 @@ PluginManager::PluginManager(PluginRuntime &runtime, EchoMusic::SettingsStore &p
         }
     }
     connect(&runtime, &PluginRuntime::catalogChanged, this, &PluginManager::rebuild);
+    connect(&runtime, &PluginRuntime::loadingChanged, this, [this] {
+        publishUpdates();
+        tryStartupUpdateCheck();
+    });
     connect(&runtime, &PluginRuntime::managementStarted, this,
             [this](const QString &installation, const QString &pluginId) {
                 if (m_busy && pluginId == m_pendingPluginId)
@@ -63,6 +67,8 @@ PluginManager::PluginManager(PluginRuntime &runtime, EchoMusic::SettingsStore &p
                                 !ok);
             });
     connect(this, &PluginManager::changed, this, &PluginManager::resolveShared);
+    connect(this, &PluginManager::changed, this, &PluginManager::publishUpdates);
+    connect(this, &PluginManager::changed, this, &PluginManager::tryStartupUpdateCheck);
     rebuild();
 }
 PluginManager::~PluginManager()
@@ -94,6 +100,10 @@ void PluginManager::shutdown()
     if (m_closing)
         return;
     m_closing = true;
+    m_startupCheck.stop();
+    if (m_tasks)
+        m_tasks->remove(m_updateTask);
+    m_updateTask = {};
     ++m_generation;
     const auto replies = m_replies;
     for (auto *reply : replies)

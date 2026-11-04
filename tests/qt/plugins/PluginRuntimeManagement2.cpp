@@ -42,21 +42,25 @@ void PluginRuntimeTest::marketplaceInstallsActualPackageAndRejectsTampering()
                 reportedEvent = requestBody;
             const auto body =
                 request.startsWith("GET /echo-plugins.json ")
-                    ? QJsonDocument(
-                          QJsonObject{{"schemaVersion", 2},
-                                      {"plugins",
-                                       QJsonArray{QJsonObject{
-                                           {"id", "org.test.catalog"},
-                                           {"path", "plugins/fixture"},
-                                           {"artifact", "artifacts/fixture.echomod"},
-                                           {"sha256", QString::fromLatin1(
-                                                          QCryptographicHash::hash(
-                                                              archive, QCryptographicHash::Sha256)
-                                                              .toHex())}}}}})
+                    ? QJsonDocument(QJsonObject{{"schemaVersion", 2},
+                                                {"plugins", QJsonArray{QJsonObject{
+                                                                {"id", "org.test.catalog"},
+                                                                {"path", "plugins/fixture"}}}}})
                           .toJson()
                 : request.startsWith("GET /archive.echomod ") ? archive
-                : request.startsWith("POST ") ? QByteArray(R"({"ok":true,"plugins":[]})")
-                                              : manifest;
+                : request.startsWith("POST ")
+                    ? QByteArray(R"({"ok":true,"plugins":[]})")
+                    : QJsonDocument([&] {
+                          auto published = QJsonDocument::fromJson(manifest).object();
+                          published["distribution"] = QJsonObject{
+                              {"artifact", "artifacts/fixture.echomod"},
+                              {"sha256",
+                               QString::fromLatin1(
+                                   QCryptographicHash::hash(archive, QCryptographicHash::Sha256)
+                                       .toHex())}};
+                          return published;
+                      }())
+                          .toJson();
             const QByteArray status = failCatalog && request.startsWith("GET /echo-plugins.json ")
                                           ? "HTTP/1.1 503 Unavailable"
                                           : "HTTP/1.1 200 OK";

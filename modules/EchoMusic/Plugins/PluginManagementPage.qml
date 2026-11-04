@@ -52,6 +52,15 @@ Item {
         }
     }
     Connections {
+        target: page.manager
+        function onChanged() {
+            // A startup check only follows installed plugins. If this page was
+            // opened during that request, finish loading the full market here.
+            if (!page.manager.catalogLoading)
+                page.openMarketplace();
+        }
+    }
+    Connections {
         target: page.manager.runtime
         function onCatalogChanged() {
             if (page.settingsScope && !page.settingsScope.active) {

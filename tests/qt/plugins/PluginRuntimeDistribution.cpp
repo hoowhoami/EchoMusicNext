@@ -16,14 +16,15 @@ void PluginRuntimeTest::marketplaceFreshContentAndValidationFallback()
     const auto manifest = manifestFile.readAll(), archive = archiveFile.readAll();
     const auto checksum =
         QString::fromLatin1(QCryptographicHash::hash(archive, QCryptographicHash::Sha256).toHex());
+    auto published = QJsonDocument::fromJson(manifest).object();
+    published["distribution"] =
+        QJsonObject{{"artifact", "artifacts/plugin.echomod"}, {"sha256", checksum}};
+    const auto publication = QJsonDocument(published).toJson();
     const auto index =
-        QJsonDocument(
-            QJsonObject{{"schemaVersion", 2},
-                        {"plugins", QJsonArray{QJsonObject{{"id", "org.test.catalog"},
-                                                           {"ref", "release/v1"},
-                                                           {"path", "plugin space"},
-                                                           {"artifact", "artifacts/plugin.echomod"},
-                                                           {"sha256", checksum}}}}})
+        QJsonDocument(QJsonObject{{"schemaVersion", 2},
+                                  {"plugins", QJsonArray{QJsonObject{{"id", "org.test.catalog"},
+                                                                     {"ref", "release/v1"},
+                                                                     {"path", "plugin space"}}}}})
             .toJson();
     QTcpServer server;
     QVERIFY(server.listen(QHostAddress::LocalHost));
@@ -46,7 +47,7 @@ void PluginRuntimeTest::marketplaceFreshContentAndValidationFallback()
             const auto body = mirror || invalidOrigin ? QByteArray("<html>not a plugin</html>")
                               : target.path().endsWith("echo-plugins.json") ? index
                               : target.path().endsWith(".echomod")          ? archive
-                                                                            : manifest;
+                                                                            : publication;
             socket->write("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: " +
                           QByteArray::number(body.size()) + "\r\n\r\n" + body);
             socket->disconnectFromHost();
@@ -107,6 +108,12 @@ void PluginRuntimeTest::crossRepositoryCatalogInstallAndFailureIsolation()
     const auto manifest = manifestFile.readAll(), archive = archiveFile.readAll();
     const auto checksum =
         QString::fromLatin1(QCryptographicHash::hash(archive, QCryptographicHash::Sha256).toHex());
+    auto published = QJsonDocument::fromJson(manifest).object();
+    published["distribution"] = QJsonObject{
+        {"artifact", "https://github.com/author/independent/releases/download/v1/plugin.echomod"},
+        {"sha256", checksum}};
+    auto publication = QJsonDocument(published).toJson();
+    QByteArray servedArchive = archive;
     QTcpServer indexServer, authorServer;
     QVERIFY(indexServer.listen(QHostAddress::LocalHost));
     QVERIFY(authorServer.listen(QHostAddress::LocalHost));
@@ -135,19 +142,14 @@ void PluginRuntimeTest::crossRepositoryCatalogInstallAndFailureIsolation()
                                             {"id", "org.test.catalog"},
                                             {"repo", "https://github.com/author/independent.git/"},
                                             {"ref", "release/v1"},
-                                            {"path", ""},
-                                            {"artifact", "https://github.com/author/independent/"
-                                                         "releases/download/v1/plugin.echomod"},
-                                            {"sha256", checksum}},
+                                            {"path", ""}},
                                         QJsonObject{{"id", "missing-plugin"},
                                                     {"repo", "https://github.com/other/missing"},
-                                                    {"path", "plugins/missing"},
-                                                    {"artifact", "artifacts/missing.echomod"},
-                                                    {"sha256", checksum}}}}})
+                                                    {"path", "plugins/missing"}}}}})
                                .toJson();
                 else {
                     ok = !url.contains("/other/missing/") && !failAuthor;
-                    body = url.endsWith(".echomod") ? archive : manifest;
+                    body = url.endsWith(".echomod") ? servedArchive : publication;
                 }
                 socket->write(QByteArray(ok ? "HTTP/1.1 200 OK\r\n" : "HTTP/1.1 404 Missing\r\n") +
                               "Connection: close\r\nContent-Length: " +
@@ -185,6 +187,65 @@ void PluginRuntimeTest::crossRepositoryCatalogInstallAndFailureIsolation()
     QVERIFY(
         QFileInfo(PluginPaths(host.runtime.directory()).data("org.test.catalog") + "/values.sqlite")
             .isFile());
+    QSignalSpy notices(&manager, &PluginManager::notice);
+    const auto key = row.value("key").toString();
+    // The official response is identical throughout: only the author publishes a new version.
+    published["version"] = "1.0.1";
+    publication = QJsonDocument(published).toJson();
+    manager.refreshCatalog(true);
+    QTRY_VERIFY(!manager.catalogLoading());
+    auto update = manager.catalog()->data(manager.catalog()->index(0), Qt::UserRole + 1).toMap();
+    QCOMPARE(update.value("version").toString(), QString("1.0.1"));
+    QVERIFY(update.value("updateAvailable").toBool());
+    // Correct archive hash but a different embedded manifest must be rejected.
+    QVERIFY(manager.install(key));
+    QTRY_VERIFY(!manager.busy());
+    QCOMPARE(host.runtime.record(installation).value("version").toString(), QString("1.0.0"));
+    QCOMPARE(host.runtime.state(installation), PluginRuntime::Active);
+    QVERIFY(!notices.isEmpty());
+    QVERIFY(notices.last().value(1).toBool());
+    QFile nextArchive(QFINDTESTDATA("../fixtures/plugins/marketplace/update.echomod"));
+    QVERIFY(nextArchive.open(QIODevice::ReadOnly));
+    servedArchive = nextArchive.readAll();
+    auto distribution = published.value("distribution").toObject();
+    distribution["artifact"] =
+        "https://github.com/author/independent/releases/download/v2/plugin.echomod";
+    distribution["sha256"] = QString::fromLatin1(
+        QCryptographicHash::hash(servedArchive, QCryptographicHash::Sha256).toHex());
+    published["distribution"] = distribution;
+    publication = QJsonDocument(published).toJson();
+    manager.refreshCatalog(true);
+    QTRY_VERIFY(!manager.catalogLoading());
+    QVERIFY(manager.install(key));
+    QTRY_VERIFY(!manager.busy());
+    QCOMPARE(host.runtime.installationForId("org.test.catalog"), installation);
+    QCOMPARE(host.runtime.record(installation).value("version").toString(), QString("1.0.1"));
+    QCOMPARE(host.runtime.state(installation), PluginRuntime::Active);
+    // A failed or incomplete publication preserves the entire last verified snapshot.
+    publication = QByteArray("{}");
+    manager.refreshCatalog(true);
+    QTRY_VERIFY(!manager.catalogLoading());
+    update = manager.catalog()->data(manager.catalog()->index(0), Qt::UserRole + 1).toMap();
+    QCOMPARE(update.value("version").toString(), QString("1.0.1"));
+    QCOMPARE(update.value("sha256"), distribution.value("sha256").toVariant());
+    QVERIFY(update.value("stale").toBool());
+    QString parseError;
+    const auto locator =
+        PluginSourceEntry::parse({{"id", "org.test.catalog"}}, "author/independent", parseError);
+    QVERIFY(!locator.isEmpty());
+    for (const auto &bad : QList<QJsonObject>{
+             QJsonObject{{"artifact", "../escape.echomod"}, {"sha256", checksum}},
+             QJsonObject{{"artifact", "https://user:secret@example.org/plugin.echomod"},
+                         {"sha256", checksum}},
+             QJsonObject{{"artifact", "plugin.zip"}, {"sha256", checksum}},
+             QJsonObject{{"artifact", "plugin.echomod"}, {"sha256", checksum.toUpper()}},
+             QJsonObject{{"artifact", "plugin.echomod"}, {"sha256", checksum}, {"extra", true}}}) {
+        auto malformed = published;
+        malformed["distribution"] = bad;
+        QVERIFY(
+            PluginSourceEntry::publication(locator, QJsonDocument(malformed).toJson(), parseError)
+                .isEmpty());
+    }
     failAuthor = true;
     manager.refreshCatalog(true);
     QTRY_VERIFY(!manager.catalogLoading());
