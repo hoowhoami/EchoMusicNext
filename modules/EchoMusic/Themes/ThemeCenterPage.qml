@@ -163,10 +163,9 @@ RoutePage {
                                     color: Theme.text
                                     font: Theme.font(14, Theme.semiboldWeight)
                                 }
-                                Rectangle {
+                                EchoDivider {
+                                    lineColor: Theme.subtleBorder
                                     Layout.fillWidth: true
-                                    implicitHeight: 1
-                                    color: Theme.subtleBorder
                                 }
                             }
                             EchoVirtualGridSection {

@@ -360,14 +360,13 @@ RoutePage {
                         sourceMenu.close();
                     }
                 }
-                Rectangle {
+                EchoDivider {
+                    lineColor: Theme.withAlpha(Theme.floating.text, 0.08)
                     Layout.fillWidth: true
                     Layout.leftMargin: 6
                     Layout.rightMargin: 6
                     Layout.topMargin: 4
                     Layout.bottomMargin: 4
-                    implicitHeight: 1
-                    color: Theme.withAlpha(Theme.floating.text, 0.08)
                 }
                 Label {
                     Layout.leftMargin: 10

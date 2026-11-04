@@ -79,10 +79,60 @@ void refreshFrame(HWND handle)
     SetWindowPos(handle, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
+// The DWM window transitions (minimize, maximize, restore) are gated on
+// WS_CAPTION at the transition start. Translucent windows live caption-less
+// - DWM paints its native caption buttons underneath the client surface and
+// they bleed through every translucent pixel - so their transitions never
+// animate. The caption is added for the duration of a transition instead: it
+// registers the animation, and the queued repair (which strips the caption
+// for the translucent presentation anyway) removes it once the state has
+// settled. Removing it mid-transition does not abort the animation. Since
+// the frameless WM_NCCALCSIZE keeps the client equal to the whole window,
+// the transient caption changes no layout.
+void ensureCaption(HWND window)
+{
+    const LONG_PTR style = GetWindowLongPtrW(window, GWL_STYLE);
+    if (style & WS_CAPTION)
+        return;
+    SetWindowLongPtrW(window, GWL_STYLE, style | WS_CAPTION);
+}
+// Windows maximizes a captioned window over the work area plus the invisible
+// resize-border ring, and enforces that rect below message level; it also
+// plays the maximize animation only for that captioned transition. A
+// caption-less window instead takes the WM_GETMINMAXINFO ptMaxSize answer
+// verbatim - Qt's frameless handler proposes the bare work area. Qt derives
+// the frame margins it caches for the maximized state from the same ring
+// (calculateFullFrameMargins), and those margins position the scene: with the
+// window at the ring rect and the margins at the ring, the scene covers
+// exactly the visible work area. A maximized window that lands on the bare
+// work area instead finds ring margins cached earlier and shrinks the scene
+// by them - the blank right/bottom strips. maximizeInfoToRing() therefore
+// gives the caption-less maximize the same ring rect, so both maximized
+// states agree with the cached margins.
+void maximizeInfoToRing(HWND window, MINMAXINFO *info)
+{
+    const UINT dpi = GetDpiForWindow(window);
+    const int padding = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    const int borderX = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + padding;
+    const int borderY = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + padding;
+    MONITORINFO monitor{sizeof(MONITORINFO)};
+    if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
+        return;
+    const RECT &work = monitor.rcWork;
+    // ptMaxPosition is in workspace coordinates: relative to the monitor the
+    // window maximizes onto.
+    info->ptMaxPosition = POINT{work.left - monitor.rcMonitor.left - borderX,
+                                work.top - monitor.rcMonitor.top - borderY};
+    info->ptMaxSize = POINT{work.right - work.left + 2 * borderX,
+                            work.bottom - work.top + 2 * borderY};
+}
 } // namespace
 WindowsWindowBackdrop::WindowsWindowBackdrop()
 {
     m_build = QOperatingSystemVersion::current().microVersion();
+    m_transitionCaption.setSingleShot(true);
+    m_transitionCaption.setInterval(350);
+    connect(&m_transitionCaption, &QTimer::timeout, this, [this] { queueRepair(); });
     if (qApp)
         qApp->installNativeEventFilter(this);
 }
@@ -257,9 +307,14 @@ void WindowsWindowBackdrop::applyWindowPolicy()
             // but never WS_CAPTION - DWM paints its native caption buttons
             // underneath the client surface, and with the DirectComposition
             // presentation (no redirection bitmap) they bleed through every
-            // translucent pixel of the custom caption.
+            // translucent pixel of the custom caption. The transient
+            // transition caption is the one exception: it stays until the
+            // DWM animation has played out (m_transitionCaption), whose
+            // timeout re-queues the repair that strips it.
             withFrame = (style | WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) &
                         ~LONG_PTR(WS_CAPTION);
+            if (m_transitionCaption.isActive())
+                withFrame |= WS_CAPTION;
         } else if (!fullscreenActive) {
             // Opaque windowed: the caption returns for the minimize/restore
             // animation; the opaque QML covers the native caption buttons.
@@ -459,6 +514,16 @@ QString WindowsWindowBackdrop::apply(bool enabled, bool dark, int transparency)
     logState("apply");
     return {};
 }
+void WindowsWindowBackdrop::prepareWindowTransition()
+{
+    if (!m_handle || !IsWindow(m_handle) || fullscreen())
+        return;
+    // The app-side maximize/minimize/restore entries bypass the system menu,
+    // so the transient transition caption has to be added here; see
+    // ensureCaption for why, and m_transitionCaption for how long it stays.
+    m_transitionCaption.start();
+    ensureCaption(m_handle);
+}
 bool WindowsWindowBackdrop::applyMaterialState(bool enabled, bool dark, int transparency)
 {
     // The state lands first: the window policy (frameless hint, caption bits,
@@ -488,6 +553,9 @@ bool WindowsWindowBackdrop::applyMaterialState(bool enabled, bool dark, int tran
     // DWM's built-in tint follows the resolved light/dark variant.
     const BOOL darkMode = dark;
     DwmSetWindowAttribute(m_handle, 20, &darkMode, sizeof(darkMode));
+    // DWM_BB stays as Qt keeps it: the region is the alpha-compositing opt-in
+    // for the whole window on this build - disabling it here made the entire
+    // transparency mode render opaque (the backdrop experiment, 2026-11-04).
     // Frosted: the legacy Accent acrylic (SetWindowCompositionAttribute,
     // ACCENT_ENABLE_ACRYLICBLURBEHIND) - more transparent than the system
     // backdrop material (DWMSBT_TRANSIENTWINDOW washes the backdrop toward a
@@ -495,9 +563,9 @@ bool WindowsWindowBackdrop::applyMaterialState(bool enabled, bool dark, int tran
     // is window-wide, so the strip Qt's frozen frame margins leave uncovered
     // (QTBUG-117704) shows the same material as the body - no ring, and no
     // extended frame is needed: any glass fill would cover the desktop shown
-    // through the swapchain when the material is off. DWM_BB stays disabled
-    // (the static-snapshot bug); the frame border hides while the theme is
-    // translucent because applyWindowPolicy strips the native caption.
+    // through the swapchain when the material is off. The frame border hides
+    // while the theme is translucent because applyWindowPolicy strips the
+    // native caption.
     const bool ok = accent(enabled ? 4 : 0);
     if (!ok) {
         clear();
@@ -609,6 +677,15 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
         }
         return DefSubclassProc(window, message, wParam, lParam);
     }
+    // Transient transition caption, see ensureCaption. Opaque windows carry
+    // it anyway (no-op there); fullscreen belongs to the dance below.
+    if (message == WM_SYSCOMMAND && !self->fullscreen()) {
+        const auto command = wParam & 0xfff0;
+        if (command == SC_MAXIMIZE || command == SC_MINIMIZE || command == SC_RESTORE) {
+            self->m_transitionCaption.start();
+            ensureCaption(window);
+        }
+    }
     if (message == WM_NCCALCSIZE && wParam && !self->fullscreen() && IsZoomed(window)) {
         // Windows maximizes a WS_THICKFRAME window over the work area plus the
         // invisible resize border on every edge, while Qt's frameless
@@ -665,6 +742,16 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
     const auto result = DefSubclassProc(window, message, wParam, lParam);
     if (!guard || self->m_handle != window)
         return result;
+    // The maximize engine reads the MINMAXINFO only after the whole window
+    // procedure chain returns, so rewriting it here overrides the bare work
+    // area Qt's frameless handler proposed - see maximizeInfoToRing. For a
+    // captioned maximize this is a no-op (user32 places those over the ring
+    // regardless of this struct); it matters for every caption-less maximized
+    // layout, including the relayout that follows the transient transition
+    // caption being stripped again. ptMaxSize is consumed by a maximize alone,
+    // so windowed moves and resizes are unaffected.
+    if (message == WM_GETMINMAXINFO && lParam && !self->fullscreen())
+        maximizeInfoToRing(window, reinterpret_cast<MINMAXINFO *>(lParam));
     if (message == WM_EXITSIZEMOVE || message == WM_CANCELMODE) {
         self->queueRepair();
     } else if (message == WM_DWMCOMPOSITIONCHANGED || message == WM_STYLECHANGED ||

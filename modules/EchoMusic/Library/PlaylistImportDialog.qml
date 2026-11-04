@@ -73,10 +73,9 @@ EchoDialog {
             tone: dialog.inputStep ? EchoTag.Accent : EchoTag.Muted
             colors: Theme.floating
         }
-        Rectangle {
+        EchoDivider {
             implicitWidth: 12
-            implicitHeight: 1
-            color: Theme.floating.controlBorder
+            lineColor: Theme.floating.controlBorder
         }
         EchoTag {
             size: EchoTag.Small

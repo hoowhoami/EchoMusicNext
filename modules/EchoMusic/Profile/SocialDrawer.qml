@@ -57,10 +57,9 @@ EchoDrawer {
             }
             onCloseRequested: drawer.close()
         }
-        Rectangle {
+        EchoDivider {
+            lineColor: Theme.floatingBorder
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.floatingBorder
         }
         EchoTabBar {
             visible: !drawer.profile.chatActive

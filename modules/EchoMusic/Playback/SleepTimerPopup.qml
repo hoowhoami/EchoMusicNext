@@ -236,11 +236,11 @@ EchoAnchoredPopup {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignTop
                     spacing: popup.stacked ? 0 : 22
-                    Rectangle {
+                    EchoDivider {
+                        orientation: Qt.Vertical
                         visible: !popup.stacked
+                        lineColor: Theme.withAlpha(Theme.floating.text, Theme.dark ? .22 : .16)
                         Layout.fillHeight: true
-                        implicitWidth: 1
-                        color: Theme.withAlpha(Theme.floating.text, Theme.dark ? .22 : .16)
                     }
                     ColumnLayout {
                         Layout.fillHeight: false
@@ -338,11 +338,10 @@ EchoAnchoredPopup {
                                 }
                             }
                         }
-                        Rectangle {
+                        EchoDivider {
+                            lineColor: Theme.withAlpha(Theme.floating.text, Theme.dark ? .22 : .16)
                             Layout.fillWidth: true
                             Layout.topMargin: 6
-                            implicitHeight: 1
-                            color: Theme.withAlpha(Theme.floating.text, Theme.dark ? .22 : .16)
                         }
                         RowLayout {
                             Layout.fillHeight: false
@@ -385,11 +384,10 @@ EchoAnchoredPopup {
                 font: Theme.font(11, Theme.regularWeight)
                 wrapMode: Text.Wrap
             }
-            Rectangle {
+            EchoDivider {
+                lineColor: Theme.withAlpha(Theme.floating.text, Theme.dark ? .22 : .16)
                 Layout.fillWidth: true
                 Layout.topMargin: 16
-                implicitHeight: 1
-                color: Theme.withAlpha(Theme.floating.text, Theme.dark ? .22 : .16)
             }
             RowLayout {
                 Layout.fillHeight: false

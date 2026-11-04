@@ -87,10 +87,9 @@ Popup {
             closeLabel: qsTr("关闭外观调整")
             onCloseRequested: drawer.close()
         }
-        Rectangle {
+        EchoDivider {
+            lineColor: Theme.floatingBorder
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.floatingBorder
         }
         ScrollView {
             id: scroll
@@ -240,12 +239,11 @@ Popup {
                         }
                     }
                 }
-                Rectangle {
+                EchoDivider {
+                    lineColor: Theme.floatingBorder
                     Layout.fillWidth: true
                     Layout.leftMargin: 24
                     Layout.rightMargin: 24
-                    implicitHeight: 1
-                    color: Theme.floatingBorder
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -290,12 +288,11 @@ Popup {
                         onMoved: nextValue => Theme.store.atmosphereStrength = nextValue
                     }
                 }
-                Rectangle {
+                EchoDivider {
+                    lineColor: Theme.floatingBorder
                     Layout.fillWidth: true
                     Layout.leftMargin: 24
                     Layout.rightMargin: 24
-                    implicitHeight: 1
-                    color: Theme.floatingBorder
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -344,12 +341,11 @@ Popup {
                         color: Theme.floatingSecondaryText
                     }
                 }
-                Rectangle {
+                EchoDivider {
+                    lineColor: Theme.floatingBorder
                     Layout.fillWidth: true
                     Layout.leftMargin: 24
                     Layout.rightMargin: 24
-                    implicitHeight: 1
-                    color: Theme.floatingBorder
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -399,12 +395,11 @@ Popup {
                         wrapMode: Text.Wrap
                     }
                 }
-                Rectangle {
+                EchoDivider {
+                    lineColor: Theme.floatingBorder
                     Layout.fillWidth: true
                     Layout.leftMargin: 24
                     Layout.rightMargin: 24
-                    implicitHeight: 1
-                    color: Theme.floatingBorder
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -439,10 +434,9 @@ Popup {
                 }
             }
         }
-        Rectangle {
+        EchoDivider {
+            lineColor: Theme.floatingBorder
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.floatingBorder
         }
         EchoButton {
             accent: false

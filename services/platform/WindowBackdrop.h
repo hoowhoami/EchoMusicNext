@@ -23,6 +23,10 @@ public:
     void attach(QWindow *window);
     bool supported() const;
     QString apply(bool enabled, bool dark, int transparency = 0);
+    /// Call right before minimizing/maximizing/restoring the window so the
+    /// DWM window transitions animate (a transient caption on Windows;
+    /// no-op elsewhere).
+    void prepareWindowTransition();
 
 signals:
     void completed(const QString &error);

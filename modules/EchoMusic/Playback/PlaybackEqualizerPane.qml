@@ -68,10 +68,9 @@ ColumnLayout {
                 }
             }
         }
-        Rectangle {
+        EchoDivider {
+            lineColor: Theme.withAlpha(Theme.floating.text, .05)
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.withAlpha(Theme.floating.text, .05)
         }
         Grid {
             id: presets

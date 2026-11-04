@@ -89,6 +89,7 @@ qt_add_qml_module(
     EchoToolTipPopup.qml
     EchoMenu.qml
     EchoMenuEntry.qml
+    EchoDivider.qml
     EchoMenuSeparator.qml
     EchoPageScrollContainer.qml
     EchoListPositioning.qml

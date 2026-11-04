@@ -64,10 +64,9 @@ EchoDrawer {
                 }
             }
         }
-        Rectangle {
+        EchoDivider {
+            lineColor: Theme.floatingBorder
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.floatingBorder
         }
         GridView {
             id: catalog

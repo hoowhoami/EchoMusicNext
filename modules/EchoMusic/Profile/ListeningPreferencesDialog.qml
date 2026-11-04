@@ -229,13 +229,12 @@ EchoDialog {
                         }
                         onClicked: dialog.moreExpanded = !dialog.moreExpanded
                     }
-                    Rectangle {
+                    EchoDivider {
                         visible: dialog.moreExpanded
+                        lineColor: Theme.floatingBorder
                         Layout.fillWidth: true
                         Layout.topMargin: 6
                         Layout.bottomMargin: 6
-                        implicitHeight: 1
-                        color: Theme.floatingBorder
                     }
                     EchoTabBar {
                         colors: Theme.floating
