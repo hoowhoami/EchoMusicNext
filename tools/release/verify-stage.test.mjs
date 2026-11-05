@@ -113,6 +113,38 @@ test(
   },
 );
 
+for (const name of [
+  'Frameworks/QtExample.framework/Versions/A/QtExample',
+  'PlugIns/media.dylib',
+  'Resources/qml/Example/plugin',
+])
+  test(
+    `macOS rejects universal and wrong-architecture dependencies: ${name}`,
+    {
+      skip: process.platform === 'win32',
+    },
+    () => {
+      const f = fixture('macOS', 'arm64');
+      try {
+        const file = path.join(f.bin, '..', name);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        const bytes = fs.readFileSync(path.join(f.bin, 'echomusicnext'));
+        bytes.writeUInt32LE(0x1000007, 4);
+        fs.writeFileSync(file, bytes);
+        assert.throws(() => verifyStage(f.stage, 'macOS', 'arm64'), /architecture mismatch/);
+        bytes.writeUInt32BE(0xcafebabe);
+        fs.writeFileSync(file, bytes);
+        assert.throws(() => verifyStage(f.stage, 'macOS', 'arm64'), /architecture mismatch/);
+        bytes.writeUInt32LE(0xfeedfacf);
+        bytes.writeUInt32LE(0x100000c, 4);
+        fs.writeFileSync(file, bytes);
+        verifyStage(f.stage, 'macOS', 'arm64');
+      } finally {
+        f.cleanup();
+      }
+    },
+  );
+
 test(
   'explicit smoke allows shutdown beyond 30 seconds and removes SDK plugin paths',
   { skip: process.platform === 'win32', timeout: 55000 },

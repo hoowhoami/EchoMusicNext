@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { verifyStage } from './verify-stage.mjs';
 import { collectLicenses } from './licenses.mjs';
 import { verifyQtDeployment } from './qt-licenses.mjs';
+import { thinMacosBinaries } from './macos-architecture.mjs';
 import {
   root,
   matrix,
@@ -89,6 +90,9 @@ if (platform === 'macOS') {
     '-no-codesign',
   ]);
   keepSqliteDriver(path.join(app, 'Contents/PlugIns/sqldrivers'), 'libqsqlite.dylib');
+  // The official macOS SDK ships universal Qt/FFmpeg libraries. Thin the
+  // deployed copy before signing, without changing the reusable SDK.
+  console.log('macOS architecture:', arch, thinMacosBinaries(app, arch));
   run('codesign', [
     '--force',
     '--deep',
