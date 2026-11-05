@@ -259,7 +259,7 @@ remove:function(r){return wait(r.context.net.request({url:base+'/bytes',method:'
 import QtQuick.Controls.Basic
 import EchoMusic.Settings
 import EchoMusic.Shell
-ApplicationWindow {id:win;required property SettingsDataService dataService;required property ShellSettings settings;required property WindowController windows;width:850;height:700;visible:true; DataSettingsSection {anchors.fill:parent;settings:win.settings;windowService:win.windows;dataService:win.dataService;restoreProvider:')" +
+ApplicationWindow {id:win;required property SettingsDataService dataService;required property ShellSettings settings;required property WindowController windows;width:850;height:700;visible:true; ExperimentalSettingsSection {objectName:"backupDataSettings";anchors.fill:parent;settings:win.settings;windowService:win.windows;dataService:win.dataService;restoreProvider:')" +
             key.toUtf8() + R"(';}})",
         {{"dataService", QVariant::fromValue(&f.data)},
          {"settings", QVariant::fromValue(new ShellSettings(f.host.settings, &f.host.engine))},

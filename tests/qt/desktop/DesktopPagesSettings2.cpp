@@ -704,7 +704,7 @@ void DesktopPagesTest::remainingSettingsProductionSections()
             int actionCount = 0;
             for (const auto *key :
                  {"interface", "window", "playback", "player", "spatialAudio", "lyric", "shortcuts",
-                  "audioDevice", "cast", "plugins", "data", "network", "experimental", "about"}) {
+                  "audioDevice", "cast", "plugins", "network", "experimental", "about"}) {
                 catalog->select(key);
                 if (loader->property("status").toInt() == 2) // Loader.Loading
                     QVERIFY2(!loader->isVisible(),
@@ -824,7 +824,8 @@ void DesktopPagesTest::remainingSettingsProductionSections()
             }());
             QVERIFY2(dialog->property("opened").toBool(),
                      "Closing disclaimer must preserve settings");
-            catalog->select("data");
+            catalog->select("experimental");
+            QVERIFY(session.settingsSectionReady());
             QTRY_VERIFY(visual(session.window->contentItem(), "settingsCreateBackup"));
             QMetaObject::invokeMethod(visual(session.window->contentItem(), "settingsCreateBackup"),
                                       "clicked");
@@ -884,7 +885,7 @@ void DesktopPagesTest::settingsFilterAndUnsupportedProviderNeverLoadStub()
     SettingsCatalog catalog;
     QAbstractItemModelTester tester(&catalog,
                                     QAbstractItemModelTester::FailureReportingMode::QtTest);
-    QCOMPARE(catalog.rowCount(), 14);
+    QCOMPARE(catalog.rowCount(), 13);
     catalog.setFilter(" 字 体 ");
     QVERIFY(catalog.rowCount() > 0);
     QCOMPARE(catalog.current(), QString("interface"));

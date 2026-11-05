@@ -878,6 +878,7 @@ void DesktopPagesTest::productionExperimentalIdentitySettings()
     catalog->setFilter(QStringLiteral("鉴权头"));
     QCOMPARE(catalog->count(), 1);
     QCOMPARE(catalog->current(), QString("experimental"));
+    QVERIFY(session.settingsSectionReady());
     auto *viewport = visual(session.window->contentItem(), "settingsContentViewport");
     QVERIFY(viewport);
     QQuickItem *view = nullptr;
@@ -887,8 +888,9 @@ void DesktopPagesTest::productionExperimentalIdentitySettings()
     QCOMPARE(view->height(), 36.);
     QCOMPARE(reset->height(), 36.);
     QVERIFY(reset->property("danger").toBool());
-    viewport->setProperty(
-        "contentY", qMax(0., viewport->property("contentHeight").toReal() - viewport->height()));
+    // 合并后的实验性功能页在身份区之后还有备份与数据行；把行滚动进视口，
+    // 不能假设页面底部仍是身份设置。
+    QVERIFY(session.revealItem(reset));
     auto *infoOwner = settings->findChild<QObject *>("settingsUserInfoOwner");
     auto *resetOwner = settings->findChild<QObject *>("settingsResetDeviceIdentityOwner");
     QVERIFY(infoOwner && resetOwner);
@@ -1004,8 +1006,8 @@ void DesktopPagesTest::productionExperimentalLoggingSettings()
     auto *viewport = visual(session.window->contentItem(), "settingsContentViewport");
     auto *enable = visual(session.window->contentItem(), "settingsEnableDiagnostics");
     QVERIFY(viewport && enable);
-    viewport->setProperty(
-        "contentY", qMax(0., viewport->property("contentHeight").toReal() - viewport->height()));
+    // 合并后的实验性功能页在日志区之后还有身份、备份与数据行；滚动到诊断行而非页面底部。
+    QVERIFY(session.revealItem(enable));
     QCOMPARE(enable->height(), 36.);
     QCOMPARE(enable->property("text").toString(), QStringLiteral("10 分钟"));
     enable->forceActiveFocus(Qt::TabFocusReason);
@@ -1042,8 +1044,7 @@ void DesktopPagesTest::productionExperimentalLoggingSettings()
     viewport = visual(session.window->contentItem(), "settingsContentViewport");
     restart = visual(session.window->contentItem(), "settingsRestartDiagnostics");
     QVERIFY(viewport && restart);
-    viewport->setProperty(
-        "contentY", qMax(0., viewport->property("contentHeight").toReal() - viewport->height()));
+    QVERIFY(session.revealItem(restart));
     const auto restartBounds = [&] {
         return restart->mapRectToItem(viewport, restart->boundingRect());
     };

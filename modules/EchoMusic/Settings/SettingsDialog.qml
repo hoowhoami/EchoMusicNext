@@ -288,11 +288,8 @@ Popup {
                             properties.shortcuts = dialog.shortcuts;
                         if (navigation.current === "about")
                             properties.about = dialog.about;
-                        if (navigation.current === "data") {
-                            properties.dataService = dialog.dataService;
-                            properties.logging = dialog.logging;
-                        }
                         if (navigation.current === "experimental") {
+                            properties.dataService = dialog.dataService;
                             properties.logging = dialog.logging;
                             properties.relaunch = dialog.relaunch;
                             properties.experimental = dialog.experimental;
