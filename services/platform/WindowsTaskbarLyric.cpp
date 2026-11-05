@@ -172,15 +172,31 @@ bool identityOccupied(IUIAutomation *automation, HWND shell, const POINT &origin
             IUIAutomationElement *element = nullptr;
             if (FAILED(elements->GetElement(i, &element)) || !element)
                 continue;
+            // Property order is a cross-process budget: the tree holds well
+            // over a thousand elements of which a handful can ever match, so
+            // the alloc-free reads (control type, rect, offscreen) run first
+            // and the BSTR string reads (automation id, class name) only run
+            // for elements that survived every cheap skip. The skip set is the
+            // original one re-ordered: the original passes skipped offscreen,
+            // then identity, then rect; here offscreen and rect are merged
+            // ahead of the identity check. All conditions are commutative
+            // ANDs, so the keep-set is unchanged - most of the tree is
+            // offscreen or stale-rect and would never reach the strings.
+            CONTROLTYPEID controlType = 0;
+            const bool hasType = SUCCEEDED(element->get_CurrentControlType(&controlType));
+            RECT rect{};
+            const bool hasRect = SUCCEEDED(element->get_CurrentBoundingRectangle(&rect));
             BOOL offscreen = TRUE;
             const bool hasOffscreen = SUCCEEDED(element->get_CurrentIsOffscreen(&offscreen));
+            // Overflown tray items keep stale rects after hiding.
+            if ((hasOffscreen && offscreen) || !hasRect || rect.right - rect.left <= 0 ||
+                rect.bottom - rect.top <= 0) {
+                element->Release();
+                continue;
+            }
             BSTR id = nullptr, className = nullptr;
-            CONTROLTYPEID controlType = 0;
-            RECT rect{};
             const bool hasId = SUCCEEDED(element->get_CurrentAutomationId(&id)) && id;
             SUCCEEDED(element->get_CurrentClassName(&className));
-            const bool hasType = SUCCEEDED(element->get_CurrentControlType(&controlType));
-            const bool hasRect = SUCCEEDED(element->get_CurrentBoundingRectangle(&rect));
             element->Release();
             const QString automationId = hasId ? QString::fromWCharArray(id) : QString();
             const QString typeClass = className ? QString::fromWCharArray(className) : QString();
@@ -188,9 +204,6 @@ bool identityOccupied(IUIAutomation *automation, HWND shell, const POINT &origin
                 SysFreeString(id);
             if (className)
                 SysFreeString(className);
-            // Overflown tray items keep stale rects after hiding.
-            if (hasOffscreen && offscreen)
-                continue;
             const bool isButton = hasType && controlType == 50000; // UIA_ButtonControlTypeId
             const bool isContent = typeClass.contains(QStringLiteral("TaskListButton")) ||
                                    automationId == QStringLiteral("StartButton") ||
@@ -198,8 +211,6 @@ bool identityOccupied(IUIAutomation *automation, HWND shell, const POINT &origin
                                    automationId == QStringLiteral("SearchBoxTextBlock") ||
                                    automationId == QStringLiteral("TaskViewButton");
             if (!isButton && !isContent && automationId != QStringLiteral("WidgetsButton"))
-                continue;
-            if (!hasRect || rect.right - rect.left <= 0 || rect.bottom - rect.top <= 0)
                 continue;
             const Interval span{qBound(0, int(rect.left - origin.x), barWidth),
                                 qBound(0, int(rect.right - origin.x), barWidth)};

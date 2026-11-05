@@ -265,6 +265,11 @@ void TaskbarLyricController::present()
     if (!showable) {
         if (m_window->isVisible())
             m_window->hide();
+        // Nothing will be shown for a while (fullscreen, no seat): release the
+        // scene graph's node pools and GPU buffers while the window stays
+        // alive; a reveal rebuilds them on demand. The exposure re-kick does
+        // not fight this - kickExposure skips invisible windows.
+        m_window->releaseResources();
         emit stateChanged();
         return;
     }
@@ -327,6 +332,11 @@ void TaskbarLyricController::kickExposure()
     // shell then swallows clicks meant for its own buttons (the taskbar's
     // minimize toggle started failing intermittently with the strip enabled).
     if (!m_window || !m_session.mounted())
+        return;
+    // An invisible window must not be kept presenting: the fullscreen and
+    // no-seat hide paths release the scene graph resources and expect them to
+    // stay released until the strip is revealed again.
+    if (!m_window->isVisible())
         return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (m_lastFrameMs > 0 && now - m_lastFrameMs < kFrameQuietMs)
