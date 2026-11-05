@@ -30,7 +30,10 @@ struct GlobalShortcuts::Impl : QAbstractNativeEventFilter
         if (msg->message != WM_HOTKEY || !keys.contains(int(msg->wParam)))
             return false;
         emit owner.activated(int(msg->wParam) - 0x4540);
-        *result = 0;
+        // The dispatcher hands hotkey messages through some loops with a null
+        // result sink; writing it unconditionally is a guaranteed crash.
+        if (result)
+            *result = 0;
         return true;
     }
 };
