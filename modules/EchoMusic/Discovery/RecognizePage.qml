@@ -87,84 +87,89 @@ RoutePage {
             page.service.audio.refreshInputs();
     }
     Component.onDestruction: page.service.setAvailable(false)
-    Flickable {
-        id: scroll
-        objectName: "recognitionScroll"
+    EchoPageScrollContainer {
+        id: viewport
         anchors.fill: parent
-        clip: true
-        contentWidth: width
-        contentHeight: Math.max(height, heading.y + heading.implicitHeight + 40 + stage.implicitHeight)
-        ScrollBar.vertical: EchoScrollBar {}
-        Label {
-            id: heading
-            x: 32
-            y: 24
-            text: qsTr("听歌识曲")
-            font: Theme.spacedFont(22, Theme.extraBoldWeight, -0.3)
-            color: Theme.text
-        }
-        Loader {
-            id: stage
-            objectName: "recognitionStage"
-            x: 32
-            y: heading.y + heading.implicitHeight + entranceOffset
-            width: Math.max(0, scroll.width - 64)
-            height: Math.max(0, scroll.contentHeight - heading.y - heading.implicitHeight - 40)
-            property real entranceOffset: 0
-            opacity: 1
-        }
-        SequentialAnimation {
-            id: stageTransition
-            ParallelAnimation {
-                NumberAnimation {
-                    target: stage
-                    property: "opacity"
-                    to: 0
-                    duration: 350
-                    easing.type: Easing.BezierSpline
-                    easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
-                }
-                NumberAnimation {
-                    target: stage
-                    property: "entranceOffset"
-                    to: -12
-                    duration: 350
-                    easing.type: Easing.BezierSpline
-                    easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
-                }
-            }
-            ScriptAction {
-                script: {
-                    stage.sourceComponent = page.stageComponent;
-                    stage.entranceOffset = 16;
-                }
-            }
-            ParallelAnimation {
-                NumberAnimation {
-                    target: stage
-                    property: "opacity"
-                    to: 1
-                    duration: 350
-                    easing.type: Easing.BezierSpline
-                    easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
-                }
-                NumberAnimation {
-                    target: stage
-                    property: "entranceOffset"
-                    to: 0
-                    duration: 350
-                    easing.type: Easing.BezierSpline
-                    easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
-                }
-            }
-        }
-    }
-    EchoBackToTop {
-        anchors.fill: parent
-        z: 50
+        pageActive: page.pageActive
         scrollView: scroll
-        viewActive: page.resourceActive
+        Flickable {
+            id: scroll
+            objectName: "recognitionScroll"
+            anchors.fill: parent
+            clip: true
+            contentWidth: width
+            contentHeight: Math.max(height, heading.y + heading.implicitHeight + 40 + stage.implicitHeight)
+            ScrollBar.vertical: EchoPageScrollBar {
+                view: scroll
+                container: viewport
+                viewActive: page.pageActive
+            }
+            Label {
+                id: heading
+                x: 32
+                y: 24
+                text: qsTr("听歌识曲")
+                font: Theme.spacedFont(22, Theme.extraBoldWeight, -0.3)
+                color: Theme.text
+            }
+            Loader {
+                id: stage
+                objectName: "recognitionStage"
+                x: 32
+                y: heading.y + heading.implicitHeight + entranceOffset
+                width: Math.max(0, scroll.width - 64)
+                height: Math.max(0, scroll.contentHeight - heading.y - heading.implicitHeight - 40)
+                property real entranceOffset: 0
+                opacity: 1
+            }
+            SequentialAnimation {
+                id: stageTransition
+                ParallelAnimation {
+                    NumberAnimation {
+                        target: stage
+                        property: "opacity"
+                        to: 0
+                        duration: 350
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
+                    }
+                    NumberAnimation {
+                        target: stage
+                        property: "entranceOffset"
+                        to: -12
+                        duration: 350
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
+                    }
+                }
+                ScriptAction {
+                    script: {
+                        stage.sourceComponent = page.stageComponent;
+                        stage.entranceOffset = 16;
+                    }
+                }
+                ParallelAnimation {
+                    NumberAnimation {
+                        target: stage
+                        property: "opacity"
+                        to: 1
+                        duration: 350
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
+                    }
+                    NumberAnimation {
+                        target: stage
+                        property: "entranceOffset"
+                        to: 0
+                        duration: 350
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
+                    }
+                }
+            }
+        }
     }
+
     Component {
         id: recorder
         Item {
@@ -288,6 +293,11 @@ RoutePage {
                 }
                 cacheBuffer: 80
                 model: page.service.matches
+                EchoListInsertMotion {
+                    view: candidates
+                    active: page.pageActive
+                    rowHeight: 70
+                }
                 leftMargin: 2
                 rightMargin: 8
                 topMargin: 2

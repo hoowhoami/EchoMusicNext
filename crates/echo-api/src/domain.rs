@@ -246,33 +246,36 @@ impl std::fmt::Debug for QrLoginStatus {
 pub struct RegisteredDevice {
     pub dfid: String,
 }
-/// Mutation acknowledgements do not replace canonical read models. Clients read
-/// back after writes and reconcile transport/cancellation outcomes before retry.
+/// A successful mutation may omit synchronization metadata. Optional facts stay
+/// unknown; independent reads refresh models without approving the write again.
 #[derive(Debug, serde::Serialize)]
 pub struct LibraryPlaylistChange {
-    pub user_id: u64,
-    pub cloud_list_id: u64,
-    pub previous_total_revision: u64,
-    pub total_revision: u64,
+    pub user_id: Option<u64>,
+    pub cloud_list_id: Option<u64>,
+    pub previous_total_revision: Option<u64>,
+    pub total_revision: Option<u64>,
     pub playlist_count: Option<u64>,
+    /// Nested provider flags are metadata, separate from envelope success.
+    pub provider_status: Option<u32>,
+    pub resource_code: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_url: Option<String>,
 }
 #[derive(Debug, serde::Serialize)]
 pub struct TrackWriteOutcome {
     pub position: Option<u32>,
-    pub file_id: u64,
+    pub file_id: Option<u64>,
     pub song_id: Option<u64>,
-    pub resource_code: i64,
+    pub resource_code: Option<i64>,
 }
 #[derive(Debug, serde::Serialize)]
 pub struct CloudTrackChange {
-    pub user_id: u64,
-    pub cloud_list_id: u64,
+    pub user_id: Option<u64>,
+    pub cloud_list_id: Option<u64>,
     /// Provider's nested operation flag, distinct from envelope success and per-item codes.
     pub provider_status: Option<u32>,
-    pub previous_revision: u64,
-    pub revision: u64,
+    pub previous_revision: Option<u64>,
+    pub revision: Option<u64>,
     pub song_count: Option<u64>,
     pub outcomes: Option<Vec<TrackWriteOutcome>>,
     pub replaced_file_ids: Option<Vec<Option<u64>>>,

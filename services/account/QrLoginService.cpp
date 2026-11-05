@@ -255,9 +255,7 @@ void QrLoginService::fail(quint64 id, const QByteArray &payload)
     m_create = m_check = m_exchange = m_finish = 0;
     m_timer.stop();
     m_state = State::Error;
-    Q_UNUSED(payload);
-    // Do not expose raw provider errors, URLs or session keys in product messages.
-    m_error = QStringLiteral("二维码请求失败，请重试");
+    m_error = ApiClient::errorMessage(payload, tr("二维码请求失败"));
     emit changed();
 }
 } // namespace EchoMusic

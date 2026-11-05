@@ -520,6 +520,7 @@ bool TrackTransitionController::adopt(const QJsonObject &event)
     p.m_progress.reset();
     p.m_loaded = true;
     p.m_loading = false;
+    p.beginHistory();
     p.m_error.clear();
     p.m_seamless = false;
     p.m_resumePosition = -1;

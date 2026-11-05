@@ -559,7 +559,7 @@ void SongDetailContext::fail(quint64 id, const QByteArray &bytes)
         emit changed();
         return;
     }
-    m_error = QJsonDocument::fromJson(bytes).object().value("message").toString();
+    m_error = ApiClient::errorMessage(bytes);
     if (m_error.isEmpty())
         m_error = tr("部分歌曲详情加载失败，请重试");
     if (p.kind == Privilege && commentsPage())

@@ -224,6 +224,11 @@ Item {
                                 Layout.fillHeight: true
                                 clip: true
                                 model: session.room.songs
+                                EchoListInsertMotion {
+                                    view: songList
+                                    active: session.resourcesActive
+                                    rowHeight: 62
+                                }
                                 spacing: 2
                                 cacheBuffer: 128
                                 delegate: Item {

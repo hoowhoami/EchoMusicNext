@@ -41,25 +41,22 @@ public:
                    ? service.m_request
                    : 0;
     }
-    static quint64 reading(PlaylistMutationService &service, ApiClient &api, bool remove = false)
+    static quint64 reading(PlaylistMutationService &service, ApiClient &api)
     {
-        service.m_request = api.capabilities();
-        service.m_revision = api.sessionRevision();
-        service.m_userId = api.currentAccountUserId();
-        service.m_state = PlaylistMutationService::State::Reconciling;
-        service.m_id = {7};
-        service.m_page = 1;
-        service.m_seen = 0;
-        service.m_libraryReadIds.clear();
-        service.m_directoryItems = {};
-        service.m_found = false;
-        service.m_kind =
-            remove ? PlaylistMutationService::Kind::Remove : PlaylistMutationService::Kind::Create;
-        service.m_expectedCount = remove ? 0 : 1;
-        service.m_expectedRevision = 8;
-        service.m_acknowledgement = QByteArrayLiteral(
-            "{\"user_id\":1,\"cloud_list_id\":7,\"total_revision\":8,\"playlist_count\":1}");
-        return service.m_request;
+        service.m_refresh = PlaylistMutationService::Refresh{
+            true, {7}, api.sessionRevision(), 1, std::nullopt, {}, {}};
+        return service.m_refreshRequest = api.capabilities();
+    }
+    static quint64 background(PlaylistMutationService &service)
+    {
+        service.readRefresh();
+        return service.m_refreshRequest;
+    }
+    static quint64 writingTracks(PlaylistMutationService &service, ApiClient &api)
+    {
+        return service.begin(api.capabilities(), PlaylistMutationService::Kind::AddTracks, {7})
+                   ? service.m_request
+                   : 0;
     }
     static void succeed(PlaylistMutationService &service, quint64 id, const QByteArray &payload)
     {
@@ -74,7 +71,6 @@ public:
     {
         service.m_request = api.capabilities();
         service.m_revision = api.sessionRevision();
-        service.m_userId = api.currentAccountUserId();
         service.m_state = PlaylistMutationService::State::CheckingCover;
         service.m_coverStage = afterUpload ? PlaylistMutationService::CoverStage::AfterUpload
                                            : PlaylistMutationService::CoverStage::BeforeUpload;
@@ -91,15 +87,6 @@ public:
         const auto id = checkingCover(service, api);
         service.m_coverStage = PlaylistMutationService::CoverStage::Upload;
         service.m_state = PlaylistMutationService::State::UploadingCover;
-        return id;
-    }
-    static quint64 readingOrder(PlaylistMutationService &service, ApiClient &api)
-    {
-        const auto id = reading(service, api);
-        service.m_kind = PlaylistMutationService::Kind::SortLibrary;
-        service.m_positions.clear();
-        service.m_positions.insert(7, {{7}, ApiClient::PlaylistKind::Owned, 0});
-        service.m_verifiedPositions.clear();
         return id;
     }
 };
@@ -126,12 +113,59 @@ private slots:
         const auto first = PlaylistMutationServiceTestAccess::reading(service, api);
         PlaylistMutationServiceTestAccess::succeed(service, first, payload(items));
         QVERIFY(snapshots.isEmpty());
-        QCOMPARE(service.state(), PlaylistMutationService::State::Reconciling);
+        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
         PlaylistMutationServiceTestAccess::succeed(
-            service, PlaylistMutationServiceTestAccess::request(service), payload({}));
+            service, PlaylistMutationServiceTestAccess::background(service), payload({}));
         QCOMPARE(snapshots.size(), 1);
         QCOMPARE(snapshots.first()[0].toJsonObject()["page"].toObject()["items"].toArray().size(),
                  100);
+        api.shutdown();
+    }
+    void repeatedBackgroundPageUpdatesRowsAndStopsWithoutBlockingWrites()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(1, "fixture-token"));
+        PlaylistMutationService service(api);
+        QSignalSpy snapshots(&service, &PlaylistMutationService::libraryReconciled);
+        const auto first = PlaylistMutationServiceTestAccess::reading(service, api);
+        PlaylistMutationServiceTestAccess::succeed(
+            service, first,
+            R"({"total_revision":8,"page":{"total":1000,"items":[{"cloud_list_id":7,"title":"old"}]}})");
+        QVERIFY(snapshots.isEmpty());
+        const auto second = PlaylistMutationServiceTestAccess::background(service);
+        QVERIFY(second);
+        PlaylistMutationServiceTestAccess::succeed(
+            service, second,
+            R"({"total_revision":8,"page":{"total":1000,"items":[{"cloud_list_id":7,"title":"new"}]}})");
+        QCOMPARE(snapshots.size(), 1);
+        const auto rows = snapshots.first()[0].toJsonObject()["page"].toObject()["items"].toArray();
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().toObject()["title"].toString(), QStringLiteral("new"));
+        QCOMPARE(PlaylistMutationServiceTestAccess::background(service), quint64(0));
+        QVERIFY(service.create(QStringLiteral("Another explicit action"), true));
+        api.shutdown();
+    }
+    void backgroundDirectoryPreservesMissingAndSharedLocalIds()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(1, "fixture-token"));
+        PlaylistMutationService service(api);
+        QSignalSpy snapshots(&service, &PlaylistMutationService::libraryReconciled);
+        const QByteArray page = R"({"total_revision":8,"page":{"total":1000,"items":[
+            {"global_id":"a"},{"global_id":"b"},
+            {"cloud_list_id":7,"global_id":"c"},{"cloud_list_id":7,"global_id":"d"},
+            {"cloud_list_id":8,"title":"e"},{"cloud_list_id":8,"title":"f"}]}})";
+        PlaylistMutationServiceTestAccess::succeed(
+            service, PlaylistMutationServiceTestAccess::reading(service, api), page);
+        QVERIFY(snapshots.isEmpty());
+        PlaylistMutationServiceTestAccess::succeed(
+            service, PlaylistMutationServiceTestAccess::background(service), page);
+        QCOMPARE(snapshots.size(), 1);
+        QCOMPARE(snapshots.first()[0].toJsonObject()["page"].toObject()["items"].toArray().size(),
+                 6);
+        QCOMPARE(PlaylistMutationServiceTestAccess::background(service), quint64(0));
         api.shutdown();
     }
     void completeDirectoryReadbackIsMergedWithoutAnotherReload()
@@ -162,7 +196,7 @@ private slots:
             service, request, page({QJsonObject{{"cloud_list_id", 7}, {"kind", "owned"}}}));
         QVERIFY(snapshots.isEmpty());
         PlaylistMutationServiceTestAccess::succeed(
-            service, PlaylistMutationServiceTestAccess::request(service), page({existing}));
+            service, PlaylistMutationServiceTestAccess::background(service), page({existing}));
         QCOMPARE(snapshots.size(), 1);
         QCOMPARE(snapshots.first()[0].toJsonObject()["page"].toObject()["items"].toArray().size(),
                  2);
@@ -245,8 +279,6 @@ private slots:
         QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
         const auto late = PlaylistMutationServiceTestAccess::uploadingCover(service, api);
         service.cancel();
-        QCOMPARE(service.state(), PlaylistMutationService::State::OutcomeUnknown);
-        service.acceptRefreshedUnknownOutcome();
         QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
         QVERIFY(api.setAccount(2, QStringLiteral("fixture-other-token")));
         PlaylistMutationServiceTestAccess::succeed(
@@ -256,113 +288,114 @@ private slots:
         QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
         QVERIFY(completed.isEmpty());
     }
-    void libraryOrderReadbackChecksPositionAndCategory()
-    {
-        ApiClient api;
-        QVERIFY(api.setAccount(1, QStringLiteral("fixture-token")));
-        PlaylistMutationService service(api);
-        QSignalSpy completed(&service, &PlaylistMutationService::completed);
-        auto page = [](int sort, const QString &kind) {
-            return QJsonDocument(
-                       QJsonObject{
-                           {"user_id", 1},
-                           {"total_revision", 8},
-                           {"page",
-                            QJsonObject{{"page", 1},
-                                        {"total", 1},
-                                        {"items", QJsonArray{QJsonObject{{"cloud_list_id", 7},
-                                                                         {"kind", kind},
-                                                                         {"sort_index", sort}}}}}}})
-                .toJson();
-        };
-        auto id = PlaylistMutationServiceTestAccess::readingOrder(service, api);
-        PlaylistMutationServiceTestAccess::succeed(service, id, page(1, QStringLiteral("owned")));
-        QCOMPARE(service.state(), PlaylistMutationService::State::RefreshRequired);
-        QVERIFY(completed.isEmpty());
-        id = PlaylistMutationServiceTestAccess::readingOrder(service, api);
-        PlaylistMutationServiceTestAccess::succeed(service, id,
-                                                   page(0, QStringLiteral("collected")));
-        QCOMPARE(service.state(), PlaylistMutationService::State::RefreshRequired);
-        QVERIFY(completed.isEmpty());
-        id = PlaylistMutationServiceTestAccess::readingOrder(service, api);
-        PlaylistMutationServiceTestAccess::succeed(service, id, page(0, QStringLiteral("owned")));
-        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
-        QCOMPARE(completed.size(), 1);
-    }
-    void writeReadbackVerifiesActualPositionsWithoutPageEchoOrCountGates()
+    void acknowledgementCompletesBeforeRefreshAndNeverNeedsMatchingMetadata()
     {
         ApiClient api(DeviceIdentity::temporary());
-        api.setAccount(1, "domain-test-token");
+        QVERIFY(api.setAccount(1, "fixture-token"));
         PlaylistMutationService service(api);
         QSignalSpy completed(&service, &PlaylistMutationService::completed);
-        const auto id = PlaylistMutationServiceTestAccess::readingOrder(service, api);
-        PlaylistMutationServiceTestAccess::succeed(
-            service, id,
-            R"({"user_id":1,"total_revision":8,"page":{"page":999,"page_size":1,"total":0,"items":[{"cloud_list_id":7,"kind":"owned","sort_index":0}]}})");
-        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
+        QSignalSpy snapshots(&service, &PlaylistMutationService::trackPageReconciled);
+        const auto first = PlaylistMutationServiceTestAccess::writingTracks(service, api);
+        PlaylistMutationServiceTestAccess::succeed(service, first,
+                                                   R"({"revision":8,"song_count":1})");
         QCOMPARE(completed.size(), 1);
+        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
+        QVERIFY(service.errorMessage().isEmpty());
+        const auto read = PlaylistMutationServiceTestAccess::background(service);
+        QVERIFY(read);
+        // A later successful snapshot is presentation, not a second approval.
+        PlaylistMutationServiceTestAccess::succeed(
+            service, read,
+            R"({"user_id":1,"cloud_list_id":7,"revision":9,"page":{"items":[],"total":2}})");
+        QCOMPARE(snapshots.size(), 1);
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(service.errorMessage().isEmpty());
+
+        const auto second = PlaylistMutationServiceTestAccess::writingTracks(service, api);
+        PlaylistMutationServiceTestAccess::succeed(service, second, R"({})");
+        QCOMPARE(completed.size(), 2);
+        const auto failedRead = PlaylistMutationServiceTestAccess::background(service);
+        QVERIFY(failedRead);
+        PlaylistMutationServiceTestAccess::fail(service, failedRead,
+                                                R"({"kind":"transport","message":"连接超时"})");
+        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
+        QCOMPARE(completed.size(), 2);
+        QVERIFY(service.errorMessage().isEmpty());
         api.shutdown();
     }
-    void unknownOutcomeBlocksReplayAndLateResultsCannotCrossAccounts()
+    void backgroundRefreshDoesNotBlockAnotherWriteAndVersionsStayWithinOneRead()
     {
-        ApiClient api;
-        QVERIFY(api.setAccount(1, QStringLiteral("fixture-token")));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(1, "fixture-token"));
         PlaylistMutationService service(api);
         QSignalSpy completed(&service, &PlaylistMutationService::completed);
-        const auto writing = PlaylistMutationServiceTestAccess::writing(service, api);
-        QVERIFY(writing);
-        PlaylistMutationServiceTestAccess::fail(service, writing,
-                                                QByteArrayLiteral("{\"kind\":\"transport\"}"));
-        QCOMPARE(service.state(), PlaylistMutationService::State::OutcomeUnknown);
-        QVERIFY(!service.create(QStringLiteral("Fixture"), true));
-        QVERIFY(!service.reconcile());
-        service.acceptRefreshedUnknownOutcome();
-        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
-        const auto late = PlaylistMutationServiceTestAccess::writing(service, api);
-        service.cancel();
-        QCOMPARE(service.state(), PlaylistMutationService::State::OutcomeUnknown);
-        QVERIFY(api.setAccount(2, QStringLiteral("fixture-other-token")));
+        QSignalSpy snapshots(&service, &PlaylistMutationService::libraryReconciled);
+        const auto first = PlaylistMutationServiceTestAccess::writing(service, api);
+        PlaylistMutationServiceTestAccess::succeed(service, first, R"({"total_revision":8})");
+        const auto read = PlaylistMutationServiceTestAccess::background(service);
+        QVERIFY(read);
+        const auto next = PlaylistMutationServiceTestAccess::writingTracks(service, api);
+        QVERIFY(next);
         PlaylistMutationServiceTestAccess::succeed(
-            service, late, QByteArrayLiteral("{\"user_id\":1,\"cloud_list_id\":7}"));
-        QVERIFY(completed.isEmpty());
-        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
-        QVERIFY(api.setAccount(0, {}));
-        QCOMPARE(service.state(), PlaylistMutationService::State::SignedOut);
+            service, read,
+            R"({"user_id":1,"total_revision":9,"page":{"total":2,"items":[{"cloud_list_id":7}]}})");
+        QCOMPARE(service.state(), PlaylistMutationService::State::Writing);
+        const auto page2 = PlaylistMutationServiceTestAccess::background(service);
+        PlaylistMutationServiceTestAccess::succeed(
+            service, page2,
+            R"({"user_id":1,"total_revision":10,"page":{"total":2,"items":[{"cloud_list_id":8}]}})");
+        QVERIFY(snapshots.isEmpty()); // Do not merge directory pages from different revisions.
+        QCOMPARE(completed.size(), 1);
+        PlaylistMutationServiceTestAccess::succeed(service, next, R"({"revision":4})");
+        QCOMPARE(completed.size(), 2);
+        QVERIFY(service.errorMessage().isEmpty());
+        api.shutdown();
     }
-    void readbackChecksRevisionPresenceAndReentrantSignout()
+    void requestErrorsKeepDetailsAndCancellationDoesNotLockFutureActions()
     {
-        // Host-domain control events, not fabricated upstream response fixtures.
-        ApiClient api;
-        QVERIFY(api.setAccount(1, QStringLiteral("fixture-token")));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(1, "fixture-token"));
         PlaylistMutationService service(api);
         QSignalSpy completed(&service, &PlaylistMutationService::completed);
-        auto page = [](int revision, bool present) {
-            return QJsonDocument(
-                       QJsonObject{
-                           {"user_id", 1},
-                           {"total_revision", revision},
-                           {"page", QJsonObject{{"page", 1},
-                                                {"page_size", 100},
-                                                {"total", present ? 1 : 0},
-                                                {"items", present ? QJsonArray{QJsonObject{
-                                                                        {"cloud_list_id", 7}}}
-                                                                  : QJsonArray{}}}}})
-                .toJson();
-        };
-        auto id = PlaylistMutationServiceTestAccess::reading(service, api);
-        PlaylistMutationServiceTestAccess::succeed(service, id, page(9, true));
-        QCOMPARE(service.state(), PlaylistMutationService::State::RefreshRequired);
-        QVERIFY(completed.isEmpty());
-        id = PlaylistMutationServiceTestAccess::reading(service, api);
-        PlaylistMutationServiceTestAccess::succeed(service, id, page(8, true));
+        auto request = PlaylistMutationServiceTestAccess::writing(service, api);
+        PlaylistMutationServiceTestAccess::fail(
+            service, request, R"({"kind":"business","code":206,"message":"歌曲无法添加"})");
         QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
-        QCOMPARE(completed.size(), 1);
-        id = PlaylistMutationServiceTestAccess::reading(service, api, true);
-        connect(&service, &PlaylistMutationService::libraryInvalidated, &service,
+        QCOMPARE(service.errorMessage(), QString("歌曲无法添加（错误码 206）"));
+        QCOMPARE(PlaylistMutationServiceTestAccess::request(service), quint64(0));
+        QVERIFY(completed.isEmpty());
+        request = PlaylistMutationServiceTestAccess::writing(service, api);
+        service.cancel();
+        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
+        QVERIFY(service.errorMessage().isEmpty());
+        PlaylistMutationServiceTestAccess::succeed(service, request, R"({})");
+        QVERIFY(completed.isEmpty());
+        api.shutdown();
+    }
+    void pendingWriteAndBackgroundReadCannotCrossAccountsOrReentrantSignout()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(1, "fixture-token"));
+        PlaylistMutationService service(api);
+        QSignalSpy snapshots(&service, &PlaylistMutationService::libraryReconciled);
+        const auto first = PlaylistMutationServiceTestAccess::writing(service, api);
+        PlaylistMutationServiceTestAccess::succeed(service, first, R"({})");
+        const auto read = PlaylistMutationServiceTestAccess::background(service);
+        const auto write = PlaylistMutationServiceTestAccess::writingTracks(service, api);
+        QVERIFY(api.setAccount(2, "other-token"));
+        QSignalSpy completed(&service, &PlaylistMutationService::completed);
+        PlaylistMutationServiceTestAccess::succeed(service, write, R"({})");
+        PlaylistMutationServiceTestAccess::succeed(
+            service, read, R"({"user_id":1,"total_revision":8,"page":{"items":[]}})");
+        QVERIFY(completed.isEmpty());
+        QVERIFY(snapshots.isEmpty());
+        connect(&service, &PlaylistMutationService::completed, &service,
                 [&] { api.setAccount(0, {}); });
-        PlaylistMutationServiceTestAccess::succeed(service, id, page(8, false));
+        const auto last = PlaylistMutationServiceTestAccess::writing(service, api);
+        PlaylistMutationServiceTestAccess::succeed(service, last, R"({})");
         QCOMPARE(service.state(), PlaylistMutationService::State::SignedOut);
-        QCOMPARE(completed.size(), 1);
+        QCOMPARE(PlaylistMutationServiceTestAccess::background(service), quint64(0));
+        api.shutdown();
     }
     void liveWriteChain()
     {
@@ -487,7 +520,6 @@ private slots:
             timer.start();
             while (timer.elapsed() < 60000 &&
                    (service.state() == PlaylistMutationService::State::Writing ||
-                    service.state() == PlaylistMutationService::State::Reconciling ||
                     service.state() == PlaylistMutationService::State::CheckingCover ||
                     service.state() == PlaylistMutationService::State::UploadingCover))
                 QTest::qWait(10);

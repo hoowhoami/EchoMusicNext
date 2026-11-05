@@ -21,8 +21,8 @@ struct BusinessVip {
 }
 #[derive(Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     vip_type: Option<u32>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
@@ -52,7 +52,7 @@ pub struct MembershipProduct {
 }
 #[derive(Serialize)]
 pub struct Memberships {
-    pub user_id: u64,
+    pub user_id: Option<u64>,
     pub vip_type_code: Option<u32>,
     pub user_type_code: Option<u32>,
     pub deluxe_begins_at: Option<String>,

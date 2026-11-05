@@ -287,8 +287,7 @@ void ExploreService::fail(quint64 id, const QByteArray &bytes)
     if (p.session != m_api.sessionRevision() || m_closed || !m_active)
         return;
     m_states[p.part] = Error;
-    m_errors[p.part] =
-        QJsonDocument::fromJson(bytes).object()["message"].toString(tr("内容加载失败"));
+    m_errors[p.part] = ApiClient::errorMessage(bytes, tr("内容加载失败"));
     if (p.part == RankCatalog)
         request(RankFallback);
     else if (p.part == Categories || p.part == RankFallback || p.part == RankSongs)

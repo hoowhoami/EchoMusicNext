@@ -94,6 +94,13 @@ EchoGpuSurface::EchoGpuSurface(QQuickItem *parent) : QQuickRhiItem(parent)
             m_windowConnections.append(connect(
                 window, &QQuickWindow::sceneGraphInitialized, this, [this] { syncActivity(); },
                 Qt::QueuedConnection));
+            m_windowConnections.append(connect(
+                window, &QQuickWindow::frameSwapped, this,
+                [this] {
+                    if (m_fps == 0 && m_continuous && live())
+                        update();
+                },
+                Qt::QueuedConnection));
         }
         syncActivity();
     }));
@@ -177,7 +184,7 @@ void EchoGpuSurface::setContinuous(bool v)
 }
 void EchoGpuSurface::setFps(int v)
 {
-    v = qBound(1, v, 120);
+    v = v == 0 ? 0 : qBound(1, v, 120);
     if (m_fps == v)
         return;
     m_fps = v;
@@ -275,7 +282,8 @@ void EchoGpuSurface::syncActivity()
     const bool running = live();
     m_lastLive = running;
     m_lastPixelRatio = window() ? window()->effectiveDevicePixelRatio() : 0;
-    if (running && m_continuous) {
+    // Zero follows the window's actual frames without a polling timer.
+    if (running && m_continuous && m_fps > 0) {
         const auto interval = qMax(8, 1000 / m_fps);
         if (!m_clock.isActive() || m_clock.interval() != interval)
             m_clock.start(interval);

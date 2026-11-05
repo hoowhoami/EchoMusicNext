@@ -76,6 +76,8 @@ QString ShareResolveService::explanation() const
 {
     if (m_loading)
         return tr("正在确认分享内容是否可用。");
+    if (!m_error.isEmpty())
+        return m_error;
     if (m_reason == "invalid")
         return tr("这个分享链接格式不正确，无法识别目标内容。");
     if (m_reason == "not-found")
@@ -131,6 +133,7 @@ void ShareResolveService::watch(quint64 id, Kind kind)
 void ShareResolveService::begin(const QVariantMap &query)
 {
     cancel();
+    m_error.clear();
     m_target = parseShareTarget(query.value("target").toString());
     if (query.value("invalid").toBool() || !m_target) {
         fail("invalid");
@@ -321,6 +324,7 @@ void ShareResolveService::reject(quint64 id, const QByteArray &bytes)
           (message.contains(QStringLiteral("群组")) || message.contains(QStringLiteral("房间"))) &&
           (message.contains(QStringLiteral("不存在")) ||
            message.contains(QStringLiteral("已解散")))));
+    m_error = ApiClient::errorMessage(bytes, tr("分享内容加载失败"));
     fail(missingRoom ? "not-found" : "load-failed");
 }
 void ShareResolveService::retry()

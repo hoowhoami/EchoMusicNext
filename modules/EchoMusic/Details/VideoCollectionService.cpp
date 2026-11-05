@@ -130,7 +130,7 @@ void VideoCollectionService::accept(quint64 id, const QByteArray &b)
 }
 void VideoCollectionService::fail(quint64 id, const QByteArray &b)
 {
-    auto message = QJsonDocument::fromJson(b).object().value("message").toString();
+    auto message = ApiClient::errorMessage(b);
     if (message.isEmpty())
         message = tr("收藏状态加载失败");
     if (id == m_read && id) {

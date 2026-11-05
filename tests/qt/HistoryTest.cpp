@@ -25,6 +25,25 @@ public:
     {
         return service.m_repository.get();
     }
+    static quint64 select(PlaybackService &service, const PlaybackTrack &track)
+    {
+        service.finishHistory();
+        service.invalidate();
+        service.m_track = track;
+        service.m_loaded = false;
+        service.m_loading = true;
+        service.m_playing = false;
+        service.m_autoplay = true;
+        return service.m_audioSequence;
+    }
+    static void event(PlaybackService &service, const QJsonObject &event)
+    {
+        service.consumeOutputEvent(event);
+    }
+    static void elapsed(PlaybackService &service, qint64 ms)
+    {
+        service.m_listenedMs = ms;
+    }
 };
 class HistoryServiceTestAccess
 {
@@ -114,6 +133,110 @@ class HistoryTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void loadedOccurrenceImmediatelyPromotesHistoryWithoutDoubleCounting()
+    {
+        QTemporaryDir dir;
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        SongMetadataService metadata(api);
+        RouteController router;
+        HistoryService service(api, playback, metadata, router, false);
+        auto *repository = PlaybackServiceTestAccess::repository(playback);
+        const auto first = historyTrack("1", "第一首");
+        const auto second = historyTrack("2", "第二首");
+        QSignalSpy writes(repository, &PlaybackRepository::historyChanged);
+        QSignalSpy promotions(&service, &HistoryService::recordPromoted);
+        QSignalSpy reads(&playback, &PlaybackService::historyLoaded);
+        QSignalSpy failures(repository, &PlaybackRepository::failed);
+        const auto loaded = [&](quint64 seq) {
+            PlaybackServiceTestAccess::event(playback,
+                                             {{"event", "file-loaded"}, {"seq", qint64(seq)}});
+            PlaybackServiceTestAccess::event(playback, {{"event", "state-change"},
+                                                        {"track_seq", qint64(seq)},
+                                                        {"state", QJsonObject{{"playing", true}}}});
+        };
+
+        playback.requestHistory();
+        QTRY_VERIFY(!reads.isEmpty());
+        const auto firstSeq = PlaybackServiceTestAccess::select(playback, first);
+        QCOMPARE(service.songs()->count(), 0); // Selection/restoration alone is not a play.
+        PlaybackServiceTestAccess::event(playback,
+                                         {{"event", "file-loaded"}, {"seq", qint64(firstSeq)}});
+        QCOMPARE(writes.size(), 0); // Autoplay must also reach native playing confirmation.
+        loaded(firstSeq);
+        QTRY_COMPARE(service.songs()->count(), 1); // No refresh, stop or first time tick.
+        QCOMPARE(service.songs()->item(0)["title"].toString(), first.title);
+        QCOMPARE(
+            HistoryServiceTestAccess::entries(service)[0].toObject()["listened_ms"].toInteger(), 0);
+
+        loaded(firstSeq); // Duplicate load, pause/resume and same-track source adoption.
+        PlaybackServiceTestAccess::event(
+            playback, {{"event", "state-change"}, {"state", QJsonObject{{"paused", true}}}});
+        PlaybackServiceTestAccess::event(
+            playback, {{"event", "state-change"}, {"state", QJsonObject{{"playing", true}}}});
+        PlaybackServiceTestAccess::event(playback, {{"event", "source-switched"}});
+        PlaybackServiceTestAccess::elapsed(playback, 1250);
+        const auto secondSeq = PlaybackServiceTestAccess::select(playback, second);
+        loaded(firstSeq); // Retired load cannot record the newly selected song.
+        QCOMPARE(writes.size(), 1);
+        PlaybackServiceTestAccess::event(playback, {{"event", "state-change"},
+                                                    {"track_seq", qint64(secondSeq)},
+                                                    {"state", QJsonObject{{"playing", true}}}});
+        QCOMPARE(writes.size(), 1); // Playing may arrive before file-loaded.
+        loaded(secondSeq);
+        QTRY_COMPARE(service.songs()->count(), 2);
+        QCOMPARE(service.songs()->item(0)["title"].toString(), second.title);
+        auto entries = HistoryServiceTestAccess::entries(service);
+        QCOMPARE(entries[1].toObject()["listened_ms"].toInteger(), 1250);
+        QCOMPARE(entries[1].toObject()["play_count"].toInteger(), 1);
+        const auto firstPlayedAt = entries[1].toObject()["played_at"].toInteger();
+
+        QTest::qWait(2);
+        loaded(PlaybackServiceTestAccess::select(playback, first));
+        QTRY_COMPARE(service.songs()->item(0)["title"].toString(), first.title);
+        entries = HistoryServiceTestAccess::entries(service);
+        QCOMPARE(entries[0].toObject()["play_count"].toInteger(), 2);
+        QVERIFY(entries[0].toObject()["played_at"].toInteger() > firstPlayedAt);
+        QCOMPARE(writes.size(), 3);
+        QCOMPARE(promotions.size(), 2);
+        // Replaying the existing top row still produces one visual insertion;
+        // duplicate native events and listened-time settlement do not.
+        loaded(PlaybackServiceTestAccess::select(playback, first));
+        QTRY_COMPARE(
+            HistoryServiceTestAccess::entries(service)[0].toObject()["play_count"].toInteger(), 3);
+        QCOMPARE(promotions.size(), 3);
+
+        // Deleting the current song must survive its eventual time settlement.
+        service.remove(service.songs()->item(0)["resourceId"].toString());
+        QTRY_COMPARE(service.songs()->count(), 1);
+        PlaybackServiceTestAccess::elapsed(playback, 900);
+        PlaybackServiceTestAccess::select(playback, first); // Not loaded: no new play.
+        service.clear();
+        QTRY_COMPARE(service.songs()->count(), 0);
+        PlaybackServiceTestAccess::elapsed(playback, 500);
+        QVERIFY(api.setAccount(200, "another-offline-fixture"));
+        loaded(firstSeq); // Old account/load response is retired.
+        QSignalSpy stored(repository, &PlaybackRepository::historyLoaded);
+        constexpr quint64 readRevision = 990001;
+        repository->loadHistory(100, readRevision);
+        const auto ownRead = [](const QList<QVariant> &row) {
+            return row[0].toULongLong() == 100 && row[1].toULongLong() == readRevision;
+        };
+        QTRY_VERIFY(std::any_of(stored.cbegin(), stored.cend(), ownRead));
+        const auto found = std::find_if(stored.cbegin(), stored.cend(), ownRead);
+        QVERIFY(qvariant_cast<QJsonArray>((*found)[2]).isEmpty());
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        QCOMPARE(service.songs()->count(), 0);
+        QCOMPARE(failures.size(), 0);
+        service.shutdown();
+        QSignalSpy drained(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drained.size(), 1, 15000);
+        api.shutdown();
+    }
     void metadataCompletesPresentationAndStatsWithoutWritingHistory()
     {
         QTemporaryDir dir;

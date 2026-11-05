@@ -17,7 +17,7 @@ SettingsSection {
     glyph: "flask"
     SettingsRow {
         heading: qsTr("页面缓存")
-        description: qsTr("保留已访问的页面，返回时无需重新加载")
+        description: qsTr("返回页面时恢复之前的状态")
         EchoSwitch {
             objectName: "settingsKeepAlive"
             checked: section.settings.keepAliveEnabled
@@ -31,7 +31,7 @@ SettingsSection {
     SettingsRow {
         visible: section.settings.keepAliveEnabled
         heading: qsTr("最大缓存页面数")
-        description: qsTr("超出后自动释放最早缓存的页面，避免占用过多内存")
+        description: qsTr("超出后自动清理最久未使用的缓存")
         EchoSpinBox {
             objectName: "settingsCacheMaximum"
             implicitWidth: 180

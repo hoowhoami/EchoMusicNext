@@ -274,7 +274,8 @@ bool ListenTogetherController::dissolved(const QJsonObject &error) const
 }
 void ListenTogetherController::reportError(const QJsonObject &error, bool toast)
 {
-    m_error = error.value("message").toString(tr("一起听操作失败"));
+    m_error = ApiClient::errorMessage(QJsonDocument(error).toJson(QJsonDocument::Compact),
+                                      tr("一起听操作失败"));
     if (error.value("code").toVariant().toInt() == 51002)
         m_error = tr("请先登录后再使用一起听");
     if (dissolved(error))

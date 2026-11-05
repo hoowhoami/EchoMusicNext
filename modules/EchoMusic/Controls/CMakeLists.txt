@@ -11,6 +11,12 @@ qt_add_qml_module(
     URI
     EchoMusic.Controls
     SOURCES
+    EchoItemTranslation.h
+    EchoItemTranslation.cpp
+    EchoPageState.h
+    EchoPageState.cpp
+    EchoPagePresentation.h
+    EchoPagePresentation.cpp
     EchoInputFocus.h
     EchoInputFocus.cpp
     EchoFileDialog.h
@@ -59,6 +65,11 @@ qt_add_qml_module(
     EchoUiPartHost.qml
     EchoBoundedListView.qml
     EchoViewPoolGuard.qml
+    EchoMotionScope.qml
+    EchoSlideMotion.qml
+    EchoListInsertMotion.qml
+    EchoPopupMotion.qml
+    EchoRollingNumber.qml
     EchoListReorder.qml
     EchoReorderRow.qml
     EchoSpinner.qml

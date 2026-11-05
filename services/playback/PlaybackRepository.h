@@ -17,7 +17,10 @@ public:
     void load(quint64 account, quint64 revision);
     void save(quint64 account, const PlaybackQueueStates &states, const QString &active,
               const QString &lastLocal = {});
-    void record(quint64 account, const PlaybackTrack &track, qint64 listenedMs);
+    /// Count/promote a successfully loaded occurrence, even before its first tick.
+    void record(quint64 account, const PlaybackTrack &track, qint64 listenedMs = 0);
+    /// Settle elapsed time without counting, promoting or recreating a deleted row.
+    void addHistoryTime(quint64 account, const PlaybackTrack &track, qint64 listenedMs);
     void loadHistory(quint64 account, quint64 revision);
     void removeHistory(quint64 account, const QStringList &keys);
     void clearHistory(quint64 account);

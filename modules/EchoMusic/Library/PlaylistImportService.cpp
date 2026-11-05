@@ -59,8 +59,7 @@ PlaylistImportService::PlaylistImportService(ApiClient &api, UserPlaylistModel &
     connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &payload) {
         if (!id || id != m_request)
             return;
-        const auto message = QJsonDocument::fromJson(payload).object().value("message").toString();
-        fail(message.isEmpty() ? tr("导入请求失败，请稍后重试") : message);
+        fail(ApiClient::errorMessage(payload, tr("导入请求失败")));
     });
     connect(&api, &ApiClient::sessionChanged, this, [this] {
         reset();
@@ -72,9 +71,8 @@ PlaylistImportService::PlaylistImportService(ApiClient &api, UserPlaylistModel &
                 if (m_stage != Creating || !busy() || m_session != m_api.sessionRevision())
                     return;
                 const auto data = QJsonDocument::fromJson(payload).object();
-                if (data.value("user_id").toInteger() != qint64(m_api.currentAccountUserId()) ||
-                    data.value("cloud_list_id").toInteger() <= 0) {
-                    fail(tr("无法确认新歌单，请刷新后重试"));
+                if (data.value("cloud_list_id").toInteger() <= 0) {
+                    fail(tr("新歌单已创建，但服务未返回歌单编号，无法继续导入"));
                     return;
                 }
                 m_target = quint64(data.value("cloud_list_id").toInteger());
@@ -375,9 +373,8 @@ void PlaylistImportService::succeed(quint64 request, const QByteArray &payload)
         const auto version = object.value("total_revision").toInteger(-1);
         const auto total = page.value("total").toInteger(-1);
         const auto items = page.value("items").toArray();
-        if (object.value("user_id").toInteger() != qint64(m_api.currentAccountUserId()) ||
-            version < 0 || !page.value("items").isArray() ||
-            (m_page > 1 && quint64(version) != m_catalogVersion)) {
+        if (m_page > 1 && version >= 0 && m_catalogVersion != quint64(-1) &&
+            quint64(version) != m_catalogVersion) {
             fail(tr("歌单在加载期间发生变化，请重新加载"));
             return;
         }
@@ -440,18 +437,13 @@ void PlaylistImportService::succeed(quint64 request, const QByteArray &payload)
         return;
     }
     if (m_stage == Image) {
-        if (!object.value("uploaded").toBool()) {
-            fail(tr("截图上传未确认"));
-            return;
-        }
         ++m_imageIndex;
         uploadNext();
         return;
     }
     if (m_stage == Adding) {
-        if (object.value("user_id").toInteger() != qint64(m_api.currentAccountUserId()) ||
-            object.value("task_id").toInteger() <= 0) {
-            fail(tr("创建导入任务的响应无法确认；请刷新歌单后重试"));
+        if (object.value("task_id").toInteger() <= 0) {
+            fail(tr("导入任务已提交，但服务未返回任务编号，无法查看进度"));
             return;
         }
         m_task = quint64(object.value("task_id").toInteger());
@@ -464,16 +456,14 @@ void PlaylistImportService::succeed(quint64 request, const QByteArray &payload)
     }
     if (m_stage == Polling) {
         const auto rows = document.array();
-        if (rows.size() != 1) {
+        const auto found = std::find_if(rows.begin(), rows.end(), [this](const QJsonValue &row) {
+            return row.toObject().value("task_id").toInteger() == qint64(m_task);
+        });
+        if (found == rows.end()) {
             fail(tr("未查询到导入任务"));
             return;
         }
-        const auto task = rows[0].toObject();
-        if (task.value("task_id").toInteger() != qint64(m_task) ||
-            task.value("user_id").toInteger() != qint64(m_api.currentAccountUserId())) {
-            fail(tr("导入任务响应无法确认"));
-            return;
-        }
+        const auto task = found->toObject();
         m_target = quint64(task.value("cloud_list_id").toInteger());
         m_total = quint64(task.value("total").toInteger());
         m_imported = quint64(task.value("imported").toInteger());
@@ -504,13 +494,7 @@ void PlaylistImportService::succeed(quint64 request, const QByteArray &payload)
         return;
     }
     if (m_stage == Result) {
-        const auto task = object.value("task").toObject();
         const auto rows = object.value("missed_tracks").toArray();
-        if (task.value("task_id").toInteger() != qint64(m_task) ||
-            task.value("cloud_list_id").toInteger() != qint64(m_target)) {
-            fail(tr("导入明细响应无法确认"));
-            return;
-        }
         if (!rows.isEmpty()) {
             const int first = m_missedRows.size();
             beginInsertRows({}, first, first + rows.size() - 1);

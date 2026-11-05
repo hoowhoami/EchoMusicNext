@@ -30,6 +30,11 @@ EchoPageScrollContainer {
     readonly property bool hasQuery: service.keyword.length > 0
     readonly property bool songs: service.kind === SearchModel.Song || service.kind === SearchModel.Lyric
     readonly property bool initialLoading: hasQuery && service.state === SearchModel.Loading && service.count === 0
+    // The view intentionally detaches its role model while showing skeletons.
+    // Use the real initial-load completion for the same grouped insertion;
+    // a cached page whose data is already present does not replay this path.
+    onInitialLoadingChanged: if (!initialLoading && pageActive && showResults && songs)
+        Qt.callLater(songList.animateInsertion)
     readonly property bool initialError: hasQuery && service.state === SearchModel.Error && service.count === 0
     readonly property bool showResults: hasQuery && !initialLoading && !initialError
     readonly property bool showAlbum: viewportWidth >= 768

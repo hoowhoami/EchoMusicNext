@@ -5,6 +5,11 @@ import EchoMusic.Theme
 // Shared visual surface; public count and tag semantics remain on EchoBadge and EchoTag.
 Item {
     id: labelSurface
+    EchoMotionScope {
+        id: motion
+        target: labelSurface
+        animations: [fill, ring]
+    }
     property string partRole: "control.tag"
     EchoUiPart {
         id: labelPart
@@ -55,6 +60,15 @@ Item {
         anchors.fill: parent
         radius: labelPart.value("radius", labelSurface.pill ? height / 2 : labelSurface.radius)
         color: labelPart.value("background", labelSurface.fillColor)
+        Behavior on color {
+            enabled: motion.allowed
+            ColorAnimation {
+                id: fill
+                duration: Theme.fastDuration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.easeStandard
+            }
+        }
     }
     Rectangle {
         anchors.fill: parent
@@ -63,6 +77,15 @@ Item {
         visible: labelSurface.borderVisible
         border.width: labelPart.value("borderWidth", labelSurface.pill ? 0 : 1)
         border.color: labelPart.value("borderColor", labelSurface.ringColor)
+        Behavior on border.color {
+            enabled: motion.allowed
+            ColorAnimation {
+                id: ring
+                duration: Theme.fastDuration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.easeStandard
+            }
+        }
     }
     // Exactly one content branch exists. A custom icon/count recipe does not
     // keep an invisible default Text and ink observer beside it.

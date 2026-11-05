@@ -68,11 +68,11 @@ StartupController::StartupController(StorageService &storage, ApiClient &api,
         m_request = 0;
         beginDevice();
     });
-    connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &) {
+    connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &payload) {
         if (m_stage != Stage::Runtime || !m_request || id != m_request)
             return;
         m_request = 0;
-        fail(tr("基础服务初始化失败，请重试"));
+        fail(ApiClient::errorMessage(payload, tr("基础服务初始化失败，请重试")));
     });
     connect(&api, &ApiClient::sessionChanged, this, [this] {
         if (m_stage != Stage::Runtime || !m_request)

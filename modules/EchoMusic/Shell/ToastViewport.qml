@@ -46,14 +46,24 @@ Item {
     // Timers/queues belong to the GUI service; passive notices never acquire
     // mouse or keyboard focus. Announce replacements as well as the first item.
     property double announcedId: 0
+    property int lastRepetitions: 0
+    EchoMotionScope {
+        id: motion
+        target: viewport
+        animations: [appearance, countBump]
+    }
     Connections {
         target: viewport.service
         function onChanged() {
             if (viewport.service.visible && viewport.announcedId !== viewport.service.noticeId) {
                 viewport.announcedId = viewport.service.noticeId;
                 viewport.Accessible.announce(viewport.Accessible.name, Accessible.Polite);
-                appearance.restart();
+                if (motion.allowed)
+                    appearance.restart();
             }
+            if (viewport.service.repetitions > viewport.lastRepetitions && viewport.lastRepetitions > 0 && motion.allowed)
+                countBump.restart();
+            viewport.lastRepetitions = viewport.service.visible ? viewport.service.repetitions : 0;
         }
     }
     property real rise: 0
@@ -64,25 +74,27 @@ Item {
             property: "opacity"
             from: 0
             to: 1
-            duration: Theme.store.motionEnabled ? 200 : 0
+            duration: Theme.noticeFadeDuration
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: Theme.easeEmphasized
         }
         NumberAnimation {
             target: viewport
             property: "rise"
             from: 8
             to: 0
-            duration: Theme.store.motionEnabled ? 240 : 0
+            duration: Theme.panelDuration
             easing.type: Easing.BezierSpline
-            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+            easing.bezierCurve: Theme.easeEmphasized
         }
         NumberAnimation {
             target: card
             property: "scale"
             from: 0.98
             to: 1
-            duration: Theme.store.motionEnabled ? 240 : 0
+            duration: Theme.panelDuration
             easing.type: Easing.BezierSpline
-            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+            easing.bezierCurve: Theme.easeEmphasized
         }
     }
     EchoFloatingSurface {
@@ -190,12 +202,33 @@ Item {
             }
         }
         EchoBadge {
+            id: repeatBadge
             objectName: "toastRepetitionBadge"
             visible: viewport.service.repetitions > 1
             count: "×" + viewport.service.repetitions
             colors: Theme.floating
             tone: EchoBadge.Neutral
             placement: EchoBadge.Floating
+        }
+    }
+    SequentialAnimation {
+        id: countBump
+        NumberAnimation {
+            target: repeatBadge
+            property: "scale"
+            from: 1
+            to: 1.12
+            duration: Theme.noticeFadeDuration * 0.45
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: Theme.easeEmphasized
+        }
+        NumberAnimation {
+            target: repeatBadge
+            property: "scale"
+            to: 1
+            duration: Theme.noticeFadeDuration * 0.55
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: Theme.easeEmphasized
         }
     }
 }

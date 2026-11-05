@@ -6,6 +6,9 @@ import EchoMusic.Controls
 ListView {
     id: list
     property bool pageActive: true
+    function animateInsertion(): void {
+        listMotion.promote();
+    }
     property EchoPageScrollContainer pageContainer: null
     property bool lyricColumn: false
     property bool showAlbum: true
@@ -33,6 +36,12 @@ ListView {
     signal moreRequested(string id, real sceneX, real sceneY)
     clip: true
     reuseItems: true
+    EchoListInsertMotion {
+        id: listMotion
+        view: list
+        active: list.pageActive
+        occlusionHeight: list.pageContainer ? list.pageContainer.occlusionHeight : 0
+    }
     EchoViewPoolGuard {
         targetView: list
     }

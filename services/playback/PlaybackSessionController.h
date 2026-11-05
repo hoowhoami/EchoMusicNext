@@ -17,6 +17,7 @@ public:
     void requestLyrics();
     void requestEmbeddedMetadata();
     void shutdown();
+    void beginHistory();
     void finishHistory();
 
 private:

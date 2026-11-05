@@ -97,7 +97,6 @@ void FavoritesService::applyTrackReadback(const QJsonObject &snapshot, quint64 s
 {
     const auto list = m_library.cloudIdAt(m_library.likedRow());
     if (m_closed || session != m_api.sessionRevision() || !list ||
-        quint64(snapshot["user_id"].toInteger()) != m_api.currentAccountUserId() ||
         quint64(snapshot["cloud_list_id"].toInteger()) != list->value ||
         (m_songRevision && quint64(snapshot["revision"].toInteger()) < *m_songRevision))
         return;
@@ -682,14 +681,10 @@ void FavoritesService::fail(quint64 id, const QByteArray &bytes)
     const auto pending = m_pending.take(id);
     if (m_closed || pending.session != m_api.sessionRevision())
         return;
-    const auto error = QJsonDocument::fromJson(bytes).object();
-    const auto kind = error.value("kind").toString();
-    const auto message = error.value("message").toString();
-    m_error = kind == QStringLiteral("authentication") ? tr("登录已失效，请重新登录")
-              : pending.kind == PendingKind::Follow    ? tr("关注列表加载失败")
-              : pending.kind == PendingKind::Video     ? tr("收藏视频加载失败")
-              : !message.isEmpty()                     ? message
-                                                       : tr("收藏歌曲加载失败");
+    m_error = ApiClient::errorMessage(
+        bytes, pending.kind == PendingKind::Follow  ? tr("关注列表加载失败")
+               : pending.kind == PendingKind::Video ? tr("收藏视频加载失败")
+                                                    : tr("收藏歌曲加载失败"));
     m_awaitingLibrary = false;
     emit changed();
     if (m_active && (pending.kind == PendingKind::Follow || pending.kind == PendingKind::Video))

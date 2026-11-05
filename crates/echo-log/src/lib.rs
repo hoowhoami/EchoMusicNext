@@ -18,8 +18,8 @@ struct Queue {
     level: u32,
     dropped: u64,
 }
-/// Owned until consumed by the host. No account, request or proof payloads may
-/// be written; metadata such as request ids, kind and numeric codes is allowed.
+/// Owned until consumed by the host. API diagnostics must be bounded and
+/// redacted before enqueueing; credentials and verification proofs never enter it.
 pub struct Entry {
     pub timestamp_ms: u64,
     pub level: u32,

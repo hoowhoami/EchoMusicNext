@@ -396,6 +396,16 @@ public:
 class PlaylistMutationServiceTestAccess
 {
 public:
+    static void fail(PlaylistMutationService &service, quint64 request, const QByteArray &payload)
+    {
+        service.fail(request, payload);
+    }
+    static quint64 background(PlaylistMutationService &service)
+    {
+        service.readRefresh();
+        return service.m_refreshRequest;
+    }
+
     static bool removingTracks(const PlaylistMutationService &service)
     {
         return service.m_kind == PlaylistMutationService::Kind::RemoveTracks;
@@ -777,7 +787,7 @@ private slots:
                                       step ? QJsonArray{entry(1)} : QJsonArray{entry(1), entry(2)}},
                                      {"total", step ? 1 : 2}}}};
             PlaylistMutationServiceTestAccess::complete(
-                mutations, PlaylistMutationServiceTestAccess::request(mutations),
+                mutations, PlaylistMutationServiceTestAccess::background(mutations),
                 QJsonDocument(readback).toJson());
             QTRY_VERIFY(!actions->busy());
             QCOMPARE(actions->favoriteTrack(track), step == 0);
@@ -797,6 +807,60 @@ private slots:
         api.shutdown();
     }
 
+    void favoriteActionsKeepWorkingAfterRefreshAndRequestFailures()
+    {
+        QTemporaryDir dir;
+        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        UserPlaylistModelTestAccess::ready(library);
+        PlaylistMutationService mutations(api);
+        playback.attachLibrary(library, mutations);
+        auto *actions = playback.libraryActions();
+        PlaybackLibraryActionsTestAccess::ready(*actions, api);
+        const auto track = PlaybackTrack::fromDomain(
+            {{"id", "2"}, {"title", "Repeated favorite"}, {"hash", QString(32, 'a')}});
+        QSignalSpy written(actions, &PlaybackLibraryActions::favoriteWritten);
+        for (int step = 0; step < 8; ++step) {
+            actions->toggleFavoriteTrack(track);
+            QCOMPARE(mutations.state(), PlaylistMutationService::State::Writing);
+            const auto request = PlaylistMutationServiceTestAccess::request(mutations);
+            PlaylistMutationServiceTestAccess::complete(
+                mutations, request, R"({"outcomes":[{"resource_code":1,"file_id":92}]})");
+            QCOMPARE(actions->favoriteTrack(track), step % 2 == 0);
+            QVERIFY(!actions->busy());
+            const auto read = PlaylistMutationServiceTestAccess::background(mutations);
+            QVERIFY(read);
+            PlaylistMutationServiceTestAccess::fail(
+                mutations, read, R"({"kind":"transport","message":"刷新连接超时"})");
+            QVERIFY(mutations.errorMessage().isEmpty());
+            QVERIFY(!actions->busy());
+        }
+        QCOMPARE(written.size(), 8);
+        actions->toggleFavoriteTrack(track);
+        PlaylistMutationServiceTestAccess::fail(
+            mutations, PlaylistMutationServiceTestAccess::request(mutations),
+            R"({"kind":"business","code":206,"message":"这首歌曲暂时无法收藏"})");
+        QVERIFY(!actions->busy());
+        QVERIFY(!actions->favoriteTrack(track));
+        QVERIFY(actions->errorMessage().contains(QStringLiteral("这首歌曲暂时无法收藏")));
+        actions->toggleFavoriteTrack(track);
+        QCOMPARE(mutations.state(), PlaylistMutationService::State::Writing);
+        PlaylistMutationServiceTestAccess::complete(
+            mutations, PlaylistMutationServiceTestAccess::request(mutations),
+            R"({"outcomes":[{"resource_code":1,"file_id":93}]})");
+        QVERIFY(actions->favoriteTrack(track));
+        QVERIFY(!actions->busy());
+        QCOMPARE(written.size(), 9);
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void addToLikedSharesFavoriteMembership_data()
     {
         QTest::addColumn<bool>("liked");
@@ -855,7 +919,7 @@ private slots:
             PlaylistMutationServiceTestAccess::complete(
                 mutations, PlaylistMutationServiceTestAccess::request(mutations),
                 QJsonDocument(ack).toJson());
-            QCOMPARE(written.size(), notifications); // No early success before readback.
+            QCOMPARE(written.size(), notifications + (liked && !round ? (partial ? 1 : 2) : 0));
             QJsonArray items;
             for (int i = 0; i < (partial ? 1 : 2); ++i)
                 items.append(QJsonObject{
@@ -866,7 +930,7 @@ private slots:
                 {"revision", 8 + round},
                 {"page", QJsonObject{{"items", items}, {"total", items.size()}}}};
             PlaylistMutationServiceTestAccess::complete(
-                mutations, PlaylistMutationServiceTestAccess::request(mutations),
+                mutations, PlaylistMutationServiceTestAccess::background(mutations),
                 QJsonDocument(readback).toJson());
             QTRY_VERIFY(!actions->busy());
             QCOMPARE(actions->favoriteTrack(songs[0]), liked);
@@ -932,9 +996,9 @@ private slots:
                                               {"song_count", count}};
             PlaylistMutationServiceTestAccess::complete(mutations, write,
                                                         QJsonDocument(acknowledgement).toJson());
-            QCOMPARE(mutations.state(), PlaylistMutationService::State::Reconciling);
-            // The acknowledgement alone cannot publish speculative counts.
-            QCOMPARE(changes.size(), step);
+            QCOMPARE(mutations.state(), PlaylistMutationService::State::Ready);
+            // Counts supplied by the server are applied immediately.
+            QCOMPARE(changes.size(), step + 1);
             QJsonObject page{{"items", QJsonArray{}}};
             if (step != 2)
                 page["total"] = count;
@@ -943,7 +1007,7 @@ private slots:
                                        {"revision", qint64(version)},
                                        {"page", page}};
             PlaylistMutationServiceTestAccess::complete(
-                mutations, PlaylistMutationServiceTestAccess::request(mutations),
+                mutations, PlaylistMutationServiceTestAccess::background(mutations),
                 QJsonDocument(readback).toJson());
             QCOMPARE(mutations.state(), PlaylistMutationService::State::Ready);
             QCOMPARE(completed.size(), step + 1);
@@ -1916,6 +1980,8 @@ ApplicationWindow {
         QTemporaryDir dir;
         EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api;
+        QVERIFY(
+            api.setNetworkTransport(1)); // Deterministic failed search; never use the public API.
         api.setAccount(123, "local-fixture-token");
         CloudUploadService upload(api, false);
         ThemeStore theme(prefs);
@@ -2459,7 +2525,6 @@ ApplicationWindow {
         for (int i = 1; i <= 80; ++i)
             songs.append(
                 QJsonObject{{"id", QString::number(i)}, {"title", QString("歌曲 %1 Song").arg(i)}});
-        favorites.songs()->replaceSongs(songs);
         cloud.songs()->replaceSongs(songs);
         CloudServiceTestAccess::quota(cloud);
         ThemeStore theme(prefs);
@@ -2511,6 +2576,24 @@ Window {
         const auto artifacts = qEnvironmentVariable("ECHO_LIBRARY_TAB_ARTIFACTS");
         if (!artifacts.isEmpty())
             QVERIFY(QDir().mkpath(artifacts));
+        theme.setMotionEnabled(true);
+        QVERIFY(router.navigate("favorites", {{"tab", "songs"}}));
+        QQuickItem *coldPage = nullptr;
+        QTRY_VERIFY((coldPage = find(window->contentItem(), "favoritesPage")));
+        QTest::qWait(350);
+        auto *coldHeader = find(coldPage, "songDetailHeader");
+        QVERIFY(coldHeader);
+        QCOMPARE(coldHeader->property("scrollTop").toReal(), 0.);
+        QJsonArray firstPage;
+        for (int i = 30; i < songs.size(); ++i)
+            firstPage.append(songs[i]);
+        favorites.songs()->replaceSongs(firstPage);
+        QTest::qWait(350);
+        QCOMPARE(coldHeader->property("scrollTop").toReal(), 0.);
+        favorites.songs()->replaceSongs(songs);
+        QTest::qWait(350);
+        QCOMPARE(coldHeader->property("scrollTop").toReal(), 0.);
+        theme.setMotionEnabled(false);
         // Begin each route on a nonzero tab too: no click or index change may
         // be required to give its initially selected delegate a rendered rule.
         const QList<QPair<QString, QStringList>> routes{
@@ -3808,12 +3891,12 @@ Window {
         QCOMPARE(positions[1].toObject().value("file_id").toInteger(), qint64(101));
         QCOMPARE(positions[2].toObject().value("file_id").toInteger(), qint64(103));
 
-        // The shared writer reconciles a fresh read before reporting success.
+        // Sorting completes from the write acknowledgement; refresh is independent.
         PlaylistMutationServiceTestAccess::complete(
             mutations, sortRequest,
             QByteArray(R"({"user_id":100,"cloud_list_id":7,"revision":10,"song_count":3})"));
-        QCOMPARE(int(mutations.state()), int(PlaylistMutationService::State::Reconciling));
-        const auto reconcile = PlaylistMutationServiceTestAccess::request(mutations);
+        QCOMPARE(int(mutations.state()), int(PlaylistMutationService::State::Ready));
+        const auto reconcile = PlaylistMutationServiceTestAccess::background(mutations);
         QVERIFY(reconcile);
         PlaylistMutationServiceTestAccess::complete(
             mutations, reconcile,

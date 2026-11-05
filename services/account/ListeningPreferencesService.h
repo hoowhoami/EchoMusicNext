@@ -103,7 +103,7 @@ private:
     }
     void clear();
     void succeeded(quint64 id, const QByteArray &bytes);
-    void failed(quint64 id);
+    void failed(quint64 id, const QByteArray &payload = {});
     void toggle(int field, const QString &id);
     QVariantList options(int field) const;
     QString hint(int field) const;

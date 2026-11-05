@@ -54,6 +54,7 @@ RoutePage {
         active: page.service.tab === 1
         sourceComponent: Component {
             SongCatalogView {
+                scrollStateKey: "explore-rank-songs"
                 EchoPopupLoader {
                     id: batchOwner
                     objectName: "discoveryBatchDrawerOwner"
@@ -101,6 +102,7 @@ RoutePage {
         active: page.service.tab === 3
         sourceComponent: Component {
             SongCatalogView {
+                scrollStateKey: "explore-new-songs"
                 EchoPopupLoader {
                     id: batchOwner
                     objectName: "discoveryBatchDrawerOwner"

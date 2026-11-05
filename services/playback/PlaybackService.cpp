@@ -1457,6 +1457,10 @@ void PlaybackService::persist()
 {
     m_queueController->persist();
 }
+void PlaybackService::beginHistory()
+{
+    m_sessionController->beginHistory();
+}
 void PlaybackService::finishHistory()
 {
     m_sessionController->finishHistory();

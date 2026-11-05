@@ -89,7 +89,7 @@ private:
     std::optional<ShareTarget> m_target;
     quint64 m_generation = 0;
     QTimer m_spinnerTimer;
-    QString m_reason = "invalid", m_lastClipboardText;
+    QString m_reason = "invalid", m_lastClipboardText, m_error;
     QJsonObject m_roomDetail;
     int m_roomPending = 0;
     bool m_loading = false, m_spinner = false, m_network, m_closed = false,

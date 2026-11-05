@@ -1,5 +1,6 @@
 pub mod cloudlist;
 pub mod crypto;
+pub mod failure_diagnostics;
 pub mod generate_simulate;
 pub mod request;
 pub mod response_logging;

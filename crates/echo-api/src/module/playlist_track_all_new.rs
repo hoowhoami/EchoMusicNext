@@ -18,8 +18,8 @@ struct Data {
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     page: Option<u32>,
     info: serde_json::Value,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     list_ver: u64,
     #[serde(deserialize_with = "crate::util::response::scalar")]
@@ -81,7 +81,7 @@ pub struct CloudPlaylistTrack {
 #[derive(Debug, Serialize)]
 pub struct CloudPlaylistTracks {
     pub page: Page<CloudPlaylistTrack>,
-    pub user_id: u64,
+    pub user_id: Option<u64>,
     pub cloud_list_id: u64,
     pub revision: u64,
 }

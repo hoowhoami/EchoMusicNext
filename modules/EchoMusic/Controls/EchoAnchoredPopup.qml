@@ -78,24 +78,14 @@ Popup {
             }
         }
     }
-    enter: Transition {
-        NumberAnimation {
-            property: "opacity"
-            from: 0
-            to: 1
-            duration: Theme.normalDuration
-            easing.type: Easing.BezierSpline
-            easing.bezierCurve: Theme.easeEnter
-        }
+    EchoPopupMotion {
+        id: appearance
+        surface: popup
+        fromX: popup.side === EchoAnchoredPopup.Beside ? -4 : 0
+        fromY: popup.side === EchoAnchoredPopup.Beside ? 0 : popup.placedAbove ? 4 : -4
     }
-    exit: Transition {
-        NumberAnimation {
-            property: "opacity"
-            from: 1
-            to: 0
-            duration: Theme.exitDuration
-        }
-    }
+    enter: appearance.enter
+    exit: appearance.exit
     EchoPopupAnchor {
         id: geometry
         item: popup.anchorItem

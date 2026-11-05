@@ -18,8 +18,8 @@ pub struct Query {
 type Wire = crate::util::response::Envelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     p_grade: Option<u32>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
@@ -35,7 +35,7 @@ struct Data {
 }
 #[derive(Serialize)]
 pub struct ListeningGrade {
-    pub user_id: u64,
+    pub user_id: Option<u64>,
     pub grade: Option<u32>,
     pub listening_seconds: Option<u64>,
     pub current_points: Option<u64>,

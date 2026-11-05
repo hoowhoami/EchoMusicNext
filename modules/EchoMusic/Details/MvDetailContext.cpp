@@ -398,7 +398,7 @@ void MvDetailContext::fail(quint64 id, const QByteArray &bytes)
     if (p.epoch != m_epoch || p.session != m_api.sessionRevision() ||
         (p.kind == Source && p.selection != m_selection) || m_closed || !m_route.active())
         return;
-    m_error = QJsonDocument::fromJson(bytes).object().value("message").toString();
+    m_error = ApiClient::errorMessage(bytes);
     if (m_error.isEmpty())
         m_error = tr("当前视频暂时无法播放");
     emit changed();

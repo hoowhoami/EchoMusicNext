@@ -274,7 +274,7 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
 }
 void PlaybackStorageWorker::record(quint64 account, const PlaybackTrack &track, qint64 listenedMs)
 {
-    if (!m_valid || !track.playable() || listenedMs <= 0)
+    if (!m_valid || !track.playable() || listenedMs < 0)
         return;
     QSqlQuery q(m_database);
     q.prepare("INSERT INTO "
@@ -297,6 +297,22 @@ void PlaybackStorageWorker::record(quint64 account, const PlaybackTrack &track, 
              QDateTime::currentMSecsSinceEpoch(), listenedMs,
              QJsonDocument(track.toDomain()).toJson(QJsonDocument::Compact)})
         q.addBindValue(v);
+    if (!q.exec())
+        emit failed(q.lastError().text());
+    else
+        emit historyChanged(account);
+}
+void PlaybackStorageWorker::addHistoryTime(quint64 account, const PlaybackTrack &track,
+                                           qint64 listenedMs)
+{
+    if (!m_valid || !track.playable() || listenedMs <= 0)
+        return;
+    QSqlQuery q(m_database);
+    q.prepare("UPDATE playback_history SET listened_ms=listened_ms+? "
+              "WHERE account_id=? AND track_key=?");
+    q.addBindValue(listenedMs);
+    q.addBindValue(QString::number(account));
+    q.addBindValue(historyKey(track));
     if (!q.exec())
         emit failed(q.lastError().text());
 }
@@ -572,6 +588,12 @@ void PlaybackRepository::record(quint64 a, const PlaybackTrack &t, qint64 ms)
     if (!m_closing)
         QMetaObject::invokeMethod(m_worker,
                                   [worker = m_worker, a, t, ms] { worker->record(a, t, ms); });
+}
+void PlaybackRepository::addHistoryTime(quint64 a, const PlaybackTrack &t, qint64 ms)
+{
+    if (!m_closing)
+        QMetaObject::invokeMethod(
+            m_worker, [worker = m_worker, a, t, ms] { worker->addHistoryTime(a, t, ms); });
 }
 void PlaybackRepository::loadHistory(quint64 a, quint64 r)
 {

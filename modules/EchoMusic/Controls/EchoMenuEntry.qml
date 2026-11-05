@@ -7,6 +7,11 @@ import EchoMusic.Theme
 // it can also be declared directly for custom visibility or danger state.
 MenuItem {
     id: entry
+    EchoMotionScope {
+        id: motion
+        target: entry
+        animations: [fill]
+    }
     property bool danger: false
     property real uiScale: 1
     // Action-driven rows read the same flag from the Action's dynamic property.
@@ -55,5 +60,14 @@ MenuItem {
     background: Rectangle {
         radius: Theme.controlRadius * entry.uiScale
         color: !entry.enabled ? "transparent" : entry.danger || entry.actionDanger ? (entry.down ? Theme.withAlpha(Theme.floating.danger, 0.16) : entry.highlighted ? Theme.withAlpha(Theme.floating.danger, 0.12) : "transparent") : entry.down ? Theme.floating.neutralPressed : entry.highlighted ? Theme.floating.hover : "transparent"
+        Behavior on color {
+            enabled: motion.allowed
+            ColorAnimation {
+                id: fill
+                duration: Theme.fastDuration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.easeStandard
+            }
+        }
     }
 }

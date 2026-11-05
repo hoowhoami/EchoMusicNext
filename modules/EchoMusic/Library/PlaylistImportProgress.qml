@@ -15,6 +15,12 @@ ColumnLayout {
             artist: ""
         })
     spacing: 12
+    EchoMotionScope {
+        id: motion
+        target: pane
+        active: pane.surface.visible
+        animations: [progressChange]
+    }
     Label {
         Layout.fillWidth: true
         text: pane.importer.busy ? qsTr("正在导入 · %1 / %2").arg(pane.importer.total ? pane.importer.imported : 1).arg(pane.importer.total || 4) : qsTr("已处理 %1 首").arg(pane.importer.total || (pane.importer.phase === PlaylistImportService.Failed ? 1 : 0))
@@ -29,6 +35,15 @@ ColumnLayout {
         color: Theme.floating.mutedSurface
         Rectangle {
             width: parent.width * pane.importer.progress
+            Behavior on width {
+                enabled: motion.allowed
+                NumberAnimation {
+                    id: progressChange
+                    duration: Theme.normalDuration
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: Theme.easeStandard
+                }
+            }
             height: parent.height
             radius: 3
             color: pane.importer.phase === PlaylistImportService.Completed ? "#10b981" : Theme.floating.accent
@@ -66,7 +81,7 @@ ColumnLayout {
                             radius: 1
                             color: Theme.floating.accent
                             SequentialAnimation on height {
-                                running: pane.surface.opened && pane.importer.busy
+                                running: motion.allowed && pane.surface.opened && pane.importer.busy
                                 loops: Animation.Infinite
                                 PauseAnimation {
                                     duration: wave.index * 120

@@ -5,6 +5,11 @@ import EchoMusic.Theme
 
 Switch {
     id: control
+    EchoMotionScope {
+        id: motion
+        target: control
+        animations: [trackColor, trackBorder, knobMove]
+    }
     EchoUiPart {
         id: formPart
         target: control
@@ -28,6 +33,24 @@ Switch {
         border.width: formPart.value("borderWidth", 1)
         border.color: formPart.value("borderColor", control.checked ? formPart.value("accent", control.colors.accent) : Theme.mix(control.colors.controlBorder, control.colors.text, control.enabled && control.hovered ? .36 : .26))
         opacity: control.enabled ? 1 : 0.6
+        Behavior on color {
+            enabled: motion.allowed
+            ColorAnimation {
+                id: trackColor
+                duration: Theme.fastDuration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.easeStandard
+            }
+        }
+        Behavior on border.color {
+            enabled: motion.allowed
+            ColorAnimation {
+                id: trackBorder
+                duration: Theme.fastDuration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.easeStandard
+            }
+        }
         Rectangle {
             x: control.checked ? parent.width - width - (control.compact ? 3 : 4) : (control.compact ? 3 : 4)
             y: control.compact ? 3 : 4
@@ -36,8 +59,12 @@ Switch {
             radius: width / 2
             color: formPart.value("foreground", "white")
             Behavior on x {
+                enabled: motion.allowed
                 NumberAnimation {
+                    id: knobMove
                     duration: Theme.fastDuration
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: Theme.easeStandard
                 }
             }
         }

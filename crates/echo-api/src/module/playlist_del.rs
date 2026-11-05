@@ -15,41 +15,43 @@ use std::collections::BTreeMap;
 pub struct Query {
     pub cloud_list_id: u64,
 }
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    pre_total_ver: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    total_ver: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    pre_total_ver: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    total_ver: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     list_count: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     info: Vec<Item>,
 }
 #[derive(Deserialize)]
 struct Item {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    listid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    code: i64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    listid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    status: Option<u32>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    code: Option<i64>,
 }
 pub fn convert(bytes: &[u8], list_id: u64) -> Result<LibraryPlaylistChange, ApiError> {
-    let v: Data = cloudlist::decode(bytes)?;
-    for item in &v.info {
-        if item.status != 1 || item.code != 1 {
-            return Err(ApiError::business(item.code));
-        }
-    }
+    let v = cloudlist::decode::<Option<Data>>(bytes)?.unwrap_or_default();
     Ok(LibraryPlaylistChange {
         user_id: v.userid,
-        cloud_list_id: v.info.first().map(|item| item.listid).unwrap_or(list_id),
+        cloud_list_id: Some(
+            v.info
+                .first()
+                .and_then(|item| item.listid)
+                .unwrap_or(list_id),
+        ),
         previous_total_revision: v.pre_total_ver,
         total_revision: v.total_ver,
         playlist_count: v.list_count,
+        provider_status: v.info.first().and_then(|i| i.status),
+        resource_code: v.info.first().and_then(|i| i.code),
         cover_url: None,
     })
 }

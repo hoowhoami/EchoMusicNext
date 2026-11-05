@@ -136,14 +136,9 @@ void DynamicCoverController::succeeded(quint64 id, const QByteArray &bytes)
         return;
     if (document.isObject()) {
         const auto domain = document.object();
-        if (!domain.value("urls").isArray())
-            return;
         for (const auto &entry : domain.value("urls").toArray()) {
-            if (!entry.isString()) {
-                m_urls.clear();
-                return;
-            }
-            m_urls.append(entry.toString());
+            if (!entry.toString().isEmpty())
+                m_urls.append(entry.toString());
         }
     } else if (!bytes.trimmed().startsWith("null"))
         return;

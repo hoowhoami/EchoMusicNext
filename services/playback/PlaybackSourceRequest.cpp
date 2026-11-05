@@ -351,7 +351,7 @@ void PlaybackSourceRequest::fail(quint64 id, const QByteArray &bytes)
         return;
     if (id && id == m_catalogRefreshRequest) {
         m_catalogRefreshRequest = 0;
-        const auto message = QJsonDocument::fromJson(bytes).object().value("message").toString();
+        const auto message = ApiClient::errorMessage(bytes);
         failCatalogRefresh(message.isEmpty() ? tr("获取歌曲播放地址失败") : message);
         return;
     }
@@ -395,7 +395,7 @@ void PlaybackSourceRequest::fail(quint64 id, const QByteArray &bytes)
             tryStart();
     } else if (id && id == m_sourceRequest) {
         m_sourceRequest = 0;
-        const auto message = QJsonDocument::fromJson(bytes).object().value("message").toString();
+        const auto message = ApiClient::errorMessage(bytes);
         m_lastError = message.isEmpty() ? tr("获取歌曲播放地址失败") : message;
         requestSource();
     }

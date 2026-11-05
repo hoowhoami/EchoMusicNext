@@ -55,6 +55,9 @@ void PluginRuntimeTest::spectrumCapabilityAndOwnerLifetime()
         host.playback.spectrum()->subscribe(owner.get(), {{"fps", 999}, {"fftSize", 300}});
     QVERIFY(id);
     QCOMPARE(PlayerSpectrum::normalize({{"fps", 999}, {"fftSize", 300}}).value("fps").toInt(), 60);
+    QCOMPARE(PlayerSpectrum::normalize({{"fps", 0}}).value("fps").toInt(), 0);
+    QCOMPARE(PlayerSpectrum::normalize({{"fps", -1}}).value("fps").toInt(), 1);
+    QCOMPARE(PlayerSpectrum::normalize({{"fps", "invalid"}}).value("fps").toInt(), 30);
     QCOMPARE(PlayerSpectrum::normalize({{"fps", 999}, {"fftSize", 300}}).value("fftSize").toInt(),
              2048);
     QCOMPARE(host.playback.spectrum()->subscriberCount(), 1);
@@ -104,12 +107,13 @@ void verifyAuthorPackage(bool entryOnly)
         retain(scope->executeCommand("settings.patch", {{"showPlayerBar", !entryOnly},
                                                         {"showMiniPlayer", !entryOnly},
                                                         {"mode", initialMode},
-                                                        {"fps", entryOnly ? 15 : 30}}));
+                                                        {"fps", entryOnly ? 15 : 0}}));
     QTRY_VERIFY(patch && patch->finished());
     QCOMPARE(patch->state(), EchoPluginOperation::Succeeded);
     QPointer<EchoPluginOperation> stored = retain(scope->io()->readValue("settings"));
     QTRY_COMPARE(stored->state(), EchoPluginOperation::Succeeded);
     QCOMPARE(stored->result().toMap().value("mode").toString(), initialMode);
+    QCOMPARE(stored->result().toMap().value("fps").toInt(), entryOnly ? 15 : 0);
     QVERIFY(!scope->ui()->settingsComponent().isEmpty());
     QStringList warnings;
     QObject::connect(&host.engine, &QQmlEngine::warnings, &host.engine,
@@ -228,7 +232,7 @@ ApplicationWindow {
     host.playback.setVolume(8);
     auto restore = qScopeGuard([&] { host.playback.setVolume(originalVolume); });
     QPointer<EchoPluginSpectrumSubscription> sub =
-        scope->audio()->spectrum()->subscribe({{"fps", 30},
+        scope->audio()->spectrum()->subscribe({{"fps", 0},
                                                {"binCount", 512},
                                                {"fftSize", 8192},
                                                {"scale", "linear"},
@@ -257,6 +261,15 @@ ApplicationWindow {
     QVERIFY2(std::abs(peakHz - 1000) < 150, qPrintable(QString::number(peakHz)));
     qInfo() << "Actual output PCM" << frame.value("sampleRate") << "FFT" << frame.value("fftSize")
             << "peak Hz" << peakHz << "RMS" << frame.value("rms");
+    auto *limited = scope->audio()->spectrum()->subscribe({{"fps", 1}});
+    QVERIFY(limited);
+    QSignalSpy limitedFrames(limited, &EchoPluginSpectrumSubscription::frameChanged);
+    frames.clear();
+    QTest::qWait(200);
+    QVERIFY(frames.count() > 1);
+    QVERIFY(limitedFrames.count() <= 1);
+    qInfo() << "Uncapped spectrum frames in 200ms" << frames.count();
+    limited->dispose();
     host.playback.pause();
     QTRY_VERIFY(!host.playback.spectrum()->status().value("running").toBool());
     QTRY_COMPARE(sub->frame().toMap().value("source").toString(), "silence");
@@ -383,7 +396,7 @@ ApplicationWindow {
                     qInfo().noquote() << "SPECTRUM_STALLED" << label;
             }
         };
-        for (const auto fps : {15, 30}) {
+        for (const auto fps : {15, 30, 0}) {
             for (const auto &mode : {"disabled", "bars", "wave", "hybrid", "mist", "centered"}) {
                 patch = retain(scope->executeCommand("settings.patch",
                                                      {{"enabled", QString(mode) != "disabled"},
@@ -438,6 +451,7 @@ ApplicationWindow {
                 std::function<void(QQuickItem *)> verifyVectors = [&](QQuickItem *item) {
                     QVERIFY(!QString(item->metaObject()->className()).contains("Canvas"));
                     if (auto *surface = qobject_cast<EchoGpuSurface *>(item)) {
+                        QCOMPARE(surface->fps(), 0);
                         QTRY_COMPARE(surface->status().value("state").toString(), "ready");
                         QVERIFY(surface->status().value("compute").toBool());
                         ++gpuCount;
@@ -497,7 +511,7 @@ ApplicationWindow {
     QVERIFY(centerLayer);
     auto *centerGpu = centerLayer->findChild<EchoGpuSurface *>("spectrumGpuSurface");
     auto *centerClock = centerGpu ? static_cast<QObject *>(centerGpu)
-                                  : centerLayer->findChild<QObject *>("spectrumRenderClock");
+                                  : centerLayer->findChild<QObject *>("spectrumFrameClock");
     const auto clockProperty = centerGpu ? "continuous" : "running";
     QVERIFY(centerClock);
     QTRY_VERIFY_WITH_TIMEOUT(!centerClock->property(clockProperty).toBool(), 3000);
@@ -514,6 +528,10 @@ ApplicationWindow {
             QPointer<QQuickItem> body = visual(window->contentItem(), "spectrumVisualizerSettings");
             QTest::qWait(120);
             QVERIFY(body->width() > 400);
+            auto *fpsSelect = visual(body, "spectrumFpsSelect");
+            QVERIFY(fpsSelect);
+            QCOMPARE(fpsSelect->property("currentValue").toInt(), 0);
+            QCOMPARE(fpsSelect->property("currentText").toString(), QStringLiteral("不限制"));
             if (scope->package().capabilities.contains("graphics")) {
                 auto *hdrToggle = visual(body, "spectrumHdrSwitch");
                 QVERIFY(hdrToggle);

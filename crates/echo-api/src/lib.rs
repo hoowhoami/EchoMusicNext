@@ -522,6 +522,10 @@ pub struct Capabilities {
 }
 
 pub async fn execute(request: Request, client: &ApiClient) -> Result<Vec<u8>, error::ApiError> {
+    util::failure_diagnostics::capture(execute_request(request, client)).await
+}
+
+async fn execute_request(request: Request, client: &ApiClient) -> Result<Vec<u8>, error::ApiError> {
     match request {
         Request::CaptchaSent { query, identity } => {
             module::captcha_sent::execute(client, &identity, query).await

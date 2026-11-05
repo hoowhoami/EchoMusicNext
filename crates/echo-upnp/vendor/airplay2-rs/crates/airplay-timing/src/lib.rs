@@ -20,8 +20,8 @@ pub use clock::{
 };
 pub use ntp::{timing_sync_loop, NtpTimingClient, NtpTimingServer};
 pub use ptp::{
-    apple_subtype, ptp_sync_loop, AppleTlv, run_bmca_yield_flow, run_ptp_group_master_flow, run_ptp_slave, send_mac_style_signaling,
-    send_ptp_announce, send_ptp_signaling, send_ptp_sync, send_stop_signaling, PtpClient,
-    PtpMaster, PTP_EVENT_PORT, PTP_GENERAL_PORT,
+    apple_subtype, ptp_sync_loop, run_bmca_yield_flow, run_ptp_group_master_flow, run_ptp_slave,
+    send_mac_style_signaling, send_ptp_announce, send_ptp_signaling, send_ptp_sync,
+    send_stop_signaling, AppleTlv, PtpClient, PtpMaster, PTP_EVENT_PORT, PTP_GENERAL_PORT,
 };
 pub use traits::TimingProtocol;

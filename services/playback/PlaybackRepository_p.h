@@ -18,6 +18,7 @@ public:
     void save(quint64 account, const PlaybackQueueStates &states, const QString &active,
               const QString &lastLocal = {});
     void record(quint64 account, const PlaybackTrack &track, qint64 listenedMs);
+    void addHistoryTime(quint64 account, const PlaybackTrack &track, qint64 listenedMs);
     void loadHistory(quint64 account, quint64 revision);
     /// Unmatched cloud uploads converge their per-file identities on hash.
     QString historyKey(const PlaybackTrack &track);

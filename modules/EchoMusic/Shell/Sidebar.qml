@@ -51,6 +51,14 @@ Item {
         value: sidebar.libraryController
     }
     readonly property bool collapsed: settings.sidebarCollapsed
+    // Resizing reuses this content tree; replaying its entry fade would blank
+    // every row on each toggle, including rapid reversals of the width motion.
+    EchoEnter {
+        id: contentEntry
+        target: content
+        duration: Theme.sidebarDuration
+        curve: Theme.easeEmphasized
+    }
     EchoPopupLoader {
         id: createDialogOwner
         objectName: "playlistCreateDialogOwner"
@@ -118,6 +126,8 @@ Item {
         }
     }
     ColumnLayout {
+        id: content
+        objectName: "sidebarContent"
         anchors.fill: parent
         spacing: 0
         Item {

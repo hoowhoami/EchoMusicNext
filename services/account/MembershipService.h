@@ -49,7 +49,7 @@ private:
     friend class MembershipServiceTestAccess;
     void clear();
     void succeed(quint64 id, const QByteArray &bytes);
-    void fail(quint64 id);
+    void fail(quint64 id, const QByteArray &payload = {});
     void setFacts(MembershipFacts facts);
     ApiClient &m_api;
     quint64 m_request = 0, m_revision = 0;

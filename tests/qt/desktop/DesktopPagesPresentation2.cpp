@@ -55,8 +55,9 @@ void DesktopPagesTest::deviceRemovalRequiresConfirmationRefreshAndCurrentSession
     const auto retry = ProfileServiceTestAccess::deviceKick(profile);
     const auto oldRead = ProfileServiceTestAccess::deviceRequest(profile, api);
     ProfileServiceTestAccess::complete(profile, retry, R"({"removed":true})");
-    QVERIFY(profile.removingDevice());
-    QVERIFY(profile.pendingDeviceRemoval()); // Keep confirmation busy through the forced read.
+    QVERIFY(!profile.removingDevice());
+    QVERIFY(!profile.pendingDeviceRemoval());
+    QVERIFY(notices.last()[0].toBool()); // The write acknowledgement completes removal.
     const auto refresh = ProfileServiceTestAccess::deviceRead(profile);
     QVERIFY(refresh && refresh != oldRead);
     ProfileServiceTestAccess::complete(profile, oldRead, QJsonDocument(rows).toJson());
@@ -84,7 +85,7 @@ void DesktopPagesTest::deviceRemovalRequiresConfirmationRefreshAndCurrentSession
                                    R"({"kind":"authentication","code":20018})");
     QVERIFY(!profile.removingDevice());
     QVERIFY(!profile.pendingDeviceRemoval());
-    QVERIFY(profile.devicesError().contains(QStringLiteral("重新登录")));
+    QVERIFY(profile.devicesError().contains(QStringLiteral("20018")));
     QCOMPARE(profile.devices()->count(), 2); // Failed refresh never fabricates an empty list.
     profile.requestDeviceRemoval("other");
     profile.confirmDeviceRemoval();
@@ -93,5 +94,5 @@ void DesktopPagesTest::deviceRemovalRequiresConfirmationRefreshAndCurrentSession
     ProfileServiceTestAccess::complete(profile, late, R"({"removed":true})");
     QCOMPARE(profile.devices()->count(), 0);
     QVERIFY(!profile.removingDevice());
-    QCOMPARE(notices.size(), noticeCount);
+    QCOMPARE(notices.size(), noticeCount + 1); // Failed refresh did not reverse the success.
 }

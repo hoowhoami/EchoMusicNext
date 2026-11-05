@@ -202,9 +202,10 @@ EchoAnchoredPopup {
                                 ColumnLayout {
                                     anchors.centerIn: parent
                                     spacing: 4
-                                    Label {
+                                    EchoRollingNumber {
                                         Layout.alignment: Qt.AlignHCenter
                                         text: Number(stat.modelData.value).toLocaleString(Qt.locale("zh_CN"), "f", 0)
+                                        resourceActive: panel.visible
                                         color: Theme.floatingText
                                         font: Theme.font(20, Theme.semiboldWeight)
                                         lineHeightMode: Text.FixedHeight

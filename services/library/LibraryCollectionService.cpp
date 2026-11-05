@@ -8,16 +8,9 @@ LibraryCollectionService::LibraryCollectionService(ApiClient &a, UserPlaylistMod
 {
     connect(&a, &ApiClient::sessionChanged, this, [this] {
         m_pending = false;
-        m_recovering = false;
         emit changed();
     });
     connect(&l, &UserPlaylistModel::changed, this, [this] {
-        if (m_recovering && m_library.state() == UserPlaylistModel::State::Ready &&
-            !m_library.canFetchMore({})) {
-            m_recovering = false;
-            m_mutations.acceptRefreshedUnknownOutcome();
-            emit notice(tr("收藏状态已刷新，请确认后再操作"), false);
-        }
         if (m_wanted && m_library.state() == UserPlaylistModel::State::Ready &&
             m_library.canFetchMore({}))
             QMetaObject::invokeMethod(this, [this] { ensureLoaded(); }, Qt::QueuedConnection);
@@ -25,7 +18,6 @@ LibraryCollectionService::LibraryCollectionService(ApiClient &a, UserPlaylistMod
     });
     connect(&m, &PlaylistMutationService::changed, this, [this] {
         if (m_pending && m_mutations.state() != PlaylistMutationService::State::Writing &&
-            m_mutations.state() != PlaylistMutationService::State::Reconciling &&
             (m_mutations.state() != PlaylistMutationService::State::Ready ||
              !m_mutations.errorMessage().isEmpty())) {
             m_pending = false;
@@ -86,10 +78,7 @@ bool LibraryCollectionService::collected(bool album, const QJsonObject &d) const
 }
 bool LibraryCollectionService::busy() const
 {
-    return m_pending ||
-           (m_mutations.state() != PlaylistMutationService::State::Ready &&
-            m_mutations.state() != PlaylistMutationService::State::OutcomeUnknown &&
-            m_mutations.state() != PlaylistMutationService::State::RefreshRequired) ||
+    return m_pending || m_mutations.state() != PlaylistMutationService::State::Ready ||
            m_library.state() != UserPlaylistModel::State::Ready || m_library.canFetchMore({});
 }
 void LibraryCollectionService::ensureLoaded()
@@ -107,17 +96,6 @@ void LibraryCollectionService::toggle(bool album, const QJsonObject &d)
 {
     if (!available(album, d))
         return;
-    if (m_mutations.state() == PlaylistMutationService::State::RefreshRequired) {
-        m_mutations.reconcile();
-        return;
-    }
-    if (m_mutations.state() == PlaylistMutationService::State::OutcomeUnknown) {
-        m_recovering = true;
-        m_wanted = true;
-        m_library.reload();
-        emit notice(tr("正在刷新收藏状态"), false);
-        return;
-    }
     if (busy()) {
         ensureLoaded();
         emit notice(tr("请等待收藏目录加载完成后重试"), true);

@@ -7,6 +7,7 @@
 #include "RouteController.h"
 #include "ShellSettings.h"
 #include "ThemeStore.h"
+#include "NativeWindow.h"
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QQuickItem>
@@ -19,6 +20,8 @@
 #include <QSet>
 #include <QTemporaryDir>
 #include <QProcess>
+#include <QFile>
+#include <QDataStream>
 #include <QSqlQuery>
 #include <QUuid>
 #include <QtTest>
@@ -66,6 +69,11 @@ public:
 class PersonalFmControllerTestAccess
 {
 public:
+    static void useLocalAudio(PersonalFmController &fm, const QString &path)
+    {
+        for (auto &track : fm.m_buffer)
+            track.localPath = path;
+    }
     static quint64 resetRequest(PersonalFmController &fm)
     {
         return fm.m_resetRequest;
@@ -494,6 +502,7 @@ private slots:
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window);
+        QVERIFY(Test::prepareNativeInput(window));
         window->resize(1150, 620);
         QVERIFY(router.navigate("personal-fm"));
         auto *fm = playback.personalFm();
@@ -531,6 +540,7 @@ private slots:
         QTRY_VERIFY(!initialFrames.isEmpty());
         QTRY_VERIFY(qAbs(scroll->property("contentY").toDouble() - firstY()) < 0.5);
         // The initial value must not pin the view or reset a cached route.
+        QVERIFY(Test::prepareNativeInput(window));
         const auto wheelPoint =
             scroll->mapToScene(QPointF(scroll->width() / 2, scroll->height() * .8));
         QWheelEvent wheel(wheelPoint, window->mapToGlobal(wheelPoint.toPoint()), {}, {0, -120},
@@ -540,9 +550,14 @@ private slots:
         QTRY_VERIFY(!scroll->property("moving").toBool());
         const auto savedY = scroll->property("contentY").toDouble();
         auto *fmRoute = router.current();
+        QPointer<QQuickItem> oldPage = visual(window->contentItem(), "personalFmPage");
+        QPointer<QQuickItem> oldScroll = scroll;
         QVERIFY(router.navigate("ranking"));
+        QTRY_VERIFY(oldPage.isNull());
+        QVERIFY(oldScroll.isNull());
         router.back();
         QCOMPARE(router.current(), fmRoute);
+        QTRY_VERIFY((scroll = visual(window->contentItem(), "personalFmScrollView")));
         initialFrames.clear();
         window->update();
         QTRY_VERIFY(!initialFrames.isEmpty());
@@ -615,10 +630,20 @@ private slots:
         qInfo() << "FM active animations before idle measurement:" << activeAnimations();
         QTRY_VERIFY_WITH_TIMEOUT(activeAnimations().isEmpty(), 4000);
         QSignalSpy idleFrames(window, &QQuickWindow::frameSwapped);
-        QTest::qWait(350); // Measure a static, fully loaded page, not a layout correction.
-        qInfo() << "FM preview frame submissions during 350ms idle:" << idleFrames.size();
+        // Recreated textures/materials may retire after their first frame.
+        // Require consecutive quiet intervals within a bounded drain so an
+        // ongoing animation clock still fails the native idle observation.
+        int quietIntervals = 0, settlingFrames = 0;
+        for (int interval = 0; interval < 8 && quietIntervals < 2; ++interval) {
+            idleFrames.clear();
+            QTest::qWait(350);
+            settlingFrames += idleFrames.size();
+            quietIntervals = idleFrames.size() <= 1 ? quietIntervals + 1 : 0;
+        }
+        qInfo() << "FM preview settling frames:" << settlingFrames
+                << "consecutive quiet intervals:" << quietIntervals;
         if (QGuiApplication::platformName() == "cocoa")
-            QVERIFY(idleFrames.size() <= 1);
+            QCOMPARE(quietIntervals, 2);
         if (live) {
             settings.resetZoom();
             QVERIFY(QTest::qWaitForWindowExposed(window));
@@ -657,6 +682,21 @@ private slots:
             QTRY_VERIFY_WITH_TIMEOUT(playback.positionMs() > 500, 5000);
             QCOMPARE(playback.sourceKey(), PersonalFmController::queueKey());
             QCOMPARE(playback.queue()->rowCount(), 1);
+            // A real running source must keep advancing while its page has
+            // no visual instance; returning only projects the live controller.
+            const auto playingId = playback.trackId();
+            const auto position = playback.positionMs();
+            QPointer<QQuickItem> playingPage = visual(window->contentItem(), "personalFmPage");
+            QVERIFY(router.navigate("ranking"));
+            QTRY_VERIFY(playingPage.isNull());
+            QVERIFY(playback.playing());
+            QCOMPARE(playback.trackId(), playingId);
+            QCOMPARE(playback.personalFm(), fm);
+            QTRY_VERIFY(playback.positionMs() > position);
+            router.back();
+            QTRY_VERIFY(visual(window->contentItem(), "personalFmPage"));
+            QVERIFY(playback.playing());
+            QCOMPARE(playback.trackId(), playingId);
             if (!artifacts.isEmpty()) {
                 QTRY_VERIFY_WITH_TIMEOUT(imagesSettled(), 15000);
                 QVERIFY(window->grabWindow().save(artifacts + "/fm-playing.png"));
@@ -740,15 +780,62 @@ private slots:
             QTRY_VERIFY_WITH_TIMEOUT(reportsFinished(), 15000);
             playback.stop();
         }
-        auto *disc = visual(window->contentItem(), "personalFmCurrentDisc");
+        if (!live) {
+            // Exercise real native decoding/output and its advancing clock at
+            // zero volume. The recommendations remain controlled domain data;
+            // this is not an online FM/provider acceptance test.
+            const auto path = dir.filePath("fm-lifecycle.wav");
+            QFile audio(path);
+            QVERIFY(audio.open(QIODevice::WriteOnly));
+            const quint32 dataSize = 22050 * 2 * 30;
+            QDataStream wave(&audio);
+            wave.setByteOrder(QDataStream::LittleEndian);
+            wave.writeRawData("RIFF", 4);
+            wave << quint32(36 + dataSize);
+            wave.writeRawData("WAVEfmt ", 8);
+            wave << quint32(16) << quint16(1) << quint16(1) << quint32(22050) << quint32(44100)
+                 << quint16(2) << quint16(16);
+            wave.writeRawData("data", 4);
+            wave << dataSize;
+            QCOMPARE(audio.write(QByteArray(dataSize, '\0')), qint64(dataSize));
+            audio.close();
+            PersonalFmControllerTestAccess::useLocalAudio(*fm, path);
+            QTRY_VERIFY_WITH_TIMEOUT(playback.engineReady(), 15000);
+            fm->play();
+            QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 15000);
+            QVERIFY(fm->active());
+            QVERIFY(playback.playing());
+            const auto playingId = playback.trackId();
+            const auto playingPosition = playback.positionMs();
+            auto *queue = playback.queue();
+            QPointer<QQuickItem> playingPage = visual(window->contentItem(), "personalFmPage");
+            QVERIFY(router.navigate("ranking"));
+            QTRY_VERIFY(playingPage.isNull());
+            QCOMPARE(playback.personalFm(), fm);
+            QCOMPARE(playback.queue(), queue);
+            QCOMPARE(playback.trackId(), playingId);
+            QVERIFY(playback.playing());
+            QTRY_VERIFY(playback.positionMs() > playingPosition);
+            playback.next();
+            QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading() &&
+                                         playback.trackId() != playingId,
+                                     15000);
+            QVERIFY(playback.trackId() != playingId);
+            const auto advancedId = playback.trackId();
+            router.back();
+            QTRY_VERIFY(visual(window->contentItem(), "personalFmPage"));
+            QCOMPARE(playback.trackId(), advancedId);
+            QCOMPARE(playback.queue(), queue);
+            QVERIFY(playback.playing());
+            playback.stop();
+        }
+        QPointer<QQuickItem> disc = visual(window->contentItem(), "personalFmCurrentDisc");
         QVERIFY(disc);
-        auto *coverImage = visual(disc, "coverImage");
+        QPointer<QQuickItem> coverImage = visual(disc, "coverImage");
         QVERIFY(coverImage);
         QVERIFY(router.navigate("home"));
-        QTRY_VERIFY(coverImage->property("source").toUrl().isEmpty());
-        auto *turn = disc->findChild<QObject *>("personalFmDiscTurn");
-        QVERIFY(turn);
-        QVERIFY(!turn->property("running").toBool());
+        QTRY_VERIFY(disc.isNull());
+        QVERIFY(coverImage.isNull());
         QSignalSpy retiredFrames(window, &QQuickWindow::frameSwapped);
         window->update();
         QTRY_VERIFY(!retiredFrames.isEmpty());

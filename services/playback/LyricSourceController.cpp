@@ -801,10 +801,6 @@ void LyricSourceController::succeeded(quint64 id, const QByteArray &bytes)
         return;
     if (id == m_defaultSearch) {
         const auto document = QJsonDocument::fromJson(bytes);
-        if (!document.isArray()) {
-            failed(id, 0, R"({"message":"歌词默认版本数据无效"})");
-            return;
-        }
         m_defaultSearch = 0;
         QString recommended;
         for (const auto &value : document.array()) {
@@ -820,10 +816,6 @@ void LyricSourceController::succeeded(quint64 id, const QByteArray &bytes)
     }
     if (id == m_search) {
         const auto document = QJsonDocument::fromJson(bytes);
-        if (!document.isArray()) {
-            failed(id, 0, R"({"message":"歌词候选数据无效"})");
-            return;
-        }
         QList<Candidate> candidates;
         for (const auto &value : document.array()) {
             const auto c = value.toObject();
@@ -937,10 +929,8 @@ void LyricSourceController::failed(quint64 id, int, const QByteArray &bytes)
         return;
     }
     const bool userAction = m_selectionOpen || m_applyPending;
-    m_error =
-        keywordSearchFailed
-            ? tr("搜索失败，请重试")
-            : QJsonDocument::fromJson(bytes).object().value("message").toString(tr("歌词加载失败"));
+    m_error = keywordSearchFailed ? tr("搜索失败，请重试")
+                                  : ApiClient::errorMessage(bytes, tr("歌词加载失败"));
     if (m_currentId.isEmpty() && !m_embeddedError.isEmpty() &&
         (m_manualId.isEmpty() || m_manualId == "embedded"))
         m_error = m_embeddedError;

@@ -16,6 +16,10 @@ QVariantMap PlayerSpectrum::normalize(const QVariantMap &options)
         return ok && std::isfinite(v) ? qBound(low, v, high) : fallback;
     };
     out["fps"] = int(number("fps", 30, 1, 60));
+    bool fpsValid = false;
+    const auto requestedFps = options.value("fps").toDouble(&fpsValid);
+    if (fpsValid && requestedFps == 0)
+        out["fps"] = 0; // Zero removes pacing; one native snapshot remains in flight.
     out["binCount"] = int(number("binCount", 128, 8, 512));
     int fft = int(number("fftSize", 2048, 256, 8192));
     if ((fft & (fft - 1)) != 0)
@@ -101,7 +105,9 @@ void PlayerSpectrum::reconcile()
             any = true;
             const auto &o = e.options;
             merged["bands"] = qMax(merged["bands"].toInt(), o["binCount"].toInt());
-            merged["fps"] = qMax(merged["fps"].toInt(), o["fps"].toInt());
+            merged["fps"] = merged["fps"].toInt() == 0 || o["fps"].toInt() == 0
+                                ? 0
+                                : qMax(merged["fps"].toInt(), o["fps"].toInt());
             merged["fft_size"] = qMax(merged["fft_size"].toInt(), o["fftSize"].toInt());
             merged["min_frequency"] =
                 qMin(merged["min_frequency"].toDouble(), o["minFrequency"].toDouble());
@@ -129,8 +135,10 @@ void PlayerSpectrum::reconcile()
     const bool changed = m_running != running;
     m_running = running;
     if (running) {
-        m_timer.setInterval(int(std::ceil(1000. / merged["fps"].toInt())));
-        if (!m_timer.isActive())
+        const auto fps = merged["fps"].toInt();
+        m_timer.setSingleShot(fps == 0);
+        m_timer.setInterval(fps == 0 ? 0 : int(std::ceil(1000. / fps)));
+        if (!m_timer.isActive() && (fps != 0 || !m_pending))
             m_timer.start();
     } else
         m_timer.stop();
@@ -151,6 +159,10 @@ void PlayerSpectrum::accept(const QJsonObject &event)
     if (event.value("event") != "spectrum")
         return;
     m_pending = false;
+    // Uncapped sampling yields to the event loop after each async completion,
+    // rather than spinning a zero-interval timer while the FFT is in flight.
+    if (!m_stopped && m_running && m_options["fps"].toInt() == 0)
+        m_timer.start();
     if (m_stopped || !m_running ||
         quint64(event.value("track_seq").toDouble()) != m_playback.audioSequence() ||
         quint64(event.value("spectrum_revision").toDouble()) != m_revision ||
@@ -164,7 +176,8 @@ void PlayerSpectrum::accept(const QJsonObject &event)
         if (it == m_entries.end())
             continue;
         auto &e = it.value();
-        if (!e.owner || e.paused || now - e.last < std::ceil(1000. / e.options["fps"].toInt()))
+        const auto fps = e.options["fps"].toInt();
+        if (!e.owner || e.paused || (fps > 0 && now - e.last < std::ceil(1000. / fps)))
             continue;
         e.last = now;
         QVariantMap frame{{"source", raw.isEmpty()                        ? "unavailable"

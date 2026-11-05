@@ -97,6 +97,11 @@ EchoDialog {
                     Layout.fillHeight: true
                     clip: true
                     model: dialog.picker?.songs ?? null
+                    EchoListInsertMotion {
+                        view: songList
+                        active: dialog.visible
+                        rowHeight: 62
+                    }
                     delegate: Button {
                         id: songRow
                         required property string resourceId

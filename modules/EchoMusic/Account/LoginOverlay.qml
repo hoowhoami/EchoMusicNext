@@ -10,6 +10,30 @@ Item {
     id: page
     objectName: "loginOverlay"
     required property AccountController service
+    EchoSlideMotion {
+        id: cardEntry
+        target: loginCard
+        fromY: 30
+        fromOpacity: 0
+        duration: Theme.loginDuration
+        curve: Theme.easeLogin
+    }
+    EchoSlideMotion {
+        id: bannerEntry
+        target: loginBanner
+        fromY: -12
+        fromOpacity: 0
+        duration: Theme.loginBannerDuration
+        curve: Theme.easeLogin
+    }
+    Component.onCompleted: {
+        cardEntry.play();
+        bannerEntry.play();
+    }
+    onVisibleChanged: if (visible) {
+        cardEntry.play();
+        bannerEntry.play();
+    }
     // The card must sample only the login background. Sampling the enclosing
     // shell also captures this card and recursively feeds its effect graph.
     EchoBackdropRoot {
@@ -41,6 +65,7 @@ Item {
         width: 420
         spacing: 16
         Rectangle {
+            id: loginBanner
             Layout.fillWidth: true
             implicitHeight: banner.implicitHeight + 24
             radius: Theme.cardRadius
@@ -52,11 +77,44 @@ Item {
                 anchors.margins: 12
                 spacing: 10
                 EchoIcon {
+                    id: bannerIcon
                     Layout.alignment: Qt.AlignTop
                     Layout.preferredWidth: 20
                     Layout.preferredHeight: 20
                     name: "info-circle"
                     color: Theme.dark ? "#fcd34d" : "#b45309"
+                    Rectangle {
+                        id: bannerGlow
+                        anchors.fill: parent
+                        radius: width / 2
+                        color: "#33f59e0b"
+                        z: -1
+                        visible: glowScope.allowed
+                        EchoMotionScope {
+                            id: glowScope
+                            target: page
+                        }
+                        ParallelAnimation {
+                            running: glowScope.allowed
+                            loops: Animation.Infinite
+                            NumberAnimation {
+                                target: bannerGlow
+                                property: "scale"
+                                from: 1
+                                to: 1.35
+                                duration: Theme.loginPulseDuration
+                                easing.type: Easing.InOutSine
+                            }
+                            NumberAnimation {
+                                target: bannerGlow
+                                property: "opacity"
+                                from: 0.55
+                                to: 0
+                                duration: Theme.loginPulseDuration
+                                easing.type: Easing.InOutSine
+                            }
+                        }
+                    }
                 }
                 Label {
                     id: banner
@@ -90,6 +148,7 @@ Item {
             wrapMode: Text.Wrap
         }
         EchoFloatingSurface {
+            id: loginCard
             objectName: "loginCard"
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(510, page.height - 180)

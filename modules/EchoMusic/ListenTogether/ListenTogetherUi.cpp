@@ -20,7 +20,7 @@ ListenSongPicker::ListenSongPicker(ApiClient &api, PlaybackService &player,
             return;
         m_request = 0;
         m_loading = false;
-        m_error = QJsonDocument::fromJson(bytes).object().value("message").toString();
+        m_error = ApiClient::errorMessage(bytes);
         emit changed();
     });
     connect(&api, &ApiClient::sessionChanged, this, [this] {

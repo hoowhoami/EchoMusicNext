@@ -84,6 +84,12 @@ void PluginRuntimeTest::graphicsValidationOwnershipAndAccount()
         surfaces.push_back(std::move(surface));
     }
     EchoGpuSurface overflow;
+    overflow.setFps(0);
+    QCOMPARE(overflow.fps(), 0);
+    overflow.setFps(-1);
+    QCOMPARE(overflow.fps(), 1);
+    overflow.setFps(999);
+    QCOMPARE(overflow.fps(), 120);
     overflow.setGraphics(gpu);
     QVERIFY(!overflow.graphics());
     surfaces.clear();
@@ -340,8 +346,13 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     QCOMPARE(changed->state(), EchoPluginOperation::Succeeded);
     QVERIFY(changed->result().toMap().value("data").toByteArray() != bytes);
     const auto generation = surface->status().value("generation").toULongLong();
+    QSignalSpy swaps(window, &QQuickWindow::frameSwapped);
     surface->setContinuous(true);
-    surface->setFps(30);
+    surface->setFps(0);
+    QTRY_VERIFY(swaps.count() >= 3);
+    surface->setFps(15);
+    QCOMPARE(surface->fps(), 15);
+    surface->setFps(0);
     window->hide();
     QTRY_VERIFY(gpu->drained());
     QTRY_COMPARE(surface->status().value("state").toString(), "suspended");

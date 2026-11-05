@@ -312,14 +312,15 @@ private slots:
         QCOMPARE(model.count(), 0);
         drain(api);
     }
-    void wrongDomainKindIsRejectedButPageEchoDoesNotRejectRows()
+    void requestCategoryOwnsResultsWithoutKindOrPageEchoApproval()
     {
         ApiClient api;
         SearchModel model(api);
         auto id = SearchModelTestAccess::prepare(model, api, 1, SearchModel::Kind::Album);
         SearchModelTestAccess::succeed(model, id, songs(1, 30, 30));
-        QCOMPARE(model.state(), SearchModel::State::Error);
-        QCOMPARE(model.count(), 0);
+        QCOMPARE(model.state(), SearchModel::State::Ready);
+        QCOMPARE(model.kind(), SearchModel::Kind::Album);
+        QCOMPARE(model.count(), 30);
         id = SearchModelTestAccess::prepare(model, api, 1);
         SearchModelTestAccess::succeed(model, id, songs(2, 35, 1));
         QCOMPARE(model.state(), SearchModel::State::Ready);

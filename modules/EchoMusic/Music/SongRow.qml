@@ -7,6 +7,48 @@ import EchoMusic.Controls
 
 ItemDelegate {
     id: row
+    EchoMotionScope {
+        id: motionScope
+        target: row
+        active: row.resourceActive && (!row.ListView.view || row.y + row.height > row.ListView.view.contentY && row.y < row.ListView.view.contentY + row.ListView.view.height)
+        animations: [removal, rowFill]
+    }
+    // Keep the departing delegate only for its finite native remove phase.
+    // No business operation waits for the visual, including history deletion.
+    Connections {
+        target: row.ListView
+        function onRemove(): void {
+            if (motionScope.allowed) {
+                row.ListView.delayRemove = true;
+                removal.start();
+            }
+        }
+        function onReused(): void {
+            removal.stop();
+            row.opacity = 1;
+            row.scale = 1;
+        }
+    }
+    ParallelAnimation {
+        id: removal
+        onStopped: row.ListView.delayRemove = false
+        NumberAnimation {
+            target: row
+            property: "opacity"
+            to: 0
+            duration: Theme.songRemoveDuration
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: Theme.easeSongRemove
+        }
+        NumberAnimation {
+            target: row
+            property: "scale"
+            to: 0.85
+            duration: Theme.songRemoveDuration
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: Theme.easeSongRemove
+        }
+    }
     EchoUiPart {
         id: publicRow
         target: row
@@ -89,6 +131,15 @@ ItemDelegate {
         color: publicRow.value("background", row.contextTarget ? Theme.colors.hover : row.active ? Theme.selected : row.hovered || row.visualFocus ? Theme.rowHover : "transparent")
         border.color: publicRow.value("borderColor", "transparent")
         border.width: publicRow.value("borderWidth", 0)
+        Behavior on color {
+            enabled: motionScope.allowed
+            ColorAnimation {
+                id: rowFill
+                duration: Theme.fastDuration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.easeStandard
+            }
+        }
     }
     contentItem: RowLayout {
         spacing: 0

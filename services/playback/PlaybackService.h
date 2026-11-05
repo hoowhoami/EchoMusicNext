@@ -551,6 +551,7 @@ private:
     void requestLyrics();
     void requestEmbeddedMetadata();
     void persist();
+    void beginHistory();
     void finishHistory();
     void publishMedia();
     ApiClient::PlaybackQuality apiQuality() const;
@@ -599,6 +600,7 @@ private:
     QTimer m_saveTimer;
     QElapsedTimer m_listenTick;
     qint64 m_listenedMs = 0;
+    bool m_historyRecorded = false;
     quint64 m_account = 0, m_restoreSequence = 0;
     int m_closedWorkers = 0;
     bool m_restoring = false, m_loaded = false, m_queueRestorePending = false;

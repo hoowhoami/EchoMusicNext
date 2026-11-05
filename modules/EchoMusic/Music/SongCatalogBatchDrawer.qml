@@ -100,6 +100,11 @@ EchoDrawer {
             }
             cacheBuffer: 140
             model: drawer.collection.totalCount
+            EchoListInsertMotion {
+                view: songs
+                active: drawer.visible
+                rowHeight: 64
+            }
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: EchoPopupScrollBar {
                 surface: drawer

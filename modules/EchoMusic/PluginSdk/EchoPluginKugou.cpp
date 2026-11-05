@@ -91,7 +91,7 @@ EchoPluginKugou::EchoPluginKugou(EchoPluginContext &scope) : QObject(&scope), m_
                     return;
                 auto error = QJsonDocument::fromJson(payload).object();
                 op->fail(error.value("kind").toString("ApiError"),
-                         error.value("message").toString("Business request failed"));
+                         ApiClient::errorMessage(payload, tr("接口请求失败")));
             });
 }
 EchoPluginOperation *EchoPluginKugou::authSnapshot()

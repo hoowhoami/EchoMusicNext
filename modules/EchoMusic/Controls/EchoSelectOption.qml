@@ -5,6 +5,11 @@ import EchoMusic.Theme
 
 ItemDelegate {
     id: option
+    EchoMotionScope {
+        id: motion
+        target: option
+        animations: [fill]
+    }
     property bool selected: false
     property bool navigationFocus: false
     property bool wrap: false
@@ -42,8 +47,12 @@ ItemDelegate {
         border.width: option.visualFocus || option.navigationFocus ? 1 : 0
         border.color: Theme.floating.accentText
         Behavior on color {
+            enabled: motion.allowed
             ColorAnimation {
+                id: fill
                 duration: Theme.fastDuration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.easeStandard
             }
         }
     }

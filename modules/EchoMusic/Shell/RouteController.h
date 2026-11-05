@@ -1,4 +1,5 @@
 #pragma once
+#include "EchoPageState.h"
 #include <QAbstractListModel>
 #include <QPointer>
 #include <QUrl>
@@ -24,7 +25,12 @@ class RouteContext final : public QObject
     Q_PROPERTY(QVariantMap initialProperties READ initialProperties CONSTANT)
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
     Q_PROPERTY(bool pluginOwned READ pluginOwned CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPageStateStore *viewState READ viewState CONSTANT)
 public:
+    EchoPageStateStore *viewState() const
+    {
+        return m_viewState;
+    }
     QString name() const
     {
         return m_name;
@@ -67,7 +73,22 @@ signals:
 
 private:
     friend class RouteController;
-    explicit RouteContext(QObject *parent) : QObject(parent) {}
+    explicit RouteContext(QObject *parent)
+        : QObject(parent), m_viewState(new EchoPageStateStore(this))
+    {
+        m_viewState->setWritable(false);
+    }
+    void setActive(bool active)
+    {
+        if (m_active == active)
+            return;
+        m_active = active;
+        // Deactivation can synchronously clear models/change view geometry.
+        // Freeze snapshots before notifying any visual or business subscriber.
+        m_viewState->setWritable(active);
+        emit activeChanged();
+    }
+    EchoPageStateStore *const m_viewState;
     QString m_name, m_key, m_instance, m_canonical, m_resource;
     QUrl m_component;
     QVariantMap m_query, m_initialProperties;
@@ -75,8 +96,8 @@ private:
     quint64 m_used = 0;
 };
 
-/// GUI-thread router and bounded LRU page cache. It caches mounted objects, not
-/// JSON/visual clones, and never makes an unavailable business page into a stub.
+/// GUI-thread router and bounded LRU data/state cache. Route-owned business
+/// contexts survive navigation; RouteHost independently unloads visual items.
 class RouteController : public QAbstractListModel
 {
     Q_OBJECT
@@ -142,6 +163,10 @@ public:
     Q_INVOKABLE void back();
     Q_INVOKABLE void forward();
     Q_INVOKABLE void refresh();
+    /// One short visual handoff may outlive LRU eviction. Business activation
+    /// and writable snapshots still end immediately; no visual cache is added.
+    Q_INVOKABLE bool retainTransition(EchoMusic::RouteContext *page);
+    Q_INVOKABLE void releaseTransition(EchoMusic::RouteContext *page);
     void setCachePolicy(bool enabled, int maximum);
     /// Read the first shortcut from its existing owner at navigation time.
     void setHomeLayout(SidebarLayoutModel *layout);
@@ -177,6 +202,7 @@ private:
     void present(const Location &location);
     void removePage(int index);
     void prune();
+    void queueTransitionPrune();
     bool cacheable(const RouteContext *page) const;
     QPointer<SidebarLayoutModel> m_homeLayout;
     QHash<QString, Definition> m_definitions;
@@ -185,6 +211,8 @@ private:
     QHash<QString, quint64> m_revisions, m_pluginPageRevisions;
     quint64 m_registrationRevision = 0;
     RouteContext *m_current = nullptr;
+    QPointer<RouteContext> m_transition;
+    bool m_transitionPruneQueued = false;
     int m_cursor = -1, m_max = 20;
     bool m_enabled = true, m_changing = false, m_closed = false;
     quint64 m_clock = 0, m_instance = 0, m_accountEpoch = 0;

@@ -45,7 +45,10 @@ QString applyMacBackdrop(QWindow *window, void *&effect, bool enabled, bool dark
                                                                        green:245.0 / 255
                                                                         blue:247.0 / 255
                                                                        alpha:1]);
-    const bool shadow = !backgroundEnabled;
+    // AppKit can derive alpha-window shadows from individual glyphs and popup
+    // surfaces instead of the frame. Only native material or an opaque full
+    // background supplies a reliable window-sized silhouette.
+    const bool shadow = enabled || transparency == 0;
     if (content.window.hasShadow != shadow) {
         content.window.hasShadow = shadow;
         [content.window invalidateShadow];

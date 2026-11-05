@@ -28,7 +28,8 @@ pub use encoder::{create_encoder, AacEncoder, AlacEncoder, AudioEncoder, Encoded
 pub use eq::{EqConfig, EqParams, Equalizer};
 pub use live_decoder::{LiveAudioDecoder, LiveFrameSender, LivePcmFrame};
 pub use rtp::{
-    payload_types, build_retransmit_response, RetransmitRequest, RtpHeader, RtpPacket, RtpReceiver, RtpSender,
+    build_retransmit_response, payload_types, RetransmitRequest, RtpHeader, RtpPacket, RtpReceiver,
+    RtpSender,
 };
 pub use spatial::{
     Position, SpatialMixer, SpatialMode, SpatialParams, SpatialSnapshot, SpeakerConfig,

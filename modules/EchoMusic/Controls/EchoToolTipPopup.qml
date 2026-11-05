@@ -6,6 +6,16 @@ import EchoMusic.Theme
 
 ToolTip {
     id: tip
+    EchoPopupMotion {
+        id: appearance
+        surface: tip
+        fromY: tip.placedAbove ? 2 : -2
+        fade: false
+        enterDuration: Theme.fastDuration
+        exitDuration: 0
+    }
+    enter: appearance.enter
+    exit: appearance.exit
     required property EchoToolTip controller
     property string description: ""
     // Public parent remains the trigger for ownership and lifecycle. Popup.Item

@@ -142,10 +142,6 @@ void SearchSuggestionModel::succeeded(quint64 id, const QByteArray &payload)
     const auto document = QJsonDocument::fromJson(payload);
     if (id == m_defaultRequest && id) {
         m_defaultRequest = 0;
-        if (!document.isObject() || !document.object().value("promotions").isArray()) {
-            emit changed();
-            return;
-        }
         const auto promotions = document.object().value("promotions").toArray();
         if (!promotions.isEmpty())
             m_defaultKeyword =

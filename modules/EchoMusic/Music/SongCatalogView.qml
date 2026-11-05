@@ -51,10 +51,12 @@ Item {
     property bool resourceActive: true
     readonly property string activeTrackId: actions.currentTrackId
     readonly property real scrollTop: viewport.scrollTop
+    property string scrollStateKey: "page-scroll"
     signal retryRequested
     signal moreRequested(string id, real sceneX, real sceneY)
     EchoPageScrollContainer {
         id: viewport
+        publicScrollKey: page.scrollStateKey
         anchors.fill: parent
         pageActive: page.resourceActive
         scrollView: page.secondaryActive && page.secondaryView ? page.secondaryView : songList.listView

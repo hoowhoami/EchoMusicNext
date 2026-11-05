@@ -324,6 +324,11 @@ Popup {
             interactive: !queueReorder.busy
             cacheBuffer: 56 * 10
             model: drawer.visible ? drawer.viewedQueue : null
+            EchoListInsertMotion {
+                view: list
+                active: drawer.visible && drawer.catalog.viewActive && !queueReorder.busy
+                rowHeight: 56
+            }
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: EchoPopupScrollBar {
                 surface: drawer

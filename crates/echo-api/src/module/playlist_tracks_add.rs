@@ -23,21 +23,21 @@ pub struct Query {
     pub cloud_list_id: u64,
     pub tracks: Vec<Track>,
 }
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    listid: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    listid: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     status: Option<u32>,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    pre_list_ver: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    list_ver: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    pre_list_ver: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    list_ver: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     count: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     info: Vec<Item>,
     // Replacement metadata is optional; absence is unknown, never a failed write.
     #[serde(default)]
@@ -45,18 +45,19 @@ struct Data {
 }
 #[derive(Deserialize)]
 struct Item {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    fileid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    mixsongid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    code: i64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    fileid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    mixsongid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    code: Option<i64>,
 }
 pub fn convert(bytes: &[u8]) -> Result<CloudTrackChange, ApiError> {
-    let v: Data = cloudlist::decode(bytes)?;
+    let v = cloudlist::decode::<Option<Data>>(bytes)?.unwrap_or_default();
     // cloudlist::decode already checks the outer business result. The nested
     // flag is not a second error code: retain it without a fixed-value gate.
-    // Item codes and the shared writer's canonical readback confirm the result.
+    // Per-item resource codes remain available to the caller; background reads
+    // synchronize models without approving the successful envelope again.
     let replaced_file_ids = v.del_fileids.as_array().map(|ids| {
         ids.iter()
             .map(|id| crate::util::response::from_value(id.clone()).ok())
@@ -69,7 +70,7 @@ pub fn convert(bytes: &[u8]) -> Result<CloudTrackChange, ApiError> {
             Ok(TrackWriteOutcome {
                 position: None,
                 file_id: i.fileid,
-                song_id: Some(i.mixsongid),
+                song_id: i.mixsongid,
                 resource_code: i.code,
             })
         })

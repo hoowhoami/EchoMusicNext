@@ -31,8 +31,7 @@ RecognitionService::RecognitionService(ApiClient &api, PlaybackService &playback
             return;
         m_request = 0;
         m_state = Failed;
-        m_error =
-            QJsonDocument::fromJson(bytes).object().value("message").toString(tr("识别过程出错"));
+        m_error = ApiClient::errorMessage(bytes, tr("识别过程出错"));
         emit changed();
     });
     connect(&capture, &RecognitionCapture::started, this,

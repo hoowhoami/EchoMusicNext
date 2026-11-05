@@ -12,9 +12,7 @@ LibraryController::LibraryController(ApiClient &api, UserPlaylistModel &source,
     connect(&mutations, &PlaylistMutationService::changed, this, [this] {
         const auto state = m_mutations.state();
         if (m_command != Command::None && !m_mutations.errorMessage().isEmpty() &&
-            (state == PlaylistMutationService::State::Ready ||
-             state == PlaylistMutationService::State::OutcomeUnknown ||
-             state == PlaylistMutationService::State::RefreshRequired)) {
+            state == PlaylistMutationService::State::Ready) {
             m_command = Command::None;
             m_removing.clear();
             emit notice(m_mutations.errorMessage(), true);

@@ -102,14 +102,37 @@ QtObject {
     readonly property int fastDuration: store.motionEnabled ? 120 : 0
     readonly property int normalDuration: store.motionEnabled ? 180 : 0
     readonly property int pageDuration: store.motionEnabled ? 220 : 0
+    readonly property int pageResponseDuration: store.motionEnabled ? 80 : 0
     readonly property int panelDuration: store.motionEnabled ? 240 : 0
+    readonly property int rollingNumberDuration: store.motionEnabled ? 900 : 0
     readonly property int exitDuration: store.motionEnabled ? 140 : 0
     readonly property int contentSwapDuration: store.motionEnabled ? 150 : 0
     readonly property int mediaFadeDuration: store.motionEnabled ? 400 : 0
+    readonly property int songInsertDuration: store.motionEnabled ? 280 : 0
+    readonly property int songRemoveDuration: store.motionEnabled ? 250 : 0
+    readonly property int searchExpandDuration: store.motionEnabled ? 250 : 0
+    readonly property int searchCollapseDuration: store.motionEnabled ? 200 : 0
+    readonly property int loginDuration: store.motionEnabled ? 600 : 0
+    readonly property int loginBannerDuration: store.motionEnabled ? 700 : 0
+    readonly property int loginPulseDuration: 2600
+    readonly property int sidebarDuration: store.motionEnabled ? 200 : 0
+    readonly property int noticeFadeDuration: store.motionEnabled ? 200 : 0
     readonly property int staggerDelay: store.motionEnabled ? 32 : 0
     // BezierSpline accepts control points followed by the terminal point.
     readonly property var easeDefault: [0.25, 0.1, 0.25, 1, 1, 1]
     readonly property var easeEnter: [0.16, 1, 0.3, 1, 1, 1]
     readonly property var easeStandard: [0.2, 0, 0, 1, 1, 1]
     readonly property var easeExit: [0.4, 0, 1, 1, 1, 1]
+    readonly property var easeSongInsert: [0.33, 0, 0.2, 1, 1, 1]
+    readonly property var easeSongRemove: [0.4, 0, 0.2, 1, 1, 1]
+    readonly property var easeEmphasized: [0.22, 1, 0.36, 1, 1, 1]
+    readonly property var easeLogin: [0.2, 0.8, 0.2, 1, 1, 1]
+    // EchoMusic's NumberFlow 0.6.2 default CSS linear() spring samples.
+    // Evaluate directly: Qt 6.12's native BezierSpline has only ten segment slots.
+    readonly property var rollingNumberCurve: [0, .005, .019, .039, .066, .096, .129, .165, .202, .24, .278, .316, .354, .39, .426, .461, .494, .526, .557, .586, .614, .64, .665, .689, .711, .731, .751, .769, .786, .802, .817, .831, .844, .856, .867, .877, .887, .896, .904, .912, .919, .925, .931, .937, .942, .947, .951, .955, .959, .962, .965, .968, .971, .973, .976, .978, .98, .981, .983, .984, .986, .987, .988, .989, .99, .991, .992, .992, .993, .994, .994, .995, .995, .996, .996, .9963, .9967, .9969, .9972, .9975, .9977, .9979, .9981, .9982, .9984, .9985, .9987, .9988, .9989, 1]
+    function rollingNumberProgress(phase: real): real {
+        const position = Math.max(0, Math.min(1, phase)) * (rollingNumberCurve.length - 1);
+        const index = Math.min(rollingNumberCurve.length - 2, Math.floor(position));
+        return rollingNumberCurve[index] + (rollingNumberCurve[index + 1] - rollingNumberCurve[index]) * (position - index);
+    }
 }

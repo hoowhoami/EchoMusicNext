@@ -251,7 +251,7 @@ void BarrageController::fail(quint64 id, const QByteArray &b)
         emit changed();
     } else if (id == m_write && id) {
         m_write = 0;
-        auto message = QJsonDocument::fromJson(b).object().value("message").toString();
+        auto message = ApiClient::errorMessage(b);
         emit notice(message.isEmpty() ? tr("弹幕发送失败，请重试") : message, true);
         emit submissionFailed();
         emit changed();

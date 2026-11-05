@@ -16,6 +16,7 @@ qt_add_qml_module(
     EchoMusic.Shell
     DEPENDENCIES
     EchoMusic.Playback
+    EchoMusic.Controls
     SOURCES
     RouteController.h
     RouteController.cpp
@@ -113,14 +114,13 @@ qt_add_qml_module(
 target_include_directories(echo_shell PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
     echo_shell
-    PUBLIC Qt6::Quick echo_platform echo_playback_service
+    PUBLIC Qt6::Quick echo_platform echo_playback_service echo_controls
     PRIVATE echo_playback
             echo_window_resize
             echo_playbackplugin
             echo_build_options
             echo_theme
             echo_themeplugin
-            echo_controls
             echo_controlsplugin
             echo_accountui
             echo_accountuiplugin

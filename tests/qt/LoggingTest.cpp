@@ -144,6 +144,64 @@ private slots:
         QVERIFY(!bytes.contains("echo.api.capabilities"));
         QVERIFY(!bytes.contains("native.api"));
     }
+    void failedApiCallsIncludeWireDetailsAtWarnWithoutBodyOptIn()
+    {
+        QTemporaryDir directory;
+        QTcpServer proxy;
+        QVERIFY(proxy.listen(QHostAddress::LocalHost));
+        int replies = 0;
+        connect(&proxy, &QTcpServer::newConnection, &proxy, [&] {
+            auto *peer = proxy.nextPendingConnection();
+            connect(peer, &QTcpSocket::readyRead, peer, [&, peer] {
+                const auto bytes = peer->property("header").toByteArray() + peer->readAll();
+                peer->setProperty("header", bytes);
+                if (!bytes.contains("\r\n\r\n") || peer->property("answered").toBool())
+                    return;
+                peer->setProperty("answered", true);
+                const auto body =
+                    replies++ == 0
+                        ? QByteArray(
+                              R"({"status":0,"errcode":206,"data":[],"message":"provider-business-detail","token":"response-credential","debug":{"list_ver":12,"count":9}})")
+                        : QByteArray("<html>broken-body-marker token=non-json-credential</html>");
+                peer->write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+                            "X-Upstream-Trace: visible-trace-header\r\nSet-Cookie: "
+                            "session=header-credential\r\nContent-Length: " +
+                            QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" +
+                            body);
+                peer->disconnectFromHost();
+            });
+            connect(peer, &QTcpSocket::disconnected, peer, &QObject::deleteLater);
+        });
+        {
+            LogService logging(directory.path(), 1, false);
+            QVERIFY(!logging.apiResponseBody());
+            ApiClient api(DeviceIdentity::temporary());
+            QVERIFY(api.setNetworkTransport(proxy.serverPort()));
+            QSignalSpy failed(&api, &ApiClient::failed);
+            QVERIFY(api.audioEffects(ApiClient::EffectCategory::Artist));
+            QTRY_COMPARE(failed.size(), 1);
+            QCOMPARE(ApiClient::errorMessage(failed.first()[2].toByteArray()),
+                     QStringLiteral("provider-business-detail（错误码 206）"));
+            QVERIFY(api.audioEffects(ApiClient::EffectCategory::Artist));
+            QTRY_COMPARE(failed.size(), 2);
+        }
+        QByteArray logged;
+        for (const auto &name : QDir(directory.path()).entryList({"*.log"}, QDir::Files)) {
+            QFile file(directory.filePath(name));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            logged += file.readAll();
+        }
+        for (const auto *detail :
+             {"provider-business-detail", "broken-body-marker", "visible-trace-header",
+              "http_status", "200", "list_ver", "12", "count", "9", "stage", "request", "response",
+              "/api/v3/sound/list", "pagesize"})
+            QVERIFY2(logged.contains(detail), detail);
+        for (const auto *secret :
+             {"response-credential", "non-json-credential", "header-credential"})
+            QVERIFY2(!logged.contains(secret), secret);
+        QVERIFY(logged.contains("kind=business"));
+        QVERIFY(logged.contains("kind=decode"));
+    }
     void preferenceFailureRetryAndExplicitLaunchOverride()
     {
         QTemporaryDir directory;

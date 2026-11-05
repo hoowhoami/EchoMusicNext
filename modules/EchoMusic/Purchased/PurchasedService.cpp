@@ -242,13 +242,8 @@ void PurchasedService::fail(quint64 id, const QByteArray &bytes)
     const auto pending = m_pending.take(id);
     if (m_closed || pending.session != m_api.sessionRevision())
         return;
-    const auto error = QJsonDocument::fromJson(bytes).object();
-    const auto kind = error.value("kind").toString();
-    const auto message = error.value("message").toString();
     auto &messageForTab = pending.kind == PendingKind::Songs ? m_songError : m_albumError;
-    messageForTab = kind == QStringLiteral("authentication") ? tr("登录已失效，请重新登录")
-                    : !message.isEmpty()                     ? message
-                                                             : tr("已购音乐加载失败");
+    messageForTab = ApiClient::errorMessage(bytes, tr("已购音乐加载失败"));
     emit changed();
 }
 void PurchasedService::shutdown()

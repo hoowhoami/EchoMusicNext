@@ -41,6 +41,16 @@ RoutePage {
     // must not be replaced by the still-playing previous track.
     property bool followActiveQueue: true
     property int m_activeIndex: 0
+    EchoPageState.properties: ["m_activeIndex"]
+    Component.onCompleted: {
+        EchoPageState.restore();
+        // Playback may have advanced while this view did not exist.
+        if (page.service.discoverFlowActive) {
+            const index = page.collection.indexOf(page.service.playback.trackId);
+            if (index >= 0)
+                page.m_activeIndex = index;
+        }
+    }
     property bool actionBusy: false
     property bool playbackBusy: false
     property bool refreshPending: false

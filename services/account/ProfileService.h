@@ -158,7 +158,7 @@ public:
     }
     bool removingDevice() const
     {
-        return m_deviceKick || m_deviceKickRefresh;
+        return m_deviceKick != 0;
     }
     QString removingDeviceKey() const
     {
@@ -240,7 +240,7 @@ private:
     QJsonObject m_pendingDevice;
     QString m_pendingDeviceTitle, m_kickingDeviceKey;
     quint64 m_deviceKick = 0, m_deviceActivation = 0, m_kickActivation = 0;
-    bool m_devicesActive = false, m_deviceKickRefresh = false;
+    bool m_devicesActive = false;
     quint64 m_avatarRequest = 0, m_avatarGeneration = 0;
     bool m_avatarReading = false, m_avatarSubmitting = false;
     ApiClient::ProfilePatch m_patch;

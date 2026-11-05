@@ -72,8 +72,7 @@ SavedAccountModel::SavedAccountModel(ApiClient &api, AccountService &account,
             return;
         const auto user = m_durationRequests.take(id);
         const auto data = QJsonDocument::fromJson(bytes).object();
-        if (data.value("user_id").toInteger() == qint64(user) &&
-            data.value("listening_seconds").toInteger(-1) >= 0)
+        if (data.value("listening_seconds").toInteger(-1) >= 0)
             m_durations.insert(user, data.value("listening_seconds").toInteger());
         if (!m_rows.isEmpty())
             emit dataChanged(index(0, 0), index(count() - 1, 0),
@@ -318,9 +317,11 @@ void SavedAccountModel::validationFailed(quint64 id, const QByteArray &payload)
         kind != QStringLiteral("cancelled")) {
         if (kind == QStringLiteral("authentication") || kind == QStringLiteral("login_required")) {
             m_expiredAccounts.insert(user);
-            m_switchErrors.insert(user, tr("登录已失效，请重新登录"));
+            m_switchErrors.insert(user,
+                                  ApiClient::errorMessage(payload, tr("登录已失效，请重新登录")));
         } else {
-            m_switchErrors.insert(user, tr("暂时无法验证，请重试"));
+            m_switchErrors.insert(user,
+                                  ApiClient::errorMessage(payload, tr("账号验证失败，请重试")));
         }
     }
     finish();

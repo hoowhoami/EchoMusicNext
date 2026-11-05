@@ -145,7 +145,7 @@ Rectangle {
             Text {
                 objectName: "startupStatus"
                 Layout.fillWidth: true
-                text: page.startup.statusMessage.length ? page.startup.statusMessage : qsTr("正在初始化音乐引擎...")
+                text: page.startup.entered ? qsTr("正在打开页面...") : page.startup.statusMessage.length ? page.startup.statusMessage : qsTr("正在初始化音乐引擎...")
                 font: Theme.spacedFont(13, Theme.boldWeight, 0.5)
                 lineHeightMode: Text.FixedHeight
                 lineHeight: 19.5

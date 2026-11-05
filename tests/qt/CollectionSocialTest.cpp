@@ -316,7 +316,7 @@ private slots:
         collections.toggle(false, d);
         PlaylistMutationServiceTestAccess::accept(
             mutations, R"({"user_id":900001,"cloud_list_id":122,"total_revision":2})");
-        QCOMPARE(mutations.state(), PlaylistMutationService::State::Reconciling);
+        QCOMPARE(mutations.state(), PlaylistMutationService::State::Ready);
         PlaylistMutationServiceTestAccess::accept(
             mutations, R"({"user_id":900001,"total_revision":2,"page":{"items":[],"total":0}})");
         QCOMPARE(mutations.state(), PlaylistMutationService::State::Ready);

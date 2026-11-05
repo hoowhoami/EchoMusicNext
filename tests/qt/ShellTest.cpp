@@ -65,7 +65,7 @@ public:
 class UserPlaylistModelTestAccess
 {
 public:
-    static void pinned(UserPlaylistModel &model)
+    static void pinned(UserPlaylistModel &model, const QStringList &covers = {})
     {
         model.beginResetModel();
         model.m_rows.clear();
@@ -74,6 +74,7 @@ public:
             row.globalId = QString("sidebar-test-%1").arg(kind);
             row.title = kind == 1 ? QStringLiteral("默认歌单") : QStringLiteral("我喜欢的音乐");
             row.defaultKind = kind;
+            row.cover = covers.value(kind - 1);
             row.sourceCode = 1;
             model.m_rows.append(row);
         }
@@ -192,7 +193,10 @@ QQuickItem *findVisibleVisual(QQuickItem *root, const QString &name)
 }
 QObject *probe(QObject *root, RouteContext *context)
 {
-    return findVisual(qobject_cast<QQuickItem *>(root), "probe-" + context->instanceId());
+    auto *item = qobject_cast<QQuickItem *>(root);
+    if (auto *window = qobject_cast<QQuickWindow *>(root))
+        item = window->contentItem();
+    return item && context ? findVisual(item, "probe-" + context->instanceId()) : nullptr;
 }
 } // namespace
 class ShellTest : public QObject
@@ -1342,11 +1346,12 @@ QtObject {
         QCOMPARE(routes.mountedCount(), 0);
         QVERIFY(!routes.navigate("playlist", {}, "three"));
     }
-    void actualLoaderRetainsVisualStateAndStopsInactiveTimers()
+    void actualLoaderReleasesViewsAndRestoresCachedState()
     {
         QTemporaryDir temp;
         EchoMusic::SettingsStore preferences(temp.filePath("settings.ini"));
         ShellSettings shell(preferences);
+        ThemeStore theme(preferences);
         ApiClient api(DeviceIdentity::temporary());
         Test::AccountUiFixture accountUi{api};
         SearchModel search(api);
@@ -1354,6 +1359,7 @@ QtObject {
         routes.registerPage(definition("playlist"));
         routes.setCachePolicy(true, 2);
         QQmlEngine engine;
+        theme.attachToEngine(engine);
         QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ShellHarness.qml"));
         QScopedPointer<QObject> root(component.createWithInitialProperties(
             {{"router", QVariant::fromValue(&routes)}, {"settings", QVariant::fromValue(&shell)}}));
@@ -1365,22 +1371,377 @@ QtObject {
         firstItem->setProperty("visualScroll", 413);
         QTRY_VERIFY(firstItem->property("ticks").toInt() > 0);
         routes.navigate("playlist", {}, "two");
-        const auto stopped = firstItem->property("ticks").toInt();
-        QTest::qWait(30);
-        QCOMPARE(firstItem->property("ticks").toInt(), stopped);
+        QTRY_VERIFY(firstItem.isNull());
+        QVERIFY(first);
+        QCOMPARE(first->viewState()->load("scroll:page-scroll").value("independent").toInt(), 413);
         routes.back();
         QCOMPARE(routes.current(), first.data());
-        QCOMPARE(probe(root.data(), first), firstItem.data());
-        QCOMPARE(firstItem->property("visualScroll").toInt(), 413);
-        QTRY_VERIFY(firstItem->property("ticks").toInt() > stopped);
+        QTRY_VERIFY(probe(root.data(), first));
+        QPointer<QObject> recreated = probe(root.data(), first);
+        QTRY_COMPARE(recreated->property("visualScroll").toInt(), 413);
+        QTRY_VERIFY(recreated->property("ticks").toInt() > 0);
         routes.navigate("playlist", {}, "two");
         routes.navigate("playlist", {}, "three");
         QTRY_VERIFY(first.isNull());
-        QTRY_VERIFY(firstItem.isNull());
+        QTRY_VERIFY(recreated.isNull());
         QCOMPARE(routes.mountedCount(), 2);
         routes.shutdown();
         drain();
         api.shutdown();
+    }
+    void restoredRouteWaitsForLayoutBeforeEntry()
+    {
+        QTemporaryDir temp;
+        EchoMusic::SettingsStore prefs(temp.filePath("settings.ini"));
+        ShellSettings shell(prefs);
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(true);
+        RouteController routes;
+        QVERIFY(routes.registerPage(definition("playlist")));
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &messages) {
+            for (const auto &message : messages)
+                warnings.append(message.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import EchoMusic.Shell
+            Window {
+                id: testWindow
+                required property RouteController router
+                required property ShellSettings settings
+                visible: true; width: 640; height: 360; color: "#202020"
+                RouteHost { anchors.fill: parent; router: testWindow.router; settings: testWindow.settings }
+            })",
+                          QUrl("qrc:/restore-presentation-test.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"router", QVariant::fromValue(&routes)}, {"settings", QVariant::fromValue(&shell)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QVERIFY(Test::prepareNativeInput(window));
+        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "one"));
+        auto *context = routes.current();
+        QTRY_VERIFY(probe(root.data(), context));
+        QPointer<QObject> first = probe(root.data(), context);
+        first->setProperty("extentAvailable", true);
+        auto *firstLoader = qobject_cast<QQuickItem *>(first.data())->parentItem();
+        auto *entry = firstLoader->findChild<QObject *>("routeEntryAnimation");
+        QVERIFY(entry);
+        QTRY_COMPARE(firstLoader->opacity(), 1.);
+        QTRY_VERIFY(!entry->property("running").toBool());
+        first->setProperty("visualScroll", 413.);
+        QTRY_COMPARE(context->viewState()->load("scroll:page-scroll").value("independent").toInt(),
+                     413);
+        QVERIFY(routes.navigate("playlist", {}, "two"));
+        QTRY_VERIFY(first.isNull());
+        routes.back();
+        QCOMPARE(routes.current(), context);
+        QTRY_VERIFY(probe(root.data(), context));
+        auto *page = probe(root.data(), context);
+        auto *loader = qobject_cast<QQuickItem *>(page)->parentItem();
+        auto *presentation = loader->property("presentation").value<EchoPagePresentation *>();
+        QVERIFY(presentation);
+        QVERIFY(!presentation->ready());
+        QVERIFY(presentation->suppressEntry());
+        QCOMPARE(loader->opacity(), 0.);
+        QVERIFY(!page->property("sectionRunning").toBool());
+        QVERIFY(!page->property("listRunning").toBool());
+        // Hold actual extent readiness across rendered frames. Neither an
+        // arbitrary delay nor reduced motion may reveal the default position.
+        QSignalSpy restoredFrames(window, &QQuickWindow::frameSwapped);
+        window->update();
+        QTRY_VERIFY(!restoredFrames.isEmpty());
+        const auto blockedFrame = window->grabWindow();
+        QVERIFY(!blockedFrame.isNull());
+        QVERIFY(blockedFrame.pixelColor(blockedFrame.width() / 2, blockedFrame.height() / 2) !=
+                QColor("#202020")); // The outgoing view covers the restore gap.
+        QCOMPARE(loader->opacity(), 0.);
+        window->hide();
+        QCOMPARE(loader->opacity(), 0.);
+        window->show();
+        QVERIFY(Test::prepareNativeInput(window));
+        QCOMPARE(loader->opacity(), 0.);
+        bool revealed = false, wrongPosition = false, nestedEntry = false;
+        connect(loader, &QQuickItem::opacityChanged, page, [&] {
+            if (loader->opacity() <= 0)
+                return;
+            revealed = true;
+            wrongPosition |= qAbs(page->property("visualScroll").toReal() - 413.) > .5;
+            nestedEntry |=
+                page->property("sectionRunning").toBool() || page->property("listRunning").toBool();
+        });
+        QVERIFY(QMetaObject::invokeMethod(page, "replaySection"));
+        QVERIFY(!page->property("sectionRunning").toBool());
+        page->setProperty("extentAvailable", true);
+        QTRY_VERIFY(presentation->ready());
+        QTRY_VERIFY(revealed);
+        QVERIFY(!wrongPosition);
+        QVERIFY(!nestedEntry);
+        QTRY_VERIFY(!presentation->suppressEntry());
+        const auto restoredFrame = window->grabWindow();
+        QVERIFY(!restoredFrame.isNull());
+        const auto ratio = restoredFrame.height() / qreal(window->height());
+        QCOMPARE(restoredFrame.pixelColor(restoredFrame.width() / 2, qRound(5 * ratio)),
+                 QColor("#163f65"));
+        QCOMPARE(restoredFrame.pixelColor(restoredFrame.width() / 2, qRound(20 * ratio)),
+                 QColor("#2878bf"));
+        const auto artifacts = qEnvironmentVariable("ECHO_RESTORE_ARTIFACTS");
+        if (!artifacts.isEmpty()) {
+            QVERIFY(QDir().mkpath(artifacts));
+            QVERIFY(blockedFrame.save(artifacts + "/restore-pending.png"));
+            QVERIFY(restoredFrame.save(artifacts + "/restore-settled.png"));
+        }
+        // Actual user/data changes after the main entry still animate.
+        QVERIFY(QMetaObject::invokeMethod(page, "replaySection"));
+        QTRY_VERIFY(page->property("sectionRunning").toBool());
+        QVERIFY(QMetaObject::invokeMethod(page, "insertVisible"));
+        QTRY_VERIFY(page->property("listRunning").toBool());
+        QVERIFY(routes.navigate("playlist", {}, "two"));
+        routes.back();
+        QTRY_VERIFY(probe(root.data(), context));
+        QPointer<QObject> canceled = probe(root.data(), context);
+        QVERIFY(routes.navigate("playlist", {}, "two"));
+        QTRY_VERIFY(canceled.isNull());
+        routes.back();
+        QTRY_VERIFY((page = probe(root.data(), context)));
+        loader = qobject_cast<QQuickItem *>(page)->parentItem();
+        theme.setMotionEnabled(false);
+        QCOMPARE(loader->opacity(), 0.);
+        page->setProperty("extentAvailable", true);
+        QTRY_COMPARE(loader->opacity(), 1.);
+        QCOMPARE(page->property("visualScroll").toInt(), 413);
+        QVERIFY(!page->property("sectionRunning").toBool());
+        QVERIFY(!page->property("listRunning").toBool());
+        theme.setMotionEnabled(true);
+        const QVariantMap transition{
+            {"pageTransition", QVariantMap{{"mode", "in-out"}, {"durationMs", 80}}}};
+        QVERIFY(theme.overrides().put("restore-test", {{"light", transition}, {"dark", transition}},
+                                      0, {}));
+        QPointer<QObject> displayed = page;
+        QVERIFY(routes.navigate("playlist", {}, "two"));
+        QTRY_VERIFY(displayed.isNull());
+        routes.back();
+        QTRY_VERIFY((page = probe(root.data(), context)));
+        QPointer<QObject> neverShown = page;
+        QCOMPARE(qobject_cast<QQuickItem *>(page)->parentItem()->opacity(), 0.);
+        QVERIFY(routes.navigate("playlist", {}, "two"));
+        // Custom exit must not reveal the default coordinates of a page that
+        // was canceled before its initial recovery completed.
+        QTRY_VERIFY(neverShown.isNull());
+        routes.back();
+        QTRY_VERIFY(probe(root.data(), context));
+        // Closing the host during a pending restore also cancels its barrier.
+        root.reset();
+        routes.shutdown();
+        drain();
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    }
+    void routeHandoffKeepsOneRetiringView_data()
+    {
+        QTest::addColumn<bool>("cacheEnabled");
+        QTest::newRow("cache-on") << true;
+        QTest::newRow("cache-off") << false;
+    }
+    void routeHandoffKeepsOneRetiringView()
+    {
+        QFETCH(bool, cacheEnabled);
+        QTemporaryDir temp;
+        EchoMusic::SettingsStore prefs(temp.filePath("settings.ini"));
+        ShellSettings shell(prefs);
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(true);
+        RouteController routes;
+        routes.setCachePolicy(cacheEnabled, cacheEnabled ? 1 : 0);
+        QVERIFY(routes.registerPage(definition("playlist")));
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &messages) {
+            for (const auto &message : messages)
+                warnings.append(message.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import EchoMusic.Shell
+            Window {
+                id: testWindow
+                required property RouteController router
+                required property ShellSettings settings
+                visible: true; width: 640; height: 360; color: "#202020"
+                RouteHost { anchors.fill: parent; router: testWindow.router; settings: testWindow.settings }
+            })",
+                          QUrl("qrc:/page-handoff-test.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"router", QVariant::fromValue(&routes)}, {"settings", QVariant::fromValue(&shell)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        QVERIFY(routes.navigate("playlist", {}, "one"));
+        QPointer<RouteContext> original = routes.current();
+        QTRY_VERIFY(probe(root.data(), original));
+        QPointer<QObject> outgoing = probe(root.data(), original);
+        QPointer<QQuickItem> outgoingLoader =
+            qobject_cast<QQuickItem *>(outgoing.data())->parentItem();
+        QTRY_COMPARE(outgoingLoader->opacity(), 1.);
+        QSignalSpy pageActivity(outgoing, SIGNAL(pageActiveChanged()));
+        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "two"));
+        QCOMPARE(outgoingLoader->opacity(), .92); // Feedback before an animation tick.
+        QPointer<RouteContext> canceledContext = routes.current();
+        QTRY_VERIFY(probe(root.data(), canceledContext));
+        QPointer<QObject> canceled = probe(root.data(), canceledContext);
+        QVERIFY(outgoing);
+        QVERIFY(!original->active());
+        QVERIFY(!original->viewState()->save("scroll:page-scroll", {{"independent", 0}}));
+        QVERIFY(outgoing->property("pageActive").toBool());
+        QCOMPARE(pageActivity.size(), 0); // No false reactivation/duplicate reads.
+        QVERIFY(!outgoing->property("scrollingAllowed").toBool());
+        QVERIFY(!outgoingLoader->isEnabled());
+        QTRY_VERIFY(outgoingLoader && qAbs(outgoingLoader->opacity() - .65) < .001);
+        QCOMPARE(outgoing->property("sectionOpacity").toReal(), 1.);
+        QCOMPARE(qobject_cast<QQuickItem *>(canceled.data())->parentItem()->opacity(), 0.);
+        routes.back();
+        QCOMPARE(routes.current(), original.data());
+        QCOMPARE(probe(root.data(), original), outgoing.data());
+        QVERIFY(outgoingLoader->opacity() > .6); // Return without flashing to zero.
+        QTRY_COMPARE(outgoingLoader->opacity(), 1.);
+        routes.forward();
+        canceledContext = routes.current();
+        QTRY_VERIFY(probe(root.data(), canceledContext));
+        canceled = probe(root.data(), canceledContext);
+        QTRY_VERIFY(outgoingLoader && qAbs(outgoingLoader->opacity() - .65) < .001);
+        // A canceled, never-shown intermediate page must not replace/stack the
+        // one visible outgoing page, even with caching disabled or max=1.
+        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "three"));
+        QTRY_VERIFY(canceled.isNull());
+        QTRY_VERIFY(probe(root.data(), routes.current()));
+        auto *incoming = probe(root.data(), routes.current());
+        auto *incomingLoader = qobject_cast<QQuickItem *>(incoming)->parentItem();
+        QVERIFY(outgoing);
+        QCOMPARE(routes.mountedCount(), 2);
+        const auto blocked = window->grabWindow();
+        QVERIFY(!blocked.isNull());
+        QVERIFY(blocked.pixelColor(blocked.width() / 2, blocked.height() / 2) != QColor("#202020"));
+        bool crossed = false, wrongPosition = false;
+        connect(incomingLoader, &QQuickItem::opacityChanged, incoming, [&] {
+            if (incomingLoader->opacity() <= 0)
+                return;
+            if (!crossed) {
+                crossed = true;
+                wrongPosition = !outgoing || qAbs(incoming->property("visualScroll").toReal()) > .5;
+            }
+        });
+        incoming->setProperty("extentAvailable", true);
+        QTRY_VERIFY(crossed);
+        QVERIFY(!wrongPosition);
+        QTRY_VERIFY(outgoing.isNull());
+        QTRY_VERIFY(original.isNull());
+        QTRY_COMPARE(routes.mountedCount(), 1);
+        QCOMPARE(incomingLoader->opacity(), 1.);
+        const auto artifacts = qEnvironmentVariable("ECHO_HANDOFF_ARTIFACTS");
+        if (!artifacts.isEmpty()) {
+            QVERIFY(QDir().mkpath(artifacts));
+            const auto suffix = cacheEnabled ? "-cache-on.png" : "-cache-off.png";
+            QVERIFY(blocked.save(artifacts + "/handoff-pending" + suffix));
+            QVERIFY(window->grabWindow().save(artifacts + "/handoff-settled" + suffix));
+        }
+        outgoing = incoming;
+        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "four"));
+        QTRY_VERIFY(probe(root.data(), routes.current()));
+        incoming = probe(root.data(), routes.current());
+        theme.setMotionEnabled(false);
+        QTRY_VERIFY(outgoing.isNull());
+        QCOMPARE(qobject_cast<QQuickItem *>(incoming)->parentItem()->opacity(), 0.);
+        incoming->setProperty("extentAvailable", true);
+        QTRY_COMPARE(qobject_cast<QQuickItem *>(incoming)->parentItem()->opacity(), 1.);
+        theme.setMotionEnabled(true);
+        outgoing = incoming;
+        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "five"));
+        QTRY_VERIFY(probe(root.data(), routes.current()));
+        QPointer<QObject> pending = probe(root.data(), routes.current());
+        window->hide();
+        QTRY_VERIFY(outgoing.isNull());
+        window->show();
+        QVERIFY(Test::prepareNativeInput(window));
+        QCOMPARE(qobject_cast<QQuickItem *>(pending.data())->parentItem()->opacity(), 0.);
+        pending->setProperty("extentAvailable", true);
+        QTRY_COMPARE(qobject_cast<QQuickItem *>(pending.data())->parentItem()->opacity(), 1.);
+        outgoing = pending;
+        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "six"));
+        QTRY_VERIFY(probe(root.data(), routes.current()));
+        pending = probe(root.data(), routes.current());
+        routes.setCachePolicy(false, 0);
+        QTRY_VERIFY(outgoing.isNull());
+        QCOMPARE(qobject_cast<QQuickItem *>(pending.data())->parentItem()->opacity(), 0.);
+        routes.invalidateAccountPreservingRoute();
+        QTRY_VERIFY(pending.isNull());
+        QTRY_COMPARE(routes.mountedCount(), 1);
+        root.reset();
+        routes.shutdown();
+        drain();
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    }
+    void pageSnapshotsAreBoundedAndFollowRouteLifetime()
+    {
+        RouteController routes;
+        QVERIFY(routes.registerPage(definition("playlist")));
+        QVERIFY(routes.navigate("playlist", {}, "one"));
+        QPointer<EchoPageStateStore> first = routes.current()->viewState();
+        QVERIFY(first->save("ui", {{"expanded", true}, {"offset", 413.5}, {"draft", "text"}}));
+        QObject object;
+        QVERIFY(!first->save("widget", {{"object", QVariant::fromValue(&object)}}));
+        QVERIFY(!first->save("oversize", {{"text", QString(65536, 'x')}}));
+        QVERIFY(first->load("widget").isEmpty());
+        QVERIFY(first->load("oversize").isEmpty());
+        {
+            QJSEngine script;
+            const auto anchor = script.evaluate("({id:'13', delta:-100, flags:[true, 2]})");
+            QVERIFY(first->save("script", {{"anchor", QVariant::fromValue(anchor)}}));
+            QCOMPARE(first->load("script").value("anchor").metaType().id(),
+                     int(QMetaType::QVariantMap));
+            const auto callable = script.evaluate("({callback: function() {}})");
+            QVERIFY(!first->save("callable", {{"value", QVariant::fromValue(callable)}}));
+            const auto cycle = script.evaluate("let cycle = {}; cycle.self = cycle; cycle");
+            QVERIFY(!first->save("cycle", {{"value", QVariant::fromValue(cycle)}}));
+            auto wrapped = script.newObject();
+            QQmlEngine::setObjectOwnership(&object, QQmlEngine::CppOwnership);
+            wrapped.setProperty("widget", script.newQObject(&object));
+            QVERIFY(!first->save("wrapped", {{"value", QVariant::fromValue(wrapped)}}));
+        }
+        QCOMPARE(first->load("script").value("anchor").toMap().value("id").toString(),
+                 QString("13")); // The script engine has already been destroyed.
+        QVERIFY(routes.navigate("playlist", {}, "two"));
+        QVERIFY(!first->save("ui", {{"offset", 0}}));
+        routes.back();
+        QCOMPARE(routes.current()->viewState(), first.data());
+        QCOMPARE(first->load("ui").value("offset").toDouble(), 413.5);
+        routes.refresh();
+        QVERIFY(routes.current()->viewState()->load("ui").isEmpty());
+        drain();
+        QVERIFY(first.isNull());
+        auto *current = routes.current()->viewState();
+        for (int i = 0; i < 64; ++i)
+            QVERIFY(current->save(QString::number(i), {{"value", i}}));
+        QVERIFY(!current->save("65th", {{"value", 65}}));
+        QVERIFY(current->save("0", {{"value", 99}}));
+        QPointer<EchoPageStateStore> disabled = current;
+        QVERIFY(routes.navigate("playlist", {}, "three"));
+        routes.setCachePolicy(false, 20);
+        drain();
+        QVERIFY(disabled.isNull());
+        QCOMPARE(routes.mountedCount(), 1);
+        QPointer<EchoPageStateStore> accountState = routes.current()->viewState();
+        QVERIFY(accountState->save("account", {{"draft", "private"}}));
+        routes.invalidateAccountPreservingRoute();
+        drain();
+        QVERIFY(accountState.isNull());
+        QVERIFY(routes.current()->viewState()->load("account").isEmpty());
+        routes.shutdown();
+        drain();
     }
     void accountAndReentrantRefresh()
     {
@@ -3557,7 +3918,15 @@ QtObject {
         WindowController windows(preferences, false);
         ApiClient api(DeviceIdentity::temporary());
         Test::AccountUiFixture accountUi(api);
-        UserPlaylistModelTestAccess::pinned(accountUi.playlists);
+        QStringList covers;
+        for (int i = 0; i < 2; ++i) {
+            QImage image(48, 48, QImage::Format_RGB32);
+            image.fill(i ? QColor("#2476d8") : QColor("#dc3656"));
+            const auto path = directory.filePath(QString("playlist-%1.png").arg(i));
+            QVERIFY(image.save(path));
+            covers.append(QUrl::fromLocalFile(path).toString());
+        }
+        UserPlaylistModelTestAccess::pinned(accountUi.playlists, covers);
         SearchModel search(api);
         RouteController routes;
         SearchRouteCoordinator searchRoutes(search, routes, false);
@@ -3581,6 +3950,10 @@ QtObject {
         windows.attach(window);
         window->resize(1250, 900);
         QVERIFY(Test::prepareNativeInput(window));
+        const bool rendersCoverMasks =
+            window->rendererInterface()->graphicsApi() != QSGRendererInterface::Software;
+        qInfo() << "sidebar_editor_graphics" << QGuiApplication::platformName()
+                << window->rendererInterface()->graphicsApi();
         const auto item = [&](const QString &name) {
             return findVisibleVisual(window->contentItem(), name);
         };
@@ -3627,6 +4000,58 @@ QtObject {
                 QTRY_COMPARE(nativePopups().size(), 1);
                 QPointer<QObject> popup = nativePopups().first();
                 QTRY_VERIFY(popup && popup->property("opened").toBool());
+                for (const auto &key : {QString("library"), QString("playlists")}) {
+                    auto *heading = item("sidebarEditorHeading-" + key);
+                    QVERIFY(heading);
+                    auto *glyph = findVisual(heading, "sidebarEditorSectionGlyph");
+                    auto *cover = findVisual(heading, "sidebarEditorSectionCover");
+                    QVERIFY(glyph && cover);
+                    QVERIFY(glyph->isVisible());
+                    QVERIFY(!cover->isVisible());
+                    QCOMPARE(glyph->property("name").toString(),
+                             key == "library" ? QString("music") : QString("playlist-add"));
+                }
+                auto *reorder = item("sidebarMenuReorder-playlists");
+                QVERIFY(reorder && reorder->property("blocked").toBool());
+                for (int i = 0; i < 2; ++i) {
+                    auto *row = item(i ? "sidebarEditorItem-playlist:created:liked"
+                                       : "sidebarEditorItem-playlist:created:default");
+                    QVERIFY(row);
+                    auto *cover = findVisual(row, "sidebarEditorEntryCover");
+                    QVERIFY(cover && cover->property("resourceActive").toBool());
+                    QCOMPARE(cover->property("source").toUrl(), QUrl(covers[i]));
+                    QTRY_VERIFY(cover->property("hasArtwork").toBool());
+                    const auto renderedColor = [&] {
+                        window->update();
+                        const auto frame = window->grabWindow();
+                        const auto center = cover->mapToScene(cover->boundingRect().center());
+                        return frame.pixelColor(
+                            qRound(center.x() * frame.width() / window->width()),
+                            qRound(center.y() * frame.height() / window->height()));
+                    };
+                    // Software has no ShaderEffect cover mask; native RHI runs
+                    // additionally verify pixels after decoding reaches the GPU.
+                    if (rendersCoverMasks)
+                        QTRY_COMPARE(renderedColor(), i ? QColor("#2476d8") : QColor("#dc3656"));
+                }
+                const auto captureDir = qEnvironmentVariable("ECHO_SIDEBAR_EDITOR_CAPTURE_DIR");
+                if (!captureDir.isEmpty() && rendersCoverMasks) {
+                    QVERIFY(QDir().mkpath(captureDir));
+                    auto *background = popup->property("background").value<QQuickItem *>();
+                    QVERIFY(background);
+                    const auto bounds = background->mapRectToScene(background->boundingRect());
+                    const auto frame = window->grabWindow();
+                    const auto sx = qreal(frame.width()) / window->width();
+                    const auto sy = qreal(frame.height()) / window->height();
+                    QVERIFY(
+                        frame
+                            .copy(QRectF(bounds.x() * sx, bounds.y() * sy, bounds.width() * sx,
+                                         bounds.height() * sy)
+                                      .toAlignedRect())
+                            .save(captureDir + QString("/editor-%1-%2.png")
+                                                   .arg(mode == ThemeStore::Dark ? "dark" : "light")
+                                                   .arg(shell.uiScale())));
+                }
                 const auto rect = [&] {
                     return QRectF(popup->property("x").toReal(), popup->property("y").toReal(),
                                   popup->property("width").toReal(),

@@ -268,8 +268,18 @@ void PluginRuntimeTest::temporaryAppearancePriorityLiveBaseAndRevocation()
     QVERIFY(b);
     host.theme.setMode(ThemeStore::Light);
     const auto old = host.theme.main();
-    auto *first = calls.lease(a->appearance()->setOverride("glass", visuals(.3, .4), 0));
+    auto definition = visuals(.3, .4);
+    auto light = definition.value("light").toMap();
+    const QVariantMap transition{{"durationMs", 180},
+                                 {"enterX", 16},
+                                 {"enterScale", .98},
+                                 {"easing", QVariantList{.2, 0, 0, 1}},
+                                 {"mode", "parallel"}};
+    light["pageTransition"] = transition;
+    definition["light"] = light;
+    auto *first = calls.lease(a->appearance()->setOverride("glass", definition, 0));
     QVERIFY(first);
+    QCOMPARE(host.theme.extensionAppearance().value("pageTransition").toMap(), transition);
     auto *second = calls.lease(b->appearance()->setOverride(
         "glass", {{"light", QVariantMap{{"surface", QVariantMap{{"main", .8}}}}}}, 10));
     QVERIFY(second);
@@ -318,6 +328,7 @@ void PluginRuntimeTest::temporaryAppearancePriorityLiveBaseAndRevocation()
     second->dispose();
     QVERIFY(qAbs(host.theme.main().alphaF() - .3) < .01);
     first->dispose();
+    QVERIFY(host.theme.extensionAppearance().value("pageTransition").toMap().isEmpty());
     QVERIFY(qAbs(host.theme.main().alphaF() - 1) < .01);
     QVERIFY(host.theme.main() != old);
     QCOMPARE(host.theme.extensions()->selectedTheme(), selected);

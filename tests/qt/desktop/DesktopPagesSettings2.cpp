@@ -229,9 +229,10 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
     };
     auto *cards = item("sidebarShortcuts");
     auto *add = item("sidebarShortcutAdd");
-    QVERIFY(cards && add);
+    auto *content = item("sidebarContent");
+    QVERIFY(cards && add && content);
     QTRY_COMPARE(cards->width(), 194.);
-    QTest::qWait(200);
+    QTRY_COMPARE(content->opacity(), 1.);
     QList<QPointer<QQuickItem>> retained;
     for (const auto &entry : layout->shortcuts()) {
         auto *card = item("sidebarShortcut-" + entry.toMap()["key"].toString());
@@ -259,6 +260,7 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
     // are in flight. Sample rendered frames, not only settled endpoints.
     for (int phase = 0; phase < 3; ++phase) {
         session.shell.toggleSidebar();
+        QCOMPARE(content->opacity(), 1.);
         QElapsedTimer elapsed;
         elapsed.start();
         int reversals = 0, frameCount = 0;
@@ -272,6 +274,7 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
             QTest::qWait(10);
             const auto frame = session.window->grabWindow();
             QVERIFY(!frame.isNull());
+            QCOMPARE(content->opacity(), 1.);
             ++frameCount;
             const bool collapsed = session.shell.sidebarCollapsed();
             const qreal cellWidth = collapsed ? cards->width() : (cards->width() - 8) / 2;
@@ -304,6 +307,7 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
                                        {"elapsed", elapsed.elapsed()},
                                        {"collapsed", collapsed},
                                        {"width", cards->width()},
+                                       {"contentOpacity", content->opacity()},
                                        {"positions", positions}});
             if (!directory.isEmpty() && frameCount <= 12 &&
                 (frameCount % 2 == 0 || !failure.isEmpty())) {
@@ -378,6 +382,7 @@ void DesktopPagesTest::sidebarShortcutHoverDragAcrossThemesAndScales()
         return session.window->grabWindow().save(directory + "/" + name + ".png");
     };
     layout->restoreShortcuts();
+    QVERIFY(session.settleScene()); // Commit the native resize before warping the global cursor.
     Test::moveNativePointer(session.window, QPoint(800, 50));
     if (QGuiApplication::platformName() == "cocoa")
         QTRY_COMPARE(QCursor::pos(), session.window->mapToGlobal(QPoint(800, 50)));
@@ -404,10 +409,21 @@ void DesktopPagesTest::sidebarShortcutHoverDragAcrossThemesAndScales()
         QObject::disconnect(iconFade);
         QObject::disconnect(labelFade);
     });
+    QVERIFY(Test::prepareNativeInput(session.window));
     Test::moveNativePointer(session.window, center(home));
     if (QGuiApplication::platformName() == "cocoa")
         QTRY_COMPARE(QCursor::pos(), session.window->mapToGlobal(center(home)));
-    QTRY_COMPARE(label->opacity(), 1.);
+    QTRY_VERIFY2(
+        label->opacity() == 1.,
+        qPrintable(
+            QString("Shortcut hover: active=%1 resources=%2 hovered=%3 cursor=%4,%5 target=%6,%7")
+                .arg(session.window->isActive())
+                .arg(home->property("resourceActive").toBool())
+                .arg(home->property("hovered").toBool())
+                .arg(QCursor::pos().x())
+                .arg(QCursor::pos().y())
+                .arg(session.window->mapToGlobal(center(home)).x())
+                .arg(session.window->mapToGlobal(center(home)).y())));
     QTRY_COMPARE(icon->opacity(), 0.);
     QVERIFY(iconFaded && labelFaded);
     QCOMPARE(label->width(), home->width() - 16 - 24);
@@ -673,8 +689,7 @@ void DesktopPagesTest::remainingSettingsProductionSections()
     shortcuts.attach(session.window);
     // Native Popup Escape handling requires an active platform window;
     // rendering alone also works while the test process is in background.
-    session.window->requestActivate();
-    QVERIFY(QTest::qWaitForWindowActive(session.window));
+    QVERIFY(Test::prepareNativeInput(session.window));
     QStringList errors;
     connect(&session.engine, &QQmlEngine::warnings, this, [&](const QList<QQmlError> &warnings) {
         for (const auto &warning : warnings)
@@ -971,8 +986,9 @@ void DesktopPagesTest::productionProfileSettingsAndSidebarOverlays()
     session.router.invalidateAccount();
     session.router.navigate("profile");
     QTRY_VERIFY(visual(session.window->contentItem(), "profileSwitchAccount"));
-    auto *profilePage = visual(session.window->contentItem(), "profilePage");
-    QVERIFY(profilePage);
+    QPointer<QQuickItem> profilePage;
+    QTRY_VERIFY((profilePage = visual(session.window->contentItem(), "profilePage")) &&
+                profilePage->property("pageActive").toBool());
     QVERIFY(!profilePage->findChild<QObject *>("profileEditorDialog"));
     QVERIFY(!profilePage->findChild<QObject *>("profileSocialDrawer"));
     QVERIFY(!profilePage->findChild<QObject *>("profileDeviceDialog"));
@@ -983,16 +999,35 @@ void DesktopPagesTest::productionProfileSettingsAndSidebarOverlays()
             session.shell.resetZoom();
             if (zoomed)
                 session.shell.zoomIn();
+            QTRY_VERIFY(([&] {
+                auto *owner = profilePage->findChild<QObject *>("profileGradeDialogOwner");
+                return owner && owner->property("available").toBool();
+            })());
             gradeDialog = session.openOwnedPopup("profileGradeDialogOwner");
             QVERIFY(gradeDialog);
             QTRY_VERIFY(gradeDialog->property("opened").toBool());
-            auto *card = visual(session.window->contentItem(), "profileGradeCard");
-            auto *outline = visual(session.window->contentItem(), "profileGradeCardOutline");
-            auto *planet = visual(session.window->contentItem(), "profileGradePlanet");
-            auto *track = visual(session.window->contentItem(), "profileGradeTrack");
-            auto *refresh = visual(session.window->contentItem(), "profileGradeRefresh");
-            auto *close = gradeDialog->property("closeButton").value<QQuickItem *>();
-            QVERIFY(card && outline && planet && track && refresh && close);
+            QQuickItem *card = nullptr, *outline = nullptr, *planet = nullptr, *track = nullptr,
+                       *refresh = nullptr, *close = nullptr;
+            // The route and its nested popup can still be incubating when an
+            // early named child first appears. Check the completed production
+            // controls, rather than relying on that child's creation order.
+            QTRY_VERIFY2(
+                ([&] {
+                    card = visual(session.window->contentItem(), "profileGradeCard");
+                    outline = visual(session.window->contentItem(), "profileGradeCardOutline");
+                    planet = visual(session.window->contentItem(), "profileGradePlanet");
+                    track = visual(session.window->contentItem(), "profileGradeTrack");
+                    refresh = visual(session.window->contentItem(), "profileGradeRefresh");
+                    close = gradeDialog->property("closeButton").value<QQuickItem *>();
+                    return card && outline && planet && track && refresh && close;
+                })(),
+                qPrintable(QString("card=%1 outline=%2 planet=%3 track=%4 refresh=%5 close=%6")
+                               .arg(bool(card))
+                               .arg(bool(outline))
+                               .arg(bool(planet))
+                               .arg(bool(track))
+                               .arg(bool(refresh))
+                               .arg(bool(close))));
             QTRY_VERIFY(card->height() >= 176);
             QCOMPARE(outline->size(), card->size());
             QCOMPARE(QQmlProperty(outline, "border.width").read().toReal(), 1.0);
@@ -1202,6 +1237,8 @@ void DesktopPagesTest::productionProfileSettingsAndSidebarOverlays()
     QTRY_VERIFY((discard = preferences->findChild<QObject *>("listeningDiscardConfirm")));
     QTRY_VERIFY(discard->property("opened").toBool());
     QVERIFY(preferences->property("visible").toBool());
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QTRY_VERIFY(discard->property("activeFocus").toBool());
     QTest::keyClick(session.window, Qt::Key_Escape);
     QTRY_VERIFY(discard.isNull());
     preferenceService.discard();

@@ -54,6 +54,7 @@ ApplicationWindow {
             backupConfirmationOwner.close();
     }
     readonly property bool startupPending: startup !== null && !startup.entered
+    readonly property bool startupCoverNeeded: startup !== null && (startupPending || !mainShell || !mainShell.initialPageReady)
     readonly property MainShell mainShell: shellLoader.item as MainShell
     property PluginManager pluginManager: null
     required property RouteController router
@@ -209,23 +210,23 @@ ApplicationWindow {
     }
     Shortcut {
         sequences: [StandardKey.Find]
-        enabled: !mainWindow.startupPending
+        enabled: !startupLoader.active
         onActivated: if (mainWindow.mainShell)
             mainWindow.mainShell.focusSearch()
     }
     Shortcut {
         sequence: "Alt+Left"
-        enabled: !mainWindow.startupPending
+        enabled: !startupLoader.active
         onActivated: mainWindow.router.back()
     }
     Shortcut {
         sequence: "Alt+Right"
-        enabled: !mainWindow.startupPending
+        enabled: !startupLoader.active
         onActivated: mainWindow.router.forward()
     }
     Shortcut {
         sequences: [StandardKey.Refresh]
-        enabled: !mainWindow.startupPending
+        enabled: !startupLoader.active
         onActivated: mainWindow.router.refresh()
     }
     Shortcut {
@@ -256,7 +257,17 @@ ApplicationWindow {
         height: mainWindow.height / mainWindow.uiScale
         scale: mainWindow.uiScale
         transformOrigin: Item.TopLeft
-        active: mainWindow.startupPending
+        z: 1000
+        active: mainWindow.startupCoverNeeded || opacity > 0
+        enabled: mainWindow.startupPending
+        opacity: mainWindow.startupCoverNeeded ? 1 : 0
+        Behavior on opacity {
+            NumberAnimation {
+                duration: Theme.fastDuration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.easeEnter
+            }
+        }
         sourceComponent: StartupPage {
             startup: mainWindow.startup
             settings: mainWindow.shellSettings
@@ -275,7 +286,8 @@ ApplicationWindow {
         // interactive surface at all while the page is up; it is fully covered
         // anyway, and the page restores this the moment it hides.
         readonly property bool playbackPagePresent: playbackPageLoader.item !== null && (playbackPageLoader.item as PlaybackPage).visible
-        enabled: !playbackPagePresent
+        readonly property bool initialPageReady: initialRouteHost.initialPageReady
+        enabled: !playbackPagePresent && !startupLoader.active
         function focusSearch() {
             titleBar.focusSearch();
         }
@@ -428,6 +440,7 @@ ApplicationWindow {
                             }
                         }
                         RouteHost {
+                            id: initialRouteHost
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             router: mainWindow.router

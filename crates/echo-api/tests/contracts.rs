@@ -189,15 +189,15 @@ fn library_sort_maps_revisions_without_echo_consistency_checks() {
         assert!(ack.total_revision > ack.previous_total_revision);
         assert_eq!(
             ack.positions[0].cloud_list_id,
-            raw["data"]["info"][0]["listid"].as_u64().unwrap()
+            raw["data"]["info"][0]["listid"].as_u64()
         );
         raw["data"]["info"].as_array_mut().unwrap().reverse();
         raw["data"]["info"][0]["sort"] = 999.into();
         raw["data"]["info"][0]["type"] = 42.into();
         let changed = playlist_sort::convert(&serde_json::to_vec(&raw).unwrap()).unwrap();
         assert_eq!(changed.total_revision, ack.total_revision);
-        assert_eq!(changed.positions[0].position, 999);
-        assert_eq!(changed.positions[0].kind_code, 42);
+        assert_eq!(changed.positions[0].position, Some(999));
+        assert_eq!(changed.positions[0].kind_code, Some(42));
         assert!(changed.positions[0].kind.is_none());
     }
     assert_eq!(
@@ -354,7 +354,7 @@ fn playlist_mutation_acknowledgements_preserve_real_versions_and_scope() {
             .as_ref()
             .unwrap()
             .iter()
-            .map(|i| Some(i.file_id))
+            .map(|i| i.file_id)
             .collect::<Vec<_>>()
     );
     assert!(
@@ -363,7 +363,7 @@ fn playlist_mutation_acknowledgements_preserve_real_versions_and_scope() {
             .as_ref()
             .unwrap()
             .iter()
-            .all(|i| !replaced.contains(&Some(i.file_id)))
+            .all(|i| !replaced.contains(&i.file_id))
     );
 
     let sorted =
@@ -377,7 +377,7 @@ fn playlist_mutation_acknowledgements_preserve_real_versions_and_scope() {
     assert!(removed.outcomes.is_none());
     let deleted = playlist_del::convert(
         &sample("playlist_del/deleted-owned.json"),
-        created.cloud_list_id,
+        created.cloud_list_id.unwrap(),
     )
     .unwrap();
     assert_eq!(
@@ -400,8 +400,8 @@ fn playlist_add_nested_status_is_not_an_envelope_error() {
         assert_eq!(result.revision, reference.revision);
         assert_eq!(result.song_count, reference.song_count);
         let item = &result.outcomes.unwrap()[0];
-        assert_eq!(item.resource_code, 1);
-        assert!(item.file_id > 0);
+        assert_eq!(item.resource_code, Some(1));
+        assert!(item.file_id.is_some_and(|id| id > 0));
     }
     raw["data"].as_object_mut().unwrap().remove("status");
     let result = playlist_tracks_add::convert(&serde_json::to_vec(&raw).unwrap()).unwrap();
@@ -411,8 +411,8 @@ fn playlist_add_nested_status_is_not_an_envelope_error() {
     raw["data"]["info"][0]["fileid"] = serde_json::json!(0);
     let result = playlist_tracks_add::convert(&serde_json::to_vec(&raw).unwrap()).unwrap();
     let item = &result.outcomes.unwrap()[0];
-    assert_eq!(item.resource_code, 206);
-    assert_eq!(item.file_id, 0);
+    assert_eq!(item.resource_code, Some(206));
+    assert_eq!(item.file_id, Some(0));
     raw["status"] = serde_json::json!(0);
     raw["error_code"] = serde_json::json!(2);
     let error = playlist_tracks_add::convert(&serde_json::to_vec(&raw).unwrap()).unwrap_err();
@@ -427,8 +427,8 @@ fn playlist_item_rejection_is_not_invented_success_or_missing_song_failure() {
     let rejected =
         playlist_tracks_add::convert(&sample("playlist_tracks_add/rejected-track.json")).unwrap();
     let item = &rejected.outcomes.unwrap()[0];
-    assert_eq!(item.file_id, 0);
-    assert_eq!(item.resource_code, 206);
+    assert_eq!(item.file_id, Some(0));
+    assert_eq!(item.resource_code, Some(206));
     assert_eq!(rejected.revision, rejected.previous_revision);
 
     let accepted = playlist_tracks_add::convert(&sample(
@@ -436,9 +436,9 @@ fn playlist_item_rejection_is_not_invented_success_or_missing_song_failure() {
     ))
     .unwrap();
     let item = &accepted.outcomes.unwrap()[0];
-    assert!(item.file_id > 0);
+    assert!(item.file_id.is_some_and(|id| id > 0));
     assert_eq!(item.song_id, Some(0));
-    assert_eq!(item.resource_code, 1);
+    assert_eq!(item.resource_code, Some(1));
 }
 #[test]
 fn all_six_write_authentication_errors_precede_success_dto_decoding() {
@@ -2306,14 +2306,149 @@ fn write_outcomes_preserve_new_codes_and_actual_service_errors() {
     wire["data"]["info"][0]["code"] = 777.into();
     wire["data"]["list_ver"] = 0.into();
     let result = playlist_tracks_add::convert(&serde_json::to_vec(&wire).unwrap()).unwrap();
-    assert_eq!(result.outcomes.unwrap()[0].resource_code, 777);
+    assert_eq!(result.outcomes.unwrap()[0].resource_code, Some(777));
     let mut wire: Value =
         serde_json::from_slice(&sample("playlist_add/created-private.json")).unwrap();
     wire["data"]["info"]["status"] = 0.into();
     wire["data"]["info"]["code"] = 206.into();
+    let result = playlist_add::convert(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    assert_eq!(result.provider_status, Some(0));
+    assert_eq!(result.resource_code, Some(206));
+    wire["status"] = 0.into();
+    wire["error_code"] = 206.into();
     let error = playlist_add::convert(&serde_json::to_vec(&wire).unwrap()).unwrap_err();
     assert_eq!(error.kind, "business");
     assert_eq!(error.code, Some(206));
+}
+
+#[test]
+fn playlist_mutations_do_not_promote_nested_flags_to_envelope_errors() {
+    use echo_api::module::{
+        playlist_add, playlist_del, playlist_sort, playlist_tracks_del, playlist_tracks_sort,
+        playlist_update,
+    };
+    for status in [serde_json::json!(2), serde_json::json!(0), Value::Null] {
+        for (fixture, name) in [
+            ("playlist_tracks_del/removed-one.json", "delete-tracks"),
+            ("playlist_tracks_sort/sorted-reverse.json", "sort-tracks"),
+            ("playlist_add/created-private.json", "create"),
+            ("playlist_update/updated-info.json", "update"),
+            ("playlist_del/deleted-owned.json", "delete"),
+        ] {
+            let mut wire: Value = serde_json::from_slice(&sample(fixture)).unwrap();
+            match name {
+                "delete-tracks" | "sort-tracks" => wire["data"]["status"] = status.clone(),
+                "delete" => wire["data"]["info"][0]["status"] = status.clone(),
+                _ => wire["data"]["info"]["status"] = status.clone(),
+            }
+            let bytes = serde_json::to_vec(&wire).unwrap();
+            let observed = match name {
+                "delete-tracks" => {
+                    playlist_tracks_del::convert(&bytes)
+                        .unwrap()
+                        .provider_status
+                }
+                "sort-tracks" => {
+                    playlist_tracks_sort::convert(&bytes)
+                        .unwrap()
+                        .provider_status
+                }
+                "create" => playlist_add::convert(&bytes).unwrap().provider_status,
+                "update" => playlist_update::convert(&bytes).unwrap().provider_status,
+                _ => playlist_del::convert(&bytes, 7).unwrap().provider_status,
+            };
+            assert_eq!(observed, status.as_u64().map(|n| n as u32));
+        }
+    }
+    let mut wire: Value =
+        serde_json::from_slice(&sample("playlist_sort/owned-swapped.json")).unwrap();
+    wire["data"]["info"][0]["code"] = 777.into();
+    let result = playlist_sort::convert(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    assert_eq!(result.positions[0].resource_code, Some(777));
+}
+
+#[test]
+fn mutation_acknowledgements_do_not_require_optional_synchronization_metadata() {
+    use echo_api::module::{
+        playlist_add, playlist_del, playlist_sort, playlist_tracks_add, playlist_tracks_del,
+        playlist_tracks_sort, playlist_update,
+    };
+    // Derived from captured successes: omit the optional acknowledgement data,
+    // without changing the real envelope status or inventing an upstream sample.
+    for data in [serde_json::json!({}), Value::Null] {
+        for (fixture, operation) in [
+            ("playlist_add/created-private.json", "create"),
+            ("playlist_update/updated-info.json", "update"),
+            ("playlist_del/deleted-owned.json", "delete"),
+            ("playlist_tracks_add/added-two.json", "add-tracks"),
+            ("playlist_tracks_del/removed-one.json", "delete-tracks"),
+            ("playlist_tracks_sort/sorted-reverse.json", "sort-tracks"),
+            ("playlist_sort/owned-swapped.json", "sort-library"),
+        ] {
+            let mut wire: Value = serde_json::from_slice(&sample(fixture)).unwrap();
+            wire["data"] = data.clone();
+            let bytes = serde_json::to_vec(&wire).unwrap();
+            let result = match operation {
+                "create" => serde_json::to_value(playlist_add::convert(&bytes).unwrap()).unwrap(),
+                "update" => {
+                    serde_json::to_value(playlist_update::convert(&bytes).unwrap()).unwrap()
+                }
+                "delete" => {
+                    serde_json::to_value(playlist_del::convert(&bytes, 7).unwrap()).unwrap()
+                }
+                "add-tracks" => {
+                    serde_json::to_value(playlist_tracks_add::convert(&bytes).unwrap()).unwrap()
+                }
+                "delete-tracks" => {
+                    serde_json::to_value(playlist_tracks_del::convert(&bytes).unwrap()).unwrap()
+                }
+                "sort-tracks" => {
+                    serde_json::to_value(playlist_tracks_sort::convert(&bytes).unwrap()).unwrap()
+                }
+                _ => serde_json::to_value(playlist_sort::convert(&bytes).unwrap()).unwrap(),
+            };
+            assert!(result["user_id"].is_null(), "{operation}");
+            assert!(result["total_revision"].is_null(), "{operation}");
+            assert!(result["revision"].is_null(), "{operation}");
+        }
+    }
+}
+
+#[test]
+fn account_bound_reads_do_not_require_echoed_user_ids() {
+    for fixture in [
+        "user_grade_info/current-account.json",
+        "user_vip_detail/current-account.json",
+        "user_playlist/current-account.json",
+        "playlist_track_all_new/owned-list.json",
+    ] {
+        let mut wire: Value = serde_json::from_slice(&sample(fixture)).unwrap();
+        wire["data"].as_object_mut().unwrap().remove("userid");
+        let bytes = serde_json::to_vec(&wire).unwrap();
+        let user_id = match fixture.split('/').next().unwrap() {
+            "user_grade_info" => {
+                echo_api::module::user_grade_info::convert(&bytes)
+                    .unwrap()
+                    .user_id
+            }
+            "user_vip_detail" => {
+                echo_api::module::user_vip_detail::convert(&bytes)
+                    .unwrap()
+                    .user_id
+            }
+            "user_playlist" => {
+                echo_api::module::user_playlist::convert(&bytes, 1, 200)
+                    .unwrap()
+                    .user_id
+            }
+            _ => {
+                echo_api::module::playlist_track_all_new::convert(&bytes)
+                    .unwrap()
+                    .user_id
+            }
+        };
+        assert!(user_id.is_none());
+    }
 }
 
 // Derived cases below mutate captured payloads to exercise resilience; they are

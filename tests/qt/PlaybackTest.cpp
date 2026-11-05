@@ -999,14 +999,20 @@ private slots:
         }
         EchoMusic::SettingsStore settings(dir.filePath("settings.ini"));
         ApiClient api;
-        PlaybackService playback(api, settings);
+        PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"));
         QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
         playback.setVolume(0);
         QSignalSpy notices(playback.transition(), &TrackTransitionController::notice);
+        QJsonArray history;
+        connect(&playback, &PlaybackService::historyLoaded, &playback,
+                [&](const QJsonArray &entries) { history = entries; });
         playback.transition()->setMode("gapless");
         QCOMPARE(notices.size(), 0); // Settings and preparation are not audible boundaries.
         playback.playTracks(tracks, 0, "Transition", "transition-test");
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing(), 15000);
+        QTRY_COMPARE(history.size(), 1);
+        QCOMPARE(history[0].toObject()["track"].toObject()["id"].toString(), tracks[0].id);
+        QCOMPARE(history[0].toObject()["play_count"].toInteger(), 1);
         QTRY_COMPARE(playback.coverColor(), QColor("#d03050"));
         QList<QColor> accents;
         connect(&playback, &PlaybackService::changed, &playback,
@@ -1015,10 +1021,15 @@ private slots:
             TrackTransitionControllerTestAccess::prepared(*playback.transition()), 15000);
         QCOMPARE(playback.queue()->currentIndex(), 0);
         QCOMPARE(playback.currentTrack().key(), tracks[0].key());
+        QCOMPARE(history.size(), 1); // Preparing the next reader does not record it.
         QVERIFY(playback.positionMs() > 0);
         // EchoMusic manual clicks synchronously select a new track; only a
         // natural boundary waits for the already prepared native deck.
         QTRY_COMPARE_WITH_TIMEOUT(playback.currentTrack().key(), tracks[1].key(), 15000);
+        QTRY_COMPARE(history.size(), 2);
+        QCOMPARE(history[0].toObject()["track"].toObject()["id"].toString(), tracks[1].id);
+        QCOMPARE(history[0].toObject()["play_count"].toInteger(), 1);
+        QCOMPARE(history[1].toObject()["play_count"].toInteger(), 1);
         QCOMPARE(playback.queue()->currentIndex(), 1);
         QTRY_COMPARE(playback.coverColor(), QColor("#20b060"));
         for (const auto &accent : accents)
@@ -1033,6 +1044,8 @@ private slots:
         QCOMPARE(notices.size(),
                  1); // Manual intent selects immediately, without another adoption notice.
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 10000);
+        QTRY_COMPARE(history[0].toObject()["track"].toObject()["id"].toString(), tracks[0].id);
+        QCOMPARE(history[0].toObject()["play_count"].toInteger(), 2);
         QList<PlaybackService::ProgressBusyReason> progress;
         connect(&playback, &PlaybackService::progressBusyReasonChanged, &playback,
                 [&] { progress.append(playback.progressBusyReason()); });

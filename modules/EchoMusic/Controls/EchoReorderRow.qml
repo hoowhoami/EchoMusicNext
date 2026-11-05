@@ -12,7 +12,7 @@ Item {
     property bool pooled: false
     default property alias rowContent: body.data
     readonly property bool dragged: reorder.busy && index === reorder.fromIndex
-    readonly property bool contentActive: reorder.usable && !pooled && !dragged
+    readonly property bool contentActive: reorder.presentationActive && !pooled && !dragged
     readonly property bool animateShift: reorder.busy && visible && !pooled && Theme.store.motionEnabled
     width: reorder.view.width
     height: reorder.rowHeight

@@ -102,12 +102,23 @@ void PlaybackSessionController::shutdown()
     m_playback.m_engine.shutdown();
 }
 
+void PlaybackSessionController::beginHistory()
+{
+    if (!m_playback.m_repository || m_playback.m_historyRecorded || !m_playback.m_track.playable())
+        return;
+    // One occurrence spans pause/resume, quality changes and source recovery.
+    // Queue restoration and next-track preparation do not commit a load.
+    m_playback.m_historyRecorded = true;
+    m_playback.m_repository->record(m_playback.m_account, m_playback.m_track);
+}
+
 void PlaybackSessionController::finishHistory()
 {
     m_playback.m_listening.flush();
-    if (m_playback.m_repository && m_playback.m_listenedMs > 0)
-        m_playback.m_repository->record(m_playback.m_account, m_playback.m_track,
-                                        m_playback.m_listenedMs);
+    if (m_playback.m_repository && m_playback.m_historyRecorded && m_playback.m_listenedMs > 0)
+        m_playback.m_repository->addHistoryTime(m_playback.m_account, m_playback.m_track,
+                                                m_playback.m_listenedMs);
+    m_playback.m_historyRecorded = false;
     m_playback.m_listenedMs = 0;
     m_playback.m_listenTick.restart();
 }

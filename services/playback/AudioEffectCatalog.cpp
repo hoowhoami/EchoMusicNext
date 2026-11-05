@@ -114,12 +114,12 @@ AudioEffectCatalog::AudioEffectCatalog(ApiClient &api, PlaybackAudioControls &co
     });
     m_revision = api.sessionRevision();
     connect(&api, &ApiClient::succeeded, this, &AudioEffectCatalog::succeeded);
-    connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &) {
+    connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &payload) {
         if (id == m_request && id)
-            failRead(tr("音效目录加载失败，请重试"));
+            failRead(ApiClient::errorMessage(payload, tr("音效目录加载失败，请重试")));
         else if (id == m_common && id) {
             m_common = 0;
-            m_error = tr("通用耳机音效加载失败");
+            m_error = ApiClient::errorMessage(payload, tr("通用耳机音效加载失败"));
             if (m_pendingActivation == "common") {
                 m_pendingActivation.clear();
                 emit notice(m_error, true);
@@ -490,10 +490,6 @@ void AudioEffectCatalog::succeeded(quint64 id, const QByteArray &bytes)
         return;
     }
     m_request = 0;
-    if (!document.isObject() || !document.object().value("items").isArray()) {
-        failRead(tr("音效响应不完整"));
-        return;
-    }
     acceptPage(m_requestScope.isEmpty() ? scope() : m_requestScope, document.object());
 }
 void AudioEffectCatalog::acceptPage(const QString &key, const QJsonObject &page)

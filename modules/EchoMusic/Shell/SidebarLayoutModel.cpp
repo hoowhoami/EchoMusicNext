@@ -202,6 +202,8 @@ QVariantList SidebarLayoutModel::sections() const
                 items.append(describe(e));
         result.append(QVariantMap{{"key", key},
                                   {"title", tr("音乐菜单")},
+                                  {"glyph", "music"},
+                                  {"cover", ""},
                                   {"collapsed", false},
                                   {"hidden", m_hiddenGroups.contains(key)},
                                   {"items", items}});
@@ -215,6 +217,8 @@ QVariantList SidebarLayoutModel::sections() const
     }
     result.append(QVariantMap{{"key", "playlists"},
                               {"title", tr("歌单")},
+                              {"glyph", "playlist-add"},
+                              {"cover", ""},
                               {"lockedOrder", true},
                               {"collapsed", false},
                               {"hidden", !playlistAreaVisible()},
@@ -280,8 +284,9 @@ void SidebarLayoutModel::refreshSectionModel()
                        std::count_if(entries.cbegin(), entries.cend(), [](const QVariant &entry) {
                            return !entry.toMap()["hidden"].toBool();
                        }));
-        section.insert("glyph", first.value("glyph", "playlist-add"));
-        section.insert("cover", first.value("cover", ""));
+        // Explicit category artwork stays independent of its first child.
+        section.insert("glyph", section.value("glyph", first.value("glyph", "playlist-add")));
+        section.insert("cover", section.value("cover", first.value("cover", "")));
         rows.append(section);
     }
     static_cast<SidebarProjectionModel *>(m_sections)->reconcile(rows);

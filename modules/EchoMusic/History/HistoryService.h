@@ -57,6 +57,8 @@ public:
 signals:
     void changed();
     void notice(const QString &message);
+    /// Accepted play records also animate when the same top row is played again.
+    void recordPromoted();
 
 private:
     friend class HistoryServiceTestAccess;

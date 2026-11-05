@@ -29,6 +29,6 @@ private:
     ApiClient &m_api;
     UserPlaylistModel &m_library;
     PlaylistMutationService &m_mutations;
-    bool m_pending = false, m_removing = false, m_wanted = false, m_recovering = false;
+    bool m_pending = false, m_removing = false, m_wanted = false;
 };
 } // namespace EchoMusic

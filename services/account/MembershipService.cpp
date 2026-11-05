@@ -9,7 +9,7 @@ MembershipService::MembershipService(ApiClient &api, QObject *parent) : QObject(
 {
     connect(&api, &ApiClient::succeeded, this, &MembershipService::succeed);
     connect(&api, &ApiClient::failed, this,
-            [this](quint64 id, int, const QByteArray &) { fail(id); });
+            [this](quint64 id, int, const QByteArray &payload) { fail(id, payload); });
     connect(&api, &ApiClient::sessionChanged, this, &MembershipService::clear);
 }
 MembershipService::~MembershipService()
@@ -63,11 +63,6 @@ void MembershipService::succeed(quint64 id, const QByteArray &bytes)
     if (!id || id != m_request || m_revision != m_api.sessionRevision())
         return;
     const auto value = QJsonDocument::fromJson(bytes).object();
-    if (value.value("user_id").toInteger() != qint64(m_api.currentAccountUserId()) ||
-        !value.value("products").isArray()) {
-        fail(id);
-        return;
-    }
     m_request = 0;
     m_domain = value;
     MembershipFacts facts;
@@ -91,14 +86,14 @@ void MembershipService::succeed(quint64 id, const QByteArray &bytes)
     emit changed();
     emit settled();
 }
-void MembershipService::fail(quint64 id)
+void MembershipService::fail(quint64 id, const QByteArray &payload)
 {
     if (!id || id != m_request || m_revision != m_api.sessionRevision())
         return;
     m_request = 0;
     m_domain = {};
     m_age.invalidate();
-    m_error = tr("会员权益尚未确认");
+    m_error = ApiClient::errorMessage(payload, tr("会员信息获取失败，请稍后重试"));
     setFacts({});
     emit changed();
     emit settled();

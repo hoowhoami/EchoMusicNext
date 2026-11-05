@@ -15,30 +15,27 @@ pub struct Query {
     pub cloud_list_id: u64,
     pub file_ids: Vec<u64>,
 }
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    listid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    pre_list_ver: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    list_ver: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    listid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    status: Option<u32>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    pre_list_ver: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    list_ver: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     count: Option<u64>,
 }
 pub fn convert(bytes: &[u8]) -> Result<CloudTrackChange, ApiError> {
-    let v: Data = cloudlist::decode(bytes)?;
-    if v.status != 1 {
-        return Err(ApiError::business(i64::from(v.status)));
-    }
+    let v = cloudlist::decode::<Option<Data>>(bytes)?.unwrap_or_default();
     Ok(CloudTrackChange {
         user_id: v.userid,
         cloud_list_id: v.listid,
-        provider_status: Some(v.status),
+        provider_status: v.status,
         previous_revision: v.pre_list_ver,
         revision: v.list_ver,
         song_count: v.count,

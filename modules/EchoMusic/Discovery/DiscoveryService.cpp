@@ -22,8 +22,7 @@ DiscoveryService::DiscoveryService(ApiClient &api, PlaybackService &playback,
 
     connect(&api, &ApiClient::succeeded, this, &DiscoveryService::succeeded);
     connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &message) {
-        const auto domain = QJsonDocument::fromJson(message).object();
-        failed(id, domain.value("message").toString(tr("内容加载失败")));
+        failed(id, ApiClient::errorMessage(message, tr("内容加载失败")));
     });
     connect(&api, &ApiClient::sessionChanged, this, [this] { reset(); });
     connect(&account, &AccountService::changed, this, &DiscoveryService::changed);

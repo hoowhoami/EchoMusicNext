@@ -12,8 +12,8 @@ type Wire = crate::util::response::DefaultDataEnvelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
     info: serde_json::Value,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     total_ver: u64,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
@@ -126,7 +126,7 @@ pub struct PlaylistFlagCodes {
 #[derive(Debug, Serialize)]
 pub struct UserPlaylists {
     pub page: Page<UserPlaylist>,
-    pub user_id: u64,
+    pub user_id: Option<u64>,
     pub total_revision: u64,
     pub collection_count: Option<u64>,
     pub album_count: Option<u64>,

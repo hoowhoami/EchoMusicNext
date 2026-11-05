@@ -381,10 +381,26 @@ EchoDialog {
                 radius: 3
                 color: Theme.floating.controlBorder
                 Rectangle {
+                    id: uploadProgress
                     height: parent.height
                     width: parent.width * dialog.service.progress
                     radius: parent.radius
                     color: Theme.accent
+                    EchoMotionScope {
+                        id: progressMotion
+                        target: uploadProgress
+                        active: dialog.visible
+                        animations: [progressChange]
+                    }
+                    Behavior on width {
+                        enabled: progressMotion.allowed
+                        NumberAnimation {
+                            id: progressChange
+                            duration: Theme.panelDuration
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: Theme.easeDefault
+                        }
+                    }
                 }
             }
             Text {

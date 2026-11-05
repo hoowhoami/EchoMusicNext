@@ -47,6 +47,12 @@ RoutePage {
         songMenuOwner.close();
         page.service.statsShare.cancel();
     }
+    Connections {
+        target: page.service
+        function onRecordPromoted(): void {
+            songList.animateInsertion();
+        }
+    }
     EchoPageScrollContainer {
         id: viewport
         anchors.fill: parent

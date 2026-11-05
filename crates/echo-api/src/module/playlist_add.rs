@@ -25,38 +25,38 @@ pub struct Collection {
     pub creator_list_id: u64,
     pub creator_global_id: String,
 }
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    pre_total_ver: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    total_ver: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    pre_total_ver: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    total_ver: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     list_count: Option<u64>,
-    info: Info,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    info: Option<Info>,
 }
 #[derive(Deserialize)]
 struct Info {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    listid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    code: i64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    listid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    status: Option<u32>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    code: Option<i64>,
 }
 pub fn convert(bytes: &[u8]) -> Result<LibraryPlaylistChange, ApiError> {
-    let v: Data = cloudlist::decode(bytes)?;
-    if v.info.status != 1 || v.info.code != 1 {
-        return Err(ApiError::business(v.info.code));
-    }
+    let v = cloudlist::decode::<Option<Data>>(bytes)?.unwrap_or_default();
     Ok(LibraryPlaylistChange {
         user_id: v.userid,
-        cloud_list_id: v.info.listid,
+        cloud_list_id: v.info.as_ref().and_then(|i| i.listid),
         previous_total_revision: v.pre_total_ver,
         total_revision: v.total_ver,
         playlist_count: v.list_count,
+        provider_status: v.info.as_ref().and_then(|i| i.status),
+        resource_code: v.info.as_ref().and_then(|i| i.code),
         cover_url: None,
     })
 }

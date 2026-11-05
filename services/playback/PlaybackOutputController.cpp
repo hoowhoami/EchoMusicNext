@@ -160,6 +160,8 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         m_playback.m_loading = false;
         m_playback.m_loaded = true;
         m_playback.m_startPending = m_playback.m_autoplay && !m_playback.m_playing;
+        if (!m_playback.m_autoplay || m_playback.m_playing)
+            m_playback.beginHistory();
         m_playback.m_appliedEffect = m_playback.m_sourceEffect;
         m_playback.m_error.clear();
         publishMedia();
@@ -226,6 +228,8 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         if (m_playback.m_playing) {
             m_playback.m_startPending = false;
             m_playback.m_failure->succeeded();
+            if (m_playback.m_loaded && !m_playback.m_loading)
+                m_playback.beginHistory();
         }
         if (!m_playback.m_cast->remoteMedia())
             m_playback.m_recovery->handleEvent(event);

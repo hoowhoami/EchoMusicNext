@@ -33,6 +33,7 @@ Rectangle {
             color: Theme.iconMain
         }
         EchoCover {
+            objectName: "sidebarEditorEntryCover"
             anchors.centerIn: parent
             width: 22
             height: 22

@@ -7775,9 +7775,9 @@
         <translation>页面缓存</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/ExperimentalSettingsSection.qml" line="21"/>
-        <source>保留已访问的页面，返回时无需重新加载</source>
-        <translation>保留已访问的页面，返回时无需重新加载</translation>
+        <location filename="../modules/EchoMusic/Settings/ExperimentalSettingsSection.qml" line="20"/>
+        <source>返回页面时恢复之前的状态</source>
+        <translation>返回页面时恢复之前的状态</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/ExperimentalSettingsSection.qml" line="34"/>
@@ -7786,9 +7786,9 @@
         <translation>最大缓存页面数</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/ExperimentalSettingsSection.qml" line="35"/>
-        <source>超出后自动释放最早缓存的页面，避免占用过多内存</source>
-        <translation>超出后自动释放最早缓存的页面，避免占用过多内存</translation>
+        <location filename="../modules/EchoMusic/Settings/ExperimentalSettingsSection.qml" line="34"/>
+        <source>超出后自动清理最久未使用的缓存</source>
+        <translation>超出后自动清理最久未使用的缓存</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/ExperimentalSettingsSection.qml" line="51"/>

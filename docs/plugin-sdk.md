@@ -26,7 +26,7 @@
 
 声明 `audio.spectrum` feature 和 `audioSpectrum` capability 后，可订阅播放器实际输出的 PCM 频谱。订阅提供帧、状态及暂停/释放操作；`dispose` 后句柄失效。多个订阅共享分析，暂停或没有可见订阅时停止采集与 FFT 请求。
 
-支持 fps 1–60、binCount 8–512、fftSize 256–8192 的指定二次幂、smoothing 0–0.95、log / linear / mel 频率映射及可选波形。帧包含 source、state、时间、采样率、FFT 大小、频段、peak / rms 等资料。当前通过有界 JSON 传输，不提供零复制二进制 buffer。高级 GPU 绘图使用 `ctx.graphics` 和 `EchoGpuSurface`，支持纹理、缓冲、渲染/计算管线和局部 HDR 输入的 SDR 映射；默认 SDR，不修改宿主窗口。当前没有局部 HDR 实屏输出后端。硬件状态与接口 feature 分开查询，详见[绘图指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/graphics.md)。
+支持 fps 0（不额外限帧）或 1–60、binCount 8–512、fftSize 256–8192 的指定二次幂、smoothing 0–0.95、log / linear / mel 频率映射及可选波形。帧包含 source、state、时间、采样率、FFT 大小、频段、peak / rms 等资料。当前通过有界 JSON 传输，不提供零复制二进制 buffer。高级 GPU 绘图使用 `ctx.graphics` 和 `EchoGpuSurface`，支持纹理、缓冲、渲染/计算管线和局部 HDR 输入的 SDR 映射；默认 SDR，不修改宿主窗口。当前没有局部 HDR 实屏输出后端。硬件状态与接口 feature 分开查询，详见[绘图指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/graphics.md)。
 
 原生点图元使用通用 `PointMesh` 和 `graphics.pointMesh`，顶点数量/数据有界，几何归场景图；输入布局、错误及平台边界见[点网格说明](plugin-point-mesh.md)。
 
@@ -165,3 +165,23 @@ Qt组件纹理可通过EchoGpuSurface.importTextureSource借用到RHI采样：�
 `ctx.ui.showDialog({ component: 'Panel.qml', width: 400, modal: true, closeOnMask: true })` 返回 operation，正文准备完成后得到 `EchoPluginDialog` 句柄；`close()` 关闭，`active`/`closed` 通知生命周期。可选 `title` 默认插件名，width 为160..2048逻辑px并受主窗口约束。QML 根必须是 Item，声明 `required property EchoPluginContext plugin` 和 `required property EchoPluginDialog dialog`，通过 `dialog.close()` 关闭。默认模态、Escape关闭及点击遮罩关闭，使用共享主题、应用缩放和浮层；不离开路由、不创建OS窗口。取消打开operation、账号变化、调用者退休或宿主隐藏会清理，最小化保留实例。最多同时8个弹窗，正文自行提供自然高度及必要滚动。
 
 `ctx.clipboard.write(text)` 返回可等待的operation，写系统文本剪贴板，上限1MiB UTF-8，可传空文本；不读取剪贴板、不需要焦点。账号变化/停用会取消尚未执行的写入。三项能力可分别通过 `kugou.authSnapshot`、`ui.dialogs`、`clipboard.write` feature 声明。
+
+### 页面切换动画
+
+普通页面默认按 EchoMusic 播放220ms整体淡入。主题的light/dark配置及`ctx.theme.setOverride`都可通过已有`pageTransition`配方覆盖时长、四点Bezier曲线、进入/退出透明度、X/Y位移、缩放及`parallel`/`out-in`/`in-out`顺序；无需CSS或DOM。`enabled:false`明确关闭，`appear:false`仅跳过首次呈现，后续导航仍播放。先出后进/先进后出等待实际动画完成，不以固定延迟猜测页面加载；快速导航取消旧等待。隐藏/最小化、减少动效及贡献替换/撤销结束当前动画，撤销最后一个贡献恢复默认淡入，不修改用户持久主题配置。
+
+```ts
+const lease = await awaitOperation(ctx.theme.setOverride('page-motion', {
+  light: { pageTransition: {
+    enabled: true, appear: true, mode: 'parallel', durationMs: 240,
+    easing: [0.2, 0, 0, 1], enterOpacity: 0, leaveOpacity: 0,
+    enterX: 16, enterY: 0, leaveX: -8, leaveY: 0,
+    enterScale: 0.98, leaveScale: 1,
+  } },
+  dark: { pageTransition: { enabled: true, durationMs: 220, enterOpacity: 0 } },
+}, 10));
+// 与其它临时外观贡献共用appearance授权、优先级及scope回收。
+lease.dispose();
+```
+
+完整类型仍唯一维护于作者仓库`PageTransitionDefinition`；宿主不执行旧Vue/CSS动画，执行证据及平台边界见[动画验证](internal/verification/2026-11-05-motion-parity.md)。

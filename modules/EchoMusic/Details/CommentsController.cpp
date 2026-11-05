@@ -480,7 +480,7 @@ void CommentsController::fail(quint64 id, const QByteArray &bytes)
     auto p = m_pending.take(id);
     if (p.epoch != m_epoch || p.session != m_api.sessionRevision() || m_closed)
         return;
-    QString error = QJsonDocument::fromJson(bytes).object().value("message").toString();
+    QString error = ApiClient::errorMessage(bytes);
     if (error.isEmpty())
         error = tr("评论加载失败，请重试");
     if (p.operation == Operation::List) {

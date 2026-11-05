@@ -184,20 +184,12 @@ Dialog {
             sourceComponent: dialog.footerContent
         }
     }
-    enter: Transition {
-        NumberAnimation {
-            property: "opacity"
-            from: 0
-            to: 1
-            duration: Theme.normalDuration
-        }
+    EchoPopupMotion {
+        id: appearance
+        surface: dialog
+        fromY: 0
+        exitDuration: Theme.exitDuration
     }
-    exit: Transition {
-        NumberAnimation {
-            property: "opacity"
-            from: 1
-            to: 0
-            duration: Theme.exitDuration
-        }
-    }
+    enter: appearance.enter
+    exit: appearance.exit
 }

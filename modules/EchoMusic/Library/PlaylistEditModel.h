@@ -99,7 +99,6 @@ private:
     QString m_title, m_tags, m_description, m_cover, m_coverName, m_error;
     QByteArray m_png;
     QObject *m_coverWorker = nullptr;
-    bool m_unknownRefreshed = false;
     bool m_loaded = false, m_saving = false, m_reading = false, m_detailRequest = false;
 };
 } // namespace EchoMusic

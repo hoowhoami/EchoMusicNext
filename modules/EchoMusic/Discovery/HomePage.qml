@@ -53,16 +53,39 @@ RoutePage {
                 y: 16
                 width: Math.max(0, homeList.width - 80)
                 Loader {
+                    id: introSection
                     width: parent.width
                     sourceComponent: intro
                 }
+                EchoEnter {
+                    target: introSection
+                    active: page.pageActive
+                    duration: Theme.pageDuration
+                    curve: Theme.easeEnter
+                }
                 Loader {
+                    id: styleHeading
                     width: parent.width
                     sourceComponent: styleTitle
                 }
+                EchoEnter {
+                    target: styleHeading
+                    active: page.pageActive
+                    order: 2
+                    duration: Theme.pageDuration
+                    curve: Theme.easeEnter
+                }
                 Loader {
+                    id: styleFilters
                     width: parent.width
                     sourceComponent: filters
+                }
+                EchoEnter {
+                    target: styleFilters
+                    active: page.pageActive
+                    order: 2
+                    duration: Theme.pageDuration
+                    curve: Theme.easeEnter
                 }
                 Rectangle {
                     id: styleSection
@@ -70,6 +93,13 @@ RoutePage {
                     width: body.width
                     height: showGrid ? styleGrid.height + 4 : styleEmpty.height
                     color: showGrid ? Theme.mutedSurface : "transparent"
+                    EchoEnter {
+                        target: styleSection
+                        active: page.pageActive
+                        order: 2
+                        duration: Theme.pageDuration
+                        curve: Theme.easeEnter
+                    }
                     bottomLeftRadius: Theme.popoverRadius
                     bottomRightRadius: Theme.popoverRadius
                     EchoVirtualGridSection {
@@ -159,6 +189,13 @@ RoutePage {
         required property SongCatalogModel collection
         readonly property bool showGrid: page.loading(section.part) || page.service.states[section.part] === DiscoveryService.Ready && section.collection.count > 0
         width: body.width
+        EchoEnter {
+            target: section
+            active: page.pageActive
+            order: 3
+            duration: Theme.pageDuration
+            curve: Theme.easeEnter
+        }
         Loader {
             width: parent.width
             property string kind: section.kind + "Header"

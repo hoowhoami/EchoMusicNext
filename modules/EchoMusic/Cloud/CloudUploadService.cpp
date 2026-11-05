@@ -787,7 +787,7 @@ void CloudUploadService::reject(quint64 id, const QByteArray &bytes)
     const auto error = QJsonDocument::fromJson(bytes).object();
     const auto kind = error.value("kind").toString();
     const auto code = error.value("code").toInteger();
-    QString message = error.value("message").toString(tr("上传请求失败"));
+    QString message = ApiClient::errorMessage(bytes, tr("上传请求失败"));
     // Read lookups may be repeated only after an explicit resume. Writes with an
     // unknown outcome are never replayed: preserve the failed row and pause the rest.
     if (m_lookupKind == None && m_index < m_files.size()) {

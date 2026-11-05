@@ -184,6 +184,93 @@ class ThemeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void transparentPopupsKeepTheirOwnEdges()
+    {
+#ifndef Q_OS_MACOS
+        QSKIP("Window server alpha-shadow capture requires macOS");
+#else
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Native window capture requires Cocoa");
+        ThemeSession session(true);
+        QVERIFY(session.create());
+        QVERIFY(Test::prepareNativeInput(session.window));
+        session.theme.setMotionEnabled(false);
+        session.shell.setMotionEnabled(false);
+        const auto applyAppearance = [&] {
+            session.windows.setAppearance(session.theme.windowFrosted(), session.theme.dark(),
+                                          session.theme.transparency());
+        };
+        connect(&session.theme, &ThemeStore::changed, &session.windows, applyAppearance);
+        session.theme.setWindowFrosted(false);
+        session.theme.setTransparency(100);
+        applyAppearance();
+        const auto captures =
+            qEnvironmentVariable("ECHO_WINDOW_CAPTURES", session.directory.path());
+        QVERIFY(QDir().mkpath(captures));
+        const auto checkEdges = [&](const QString &state) {
+            render(session.window);
+            const auto prefix = captures + "/alpha-" + state;
+            const auto number =
+                nativeWindowAppearance(session.window).value("windowNumber").toString();
+            // -o hides WindowServer's per-content shadow artifacts as well as the
+            // exterior shadow. Capture both so it cannot mask this regression.
+            return QTest::qWaitFor(
+                [&] {
+                    if (QProcess::execute("/usr/sbin/screencapture",
+                                          {"-x", "-o", "-l", number, prefix + "-body.png"}) ||
+                        QProcess::execute("/usr/sbin/screencapture",
+                                          {"-x", "-l", number, prefix + "-native.png"}))
+                        return false;
+                    const QImage body(prefix + "-body.png"), native(prefix + "-native.png");
+                    const auto expected =
+                        (QSizeF(session.window->size()) * session.window->devicePixelRatio())
+                            .toSize();
+                    return !body.isNull() && body.size() == expected && native == body;
+                },
+                5000);
+        };
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            session.theme.setMode(mode);
+            for (const bool zoomed : {false, true}) {
+                session.shell.resetZoom();
+                if (zoomed)
+                    for (int i = 0; i < 5; ++i)
+                        session.shell.zoomIn();
+                const auto suffix = QString("-%1-%2").arg(int(mode)).arg(zoomed ? 125 : 100);
+                QVERIFY(checkEdges("page" + suffix));
+                auto *more = session.item("titlebarMoreAction");
+                QVERIFY(more);
+                auto *tip = more->findChild<QObject *>("iconButtonToolTip");
+                QVERIFY(tip);
+                // Composition regression only: use the production hint recipe without
+                // moving the system pointer shared with other native UI tests.
+                QVERIFY(tip->setProperty("requestedVisible", true));
+                QTRY_VERIFY(tip->property("visible").toBool());
+                QVERIFY(checkEdges("tooltip" + suffix));
+                QVERIFY(tip->setProperty("requestedVisible", false));
+                QTRY_VERIFY(!tip->property("visible").toBool());
+                QVERIFY(QMetaObject::invokeMethod(more, "clicked"));
+                auto *menuOwner = session.root->findChild<QObject *>("titlebarMorePopupOwner");
+                QVERIFY(menuOwner);
+                QPointer<QObject> menu;
+                QTRY_VERIFY((menu = menuOwner->property("item").value<QObject *>()) &&
+                            menu->property("opened").toBool());
+                QVERIFY(checkEdges("menu" + suffix));
+                QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+                QTRY_VERIFY(menu.isNull());
+                QVERIFY(QMetaObject::invokeMethod(session.item("appearanceAction"), "clicked"));
+                auto *page = session.item("themeCenterPage");
+                QVERIFY(page);
+                QPointer<QObject> drawer;
+                QTRY_VERIFY((drawer = page->property("appearanceDrawer").value<QObject *>()) &&
+                            drawer->property("opened").toBool());
+                QVERIFY(checkEdges("drawer" + suffix));
+                QVERIFY(QMetaObject::invokeMethod(drawer, "close"));
+                QTRY_VERIFY(drawer.isNull());
+            }
+        }
+#endif
+    }
     void nativeWindowCornersRemainClearDuringResize()
     {
 #ifndef Q_OS_MACOS
@@ -214,9 +301,13 @@ private slots:
                 if (zoomed)
                     for (int i = 0; i < 5; ++i)
                         session.shell.zoomIn();
-                for (const int variant : {0, 1, 2, 3}) {
-                    session.theme.setTransparency(variant == 1 ? 60 : variant == 2 ? 100 : 0);
-                    session.theme.setWindowFrosted(variant == 3);
+                for (const int variant : {0, 1, 2, 3, 4, 5}) {
+                    session.theme.setTransparency(variant == 1                   ? 60
+                                                  : variant == 2 || variant == 5 ? 100
+                                                  : variant == 4                 ? 99
+                                                                                 : 0);
+                    const bool frosted = variant == 3 || variant == 5;
+                    session.theme.setWindowFrosted(frosted);
                     for (const auto size : {QSize(1100, 650), QSize(1260, 790), QSize(1150, 750)}) {
                         if (variant == 3 && size == QSize(1150, 750)) {
                             session.window->showMinimized();
@@ -239,9 +330,10 @@ private slots:
                         render(session.window);
                         const auto appearance = nativeWindowAppearance(session.window);
                         QCOMPARE(appearance.value("applicationBackdropCount").toInt(),
-                                 variant == 3 ? 1 : 0);
+                                 frosted ? 1 : 0);
                         QCOMPARE(appearance.value("backgroundAlpha").toReal(),
                                  variant == 0 ? 1. : 0.);
+                        QCOMPARE(appearance.value("shadow").toBool(), frosted || variant == 0);
                         const auto path = captures + QString("/corner-%1-%2-%3-%4.png")
                                                          .arg(int(mode))
                                                          .arg(zoomed)
@@ -259,8 +351,22 @@ private slots:
                             QSKIP(qPrintable("Native window capture unavailable: " +
                                              QString::fromUtf8(capture.readAllStandardError())));
                         QCOMPARE(capture.exitCode(), 0);
-                        const QImage image(path);
+                        QImage image(path);
                         QVERIFY(!image.isNull());
+                        // Cocoa can report restored geometry while WindowServer still
+                        // captures a frame of its minimize/fullscreen animation.
+                        const auto expectedSize =
+                            (QSizeF(session.window->size()) * session.window->devicePixelRatio())
+                                .toSize();
+                        const auto recapture = [&] {
+                            capture.start("/usr/sbin/screencapture",
+                                          {"-x", "-o", "-l",
+                                           appearance.value("windowNumber").toString(), path});
+                            return capture.waitForFinished(5000) && capture.exitCode() == 0 &&
+                                   image.load(path) && image.size() == expectedSize;
+                        };
+                        if (image.size() != expectedSize)
+                            QTRY_VERIFY_WITH_TIMEOUT(recapture(), 5000);
                         for (const auto p : {QPoint(1, 1), QPoint(image.width() - 2, 1),
                                              QPoint(1, image.height() - 2),
                                              QPoint(image.width() - 2, image.height() - 2)}) {
@@ -272,6 +378,16 @@ private slots:
                                                     .arg(p.y())
                                                     .arg(pixel.name())
                                                     .arg(pixel.alpha())));
+                        }
+                        if (size == QSize(1100, 650) &&
+                            !qEnvironmentVariableIsEmpty("ECHO_WINDOW_CAPTURES")) {
+                            // Keep a window-server capture including the native shadow for
+                            // visual review; grabWindow and -o exclude the exterior pixels.
+                            QCOMPARE(QProcess::execute("/usr/sbin/screencapture",
+                                                       {"-x", "-l",
+                                                        appearance.value("windowNumber").toString(),
+                                                        path + ".shadow.png"}),
+                                     0);
                         }
                     }
                 }
@@ -1389,7 +1505,7 @@ elif sys.argv[1] == 'dispatch':
 #ifdef Q_OS_MACOS
                 QCOMPARE(nativeWindowAppearance(&window).value("backgroundAlpha").toReal(), 1.0);
                 QVERIFY(nativeWindowAppearance(&window).value("shadow").toBool());
-                for (int transparency : {80, 100}) {
+                for (int transparency : {80, 99, 100}) {
                     QVERIFY(backdrop.apply(false, round % 2, transparency).isEmpty());
                     const auto appearance = nativeWindowAppearance(&window);
                     QCOMPARE(appearance.value("backgroundAlpha").toReal(), 0.0);
@@ -1398,8 +1514,9 @@ elif sys.argv[1] == 'dispatch':
                     QVERIFY(appearance.value("closeButton").toBool());
                     QCOMPARE(appearance.value("nativeWindow"), native);
                 }
-                QVERIFY(backdrop.apply(true, round % 2, 80).isEmpty());
+                QVERIFY(backdrop.apply(true, round % 2, 100).isEmpty());
                 QCOMPARE(nativeWindowAppearance(&window).value("backgroundAlpha").toReal(), 0.0);
+                QVERIFY(nativeWindowAppearance(&window).value("shadow").toBool());
 #endif
             }
             qInfo() << "Native material graphics API:" << window.rendererInterface()->graphicsApi();

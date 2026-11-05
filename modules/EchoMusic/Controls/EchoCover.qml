@@ -32,6 +32,23 @@ Item {
     property real placeholderOpacity: 0.3
     // Pooled/inactive delegates release decoded images and their mask textures.
     property bool resourceActive: true
+    property real revealOpacity: 1
+    EchoMotionScope {
+        id: revealScope
+        target: control
+        active: control.resourceActive && control.artworkOpacity > 0
+        animations: [reveal]
+    }
+    NumberAnimation {
+        id: reveal
+        target: control
+        property: "revealOpacity"
+        from: 0
+        to: 1
+        duration: Theme.normalDuration
+        easing.type: Easing.BezierSpline
+        easing.bezierCurve: Theme.easeStandard
+    }
     // An existing visible image may also supply a larger compositor transition.
     // Reserve only that bounded destination, without creating another surface.
     property real minimumDecodeSize: 0
@@ -124,11 +141,20 @@ Item {
             asynchronous: true
             retainWhileLoading: control.retainWhileLoading
             property bool previouslyReady: false
+            property bool revealPending: false
+            onSourceChanged: {
+                reveal.stop();
+                control.revealOpacity = 1;
+                revealPending = source.toString().length > 0;
+            }
             sourceSize: metrics.decodeSize
             onStatusChanged: {
-                if (status === Image.Ready)
+                if (status === Image.Ready) {
                     previouslyReady = true;
-                else if (status !== Image.Loading)
+                    if (revealPending && !control.retainWhileLoading && revealScope.allowed)
+                        reveal.restart();
+                    revealPending = false;
+                } else if (status !== Image.Loading)
                     previouslyReady = false;
                 if (status === Image.Error)
                     coverSource.reject(metrics.source);
@@ -138,7 +164,7 @@ Item {
         }
         Loader {
             objectName: "coverMaskOwner"
-            opacity: control.artworkOpacity
+            opacity: control.artworkOpacity * control.revealOpacity
             anchors.fill: parent
             active: control.resourceActive && control.hasArtwork
             // The effect and its texture provider share one lifetime. A pooled

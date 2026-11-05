@@ -365,6 +365,12 @@ void HistoryService::accept(const QJsonArray &entries)
     if (m_closed)
         return;
     cancelMetadata();
+    const auto previous = m_entries.isEmpty() ? QJsonObject{} : m_entries.first().toObject();
+    const auto latest = entries.isEmpty() ? QJsonObject{} : entries.first().toObject();
+    const bool promoted = !previous.isEmpty() && !latest.isEmpty() &&
+                          (latest["played_at"].toInteger() > previous["played_at"].toInteger() ||
+                           (latest["key"] == previous["key"] &&
+                            latest["play_count"].toInteger() > previous["play_count"].toInteger()));
     m_entries = entries;
     QJsonArray songs;
     for (qsizetype i = 0; i < m_entries.size(); ++i) {
@@ -381,6 +387,8 @@ void HistoryService::accept(const QJsonArray &entries)
     reapplyPlaybackFacts();
     completeSongs();
     emit changed();
+    if (promoted)
+        emit recordPromoted();
 }
 void HistoryService::completeSongs()
 {

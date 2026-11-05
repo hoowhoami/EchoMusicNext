@@ -118,8 +118,9 @@ EchoDialog {
                             font: Theme.font(12, Theme.regularWeight)
                             elide: Text.ElideRight
                         }
-                        Label {
+                        EchoRollingNumber {
                             text: dialog.account.gradePoints.toLocaleString(Qt.locale(), 'f', 0) + " / " + dialog.account.nextGradePoints.toLocaleString(Qt.locale(), 'f', 0)
+                            resourceActive: dialog.visible
                             color: Theme.floatingSecondaryText
                             font: Theme.font(12, Theme.regularWeight)
                         }

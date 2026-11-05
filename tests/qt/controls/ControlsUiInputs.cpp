@@ -694,6 +694,9 @@ Window {
                              first->mapToScene(QPointF(0, 0)).x(),
                          first->width() * zoom);
             QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, {640, 460});
+            auto expectedIdle = session.theme.tone();
+            expectedIdle.setAlphaF(.05);
+            QTRY_COMPARE(surface->property("color").value<QColor>(), expectedIdle);
             const auto idle = surface->property("color").value<QColor>();
             if (!captures.isEmpty()) {
                 QDir().mkpath(captures);
@@ -727,7 +730,7 @@ Window {
             click(second);
             QTRY_VERIFY(second->hasActiveFocus());
             QVERIFY(!first->hasActiveFocus());
-            QCOMPARE(surface->property("color").value<QColor>(), idle);
+            QTRY_COMPARE(surface->property("color").value<QColor>(), idle);
             click(area);
             QTRY_VERIFY(area->hasActiveFocus());
             QTRY_VERIFY((cursor = findVisual(area, "textCursor")));

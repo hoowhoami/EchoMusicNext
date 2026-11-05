@@ -1,5 +1,5 @@
-//! Library order, distinct from track order. Match acknowledgements by cloud ID
-//! and category: positions are numbered independently for owned/collected lists.
+//! Library order, distinct from track order. Preserve optional returned cloud IDs
+//! and category positions independently for owned/collected lists.
 use crate::{
     error::ApiError,
     util::{
@@ -39,42 +39,43 @@ pub struct Query {
 }
 #[derive(Debug, Serialize)]
 pub struct LibraryOrderChange {
-    pub user_id: u64,
-    pub previous_total_revision: u64,
-    pub total_revision: u64,
+    pub user_id: Option<u64>,
+    pub previous_total_revision: Option<u64>,
+    pub total_revision: Option<u64>,
     pub playlist_count: Option<u64>,
     pub positions: Vec<LibraryPosition>,
 }
 #[derive(Debug, Serialize)]
 pub struct LibraryPosition {
-    pub cloud_list_id: u64,
+    pub cloud_list_id: Option<u64>,
     pub kind: Option<Kind>,
-    pub kind_code: u32,
-    pub position: u32,
+    pub kind_code: Option<u32>,
+    pub position: Option<u32>,
+    pub resource_code: Option<i64>,
 }
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    pre_total_ver: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    total_ver: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    pre_total_ver: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    total_ver: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     list_count: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     info: Vec<Item>,
 }
 #[derive(Deserialize)]
 struct Item {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    listid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    r#type: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    sort: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    code: i64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    listid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    r#type: Option<u32>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    sort: Option<u32>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    code: Option<i64>,
 }
 pub fn validate(query: &Query) -> Result<(), ApiError> {
     if query.positions.is_empty() {
@@ -91,12 +92,7 @@ pub fn validate(query: &Query) -> Result<(), ApiError> {
     Ok(())
 }
 pub fn convert(bytes: &[u8]) -> Result<LibraryOrderChange, ApiError> {
-    let v: Data = cloudlist::decode(bytes)?;
-    for item in &v.info {
-        if item.code != 1 {
-            return Err(ApiError::business(item.code));
-        }
-    }
+    let v = cloudlist::decode::<Option<Data>>(bytes)?.unwrap_or_default();
     Ok(LibraryOrderChange {
         user_id: v.userid,
         previous_total_revision: v.pre_total_ver,
@@ -108,12 +104,13 @@ pub fn convert(bytes: &[u8]) -> Result<LibraryOrderChange, ApiError> {
             .map(|item| LibraryPosition {
                 cloud_list_id: item.listid,
                 kind: match item.r#type {
-                    0 => Some(Kind::Owned),
-                    1 => Some(Kind::Collected),
+                    Some(0) => Some(Kind::Owned),
+                    Some(1) => Some(Kind::Collected),
                     _ => None,
                 },
                 kind_code: item.r#type,
                 position: item.sort,
+                resource_code: item.code,
             })
             .collect(),
     })

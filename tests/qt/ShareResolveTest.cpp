@@ -426,7 +426,7 @@ private slots:
         ShareResolveServiceTestAccess::reject(f.shares, first,
                                               {{"code", 500}, {"message", "fixture failure"}});
         QVERIFY(!f.shares.loading());
-        QVERIFY(f.shares.explanation().contains(QStringLiteral("网络")));
+        QCOMPARE(f.shares.explanation(), QStringLiteral("fixture failure（错误码 500）"));
         f.shares.retry();
         const auto second = ShareResolveServiceTestAccess::request(f.shares);
         QVERIFY(second && second != first);

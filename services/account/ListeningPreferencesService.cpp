@@ -63,7 +63,7 @@ ListeningPreferencesService::ListeningPreferencesService(ApiClient &api, Account
             [this] { m_strengths.update(strengthRows()); });
     connect(&api, &ApiClient::succeeded, this, &ListeningPreferencesService::succeeded);
     connect(&api, &ApiClient::failed, this,
-            [this](quint64 id, int, const QByteArray &) { failed(id); });
+            [this](quint64 id, int, const QByteArray &payload) { failed(id, payload); });
     connect(&api, &ApiClient::sessionChanged, this, [this](quint64 revision) {
         clear();
         m_revision = revision;
@@ -400,11 +400,6 @@ void ListeningPreferencesService::succeeded(quint64 id, const QByteArray &bytes)
         emit changed();
     } else if (id == m_save) {
         m_save = 0;
-        if (!d.value("updated").toBool()) {
-            m_error = tr("保存失败，已保留你的选择，请重试");
-            emit changed();
-            return;
-        }
         m_baseline = m_submitted;
         m_draft = m_submitted;
         m_error.clear();
@@ -414,16 +409,16 @@ void ListeningPreferencesService::succeeded(quint64 id, const QByteArray &bytes)
             emit saved();
     }
 }
-void ListeningPreferencesService::failed(quint64 id)
+void ListeningPreferencesService::failed(quint64 id, const QByteArray &payload)
 {
     if (!id || !current())
         return;
     if (id == m_read) {
         m_read = 0;
-        m_error = tr("偏好加载失败，请稍后重试");
+        m_error = ApiClient::errorMessage(payload, tr("偏好加载失败，请稍后重试"));
     } else if (id == m_save) {
         m_save = 0;
-        m_error = tr("保存失败，已保留你的选择，请重试");
+        m_error = ApiClient::errorMessage(payload, tr("保存失败，已保留你的选择，请重试"));
     } else
         return;
     emit changed();

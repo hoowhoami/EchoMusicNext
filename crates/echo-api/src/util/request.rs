@@ -745,15 +745,18 @@ impl ApiClient {
         use base64::Engine;
         let (client, built) = request.build_split();
         let request = built.map_err(|_| ApiError::new("input", "无效接口请求"))?;
+        super::failure_diagnostics::request(&request);
         let diagnostic_path = request.url().path().to_owned();
         let intercepted = super::interception::HOST_HOOK
             .try_with(|_| true)
             .unwrap_or(false);
         let (bytes, status, headers) = match super::interception::begin(request).await? {
             super::interception::Start::Mock(reply) => {
+                super::failure_diagnostics::intercepted_response();
                 super::interception::finish(None, reply).await?
             }
             super::interception::Start::Forward(request, exchange) => {
+                super::failure_diagnostics::forwarded_request(&request, exchange.is_some());
                 let received = async {
                     let mut response = client.execute(request).await.map_err(|error| {
                         transport_error(
@@ -764,6 +767,7 @@ impl ApiClient {
                     })?;
                     let status = response.status();
                     let response_headers = response.headers().clone();
+                    super::failure_diagnostics::response(status.as_u16(), &response_headers, &[]);
                     let diagnostics = |phase, bytes| {
                         RequestDiagnostics::capture(phase, started, Some(status.as_u16()), bytes)
                     };
@@ -778,6 +782,11 @@ impl ApiClient {
                     }
                     let mut bytes = Vec::new();
                     while let Some(chunk) = response.chunk().await.map_err(|error| {
+                        super::failure_diagnostics::response(
+                            status.as_u16(),
+                            &response_headers,
+                            &bytes,
+                        );
                         transport_error(
                             error,
                             "读取接口报文失败",
@@ -785,6 +794,11 @@ impl ApiClient {
                         )
                     })? {
                         if chunk.len() > 16 * 1024 * 1024 - bytes.len() {
+                            super::failure_diagnostics::response(
+                                status.as_u16(),
+                                &response_headers,
+                                &bytes,
+                            );
                             return Err(ApiError::new("limit", "接口报文过大")
                                 .with_diagnostics(diagnostics("response_body", bytes.len())));
                         }
@@ -817,6 +831,7 @@ impl ApiClient {
         let diagnostics = |phase, count| {
             RequestDiagnostics::capture(phase, started, Some(status.as_u16()), count)
         };
+        super::failure_diagnostics::response(status.as_u16(), &headers, &bytes);
         let retry_after_seconds = headers
             .get("retry-after")
             .and_then(|v| v.to_str().ok())
@@ -886,6 +901,7 @@ pub fn unix_seconds() -> Result<u64, ApiError> {
         .map_err(|_| ApiError::new("clock", "系统时钟无效"))
 }
 pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
+    super::failure_diagnostics::decoded(bytes);
     serde_json::from_slice(bytes).map_err(|_| ApiError::decode())
 }
 /// Report only whitelisted protocol field names and array positions. Never

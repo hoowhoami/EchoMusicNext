@@ -67,7 +67,6 @@ void ProfileService::clear()
     }
     requests.append(std::exchange(m_deviceRequest, 0));
     requests.append(std::exchange(m_deviceKick, 0));
-    m_deviceKickRefresh = false;
     m_kickingDeviceKey.clear();
     m_pendingDevice = {};
     m_pendingDeviceTitle.clear();
@@ -619,23 +618,19 @@ void ProfileService::succeeded(quint64 id, const QByteArray &payload)
     }
     if (id == m_deviceKick) {
         m_deviceKick = 0;
-        if (!document.object().value("removed").toBool()) {
-            m_kickingDeviceKey.clear();
-            m_devicesError = tr("设备移除失败，请重试");
-            emit changed();
+        m_pendingDevice = {};
+        m_pendingDeviceTitle.clear();
+        m_kickingDeviceKey.clear();
+        m_devicesError.clear();
+        const auto revision = m_revision;
+        emit changed();
+        if (!current() || revision != m_revision)
             return;
-        }
-        m_deviceKickRefresh = true;
-        // Cancel any pre-write snapshot and fetch again, matching EchoMusic.
-        loadDevices(true);
-        if (!m_deviceRequest) {
-            m_pendingDevice = {};
-            m_pendingDeviceTitle.clear();
-            m_deviceKickRefresh = false;
-            m_kickingDeviceKey.clear();
-            m_devicesError = tr("移除请求已提交，请刷新确认设备状态");
-            emit changed();
-        }
+        if (m_devicesActive && m_kickActivation == m_deviceActivation)
+            emit deviceRemovalFinished(true, tr("登录设备已移除"));
+        // Refresh only synchronizes the list; it does not approve the removal.
+        if (current() && revision == m_revision && m_devicesActive)
+            loadDevices(true);
         return;
     }
     if (id == m_avatarRequest) {
@@ -653,13 +648,9 @@ void ProfileService::succeeded(quint64 id, const QByteArray &payload)
             return;
         }
         const auto avatar = object.value("avatar_url").toString();
-        if (avatar.isEmpty()) {
-            emit changed();
-            emit avatarFinished(false, tr("头像上传失败，请稍后重试"));
-            return;
-        }
         const auto generation = m_avatarGeneration;
-        m_account.applyAvatar(avatar);
+        if (!avatar.isEmpty())
+            m_account.applyAvatar(avatar);
         if (!current() || generation != m_avatarGeneration)
             return;
         emit changed();
@@ -673,11 +664,6 @@ void ProfileService::succeeded(quint64 id, const QByteArray &payload)
             continue;
         tab.request = 0;
         const auto users = document.object().value("users");
-        if (!users.isArray()) {
-            tab.error = tr("列表响应无效");
-            emit changed();
-            return;
-        }
         tab.loaded = true;
         const auto unmapped = document.object().value("unmapped_entries");
         // A successful transport must not masquerade as an empty friends list
@@ -691,42 +677,13 @@ void ProfileService::succeeded(quint64 id, const QByteArray &payload)
     }
     if (id == m_deviceRequest) {
         m_deviceRequest = 0;
-        if (!document.isArray()) {
-            m_devicesError = tr("登录设备响应无效");
-            if (m_deviceKickRefresh) {
-                m_pendingDevice = {};
-                m_pendingDeviceTitle.clear();
-            }
-            m_deviceKickRefresh = false;
-            m_kickingDeviceKey.clear();
-            emit changed();
-            return;
-        }
         m_devices.replace(document.array());
         m_devicesLoaded = true;
-        if (m_deviceKickRefresh) {
-            m_pendingDevice = {};
-            m_pendingDeviceTitle.clear();
-            const bool removed = m_devices.device(m_kickingDeviceKey).isEmpty();
-            m_deviceKickRefresh = false;
-            m_kickingDeviceKey.clear();
-            if (!removed)
-                m_devicesError = tr("设备仍在列表中，请刷新确认移除结果");
-            if (m_devicesActive && m_kickActivation == m_deviceActivation)
-                emit deviceRemovalFinished(removed,
-                                           removed ? tr("登录设备已移除") : m_devicesError);
-        }
         emit changed();
         return;
     }
     if (id == m_save) {
         m_save = 0;
-        if (!document.object().value("updated").toBool()) {
-            m_editorError = tr("个人资料保存失败，请稍后重试");
-            emit changed();
-            emit editNotice(m_editorError, 3);
-            return;
-        }
         const auto revision = m_revision;
         const auto patch = std::exchange(m_patch, {});
         m_account.applyProfilePatch(patch);
@@ -743,7 +700,7 @@ void ProfileService::failed(quint64 id, const QByteArray &payload)
 {
     if (!id || !current())
         return;
-    const auto message = QJsonDocument::fromJson(payload).object()["message"].toString();
+    const auto message = ApiClient::errorMessage(payload);
     if (id == m_chatRead) {
         m_chatRead = 0;
         m_chatError = message.isEmpty() ? tr("私信记录获取失败，请稍后重试") : message;
@@ -769,7 +726,8 @@ void ProfileService::failed(quint64 id, const QByteArray &payload)
         m_kickingDeviceKey.clear();
         const bool expired =
             QJsonDocument::fromJson(payload).object().value("kind") == "authentication";
-        m_devicesError = expired ? tr("登录已失效，请重新登录") : tr("设备移除失败，请重试");
+        m_devicesError = ApiClient::errorMessage(payload, expired ? tr("登录已失效，请重新登录")
+                                                                  : tr("设备移除失败，请重试"));
         emit changed();
         if (m_devicesActive && m_kickActivation == m_deviceActivation)
             emit deviceRemovalFinished(false, m_devicesError);
@@ -785,32 +743,20 @@ void ProfileService::failed(quint64 id, const QByteArray &payload)
         if (tab.request != id)
             continue;
         tab.request = 0;
-        tab.error = tr("列表加载失败，请稍后重试");
+        tab.error = ApiClient::errorMessage(payload, tr("列表加载失败，请稍后重试"));
         emit changed();
         return;
     }
     if (id == m_deviceRequest) {
         m_deviceRequest = 0;
-        if (m_deviceKickRefresh) {
-            m_pendingDevice = {};
-            m_pendingDeviceTitle.clear();
-        }
-        const bool expired =
-            QJsonDocument::fromJson(payload).object().value("kind") == "authentication";
-        m_devicesError =
-            expired ? (m_deviceKickRefresh ? tr("移除请求已成功，当前登录已失效，请重新登录")
-                                           : tr("登录已失效，请重新登录"))
-            : m_deviceKickRefresh ? tr("移除请求已提交，设备列表刷新失败，请刷新确认")
-                                  : tr("登录设备获取失败");
-        m_deviceKickRefresh = false;
-        m_kickingDeviceKey.clear();
+        m_devicesError = ApiClient::errorMessage(payload, tr("登录设备获取失败"));
         emit changed();
         return;
     }
     if (id == m_save) {
         m_save = 0;
         m_patch = {};
-        m_editorError = tr("个人资料保存失败，请稍后重试");
+        m_editorError = ApiClient::errorMessage(payload, tr("个人资料保存失败，请稍后重试"));
         emit changed();
         emit editNotice(m_editorError, 3);
     }

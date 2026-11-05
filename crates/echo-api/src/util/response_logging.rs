@@ -1,14 +1,20 @@
 //! Optional response diagnostics, independent of response DTO/conversion rules.
 //! Secrets must be removed before entering either the Rust or Qt log queue.
 use serde_json::{Map, Value};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
 pub fn set_enabled(enabled: bool) {
     ENABLED.store(enabled, Ordering::Relaxed);
 }
-fn sensitive(key: &str) -> bool {
+pub(crate) fn sensitive(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
+    if matches!(key.as_str(), "keyword" | "keywords") {
+        return false;
+    }
     [
         "token",
         "password",
@@ -46,31 +52,69 @@ fn sensitive(key: &str) -> bool {
     .any(|part| key.contains(part))
         || matches!(
             key.as_str(),
-            "t1" | "mid" | "dfid" | "uuid" | "guid" | "mac" | "sid" | "edt" | "dev" | "serverdev"
+            "ssa-code"
+                | "sign"
+                | "auth"
+                | "t1"
+                | "mid"
+                | "dfid"
+                | "uuid"
+                | "guid"
+                | "mac"
+                | "sid"
+                | "edt"
+                | "dev"
+                | "serverdev"
         )
 }
-fn sanitize(value: &Value, depth: usize, budget: &mut usize) -> Value {
-    if depth >= 6 || *budget < 24 {
+fn clip(text: &str, limit: usize) -> String {
+    let mut end = text.len().min(limit);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_owned()
+}
+fn safe_text(text: &str, secrets: &[String]) -> String {
+    static LABELS: OnceLock<regex::Regex> = OnceLock::new();
+    static ADDRESSES: OnceLock<regex::Regex> = OnceLock::new();
+    static BEARER: OnceLock<regex::Regex> = OnceLock::new();
+    let mut result = text.to_owned();
+    for secret in secrets {
+        result = result.replace(secret, "[redacted]");
+    }
+    result = LABELS.get_or_init(|| regex::Regex::new(
+        r#"(?i)(\b(?:token|t1|password|passwd|secret|cookie|authorization|ticket|signature|verifycode|secu_params)\b[\s\"']*[:=][\s\"']*)[^\s\"'&,;<>}]+"#
+    ).unwrap()).replace_all(&result, "$1[redacted]").into_owned();
+    result = BEARER
+        .get_or_init(|| regex::Regex::new(r"(?i)bearer\s+[a-z0-9._~+/=-]+").unwrap())
+        .replace_all(&result, "Bearer [redacted]")
+        .into_owned();
+    ADDRESSES
+        .get_or_init(|| regex::Regex::new(r#"(?i)https?://[^\s\"'<>]+"#).unwrap())
+        .replace_all(&result, "[redacted address]")
+        .into_owned()
+}
+fn sanitize(value: &Value, depth: usize, budget: &mut usize, secrets: &[String]) -> Value {
+    if depth >= 16 || *budget < 24 {
         return Value::String("[truncated]".into());
     }
     *budget -= 24;
     match value {
         Value::Object(object) => {
             let mut result = Map::new();
-            for (key, value) in object.iter().take(32) {
+            for (key, value) in object {
                 if *budget < 24 {
                     break;
                 }
-                // Keys are also untrusted response data. Bound them and refuse
-                // labels that themselves contain a URL or an oversized value.
-                let label: String = key.chars().take(64).collect();
-                *budget = budget.saturating_sub(label.len());
+                let label = clip(&safe_text(key, secrets), 64);
+                *budget =
+                    budget.saturating_sub(serde_json::to_string(&label).unwrap_or_default().len());
                 result.insert(
                     label,
                     if sensitive(key) {
                         Value::String("[redacted]".into())
                     } else {
-                        sanitize(value, depth + 1, budget)
+                        sanitize(value, depth + 1, budget, secrets)
                     },
                 );
             }
@@ -81,23 +125,29 @@ fn sanitize(value: &Value, depth: usize, budget: &mut usize) -> Value {
         }
         Value::Array(array) => {
             let mut result = Vec::new();
-            for value in array.iter().take(16) {
+            for value in array {
                 if *budget < 24 {
                     break;
                 }
-                result.push(sanitize(value, depth + 1, budget));
+                result.push(sanitize(value, depth + 1, budget, secrets));
+            }
+            if result.len() < array.len() {
+                result.push(serde_json::json!({"_truncated_items":array.len() - result.len()}));
             }
             Value::Array(result)
         }
         Value::String(text) => {
-            if text.contains("://") || text.to_ascii_lowercase().starts_with("bearer ") {
-                return Value::String("[redacted address or credential]".into());
+            let redacted = safe_text(text, secrets);
+            let mut clipped = clip(&redacted, (*budget).min(2048));
+            while serde_json::to_string(&clipped).unwrap_or_default().len() > *budget
+                && !clipped.is_empty()
+            {
+                clipped.pop();
             }
-            let limit = (*budget).min(256);
-            let clipped: String = text.chars().take(limit / 4).collect();
-            *budget = budget.saturating_sub(clipped.len());
-            Value::String(if clipped.len() < text.len() {
-                clipped + "…"
+            let encoded = serde_json::to_string(&clipped).unwrap_or_default().len();
+            *budget = budget.saturating_sub(encoded);
+            Value::String(if clipped.len() < redacted.len() {
+                clipped + "…[truncated]"
             } else {
                 clipped
             })
@@ -105,10 +155,13 @@ fn sanitize(value: &Value, depth: usize, budget: &mut usize) -> Value {
         scalar => scalar.clone(),
     }
 }
+pub(crate) fn diagnostic_value(value: &Value, secrets: &[String]) -> Value {
+    sanitize(value, 0, &mut 5500, secrets)
+}
 fn payload(bytes: &[u8], status: u16, path: &str) -> String {
     let mut budget = 3500;
     let response = serde_json::from_slice::<Value>(bytes)
-        .map(|body| sanitize(&body, 0, &mut budget))
+        .map(|body| sanitize(&body, 0, &mut budget, &[]))
         .unwrap_or_else(|_| Value::String("[non-JSON response omitted]".into()));
     // Only the static path (not query, host, headers or request body) is used.
     serde_json::json!({"httpStatus": status, "path": path, "response": response}).to_string()

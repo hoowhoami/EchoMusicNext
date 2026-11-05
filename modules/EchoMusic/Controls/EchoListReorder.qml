@@ -18,7 +18,9 @@ Item {
     property real handleRight: 0
     property bool resourceActive: true
     property bool blocked: false
-    readonly property bool usable: resourceActive && !blocked && enabled && visible && sourceModel !== null && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized
+    // A fixed/disabled order still presents its visible rows and artwork.
+    readonly property bool presentationActive: resourceActive && visible && sourceModel !== null && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized
+    readonly property bool usable: presentationActive && !blocked && enabled
     // idle -> dragging -> settling -> idle; any external invalidation cancels.
     property string phase: "idle"
     readonly property bool dragging: phase === "dragging"

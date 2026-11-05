@@ -2,6 +2,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QPointer>
+#include <QTimer>
+#include <utility>
 
 namespace EchoMusic
 {
@@ -16,6 +18,11 @@ std::optional<quint64> integer(const QJsonObject &object, const char *key)
     if (value.toDouble() != double(result))
         return {};
     return quint64(result);
+}
+qint64 count(const QJsonObject &object, const char *key)
+{
+    const auto value = integer(object, key);
+    return value ? qint64(*value) : -1;
 }
 } // namespace
 PlaylistMutationService::PlaylistMutationService(ApiClient &api, QObject *parent)
@@ -35,6 +42,8 @@ PlaylistMutationService::~PlaylistMutationService()
 {
     if (m_request)
         m_api.cancel(m_request);
+    if (m_refreshRequest)
+        m_api.cancel(m_refreshRequest);
 }
 bool PlaylistMutationService::ready() const
 {
@@ -68,8 +77,6 @@ bool PlaylistMutationService::update(const ApiClient::PlaylistUpdate &update)
 {
     if (!ready())
         return false;
-    m_coverFileName = update.coverReference ? update.coverReference->section(u'/', -1) : QString();
-    m_expectedCoverUrl.clear();
     return ready() && begin(m_api.updatePlaylist(update), Kind::Update, update.id);
 }
 bool PlaylistMutationService::libraryOperation() const
@@ -85,9 +92,6 @@ bool PlaylistMutationService::sortLibrary(quint64 totalRevision,
     const auto request = m_api.sortPlaylists(totalRevision, positions);
     if (!request)
         return false;
-    m_positions.clear();
-    for (const auto &position : positions)
-        m_positions.insert(position.id.value, position);
     return begin(request, Kind::SortLibrary, {0});
 }
 bool PlaylistMutationService::saveCover(const ApiClient::PlaylistUpdate &update,
@@ -102,19 +106,14 @@ bool PlaylistMutationService::saveEdit(const ApiClient::PlaylistUpdate &update,
         (!png.isEmpty() && !png.startsWith(QByteArray::fromHex("89504e470d0a1a0a"))))
         return false;
     m_revision = m_api.sessionRevision();
-    m_userId = m_api.currentAccountUserId();
     m_error.clear();
-    m_acknowledgement.clear();
     m_coverUpdate = update;
     m_coverPng = png;
-    m_coverFileName.clear();
-    m_expectedCoverUrl.clear();
     m_coverStage = CoverStage::BeforeUpload;
     m_page = 1;
     m_seen = 0;
     m_found = false;
     m_libraryReadIds.clear();
-    m_directoryItems = {};
     QPointer<PlaylistMutationService> guard(this);
     readCoverLibrary();
     return guard && m_request != 0;
@@ -125,8 +124,6 @@ void PlaylistMutationService::coverFailed(const QString &message)
     m_coverStage = CoverStage::None;
     m_coverPng.clear();
     m_coverUpdate = {};
-    m_coverFileName.clear();
-    m_expectedCoverUrl.clear();
     m_libraryReadIds.clear();
     m_state = State::Ready;
     m_error = message;
@@ -151,12 +148,9 @@ void PlaylistMutationService::coverSucceeded(const QJsonObject &object)
             !file.endsWith(QStringLiteral(".png")) ||
             reference != QStringLiteral("custom/") + file) {
             m_coverPng.clear();
-            m_state = State::OutcomeUnknown;
-            m_error = QStringLiteral("上传结果无法核对，歌单尚未提交修改");
-            emit changed();
+            coverFailed(tr("封面上传失败，请重新选择图片"));
             return;
         }
-        m_coverFileName = file;
         m_coverUpdate.coverReference = reference;
         m_coverStage = CoverStage::AfterUpload;
         m_page = 1;
@@ -167,14 +161,11 @@ void PlaylistMutationService::coverSucceeded(const QJsonObject &object)
         return;
     }
     const auto page = object.value("page").toObject();
-    const auto user = integer(object, "user_id"), version = integer(object, "total_revision"),
-               total = integer(page, "total");
-    if (!user || *user != m_userId || !version || *version != m_coverUpdate.totalRevision ||
-        !page.value("items").isArray()) {
-        coverFailed(QStringLiteral("歌单库已变化或读取无法核对，请保留草稿并重新加载"));
+    const auto version = integer(object, "total_revision"), total = integer(page, "total");
+    if (!version || *version != m_coverUpdate.totalRevision) {
+        coverFailed(tr("歌单列表已变化，请重新加载后修改"));
         return;
     }
-    m_coverCount = total.value_or(0);
     const auto previousSeen = m_seen;
     for (const auto &value : page.value("items").toArray()) {
         const auto row = value.toObject();
@@ -238,15 +229,8 @@ bool PlaylistMutationService::begin(quint64 request, Kind kind, ApiClient::Cloud
         return false;
     m_request = request;
     m_revision = m_api.sessionRevision();
-    m_userId = m_api.currentAccountUserId();
     m_kind = kind;
     m_id = id;
-    if (kind != Kind::SortLibrary)
-        m_positions.clear();
-    if (kind != Kind::Update)
-        m_coverFileName.clear();
-    m_expectedCoverUrl.clear();
-    m_acknowledgement.clear();
     m_error.clear();
     m_state = State::Writing;
     emit changed();
@@ -254,277 +238,196 @@ bool PlaylistMutationService::begin(quint64 request, Kind kind, ApiClient::Cloud
 }
 void PlaylistMutationService::reset()
 {
-    const auto request = m_request;
-    m_request = 0;
-    m_acknowledgement.clear();
+    const auto request = std::exchange(m_request, 0);
+    const auto refresh = std::exchange(m_refreshRequest, 0);
+    m_refresh.reset();
+    m_refreshQueue.clear();
     m_error.clear();
     m_id = {0};
     m_coverStage = CoverStage::None;
     m_coverUpdate = {};
     m_coverPng.clear();
-    m_coverFileName.clear();
-    m_expectedCoverUrl.clear();
-    m_positions.clear();
-    m_verifiedPositions.clear();
     m_libraryReadIds.clear();
-    m_directoryItems = {};
     m_revision = m_api.sessionRevision();
     m_state = !m_closed && m_api.currentAccountUserId() ? State::Ready : State::SignedOut;
     QPointer<PlaylistMutationService> guard(this);
     if (request)
         m_api.cancel(request);
+    if (refresh)
+        m_api.cancel(refresh);
     if (guard)
         emit changed();
 }
-void PlaylistMutationService::requireRefresh(const QString &message)
-{
-    m_request = 0;
-    m_error = message;
-    m_state = State::RefreshRequired;
-    emit changed();
-}
 void PlaylistMutationService::succeed(quint64 request, const QByteArray &payload)
 {
-    if (request != m_request || m_revision != m_api.sessionRevision())
+    const auto object = QJsonDocument::fromJson(payload).object();
+    if (request && request == m_refreshRequest) {
+        m_refreshRequest = 0;
+        if (m_refresh && m_refresh->session == m_api.sessionRevision())
+            acceptRefresh(object);
+        return;
+    }
+    if (!request || request != m_request || m_revision != m_api.sessionRevision())
         return;
     m_request = 0;
-    const auto object = QJsonDocument::fromJson(payload).object();
     if (m_coverStage != CoverStage::None) {
         coverSucceeded(object);
         return;
     }
-    const auto user = integer(object, "user_id");
-    if (m_state == State::Writing) {
-        const auto id = integer(object, "cloud_list_id");
-        const bool library = libraryOperation();
-        const auto version = integer(object, library ? "total_revision" : "revision");
-        const auto count = integer(object, library ? "playlist_count" : "song_count");
-        const bool idValid = m_kind == Kind::SortLibrary
-                                 ? !object.contains("cloud_list_id")
-                                 : id && *id && (!m_id.value || *id == m_id.value);
-        if (!user || *user != m_userId || !idValid || !version) {
-            m_state = State::OutcomeUnknown;
-            m_error = QStringLiteral("写操作响应无法核对，请先刷新歌单");
-            emit changed();
-            return;
-        }
-        if (id)
-            m_id = {*id};
-        if (!m_coverFileName.isEmpty()) {
-            const auto cover = object.value("cover_url");
-            if (!cover.isString() || cover.toString().isEmpty()) {
-                m_state = State::OutcomeUnknown;
-                m_error = QStringLiteral("封面响应无法核对，请先刷新");
-                emit changed();
-                return;
-            }
-            m_expectedCoverUrl = cover.toString();
-        }
-        m_expectedRevision = *version;
-        if (count)
-            m_expectedCount = *count;
-        m_acknowledgement = payload;
-        reconcile();
-        return;
-    }
-    if (m_state != State::Reconciling)
-        return;
+    const auto session = m_revision;
+    const auto id = m_id;
     const bool library = libraryOperation();
-    const auto page = object.value("page").toObject();
-    const auto version = integer(object, library ? "total_revision" : "revision");
-    const auto total = integer(page, "total");
-    // Manual reconciliation can observe a later legitimate mutation. Capture
-    // its first-page revision and require every remaining page to match.
-    if (m_acceptNewer && m_page == 1 && version && *version >= m_expectedRevision && total) {
-        m_expectedRevision = *version;
-        m_expectedCount = *total;
-    }
-    if (!user || *user != m_userId || !version || *version != m_expectedRevision ||
-        !page.value("items").isArray()) {
-        requireRefresh(QStringLiteral("歌单已变化或读取无法核对，请刷新后查看当前状态"));
-        return;
-    }
-    if (!library && integer(object, "cloud_list_id") != std::optional<quint64>(m_id.value)) {
-        requireRefresh(QStringLiteral("歌曲所属歌单无法核对"));
-        return;
-    }
-    const auto items = page.value("items").toArray();
-    if (library) {
-        for (const auto &item : items)
-            m_directoryItems.append(item);
-        m_seen += quint64(items.size());
-        for (const auto &value : items) {
-            const auto row = value.toObject();
-            const auto cloudId = integer(row, "cloud_list_id");
-            if (!cloudId || !*cloudId || m_libraryReadIds.contains(*cloudId))
-                continue;
-            m_libraryReadIds.insert(*cloudId);
-            if (m_kind == Kind::SortLibrary) {
-                const auto id = integer(row, "cloud_list_id");
-                const auto found = m_positions.constFind(id.value_or(0));
-                if (found != m_positions.cend()) {
-                    const auto &position = found.value();
-                    const auto kind = position.kind == ApiClient::PlaylistKind::Owned
-                                          ? QStringLiteral("owned")
-                                          : QStringLiteral("collected");
-                    if (row.value("kind").toString() != kind ||
-                        integer(row, "sort_index") != std::optional<quint64>(position.position) ||
-                        m_verifiedPositions.contains(position.id.value)) {
-                        requireRefresh(QStringLiteral("歌单排序读取与提交位置不一致"));
-                        return;
-                    }
-                    m_verifiedPositions.insert(position.id.value);
-                }
-            }
-            if (integer(value.toObject(), "cloud_list_id") == std::optional<quint64>(m_id.value)) {
-                if (!m_coverFileName.isEmpty() &&
-                    (!row.value("custom_cover").toBool() ||
-                     row.value("cover_url").toString() != m_expectedCoverUrl)) {
-                    requireRefresh(QStringLiteral("自定义封面尚未从歌单读取确认"));
-                    return;
-                }
-                m_found = true;
-            }
-        }
-        if (!items.isEmpty() && (total ? m_seen < *total : items.size() >= 100)) {
-            ++m_page;
-            readNext();
-            return;
-        }
-        if (m_kind == Kind::SortLibrary ? m_verifiedPositions.size() != m_positions.size()
-                                        : m_found != (m_kind != Kind::Remove)) {
-            requireRefresh(QStringLiteral("写入后的歌单状态尚未确认"));
-            return;
-        }
-    }
-    const auto acknowledgement = m_acknowledgement;
-    const auto revision = m_revision;
-    const auto id = m_id.value;
     m_state = State::Ready;
     m_error.clear();
-    m_acknowledgement.clear();
+    // API success is the write result. Refreshing the view is a separate read,
+    // so a stale replica or failed refresh cannot turn it into a failed write.
+    queueRefresh(library, id);
     QPointer<PlaylistMutationService> guard(this);
-    if (library) {
+    if (!library) {
+        emit tracksReconciled(id.value, integer(object, "revision").value_or(0),
+                              count(object, "song_count"), session);
+        if (!guard || session != m_api.sessionRevision())
+            return;
+        emit tracksInvalidated(id.value);
+    }
+    if (!guard || session != m_api.sessionRevision())
+        return;
+    emit completed(payload);
+    if (guard && session == m_api.sessionRevision())
+        emit changed();
+}
+void PlaylistMutationService::queueRefresh(bool library, ApiClient::CloudPlaylistId id)
+{
+    if (m_refresh && m_refresh->library == library &&
+        (library || m_refresh->id.value == id.value)) {
+        const auto request = std::exchange(m_refreshRequest, 0);
+        m_refresh.reset();
+        if (request)
+            m_api.cancel(request);
+    }
+    // Coalesce queued updates; a newer acknowledgement retires that resource's
+    // older refresh without affecting reads of other playlists.
+    bool queued = false;
+    for (const auto &refresh : std::as_const(m_refreshQueue))
+        if (refresh.library == library && (library || refresh.id.value == id.value)) {
+            queued = true;
+            break;
+        }
+    if (!queued)
+        m_refreshQueue.append(
+            Refresh{library, id, m_api.sessionRevision(), 1, std::nullopt, {}, {}});
+    QTimer::singleShot(0, this, &PlaylistMutationService::readRefresh);
+}
+void PlaylistMutationService::readRefresh()
+{
+    if (m_closed || m_refreshRequest)
+        return;
+    if (!m_refresh) {
+        if (m_refreshQueue.isEmpty())
+            return;
+        m_refresh = m_refreshQueue.takeFirst();
+    }
+    if (m_refresh->session != m_api.sessionRevision()) {
+        finishRefresh();
+        return;
+    }
+    m_refreshRequest = m_refresh->library ? m_api.userPlaylists(m_refresh->page, 100)
+                                          : m_api.cloudPlaylistTracks(m_refresh->id, 1, 300);
+    if (!m_refreshRequest)
+        finishRefresh();
+}
+void PlaylistMutationService::acceptRefresh(const QJsonObject &object)
+{
+    if (!m_refresh)
+        return;
+    const auto session = m_refresh->session;
+    const auto page = object.value("page").toObject();
+    const auto items = page.value("items").toArray();
+    QPointer<PlaylistMutationService> guard(this);
+    if (!m_refresh->library) {
+        const auto id = m_refresh->id.value;
+        emit tracksReconciled(id, integer(object, "revision").value_or(0), count(page, "total"),
+                              session);
+        if (!guard || session != m_api.sessionRevision())
+            return;
+        emit trackPageReconciled(object, session);
+    } else {
+        const auto version = integer(object, "total_revision");
+        // This is one paged directory read; do not merge different snapshots.
+        if (m_refresh->page > 1 && version != m_refresh->version) {
+            finishRefresh();
+            return;
+        }
+        m_refresh->version = version;
+        const auto previousCount = m_refresh->items.size();
+        bool repeatedPage =
+            m_refresh->page > 1 && !items.isEmpty() && previousCount >= items.size();
+        for (qsizetype index = 0; repeatedPage && index < items.size(); ++index)
+            repeatedPage =
+                m_refresh->items.at(previousCount - items.size() + index) == items[index];
+        for (const auto &item : repeatedPage ? QJsonArray{} : items) {
+            const auto id = quint64(item.toObject().value("cloud_list_id").toInteger());
+            const auto found = m_refresh->positions.constFind(id);
+            // Missing account-local IDs and distinct public identities must
+            // remain separate rows, just as in the normal library reader.
+            const auto previous = found != m_refresh->positions.cend()
+                                      ? m_refresh->items[*found].toObject()
+                                      : QJsonObject{};
+            const auto row = item.toObject();
+            if (id && found != m_refresh->positions.cend() && *found < previousCount &&
+                previous.value("global_id") == row.value("global_id") &&
+                previous.value("kind") == row.value("kind"))
+                m_refresh->items[*found] = item;
+            else {
+                if (id)
+                    m_refresh->positions.insert(id, m_refresh->items.size());
+                m_refresh->items.append(item);
+            }
+        }
+        const auto total = integer(page, "total");
+        if (m_refresh->items.size() > previousCount &&
+            (total ? quint64(m_refresh->items.size()) < *total : items.size() >= 100)) {
+            ++m_refresh->page;
+            readRefresh();
+            return;
+        }
         auto snapshot = object;
         auto completePage = page;
-        completePage["items"] = m_directoryItems;
+        completePage["items"] = m_refresh->items;
         snapshot["page"] = completePage;
-        emit libraryReconciled(snapshot, revision);
-        if (!guard || revision != m_api.sessionRevision())
+        emit libraryReconciled(snapshot, session);
+        if (!guard || session != m_api.sessionRevision())
             return;
         emit libraryInvalidated();
-    } else {
-        emit tracksReconciled(id, *version, total ? qint64(*total) : -1, revision);
-        if (!guard || revision != m_api.sessionRevision())
-            return;
-        emit trackPageReconciled(object, revision);
     }
-    if (!guard || revision != m_api.sessionRevision())
-        return;
-    if (!library)
-        emit tracksInvalidated(id);
-    if (!guard || revision != m_api.sessionRevision())
-        return;
-    emit completed(acknowledgement);
-    if (!guard || revision != m_api.sessionRevision())
-        return;
-    emit changed();
+    if (guard && session == m_api.sessionRevision())
+        finishRefresh();
+}
+void PlaylistMutationService::finishRefresh()
+{
+    m_refresh.reset();
+    m_refreshRequest = 0;
+    QTimer::singleShot(0, this, &PlaylistMutationService::readRefresh);
 }
 void PlaylistMutationService::fail(quint64 request, const QByteArray &payload)
 {
-    if (request != m_request || m_revision != m_api.sessionRevision())
+    if (request && request == m_refreshRequest) {
+        finishRefresh(); // A view refresh cannot change an acknowledged write.
+        return;
+    }
+    if (!request || request != m_request || m_revision != m_api.sessionRevision())
         return;
     m_request = 0;
-    if (m_coverStage != CoverStage::None && m_coverStage != CoverStage::Upload) {
-        coverFailed(QStringLiteral("封面版本检查失败，请保留草稿并重新加载"));
-        return;
-    }
-    if (m_state == State::Reconciling) {
-        requireRefresh(QStringLiteral("写操作已收到响应，但读取核对失败，请重新刷新"));
-        return;
-    }
-    const auto kind = QJsonDocument::fromJson(payload).object().value("kind").toString();
-    // A business/auth/challenge rejection is definitive; other errors (including
-    // invalid DTO/HTTP/transport) can follow a committed write and stay unknown.
-    if (kind == QStringLiteral("business") || kind == QStringLiteral("authentication") ||
-        kind == QStringLiteral("input") || kind == QStringLiteral("challenge")) {
-        m_state = State::Ready;
-        m_coverStage = CoverStage::None;
-        m_coverPng.clear();
-        m_coverUpdate = {};
-        m_coverFileName.clear();
-        m_expectedCoverUrl.clear();
-        m_error = QStringLiteral("音乐服务拒绝了写操作");
-    } else {
-        m_state = State::OutcomeUnknown;
-        m_error = QStringLiteral("写操作结果未知，请先刷新，避免重复提交");
-    }
-    emit changed();
-}
-bool PlaylistMutationService::reconcile()
-{
-    if (m_request || m_acknowledgement.isEmpty() || m_revision != m_api.sessionRevision())
-        return false;
-    m_acceptNewer = m_state == State::RefreshRequired;
-    m_page = 1;
-    m_seen = 0;
-    m_found = false;
-    m_verifiedPositions.clear();
-    m_libraryReadIds.clear();
-    m_directoryItems = {};
-    m_state = State::Reconciling;
-    m_error.clear();
-    const auto revision = m_revision;
-    QPointer<PlaylistMutationService> guard(this);
-    emit changed();
-    if (!guard || revision != m_api.sessionRevision() || m_state != State::Reconciling)
-        return false;
-    readNext();
-    return guard && m_request != 0;
-}
-void PlaylistMutationService::readNext()
-{
-    const bool library = libraryOperation();
-    m_request =
-        library ? m_api.userPlaylists(m_page, 100) : m_api.cloudPlaylistTracks(m_id, 1, 300);
-    if (!m_request)
-        requireRefresh(QStringLiteral("读取核对无法启动"));
+    coverFailed(ApiClient::errorMessage(payload, tr("歌单操作失败，请稍后重试")));
 }
 void PlaylistMutationService::cancel()
 {
     if (!m_request)
         return;
-    const auto request = m_request;
-    m_request = 0;
+    const auto request = std::exchange(m_request, 0);
     QPointer<PlaylistMutationService> guard(this);
     m_api.cancel(request);
-    if (!guard)
-        return;
-    if (m_coverStage == CoverStage::BeforeUpload || m_coverStage == CoverStage::AfterUpload) {
-        coverFailed(QStringLiteral("已取消封面版本检查，歌单未提交修改"));
-        return;
-    }
-    if (m_state == State::Writing || m_state == State::UploadingCover) {
-        m_state = State::OutcomeUnknown;
-        m_error = QStringLiteral("已停止等待，远端写入结果需刷新确认");
-        emit changed();
-    } else
-        requireRefresh(QStringLiteral("已停止读取核对，请重新刷新"));
-}
-void PlaylistMutationService::acceptRefreshedUnknownOutcome()
-{
-    if (m_state == State::OutcomeUnknown && m_revision == m_api.sessionRevision()) {
-        m_coverStage = CoverStage::None;
-        m_coverPng.clear();
-        m_coverUpdate = {};
-        m_coverFileName.clear();
-        m_expectedCoverUrl.clear();
-        m_positions.clear();
-        m_libraryReadIds.clear();
-        m_acknowledgement.clear();
-        m_state = State::Ready;
-        m_error.clear();
-        emit changed();
-    }
+    if (guard)
+        coverFailed({});
 }
 } // namespace EchoMusic

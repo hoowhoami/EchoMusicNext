@@ -1417,8 +1417,15 @@ set_tests_properties(history PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" 
 
 qt_add_executable(echo-motion-test MotionTest.cpp)
 target_link_libraries(
-    echo-motion-test PRIVATE echo_controls echo_controlsplugin echo_theme echo_themeplugin
-                             Qt6::Quick Qt6::Test
+    echo-motion-test
+    PRIVATE echo_controls
+            echo_controlsplugin
+            echo_theme
+            echo_themeplugin
+            echo_music
+            echo_musicplugin
+            Qt6::Quick
+            Qt6::Test
 )
 add_test(NAME motion COMMAND echo-motion-test)
 set_tests_properties(motion PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
@@ -1775,6 +1782,7 @@ if(APPLE)
               echo-playback-page-test
               echo-playback-queue-reorder-test
               echo-discovery-test
+              echo-personal-fm-test
               echo-playlist-detail-test
               echo-history-test
               echo-details-test

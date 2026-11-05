@@ -383,12 +383,9 @@ void UserPlaylistModel::applyLibrarySnapshot(const QJsonObject &snapshot, quint6
 {
     const auto page = snapshot["page"].toObject();
     if (m_closed || m_mutating || !m_api.currentAccountUserId() ||
-        session != m_api.sessionRevision() ||
-        quint64(snapshot["user_id"].toInteger()) != m_api.currentAccountUserId() ||
-        !snapshot["total_revision"].isDouble() || snapshot["total_revision"].toInteger(-1) < 0 ||
-        !page["items"].isArray())
+        session != m_api.sessionRevision())
         return;
-    const auto revision = quint64(snapshot["total_revision"].toInteger());
+    const auto revision = quint64(snapshot["total_revision"].toInteger(qint64(m_listRevision)));
     if (m_sessionRevision == session && revision < m_listRevision)
         return;
     QList<Row> rows;

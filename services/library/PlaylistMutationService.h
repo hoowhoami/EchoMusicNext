@@ -1,14 +1,14 @@
 #pragma once
 #include "ApiClient.h"
 #include <QSet>
+#include <QHash>
 #include <QJsonArray>
 
 namespace EchoMusic
 {
 class PlaylistMutationServiceTestAccess;
-/// GUI-thread single writer for cloud playlists. Canonical models remain read
-/// owners. Each acknowledgement is reconciled by fresh domain reads; cancellation
-/// or transport failure never replays a mutation or fabricates a local rollback.
+/// GUI-thread single writer. API success completes the mutation; independent
+/// refreshes update canonical models without changing that result or replaying writes.
 class PlaylistMutationService final : public QObject
 {
     Q_OBJECT
@@ -21,10 +21,7 @@ public:
         Ready,
         CheckingCover,
         UploadingCover,
-        Writing,
-        Reconciling,
-        RefreshRequired,
-        OutcomeUnknown
+        Writing
     };
     Q_ENUM(State)
     explicit PlaylistMutationService(ApiClient &api, QObject *parent = nullptr);
@@ -48,17 +45,12 @@ public:
     bool update(const ApiClient::PlaylistUpdate &update);
     bool sortLibrary(quint64 totalRevision, const QList<ApiClient::PlaylistPosition> &positions);
     /// Exact editor flow: fresh version/ownership read, upload prepared PNG,
-    /// version recheck, playlist_update.pic, canonical readback. No write replay.
+    /// version recheck, then playlist_update.pic. No write replay.
     bool saveCover(const ApiClient::PlaylistUpdate &update, const QByteArray &png);
     /// Metadata-only edit uses the same fresh ownership/version gate.
     bool saveEdit(const ApiClient::PlaylistUpdate &update, const QByteArray &png = {});
     bool remove(ApiClient::CloudPlaylistId id);
-    /// Only reissue reads after acknowledgement; never repeat an unknown write.
-    Q_INVOKABLE bool reconcile();
     Q_INVOKABLE void cancel();
-    /// Explicit caller decision after inspecting a refreshed canonical model.
-    /// This releases an unknown outcome, not a rollback or automatic retry.
-    void acceptRefreshedUnknownOutcome();
 signals:
     void changed();
     /// Inspect per-item resource codes; completion does not imply every track
@@ -67,13 +59,12 @@ signals:
     /// Directory membership/metadata/order changed; track-only writes use the
     /// reconciled snapshot below so sidebar delegates remain intact.
     void libraryInvalidated();
-    /// Complete, version-consistent directory readback already verified by the
-    /// writer. Read owners merge it without issuing a second directory reload.
+    /// Complete, version-consistent background directory snapshot.
     void libraryReconciled(const QJsonObject &snapshot, quint64 sessionRevision);
-    /// Verified first track page; consumers can reuse it for targeted refreshes.
+    /// First track page from an independent background refresh.
     void trackPageReconciled(const QJsonObject &snapshot, quint64 sessionRevision);
-    /// Fresh readback facts for one account-local playlist. songCount == -1
-    /// means unknown; never derive a count from attempted/per-item writes.
+    /// Server-reported facts from the acknowledgement or a later refresh.
+    /// songCount == -1 means unknown; never derive it from attempted writes.
     void tracksReconciled(quint64 cloudListId, quint64 revision, qint64 songCount,
                           quint64 sessionRevision);
     void tracksInvalidated(quint64 cloudListId);
@@ -95,24 +86,24 @@ private:
     void succeed(quint64 request, const QByteArray &payload);
     void fail(quint64 request, const QByteArray &payload);
     void reset();
-    void readNext();
-    void requireRefresh(const QString &message);
     bool libraryOperation() const;
+    void queueRefresh(bool library, ApiClient::CloudPlaylistId id);
+    void readRefresh();
+    void acceptRefresh(const QJsonObject &object);
+    void finishRefresh();
     void readCoverLibrary();
     void coverFailed(const QString &message);
     void coverSucceeded(const QJsonObject &object);
     ApiClient &m_api;
     State m_state = State::SignedOut;
     QString m_error;
-    QByteArray m_acknowledgement;
-    quint64 m_request = 0, m_revision = 0, m_userId = 0, m_expectedRevision = 0,
-            m_expectedCount = 0;
+    quint64 m_request = 0, m_revision = 0;
     ApiClient::CloudPlaylistId m_id{0};
     Kind m_kind = Kind::Create;
     quint32 m_page = 1;
     quint64 m_seen = 0;
     bool m_found = false;
-    bool m_closed = false, m_acceptNewer = false;
+    bool m_closed = false;
     enum class CoverStage
     {
         None,
@@ -123,10 +114,19 @@ private:
     CoverStage m_coverStage = CoverStage::None;
     ApiClient::PlaylistUpdate m_coverUpdate{};
     QByteArray m_coverPng;
-    QString m_coverFileName, m_expectedCoverUrl;
-    QHash<quint64, ApiClient::PlaylistPosition> m_positions;
-    QSet<quint64> m_verifiedPositions, m_libraryReadIds;
-    QJsonArray m_directoryItems;
-    quint64 m_coverCount = 0;
+    QSet<quint64> m_libraryReadIds;
+    struct Refresh
+    {
+        bool library = false;
+        ApiClient::CloudPlaylistId id{0};
+        quint64 session = 0;
+        quint32 page = 1;
+        std::optional<quint64> version;
+        QJsonArray items;
+        QHash<quint64, qsizetype> positions;
+    };
+    QList<Refresh> m_refreshQueue;
+    std::optional<Refresh> m_refresh;
+    quint64 m_refreshRequest = 0;
 };
 } // namespace EchoMusic

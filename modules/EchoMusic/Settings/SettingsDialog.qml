@@ -11,6 +11,14 @@ import EchoMusic.Settings
 
 Popup {
     id: dialog
+    EchoPopupMotion {
+        id: appearance
+        surface: dialog
+        fromY: 0
+        exitDuration: Theme.exitDuration
+    }
+    enter: appearance.enter
+    exit: appearance.exit
     EchoPopupLifecycle {
         surface: dialog
     }
@@ -112,42 +120,72 @@ Popup {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
             }
-            EchoIconButton {
-                visible: !dialog.searchExpanded
-                objectName: "settingsSearchTrigger"
-                glyph: "search"
-                text: qsTr("搜索设置")
-                tooltipText: ""
-                colors: Theme.floating
-                implicitWidth: 30
-                implicitHeight: 30
-                padding: 6
-                onClicked: {
-                    dialog.searchExpanded = true;
-                    search.forceActiveFocus();
-                }
-            }
-            EchoTextField {
-                id: search
-                objectName: "settingsSearchInput"
-                clearable: true
-                visible: dialog.searchExpanded
+            Item {
+                id: searchSlot
+                objectName: "settingsSearchSlot"
+                property real expansion: dialog.searchExpanded ? 1 : 0
+                // Reserve the toolbar slot once. Animate only its right-anchored
+                // field, so RowLayout's next polish cannot move the trigger.
                 Layout.preferredWidth: Math.min(236, dialog.width / 3)
-                Layout.minimumWidth: 0
+                Layout.minimumWidth: 30
                 implicitHeight: 30
-                font: Theme.font(12, Theme.mediumWeight)
-                colors: Theme.floating
-                placeholderText: qsTr("搜索设置")
-                Accessible.name: qsTr("搜索设置")
-                onTextChanged: navigation.filter = text
-                onActiveFocusChanged: {
-                    if (!activeFocus && !text.trim().length)
-                        dialog.searchExpanded = false;
+                clip: true
+                EchoMotionScope {
+                    id: searchMotion
+                    target: dialog.parent
+                    active: dialog.visible
+                    animations: [searchExpansion]
                 }
-                Keys.onEscapePressed: event => {
-                    text = "";
-                    dialog.searchExpanded = false;
-                    event.accepted = true;
+                Behavior on expansion {
+                    enabled: searchMotion.allowed
+                    NumberAnimation {
+                        id: searchExpansion
+                        duration: dialog.searchExpanded ? Theme.searchExpandDuration : Theme.searchCollapseDuration
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: Theme.easeSongRemove
+                    }
+                }
+                EchoTextField {
+                    id: search
+                    objectName: "settingsSearchInput"
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 30 + (searchSlot.width - 30) * searchSlot.expansion
+                    height: parent.height
+                    visible: dialog.searchExpanded || searchSlot.expansion > 0
+                    opacity: searchSlot.expansion
+                    clearable: true
+                    font: Theme.font(12, Theme.mediumWeight)
+                    colors: Theme.floating
+                    placeholderText: qsTr("搜索设置")
+                    Accessible.name: qsTr("搜索设置")
+                    onTextChanged: navigation.filter = text
+                    onActiveFocusChanged: {
+                        if (!activeFocus && !text.trim().length)
+                            dialog.searchExpanded = false;
+                    }
+                    Keys.onEscapePressed: event => {
+                        text = "";
+                        dialog.searchExpanded = false;
+                        event.accepted = true;
+                    }
+                }
+                EchoIconButton {
+                    visible: !dialog.searchExpanded
+                    objectName: "settingsSearchTrigger"
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 30
+                    height: 30
+                    glyph: "search"
+                    text: qsTr("搜索设置")
+                    tooltipText: ""
+                    colors: Theme.floating
+                    padding: 6
+                    onClicked: {
+                        dialog.searchExpanded = true;
+                        search.forceActiveFocus();
+                    }
                 }
             }
             EchoIconButton {

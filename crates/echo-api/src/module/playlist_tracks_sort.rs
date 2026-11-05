@@ -1,5 +1,5 @@
-//! Encrypted cloud protocol. Response order differs from request order; match
-//! each fileid/sort pair, and read back actual display order after acknowledgement.
+//! Encrypted cloud protocol. Preserve returned fileid/sort pairs independently
+//! of request order; a later read synchronizes actual display order.
 use crate::{
     domain::{CloudTrackChange, TrackWriteOutcome},
     error::ApiError,
@@ -23,37 +23,34 @@ pub struct Query {
     pub revision: u64,
     pub positions: Vec<Position>,
 }
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    listid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    pre_list_ver: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    list_ver: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    listid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    status: Option<u32>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    pre_list_ver: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    list_ver: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     count: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     info: Vec<Item>,
 }
 #[derive(Deserialize)]
 struct Item {
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     sort: Option<u32>,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    fileid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    code: i64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    fileid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    code: Option<i64>,
 }
 pub fn convert(bytes: &[u8]) -> Result<CloudTrackChange, ApiError> {
-    let v: Data = cloudlist::decode(bytes)?;
-    if v.status != 1 {
-        return Err(ApiError::business(i64::from(v.status)));
-    }
+    let v = cloudlist::decode::<Option<Data>>(bytes)?.unwrap_or_default();
     let outcomes = v
         .info
         .into_iter()
@@ -67,7 +64,7 @@ pub fn convert(bytes: &[u8]) -> Result<CloudTrackChange, ApiError> {
     Ok(CloudTrackChange {
         user_id: v.userid,
         cloud_list_id: v.listid,
-        provider_status: Some(v.status),
+        provider_status: v.status,
         previous_revision: v.pre_list_ver,
         revision: v.list_ver,
         song_count: v.count,

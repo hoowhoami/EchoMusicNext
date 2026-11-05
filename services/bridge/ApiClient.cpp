@@ -996,6 +996,18 @@ void ApiClient::callback(void *context, const EchoResult *result) noexcept
         Qt::QueuedConnection);
 }
 
+QString ApiClient::errorMessage(const QByteArray &payload, const QString &fallback)
+{
+    const auto error = QJsonDocument::fromJson(payload).object();
+    auto message = error.value("message").toString().trimmed();
+    if (message.isEmpty())
+        message = fallback.isEmpty() ? tr("请求失败，请稍后重试") : fallback;
+    const auto code = error.value("code");
+    if (code.isDouble() && !message.contains(tr("错误码")))
+        message += tr("（错误码 %1）").arg(code.toInteger());
+    return message;
+}
+
 void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArray &payload)
 {
     Q_ASSERT(QThread::currentThread() == thread());
@@ -1005,8 +1017,8 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
     auto pending = m_pending.take(id);
     const auto original = pending.logicalId;
     const auto error = QJsonDocument::fromJson(payload).object();
-    // Canonical metadata only: never log query/identity, response bodies,
-    // provider messages, account/device ids or CAPTCHA secrets.
+    // Failure wire sections are redacted and bounded in the native request
+    // scope. Correlate them with the logical request before entering Qt's queue.
     const auto category =
         QByteArray("echo.api.") + pending.request.value("operation").toString().toLatin1();
     const auto code = error.value("code");
@@ -1053,6 +1065,24 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
         logger.debug().noquote() << summary;
     else
         logger.warning().noquote() << summary;
+    if (!routine) {
+        const QJsonObject failure{{"request", qint64(original)},
+                                  {"session", qint64(revision)},
+                                  {"stage", "error"},
+                                  {"kind", error.value("kind")},
+                                  {"code", error.value("code")},
+                                  {"message", error.value("message")}};
+        logger.warning().noquote()
+            << QString::fromUtf8(QJsonDocument(failure).toJson(QJsonDocument::Compact));
+        for (const auto &section : error.value("response_details").toArray()) {
+            auto detail = section.toObject();
+            detail["request"] = qint64(original);
+            detail["session"] = qint64(revision);
+            detail["operation"] = pending.request.value("operation");
+            logger.warning().noquote()
+                << QString::fromUtf8(QJsonDocument(detail).toJson(QJsonDocument::Compact));
+        }
+    }
     if (status == EchoStatus::ApiFailure && error.value("kind") == QStringLiteral("challenge") &&
         pending.automaticVerification && !pending.verifiesRequest) {
         if (pending.retried) {

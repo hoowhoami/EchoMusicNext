@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import EchoMusic.Theme
+import EchoMusic.Controls
 
 // Non-visual content entry: fades an existing item after activation. The page
 // keeps geometry and layout ownership; this object only animates opacity, so
@@ -12,6 +13,7 @@ QtObject {
     property bool active: true
     property int order: 0
     property int duration: Theme.normalDuration
+    property var curve: Theme.easeStandard
     readonly property bool running: delay.running || animation.running
     function visibleWindow(): bool {
         const window = root.target ? root.target.Window.window : null;
@@ -29,6 +31,11 @@ QtObject {
     function play(): void {
         if (!root.target)
             return;
+        const presentation = root.target.EchoPageState.presentation;
+        if (presentation && presentation.suppressEntry) {
+            showImmediately();
+            return;
+        }
         if (!root.active) {
             stop();
             root.target.opacity = 0;
@@ -50,6 +57,13 @@ QtObject {
         target: root.target ? root.target.Window.window : null
         function onVisibilityChanged(): void {
             if (!root.visibleWindow())
+                root.showImmediately();
+        }
+    }
+    property Connections targetEvents: Connections {
+        target: root.target
+        function onVisibleChanged(): void {
+            if (root.target && !root.target.visible)
                 root.showImmediately();
         }
     }
@@ -75,6 +89,6 @@ QtObject {
         to: 1
         duration: root.duration
         easing.type: Easing.BezierSpline
-        easing.bezierCurve: Theme.easeStandard
+        easing.bezierCurve: root.curve
     }
 }

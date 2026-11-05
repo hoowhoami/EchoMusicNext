@@ -338,7 +338,7 @@ void ContentBlacklistService::failed(quint64 id, const QByteArray &bytes)
 {
     if (!current())
         return;
-    const auto message = QJsonDocument::fromJson(bytes).object().value("message").toString();
+    const auto message = ApiClient::errorMessage(bytes);
     if (id && id == m_singerWrite) {
         m_singerWrite = 0;
         m_singerIntentId = 0;

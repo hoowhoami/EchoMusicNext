@@ -118,8 +118,7 @@ bool RouteController::unregisterPage(const QString &name, quint64 revision)
     emit dismissOverlays();
     const bool wasCurrent = m_current && m_current->name() == name;
     if (wasCurrent) {
-        m_current->m_active = false;
-        emit m_current->activeChanged();
+        m_current->setActive(false);
         m_current = nullptr;
     }
     for (int i = int(m_pages.size()) - 1; i >= 0; --i)
@@ -328,13 +327,12 @@ void RouteController::present(const Location &location)
     m_current = next;
     next->m_used = ++m_clock;
     if (previous) {
-        previous->m_active = false;
-        emit previous->activeChanged();
+        previous->setActive(false);
     }
-    next->m_active = true;
-    emit next->activeChanged();
+    next->setActive(true);
     emit routeChanged();
-    if (previous && (!cacheable(previous) || previous->m_canonical == branch))
+    if (previous && previous != m_transition &&
+        (!cacheable(previous) || previous->m_canonical == branch))
         removePage(int(m_pages.indexOf(previous)));
     prune();
     // Refresh revisions live only as long as a history entry or mounted page.
@@ -358,6 +356,8 @@ void RouteController::removePage(int row)
     if (row < 0 || row >= m_pages.size())
         return;
     auto *page = m_pages[row];
+    if (m_transition == page)
+        m_transition.clear();
     beginRemoveRows({}, row, row);
     m_pages.removeAt(row);
     endRemoveRows();
@@ -366,18 +366,58 @@ void RouteController::removePage(int row)
 void RouteController::prune()
 {
     for (int i = int(m_pages.size()) - 1; i >= 0; --i)
-        if (m_pages[i] != m_current && !cacheable(m_pages[i]))
+        if (m_pages[i] != m_current && m_pages[i] != m_transition &&
+            (!cacheable(m_pages[i]) ||
+             (m_current && m_pages[i]->m_canonical == m_current->m_canonical)))
             removePage(i);
-    while (m_pages.size() > m_max + (m_current && !cacheable(m_current) ? 1 : 0)) {
+    while (m_pages.size() >
+           m_max + (m_current && !cacheable(m_current) ? 1 : 0) + (m_transition ? 1 : 0)) {
         int oldest = -1;
         for (int i = 0; i < m_pages.size(); ++i)
-            if (m_pages[i] != m_current &&
+            if (m_pages[i] != m_current && m_pages[i] != m_transition &&
                 (oldest < 0 || m_pages[i]->m_used < m_pages[oldest]->m_used))
                 oldest = i;
         if (oldest < 0)
             break;
         removePage(oldest);
     }
+}
+bool RouteController::retainTransition(RouteContext *page)
+{
+    if (m_closed || !page || page == m_current || !m_pages.contains(page))
+        return false;
+    m_transition = page;
+    return true;
+}
+void RouteController::releaseTransition(RouteContext *page)
+{
+    if (m_transition != page)
+        return;
+    m_transition.clear();
+    queueTransitionPrune();
+}
+void RouteController::queueTransitionPrune()
+{
+    if (m_transitionPruneQueued || m_closed)
+        return;
+    m_transitionPruneQueued = true;
+    // A QML delegate may be finishing its own transition/destructor. Never
+    // remove its model row while that JavaScript call is still on the stack.
+    QMetaObject::invokeMethod(
+        this,
+        [this] {
+            m_transitionPruneQueued = false;
+            if (m_closed)
+                return;
+            if (m_changing) {
+                queueTransitionPrune();
+                return;
+            }
+            QScopedValueRollback<bool> mutation(m_changing, true);
+            prune();
+            emit cacheChanged();
+        },
+        Qt::QueuedConnection);
 }
 void RouteController::refresh()
 {
@@ -403,6 +443,8 @@ void RouteController::setCachePolicy(bool enabled, int maximum)
     }
     QScopedValueRollback<bool> mutation(m_changing, true);
     m_enabled = enabled;
+    if (!enabled)
+        m_transition.clear();
     m_max = std::clamp(maximum, 0, 30);
     prune();
     emit cacheChanged();
@@ -463,8 +505,7 @@ void RouteController::resetAccount(bool preserveRoute)
     auto *previous = m_current;
     m_current = nullptr;
     if (previous) {
-        previous->m_active = false;
-        emit previous->activeChanged();
+        previous->setActive(false);
     }
     for (int i = int(m_pages.size()) - 1; i >= 0; --i)
         removePage(i);
@@ -480,8 +521,7 @@ void RouteController::shutdown()
     }
     m_closed = true;
     if (m_current) {
-        m_current->m_active = false;
-        emit m_current->activeChanged();
+        m_current->setActive(false);
     }
     m_current = nullptr;
     for (int i = int(m_pages.size()) - 1; i >= 0; --i)

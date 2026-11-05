@@ -13,8 +13,7 @@ QString favoriteKey(const PlaybackTrack &track)
 }
 QString errorText(const QByteArray &bytes)
 {
-    const auto object = QJsonDocument::fromJson(bytes).object();
-    return object.value("message").toString(QObject::tr("歌单操作失败，请重试"));
+    return ApiClient::errorMessage(bytes, QObject::tr("歌单操作失败，请重试"));
 }
 } // namespace
 PlaybackLibraryActions::PlaybackLibraryActions(PlaybackService &playback, ApiClient &api,
@@ -50,11 +49,7 @@ PlaybackLibraryActions::PlaybackLibraryActions(PlaybackService &playback, ApiCli
         if (!m_ownedWrite)
             return;
         const auto state = m_writer.state();
-        if (state == PlaylistMutationService::State::OutcomeUnknown ||
-            state == PlaylistMutationService::State::RefreshRequired)
-            writeFailed(m_writer.errorMessage());
-        else if (state == PlaylistMutationService::State::Ready &&
-                 !m_writer.errorMessage().isEmpty())
+        if (state == PlaylistMutationService::State::Ready && !m_writer.errorMessage().isEmpty())
             writeFailed(m_writer.errorMessage());
     });
     reset();
@@ -239,9 +234,7 @@ void PlaybackLibraryActions::favoritePage(quint64 id, const QByteArray &bytes)
     const auto version = quint64(root.value("revision").toInteger(-1));
     const auto total = page.value("total").toInteger(-1);
     const auto items = page.value("items").toArray();
-    if (quint64(root.value("user_id").toInteger()) != m_api.currentAccountUserId() ||
-        quint64(root.value("cloud_list_id").toInteger()) != m_likedId ||
-        !page.value("items").isArray() || (m_favoritePage > 1 && version != m_favoriteVersion)) {
+    if (m_favoritePage > 1 && version != m_favoriteVersion) {
         failFavoriteRead(tr("收藏列表已改变，请重试"));
         return;
     }
@@ -520,16 +513,10 @@ void PlaybackLibraryActions::writeCompleted(const QByteArray &bytes)
     const auto outcomes = root.value("outcomes").toArray();
     const auto expectedId =
         m_favoriteWrite ? m_likedId : m_writeTargets.value(m_currentTarget).cloudId;
-    if (quint64(root.value("user_id").toInteger()) != m_api.currentAccountUserId() ||
-        quint64(root.value("cloud_list_id").toInteger()) != expectedId ||
-        (!(m_favoriteWrite && m_removing) && outcomes.size() != m_writeSongs.size())) {
-        writeFailed(tr("歌单写入结果无法核对"));
-        return;
-    }
     if (m_favoriteWrite) {
         const bool ok =
-            m_removing || (!outcomes.isEmpty() &&
-                           outcomes.first().toObject().value("resource_code").toInt() == 1);
+            m_removing || (outcomes.isEmpty() ||
+                           outcomes.first().toObject().value("resource_code").toInt(1) == 1);
         if (ok) {
             const auto key = favoriteKey(m_writeSongs.first());
             if (m_removing)
@@ -540,11 +527,15 @@ void PlaybackLibraryActions::writeCompleted(const QByteArray &bytes)
                 emit favoriteWritten(m_writeSongs.first(), false);
             emit notice(m_removing ? tr("已取消收藏") : tr("收藏成功"), false);
         } else {
-            m_error = tr("音乐服务未接受收藏操作");
+            m_error = tr("收藏失败（歌曲错误码 %1）")
+                          .arg(outcomes.first().toObject().value("resource_code").toInteger());
+            qWarning().noquote() << "Playlist track rejected"
+                                 << QString::fromUtf8(
+                                        QJsonDocument(root).toJson(QJsonDocument::Compact));
             emit notice(m_error, true);
         }
         m_favoriteWrite = m_busy = false;
-        // The acknowledged row has already passed the shared version readback.
+        // The API acknowledgement commits this membership change.
         // Keep the complete membership index instead of re-reading every page
         // after a known single-song change. Unknown file IDs still need a read.
         m_favoritesReady =
@@ -562,20 +553,24 @@ void PlaybackLibraryActions::writeCompleted(const QByteArray &bytes)
         m_likedId = liked->value;
         applyFavoriteAdds(outcomes);
     }
-    for (int i = 0; i < outcomes.size(); ++i)
-        if (outcomes[i].toObject().value("resource_code").toInt() != 1)
+    for (int i = 0; i < m_writeSongs.size(); ++i)
+        if (i < outcomes.size() && outcomes[i].toObject().value("resource_code").toInt(1) != 1) {
             m_failed.append(m_writeSongs[i]);
+            qWarning().noquote() << "Playlist track rejected"
+                                 << QString::fromUtf8(QJsonDocument(outcomes[i].toObject())
+                                                          .toJson(QJsonDocument::Compact));
+        }
     m_remaining.remove(0, m_writeSongs.size());
     m_writeSongs.clear();
     // Completion is emitted inside the writer's signal stack. Defer the next
-    // target until its reconciliation lifecycle has completely returned.
+    // target until the acknowledgement's signal stack has returned.
     QTimer::singleShot(0, this, &PlaybackLibraryActions::nextWrite);
 }
 void PlaybackLibraryActions::applyFavoriteAdds(const QJsonArray &outcomes)
 {
-    for (int i = 0; i < outcomes.size(); ++i) {
-        const auto outcome = outcomes[i].toObject();
-        if (outcome.value("resource_code").toInt() != 1)
+    for (int i = 0; i < m_writeSongs.size(); ++i) {
+        const auto outcome = i < outcomes.size() ? outcomes[i].toObject() : QJsonObject{};
+        if (outcome.value("resource_code").toInt(1) != 1)
             continue;
         const auto &song = m_writeSongs[i];
         const auto key = favoriteKey(song);

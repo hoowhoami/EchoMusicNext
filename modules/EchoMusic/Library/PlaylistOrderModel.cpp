@@ -44,9 +44,9 @@ PlaylistOrderModel::PlaylistOrderModel(ApiClient &api, PlaylistMutationService &
     : QAbstractListModel(parent), m_api(api), m_mutations(mutations)
 {
     connect(&api, &ApiClient::succeeded, this, &PlaylistOrderModel::succeed);
-    connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &) {
+    connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &payload) {
         if (id && id == m_request)
-            fail(tr("读取排序失败，请稍后重试"));
+            fail(ApiClient::errorMessage(payload, tr("读取排序失败，请稍后重试")));
     });
     connect(&api, &ApiClient::sessionChanged, this, [this] {
         close();
@@ -188,7 +188,7 @@ void PlaylistOrderModel::save()
     m_request =
         m_mode == 1 ? m_api.cloudPlaylistTracks({m_listId}, 1, 1) : m_api.userPlaylists(1, 1);
     if (!m_request)
-        fail(m_mode == 1 ? tr("无法核对歌曲版本，请重试") : tr("无法核对歌单版本，请重试"));
+        fail(m_mode == 1 ? tr("无法加载歌曲顺序，请重试") : tr("无法加载歌单顺序，请重试"));
     emit changed();
 }
 QList<ApiClient::PlaylistPosition> PlaylistOrderModel::positions() const
@@ -219,8 +219,7 @@ void PlaylistOrderModel::succeed(quint64 id, const QByteArray &payload)
     const auto page = object.value("page").toObject();
     const auto version = object.value("total_revision").toInteger(-1);
     const auto total = page.value("total").toInteger(-1);
-    if (object.value("user_id").toInteger() != qint64(m_api.currentAccountUserId()) ||
-        version < 0) {
+    if (version < 0) {
         fail(tr("列表数据不完整，请刷新后重试"));
         return;
     }
@@ -237,7 +236,7 @@ void PlaylistOrderModel::succeed(quint64 id, const QByteArray &payload)
         return;
     }
     const auto items = page.value("items").toArray();
-    if (!page.value("items").isArray() || (m_page > 1 && quint64(version) != m_version)) {
+    if (m_page > 1 && quint64(version) != m_version) {
         fail(tr("列表在加载期间发生变化，请重新加载"));
         return;
     }
@@ -295,14 +294,9 @@ void PlaylistOrderModel::succeed(quint64 id, const QByteArray &payload)
 }
 void PlaylistOrderModel::succeedTracks(const QJsonObject &object)
 {
-    if (object.value("user_id").toInteger() != qint64(m_api.currentAccountUserId()) ||
-        object.value("cloud_list_id").toInteger() != qint64(m_listId)) {
-        fail(tr("列表数据不完整，请刷新后重试"));
-        return;
-    }
     const auto page = object.value("page").toObject();
     const auto revision = object.value("revision").toInteger(-1);
-    if (revision < 0 || !page.value("items").isArray()) {
+    if (revision < 0) {
         fail(tr("列表数据不完整，请刷新后重试"));
         return;
     }

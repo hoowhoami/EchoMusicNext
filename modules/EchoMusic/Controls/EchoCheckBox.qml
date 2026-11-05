@@ -7,6 +7,11 @@ import EchoMusic.Theme
 // Shared checkbox surface. Qt owns tristate, keyboard and accessibility semantics.
 CheckBox {
     id: control
+    EchoMotionScope {
+        id: motion
+        target: control
+        animations: [fillColor, ringColor]
+    }
     EchoUiPart {
         id: formPart
         target: control
@@ -33,6 +38,24 @@ CheckBox {
         color: formPart.value("background", active ? Theme.withAlpha(formPart.value("accent", control.colors.accent), control.down ? 0.22 : control.hovered ? 0.18 : 0.12) : control.down ? control.colors.neutralPressed : control.hovered ? control.colors.hover : control.colors.mutedSurface)
         border.width: formPart.value("borderWidth", 1)
         border.color: formPart.value("borderColor", active ? Theme.mix(control.colors.strongBorder, formPart.value("accent", control.colors.accent), 0.35) : control.hovered ? Theme.withAlpha(control.colors.tone, 0.24) : control.colors.strongBorder)
+        Behavior on color {
+            enabled: motion.allowed
+            ColorAnimation {
+                id: fillColor
+                duration: Theme.fastDuration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.easeStandard
+            }
+        }
+        Behavior on border.color {
+            enabled: motion.allowed
+            ColorAnimation {
+                id: ringColor
+                duration: Theme.fastDuration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.easeStandard
+            }
+        }
         EchoIcon {
             anchors.centerIn: parent
             width: 14

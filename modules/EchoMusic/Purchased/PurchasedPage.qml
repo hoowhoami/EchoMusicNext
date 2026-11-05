@@ -22,6 +22,7 @@ RoutePage {
     property bool songsPositionInitialized: false
     property bool albumsPositionInitialized: false
     property bool contentReady: false
+    EchoPageState.properties: ["songsPositionInitialized", "albumsPositionInitialized"]
     function initializePositions(): void {
         if (!contentReady)
             return;
@@ -45,6 +46,7 @@ RoutePage {
         }
     }
     Component.onCompleted: {
+        EchoPageState.restore();
         contentReady = true;
         initializePositions();
     }

@@ -7,6 +7,16 @@ import EchoMusic.Theme
 // Long menus scroll; Action entries can carry a dynamic danger property.
 Menu {
     id: menuRoot
+    EchoPopupMotion {
+        id: appearance
+        surface: menuRoot
+        fromY: 4 * menuRoot.uiScale
+        enterDuration: Theme.fastDuration
+        exitDuration: 0
+        enterCurve: Theme.easeStandard
+    }
+    enter: appearance.enter
+    exit: appearance.exit
     EchoPopupLifecycle {
         surface: menuRoot
     }

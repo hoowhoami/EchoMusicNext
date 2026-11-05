@@ -415,8 +415,7 @@ void ArtistDetailContext::fail(quint64 id, const QByteArray &bytes)
         if (m_closed || pending.session != m_api.sessionRevision() ||
             pending.generation != m_generation || !m_route.active())
             return;
-        const auto message =
-            QJsonDocument::fromJson(bytes).object()["message"].toString(tr("歌手专辑加载失败"));
+        const auto message = ApiClient::errorMessage(bytes, tr("歌手专辑加载失败"));
         finishAlbumPage(pending.page, {}, message);
         emit changed();
         emit notice(message, true);
@@ -428,8 +427,7 @@ void ArtistDetailContext::fail(quint64 id, const QByteArray &bytes)
     if (m_closed || pending.session != m_api.sessionRevision() ||
         pending.generation != m_generation || !m_route.active())
         return;
-    const auto message =
-        QJsonDocument::fromJson(bytes).object()["message"].toString(tr("歌手加载失败"));
+    const auto message = ApiClient::errorMessage(bytes, tr("歌手加载失败"));
     if (pending.page) {
         finishPage(pending.page, {}, message);
     } else {

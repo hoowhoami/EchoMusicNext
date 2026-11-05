@@ -520,10 +520,6 @@ void SearchModel::succeeded(quint64 id, const QByteArray &payload)
         return;
     const auto document = QJsonDocument::fromJson(payload);
     if (hotResult) {
-        if (!document.isArray()) {
-            failed(id, 1, {});
-            return;
-        }
         QList<HotSearchModel::Group> groups;
         for (const auto &value : document.array()) {
             const auto group = value.toObject();
@@ -547,13 +543,6 @@ void SearchModel::succeeded(quint64 id, const QByteArray &payload)
     const auto page = object.value("page").toObject();
     const auto items = page.value("items").toArray();
     const auto total = qMax(0.0, page.value("total").toDouble());
-    // The tag is produced by our Rust enum, not a provider field. A mismatched
-    // typed result cannot be interpreted as another category's records.
-    if (object.value("kind").toString() != domainKind(requestKind) ||
-        !page.value("items").isArray()) {
-        failed(id, 1, {});
-        return;
-    }
     // Request page is owned by the pending request. Provider count/echo
     // variations must not become a second schema gate after Rust mapping.
     QList<Row> rows;
@@ -657,13 +646,13 @@ void SearchModel::succeeded(quint64 id, const QByteArray &payload)
     if (guard && visibleBucket)
         emit changed();
 }
-void SearchModel::failed(quint64 id, int, const QByteArray &)
+void SearchModel::failed(quint64 id, int, const QByteArray &payload)
 {
     if (m_closing)
         return;
     if (id == m_hotRequest && m_hotRequest && m_hotRevision == m_api.sessionRevision()) {
         m_hotRequest = 0;
-        m_hotError = tr("热门搜索加载失败，请重试");
+        m_hotError = ApiClient::errorMessage(payload, tr("热门搜索加载失败，请重试"));
         emit discoveryChanged();
         return;
     }
@@ -672,7 +661,8 @@ void SearchModel::failed(quint64 id, int, const QByteArray &)
             continue;
         bucket.request = 0;
         bucket.state = State::Error;
-        bucket.error = bucket.loaded ? tr("加载更多失败，请重试") : tr("搜索请求失败，请重试");
+        bucket.error = ApiClient::errorMessage(payload, bucket.loaded ? tr("加载更多失败，请重试")
+                                                                      : tr("搜索请求失败，请重试"));
         if (&bucket == &active())
             emit changed();
         return;

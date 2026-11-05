@@ -22,7 +22,7 @@ DeviceRegistrationService::DeviceRegistrationService(ApiClient &api,
         m_state = State::Error;
         m_error = kind == QStringLiteral("device_registration_unassigned")
                       ? tr("设备服务未返回有效设备身份，请重试")
-                      : tr("设备注册失败，请重试");
+                      : ApiClient::errorMessage(payload, tr("设备注册失败"));
         emit changed();
     });
     connect(&api, &ApiClient::sessionChanged, this, [this](quint64 revision) {

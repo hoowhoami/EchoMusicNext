@@ -257,7 +257,6 @@ void PlaylistDetailContext::reload()
 void PlaylistDetailContext::applyTrackReadback(const QJsonObject &snapshot, quint64 session)
 {
     if (m_closed || session != m_api.sessionRevision() || !m_cloud ||
-        quint64(snapshot["user_id"].toInteger()) != m_api.currentAccountUserId() ||
         quint64(snapshot["cloud_list_id"].toInteger()) != m_cloud->value ||
         (m_revision && quint64(snapshot["revision"].toInteger()) < *m_revision))
         return;
@@ -678,8 +677,7 @@ void PlaylistDetailContext::fail(quint64 id, const QByteArray &bytes)
     if (m_closed || !active() || pending.session != m_api.sessionRevision() ||
         pending.generation != m_generation)
         return;
-    const auto message =
-        QJsonDocument::fromJson(bytes).object()["message"].toString(tr("歌单加载失败"));
+    const auto message = ApiClient::errorMessage(bytes, tr("歌单加载失败"));
     if (!pending.page) {
         failMessage(message);
         return;

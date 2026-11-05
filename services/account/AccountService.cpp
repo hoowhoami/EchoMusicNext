@@ -249,8 +249,6 @@ void AccountService::succeed(quint64 id, const QByteArray &payload)
             applyProfile(object);
         } else if (id == m_gradeRequest) {
             m_gradeRequest = 0;
-            if (object.value("user_id").toInteger() != qint64(m_userId))
-                return;
             m_grade = object.value("grade").toInt();
             m_listeningSeconds = object.value("listening_seconds").toInteger(-1);
             m_gradePoints = object.value("current_points").toInteger();
@@ -286,7 +284,7 @@ void AccountService::fail(quint64 id, const QByteArray &payload)
         for (auto *request : {&m_detail, &m_identity, &m_gradeRequest}) {
             if (id == *request) {
                 *request = 0;
-                m_profileError = tr("个人资料加载失败，请重试");
+                m_profileError = ApiClient::errorMessage(payload, tr("个人资料加载失败"));
                 emit changed();
                 return;
             }
@@ -298,8 +296,7 @@ void AccountService::fail(quint64 id, const QByteArray &payload)
     const auto kind = QJsonDocument::fromJson(payload).object().value("kind").toString();
     m_state = kind == QStringLiteral("authentication") ? State::ReauthenticationRequired
                                                        : State::SignedIn;
-    m_error = kind == QStringLiteral("authentication") ? QStringLiteral("登录已失效，请重新登录")
-                                                       : QStringLiteral("登录刷新失败，请重试");
+    m_error = ApiClient::errorMessage(payload, tr("登录刷新失败，请重试"));
     emit changed();
 }
 void AccountService::loadProfileOnce()
@@ -466,8 +463,6 @@ void EchoMusic::AccountService::applyMembership()
         emit changed();
         return;
     }
-    if (object.value("user_id").toInteger() != qint64(m_userId))
-        return;
     m_memberships.clear();
     const auto append = [this](const QString &kind, const QString &label, const QString &begin,
                                const QString &expiry) {

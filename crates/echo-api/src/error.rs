@@ -51,6 +51,9 @@ pub struct ApiError {
     pub transport: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<RequestDiagnostics>,
+    /// Redacted, bounded request/response sections for failed logical calls.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub response_details: Vec<serde_json::Value>,
 }
 
 impl std::fmt::Debug for ApiError {
@@ -72,6 +75,7 @@ impl ApiError {
             challenge: None,
             transport: None,
             diagnostics: None,
+            response_details: Vec::new(),
         }
     }
     pub fn business(code: i64) -> Self {

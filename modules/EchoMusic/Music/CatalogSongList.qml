@@ -18,6 +18,8 @@ Item {
     property real topMargin: 0
     property real bottomMargin: 48
     property bool loading: false
+    onLoadingChanged: if (!loading && resourceActive && collection.count > 0)
+        Qt.callLater(listMotion.promote)
     property string errorMessage: ""
     property bool resourceActive: true
     /// The row with an open context menu retains its context-target fill.
@@ -35,8 +37,45 @@ Item {
     readonly property string activeTrackId: actions.currentTrackId
     readonly property alias listView: songs
     readonly property SongListGeometry geometry: songs.geometry
+    function animateInsertion(): void {
+        listMotion.promote();
+    }
     signal retryRequested
     signal moreRequested(string id, real sceneX, real sceneY)
+    function captureScrollAnchor(): var {
+        if (!root.resourceActive || root.pageContainer.scrollView !== songs || root.pageContainer.scrollTop <= 0)
+            return ({});
+        const index = songs.indexAt(1, Math.max(0, songs.contentY + root.pageContainer.occlusionHeight + 1));
+        const item = songs.itemAtIndex(index) as SongRow;
+        return item ? {
+            id: item.resourceId,
+            delta: songs.contentY - item.y
+        } : ({});
+    }
+    function restoreScrollAnchor(anchor): bool {
+        if (!anchor.id || root.pageContainer.scrollView !== songs)
+            return false;
+        const index = root.collection.indexOf(anchor.id);
+        if (index < 0)
+            return false;
+        songs.positionViewAtIndex(index, ListView.Beginning);
+        songs.forceLayout();
+        const item = songs.itemAtIndex(index);
+        if (!item)
+            return false;
+        songs.contentY = item.y + anchor.delta;
+        return true;
+    }
+    Connections {
+        target: root.pageContainer
+        enabled: root.resourceActive && songs.visible && root.pageContainer.scrollView === songs
+        function onCaptureAnchorRequested(): void {
+            root.pageContainer.capturedAnchor = root.captureScrollAnchor();
+        }
+        function onRestoreAnchorRequested(anchor): void {
+            root.pageContainer.anchorRestored = root.restoreScrollAnchor(anchor);
+        }
+    }
     function checkLoadMore(): void {
         if (!root.hasMore || root.loadingMore || root.loading || !songs.visible)
             return;
@@ -75,6 +114,12 @@ Item {
             rowCount: root.collection.count
         }
         delegate: songDelegate
+        EchoListInsertMotion {
+            id: listMotion
+            view: songs
+            active: root.resourceActive && !root.loading
+            occlusionHeight: root.pageContainer.occlusionHeight
+        }
         Component {
             id: songDelegate
             SongRow {

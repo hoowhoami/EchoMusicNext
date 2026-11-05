@@ -302,6 +302,11 @@ Window {
                     width: parent.width
                     height: parent.height - 42
                     model: visible && window.live ? window.playback.queue : null
+                    EchoListInsertMotion {
+                        view: queue
+                        active: queue.visible && window.live
+                        rowHeight: 42
+                    }
                     // With Qt 6.12, pooling across this null-model detach can
                     // retain another row's roles on reopen. Keep virtualization
                     // without retaining delegates across inactive panels.

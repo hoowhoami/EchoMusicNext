@@ -141,6 +141,15 @@ fn merge(mut first: History, second: History) -> History {
     first
 }
 async fn read(client: &ApiClient, identity: &Identity, tag: String) -> Result<History, ApiError> {
+    // Both tag orders can run concurrently. Each owns its wire/decoded capture
+    // so one branch cannot attach a response to the other branch's request.
+    crate::util::failure_diagnostics::capture(read_request(client, identity, tag)).await
+}
+async fn read_request(
+    client: &ApiClient,
+    identity: &Identity,
+    tag: String,
+) -> Result<History, ApiError> {
     let bytes = client
         .request(
             identity,

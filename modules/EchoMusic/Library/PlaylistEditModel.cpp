@@ -35,9 +35,9 @@ PlaylistEditModel::PlaylistEditModel(ApiClient &api, UserPlaylistModel &source,
     : QObject(parent), m_api(api), m_source(source), m_mutations(mutations)
 {
     connect(&api, &ApiClient::succeeded, this, &PlaylistEditModel::accept);
-    connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &) {
+    connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &payload) {
         if (id && id == m_request)
-            fail(tr("读取歌单失败，请重新加载"));
+            fail(ApiClient::errorMessage(payload, tr("读取歌单失败，请重新加载")));
     });
     connect(&api, &ApiClient::sessionChanged, this, [this] {
         close();
@@ -119,7 +119,6 @@ void PlaylistEditModel::close()
     // Keep a single bounded worker across close/reopen; its result is discarded
     // by generation, but it must finish before another image decode is queued.
     m_reading = m_coverWorker != nullptr;
-    m_unknownRefreshed = false;
     m_snapshot = {};
     m_update = {};
     m_png.clear();
@@ -151,9 +150,6 @@ void PlaylistEditModel::reload()
     close();
     m_id = id;
     m_page = 1;
-    // Explicit reload may retry an acknowledged readback, never the write.
-    if (m_mutations.state() == PlaylistMutationService::State::RefreshRequired)
-        m_mutations.reconcile();
     m_request = m_api.userPlaylists(1, 200);
     if (!m_request)
         fail(tr("无法加载歌单，请重试"));
@@ -172,7 +168,6 @@ void PlaylistEditModel::ready()
     m_description = m_snapshot["description"].toString();
     m_cover =
         m_source.coverFor(m_snapshot["global_id"].toString(), m_snapshot["cover_url"].toString());
-    m_unknownRefreshed = m_mutations.state() == PlaylistMutationService::State::OutcomeUnknown;
     m_loaded = true;
     emit changed();
 }
@@ -185,7 +180,7 @@ void PlaylistEditModel::accept(quint64 id, const QByteArray &bytes)
     if (m_detailRequest) {
         m_detailRequest = false;
         const auto rows = document.array();
-        if (rows.size() != 1) {
+        if (rows.isEmpty()) {
             fail(tr("无法读取完整歌单信息，请重新加载"));
             return;
         }
@@ -200,8 +195,7 @@ void PlaylistEditModel::accept(quint64 id, const QByteArray &bytes)
     const auto object = document.object();
     const auto version = object["total_revision"].toInteger(-1);
     const auto page = object["page"].toObject();
-    if (object["user_id"].toInteger() != qint64(m_api.currentAccountUserId()) || version < 0 ||
-        (m_page > 1 && quint64(version) != m_version) || !page["items"].isArray()) {
+    if (version < 0 || (m_page > 1 && quint64(version) != m_version)) {
         fail(tr("歌单列表已变化，请重新加载"));
         return;
     }
@@ -327,12 +321,6 @@ void PlaylistEditModel::save()
     update.description = m_description;
     update.tags = normalizedTags(m_tags);
     m_error.clear();
-    // A fresh snapshot plus an explicit save releases an unknown outcome; no
-    // automatic replay occurs on failure, reopen or reload.
-    if (m_unknownRefreshed) {
-        m_mutations.acceptRefreshedUnknownOutcome();
-        m_unknownRefreshed = false;
-    }
     m_saving = true;
     if (!m_mutations.saveEdit(update, m_png)) {
         m_saving = false;

@@ -37,6 +37,7 @@ Rectangle {
             radius: Theme.itemRadius
             color: Theme.withAlpha(Theme.floatingText, 0.05)
             EchoIcon {
+                objectName: "sidebarEditorSectionGlyph"
                 anchors.centerIn: parent
                 width: 16
                 height: 16
@@ -45,6 +46,7 @@ Rectangle {
                 color: Theme.iconMain
             }
             EchoCover {
+                objectName: "sidebarEditorSectionCover"
                 anchors.centerIn: parent
                 width: 22
                 height: 22
