@@ -157,6 +157,17 @@ class QtSdkTest(unittest.TestCase):
             build.build_app("release", self.prefix, configure_only=True)
             self.assertIn("-DECHO_DISTRIBUTION_BUILD=OFF", commands.call_args.args[0])
 
+    def test_ffi_check_can_be_disabled_for_packaging_and_restored_for_development(self):
+        with (
+            patch.object(build, "ROOT", self.root),
+            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.0\n"),
+            patch.object(build.subprocess, "run") as commands,
+        ):
+            build.build_app("release", self.prefix, configure_only=True, no_ffi_check=True)
+            self.assertIn("-DECHO_CHECK_FFI_HEADER=OFF", commands.call_args.args[0])
+            build.build_app("release", self.prefix, configure_only=True)
+            self.assertIn("-DECHO_CHECK_FFI_HEADER=ON", commands.call_args.args[0])
+
     def test_test_targets_are_disabled_only_when_explicitly_requested(self):
         with (
             patch.object(build, "ROOT", self.root),

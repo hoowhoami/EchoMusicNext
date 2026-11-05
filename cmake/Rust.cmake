@@ -26,18 +26,26 @@ else()
 endif()
 set(ECHO_RUST_LIBRARY "${ECHO_CARGO_DIR}/${ECHO_CARGO_PROFILE}/${ECHO_RUST_FILENAME}")
 
-# Always let Cargo decide freshness; CMake does not attempt to mirror Cargo's
-# dependency graph. Header checking never rewrites committed source during a build.
+option(ECHO_CHECK_FFI_HEADER "Check the committed FFI header during development builds" ON)
+# Always let Cargo decide freshness; CMake does not mirror Cargo's dependency graph.
 add_custom_target(
     echo_cargo
-    COMMAND ${ECHO_CARGO_COMMAND} run --locked -p ffi-header --target-dir "${ECHO_CARGO_DIR}"
-            "$<${ECHO_CARGO_OPTIMIZED}:--release>" -- --check
     COMMAND ${ECHO_CARGO_COMMAND} build --locked -p echo-ffi --target-dir "${ECHO_CARGO_DIR}"
             "$<${ECHO_CARGO_OPTIMIZED}:--release>"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     BYPRODUCTS "${ECHO_RUST_LIBRARY}" ${ECHO_RUST_IMPLIB}
     USES_TERMINAL VERBATIM COMMAND_EXPAND_LISTS
 )
+if(ECHO_CHECK_FFI_HEADER)
+    add_custom_target(
+        echo_ffi_header_check
+        COMMAND ${ECHO_CARGO_COMMAND} run --locked -p ffi-header --target-dir "${ECHO_CARGO_DIR}"
+                "$<${ECHO_CARGO_OPTIMIZED}:--release>" -- --check
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        USES_TERMINAL VERBATIM COMMAND_EXPAND_LISTS
+    )
+    add_dependencies(echo_cargo echo_ffi_header_check)
+endif()
 add_library(echo_ffi SHARED IMPORTED GLOBAL)
 set_target_properties(
     echo_ffi PROPERTIES IMPORTED_LOCATION "${ECHO_CARGO_DIR}/debug/${ECHO_RUST_FILENAME}"

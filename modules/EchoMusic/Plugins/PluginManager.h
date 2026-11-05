@@ -52,6 +52,8 @@ public:
     PluginManager(PluginRuntime &runtime, EchoMusic::SettingsStore &preferences,
                   QObject *parent = nullptr);
     void setNetworkPreferences(NetworkPreferences *network);
+    /// Image delegates own visible-only loading, with the catalog's routing policy.
+    Q_INVOKABLE QUrl iconRequestUrl(const QUrl &source, bool origin = false) const;
     void attachTasks(TaskCenterModel &tasks);
     /// Main-window startup only; one successful check per process, without polling.
     void startStartupUpdateCheck();
@@ -159,6 +161,7 @@ public:
     Q_INVOKABLE EchoMusic::EchoPluginContext *requestSettings(const QString &installation);
     void shutdown();
 signals:
+    void iconNetworkChanged();
     void changed();
     void sourceAdded(bool success);
     void shareOpened();
@@ -169,6 +172,8 @@ private:
     friend class ::PluginRuntimeTest;
     std::function<QUrl(const QUrl &)> m_resolveUrl;
     QPointer<NetworkPreferences> m_networkPreferences;
+    QMetaObject::Connection m_iconSettingsConnection, m_iconPolicyConnection;
+    QString m_iconProxy;
     using Completion = std::function<void(QByteArray, QString, QVariantMap)>;
     using ResponseValidator = std::function<QString(const QByteArray &)>;
     void getAttempt(const QUrl &url, const QUrl &origin, qint64 limit, Completion complete,

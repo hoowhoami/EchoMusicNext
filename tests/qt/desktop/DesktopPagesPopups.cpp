@@ -215,3 +215,75 @@ void DesktopPagesTest::productionQualityPopupContainsAndScrollsAllOptions()
     }
     QCOMPARE(warnings.size(), 0);
 }
+
+void DesktopPagesTest::taskIndicatorUsesSingleDot_data()
+{
+    QTest::addColumn<bool>("dark");
+    QTest::addColumn<qreal>("scale");
+    QTest::newRow("light-100") << false << qreal(1);
+    QTest::newRow("dark-100") << true << qreal(1);
+    QTest::newRow("light-125") << false << qreal(1.25);
+    QTest::newRow("dark-125") << true << qreal(1.25);
+}
+void DesktopPagesTest::taskIndicatorUsesSingleDot()
+{
+    QFETCH(bool, dark);
+    QFETCH(qreal, scale);
+    Session session;
+    session.theme.setMotionEnabled(false);
+    session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+    QVERIFY(session.create());
+    const auto cleanup = qScopeGuard([&] {
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QVERIFY(Test::prepareNativeInput(session.window));
+    for (int step = 0; step < qRound((scale - 1) / .05); ++step)
+        session.shell.zoomIn();
+    auto *button = visual(session.window->contentItem(), "titlebar-action-tasks");
+    QVERIFY(button);
+    auto *dot = visual(button, "taskIndicatorDot");
+    auto *badge = visual(button, "actionBadge");
+    QVERIFY(dot && badge);
+    // The drag handle owns a dormant duplicate glyph. Wait for the actual
+    // visible button image before accepting a rendered toolbar snapshot.
+    QTRY_VERIFY(std::ranges::any_of(visualAll(button, "iconImage"), [](QQuickItem *item) {
+        return item->isVisible() && item->property("status").toInt() == 1;
+    }));
+    QVERIFY(!dot->isVisible());
+    QObject producer;
+    TaskCenterModel::Registration entry;
+    entry.id = "dot-check";
+    entry.content.name = "插件更新";
+    const auto handle = session.commands.tasks()->registerTask(producer, entry);
+    QTRY_VERIFY(dot->isVisible());
+    QVERIFY(!badge->isVisible());
+    QCOMPARE(dot->width(), 5.);
+    QCOMPARE(dot->height(), 5.);
+    QCOMPARE(dot->x(), button->width() - 10.);
+    QCOMPARE(dot->y(), 5.);
+    const auto color = dot->property("color").value<QColor>();
+    QVERIFY(color.red() > color.green() && color.red() > color.blue());
+    const auto output = qEnvironmentVariable("ECHO_TASK_DOT_OUTPUT");
+    if (!output.isEmpty()) {
+        QDir().mkpath(output);
+        QTest::qWait(100);
+        QVERIFY(session.window->grabWindow().save(
+            output + QString("/task-dot-%1-%2.png").arg(dark).arg(scale)));
+    }
+    QVERIFY(session.commands.titlebarActions()->setBadgeVisible("host/tasks", false));
+    QTRY_VERIFY(!dot->isVisible());
+    QVERIFY(session.commands.titlebarActions()->setBadgeVisible("host/tasks", true));
+    QTRY_VERIFY(dot->isVisible());
+    QVERIFY(session.commands.titlebarActions()->setPlacement("host/tasks", ShellActionModel::More));
+    QVERIFY(session.clickItem("titlebarMoreAction"));
+    QQuickItem *menuAction = nullptr;
+    QTRY_VERIFY(menuAction =
+                    visual(session.window->contentItem(), "titlebarMenuAction-host/tasks"));
+    auto *menuDot = visual(menuAction, "taskIndicatorDot");
+    QVERIFY(menuDot);
+    QTRY_VERIFY(menuDot->isVisible());
+    QCOMPARE(menuDot->width(), 5.);
+    QVERIFY(session.commands.tasks()->remove(handle));
+    QTRY_VERIFY(!menuDot->isVisible());
+}

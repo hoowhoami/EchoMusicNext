@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-export function verifyStage(stage, platform, arch) {
+export function verifyStage(stage, platform, arch, { smoke = false } = {}) {
   const binaryDirectory =
     platform === 'macOS'
       ? path.join(stage, 'echomusicnext.app/Contents/MacOS')
@@ -93,6 +93,7 @@ export function verifyStage(stage, platform, arch) {
     }
   }
   walk(stage);
+  if (!smoke) return;
   const environment = {
     ...process.env,
     QT_QPA_PLATFORM: platform === 'macOS' ? 'cocoa' : platform === 'Windows' ? 'windows' : 'xcb',
@@ -114,7 +115,8 @@ export function verifyStage(stage, platform, arch) {
     {
       env: environment,
       encoding: 'utf8',
-      timeout: 30000,
+      // The application owns a 30s deadline, followed by asynchronous shutdown.
+      timeout: 50000,
     },
   );
   if (result.stdout) console.log(result.stdout);

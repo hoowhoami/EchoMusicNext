@@ -131,10 +131,21 @@ EchoIconButton {
     EchoBadge {
         scale: button.visualScale
         objectName: "actionBadge"
-        visible: button.badgeVisible
+        visible: button.badgeVisible && button.builtinId !== "tasks"
         count: button.actionBadge
         colors: button.colors
         placement: EchoBadge.Floating
         tone: ["quality", "effect", "desktop-lyric", "cast"].includes(button.builtinId) ? button.actionBadge === "OFF" ? EchoBadge.Muted : EchoBadge.Accent : EchoBadge.Neutral
+    }
+    Rectangle {
+        objectName: "taskIndicatorDot"
+        visible: button.badgeVisible && button.builtinId === "tasks"
+        scale: button.visualScale
+        width: 5
+        height: 5
+        radius: width / 2
+        x: button.width - width - 5
+        y: 5
+        color: button.colors.danger
     }
 }

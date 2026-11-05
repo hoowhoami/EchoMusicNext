@@ -102,7 +102,9 @@ cmake --build build/release --target all_qmllint
 
 格式规则见[代码格式与检查](formatting.md)。ABI 修改后使用 `cargo run --locked -p ffi-header -- --write` 生成头文件，再检查差异并重新构建。普通构建只校验生成头，不修改源码。
 
-发布 CI 保留 Rust Clippy 生产目标静态检查（`lint-production`，内部使用 `cargo clippy --release`）、FFI 头一致性、构建和打包校验，不运行全仓格式门禁、Rust、Qt、tooling 或发布契约的自动测试，并通过 `scripts/build.py --no-tests` 关闭 CMake 测试目标构建。格式工具安装和检查移出发布矩阵，格式在本地通过统一入口维护。上面的完整 lint/test 命令供本地按需执行，手动 `quality-reports.yml` 仍按原职责执行质量测试和覆盖率。发布 CI 的 Clippy、独立 FFI 头校验，以及 Release CMake 调用的 FFI 头工具和原生 Rust 库统一使用 Cargo release profile；本地显式 Debug 配置仍使用 dev profile。Cargo 依赖缓存按 runner、架构、工具链、依赖清单与原生包清单隔离，失败的构建也保存已完成的依赖编译；默认不归档宿主 crate 或增量编译产物。首次运行或缓存失效仍需要编译依赖，缓存效果以实际 CI 命中和步骤耗时为准。
+发布 CI 的六个平台仅准备工具链、构建、部署和打包，不运行 Rust Clippy、FFI 头检查、QML lint、单元测试或应用启动测试。发布配置使用 `--no-tests --no-ffi-check`，CMake 内部也跳过 FFI 头工具，只编译 Release 原生库。本地普通构建默认保留 FFI 校验；上面的 lint/test 命令仍供本地按需执行，已有手动质量工作流保持独立。安装包继续检查版本、架构、依赖、签名及许可材料。
+
+Cargo 依赖缓存按 runner、架构、工具链、依赖清单与原生包清单隔离，失败的构建也保存已完成的依赖编译；默认不归档宿主 crate 或增量编译产物。首次运行或缓存失效仍需要编译依赖，缓存效果以实际 CI 命中和步骤耗时为准。
 
 运行日志在终端和文件中统一为 UTF-8 单行文本，时间使用本地 `yyyy-MM-dd HH:mm:ss.SSS`。文件名为 `echomusicnext-yyyy-MM-dd_HH-mm-ss-SSS-PID.log`；启动默认清理超过7天未写的运行日志和轮转文件，活跃会话与独立崩溃现场保留。标准 info 不逐条记录正常 API 成功/取消，可用 `--log-level debug` 查看请求诊断。
 
@@ -127,9 +129,11 @@ node tools/release/prepare.mjs
 node tools/release/package.mjs --qt=/path/to/Qt/6.12.0/kit
 ```
 
+默认打包只检查文件与部署依赖，不自动启动 GUI。需要本地启动验证时，在打包命令末尾显式添加 `--smoke-test`；该检查保留应用内部 30 秒期限及外层 50 秒启动/排空预算，失败仍会停止打包。它不属于发布 CI 的自动步骤。
+
 输出位于 `build/packages/`。使用其它构建目录时可传 `--build=build/your-build`；输出目录可用 `--out=build/your-packages` 指定。目录均需位于项目 `build/` 下。Node.js 仅用于开发、打包与检查，不随应用运行。
 
-- macOS：通过 `macdeployqt` 部署 Qt，生成临时签名的 DMG 和 ZIP；当前没有 Developer ID 签名和公证。
+- macOS：部署前从所选 Qt SDK 仅保留 SQLite SQL 驱动，避免引入无用数据库客户端。`macdeployqt -no-codesign` 完成 Qt 及辅助程序依赖部署后，由打包脚本统一签名并验证，生成 DMG 和 ZIP；当前没有 Developer ID 签名和公证。
 - Windows：需要 NSIS 3.11，默认读取 `Program Files (x86)/NSIS/makensis.exe`，也可传 `--nsis=...`；通过 `windeployqt` 部署后生成当前用户安装程序，包含协议与 `.echomod` 关联；缺少运行库时安装已验证 Microsoft 签名的官方 VC14 Redistributable，可能请求系统授权。
 - Linux：x64 在 Ubuntu 22.04、ARM64 在 Ubuntu 24.04 构建。需要 Ruby/FPM 1.17.0、rpm、zstd、libarchive-tools、libfuse2；准备步骤下载并校验锁定的 linuxdeploy / Qt 插件。部署 Qt 6.12 的 `libqwayland.so`、offscreen 平台插件及 Wayland 客户端配套插件，保留 X11 支持。打包前会从所选 SDK 的 SQL 驱动目录移除非 SQLite 驱动；Qt Multimedia 后端保留，系统依赖清单包含 GStreamer Base、Play/Photography 和 GL 库。传 `--linuxdeploy=build/release-tools/linuxdeploy-x86_64.AppImage`（ARM64 使用 `aarch64`）生成 AppImage、DEB、RPM、Arch 包和 tar.gz。tar.gz 解压后运行 `echomusicnext/AppRun`。
 
@@ -137,7 +141,7 @@ node tools/release/package.mjs --qt=/path/to/Qt/6.12.0/kit
 
 ### CI 缓存
 
-桌面 CI 优先复用 runner 的 Rust 1.99.0 工具链；安装失败时仅卸载该版本并重装一次，随后检查 rustc、Cargo、rustfmt 和 Clippy 是否可用。重装仍失败则停止，不清理 Cargo 依赖或 Qt 缓存。
+桌面 CI 优先复用 runner 的 Rust 1.99.0 工具链；安装失败时仅卸载该版本并重装一次，随后确认 rustc 和 Cargo 可用。发布任务显式选择 `RUSTUP_TOOLCHAIN=1.99.0`，只安装 minimal 编译组件；开发用的 rustfmt/Clippy 不在发布任务中自动补装。重装仍失败则停止，不清理 Cargo 依赖或 Qt 缓存。
 
 Qt SDK 按 runner、架构、安装脚本、原生依赖和许可材料脚本生成缓存键。只缓存官方预编译 SDK，使用独立的 `qt-prebuilt-6.12.0` 缓存键前缀。恢复后仍校验版本与模块，首次安装验证通过后立即保存；后续应用编译或打包失败不会丢掉已保存的 SDK。不缓存 Qt 源码或其编译树。
 
@@ -157,7 +161,7 @@ macOS CI 使用 `macos-26`（ARM64）和 `macos-26-intel`（x64）。构建机�
 
 本地构建在当前提交恰好有 `v*` 版本标签时使用该版本，其余提交和不含 Git 元数据的源码包默认显示 `0.1.0-dev`；该缺省值无需随发版修改。手动工作流选择标签时使用标签版本，选择普通分支时生成开发版本且不发布 Release。离线构建特定版本可在配置时传入 `-DECHO_RELEASE_VERSION=0.2.0-beta.1`，打包工具同时设置 `RELEASE_VERSION=0.2.0-beta.1`；与标签冲突或不符合 SemVer 的输入会失败。若复用早期缓存中固定了版本的构建目录，先用 `cmake -U ECHO_RELEASE_VERSION -S . -B build/release` 清除覆盖。打包前核对已配置版本，旧版本构建目录不能被标成新版本。
 
-Rust 检查只覆盖项目自有 workspace 包，不整理 vendor：correctness / suspicious 类 Clippy 检查阻断发布，其余诊断仍保留在日志。离线 API 回归不包含本地接口样本。
+本地 Rust 检查只覆盖项目自有 workspace 包，不整理 vendor；correctness / suspicious 类 Clippy 诊断返回失败，发布 CI 不调用该检查。离线 API 回归不包含本地接口样本。
 
 ### 当前版本更新说明
 

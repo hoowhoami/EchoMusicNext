@@ -17,6 +17,7 @@ qt_add_qml_module(
     QML_FILES
     PluginManagementPage.qml
     PluginCard.qml
+    PluginIconImage.qml
     PluginActionButton.qml
     PluginMarketplaceSkeleton.qml
     PluginSourceDialog.qml

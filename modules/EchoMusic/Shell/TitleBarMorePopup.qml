@@ -100,9 +100,20 @@ EchoAnchoredPopup {
                             anchors.right: parent.right
                             anchors.rightMargin: 8
                             anchors.verticalCenter: parent.verticalCenter
-                            visible: row.badgeVisible
+                            visible: row.badgeVisible && row.actionKey !== "host/tasks"
                             count: row.actionBadge
                             colors: Theme.floating
+                        }
+                        Rectangle {
+                            objectName: "taskIndicatorDot"
+                            anchors.right: parent.right
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: row.badgeVisible && row.actionKey === "host/tasks"
+                            width: 5
+                            height: 5
+                            radius: width / 2
+                            color: Theme.floating.danger
                         }
                         padding: 0
                         background: Rectangle {

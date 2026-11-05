@@ -829,8 +829,9 @@ add_test(
         productionContentBlacklistKeepsPreferencesDraftAndVirtualScroll
         deviceRemovalRequiresConfirmationRefreshAndCurrentSession
 )
-add_test(NAME desktop-pages-popups COMMAND echo-desktop-pages-test
-                                           productionQualityPopupContainsAndScrollsAllOptions
+add_test(NAME desktop-pages-popups
+         COMMAND echo-desktop-pages-test productionQualityPopupContainsAndScrollsAllOptions
+                 taskIndicatorUsesSingleDot
 )
 add_test(
     NAME desktop-pages-library
@@ -1045,6 +1046,7 @@ add_test(
         directoryActionOpensTheDisplayedRoot managementUpdateRollsBackPackageAndPrivateData
         localBatchContinuesAfterInvalidPackage arrivingInstallFilesCompleteDependencyBatch
         qtFileOpenQueuesBeforeServiceInitialization githubMirrorFallbackAndPostShareUnifiedProxy
+        marketplaceIconsUseAcceleratorAndOriginFallback
         marketplaceFreshContentAndValidationFallback sourceCatalogNetworkCacheAndOfficialProtection
         managementHeaderAndLoadingContentStayAligned marketplaceNetworkFailureClassification
         marketplaceNetworkFailureDetailsUi managementPageUsesProductionModelsAndDialogs

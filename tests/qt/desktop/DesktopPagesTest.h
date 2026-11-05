@@ -62,6 +62,8 @@ private slots:
     void productionEffectPanelAlignmentAndCompactContentTabs();
     void productionResolvedQualityMarksPickerAndToolbar();
     void productionQualityPopupContainsAndScrollsAllOptions();
+    void taskIndicatorUsesSingleDot_data();
+    void taskIndicatorUsesSingleDot();
     void productionEmbeddedLyricsFromActualReader_data();
     void productionEmbeddedLyricsFromActualReader();
     void productionLyricPreviewKeepsSymmetricInsets();

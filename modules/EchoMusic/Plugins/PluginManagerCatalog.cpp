@@ -63,7 +63,32 @@ QVariantMap PluginManager::normalizeSource(const QString &text, const QString &n
 }
 void PluginManager::setNetworkPreferences(NetworkPreferences *network)
 {
+    if (m_networkPreferences == network)
+        return;
+    disconnect(m_iconSettingsConnection);
+    disconnect(m_iconPolicyConnection);
     m_networkPreferences = network;
+    m_iconProxy = network ? network->githubProxyUrl() : QString();
+    if (network) {
+        m_iconSettingsConnection = connect(network, &NetworkPreferences::changed, this, [this] {
+            const auto proxy =
+                m_networkPreferences ? m_networkPreferences->githubProxyUrl() : QString();
+            if (m_iconProxy != proxy) {
+                m_iconProxy = proxy;
+                emit iconNetworkChanged();
+            }
+        });
+        m_iconPolicyConnection = connect(network, &NetworkPreferences::applied, this,
+                                         &PluginManager::iconNetworkChanged);
+    }
+    emit iconNetworkChanged();
+}
+QUrl PluginManager::iconRequestUrl(const QUrl &source, bool origin) const
+{
+    const auto target = !origin && m_networkPreferences
+                            ? m_networkPreferences->acceleratedGithubUrl(source)
+                            : source;
+    return m_resolveUrl ? m_resolveUrl(target) : target;
 }
 void PluginManager::get(const QUrl &url, qint64 limit, Completion complete, const QByteArray &body,
                         int timeout, ResponseValidator validate, bool fresh)

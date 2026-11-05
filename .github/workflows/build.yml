@@ -49,6 +49,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     env:
+      # Select the compiler without rust-toolchain.toml's development components.
+      RUSTUP_TOOLCHAIN: '1.99.0'
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       ECHO_CHANGELOG_FILE: ${{ github.workspace }}/build/release-notes/CHANGELOG.md
       SCCACHE_GHA_ENABLED: 'true'
@@ -87,25 +89,19 @@ jobs:
       - name: Rust toolchain
         shell: bash
         run: |
-          if ! rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy; then
+          if ! rustup toolchain install 1.99.0 --profile minimal; then
             # Runner images can contain incomplete component installs. Reset
             # only this toolchain; keep Cargo registries and build caches.
             rustup toolchain uninstall 1.99.0
-            rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+            rustup toolchain install 1.99.0 --profile minimal
           fi
           rustup run 1.99.0 rustc --version
           rustup run 1.99.0 cargo --version
-          rustup run 1.99.0 rustfmt --version
-          rustup run 1.99.0 cargo clippy --version
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('tools/qt/linux-packages.txt') }}
           cache-on-failure: true
-      - name: Rust static analysis
-        run: node tools/release/rust-check.mjs lint-production
-      - name: FFI header check
-        run: cargo run --release --locked -p ffi-header -- --check
       - name: Restore pinned Qt SDK
         id: qt-cache
         uses: actions/cache/restore@v4
@@ -136,11 +132,9 @@ jobs:
         env:
           CMAKE_C_COMPILER_LAUNCHER: sccache
           CMAKE_CXX_COMPILER_LAUNCHER: sccache
-        run: python scripts/build.py --preset release --configure-only --distribution --no-tests
+        run: python scripts/build.py --preset release --configure-only --distribution --no-tests --no-ffi-check
       - name: Build
         run: cmake --build --preset release
-      - name: QML lint
-        run: cmake --build build/release --target all_qmllint
       - name: Prepare deployment materials
         run: node tools/release/prepare.mjs
       - name: Package

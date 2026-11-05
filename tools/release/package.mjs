@@ -20,6 +20,7 @@ const options = Object.fromEntries(
 );
 const platform = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform];
 const arch = options.arch || { x64: 'x64', arm64: 'arm64' }[process.arch];
+const smoke = Object.hasOwn(options, 'smoke-test');
 if (!matrix.some((item) => item.platform === platform && item.arch === arch))
   throw new Error('Unsupported package platform');
 const version = releaseVersion();
@@ -51,6 +52,13 @@ function run(command, args, extras = {}) {
 function name(kind) {
   return path.join(output, assetName(version, platform, arch, kind));
 }
+function keepSqliteDriver(directory, sqlite) {
+  if (!fs.existsSync(path.join(directory, sqlite)))
+    throw new Error(`Qt SQLite driver is missing: ${path.join(directory, sqlite)}`);
+  for (const file of fs.readdirSync(directory)) {
+    if (file !== sqlite) fs.rmSync(path.join(directory, file), { recursive: true });
+  }
+}
 const stage =
   platform === 'Linux' ? path.join(staging, 'AppDir/usr') : path.join(staging, 'install');
 run('cmake', ['--install', build, '--prefix', stage, '--config', 'Release']);
@@ -60,6 +68,8 @@ const licenseDirectory =
     : path.join(stage, 'share/echomusicnext/licenses');
 collectLicenses(licenseDirectory, qt, version);
 if (platform === 'macOS') {
+  // Filter before macdeployqt follows optional database-client dependencies.
+  keepSqliteDriver(path.join(qt, 'plugins/sqldrivers'), 'libqsqlite.dylib');
   const app = path.join(stage, 'echomusicnext.app');
   const platforms = path.join(app, 'Contents/PlugIns/platforms');
   fs.mkdirSync(platforms, { recursive: true });
@@ -73,13 +83,12 @@ if (platform === 'macOS') {
     `-qmlimport=${path.join(build, 'qml')}`,
     `-executable=${path.join(app, 'Contents/Helpers/echo-theme-image-worker')}`,
     `-executable=${path.join(app, 'Contents/Helpers/echo-plugin-asset-worker')}`,
+    `-executable=${path.join(app, 'Contents/Helpers/echo-update-helper')}`,
+    `-executable=${path.join(app, 'Contents/Helpers/crashpad_handler')}`,
     '-always-overwrite',
+    '-no-codesign',
   ]);
-  const sqlDrivers = path.join(app, 'Contents/PlugIns/sqldrivers');
-  if (fs.existsSync(sqlDrivers))
-    for (const file of fs.readdirSync(sqlDrivers)) {
-      if (file !== 'libqsqlite.dylib') fs.rmSync(path.join(sqlDrivers, file), { recursive: true });
-    }
+  keepSqliteDriver(path.join(app, 'Contents/PlugIns/sqldrivers'), 'libqsqlite.dylib');
   run('codesign', [
     '--force',
     '--deep',
@@ -93,7 +102,7 @@ if (platform === 'macOS') {
   ]);
   run('codesign', ['--verify', '--deep', '--strict', app]);
   verifyQtDeployment(stage, licenseDirectory);
-  verifyStage(stage, platform, arch);
+  verifyStage(stage, platform, arch, { smoke });
   fs.symlinkSync('/Applications', path.join(stage, 'Applications'));
   run('hdiutil', [
     'create',
@@ -134,7 +143,7 @@ if (platform === 'macOS') {
     path.join(sqlite, 'qsqlite.dll'),
   );
   verifyQtDeployment(stage, licenseDirectory);
-  verifyStage(stage, platform, arch);
+  verifyStage(stage, platform, arch, { smoke });
   const redist = path.join(root, `build/release-tools/vc_redist.${arch}.exe`);
   const redistVersion = JSON.parse(
     fs.readFileSync(path.join(root, `build/release-tools/vc_redist.${arch}.json`)),
@@ -173,12 +182,7 @@ if (platform === 'macOS') {
 } else {
   // linuxdeploy's Qt plugin scans every SQL driver. This host uses only SQLite;
   // other SDK drivers require external database clients (for example Oracle).
-  const sqlDrivers = path.join(qt, 'plugins/sqldrivers');
-  if (!fs.existsSync(path.join(sqlDrivers, 'libqsqlite.so')))
-    throw new Error('Qt SQLite driver is missing from the SDK');
-  for (const file of fs.readdirSync(sqlDrivers)) {
-    if (file !== 'libqsqlite.so') fs.rmSync(path.join(sqlDrivers, file), { recursive: true });
-  }
+  keepSqliteDriver(path.join(qt, 'plugins/sqldrivers'), 'libqsqlite.so');
   const appdir = path.dirname(stage),
     marker = path.join(stage, 'share/echomusicnext/package-type');
   fs.mkdirSync(path.dirname(marker), { recursive: true });
@@ -229,7 +233,7 @@ if (platform === 'macOS') {
   );
   if (!fs.existsSync(name('appimage'))) throw new Error('AppImage output missing');
   verifyQtDeployment(stage, licenseDirectory);
-  verifyStage(stage, platform, arch);
+  verifyStage(stage, platform, arch, { smoke });
   const osArch = arch === 'x64' ? 'x86_64' : 'aarch64';
   const match = /^([0-9.]+)(?:-(.*))?$/.exec(version.split('+')[0]);
   const [, base, prerelease] = match;

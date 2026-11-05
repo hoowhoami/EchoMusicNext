@@ -128,6 +128,8 @@ private slots:
     void arrivingInstallFilesCompleteDependencyBatch();
     void qtFileOpenQueuesBeforeServiceInitialization();
     void githubMirrorFallbackAndPostShareUnifiedProxy();
+    void marketplaceIconsUseAcceleratorAndOriginFallback_data();
+    void marketplaceIconsUseAcceleratorAndOriginFallback();
     void marketplaceFreshContentAndValidationFallback();
     void sourceCatalogNetworkCacheAndOfficialProtection();
     void settingsContributionRetiresWithScope();

@@ -1550,3 +1550,122 @@ ApplicationWindow {
     root.reset();
     manager.shutdown();
 }
+
+void PluginRuntimeTest::marketplaceIconsUseAcceleratorAndOriginFallback_data()
+{
+    QTest::addColumn<int>("mode");
+    QTest::newRow("mirror-connection-closed") << 0;
+    QTest::newRow("mirror-invalid-image") << 1;
+    QTest::newRow("mirror-valid-svg") << 2;
+    QTest::newRow("both-fail-then-network-change") << 3;
+}
+void PluginRuntimeTest::marketplaceIconsUseAcceleratorAndOriginFallback()
+{
+    QFETCH(int, mode);
+    Host host;
+    host.theme.setMotionEnabled(false);
+    NetworkPreferences preferences(host.settings, host.api);
+    preferences.setGithubProxyUrl("https://mirror.invalid");
+    PluginManager manager(host.runtime, host.settings);
+    manager.setNetworkPreferences(&preferences);
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    QStringList requests;
+    bool originReady = mode != 3;
+    const QByteArray svg =
+        R"(<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#1382c4"/></svg>)";
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+        auto *peer = server.nextPendingConnection();
+        connect(peer, &QTcpSocket::readyRead, peer, [&, peer] {
+            auto header = peer->property("header").toByteArray() + peer->readAll();
+            peer->setProperty("header", header);
+            if (!header.contains("\r\n\r\n") || peer->property("answered").toBool())
+                return;
+            peer->setProperty("answered", true);
+            const auto route = QString::fromLatin1(header.split(' ').value(1));
+            requests.append(route);
+            if (route == "/mirror.svg" && mode == 0) {
+                peer->abort();
+                return;
+            }
+            const bool valid = route == "/origin.svg" ? originReady : mode == 2;
+            const auto body = valid ? svg : QByteArray("invalid image response");
+            peer->write("HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml\r\nContent-Length: " +
+                        QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+            peer->disconnectFromHost();
+        });
+        connect(peer, &QTcpSocket::disconnected, peer, &QObject::deleteLater);
+    });
+    manager.m_resolveUrl = [&](const QUrl &url) {
+        return QUrl(QString("http://127.0.0.1:%1/%2.svg")
+                        .arg(server.serverPort())
+                        .arg(url.host() == "mirror.invalid" ? "mirror" : "origin"));
+    };
+    QStringList warnings;
+    connect(&host.engine, &QQmlEngine::warnings, &host.engine, [&](const QList<QQmlError> &errors) {
+        for (const auto &error : errors)
+            warnings.append(error.toString());
+    });
+    QQmlComponent component(&host.engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Theme
+import EchoMusic.Plugins
+ApplicationWindow {
+ id: win
+ required property PluginManager manager
+ property real uiScale: 1
+ width:700;height:700;visible:true;color:Theme.main
+ Item {
+  width:win.width / win.uiScale;height:win.height / win.uiScale
+  scale:win.uiScale;transformOrigin:Item.TopLeft
+  PluginCard {
+   objectName:"networkIconCard";x:30;y:30;width:500;manager:win.manager;marketplace:true
+   record:({id:"published-artwork",name:"插件图标",author:"author",version:"1.0.0",compatible:true,installed:false,status:"已发布",iconUrl:"https://raw.githubusercontent.com/author/plugins/HEAD/icon.svg"})
+  }
+ }
+})",
+                      QUrl("qrc:/plugin-icon-network-test.qml"));
+    std::unique_ptr<QObject> root(
+        component.createWithInitialProperties({{"manager", QVariant::fromValue(&manager)}}));
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(window && QTest::qWaitForWindowExposed(window));
+    auto *icon = visual(window->contentItem(), "pluginCardIcon");
+    auto *fallback = visual(window->contentItem(), "pluginCardIconFallback");
+    QVERIFY(icon && fallback);
+    if (mode == 3) {
+        QTRY_COMPARE(requests.size(), 2);
+        QTest::qWait(50);
+        QCOMPARE(requests.size(), 2);
+        QVERIFY(fallback->isVisible());
+        originReady = true;
+        preferences.setGithubProxyUrl("");
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(icon->property("status").toInt(), 1, 5000);
+    QVERIFY(!fallback->isVisible());
+    QCOMPARE(requests.first(), QString("/mirror.svg"));
+    // Qt can retry a prematurely closed GET inside QNetworkAccessManager.
+    // The image owner itself must perform only one origin fallback.
+    const auto mirrorRequests = requests.count("/mirror.svg");
+    QVERIFY(mirrorRequests >= 1 && mirrorRequests <= (mode == 0 ? 2 : 1));
+    QCOMPARE(requests.count("/origin.svg"), mode == 2 ? 0 : mode == 3 ? 2 : 1);
+    for (const auto &warning : warnings)
+        QVERIFY2(!warning.contains("Binding loop") && !warning.contains("Unable to assign") &&
+                     !warning.contains("ReferenceError") && !warning.contains("TypeError"),
+                 qPrintable(warning));
+    const auto output = qEnvironmentVariable("ECHO_PLUGIN_ICON_OUTPUT");
+    if (!output.isEmpty()) {
+        QDir().mkpath(output);
+        for (const bool dark : {false, true}) {
+            host.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+            for (const auto scale : {1., 1.25}) {
+                window->setProperty("uiScale", scale);
+                QTest::qWait(30);
+                QVERIFY(window->grabWindow().save(
+                    output + QString("/plugin-icon-%1-%2-%3.png").arg(mode).arg(dark).arg(scale)));
+            }
+        }
+    }
+}

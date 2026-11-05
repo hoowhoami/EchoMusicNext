@@ -175,11 +175,12 @@ RoutePage {
                             Layout.alignment: Qt.AlignTop
                             radius: Theme.controlRadius
                             color: Theme.withAlpha("#1a73e8", 0.12)
-                            EchoCover {
+                            PluginIconImage {
                                 id: icon
                                 objectName: "pluginShareIcon"
                                 anchors.fill: parent
-                                source: page.manager.shareRecord.iconUrl || ""
+                                manager: page.manager
+                                iconSource: page.manager.shareRecord.iconUrl || ""
                                 resourceActive: page.resourcesActive
                                 cornerRadius: Theme.controlRadius
                                 placeholderOpacity: 0

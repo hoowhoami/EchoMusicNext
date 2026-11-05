@@ -142,15 +142,18 @@ Rectangle {
                         }
                     }
                 }
-                EchoCover {
+                PluginIconImage {
                     id: image
+                    objectName: "pluginCardIcon"
                     anchors.fill: parent
-                    source: card.record.iconUrl || ""
+                    manager: card.manager
+                    iconSource: card.record.iconUrl || ""
                     cornerRadius: Theme.cardRadius
                     placeholderOpacity: 0
                     placeholderColor: "transparent"
                 }
                 Label {
+                    objectName: "pluginCardIconFallback"
                     anchors.centerIn: parent
                     visible: image.status !== Image.Ready
                     text: (Array.from(card.titleText.trim())[0] || "E").toUpperCase()
@@ -188,7 +191,7 @@ Rectangle {
                     }
                     EchoTag {
                         objectName: "pluginCardStatus"
-                        visible: !!card.record.status && (!card.marketplace || card.warning || card.record.installed || card.record.updateAvailable)
+                        visible: !!card.record.status && (!card.marketplace || card.warning || !!card.record.installed || !!card.record.updateAvailable)
                         text: card.record.status || ""
                         size: EchoTag.Small
                         tone: card.warning || card.record.status === qsTr("安全模式") || card.record.updateAvailable ? EchoTag.Custom : card.currentFailure ? EchoTag.Custom : card.record.status === qsTr("运行中") ? EchoTag.Accent : EchoTag.Neutral

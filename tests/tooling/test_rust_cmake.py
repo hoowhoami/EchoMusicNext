@@ -125,6 +125,33 @@ class RustCMakeTest(unittest.TestCase):
                         self.assertEqual(Path(imported.strip()).parent, source / "target" / profile)
                         self.assertEqual((source / "header-profile.txt").read_text(), profile)
 
+    def test_packaging_build_skips_the_header_tool_and_keeps_the_release_library(self):
+        with tempfile.TemporaryDirectory(prefix="echo-rust-package-") as temporary:
+            source = Path(temporary)
+            self.make_project(source)
+            build = source / "build"
+            self.run_command(
+                "cmake",
+                "-S",
+                str(source),
+                "-B",
+                str(build),
+                "-G",
+                "Ninja",
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DECHO_CHECK_FFI_HEADER=OFF",
+            )
+            self.run_command("cmake", "--build", str(build))
+            self.assertFalse((source / "header-profile.txt").exists())
+            self.assertNotIn("ffi-header", (build / "build.ninja").read_text())
+            executable = build / ("profile-test.exe" if os.name == "nt" else "profile-test")
+            self.run_command(str(executable))
+            self.run_command(
+                "cmake", "-S", str(source), "-B", str(build), "-DECHO_CHECK_FFI_HEADER=ON"
+            )
+            self.run_command("cmake", "--build", str(build))
+            self.assertEqual((source / "header-profile.txt").read_text(), "release")
+
     @unittest.skipUnless(
         sys.platform.startswith("linux") and shutil.which("readelf"), "Linux ELF tools required"
     )
