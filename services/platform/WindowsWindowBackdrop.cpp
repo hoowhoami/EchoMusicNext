@@ -154,8 +154,8 @@ void maximizeInfoToWork(HWND window, MINMAXINFO *info)
     const RECT &work = monitor.rcWork;
     // ptMaxPosition is in workspace coordinates: relative to the monitor the
     // window maximizes onto.
-    info->ptMaxPosition = POINT{work.left - monitor.rcMonitor.left,
-                                work.top - monitor.rcMonitor.top};
+    info->ptMaxPosition =
+        POINT{work.left - monitor.rcMonitor.left, work.top - monitor.rcMonitor.top};
     info->ptMaxSize = POINT{work.right - work.left, work.bottom - work.top};
 }
 } // namespace
@@ -336,8 +336,8 @@ void WindowsWindowBackdrop::applyWindowPolicy()
         // (m_transitionCaption), whose timeout re-queues the repair that
         // strips it. Maximize transitions run caption-less by design.
         LONG_PTR style = GetWindowLongPtrW(m_handle, GWL_STYLE);
-        LONG_PTR withFrame = (style | WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX |
-                              WS_MAXIMIZEBOX) & ~LONG_PTR(WS_CAPTION);
+        LONG_PTR withFrame = (style | WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) &
+                             ~LONG_PTR(WS_CAPTION);
         // Keep the transient transition caption alive while its timer runs -
         // except on a maximized window: the maximize settle has already
         // uncaptioned it to free the ring enforcement, and re-adding would
@@ -721,9 +721,8 @@ void WindowsWindowBackdrop::queueRepair()
                 MONITORINFO monitor{sizeof(MONITORINFO)};
                 RECT bounds{};
                 if (GetMonitorInfoW(MonitorFromWindow(m_handle, MONITOR_DEFAULTTONEAREST),
-                                    &monitor)
-                    && GetWindowRect(m_handle, &bounds)
-                    && !EqualRect(&bounds, &monitor.rcWork)) {
+                                    &monitor) &&
+                    GetWindowRect(m_handle, &bounds) && !EqualRect(&bounds, &monitor.rcWork)) {
                     removeCaption(m_handle);
                     shrinkMaximizedToWork(m_handle);
                 }
@@ -749,10 +748,10 @@ void WindowsWindowBackdrop::queueRepair()
             RECT windowRect{}, clientRect{};
             GetWindowRect(m_handle, &windowRect);
             GetClientRect(m_handle, &clientRect);
-            qCDebug(windowLog) << "repair-geometry window-rect" << windowRect.left
-                               << windowRect.top << windowRect.right << windowRect.bottom
-                               << "client" << clientRect.right << clientRect.bottom
-                               << "window" << m_window->width() << m_window->height();
+            qCDebug(windowLog) << "repair-geometry window-rect" << windowRect.left << windowRect.top
+                               << windowRect.right << windowRect.bottom << "client"
+                               << clientRect.right << clientRect.bottom << "window"
+                               << m_window->width() << m_window->height();
             logState("repair");
         },
         Qt::QueuedConnection);
@@ -831,8 +830,8 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
             ensureCaption(window);
         } else if (command == SC_MINIMIZE || command == SC_RESTORE) {
             WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
-            if (GetWindowPlacement(window, &placement)
-                && !(placement.flags & WPF_RESTORETOMAXIMIZED)) {
+            if (GetWindowPlacement(window, &placement) &&
+                !(placement.flags & WPF_RESTORETOMAXIMIZED)) {
                 self->m_transitionCaption.start();
                 ensureCaption(window);
             } else {

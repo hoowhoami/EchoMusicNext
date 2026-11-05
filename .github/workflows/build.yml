@@ -85,7 +85,18 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install nsis --version=3.11 -y --no-progress
       - name: Rust toolchain
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+        shell: bash
+        run: |
+          if ! rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy; then
+            # Runner images can contain incomplete component installs. Reset
+            # only this toolchain; keep Cargo registries and build caches.
+            rustup toolchain uninstall 1.99.0
+            rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          fi
+          rustup run 1.99.0 rustc --version
+          rustup run 1.99.0 cargo --version
+          rustup run 1.99.0 rustfmt --version
+          rustup run 1.99.0 cargo clippy --version
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:

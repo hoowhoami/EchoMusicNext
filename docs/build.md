@@ -137,6 +137,8 @@ node tools/release/package.mjs --qt=/path/to/Qt/6.12.0/kit
 
 ### CI 缓存
 
+桌面 CI 优先复用 runner 的 Rust 1.99.0 工具链；安装失败时仅卸载该版本并重装一次，随后检查 rustc、Cargo、rustfmt 和 Clippy 是否可用。重装仍失败则停止，不清理 Cargo 依赖或 Qt 缓存。
+
 Qt SDK 按 runner、架构、安装脚本、原生依赖和许可材料脚本生成缓存键。只缓存官方预编译 SDK，使用独立的 `qt-prebuilt-6.12.0` 缓存键前缀。恢复后仍校验版本与模块，首次安装验证通过后立即保存；后续应用编译或打包失败不会丢掉已保存的 SDK。不缓存 Qt 源码或其编译树。
 
 应用 C/C++ 编译通过固定版本的 sccache 使用 GitHub Actions 缓存，按 runner/架构隔离，并由 sccache 校验编译器、选项、源码和头文件。仅应用配置启用 compiler launcher，Qt 源码构建不占用此缓存。应用 Release 不额外生成调试符号，Windows 的 C/C++ 与汇编均不注入 `/Z7`，链接不强制 `/DEBUG:FULL`。sccache 的 post 步骤报告命中与未缓存原因；缓存服务不可用时允许调用实际编译器继续，编译错误仍令任务失败。
