@@ -1,6 +1,12 @@
+add_library(echo_log_redaction STATIC LogRedaction.cpp LogRedaction.h)
+target_include_directories(echo_log_redaction PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo_log_redaction
+    PUBLIC Qt6::Core
+    PRIVATE echo_build_options
+)
 add_library(
     echo_crash_diagnostics STATIC CrashDiagnostics.cpp CrashDiagnostics.h LogFiles.cpp LogFiles.h
-                                  LogRedaction.cpp LogRedaction.h
 )
 target_include_directories(
     echo_crash_diagnostics
@@ -9,7 +15,7 @@ target_include_directories(
 )
 target_link_libraries(
     echo_crash_diagnostics
-    PUBLIC Qt6::Core
+    PUBLIC Qt6::Core echo_log_redaction
     PRIVATE echo_build_options crashpad::client crashpad::snapshot
 )
 add_dependencies(echo_crash_diagnostics crashpad_handler)

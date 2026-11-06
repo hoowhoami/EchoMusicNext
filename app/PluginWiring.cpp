@@ -166,7 +166,6 @@ void AppContext::createPlugins()
         bind(m_urlHandler, &ApplicationUrlHandler::urlRequested, &pluginManager, openShared);
     bind(&plugins, &PluginRuntime::pluginFailed, &shellController,
          [&](const QString &id, const QString &message) {
-             qWarning().noquote() << "Plugin" << id << message;
              shellController.toasts()->show(message, ToastService::Danger, 6000,
                                             ToastService::Standard,
                                             QObject::tr("插件异常 · %1").arg(id));

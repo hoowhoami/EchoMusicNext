@@ -195,3 +195,13 @@ lease.dispose();
 ```
 
 完整类型仍唯一维护于作者仓库`PageTransitionDefinition`；宿主不执行旧Vue/CSS动画，执行证据及平台边界见[动画验证](internal/verification/2026-11-05-motion-parity.md)。
+
+## 日志与问题排查
+
+插件诊断复用应用运行日志，同时写入终端与日志文件。默认 `info` 记录插件发现、启停、依赖阻塞、安装及事务结果；SDK operation 失败、生命周期和回调异常、市场请求失败默认记录警告。
+
+在“设置 → 实验室 → 临时诊断日志”点击“10 分钟”，或把日志级别设为 `debug`，可查看 operation 创建/终态、私有命令分发，以及市场请求、HTTP 状态、耗时与原站回退。启动问题可使用同处的“诊断并重启/开启启动诊断”。日志目录由“查看运行日志”打开。
+
+日志分类使用 `echo.plugins.runtime`、`echo.plugins.operations`、`echo.plugins.commands` 和 `echo.plugins.marketplace`。SDK operation 记录关联 `plugin`、`installation`、`scope`、`activation`、`operation` 和原生 SDK `action`；命令分发另带 `command`。市场回退的两次尝试共用 `request` 编号，使用 `attempt` 区分。
+
+宿主不记录命令参数、operation 返回值、请求/响应正文或网络请求的查询串；错误字段经统一脱敏并限制长度，超限标记 `[truncated]`。普通成功和取消的 operation 明细只在 debug 可见。插件自行通过 JS/QML `console` 输出内容时也会进入现有日志出口，作者应避免输出凭证或完整业务数据。

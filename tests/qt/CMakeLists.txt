@@ -960,6 +960,7 @@ target_sources(
 target_link_libraries(
     echo-plugin-runtime-test
     PRIVATE echo_settings
+            echo_logging
             echo_settingsplugin
             echo_music
             echo_themes
@@ -1063,9 +1064,11 @@ add_test(
 set_tests_properties(
     plugin-update-tasks PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
 )
-add_test(NAME plugin-runtime-runtime
-         COMMAND echo-plugin-runtime-test packageIntegrityAndCompatibility
-                 reloadUsesNewCodeUrlAndIdentity actualHttpAndCancellation
+add_test(
+    NAME plugin-runtime-runtime
+    COMMAND
+        echo-plugin-runtime-test pluginDiagnosticsReachUnifiedLog packageIntegrityAndCompatibility
+        reloadUsesNewCodeUrlAndIdentity actualHttpAndCancellation
 )
 add_test(
     NAME plugin-runtime-shutdown

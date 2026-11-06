@@ -1,3 +1,4 @@
+#include "LogRedaction.h"
 #include "SettingsKeys.h"
 #include "PluginManager.h"
 #include "SharingCommands.h"
@@ -17,11 +18,13 @@
 #include <QtConcurrent>
 #include <QDateTime>
 #include <QCryptographicHash>
+#include <QLoggingCategory>
 #include "PluginManagerHelpers_p.h"
 
 namespace EchoMusic
 {
 using namespace PluginManagerDetail;
+Q_DECLARE_LOGGING_CATEGORY(pluginMarketplaceLog)
 
 bool PluginManager::install(const QString &key)
 {
@@ -45,6 +48,10 @@ bool PluginManager::install(const QString &key)
     m_busy = true;
     m_installWasUpdate = !m_runtime.installationForId(e.value("id").toString()).isEmpty();
     m_installingKey = key;
+    qCInfo(pluginMarketplaceLog).noquote().nospace()
+        << "install started plugin=" << m_pendingPluginId
+        << " source=" << e.value("sourceId").toString()
+        << " version=" << e.value("version").toString() << " update=" << m_installWasUpdate;
     if (m_installWasUpdate)
         beginUpdate(e, current);
     rebuild();
@@ -131,6 +138,7 @@ bool PluginManager::installLocal(const QUrl &url)
     if (!url.isLocalFile() || m_busy || m_catalogLoading || m_closing || m_runtime.loading())
         return false;
     const auto path = url.toLocalFile();
+    qCInfo(pluginMarketplaceLog).noquote() << "local install path=" << safeLogField(path, 1024);
     if (QFileInfo(path).isDir()) {
         m_busy = true;
         m_installingKey.clear();
@@ -193,6 +201,15 @@ void PluginManager::startLocalNext()
 }
 void PluginManager::finishInstall(bool success, const QString &error)
 {
+    const auto diagnostic =
+        QStringLiteral("install finished plugin=%1 installation=%2 success=%3 error=%4")
+            .arg(m_pendingPluginId, m_pendingInstallation)
+            .arg(success)
+            .arg(safeLogField(error, 1536));
+    if (success)
+        qCInfo(pluginMarketplaceLog).noquote() << diagnostic;
+    else
+        qCWarning(pluginMarketplaceLog).noquote() << diagnostic;
     if (!m_activeUpdate.isEmpty()) {
         auto &job = m_updateJobs[m_activeUpdate];
         job.status = success ? TaskCenterModel::Completed : TaskCenterModel::Error;

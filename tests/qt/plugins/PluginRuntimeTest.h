@@ -5,6 +5,7 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void pluginDiagnosticsReachUnifiedLog();
     void operationJsonArraysAcrossIoCommandsAndQml_data();
     void operationJsonArraysAcrossIoCommandsAndQml();
     void operationNativeHandlesAndTerminalResults();

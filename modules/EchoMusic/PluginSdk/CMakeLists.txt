@@ -192,7 +192,7 @@ if(WIN32)
     target_compile_definitions(echo_plugin_sdk PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 endif()
 
-target_link_libraries(echo_plugin_sdk PRIVATE echo_settings_keys)
+target_link_libraries(echo_plugin_sdk PRIVATE echo_settings_keys echo_log_redaction)
 
 # QRhi is intentionally isolated inside the version-pinned host implementation.
 target_link_libraries(echo_plugin_sdk PRIVATE Qt6::GuiPrivate Qt6::QuickPrivate)

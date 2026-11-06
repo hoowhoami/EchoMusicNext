@@ -165,6 +165,7 @@ private:
              removeData = false;
         QString previousSource, transactionError, transaction, previousTransaction, importedInput;
         QString source, error;
+        QString lastDiagnostic;
         bool reloadPending = false;
         bool retirementPending = false;
         bool enabled = false, deactivateDone = false;

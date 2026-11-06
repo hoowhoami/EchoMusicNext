@@ -83,4 +83,11 @@ QString safeLogMessage(const QString &message)
         return QStringLiteral("[redacted sensitive log]");
     return message;
 }
+QString safeLogField(const QString &message, qsizetype limit)
+{
+    const auto safe = safeLogMessage(message);
+    return safe.size() > limit
+               ? safe.left(qMax(qsizetype(0), limit)) + QStringLiteral(" [truncated]")
+               : safe;
+}
 } // namespace EchoMusic

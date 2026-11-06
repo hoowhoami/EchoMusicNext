@@ -1,3 +1,4 @@
+#include "LogRedaction.h"
 #include "SettingsKeys.h"
 #include "PluginRuntime.h"
 #include "AppIconService.h"
@@ -12,11 +13,14 @@
 #include <QUuid>
 #include <QThread>
 #include <QDateTime>
+#include <QLoggingCategory>
+#include <QMetaEnum>
 #include <utility>
 #include "PluginRuntimeHelpers_p.h"
 namespace EchoMusic
 {
 using namespace PluginRuntimeDetail;
+Q_LOGGING_CATEGORY(pluginRuntimeLog, "echo.plugins.runtime", QtInfoMsg)
 
 void PluginSettlement::resolved()
 {
@@ -51,6 +55,34 @@ PluginRuntime::PluginRuntime(QQmlEngine &engine, EchoMusic::SettingsStore &prefe
       m_safeMode(safeMode ||
                  preferences.value(EchoMusic::SettingsKeys::Plugins::SafeMode, false).toBool())
 {
+    connect(this, &PluginRuntime::pluginFailed, this,
+            [this](const QString &id, const QString &message) {
+                qCWarning(pluginRuntimeLog).noquote().nospace()
+                    << "exception plugin=" << id << " installation=" << installationForId(id)
+                    << " error=" << safeLogField(message, 1536);
+            });
+    connect(this, &PluginRuntime::notice, this, [](const QString &message, bool warning) {
+        if (warning)
+            qCWarning(pluginRuntimeLog).noquote()
+                << "runtime error=" << safeLogField(message, 1536);
+    });
+    connect(this, &PluginRuntime::managementStarted, this,
+            [](const QString &installation, const QString &id) {
+                qCInfo(pluginRuntimeLog).noquote().nospace()
+                    << "management started plugin=" << id << " installation=" << installation;
+            });
+    connect(this, &PluginRuntime::managementFinished, this,
+            [](const QString &installation, bool success, const QString &error) {
+                const auto message =
+                    QStringLiteral("management finished installation=%1 success=%2 error=%3")
+                        .arg(installation)
+                        .arg(success)
+                        .arg(safeLogField(error, 1536));
+                if (success)
+                    qCInfo(pluginRuntimeLog).noquote() << message;
+                else
+                    qCWarning(pluginRuntimeLog).noquote() << message;
+            });
     if (!m_host.appIcons)
         m_host.appIcons = new AppIconService(
             this, QFileInfo(preferences.fileName()).absolutePath() + "/app-icons");
@@ -194,6 +226,21 @@ bool PluginRuntime::loading() const
 }
 void PluginRuntime::changed(Entry &entry)
 {
+    const auto diagnostic =
+        QStringLiteral(
+            "state plugin=%1 installation=%2 version=%3 state=%4 enabled=%5 mutation=%6 error=%7")
+            .arg(entry.package.id, entry.package.installationId, entry.package.version,
+                 QString::fromLatin1(QMetaEnum::fromType<State>().valueToKey(entry.state)))
+            .arg(entry.enabled)
+            .arg(int(entry.mutation))
+            .arg(safeLogField(entry.error, 1536));
+    if (entry.lastDiagnostic != diagnostic) {
+        entry.lastDiagnostic = diagnostic;
+        if (!entry.error.isEmpty())
+            qCWarning(pluginRuntimeLog).noquote() << diagnostic;
+        else
+            qCInfo(pluginRuntimeLog).noquote() << diagnostic;
+    }
     queueReconcile();
     emit catalogChanged();
     if (!entry.error.isEmpty() && entry.failure.value("message").toString() != entry.error) {
@@ -405,6 +452,7 @@ bool PluginRuntime::setSafeMode(bool enabled)
     if (m_safeMode == enabled)
         return true;
     m_safeMode = enabled;
+    qCInfo(pluginRuntimeLog) << "safe mode enabled=" << enabled;
     m_preferences.setValue(EchoMusic::SettingsKeys::Plugins::SafeMode, enabled);
     m_preferences.sync();
     for (const auto &entry : m_entries) {
@@ -420,6 +468,7 @@ void PluginRuntime::shutdown()
 {
     if (std::exchange(m_closing, true))
         return;
+    qCInfo(pluginRuntimeLog) << "shutdown started plugins=" << rowCount();
     // Preserve the last requested shortcut icons before leases and arbitrary
     // plugin cleanup callbacks start withdrawing contributions.
     if (m_host.appIcons)
@@ -536,6 +585,7 @@ void PluginRuntime::checkClosed()
         return;
     }
     m_closed = true;
+    qCInfo(pluginRuntimeLog) << "shutdown drained";
     // One queued boundary releases pending page delegates/context deleteLater.
     QTimer::singleShot(0, this, [this] { emit closed(); });
 }

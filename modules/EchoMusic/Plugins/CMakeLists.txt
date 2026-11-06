@@ -45,7 +45,7 @@ target_link_libraries(
             echo_build_options
 )
 
-target_link_libraries(echo_plugins PRIVATE echo_settings_keys)
+target_link_libraries(echo_plugins PRIVATE echo_settings_keys echo_log_redaction)
 
 target_sources(
     echo_plugins PRIVATE PluginRuntimeHelpers_p.h PluginRuntimeActivation.cpp

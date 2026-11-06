@@ -178,7 +178,7 @@ private:
     using ResponseValidator = std::function<QString(const QByteArray &)>;
     void getAttempt(const QUrl &url, const QUrl &origin, qint64 limit, Completion complete,
                     const QByteArray &body, int timeout, bool fallback, ResponseValidator validate,
-                    bool fresh, const QVariantList &attempts = {});
+                    bool fresh, const QVariantList &attempts = {}, const QString &requestId = {});
     void get(const QUrl &url, qint64 limit, Completion complete, const QByteArray &body = {},
              int timeout = 30000, ResponseValidator validate = {}, bool fresh = false);
     void fetchSource(QVariantMap source, quint64 generation,

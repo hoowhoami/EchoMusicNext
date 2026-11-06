@@ -1,3 +1,4 @@
+#include "LogRedaction.h"
 #include "SettingsKeys.h"
 #include "PluginRuntime.h"
 #include "StorageSnapshot.h"
@@ -9,17 +10,22 @@
 #include <QUuid>
 #include <QThread>
 #include <QDateTime>
+#include <QLoggingCategory>
 #include <utility>
 #include "PluginRuntimeHelpers_p.h"
 
 namespace EchoMusic
 {
 using namespace PluginRuntimeDetail;
+Q_DECLARE_LOGGING_CATEGORY(pluginRuntimeLog)
 
 void PluginRuntime::start(const QStringList &imports)
 {
     if (std::exchange(m_started, true))
         return;
+    qCInfo(pluginRuntimeLog).noquote().nospace()
+        << "startup root=" << safeLogField(m_root, 1024) << " safe_mode=" << m_safeMode
+        << " imports=" << imports.size();
     if (!m_engine.property("echoPluginSdkRegistered").toBool()) {
         // importModule accepts filesystem/QResource names, not qrc: URL text.
         // Do not silently run plugins with an unavailable native SDK module.

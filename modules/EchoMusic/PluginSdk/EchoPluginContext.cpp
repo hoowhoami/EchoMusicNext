@@ -1,3 +1,4 @@
+#include "LogRedaction.h"
 #include "EchoPluginContext.h"
 #include "EchoPluginUi.h"
 #include "EchoPluginIo.h"
@@ -12,11 +13,14 @@
 #include <QRegularExpression>
 #include <QThread>
 #include <QLoggingCategory>
+#include <QElapsedTimer>
+#include <QMetaEnum>
 #include <algorithm>
 #include <memory>
 namespace EchoMusic
 {
 Q_LOGGING_CATEGORY(pluginCommandLog, "echo.plugins.commands", QtInfoMsg)
+Q_LOGGING_CATEGORY(pluginOperationLog, "echo.plugins.operations", QtInfoMsg)
 EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, QQmlEngine &engine,
                                      PluginHost host, QString dataPath, QObject *parent,
                                      EchoPluginContext *activation, QString contextId)
@@ -24,6 +28,12 @@ EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, 
       m_package(std::move(package)), m_generation(generation), m_engine(engine), m_host(host)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
+    connect(this, &EchoPluginContext::callbackFailed, this, [this](const QString &message) {
+        qCWarning(pluginOperationLog).noquote().nospace()
+            << "callback failed plugin=" << m_package.id << " installation=" << installationId()
+            << " scope=" << this->contextId() << " activation=" << activationGeneration()
+            << " error=" << safeLogField(message, 1536);
+    });
     m_permissions = new EchoPluginPermissions(*this);
     m_process = new EchoPluginProcess(*this);
     m_server = new EchoPluginServer(*this);
@@ -115,11 +125,33 @@ bool EchoPluginContext::supports(const QString &feature) const
 {
     return PluginPackage::supportedFeatures().contains(feature);
 }
-EchoPluginOperation *EchoPluginContext::operation()
+EchoPluginOperation *EchoPluginContext::operation(std::source_location caller)
 {
     auto *op = new EchoPluginOperation(this, &m_engine);
     QQmlEngine::setObjectOwnership(op, QQmlEngine::CppOwnership);
     m_engine.newQObject(op);
+    auto action = QString::fromUtf8(caller.function_name()).section('(', 0, 0).section(' ', -1);
+    const auto identity =
+        QStringLiteral(" operation=%1 plugin=%2 installation=%3 scope=%4 activation=%5 action=%6")
+            .arg(op->id(), m_package.id, installationId(), contextId())
+            .arg(activationGeneration())
+            .arg(action);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    qCDebug(pluginOperationLog).noquote() << "created" + identity;
+    connect(op, &EchoPluginOperation::completed, op, [op, identity, elapsed] {
+        const auto terminal =
+            QStringLiteral("finished%1 state=%2 elapsed_ms=%3")
+                .arg(identity)
+                .arg(QMetaEnum::fromType<EchoPluginOperation::State>().valueToKey(op->state()))
+                .arg(elapsed.elapsed());
+        if (op->state() == EchoPluginOperation::Failed)
+            qCWarning(pluginOperationLog).noquote().nospace()
+                << terminal << " code=" << op->errorCode().left(128)
+                << " error=" << safeLogField(op->errorMessage(), 1536);
+        else
+            qCDebug(pluginOperationLog).noquote() << terminal;
+    });
     connect(op, &EchoPluginOperation::completed, this, [op] {
         // Completed values have no scope resources. A JS caller retaining the
         // handle keeps its result alive; discarded results can be collected.
@@ -136,15 +168,17 @@ EchoPluginOperation *EchoPluginContext::operation()
         op->fail("ScopeClosed", "Plugin activation has ended");
     return op;
 }
-EchoPluginOperation *EchoPluginContext::rejected(const QString &code, const QString &message)
+EchoPluginOperation *EchoPluginContext::rejected(const QString &code, const QString &message,
+                                                 std::source_location caller)
 {
-    auto *op = operation();
+    auto *op = operation(caller);
     op->fail(code, message);
     return op;
 }
-EchoPluginOperation *EchoPluginContext::execute(std::function<void()> command, bool trackScoped)
+EchoPluginOperation *EchoPluginContext::execute(std::function<void()> command, bool trackScoped,
+                                                std::source_location caller)
 {
-    auto *op = operation();
+    auto *op = operation(caller);
     if (op->finished())
         return op;
     const auto epoch = m_accountEpoch;

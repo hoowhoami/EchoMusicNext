@@ -39,6 +39,7 @@
 #include <QFont>
 #include <QColor>
 #include <QHash>
+#include <source_location>
 namespace EchoMusic
 {
 class EchoPluginUi;
@@ -304,9 +305,12 @@ public:
                                                                    const QJSValue &callback);
     Q_INVOKABLE EchoMusic::EchoPluginOperation *executeCommand(const QString &id,
                                                                const QVariantMap &arguments = {});
-    EchoPluginOperation *operation();
-    EchoPluginOperation *rejected(const QString &code, const QString &message);
-    EchoPluginOperation *execute(std::function<void()> command, bool trackScoped = false);
+    // Capture the native SDK caller without logging arguments or returned values.
+    EchoPluginOperation *operation(std::source_location caller = std::source_location::current());
+    EchoPluginOperation *rejected(const QString &code, const QString &message,
+                                  std::source_location caller = std::source_location::current());
+    EchoPluginOperation *execute(std::function<void()> command, bool trackScoped = false,
+                                 std::source_location caller = std::source_location::current());
     EchoPluginRegistration *registration(const QString &kind, const QString &id);
     QJSValue call(const QJSValue &callback, const QJSValueList &args = {});
     bool commit();
