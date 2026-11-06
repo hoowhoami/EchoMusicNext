@@ -1,6 +1,8 @@
 #pragma once
 #include <QObject>
 #include <QVariant>
+#include <QJSEngine>
+#include <QPointer>
 #include <QtQml/qqmlregistration.h>
 #include <functional>
 
@@ -15,7 +17,7 @@ class EchoPluginOperation final : public QObject
     QML_UNCREATABLE("Returned by PluginSdk services")
     Q_PROPERTY(QString id READ id CONSTANT)
     Q_PROPERTY(State state READ state NOTIFY changed)
-    Q_PROPERTY(QVariant result READ result NOTIFY changed)
+    Q_PROPERTY(QVariant result READ scriptResult NOTIFY changed)
     Q_PROPERTY(QString errorCode READ errorCode NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
 public:
@@ -28,7 +30,7 @@ public:
         Canceled
     };
     Q_ENUM(State)
-    explicit EchoPluginOperation(QObject *parent);
+    explicit EchoPluginOperation(QObject *parent, QJSEngine *engine = nullptr);
     QString id() const
     {
         return m_id;
@@ -41,6 +43,7 @@ public:
     {
         return m_result;
     }
+    QVariant scriptResult() const;
     QString errorCode() const
     {
         return m_code;
@@ -65,6 +68,8 @@ private:
     void finish(State state, QVariant result, QString code, QString message);
     QString m_id, m_code, m_message;
     QVariant m_result;
+    QPointer<QJSEngine> m_engine;
+    mutable QVariant m_scriptResult;
     State m_state = Pending;
     std::function<void()> m_cancel;
 };

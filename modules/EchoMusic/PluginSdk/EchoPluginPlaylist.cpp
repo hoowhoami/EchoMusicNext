@@ -45,28 +45,39 @@ QVariantList EchoPluginPlaylist::tracks(const QString &key, int offset, int limi
         result.append(trackValue(*model->at(i)));
     return result;
 }
-bool EchoPluginPlaylist::parse(const QVariantList &values, PlaybackTracks &tracks) const
+QString EchoPluginPlaylist::parse(const QVariantList &values, PlaybackTracks &tracks) const
 {
-    if (values.size() > 10000 ||
-        QJsonDocument::fromVariant(values).toJson(QJsonDocument::Compact).size() > 4 * 1024 * 1024)
-        return false;
+    if (values.size() > 10000)
+        return QString("tracks count %1 exceeds limit 10000").arg(values.size());
+    const auto bytes = QJsonDocument::fromVariant(values).toJson(QJsonDocument::Compact).size();
+    if (bytes > 4 * 1024 * 1024)
+        return QString("tracks JSON byte length %1 exceeds limit 4194304").arg(bytes);
     const QRegularExpression idPattern("^[a-zA-Z0-9_.:-]{1,512}$");
     const QRegularExpression hashPattern("^[a-fA-F0-9]{32}$");
     const QStringList fields{"id",      "hash",   "title",      "artist",   "album", "cover",
                              "albumId", "songId", "durationMs", "sourceId", "data"};
-    for (const auto &value : values) {
+    for (qsizetype index = 0; index < values.size(); ++index) {
+        const auto &value = values[index];
+        const auto invalid = [index](const QString &field, const QString &reason) {
+            return QString("tracks[%1].%2 %3").arg(index).arg(field, reason);
+        };
         if (value.metaType().id() != QMetaType::QVariantMap)
-            return false;
+            return QString("tracks[%1] must be an object").arg(index);
         const auto map = value.toMap();
-        for (auto i = map.begin(); i != map.end(); ++i)
-            if (!fields.contains(i.key()) || (i.key() != "durationMs" && i.key() != "data" &&
-                                              i.value().metaType().id() != QMetaType::QString))
-                return false;
+        for (auto i = map.begin(); i != map.end(); ++i) {
+            if (!fields.contains(i.key()))
+                return QString("tracks[%1] contains an unsupported field: %2")
+                    .arg(index)
+                    .arg(i.key().left(64));
+            if (i.key() != "durationMs" && i.key() != "data" &&
+                i.value().metaType().id() != QMetaType::QString)
+                return invalid(i.key(), "must be a string");
+        }
         if (map.contains("data")) {
             const auto data = map.value("data");
             if (data.metaType().id() != QMetaType::QVariantMap ||
                 QJsonObject::fromVariantMap(data.toMap()).toVariantMap() != data.toMap())
-                return false;
+                return invalid("data", "must be a JSON object");
         }
         PlaybackTrack track;
         track.catalogMetadata["plugin_data"] =
@@ -77,37 +88,46 @@ bool EchoPluginPlaylist::parse(const QVariantList &values, PlaybackTracks &track
         track.artist = map.value("artist").toString();
         track.album = map.value("album").toString();
         track.cover = map.value("cover").toString();
-        if (!idPattern.match(track.id).hasMatch() || track.title.size() > 1024 ||
-            track.artist.size() > 1024 || track.album.size() > 1024 || track.cover.size() > 16384)
-            return false;
+        if (!idPattern.match(track.id).hasMatch())
+            return invalid(
+                "id", "must contain 1..512 letters, digits, underscores, dots, colons or hyphens");
+        for (const auto &field : {"title", "artist", "album", "cover"}) {
+            const auto length = map.value(field).toString().size();
+            const auto limit = QString(field) == "cover" ? 16384 : 1024;
+            if (length > limit)
+                return invalid(field, QString("length %1 exceeds limit %2").arg(length).arg(limit));
+        }
         const auto durationValue = map.value("durationMs", 0);
         if (durationValue.metaType().id() != QMetaType::Int &&
             durationValue.metaType().id() != QMetaType::LongLong &&
             durationValue.metaType().id() != QMetaType::Double &&
             durationValue.metaType().id() != QMetaType::ULongLong &&
             durationValue.metaType().id() != QMetaType::UInt)
-            return false;
+            return invalid("durationMs", "must be a number");
         const auto duration = durationValue.toDouble();
         if (!std::isfinite(duration) || duration < 0 || duration > 86400000)
-            return false;
+            return invalid("durationMs", "must be finite and within 0..86400000");
         track.durationMs = quint64(duration);
         for (const auto &field : {"albumId", "songId"}) {
             const auto number = map.value(field, "0").toString();
             bool ok = false;
             const auto id = number.toULongLong(&ok);
             if (!ok)
-                return false;
+                return invalid(field, "must be an unsigned integer string");
             if (QString(field) == "albumId")
                 track.albumId = id;
             else
                 track.songId = id;
         }
         if (track.hash.isEmpty()) {
-            if (!m_scope.package().capabilities.contains("audioSource") ||
-                !QRegularExpression("^[a-zA-Z0-9_.:/-]{1,256}$")
+            if (!m_scope.package().capabilities.contains("audioSource"))
+                return invalid("sourceId",
+                               "requires audioSource capability for a track without hash");
+            if (!QRegularExpression("^[a-zA-Z0-9_.:/-]{1,256}$")
                      .match(map.value("sourceId").toString())
                      .hasMatch())
-                return false;
+                return invalid("sourceId", "must contain 1..256 letters, digits, underscores, "
+                                           "dots, colons, slashes or hyphens");
             // Resolver identity persists; ephemeral stream URLs never do.
             const auto source = map.value("sourceId").toString();
             const auto prefix = m_scope.id() + "/";
@@ -121,19 +141,30 @@ bool EchoPluginPlaylist::parse(const QVariantList &values, PlaybackTracks &track
                 !(dependency && track.id.startsWith("plugin:" + provider + ":")))
                 track.id = identityPrefix + track.id;
         } else if (!hashPattern.match(track.hash).hasMatch())
-            return false;
+            return invalid("hash", "must contain 32 hexadecimal characters");
         tracks.append(track);
     }
-    return true;
+    return {};
 }
 EchoPluginOperation *EchoPluginPlaylist::replace(const QString &id, const QString &title,
                                                  const QVariantList &values, int startIndex)
 {
     PlaybackTracks tracks;
-    if (!QRegularExpression("^[a-zA-Z0-9_.-]{1,128}$").match(id).hasMatch() ||
-        title.size() > 1024 || !parse(values, tracks) || startIndex < -1 ||
-        startIndex >= tracks.size())
-        return m_scope.rejected("InvalidArgument", "Invalid queue, tracks or startIndex");
+    if (!QRegularExpression("^[a-zA-Z0-9_.-]{1,128}$").match(id).hasMatch())
+        return m_scope.rejected(
+            "InvalidArgument",
+            "Queue id must contain 1..128 letters, digits, underscores, dots or hyphens");
+    if (title.size() > 1024)
+        return m_scope.rejected(
+            "InvalidArgument",
+            QString("Queue title length %1 exceeds limit 1024").arg(title.size()));
+    if (const auto error = parse(values, tracks); !error.isEmpty())
+        return m_scope.rejected("InvalidArgument", error);
+    if (startIndex < -1 || startIndex >= tracks.size())
+        return m_scope.rejected("InvalidArgument",
+                                QString("startIndex %1 must be -1 or a valid index in %2 tracks")
+                                    .arg(startIndex)
+                                    .arg(tracks.size()));
     const auto key = "plugin/" + m_scope.id() + "/" + id;
     return m_scope.execute([this, key, title, tracks, startIndex] {
         auto &host = m_scope.host().playback;
@@ -188,10 +219,16 @@ EchoPluginOperation *EchoPluginPlaylist::append(const QString &key, const QVaria
 {
     PlaybackTracks tracks;
     auto *model = m_scope.host().playback.queueCatalog()->modelForKey(key);
-    if (!model || !parse(values, tracks) ||
-        !QStringList{"last", "next", "after"}.contains(placement) ||
-        model->rowCount() + tracks.size() > 10000)
-        return m_scope.rejected("InvalidArgument", "Invalid queue, tracks or placement");
+    if (!model)
+        return m_scope.rejected("InvalidArgument", "Queue does not exist");
+    if (const auto error = parse(values, tracks); !error.isEmpty())
+        return m_scope.rejected("InvalidArgument", error);
+    if (!QStringList{"last", "next", "after"}.contains(placement))
+        return m_scope.rejected("InvalidArgument", "placement must be last, next or after");
+    if (model->rowCount() + tracks.size() > 10000)
+        return m_scope.rejected("InvalidArgument",
+                                QString("Queue track count %1 exceeds limit 10000")
+                                    .arg(model->rowCount() + tracks.size()));
     return mutate(key, QString::number(model->revision()),
                   [this, tracks, placement](PlaybackQueueModel &queue) {
                       const auto &current = m_scope.host().playback.currentTrack();

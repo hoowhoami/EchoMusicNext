@@ -199,6 +199,8 @@ void PluginRuntimeTest::audioSourceErrorsCancellationAndValidation()
 void PluginRuntimeTest::pluginQueuesDriveRealPlaybackAndRejectStaleCommands()
 {
     Host host;
+    // The default transition mode is none, which intentionally never preloads.
+    host.playback.transition()->setMode("gapless");
     const auto url = quietWav(host);
     const auto source = sourcePackage(
         host,
@@ -268,6 +270,83 @@ void PluginRuntimeTest::pluginQueuesDriveRealPlaybackAndRejectStaleCommands()
     op = keep(playlist->replace("cancel", "Cancel", songs));
     scope->beginRetire();
     QTRY_COMPARE(op->state(), EchoPluginOperation::Canceled);
+}
+
+void PluginRuntimeTest::pluginQueueValidationReportsFieldAndKeepsState()
+{
+    Host host;
+    auto *scope = installSource(host, sourcePackage(host, ""));
+    QVERIFY(scope);
+    auto *playlist = scope->playlist();
+    QList<QJSValue> roots;
+    const auto keep = [&](EchoPluginOperation *op) {
+        roots.append(host.engine.newQObject(op));
+        return op;
+    };
+    QVariantList songs;
+    for (int i = 0; i < 46; ++i)
+        songs.append(QVariantMap{{"id", QString("song-%1").arg(i)}, {"sourceId", "file"}});
+    auto fifth = songs[4].toMap();
+    fifth["cover"] = QString(16384, 'x');
+    songs[4] = fifth;
+    auto *op = keep(playlist->replace("covers", "Cover boundary", songs));
+    QTRY_COMPARE(op->state(), EchoPluginOperation::Succeeded);
+    auto *model = host.playback.queueCatalog()->modelForKey("plugin/test.runtime/covers");
+    QVERIFY(model);
+    QCOMPARE(model->rowCount(), 46);
+    const auto revision = model->revision();
+    const auto active = host.playback.queueCatalog()->activeKey();
+    fifth["cover"] = QString(808887, 'x');
+    songs[4] = fifth;
+    for (bool append : {false, true}) {
+        op = keep(append ? playlist->append("plugin/test.runtime/covers", songs)
+                         : playlist->replace("covers", "Must not replace", songs, 0));
+        QCOMPARE(op->state(), EchoPluginOperation::Failed);
+        QCOMPARE(op->errorCode(), "InvalidArgument");
+        QCOMPARE(op->errorMessage(), "tracks[4].cover length 808887 exceeds limit 16384");
+        QVERIFY(op->errorMessage().size() < 128);
+        QCOMPARE(model->revision(), revision);
+        QCOMPARE(model->rowCount(), 46);
+        QCOMPARE(host.playback.queueCatalog()->titleForKey("plugin/test.runtime/covers"),
+                 "Cover boundary");
+        QCOMPARE(host.playback.queueCatalog()->activeKey(), active);
+        QVERIFY(!host.playback.hasTrack());
+    }
+    const QList<QPair<QString, QVariant>> invalidFields{{"title", QString(1025, 'x')},
+                                                        {"durationMs", -1},
+                                                        {"data", "not-an-object"},
+                                                        {"sourceId", "invalid source"},
+                                                        {"hash", "not-a-hash"}};
+    for (const auto &invalid : invalidFields) {
+        auto bad = songs;
+        fifth.remove("cover");
+        bad[4] = fifth;
+        auto second = bad[1].toMap();
+        second[invalid.first] = invalid.second;
+        bad[1] = second;
+        op = keep(playlist->replace("covers", "Invalid field", bad));
+        QCOMPARE(op->state(), EchoPluginOperation::Failed);
+        QVERIFY2(op->errorMessage().startsWith("tracks[1]." + invalid.first + ' '),
+                 qPrintable(op->errorMessage()));
+        QCOMPARE(model->revision(), revision);
+    }
+    op = keep(playlist->replace("covers", "Invalid index", {}, 0));
+    QCOMPARE(op->state(), EchoPluginOperation::Failed);
+    QVERIFY(op->errorMessage().startsWith("startIndex 0"));
+    auto oversized = fifth;
+    oversized["data"] = QVariantMap{{"padding", QString(4 * 1024 * 1024, 'x')}};
+    op = keep(playlist->replace("covers", "Oversized JSON", {oversized}));
+    QCOMPARE(op->state(), EchoPluginOperation::Failed);
+    QVERIFY(op->errorMessage().startsWith("tracks JSON byte length"));
+    QVERIFY(op->errorMessage().endsWith("exceeds limit 4194304"));
+    QCOMPARE(model->revision(), revision);
+    // Removing the oversized optional artwork retains all songs and their order.
+    fifth.remove("cover");
+    songs[4] = fifth;
+    op = keep(playlist->replace("covers", "All songs retained", songs));
+    QTRY_COMPARE(op->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(model->rowCount(), 46);
+    QVERIFY(model->at(4)->id.endsWith("song-4"));
 }
 
 void PluginRuntimeTest::audioSourceTransformReturnSemantics()

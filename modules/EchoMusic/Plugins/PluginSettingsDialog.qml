@@ -49,11 +49,23 @@ EchoDialog {
                 active: dialog.visible && dialog.scope !== null && dialog.scope.active && dialog.scope.ui.settingsComponent.toString().length > 0
                 onActiveChanged: reload()
                 function reload() {
-                    setSource(active ? dialog.scope.ui.settingsComponent : "", active ? {
-                        plugin: dialog.scope
-                    } : {});
+                    const selectedScope = dialog.scope;
+                    // A closing popup can be reused for another plugin. Drop
+                    // both the old component and its initial plugin property,
+                    // including when the component URL itself is unchanged.
+                    setSource("");
+                    if (active && selectedScope && dialog.scope === selectedScope && selectedScope.active)
+                        setSource(selectedScope.ui.settingsComponent, {
+                            plugin: selectedScope
+                        });
                 }
                 Component.onCompleted: reload()
+                Connections {
+                    target: dialog
+                    function onScopeChanged() {
+                        settingsLoader.reload();
+                    }
+                }
                 Connections {
                     target: dialog.scope ? dialog.scope.ui : null
                     function onSettingsChanged() {

@@ -32,7 +32,7 @@ signals:
     void changed();
 
 private:
-    bool parse(const QVariantList &values, PlaybackTracks &tracks) const;
+    QString parse(const QVariantList &values, PlaybackTracks &tracks) const;
     EchoPluginOperation *mutate(const QString &key, const QString &revision,
                                 std::function<void(class PlaybackQueueModel &)> command);
     EchoPluginContext &m_scope;

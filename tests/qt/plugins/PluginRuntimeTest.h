@@ -5,6 +5,17 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void operationJsonArraysAcrossIoCommandsAndQml_data();
+    void operationJsonArraysAcrossIoCommandsAndQml();
+    void operationNativeHandlesAndTerminalResults();
+    void activationStorageReadsPersistedValuesAndErrors();
+    void privateCommandNamesStayWithinQmlPluginScopes();
+    void privateCommandRoutingThroughSettingsAndDialogs();
+    void reportedPackagesPrivatePlayRouting_data();
+    void reportedPackagesPrivatePlayRouting();
+    void reportedPackagesRestartPlayback_data();
+    void reportedPackagesRestartPlayback();
+    void reportedPackagesRestartFixture();
     void authSnapshotAuthorizationCurrentSessionAndCancellation();
     void pluginClipboardWritesAndScopeCancellation();
     void pluginMainWindowDialogsLifecycle();
@@ -94,6 +105,7 @@ private slots:
     void audioSourceErrorsCancellationAndValidation();
     void audioSourceCancellationAbortsLinkedTransport();
     void pluginQueuesDriveRealPlaybackAndRejectStaleCommands();
+    void pluginQueueValidationReportsFieldAndKeepsState();
     void appearanceCatalogConfigurationAndRetirement();
     void appearanceProductionThemeSkinAndMini();
     void appearanceErrorsAndActivationRollback();

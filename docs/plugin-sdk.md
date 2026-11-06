@@ -16,6 +16,12 @@
 
 注册、订阅、任务和界面实例由插件 scope 管理；停用、重载、更新和退出时撤销并排空。异步结果受取消及账号世代约束，旧会话结果不能继续更新当前状态。原生 DSP 另受平台、架构和 C ABI 兼容性检查。
 
+命令回调参数、`EchoPluginOperation.result` 与 `awaitOperation()` 交付的 JSON 数组在 JS/QML 中均为原生 Array，包含顶层、嵌套和空数组，可直接使用 `Array.isArray()`、`map()` 等标准方法。结果首次读取时转换，同一操作复用该快照；SDK 文件、窗口、数据库等资源句柄保留类型、身份及方法。私有 KV 的缺失键返回 `undefined`，已存 `null` 保持 `null`；读取失败进入 Failed，`awaitOperation()` 拒绝并提供 `error.code`，不能把失败当作缺失键覆盖已存数据。
+
+`ctx.registerCommand()` 注册的内部命令只在本插件的激活上下文内执行；设置页和对话框的 `plugin.executeCommand()` 路由到所属插件。不同插件可以使用相同内部命令名，跨插件调用仍使用显式公开目录与依赖契约。
+
+排查命令路由时开启宿主 Debug 日志，`echo.plugins.commands` 的 `dispatch` 记录操作 ID、插件 ID、安装身份、作用域、激活代次与命令名；不记录命令参数或结果。可据 `command=play` 等记录确认实际执行者。
+
 ## 界面与频谱
 
 现有接口支持页面、设置、标题栏及播放栏贡献，以及播放命令、私有存储、网络、任务、依赖和插件间服务。公开区域的局部样式/结构扩展、主题中心候选与完整播放页皮肤使用不同的注册协议；文件、网络和其它扩展的可用性以宿主导出契约为准。
@@ -77,6 +83,10 @@
 `lyrics.onSnapshot`在同一歌词文档内复用只读的`lines`及嵌套数据，换行只更新当前行等轻量信息；歌词内容、过滤或偏移变化后发布新的行数组。需要改写数据时先自行复制，避免在每次回调中深度遍历不变的整首歌词。订阅释放后宿主回收其缓存，调用者显式保留的旧快照继续保持原值。
 
 音源解析/转换（playback.audioSource）与多队列（playback.queues）已接入正常播放、预加载及宿主队列目录。作者用法见[音源与队列](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/audio-sources-and-queues.md)。
+
+自定义曲目的 `sourceId` 由宿主添加插件所有者限定：例如本插件入队 `local:folder:song`，音源/歌词回调接收 `<插件ID>/local:folder:song`。匹配和解析须处理该限定身份；需要解析内部格式时只剥离自身插件前缀，不能把其它插件的来源当成本插件曲目。
+
+`ctx.playlist.replace/append` 的每批曲目最多10000条、紧凑 JSON 总量4MiB；单曲 `cover` 最多16384个 UTF-16 字符，`title/artist/album` 各最多1024。输入校验失败返回 `InvalidArgument`，曲目错误包含从0开始的索引和字段，例如 `tracks[4].cover length 808887 exceeds limit 16384`；整次命令不修改队列，不跳过歌曲或调整播放索引。队列应保存较短的图片地址，避免把大幅 Base64 内嵌图直接写进 cover。界面的空/失败封面可使用已有 `ctx.cover.setFallback` 返回至多1MiB字符的图片地址或 data:image URL；这是共享封面控件的呈现兜底，不会把图片写回队列 cover。
 
 `ctx.lyrics`支持LRC/KRC/YRC resolver、来源预览、类型化快照与临时写入。手动来源优先，切歌/账号取消，停用撤回写入与来源结果；作者用法见[歌词接口](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/lyrics.md)。
 

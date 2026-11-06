@@ -2,6 +2,7 @@
 #include "EchoPluginUi.h"
 #include "EchoPluginIo.h"
 #include "EchoPluginPromise.h"
+#include "EchoPluginScriptValue_p.h"
 #include "EchoUiPartRegistry.h"
 #include "ThemeStore.h"
 #include "PlaybackService.h"
@@ -10,10 +11,12 @@
 #include <QTimer>
 #include <QRegularExpression>
 #include <QThread>
+#include <QLoggingCategory>
 #include <algorithm>
 #include <memory>
 namespace EchoMusic
 {
+Q_LOGGING_CATEGORY(pluginCommandLog, "echo.plugins.commands", QtInfoMsg)
 EchoPluginContext::EchoPluginContext(PluginPackage package, quint64 generation, QQmlEngine &engine,
                                      PluginHost host, QString dataPath, QObject *parent,
                                      EchoPluginContext *activation, QString contextId)
@@ -114,7 +117,7 @@ bool EchoPluginContext::supports(const QString &feature) const
 }
 EchoPluginOperation *EchoPluginContext::operation()
 {
-    auto *op = new EchoPluginOperation(this);
+    auto *op = new EchoPluginOperation(this, &m_engine);
     QQmlEngine::setObjectOwnership(op, QQmlEngine::CppOwnership);
     m_engine.newQObject(op);
     connect(op, &EchoPluginOperation::completed, this, [op] {
@@ -298,12 +301,23 @@ EchoPluginOperation *EchoPluginContext::executeCommand(const QString &id,
 {
     // Presentations (dialogs, windows, UI parts) render the activation's own UI, so their
     // "plugin" scope dispatches the commands registered on the main context.
-    if (auto *root = activationContext(); root != this)
+    if (auto *root = activationContext(); root != this) {
+        qCDebug(pluginCommandLog).noquote().nospace()
+            << "forward plugin=" << m_package.id << " installation=" << installationId()
+            << " scope=" << contextId() << " activation=" << activationGeneration();
         return root->executeCommand(id, arguments);
+    }
     if (!m_commands.contains(id))
         return rejected("Unavailable", "Command is not registered");
-    return invokeRegistered(m_commands.value(id),
-                            m_registrations.value(registrationKey("command", id)), arguments);
+    auto *op = invokeRegistered(m_commands.value(id),
+                                m_registrations.value(registrationKey("command", id)), arguments);
+    // Registration IDs and plugin identities are bounded; payloads can contain
+    // resource paths or credentials and must not be part of routing diagnostics.
+    qCDebug(pluginCommandLog).noquote().nospace()
+        << "dispatch operation=" << op->id() << " plugin=" << m_package.id
+        << " installation=" << installationId() << " scope=" << contextId()
+        << " activation=" << activationGeneration() << " command=" << id;
+    return op;
 }
 EchoPluginOperation *EchoPluginContext::invokeRegistered(const QJSValue &callback,
                                                          QPointer<EchoPluginRegistration> lease,
@@ -322,7 +336,7 @@ EchoPluginOperation *EchoPluginContext::invokeRegistered(const QJSValue &callbac
             op->cancel();
             return;
         }
-        const auto result = call(callback, {m_engine.toScriptValue(arguments)});
+        const auto result = call(callback, {PluginScript::nativeValue(m_engine, arguments)});
         if (op->finished() || !m_accepting || !lease || !lease->active()) {
             op->cancel();
             return;

@@ -66,6 +66,7 @@ qt_add_qml_module(
     EchoPluginAudio.cpp
     EchoPluginOperation.h
     EchoPluginOperation.cpp
+    EchoPluginScriptValue_p.h
     EchoPluginPromise.h
     EchoPluginRegistration.h
     EchoPluginRegistration.cpp

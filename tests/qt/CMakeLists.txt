@@ -937,6 +937,8 @@ target_sources(
             plugins/PluginRuntimeShutdown.cpp
             plugins/PluginRuntimeDependencies.cpp
             plugins/PluginRuntimeInterop.cpp
+            plugins/PluginRuntimeJson.cpp
+            plugins/PluginRuntimeCommandPackages.cpp
             plugins/PluginRuntimePresentationServices.cpp
             plugins/PluginRuntimeCapabilities.cpp
             plugins/PluginRuntimeUiParts.cpp
@@ -976,6 +978,7 @@ set(ECHO_PLUGINS_TEST_GROUPS
     plugin-runtime-runtime
     plugin-runtime-shutdown
     plugin-runtime-dependencies
+    plugin-runtime-json
     plugin-runtime-capabilities
     plugin-runtime-ui-parts
     plugin-runtime-appearance
@@ -1082,6 +1085,14 @@ add_test(
         publicPluginCatalogScopeAccountAndReplacement
         dependentServicesActivationCancellationAndProviderReload
         optionalDependencyAndServiceLeasePreserveOwnership
+)
+add_test(
+    NAME plugin-runtime-json
+    COMMAND
+        echo-plugin-runtime-test operationJsonArraysAcrossIoCommandsAndQml
+        operationNativeHandlesAndTerminalResults activationStorageReadsPersistedValuesAndErrors
+        privateCommandNamesStayWithinQmlPluginScopes privateCommandRoutingThroughSettingsAndDialogs
+        pluginQueueValidationReportsFieldAndKeepsState
 )
 add_test(
     NAME plugin-runtime-capabilities
