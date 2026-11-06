@@ -51,7 +51,6 @@ qt_add_qml_module(
     AboutSettingsSection.qml
     SettingsTextDialog.qml
     SettingsChangelogDialog.qml
-    DataSettingsSection.qml
     SettingsBackupProviderList.qml
     SettingsBackupConfirmation.qml
     CastSettingsSection.qml

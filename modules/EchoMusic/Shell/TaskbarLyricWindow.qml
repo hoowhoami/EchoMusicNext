@@ -62,12 +62,15 @@ Window {
     }
     // The playback position signal is too coarse for a smooth word-by-word
     // highlight; sample the clock locally and interpolate (the reference does
-    // the same with requestAnimationFrame).
+    // the same with requestAnimationFrame). The 16 ms cadence only buys
+    // smoothness while something is playing: paused or idle the clock is a
+    // constant and the timer only has to notice seeks, so it slows to 150 ms
+    // and keeps 60 idle wake-ups per second off the UI thread.
     property real renderTime: 0
     property real lastPosition: 0
     property real lastStamp: 0
     Timer {
-        interval: 16
+        interval: window.playback.playing ? 16 : 150
         running: true
         repeat: true
         onTriggered: {
