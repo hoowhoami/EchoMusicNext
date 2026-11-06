@@ -17,8 +17,28 @@ test(
         assets = path.join(directory, 'build/release-assets'),
         bin = path.join(directory, 'bin');
       for (const subdir of [releaseTools, assets, bin]) fs.mkdirSync(subdir, { recursive: true });
-      for (const name of ['contract.mjs', 'publish.mjs', 'changelog.mjs'])
+      for (const name of ['contract.mjs', 'publish.mjs', 'changelog.mjs', 'tag.mjs'])
         fs.copyFileSync(path.join(root, 'tools/release', name), path.join(releaseTools, name));
+      fs.writeFileSync(path.join(directory, 'VERSION'), `${version}\n`);
+      const git = (...args) => {
+        const result = spawnSync('git', args, { cwd: directory, encoding: 'utf8' });
+        assert.equal(result.status, 0, result.stderr);
+        return result.stdout.trim();
+      };
+      const remote = path.join(directory, 'remote.git');
+      git('init', '--bare', remote);
+      git('init');
+      git('add', 'VERSION');
+      git(
+        '-c',
+        'user.name=Release Test',
+        '-c',
+        'user.email=release@example.invalid',
+        'commit',
+        '-m',
+        'release fixture',
+      );
+      git('remote', 'add', 'origin', remote);
       fs.writeFileSync(
         path.join(directory, 'CHANGELOG.md'),
         '# 更新记录\n\n## 未发布\n\n下次版本草稿。\n\n## 0.1.0-beta.1\n\n实际版本说明。\n\n## 0.0.1\n\n旧版本说明。\n',
@@ -69,8 +89,10 @@ else if (args[0] === 'release' && args[1] === 'upload') {
       const environment = {
         ...process.env,
         PATH: bin + path.delimiter + process.env.PATH,
-        GITHUB_EVENT_NAME: 'push',
-        GITHUB_REF: `refs/tags/v${version}`,
+        GITHUB_EVENT_NAME: 'workflow_dispatch',
+        GITHUB_REF: 'refs/heads/main',
+        GITHUB_SHA: git('rev-parse', 'HEAD'),
+        ECHO_PUBLISH_RELEASE: 'true',
         RELEASE_VERSION: version,
         ECHO_CHANGELOG_FILE: notesFile,
         GITHUB_REPOSITORY: 'hoowhoami/EchoMusicNext',
@@ -81,9 +103,21 @@ else if (args[0] === 'release' && args[1] === 'upload') {
           env: { ...environment, ...extra },
           encoding: 'utf8',
         });
+      const asset = path.join(assets, assetName(version, 'Windows', 'x64', 'nsis'));
+      fs.renameSync(asset, `${asset}.missing`);
       let result = run({});
+      assert.notEqual(result.status, 0);
+      assert.equal(git('ls-remote', '--tags', 'origin'), '');
+      assert.ok(!fs.existsSync(state));
+      fs.renameSync(`${asset}.missing`, asset);
+      result = run({});
       assert.equal(result.status, 0, result.stderr);
       let published = JSON.parse(fs.readFileSync(state));
+      assert.ok(
+        git('ls-remote', '--tags', 'origin', `refs/tags/v${version}`).startsWith(
+          environment.GITHUB_SHA,
+        ),
+      );
       assert.equal(published.release.draft, false);
       assert.equal(published.release.prerelease, true);
       assert.equal(published.release.assets.length, 22);
@@ -98,7 +132,10 @@ else if (args[0] === 'release' && args[1] === 'upload') {
       published = JSON.parse(fs.readFileSync(state));
       assert.equal(published.release.draft, true);
       fs.unlinkSync(state);
-      result = run({ GITHUB_EVENT_NAME: 'workflow_dispatch' });
+      result = run({ ECHO_PUBLISH_RELEASE: 'false' });
+      assert.notEqual(result.status, 0);
+      assert.ok(!fs.existsSync(state));
+      result = run({ GITHUB_REF: 'refs/heads/feature', ECHO_PUBLISH_RELEASE: 'true' });
       assert.notEqual(result.status, 0);
       assert.ok(!fs.existsSync(state));
       fs.writeFileSync(notesFile, '## 9.0.0\n\n不匹配的版本。\n');

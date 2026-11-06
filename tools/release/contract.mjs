@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const appId = 'io.github.hoowhoami.echomusicnext';
 export const matrix = [
@@ -40,6 +39,7 @@ export function validVersion(version) {
     );
   return Boolean(
     match &&
+    match[0] === version &&
     !(match[4] || '')
       .split('.')
       .some((part) => /^\d+$/.test(part) && part.length > 1 && part.startsWith('0')),
@@ -50,24 +50,12 @@ export function releaseVersion(
   ref = process.env.GITHUB_REF || '',
   override = process.env.RELEASE_VERSION || '',
 ) {
-  const tagged = ref.startsWith('refs/tags/');
-  if (tagged && !ref.startsWith('refs/tags/v')) throw new Error('Release tags must start with v');
-  let version = tagged ? ref.slice('refs/tags/v'.length) : override;
-  if (!version && !ref) {
-    const tag = spawnSync(
-      'git',
-      ['describe', '--tags', '--exact-match', '--match', 'v[0-9]*', 'HEAD'],
-      {
-        cwd: repository,
-        encoding: 'utf8',
-      },
-    );
-    if (tag.status === 0) version = tag.stdout.trim().slice(1);
-  }
-  if (!tagged && !version) version = '0.1.0-dev';
-  if (!validVersion(version)) throw new Error('Application version must be strict SemVer');
-  if (tagged && override && override !== version)
-    throw new Error('RELEASE_VERSION differs from the release tag');
+  const source = fs.readFileSync(path.join(repository, 'VERSION'), 'utf8');
+  const version = source.replace(/\r?\n$/, '');
+  if (!validVersion(version)) throw new Error('VERSION must contain one strict SemVer');
+  if (ref.startsWith('refs/tags/') && ref !== `refs/tags/v${version}`)
+    throw new Error('Release tag differs from VERSION');
+  if (override && override !== version) throw new Error('RELEASE_VERSION differs from VERSION');
   return version;
 }
 export function verifyBuildVersion(build, version) {

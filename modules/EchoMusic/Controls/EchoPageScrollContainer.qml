@@ -18,8 +18,7 @@ EchoWheelForwarder {
     signal captureAnchorRequested
     signal restoreAnchorRequested(var anchor)
     function waitForPresentation(): void {
-        if (state.completed && state.recovering && navigationActive && !state.waitingPresentation) {
-            state.presentation = EchoPageState.presentation;
+        if (state.completed && state.recovering && pageActive && !state.waitingPresentation) {
             if (state.presentation)
                 state.waitingPresentation = state.presentation.waitFor(page);
         }
@@ -43,7 +42,7 @@ EchoWheelForwarder {
         target: page
         role: "scroll.container"
         key: page.publicScrollKey
-        active: page.navigationActive && page.scrollView !== null
+        active: page.pageActive && page.scrollView !== null
         actions: ["scrollTo", "scrollBy", "top", "bottom"]
         state: observed ? ({
                 position: page.scrollTop,
@@ -68,8 +67,6 @@ EchoWheelForwarder {
     }
     property Flickable scrollView: null
     property bool pageActive: true
-    // Retiring visuals stay rendered, but must not scroll or collect state.
-    readonly property bool navigationActive: pageActive && !(EchoPageState.presentation?.retiring ?? false)
     // Asynchronous table extents opt out of clamping until their first measured
     // body is available. Extent readiness resumes the existing owned restore.
     property bool extentReady: true
@@ -112,11 +109,11 @@ EchoWheelForwarder {
     clip: true
     wheelView: scrollView
     forwardOutsideViewOnly: true
-    forwardingEnabled: navigationActive
+    forwardingEnabled: pageActive
     Binding {
         target: page.scrollView ? page.scrollView.EchoWheelScroll : null
         property: "enabled"
-        value: page.navigationActive
+        value: page.pageActive
     }
     Binding {
         target: page.scrollView ? page.scrollView.EchoWheelScroll : null
@@ -137,7 +134,7 @@ EchoWheelForwarder {
         return Math.max(firstY(view), view.originY + view.contentHeight - view.height + view.bottomMargin);
     }
     function capturePosition() {
-        if (!state.completed || state.recovering || !navigationActive || !extentReady || state.adjusting || state.restoringView || !scrollView || state.boundView !== scrollView)
+        if (!state.completed || (state.presentation && !state.presentation.loaded) || state.recovering || !pageActive || !extentReady || state.adjusting || state.restoringView || !scrollView || state.boundView !== scrollView)
             return;
         // Signal handlers can run before the derived scrollTop binding updates.
         // Read the source properties to avoid caching the preceding frame.
@@ -155,7 +152,7 @@ EchoWheelForwarder {
         scrolled();
     }
     function restorePosition() {
-        if (!state.completed || !navigationActive || !extentReady || !scrollView || state.adjusting)
+        if (!state.completed || (state.presentation && !state.presentation.loaded) || !pageActive || !extentReady || !scrollView || state.adjusting)
             return;
         // Extent changes (e.g. a responsive sidebar animation) can schedule a
         // restore during user movement. Qt owns that movement and its bounds;
@@ -169,17 +166,6 @@ EchoWheelForwarder {
             return;
         }
         state.adjusting = true;
-        // A previously hidden virtual view may still expose its old extent.
-        // Flush only native list/grid layout after the view-swap transaction;
-        // TableView retains its own asynchronous incubation/layout lifecycle.
-        if (state.restoringView) {
-            const list = scrollView as ListView;
-            const grid = scrollView as GridView;
-            if (list)
-                list.forceLayout();
-            else if (grid)
-                grid.forceLayout();
-        }
         const anchor = {
             id: state.pendingAnchor?.id || "",
             delta: state.pendingAnchor?.delta || 0
@@ -188,6 +174,17 @@ EchoWheelForwarder {
         if (anchor.id)
             restoreAnchorRequested(anchor);
         const anchored = anchorRestored;
+        // Anchor positioning lays out the destination itself. Avoid building
+        // the initial viewport first just to discard it for a distant anchor.
+        // TableView retains its own asynchronous extent lifecycle.
+        if (state.restoringView && !anchored) {
+            const list = scrollView as ListView;
+            const grid = scrollView as GridView;
+            if (list)
+                list.forceLayout();
+            else if (grid)
+                grid.forceLayout();
+        }
         state.pendingAnchor = null;
         const offset = anchored ? viewOffset(scrollView) : isCoordinated(scrollView) ? state.groupOffset : state.independentOffset;
         const position = Math.max(firstY(scrollView), Math.min(lastY(scrollView), firstY(scrollView) + offset));
@@ -242,7 +239,7 @@ EchoWheelForwarder {
         positionCommitted();
     }
     function scrollTo(position: real) {
-        if (!navigationActive || !scrollView)
+        if (!pageActive || !scrollView)
             return;
         state.restoringView = false;
         state.recovering = false;
@@ -293,7 +290,7 @@ EchoWheelForwarder {
                 state.boundView.cancelFlick();
             state.boundView = scrollView;
             // Switching to a non-coordinated view does not consume the results cache.
-            if (hadView && !state.recovering && navigationActive && scrollView && !isCoordinated(scrollView))
+            if (hadView && !state.recovering && pageActive && scrollView && !isCoordinated(scrollView))
                 state.independentOffset = viewOffset(scrollView);
         } finally {
             state.adjusting = wasAdjusting;
@@ -302,9 +299,8 @@ EchoWheelForwarder {
         // before this deferred restore. They must not overwrite the saved offset.
         scheduleRestore();
     }
-    onNavigationActiveChanged: {
-        if (!navigationActive) {
-            state.retired = EchoPageState.presentation?.retiring ?? false;
+    onPageActiveChanged: {
+        if (!pageActive) {
             // A custom exit may still own this view. Keep unfinished recovery
             // pending for a rapid return; destruction cancels the claim.
             if (scrollView)
@@ -314,17 +310,16 @@ EchoWheelForwarder {
             for (const view of resetViews)
                 view.cancelFlick();
         } else {
-            // A rapid return can reuse the retiring tree. Its native origin
-            // may have rebased after a background edit; restore the saved row
-            // anchor just as for a newly constructed visual instance.
-            if (state.completed && state.retired)
+            // An explicitly customized exit may reuse the view on a rapid
+            // return. Rebase its saved row anchor after background edits too.
+            if (state.completed)
                 loadPositionSnapshot();
-            state.retired = false;
             waitForPresentation();
             scheduleRestore();
         }
     }
     Component.onCompleted: {
+        state.presentation = EchoPageState.presentation;
         loadPositionSnapshot();
         state.completed = true;
         waitForPresentation();
@@ -338,7 +333,6 @@ EchoWheelForwarder {
             id: state
             property bool completed: false
             property bool recovering: false
-            property bool retired: false
             property EchoPagePresentation presentation: null
             property bool waitingPresentation: false
             property var pendingAnchor: null
@@ -387,7 +381,7 @@ EchoWheelForwarder {
                 width: page.width
                 height: page.occlusionHeight
                 wheelView: page.scrollView
-                forwardingEnabled: page.navigationActive
+                forwardingEnabled: page.pageActive
             }
         },
         Item {
@@ -401,13 +395,20 @@ EchoWheelForwarder {
             anchors.fill: parent
             z: 50
             scrollView: page.scrollView
-            viewActive: page.navigationActive && !page.hideBackToTop
+            viewActive: page.pageActive && !page.hideBackToTop
             threshold: page.backToTopThreshold
             onReturnedToTop: page.commitPosition()
         },
         Connections {
+            target: state.presentation
+            function onRestoreRequested(): void {
+                restoreTask.stop();
+                page.restorePosition();
+            }
+        },
+        Connections {
             target: page.scrollView
-            enabled: page.navigationActive
+            enabled: page.pageActive
             function onContentYChanged() {
                 page.capturePosition();
             }

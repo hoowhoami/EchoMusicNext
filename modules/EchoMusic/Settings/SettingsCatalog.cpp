@@ -54,7 +54,8 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
         {"experimental", tr("实验性功能"), "flask",
          tr("页面缓存 最大缓存页面数 日志级别 API 响应体日志 临时诊断日志 诊断并重启 开启启动诊断 "
             "用户信息 鉴权头 用户 ID token t1 guid mid dfid uuid dev mac 重置设备身份 GPU DPI "
-            "备份与恢复 创建备份 恢复备份 插件与插件数据 查看运行日志 清除应用数据 备份 恢复 缓存 安全"),
+            "备份与恢复 创建备份 恢复备份 插件与插件数据 查看运行日志 清除应用数据 备份 恢复 缓存 "
+            "安全"),
          "ExperimentalSettingsSection"},
         {"about", tr("关于"), "info-circle",
          tr("自动检查更新 检查预发布版本 静默安装 当前版本 更新日志 免责声明 项目源码"),

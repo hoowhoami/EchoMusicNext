@@ -14,23 +14,15 @@ Item {
     property bool initialPageReady: false
     property int outgoingCount: 0
     property string finishedEntry: ""
-    property var handoffLoader: null
     signal exitsFinished
-    signal entryStarted(string instanceId)
+    // Readiness and input are independent of the visual entry duration.
+    signal pageReady(string instanceId)
     signal entryFinished(string instanceId)
     onOutgoingCountChanged: if (outgoingCount === 0)
         exitsFinished()
     function finishEntry(instanceId: string): void {
         finishedEntry = instanceId;
         entryFinished(instanceId);
-    }
-    function retainHandoff(loader: var): bool {
-        if (handoffLoader && handoffLoader !== loader)
-            handoffLoader.endHandoff(true);
-        if (!router.retainTransition(loader.pageContext))
-            return false;
-        handoffLoader = loader;
-        return true;
     }
     // Stable value identity: unrelated theme/accent updates must not cancel a
     // route animation. Plugin contributions still replace/revoke atomically.
@@ -47,7 +39,6 @@ Item {
             property EchoPagePresentation presentation: EchoPagePresentation {}
             property bool hasLoadedBefore: false
             property bool skipEntry: false
-            property bool handoff: false
             // The context and domain models stay in the bounded router cache.
             // Only an active page or its short exit transition owns visual UI.
             active: false
@@ -74,12 +65,12 @@ Item {
                     opacity = 0;
             }
             anchors.fill: parent
-            // Keep visibility stable through deactivation: child artwork must
-            // not tear down between the active signal and handoff ownership.
             visible: active
             enabled: pageContext.active && presentation.ready
             z: pageContext.active ? 1 : 0
-            asynchronous: true
+            // Reuse the compiled component and cached data in one GUI turn on
+            // return; cold construction still yields to the window incubator.
+            asynchronous: !hasLoadedBefore
             transform: [
                 Translate {
                     id: offset
@@ -91,7 +82,6 @@ Item {
                 }
             ]
             function settle(): void {
-                endHandoff(false);
                 entering.stop();
                 exiting.stop();
                 waitingEnter = false;
@@ -103,35 +93,14 @@ Item {
                 pageScale.xScale = 1;
                 pageScale.yScale = 1;
             }
-            function endHandoff(unload: bool): void {
-                if (!handoff)
-                    return;
-                handoffDim.stop();
-                handoffExit.stop();
-                handoff = false;
-                presentation.retiring = false;
-                if (host.handoffLoader === pageLoader)
-                    host.handoffLoader = null;
-                if (host.router)
-                    host.router.releaseTransition(pageContext);
-                if (unload && !pageContext.active)
-                    active = false;
-            }
-            function startEntry(): void {
-                entering.restart();
-                host.entryStarted(pageContext.instanceId);
-            }
             function completeEntry(): void {
                 presentation.presented();
                 host.finishEntry(pageContext.instanceId);
             }
             function change(): void {
-                const previousOpacity = opacity;
-                const returningHandoff = handoff;
-                const wasVisible = active && status === Loader.Ready && presentation.ready && previousOpacity > 0.001;
                 settle();
                 if (pageContext.active && !active) {
-                    presentation.begin(hasLoadedBefore);
+                    presentation.begin(!customizedRoute || hasLoadedBefore);
                     opacity = 0;
                     active = true;
                     return;
@@ -148,6 +117,13 @@ Item {
                     active = false;
                     return;
                 }
+                // Default navigation never retains the old view, even while
+                // the incoming page is fading in. Only explicit plugin recipes
+                // may request an exit animation or ordering between pages.
+                if (!pageContext.active && !customizedRoute) {
+                    active = false;
+                    return;
+                }
                 if (!animateRoute || status !== Loader.Ready) {
                     if (!pageContext.active)
                         active = false;
@@ -161,7 +137,7 @@ Item {
                         completeEntry();
                         return;
                     }
-                    opacity = returningHandoff && !customizedRoute ? previousOpacity : recipe.enterOpacity === undefined ? 0 : recipe.enterOpacity;
+                    opacity = recipe.enterOpacity === undefined ? 0 : recipe.enterOpacity;
                     offset.x = recipe.enterX || 0;
                     offset.y = recipe.enterY || 0;
                     pageScale.xScale = recipe.enterScale || 1;
@@ -169,24 +145,8 @@ Item {
                     if (recipe.mode === "out-in" && host.outgoingCount > 0)
                         waitingEnter = true;
                     else
-                        startEntry();
+                        entering.restart();
                 } else {
-                    if (!customizedRoute) {
-                        // Immediate feedback, then keep only this one outgoing
-                        // view until the restored page can take over. No image
-                        // snapshot or background page cache is involved.
-                        if (wasVisible && host.retainHandoff(pageLoader)) {
-                            handoff = true;
-                            presentation.retiring = true;
-                            // Signal navigation before the first animation
-                            // tick, then front-load the remaining response.
-                            opacity = previousOpacity * 0.92;
-                            handoffDim.to = Math.min(opacity, 0.65);
-                            handoffDim.restart();
-                        } else
-                            active = false;
-                        return;
-                    }
                     leaving = true;
                     const incoming = host.router.current;
                     if (recipe.mode === "in-out" && incoming && host.finishedEntry !== incoming.instanceId) {
@@ -207,8 +167,6 @@ Item {
             }
             onStatusChanged: if (status === Loader.Error && pageContext.active) {
                 host.initialPageReady = true;
-                if (host.handoffLoader)
-                    host.handoffLoader.endHandoff(true);
             }
             onAnimateRouteChanged: if (!animateRoute) {
                 settle();
@@ -224,6 +182,7 @@ Item {
                 function onReadyChanged(): void {
                     if (pageLoader.presentation.ready && pageLoader.pageContext.active) {
                         host.initialPageReady = true;
+                        host.pageReady(pageLoader.pageContext.instanceId);
                         pageLoader.change();
                     }
                 }
@@ -231,7 +190,8 @@ Item {
             Connections {
                 target: pageLoader.pageContext
                 function onActiveChanged(): void {
-                    pageLoader.change();
+                    if (!pageLoader.pageContext.active)
+                        pageLoader.change();
                 }
             }
             Connections {
@@ -239,18 +199,10 @@ Item {
                 function onExitsFinished(): void {
                     if (pageLoader.waitingEnter && pageLoader.pageContext.active && pageLoader.animateRoute) {
                         pageLoader.waitingEnter = false;
-                        pageLoader.startEntry();
-                    }
-                }
-                function onEntryStarted(instanceId: string): void {
-                    if (pageLoader.handoff && host.router.current && host.router.current.instanceId === instanceId) {
-                        handoffDim.stop();
-                        handoffExit.restart();
+                        entering.restart();
                     }
                 }
                 function onEntryFinished(instanceId: string): void {
-                    if (pageLoader.handoff && host.router.current && host.router.current.instanceId === instanceId)
-                        pageLoader.endHandoff(true);
                     if (pageLoader.waitingExit && pageLoader.waitingForEntry === instanceId) {
                         pageLoader.waitingExit = false;
                         exiting.restart();
@@ -259,30 +211,16 @@ Item {
             }
             Connections {
                 target: host.router
+                // Business coordinators connect before the visual host. Build
+                // against their prepared bucket/models, not the outgoing page.
+                function onPageActivated(context: RouteContext): void {
+                    if (context === pageLoader.pageContext && (!pageLoader.active || pageLoader.leaving))
+                        pageLoader.change();
+                }
                 function onRouteChanged(): void {
-                    if (pageLoader.handoff && !host.router.current)
-                        pageLoader.endHandoff(true);
                     if (pageLoader.waitingExit && host.router.current)
                         pageLoader.waitingForEntry = host.router.current.instanceId;
                 }
-            }
-            NumberAnimation {
-                id: handoffDim
-                target: pageLoader
-                property: "opacity"
-                duration: Theme.pageResponseDuration
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: Theme.easeEnter
-            }
-            NumberAnimation {
-                id: handoffExit
-                target: pageLoader
-                property: "opacity"
-                to: 0
-                duration: pageLoader.durationMs
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: pageLoader.curve
-                onFinished: pageLoader.endHandoff(true)
             }
             ParallelAnimation {
                 id: entering
@@ -397,7 +335,6 @@ Item {
                     change();
             }
             Component.onDestruction: {
-                endHandoff(false);
                 presentation.cancel();
                 if (leaving)
                     host.outgoingCount--;

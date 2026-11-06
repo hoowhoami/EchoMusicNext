@@ -102,7 +102,6 @@ QtObject {
     readonly property int fastDuration: store.motionEnabled ? 120 : 0
     readonly property int normalDuration: store.motionEnabled ? 180 : 0
     readonly property int pageDuration: store.motionEnabled ? 220 : 0
-    readonly property int pageResponseDuration: store.motionEnabled ? 80 : 0
     readonly property int panelDuration: store.motionEnabled ? 240 : 0
     readonly property int rollingNumberDuration: store.motionEnabled ? 900 : 0
     readonly property int exitDuration: store.motionEnabled ? 140 : 0

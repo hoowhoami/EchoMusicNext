@@ -710,7 +710,7 @@ Window {
     QVERIFY(!host.theme.floatingFrosted());
     QCOMPARE(panel->property("blurSigma").toDouble(), 24.);
     QCOMPARE(panel->property("paintedColor").value<QColor>().alpha(), 255);
-    // Revoking a plugin recipe restores the source default entry immediately.
+    // Revoking a plugin recipe restores entry-only default fading.
     window->show();
     QPointer<QQuickItem> defaultOutgoing(second);
     QVERIFY(host.router.navigate("material-two"));
@@ -721,6 +721,9 @@ Window {
     QCOMPARE(defaultEntry->property("durationMs").toInt(), 220);
     QVERIFY(routeTransitioning(defaultEntry));
     QVERIFY(defaultEntry->opacity() < 1.);
+    QVERIFY(defaultEntry->isEnabled());
+    QVERIFY(!defaultEntry->property("waitingEnter").toBool());
+    QVERIFY(!defaultEntry->property("waitingExit").toBool());
     QTRY_VERIFY(defaultOutgoing.isNull());
     const auto captures = qEnvironmentVariable("ECHO_MOTION_ARTIFACT_DIR");
     if (!captures.isEmpty()) {

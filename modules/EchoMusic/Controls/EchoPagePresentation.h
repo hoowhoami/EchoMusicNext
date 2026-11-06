@@ -12,8 +12,8 @@ class EchoPagePresentation : public QObject
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(bool ready READ ready NOTIFY readyChanged)
+    Q_PROPERTY(bool loaded READ loaded NOTIFY stateChanged)
     Q_PROPERTY(bool suppressEntry READ suppressEntry NOTIFY stateChanged)
-    Q_PROPERTY(bool retiring READ retiring WRITE setRetiring NOTIFY stateChanged)
 public:
     explicit EchoPagePresentation(QObject *parent = nullptr) : QObject(parent) {}
     bool ready() const
@@ -22,14 +22,13 @@ public:
     }
     bool suppressEntry() const
     {
-        return m_retiring || (m_restoring && !m_presented);
+        return m_suppressInitialEntry && !m_presented;
     }
-    bool retiring() const
+    bool loaded() const
     {
-        return m_retiring;
+        return m_loaded;
     }
-    void setRetiring(bool retiring);
-    Q_INVOKABLE void begin(bool restoring);
+    Q_INVOKABLE void begin(bool suppressInitialEntry);
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void finishLoading();
     Q_INVOKABLE bool waitFor(QObject *viewport);
@@ -38,11 +37,13 @@ public:
 signals:
     void readyChanged();
     void stateChanged();
+    /// Complete constructed views restore synchronously before the first
+    /// ready notification. Truly asynchronous extents may release later.
+    void restoreRequested();
 
 private:
     void updateReady();
     QSet<QObject *> m_waiters;
-    bool m_loaded = false, m_ready = false, m_restoring = false, m_presented = false,
-         m_retiring = false;
+    bool m_loaded = false, m_ready = false, m_suppressInitialEntry = false, m_presented = false;
 };
 } // namespace EchoMusic

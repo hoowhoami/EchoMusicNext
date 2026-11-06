@@ -261,13 +261,6 @@ ApplicationWindow {
         active: mainWindow.startupCoverNeeded || opacity > 0
         enabled: mainWindow.startupPending
         opacity: mainWindow.startupCoverNeeded ? 1 : 0
-        Behavior on opacity {
-            NumberAnimation {
-                duration: Theme.fastDuration
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: Theme.easeEnter
-            }
-        }
         sourceComponent: StartupPage {
             startup: mainWindow.startup
             settings: mainWindow.shellSettings

@@ -1457,8 +1457,8 @@ QtObject {
         QTRY_VERIFY(!restoredFrames.isEmpty());
         const auto blockedFrame = window->grabWindow();
         QVERIFY(!blockedFrame.isNull());
-        QVERIFY(blockedFrame.pixelColor(blockedFrame.width() / 2, blockedFrame.height() / 2) !=
-                QColor("#202020")); // The outgoing view covers the restore gap.
+        QCOMPARE(blockedFrame.pixelColor(blockedFrame.width() / 2, blockedFrame.height() / 2),
+                 QColor("#202020")); // A genuinely pending extent never retains the old view.
         QCOMPARE(loader->opacity(), 0.);
         window->hide();
         QCOMPARE(loader->opacity(), 0.);
@@ -1540,13 +1540,13 @@ QtObject {
         drain();
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
     }
-    void routeHandoffKeepsOneRetiringView_data()
+    void directRoutesReleaseViewsAndRestoreBeforeReturn_data()
     {
         QTest::addColumn<bool>("cacheEnabled");
         QTest::newRow("cache-on") << true;
         QTest::newRow("cache-off") << false;
     }
-    void routeHandoffKeepsOneRetiringView()
+    void directRoutesReleaseViewsAndRestoreBeforeReturn()
     {
         QFETCH(bool, cacheEnabled);
         QTemporaryDir temp;
@@ -1555,7 +1555,7 @@ QtObject {
         ThemeStore theme(prefs);
         theme.setMotionEnabled(true);
         RouteController routes;
-        routes.setCachePolicy(cacheEnabled, cacheEnabled ? 1 : 0);
+        routes.setCachePolicy(cacheEnabled, cacheEnabled ? 2 : 0);
         QVERIFY(routes.registerPage(definition("playlist")));
         QQmlEngine engine;
         theme.attachToEngine(engine);
@@ -1573,113 +1573,91 @@ QtObject {
                 required property RouteController router
                 required property ShellSettings settings
                 visible: true; width: 640; height: 360; color: "#202020"
-                RouteHost { anchors.fill: parent; router: testWindow.router; settings: testWindow.settings }
+                RouteHost { objectName: "fadeNavigationHost"; anchors.fill: parent; router: testWindow.router; settings: testWindow.settings }
             })",
-                          QUrl("qrc:/page-handoff-test.qml"));
+                          QUrl("qrc:/direct-navigation-test.qml"));
         QScopedPointer<QObject> root(component.createWithInitialProperties(
             {{"router", QVariant::fromValue(&routes)}, {"settings", QVariant::fromValue(&shell)}}));
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window && Test::prepareNativeInput(window));
+        auto *host = root->findChild<QQuickItem *>("fadeNavigationHost");
+        QVERIFY(host);
+        QSignalSpy ready(host, SIGNAL(pageReady(QString)));
+        QSignalSpy finished(host, SIGNAL(entryFinished(QString)));
+        QVERIFY(ready.isValid() && finished.isValid());
         QVERIFY(routes.navigate("playlist", {}, "one"));
         QPointer<RouteContext> original = routes.current();
         QTRY_VERIFY(probe(root.data(), original));
         QPointer<QObject> outgoing = probe(root.data(), original);
-        QPointer<QQuickItem> outgoingLoader =
-            qobject_cast<QQuickItem *>(outgoing.data())->parentItem();
-        QTRY_COMPARE(outgoingLoader->opacity(), 1.);
-        QSignalSpy pageActivity(outgoing, SIGNAL(pageActiveChanged()));
+        auto *loader = qobject_cast<QQuickItem *>(outgoing.data())->parentItem();
+        QTRY_COMPARE(loader->opacity(), 1.);
+        QVERIFY(loader->property("animateRoute").toBool());
+        outgoing->setProperty("visualScroll", 413.);
+        QTRY_COMPARE(original->viewState()->load("scroll:page-scroll").value("independent").toInt(),
+                     413);
         QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "two"));
-        QCOMPARE(outgoingLoader->opacity(), .92); // Feedback before an animation tick.
-        QPointer<RouteContext> canceledContext = routes.current();
-        QTRY_VERIFY(probe(root.data(), canceledContext));
-        QPointer<QObject> canceled = probe(root.data(), canceledContext);
-        QVERIFY(outgoing);
-        QVERIFY(!original->active());
-        QVERIFY(!original->viewState()->save("scroll:page-scroll", {{"independent", 0}}));
-        QVERIFY(outgoing->property("pageActive").toBool());
-        QCOMPARE(pageActivity.size(), 0); // No false reactivation/duplicate reads.
-        QVERIFY(!outgoing->property("scrollingAllowed").toBool());
-        QVERIFY(!outgoingLoader->isEnabled());
-        QTRY_VERIFY(outgoingLoader && qAbs(outgoingLoader->opacity() - .65) < .001);
-        QCOMPARE(outgoing->property("sectionOpacity").toReal(), 1.);
-        QCOMPARE(qobject_cast<QQuickItem *>(canceled.data())->parentItem()->opacity(), 0.);
-        routes.back();
-        QCOMPARE(routes.current(), original.data());
-        QCOMPARE(probe(root.data(), original), outgoing.data());
-        QVERIFY(outgoingLoader->opacity() > .6); // Return without flashing to zero.
-        QTRY_COMPARE(outgoingLoader->opacity(), 1.);
-        routes.forward();
-        canceledContext = routes.current();
-        QTRY_VERIFY(probe(root.data(), canceledContext));
-        canceled = probe(root.data(), canceledContext);
-        QTRY_VERIFY(outgoingLoader && qAbs(outgoingLoader->opacity() - .65) < .001);
-        // A canceled, never-shown intermediate page must not replace/stack the
-        // one visible outgoing page, even with caching disabled or max=1.
-        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "three"));
-        QTRY_VERIFY(canceled.isNull());
-        QTRY_VERIFY(probe(root.data(), routes.current()));
-        auto *incoming = probe(root.data(), routes.current());
-        auto *incomingLoader = qobject_cast<QQuickItem *>(incoming)->parentItem();
-        QVERIFY(outgoing);
-        QCOMPARE(routes.mountedCount(), 2);
-        const auto blocked = window->grabWindow();
-        QVERIFY(!blocked.isNull());
-        QVERIFY(blocked.pixelColor(blocked.width() / 2, blocked.height() / 2) != QColor("#202020"));
-        bool crossed = false, wrongPosition = false;
-        connect(incomingLoader, &QQuickItem::opacityChanged, incoming, [&] {
-            if (incomingLoader->opacity() <= 0)
-                return;
-            if (!crossed) {
-                crossed = true;
-                wrongPosition = !outgoing || qAbs(incoming->property("visualScroll").toReal()) > .5;
-            }
-        });
-        incoming->setProperty("extentAvailable", true);
-        QTRY_VERIFY(crossed);
-        QVERIFY(!wrongPosition);
         QTRY_VERIFY(outgoing.isNull());
-        QTRY_VERIFY(original.isNull());
-        QTRY_COMPARE(routes.mountedCount(), 1);
-        QCOMPARE(incomingLoader->opacity(), 1.);
-        const auto artifacts = qEnvironmentVariable("ECHO_HANDOFF_ARTIFACTS");
-        if (!artifacts.isEmpty()) {
-            QVERIFY(QDir().mkpath(artifacts));
-            const auto suffix = cacheEnabled ? "-cache-on.png" : "-cache-off.png";
-            QVERIFY(blocked.save(artifacts + "/handoff-pending" + suffix));
-            QVERIFY(window->grabWindow().save(artifacts + "/handoff-settled" + suffix));
-        }
-        outgoing = incoming;
-        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "four"));
-        QTRY_VERIFY(probe(root.data(), routes.current()));
-        incoming = probe(root.data(), routes.current());
-        theme.setMotionEnabled(false);
-        QTRY_VERIFY(outgoing.isNull());
-        QCOMPARE(qobject_cast<QQuickItem *>(incoming)->parentItem()->opacity(), 0.);
-        incoming->setProperty("extentAvailable", true);
-        QTRY_COMPARE(qobject_cast<QQuickItem *>(incoming)->parentItem()->opacity(), 1.);
-        theme.setMotionEnabled(true);
-        outgoing = incoming;
-        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "five"));
         QTRY_VERIFY(probe(root.data(), routes.current()));
         QPointer<QObject> pending = probe(root.data(), routes.current());
-        window->hide();
-        QTRY_VERIFY(outgoing.isNull());
-        window->show();
-        QVERIFY(Test::prepareNativeInput(window));
         QCOMPARE(qobject_cast<QQuickItem *>(pending.data())->parentItem()->opacity(), 0.);
-        pending->setProperty("extentAvailable", true);
-        QTRY_COMPARE(qobject_cast<QQuickItem *>(pending.data())->parentItem()->opacity(), 1.);
-        outgoing = pending;
-        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "six"));
+        // The outgoing page has already released its UI even when the next
+        // page genuinely needs asynchronous extents. Only pure state survives.
+        if (cacheEnabled) {
+            QVERIFY(original);
+            QCOMPARE(routes.mountedCount(), 2);
+            QCOMPARE(original->viewState()->load("scroll:page-scroll").value("independent").toInt(),
+                     413);
+        } else {
+            QTRY_VERIFY(original.isNull());
+            QCOMPARE(routes.mountedCount(), 1);
+        }
+        const auto finishedBeforeReturn = finished.size();
+        routes.back();
+        if (cacheEnabled) {
+            QCOMPARE(routes.current(), original.data());
+            // Warm reconstruction and restore finish inside navigation; no
+            // event-loop polling or old view. Input is live during the fade.
+            auto *restored = probe(root.data(), original);
+            QVERIFY(restored);
+            auto *restoredLoader = qobject_cast<QQuickItem *>(restored)->parentItem();
+            auto *presentation =
+                restoredLoader->property("presentation").value<EchoPagePresentation *>();
+            QVERIFY(presentation && presentation->ready());
+            QCOMPARE(restored->property("visualScroll").toInt(), 413);
+            QVERIFY(restoredLoader->isEnabled());
+            QCOMPARE(ready.last().first().toString(), original->instanceId());
+            QCOMPARE(finished.size(), finishedBeforeReturn);
+            QVERIFY(restoredLoader->opacity() < 1.);
+            QVERIFY(!restoredLoader->property("waitingEnter").toBool());
+            QVERIFY(!restoredLoader->property("waitingExit").toBool());
+            QVERIFY(!restored->property("sectionRunning").toBool());
+            QVERIFY(!restored->property("listRunning").toBool());
+            QVERIFY(restoredLoader->findChild<QObject *>("routeEntryAnimation")
+                        ->property("running")
+                        .toBool());
+        } else {
+            QTRY_VERIFY(probe(root.data(), routes.current()));
+            auto *restored = probe(root.data(), routes.current());
+            QTRY_COMPARE(qobject_cast<QQuickItem *>(restored)->parentItem()->opacity(), 1.);
+            QCOMPARE(restored->property("visualScroll").toInt(), 0);
+        }
+        QTRY_VERIFY(pending.isNull());
+        // Cancel an unfinished page, then disable caching without retaining a
+        // temporary transition context beyond the configured cache budget.
+        QVERIFY(routes.navigate("playlist", {{"hold", "yes"}}, "three"));
         QTRY_VERIFY(probe(root.data(), routes.current()));
         pending = probe(root.data(), routes.current());
-        routes.setCachePolicy(false, 0);
-        QTRY_VERIFY(outgoing.isNull());
-        QCOMPARE(qobject_cast<QQuickItem *>(pending.data())->parentItem()->opacity(), 0.);
-        routes.invalidateAccountPreservingRoute();
+        QVERIFY(routes.navigate("playlist", {}, "four"));
         QTRY_VERIFY(pending.isNull());
+        routes.setCachePolicy(false, 0);
         QTRY_COMPARE(routes.mountedCount(), 1);
+        QTRY_VERIFY(probe(root.data(), routes.current()));
+        theme.setMotionEnabled(false);
+        QCOMPARE(qobject_cast<QQuickItem *>(probe(root.data(), routes.current()))
+                     ->parentItem()
+                     ->opacity(),
+                 1.);
         root.reset();
         routes.shutdown();
         drain();

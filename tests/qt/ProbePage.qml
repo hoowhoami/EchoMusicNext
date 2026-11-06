@@ -14,7 +14,7 @@ RoutePage {
     property bool sectionEnabled: true
     readonly property bool sectionRunning: sectionEntry.running
     readonly property bool listRunning: insertion.running
-    readonly property bool scrollingAllowed: viewport.navigationActive
+    readonly property bool scrollingAllowed: viewport.pageActive
     readonly property real sectionOpacity: view.opacity
     function replaySection(): void {
         sectionEnabled = false;

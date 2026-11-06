@@ -61,6 +61,7 @@ test('prepared notes are stable, preserve the source and feed distribution CMake
     fs.mkdirSync(project);
     const input = path.join(project, 'CHANGELOG.md');
     fs.writeFileSync(input, source);
+    fs.writeFileSync(path.join(project, 'VERSION'), '2.0.0-beta.1\n');
     const expected = prepareChangelog(project, '2.0.0-beta.1', output);
     assert.equal(fs.readFileSync(input, 'utf8'), source);
     assert.equal(fs.readFileSync(path.join(output, 'CHANGELOG.md'), 'utf8'), expected.current);

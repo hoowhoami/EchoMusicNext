@@ -163,10 +163,6 @@ public:
     Q_INVOKABLE void back();
     Q_INVOKABLE void forward();
     Q_INVOKABLE void refresh();
-    /// One short visual handoff may outlive LRU eviction. Business activation
-    /// and writable snapshots still end immediately; no visual cache is added.
-    Q_INVOKABLE bool retainTransition(EchoMusic::RouteContext *page);
-    Q_INVOKABLE void releaseTransition(EchoMusic::RouteContext *page);
     void setCachePolicy(bool enabled, int maximum);
     /// Read the first shortcut from its existing owner at navigation time.
     void setHomeLayout(SidebarLayoutModel *layout);
@@ -202,7 +198,6 @@ private:
     void present(const Location &location);
     void removePage(int index);
     void prune();
-    void queueTransitionPrune();
     bool cacheable(const RouteContext *page) const;
     QPointer<SidebarLayoutModel> m_homeLayout;
     QHash<QString, Definition> m_definitions;
@@ -211,8 +206,6 @@ private:
     QHash<QString, quint64> m_revisions, m_pluginPageRevisions;
     quint64 m_registrationRevision = 0;
     RouteContext *m_current = nullptr;
-    QPointer<RouteContext> m_transition;
-    bool m_transitionPruneQueued = false;
     int m_cursor = -1, m_max = 20;
     bool m_enabled = true, m_changing = false, m_closed = false;
     quint64 m_clock = 0, m_instance = 0, m_accountEpoch = 0;

@@ -168,7 +168,7 @@ Qt组件纹理可通过EchoGpuSurface.importTextureSource借用到RHI采样：�
 
 ### 页面切换动画
 
-普通页面默认按 EchoMusic 播放220ms整体淡入。主题的light/dark配置及`ctx.theme.setOverride`都可通过已有`pageTransition`配方覆盖时长、四点Bezier曲线、进入/退出透明度、X/Y位移、缩放及`parallel`/`out-in`/`in-out`顺序；无需CSS或DOM。`enabled:false`明确关闭，`appear:false`仅跳过首次呈现，后续导航仍播放。先出后进/先进后出等待实际动画完成，不以固定延迟猜测页面加载；快速导航取消旧等待。隐藏/最小化、减少动效及贡献替换/撤销结束当前动画，撤销最后一个贡献恢复默认淡入，不修改用户持久主题配置。
+普通页面默认在恢复就绪后立即接管并启用交互，同时播放220ms新页淡入；旧页立即卸载，不等待动画结束才响应导航。主题的light/dark配置及`ctx.theme.setOverride`都可通过已有`pageTransition`配方覆盖时长、四点Bezier曲线、进入/退出透明度、X/Y位移、缩放及`parallel`/`out-in`/`in-out`顺序；无需CSS或DOM。`enabled:false`明确关闭，`appear:false`仅跳过首次呈现，后续导航仍播放。先出后进/先进后出等待实际动画完成，不以固定延迟猜测页面加载；快速导航取消旧等待。隐藏/最小化、减少动效及贡献替换/撤销结束当前动画，撤销最后一个贡献恢复仅新页淡入，不修改用户持久主题配置。
 
 ```ts
 const lease = await awaitOperation(ctx.theme.setOverride('page-motion', {

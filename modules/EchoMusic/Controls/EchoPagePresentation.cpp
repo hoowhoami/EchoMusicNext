@@ -3,15 +3,14 @@
 
 namespace EchoMusic
 {
-void EchoPagePresentation::begin(bool restoring)
+void EchoPagePresentation::begin(bool suppressInitialEntry)
 {
     for (auto *viewport : std::as_const(m_waiters))
         disconnect(viewport, nullptr, this, nullptr);
     m_waiters.clear();
     m_loaded = false;
-    m_restoring = restoring;
+    m_suppressInitialEntry = suppressInitialEntry;
     m_presented = false;
-    m_retiring = false;
     if (m_ready) {
         m_ready = false;
         emit readyChanged();
@@ -21,6 +20,8 @@ void EchoPagePresentation::begin(bool restoring)
 void EchoPagePresentation::finishLoading()
 {
     m_loaded = true;
+    emit restoreRequested();
+    emit stateChanged();
     updateReady();
 }
 void EchoPagePresentation::cancel()
@@ -58,13 +59,6 @@ void EchoPagePresentation::presented()
     if (m_presented)
         return;
     m_presented = true;
-    emit stateChanged();
-}
-void EchoPagePresentation::setRetiring(bool retiring)
-{
-    if (m_retiring == retiring)
-        return;
-    m_retiring = retiring;
     emit stateChanged();
 }
 } // namespace EchoMusic

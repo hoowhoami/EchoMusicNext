@@ -15,7 +15,5 @@ EchoUiPartHost {
     required property RouteContext context
     required property RouteController router
     required property ShellSettings settings
-    // A single outgoing view may still render during the handoff. Its route
-    // is already inactive, input disabled and recoverable snapshots frozen.
-    readonly property bool pageActive: (context.active || (EchoPageState.presentation?.retiring ?? false)) && !publicPart.replaced
+    readonly property bool pageActive: context.active && !publicPart.replaced
 }
