@@ -1,5 +1,6 @@
 #include "EchoUiPartRegistration.h"
 #include "EchoUiPartRegistry.h"
+#include "EchoQueuedNotice.h"
 #include "EchoUiLayout.h"
 #include "EchoUiScope.h"
 #include "EchoUiPresentation.h"
@@ -89,15 +90,7 @@ void EchoUiPartRegistration::setState(const QVariantMap &v)
     emit stateChanged();
     if (m_registry)
         m_registry->nativeStateChanged(this);
-    if (std::exchange(m_stateNoticePending, true))
-        return;
-    QMetaObject::invokeMethod(
-        this,
-        [this] {
-            m_stateNoticePending = false;
-            emit changed();
-        },
-        Qt::QueuedConnection);
+    queueCoalescedNotice(this, m_stateNoticePending, [this] { emit changed(); });
 }
 void EchoUiPartRegistration::componentComplete()
 {
@@ -270,6 +263,21 @@ void EchoUiPartRegistration::setResolved(const QVariantMap &values, const QVaria
         emit overridesChanged();
     if (self)
         emit changed();
+    if (!valuesChanged)
+        return;
+    // The visual-presence flag feeds Loader re-creation in EchoUiPartHost, and
+    // refresh() passes overrides through {} on its way between registrations.
+    // Recomputing it synchronously would rebuild that Loader for the empty
+    // map and again for the resolved one on every such cycle; queued, the
+    // interim states collapse and the flag only flips on the settled value.
+    queueCoalescedNotice(this, m_visualNoticePending, [this] {
+        const bool visual = std::any_of(m_overrides.keyBegin(), m_overrides.keyEnd(),
+                                        [](const QString &key) { return key != "opacity"; });
+        if (m_hasVisualOverrides == visual)
+            return;
+        m_hasVisualOverrides = visual;
+        emit hasVisualOverridesChanged();
+    });
 }
 QMap<QString, QString> EchoUiPartRegistration::nativeProperties() const
 {

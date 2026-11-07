@@ -43,6 +43,7 @@ class EchoUiPartRegistration : public QObject, public QQmlParserStatus
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY declarationChanged)
     Q_PROPERTY(bool replaceable READ replaceable WRITE setReplaceable NOTIFY declarationChanged)
     Q_PROPERTY(QVariantMap overrides READ overrides NOTIFY overridesChanged)
+    Q_PROPERTY(bool hasVisualOverrides READ hasVisualOverrides NOTIFY hasVisualOverridesChanged)
     Q_PROPERTY(QString identity READ identity NOTIFY identityChanged)
     Q_PROPERTY(bool observed READ observed NOTIFY observedChanged)
     Q_PROPERTY(QVariantMap state READ state WRITE setState NOTIFY stateChanged)
@@ -142,6 +143,10 @@ public:
     {
         return m_overrides;
     }
+    bool hasVisualOverrides() const
+    {
+        return m_hasVisualOverrides;
+    }
     QVariantMap baseValues() const;
     void setBaseValues(const QVariantMap &);
     bool observed() const
@@ -197,6 +202,7 @@ signals:
     void observedChanged();
     void declarationChanged();
     void overridesChanged();
+    void hasVisualOverridesChanged();
     void replacementChanged();
     void mountOrderChanged();
     void changed();
@@ -225,6 +231,7 @@ private:
     QVariantMap m_overrides, m_base, m_state, m_visualSources;
     QList<QMetaObject::Connection> m_connections;
     bool m_stateNoticePending = false, m_refreshing = false;
+    bool m_visualNoticePending = false, m_hasVisualOverrides = false;
     int m_readers = 0;
     bool m_styleObserved = false;
     bool m_active = true, m_complete = false, m_replaceable = false;
