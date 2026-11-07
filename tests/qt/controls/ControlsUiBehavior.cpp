@@ -1,5 +1,6 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
+#include "EchoUiContentFactory.h"
 #include <QOperatingSystemVersion>
 
 void ControlsUiTest::windowCaptionSeparatesDoubleClickFromDrag()
@@ -1069,4 +1070,45 @@ Item {
     owner.reset();
     QTest::qWait(20);
     QCOMPARE(warnings.size(), 0);
+}
+
+void ControlsUiTest::contentHostKeepsItemAcrossTransientFactoryFlap()
+{
+    ControlsSession session;
+    QVERIFY(session.create());
+    QQuickItem native, swapped, other, coalesced;
+    EchoMusic::EchoUiRetainedContentFactory factory;
+    factory.setContent(&native);
+    EchoMusic::EchoUiRetainedContentFactory replacement;
+    replacement.setContent(&other);
+    EchoMusic::EchoUiContentHost host;
+    host.setParentItem(session.window->contentItem());
+    host.setSize(QSizeF(120, 40));
+    host.finishCreation();
+    host.setFactory(&factory);
+    QTRY_VERIFY(host.item());
+    QQuickItem *const first = host.item();
+    // refresh() detaches a registration (factory -> nullptr) and reattaches
+    // the same cached factory before the queued reconcile runs; the soft
+    // request in between must keep the live item instead of rebuilding it.
+    host.setFactory(nullptr);
+    host.setFactory(&factory);
+    QTest::qWait(1);
+    QCOMPARE(host.item(), first);
+    // The queued reconcile OR-merges rebuild flags: a soft request that
+    // joins a pending hard one must not downgrade it back to a keep, even
+    // though the last writer is soft and the factory built the live item.
+    factory.setContent(&coalesced);
+    host.setFactory(nullptr);
+    host.setFactory(&factory);
+    QTest::qWait(1);
+    QVERIFY(host.item() && host.item() != first);
+    // Content changes on the same factory still request a hard rebuild.
+    factory.setContent(&swapped);
+    QTRY_VERIFY(host.item() && host.item() != first);
+    QQuickItem *const second = host.item();
+    // A genuinely different factory rebuilds even on a soft request.
+    host.setFactory(&replacement);
+    QTRY_VERIFY(host.item() && host.item() != second);
+    QVERIFY(host.errorMessage().isEmpty());
 }

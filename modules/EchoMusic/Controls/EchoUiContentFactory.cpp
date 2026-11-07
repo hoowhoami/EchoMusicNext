@@ -284,6 +284,7 @@ void EchoUiContentHost::release()
     m_itemConnections.clear();
     if (QPointer<QQuickItem> item = m_item) {
         m_item = nullptr;
+        m_itemFactory = nullptr;
         // Cancel the scoped work before detaching. QObject deletion is deferred
         // so a click/binding callback may safely finish on its own view.
         emit restoring(item);
@@ -332,21 +333,24 @@ void EchoUiContentHost::flush()
     m_pending = false;
     reconcile();
 }
-void EchoUiContentHost::requestReconcile(bool)
+void EchoUiContentHost::requestReconcile(bool rebuild)
 {
     if (m_publicationHolds)
         return;
-    if (std::exchange(m_pending, true))
+    if (std::exchange(m_pending, true)) {
+        m_rebuildPending = m_rebuildPending || rebuild;
         return;
+    }
+    m_rebuildPending = rebuild;
     const auto revision = ++m_reconcileRevision;
     QTimer::singleShot(0, this, [this, revision] {
         if (revision != m_reconcileRevision)
             return;
         m_pending = false;
-        reconcile();
+        reconcile(std::exchange(m_rebuildPending, false));
     });
 }
-void EchoUiContentHost::reconcile()
+void EchoUiContentHost::reconcile(bool rebuild)
 {
     if (!m_complete || m_constructing || m_publicationHolds)
         return;
@@ -359,6 +363,17 @@ void EchoUiContentHost::reconcile()
     }
     if (!m_factory->ready())
         return;
+    // refresh() detaches a registration and reattaches the same cached chain
+    // before the queued reconcile runs: contentFactory falls back to the
+    // retained factory and back, flipping active and factory with it. A soft
+    // request that settles back on the factory which built the live item
+    // keeps that item: rebuilding would drop plugin state on every such
+    // cycle. Hard requests (factory content changes) and a genuinely
+    // different factory still rebuild.
+    if (!rebuild && m_item && m_factory == m_itemFactory) {
+        sizeContent();
+        return;
+    }
     // A newly incubated wrapper can contain a native Qt layout which has not
     // polished its children yet. Settle that layout before borrowing a live
     // subtree, so its existing skins/GPU views never see a transient 0x0 size.
@@ -388,6 +403,7 @@ void EchoUiContentHost::reconcile()
         return;
     }
     m_item = next;
+    m_itemFactory = factory;
     m_error.clear();
     auto measure = [this] {
         if (m_item) {

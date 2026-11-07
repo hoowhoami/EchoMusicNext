@@ -40,6 +40,7 @@ private slots:
     void compositionSemanticTreeAndLayoutRestore();
     void compositionInsertionParticipatesInLayout();
     void compositionWrapPreservesNativeContentAndRetires();
+    void compositionRefreshRetainsLiveContent();
     void compositionMoveConflictAndRestoration();
     void pluginDiagnosticsReachUnifiedLog();
     void operationJsonArraysAcrossIoCommandsAndQml_data();

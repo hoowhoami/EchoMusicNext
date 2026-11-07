@@ -143,11 +143,36 @@ ECHO_PART_SETTER(Owner, const QString &, m_owner)
 ECHO_PART_SETTER(Role, const QString &, m_role)
 ECHO_PART_SETTER(Key, const QString &, m_key)
 ECHO_PART_SETTER(Surface, const QString &, m_surface)
-ECHO_PART_SETTER(Properties, const QStringList &, m_properties)
-ECHO_PART_SETTER(Actions, const QStringList &, m_actions)
 ECHO_PART_SETTER(Active, bool, m_active)
 ECHO_PART_SETTER(Replaceable, bool, m_replaceable)
 #undef ECHO_PART_SETTER
+// Properties and actions never touch identity, address or the composition
+// chain: they only feed style resolution and the composition payload.
+// Re-resolve in place (the setPreference idiom) instead of running the
+// detach/attach cycle, which unregisters the part, rebuilds the cached
+// chain and tears down live plugin content for no semantic change.
+void EchoUiPartRegistration::setProperties(const QStringList &value)
+{
+    if (m_properties == value)
+        return;
+    m_properties = value;
+    emit declarationChanged();
+    if (m_registry && !identity().isEmpty()) {
+        m_registry->resolve(this);
+        m_registry->resolveComposition(this);
+    }
+    emit changed();
+}
+void EchoUiPartRegistration::setActions(const QStringList &value)
+{
+    if (m_actions == value)
+        return;
+    m_actions = value;
+    emit declarationChanged();
+    if (m_registry && !identity().isEmpty())
+        m_registry->resolveComposition(this);
+    emit changed();
+}
 void EchoUiPartRegistration::connectTarget()
 {
     for (const auto &c : m_connections)
