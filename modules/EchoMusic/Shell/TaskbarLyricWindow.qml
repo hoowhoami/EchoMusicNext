@@ -513,6 +513,7 @@ Window {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: (seekArea.active ? -Math.round(seekArea.height / 2) : 0)
                         spacing: 0
                         opacity: window.expanded ? 1 : 0
                         visible: opacity > 0.01
