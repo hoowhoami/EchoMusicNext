@@ -108,7 +108,7 @@ void DesktopPagesTest::miniScaleAndMenuUseProductionSurfaces()
                     auto *action = visual(mini->contentItem(), name);
                     QVERIFY(action && action->isVisible());
                 }
-                QSignalSpy rendered(mini, &QQuickWindow::frameSwapped);
+                Test::FrameSpy rendered(mini);
                 mini->update();
                 QVERIFY(rendered.wait(1000));
                 PlaybackServiceTestAccess::position(playback, 8000, false);
@@ -141,7 +141,7 @@ void DesktopPagesTest::miniScaleAndMenuUseProductionSurfaces()
                         check->mapRectToScene(check->boundingRect()).left());
                 auto *popupWindow = content->window();
                 QVERIFY(popupWindow && popupWindow != mini);
-                QSignalSpy popupFrame(popupWindow, &QQuickWindow::frameSwapped);
+                Test::FrameSpy popupFrame(popupWindow);
                 popupWindow->update();
                 QVERIFY(popupFrame.wait(1000));
                 const auto image = popupWindow->grabWindow();
@@ -205,7 +205,7 @@ void DesktopPagesTest::miniScaleAndMenuUseProductionSurfaces()
                 QCOMPARE(collapse->property("glyph").toString(),
                          up ? QString("chevron-down") : QString("chevron-up"));
                 if (!captures.isEmpty()) {
-                    QSignalSpy queueFrame(mini, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy queueFrame(mini);
                     mini->update();
                     QVERIFY(queueFrame.wait(1000));
                     QVERIFY(mini->grabWindow().save(
@@ -262,7 +262,7 @@ void DesktopPagesTest::miniQueueRendersAndScrolls()
     auto *list = visual(mini->contentItem(), "miniPlayerQueue");
     QVERIFY(list);
     const auto frame = [&] {
-        QSignalSpy rendered(mini, &QQuickWindow::frameSwapped);
+        Test::FrameSpy rendered(mini);
         mini->update();
         return rendered.wait(1000);
     };
@@ -367,7 +367,7 @@ void DesktopPagesTest::miniVolumeDismissesAcrossHost()
         // Include the resize handles, ordinary controls, and the expanded card.
         for (int target = 0; target < 5; ++target) {
             QVERIFY(!owner->property("item").value<QObject *>());
-            QSignalSpy hostFrames(mini, &QQuickWindow::frameSwapped);
+            Test::FrameSpy hostFrames(mini);
             mini->update();
             QTRY_VERIFY(!hostFrames.isEmpty());
             QVERIFY(volume->isVisible() && volume->width() > 0);
@@ -389,7 +389,7 @@ void DesktopPagesTest::miniVolumeDismissesAcrossHost()
             QVERIFY(content && content->window());
             auto *popupWindow = content->window();
             QCOMPARE(popupWindow->modality(), Qt::NonModal);
-            QSignalSpy frames(popupWindow, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(popupWindow);
             popupWindow->update();
             QTRY_VERIFY(!frames.isEmpty());
             // Do not reactivate Mini after opening: doing so would conceal the
@@ -483,7 +483,7 @@ void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
             QTRY_VERIFY(toggle->width() > 0 && toggle->isVisible());
             auto *viewport = visual(session.window->contentItem(), "settingsContentViewport");
             QVERIFY(viewport);
-            QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(session.window);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
             QCOMPARE(toggle->property("checked").toBool(), initialMvFallback);
@@ -526,7 +526,7 @@ void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
                 QCOMPARE(cloud->property("selected").toBool(), kind == "cloud");
                 QVERIFY(playback.sourceNotice().contains(kind == "mv" ? "MV" : "云盘"));
                 if (!captures.isEmpty()) {
-                    QSignalSpy redraw(session.window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy redraw(session.window);
                     session.window->update();
                     QTRY_VERIFY(!redraw.isEmpty());
                     QVERIFY(session.window->grabWindow().save(
@@ -882,7 +882,7 @@ void DesktopPagesTest::desktopLyricsKeepRenderingUnderTranslucentOcclusion()
     auto *viewport = visual(desktop->contentItem(), "desktopLyricViewport");
     QVERIFY(viewport);
     auto *probe = new FloatingFrameProbe(desktop);
-    QSignalSpy swapped(desktop, &QQuickWindow::frameSwapped);
+    Test::FrameSpy swapped(desktop);
     QTRY_VERIFY(probe->frames() > 3);
 #ifdef Q_OS_MACOS
     const auto mainNumber =
@@ -1110,7 +1110,7 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
         QCOMPARE(mini->height(), 64);
     }
     mini->setWidth(480);
-    QSignalSpy resizedFrame(mini, &QQuickWindow::frameSwapped);
+    Test::FrameSpy resizedFrame(mini);
     mini->update();
     QTRY_VERIFY(!resizedFrame.isEmpty());
     QTRY_COMPARE(mini->width(), 480);
@@ -1125,7 +1125,7 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
     QVERIFY(metadata && title && artist);
     for (int width : {360, 560}) {
         mini->setWidth(width);
-        QSignalSpy frame(mini, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frame(mini);
         mini->update();
         QTRY_VERIFY(!frame.isEmpty());
         QCOMPARE(metadata->height(), 34.);
@@ -1161,7 +1161,7 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
                 QString("/mini-metadata-%1-%2.png").arg(dark ? "dark" : "light").arg(width)));
     }
     mini->setWidth(480);
-    QSignalSpy metadataFrame(mini, &QQuickWindow::frameSwapped);
+    Test::FrameSpy metadataFrame(mini);
     mini->update();
     QTRY_VERIFY(!metadataFrame.isEmpty());
     auto *seek = visual(progress, "playbackSeekSlider");
@@ -1220,7 +1220,7 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
         QRectF previous;
         int stable = 0;
         for (int turn = 0; turn < 60 && stable < 2; ++turn) {
-            QSignalSpy frame(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frame(window);
             window->update();
             QTRY_VERIFY(!frame.isEmpty());
             QVERIFY(retained);
@@ -1601,7 +1601,7 @@ void DesktopPagesTest::desktopLyricsMatchSourceChromeAndHoverUnlock()
     };
     const auto click = [&](QQuickItem *item) {
         QVERIFY(prepareDesktop());
-        QSignalSpy frame(desktop, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frame(desktop);
         desktop->requestUpdate();
         QTRY_VERIFY(!frame.isEmpty());
         const auto point = item->mapToScene({item->width() / 2, item->height() / 2}).toPoint();
@@ -2193,7 +2193,7 @@ void DesktopPagesTest::productionHeaderWindowActionsStayAtRightEdge()
                 }
                 if (!capture.isEmpty()) {
                     session.window->resize(1150, 750);
-                    QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy frames(session.window);
                     session.window->update();
                     QTRY_VERIFY(!frames.isEmpty());
                     QVERIFY(session.window->grabWindow().save(
@@ -2243,7 +2243,7 @@ void DesktopPagesTest::productionHeaderWindowActionsStayAtRightEdge()
     QVERIFY(!session.windows.maximized());
     auto click = [&](QQuickItem *button) {
         QVERIFY(Test::prepareNativeInput(session.window));
-        QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frames(session.window);
         session.window->update();
         QTRY_VERIFY(!frames.isEmpty());
         const bool togglesFullscreen = button->objectName() == "windowFullscreenAction";
@@ -2322,7 +2322,7 @@ void DesktopPagesTest::productionHeaderWindowActionsStayAtRightEdge()
     session.windows.showWindow();
     QVERIFY(Test::prepareNativeInput(session.window));
     QTRY_COMPARE(session.window->windowState(), Qt::WindowNoState);
-    QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+    Test::FrameSpy frames(session.window);
     session.window->update();
     QTRY_VERIFY(!frames.isEmpty());
     QTest::mouseMove(session.window, close->mapToScene({17, 17}).toPoint());

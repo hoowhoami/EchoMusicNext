@@ -6,6 +6,25 @@ import EchoMusic.Theme
 
 Rectangle {
     id: tabs
+    readonly property string _echoUiModelKind: "tabs"
+    readonly property Item _echoUiNativeFocusItem: buttons.count ? buttons.itemAt(currentIndex) : null
+    property QtObject _echoUiModelAdapter: null
+    readonly property var extensionEntries: _echoUiModelAdapter ? _echoUiModelAdapter.entries : []
+    readonly property var shownLabels: extensionEntries.length ? labels.concat(extensionEntries.map(entry => entry.label)) : labels
+    readonly property int shownIndex: _echoUiModelAdapter && _echoUiModelAdapter.selectedKey.length ? labels.length + extensionEntries.findIndex(entry => entry.identity === _echoUiModelAdapter.selectedKey) : currentIndex
+    onCurrentIndexChanged: {
+        if (_echoUiModelAdapter)
+            _echoUiModelAdapter.clearSelection();
+    }
+    function selectTab(index: int): void {
+        if (index < labels.length) {
+            if (_echoUiModelAdapter)
+                _echoUiModelAdapter.clearSelection();
+            picked(index);
+        } else if (_echoUiModelAdapter) {
+            _echoUiModelAdapter.selectEntry(index - labels.length);
+        }
+    }
     required property list<string> labels
     property list<string> glyphs: []
     property list<string> counts: []
@@ -30,11 +49,13 @@ Rectangle {
     property string accessibleName: qsTr("选项卡")
     signal picked(int index)
     function available(index: int): bool {
-        return availableTabs.length === 0 || availableTabs[index];
+        if (index < 0 || index >= shownLabels.length)
+            return false;
+        return index >= labels.length ? extensionEntries[index - labels.length]?.enabled === true : availableTabs.length === 0 || availableTabs[index];
     }
     function boundary(last: bool): int {
-        for (let i = 0; i < labels.length; ++i) {
-            const candidate = last ? labels.length - 1 - i : i;
+        for (let i = 0; i < shownLabels.length; ++i) {
+            const candidate = last ? shownLabels.length - 1 - i : i;
             if (available(candidate))
                 return candidate;
         }
@@ -47,16 +68,16 @@ Rectangle {
     Accessible.name: accessibleName
     // Use 4px padding, or 3px for compact tabs.
     readonly property real inset: compact ? 3 : 4
-    readonly property real tabWidth: (width - inset * 2 - Math.max(0, labels.length - 1) * 4) / Math.max(1, labels.length)
+    readonly property real tabWidth: (width - inset * 2 - Math.max(0, shownLabels.length - 1) * 4) / Math.max(1, shownLabels.length)
     Rectangle {
         objectName: "tabSelection"
-        x: tabs.inset + tabs.currentIndex * (tabs.tabWidth + 4)
+        x: tabs.inset + tabs.shownIndex * (tabs.tabWidth + 4)
         y: tabs.inset
         width: tabs.tabWidth
         height: tabs.height - tabs.inset * 2
         radius: Theme.itemRadius
         color: tabs.selectionColor
-        visible: tabs.currentIndex >= 0 && tabs.currentIndex < tabs.labels.length
+        visible: tabs.shownIndex >= 0 && tabs.shownIndex < tabs.shownLabels.length
         Behavior on x {
             NumberAnimation {
                 duration: Theme.normalDuration
@@ -67,11 +88,12 @@ Rectangle {
     }
     Repeater {
         id: buttons
-        model: tabs.labels
+        model: tabs.shownLabels
         delegate: Button {
             id: tab
             required property int index
             required property string modelData
+            readonly property string shownGlyph: index < tabs.labels.length ? (tabs.glyphs[index] || "") : (tabs.extensionEntries[index - tabs.labels.length]?.glyph || "")
             objectName: "tab-" + index
             enabled: tabs.available(index)
             opacity: enabled ? 1 : 0.35
@@ -83,12 +105,12 @@ Rectangle {
             padding: 0
             hoverEnabled: true
             // Qt forbids removing tab-focus eligibility from the focused item.
-            activeFocusOnTab: activeFocus || index === (tabs.currentIndex >= 0 ? tabs.currentIndex : tabs.boundary(false))
+            activeFocusOnTab: activeFocus || index === (tabs.shownIndex >= 0 ? tabs.shownIndex : tabs.boundary(false))
             Accessible.role: tabs.radioGroup ? Accessible.RadioButton : Accessible.PageTab
             Accessible.name: text
-            Accessible.selected: !tabs.radioGroup && index === tabs.currentIndex
+            Accessible.selected: !tabs.radioGroup && index === tabs.shownIndex
             Accessible.checkable: tabs.radioGroup
-            Accessible.checked: tabs.radioGroup && index === tabs.currentIndex
+            Accessible.checked: tabs.radioGroup && index === tabs.shownIndex
             contentItem: Item {
                 implicitWidth: tabContent.implicitWidth
                 implicitHeight: tabContent.implicitHeight
@@ -98,11 +120,11 @@ Rectangle {
                     width: Math.min(implicitWidth, parent.width)
                     spacing: tabs.contentSpacing
                     EchoIcon {
-                        visible: tabs.glyphs.length > tab.index
-                        name: visible ? tabs.glyphs[tab.index] : ""
+                        visible: tab.shownGlyph.length > 0
+                        name: tab.shownGlyph
                         Layout.preferredWidth: 14
                         Layout.preferredHeight: 14
-                        color: tab.index === tabs.currentIndex ? tabs.selectionTextColor : tabs.colors.secondaryText
+                        color: tab.index === tabs.shownIndex ? tabs.selectionTextColor : tabs.colors.secondaryText
                     }
                     EchoTextTagRow {
                         objectName: "tabLabel-" + tab.index
@@ -110,7 +132,7 @@ Rectangle {
                         Layout.minimumWidth: 0
                         text: tab.text
                         font: Theme.spacedFont(tabs.compact ? 12 : 13, Theme.semiboldWeight, tabs.labelLetterSpacing)
-                        color: tab.index === tabs.currentIndex ? tabs.selectionTextColor : tab.hovered ? tabs.colors.text : tabs.colors.secondaryText
+                        color: tab.index === tabs.shownIndex ? tabs.selectionTextColor : tab.hovered ? tabs.colors.text : tabs.colors.secondaryText
                         spacing: tabs.contentSpacing
                         wrapTags: false
                         EchoStatusDot {
@@ -122,7 +144,7 @@ Rectangle {
                         EchoBadge {
                             visible: tabs.counts.length > tab.index && (tabs.countKnown.length <= tab.index || tabs.countKnown[tab.index])
                             count: visible ? tabs.counts[tab.index] : undefined
-                            tone: tab.index === tabs.currentIndex ? EchoBadge.Accent : tabs.countTone
+                            tone: tab.index === tabs.shownIndex ? EchoBadge.Accent : tabs.countTone
                             colors: tabs.colors
                         }
                     }
@@ -130,26 +152,26 @@ Rectangle {
             }
             background: Rectangle {
                 radius: Theme.itemRadius
-                color: tab.hovered && tab.index !== tabs.currentIndex ? tabs.hoverColor : "transparent"
+                color: tab.hovered && tab.index !== tabs.shownIndex ? tabs.hoverColor : "transparent"
                 border.width: tab.visualFocus ? 2 : 0
                 border.color: Theme.accent
             }
             function select(next: int) {
                 if (next < 0 || !tabs.available(next))
                     return;
-                tabs.picked(next);
+                tabs.selectTab(next);
                 buttons.itemAt(next).forceActiveFocus();
             }
             function move(direction: int) {
-                for (let i = 1; i <= tabs.labels.length; ++i) {
-                    const next = (index + i * direction + tabs.labels.length) % tabs.labels.length;
+                for (let i = 1; i <= tabs.shownLabels.length; ++i) {
+                    const next = (index + i * direction + tabs.shownLabels.length) % tabs.shownLabels.length;
                     if (tabs.available(next)) {
                         select(next);
                         return;
                     }
                 }
             }
-            onClicked: tabs.picked(index)
+            onClicked: tabs.selectTab(index)
             Keys.onRightPressed: move(1)
             Keys.onLeftPressed: move(-1)
             Keys.onPressed: event => {

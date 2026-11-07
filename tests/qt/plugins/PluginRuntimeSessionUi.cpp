@@ -180,6 +180,9 @@ ApplicationWindow {
     QCOMPARE(host.router.current(), route);
     auto *panel = handle->findChild<QQuickItem *>("sessionUiPanel");
     QVERIFY(panel);
+    auto *panelPart = scope->ui()->parts()->queryUnique(
+        {{"key", "sessionUiPanel"}, {"owner", scope->id()}, {"surface", "dialog"}});
+    QVERIFY(panelPart && panelPart->registration()->target() == panel);
     // The dialog renders through a presentation scope whose plugin must dispatch the
     // commands registered on the main context.
     QTRY_COMPARE(panel->property("pong").toInt(), 42);

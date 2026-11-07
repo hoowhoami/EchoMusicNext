@@ -62,7 +62,7 @@ def preferred_prefix():
     return source_prefix()
 
 
-def validate_sdk(prefix):
+def validate_sdk(prefix, *, runtime_patch=True):
     """Reject partial installs and version drift before configuring the app."""
     prefix = Path(prefix).resolve()
     components = COMPONENTS + (("WaylandClient",) if sys.platform.startswith("linux") else ())
@@ -85,6 +85,10 @@ def validate_sdk(prefix):
     reported = subprocess.check_output([str(qmake), "-query", "QT_VERSION"], text=True).strip()
     if reported != VERSION:
         raise RuntimeError(f"Expected Qt {VERSION}, found {reported} at {prefix}")
+    if runtime_patch:
+        from qt_qv4_patch import validate_runtime_patch
+
+        validate_runtime_patch(prefix)
     return prefix
 
 

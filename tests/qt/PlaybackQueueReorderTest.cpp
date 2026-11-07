@@ -423,7 +423,7 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
         // Leaving history removes its resume toolbar. Wait for the ancestor
         // ColumnLayout's frame before using the first row's scene geometry.
-        QSignalSpy rendered(f.window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy rendered(f.window);
         f.window->requestUpdate();
         QVERIFY(rendered.wait(1000));
         QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtBeginning"));
@@ -691,7 +691,7 @@ private slots:
         const auto capture = [&](const QString &state) {
             if (captures.isEmpty())
                 return true;
-            QSignalSpy frames(f.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(f.window);
             f.window->requestUpdate();
             if (!frames.wait(1000))
                 return false;
@@ -783,7 +783,7 @@ private slots:
         const auto capture = [&](const QString &state) {
             if (captures.isEmpty())
                 return true;
-            QSignalSpy frames(f.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(f.window);
             f.window->requestUpdate();
             if (!frames.wait(1000))
                 return false;

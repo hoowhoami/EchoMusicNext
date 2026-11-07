@@ -377,7 +377,7 @@ QQuickItem *interact(QQuickWindow *window, const std::function<QQuickItem *()> &
     int stable = 0;
     bool settled = false;
     for (int turn = 0; turn < 60; ++turn) {
-        QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frames(window);
         window->update();
         if (frames.isEmpty() && !frames.wait(1000))
             break;
@@ -917,7 +917,7 @@ Window {
                     QVERIFY(
                         document->textDocument()->toPlainText().endsWith(QStringLiteral("展开")));
                     if (!captures.isEmpty()) {
-                        QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                        Test::FrameSpy frames(window);
                         window->update();
                         QTRY_VERIFY(!frames.isEmpty());
                         QVERIFY(window->grabWindow().save(captures +
@@ -1587,7 +1587,7 @@ Window {
             qreal previousExtent = -1;
             int stable = 0;
             for (int turn = 0; turn < 60; ++turn) {
-                QSignalSpy rendered(window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy rendered(window);
                 window->update();
                 if (rendered.isEmpty() && !rendered.wait(1000))
                     return false;
@@ -1830,7 +1830,7 @@ Window {
         QTRY_VERIFY2(visual(window->contentItem(), "songArtistLink") &&
                          visual(window->contentItem(), "songAlbumLink"),
                      qPrintable(errors.join('\n')));
-        QSignalSpy headerFrame(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy headerFrame(window);
         window->update();
         QTRY_VERIFY(headerFrame.size() > 0);
         auto *hiddenChips = visual(window->contentItem(), "commentFilterChips", true);
@@ -1915,7 +1915,7 @@ Window {
                 click(window, clippedArtist);
                 QCOMPARE(router.current(), originalRoute.data());
                 for (const auto &target : {QString("3520"), QString("6743")}) {
-                    QSignalSpy readyFrame(window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy readyFrame(window);
                     window->update();
                     QTRY_VERIFY(readyFrame.size() > 0);
                     const auto artistRowReady = [&] {
@@ -1955,7 +1955,7 @@ Window {
                         visual(visual(window->contentItem(), "songArtistLink"), "artistLink-1"));
                 }
                 window->update();
-                QSignalSpy swapped(window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy swapped(window);
                 QTRY_VERIFY_WITH_TIMEOUT(swapped.size() > 0, 3000);
                 auto frame = window->grabWindow();
                 QVERIFY(!frame.isNull());
@@ -2035,7 +2035,7 @@ Window {
             // Category replacement can preserve a viewport offset while the
             // virtual rows are reflowing. Use an on-screen native target.
             QVERIFY(QMetaObject::invokeMethod(commentList, "positionViewAtBeginning"));
-            QSignalSpy commentFrame(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy commentFrame(window);
             window->update();
             QTRY_VERIFY(commentFrame.size() > 0);
             QTRY_VERIFY(reply = commentControl("commentReply"));
@@ -2076,7 +2076,7 @@ Window {
                         commentList->parentItem()->property("pageContainer").value<QObject *>();
                     QVERIFY(container);
                     QVERIFY(QMetaObject::invokeMethod(container, "resetPosition"));
-                    QSignalSpy commentFrame(window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy commentFrame(window);
                     window->update();
                     QTRY_VERIFY(commentFrame.size() > 0);
                     auto *header = visual(window->contentItem(), "songPageHeader");
@@ -2101,7 +2101,7 @@ Window {
                     auto *selectedTab = visual(subTabs, "tab-" + QString::number(tab));
                     QVERIFY(selection && selectedTab);
                     QTRY_VERIFY(qAbs(selection->x() - selectedTab->x()) < .01);
-                    QSignalSpy settledFrame(window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy settledFrame(window);
                     window->update();
                     QTRY_VERIFY(settledFrame.size() > 0);
                     auto frame = window->grabWindow();
@@ -2134,7 +2134,7 @@ Window {
                 QTRY_VERIFY(qAbs(label->mapToScene(QPointF()).x() -
                                  content->mapToScene(QPointF()).x()) < .01);
                 QCOMPARE(toggle->property("leftPadding").toReal(), 0.);
-                QSignalSpy frame(window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frame(window);
                 window->update();
                 QTRY_VERIFY(frame.size() > 0);
                 if (!artifacts.isEmpty())
@@ -2566,7 +2566,7 @@ Window {
                     auto *container =
                         list->parentItem()->property("pageContainer").value<QObject *>();
                     QVERIFY(QMetaObject::invokeMethod(container, "resetPosition"));
-                    QSignalSpy frame(window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy frame(window);
                     window->update();
                     QTRY_VERIFY(frame.size() > 0);
                     if (!artifacts.isEmpty())

@@ -6,7 +6,7 @@ import EchoMusic.Controls
 import EchoMusic.Shell
 import EchoMusic.Playback
 
-Item {
+EchoUiPartHost {
     id: bar
     AppearanceHost {
         anchors.fill: parent
@@ -14,25 +14,8 @@ Item {
         placement: "playerbar"
         z: 0
     }
-    EchoUiPart {
-        id: publicSurface
-        target: bar
-        role: "shell.playerbar"
-        key: "shell.playerbar"
-        properties: ["background", "borderColor", "borderWidth", "radius", "opacity"]
-    }
-    opacity: publicSurface.value("opacity", 1)
-    Loader {
-        anchors.fill: parent
-        z: -0.5
-        active: bar.visible && bar.Window.window !== null && bar.Window.window.visible && bar.Window.window.visibility !== Window.Minimized && Object.keys(publicSurface.overrides).some(name => name !== "opacity")
-        sourceComponent: Rectangle {
-            color: publicSurface.value("background", "transparent")
-            radius: publicSurface.value("radius", 0)
-            border.color: publicSurface.value("borderColor", "transparent")
-            border.width: publicSurface.value("borderWidth", 0)
-        }
-    }
+    partRole: "shell.playerbar"
+    partKey: "shell.playerbar"
     objectName: "playerbar"
     required property ShellController controller
     required property RouteController router
@@ -111,14 +94,18 @@ Item {
         colors: bar.colors
         playback: bar.playback
     }
-    RowLayout {
+    EchoUiRow {
+        partRole: "layout.playerbar"
+        partKey: "row1"
         anchors.fill: parent
         anchors.leftMargin: bar.lyricStyle ? 16 : 18
         anchors.rightMargin: bar.lyricStyle ? 16 : 18
         anchors.topMargin: bar.lyricStyle ? 16 : 10
         anchors.bottomMargin: bar.lyricStyle ? 0 : 10
         spacing: 12
-        RowLayout {
+        EchoUiRow {
+            partRole: "layout.playerbar"
+            partKey: "row2"
             objectName: "playerbarLeftArea"
             Layout.alignment: Qt.AlignVCenter
             Layout.fillHeight: false
@@ -241,8 +228,10 @@ Item {
             Layout.maximumWidth: bar.lyricStyle ? Infinity : 320
             Layout.preferredHeight: 40
             onWidthChanged: capacityUpdate.restart()
-            RowLayout {
+            EchoUiRow {
                 id: rightRow
+                partRole: "layout.playerbar"
+                partKey: "rightRow"
                 anchors.right: parent.right
                 anchors.rightMargin: 6
                 anchors.verticalCenter: parent.verticalCenter

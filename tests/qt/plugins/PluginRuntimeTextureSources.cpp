@@ -123,7 +123,7 @@ Rectangle {
     QVERIFY2(surface.status().value("state") == "ready",
              qPrintable(surface.status().value("reason").toString()));
     QVERIFY(f.pixels(surface, nullptr, {}, 255, 0, 0));
-    auto frames = std::make_unique<QSignalSpy>(&window, &QQuickWindow::frameSwapped);
+    auto frames = std::make_unique<Test::FrameSpy>(&window);
     source->setProperty("color", QColor(Qt::blue));
     QTRY_VERIFY(frames->size() >= 2);
     QVERIFY(f.pixels(surface, nullptr, {}, 0, 0, 255));

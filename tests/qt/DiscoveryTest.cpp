@@ -619,7 +619,7 @@ Window {
                 // does not mean the returned page has been presented yet.
                 QVERIFY(!window->grabWindow().isNull());
                 QTest::qWait(100);
-                QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frames(window);
                 // Native upload/material retirement can present a late frame.
                 // Require two quiet intervals within a bounded drain, while a
                 // persistent animation clock still fails this observation.
@@ -739,7 +739,7 @@ Window {
                     sections.append(item);
             }
             QCOMPARE(sections.size(), 7);
-            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(window);
             window->update();
             QTRY_VERIFY(!frames.isEmpty());
             const auto image = window->grabWindow();
@@ -789,7 +789,7 @@ Window {
         QTRY_VERIFY(agreement->property("opened").toBool());
         auto *accept = findVisual(window->contentItem(), "userAgreementAccept");
         QVERIFY(accept);
-        QSignalSpy acceptedFrame(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy acceptedFrame(window);
         window->update();
         QTRY_VERIFY(!acceptedFrame.isEmpty());
         QTest::mouseClick(
@@ -1054,7 +1054,7 @@ Window {
             if (count == 5 && !artifacts.isEmpty()) {
                 view->setProperty("contentY",
                                   grid->property("contentTop").toReal() + grid->height() - 180);
-                QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frames(window);
                 window->update();
                 QTRY_VERIFY(!frames.isEmpty());
                 QVERIFY(window->grabWindow().save(artifacts + "/home-boundary-" +

@@ -49,6 +49,14 @@ EchoUiStyleRule *EchoPluginUiStyles::registerRule(const QString &id, const QVari
         error("Invalid rule ID or closed activation");
         return nullptr;
     }
+    if (auto *source = registry()) {
+        source->acquireStructure(lease);
+        connect(lease, &EchoPluginRegistration::activeChanged, lease,
+                [source = QPointer<EchoUiPartRegistry>(source), lease] {
+                    if (source && !lease->active())
+                        source->releaseStructure(lease);
+                });
+    }
     const auto token =
         lease->key() + ':' + m_scope.activationGeneration() + ':' + lease->revision();
     auto *rule = new EchoUiStyleRule(*this, *lease, token, id, selector, values, priority);
@@ -121,9 +129,13 @@ bool EchoUiStyleRule::update(const QVariantMap &input)
     auto values = input;
     if (!active() || !m_owner->validate(values, m_priority))
         return false;
+    const auto previous = m_values;
     m_values = values;
-    if (m_owner->scope().committed() && !publish())
+    if (m_owner->scope().committed() && !publish()) {
+        m_values = previous;
+        m_owner->error("UI style registry capacity exceeded");
         return false;
+    }
     emit changed();
     return true;
 }
@@ -132,9 +144,13 @@ bool EchoUiStyleRule::setPriority(int priority)
     auto values = m_values;
     if (!active() || !m_owner->validate(values, priority))
         return false;
+    const auto previous = m_priority;
     m_priority = priority;
-    if (m_owner->scope().committed() && !publish())
+    if (m_owner->scope().committed() && !publish()) {
+        m_priority = previous;
+        m_owner->error("UI style registry capacity exceeded");
         return false;
+    }
     emit changed();
     return true;
 }

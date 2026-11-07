@@ -8,7 +8,7 @@ import EchoMusic.Controls
 import EchoMusic.Playback
 
 // Shared virtual lyric presentation for the cover, portrait and Mini layouts.
-Item {
+EchoUiPartHost {
     id: viewport
     Connections {
         target: EchoLyricEffectRegistry
@@ -16,43 +16,39 @@ Item {
             viewport.scheduleUpdate(false, false, true);
         }
     }
-    EchoUiPart {
-        id: effectHost
-        target: viewport
-        role: "lyrics.viewport"
-        key: "page-lyrics"
-        surface: "playback"
-        active: viewport.resourceActive
-        actions: ["scrollTo", "resumeFollow"]
-        state: observed ? ({
-                scope: "page",
-                timelineMs: viewport.renderTime,
-                positionMs: viewport.playback.positionMs,
-                durationMs: viewport.playback.durationMs,
-                playbackRate: viewport.playback.speed,
-                playing: viewport.playback.playing,
-                appearance: {
-                    font: viewport.baseFont,
-                    playedColor: viewport.textColor,
-                    unplayedColor: viewport.unplayedColor
-                },
-                currentIndex: viewport.focusLine,
-                scrollIndex: lines.currentIndex,
-                lyricsMode: viewport.playback.lyricText.wantTranslation ? viewport.playback.lyricText.wantRomanization ? "both" : "translation" : viewport.playback.lyricText.wantRomanization ? "romanization" : "none",
-                lineCount: viewport.playback.lyrics.count,
-                following: lines.following,
-                browsing: !lines.following,
-                reducedMotion: !Theme.store.motionEnabled,
-                offsetMs: viewport.playback.lyrics.offsetMs
-            }) : ({})
-        onActionRequested: (action, args) => {
-            if (action === "resumeFollow") {
-                lines.following = true;
-                viewport.scheduleUpdate(false, false, true);
-            } else if (action === "scrollTo" && lines.following && Number.isFinite(args.position)) {
-                lines.cancelFlick();
-                lines.contentY = Math.max(lines.originY, Math.min(lines.originY + Math.max(0, lines.contentHeight - lines.height), args.position));
-            }
+    partRole: "lyrics.viewport"
+    partKey: "page-lyrics"
+    partSurface: "playback"
+    partActions: ["scrollTo", "resumeFollow"]
+    publicPart.active: viewport.resourceActive
+    partState: publicPart.observed ? ({
+            scope: "page",
+            timelineMs: viewport.renderTime,
+            positionMs: viewport.playback.positionMs,
+            durationMs: viewport.playback.durationMs,
+            playbackRate: viewport.playback.speed,
+            playing: viewport.playback.playing,
+            appearance: {
+                font: viewport.baseFont,
+                playedColor: viewport.textColor,
+                unplayedColor: viewport.unplayedColor
+            },
+            currentIndex: viewport.focusLine,
+            scrollIndex: lines.currentIndex,
+            lyricsMode: viewport.playback.lyricText.wantTranslation ? viewport.playback.lyricText.wantRomanization ? "both" : "translation" : viewport.playback.lyricText.wantRomanization ? "romanization" : "none",
+            lineCount: viewport.playback.lyrics.count,
+            following: lines.following,
+            browsing: !lines.following,
+            reducedMotion: !Theme.store.motionEnabled,
+            offsetMs: viewport.playback.lyrics.offsetMs
+        }) : ({})
+    onPartActionRequested: (action, args) => {
+        if (action === "resumeFollow") {
+            lines.following = true;
+            viewport.scheduleUpdate(false, false, true);
+        } else if (action === "scrollTo" && lines.following && Number.isFinite(args.position)) {
+            lines.cancelFlick();
+            lines.contentY = Math.max(lines.originY, Math.min(lines.originY + Math.max(0, lines.contentHeight - lines.height), args.position));
         }
     }
     required property PlaybackService playback
@@ -218,7 +214,7 @@ Item {
         const textAnchor = lines.height < measured.textRowHeight ? viewport.fontSize * .4 + measured.mainHeight / 2 : measured.textRowHeight / 2;
         const anchor = viewport.interlude ? measured.headerHeight / 2 : measured.headerHeight + textAnchor;
         const desired = measured.y + anchor - lines.focusCenter;
-        if (EchoLyricEffectRegistry.hasHandlers("page") && EchoLyricEffectRegistry.requestScroll(effectHost.identity, {
+        if (EchoLyricEffectRegistry.hasHandlers("page") && EchoLyricEffectRegistry.requestScroll(viewport.publicPart.identity, {
             scope: "page",
             index: target,
             position: desired,

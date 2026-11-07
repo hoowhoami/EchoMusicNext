@@ -23,10 +23,7 @@ signals:
     void presentedChanged();
 
 private:
-    void observe();
     void refresh();
     bool m_presented = false;
-    bool m_observing = false;
-    std::vector<QMetaObject::Connection> m_connections;
 };
 } // namespace EchoMusic

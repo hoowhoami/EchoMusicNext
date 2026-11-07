@@ -88,6 +88,7 @@ Popup {
     }
     SettingsCatalog {
         id: navigation
+        uiExtensions: sectionRoot._echoUiModelAdapter
         playbackAvailable: dialog.playback !== null
     }
     Connections {
@@ -98,6 +99,9 @@ Popup {
         }
     }
     contentItem: ColumnLayout {
+        id: sectionRoot
+        readonly property string _echoUiModelKind: "settings"
+        property QtObject _echoUiModelAdapter: null
         spacing: 0
         RowLayout {
             Layout.fillWidth: true
@@ -290,7 +294,7 @@ Popup {
                     // Keep asynchronous creation, but present the complete
                     // section at once instead of exposing rows across frames.
                     visible: status === Loader.Ready
-                    active: dialog.visible && navigation.source.toString().length > 0
+                    active: dialog.visible && (navigation.source.toString().length > 0 || navigation.extensionRecipe !== null)
                     // Inject typed service references before bindings evaluate.
                     // No section QML is instantiated until selected and visible.
                     onActiveChanged: reload()
@@ -300,7 +304,22 @@ Popup {
                             loader.reload();
                         }
                     }
+                    readonly property Component extensionSection: Component {
+                        EchoUiModelCell {
+                            recipe: navigation.extensionRecipe
+                            entryData: navigation.extensionEntry
+                        }
+                    }
                     function reload() {
+                        if (active && navigation.extensionRecipe !== null) {
+                            if (sourceComponent !== extensionSection) {
+                                source = "";
+                                sourceComponent = extensionSection;
+                            }
+                            return;
+                        }
+                        if (sourceComponent !== null)
+                            sourceComponent = null;
                         const targetSource = active ? navigation.source : "";
                         // Navigation/filter notifications and Loader activation
                         // can arrive in the same frame. Reapplying setSource to

@@ -2,6 +2,7 @@
 #include "EchoPluginContext.h"
 #include "AccountService.h"
 #include "ApiClient.h"
+#include "EchoUiScope.h"
 #include <QQuickWindow>
 #include <QQuickItem>
 #include <QQmlComponent>
@@ -265,6 +266,7 @@ void EchoPluginWindow::create(EchoPluginOperation *op, QVariantMap options)
         auto *object = m_component->beginCreate(m_scope.engine().rootContext());
         auto *item = qobject_cast<QQuickItem *>(object);
         if (item) {
+            EchoUiScope::mark(item, m_scope.id(), "window." + id(), id());
             QQmlEngine::setObjectOwnership(item, QQmlEngine::CppOwnership);
             item->setParent(w->contentItem());
             item->setParentItem(w->contentItem());

@@ -346,7 +346,7 @@ void PluginRuntimeTest::graphicsNativePixelsComputeAndRecovery()
     QCOMPARE(changed->state(), EchoPluginOperation::Succeeded);
     QVERIFY(changed->result().toMap().value("data").toByteArray() != bytes);
     const auto generation = surface->status().value("generation").toULongLong();
-    QSignalSpy swaps(window, &QQuickWindow::frameSwapped);
+    Test::FrameSpy swaps(window);
     surface->setContinuous(true);
     surface->setFps(0);
     QTRY_VERIFY(swaps.count() >= 3);

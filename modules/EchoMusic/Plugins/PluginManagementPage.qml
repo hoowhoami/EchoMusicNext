@@ -29,6 +29,7 @@ Item {
             manager.refreshCatalog();
     }
     function closeDialogs() {
+        inspectorOwner.close();
         sourcesOwner.close();
         uninstallOwner.close();
         failureOwner.close();
@@ -141,6 +142,14 @@ Item {
                         Layout.fillWidth: false
                         Layout.fillHeight: false
                         spacing: 8
+                        PluginActionButton {
+                            objectName: "pluginUiInspectorAction"
+                            iconOnly: true
+                            text: qsTr("界面扩展检查器")
+                            tooltipText: text
+                            glyph: "search"
+                            onClicked: inspectorOwner.open()
+                        }
                         PluginActionButton {
                             objectName: "pluginInstallPackage"
                             iconOnly: true
@@ -619,6 +628,13 @@ Item {
                 onVisibleChanged: if (visible)
                     EchoPopupCoordinator.popupOpening(null, page)
             }
+        }
+    }
+    EchoPopupLoader {
+        id: inspectorOwner
+        hostItem: page
+        sourceComponent: Component {
+            PluginUiInspectorDialog {}
         }
     }
 }

@@ -56,6 +56,7 @@ Window {
             target: card
             role: "mini.panel"
             replaceable: true
+            nativeFactory: liveContentFactory
             actions: ["toggle", "previous", "next", "showMain", "close"]
             onActionRequested: (action, arguments) => {
                 if (action === "toggle")
@@ -91,493 +92,525 @@ Window {
                 easing.type: Easing.OutCubic
             }
         }
-        AppearanceHost {
-            id: miniTheme
-            objectName: "pluginMiniThemeHost"
-            anchors.fill: parent
-            z: 1
-            entry: Theme.store.extensions.theme
-            placement: "mini"
-            resourceActive: window.live && !miniPart.replaced
+        EchoUiRetainedContentFactory {
+            id: liveContentFactory
+            content: miniComposition
+            fallbackVisible: miniPart.contentFactory === liveContentFactory && !miniPart.replaced
         }
-        AppearanceHost {
+        EchoUiContentHost {
             anchors.fill: parent
-            entry: Theme.store.extensions.theme
-            placement: "mini.background"
-            resourceActive: window.live && !miniPart.replaced && !miniTheme.loaded
+            factory: miniPart.contentFactory
+            onItemChanged: if (item)
+                Qt.callLater(() => {
+                    if (liveContentFactory)
+                        liveContentFactory.conceal();
+                })
+            active: miniPart.contentFactory !== liveContentFactory && window.live && !miniPart.replaced
         }
         Item {
+            id: miniComposition
             anchors.fill: parent
-            visible: !miniPart.replaced && !miniTheme.loaded
-            PluginSurfaceHost {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                height: 64
-                y: window.service.expandsUp ? card.height - 64 : 0
-                model: window.pluginSurfaces
-                target: "mini.background"
+            visible: !miniPart.replaced
+            AppearanceHost {
+                id: miniTheme
+                objectName: "pluginMiniThemeHost"
+                anchors.fill: parent
+                z: 1
+                entry: Theme.store.extensions.theme
+                placement: "mini"
+                resourceActive: window.live && !miniPart.replaced && !miniPart.contentReplaced
             }
-            HoverHandler {
-                id: hover
-            }
-            MouseArea {
-                objectName: "miniWindowMoveArea"
-                // Lyrics own taps, double-click seeking and scrolling.
-                anchors.fill: controls
-                onPressed: window.service.moveMini()
+            AppearanceHost {
+                anchors.fill: parent
+                entry: Theme.store.extensions.theme
+                placement: "mini.background"
+                resourceActive: window.live && !miniPart.replaced && !miniPart.contentReplaced && !miniTheme.loaded
             }
             Item {
-                id: expanded
-                objectName: "miniPlayerPanel"
-                x: 1
-                y: window.service.expandsUp ? 1 : 64
-                width: parent.width - 2
-                height: 295
-                opacity: card.expansion
-                visible: opacity > 0
-                enabled: card.expansion > .99 && window.service.panel.length > 0
-                Loader {
-                    id: backdrop
-                    objectName: "miniLyricBackdropLoader"
-                    anchors.fill: parent
-                    active: window.live && window.style.backgroundBlur && window.service.panel === "lyric"
-                    sourceComponent: MiniLyricBackdrop {
-                        coverSource: window.playback.cover
-                        baseColor: Theme.floating.elevated
-                        cornerRadius: card.radius - 1
-                        roundTop: window.service.expandsUp
-                    }
+                id: nativeMiniContents
+                objectName: "nativeMiniContents"
+                anchors.fill: parent
+                visible: !miniPart.replaced && !miniTheme.loaded
+                PluginSurfaceHost {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 64
+                    y: window.service.expandsUp ? card.height - 64 : 0
+                    model: window.pluginSurfaces
+                    target: "mini.background"
                 }
-                RowLayout {
-                    id: panelHeader
-                    x: 12
-                    y: 4
-                    width: parent.width - 24
-                    height: 32
-                    spacing: 4
+                HoverHandler {
+                    id: hover
+                }
+                MouseArea {
+                    objectName: "miniWindowMoveArea"
+                    // Lyrics own taps, double-click seeking and scrolling.
+                    anchors.fill: controls
+                    onPressed: window.service.moveMini()
+                }
+                Item {
+                    id: expanded
+                    objectName: "miniPlayerPanel"
+                    x: 1
+                    y: window.service.expandsUp ? 1 : 64
+                    width: parent.width - 2
+                    height: 295
+                    opacity: card.expansion
+                    visible: opacity > 0
+                    enabled: card.expansion > .99 && window.service.panel.length > 0
+                    Loader {
+                        id: backdrop
+                        objectName: "miniLyricBackdropLoader"
+                        anchors.fill: parent
+                        active: window.live && window.style.backgroundBlur && window.service.panel === "lyric"
+                        sourceComponent: MiniLyricBackdrop {
+                            coverSource: window.playback.cover
+                            baseColor: Theme.floating.elevated
+                            cornerRadius: card.radius - 1
+                            roundTop: window.service.expandsUp
+                        }
+                    }
+                    EchoUiRow {
+                        id: panelHeader
+                        partRole: "layout.miniplayer"
+                        partKey: "panelHeader"
+                        x: 12
+                        y: 4
+                        width: parent.width - 24
+                        height: 32
+                        spacing: 4
+                        Label {
+                            Layout.fillWidth: true
+                            text: window.service.panel === "queue" ? window.playback.queueTitle : qsTr("歌词")
+                            textFormat: Text.PlainText
+                            font: Theme.font(12, 600)
+                            color: window.miniColors.secondaryText
+                            elide: Text.ElideRight
+                        }
+                        EchoSoftButton {
+                            objectName: "miniPlayerTranslationAction"
+                            visible: window.service.panel === "lyric"
+                            size: EchoControlSize.Small
+                            text: qsTr("译")
+                            colors: window.miniColors
+                            enabled: window.playback.lyrics.hasTranslation
+                            accent: window.playback.lyricText.wantTranslation
+                            onClicked: window.playback.lyricText.wantTranslation = !window.playback.lyricText.wantTranslation
+                        }
+                        EchoSoftButton {
+                            objectName: "miniPlayerRomanizationAction"
+                            visible: window.service.panel === "lyric"
+                            size: EchoControlSize.Small
+                            text: qsTr("音")
+                            colors: window.miniColors
+                            enabled: window.playback.lyrics.hasRomanization
+                            accent: window.playback.lyricText.wantRomanization
+                            onClicked: window.playback.lyricText.wantRomanization = !window.playback.lyricText.wantRomanization
+                        }
+                        EchoIconButton {
+                            id: lyricMenuAction
+                            objectName: "miniPlayerLyricMenuAction"
+                            visible: window.service.panel === "lyric"
+                            onVisibleChanged: if (!visible && lyricMenuOwner)
+                                lyricMenuOwner.close()
+                            implicitWidth: 28
+                            implicitHeight: 28
+                            padding: 7
+                            glyph: "dots"
+                            text: qsTr("歌词操作")
+                            colors: window.miniColors
+                            onClicked: lyricMenuOwner.popup(lyricMenuAction, 0, lyricMenuAction.height)
+                        }
+                        EchoIconButton {
+                            objectName: "miniPlayerLyricSettingsAction"
+                            visible: window.service.panel === "lyric"
+                            implicitWidth: 28
+                            implicitHeight: 28
+                            padding: 7
+                            glyph: "settings"
+                            text: qsTr("歌词设置")
+                            colors: window.miniColors
+                            onClicked: window.service.openSettings()
+                        }
+                        EchoIconButton {
+                            objectName: "miniPlayerCollapsePanelAction"
+                            implicitWidth: 28
+                            implicitHeight: 28
+                            padding: 7
+                            glyph: window.service.expandsUp ? "chevron-down" : "chevron-up"
+                            text: qsTr("收起面板")
+                            colors: window.miniColors
+                            onClicked: window.service.setPanel("")
+                        }
+                    }
+                    Item {
+                        id: timeline
+                        x: 0
+                        y: 38
+                        width: parent.width
+                        height: parent.height - 42
+                        visible: window.service.panel === "lyric"
+                        enabled: visible
+                        onVisibleChanged: if (visible)
+                            observe(true)
+                        property real renderTime: window.playback.positionMs
+                        LyricClock {
+                            id: clock
+                        }
+                        function observe(reset: bool): void {
+                            clock.observe(window.playback.positionMs, window.playback.playing, window.playback.speed, reset);
+                            renderTime = clock.sample();
+                        }
+                        Component.onCompleted: observe(true)
+                        Connections {
+                            target: window.playback
+                            function onPositionChanged(): void {
+                                if (timeline.visible)
+                                    timeline.observe(false);
+                            }
+                            function onChanged(): void {
+                                clock.setPlaybackState(window.playback.playing, window.playback.speed);
+                                timeline.renderTime = clock.sample();
+                            }
+                            function onTimelineReset(): void {
+                                timeline.observe(true);
+                            }
+                        }
+                        FrameAnimation {
+                            running: timeline.visible && window.live && window.playback.playing
+                            onTriggered: timeline.renderTime = clock.sample()
+                        }
+                        PlaybackLyricViewport {
+                            objectName: "miniLyricViewport"
+                            baseFont: Theme.store.miniLyricBaseFont
+                            anchors.fill: parent
+                            playback: window.playback
+                            colors: window.miniColors
+                            renderTime: timeline.renderTime
+                            resourceActive: timeline.visible && window.live
+                            fontSize: window.style.fontSize
+                            textWeight: window.style.fontWeight
+                            textColor: LyricColors.miniPlayed(window.style, Theme.store.lyricAccent(window.playback.coverColor), window.miniColors.text)
+                            unplayedColor: LyricColors.miniUnplayed(window.style, Theme.store.lyricAccent(window.playback.coverColor), window.miniColors.text)
+                            secondaryFontSize: window.style.secondaryFontSize
+                            secondaryGap: window.style.lineGap
+                            horizontalAlignment: window.style.alignment === "left" ? Qt.AlignLeft : window.style.alignment === "right" ? Qt.AlignRight : Qt.AlignHCenter
+                            // Small Mini text stays sharp. The shared sweep/spring
+                            // remains, without the large page's persistent defocus.
+                            softFocus: false
+                            blurEnabled: false
+                            rowBackgroundInset: 12
+                            staggerEnabled: true
+                            pauseMotionWithPlayback: true
+                            filterLyrics: false
+                            springEnabled: true
+                            scaleEnabled: true
+                            hidePassed: false
+                            focusPosition: .5
+                            wordFade: .5
+                        }
+                    }
                     Label {
-                        Layout.fillWidth: true
-                        text: window.service.panel === "queue" ? window.playback.queueTitle : qsTr("歌词")
-                        textFormat: Text.PlainText
-                        font: Theme.font(12, 600)
+                        anchors.centerIn: parent
+                        visible: window.service.panel === "queue" && (!window.playback.queue || window.playback.queue.count === 0)
+                        text: qsTr("播放队列为空")
                         color: window.miniColors.secondaryText
-                        elide: Text.ElideRight
+                        font: Theme.font(12, Theme.regularWeight)
                     }
-                    EchoSoftButton {
-                        objectName: "miniPlayerTranslationAction"
-                        visible: window.service.panel === "lyric"
-                        size: EchoControlSize.Small
-                        text: qsTr("译")
-                        colors: window.miniColors
-                        enabled: window.playback.lyrics.hasTranslation
-                        accent: window.playback.lyricText.wantTranslation
-                        onClicked: window.playback.lyricText.wantTranslation = !window.playback.lyricText.wantTranslation
-                    }
-                    EchoSoftButton {
-                        objectName: "miniPlayerRomanizationAction"
-                        visible: window.service.panel === "lyric"
-                        size: EchoControlSize.Small
-                        text: qsTr("音")
-                        colors: window.miniColors
-                        enabled: window.playback.lyrics.hasRomanization
-                        accent: window.playback.lyricText.wantRomanization
-                        onClicked: window.playback.lyricText.wantRomanization = !window.playback.lyricText.wantRomanization
-                    }
-                    EchoIconButton {
-                        id: lyricMenuAction
-                        objectName: "miniPlayerLyricMenuAction"
-                        visible: window.service.panel === "lyric"
-                        onVisibleChanged: if (!visible && lyricMenuOwner)
-                            lyricMenuOwner.close()
-                        implicitWidth: 28
-                        implicitHeight: 28
-                        padding: 7
-                        glyph: "dots"
-                        text: qsTr("歌词操作")
-                        colors: window.miniColors
-                        onClicked: lyricMenuOwner.popup(lyricMenuAction, 0, lyricMenuAction.height)
-                    }
-                    EchoIconButton {
-                        objectName: "miniPlayerLyricSettingsAction"
-                        visible: window.service.panel === "lyric"
-                        implicitWidth: 28
-                        implicitHeight: 28
-                        padding: 7
-                        glyph: "settings"
-                        text: qsTr("歌词设置")
-                        colors: window.miniColors
-                        onClicked: window.service.openSettings()
-                    }
-                    EchoIconButton {
-                        objectName: "miniPlayerCollapsePanelAction"
-                        implicitWidth: 28
-                        implicitHeight: 28
-                        padding: 7
-                        glyph: window.service.expandsUp ? "chevron-down" : "chevron-up"
-                        text: qsTr("收起面板")
-                        colors: window.miniColors
-                        onClicked: window.service.setPanel("")
+                    ListView {
+                        id: queue
+                        objectName: "miniPlayerQueue"
+                        visible: window.service.panel === "queue"
+                        x: 0
+                        y: 38
+                        width: parent.width
+                        height: parent.height - 42
+                        model: visible && window.live ? window.playback.queue : null
+                        EchoListInsertMotion {
+                            view: queue
+                            active: queue.visible && window.live
+                            rowHeight: 42
+                        }
+                        // With Qt 6.12, pooling across this null-model detach can
+                        // retain another row's roles on reopen. Keep virtualization
+                        // without retaining delegates across inactive panels.
+                        reuseItems: false
+                        cacheBuffer: 84
+                        clip: true
+                        spacing: 0
+                        onVisibleChanged: if (visible && window.playback.queue)
+                            EchoListPositioning.positionIfNeeded(queue, window.playback.queue.currentIndex, ListView.Contain, null)
+                        delegate: Item {
+                            id: song
+                            objectName: "miniPlayerQueueRow"
+                            required property int index
+                            required property string title
+                            required property string artistText
+                            required property string coverUrl
+                            required property bool isCurrent
+                            width: queue.width
+                            height: 42
+                            Button {
+                                id: queueAction
+                                x: 8
+                                width: parent.width - 16
+                                height: parent.height
+                                Accessible.name: song.title + " - " + song.artistText
+                                onClicked: window.playback.playIndex(song.index)
+                                background: Rectangle {
+                                    radius: 8
+                                    color: song.isCurrent ? Theme.withAlpha(Theme.accent, .12) : queueAction.hovered ? Theme.floating.hover : "transparent"
+                                }
+                                contentItem: RowLayout {
+                                    spacing: 8
+                                    EchoCover {
+                                        coverScope: "mini"
+                                        source: song.coverUrl
+                                        Layout.preferredWidth: 30
+                                        Layout.preferredHeight: 30
+                                        resourceActive: window.live && queue.visible
+                                        colors: window.miniColors
+                                    }
+                                    Label {
+                                        objectName: "miniPlayerQueueTitle"
+                                        Layout.fillWidth: true
+                                        text: song.title
+                                        textFormat: Text.PlainText
+                                        elide: Text.ElideRight
+                                        font: Theme.font(12, song.isCurrent ? 600 : 400)
+                                        color: song.isCurrent ? Theme.accentText : window.miniColors.text
+                                    }
+                                    EchoIcon {
+                                        visible: song.isCurrent
+                                        name: "music"
+                                        color: Theme.accentText
+                                        Layout.preferredWidth: 14
+                                        Layout.preferredHeight: 14
+                                    }
+                                }
+                            }
+                        }
+                        ScrollBar.vertical: EchoPageScrollBar {
+                            view: queue
+                            resourceActive: queue.visible && window.live
+                        }
                     }
                 }
                 Item {
-                    id: timeline
-                    x: 0
-                    y: 38
+                    id: controls
+                    objectName: "miniPlayerControls"
+                    y: window.service.expandsUp ? card.height - 64 : 0
                     width: parent.width
-                    height: parent.height - 42
-                    visible: window.service.panel === "lyric"
-                    enabled: visible
-                    onVisibleChanged: if (visible)
-                        observe(true)
-                    property real renderTime: window.playback.positionMs
-                    LyricClock {
-                        id: clock
-                    }
-                    function observe(reset: bool): void {
-                        clock.observe(window.playback.positionMs, window.playback.playing, window.playback.speed, reset);
-                        renderTime = clock.sample();
-                    }
-                    Component.onCompleted: observe(true)
-                    Connections {
-                        target: window.playback
-                        function onPositionChanged(): void {
-                            if (timeline.visible)
-                                timeline.observe(false);
-                        }
-                        function onChanged(): void {
-                            clock.setPlaybackState(window.playback.playing, window.playback.speed);
-                            timeline.renderTime = clock.sample();
-                        }
-                        function onTimelineReset(): void {
-                            timeline.observe(true);
-                        }
-                    }
-                    FrameAnimation {
-                        running: timeline.visible && window.live && window.playback.playing
-                        onTriggered: timeline.renderTime = clock.sample()
-                    }
-                    PlaybackLyricViewport {
-                        objectName: "miniLyricViewport"
-                        baseFont: Theme.store.miniLyricBaseFont
+                    height: 64
+                    EchoUiRow {
+                        partRole: "layout.miniplayer"
+                        partKey: "row2"
                         anchors.fill: parent
-                        playback: window.playback
-                        colors: window.miniColors
-                        renderTime: timeline.renderTime
-                        resourceActive: timeline.visible && window.live
-                        fontSize: window.style.fontSize
-                        textWeight: window.style.fontWeight
-                        textColor: LyricColors.miniPlayed(window.style, Theme.store.lyricAccent(window.playback.coverColor), window.miniColors.text)
-                        unplayedColor: LyricColors.miniUnplayed(window.style, Theme.store.lyricAccent(window.playback.coverColor), window.miniColors.text)
-                        secondaryFontSize: window.style.secondaryFontSize
-                        secondaryGap: window.style.lineGap
-                        horizontalAlignment: window.style.alignment === "left" ? Qt.AlignLeft : window.style.alignment === "right" ? Qt.AlignRight : Qt.AlignHCenter
-                        // Small Mini text stays sharp. The shared sweep/spring
-                        // remains, without the large page's persistent defocus.
-                        softFocus: false
-                        blurEnabled: false
-                        rowBackgroundInset: 12
-                        staggerEnabled: true
-                        pauseMotionWithPlayback: true
-                        filterLyrics: false
-                        springEnabled: true
-                        scaleEnabled: true
-                        hidePassed: false
-                        focusPosition: .5
-                        wordFade: .5
-                    }
-                }
-                Label {
-                    anchors.centerIn: parent
-                    visible: window.service.panel === "queue" && (!window.playback.queue || window.playback.queue.count === 0)
-                    text: qsTr("播放队列为空")
-                    color: window.miniColors.secondaryText
-                    font: Theme.font(12, Theme.regularWeight)
-                }
-                ListView {
-                    id: queue
-                    objectName: "miniPlayerQueue"
-                    visible: window.service.panel === "queue"
-                    x: 0
-                    y: 38
-                    width: parent.width
-                    height: parent.height - 42
-                    model: visible && window.live ? window.playback.queue : null
-                    EchoListInsertMotion {
-                        view: queue
-                        active: queue.visible && window.live
-                        rowHeight: 42
-                    }
-                    // With Qt 6.12, pooling across this null-model detach can
-                    // retain another row's roles on reopen. Keep virtualization
-                    // without retaining delegates across inactive panels.
-                    reuseItems: false
-                    cacheBuffer: 84
-                    clip: true
-                    spacing: 0
-                    onVisibleChanged: if (visible && window.playback.queue)
-                        EchoListPositioning.positionIfNeeded(queue, window.playback.queue.currentIndex, ListView.Contain, null)
-                    delegate: Item {
-                        id: song
-                        objectName: "miniPlayerQueueRow"
-                        required property int index
-                        required property string title
-                        required property string artistText
-                        required property string coverUrl
-                        required property bool isCurrent
-                        width: queue.width
-                        height: 42
-                        Button {
-                            id: queueAction
-                            x: 8
-                            width: parent.width - 16
-                            height: parent.height
-                            Accessible.name: song.title + " - " + song.artistText
-                            onClicked: window.playback.playIndex(song.index)
-                            background: Rectangle {
-                                radius: 8
-                                color: song.isCurrent ? Theme.withAlpha(Theme.accent, .12) : queueAction.hovered ? Theme.floating.hover : "transparent"
-                            }
-                            contentItem: RowLayout {
-                                spacing: 8
-                                EchoCover {
-                                    coverScope: "mini"
-                                    source: song.coverUrl
-                                    Layout.preferredWidth: 30
-                                    Layout.preferredHeight: 30
-                                    resourceActive: window.live && queue.visible
-                                    colors: window.miniColors
-                                }
-                                Label {
-                                    objectName: "miniPlayerQueueTitle"
-                                    Layout.fillWidth: true
-                                    text: song.title
-                                    textFormat: Text.PlainText
-                                    elide: Text.ElideRight
-                                    font: Theme.font(12, song.isCurrent ? 600 : 400)
-                                    color: song.isCurrent ? Theme.accentText : window.miniColors.text
-                                }
-                                EchoIcon {
-                                    visible: song.isCurrent
-                                    name: "music"
-                                    color: Theme.accentText
-                                    Layout.preferredWidth: 14
-                                    Layout.preferredHeight: 14
-                                }
-                            }
-                        }
-                    }
-                    ScrollBar.vertical: EchoPageScrollBar {
-                        view: queue
-                        resourceActive: queue.visible && window.live
-                    }
-                }
-            }
-            Item {
-                id: controls
-                objectName: "miniPlayerControls"
-                y: window.service.expandsUp ? card.height - 64 : 0
-                width: parent.width
-                height: 64
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 9
-                    anchors.rightMargin: 24
-                    spacing: 10
-                    ColumnLayout {
-                        spacing: 1
-                        EchoIconButton {
-                            implicitWidth: 18
-                            implicitHeight: 20
-                            padding: 3
-                            colors: window.miniColors
-                            glyph: "x"
-                            text: qsTr("关闭 Mini")
-                            onClicked: window.service.closeMini()
-                        }
-                        EchoIconButton {
-                            implicitWidth: 18
-                            implicitHeight: 20
-                            padding: 3
-                            colors: window.miniColors
-                            glyph: "square"
-                            text: qsTr("回到主窗口")
-                            tooltipText: text
-                            onClicked: window.service.showMain()
-                        }
-                    }
-                    Button {
-                        id: coverAction
-                        objectName: "miniPlayerLyricAction"
-                        implicitWidth: 44
-                        implicitHeight: 44
-                        Accessible.name: qsTr("显示歌词")
-                        Accessible.checkable: true
-                        Accessible.checked: window.service.panel === "lyric"
-                        background: EchoCover {
-                            coverScope: "mini"
-                            objectName: "miniPlayerCover"
-                            source: window.playback.cover
-                            resourceActive: window.live
-                            colors: window.miniColors
-                            cornerRadius: Theme.mediaRadius
-                        }
-                        onClicked: window.service.setPanel(window.service.panel === "lyric" ? "" : "lyric")
-                    }
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        Layout.preferredHeight: 44
-                        Layout.bottomMargin: 8
-                        Column {
-                            objectName: "miniPlayerMetadata"
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width
+                        anchors.leftMargin: 9
+                        anchors.rightMargin: 24
+                        spacing: 10
+                        EchoUiColumn {
+                            partRole: "layout.miniplayer"
+                            partKey: "column3"
                             spacing: 1
-                            opacity: window.showControls ? 0 : 1
-                            Behavior on opacity {
-                                NumberAnimation {
-                                    duration: Theme.store.motionEnabled ? 140 : 0
-                                }
+                            EchoIconButton {
+                                implicitWidth: 18
+                                implicitHeight: 20
+                                padding: 3
+                                colors: window.miniColors
+                                glyph: "x"
+                                text: qsTr("关闭 Mini")
+                                onClicked: window.service.closeMini()
                             }
-                            EchoTextTagRow {
-                                objectName: "miniPlayerTitle"
-                                width: parent.width
-                                fillTextWidth: true
-                                lineHeight: 18
-                                text: window.playback.title
-                                font: Theme.font(13, 700)
-                                color: window.miniColors.text
-                            }
-                            EchoTextTagRow {
-                                objectName: "miniPlayerArtist"
-                                width: parent.width
-                                fillTextWidth: true
-                                lineHeight: 15
-                                text: window.playback.artist || "EchoMusic"
-                                font: Theme.font(11, 600)
-                                color: window.miniColors.secondaryText
+                            EchoIconButton {
+                                implicitWidth: 18
+                                implicitHeight: 20
+                                padding: 3
+                                colors: window.miniColors
+                                glyph: "square"
+                                text: qsTr("回到主窗口")
+                                tooltipText: text
+                                onClicked: window.service.showMain()
                             }
                         }
-                        RowLayout {
-                            anchors.centerIn: parent
+                        Button {
+                            id: coverAction
+                            objectName: "miniPlayerLyricAction"
+                            implicitWidth: 44
+                            implicitHeight: 44
+                            Accessible.name: qsTr("显示歌词")
+                            Accessible.checkable: true
+                            Accessible.checked: window.service.panel === "lyric"
+                            background: EchoCover {
+                                coverScope: "mini"
+                                objectName: "miniPlayerCover"
+                                source: window.playback.cover
+                                resourceActive: window.live
+                                colors: window.miniColors
+                                cornerRadius: Theme.mediaRadius
+                            }
+                            onClicked: window.service.setPanel(window.service.panel === "lyric" ? "" : "lyric")
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredHeight: 44
+                            Layout.bottomMargin: 8
+                            Column {
+                                objectName: "miniPlayerMetadata"
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width
+                                spacing: 1
+                                opacity: window.showControls ? 0 : 1
+                                Behavior on opacity {
+                                    NumberAnimation {
+                                        duration: Theme.store.motionEnabled ? 140 : 0
+                                    }
+                                }
+                                EchoTextTagRow {
+                                    objectName: "miniPlayerTitle"
+                                    width: parent.width
+                                    fillTextWidth: true
+                                    lineHeight: 18
+                                    text: window.playback.title
+                                    font: Theme.font(13, 700)
+                                    color: window.miniColors.text
+                                }
+                                EchoTextTagRow {
+                                    objectName: "miniPlayerArtist"
+                                    width: parent.width
+                                    fillTextWidth: true
+                                    lineHeight: 15
+                                    text: window.playback.artist || "EchoMusic"
+                                    font: Theme.font(11, 600)
+                                    color: window.miniColors.secondaryText
+                                }
+                            }
+                            EchoUiRow {
+                                partRole: "layout.miniplayer"
+                                partKey: "row4"
+                                anchors.centerIn: parent
+                                spacing: 0
+                                opacity: window.showControls ? 1 : 0
+                                enabled: window.playback.hasTrack
+                                Behavior on opacity {
+                                    NumberAnimation {
+                                        duration: Theme.store.motionEnabled ? 140 : 0
+                                    }
+                                }
+                                EchoIconButton {
+                                    implicitWidth: 28
+                                    implicitHeight: 30
+                                    padding: 7
+                                    colors: window.miniColors
+                                    glyph: "player-skip-back"
+                                    text: qsTr("上一首")
+                                    onClicked: window.playback.previous()
+                                }
+                                EchoIconButton {
+                                    objectName: "miniPlayerPlay"
+                                    implicitWidth: 30
+                                    implicitHeight: 32
+                                    padding: 7
+                                    colors: window.miniColors
+                                    glyph: window.playback.playing ? "pause" : "play"
+                                    animatePlayPause: true
+                                    text: window.playback.playing ? qsTr("暂停") : qsTr("播放")
+                                    onClicked: window.playback.toggle()
+                                }
+                                EchoIconButton {
+                                    implicitWidth: 28
+                                    implicitHeight: 30
+                                    padding: 7
+                                    colors: window.miniColors
+                                    glyph: "player-skip-forward"
+                                    text: qsTr("下一首")
+                                    onClicked: window.playback.next()
+                                }
+                            }
+                        }
+                        EchoUiRow {
+                            partRole: "layout.miniplayer"
+                            partKey: "row5"
                             spacing: 0
-                            opacity: window.showControls ? 1 : 0
-                            enabled: window.playback.hasTrack
-                            Behavior on opacity {
-                                NumberAnimation {
-                                    duration: Theme.store.motionEnabled ? 140 : 0
+                            EchoIconButton {
+                                objectName: "miniPlayerPin"
+                                implicitWidth: 24
+                                implicitHeight: 30
+                                padding: 4
+                                colors: window.miniColors
+                                glyph: "pinned"
+                                text: window.style.alwaysOnTop ? qsTr("取消置顶") : qsTr("窗口置顶")
+                                tooltipText: text
+                                checkable: true
+                                checked: window.style.alwaysOnTop
+                                foreground: checked ? Theme.accentText : window.miniColors.secondaryText
+                                onClicked: window.style.alwaysOnTop = !window.style.alwaysOnTop
+                            }
+                            EchoIconButton {
+                                objectName: "miniPlayerFavorite"
+                                implicitWidth: 24
+                                implicitHeight: 30
+                                padding: 4
+                                colors: window.miniColors
+                                foreground: window.playback.libraryActions && window.playback.libraryActions.favorite ? "#ef4444" : hoverHighlighted ? Theme.floating.accentText : Theme.floating.iconMain
+                                glyph: window.playback.libraryActions && window.playback.libraryActions.favorite ? "heart-filled" : "heart"
+                                text: qsTr("收藏当前歌曲")
+                                enabled: window.playback.hasTrack && window.playback.libraryActions !== null
+                                onClicked: window.playback.libraryActions.toggleFavorite()
+                            }
+                            EchoIconButton {
+                                objectName: "miniPlayerQueueAction"
+                                implicitWidth: 24
+                                implicitHeight: 30
+                                padding: 4
+                                colors: window.miniColors
+                                glyph: "list"
+                                text: qsTr("播放队列")
+                                foreground: window.service.panel === "queue" ? Theme.accentText : window.miniColors.text
+                                onClicked: window.service.setPanel(window.service.panel === "queue" ? "" : "queue")
+                            }
+                            EchoIconButton {
+                                implicitWidth: 24
+                                implicitHeight: 30
+                                padding: 4
+                                colors: window.miniColors
+                                glyph: "typography"
+                                objectName: "miniPlayerDesktopLyric"
+                                text: qsTr("桌面歌词")
+                                foreground: window.service.desktopEnabled ? Theme.accentText : window.miniColors.text
+                                onClicked: window.service.toggleDesktop()
+                            }
+                            EchoIconButton {
+                                id: volumeAction
+                                objectName: "miniPlayerVolume"
+                                implicitWidth: 24
+                                implicitHeight: 30
+                                padding: 4
+                                colors: window.miniColors
+                                glyph: window.playback.volume > 0 ? "volume" : "volume-off"
+                                text: qsTr("音量")
+                                onClicked: volumePopupOwner.visible ? volumePopupOwner.close() : volumePopupOwner.open()
+                                PlayerVolumeWheelArea {
+                                    anchors.fill: parent
+                                    playback: window.playback
+                                    wheelStep: 5
+                                    enabled: volumeAction.visible && volumeAction.enabled
                                 }
                             }
-                            EchoIconButton {
-                                implicitWidth: 28
-                                implicitHeight: 30
-                                padding: 7
-                                colors: window.miniColors
-                                glyph: "player-skip-back"
-                                text: qsTr("上一首")
-                                onClicked: window.playback.previous()
-                            }
-                            EchoIconButton {
-                                objectName: "miniPlayerPlay"
-                                implicitWidth: 30
-                                implicitHeight: 32
-                                padding: 7
-                                colors: window.miniColors
-                                glyph: window.playback.playing ? "pause" : "play"
-                                animatePlayPause: true
-                                text: window.playback.playing ? qsTr("暂停") : qsTr("播放")
-                                onClicked: window.playback.toggle()
-                            }
-                            EchoIconButton {
-                                implicitWidth: 28
-                                implicitHeight: 30
-                                padding: 7
-                                colors: window.miniColors
-                                glyph: "player-skip-forward"
-                                text: qsTr("下一首")
-                                onClicked: window.playback.next()
-                            }
                         }
                     }
-                    RowLayout {
-                        spacing: 0
-                        EchoIconButton {
-                            objectName: "miniPlayerPin"
-                            implicitWidth: 24
-                            implicitHeight: 30
-                            padding: 4
-                            colors: window.miniColors
-                            glyph: "pinned"
-                            text: window.style.alwaysOnTop ? qsTr("取消置顶") : qsTr("窗口置顶")
-                            tooltipText: text
-                            checkable: true
-                            checked: window.style.alwaysOnTop
-                            foreground: checked ? Theme.accentText : window.miniColors.secondaryText
-                            onClicked: window.style.alwaysOnTop = !window.style.alwaysOnTop
-                        }
-                        EchoIconButton {
-                            objectName: "miniPlayerFavorite"
-                            implicitWidth: 24
-                            implicitHeight: 30
-                            padding: 4
-                            colors: window.miniColors
-                            foreground: window.playback.libraryActions && window.playback.libraryActions.favorite ? "#ef4444" : hoverHighlighted ? Theme.floating.accentText : Theme.floating.iconMain
-                            glyph: window.playback.libraryActions && window.playback.libraryActions.favorite ? "heart-filled" : "heart"
-                            text: qsTr("收藏当前歌曲")
-                            enabled: window.playback.hasTrack && window.playback.libraryActions !== null
-                            onClicked: window.playback.libraryActions.toggleFavorite()
-                        }
-                        EchoIconButton {
-                            objectName: "miniPlayerQueueAction"
-                            implicitWidth: 24
-                            implicitHeight: 30
-                            padding: 4
-                            colors: window.miniColors
-                            glyph: "list"
-                            text: qsTr("播放队列")
-                            foreground: window.service.panel === "queue" ? Theme.accentText : window.miniColors.text
-                            onClicked: window.service.setPanel(window.service.panel === "queue" ? "" : "queue")
-                        }
-                        EchoIconButton {
-                            implicitWidth: 24
-                            implicitHeight: 30
-                            padding: 4
-                            colors: window.miniColors
-                            glyph: "typography"
-                            objectName: "miniPlayerDesktopLyric"
-                            text: qsTr("桌面歌词")
-                            foreground: window.service.desktopEnabled ? Theme.accentText : window.miniColors.text
-                            onClicked: window.service.toggleDesktop()
-                        }
-                        EchoIconButton {
-                            id: volumeAction
-                            objectName: "miniPlayerVolume"
-                            implicitWidth: 24
-                            implicitHeight: 30
-                            padding: 4
-                            colors: window.miniColors
-                            glyph: window.playback.volume > 0 ? "volume" : "volume-off"
-                            text: qsTr("音量")
-                            onClicked: volumePopupOwner.visible ? volumePopupOwner.close() : volumePopupOwner.open()
-                            PlayerVolumeWheelArea {
-                                anchors.fill: parent
-                                playback: window.playback
-                                wheelStep: 5
-                                enabled: volumeAction.visible && volumeAction.enabled
-                            }
-                        }
+                    PlaybackProgress {
+                        objectName: "miniPlayerProgress"
+                        x: 91
+                        y: parent.height - height - 5
+                        width: parent.width - x - 16
+                        height: 16
+                        playback: window.playback
+                        compact: true
+                        edgeToEdge: true
+                        colors: window.miniColors
                     }
-                }
-                PlaybackProgress {
-                    objectName: "miniPlayerProgress"
-                    x: 91
-                    y: parent.height - height - 5
-                    width: parent.width - x - 16
-                    height: 16
-                    playback: window.playback
-                    compact: true
-                    edgeToEdge: true
-                    colors: window.miniColors
                 }
             }
         }

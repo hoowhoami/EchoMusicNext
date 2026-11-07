@@ -395,6 +395,7 @@ fn test_continuous_streaming_simulation() {
         let sample_rate = 44100u32;
         let period_frames = 1024usize;
         let period_duration = Duration::from_secs_f64(period_frames as f64 / sample_rate as f64);
+        let mut next_capture = Instant::now();
 
         while capture_running_clone.load(Ordering::Relaxed) {
             let samples = generate_sine_wave(440.0, sample_rate, period_frames);
@@ -408,7 +409,10 @@ fn test_continuous_streaming_simulation() {
                 total_captured_clone.fetch_add(1, Ordering::Relaxed);
             }
 
-            thread::sleep(period_duration);
+            // Model the device's sample clock, not sleep overshoot plus the
+            // time spent generating each buffer (notably coalesced on macOS).
+            next_capture += period_duration;
+            spin_sleep::sleep(next_capture.saturating_duration_since(Instant::now()));
         }
     });
 
@@ -459,7 +463,10 @@ fn test_continuous_streaming_simulation() {
                 }
                 next_send += frame_duration;
             } else {
-                thread::sleep(Duration::from_millis(1));
+                spin_sleep::sleep(
+                    next_send.saturating_duration_since(Instant::now())
+                        .min(Duration::from_millis(1)),
+                );
             }
         }
 

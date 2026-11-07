@@ -34,6 +34,9 @@ Item {
         delegate: Loader {
             id: pageLoader
             required property RouteContext pageContext
+            EchoUiScope.owner: pageContext.pluginOwned && pageContext.initialProperties.plugin ? pageContext.initialProperties.plugin.id : "@host"
+            EchoUiScope.surface: "main"
+            EchoUiScope.key: "route:" + pageContext.key
             EchoPageState.scope: pageContext.viewState
             EchoPageState.presentation: presentation
             property EchoPagePresentation presentation: EchoPagePresentation {}

@@ -141,8 +141,8 @@ void AppearanceHost::release()
         item->setParentItem(nullptr);
         item->deleteLater();
     }
-    // Completion-time replacement is finalized after createWithInitialProperties
-    // returns, when finish() can delete the unattached visual before its owner.
+    // Completion-time replacement is finalized after completeCreate returns,
+    // when finish() can delete the unattached visual before its owner.
     if (context && !context->property("constructing").toBool())
         context->deleteLater();
     if (component)
@@ -240,11 +240,28 @@ void AppearanceHost::finish(quint64 generation)
     properties.insert("height", height());
     m_context->setProperty("constructing", true);
     const auto owner = m_context;
-    auto *object = m_component->createWithInitialProperties(properties);
+    const auto component = m_component;
+    const auto bindPresentation = m_entry->bindPresentation;
+    const QPointer<AppearanceHost> self(this);
+    auto *creationContext = component->creationContext();
+    if (!creationContext)
+        creationContext = qmlEngine(this)->rootContext();
+    QPointer<QObject> object = component->beginCreate(creationContext);
+    if (object) {
+        component->setInitialProperties(object, properties);
+        if (auto *item = qobject_cast<QQuickItem *>(object.data())) {
+            item->setParent(owner);
+            item->setParentItem(this);
+            if (self && bindPresentation)
+                bindPresentation(item, m_placement);
+        }
+    }
+    if (component)
+        component->completeCreate();
     if (owner)
         owner->setProperty("constructing", false);
-    if (generation != m_generation || !m_entry || !m_active) {
-        if (auto *item = qobject_cast<QQuickItem *>(object))
+    if (!self || generation != m_generation || !m_entry || !m_active) {
+        if (auto *item = qobject_cast<QQuickItem *>(object.data()))
             item->setParentItem(nullptr);
         if (object)
             object->deleteLater();
@@ -252,7 +269,7 @@ void AppearanceHost::finish(quint64 generation)
             owner->deleteLater();
         return;
     }
-    auto *item = qobject_cast<QQuickItem *>(object);
+    auto *item = qobject_cast<QQuickItem *>(object.data());
     if (!item) {
         const auto error = m_component->errorString();
         if (object)

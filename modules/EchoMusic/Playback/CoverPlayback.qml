@@ -5,8 +5,10 @@ import EchoMusic.Theme
 import EchoMusic.Controls
 import EchoMusic.Playback
 
-GridLayout {
+EchoUiGrid {
     id: body
+    partRole: "layout.playback"
+    partKey: "cover"
     required property PlaybackService playback
     required property ThemeColors colors
     required property PlaybackPageMotion pageMotion
@@ -21,8 +23,10 @@ GridLayout {
     columns: narrow ? 1 : 2
     columnSpacing: 32
     rowSpacing: 16
-    ColumnLayout {
+    EchoUiColumn {
         id: coverSide
+        partRole: "layout.playback"
+        partKey: "coverSide"
         objectName: "playbackPageCoverSide"
         Layout.minimumWidth: 0
         Layout.maximumWidth: Layout.preferredWidth

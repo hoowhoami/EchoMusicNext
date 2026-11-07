@@ -22,6 +22,7 @@ qt_add_qml_module(
     PluginMarketplaceSkeleton.qml
     PluginSourceDialog.qml
     PluginGrantsDialog.qml
+    PluginUiInspectorDialog.qml
     PluginDataDialog.qml
     PluginShareResolvePage.qml
     PluginUninstallDialog.qml

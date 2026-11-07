@@ -268,7 +268,9 @@ Item {
         QTRY_VERIFY((texture = renderedTextureSize(session.window, capture)).width() >= needed &&
                     texture.height() >= needed);
         QCOMPARE(effect->property("hasProxySource").toBool(), false);
-        QTest::qWait(60);
+        // Compare sampling after the production artwork reveal reaches its
+        // endpoint; an in-progress fade is not a resolution difference.
+        QTRY_COMPARE(cover->property("revealOpacity").toReal(), 1.);
         const auto frame = session.window->grabWindow();
         const auto crop = [&](QQuickItem *item) {
             const auto r = item->mapRectToScene({10, 10, 80, 80});
@@ -338,6 +340,7 @@ void ControlsUiTest::coverCropAndRoundedPixels()
     for (const qreal scale : {1., 1.25}) {
         host->setProperty("zoom", scale);
         QTest::qWait(80);
+        QTRY_COMPARE(cover->property("revealOpacity").toReal(), 1.);
         const auto frame = session.window->grabWindow();
         const qreal ratio = frame.devicePixelRatio();
         const auto pixel = [&](qreal x, qreal y) {
@@ -614,7 +617,7 @@ void ControlsUiTest::progressClimaxTicksAndWaitPreview()
             QVERIFY(track);
             QVERIFY(qAbs(start->mapToItem(track, {1, 3}).x() - .25 * track->width()) < .01);
             QVERIFY(qAbs(end->mapToItem(track, {1, 3}).x() - .75 * track->width()) < .01);
-            QSignalSpy committed(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy committed(session.window);
             session.window->update();
             QTRY_VERIFY(!committed.isEmpty());
             const auto image = session.window->grabWindow();

@@ -44,7 +44,7 @@
 
 `ctx.ui.parts`提供类型化区域引用的`query/queryAll/observe/mount`；`ctx.ui.styles.registerRule(id, selector, values, priority)`注册逐属性视觉规则，返回可更新、调整优先级及撤销的句柄。manifest以`ui.parts`、`ui.styles`协商能力，SDK版本保持1.0.0。
 
-区域以role/key/surface/window或具体实例id选择，不查询宿主私有对象。样式在原有绑定中解析，较高priority优先，同级按插件ID与规则ID确定；停用、失败、重载和卸载恢复下一层或宿主当前基础值。精确实例规则随实例失效撤销。布局/业务状态不属于样式字段。
+区域以稳定address、scope/ancestor/resourceKey、role/key/surface/window或具体实例id选择，不向插件暴露宿主对象指针。原生 Qt Quick 树在扩展使用期间按需发现，Row/Column/Grid/Flow 与 Layout 共用布局适配；现有按钮的 before/after 插入不需要逐入口补插槽。`parentOf` 可锚定当前按钮组，`properties/insertionPositions/layoutEngine/composable` 描述真实能力。`EchoUiPartPalette` 使用目标呈现色板。样式在原有绑定中解析，较高priority优先，同级按插件ID与规则ID确定；停用、失败、重载和卸载恢复下一层或宿主当前基础值。精确实例规则随实例失效撤销。布局/业务状态不属于样式字段。
 
 当前公开目录：
 
@@ -76,7 +76,7 @@
 
 `ui.presentationClosing` 提供无载荷的 `page.aboutToClose` 同步通知：普通外观关闭、隐藏、替换时，先允许当前有效呈现提交拖动草稿，再沿用原撤销和排空。回调不能等待异步任务；停用、账号变化或 scope 已失效时不触发，组件销毁之后不恢复权限。通知仅公开 typed view 信号，不向插件交付宿主 QObject 或窗口句柄。
 
-`ui.presentationVisibility` 提供 author-owned `PresentationScope` QQuickItem 容器。只读 `presented` 随祖先裁剪、几何、透明度、显隐、Item rotation/scale 和窗口隐藏/最小化更新，可作为内部预览 Loader 的按需创建条件；不暴露宿主对象、不轮询、不判断遮挡。自定义 transform 列表不在当前通知契约内。它不授予操作权限，需结合当前呈现 active 状态。
+`ui.presentationVisibility` 提供 author-owned `PresentationScope` QQuickItem 容器。只读 `presented` 随祖先裁剪、几何、透明度、显隐、Item rotation/scale、自定义原生 transform 和窗口隐藏/最小化更新，可作为内部预览 Loader 的按需创建条件；不暴露宿主对象、不轮询、不判断遮挡。它不授予操作权限，需结合当前呈现 active 状态。
 
 `player.snapshot/lyricsInfo/lyricSnapshot/on/control`提供曲目、模式、质量、音效、收藏、FM和歌词时间上下文；`appearance.snapshot/fonts`提供语义外观和完整字体链。`windows.snapshot/command`调用现有浮窗控制器；共享`EchoPluginPlaybackControls/EchoPluginProgress/EchoPluginLyricsView`可用于整页皮肤及Mini。作者签名与例子见[外观文档](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/appearance.md)，执行证据与平台边界见[本轮记录](internal/verification/2026-10-21-plugin-p0.md)。
 
@@ -205,3 +205,14 @@ lease.dispose();
 日志分类使用 `echo.plugins.runtime`、`echo.plugins.operations`、`echo.plugins.commands` 和 `echo.plugins.marketplace`。SDK operation 记录关联 `plugin`、`installation`、`scope`、`activation`、`operation` 和原生 SDK `action`；命令分发另带 `command`。市场回退的两次尝试共用 `request` 编号，使用 `attempt` 区分。
 
 宿主不记录命令参数、operation 返回值、请求/响应正文或网络请求的查询串；错误字段经统一脱敏并限制长度，超限标记 `[truncated]`。普通成功和取消的 operation 明细只在 debug 可见。插件自行通过 JS/QML `console` 输出内容时也会进入现有日志出口，作者应避免输出凭证或完整业务数据。
+
+
+2026-11-07界面P0：地址按原逻辑归属范围建立，空名/重名/未知业务资源只使用实例地址；queryUnique拒绝零匹配及歧义。原生List/Grid/Table复用和模型代际同步退休整棵语义子树。所有插件呈现入口登记所属插件/区域；普通Item的before/after经共享原生锚点组布局，保留源父项、anchors及输入padding绑定，装饰层不参与排位。作者定义、类型与用法统一见作者仓库`docs/ui-parts.md`；本机验收边界见[五项P0验证](internal/verification/2026-11-07-ui-extension-p0.md)。
+
+### 原生状态、模型与成组提交
+
+公开区域提供 `stateSchema/actionSchema`、原生属性通知、状态选择器、坐标转换和逐字段 `visualSources`。共享 Qt 控件的内容、背景及指示器可按需借入组合；编辑内容和密码不会加入状态快照。设置/选择/滚动/焦点动作沿原生 Qt 路径执行，撤下后恢复原绑定与焦点关系。
+
+`ui.models` 对应 `parts.contributeModel`：原生 List/Grid/Table 与数值、列表、JS 数组模型保留原始数据和原委托，插件行追加，Table 支持追加列；共享菜单使用 Qt Action，Tab 保留宿主索引并接实际正文，设置章节进入同一目录、搜索和正文 Loader。单元格随复用退休，账号变化或插件停用回收贡献。
+
+`ui.transactions` 对应 `parts.applyBatch(id, entries)`：对当前目标快照准备并提交多条样式及结构贡献，返回可更新/取消/撤销的组句柄；失败的更新保留当前组。可见组件先在隐藏作用域中完成创建，提交前检查目标与资源预算，提交中验证布局容量。未来页面实例仍使用持续匹配的 `contribute`。完整参数、边界和用法统一见作者仓库 `docs/ui-parts.md`；本段描述实现契约，当前执行进度见本轮验证记录。

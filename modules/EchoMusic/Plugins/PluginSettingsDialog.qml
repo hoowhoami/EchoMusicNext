@@ -44,6 +44,9 @@ EchoDialog {
             }
             Loader {
                 id: settingsLoader
+                EchoUiScope.owner: dialog.scope ? dialog.scope.id : ""
+                EchoUiScope.surface: "settings"
+                EchoUiScope.key: "settings"
                 width: Math.max(0, viewport.width - 24)
                 height: item ? (item as Item).implicitHeight : 80
                 active: dialog.visible && dialog.scope !== null && dialog.scope.active && dialog.scope.ui.settingsComponent.toString().length > 0

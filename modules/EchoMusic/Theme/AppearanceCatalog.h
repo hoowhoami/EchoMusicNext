@@ -5,6 +5,7 @@
 #include <QUrl>
 #include "SettingsStore.h"
 #include <functional>
+class QQuickItem;
 namespace EchoMusic
 {
 class AppearanceCatalog;
@@ -68,6 +69,7 @@ public:
     QVariantMap definition;
     QHash<QString, QUrl> components;
     std::function<QVariantMap(const QString &, QObject *)> factory;
+    std::function<void(QQuickItem *, const QString &)> bindPresentation;
     std::function<QVariantMap(const QVariantMap &, QString &)> resolver;
     AppearanceConfiguration *configuration() const
     {

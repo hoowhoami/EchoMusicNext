@@ -49,6 +49,9 @@ QtObject {
                 body: Component {
                     Loader {
                         id: contentLoader
+                        EchoUiScope.owner: owner.plugin ? owner.plugin.id : ""
+                        EchoUiScope.surface: "dialog"
+                        EchoUiScope.key: "dialog:" + owner.options.component.toString().split("/").pop()
                         width: parent ? parent.width : 0
                         asynchronous: true
                         Component.onCompleted: setSource(owner.options.component, {

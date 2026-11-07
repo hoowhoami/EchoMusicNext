@@ -1485,9 +1485,21 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "current packet-cache range must not be removed")]
     fn removing_current_packet_cache_range_is_a_debug_invariant_violation() {
         let mut state = single_range_state(Vec::new(), 0, 0);
         remove_range(&mut state, 0);
+    }
+
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn removing_current_packet_cache_range_preserves_it_in_release() {
+        let mut state = single_range_state(Vec::new(), 0, 0);
+        let bytes = state.total_bytes;
+        remove_range(&mut state, 0);
+        assert_eq!(state.current_range, 0);
+        assert_eq!(state.ranges.len(), 1);
+        assert_eq!(state.total_bytes, bytes);
     }
 }

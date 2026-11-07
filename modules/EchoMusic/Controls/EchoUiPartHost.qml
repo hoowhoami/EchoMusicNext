@@ -9,6 +9,7 @@ Item {
     property alias partRole: hostPart.role
     property alias partKey: hostPart.key
     property string partSurface: ""
+    property alias partState: hostPart.state
     property alias partActions: hostPart.actions
     readonly property alias publicPart: hostPart
     readonly property string echoUiSurface: partSurface
@@ -20,6 +21,7 @@ Item {
             target: host
             surface: host.partSurface
             replaceable: true
+            nativeFactory: retainedFactory
             properties: ["background", "borderColor", "borderWidth", "radius", "opacity"]
             onActionRequested: (action, arguments) => host.partActionRequested(action, arguments)
         },
@@ -35,8 +37,23 @@ Item {
         },
         Item {
             id: nativeBody
-            anchors.fill: host
+            anchors.fill: parent
             visible: !hostPart.replaced
+        },
+        EchoUiRetainedContentFactory {
+            id: retainedFactory
+            content: nativeBody
+            fallbackVisible: !hostPart.replaced && hostPart.contentFactory === retainedFactory
+        },
+        EchoUiContentHost {
+            anchors.fill: host
+            active: hostPart.contentFactory !== retainedFactory && host.visible && !hostPart.replaced && host.Window.window !== null && host.Window.window.visible && host.Window.window.visibility !== Window.Minimized
+            factory: hostPart.contentFactory
+            onItemChanged: if (item)
+                Qt.callLater(() => {
+                    if (retainedFactory)
+                        retainedFactory.conceal();
+                })
         }
     ]
 }

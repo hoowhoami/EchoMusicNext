@@ -517,7 +517,7 @@ private slots:
         QTRY_VERIFY(visual(window->contentItem(), "personalFmModeSwitch"));
         auto *scroll = visual(window->contentItem(), "personalFmScrollView");
         QVERIFY(scroll);
-        QSignalSpy initialFrames(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy initialFrames(window);
         window->update();
         QTRY_VERIFY(!initialFrames.isEmpty());
         const auto firstY = [&] {
@@ -589,7 +589,7 @@ private slots:
                 for (int i = 0; i < zoom; ++i)
                     settings.zoomIn();
                 QTRY_VERIFY_WITH_TIMEOUT(imagesSettled(), 15000);
-                QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frames(window);
                 window->update();
                 QTRY_VERIFY(!frames.isEmpty());
                 auto *poster = visual(window->contentItem(), "personalFmPoster");
@@ -603,7 +603,7 @@ private slots:
             }
         }
         QTRY_VERIFY_WITH_TIMEOUT(imagesSettled(), 15000);
-        QSignalSpy settledFrame(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy settledFrame(window);
         window->update();
         QTRY_VERIFY(!settledFrame.isEmpty());
         const auto activeAnimations = [&] {
@@ -629,7 +629,7 @@ private slots:
         };
         qInfo() << "FM active animations before idle measurement:" << activeAnimations();
         QTRY_VERIFY_WITH_TIMEOUT(activeAnimations().isEmpty(), 4000);
-        QSignalSpy idleFrames(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy idleFrames(window);
         // Recreated textures/materials may retire after their first frame.
         // Require consecutive quiet intervals within a bounded drain so an
         // ongoing animation clock still fails the native idle observation.
@@ -836,7 +836,7 @@ private slots:
         QVERIFY(router.navigate("home"));
         QTRY_VERIFY(disc.isNull());
         QVERIFY(coverImage.isNull());
-        QSignalSpy retiredFrames(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy retiredFrames(window);
         window->update();
         QTRY_VERIFY(!retiredFrames.isEmpty());
         window->hide();

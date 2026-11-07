@@ -1,5 +1,7 @@
 #include "PluginRuntimeTest.h"
 #include "PluginRuntimeTestFixture.h"
+#include "EchoPluginUiParts.h"
+#include "EchoUiPartRegistration.h"
 #include "PluginRuntimeEcosystemFixture.h"
 #include "EchoPluginDialog.h"
 #include <QUuid>
@@ -396,6 +398,10 @@ ApplicationWindow {
     QTRY_VERIFY(visual(mainWindow->contentItem(), "commandProbe-test.first"));
     auto *panelA = visual(mainWindow->contentItem(), "commandProbe-test.first");
     QTRY_COMPARE(panelA->property("responder").toString(), "test.first");
+    auto *settingsPart = scopeA->ui()->parts()->queryUnique(
+        {{"key", "commandProbe-test.first"}, {"owner", "test.first"}, {"surface", "settings"}});
+    QVERIFY(settingsPart && settingsPart->registration()->target() == panelA);
+    const auto keepSettingsPart = host.engine.newQObject(settingsPart);
     // EchoPopupLoader reuses its current instance if it is opened again before
     // retirement. The body must follow the newly selected plugin as well.
     window->setProperty("scope", QVariant::fromValue(scopeB));
@@ -403,6 +409,10 @@ ApplicationWindow {
     QVERIFY(QMetaObject::invokeMethod(window.get(), "openSettings"));
     QTRY_VERIFY_WITH_TIMEOUT(visual(mainWindow->contentItem(), "commandProbe-test.second"), 2000);
     auto *panelB = visual(mainWindow->contentItem(), "commandProbe-test.second");
+    QVERIFY(!settingsPart->valid());
+    auto *nextSettingsPart = scopeB->ui()->parts()->queryUnique(
+        {{"key", "commandProbe-test.second"}, {"owner", "test.second"}, {"surface", "settings"}});
+    QVERIFY(nextSettingsPart && nextSettingsPart->registration()->target() == panelB);
     QTRY_COMPARE(panelB->property("responder").toString(), "test.second");
     auto *settings = window->findChild<QObject *>("pluginSettingsDialog");
     QVERIFY(settings);
@@ -414,6 +424,10 @@ ApplicationWindow {
     QTRY_VERIFY(visual(mainWindow->contentItem(), "commandProbe-test.first"));
     panelA = visual(mainWindow->contentItem(), "commandProbe-test.first");
     QTRY_COMPARE(panelA->property("responder").toString(), "test.first");
+    QVERIFY(!settingsPart->valid());
+    auto *reopenedPart = scopeA->ui()->parts()->queryUnique(
+        {{"key", "commandProbe-test.first"}, {"owner", "test.first"}, {"surface", "settings"}});
+    QVERIFY(reopenedPart && reopenedPart->registration()->target() == panelA);
     QVERIFY(QMetaObject::invokeMethod(window.get(), "closeSettings"));
     QTRY_VERIFY(!visual(mainWindow->contentItem(), "commandProbe-test.first"));
 

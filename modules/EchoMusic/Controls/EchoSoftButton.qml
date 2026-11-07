@@ -21,12 +21,7 @@ Button {
                 button.clicked();
         }
     }
-    Connections {
-        target: button
-        function onClicked(): void {
-            button.publicPart.publish("activated");
-        }
-    }
+
     property int size: EchoControlSize.Standard
     property string glyph: ""
     property real glyphSize: 16

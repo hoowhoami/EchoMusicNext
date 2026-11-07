@@ -21,11 +21,38 @@ python3.12 scripts/install-qt.py
 python3.12 scripts/install-qt.py --check
 ```
 
-Windows 使用对应版本的 `python`。全部桌面平台默认安装官方预编译 SDK。Linux x64 使用 `linux_gcc_64` / `gcc_64`，ARM64 使用 `linux_gcc_arm64` / `gcc_arm64`；ARM64 官方包的 glibc 基线为 2.39。安装工具及其依赖固定在 `tools/qt/requirements.txt`，仅用于开发。
+Windows 使用对应版本的 `python`。全部桌面平台默认以官方预编译 SDK 为基础；Qt 6.12.0 的 QtQml 会单独应用下述 GC 修复并重编，其余模块继续使用官方二进制。Linux x64 使用 `linux_gcc_64` / `gcc_64`，ARM64 使用 `linux_gcc_arm64` / `gcc_arm64`；ARM64 官方包的 glibc 基线为 2.39。安装工具及其依赖固定在 `tools/qt/requirements.txt`，仅用于开发。
 
 默认 SDK 位于 `build/qt-official/6.12.0/<kit>`，显式源码 SDK 位于 `build/qt-sdk/6.12.0`。也可通过 Qt 官方安装器安装相同版本和所需模块，随后传入 `--qt-prefix /path/to/Qt/6.12.0/kit`。脚本会检查 SDK 版本及 Core、Gui、Widgets、Qml、Quick、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql、Network、WebSockets、ShaderTools、LinguistTools 等所需模块。
 
-下载失败不会自动回退到源码编译。需要源码 SDK 时显式运行 `python3.12 scripts/install-qt.py --source`。日常构建和启动不会下载或重新构建 Qt。
+基础 SDK 下载失败不会自动回退到整套源码编译。需要源码 SDK 时显式运行 `python3.12 scripts/install-qt.py --source`。日常构建和启动不会下载或重新构建 Qt。
+
+### Qt 6.12.0 的 QV4 generator GC 补丁
+
+`install-qt.py` 会自动准备修复版 QtQml，缓存命中时只校验，不重复编译。已有自定义 SDK 时执行：
+
+```sh
+python3.12 scripts/patch-qt-qml.py --qt-prefix /path/to/Qt/6.12.0/kit
+python3.12 scripts/patch-qt-qml.py --qt-prefix /path/to/Qt/6.12.0/kit --check
+```
+
+构建需要 Git、CMake、Ninja 与该平台的原生编译器；Windows 请使用匹配 SDK 架构的 MSVC 开发终端。脚本下载固定 SHA-256 的 Qt 官方源码镜像归档，仅构建 `Qml` 目标，不安装整套 qtdeclarative。macOS 保留 SDK 原有架构集合。源码及构建产物默认在成功后清理；`--keep-build` 可在诊断时保留，`--jobs` 限制编译并发。源码下载失败会停止；`--archive` 可传入相同固定哈希的离线源码归档。
+
+补丁以 SDK SPDX 指定的 `4332fbbb4c340463dc8cee36dda0c85d932122d8` 为基础，回移 [generator 帧标记修复](https://github.com/qt/qtdeclarative/commit/7d5e24963a82dd6dc7419fc2f943042db2598bde)和[空函数指针修复](https://github.com/qt/qtdeclarative/commit/9eca4322acef46f67405e891d9a61661a4fc26ee)。保留 `Value::mark(MarkStack *)` 原有非 const 签名，避免其余未重编 Qt 模块的私有 ABI 导入失效；完整本地差异见[补丁](../tools/qt/patches/qtdeclarative-6.12.0-qv4-generator-gc.patch)。
+
+替换前核对架构、Qt 导出符号和 macOS install name。macOS 编译器差异造成的 `std::function` RTTI 差异只有在 SDK 中无任何导入时才允许，并写入回执；Qt 符号缺失一律停止。原二进制及校验值保存在 SDK 的 `share/echomusicnext-qt-patches/original/`，补丁来源、哈希及安装二进制哈希记录在 `.echo-qv4-gc.json`。补丁缺失、内容变化或二进制被覆盖时，构建与分发检查会拒绝使用该 SDK。
+
+需要恢复原版 SDK 时，先关闭应用及使用 QtQml 的进程，再执行 `python3.12 scripts/patch-qt-qml.py --qt-prefix /path/to/kit --restore`。恢复后该 SDK 无法用于本项目，需重新打补丁。补丁脚本不会关闭进程；Windows 的文件占用由替换操作报错，POSIX 同时使用可用的 `lsof` 检查。不要在共享 SDK 上并行执行应用构建和补丁安装。Qt 升级时须重新审计本补丁，不把 6.12.0 的回执沿用到其他版本。
+
+独立回归不依赖主应用的构建树：
+
+```sh
+cmake -S tests/qt/qv4-gc -B build/qt-qv4-gc/probe -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/kit
+cmake --build build/qt-qv4-gc/probe
+ctest --test-dir build/qt-qv4-gc/probe --output-on-failure
+```
+
+该回归包括 generator 挂起/执行中的增量 GC、默认派生构造函数以及未重编 QtQuick 的加载。发布 CI 只构建补丁及核对 ABI/材料，不运行此测试。
 
 ## 构建和启动
 
@@ -143,7 +170,7 @@ node tools/release/package.mjs --qt=/path/to/Qt/6.12.0/kit
 
 桌面 CI 优先复用 runner 的 Rust 1.99.0 工具链；安装失败时仅卸载该版本并重装一次，随后确认 rustc 和 Cargo 可用。发布任务显式选择 `RUSTUP_TOOLCHAIN=1.99.0`，只安装 minimal 编译组件；开发用的 rustfmt/Clippy 不在发布任务中自动补装。重装仍失败则停止，不清理 Cargo 依赖或 Qt 缓存。
 
-Qt SDK 按 runner、架构、安装脚本、原生依赖和许可材料脚本生成缓存键。只缓存官方预编译 SDK，使用独立的 `qt-prebuilt-6.12.0` 缓存键前缀。恢复后仍校验版本与模块，首次安装验证通过后立即保存；后续应用编译或打包失败不会丢掉已保存的 SDK。不缓存 Qt 源码或其编译树。
+Qt SDK 按 runner、架构、安装脚本、原生依赖和许可材料脚本生成缓存键。缓存官方基础 SDK、补丁版 QtQml 及原件恢复材料，使用独立的 `qt-prebuilt-qv4-6.12.0` 缓存键前缀；键包括补丁源码和构建脚本哈希。恢复后仍校验版本与模块，首次安装验证通过后立即保存；后续应用编译或打包失败不会丢掉已保存的 SDK。不缓存 Qt 源码或其编译树。
 
 应用 C/C++ 编译通过固定版本的 sccache 使用 GitHub Actions 缓存，按 runner/架构隔离，并由 sccache 校验编译器、选项、源码和头文件。仅应用配置启用 compiler launcher，Qt 源码构建不占用此缓存。应用 Release 不额外生成调试符号，Windows 的 C/C++ 与汇编均不注入 `/Z7`，链接不强制 `/DEBUG:FULL`。sccache 的 post 步骤报告命中与未缓存原因；缓存服务不可用时允许调用实际编译器继续，编译错误仍令任务失败。
 
@@ -211,4 +238,4 @@ CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target/fuzz cargo +nightly-2026-10-20 fuzz 
 
 Qt 许可材料随包位于 `licenses/deployment/Qt/`（具体安装根见对应平台布局），包含 Qt GPL/LGPL 原文、SPDX 中引用的标准许可证/例外文本、模块 SPDX 或源码版权通知、`NOTICE.txt` 和 `modules.json` 中的上游仓库及版本/提交链接。准备材料时可显式指定 SDK：`node tools/release/prepare.mjs --qt=/path/to/Qt/6.12.0/kit`；CI 使用已配置的 SDK。下载使用 SPDX 官方标准许可文本并核对标识，Qt 自定义许可文本保留在对应 SPDX 文档中。
 
-Qt 许可收集包含 `qtwebsockets`。Qt 部署结束后检查实际库和原生插件的许可覆盖；模块缺材料、SDK SPDX 无效、所引用许可文本缺失或新 Qt 库没有已审计归属时停止打包，不以一个空目录视为齐全。应用源码继续通过对应 GitHub 发行标签提供，Qt 模块另列各自的上游位置；安装包不附加完整源码归档。这些指引与材料检查不替代对实际依赖及对应源码可获取性的维护。
+Qt 许可收集包含 `qtwebsockets`。Qt 部署结束后检查实际库和原生插件的许可覆盖；模块缺材料、SDK SPDX 无效、所引用许可文本缺失或新 Qt 库没有已审计归属时停止打包，不以一个空目录视为齐全。应用源码继续通过对应 GitHub 发行标签提供，Qt 模块另列各自的上游位置；修改后的 QtQml 另附精确基础源码 URL、两项上游提交、本地补丁和 SDK 二进制哈希。原始 SPDX 描述基础 SDK，`runtimePatch` 补充实际 QtQml 修改。安装包不附加完整源码归档。这些指引与材料检查不替代对实际依赖及对应源码可获取性的维护。

@@ -4,6 +4,9 @@
 #include "EchoPluginViewContext.h"
 #include "AppearanceHost.h"
 #include "EchoUiPartRegistry.h"
+#include "EchoUiPartRegistration.h"
+#include "EchoPluginUiParts.h"
+#include "EchoUiContribution.h"
 #include <QWheelEvent>
 namespace
 {
@@ -47,6 +50,16 @@ QString appearancePackage(Host &host, const QByteArray &body, const QString &id 
     const auto path =
         pluginPackage(host.temporary.path(), id, "export function activate(c) {" + body + "}",
                       {{"capabilities", capabilities}});
+    write(path + "/Wrapper.qml", R"(
+import QtQuick
+import EchoMusic.PluginSdk
+Item {
+ required property EchoPluginContext plugin
+ required property EchoUiPartRef part
+ objectName: "appearanceCompositionWrapper"
+ EchoUiHostContent { part: parent.part; anchors.fill: parent; anchors.margins: 8 }
+}
+)");
     write(path + "/Visual.qml", appearanceVisual);
     auto redirect = appearanceVisual;
     redirect.replace("Component.onCompleted: {",
@@ -264,6 +277,11 @@ void PluginRuntimeTest::appearanceProductionThemeSkinAndMini()
     QTRY_VERIFY(miniHost->property("loaded").toBool());
     QPointer<QQuickItem> miniVisual = visual(mini->contentItem(), "actualAppearanceVisual");
     QVERIFY(miniVisual);
+    auto *parts = host.runtime.context(installation)->ui()->parts();
+    auto *miniPart = parts->queryUnique(
+        {{"key", "actualAppearanceVisual"}, {"owner", "test.appearance"}, {"surface", "mini"}});
+    QVERIFY(miniPart && miniPart->registration()->target() == miniVisual);
+    QVERIFY(miniPart->persistent());
     QVERIFY(miniVisual->property("creationWidth").toReal() > 0);
     QPointer<AppearanceConfiguration> configuration =
         miniVisual->property("configuration").value<AppearanceConfiguration *>();
@@ -307,7 +325,8 @@ void PluginRuntimeTest::appearanceProductionThemeSkinAndMini()
     QVERIFY(!oldScope->ui()->setState({{"stale", true}}));
     QTRY_VERIFY(oldSessionVisual.isNull());
     QTRY_VERIFY(miniHost->property("loaded").toBool());
-    auto *miniCard = miniHost->parentItem();
+    auto *miniCard = visual(mini->contentItem(), "miniPlayerCard");
+    QVERIFY(miniCard);
     miniCard->setOpacity(0);
     QTRY_VERIFY(!miniHost->property("loaded").toBool());
     QCOMPARE(registry->styleCount(), 0);
@@ -369,11 +388,30 @@ void PluginRuntimeTest::appearanceProductionThemeSkinAndMini()
     QVERIFY(chrome);
     QVERIFY(!chrome->isVisible());
     auto *skinVisual = visual(skinHost, "actualAppearanceVisual");
+    auto *skinPart = parts->queryUnique(
+        {{"key", "actualAppearanceVisual"}, {"owner", "test.appearance"}, {"surface", "playback"}});
+    QVERIFY(skinPart && skinPart->registration()->target() == skinVisual);
     QVERIFY(skinVisual);
     QVERIFY(skinVisual->mapRectToScene(skinVisual->boundingRect()).width() >= 1000);
     QVERIFY(skinVisual->mapRectToScene(skinVisual->boundingRect()).height() >= 700);
     if (!captures.isEmpty())
         QVERIFY(window->grabWindow().save(captures + "/playback-takeover.png"));
+
+    QPointer<QQuickItem> originalSkin = skinVisual;
+    auto *wrapper =
+        scope->ui()->parts()->contribute("skin-wrapper", {{"role", "playback.page"}},
+                                         {{"operation", "wrap"}, {"component", "Wrapper.qml"}});
+    QVERIFY(wrapper);
+    auto keepWrapper = host.engine.newQObject(wrapper);
+    QTRY_VERIFY(visual(window->contentItem(), "appearanceCompositionWrapper"));
+    QTRY_VERIFY(skinHost->property("loaded").toBool());
+    QVERIFY(originalSkin);
+    QCOMPARE(visual(skinHost, "actualAppearanceVisual"), originalSkin.data());
+    wrapper->dispose();
+    QTRY_VERIFY(!visual(window->contentItem(), "appearanceCompositionWrapper"));
+    QTRY_VERIFY(skinHost->property("loaded").toBool());
+    QVERIFY(originalSkin);
+    QCOMPARE(visual(skinHost, "actualAppearanceVisual"), originalSkin.data());
 
     QCOMPARE(skinVisual->property("configuration").value<AppearanceConfiguration *>()->values(),
              catalog->skin()->configuration()->values());

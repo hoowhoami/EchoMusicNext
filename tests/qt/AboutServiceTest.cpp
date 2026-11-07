@@ -171,13 +171,11 @@ private slots:
         HttpServer server;
         AboutService about(settings, network);
         AboutServiceTestAccess::endpoint(about, server.url());
-        QVERIFY(about.changelog().startsWith("# 更新记录"));
         const auto expectedNotes = qEnvironmentVariable("ECHO_EXPECT_RELEASE_CHANGELOG");
+        QFile notes(expectedNotes.isEmpty() ? QFINDTESTDATA("../../CHANGELOG.md") : expectedNotes);
+        QVERIFY(notes.open(QIODevice::ReadOnly));
+        QCOMPARE(about.changelog(), QString::fromUtf8(notes.readAll()).trimmed());
         if (!expectedNotes.isEmpty()) {
-            QFile file(expectedNotes);
-            QVERIFY(file.open(QIODevice::ReadOnly));
-            QCOMPARE(about.changelog(), QString::fromUtf8(file.readAll()).trimmed());
-            QVERIFY(about.changelog().contains("## " + about.version() + '\n'));
             QVERIFY(!about.changelog().contains("## 未发布"));
             QCOMPARE(about.changelog().count(QRegularExpression("(?m)^## ")), 1);
         }

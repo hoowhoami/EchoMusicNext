@@ -36,6 +36,12 @@ qt_add_qml_module(
     graphics/GpuRhiPasses.cpp
     graphics/GpuRhiRenderer.cpp
     graphics/GpuRhiOutput.cpp
+    EchoUiBatch.h
+    EchoUiBatch.cpp
+    EchoUiContribution.h
+    EchoUiContribution.cpp
+    EchoUiModelContribution.h
+    EchoUiModelContribution.cpp
     EchoUiPartRef.h
     EchoUiPartRef.cpp
     EchoPluginUiParts.h
@@ -153,6 +159,8 @@ qt_add_qml_module(
     PluginSdkContract.h
     PluginSdkContract.cpp
     QML_FILES
+    EchoUiContributionItem.qml
+    EchoUiPartPalette.qml
     EchoPluginDialogOwner.qml
     EchoPluginPage.qml
     EchoPluginPlaybackControls.qml

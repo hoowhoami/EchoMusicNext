@@ -28,3 +28,4 @@
   1. `airplay-audio/src/rtp.rs`：`set_socket_qos` 的 `AsRawFd` 导入加 `cfg(unix)` 隔离，Windows（MSVC）可编译。
   2. `airplay-audio/src/live_decoder.rs`：新增有界背压的阻塞发送（含超时与取消），不再用 `try_send` 丢帧；新增 seek/epoch 机制 —— 解码侧发现 epoch 变化时清空待发帧、复位 `position_samples` 与残留缓冲，使快速切歌/seek 后远端无旧音频残留。
   3. `airplay-client/src/client.rs`：高层 `seek()` 实现真实路径 —— 触发 `connection.send_flush` 清远端缓冲 + 同步 decoder 位置复位，不再只发 `PositionUpdated` 假成功。
+  4. `airplay2-rs/patches/0004-control-framing-and-workspace-tests.patch`：加密通道复用现有ControlCipher的LE长度/AAD/分块实现，移除重复帧头并正确计算tag长度；raw记录只剥离单块帧头，拒绝把多块拼作一块。补充跨封装解密、篡改拒绝及nonce边界回归。修复encoder测试漏导入SampleRate；实时捕获模拟使用绝对采样时钟及既有精确等待，避免累加系统sleep误差。主应用当前连接直接使用ControlCipher，未切换投送路径。

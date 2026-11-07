@@ -85,6 +85,8 @@ Menu {
     Component.onCompleted: menuRoot.refreshMeasuredSize()
     contentItem: ListView {
         id: entries
+        readonly property string _echoUiModelKind: "menu"
+        readonly property var _echoUiModelOwner: menuRoot
         implicitHeight: contentHeight
         model: menuRoot.contentModel
         currentIndex: menuRoot.currentIndex

@@ -416,7 +416,7 @@ Window {
                         for (int step = 0; step < 5; ++step)
                             settings.zoomIn();
                     window->setWidth(width);
-                    QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy frames(window);
                     window->update();
                     QTRY_VERIFY(!frames.isEmpty());
                     QVERIFY(Test::prepareNativeInput(window));

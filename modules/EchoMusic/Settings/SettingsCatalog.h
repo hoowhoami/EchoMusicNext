@@ -1,15 +1,21 @@
 #pragma once
 #include <QAbstractListModel>
 #include <QUrl>
+#include <QPointer>
+#include <QVariantMap>
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
 {
+class EchoUiModelAdapter;
 /// Ephemeral dialog navigation/filter; business preferences stay in their owners.
 /// Entries without a functional provider remain disabled, never load a stub page.
 class SettingsCatalog : public QAbstractListModel
 {
     Q_OBJECT
     QML_ELEMENT
+    Q_PROPERTY(QObject *uiExtensions READ uiExtensions WRITE setUiExtensions NOTIFY changed)
+    Q_PROPERTY(QObject *extensionRecipe READ extensionRecipe NOTIFY changed)
+    Q_PROPERTY(QVariantMap extensionEntry READ extensionEntry NOTIFY changed)
     Q_PROPERTY(QString filter READ filter WRITE setFilter NOTIFY changed)
     Q_PROPERTY(QString current READ current NOTIFY changed)
     Q_PROPERTY(QUrl source READ source NOTIFY changed)
@@ -28,6 +34,10 @@ public:
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
+    QObject *uiExtensions() const;
+    QObject *extensionRecipe() const;
+    QVariantMap extensionEntry() const;
+    void setUiExtensions(QObject *);
     QString filter() const
     {
         return m_filter;
@@ -56,7 +66,15 @@ private:
     struct Entry
     {
         QString key, label, glyph, keywords, component;
+        QString extension;
+        bool enabled = true;
     };
+    void rebuild(bool preserve, bool resetting = false);
+    void refreshExtensions();
+    int m_nativeCount = 0;
+    QPointer<EchoUiModelAdapter> m_extensions;
+    QList<QMetaObject::Connection> m_extensionConnections;
+    QString m_lastNative = "interface";
     bool available(const Entry &entry) const;
     bool m_playbackAvailable = false;
     QList<Entry> m_entries;

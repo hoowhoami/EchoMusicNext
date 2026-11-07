@@ -1,6 +1,7 @@
 #include "EchoPluginSnapshot_p.h"
 #include <QTimer>
 #include "EchoPluginAppearance.h"
+#include "EchoUiScope.h"
 #include "EchoPluginContext.h"
 #include "EchoPluginViewContext.h"
 #include "ThemeStore.h"
@@ -380,6 +381,10 @@ EchoPluginAppearanceHandle *EchoPluginAppearance::add(const QJSValue &d, const Q
         if (!scope || !scope->active() || !configuration)
             return QVariantMap();
         return scope->appearance()->presentation(surface, owner, configuration, entry);
+    };
+    e->bindPresentation = [scope, key = e->key](QQuickItem *item, const QString &surface) {
+        if (scope && scope->active())
+            EchoUiScope::mark(item, scope->id(), surface, "appearance:" + key);
     };
     auto *lease = m_scope.registration(kind, id);
     if (!lease)

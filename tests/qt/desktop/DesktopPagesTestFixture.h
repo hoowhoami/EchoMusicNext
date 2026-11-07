@@ -798,7 +798,7 @@ struct Session
     {
         // Zoom and capacity changes polish layouts and rebuild projections on
         // the next frame. Never click geometry from the preceding scene.
-        QSignalSpy rendered(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy rendered(window);
         window->update();
         const bool ready = !rendered.isEmpty() || rendered.wait(1000);
         if (!ready)
@@ -961,7 +961,9 @@ struct Session
     }
     QPointer<QObject> openOwnedPopup(const QString &name, const QVariantMap &properties = {})
     {
-        QObject *owner = nullptr;
+        if (!settleScene())
+            return {};
+        QPointer<QObject> owner;
         QSet<QObject *> seen;
         const auto visit = [&](auto &&self, QObject *object) -> void {
             if (!object || owner || seen.contains(object))
@@ -977,12 +979,18 @@ struct Session
                 for (auto *child : visual->childItems())
                     self(self, child);
         };
-        visit(visit, root.data());
-        if (!owner ||
+        if (!QTest::qWaitFor([&] {
+                seen.clear();
+                visit(visit, root.data());
+                return !owner.isNull();
+            }) ||
             !QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariant(properties))))
             return {};
-        QPointer<QObject> popup = owner->property("item").value<QObject *>();
-        if (!QTest::qWaitFor([&] { return popup && popup->property("opened").toBool(); }))
+        QPointer<QObject> popup;
+        if (!QTest::qWaitFor([&] {
+                popup = owner ? owner->property("item").value<QObject *>() : nullptr;
+                return popup && popup->property("opened").toBool();
+            }))
             return {};
         return popup;
     }

@@ -182,7 +182,7 @@ ApplicationWindow {
     const auto captures = qEnvironmentVariable("ECHO_PLUGIN_FIRST_OPEN_CAPTURE_DIR");
     if (!captures.isEmpty()) {
         QVERIFY(QDir().mkpath(captures));
-        QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frames(window);
         window->requestUpdate();
         QTRY_VERIFY(!frames.isEmpty());
         QVERIFY(window->grabWindow().save(captures + '/' +
@@ -190,7 +190,7 @@ ApplicationWindow {
     }
     // A later resize must preserve the initial result and recompute real text
     // heights/columns, including a partially filled last row.
-    QSignalSpy resizedFrames(window, &QQuickWindow::frameSwapped);
+    Test::FrameSpy resizedFrames(window);
     window->resize(900, 900);
     window->requestUpdate();
     QTRY_VERIFY(!resizedFrames.isEmpty());

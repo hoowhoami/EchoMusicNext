@@ -175,6 +175,8 @@ private:
         QPointer<PluginSettlement> settlement;
         State afterRetire = Disabled;
     };
+    QString m_uiAccount;
+    bool m_uiPreferencesLoading = false;
     void discoverRoot(bool reloadInstalled);
     void advanceRefresh();
     void importResolved(const QString &directory, const QString &source,

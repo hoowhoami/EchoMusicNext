@@ -1,5 +1,8 @@
 #pragma once
 #include "EchoUiPartRef.h"
+#include "EchoUiContribution.h"
+#include "EchoUiBatch.h"
+#include "EchoUiModelContribution.h"
 #include "EchoUiPartMount.h"
 #include "EchoPluginRegistration.h"
 #include <QJSValue>
@@ -18,8 +21,15 @@ class EchoPluginUiParts final : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorChanged)
 public:
     explicit EchoPluginUiParts(EchoPluginContext &);
+    Q_INVOKABLE EchoMusic::EchoUiBatch *applyBatch(const QString &id, const QVariantList &entries);
+    Q_INVOKABLE EchoMusic::EchoUiContribution *
+    contribute(const QString &id, const QVariantMap &selector, const QVariantMap &definition);
+    Q_INVOKABLE EchoMusic::EchoUiModelContribution *
+    contributeModel(const QString &id, const QVariantMap &selector, const QVariantMap &definition);
     Q_INVOKABLE EchoMusic::EchoUiPartRef *query(const QVariantMap &selector = {});
+    Q_INVOKABLE EchoMusic::EchoUiPartRef *queryUnique(const QVariantMap &selector);
     Q_INVOKABLE QVariantList queryAll(const QVariantMap &selector = {});
+    Q_INVOKABLE QVariantMap preflight(const QVariantMap &selector, const QVariantMap &definition);
     Q_INVOKABLE EchoMusic::EchoPluginRegistration *observe(const QString &id,
                                                            const QVariantMap &selector,
                                                            const QJSValue &callback,

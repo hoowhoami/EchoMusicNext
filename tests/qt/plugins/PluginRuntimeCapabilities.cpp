@@ -1,6 +1,7 @@
 #include "PluginRuntimeTest.h"
 #include "EchoGpuSurface.h"
 #include "PluginRuntimeTestFixture.h"
+#include "EchoUiContribution.h"
 
 void PluginRuntimeTest::settingsContributionRetiresWithScope()
 {
@@ -99,7 +100,8 @@ void verifyAuthorPackage(bool entryOnly)
         return QPointer<EchoPluginOperation>(op);
     };
     QCOMPARE(host.playback.volume(), originalVolume);
-    QTRY_COMPARE(host.shell.pluginSurfaces()->entries().size(), 3);
+    QCOMPARE(host.shell.pluginSurfaces()->entries().size(), 0);
+    QCOMPARE(scope->findChildren<EchoUiContribution *>().size(), 3);
     QCOMPARE(scope->ui()->state().value("showLyricControls").toBool(), true);
     QCOMPARE(scope->ui()->state().value("showPlayerBar").toBool(), false);
     const auto initialMode = entryOnly ? QStringLiteral("centered") : QStringLiteral("hybrid");
@@ -358,8 +360,8 @@ ApplicationWindow {
     if (benchmarkMs > 0) {
         host.theme.setMode(ThemeStore::Dark);
         QSignalSpy delivered(host.playback.spectrum(), &PlayerSpectrum::frameReady);
-        QSignalSpy rendered(window, &QQuickWindow::frameSwapped);
-        QSignalSpy miniRendered(mini, &QQuickWindow::frameSwapped);
+        Test::FrameSpy rendered(window);
+        Test::FrameSpy miniRendered(mini);
         const auto measure = [&](const QString &label) {
             if (window->isVisible())
                 QVERIFY(Test::prepareNativeInput(window));
@@ -524,6 +526,9 @@ ApplicationWindow {
         for (const auto scale : {1.0, 1.25}) {
             window->setProperty("uiScale", scale);
             QVERIFY(QMetaObject::invokeMethod(root.get(), "openSettings"));
+            QPointer<QObject> settingsDialog;
+            QTRY_VERIFY((settingsDialog = root->findChild<QObject *>("pluginSettingsDialog")));
+            QTRY_VERIFY(settingsDialog->property("opened").toBool());
             QTRY_VERIFY(visual(window->contentItem(), "spectrumVisualizerSettings"));
             QPointer<QQuickItem> body = visual(window->contentItem(), "spectrumVisualizerSettings");
             QTest::qWait(120);
@@ -540,18 +545,26 @@ ApplicationWindow {
             }
             if (mode == ThemeStore::Dark && scale == 1.0) {
                 QVERIFY(Test::prepareNativeInput(window));
-                auto *toggle = visual(body, "spectrumEnabledSwitch");
+                QPointer<QQuickItem> toggle = visual(body, "spectrumEnabledSwitch");
                 QVERIFY(toggle);
+                QVERIFY(Test::settleNativeItem(toggle));
+                auto *inputViewport = visual(window->contentItem(), "pluginSettingsViewport");
+                QVERIFY(inputViewport);
+                QVERIFY(inputViewport->mapRectToScene(inputViewport->boundingRect())
+                            .contains(toggle->mapToScene(toggle->boundingRect().center())));
                 auto click = [&] {
+                    if (!toggle)
+                        return false;
                     const auto point =
-                        toggle->mapToScene({toggle->width() / 2, toggle->height() / 2}).toPoint();
+                        toggle->mapToScene(toggle->boundingRect().center()).toPoint();
                     Test::moveNativePointer(window, point);
                     QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
+                    return true;
                 };
-                click();
+                QVERIFY(click());
                 QTRY_VERIFY(!scope->ui()->state().value("enabled").toBool());
                 QTRY_COMPARE(host.playback.spectrum()->subscriberCount(), 0);
-                click();
+                QVERIFY(click());
                 QTRY_VERIFY(scope->ui()->state().value("enabled").toBool());
                 QTRY_COMPARE(host.playback.spectrum()->subscriberCount(), 3);
             }

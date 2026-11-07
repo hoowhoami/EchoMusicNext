@@ -8,7 +8,7 @@ import EchoMusic.Shell
 import EchoMusic.Account
 import EchoMusic.Library
 
-Item {
+EchoUiPartHost {
     id: sidebar
     AppearanceHost {
         anchors.fill: parent
@@ -16,25 +16,8 @@ Item {
         placement: "sidebar"
         z: 0
     }
-    EchoUiPart {
-        id: publicSurface
-        target: sidebar
-        role: "shell.sidebar"
-        key: "shell.sidebar"
-        properties: ["background", "borderColor", "borderWidth", "radius", "opacity"]
-    }
-    opacity: publicSurface.value("opacity", 1)
-    Loader {
-        anchors.fill: parent
-        z: -0.5
-        active: sidebar.visible && sidebar.Window.window !== null && sidebar.Window.window.visible && sidebar.Window.window.visibility !== Window.Minimized && Object.keys(publicSurface.overrides).some(name => name !== "opacity")
-        sourceComponent: Rectangle {
-            color: publicSurface.value("background", "transparent")
-            radius: publicSurface.value("radius", 0)
-            border.color: publicSurface.value("borderColor", "transparent")
-            border.width: publicSurface.value("borderWidth", 0)
-        }
-    }
+    partRole: "shell.sidebar"
+    partKey: "shell.sidebar"
     required property RouteController router
     required property ShellSettings settings
     required property real uiScale
@@ -125,8 +108,10 @@ Item {
             }
         }
     }
-    ColumnLayout {
+    EchoUiColumn {
         id: content
+        partRole: "layout.sidebar"
+        partKey: "content"
         objectName: "sidebarContent"
         anchors.fill: parent
         spacing: 0
@@ -323,7 +308,9 @@ Item {
                 }
             }
         }
-        RowLayout {
+        EchoUiRow {
+            partRole: "layout.sidebar"
+            partKey: "row2"
             Layout.fillWidth: true
             Layout.leftMargin: sidebar.collapsed ? 8 : 16
             Layout.rightMargin: sidebar.collapsed ? 8 : 16

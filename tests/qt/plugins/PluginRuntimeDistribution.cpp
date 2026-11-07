@@ -481,7 +481,7 @@ ApplicationWindow {
     const auto directory = qEnvironmentVariable("ECHO_PLUGIN_DISTRIBUTION_CAPTURE_DIR");
     for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
         host.theme.setMode(mode);
-        QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frames(window);
         window->resize(mode == ThemeStore::Light ? 900 : 901, 701);
         window->requestUpdate();
         QTRY_VERIFY(!frames.isEmpty());

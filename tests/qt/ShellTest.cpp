@@ -247,7 +247,7 @@ private slots:
         auto *text = label->property("textItem").value<QQuickItem *>();
         QVERIFY(text);
         const auto render = [&] {
-            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(window);
             window->update();
             return QTest::qWaitFor([&] { return !frames.isEmpty(); });
         };
@@ -317,8 +317,13 @@ private slots:
                                 play->mapToScene({play->width(), 0}).x());
                         const auto captures = qEnvironmentVariable("ECHO_SIDEBAR_ROW_CAPTURE_DIR");
                         if (width == 184) {
+                            QVERIFY(Test::prepareNativeInput(window));
+                            Test::moveNativePointer(window, row->mapToScene({10, 20}).toPoint());
+                            QTRY_VERIFY(play->isVisible());
+                            QVERIFY(Test::settleNativeItem(play));
                             Test::moveNativePointer(
                                 window, play->mapToScene(play->boundingRect().center()).toPoint());
+                            QTRY_VERIFY(play->property("hovered").toBool());
                             QTRY_COMPARE(play->property("visualScale").toReal(), 1.1);
                             QCOMPARE(play->property("foreground").value<QColor>(),
                                      theme.property("accentText").value<QColor>());
@@ -911,7 +916,7 @@ QtObject {
         auto *route = routes.current();
         // The offscreen platform's input helper does not wait for exposure;
         // wait for production layouts before calculating the hover coordinate.
-        QSignalSpy initialFrames(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy initialFrames(window);
         window->update();
         QTRY_VERIFY(!initialFrames.isEmpty());
         const auto nativeTipCount = [&] {
@@ -1452,7 +1457,7 @@ QtObject {
         QVERIFY(!page->property("listRunning").toBool());
         // Hold actual extent readiness across rendered frames. Neither an
         // arbitrary delay nor reduced motion may reveal the default position.
-        QSignalSpy restoredFrames(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy restoredFrames(window);
         window->update();
         QTRY_VERIFY(!restoredFrames.isEmpty());
         const auto blockedFrame = window->grabWindow();
@@ -2079,7 +2084,7 @@ QtObject {
                     window->width());
         if (QGuiApplication::platformName() != QStringLiteral("offscreen")) {
             // Popup.opened precedes layout polish; use rendered coordinates for input.
-            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(window);
             window->update();
             QTRY_VERIFY(!frames.isEmpty());
         }
@@ -2095,6 +2100,7 @@ QtObject {
         QTRY_VERIFY(theme.dark());
         QCOMPARE(routes.current()->name(), QString("themes"));
         QVERIFY(QMetaObject::invokeMethod(settingsDialog, "close"));
+        QTRY_VERIFY(settingsDialog.isNull());
         routes.refresh();
         routes.back();
         routes.forward();
@@ -2163,7 +2169,7 @@ QtObject {
             root.reset();
         });
         const auto frames = [&] {
-            QSignalSpy rendered(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy rendered(window);
             window->update();
             return rendered.wait(1000);
         };
@@ -2603,7 +2609,7 @@ QtObject {
             const auto path = qEnvironmentVariable("ECHO_SIDEBAR_MENU_DRAG_CAPTURE_DIR");
             if (path.isEmpty())
                 return;
-            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(window);
             window->update();
             QTRY_VERIFY(!frames.isEmpty());
             QVERIFY(QDir().mkpath(path));
@@ -3014,7 +3020,7 @@ QtObject {
                         (addGlyph = findVisual(add, "iconImage")) &&
                         pauseGlyph->property("status").toInt() == 1 &&
                         addGlyph->property("status").toInt() == 1);
-            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(window);
             window->update();
             QTRY_VERIFY(!frames.isEmpty());
             const auto image = window->grabWindow();
@@ -3121,7 +3127,7 @@ QtObject {
             QVERIFY(Test::prepareNativeInput(window));
             // Popup.opened/property changes precede layout polish. Derive input
             // coordinates only after the production window renders that state.
-            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(window);
             window->update();
             QTRY_VERIFY(!frames.isEmpty());
             QTest::mouseClick(
@@ -3133,7 +3139,7 @@ QtObject {
             if (directory.isEmpty())
                 return;
             QVERIFY(Test::prepareNativeInput(window));
-            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(window);
             window->update();
             QTRY_VERIFY(!frames.isEmpty());
             QVERIFY(QDir().mkpath(directory));
@@ -3344,6 +3350,13 @@ QtObject {
                     QVERIFY(!Test::nativeWindowInputPolicy(window).value("movable").toBool());
                     QVERIFY(!taskHandle->property("dragging").toBool());
                 }
+                QVERIFY(Test::prepareNativeInput(window));
+                QVERIFY(Test::settleNativeItem(caption));
+                QTRY_VERIFY(!window->mouseGrabberItem());
+                Test::moveNativePointer(
+                    window, caption->mapToScene(caption->boundingRect().center()).toPoint());
+                QVERIFY(Test::nativeWindowInputPolicy(window).value("underCursor").toBool());
+                QSignalSpy nativeCaptionPresses(caption, SIGNAL(pressedChanged()));
                 const auto original = window->position();
                 const auto start = caption->mapToGlobal(caption->boundingRect().center()).toPoint();
                 const auto end = start + QPoint(30, 20);
@@ -3361,6 +3374,8 @@ QtObject {
                 });
                 const auto join = qScopeGuard([&] { native.join(); });
                 QTRY_VERIFY(done.load());
+                QVERIFY2(nativeCaptionPresses.size() >= 2,
+                         "The system caption drag must deliver its native press and release");
                 QTRY_VERIFY(window->position() != original);
                 QTRY_COMPARE(captionMoves.size(), 1);
                 QTRY_COMPARE(QGuiApplication::mouseButtons(), Qt::MouseButtons(Qt::NoButton));
@@ -3646,7 +3661,7 @@ QtObject {
         shell.resetZoom();
         auto *qualityChip = item("playerLayoutChip-host/quality");
         QVERIFY(qualityChip);
-        QSignalSpy editorFrames(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy editorFrames(window);
         window->update();
         QTRY_VERIFY(!editorFrames.isEmpty());
         const auto dragStart = qualityChip->mapToScene({17, 17}).toPoint();
@@ -3959,7 +3974,7 @@ QtObject {
             visit(visit, root.data());
             return found;
         };
-        QSignalSpy initialFrame(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy initialFrame(window);
         window->update();
         QTRY_VERIFY(!initialFrame.isEmpty());
         QCOMPARE(nativePopups().size(), 0);

@@ -398,7 +398,7 @@ Window {
         QVERIFY(QFile::remove(file(player.cover())));
         QTRY_VERIFY(player.cover().isEmpty());
         QVERIFY(player.coverPng().isEmpty());
-        QVERIFY(!player.coverColor().isValid());
+        QTRY_COMPARE(player.coverColor(), QColor("#0071e3"));
         QSignalSpy picturesClosed(&metadata, &SongMetadataService::closed);
         metadata.shutdown();
         QTRY_COMPARE(picturesClosed.size(), 1);

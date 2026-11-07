@@ -1,3 +1,4 @@
+#include "NativeWindow.h"
 #include "ThemeStore.h"
 #include "UiTypography.h"
 #include <QDir>
@@ -314,7 +315,7 @@ private slots:
         for (bool shown : {false, true}) {
             s.offset(shown ? 500 : 0);
             QTest::qWait(300);
-            QSignalSpy frames(s.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(s.window);
             const auto start = std::clock();
             QTest::qWait(1000);
             const double cpuMs = double(std::clock() - start) * 1000 / CLOCKS_PER_SEC;

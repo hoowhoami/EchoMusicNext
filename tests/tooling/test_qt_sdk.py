@@ -20,6 +20,12 @@ spec.loader.exec_module(installer)
 
 class QtSdkTest(unittest.TestCase):
     def setUp(self):
+        self.patch_runtime = patch("qt_qv4_patch.validate_runtime_patch")
+        self.patch_runtime.start()
+        self.addCleanup(self.patch_runtime.stop)
+        self.patch_installer = patch.object(installer, "ensure_qml_patch")
+        self.ensure_patch = self.patch_installer.start()
+        self.addCleanup(self.patch_installer.stop)
         directory = tempfile.TemporaryDirectory(prefix="echo-sdk-test-")
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
@@ -194,6 +200,7 @@ class QtSdkTest(unittest.TestCase):
             installer.main()
             bootstrap.assert_not_called()
             commands.assert_not_called()
+            self.ensure_patch.assert_called_once()
             self.assertTrue((self.prefix / ".echo-sdk.json").is_file())
 
 

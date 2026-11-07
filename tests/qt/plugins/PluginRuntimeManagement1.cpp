@@ -1222,7 +1222,7 @@ ApplicationWindow {
                     auto *spinner = visual(refresh, "buttonSpinner");
                     if (loading)
                         QTRY_COMPARE(spinner->property("status").toInt(), 1);
-                    QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy frames(window);
                     window->update();
                     QTRY_VERIFY(!frames.isEmpty());
                     const auto image = window->grabWindow();

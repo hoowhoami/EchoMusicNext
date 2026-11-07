@@ -1,4 +1,5 @@
 #include "SettingsCatalog.h"
+#include "EchoUiModelAdapter.h"
 #include <QRegularExpression>
 namespace EchoMusic
 {
@@ -19,47 +20,89 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
     interfaceKeywords += tr(" 全屏按钮 标题栏");
 #endif
     m_entries = {
-        {"interface", tr("界面与外观"), "eye", interfaceKeywords, "InterfaceSettingsSection"},
-        {"window", tr("窗口与系统"), "settings",
+        {"interface", tr("界面与外观"), "eye", interfaceKeywords, "InterfaceSettingsSection", {}},
+        {"window",
+         tr("窗口与系统"),
+         "settings",
          tr("窗口行为 记住窗口大小 窗口位置 关闭行为 最小化 托盘 开机自启动"),
-         "WindowSettingsSection"},
-        {"playback", tr("播放体验"), "player-play",
+         "WindowSettingsSection",
+         {}},
+        {"playback",
+         tr("播放体验"),
+         "player-play",
          tr("音质 播放 音量 倍速 歌曲 收藏 过渡 淡入 音量均衡 LUFS 自动跳过错误 失败后切换延迟 "
             "最大自动切换次数 防止系统休眠 智能兼容模式 MV 音频兜底"),
-         "PlaybackSettingsSection"},
-        {"player", tr("播放引擎"), "cpu",
+         "PlaybackSettingsSection",
+         {}},
+        {"player",
+         tr("播放引擎"),
+         "cpu",
          tr("普通预读时长 网络缓存时长上限 网络缓存模式 缓存耗尽时暂停 缓存恢复等待 前向缓存上限 "
             "回退缓存上限 音频设备缓冲 音频采样率 音频声道 输出采样格式 无缝播放 播放恢复超时 "
             "播放卡死自动恢复 最大自动恢复次数"),
-         "PlayerSettingsSection"},
-        {"spatialAudio", tr("音效管理"), "adjustments", tr("蝰蛇 音效 DSP 卷积 IRS WAV"),
-         "AudioEffectSettingsSection"},
-        {"lyric", tr("歌词设置"), "typography",
+         "PlayerSettingsSection",
+         {}},
+        {"spatialAudio",
+         tr("音效管理"),
+         "adjustments",
+         tr("蝰蛇 音效 DSP 卷积 IRS WAV"),
+         "AudioEffectSettingsSection",
+         {}},
+        {"lyric",
+         tr("歌词设置"),
+         "typography",
          tr("播放页 桌面歌词 Mini 歌词 任务栏歌词 翻译 音译 校准 字体 颜色 系统默认 跟随全局"),
-         "LyricSettingsSection"},
-        {"shortcuts", tr("快捷键"), "keyboard", tr("全局快捷键 播放 暂停 上一首 下一首 恢复默认"),
-         "ShortcutSettingsSection"},
-        {"audioDevice", tr("音频设备"), "device-speaker", tr("输入 输出设备 麦克风 系统默认 独占"),
-         "AudioDeviceSettingsSection"},
-        {"cast", tr("投放"), "cast", tr("启用投放 当前输出 DLNA AirPlay 可用设备 清除设备记录"),
-         "CastSettingsSection"},
-        {"plugins", tr("插件"), "puzzle",
-         tr("插件管理 管理面板 在线插件源 已安装插件 插件设置 插件文档"), "PluginSettingsSection"},
-        {"network", tr("网络设置"), "cloud",
+         "LyricSettingsSection",
+         {}},
+        {"shortcuts",
+         tr("快捷键"),
+         "keyboard",
+         tr("全局快捷键 播放 暂停 上一首 下一首 恢复默认"),
+         "ShortcutSettingsSection",
+         {}},
+        {"audioDevice",
+         tr("音频设备"),
+         "device-speaker",
+         tr("输入 输出设备 麦克风 系统默认 独占"),
+         "AudioDeviceSettingsSection",
+         {}},
+        {"cast",
+         tr("投放"),
+         "cast",
+         tr("启用投放 当前输出 DLNA AirPlay 可用设备 清除设备记录"),
+         "CastSettingsSection",
+         {}},
+        {"plugins",
+         tr("插件"),
+         "puzzle",
+         tr("插件管理 管理面板 在线插件源 已安装插件 插件设置 插件文档"),
+         "PluginSettingsSection",
+         {}},
+        {"network",
+         tr("网络设置"),
+         "cloud",
          tr("全局网络代理 系统代理 手动代理 自动检测 WPAD PAC 脚本 proxyRules SOCKS "
             "代理认证 代理用户名 代理密码 不代理地址 bypass GitHub 加速站 GitHub 加速地址 "
             "在线插件源 插件下载 酷狗 API 超时 播放器网络超时 音频 User-Agent useragent UA "
             "随机生成 随机 应用网络设置 代理 超时"),
-         "NetworkSettingsSection"},
-        {"experimental", tr("实验性功能"), "flask",
+         "NetworkSettingsSection",
+         {}},
+        {"experimental",
+         tr("实验性功能"),
+         "flask",
          tr("页面缓存 最大缓存页面数 日志级别 API 响应体日志 临时诊断日志 诊断并重启 开启启动诊断 "
             "用户信息 鉴权头 用户 ID token t1 guid mid dfid uuid dev mac 重置设备身份 GPU DPI "
             "备份与恢复 创建备份 恢复备份 插件与插件数据 查看运行日志 清除应用数据 备份 恢复 缓存 "
             "安全"),
-         "ExperimentalSettingsSection"},
-        {"about", tr("关于"), "info-circle",
+         "ExperimentalSettingsSection",
+         {}},
+        {"about",
+         tr("关于"),
+         "info-circle",
          tr("自动检查更新 检查预发布版本 静默安装 当前版本 更新日志 免责声明 项目源码"),
-         "AboutSettingsSection"}};
+         "AboutSettingsSection",
+         {}}};
+    m_nativeCount = m_entries.size();
     for (int i = 0; i < m_entries.size(); ++i)
         m_visible.append(i);
 }
@@ -95,12 +138,14 @@ QHash<int, QByteArray> SettingsCatalog::roleNames() const
 QUrl SettingsCatalog::source() const
 {
     for (const auto &entry : m_entries)
-        if (entry.key == m_current && available(entry))
+        if (entry.key == m_current && available(entry) && entry.extension.isEmpty())
             return QUrl("qrc:/qt/qml/EchoMusic/Settings/" + entry.component + ".qml");
     return {};
 }
 bool SettingsCatalog::available(const Entry &entry) const
 {
+    if (!entry.extension.isEmpty())
+        return entry.enabled && m_extensions && m_extensions->recipeFor(entry.extension);
     const bool playbackSection = entry.key == "lyric" || entry.key == "audioDevice" ||
                                  entry.key == "spatialAudio" || entry.key == "playback" ||
                                  entry.key == "player" || entry.key == "cast";
@@ -119,10 +164,16 @@ void SettingsCatalog::setFilter(const QString &filter)
 {
     if (m_filter == filter)
         return;
-    beginResetModel();
     m_filter = filter;
+    rebuild(false);
+}
+void SettingsCatalog::rebuild(bool preserve, bool resetting)
+{
+    const auto previous = m_current;
+    if (!resetting)
+        beginResetModel();
     m_visible.clear();
-    const auto query = normalized(filter);
+    const auto query = normalized(m_filter);
     for (int i = 0; i < m_entries.size(); ++i) {
         const auto &entry = m_entries.at(i);
         if ((query.isEmpty() || available(entry)) &&
@@ -131,13 +182,78 @@ void SettingsCatalog::setFilter(const QString &filter)
     }
     m_current.clear();
     for (int index : m_visible) {
-        if (available(m_entries.at(index))) {
-            m_current = m_entries.at(index).key;
+        const auto &entry = m_entries[index];
+        if (!available(entry))
+            continue;
+        if (m_current.isEmpty())
+            m_current = entry.key;
+        if (preserve && entry.key == previous) {
+            m_current = previous;
             break;
         }
     }
+    if (preserve && m_current != previous)
+        for (int index : m_visible)
+            if (m_entries[index].key == m_lastNative && available(m_entries[index])) {
+                m_current = m_lastNative;
+                break;
+            }
     endResetModel();
     emit changed();
+}
+QObject *SettingsCatalog::uiExtensions() const
+{
+    return m_extensions;
+}
+QObject *SettingsCatalog::extensionRecipe() const
+{
+    for (const auto &entry : m_entries)
+        if (entry.key == m_current && !entry.extension.isEmpty() && available(entry))
+            return m_extensions->recipeFor(entry.extension);
+    return nullptr;
+}
+QVariantMap SettingsCatalog::extensionEntry() const
+{
+    for (const auto &entry : m_entries)
+        if (entry.key == m_current && !entry.extension.isEmpty() && available(entry))
+            return m_extensions->entryFor(entry.extension);
+    return {};
+}
+void SettingsCatalog::setUiExtensions(QObject *value)
+{
+    auto *adapter = qobject_cast<EchoUiModelAdapter *>(value);
+    if (m_extensions == adapter)
+        return;
+    for (const auto &connection : std::as_const(m_extensionConnections))
+        disconnect(connection);
+    m_extensionConnections.clear();
+    m_extensions = adapter;
+    if (adapter) {
+        m_extensionConnections << connect(adapter, &EchoUiModelAdapter::changed, this,
+                                          &SettingsCatalog::refreshExtensions)
+                               << connect(adapter, &QObject::destroyed, this,
+                                          &SettingsCatalog::refreshExtensions);
+    }
+    refreshExtensions();
+}
+void SettingsCatalog::refreshExtensions()
+{
+    beginResetModel();
+    m_entries.resize(m_nativeCount);
+    if (m_extensions)
+        for (const auto &value : m_extensions->entries()) {
+            const auto descriptor = value.toMap();
+            const auto identity = descriptor.value("identity").toString();
+            const auto entry = m_extensions->entryFor(identity);
+            m_entries.append({"extension:" + identity,
+                              entry.value("label").toString(),
+                              entry.value("glyph", "puzzle").toString(),
+                              entry.value("keywords").toString(),
+                              {},
+                              identity,
+                              entry.value("enabled", true).toBool()});
+        }
+    rebuild(true, true);
 }
 void SettingsCatalog::select(const QString &key)
 {
@@ -145,6 +261,8 @@ void SettingsCatalog::select(const QString &key)
         const auto &entry = m_entries.at(index);
         if (entry.key == key && available(entry) && m_current != key) {
             m_current = key;
+            if (entry.extension.isEmpty())
+                m_lastNative = key;
             emit changed();
             return;
         }

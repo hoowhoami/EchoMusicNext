@@ -21,12 +21,6 @@ Button {
                 control.clicked();
         }
     }
-    Connections {
-        target: control
-        function onClicked(): void {
-            control.publicPart.publish("activated");
-        }
-    }
 
     // Public Qt component names used by shipped author QML; geometry has one
     // owner in EchoControlSize (xs is compact, ordinary sm/md are standard).

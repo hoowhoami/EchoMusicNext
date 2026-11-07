@@ -305,7 +305,7 @@ Window {
         Test::moveNativePointer(
             window,
             homePlay->mapToScene({homePlay->width() / 2, homePlay->height() / 2}).toPoint());
-        QTRY_COMPARE(homePlay->property("visualScale").toReal(), 1.1);
+        QTRY_COMPARE(homePlay->property("visualScale").toReal(), 1.08);
         QCOMPARE(homePlay->property("foreground").value<QColor>(),
                  theme.property("accentText").value<QColor>());
         click(homePlay);

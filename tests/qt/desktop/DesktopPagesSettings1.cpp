@@ -89,7 +89,7 @@ void DesktopPagesTest::startupUsesRealFailuresAndReleasesItsEntirePage()
                 session.shell.resetZoom();
                 for (int i = 100; i < zoom; i += 5)
                     session.shell.zoomIn();
-                QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frames(session.window);
                 session.window->update();
                 QTRY_VERIFY(!frames.isEmpty());
                 // A nested text maximum must not left-align the entire
@@ -131,7 +131,7 @@ void DesktopPagesTest::startupUsesRealFailuresAndReleasesItsEntirePage()
         QCOMPARE(visual(page, "startupStatus")->property("text").toString(),
                  QStringLiteral("正在打开页面..."));
         QCOMPARE(landing->parentItem()->opacity(), 0.);
-        QSignalSpy pendingFrames(session.window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy pendingFrames(session.window);
         session.window->update();
         QTRY_VERIFY(!pendingFrames.isEmpty());
         QVERIFY(page); // Startup remains across real frames while the route waits.
@@ -249,7 +249,7 @@ void DesktopPagesTest::settingsSearchClearRestoresCategoriesAndKeepsFocus()
             QTRY_COMPARE(catalog->filter(), QString("bypass"));
             QCOMPARE(catalog->rowCount(), 1);
             QTRY_VERIFY(clear->isVisible());
-            QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(session.window);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
             const auto capture = [&](const QString &phase) {
@@ -529,7 +529,7 @@ void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
     QTRY_VERIFY(lyricFontsMatch(pageLyrics, uiFont("system-ui")));
     QTRY_VERIFY(pageOwner->property("item").value<QObject *>()->property("opened").toBool());
     if (!captures.isEmpty()) {
-        QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frames(session.window);
         session.window->update();
         QTRY_VERIFY(!frames.isEmpty());
         QVERIFY(session.window->grabWindow().save(captures + "/playback.png"));
@@ -635,7 +635,7 @@ void DesktopPagesTest::lyricVariantSettingUsesProductionSelectAndReleasesPopup()
             QVERIFY(!select->property("popup").value<QObject *>());
             playback.lyricText()->setConversion("traditional");
             QTRY_COMPARE(select->property("currentIndex").toInt(), 2);
-            QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(session.window);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
             auto *viewport = visual(session.window->contentItem(), "settingsContentViewport");
@@ -1547,6 +1547,7 @@ void DesktopPagesTest::settingsDefaultsAndSourceEffectFileManager()
     QTRY_VERIFY((control = visual(session.window->contentItem(), "settingsDefaultSearch")));
     QVERIFY(!control->property("checked").toBool());
     catalog->select("playback");
+    QVERIFY(session.settingsSectionReady());
     QTRY_VERIFY((control = visual(session.window->contentItem(), "settingsDefaultQuality")));
     QTRY_COMPARE(control->property("currentText").toString(), QStringLiteral("Hi-Res 品质"));
     QCOMPARE(playback.preferences()->defaultQuality(), QString("hi_res"));
@@ -1555,20 +1556,10 @@ void DesktopPagesTest::settingsDefaultsAndSourceEffectFileManager()
         (compatibility = visual(session.window->contentItem(), "settingsCompatibilityMode")));
     QVERIFY(compatibility->property("checked").toBool());
     QVERIFY(playback.preferences()->compatibilityMode());
-    QVERIFY(Test::prepareNativeInput(session.window));
-    QVERIFY(session.revealItem(compatibility));
-    QSignalSpy compatibilityFrame(session.window, &QQuickWindow::frameSwapped);
-    session.window->update();
-    QTRY_VERIFY(!compatibilityFrame.isEmpty());
-    Test::moveNativePointer(
-        session.window,
-        compatibility->mapToScene({compatibility->width() / 2, compatibility->height() / 2})
-            .toPoint());
+    // Section incubation and scroll restoration can outlive one rendered frame.
+    // Use the shared real-input helper, which waits for stable target geometry.
+    QVERIFY(session.clickItem(compatibility));
     QTRY_VERIFY(compatibility->property("hovered").toBool());
-    QTest::mouseClick(
-        session.window, Qt::LeftButton, Qt::NoModifier,
-        compatibility->mapToScene(QPointF(compatibility->width() / 2, compatibility->height() / 2))
-            .toPoint());
     QTRY_VERIFY(!playback.preferences()->compatibilityMode());
     QTRY_VERIFY(!compatibility->property("checked").toBool());
     QPointer<QQuickItem> retiredCompatibility = compatibility;

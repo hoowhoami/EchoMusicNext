@@ -3,6 +3,7 @@
 #include "EchoUiPartRegistration.h"
 #include "EchoUiPartRegistry.h"
 #include "EchoUiPartMount.h"
+#include "EchoUiLayout.h"
 #include <QTimer>
 #include <memory>
 namespace EchoMusic
@@ -34,6 +35,81 @@ EchoUiPartRef *EchoPluginUiParts::reference(EchoUiPartRegistration &part)
     m_refs.insert(part.identity(), ref);
     return ref;
 }
+EchoUiBatch *EchoPluginUiParts::applyBatch(const QString &id, const QVariantList &entries)
+{
+    QString message;
+    if (!EchoUiBatch::validate(*this, entries, message)) {
+        error(message);
+        return nullptr;
+    }
+    auto *lease = m_scope.registration("uiBatch", id);
+    if (!lease) {
+        error("Invalid batch ID or retired activation");
+        return nullptr;
+    }
+    auto *batch = new EchoUiBatch(*this, *lease, id, entries);
+    m_scope.engine().newQObject(batch);
+    QQmlEngine::setObjectOwnership(batch, QQmlEngine::CppOwnership);
+    connect(&m_scope, &EchoPluginContext::sessionInvalidated, lease,
+            &EchoPluginRegistration::dispose);
+    connect(lease, &EchoPluginRegistration::activeChanged, batch, [batch, lease] {
+        if (!lease->active()) {
+            batch->stop();
+            batch->setParent(nullptr);
+            QQmlEngine::setObjectOwnership(batch, QQmlEngine::JavaScriptOwnership);
+            lease->deleteLater();
+        }
+    });
+    lease->stage(
+        [batch] {
+            batch->start();
+            return true;
+        },
+        [batch] { batch->stop(); });
+    if (m_scope.committed())
+        lease->commit();
+    error({});
+    return batch;
+}
+EchoUiModelContribution *EchoPluginUiParts::contributeModel(const QString &id,
+                                                            const QVariantMap &selector,
+                                                            const QVariantMap &definition)
+{
+    QString message;
+    if (!EchoUiPartRegistry::validSelector(selector) ||
+        !EchoUiModelContribution::validate(*this, definition, message)) {
+        error(message.isEmpty() ? "Invalid model selector" : message);
+        return nullptr;
+    }
+    auto *lease = m_scope.registration("uiModel", id);
+    if (!lease) {
+        error("Invalid model contribution ID or retired scope");
+        return nullptr;
+    }
+    auto *contribution = new EchoUiModelContribution(*this, *lease, id, selector, definition);
+    m_scope.engine().newQObject(contribution);
+    QQmlEngine::setObjectOwnership(contribution, QQmlEngine::CppOwnership);
+    connect(&m_scope, &EchoPluginContext::sessionInvalidated, lease,
+            &EchoPluginRegistration::dispose);
+    connect(lease, &EchoPluginRegistration::activeChanged, contribution, [contribution, lease] {
+        if (lease->active())
+            return;
+        contribution->stop();
+        contribution->setParent(nullptr);
+        QQmlEngine::setObjectOwnership(contribution, QQmlEngine::JavaScriptOwnership);
+        lease->deleteLater();
+    });
+    lease->stage(
+        [contribution] {
+            contribution->start();
+            return true;
+        },
+        [contribution] { contribution->stop(); });
+    if (m_scope.committed())
+        lease->commit();
+    error({});
+    return contribution;
+}
 EchoUiPartRef *EchoPluginUiParts::query(const QVariantMap &selector)
 {
     if (!m_scope.active() || !registry())
@@ -43,8 +119,31 @@ EchoUiPartRef *EchoPluginUiParts::query(const QVariantMap &selector)
         return nullptr;
     }
     error({});
-    const auto parts = registry()->query(selector);
-    return parts.isEmpty() ? nullptr : reference(*parts.first());
+    QObject discovery;
+    registry()->acquireStructure(&discovery);
+    for (auto *part : registry()->query(selector))
+        if (part->surface() != "inspector")
+            return reference(*part);
+    return nullptr;
+}
+EchoUiPartRef *EchoPluginUiParts::queryUnique(const QVariantMap &selector)
+{
+    if (!m_scope.active() || !registry())
+        return nullptr;
+    if (!EchoUiPartRegistry::validSelector(selector)) {
+        error("Invalid UI part selector");
+        return nullptr;
+    }
+    QObject discovery;
+    registry()->acquireStructure(&discovery);
+    auto matches = registry()->query(selector);
+    matches.removeIf([](auto *part) { return part->surface() == "inspector"; });
+    if (matches.size() != 1) {
+        error(QString("UI selector matched %1 parts; expected exactly one").arg(matches.size()));
+        return nullptr;
+    }
+    error({});
+    return reference(*matches.first());
 }
 QVariantList EchoPluginUiParts::queryAll(const QVariantMap &selector)
 {
@@ -56,9 +155,88 @@ QVariantList EchoPluginUiParts::queryAll(const QVariantMap &selector)
         return result;
     }
     error({});
+    QObject discovery;
+    registry()->acquireStructure(&discovery);
     for (auto *part : registry()->query(selector))
-        result.append(QVariant::fromValue(reference(*part)));
+        if (part->surface() != "inspector")
+            result.append(QVariant::fromValue(reference(*part)));
     return result;
+}
+QVariantMap EchoPluginUiParts::preflight(const QVariantMap &selector, const QVariantMap &definition)
+{
+    QString message;
+    if (!m_scope.active() || !registry() || !EchoUiPartRegistry::validSelector(selector))
+        message = "Invalid selector or closed activation";
+    else if (!EchoUiContribution::validate(m_scope, definition, message)) {
+    }
+    if (!message.isEmpty())
+        return {{"valid", false}, {"error", message}, {"matchCount", 0}};
+    QObject discovery;
+    registry()->acquireStructure(&discovery);
+    auto matches = registry()->query(selector);
+    matches.removeIf([this](auto *part) {
+        return part->surface() == "inspector" || part->owner() == m_scope.id();
+    });
+    QVariantList targets;
+    const auto operation = definition.value("operation", "insert").toString();
+    bool valid = !matches.isEmpty() && matches.size() <= 256;
+    if (!valid)
+        message = matches.isEmpty() ? "No matching live targets"
+                                    : "UI contribution exceeds 256 live targets";
+    for (auto *part : matches) {
+        QString reason;
+        if ((operation == "wrap" || operation == "replace") && !part->canCompose())
+            reason = "Native content factory is unavailable for this item type";
+        else if (operation == "insert") {
+            const auto position = definition.value("position", "append").toString();
+            if (!part->insertionPositions().contains(position))
+                reason = "Unsupported insertion position";
+            auto *container = position == "before" || position == "after"
+                                  ? part->target()->parentItem()
+                                  : part->target();
+            if (reason.isEmpty() && position != "background" && position != "foreground")
+                EchoUiLayout::validateInsertion(container, definition.value("layout").toMap(),
+                                                reason);
+        } else if (operation == "move") {
+            const auto destinations = registry()->query(definition.value("destination").toMap());
+            if (destinations.size() != 1 || destinations.first()->layoutKind().isEmpty() ||
+                destinations.first()->target()->window() != part->target()->window())
+                reason = "Move requires one native container in the same window";
+            else {
+                for (auto *item = destinations.first()->target(); item; item = item->parentItem())
+                    if (item == part->target())
+                        reason = "Composition cycle";
+            }
+        } else
+            EchoUiLayout::validate(part->target()->parentItem(), definition.value("layout").toMap(),
+                                   reason);
+        valid = valid && reason.isEmpty();
+        targets.append(QVariantMap{{"id", part->identity()},
+                                   {"address", part->address()},
+                                   {"persistent", part->persistent()},
+                                   {"supported", reason.isEmpty()},
+                                   {"error", reason},
+                                   {"layoutEngine", part->layoutEngine()},
+                                   {"insertionPositions", part->insertionPositions()}});
+    }
+    if (valid && definition.contains("component")) {
+        QQmlComponent component(&m_scope.engine(), QUrl::fromLocalFile(m_scope.package().resolve(
+                                                       definition.value("component").toString())));
+        if (component.isError()) {
+            valid = false;
+            message = component.errorString();
+        }
+    }
+    QVariantMap unique;
+    if (matches.size() == 1)
+        unique = matches.first()->persistent()
+                     ? QVariantMap{{"address", matches.first()->address()}}
+                     : QVariantMap{{"id", matches.first()->identity()}};
+    return {{"valid", valid},
+            {"error", message},
+            {"matchCount", matches.size()},
+            {"uniqueSelector", unique},
+            {"targets", targets}};
 }
 EchoPluginRegistration *EchoPluginUiParts::observe(const QString &id, const QVariantMap &selector,
                                                    const QJSValue &callback, bool immediate)
@@ -127,7 +305,8 @@ EchoPluginRegistration *EchoPluginUiParts::observe(const QString &id, const QVar
     };
     auto attach = [this, state, lease, selector, enqueue](EchoUiPartRegistration *part,
                                                           bool announce) {
-        if (!part || !EchoUiPartRegistry::matches(*part, selector))
+        if (!part || part->surface() == "inspector" ||
+            !EchoUiPartRegistry::matches(*part, selector))
             return;
         const auto identity = part->identity();
         if (state->connections.contains(identity))
@@ -144,28 +323,41 @@ EchoPluginRegistration *EchoPluginUiParts::observe(const QString &id, const QVar
         if (announce)
             enqueue("added", ref);
     };
+    const auto remove = [state, enqueue](const QString &id) {
+        for (const auto &connection : state->connections.take(id))
+            disconnect(connection);
+        const auto ref = state->refs.take(id);
+        if (ref.isQObject())
+            enqueue("removed", ref);
+    };
     lease->stage(
-        [this, state, selector, attach, lease, immediate, enqueue] {
+        [this, state, selector, attach, lease, immediate, remove] {
             auto *source = registry();
             if (!source)
                 return false;
+            source->acquireStructure(lease);
             state->registryConnections
                 << connect(source, &EchoUiPartRegistry::added, lease,
                            [attach](auto *part) { attach(part, true); })
-                << connect(source, &EchoUiPartRegistry::removed, lease,
-                           [state, enqueue](const auto &id) {
-                               const auto connections = state->connections.take(id);
-                               for (const auto &c : connections)
-                                   disconnect(c);
-                               const auto ref = state->refs.take(id);
-                               if (ref.isQObject())
-                                   enqueue("removed", ref);
+                << connect(source, &EchoUiPartRegistry::removed, lease, remove)
+                << connect(source, &EchoUiPartRegistry::structureChanged, lease,
+                           [source, state, selector, attach, remove] {
+                               QSet<QString> selected;
+                               for (auto *part : source->query(selector)) {
+                                   selected.insert(part->identity());
+                                   attach(part, true);
+                               }
+                               for (const auto &id : state->refs.keys())
+                                   if (!selected.contains(id))
+                                       remove(id);
                            });
             for (auto *part : source->query(selector))
                 attach(part, immediate);
             return true;
         },
-        [state] {
+        [this, state, lease] {
+            if (auto *source = registry())
+                source->releaseStructure(lease);
             for (const auto &c : state->registryConnections)
                 QObject::disconnect(c);
             for (const auto &list : state->connections)
@@ -196,6 +388,8 @@ EchoUiPartMount *EchoPluginUiParts::mount(const QString &id, EchoUiPartRef *part
         error("This public part does not support structural replacement");
         return nullptr;
     }
+    if (position == "replace" && part->registration())
+        part->registration()->ensureNativeFactory();
     const auto path = m_scope.package().resolve(component);
     if (path.isEmpty() || !path.endsWith(".qml")) {
         error("Mount component must be a package QML file");
@@ -225,5 +419,49 @@ EchoUiPartMount *EchoPluginUiParts::mount(const QString &id, EchoUiPartRef *part
         lease->commit();
     error({});
     return mount;
+}
+} // namespace EchoMusic
+
+namespace EchoMusic
+{
+EchoUiContribution *EchoPluginUiParts::contribute(const QString &id, const QVariantMap &selector,
+                                                  const QVariantMap &definition)
+{
+    QString message;
+    if (!EchoUiPartRegistry::validSelector(selector) ||
+        !EchoUiContribution::validate(m_scope, definition, message)) {
+        error(message.isEmpty() ? QStringLiteral("Invalid UI contribution selector") : message);
+        return nullptr;
+    }
+    auto *lease = m_scope.registration("uiContribution", id);
+    if (!lease) {
+        error("Invalid contribution ID or retired scope");
+        return nullptr;
+    }
+    auto *contribution = new EchoUiContribution(*this, *lease, id, selector, definition);
+    m_scope.engine().newQObject(contribution);
+    QQmlEngine::setObjectOwnership(contribution, QQmlEngine::CppOwnership);
+    connect(lease, &EchoPluginRegistration::activeChanged, contribution, [contribution, lease] {
+        if (lease->active())
+            return;
+        QTimer::singleShot(
+            0, contribution, [contribution, lease = QPointer<EchoPluginRegistration>(lease)] {
+                contribution->stop();
+                contribution->setParent(nullptr);
+                QQmlEngine::setObjectOwnership(contribution, QQmlEngine::JavaScriptOwnership);
+                if (lease)
+                    lease->deleteLater();
+            });
+    });
+    lease->stage(
+        [contribution] {
+            contribution->start();
+            return true;
+        },
+        [contribution] { contribution->stop(); });
+    if (m_scope.committed())
+        lease->commit();
+    error({});
+    return contribution;
 }
 } // namespace EchoMusic

@@ -129,7 +129,7 @@ struct ControlsSession
         if (!window || !Test::prepareNativeInput(window))
             return false;
         // Exposure alone precedes scene-graph initialization and polish.
-        QSignalSpy committed(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy committed(window);
         window->update();
         return !committed.isEmpty() || committed.wait(2000);
     }

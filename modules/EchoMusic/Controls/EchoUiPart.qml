@@ -1,8 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 
-// Resolve in the host's existing bindings: the fallback is evaluated on every
-// theme/state change even while a plugin wins. Never overwrite a host binding.
+// Shared renderers keep their native bindings and resolve only public overrides.
 EchoUiPartRegistration {
     function value(name: string, fallback: var): var {
         const values = overrides;

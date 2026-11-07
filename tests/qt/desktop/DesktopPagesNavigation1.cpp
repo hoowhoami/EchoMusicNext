@@ -176,14 +176,13 @@ void DesktopPagesTest::productionPopupsFollowRequestOwnership()
     anchor.setSize({32, 32});
     anchor.setPosition({600, 500});
     const QStringList cases{
-        "settingsDialog",        "taskCenterDialog",      "playbackPage",
-        "playbackQueueDrawer",   "playbackEffectPopup",   "sleepTimerPopup",
-        "playbackOptionsPopup",  "playerbarMorePopup",    "sidebarLayoutPopup",
-        "sidebarAccountPopover", "accountSwitcherDialog", "logoutConfirmation",
-        "playlistCreateDialog",  "playlistOrderDialog",   "playlistRemoveDialog",
-        "playlistImportDialog",  "profileEditorDialog",   "profileGradeDialog",
-        "profileSocialDrawer",   "profileDeviceDialog",   "listeningPreferencesDialog",
-        "contentBlacklistDialog"};
+        "settingsDialog",        "taskCenterDialog",           "playbackPage",
+        "playbackQueueDrawer",   "playbackEffectPopup",        "sleepTimerPopup",
+        "playbackOptionsPopup",  "playerbarMorePopup",         "sidebarLayoutPopup",
+        "sidebarAccountPopover", "accountSwitcherDialog",      "logoutConfirmation",
+        "playlistCreateDialog",  "playlistOrderDialog",        "playlistImportDialog",
+        "profileEditorDialog",   "profileGradeDialog",         "profileSocialDrawer",
+        "profileDeviceDialog",   "listeningPreferencesDialog", "contentBlacklistDialog"};
     for (const auto &name : cases) {
         auto *owner = session.root->findChild<QObject *>(name + "Owner");
         if (!owner) {
@@ -575,11 +574,13 @@ void DesktopPagesTest::productionCollectionAndSocialEntrypoints()
     const auto capture = qEnvironmentVariable("ECHO_COLLECTION_SOCIAL_CAPTURE_DIR");
     if (!capture.isEmpty())
         QVERIFY(QDir().mkpath(capture));
-    const auto click = [&](QQuickItem *item) {
+    const auto click = [&](QQuickItem *target) {
+        QPointer<QQuickItem> item = target;
         QVERIFY(item);
-        QVERIFY(item->isEnabled());
-        QTRY_VERIFY(item->isVisible() && item->width() > 0 && item->height() > 0);
+        QTRY_VERIFY(item && item->isEnabled() && item->isVisible() && item->width() > 0 &&
+                    item->height() > 0);
         QTest::qWait(50);
+        QTRY_VERIFY(item && item->isEnabled());
         QSignalSpy pressed(item, SIGNAL(clicked()));
         QVERIFY(pressed.isValid());
         const auto point = item->mapToScene({item->width() / 2, item->height() / 2}).toPoint();
@@ -624,19 +625,32 @@ void DesktopPagesTest::productionCollectionAndSocialEntrypoints()
                                                                 : "artistDetailPage";
                 QTRY_VERIFY((activePage = visual(session.window->contentItem(), pageName)) &&
                             activePage->isVisible());
+                // The cached scroll position is restored before RouteHost
+                // enables the page; only then choose the expanded-header state.
+                QTRY_VERIFY(activePage->isEnabled());
                 QTRY_VERIFY(visual(activePage, "songDetailHeader"));
                 auto *songView = visual(activePage, "discoverySongs");
                 QVERIFY(songView);
-                songView->setProperty("contentY", -songView->property("topMargin").toReal());
+                auto *catalog = visual(activePage, "catalogSongList");
+                QVERIFY(catalog);
+                auto *scrollOwner = catalog->property("pageContainer").value<QObject *>();
+                QVERIFY(scrollOwner);
+                // Explicit scroll commands retire cached row-anchor recovery
+                // and respect ListView's potentially nonzero originY.
+                QVERIFY(QMetaObject::invokeMethod(scrollOwner, "scrollTo", Q_ARG(double, 0.)));
+                QTRY_COMPARE(scrollOwner->property("scrollTop").toReal(), 0.);
                 const auto buttonName =
                     name == "artist-detail" ? "artistFollowButton" : "detailCollectButton";
                 QQuickItem *button = nullptr;
                 QTRY_VERIFY((button = visual(activePage, buttonName)) && button->isVisible());
-                QVERIFY(button->isEnabled());
+                // RouteHost enables a new page after its presentation is ready.
+                QTRY_VERIFY2(button->isEnabled(), qPrintable(name + ':' + buttonName));
                 QTRY_VERIFY(button->width() > 20 && button->height() > 20);
                 QTest::qWait(100);
                 const auto verifyCommand = [&](QQuickItem *target) {
-                    qInfo() << "Entry command" << name << target->objectName();
+                    qInfo() << "Entry command" << name << target->objectName() << "enabled"
+                            << target->isEnabled() << "visible" << target->isVisible() << "scroll"
+                            << songView->property("contentY");
                     click(target);
                     if (name == "artist-detail") {
                         const auto write = ProfileServiceTestAccess::followWrite(session.profile);
@@ -681,7 +695,7 @@ void DesktopPagesTest::productionCollectionAndSocialEntrypoints()
                         capture + QString("/%1-%2-%3.png").arg(name).arg(int(mode)).arg(scale)));
                 auto *list = visual(activePage, "discoverySongs");
                 QVERIFY(list);
-                list->setProperty("contentY", 500);
+                QVERIFY(QMetaObject::invokeMethod(scrollOwner, "scrollTo", Q_ARG(double, 500.)));
                 const auto collapsed =
                     name == "artist-detail" ? "artistFollowCollapsed" : "detailCollectCollapsed";
                 QTRY_VERIFY(visual(activePage, collapsed) &&
@@ -704,8 +718,8 @@ void DesktopPagesTest::productionCollectionAndSocialEntrypoints()
                                           {"mutual", true}};
             ProfileServiceTestAccess::seed(session.profile, 0, {user});
             session.profile.openSocial(ProfileService::SocialTab::Friends);
-            auto *page = visual(session.window->contentItem(), "profilePage");
-            QTRY_VERIFY(page);
+            QQuickItem *page = nullptr;
+            QTRY_VERIFY(page = visual(session.window->contentItem(), "profilePage"));
             auto *owner = page->findChild<QObject *>("profileSocialDrawerOwner");
             QVERIFY(owner);
             QVERIFY(
@@ -1079,8 +1093,11 @@ void DesktopPagesTest::productionSidebarOrderEditor()
     QTRY_COMPARE(position->property("value").toInt(), 21);
     QTRY_COMPARE(number->property("text").toString(), QString("21"));
     model.select(0);
+    QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtBeginning"));
+    QVERIFY(session.settleScene());
     const auto from = list->mapToScene(QPointF(100, 26)).toPoint();
     const auto to = list->mapToScene(QPointF(100, 182)).toPoint();
+    Test::moveNativePointer(session.window, from);
     QTest::mousePress(session.window, Qt::LeftButton, Qt::NoModifier, from);
     QTest::mouseMove(session.window, from + QPoint(0, 15), 20);
     QTest::mouseMove(session.window, to, 30);

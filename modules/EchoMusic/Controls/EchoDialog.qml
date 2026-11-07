@@ -13,6 +13,8 @@ Dialog {
     }
     // Only the active security verification dialog may bypass the input cover.
     property bool verificationSurface: false
+    // Protected host-owned tools may opt out of plugin targeting.
+    property string echoUiSurface: ""
     property real uiScale: 1
     property real preferredWidth: 420
     property int headingPixelSize: 18
@@ -65,6 +67,7 @@ Dialog {
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Rectangle {
         id: dimSurface
+        readonly property string echoUiSurface: dialog.echoUiSurface
         color: Theme.dark ? "#5c000000" : "#4d000000"
         EchoPopupDismissGuard {
             overlay: dimSurface.parent
@@ -74,6 +77,7 @@ Dialog {
         }
     }
     background: EchoFloatingSurface {
+        readonly property string echoUiSurface: dialog.echoUiSurface
         radius: Theme.dialogRadius
         border.width: 1
         border.color: Theme.floating.surfaceOutline
@@ -81,6 +85,7 @@ Dialog {
     }
     contentItem: ColumnLayout {
         id: content
+        readonly property string echoUiSurface: dialog.echoUiSurface
         spacing: 8
         RowLayout {
             id: headingRow

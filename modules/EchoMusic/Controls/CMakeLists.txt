@@ -2,6 +2,12 @@ set_source_files_properties(EchoLabelSurface.qml PROPERTIES QT_QML_INTERNAL_TYPE
 set_source_files_properties(EchoContentLoader.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
 set_source_files_properties(EchoControlContent.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(EchoToolTipPopup.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
+set_source_files_properties(EchoUiNativeStyle.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
+set_source_files_properties(
+    EchoUiControlContentVisibility.qml EchoUiMenuProjection.qml PROPERTIES QT_QML_INTERNAL_TYPE
+                                                                           TRUE
+)
+set_source_files_properties(EchoUiAnchorPadding.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
 set_source_files_properties(EchoPopupCoordinator.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(EchoControlSize.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(EchoListPositioning.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -13,6 +19,8 @@ qt_add_qml_module(
     SOURCES
     EchoItemTranslation.h
     EchoItemTranslation.cpp
+    QuickAnimationDriver.h
+    QuickAnimationDriver.cpp
     EchoPageState.h
     EchoPageState.cpp
     EchoPagePresentation.h
@@ -21,6 +29,8 @@ qt_add_qml_module(
     EchoInputFocus.cpp
     EchoFileDialog.h
     EchoFileDialog.cpp
+    EchoUiContentFactory.h
+    EchoUiContentFactory.cpp
     EchoUiPartRegistration.h
     EchoUiPartRegistration.cpp
     EchoLyricEffectRegistry.h
@@ -29,6 +39,38 @@ qt_add_qml_module(
     EchoSongMenuRegistry.cpp
     EchoUiPartRegistry.h
     EchoUiPartRegistry.cpp
+    EchoUiLayout.h
+    EchoUiLayout.cpp
+    EchoUiStructure.h
+    EchoUiStructure.cpp
+    EchoUiScope.h
+    EchoUiScope.cpp
+    EchoUiInspectorProbe.h
+    EchoUiInspectorProbe.cpp
+    EchoUiPresentation.h
+    EchoUiPresentation.cpp
+    EchoUiFocusLease.h
+    EchoUiFocusLease.cpp
+    EchoUiFocusOrder.h
+    EchoUiFocusOrder.cpp
+    EchoUiNativeContract.h
+    EchoUiNativeContract.cpp
+    EchoUiControlContentFactory.h
+    EchoUiControlContentFactory.cpp
+    EchoUiValue.h
+    EchoUiValue.cpp
+    EchoUiValueModel.h
+    EchoUiValueModel.cpp
+    EchoUiExtensionModel.h
+    EchoUiExtensionModel.cpp
+    EchoUiModelCell.h
+    EchoUiModelCell.cpp
+    EchoUiModelAdapter.h
+    EchoUiModelAdapter.cpp
+    EchoUiPropertyRelay.h
+    EchoUiPropertyRelay.cpp
+    EchoUiAnchorGroup.h
+    EchoUiAnchorGroup.cpp
     EchoBackdropRoot.h
     EchoBackdropRoot.cpp
     EchoEffectOwnership.h
@@ -60,7 +102,15 @@ qt_add_qml_module(
     EchoTextInkMetrics.h
     EchoTextInkMetrics.cpp
     QML_FILES
+    EchoUiRegion.qml
+    EchoUiRow.qml
+    EchoUiColumn.qml
+    EchoUiGrid.qml
     EchoUiPart.qml
+    EchoUiNativeStyle.qml
+    EchoUiControlContentVisibility.qml
+    EchoUiMenuProjection.qml
+    EchoUiAnchorPadding.qml
     EchoWindowDragArea.qml
     EchoUiPartHost.qml
     EchoBoundedListView.qml
@@ -312,6 +362,8 @@ target_link_libraries(
             Qt6::Gui
             Qt6::Qml
             Qt6::Quick
+            Qt6::QuickPrivate
+            Qt6::CorePrivate
             Qt6::QuickEffects
             Qt6::Svg
             Qt6::QuickControls2

@@ -355,7 +355,7 @@ void DesktopPagesTest::realPlaybackSurfacesAndBoundedFiftyThousandQueue()
     QCOMPARE(sleepHeading->property("color").value<QColor>(), session.theme.floatingText());
     if (!captureDirectory.isEmpty()) {
         session.theme.setFloatingFrosted(true);
-        QSignalSpy frame(session.window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frame(session.window);
         session.window->update();
         QTRY_VERIFY(!frame.isEmpty());
         QTest::qWait(100);

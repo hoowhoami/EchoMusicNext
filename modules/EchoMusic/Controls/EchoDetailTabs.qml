@@ -9,6 +9,23 @@ import EchoMusic.Theme
 // in a 56px row; the 2px underline sits at the tab-box bottom.
 Item {
     id: root
+    readonly property string _echoUiModelKind: "tabs"
+    property QtObject _echoUiModelAdapter: null
+    readonly property var extensionEntries: _echoUiModelAdapter ? _echoUiModelAdapter.entries : []
+    readonly property var shownLabels: extensionEntries.length ? labels.concat(extensionEntries.map(entry => entry.label)) : labels
+    readonly property int shownIndex: _echoUiModelAdapter && _echoUiModelAdapter.selectedKey.length ? labels.length + extensionEntries.findIndex(entry => entry.identity === _echoUiModelAdapter.selectedKey) : currentIndex
+    readonly property Item _echoUiNativeFocusItem: tabs.count ? tabs.itemAt(currentIndex) : null
+    function selectTab(index: int): void {
+        if (index < labels.length) {
+            if (_echoUiModelAdapter)
+                _echoUiModelAdapter.clearSelection();
+            picked(index);
+        } else if (_echoUiModelAdapter)
+            _echoUiModelAdapter.selectEntry(index - labels.length);
+    }
+    function available(index: int): bool {
+        return index >= 0 && index < shownLabels.length && (index < labels.length || extensionEntries[index - labels.length]?.enabled === true);
+    }
     property list<string> labels: []
     // Numeric counts include zero. An empty string hides the badge.
     property list<var> counts: []
@@ -29,7 +46,11 @@ Item {
     // Track the actual delegate lifecycle so a route's initially selected tab
     // has an indicator without requiring a later user selection.
     property Item activeTabItem: null
-    onCurrentIndexChanged: activeTabItem = tabs ? tabs.itemAt(currentIndex) : null
+    onCurrentIndexChanged: {
+        if (_echoUiModelAdapter)
+            _echoUiModelAdapter.clearSelection();
+    }
+    onShownIndexChanged: activeTabItem = tabs ? tabs.itemAt(shownIndex) : null
     function countVisible(index: int): bool {
         if (index < 0 || index >= root.counts.length)
             return false;
@@ -70,9 +91,9 @@ Item {
         spacing: 32
         Repeater {
             id: tabs
-            model: root.labels
+            model: root.shownLabels
             onItemAdded: (index, item) => {
-                if (index === root.currentIndex)
+                if (index === root.shownIndex)
                     root.activeTabItem = item;
             }
             onItemRemoved: (index, item) => {
@@ -83,11 +104,13 @@ Item {
                 id: tab
                 required property int index
                 required property string modelData
+                readonly property string extensionGlyph: index >= root.labels.length ? (root.extensionEntries[index - root.labels.length]?.glyph || "") : ""
                 objectName: root.objectNames.length > tab.index ? root.objectNames[tab.index] : "detailTab-" + tab.index
+                enabled: root.available(tab.index)
                 flat: true
                 padding: 0
                 hoverEnabled: true
-                activeFocusOnTab: activeFocus || tab.index === root.currentIndex
+                activeFocusOnTab: activeFocus || tab.index === root.shownIndex
                 background: null
                 implicitHeight: root.tabBoxHeight
                 Layout.preferredHeight: root.tabBoxHeight
@@ -95,40 +118,63 @@ Item {
                 Layout.alignment: Qt.AlignVCenter
                 Accessible.role: Accessible.PageTab
                 Accessible.name: tab.modelData
-                Accessible.selected: tab.index === root.currentIndex
-                onClicked: root.picked(tab.index)
+                Accessible.selected: tab.index === root.shownIndex
+                onClicked: root.selectTab(tab.index)
                 function select(next: int): void {
                     const item = tabs.itemAt(next);
                     if (!item)
                         return;
-                    root.picked(next);
+                    if (!root.available(next))
+                        return;
+                    root.selectTab(next);
                     item.forceActiveFocus();
                 }
-                Keys.onRightPressed: select((tab.index + 1) % root.labels.length)
-                Keys.onLeftPressed: select((tab.index + root.labels.length - 1) % root.labels.length)
+                function move(direction: int): void {
+                    for (let i = 1; i <= root.shownLabels.length; ++i) {
+                        const next = (tab.index + direction * i + root.shownLabels.length) % root.shownLabels.length;
+                        if (root.available(next)) {
+                            select(next);
+                            return;
+                        }
+                    }
+                }
+                Keys.onRightPressed: move(1)
+                Keys.onLeftPressed: move(-1)
                 Keys.onPressed: event => {
                     if (event.key === Qt.Key_Home) {
                         select(0);
                         event.accepted = true;
                     } else if (event.key === Qt.Key_End) {
-                        select(root.labels.length - 1);
+                        select(root.shownLabels.length - 1);
                         event.accepted = true;
                     }
                 }
                 contentItem: Item {
-                    implicitWidth: label.implicitWidth
+                    implicitWidth: label.implicitWidth + (glyphLoader.active ? 22 : 0)
                     implicitHeight: root.tabBoxHeight
+                    Loader {
+                        id: glyphLoader
+                        active: tab.extensionGlyph.length > 0
+                        width: active ? 14 : 0
+                        height: 14
+                        y: label.firstLineInkCenter - height / 2
+                        sourceComponent: EchoIcon {
+                            name: tab.extensionGlyph
+                            color: label.color
+                        }
+                    }
                     EchoTextTagRow {
                         id: label
                         objectName: "detailTabLabel-" + tab.index
                         anchors.left: parent.left
+                        anchors.leftMargin: glyphLoader.active ? 22 : 0
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
                         anchors.bottomMargin: 4
                         text: tab.modelData
                         // Active and hovered labels use the main text color; the underline carries the accent.
                         font: Theme.font(root.labelPixelSize, root.labelWeight)
-                        color: tab.index === root.currentIndex || tab.hovered ? Theme.text : Theme.secondaryText
+                        color: tab.index === root.shownIndex || tab.hovered ? Theme.text : Theme.secondaryText
                         // Keep a 4px label-to-badge gap.
                         spacing: 4
                         wrapTags: false

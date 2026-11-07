@@ -1,3 +1,4 @@
+#include "NativeWindow.h"
 #include "ImageCapture.h"
 #include <QFile>
 #include <QImageReader>
@@ -183,7 +184,7 @@ private slots:
         QCOMPARE(QImage(file), image);
         QCOMPARE(lease->encodedBytes(), encoded);
         if (size == QSize(321, 181)) {
-            QSignalSpy frames(&window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(&window);
             const auto advance = connect(&window, &QQuickWindow::frameSwapped, &window,
                                          [&window] { window.update(); });
             window.update();

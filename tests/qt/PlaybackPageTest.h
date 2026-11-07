@@ -1,5 +1,16 @@
 #pragma once
 #include <QObject>
+#include <QString>
+class PlaybackSurfaceTestScope final : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QString id READ id CONSTANT)
+public:
+    QString id() const
+    {
+        return QStringLiteral("lyric-layout-test");
+    }
+};
 class PlaybackPageTest : public QObject
 {
     Q_OBJECT

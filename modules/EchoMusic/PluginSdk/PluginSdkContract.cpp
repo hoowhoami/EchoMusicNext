@@ -3,6 +3,9 @@
 #include "EchoPluginContext.h"
 #include "EchoPluginTask.h"
 #include "EchoPluginUiParts.h"
+#include "EchoUiContribution.h"
+#include "EchoUiModelContribution.h"
+#include "EchoUiScope.h"
 #include "EchoPluginUiStyles.h"
 #include "EchoUiPartMount.h"
 #include "EchoGpuSurface.h"
@@ -99,6 +102,11 @@ QJsonObject pluginSdkContract()
                                         &PresentationScope::staticMetaObject,
                                         &EchoPluginViewContext::staticMetaObject,
                                         &EchoPluginWindows::staticMetaObject,
+                                        &EchoUiBatch::staticMetaObject,
+                                        &EchoUiContribution::staticMetaObject,
+                                        &EchoUiModelContribution::staticMetaObject,
+                                        &EchoUiHostContent::staticMetaObject,
+                                        &EchoUiScope::staticMetaObject,
                                         &EchoPluginUiParts::staticMetaObject,
                                         &EchoPluginUiStyles::staticMetaObject,
                                         &EchoUiPartRef::staticMetaObject,

@@ -147,7 +147,7 @@ void click(QQuickWindow *window, QQuickItem *item)
                     << candidate->visibility() << candidate->isActive();
     QVERIFY(ready);
     QPointer<QQuickItem> target = item;
-    QSignalSpy frame(window, &QQuickWindow::frameSwapped);
+    Test::FrameSpy frame(window);
     window->update();
     QTRY_VERIFY(!frame.isEmpty());
     QVERIFY(target);

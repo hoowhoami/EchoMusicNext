@@ -1072,7 +1072,7 @@ Item {
                     return usable.contains(painted) && !painted.intersects(anchor);
                 };
                 QTRY_VERIFY(positioned());
-                QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frames(session.window);
                 session.window->update();
                 QTRY_VERIFY(!frames.isEmpty());
                 if (!capture.isEmpty())

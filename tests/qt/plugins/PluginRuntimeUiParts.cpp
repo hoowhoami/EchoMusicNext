@@ -276,6 +276,7 @@ void PluginRuntimeTest::uiPartsIdentityObservationAndPublicActions()
     const auto installation = activatePartPlugin(host, "test.parts", R"(
  c.ui.setState({added:0,removed:0,events:0});
  c.ui.parts.observe('watch',{role:'control.button'},function(e) {
+  if (e.part.key !== 'partButton' && e.part.key !== 'partOtherButton') return;
   var s=c.ui.state;
   c.ui.setState({added:s.added+(e.type==='added'?1:0), removed:s.removed+(e.type==='removed'?1:0), events:s.events+(e.type==='event'?1:0)});
  });
@@ -537,6 +538,9 @@ void PluginRuntimeTest::uiPartInstanceStylesAndLeasesStayBounded()
     auto *scope = host.runtime.context(installation);
     auto *parts = scope->ui()->parts();
     auto *registry = EchoUiPartRegistry::forEngine(host.engine);
+    const auto inactiveParts = registry->partCount();
+    QObject discovery;
+    registry->acquireStructure(&discovery);
     const auto liveParts = registry->partCount();
     QPointer<EchoUiStyleRule> firstDiscarded;
     QElapsedTimer elapsed;
@@ -583,4 +587,9 @@ void PluginRuntimeTest::uiPartInstanceStylesAndLeasesStayBounded()
     auto *window = qobject_cast<QQuickWindow *>(root.get());
     QVERIFY(!visual(window->contentItem(), "publicPartMountedVisual"));
     QCOMPARE(scope->findChildren<EchoUiPartMount *>().size(), 0);
+    QVERIFY(host.runtime.setEnabled(installation, false));
+    QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Disabled);
+    registry->releaseStructure(&discovery);
+    QTRY_COMPARE(registry->structureWatchCount(), 0);
+    QTRY_COMPARE(registry->partCount(), inactiveParts);
 }

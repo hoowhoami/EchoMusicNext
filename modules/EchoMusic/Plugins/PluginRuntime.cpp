@@ -1,6 +1,8 @@
 #include "LogRedaction.h"
 #include "SettingsKeys.h"
 #include "PluginRuntime.h"
+#include "EchoUiPartRegistry.h"
+#include "AccountService.h"
 #include "AppIconService.h"
 #include "StorageSnapshot.h"
 #include "EchoPluginFilePicker.h"
@@ -55,6 +57,29 @@ PluginRuntime::PluginRuntime(QQmlEngine &engine, EchoMusic::SettingsStore &prefe
       m_safeMode(safeMode ||
                  preferences.value(EchoMusic::SettingsKeys::Plugins::SafeMode, false).toBool())
 {
+    auto *uiRegistry = EchoUiPartRegistry::forEngine(engine);
+    m_uiAccount = QString::number(m_host.account.userId());
+    const auto restoreUi = [this, uiRegistry] {
+        m_uiPreferencesLoading = true;
+        m_uiAccount = QString::number(m_host.account.userId());
+        uiRegistry->setPreferences(m_preferences.value(SettingsKeys::Plugins::UiComposition)
+                                       .toMap()
+                                       .value(m_uiAccount)
+                                       .toMap());
+        m_uiPreferencesLoading = false;
+    };
+    restoreUi();
+    connect(uiRegistry, &EchoUiPartRegistry::preferencesChanged, this, [this, uiRegistry] {
+        if (m_uiPreferencesLoading)
+            return;
+        auto accounts = m_preferences.value(SettingsKeys::Plugins::UiComposition).toMap();
+        accounts[m_uiAccount] = uiRegistry->preferences();
+        m_preferences.setValue(SettingsKeys::Plugins::UiComposition, accounts);
+    });
+    connect(&m_host.account, &AccountService::changed, this, [this, restoreUi] {
+        if (m_uiAccount != QString::number(m_host.account.userId()))
+            restoreUi();
+    });
     connect(this, &PluginRuntime::pluginFailed, this,
             [this](const QString &id, const QString &message) {
                 qCWarning(pluginRuntimeLog).noquote().nospace()

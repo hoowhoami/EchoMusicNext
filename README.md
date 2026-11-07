@@ -90,7 +90,7 @@ Linux x64、ARM64 均下载官方 Qt 6.12.0 预编译 SDK；源码 SDK 仅在显
    python3.12 scripts/install-qt.py
    ```
 
-   Windows 使用对应 Python 3.12+ 的 `python` 命令。Windows、macOS、Linux 均默认准备官方预编译 SDK。已安装 SDK 的路径和检查方式见[构建指南](docs/build.md)。
+   Windows 使用对应 Python 3.12+ 的 `python` 命令。Windows、macOS、Linux 均默认准备官方基础 SDK，并单独重编带 generator GC 修复的 QtQml。已安装 SDK 的路径和检查方式见[构建指南](docs/build.md)。
 
 3. **构建并启动**
 

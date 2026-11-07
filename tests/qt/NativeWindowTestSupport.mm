@@ -18,6 +18,12 @@ QVariantMap nativeWindowInputPolicy(QWindow *window)
 {
     auto *view = reinterpret_cast<NSView *>(window->winId());
     return {{"appActive", bool(NSApp.active)},
+            {"appForeground", NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier ==
+                                  NSProcessInfo.processInfo.processIdentifier},
+            {"nativeVisible", bool(view.window.visible)},
+            {"nativeOccluded", !(view.window.occlusionState & NSWindowOcclusionStateVisible)},
+            {"nativeKey", bool(view.window.keyWindow)},
+            {"thermalState", int(NSProcessInfo.processInfo.thermalState)},
             {"underCursor", [NSWindow windowNumberAtPoint:NSEvent.mouseLocation
                                 belowWindowWithWindowNumber:0] == view.window.windowNumber},
             {"backgroundMove", bool(view.window.movableByWindowBackground)},

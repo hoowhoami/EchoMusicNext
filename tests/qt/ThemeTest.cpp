@@ -175,7 +175,7 @@ void click(QQuickWindow *window, QQuickItem *item)
 }
 void render(QQuickWindow *window)
 {
-    QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+    Test::FrameSpy frames(window);
     window->update();
     QTRY_VERIFY(!frames.isEmpty());
 }

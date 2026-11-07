@@ -5,6 +5,42 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void nativeUiBatchPreparationCommitAndRollback();
+    void nativeUiAdjacentFocusAndCapacity();
+    void nativeUiBoundedPublicValues();
+    void nativeUiTabModelContentAndSelection_data();
+    void modelProjectionValueForms_data();
+    void modelProjectionValueForms();
+    void nativeUiTabModelContentAndSelection();
+    void nativeUiSettingsModelSections();
+    void nativeUiInspectorPointerPick();
+    void nativeUiMenuModelActions();
+    void nativeUiStateStylesAndCommands();
+    void nativeUiControlContentFactories();
+    void nativeUiFocusOrderAndCoordinateMapping();
+    void modelProjectionNativeDataAndLifecycles_data();
+    void modelProjectionNativeDataAndLifecycles();
+    void nativeUiPresentationBoundary();
+    void compositionNativeContainers_data();
+    void compositionDecorationDoesNotLayout_data();
+    void compositionDecorationDoesNotLayout();
+    void compositionAddressesAndScopedPreferences();
+    void compositionVirtualDelegateGeneration_data();
+    void compositionVirtualDelegateGeneration();
+    void compositionAnchoredSiblingRestoresBindings_data();
+    void compositionAnchoredSiblingRestoresBindings();
+    void compositionNativeWindowsDiscoveryAndOwnership();
+    void compositionProductionAnchoredInputActions();
+    void compositionNativeContainers();
+    void compositionNativeStylesRestoreBindings();
+    void compositionProductionLyricToolbar();
+    void compositionRevisionRollbackAndReplacementLayers();
+    void compositionStateAccountAndPreferences();
+    void compositionProductionRegionsAndInspector();
+    void compositionSemanticTreeAndLayoutRestore();
+    void compositionInsertionParticipatesInLayout();
+    void compositionWrapPreservesNativeContentAndRetires();
+    void compositionMoveConflictAndRestoration();
     void pluginDiagnosticsReachUnifiedLog();
     void operationJsonArraysAcrossIoCommandsAndQml_data();
     void operationJsonArraysAcrossIoCommandsAndQml();

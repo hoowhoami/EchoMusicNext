@@ -127,7 +127,7 @@ void DesktopPagesTest::playbackQueueEmptyIndicatorAndCloseIcon()
                             actions->mapToItem(body, {0, 0}).x() - 10);
                 }
                 if (QGuiApplication::platformName() != "offscreen") {
-                    QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy frames(session.window);
                     session.window->update();
                     QTRY_VERIFY(!frames.isEmpty());
                     if (!headerCaptures.isEmpty())
@@ -368,7 +368,7 @@ void DesktopPagesTest::playbackChromeMatchesSource()
             QVERIFY(collapseImage);
             QTRY_COMPARE(collapseImage->property("status").toInt(), 1);
             if (!capture.isEmpty()) {
-                QSignalSpy submitted(session.window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy submitted(session.window);
                 session.window->update();
                 QTRY_VERIFY(!submitted.isEmpty());
                 QVERIFY(session.window->grabWindow().save(
@@ -391,7 +391,10 @@ void DesktopPagesTest::playbackChromeMatchesSource()
                 }
 #endif
             }
-            // Domain-only presentation input; no upstream response or audio fixture.
+            // This geometry test owns its lyric document. Cancel the automatic
+            // request started by the presentation track, so a late live result
+            // cannot overwrite the translated/romanized document under test.
+            playback.lyricSource()->suspend();
             playback.lyricText()->clear();
             const auto sourceTop = source->mapToScene(QPointF{}).y();
             QVERIFY(qAbs(tools->y() - qMax(104., 35 / session.shell.uiScale() + 58)) < .5);
@@ -608,7 +611,7 @@ void DesktopPagesTest::playbackToolbarsMatchSourceAcrossWidths()
     for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
         session.theme.setMode(mode);
         for (const int width : {700, 1150, 1600}) {
-            QSignalSpy rendered(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy rendered(session.window);
             session.window->resize(width, 750);
             QTRY_VERIFY(!rendered.isEmpty());
             QTRY_VERIFY(centered(center, bar));
@@ -1202,7 +1205,7 @@ void DesktopPagesTest::productionLyricPreviewKeepsSymmetricInsets()
                 popup->setProperty("preferredWidth", width);
                 QVERIFY(QMetaObject::invokeMethod(popup.data(), "open"));
                 QTRY_VERIFY(popup->property("opened").toBool());
-                QSignalSpy formFrames(session.window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy formFrames(session.window);
                 session.window->update();
                 QTRY_VERIFY(!formFrames.isEmpty());
                 auto *form = visual(session.window->contentItem(), "lyricSourceSearchForm");
@@ -1255,7 +1258,7 @@ void DesktopPagesTest::productionLyricPreviewKeepsSymmetricInsets()
                     QVERIFY(center >= 0);
                     QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtIndex",
                                                       Q_ARG(int, index), Q_ARG(int, center)));
-                    QSignalSpy positioned(session.window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy positioned(session.window);
                     session.window->update();
                     QTRY_VERIFY(!positioned.isEmpty());
                     QQuickItem *slot = nullptr;
@@ -1283,7 +1286,7 @@ void DesktopPagesTest::productionLyricPreviewKeepsSymmetricInsets()
                                      surface->mapToItem(view, {surface->width(), 0}).x() - 12.) <
                                 .01);
                     QTRY_VERIFY(surface->height() > 12);
-                    QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy frames(session.window);
                     session.window->update();
                     QTRY_VERIFY(!frames.isEmpty());
                     const auto image = session.window->grabWindow();

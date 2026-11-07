@@ -1,9 +1,12 @@
 #include "EchoUiPartMount.h"
+#include "EchoUiFocusLease.h"
 #include "EchoPluginUiParts.h"
 #include "EchoPluginContext.h"
 #include <QQmlContext>
 #include "EchoUiPartRegistration.h"
 #include "EchoUiPartRegistry.h"
+#include "EchoUiLayout.h"
+#include "EchoUiScope.h"
 #include <QTimer>
 namespace EchoMusic
 {
@@ -29,6 +32,7 @@ EchoUiPartMount::EchoUiPartMount(EchoPluginUiParts &owner, EchoPluginRegistratio
             m_item->setProperty("_echoPartOrderDirty", true);
         reconcile();
     });
+    connect(m_registry, &EchoUiPartRegistry::preferencesChanged, this, &EchoUiPartMount::reconcile);
     connect(&lease, &EchoPluginRegistration::activeChanged, this, &EchoUiPartMount::changed);
 }
 EchoUiPartMount::~EchoUiPartMount()
@@ -45,6 +49,8 @@ void EchoUiPartMount::start()
     if (m_started)
         return;
     m_started = true;
+    if (m_registry)
+        m_registry->acquireStructure(this);
     reconcile();
     emit changed();
 }
@@ -57,6 +63,8 @@ void EchoUiPartMount::stop()
     if (auto *registry = m_registry.data())
         registry->removeReplacement(m_token);
     release();
+    if (m_registry)
+        m_registry->releaseStructure(this);
     emit changed();
 }
 void EchoUiPartMount::dispose()
@@ -66,6 +74,8 @@ void EchoUiPartMount::dispose()
 }
 void EchoUiPartMount::release()
 {
+    if (m_registry)
+        m_registry->removeComposition(m_token);
     ++m_loadGeneration;
     // Destroy the complete QML component and render-owned item tree. Never
     // retain hidden shaders, images, timers or popup recipes on an inactive part.
@@ -105,7 +115,9 @@ void EchoUiPartMount::reconcile()
 {
     if (m_constructing)
         return;
-    if (!active() || !m_ref->visible() || !m_error.isEmpty()) {
+    if (!active() || !m_ref->visible() || !m_error.isEmpty() || !m_registry ||
+        !m_registry->allowed(m_part, m_owner->scope().id(),
+                             m_owner->scope().contextId() + ":" + m_id)) {
         if (auto *registry = m_registry.data())
             registry->removeReplacement(m_token);
         if (m_item || m_component) {
@@ -189,6 +201,14 @@ void EchoUiPartMount::construct()
                     if (item) {
                         QQmlEngine::setObjectOwnership(item, QQmlEngine::CppOwnership);
                         item->setParent(this);
+                        EchoUiLayout::setDecoration(item, m_position == "background" ||
+                                                              m_position == "foreground" ||
+                                                              m_position == "replace");
+                        item->setProperty("_echoPluginOwner", m_owner->scope().id());
+                        EchoUiScope::mark(item, m_owner->scope().id(), m_part->surface(),
+                                          (m_part->persistent() ? "mount:" : "@mount:") +
+                                              m_part->address() + ':' + m_id);
+                        EchoUiScope::get(item)->setResourceKey(m_part->resourceKey());
                         m_item = item;
                         item->setProperty("_echoPartMountToken", m_token);
                         place();
@@ -213,6 +233,12 @@ void EchoUiPartMount::construct()
                                                : message);
                         return;
                     }
+                    auto *focus = new EchoUiFocusLease(item, m_part->target(), m_viewOwner);
+                    connect(m_presentation, &EchoPluginContext::activeChanged, focus,
+                            [this, focus] {
+                                if (!m_presentation || !m_presentation->active())
+                                    focus->restore();
+                            });
                     item->setProperty("_echoPartMountToken", m_token);
                     m_item = item;
                     place();
@@ -234,6 +260,18 @@ void EchoUiPartMount::place()
     auto *parent = sibling ? target->parentItem() : target;
     if (!parent)
         return;
+    if (sibling && EchoUiLayout::kind(parent).isEmpty()) {
+        if (!m_item->parentItem())
+            m_item->setParentItem(parent);
+        auto *registry = m_registry.data();
+        if (registry) {
+            registry->putComposition(m_token, m_identity, m_owner->scope().id(),
+                                     m_owner->scope().contextId() + ':' + m_id, m_priority,
+                                     "insert", nullptr);
+            registry->setCompositionItem(m_token, m_item, m_position);
+        }
+        return;
+    }
     const bool sameParent = m_item->parentItem() == parent;
     const bool fill =
         m_position == "background" || m_position == "foreground" || m_position == "replace";

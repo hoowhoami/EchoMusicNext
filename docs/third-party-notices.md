@@ -38,3 +38,5 @@ EchoMusic 派生资源包括 `Profile.vue` 等级星球插画、平台应用图�
 歌词 KRC 解压使用 zlib：Windows 复用上述固定 revision 的 Chromium zlib 静态依赖与[许可](licenses/crashpad/chromium-zlib.txt)，macOS/Linux 使用系统 zlib；不新增另一份下载或运行库。
 
 发行安装包的 Qt 详细材料见随包 `licenses/deployment/Qt/NOTICE.txt`、模块 SPDX、源码版权通知和完整标准许可文本（各平台许可证目录根略有差异）；`modules.json` 记录 Qt 模块版本、可取得的精确提交或发行标签及上游源码链接。实际部署库和原生插件须通过模块许可材料覆盖检查，包含 Qt WebSockets。Qt 自定义许可证正文保留在对应 SPDX 文档的 extracted licensing info 中，原组件版权与许可不因本项目采用 GPL-3.0-only 而被替换。
+
+Qt 6.12.0 的 QtQml 使用[固定版本补丁](../tools/qt/patches/qtdeclarative-6.12.0-qv4-generator-gc.patch)，基础源码 revision 为 `4332fbbb4c340463dc8cee36dda0c85d932122d8`，回移上游 `7d5e24963a82dd6dc7419fc2f943042db2598bde` 与 `9eca4322acef46f67405e891d9a61661a4fc26ee`，并保留旧 `Value::mark` 非 const 签名。原 Qt 源码版权和 SPDX 许可表达式保留；独立 GC 回归来自同两项上游提交的 `tst_qv4mm.cpp`，保留 basysKom GmbH. 与 The Qt Company Ltd. 的版权。发行材料包含本地补丁及对应基础源码地址，详见[构建指南](build.md)。

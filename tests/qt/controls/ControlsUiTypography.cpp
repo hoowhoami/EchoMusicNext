@@ -157,7 +157,7 @@ Window {
                 QVERIFY(glyph);
                 QTRY_COMPARE(glyph->property("status").toInt(), 1);
             }
-            QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(session.window);
             session.window->update();
             QTRY_VERIFY(frames.size() > 0);
             const auto image = session.window->grabWindow();
@@ -565,7 +565,7 @@ void ControlsUiTest::globalTypographyRetainsFallbackAndLocalStyles()
         QVERIFY(QDir().mkpath(capture));
         for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
             session.theme.setMode(mode);
-            QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(session.window);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
             const auto image = session.window->grabWindow();
@@ -656,7 +656,7 @@ void ControlsUiTest::iconTextContentCentersRenderedInk()
                 session.window->contentItem()->setScale(scale);
                 for (const auto &text :
                      {QStringLiteral("任务中心"), QStringLiteral("更多应用 EchoMusic gyp")}) {
-                    QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy frames(session.window);
                     session.root->setProperty("label", text);
                     session.window->requestUpdate();
                     QTRY_VERIFY(frames.size() > 0);

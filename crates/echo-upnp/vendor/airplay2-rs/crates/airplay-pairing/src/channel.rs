@@ -14,11 +14,11 @@ use airplay_crypto::keys::SessionKeys;
 ///
 /// ```text
 /// +----------------+------------------+----------+
-/// | Length (2 BE)  | Ciphertext (N)   | Tag (16) |
+/// | Length (2 LE)  | Ciphertext (N)   | Tag (16) |
 /// +----------------+------------------+----------+
 /// ```
 ///
-/// - Length: 2 bytes, big-endian, size of ciphertext + tag
+/// - Length: 2 bytes, little-endian, plaintext size (at most 1024)
 /// - Ciphertext: encrypted plaintext
 /// - Tag: 16-byte ChaCha20-Poly1305 authentication tag
 ///
@@ -52,71 +52,42 @@ impl EncryptedChannel {
         }
     }
 
-    /// Encrypt data with framing (2-byte length + ciphertext + 16-byte tag).
+    /// Encrypt data as HomeKit blocks (2-byte LE length + ciphertext + 16-byte tag).
     ///
     /// Returns the complete framed message ready to send over the wire.
-    /// The write nonce is automatically incremented after each call.
+    /// The write nonce advances once per encrypted block.
     pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>> {
-        // Encrypt with current nonce
-        let ciphertext = self
-            .write_cipher
-            .encrypt(plaintext)
-            .map_err(|e| Error::Crypto(e))?;
-
-        // Build framed message: length (2 BE) + ciphertext
-        let len = ciphertext.len() as u16;
-        let mut framed = Vec::with_capacity(2 + ciphertext.len());
-        framed.extend_from_slice(&len.to_be_bytes());
-        framed.extend_from_slice(&ciphertext);
-
-        Ok(framed)
+        // ControlCipher already owns framing, AAD and per-block nonce advancement.
+        self.write_cipher.encrypt(plaintext).map_err(Error::Crypto)
     }
 
     /// Encrypt data without framing (raw ciphertext + tag).
     ///
-    /// Use this when the transport handles framing separately.
+    /// Use this when the transport handles framing separately (one block, at most 1024 bytes).
     /// The write nonce is automatically incremented after each call.
     pub fn encrypt_raw(&mut self, plaintext: &[u8]) -> Result<Vec<u8>> {
-        self.write_cipher
-            .encrypt(plaintext)
-            .map_err(|e| Error::Crypto(e))
+        // A raw transport record represents exactly one HomeKit block. Removing
+        // only its length prefix keeps the authenticated length and nonce intact.
+        if plaintext.len() > 1024 {
+            return Err(Error::Crypto(CryptoError::Encryption(
+                "Raw control record exceeds 1024 bytes".to_string(),
+            )));
+        }
+        let framed = self.write_cipher.encrypt(plaintext).map_err(Error::Crypto)?;
+        Ok(framed[2..].to_vec())
     }
 
     /// Decrypt framed data (expects 2-byte little-endian length prefix).
     ///
     /// Parses the length prefix and decrypts the ciphertext.
-    /// The read nonce is automatically incremented after each call.
+    /// The read nonce advances once per decrypted block.
     pub fn decrypt(&mut self, framed: &[u8]) -> Result<Vec<u8>> {
-        if framed.len() < 2 {
-            return Err(Error::Crypto(CryptoError::Decryption(
-                "Frame too short: missing length prefix".to_string(),
-            )));
-        }
-
-        // Parse length prefix
-        let len = u16::from_le_bytes([framed[0], framed[1]]) as usize;
-        let expected_total = 2 + len;
-
-        if framed.len() < expected_total {
-            return Err(Error::Crypto(CryptoError::Decryption(format!(
-                "Frame truncated: expected {} bytes, got {}",
-                expected_total,
-                framed.len()
-            ))));
-        }
-
-        // Extract ciphertext (includes auth tag)
-        let ciphertext = &framed[2..expected_total];
-
-        // Decrypt
-        self.read_cipher
-            .decrypt_raw(ciphertext)
-            .map_err(|e| Error::Crypto(e))
+        self.read_cipher.decrypt(framed).map_err(Error::Crypto)
     }
 
     /// Decrypt raw ciphertext (no framing, expects ciphertext + 16-byte tag).
     ///
-    /// Use this when the transport handles framing separately.
+    /// Use this when the transport handles framing separately (one block, at most 1024 bytes).
     /// The read nonce is automatically incremented after each call.
     pub fn decrypt_raw(&mut self, ciphertext: &[u8]) -> Result<Vec<u8>> {
         self.read_cipher
@@ -148,7 +119,7 @@ impl EncryptedChannel {
             return None;
         }
         let len = u16::from_le_bytes([data[0], data[1]]) as usize;
-        Some(2 + len)
+        Some(2 + len + 16)
     }
 }
 
@@ -212,15 +183,15 @@ mod tests {
         let framed = channel.encrypt(plaintext).unwrap();
 
         // Frame should be: 2-byte length + ciphertext (4) + tag (16) = 22 bytes total
-        // Length prefix should encode 20 (4 + 16)
+        // Length prefix authenticates the plaintext length, excluding the tag.
         assert_eq!(framed.len(), 22);
-        assert_eq!(framed[0], 0x00);
-        assert_eq!(framed[1], 20);
+        assert_eq!(framed[0], 4);
+        assert_eq!(framed[1], 0);
     }
 
     #[test]
     fn parse_frame_length_works() {
-        let data = [0x00, 0x14, 0x01, 0x02, 0x03]; // length = 20
+        let data = [0x04, 0x00, 0x01, 0x02, 0x03]; // plaintext length = 4
         assert_eq!(EncryptedChannel::parse_frame_length(&data), Some(22));
 
         let short_data = [0x00];
@@ -233,7 +204,7 @@ mod tests {
         let mut channel = EncryptedChannel::with_keys(write_key, read_key);
 
         // Frame claims 20 bytes but only has 10
-        let truncated = [0x00, 0x14, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let truncated = [0x14, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
         let result = channel.decrypt(&truncated);
 
         assert!(result.is_err());
@@ -270,6 +241,41 @@ mod tests {
 
         assert_eq!(sender.write_nonce(), 10);
         assert_eq!(receiver.read_nonce(), 10);
+    }
+
+    #[test]
+    fn framed_blocks_interoperate_with_control_cipher() {
+        let (write_key, read_key) = test_keys();
+        let mut sender = EncryptedChannel::with_keys(write_key, read_key);
+        let mut receiver = ControlCipher::new_unidirectional(write_key);
+        let plaintext = vec![0x42; 2049];
+        let framed = sender.encrypt(&plaintext).unwrap();
+        assert_eq!(framed.len(), 2049 + 3 * 18);
+        assert_eq!(&framed[..2], &[0, 4]);
+        assert_eq!(&framed[1042..1044], &[0, 4]);
+        assert_eq!(&framed[2084..2086], &[1, 0]);
+        assert_eq!(receiver.decrypt(&framed).unwrap(), plaintext);
+        assert_eq!(sender.write_nonce(), 3);
+        assert_eq!(receiver.decrypt_counter(), 3);
+    }
+
+    #[test]
+    fn raw_record_rejects_multiple_blocks_without_consuming_nonce() {
+        let (write_key, read_key) = test_keys();
+        let mut channel = EncryptedChannel::with_keys(write_key, read_key);
+        assert!(channel.encrypt_raw(&vec![0; 1025]).is_err());
+        assert_eq!(channel.write_nonce(), 0);
+    }
+
+    #[test]
+    fn modified_authenticated_length_is_rejected() {
+        let (write_key, read_key) = test_keys();
+        let mut sender = EncryptedChannel::with_keys(write_key, read_key);
+        let mut receiver = EncryptedChannel::with_keys(read_key, write_key);
+        let mut framed = sender.encrypt(b"test").unwrap();
+        framed[0] = 3;
+        assert!(receiver.decrypt(&framed).is_err());
+        assert_eq!(receiver.read_nonce(), 0);
     }
 
     #[test]

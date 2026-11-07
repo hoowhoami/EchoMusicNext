@@ -15,6 +15,7 @@ Popup {
         surface: "playback"
         active: page.visible
         replaceable: true
+        nativeFactory: liveContentFactory
         properties: ["background", "opacity"]
         actions: ["close", "settings", "skins"]
         onActionRequested: (action, arguments) => {
@@ -41,7 +42,7 @@ Popup {
     property Component windowActions: null
     property rect nativeWindowControlsBounds: Qt.rect(0, 0, 0, 0)
     readonly property bool hasNativeWindowControls: Qt.platform.os === "osx" && nativeWindowControlsBounds.width > 0
-    readonly property bool presentationActive: visible && !playbackPart.replaced && (!contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized))
+    readonly property bool presentationActive: visible && !playbackPart.replaced && !playbackPart.contentReplaced && (!contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized))
     readonly property bool resourceActive: presentationActive && !skinHost.loaded
     readonly property bool portraitSelected: Theme.store.extensions.selectedSkin === "portrait"
     readonly property real portraitControlsOpacity: portraitBody.item ? (portraitBody.item as PortraitPlayback).controlsOpacity : 1
@@ -290,188 +291,209 @@ Popup {
         samplingActive: page.visible
         readonly property string echoUiSurface: "playback"
         opacity: playbackPart.value("opacity", 1)
-        AppearanceHost {
-            id: skinHost
-            objectName: "pluginPlaybackSkinHost"
+        EchoUiRetainedContentFactory {
+            id: liveContentFactory
+            content: playbackComposition
+            fallbackVisible: playbackPart.contentFactory === liveContentFactory && !playbackPart.replaced
+        }
+        EchoUiContentHost {
             anchors.fill: parent
-            z: 20
-            entry: Theme.store.extensions.skin
-            placement: "playback"
-            resourceActive: page.presentationActive
+            factory: playbackPart.contentFactory
+            onItemChanged: if (item)
+                Qt.callLater(() => {
+                    if (liveContentFactory)
+                        liveContentFactory.conceal();
+                })
+            active: playbackPart.contentFactory !== liveContentFactory && page.visible && !playbackPart.replaced
         }
         Item {
-            objectName: "nativePlaybackContents"
+            id: playbackComposition
             anchors.fill: parent
-            visible: !playbackPart.replaced && !skinHost.loaded
-
-            PlaybackBackground {
-                id: pageBackground
+            visible: !playbackPart.replaced
+            AppearanceHost {
+                id: skinHost
+                objectName: "pluginPlaybackSkinHost"
                 anchors.fill: parent
-                z: -1
-                playback: page.playback
-                resourceActive: page.resourceActive && (!page.portraitSelected || !portraitBody.item || !(portraitBody.item as PortraitPlayback).backgroundReady)
-                visible: !page.portraitSelected || !portraitBody.item || !(portraitBody.item as PortraitPlayback).backgroundReady
-                baseColor: page.backgroundColor
-                opacity: motion.hostOpacity
+                z: 20
+                entry: Theme.store.extensions.skin
+                placement: "playback"
+                resourceActive: page.presentationActive
             }
-            PlaybackPageMotion {
-                id: motion
-                objectName: "playbackPageMotion"
-                anchors.fill: parent
-                z: 10
-                sourceCover: page.portraitSelected ? null : page.sourceCover
-                targetCover: coverBody.item ? (coverBody.item as CoverPlayback).cover : null
-            }
-            // AppKit owns the native traffic lights outside this subtree. Every
-            // application control follows the same zoom as the playback content.
             Item {
-                id: windowChrome
-                parent: page.contentItem
-                z: 30
-                visible: !playbackPart.replaced && (!skinHost.loaded || Theme.store.extensions.skin.titlebar === "host")
-                objectName: "playbackWindowChrome"
-                width: parent.width
-                height: Math.max(46, 35 / page.uiScale)
-                EchoWindowDragArea {
-                    objectName: "playbackTitleDragArea"
+                id: nativePlaybackContents
+                objectName: "nativePlaybackContents"
+                anchors.fill: parent
+                visible: !playbackPart.replaced && !skinHost.loaded
+
+                PlaybackBackground {
+                    id: pageBackground
                     anchors.fill: parent
-                    onMoveRequested: page.titleDragRequested()
-                    onDoubleClickRequested: page.titleDoubleClickRequested()
+                    z: -1
+                    playback: page.playback
+                    resourceActive: page.resourceActive && (!page.portraitSelected || !portraitBody.item || !(portraitBody.item as PortraitPlayback).backgroundReady)
+                    visible: !page.portraitSelected || !portraitBody.item || !(portraitBody.item as PortraitPlayback).backgroundReady
+                    baseColor: page.backgroundColor
+                    opacity: motion.hostOpacity
+                }
+                PlaybackPageMotion {
+                    id: motion
+                    objectName: "playbackPageMotion"
+                    anchors.fill: parent
+                    z: 10
+                    sourceCover: page.portraitSelected ? null : page.sourceCover
+                    targetCover: coverBody.item ? (coverBody.item as CoverPlayback).cover : null
+                }
+                // AppKit owns the native traffic lights outside this subtree. Every
+                // application control follows the same zoom as the playback content.
+                Item {
+                    id: windowChrome
+                    parent: page.contentItem
+                    z: 30
+                    visible: !playbackPart.replaced && !playbackPart.contentReplaced && (!skinHost.loaded || Theme.store.extensions.skin.titlebar === "host")
+                    objectName: "playbackWindowChrome"
+                    width: parent.width
+                    height: Math.max(46, 35 / page.uiScale)
+                    EchoWindowDragArea {
+                        objectName: "playbackTitleDragArea"
+                        anchors.fill: parent
+                        onMoveRequested: page.titleDragRequested()
+                        onDoubleClickRequested: page.titleDoubleClickRequested()
+                    }
+                    Loader {
+                        objectName: "playbackWindowActionsLoader"
+                        opacity: motion.hostOpacity
+                        x: parent.width - width - 12
+                        y: (parent.height - height) / 2
+                        sourceComponent: page.windowActions
+                    }
+                    EchoIconButton {
+                        objectName: "playbackCollapseAction"
+                        opacity: motion.hostOpacity
+                        // AppKit owns its default buttons; the adjacent action uses
+                        // their read-only window bounds converted to page coordinates.
+                        x: page.hasNativeWindowControls ? (page.nativeWindowControlsBounds.x + page.nativeWindowControlsBounds.width) / page.uiScale + 8 : 16
+                        y: page.hasNativeWindowControls ? (page.nativeWindowControlsBounds.y + page.nativeWindowControlsBounds.height / 2) / page.uiScale - height / 2 : (parent.height - height) / 2
+                        hoverBackground: Qt.platform.os !== "osx"
+                        implicitWidth: 34
+                        implicitHeight: 34
+                        padding: 7
+                        colors: page.colors
+                        glyph: "chevron-down"
+                        text: qsTr("收起播放页")
+                        onClicked: page.close()
+                    }
                 }
                 Loader {
-                    objectName: "playbackWindowActionsLoader"
-                    opacity: motion.hostOpacity
-                    x: parent.width - width - 12
-                    y: (parent.height - height) / 2
-                    sourceComponent: page.windowActions
+                    id: coverBody
+                    objectName: "coverPlaybackOwner"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: 96
+                    width: Math.min(1400, parent.width) - 64
+                    height: Math.max(0, transport.y - y)
+                    // The actual Popup is created on demand. Keep its cover layout
+                    // stable through open/close transitions; decoders and lyric rows
+                    // still follow resourceActive, and other skins unload this body.
+                    active: !page.portraitSelected && !skinHost.loaded
+                    sourceComponent: CoverPlayback {
+                        playback: page.playback
+                        colors: page.colors
+                        pageMotion: motion
+                        resourceActive: page.resourceActive
+                        pageWidth: page.width
+                        pageHeight: page.height
+                        renderTime: page.renderTime
+                        controlsTopReserve: page.controlsTopReserve
+                        overlayRightReserve: page.lyricOverlayReserve
+                    }
                 }
-                EchoIconButton {
-                    objectName: "playbackCollapseAction"
+                Loader {
+                    id: portraitBody
+                    objectName: "portraitPlaybackOwner"
+                    anchors.fill: parent
                     opacity: motion.hostOpacity
-                    // AppKit owns its default buttons; the adjacent action uses
-                    // their read-only window bounds converted to page coordinates.
-                    x: page.hasNativeWindowControls ? (page.nativeWindowControlsBounds.x + page.nativeWindowControlsBounds.width) / page.uiScale + 8 : 16
-                    y: page.hasNativeWindowControls ? (page.nativeWindowControlsBounds.y + page.nativeWindowControlsBounds.height / 2) / page.uiScale - height / 2 : (parent.height - height) / 2
-                    hoverBackground: Qt.platform.os !== "osx"
-                    implicitWidth: 34
-                    implicitHeight: 34
-                    padding: 7
-                    colors: page.colors
-                    glyph: "chevron-down"
-                    text: qsTr("收起播放页")
-                    onClicked: page.close()
+                    active: page.resourceActive && page.portraitSelected
+                    sourceComponent: PortraitPlayback {
+                        playback: page.playback
+                        colors: page.colors
+                        renderTime: page.renderTime
+                        resourceActive: page.resourceActive
+                        baseColor: page.backgroundColor
+                        controlsReserve: Math.max(96, page.controlsTopReserve + 16)
+                        controlsHeight: transport.height
+                        controlsAboveReserve: page.controlsTopReserve
+                        lyricToolsTop: lyricTools.y
+                        lyricToolsLeft: lyricTools.x
+                        popupOpen: skinsOwner.visible || sourceDialogOwner.visible
+                    }
                 }
-            }
-            Loader {
-                id: coverBody
-                objectName: "coverPlaybackOwner"
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: 96
-                width: Math.min(1400, parent.width) - 64
-                height: Math.max(0, transport.y - y)
-                // The actual Popup is created on demand. Keep its cover layout
-                // stable through open/close transitions; decoders and lyric rows
-                // still follow resourceActive, and other skins unload this body.
-                active: !page.portraitSelected && !skinHost.loaded
-                sourceComponent: CoverPlayback {
+                Loader {
+                    id: discussion
+                    parent: page.contentItem
+                    opacity: motion.hostOpacity
+                    anchors.fill: parent
+                    z: 5
+                    sourceComponent: page.discussionComponent
+                    active: page.visible
+                }
+                PlaybackLyricTools {
+                    id: lyricTools
+                    parent: page.contentItem
+                    z: 30
+                    visible: !playbackPart.replaced && !playbackPart.contentReplaced && (!skinHost.loaded || Theme.store.extensions.skin.tools === "host")
+                    x: parent.width - width - page.lyricToolsMargin
+                    y: Math.max(104, 35 / page.uiScale + 58)
+                    height: Math.max(0, parent.height - y - 112)
+                    opacity: (page.portraitControlsShown && (contentHover.hovered || activeFocus) ? 1 : 0) * motion.hostOpacity
+                    enabled: opacity > 0
                     playback: page.playback
                     colors: page.colors
-                    pageMotion: motion
-                    resourceActive: page.resourceActive
-                    pageWidth: page.width
-                    pageHeight: page.height
-                    renderTime: page.renderTime
-                    controlsTopReserve: page.controlsTopReserve
-                    overlayRightReserve: page.lyricOverlayReserve
-                }
-            }
-            Loader {
-                id: portraitBody
-                objectName: "portraitPlaybackOwner"
-                anchors.fill: parent
-                opacity: motion.hostOpacity
-                active: page.resourceActive && page.portraitSelected
-                sourceComponent: PortraitPlayback {
-                    playback: page.playback
-                    colors: page.colors
-                    renderTime: page.renderTime
-                    resourceActive: page.resourceActive
-                    baseColor: page.backgroundColor
-                    controlsReserve: Math.max(96, page.controlsTopReserve + 16)
-                    controlsHeight: transport.height
-                    controlsAboveReserve: page.controlsTopReserve
-                    lyricToolsTop: lyricTools.y
-                    lyricToolsLeft: lyricTools.x
-                    popupOpen: skinsOwner.visible || sourceDialogOwner.visible
-                }
-            }
-            Loader {
-                id: discussion
-                parent: page.contentItem
-                opacity: motion.hostOpacity
-                anchors.fill: parent
-                z: 5
-                sourceComponent: page.discussionComponent
-                active: page.visible
-            }
-            PlaybackLyricTools {
-                id: lyricTools
-                parent: page.contentItem
-                z: 30
-                visible: !playbackPart.replaced && (!skinHost.loaded || Theme.store.extensions.skin.tools === "host")
-                x: parent.width - width - page.lyricToolsMargin
-                y: Math.max(104, 35 / page.uiScale + 58)
-                height: Math.max(0, parent.height - y - 112)
-                opacity: (page.portraitControlsShown && (contentHover.hovered || activeFocus) ? 1 : 0) * motion.hostOpacity
-                enabled: opacity > 0
-                playback: page.playback
-                colors: page.colors
-                onSourceRequested: sourceDialogOwner.open()
-                Behavior on opacity {
-                    NumberAnimation {
-                        duration: 200
+                    onSourceRequested: sourceDialogOwner.open()
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: 200
+                        }
                     }
                 }
-            }
-            EchoPopupLoader {
-                id: skinsOwner
-                objectName: "lyricSkinDrawerOwner"
-                hostItem: page.contentItem
-                sourceComponent: Component {
-                    LyricSkinDrawer {
-                        id: skins
-                        playback: page.playback
-                        uiScale: page.uiScale
-                        onGlobalSettingsRequested: page.globalSettingsRequested()
+                EchoPopupLoader {
+                    id: skinsOwner
+                    objectName: "lyricSkinDrawerOwner"
+                    hostItem: page.contentItem
+                    sourceComponent: Component {
+                        LyricSkinDrawer {
+                            id: skins
+                            playback: page.playback
+                            uiScale: page.uiScale
+                            onGlobalSettingsRequested: page.globalSettingsRequested()
+                        }
                     }
                 }
-            }
-            EchoPopupLoader {
-                id: sourceDialogOwner
-                objectName: "lyricSourceDialogOwner"
-                hostItem: page.contentItem
-                sourceComponent: Component {
-                    LyricSourceDialog {
-                        id: sourceDialog
-                        playback: page.playback
-                        uiScale: page.uiScale
+                EchoPopupLoader {
+                    id: sourceDialogOwner
+                    objectName: "lyricSourceDialogOwner"
+                    hostItem: page.contentItem
+                    sourceComponent: Component {
+                        LyricSourceDialog {
+                            id: sourceDialog
+                            playback: page.playback
+                            uiScale: page.uiScale
+                        }
                     }
                 }
-            }
-            Loader {
-                id: transport
-                objectName: "playbackTransport"
-                visible: page.portraitControlsOpacity > 0
-                opacity: motion.hostOpacity * motion.contentOpacity * page.portraitControlsOpacity
-                enabled: opacity > 0
-                transform: Translate {
-                    y: motion.contentOffset
+                Loader {
+                    id: transport
+                    objectName: "playbackTransport"
+                    visible: page.portraitControlsOpacity > 0
+                    opacity: motion.hostOpacity * motion.contentOpacity * page.portraitControlsOpacity
+                    enabled: opacity > 0
+                    transform: Translate {
+                        y: motion.contentOffset
+                    }
+                    anchors.bottom: parent.bottom
+                    width: parent.width
+                    height: 88
+                    sourceComponent: page.controlsComponent
+                    active: page.visible
                 }
-                anchors.bottom: parent.bottom
-                width: parent.width
-                height: 88
-                sourceComponent: page.controlsComponent
-                active: page.visible
             }
         }
     }

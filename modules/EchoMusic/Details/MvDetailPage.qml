@@ -48,8 +48,12 @@ RoutePage {
         }
         if (!page.pageActive) {
             resumeBarrageComposer = false;
-            barrageOwner.close();
-            fullscreenOwner.close();
+            // Route presentation can change before recipe construction or
+            // after child retirement. Each owner enforces its own availability.
+            if (barrageOwner)
+                barrageOwner.close();
+            if (fullscreenOwner)
+                fullscreenOwner.close();
         }
     }
     onPageActiveChanged: updatePresentation()
@@ -60,7 +64,7 @@ RoutePage {
     Connections {
         target: page.detail ? page.detail.barrage : null
         function onVerificationStarted(): void {
-            if (barrageOwner.visible) {
+            if (barrageOwner && barrageOwner.visible) {
                 page.resumeBarrageComposer = true;
                 barrageOwner.close();
             }
@@ -78,7 +82,7 @@ RoutePage {
             // reopen. The owner still enforces route/window availability.
             if (resume)
                 Qt.callLater(function () {
-                    if (page.pageActive)
+                    if (page && page.pageActive && barrageOwner)
                         barrageOwner.open();
                 });
         }

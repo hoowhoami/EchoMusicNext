@@ -5,10 +5,64 @@
 #include <QPointer>
 #include <QGuiApplication>
 #include <QWindow>
+#include <QQuickWindow>
+#include <QQuickItem>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QTimer>
 #include <QtTest>
 
 namespace EchoMusic::Test
 {
+/// frameSwapped can be emitted by the render thread. Queue observation onto a
+/// GUI-owned receiver so a short-lived waiter cannot be destroyed during a
+/// direct meta-call from that thread. Late queued deliveries die with receiver.
+class FrameSpy
+{
+public:
+    explicit FrameSpy(QQuickWindow *window)
+    {
+        QObject::connect(
+            window, &QQuickWindow::frameSwapped, &m_receiver,
+            [this] {
+                ++m_count;
+                if (m_waiter)
+                    m_waiter->quit();
+            },
+            Qt::QueuedConnection);
+    }
+    bool isEmpty() const
+    {
+        return m_count == 0;
+    }
+    qsizetype size() const
+    {
+        return m_count;
+    }
+    qsizetype count() const
+    {
+        return m_count;
+    }
+    void clear()
+    {
+        m_count = 0;
+    }
+    bool wait(int timeout = 5000)
+    {
+        const auto before = m_count;
+        QEventLoop loop;
+        m_waiter = &loop;
+        QTimer::singleShot(timeout, &loop, &QEventLoop::quit);
+        loop.exec();
+        m_waiter = nullptr;
+        return m_count > before;
+    }
+
+private:
+    qsizetype m_count = 0;
+    QEventLoop *m_waiter = nullptr;
+    QObject m_receiver;
+};
 #ifdef Q_OS_MACOS
 void activateTestApplication();
 QVariantMap nativeWindowInputPolicy(QWindow *window);
@@ -39,6 +93,35 @@ inline bool prepareNativeInput(QWindow *window)
                 << QGuiApplication::applicationState();
     return active;
 }
+/// Opening can finish before nested Qt layouts have polished. Observe real
+/// swapped frames and stable scene geometry before preparing an input point.
+inline bool settleNativeItem(QQuickItem *item, int timeout = 5000)
+{
+    const QPointer<QQuickItem> target(item);
+    const QPointer<QQuickWindow> window(item ? item->window() : nullptr);
+    if (!target || !window)
+        return false;
+    QElapsedTimer elapsed;
+    elapsed.start();
+    QRectF previous;
+    int stable = 0;
+    while (elapsed.elapsed() < timeout) {
+        FrameSpy rendered(window);
+        window->update();
+        if (rendered.isEmpty() &&
+            !rendered.wait(qMax(1, qMin(1000, timeout - int(elapsed.elapsed())))))
+            return false;
+        if (!target || !window || !target->isVisible())
+            return false;
+        const auto bounds = target->mapRectToScene(target->boundingRect());
+        stable = bounds == previous && !bounds.isEmpty() ? stable + 1 : 0;
+        previous = bounds;
+        if (stable >= 2)
+            return true;
+    }
+    return false;
+}
+
 /// QTest's QWindow mouse events do not move the platform cursor. Cocoa can
 /// emit a later enter/leave from that cursor when popups or render captures
 /// update the window. Keep the real pointer and injected events consistent.

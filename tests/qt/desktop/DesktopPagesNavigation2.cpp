@@ -38,8 +38,10 @@ void DesktopPagesTest::fixedProfileSocialAndSidebarActionsKeepIntrinsicWidths()
     QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
     QVERIFY(session.create());
     QVERIFY(AccountServiceTestAccess::adopt(session.accounts.account, account(900001)));
+    QPointer<QQuickItem> retiredProfile = visual(session.window->contentItem(), "profilePage");
     session.router.invalidateAccount();
     session.router.navigate("profile");
+    QTRY_VERIFY(retiredProfile.isNull());
     QTRY_VERIFY(visual(session.window->contentItem(), "profileSwitchAccount"));
     auto *first = visual(session.window->contentItem(), "profileSwitchAccount");
     auto *last = visual(session.window->contentItem(), "profileLogout");
@@ -137,7 +139,7 @@ void DesktopPagesTest::fixedProfileSocialAndSidebarActionsKeepIntrinsicWidths()
                 }
                 if (!capture.isEmpty()) {
                     session.window->update();
-                    QSignalSpy frame(session.window, &QQuickWindow::frameSwapped);
+                    Test::FrameSpy frame(session.window);
                     QVERIFY(frame.wait());
                     QVERIFY(session.window->grabWindow().save(capture +
                                                               QString("/fixed-actions-%1-%2-%3.png")
@@ -169,8 +171,10 @@ void DesktopPagesTest::productionProfileNameTagsStayAligned()
     AccountServiceTestAccess::complete(
         session.accounts.account, vip,
         R"({"user_id":900001,"user_type_code":16,"vip_type_code":0,"super_begins_at":"2026-01-02T03:04:05","super_expires_at":"2030-01-02T03:04:05","products":[]})");
+    QPointer<QQuickItem> retiredProfile = visual(session.window->contentItem(), "profilePage");
     session.router.invalidateAccount();
     session.router.navigate("profile");
+    QTRY_VERIFY(retiredProfile.isNull());
     QTRY_VERIFY(visual(session.window->contentItem(), "profileNameTags"));
     const auto capture = qEnvironmentVariable("ECHO_TEXT_TAG_PRODUCTION_CAPTURE_DIR");
     if (!capture.isEmpty())
@@ -219,8 +223,10 @@ void DesktopPagesTest::productionProfileFieldsAndMembershipDates()
     AccountServiceTestAccess::complete(
         session.accounts.account, vip,
         R"({"user_id":900001,"user_type_code":16,"vip_type_code":0,"super_begins_at":"2026-01-02T03:04:05","super_expires_at":"2030-01-02T03:04:05","products":[]})");
+    QPointer<QQuickItem> retiredProfile = visual(session.window->contentItem(), "profilePage");
     session.router.invalidateAccount();
     session.router.navigate("profile");
+    QTRY_VERIFY(retiredProfile.isNull());
     QTRY_VERIFY(visual(session.window->contentItem(), "profileChangeAvatar"));
     QTRY_VERIFY(visual(session.window->contentItem(), "profileAccountGroup0"));
     QTRY_VERIFY(visual(session.window->contentItem(), "profileAccountGroup1"));
@@ -476,8 +482,10 @@ void DesktopPagesTest::profileEditorKeepsEqualColumnsAndDateActionsClear()
     session.window->resize(1150, 900);
     QVERIFY(Test::prepareNativeInput(session.window));
     QVERIFY(AccountServiceTestAccess::adopt(session.accounts.account, account(900001)));
+    QPointer<QQuickItem> retiredProfile = visual(session.window->contentItem(), "profilePage");
     session.router.invalidateAccount();
     session.router.navigate("profile");
+    QTRY_VERIFY(retiredProfile.isNull());
     QTRY_VERIFY(visual(session.window->contentItem(), "profileEdit"));
     auto *page = visual(session.window->contentItem(), "profilePage");
     QVERIFY(!page->findChild<QObject *>("profileEditorDialog"));
@@ -548,8 +556,10 @@ void DesktopPagesTest::profileEditorValidationFeedbackStaysVisibleWithoutScrolli
     session.window->resize(1150, 640);
     QVERIFY(Test::prepareNativeInput(session.window));
     QVERIFY(AccountServiceTestAccess::adopt(session.accounts.account, account(900001)));
+    QPointer<QQuickItem> retiredProfile = visual(session.window->contentItem(), "profilePage");
     session.router.invalidateAccount();
     session.router.navigate("profile");
+    QTRY_VERIFY(retiredProfile.isNull());
     QTRY_VERIFY(visual(session.window->contentItem(), "profileEdit"));
     auto editor = session.openOwnedPopup("profileEditorDialogOwner");
     QVERIFY(editor);
@@ -590,8 +600,10 @@ void DesktopPagesTest::profileDevicesKeepInlineStatusAndBoundedViewport()
     session.window->resize(1150, 1000);
     QVERIFY(Test::prepareNativeInput(session.window));
     QVERIFY(AccountServiceTestAccess::adopt(session.accounts.account, account(900001)));
+    QPointer<QQuickItem> retiredProfile = visual(session.window->contentItem(), "profilePage");
     session.router.invalidateAccount();
     session.router.navigate("profile");
+    QTRY_VERIFY(retiredProfile.isNull());
     QTRY_VERIFY(visual(session.window->contentItem(), "profilePage"));
     auto *page = visual(session.window->contentItem(), "profilePage");
     QVERIFY(!page->findChild<QObject *>("profileDeviceDialog"));
@@ -744,8 +756,10 @@ void DesktopPagesTest::profileRelatedScrollBarsUseNativeMapping()
     session.window->resize(1150, 900);
     QVERIFY(Test::prepareNativeInput(session.window));
     QVERIFY(AccountServiceTestAccess::adopt(session.accounts.account, account(900001)));
+    QPointer<QQuickItem> retiredProfile = visual(session.window->contentItem(), "profilePage");
     session.router.invalidateAccount();
     session.router.navigate("profile");
+    QTRY_VERIFY(retiredProfile.isNull());
     QTRY_VERIFY(visual(session.window->contentItem(), "profilePage"));
     auto *page = visual(session.window->contentItem(), "profilePage");
     const auto social = ProfileServiceTestAccess::socialRequest(session.profile, session.api, 0);
@@ -964,7 +978,7 @@ void DesktopPagesTest::profileMembershipDatesUseAllAvailableWidth()
     Test::moveNativePointer(&window, {10, 10});
     const auto render = [&] {
         for (int frame = 0; frame < 2; ++frame) {
-            QSignalSpy rendered(&window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy rendered(&window);
             window.requestUpdate();
             if (!rendered.wait(1000))
                 return false;

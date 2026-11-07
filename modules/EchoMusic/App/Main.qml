@@ -80,6 +80,25 @@ ApplicationWindow {
     property SettingsDataService settingsDataService: null
     property RelaunchService relaunchService: null
     property LogService logService: null
+    // Application-owned recovery remains reachable even if a plugin hides the
+    // shell or replaces its controls. No contribution can target this surface.
+    Shortcut {
+        sequences: ["Ctrl+Shift+F12", "Meta+Shift+F12"]
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            EchoUiPartRegistry.enabled = false;
+            uiRecoveryOwner.open();
+        }
+    }
+    EchoPopupLoader {
+        id: uiRecoveryOwner
+        hostItem: mainWindow.contentItem
+        sourceComponent: Component {
+            PluginUiInspectorDialog {
+                uiScale: mainWindow.uiScale
+            }
+        }
+    }
     EchoPopupLoader {
         id: backupConfirmationOwner
         hostItem: mainWindow.contentItem
@@ -350,120 +369,132 @@ ApplicationWindow {
                 }
             }
         }
-        RowLayout {
-            id: shellContent
-            objectName: "shellContent"
-            visible: !mainWindow.playbackCoversShell
-            // Keep route/service state alive while its covered scenegraph is culled.
-            // A painted login cover blocks clicks but not hover delivery.
-            // Disable the covered shell, including already-open tooltips.
-            enabled: !mainWindow.accountController.loginOpen && !mainWindow.verificationBlocking
+        EchoUiPartHost {
+            partRole: "shell.content"
+            partKey: "main"
             anchors.fill: parent
-            spacing: 0
-            Rectangle {
-                Layout.preferredWidth: mainWindow.shellSettings.sidebarCollapsed ? 80 : 230
-                Layout.fillHeight: true
-                color: "transparent"
-                EchoWindowDragArea {
-                    width: parent.width
-                    height: Math.max(46, 35 / mainWindow.shellSettings.uiScale)
-                    onMoveRequested: mainWindow.windowService.startSystemMove()
-                    onDoubleClickRequested: mainWindow.windowService.toggleMaximized()
-                }
-                Behavior on Layout.preferredWidth {
-                    enabled: mainWindow.shellSettings.motionEnabled
-                    NumberAnimation {
-                        duration: Theme.panelDuration
-                        easing.type: Easing.OutCubic
-                    }
-                }
-                Sidebar {
-                    anchors.fill: parent
-                    router: mainWindow.router
-                    settings: mainWindow.shellSettings
-                    uiScale: mainWindow.shellSettings.uiScale
-                    accountController: mainWindow.accountController
-                    libraryController: mainWindow.libraryController
-                }
-            }
-            ColumnLayout {
-                id: workspace
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.topMargin: frame.narrow ? 4 : 8
-                Layout.bottomMargin: frame.narrow ? 4 : 8
-                Layout.rightMargin: frame.narrow ? 4 : 8
-                spacing: frame.narrow ? 6 : 10
+            visible: !mainWindow.playbackCoversShell
+            EchoUiRow {
+                id: shellContent
+                partRole: "layout.shell"
+                partKey: "content"
+                objectName: "shellContent"
+                visible: !mainWindow.playbackCoversShell
+                // Keep route/service state alive while its covered scenegraph is culled.
+                // A painted login cover blocks clicks but not hover delivery.
+                // Disable the covered shell, including already-open tooltips.
+                enabled: !mainWindow.accountController.loginOpen && !mainWindow.verificationBlocking
+                anchors.fill: parent
+                spacing: 0
                 Rectangle {
-                    id: mainPanel
-                    objectName: "mainPanelSurface"
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: mainWindow.shellSettings.sidebarCollapsed ? 80 : 230
                     Layout.fillHeight: true
                     color: "transparent"
-                    radius: Theme.shellRadius
-                    ColumnLayout {
+                    EchoWindowDragArea {
+                        width: parent.width
+                        height: Math.max(46, 35 / mainWindow.shellSettings.uiScale)
+                        onMoveRequested: mainWindow.windowService.startSystemMove()
+                        onDoubleClickRequested: mainWindow.windowService.toggleMaximized()
+                    }
+                    Behavior on Layout.preferredWidth {
+                        enabled: mainWindow.shellSettings.motionEnabled
+                        NumberAnimation {
+                            duration: Theme.panelDuration
+                            easing.type: Easing.OutCubic
+                        }
+                    }
+                    Sidebar {
                         anchors.fill: parent
-                        spacing: 0
-                        TitleBar {
-                            id: titleBar
-                            objectName: "shellTitleBar"
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: implicitHeight
-                            router: mainWindow.router
-                            windowService: mainWindow.windowService
-                            window: mainWindow
-                            uiScale: mainWindow.shellSettings.uiScale
-                            controller: mainWindow.shellController
-                            settings: mainWindow.shellSettings
-                            searchControl: Component {
-                                SearchBox {
-                                    id: titlebarSearch
-                                    service: mainWindow.searchService
-                                    router: mainWindow.router
-                                    titlebarSurface: titleBar
-                                    window: mainWindow
-                                    uiScale: mainWindow.shellSettings.uiScale
-                                    Connections {
-                                        target: titleBar
-                                        function onFocusSearchRequested() {
-                                            titlebarSearch.focusSearch();
+                        router: mainWindow.router
+                        settings: mainWindow.shellSettings
+                        uiScale: mainWindow.shellSettings.uiScale
+                        accountController: mainWindow.accountController
+                        libraryController: mainWindow.libraryController
+                    }
+                }
+                EchoUiColumn {
+                    id: workspace
+                    partRole: "layout.shell"
+                    partKey: "workspace"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.topMargin: frame.narrow ? 4 : 8
+                    Layout.bottomMargin: frame.narrow ? 4 : 8
+                    Layout.rightMargin: frame.narrow ? 4 : 8
+                    spacing: frame.narrow ? 6 : 10
+                    Rectangle {
+                        id: mainPanel
+                        objectName: "mainPanelSurface"
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        color: "transparent"
+                        radius: Theme.shellRadius
+                        EchoUiColumn {
+                            partRole: "layout.shell"
+                            partKey: "mainPanel"
+                            anchors.fill: parent
+                            spacing: 0
+                            TitleBar {
+                                id: titleBar
+                                objectName: "shellTitleBar"
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: implicitHeight
+                                router: mainWindow.router
+                                windowService: mainWindow.windowService
+                                window: mainWindow
+                                uiScale: mainWindow.shellSettings.uiScale
+                                controller: mainWindow.shellController
+                                settings: mainWindow.shellSettings
+                                searchControl: Component {
+                                    SearchBox {
+                                        id: titlebarSearch
+                                        service: mainWindow.searchService
+                                        router: mainWindow.router
+                                        titlebarSurface: titleBar
+                                        window: mainWindow
+                                        uiScale: mainWindow.shellSettings.uiScale
+                                        Connections {
+                                            target: titleBar
+                                            function onFocusSearchRequested() {
+                                                titlebarSearch.focusSearch();
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        RouteHost {
-                            id: initialRouteHost
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            router: mainWindow.router
-                            settings: mainWindow.shellSettings
+                            RouteHost {
+                                id: initialRouteHost
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                router: mainWindow.router
+                                settings: mainWindow.shellSettings
+                            }
                         }
                     }
-                }
-                // Material belongs to the surface, never to business content opacity.
-                Rectangle {
-                    id: playerPanel
-                    objectName: "playerPanelSurface"
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 88
-                    color: "transparent"
-                    radius: Theme.shellRadius
-                    PlayerBar {
-                        id: playerBar
-                        coverItem.opacity: playbackPageLoader.item && (playbackPageLoader.item as PlaybackPage).coverMoving ? 0 : 1
-                        // Frost hides the shell before the cover flight takes its
-                        // snapshot. Keep only this small static source until the
-                        // transition ends, then release it with the hidden bar.
-                        coverItem.resourceActive: playerBar.visible || playbackPageLoader.item !== null && (playbackPageLoader.item as PlaybackPage).visible && !(playbackPageLoader.item as PlaybackPage).opened
-                        manageCapacity: !playbackPageLoader.item || !(playbackPageLoader.item as PlaybackPage).visible
-                        onPlaybackPageRequested: {
-                            playbackPageLoader.open();
+                    // Material belongs to the surface, never to business content opacity.
+                    Rectangle {
+                        id: playerPanel
+                        objectName: "playerPanelSurface"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 88
+                        color: "transparent"
+                        radius: Theme.shellRadius
+                        PlayerBar {
+                            id: playerBar
+                            coverItem.opacity: playbackPageLoader.item && (playbackPageLoader.item as PlaybackPage).coverMoving ? 0 : 1
+                            // Frost hides the shell before the cover flight takes its
+                            // snapshot. Keep only this small static source until the
+                            // transition ends, then release it with the hidden bar.
+                            coverItem.resourceActive: playerBar.visible || playbackPageLoader.item !== null && (playbackPageLoader.item as PlaybackPage).visible && !(playbackPageLoader.item as PlaybackPage).opened
+                            manageCapacity: !playbackPageLoader.item || !(playbackPageLoader.item as PlaybackPage).visible
+                            onPlaybackPageRequested: {
+                                playbackPageLoader.open();
+                            }
+                            anchors.fill: parent
+                            controller: mainWindow.shellController
+                            router: mainWindow.router
+                            uiScale: mainWindow.shellSettings.uiScale
                         }
-                        anchors.fill: parent
-                        controller: mainWindow.shellController
-                        router: mainWindow.router
-                        uiScale: mainWindow.shellSettings.uiScale
                     }
                 }
             }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import {
   collectQtLicenses,
   prepareQtLicenseTexts,
@@ -17,6 +18,26 @@ function fixture() {
     stage = path.join(repository, 'stage');
   fs.mkdirSync(path.join(qt, 'sbom'), { recursive: true });
   fs.mkdirSync(stage);
+  const patchName = 'qtdeclarative-6.12.0-qv4-generator-gc.patch';
+  const patchDirectory = path.join(repository, 'tools/qt/patches');
+  fs.mkdirSync(patchDirectory, { recursive: true });
+  fs.writeFileSync(path.join(patchDirectory, patchName), 'fixture source patch');
+  fs.writeFileSync(path.join(qt, 'Qt6Qml.dll'), 'fixture patched QtQml');
+  const hash = (text) => createHash('sha256').update(text).digest('hex');
+  fs.writeFileSync(
+    path.join(qt, '.echo-qv4-gc.json'),
+    JSON.stringify({
+      schema: 1,
+      version: '6.12.0',
+      binary: 'Qt6Qml.dll',
+      patch_sha256: hash('fixture source patch'),
+      binary_sha256: hash('fixture patched QtQml'),
+      commits: [
+        '7d5e24963a82dd6dc7419fc2f943042db2598bde',
+        '9eca4322acef46f67405e891d9a61661a4fc26ee',
+      ],
+    }),
+  );
   fs.writeFileSync(path.join(qt, '.echo-sdk.json'), JSON.stringify({ version: '6.12.0' }));
   const texts = path.join(repository, 'build/release-tools/qt-license-texts');
   fs.mkdirSync(texts, { recursive: true });
@@ -168,6 +189,31 @@ test('standard license texts are fetched once and validated, including exception
         json: async () => ({ licenseId: 'wrong', licenseText: 'Wrong license' }),
       })),
       /Invalid SPDX/,
+    );
+  } finally {
+    f.close();
+  }
+});
+
+test('QtQml backport materials accompany the base inventory and reject missing or modified runtimes', () => {
+  const f = fixture();
+  try {
+    f.metadata('qtdeclarative', ['./bin/Qt6Qml.dll']);
+    const inventory = collectQtLicenses(f.output, f.qt, { repository: f.repository });
+    assert.equal(inventory.modules[0].runtimePatch.commits.length, 2);
+    assert.ok(fs.existsSync(path.join(f.output, 'Qt/patches/qv4-gc.json')));
+    assert.ok(
+      fs.existsSync(path.join(f.output, 'Qt/patches/qtdeclarative-6.12.0-qv4-generator-gc.patch')),
+    );
+    fs.appendFileSync(path.join(f.qt, 'Qt6Qml.dll'), 'tampered');
+    assert.throws(
+      () => collectQtLicenses(f.output, f.qt, { repository: f.repository }),
+      /binary does not match/,
+    );
+    fs.rmSync(path.join(f.qt, '.echo-qv4-gc.json'));
+    assert.throws(
+      () => collectQtLicenses(f.output, f.qt, { repository: f.repository }),
+      /requires the QtQml/,
     );
   } finally {
     f.close();

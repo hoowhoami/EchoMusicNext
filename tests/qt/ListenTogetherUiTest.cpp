@@ -638,7 +638,7 @@ Window {
                 return false;
             // Scroll/implicit-header changes settle on Qt's actual next frame.
             // Derive the hit point after that frame, not from stale layout.
-            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(window);
             window->update();
             if (frames.isEmpty() && !frames.wait(2000))
                 return false;
@@ -659,7 +659,7 @@ Window {
                 settings.resetZoom();
                 for (int i = 0; i < zoom; ++i)
                     settings.zoomIn();
-                QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frames(window);
                 window->update();
                 QTRY_VERIFY(!frames.isEmpty());
                 if (!capture.isEmpty())
@@ -790,7 +790,7 @@ Window {
                 QCOMPARE(counter->parentItem()->parentItem(), surface);
                 QVERIFY(send->mapToItem(surface, QPointF{}).x() + send->width() <=
                         surface->width() - 7.5);
-                QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frames(window);
                 window->update();
                 QTRY_VERIFY(!frames.isEmpty());
                 if (!capture.isEmpty())

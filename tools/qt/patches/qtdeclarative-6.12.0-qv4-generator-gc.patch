@@ -1,0 +1,92 @@
+Qt 6.12.0 QtQml generator GC fixes (ABI-preserving backport)
+
+Upstream: 7d5e24963a82dd6dc7419fc2f943042db2598bde
+Upstream: 9eca4322acef46f67405e891d9a61661a4fc26ee
+Base: 4332fbbb4c340463dc8cee36dda0c85d932122d8 (Qt 6.12.0 SDK SPDX)
+
+Keep Value::mark(MarkStack *) non-const so untouched QtQuick binaries retain
+all existing private ABI imports. markJSFrame uses mutable views of its existing
+frame; the GC marking algorithm and null guard are unchanged from upstream.
+Upstream regression cases are adapted in tests/qt/qv4-gc/Qv4GcTest.cpp.
+Qt source retains its original copyright and SPDX license expressions.
+
+diff --git a/src/qml/jsruntime/qv4generatorobject.cpp b/src/qml/jsruntime/qv4generatorobject.cpp
+--- a/src/qml/jsruntime/qv4generatorobject.cpp
++++ b/src/qml/jsruntime/qv4generatorobject.cpp
+@@ -56,6 +56,15 @@
+     return g->d();
+ }
+ 
++// The interpreter writes to the generator's frame without write barrier. While the generator is
++// executing, the frame is marked as part of the stack. Once it's suspended, we need to mark it
++// explicitly.
++static void markSuspendedFrame(ExecutionEngine *engine, const JSTypesStackFrame *frame)
++{
++    WriteBarrier::markCustom(engine,
++                             [frame](MarkStack *markStack) { frame->markJSFrame(markStack); });
++}
++
+ ReturnedValue GeneratorFunction::virtualCall(const FunctionObject *f, const Value *thisObject, const Value *argv, int argc)
+ {
+     const GeneratorFunction *gf = static_cast<const GeneratorFunction *>(f);
+@@ -85,6 +94,7 @@
+ 
+     CHECK_STACK_LIMITS(scope.engine)
+     Moth::VME::interpret(&gp->cppFrame, engine, function->codeData);
++    markSuspendedFrame(engine, &gp->cppFrame);
+ 
+     gp->state = GeneratorState::SuspendedStart;
+ 
+@@ -204,6 +214,7 @@
+     ScopedValue result(scope, Moth::VME::interpret(&gp->cppFrame, engine, code));
+ 
+     engine->currentStackFrame = gp->cppFrame.parentFrame();
++    markSuspendedFrame(engine, &gp->cppFrame);
+ 
+     bool done = (gp->cppFrame.yield() == nullptr);
+     gp->state = done ? GeneratorState::Completed : GeneratorState::SuspendedYield;
+diff --git a/src/qml/jsruntime/qv4stackframe_p.h b/src/qml/jsruntime/qv4stackframe_p.h
+--- a/src/qml/jsruntime/qv4stackframe_p.h
++++ b/src/qml/jsruntime/qv4stackframe_p.h
+@@ -206,6 +206,23 @@
+         return requiredJSStackFrameSize(v4Function);
+     }
+ 
++    void markJSFrame(MarkStack *markStack) const
++    {
++        CallData *constFrame = jsFrame;
++        constFrame->function.asValue<Value>().mark(markStack);
++        constFrame->context.asValue<Value>().mark(markStack);
++        constFrame->accumulator.asValue<Value>().mark(markStack);
++        constFrame->thisObject.asValue<Value>().mark(markStack);
++        constFrame->newTarget.asValue<Value>().mark(markStack);
++
++        // First argc of those are actually arguments, but after that there are
++        // other local registers.
++        Value *registers = constFrame->argValues<Value>();
++
++        for (int i = 0, end = v4Function->compiledFunction->nRegisters; i != end; ++i)
++            registers[i].mark(markStack);
++    }
++
+     void setupJSFrame(Value *stackSpace, const Value &function, const Heap::ExecutionContext *scope,
+                       const Value &thisObject, const Value &newTarget = Value::undefinedValue()) {
+         setupJSFrame(stackSpace, function, scope, thisObject, newTarget,
+diff --git a/src/qml/memory/qv4mm.cpp b/src/qml/memory/qv4mm.cpp
+--- a/src/qml/memory/qv4mm.cpp
++++ b/src/qml/memory/qv4mm.cpp
+@@ -1492,8 +1492,13 @@
+     }
+ 
+     for (auto *frame = engine->currentStackFrame; frame; frame = frame->parentFrame()) {
+-        if (!frame->isMetaTypesFrame())
++        if (frame->isJSTypesFrame()) {
++            // Generator frames don't live on the JS stack, but in a heap object that the
++            // interpreter writes to without write barrier.
++            if (frame->v4Function && frame->v4Function->isGenerator())
++                static_cast<const JSTypesStackFrame *>(frame)->markJSFrame(markStack);
+             continue;
++        }
+ 
+         if (const QQmlPrivate::AOTTrackedLocalsStorage *locals
+                 = static_cast<const MetaTypesStackFrame *>(frame)->locals()) {

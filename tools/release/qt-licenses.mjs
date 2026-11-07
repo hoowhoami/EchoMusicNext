@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { root } from './contract.mjs';
 import { copyNotices } from './license-files.mjs';
 
@@ -88,6 +89,25 @@ export function collectQtLicenses(output, qt, { repository = root } = {}) {
   fs.mkdirSync(target, { recursive: true });
   fs.cpSync(licenses, path.join(target, 'licenses'), { recursive: true });
   const inventory = { schema: 1, version, modules: [] };
+  const qv4Receipt = path.join(qt, '.echo-qv4-gc.json');
+  if (version === '6.12.0' && !fs.existsSync(qv4Receipt))
+    throw new Error('Qt 6.12.0 requires the QtQml generator GC patch before distribution');
+  let qv4Patch;
+  if (fs.existsSync(qv4Receipt)) {
+    qv4Patch = JSON.parse(fs.readFileSync(qv4Receipt, 'utf8'));
+    const patchName = 'qtdeclarative-6.12.0-qv4-generator-gc.patch';
+    const patchFile = path.join(repository, 'tools/qt/patches', patchName);
+    const hash = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    if (qv4Patch.version !== version || qv4Patch.patch_sha256 !== hash(patchFile))
+      throw new Error('QtQml source patch does not match the SDK receipt');
+    const binary = path.resolve(qt, qv4Patch.binary);
+    if (!binary.startsWith(path.resolve(qt) + path.sep) || hash(binary) !== qv4Patch.binary_sha256)
+      throw new Error('QtQml binary does not match the SDK patch receipt');
+    fs.mkdirSync(path.join(target, 'patches'), { recursive: true });
+    fs.copyFileSync(patchFile, path.join(target, 'patches', patchName));
+    fs.copyFileSync(qv4Receipt, path.join(target, 'patches', 'qv4-gc.json'));
+    qv4Patch = { ...qv4Patch, patch: `patches/${patchName}` };
+  }
   for (const module of modules) {
     const source = path.join(repository, 'build/qt-sources', version, module);
     const cached = path.join(qt, 'share/echomusicnext-qt-notices', module);
@@ -145,13 +165,14 @@ export function collectQtLicenses(output, qt, { repository = root } = {}) {
       metadata: document ? name : null,
       sourceNotices: noticeCount ? `source-notices/${module}` : null,
       files: document?.files?.map((file) => file.fileName) || [],
+      ...(module === 'qtdeclarative' && qv4Patch ? { runtimePatch: qv4Patch } : {}),
     });
   }
   if (!inventory.modules.length) throw new Error('No Qt module license inventory found');
   fs.writeFileSync(path.join(target, 'modules.json'), JSON.stringify(inventory, null, 2) + '\n');
   fs.writeFileSync(
     path.join(target, 'NOTICE.txt'),
-    `This application uses Qt ${version}.\nCopyright (C) The Qt Company Ltd. and other contributors.\nQt and its bundled third-party components retain their respective licenses and copyrights.\nLicense texts: licenses/\nModule copyright and license records: *.spdx.json and source-notices/\nCorresponding upstream source locations and revisions: modules.json\n\n${inventory.modules.map((module) => `${module.name}: ${module.source}`).join('\n')}\n`,
+    `This application uses Qt ${version}.\nCopyright (C) The Qt Company Ltd. and other contributors.\nQt and its bundled third-party components retain their respective licenses and copyrights.\nLicense texts: licenses/\nModule copyright and license records: *.spdx.json and source-notices/\nCorresponding upstream source locations and revisions: modules.json\n${qv4Patch ? 'QtQml includes the generator GC backport; matching base source, upstream commits, binary hashes and local patch: patches/qv4-gc.json and modules.json. Original SDK SPDX inventories describe the unmodified base; runtimePatch records the QtQml modification.\n' : ''}\n${inventory.modules.map((module) => `${module.name}: ${module.source}`).join('\n')}\n`,
   );
   return inventory;
 }

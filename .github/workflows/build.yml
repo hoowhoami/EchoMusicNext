@@ -112,8 +112,8 @@ jobs:
         with:
           path: |
             build/qt-official
-          key: qt-prebuilt-6.12.0-${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('scripts/qt_sdk.py', 'scripts/qt_download.py', 'scripts/install-qt.py', 'scripts/build-qt.py', 'tools/qt/requirements.txt', 'tools/qt/linux-packages.txt', 'tools/release/licenses.mjs', 'tools/release/qt-licenses.mjs', 'tools/release/license-files.mjs') }}
-      - name: Prepare and validate official SDK
+          key: qt-prebuilt-qv4-6.12.0-${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('scripts/qt_sdk.py', 'scripts/qt_download.py', 'scripts/install-qt.py', 'scripts/build-qt.py', 'scripts/qt_qv4_patch.py', 'scripts/patch-qt-qml.py', 'tools/qt/patches/**', 'tools/qt/requirements.txt', 'tools/qt/linux-packages.txt', 'tools/release/licenses.mjs', 'tools/release/qt-licenses.mjs', 'tools/release/license-files.mjs') }}
+      - name: Prepare and validate SDK with QtQml GC fix
         run: python scripts/install-qt.py
       # Save only a validated SDK, before an unrelated compile/package failure.
       - name: Save validated Qt SDK

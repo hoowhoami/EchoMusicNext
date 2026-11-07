@@ -52,6 +52,7 @@
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QSignalSpy>
+#include <QSignalMapper>
 #include <QStyleHints>
 #include <QTemporaryDir>
 #include <QTcpServer>
@@ -500,14 +501,28 @@ Window {
     QTRY_VERIFY(!sought.isEmpty());
     QVERIFY(qAbs(session.playback.positionMs() - backward) < 500);
     sought.clear();
+    QVariantList keyboardRequests;
+    QSignalMapper keyboardMoves;
+    keyboardMoves.setMapping(slider, 0);
+    QVERIFY(connect(slider, SIGNAL(moved()), &keyboardMoves, SLOT(map())));
+    connect(&keyboardMoves, &QSignalMapper::mappedInt, &keyboardMoves,
+            [&](int) { keyboardRequests.append(slider->property("value")); });
     slider->forceActiveFocus();
     slider->setProperty("stepSize", 1000);
     for (int i = 0; i < 3; ++i)
         QTest::keyClick(session.window, Qt::Key_Right);
-    const auto keyboard = slider->property("value").toDouble();
+    QCOMPARE(keyboardRequests.size(), 3);
+    // Engine acknowledgements can update the bound display during keyClick().
+    // Compare the final native result with the last actual input intent.
+    const auto keyboard = keyboardRequests.constLast().toDouble();
     QVERIFY(keyboard > backward + 1000);
     QTRY_VERIFY(!sought.isEmpty());
-    QTRY_VERIFY(qAbs(session.playback.positionMs() - keyboard) < 500);
+    QTRY_VERIFY2(qAbs(session.playback.positionMs() - keyboard) < 500,
+                 qPrintable(QString("position=%1 displayed=%2 requests=%3")
+                                .arg(session.playback.positionMs())
+                                .arg(keyboard)
+                                .arg(QString::fromUtf8(QJsonDocument::fromVariant(keyboardRequests)
+                                                           .toJson(QJsonDocument::Compact)))));
     // A song replacement during the gesture must not seek the new song.
     const auto cancelStart =
         handle->mapToScene({handle->width() / 2, handle->height() / 2}).toPoint();
@@ -1040,7 +1055,7 @@ void PlaybackPageTest::desktopSubtitlesUseRestingColorInBothLayouts()
             }
             for (auto *item : subtitles)
                 QCOMPARE(item->opacity(), 1.);
-            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(window);
             window->update();
             QTRY_VERIFY(!frames.isEmpty());
             const auto image = window->grabWindow();
@@ -1407,17 +1422,8 @@ void PlaybackPageTest::coverHandoffPreservesSurfaceAndShadow()
         QTRY_COMPARE(source->property("status").toInt(), 1);
         QTRY_COMPARE(cover->property("status").toInt(), 1);
     }
-    // Keep the real page/cover/shadow on a stationary, high-contrast background.
-    QQmlComponent backgroundComponent(&session.engine);
-    backgroundComponent.setData(R"(
-        import QtQuick
-        Rectangle { anchors.fill: parent; z: -0.5; color: "#c8c8c8" }
-    )",
-                                QUrl());
-    QScopedPointer<QObject> background(backgroundComponent.create());
-    QVERIFY2(background, qPrintable(backgroundComponent.errorString()));
-    qobject_cast<QQuickItem *>(background.data())
-        ->setParentItem(session.page()->property("contentItem").value<QQuickItem *>());
+    auto *background = session.page()->property("backgroundSurface").value<QQuickItem *>();
+    QVERIFY(background);
     session.theme.setMotionEnabled(true);
     QVERIFY(QMetaObject::invokeMethod(motion, "prepare", Q_ARG(bool, true)));
     motion->setProperty("progress", .5);
@@ -1433,11 +1439,17 @@ void PlaybackPageTest::coverHandoffPreservesSurfaceAndShadow()
     motion->setProperty("contentOpacity", 1.);
     motion->setProperty("contentOffset", 0.);
     QTest::qWait(60);
+    // Artwork/palette sampling may start a separate 500ms color transition.
+    // Compare the handoff at its endpoint, independently of that transition.
+    QTRY_COMPARE(background->property("displayedBaseColor").value<QColor>(),
+                 background->property("baseColor").value<QColor>());
     const auto before = session.window->grabWindow();
     QVERIFY(!before.isNull());
     QVERIFY(QMetaObject::invokeMethod(motion, "finish"));
     QCOMPARE(session.item("playbackCoverShadow"), shadow.data());
     QTest::qWait(60);
+    QTRY_COMPARE(background->property("displayedBaseColor").value<QColor>(),
+                 background->property("baseColor").value<QColor>());
     const auto after = session.window->grabWindow();
     QVERIFY(!after.isNull());
     const auto bounds = cover->mapRectToScene(QRectF(0, 0, cover->width(), cover->height()));
@@ -2086,7 +2098,8 @@ void PlaybackPageTest::interludeHasIndependentRowAndNativePixels()
         QTest::qWait(100);
         auto *dot = session.item("lyricInterludeDot0");
         QVERIFY(dot);
-        auto *viewport = list->parentItem();
+        auto *viewport = session.item("playbackLyricViewport");
+        QVERIFY(viewport);
         const int originalAlignment = viewport->property("horizontalAlignment").toInt();
         QVERIFY(viewport->setProperty("horizontalAlignment", int(Qt::AlignHCenter)));
         QTRY_VERIFY(qAbs(center(dots).x() - center(row).x()) < .1);
@@ -3104,24 +3117,65 @@ void PlaybackPageTest::lateRubyLayoutKeepsRowsSeparated()
     QTRY_COMPARE(list->property("currentIndex").toInt(), overlap ? 0 : 1);
     QTRY_VERIFY((prefix = session.item("lyricTextRow0")));
     QTRY_VERIFY((current = session.item("lyricTextRow1")));
+    const auto textRow = [&](int index) -> QQuickItem * {
+        QQuickItem *delegate = nullptr;
+        if (!QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, delegate),
+                                       Q_ARG(int, index)) ||
+            !delegate)
+            return nullptr;
+        return findVisual(delegate, QString("lyricTextRow%1").arg(index));
+    };
     const auto separated = [&] {
+        // Reshaping can pool and reuse a row as a different model index.
+        // Measure the live indexed delegates, never the old QObject address.
+        prefix = textRow(0);
+        current = textRow(1);
+        if (!prefix || !current)
+            return false;
         const auto a = prefix->mapRectToItem(list, prefix->boundingRect());
         const auto b = current->mapRectToItem(list, current->boundingRect());
         const auto focus = overlap ? a : b;
         return qAbs(a.bottom() - b.top()) < 1 &&
                qAbs(focus.center().y() - list->property("focusCenter").toReal()) < 1;
     };
-    QTRY_VERIFY(separated());
+    const auto layoutDetails = [&] {
+        if (!prefix || !current)
+            return QStringLiteral("Indexed lyric delegates are not materialized");
+        return QString(
+                   "prefix=%1,%2,%3,%4 next=%5,%6,%7,%8 focus=%9 index=%10 contentY=%11 "
+                   "origin=%12 scroll0=%13 scroll1=%14 root0=%15,%16 root1=%17,%18 pooled=%19,%20")
+            .arg(prefix->x())
+            .arg(prefix->mapRectToItem(list, prefix->boundingRect()).y())
+            .arg(prefix->width())
+            .arg(prefix->height())
+            .arg(current->x())
+            .arg(current->mapRectToItem(list, current->boundingRect()).y())
+            .arg(current->width())
+            .arg(current->height())
+            .arg(list->property("focusCenter").toReal())
+            .arg(list->property("currentIndex").toInt())
+            .arg(list->property("contentY").toReal())
+            .arg(list->property("originY").toReal())
+            .arg(prefix->parentItem()->property("scrollY").toReal())
+            .arg(current->parentItem()->property("scrollY").toReal())
+            .arg(prefix->parentItem()->y())
+            .arg(prefix->parentItem()->height())
+            .arg(current->parentItem()->y())
+            .arg(current->parentItem()->height())
+            .arg(prefix->parentItem()->property("pooled").toBool())
+            .arg(current->parentItem()->property("pooled").toBool());
+    };
+    QTRY_VERIFY2(separated(), qPrintable(layoutDetails()));
     const auto rubyHeight = prefix->height();
     QVERIFY(rubyHeight > 100);
     // Only the first row changes height. Its y stays fixed, and the next
     // row's own shaping stays identical throughout both reflows.
     text->setWantRomanization(false);
-    QTRY_VERIFY(prefix->height() < rubyHeight - 20);
-    QTRY_VERIFY(separated());
+    QTRY_VERIFY(textRow(0) && textRow(0)->height() < rubyHeight - 20);
+    QTRY_VERIFY2(separated(), qPrintable(layoutDetails()));
     text->setWantRomanization(true);
-    QTRY_COMPARE(prefix->height(), rubyHeight);
-    QTRY_VERIFY(separated());
+    QTRY_VERIFY(textRow(0) && textRow(0)->height() == rubyHeight);
+    QTRY_VERIFY2(separated(), qPrintable(layoutDetails()));
     QVERIFY(lyricItems(list) < 100);
     const auto capture = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
     if (!capture.isEmpty()) {
@@ -3360,7 +3414,7 @@ void PlaybackPageTest::pageSkinLifecycleAndBoundedDelegates()
     const auto colorCapture = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
     if (!colorCapture.isEmpty() && QGuiApplication::platformName() != "offscreen") {
         QTRY_VERIFY(drawer->property("opened").toBool());
-        QSignalSpy frame(session.window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frame(session.window);
         session.window->requestUpdate();
         QTRY_VERIFY(!frame.isEmpty());
         QDir().mkpath(colorCapture);
@@ -3430,7 +3484,7 @@ void PlaybackPageTest::lyricRowBoxClearsRightSideTools()
 }
 void PlaybackPageTest::lyricViewportClearsAboveControlsSurfaces()
 {
-    QObject scope;
+    PlaybackSurfaceTestScope scope;
     scope.setObjectName("0");
     Session session;
     session.theme.setMotionEnabled(false);
@@ -3656,7 +3710,7 @@ void PlaybackPageTest::manualScrollRecoversAndLargeSeeksRemainVirtualized()
     QTRY_VERIFY(list->property("initialized").toBool());
     QTRY_VERIFY(session.page()->property("opened").toBool());
     QTRY_VERIFY(list->isEnabled());
-    QSignalSpy frame(session.window, &QQuickWindow::frameSwapped);
+    Test::FrameSpy frame(session.window);
     session.window->requestUpdate();
     QTRY_VERIFY(!frame.isEmpty());
     const auto point = list->mapToScene({list->width() / 2, list->height() / 2});
@@ -3697,7 +3751,7 @@ void PlaybackPageTest::renderThemesScaleAndNarrowViewport()
             for (const int width : {1200, 740}) {
                 session.playback.lyricText()->setWantTranslation(scale == 1.25);
                 session.playback.lyricText()->setWantRomanization(width == 740);
-                QSignalSpy rendered(session.window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy rendered(session.window);
                 session.window->resize(width, 800);
                 session.window->requestUpdate();
                 QTRY_VERIFY(!rendered.isEmpty());
@@ -3794,7 +3848,7 @@ void PlaybackPageTest::backgroundMemoryAndLifecycle()
     };
     const auto ready = [&] { return image() && image()->property("status").toInt() == 1; };
     const auto frame = [&] {
-        QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frames(session.window);
         session.window->update();
         QTest::qWait(150);
         return !frames.isEmpty();
@@ -4302,7 +4356,7 @@ void PlaybackPageTest::liveOptionalArtworkDecodesAndStopsWhenPageCloses()
         const auto bottom = cover->mapToScene({cover->width(), cover->height()});
         return frame.copy(QRectF(top * ratio, bottom * ratio).toAlignedRect());
     };
-    QSignalSpy initialFrames(session.window, &QQuickWindow::frameSwapped);
+    Test::FrameSpy initialFrames(session.window);
     session.window->update();
     QTRY_VERIFY(!initialFrames.isEmpty());
     const auto staticReady = [&] {

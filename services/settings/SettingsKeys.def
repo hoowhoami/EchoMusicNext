@@ -175,6 +175,7 @@ ECHO_PREFIX(Plugins, ResourcePermissionsPrefix, "plugins/resourcePermissions/", 
 ECHO_PREFIX(Plugins, WindowBoundsPrefix, "plugins/windowBounds/", Device)
 ECHO_FIELD(Plugins, EntryFormat, "plugins/%1")
 ECHO_PREFIX(Plugins, FailuresPrefix, "plugins/failures/", Device)
+ECHO_SETTING(Plugins, UiComposition, "plugins/uiComposition", Portable)
 ECHO_PREFIX(Plugins, Prefix, "plugins/", Device)
 ECHO_SETTING(Plugins, SafeMode, "plugins/safeMode", Device)
 ECHO_SETTING(Plugins, Sources, "plugins/sources", Portable)

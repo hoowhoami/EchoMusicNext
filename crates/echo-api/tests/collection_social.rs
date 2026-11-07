@@ -17,9 +17,9 @@ fn collected_playlist_and_album_acknowledge_local_library_ids() {
             &format!("social-actions-{name}-add-20261019"),
         ))
         .unwrap();
-        assert_eq!(ack.cloud_list_id, id);
-        assert_eq!(ack.previous_total_revision, previous);
-        assert_eq!(ack.total_revision, version);
+        assert_eq!(ack.cloud_list_id, Some(id));
+        assert_eq!(ack.previous_total_revision, Some(previous));
+        assert_eq!(ack.total_revision, Some(version));
         assert_eq!(ack.playlist_count, Some(47));
         let removed = module::playlist_del::convert(
             &payload(
@@ -29,7 +29,7 @@ fn collected_playlist_and_album_acknowledge_local_library_ids() {
             id,
         )
         .unwrap();
-        assert_eq!(removed.cloud_list_id, id);
+        assert_eq!(removed.cloud_list_id, Some(id));
         assert_eq!(removed.playlist_count, Some(46));
     }
 }

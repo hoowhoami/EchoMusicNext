@@ -15,5 +15,5 @@ EchoUiPartHost {
     required property RouteContext context
     required property RouteController router
     required property ShellSettings settings
-    readonly property bool pageActive: context.active && !publicPart.replaced
+    readonly property bool pageActive: context.active && !publicPart.replaced && !publicPart.contentReplaced
 }

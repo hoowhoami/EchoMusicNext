@@ -5,27 +5,10 @@ import EchoMusic.Theme
 import EchoMusic.Controls
 import EchoMusic.Shell
 
-Item {
+EchoUiPartHost {
     id: bar
-    EchoUiPart {
-        id: publicSurface
-        target: bar
-        role: "shell.titlebar"
-        key: "shell.titlebar"
-        properties: ["background", "borderColor", "borderWidth", "radius", "opacity"]
-    }
-    opacity: publicSurface.value("opacity", 1)
-    Loader {
-        anchors.fill: parent
-        z: -0.5
-        active: bar.visible && bar.Window.window !== null && bar.Window.window.visible && bar.Window.window.visibility !== Window.Minimized && Object.keys(publicSurface.overrides).some(name => name !== "opacity")
-        sourceComponent: Rectangle {
-            color: publicSurface.value("background", "transparent")
-            radius: publicSurface.value("radius", 0)
-            border.color: publicSurface.value("borderColor", "transparent")
-            border.width: publicSurface.value("borderWidth", 0)
-        }
-    }
+    partRole: "shell.titlebar"
+    partKey: "shell.titlebar"
     required property RouteController router
     required property WindowController windowService
     required property Window window
@@ -54,13 +37,17 @@ Item {
         anchors.fill: parent
         acceptedButtons: Qt.AllButtons
     }
-    RowLayout {
+    EchoUiRow {
+        partRole: "layout.titlebar"
+        partKey: "row1"
         anchors.fill: parent
         anchors.leftMargin: 16
         anchors.rightMargin: 12
         spacing: 4
-        RowLayout {
+        EchoUiRow {
             id: navigation
+            partRole: "layout.titlebar"
+            partKey: "navigation"
             Layout.fillHeight: false
             visible: bar.width >= 400
             Layout.preferredWidth: 350

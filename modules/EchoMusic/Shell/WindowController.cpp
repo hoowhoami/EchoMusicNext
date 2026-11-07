@@ -1,5 +1,6 @@
 #include "SettingsKeys.h"
 #include "WindowController.h"
+#include "QuickAnimationDriver.h"
 #include "WindowPresentationDiagnostics.h"
 #include "WindowResizeSync.h"
 #include "PlaybackService.h"
@@ -177,6 +178,7 @@ void WindowController::attach(QQuickWindow *window)
     if (!window)
         return;
     m_window = window;
+    installQuickAnimationDriverGuard(*window);
     m_appIcons.attach(window);
     connect(window, &QWindow::activeChanged, this, [this] {
         if (mainWindowActive())
@@ -506,6 +508,7 @@ void WindowController::attachPluginWindow(QQuickWindow *window)
 {
     if (!window)
         return;
+    installQuickAnimationDriverGuard(*window);
     m_pluginWindows.removeIf([](const auto &item) { return !item; });
     if (m_pluginWindows.contains(window))
         return;

@@ -22,12 +22,7 @@ ToolButton {
         }
     }
     readonly property color visualForeground: publicPart.value("foreground", foreground)
-    Connections {
-        target: control
-        function onClicked(): void {
-            control.publicPart.publish("activated");
-        }
-    }
+
     required property string glyph
     // Pure icon actions expose their label on hover as well as to accessibility.
     property string tooltipText: text

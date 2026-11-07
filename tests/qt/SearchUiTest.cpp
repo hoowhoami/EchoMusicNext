@@ -368,7 +368,7 @@ Window {
         }
         if (QGuiApplication::platformName() != QStringLiteral("offscreen")) {
             QVERIFY(Test::prepareNativeInput(window));
-            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(window);
             window->update();
             QTRY_VERIFY(!frames.isEmpty());
             const QPoint outsideRow(window->width() / 2, window->height() - 20);
@@ -541,7 +541,7 @@ Window {
             QVERIFY(QTest::qWaitForWindowExposed(session.window));
             QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtIndex", Q_ARG(int, 99999),
                                               Q_ARG(int, 2)));
-            QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(session.window);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
             QTest::mouseMove(session.window, QPoint(2, 2));
@@ -1092,7 +1092,7 @@ Window {
             for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
                 session.theme.setMode(mode);
                 QTRY_VERIFY(visibleIconsReady(session.window->contentItem()));
-                QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frames(session.window);
                 session.window->update();
                 QTRY_VERIFY(!frames.isEmpty());
                 const auto capture = session.window->grabWindow();
@@ -1246,7 +1246,7 @@ Window {
                         QCOMPARE(label->y() + label->height(), 30.);
                         QTest::qWait(100);
                         if (QGuiApplication::platformName() != "offscreen") {
-                            QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+                            Test::FrameSpy frames(session.window);
                             session.window->update();
                             QTRY_VERIFY(!frames.isEmpty());
                         }
@@ -1450,7 +1450,7 @@ Window {
             QVERIFY(QDir().mkpath(typographyArtifacts));
             for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
                 session.theme.setMode(mode);
-                QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frames(session.window);
                 session.window->update();
                 QTRY_VERIFY(!frames.isEmpty());
                 const auto capture = session.window->grabWindow();
@@ -1605,7 +1605,7 @@ Window {
             // Cocoa rendering/polish follows the model/margin notifications.
             // Hit testing must use the thumb's rendered geometry, not the
             // previous frame's extent after changing from a one-row filter.
-            QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(session.window);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
         }
@@ -1654,9 +1654,10 @@ Window {
         QTRY_VERIFY(page->width() < beforeZoom);
         QCOMPARE(bar->x() + bar->width(), page->width());
         QCOMPARE(bar->height(), page->height());
+        QPointer<QQuickItem> retiredBar = bar;
         QVERIFY(session.routes.navigate("themes"));
-        QTRY_VERIFY(!bar->property("resourceActive").toBool());
-        QVERIFY(!bar->property("revealed").toBool());
+        // Navigation releases the complete page, including the overlay track.
+        QTRY_VERIFY(retiredBar.isNull());
         QCOMPARE(warnings.count(), 0);
     }
     void nativeReleaseScrollMeasurement()

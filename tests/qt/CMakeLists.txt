@@ -464,9 +464,8 @@ target_link_libraries(
 )
 target_link_libraries(echo-shell-test PRIVATE echo_accountui echo_libraryui)
 add_test(NAME shell COMMAND echo-shell-test)
-# Includes the complete production UI matrices and popup destruction cycles.
-# Retain every assertion; bound the expanded suite rather than aborting at 30s.
-set_tests_properties(shell PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+# Includes native input, font/scale matrices and 480 sidebar visibility clicks.
+set_tests_properties(shell PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 240)
 qt_add_executable(echo-shell-actions-test ShellActionTest.cpp)
 target_link_libraries(
     echo-shell-actions-test PRIVATE echo_shell echo_shellplugin echo_controls Qt6::Quick
@@ -941,6 +940,9 @@ target_sources(
             plugins/PluginRuntimeCommandPackages.cpp
             plugins/PluginRuntimePresentationServices.cpp
             plugins/PluginRuntimeCapabilities.cpp
+            plugins/PluginRuntimeComposition.cpp
+            plugins/PluginRuntimeCompositionBoundaries.cpp
+            plugins/PluginRuntimeUiContracts.cpp
             plugins/PluginRuntimeUiParts.cpp
             plugins/PluginRuntimeAppearance.cpp
             plugins/PluginRuntimeEcosystemFixture.h
@@ -2210,4 +2212,77 @@ set_tests_properties(
 echo_copy_rust_runtime(echo-song-information-test)
 if(APPLE)
     target_link_libraries(echo-song-information-test PRIVATE echo_native_test_support)
+endif()
+
+add_test(
+    NAME plugin-ui-composition
+    COMMAND
+        echo-plugin-runtime-test compositionNativeContainers compositionNativeStylesRestoreBindings
+        compositionProductionLyricToolbar compositionSemanticTreeAndLayoutRestore
+        compositionInsertionParticipatesInLayout compositionWrapPreservesNativeContentAndRetires
+        compositionMoveConflictAndRestoration compositionRevisionRollbackAndReplacementLayers
+        compositionStateAccountAndPreferences compositionProductionRegionsAndInspector
+        nativeUiBatchPreparationCommitAndRollback nativeUiAdjacentFocusAndCapacity
+        nativeUiBoundedPublicValues modelProjectionValueForms nativeUiTabModelContentAndSelection
+        nativeUiSettingsModelSections nativeUiInspectorPointerPick nativeUiMenuModelActions
+        nativeUiStateStylesAndCommands nativeUiPresentationBoundary nativeUiControlContentFactories
+        nativeUiFocusOrderAndCoordinateMapping modelProjectionNativeDataAndLifecycles
+        compositionDecorationDoesNotLayout compositionAddressesAndScopedPreferences
+        compositionVirtualDelegateGeneration compositionAnchoredSiblingRestoresBindings
+        compositionNativeWindowsDiscoveryAndOwnership compositionProductionAnchoredInputActions
+)
+set_tests_properties(
+    plugin-ui-composition PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90
+)
+
+option(ECHO_BUILD_UI_SOAK_TEST "Build the opt-in macOS UI resource comparison workload" OFF)
+qt_add_executable(echo-quick-animation-driver-test QuickAnimationDriverTest.cpp)
+target_link_libraries(
+    echo-quick-animation-driver-test PRIVATE echo_controls Qt6::Test Qt6::QuickPrivate
+                                             Qt6::CorePrivate Qt6::Widgets
+)
+if(TARGET echo_native_test_support)
+    target_link_libraries(echo-quick-animation-driver-test PRIVATE echo_native_test_support)
+endif()
+add_test(NAME quick-animation-driver COMMAND echo-quick-animation-driver-test)
+set_tests_properties(
+    quick-animation-driver
+    PROPERTIES
+        ENVIRONMENT
+        "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=;QSG_RENDER_LOOP=threaded;QSG_RHI_BACKEND=null"
+        TIMEOUT 30
+)
+if(ECHO_BUILD_UI_SOAK_TEST AND APPLE)
+    qt_add_executable(echo-ui-soak-test UiCompositionSoak.cpp plugins/PluginRuntimeTestFixture.h)
+    target_include_directories(echo-ui-soak-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(
+        echo-ui-soak-test
+        PRIVATE echo_settings
+                echo_logging
+                echo_settingsplugin
+                echo_music
+                echo_themes
+                echo_themesplugin
+                echo_platform
+                echo_plugins
+                echo_pluginsplugin
+                echo_plugin_sdkplugin
+                echo_accountui
+                echo_accountuiplugin
+                echo_libraryui
+                echo_libraryuiplugin
+                echo_appui
+                echo_appuiplugin
+                echo_search
+                Qt6::Test
+                Qt6::QuickControls2
+                Qt6::Sql
+                Qt6::Widgets
+                Qt6::Network
+                Qt6::WebSockets
+    )
+    if(TARGET echo_native_test_support)
+        target_link_libraries(echo-ui-soak-test PRIVATE echo_native_test_support)
+    endif()
+    echo_copy_rust_runtime(echo-ui-soak-test)
 endif()

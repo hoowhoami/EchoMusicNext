@@ -171,7 +171,7 @@ private slots:
         QTest::qWait(100);
         QCOMPARE(window->grabWindow(), stable);
         QTest::qWait(100);
-        QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frames(window);
         QTest::qWait(200);
         QCOMPARE(frames.size(), 0);
         qInfo() << "Idle frames over 200ms:" << frames.size();

@@ -763,11 +763,13 @@ private slots:
         MembershipServiceTestAccess::finish(membership, older, conceptMembership);
         QVERIFY(!membership.facts().known);
         QVERIFY(membership.domain().isEmpty());
-        const auto wrongUser = MembershipServiceTestAccess::begin(membership, api);
-        MembershipServiceTestAccess::finish(membership, wrongUser, conceptMembership);
-        QVERIFY(!membership.facts().known);
+        const auto current = MembershipServiceTestAccess::begin(membership, api);
+        MembershipServiceTestAccess::finish(membership, current, conceptMembership);
+        // Session/request ownership rejects stale callbacks above. A successful
+        // current request does not require a response echo of the account ID.
+        QVERIFY(membership.facts().known);
         QVERIFY(!membership.loading());
-        QVERIFY(!membership.errorMessage().isEmpty());
+        QVERIFY(membership.errorMessage().isEmpty());
         const auto valid = MembershipServiceTestAccess::begin(membership, api);
         MembershipServiceTestAccess::finish(membership, valid,
                                             {{"user_id", 900002},

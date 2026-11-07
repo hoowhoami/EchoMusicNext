@@ -10,7 +10,7 @@ void ControlsUiTest::scrollContentCannotPaintOverRoundedCornersOrBorder()
     session.window->resize(1100, 800);
     QTRY_COMPARE(session.window->height(), 800);
     const auto captureScene = [&]() -> QImage {
-        QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frames(session.window);
         if (!QTest::qWaitFor([&] {
                 session.window->requestUpdate();
                 return frames.size() >= 2;
@@ -509,7 +509,7 @@ void ControlsUiTest::floatingFrostSamplesTheSceneAndStopsOnHide()
     session.theme.setFloatingFrosted(true);
     QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
     if (QGuiApplication::platformName() != "offscreen" && supported) {
-        QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frames(session.window);
         session.window->update();
         QTRY_VERIFY(!frames.isEmpty());
         QTest::qWait(100);
@@ -605,7 +605,7 @@ void ControlsUiTest::floatingEffectsAreOwnedByVisibleSurfaces()
         qInfo() << "Floating phase" << name << "pid" << QCoreApplication::applicationPid()
                 << "samplers" << samplerCount();
         const auto cpu = std::clock();
-        QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+        Test::FrameSpy frames(session.window);
         QElapsedTimer wall;
         wall.start();
         QTest::qWait(qMax(100, holdMs));
@@ -679,7 +679,7 @@ void ControlsUiTest::floatingEffectsAreOwnedByVisibleSurfaces()
     // Windows can retain exposure while minimized. Visibility is the public
     // lifecycle input; actual sampler destruction is the resource contract.
     session.window->showNormal();
-    QVERIFY(QTest::qWaitForWindowExposed(session.window));
+    QVERIFY(Test::prepareNativeInput(session.window));
     QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
     // The window contentItem's visibility is owned by QQuickWindow's
     // asynchronous expose/minimize path. Exercise an ordinary ancestor.
@@ -722,7 +722,7 @@ void ControlsUiTest::floatingBorderCompositesOverItsOwnFill()
             // keep the real pixel assertions in the Cocoa/device run.
             if (QGuiApplication::platformName() == QStringLiteral("offscreen"))
                 continue;
-            QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(session.window);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
             const auto image = session.window->grabWindow();
@@ -783,7 +783,7 @@ void ControlsUiTest::themeCustomColorHoverAndRenderedPixels()
             QCOMPARE(tinted->property("color").value<QColor>(), tint);
             if (QGuiApplication::platformName() == "offscreen")
                 continue;
-            QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+            Test::FrameSpy frames(session.window);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
             const auto image = session.window->grabWindow();
@@ -894,7 +894,7 @@ void ControlsUiTest::sourceActionSurfacesAndSelectStates()
             // The actual render must preserve the 5% translucent fill: a shadow
             // painted inside would silently add another 6% black over it.
             if (QGuiApplication::platformName() != QStringLiteral("offscreen")) {
-                QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
+                Test::FrameSpy frames(session.window);
                 session.window->update();
                 QTRY_VERIFY(!frames.isEmpty());
                 const auto image = session.window->grabWindow();
