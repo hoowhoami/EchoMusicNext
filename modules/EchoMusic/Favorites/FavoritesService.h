@@ -8,6 +8,7 @@
 #include "SongMetadataService.h"
 #include "UserPlaylistModel.h"
 #include <QHash>
+#include <QPointer>
 #include <QJsonArray>
 #include <optional>
 namespace EchoMusic
@@ -32,6 +33,8 @@ class FavoritesService final : public QObject
     Q_PROPERTY(EchoMusic::PlaylistOrderModel *order READ order CONSTANT)
     Q_PROPERTY(int tab READ tab NOTIFY changed)
     Q_PROPERTY(bool canAdjustSongOrder READ canAdjustSongOrder NOTIFY changed)
+    Q_PROPERTY(bool canRemoveSongs READ canRemoveSongs NOTIFY changed)
+    Q_PROPERTY(bool removeBusy READ removeBusy NOTIFY changed)
     Q_PROPERTY(quint64 likedListId READ likedListId NOTIFY changed)
     Q_PROPERTY(QString likedTitle READ likedTitle NOTIFY changed)
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
@@ -68,6 +71,9 @@ public:
     }
     /// Reordering requires an authenticated owner and a positive cloud list ID.
     bool canAdjustSongOrder() const;
+    bool canRemoveSongs() const;
+    bool removeBusy() const;
+    Q_INVOKABLE bool removeSongs(const QStringList &ids);
     quint64 likedListId() const;
     QString likedTitle() const;
     SongCatalogModel *albums()
@@ -143,6 +149,9 @@ private:
     void applyTrackReadback(const QJsonObject &snapshot, quint64 session);
     QJsonObject m_pendingTrackReadback;
     QMetaObject::Connection m_mutationConnection;
+    QMetaObject::Connection m_mutationStateConnection;
+    QPointer<PlaylistMutationService> m_mutations;
+    quint64 m_removeSession = 0;
     void requestLikedPage();
     void requestVideos();
     void projectAlbums();

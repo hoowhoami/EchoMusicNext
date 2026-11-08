@@ -1811,6 +1811,7 @@ if(APPLE)
               echo-discovery-test
               echo-personal-fm-test
               echo-playlist-detail-test
+              echo-library-pages-test
               echo-history-test
               echo-details-test
               echo-playback-discussion-test

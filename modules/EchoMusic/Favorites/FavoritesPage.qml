@@ -405,6 +405,15 @@ RoutePage {
                 actions: page.service.actions
                 collection: page.service.songs
                 uiScale: page.settings.uiScale
+                enableRemove: page.service.canRemoveSongs
+                removeBusy: page.service.removeBusy
+                removeDialogTitle: qsTr("从歌单移除")
+                removeDialogDescription: qsTr("确认从“%1”移除选中的 %2 首歌曲？此操作将取消喜欢。").arg(page.service.likedTitle).arg(collection.selectedCount)
+                removeConfirmLabel: qsTr("确认移除")
+                onRemoveConfirmed: ids => {
+                    if (page.service.removeSongs(ids))
+                        batch.close();
+                }
             }
         }
     }
@@ -418,6 +427,9 @@ RoutePage {
                 parent: Overlay.overlay
                 uiScale: page.settings.uiScale
                 commands: page.service.actions
+                removeVisible: page.service.canRemoveSongs
+                removeLabel: qsTr("从歌单移除")
+                onRemoveTriggered: page.service.removeSongs([songMenu.songId])
                 onClosed: page.menuSongId = ""
             }
         }

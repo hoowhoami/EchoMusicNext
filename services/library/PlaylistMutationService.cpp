@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QPointer>
 #include <QTimer>
+#include <limits>
 #include <utility>
 
 namespace EchoMusic
@@ -65,7 +66,25 @@ bool PlaylistMutationService::addTracks(ApiClient::CloudPlaylistId id,
 bool PlaylistMutationService::removeTracks(ApiClient::CloudPlaylistId id,
                                            const QList<ApiClient::PlaylistTrackFileId> &files)
 {
-    return ready() && begin(m_api.removePlaylistTracks(id, files), Kind::RemoveTracks, id);
+    if (!ready() || files.isEmpty())
+        return false;
+    QSet<quint64> seen;
+    for (const auto &file : files) {
+        if (!file.value || file.value > quint64(std::numeric_limits<qint64>::max()) ||
+            seen.contains(file.value))
+            return false;
+        seen.insert(file.value);
+    }
+    m_removeRemaining = files.mid(300);
+    m_removeBatch.clear();
+    for (const auto &file : files.mid(0, 300))
+        m_removeBatch.append(file.value);
+    m_removeAcknowledged = false;
+    if (begin(m_api.removePlaylistTracks(id, files.mid(0, 300)), Kind::RemoveTracks, id))
+        return true;
+    m_removeRemaining.clear();
+    m_removeBatch.clear();
+    return false;
 }
 bool PlaylistMutationService::sortTracks(ApiClient::CloudPlaylistId id, quint64 revision,
                                          const QList<ApiClient::PlaylistTrackPosition> &positions)
@@ -120,6 +139,13 @@ bool PlaylistMutationService::saveEdit(const ApiClient::PlaylistUpdate &update,
 }
 void PlaylistMutationService::coverFailed(const QString &message)
 {
+    // Earlier batches remain successful. Refresh their actual result without
+    // retrying the failed/unknown write or discarding the provider's error.
+    if (m_removeAcknowledged)
+        queueRefresh(false, m_id);
+    m_removeRemaining.clear();
+    m_removeBatch.clear();
+    m_removeAcknowledged = false;
     m_request = 0;
     m_coverStage = CoverStage::None;
     m_coverPng.clear();
@@ -238,6 +264,9 @@ bool PlaylistMutationService::begin(quint64 request, Kind kind, ApiClient::Cloud
 }
 void PlaylistMutationService::reset()
 {
+    m_removeRemaining.clear();
+    m_removeBatch.clear();
+    m_removeAcknowledged = false;
     const auto request = std::exchange(m_request, 0);
     const auto refresh = std::exchange(m_refreshRequest, 0);
     m_refresh.reset();
@@ -274,6 +303,26 @@ void PlaylistMutationService::succeed(quint64 request, const QByteArray &payload
         coverSucceeded(object);
         return;
     }
+    if (m_kind == Kind::RemoveTracks) {
+        const auto removalSession = m_revision;
+        const auto removedFiles = m_removeBatch;
+        QPointer<PlaylistMutationService> guard(this);
+        emit trackFilesRemoved(m_id.value, removedFiles, removalSession);
+        if (!guard || removalSession != m_api.sessionRevision())
+            return;
+        m_removeBatch.clear();
+    }
+    if (m_kind == Kind::RemoveTracks && !m_removeRemaining.isEmpty()) {
+        m_removeAcknowledged = true;
+        const auto batch = m_removeRemaining.mid(0, 300);
+        m_removeRemaining.remove(0, batch.size());
+        for (const auto &file : batch)
+            m_removeBatch.append(file.value);
+        if (!begin(m_api.removePlaylistTracks(m_id, batch), Kind::RemoveTracks, m_id))
+            coverFailed(tr("无法继续移除歌单歌曲"));
+        return;
+    }
+    m_removeAcknowledged = false;
     const auto session = m_revision;
     const auto id = m_id;
     const bool library = libraryOperation();

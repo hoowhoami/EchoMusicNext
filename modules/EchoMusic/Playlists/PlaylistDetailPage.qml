@@ -170,6 +170,15 @@ RoutePage {
                 actions: page.detail.actions
                 collection: page.detail.songs
                 uiScale: page.settings.uiScale
+                enableRemove: page.detail.orderListId > 0 && page.detail.complete
+                removeBusy: page.detail.removeBusy
+                removeDialogTitle: qsTr("从歌单移除")
+                removeDialogDescription: qsTr("确认从当前歌单移除选中的 %1 首歌曲？此操作无法撤销。").arg(collection.selectedCount)
+                removeConfirmLabel: qsTr("确认移除")
+                onRemoveConfirmed: ids => {
+                    if (page.detail.removeSongs(ids))
+                        batch.close();
+                }
             }
         }
     }

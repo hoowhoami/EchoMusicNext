@@ -90,8 +90,58 @@ FavoritesService::~FavoritesService()
 void FavoritesService::attachPlaylistMutations(PlaylistMutationService &mutations)
 {
     disconnect(m_mutationConnection);
+    disconnect(m_mutationStateConnection);
+    m_mutations = &mutations;
     m_mutationConnection = connect(&mutations, &PlaylistMutationService::trackPageReconciled, this,
                                    &FavoritesService::applyTrackReadback);
+    m_mutationStateConnection =
+        connect(&mutations, &PlaylistMutationService::changed, this, [this] {
+            if (m_removeSession && m_removeSession != m_api.sessionRevision())
+                m_removeSession = 0;
+            if (m_removeSession && m_mutations->state() == PlaylistMutationService::State::Ready) {
+                m_removeSession = 0;
+                const auto error = m_mutations->errorMessage();
+                emit notice(error.isEmpty() ? tr("已从歌单移除") : error, !error.isEmpty());
+            }
+            emit changed();
+        });
+    emit changed();
+}
+bool FavoritesService::canRemoveSongs() const
+{
+    return !m_closed && m_active && m_tab == 0 && m_mutations && m_likedLoaded && m_likedId &&
+           m_likedId == likedListId();
+}
+bool FavoritesService::removeBusy() const
+{
+    return !m_mutations || m_mutations->state() != PlaylistMutationService::State::Ready;
+}
+bool FavoritesService::removeSongs(const QStringList &ids)
+{
+    if (!canRemoveSongs() || removeBusy())
+        return false;
+    const QSet<QString> selected(ids.begin(), ids.end());
+    QSet<quint64> seen;
+    QList<ApiClient::PlaylistTrackFileId> files;
+    for (const auto &value : m_songRows) {
+        const auto entry = value.toObject();
+        if (!selected.contains(entry["song"].toObject()["id"].toString()))
+            continue;
+        const auto file = entry["file_id"].toInteger();
+        if (file <= 0)
+            return false;
+        if (!seen.contains(quint64(file))) {
+            seen.insert(quint64(file));
+            files.append({quint64(file)});
+        }
+    }
+    if (files.isEmpty())
+        return false;
+    m_removeSession = m_api.sessionRevision();
+    if (m_mutations->removeTracks({m_likedId}, files))
+        return true;
+    m_removeSession = 0;
+    return false;
 }
 void FavoritesService::applyTrackReadback(const QJsonObject &snapshot, quint64 session)
 {
@@ -692,6 +742,7 @@ void FavoritesService::fail(quint64 id, const QByteArray &bytes)
 }
 void FavoritesService::shutdown()
 {
+    m_removeSession = 0;
     m_songs.setMetadataActive(false);
     if (m_closed)
         return;

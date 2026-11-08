@@ -3,6 +3,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QTimer>
+#include <utility>
 namespace EchoMusic
 {
 namespace
@@ -45,6 +46,33 @@ PlaybackLibraryActions::PlaybackLibraryActions(PlaybackService &playback, ApiCli
     connect(&playback, &PlaybackService::changed, this, &PlaybackLibraryActions::changed);
     connect(&writer, &PlaylistMutationService::completed, this,
             &PlaybackLibraryActions::writeCompleted);
+    connect(&writer, &PlaylistMutationService::trackFilesRemoved, this,
+            [this](quint64 listId, const QList<quint64> &files, quint64 session) {
+                const auto liked = m_library.cloudIdAt(likedRow());
+                if (session != m_api.sessionRevision() || !liked || liked->value != listId ||
+                    (m_ownedWrite && m_favoriteWrite))
+                    return;
+                const QSet<quint64> removed(files.begin(), files.end());
+                const auto current = m_playback.currentTrack();
+                const bool currentRemoved =
+                    m_favorites.contains(favoriteKey(current)) &&
+                    removed.contains(m_favorites.value(favoriteKey(current)));
+                for (auto it = m_favorites.begin(); it != m_favorites.end();)
+                    if (removed.contains(it.value()))
+                        it = m_favorites.erase(it);
+                    else
+                        ++it;
+                // Retire a pre-write read rather than restoring removed likes
+                // from its late snapshot. The next canonical refresh resumes it.
+                if (m_favoriteRead) {
+                    m_api.cancel(std::exchange(m_favoriteRead, 0));
+                    m_readFavorites.clear();
+                    m_favoritesReady = false;
+                }
+                if (currentRemoved)
+                    emit favoriteWritten(current, false);
+                emit changed();
+            });
     connect(&writer, &PlaylistMutationService::changed, this, [this] {
         if (!m_ownedWrite)
             return;

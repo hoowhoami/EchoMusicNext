@@ -453,6 +453,59 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
         api.shutdown();
     }
+    void batchRemovalUsesHistoryKeysAndKeepsOtherAccounts()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-history-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        SongMetadataService metadata(api);
+        HistoryService service(api, playback, metadata, router, false);
+        auto *repository = PlaybackServiceTestAccess::repository(playback);
+        QSignalSpy failures(&playback, &PlaybackService::historyFailed);
+        QSignalSpy notices(&service, &HistoryService::notice);
+        const auto first = historyTrack("1", "移除一");
+        const auto second = historyTrack("2", "移除二");
+        repository->record(100, first, 1000);
+        repository->record(100, second, 2000);
+        repository->record(100, historyTrack("3", "保留"), 3000);
+        repository->record(200, first, 4000);
+        repository->record(200, second, 5000);
+        service.refresh();
+        QTRY_COMPARE(service.songs()->totalCount(), 3);
+        service.songs()->setQuery("保留");
+        QCOMPARE(service.songs()->count(), 1);
+        service.removeMany({});
+        service.removeMany({"missing"});
+        QCOMPARE(notices.size(), 0);
+        // Catalog IDs are not SQLite history keys. Resolve selected source rows
+        // even when a filter hides them, deduplicating before the single write.
+        service.removeMany({"1", "2", "1", "missing"});
+        QTRY_COMPARE(service.songs()->totalCount(), 1);
+        QCOMPARE(service.songs()->item(0)["resourceId"].toString(), QString("3"));
+        QCOMPARE(service.stats()["totalSongs"].toInt(), 1);
+        QCOMPARE(service.stats()["totalPlays"].toInt(), 1);
+        QCOMPARE(notices.size(), 1);
+        QVERIFY(notices.first().first().toString().contains("2"));
+        service.refresh();
+        QTRY_VERIFY(!service.loading());
+        QCOMPARE(service.songs()->totalCount(), 1);
+        QVERIFY(api.setAccount(200, "other-offline-history-fixture"));
+        service.songs()->setQuery("");
+        service.refresh();
+        QTRY_COMPARE(service.songs()->totalCount(), 2);
+        QCOMPARE(service.stats()["totalPlays"].toInt(), 2);
+        QCOMPARE(failures.size(), 0);
+        service.shutdown();
+        router.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
     void nativeHistoryPageAndClearDialog()
     {
         QTemporaryDir dir;
@@ -537,6 +590,51 @@ Window {
             QTest::qWait(200);
             QVERIFY(window->grabWindow().save(artifacts + "/history-loaded.png"));
         }
+        auto *batchOwner = historyObject(pageItem, "historyBatchDrawerOwner");
+        QVERIFY(batchOwner);
+        QVERIFY(!batchOwner->property("item").value<QObject *>());
+        QVERIFY(QMetaObject::invokeMethod(detailHeader, "batchRequested"));
+        QTRY_VERIFY(batchOwner->property("item").value<QObject *>());
+        QPointer<QObject> batch = batchOwner->property("item").value<QObject *>();
+        auto *remove = historyVisual(window->contentItem(), "batchRemove");
+        QVERIFY(remove && remove->isVisible());
+        QVERIFY(!remove->isEnabled());
+        auto *selectAll = historyVisual(window->contentItem(), "batchSelectAll");
+        QVERIFY(selectAll);
+        QVERIFY(QMetaObject::invokeMethod(selectAll, "click"));
+        // The native checkbox's toggled handler is the production selection command.
+        QTRY_COMPARE(service.songs()->selectedCount(), 2);
+        QTRY_VERIFY(remove->isEnabled());
+        QVERIFY(QMetaObject::invokeMethod(remove, "clicked"));
+        QPointer<QObject> confirmation;
+        QTRY_VERIFY((confirmation = historyObject(batch, "batchRemoveConfirm")));
+        QCOMPARE(confirmation->property("heading").toString(), QString("从播放历史移除"));
+        QVERIFY(confirmation->property("description").toString().contains("2 首"));
+        if (!artifacts.isEmpty()) {
+            QTest::qWait(100);
+            QVERIFY(window->grabWindow().save(artifacts + "/history-batch-remove.png"));
+        }
+        QVERIFY(QMetaObject::invokeMethod(confirmation, "close"));
+        QTRY_VERIFY(confirmation.isNull());
+        QCOMPARE(service.songs()->totalCount(), 2);
+        QVERIFY(QMetaObject::invokeMethod(remove, "clicked"));
+        QTRY_VERIFY((confirmation = historyObject(batch, "batchRemoveConfirm")));
+        QQuickItem *removeConfirm = nullptr;
+        QTRY_VERIFY(
+            (removeConfirm = historyVisual(window->contentItem(), "batchRemoveConfirmAction")));
+        QVERIFY(QMetaObject::invokeMethod(removeConfirm, "clicked"));
+        QTRY_COMPARE(service.songs()->totalCount(), 0);
+        QTRY_VERIFY(batch.isNull());
+        QTRY_VERIFY(confirmation.isNull());
+        QCOMPARE(service.stats()["totalSongs"].toInt(), 0);
+        service.refresh();
+        QTRY_VERIFY(!service.loading());
+        QCOMPARE(service.songs()->totalCount(), 0);
+        // Restore only disposable fixture history for the existing stats/clear checks.
+        repository->record(100, historyTrack("song-1", "历史歌曲一"), 12000);
+        repository->record(100, historyTrack("song-2", "历史歌曲二"), 5000);
+        service.refresh();
+        QTRY_COMPARE(service.songs()->totalCount(), 2);
         // Stats tab: bounded native panel, no placeholder charts.
         auto *statsTab = historyVisual(window->contentItem(), "historyTabStats");
         QVERIFY(statsTab);

@@ -50,6 +50,16 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
             [this](quint64 id, int, const QByteArray &bytes) { fail(id, bytes); });
     connect(&api, &ApiClient::sessionChanged, this, &PlaylistDetailContext::reload);
     connect(&api, &ApiClient::closed, this, &PlaylistDetailContext::shutdown);
+    connect(&mutations, &PlaylistMutationService::changed, this, [this] {
+        if (m_removeSession && m_removeSession != m_api.sessionRevision())
+            m_removeSession = 0;
+        if (m_removeSession && m_mutations.state() == PlaylistMutationService::State::Ready) {
+            m_removeSession = 0;
+            const auto error = m_mutations.errorMessage();
+            emit notice(error.isEmpty() ? tr("已从歌单移除") : error, !error.isEmpty());
+        }
+        emit changed();
+    });
     if (route)
         connect(route, &RouteContext::activeChanged, this, &PlaylistDetailContext::activate);
     connect(&library, &UserPlaylistModel::changed, this, [this] {
@@ -170,6 +180,7 @@ void PlaylistDetailContext::cancelPageRequests()
 }
 void PlaylistDetailContext::shutdown()
 {
+    m_removeSession = 0;
     m_songs.setMetadataActive(false);
     if (m_closed)
         return;
@@ -690,19 +701,35 @@ void PlaylistDetailContext::fail(quint64 id, const QByteArray &bytes)
 }
 bool PlaylistDetailContext::removeSong(const QString &id)
 {
+    return removeSongs({id});
+}
+bool PlaylistDetailContext::removeSongs(const QStringList &ids)
+{
     // 只有歌单所有者可删除曲目；写操作由共享服务串行执行。
     // 成功后复用 trackPageReconciled 读回，增量同步受影响的歌曲行。
-    if (m_closed || !m_cloud || !m_revision || !m_complete || !active())
+    if (m_closed || !m_cloud || !m_revision || !m_complete || !active() ||
+        orderListId() != m_cloud->value || removeBusy())
         return false;
-    quint64 file = 0;
+    const QSet<QString> selected(ids.begin(), ids.end());
+    QSet<quint64> seen;
+    QList<ApiClient::PlaylistTrackFileId> files;
     for (const auto &entry : m_cloudEntries)
-        if (entry["song"].toObject()["id"].toString() == id) {
-            file = quint64(entry["file_id"].toInteger());
-            break;
+        if (selected.contains(entry["song"].toObject()["id"].toString())) {
+            const auto file = quint64(entry["file_id"].toInteger());
+            if (!file)
+                return false;
+            if (!seen.contains(file)) {
+                seen.insert(file);
+                files.append({file});
+            }
         }
-    if (!file)
+    if (files.isEmpty())
         return false;
-    return m_mutations.removeTracks(*m_cloud, {ApiClient::PlaylistTrackFileId{file}});
+    m_removeSession = m_api.sessionRevision();
+    if (m_mutations.removeTracks(*m_cloud, files))
+        return true;
+    m_removeSession = 0;
+    return false;
 }
 void PlaylistDetailContext::failMessage(const QString &message)
 {

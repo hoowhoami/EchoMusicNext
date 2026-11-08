@@ -235,6 +235,14 @@ RoutePage {
                 actions: page.service.actions
                 collection: page.service.songs
                 uiScale: page.settings.uiScale
+                enableRemove: true
+                removeDialogTitle: qsTr("从播放历史移除")
+                removeDialogDescription: qsTr("确认从播放历史移除选中的 %1 首歌曲？此操作无法撤销。").arg(collection.selectedCount)
+                removeConfirmLabel: qsTr("确认移除")
+                onRemoveConfirmed: ids => {
+                    page.service.removeMany(ids);
+                    batch.close();
+                }
             }
         }
     }

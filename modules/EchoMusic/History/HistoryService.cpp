@@ -340,17 +340,30 @@ void HistoryService::refresh()
 }
 void HistoryService::remove(const QString &id)
 {
+    removeMany({id});
+}
+void HistoryService::removeMany(const QStringList &ids)
+{
     if (m_closed)
         return;
-    const auto track = m_songs.track(id);
-    if (!track)
-        return;
-    const auto key = track->catalogMetadata.value("history_key").toString();
-    if (key.isEmpty())
+    QStringList keys;
+    QSet<QString> seen;
+    for (const auto &id : ids) {
+        const auto track = m_songs.track(id);
+        if (!track)
+            continue;
+        const auto key = track->catalogMetadata.value("history_key").toString();
+        if (!key.isEmpty() && !seen.contains(key)) {
+            seen.insert(key);
+            keys.append(key);
+        }
+    }
+    if (keys.isEmpty())
         return;
     cancelMetadata();
-    m_playback.removeHistory({key});
-    emit notice(tr("已从播放历史移除"));
+    m_playback.removeHistory(keys);
+    emit notice(keys.size() == 1 ? tr("已从播放历史移除")
+                                 : tr("已从播放历史移除 %1 首").arg(keys.size()));
 }
 void HistoryService::clear()
 {

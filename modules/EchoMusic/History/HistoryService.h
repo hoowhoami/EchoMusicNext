@@ -52,6 +52,8 @@ public:
     }
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void remove(const QString &id);
+    /// Resolve catalog IDs to this account's stable history keys before writing.
+    Q_INVOKABLE void removeMany(const QStringList &ids);
     Q_INVOKABLE void clear();
     void shutdown();
 signals:

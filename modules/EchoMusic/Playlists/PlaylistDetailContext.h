@@ -30,6 +30,7 @@ class PlaylistDetailContext final : public QObject
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
     Q_PROPERTY(bool complete READ complete NOTIFY changed)
     Q_PROPERTY(bool owned READ owned NOTIFY changed)
+    Q_PROPERTY(bool removeBusy READ removeBusy NOTIFY changed)
     Q_PROPERTY(quint64 editListId READ editListId NOTIFY changed)
     Q_PROPERTY(quint64 orderListId READ orderListId NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
@@ -105,6 +106,10 @@ public:
     {
         return m_cloud.has_value();
     }
+    bool removeBusy() const
+    {
+        return m_mutations.state() != PlaylistMutationService::State::Ready;
+    }
     /// Resolve the current account's writable listid from its canonical library.
     /// A public collection ID or the creator's listid is never a write target.
     quint64 orderListId() const;
@@ -129,6 +134,7 @@ public:
     Q_INVOKABLE void reload();
     /// 右键菜单「从歌单删除」：仅所有权云歌单，file_id 走共享单写者。
     Q_INVOKABLE bool removeSong(const QString &id);
+    Q_INVOKABLE bool removeSongs(const QStringList &ids);
     void shutdown();
 signals:
     void notice(const QString &message, bool warning);
@@ -161,6 +167,7 @@ private:
     void applyTrackReadback(const QJsonObject &snapshot, quint64 session);
     QJsonObject m_pendingTrackReadback;
     bool m_reconcilingTracks = false;
+    quint64 m_removeSession = 0;
     void completePage(const QJsonArray &songs);
     void publishCover();
     /// Fill presentation facts stripped by the provider (cloud playlist entries

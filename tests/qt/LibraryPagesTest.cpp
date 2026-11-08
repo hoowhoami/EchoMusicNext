@@ -1,6 +1,7 @@
 #include "ApiClient.h"
 #include "CloudService.h"
 #include "FavoritesService.h"
+#include "NativeWindow.h"
 #include "NetworkPreferences.h"
 #include "PlaybackService.h"
 #include "PlaybackLibraryActions.h"
@@ -59,6 +60,10 @@ public:
     static quint64 favoriteRead(const PlaybackLibraryActions &actions)
     {
         return actions.m_favoriteRead;
+    }
+    static void favorite(PlaybackLibraryActions &actions, const PlaybackTrack &track, quint64 file)
+    {
+        actions.m_favorites.insert(track.hash.toUpper(), file);
     }
 };
 class UserPlaylistModelTestAccess
@@ -134,6 +139,10 @@ public:
 class FavoritesServiceTestAccess
 {
 public:
+    static void prepareLiked(FavoritesService &s)
+    {
+        s.prepareLikedSongs(s.likedListId());
+    }
     static quint64 metadataTicket(const FavoritesService &s)
     {
         return s.m_metadataRequests.isEmpty() ? 0 : s.m_metadataRequests.cbegin().key();
@@ -717,6 +726,159 @@ private slots:
         QVERIFY(cardChanges.isEmpty());
     }
 
+    void favoritesRemovalUsesPlaylistFilesAndUpdatesMembership_data()
+    {
+        QTest::addColumn<bool>("batch");
+        QTest::newRow("single") << false;
+        QTest::newRow("batch") << true;
+    }
+    void favoritesRemovalUsesPlaylistFilesAndUpdatesMembership()
+    {
+        QFETCH(bool, batch);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(100, "liked-removal-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        UserPlaylistModelTestAccess::ready(library);
+        PlaylistMutationService mutations(api);
+        connect(&mutations, &PlaylistMutationService::tracksReconciled, &library,
+                &UserPlaylistModel::applyTrackSnapshot);
+        playback.attachLibrary(library, mutations);
+        auto *likes = playback.libraryActions();
+        PlaybackLibraryActionsTestAccess::ready(*likes, api);
+        PlaylistOrderModel order(api, mutations);
+        SongMetadataService metadata(api);
+        RouteController router;
+        FavoritesService favorites(api, playback, library, order, metadata, router, false);
+        favorites.attachPlaylistMutations(mutations);
+        favorites.registerRoutes(router);
+        QVERIFY(router.navigate("favorites"));
+        FavoritesServiceTestAccess::prepareLiked(favorites);
+        const auto entry = [](int id) {
+            return QJsonObject{{"file_id", 90 + id},
+                               {"sort_index", id},
+                               {"song", QJsonObject{{"id", QString::number(id)},
+                                                    {"title", QString("喜欢歌曲 %1 Song").arg(id)},
+                                                    {"hash", QString(32, QChar('a' + id))}}}};
+        };
+        QSignalSpy notices(&favorites, &FavoritesService::notice);
+        const auto first = PlaybackTrack::fromDomain(entry(1)["song"].toObject());
+        const auto second = PlaybackTrack::fromDomain(entry(2)["song"].toObject());
+        const auto third = PlaybackTrack::fromDomain(entry(3)["song"].toObject());
+        PlaybackLibraryActionsTestAccess::favorite(*likes, first, 91);
+        PlaybackLibraryActionsTestAccess::favorite(*likes, second, 92);
+        PlaybackLibraryActionsTestAccess::favorite(*likes, third, 93);
+        FavoritesServiceTestAccess::acceptSongs(favorites, {entry(1), entry(2), entry(3)}, 3);
+        QVERIFY(favorites.canRemoveSongs());
+        UserPlaylistModelTestAccess::setKind(library, "collected");
+        QVERIFY(!favorites.canRemoveSongs());
+        QVERIFY(!favorites.removeSongs({"1"}));
+        UserPlaylistModelTestAccess::setKind(library, "owned");
+        QVERIFY(!favorites.removeSongs({"missing"}));
+        mutations.trackFilesRemoved(8, {91}, api.sessionRevision());
+        mutations.trackFilesRemoved(7, {91}, api.sessionRevision() + 1);
+        QVERIFY(likes->favoriteTrack(first));
+        QVERIFY(favorites.removeSongs({"1"}));
+        PlaylistMutationServiceTestAccess::fail(
+            mutations, PlaylistMutationServiceTestAccess::request(mutations),
+            "{\"message\":\"denied\"}");
+        QVERIFY(likes->favoriteTrack(first));
+        QCOMPARE(notices.size(), 1);
+        QCOMPARE(notices.first()[0].toString(), QString("denied"));
+        QVERIFY(notices.first()[1].toBool());
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        ShellSettings settings(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window {
+ id: window
+ required property RouteController router
+ required property ShellSettings settings
+ width: 1050; height: 800; visible: true; color: Theme.main
+ RouteHost { anchors.fill: parent; router: window.router; settings: window.settings }
+})",
+                          QUrl("qrc:/favorites-remove.qml"));
+        QScopedPointer<QObject> root;
+        if (batch) {
+            root.reset(component.createWithInitialProperties(
+                {{"router", QVariant::fromValue(&router)},
+                 {"settings", QVariant::fromValue(&settings)}}));
+            QVERIFY2(root, qPrintable(component.errorString()));
+            auto *window = qobject_cast<QQuickWindow *>(root.data());
+            QVERIFY(window && Test::prepareNativeInput(window));
+            std::function<QQuickItem *(QQuickItem *, const QString &)> find =
+                [&](QQuickItem *item, const QString &name) -> QQuickItem * {
+                if (item->objectName() == name)
+                    return item;
+                for (auto *child : item->childItems())
+                    if (auto *found = find(child, name))
+                        return found;
+                return nullptr;
+            };
+            QPointer<QQuickItem> button;
+            QTRY_VERIFY((button = find(window->contentItem(), "catalogBatch")));
+            QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+            QTRY_VERIFY((button = find(window->contentItem(), "batchRemove")));
+            QVERIFY(button->isVisible() && !button->isEnabled());
+            favorites.songs()->toggleSelected("1");
+            favorites.songs()->toggleSelected("2");
+            favorites.songs()->setQuery("no visible matching rows");
+            QCOMPARE(favorites.songs()->count(), 0);
+            QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+            QTRY_VERIFY((button = find(window->contentItem(), "batchRemoveConfirmAction")));
+            const auto capture = qEnvironmentVariable("ECHO_FAVORITES_ARTIFACTS");
+            if (!capture.isEmpty()) {
+                QVERIFY(QDir().mkpath(capture));
+                QTest::qWait(100);
+                QVERIFY(window->grabWindow().save(capture + "/favorites-batch-remove.png"));
+            }
+            QTRY_VERIFY((button = find(window->contentItem(), "batchRemoveConfirmAction")));
+            QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        } else {
+            QVERIFY(favorites.removeSongs({"1", "1"}));
+        }
+        QVERIFY(likes->favoriteTrack(first));
+        QVERIFY(likes->favoriteTrack(second));
+        const auto request = PlaylistMutationServiceTestAccess::request(mutations);
+        const auto query = ApiClientTestAccess::request(api, request)["query"].toObject();
+        QCOMPARE(query["cloud_list_id"].toInt(), 7);
+        QCOMPARE(query["file_ids"].toArray(), batch ? QJsonArray({91, 92}) : QJsonArray({91}));
+        PlaylistMutationServiceTestAccess::complete(
+            mutations, request,
+            QJsonDocument(
+                QJsonObject{{"cloud_list_id", 7}, {"revision", 8}, {"song_count", batch ? 1 : 2}})
+                .toJson());
+        QVERIFY(!likes->favoriteTrack(first));
+        QCOMPARE(likes->favoriteTrack(second), !batch);
+        QVERIFY(likes->favoriteTrack(third));
+        QCOMPARE(PlaybackLibraryActionsTestAccess::favoriteRead(*likes), quint64(0));
+        PlaylistMutationServiceTestAccess::complete(
+            mutations, PlaylistMutationServiceTestAccess::background(mutations),
+            QJsonDocument(
+                QJsonObject{{"cloud_list_id", 7},
+                            {"revision", 8},
+                            {"page", QJsonObject{{"items", batch ? QJsonArray{entry(3)}
+                                                                 : QJsonArray{entry(2), entry(3)}},
+                                                 {"total", batch ? 1 : 2}}}})
+                .toJson());
+        QCOMPARE(favorites.songs()->totalCount(), batch ? 1 : 2);
+        root.reset();
+        favorites.shutdown();
+        router.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void favoriteWritesReuseConfirmedPageWithoutReloadingCatalogs_data()
     {
         QTest::addColumn<bool>("throughChooser");

@@ -10,8 +10,10 @@
 #include "NativeWindow.h"
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QMetaProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QWheelEvent>
 #include <QQmlEngine>
 #include <QQmlComponent>
@@ -582,6 +584,85 @@ private slots:
             }
             return true;
         };
+        if (!live) {
+            for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+                for (const int zoom : {0, 5}) {
+                    theme.setMode(mode);
+                    settings.resetZoom();
+                    for (int i = 0; i < zoom; ++i)
+                        settings.zoomIn();
+                    const auto resize = [&](int width) {
+                        window->resize(qRound(width * settings.uiScale()), 800);
+                        QTest::qWait(16);
+                    };
+                    resize(1100);
+                    QTRY_VERIFY(visual(window->contentItem(), "personalFmSideDisc-2"));
+                    QPointer<QQuickItem> first =
+                        visual(window->contentItem(), "personalFmSideDisc-0");
+                    QPointer<QQuickItem> second =
+                        visual(window->contentItem(), "personalFmSideDisc-1");
+                    QPointer<QQuickItem> last =
+                        visual(window->contentItem(), "personalFmSideDisc-2");
+                    QPointer<QQuickItem> image = visual(first, "coverImage");
+                    QVERIFY(image);
+                    QTRY_COMPARE(image->property("status").toInt(), 1);
+                    QPointer<QQuickItem> cover =
+                        first->property("contentItem").value<QQuickItem *>();
+                    QVERIFY(cover);
+                    QTRY_COMPARE(cover->property("revealOpacity").toReal(), 1.);
+                    Test::moveNativePointer(window, {8, window->height() - 8});
+                    const auto source = image->property("source");
+                    const auto status = image->metaObject()->property(
+                        image->metaObject()->indexOfProperty("status"));
+                    QSignalSpy reloads(image, status.notifySignal());
+                    resize(850);
+                    QTRY_VERIFY(!visual(window->contentItem(), "personalFmSideDisc-2"));
+                    QVERIFY2(first && second && image,
+                             "Resizing must not recreate the remaining FM covers");
+                    QCOMPARE(visual(window->contentItem(), "personalFmSideDisc-0"), first.data());
+                    QVERIFY(last.isNull());
+                    resize(700);
+                    QTRY_VERIFY(!visual(window->contentItem(), "personalFmSideDisc-1"));
+                    QVERIFY(second.isNull());
+                    QVERIFY(first && image);
+                    // Cross both responsive boundaries repeatedly, checking the
+                    // still-visible image on every rendered resize step.
+                    for (int direction : {-1, 1})
+                        for (int i = 0; i <= 16; ++i) {
+                            resize(direction < 0 ? 1100 - i * 25 : 700 + i * 25);
+                            QCOMPARE(visual(window->contentItem(), "personalFmSideDisc-0"),
+                                     first.data());
+                            QCOMPARE(image->property("status").toInt(), 1);
+                            QCOMPARE(image->property("source"), source);
+                            const auto frame = window->grabWindow();
+                            QVERIFY(!frame.isNull());
+                            if (window->rendererInterface()->graphicsApi() !=
+                                QSGRendererInterface::Software) {
+                                const auto center =
+                                    cover->mapToScene(cover->boundingRect().center());
+                                const auto density = frame.width() / qreal(window->width());
+                                const auto ink = frame.pixelColor(qRound(center.x() * density),
+                                                                  qRound(center.y() * density));
+                                QVERIFY2(qAbs(ink.red() - 63) < 16 &&
+                                             qAbs(ink.green() - 105) < 16 &&
+                                             qAbs(ink.blue() - 135) < 16,
+                                         qPrintable("FM artwork disappeared during resize: " +
+                                                    ink.name()));
+                            }
+                        }
+                    QCOMPARE(reloads.size(), 0);
+                    qInfo() << "FM resize: retained first cover across 3/2/1 discs, mode"
+                            << int(mode) << "zoom" << settings.uiScale() << "reloads"
+                            << reloads.size();
+                    if (!artifacts.isEmpty())
+                        QVERIFY(
+                            window->grabWindow().save(artifacts + QString("/fm-resize-%1-%2.png")
+                                                                      .arg(int(mode))
+                                                                      .arg(settings.uiScale())));
+                }
+            settings.resetZoom();
+            window->resize(1150, 800);
+        }
         for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
             theme.setMode(mode);
             for (int zoom : {0, 5}) {

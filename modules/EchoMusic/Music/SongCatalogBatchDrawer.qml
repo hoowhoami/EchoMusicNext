@@ -13,7 +13,7 @@ EchoDrawer {
     required property SongCatalogModel collection
     preferredWidth: 420
     playerBottomInset: 88
-    /// Optional page-owned destructive action (Cloud: batch delete). The
+    /// Optional page-owned destructive action (Cloud or History: batch delete). The
     /// confirmation dialog is created on demand inside the drawer; the owning
     /// page drives removeBusy and closes the drawer when the service settles.
     property bool enableRemove: false

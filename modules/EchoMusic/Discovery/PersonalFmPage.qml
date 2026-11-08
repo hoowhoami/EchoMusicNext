@@ -120,21 +120,31 @@ RoutePage {
                                 y: (parent.height - 176) / 2
                                 spacing: 28
                                 Repeater {
-                                    model: page.initialLoading ? 2 : Math.min(sideDiscs.visibleCount, page.fm.sideTracks.length)
-                                    delegate: PersonalFmVinyl {
-                                        id: sideDisc
+                                    // A changing numeric model recreates every disc,
+                                    // replaying image loading/reveal on each resize.
+                                    // Keep three cheap slots; only visible slots own media.
+                                    model: 3
+                                    delegate: Loader {
+                                        id: sideSlot
                                         required property int index
                                         readonly property var entry: page.fm.sideTracks[index] || ({})
-                                        objectName: "personalFmSideDisc-" + index
-                                        artwork: entry.cover || ""
-                                        text: qsTr("播放 %1 · %2").arg(entry.title || "").arg(entry.artist || "")
-                                        resourceActive: page.resourcesActive
-                                        loading: page.initialLoading
-                                        onClicked: page.fm.play(String(entry.id || ""))
-                                        EchoToolTip {
-                                            parent: sideDisc
-                                            text: sideDisc.text
-                                            requestedVisible: sideDisc.hovered
+                                        active: index < (page.initialLoading ? 2 : Math.min(sideDiscs.visibleCount, page.fm.sideTracks.length))
+                                        visible: active
+                                        width: 176
+                                        height: 176
+                                        sourceComponent: PersonalFmVinyl {
+                                            id: sideDisc
+                                            objectName: "personalFmSideDisc-" + sideSlot.index
+                                            artwork: sideSlot.entry.cover || ""
+                                            text: qsTr("播放 %1 · %2").arg(sideSlot.entry.title || "").arg(sideSlot.entry.artist || "")
+                                            resourceActive: page.resourcesActive
+                                            loading: page.initialLoading
+                                            onClicked: page.fm.play(String(sideSlot.entry.id || ""))
+                                            EchoToolTip {
+                                                parent: sideDisc
+                                                text: sideDisc.text
+                                                requestedVisible: sideDisc.hovered
+                                            }
                                         }
                                     }
                                 }

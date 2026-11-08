@@ -38,6 +38,7 @@ public:
     bool collect(const ApiClient::CollectionTarget &target);
     bool addTracks(ApiClient::CloudPlaylistId id,
                    const QList<ApiClient::PlaylistTrackInput> &tracks);
+    /// Serialize selected files in API-sized batches; stop on failure, never replay writes.
     bool removeTracks(ApiClient::CloudPlaylistId id,
                       const QList<ApiClient::PlaylistTrackFileId> &files);
     bool sortTracks(ApiClient::CloudPlaylistId id, quint64 revision,
@@ -68,6 +69,9 @@ signals:
     void tracksReconciled(quint64 cloudListId, quint64 revision, qint64 songCount,
                           quint64 sessionRevision);
     void tracksInvalidated(quint64 cloudListId);
+    /// Confirmed delete batches also update the shared liked-membership index.
+    void trackFilesRemoved(quint64 cloudListId, const QList<quint64> &fileIds,
+                           quint64 sessionRevision);
 
 private:
     friend class PlaylistMutationServiceTestAccess;
@@ -100,6 +104,9 @@ private:
     quint64 m_request = 0, m_revision = 0;
     ApiClient::CloudPlaylistId m_id{0};
     Kind m_kind = Kind::Create;
+    QList<ApiClient::PlaylistTrackFileId> m_removeRemaining;
+    QList<quint64> m_removeBatch;
+    bool m_removeAcknowledged = false;
     quint32 m_page = 1;
     quint64 m_seen = 0;
     bool m_found = false;

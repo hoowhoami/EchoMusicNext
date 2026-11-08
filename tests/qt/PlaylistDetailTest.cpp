@@ -2105,8 +2105,15 @@ Window {
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
         api.shutdown();
     }
+    void ownerRemoveSongWritesFileIdThroughSharedMutation_data()
+    {
+        QTest::addColumn<bool>("batch");
+        QTest::newRow("single") << false;
+        QTest::newRow("batch") << true;
+    }
     void ownerRemoveSongWritesFileIdThroughSharedMutation()
     {
+        QFETCH(bool, batch);
         QTemporaryDir dir;
         EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
@@ -2150,8 +2157,10 @@ Window {
         QCOMPARE(context->orderListId(), quint64(7));
         UserPlaylistModelTestAccess::changeOwner(library, 100, 2);
         QCOMPARE(context->orderListId(), quint64(0));
+        QVERIFY(!context->removeSongs({"1", "2"}));
         UserPlaylistModelTestAccess::changeOwner(library, 200, 1);
         QCOMPARE(context->orderListId(), quint64(0));
+        QVERIFY(!context->removeSongs({"1", "2"}));
         UserPlaylistModelTestAccess::changeOwner(library, 100, 1, 0);
         QCOMPARE(context->orderListId(), quint64(0));
         UserPlaylistModelTestAccess::changeOwner(library, 100, 1, 9007199254740992ULL);
@@ -2160,15 +2169,81 @@ Window {
         QCOMPARE(context->orderListId(), quint64(7));
         // 未知歌曲不产生写入；已知歌曲把服务端 file_id 交给共享单写者。
         QVERIFY(!context->removeSong("999"));
-        QVERIFY(context->removeSong("1"));
+        QVERIFY(!context->removeSongs({}));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        ShellSettings shell(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window {
+ id: window
+ required property RouteController router
+ required property ShellSettings settings
+ visible: true; width: 1000; height: 750; color: Theme.main
+ RouteHost { anchors.fill: parent; router: window.router; settings: window.settings }
+})",
+                          QUrl("qrc:/playlist-batch-runtime.qml"));
+        QScopedPointer<QObject> root;
+        if (batch) {
+            root.reset(
+                component.createWithInitialProperties({{"router", QVariant::fromValue(&router)},
+                                                       {"settings", QVariant::fromValue(&shell)}}));
+            QVERIFY2(root, qPrintable(component.errorString()));
+            auto *window = qobject_cast<QQuickWindow *>(root.data());
+            QVERIFY(window && Test::prepareNativeInput(window));
+            QQuickItem *page = nullptr;
+            QTRY_VERIFY((page = playlistVisual(window->contentItem(), "playlistDetailPage")));
+            auto *owner = page->findChild<QObject *>("discoveryBatchDrawerOwner");
+            QVERIFY(owner);
+            auto *header = playlistVisual(page, "songDetailHeader");
+            QVERIFY(header);
+            QVERIFY(QMetaObject::invokeMethod(header, "batchRequested"));
+            QTRY_VERIFY(owner->property("item").value<QObject *>());
+            QPointer<QObject> drawer = owner->property("item").value<QObject *>();
+            QQuickItem *remove = nullptr;
+            QTRY_VERIFY((remove = playlistVisual(window->contentItem(), "batchRemove")));
+            QVERIFY(remove->isVisible() && !remove->isEnabled());
+            UserPlaylistModelTestAccess::changeOwner(library, 200, 1);
+            QTRY_VERIFY(!remove->isVisible());
+            UserPlaylistModelTestAccess::changeOwner(library, 100, 1);
+            QTRY_VERIFY(remove->isVisible());
+            context->songs()->toggleSelected("1");
+            context->songs()->toggleSelected("2");
+            context->songs()->setQuery("no matching visible rows");
+            QCOMPARE(context->songs()->count(), 0);
+            QVERIFY(QMetaObject::invokeMethod(remove, "clicked"));
+            QQuickItem *confirm = nullptr;
+            QTRY_VERIFY(
+                (confirm = playlistVisual(window->contentItem(), "batchRemoveConfirmAction")));
+            const auto artifacts = qEnvironmentVariable("ECHO_PLAYLIST_ARTIFACTS");
+            if (!artifacts.isEmpty()) {
+                QVERIFY(QDir().mkpath(artifacts));
+                QTest::qWait(100);
+                QVERIFY(window->grabWindow().save(artifacts + "/playlist-batch-remove.png"));
+            }
+            QVERIFY(QMetaObject::invokeMethod(confirm, "clicked"));
+            QTRY_VERIFY(drawer.isNull());
+        } else {
+            QVERIFY(context->removeSong("1"));
+        }
         const auto request =
             ApiClientTestAccess::requestForOperation(api, QStringLiteral("playlist_tracks_del"));
         QVERIFY(!request.isEmpty());
         const auto query = request.value("query").toObject();
         QCOMPARE(query.value("cloud_list_id").toInteger(), qint64(7));
         const auto files = query.value("file_ids").toArray();
-        QCOMPARE(files.size(), 1);
-        QCOMPARE(files.first().toInteger(), qint64(10));
+        QCOMPARE(files.size(), batch ? 2 : 1);
+        if (batch) {
+            QVERIFY(files.contains(10));
+            QVERIFY(files.contains(20));
+        } else
+            QCOMPARE(files.first().toInteger(), qint64(10));
+        root.reset();
         service.shutdown();
         router.shutdown();
         QSignalSpy closed(&playback, &PlaybackService::closed);

@@ -95,6 +95,67 @@ class PlaylistMutationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void batchRemovalChunksAndStopsOnFailure()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(1, "batch-fixture-token"));
+        PlaylistMutationService service(api);
+        QList<ApiClient::PlaylistTrackFileId> files;
+        for (quint64 i = 1; i <= 650; ++i)
+            files.append({i});
+        QSignalSpy completed(&service, &PlaylistMutationService::completed);
+        QSignalSpy invalidated(&service, &PlaylistMutationService::tracksInvalidated);
+        QSignalSpy removed(&service, &PlaylistMutationService::trackFilesRemoved);
+        QVERIFY(service.removeTracks({7}, files));
+        const auto verifyBatch = [&](int first, int count) {
+            const auto id = PlaylistMutationServiceTestAccess::request(service);
+            const auto query = ApiClientTestAccess::request(api, id)["query"].toObject();
+            const auto sent = query["file_ids"].toArray();
+            return query["cloud_list_id"].toInt() == 7 && sent.size() == count &&
+                   sent.first().toInt() == first && sent.last().toInt() == first + count - 1 &&
+                   !ApiClientTestAccess::replayEnabled(api, id);
+        };
+        QVERIFY(verifyBatch(1, 300));
+        QVERIFY(!service.removeTracks({8}, {{1}}));
+        const auto acknowledge = [&] {
+            PlaylistMutationServiceTestAccess::succeed(
+                service, PlaylistMutationServiceTestAccess::request(service), "{}");
+        };
+        acknowledge();
+        QVERIFY(verifyBatch(301, 300));
+        QCOMPARE(removed.size(), 1);
+        QCOMPARE(removed.first()[1].value<QList<quint64>>().size(), 300);
+        QVERIFY(completed.isEmpty());
+        QCOMPARE(service.state(), PlaylistMutationService::State::Writing);
+        acknowledge();
+        QVERIFY(verifyBatch(601, 50));
+        acknowledge();
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(invalidated.size(), 1);
+        QCOMPARE(removed.size(), 3);
+        QCOMPARE(removed.last()[1].value<QList<quint64>>().size(), 50);
+        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
+        QVERIFY(service.removeTracks({7}, files));
+        acknowledge();
+        const auto failed = PlaylistMutationServiceTestAccess::request(service);
+        PlaylistMutationServiceTestAccess::fail(service, failed, "{\"message\":\"denied\"}");
+        QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
+        QCOMPARE(service.errorMessage(), QString("denied"));
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(PlaylistMutationServiceTestAccess::request(service), quint64(0));
+        QVERIFY(PlaylistMutationServiceTestAccess::background(service));
+        QVERIFY(service.removeTracks({7}, files));
+        const auto retired = PlaylistMutationServiceTestAccess::request(service);
+        QVERIFY(api.setAccount(2, "different-batch-fixture"));
+        PlaylistMutationServiceTestAccess::succeed(service, retired, "{}");
+        QCOMPARE(PlaylistMutationServiceTestAccess::request(service), quint64(0));
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(service.removeTracks({8}, {{42}}));
+        acknowledge();
+        QCOMPARE(completed.size(), 2);
+        api.shutdown();
+    }
     void directoryReadbackWithoutTotalUsesItsActualPageSize()
     {
         ApiClient api(DeviceIdentity::temporary());
