@@ -16,6 +16,18 @@ import qt_qv4_patch as qv4
 
 
 class QtQv4PatchTest(unittest.TestCase):
+    def test_old_python_rejected_before_reading_or_hashing_sdk(self):
+        with (
+            patch.object(qv4.sys, "version_info", (3, 9, 6)),
+            patch.object(qv4, "digest") as digest,
+        ):
+            for operation in (qv4.validate_runtime_patch, qv4.ensure_qml_patch, qv4.restore):
+                with self.subTest(operation=operation.__name__):
+                    with self.assertRaisesRegex(RuntimeError, "Python 3.12"):
+                        operation(self.prefix)
+            digest.assert_not_called()
+            self.assertFalse((self.prefix / ".echo-qv4-patch-lock").exists())
+
     def setUp(self):
         directory = tempfile.TemporaryDirectory(prefix="echo-qv4-test-")
         self.addCleanup(directory.cleanup)

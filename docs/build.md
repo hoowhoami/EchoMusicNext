@@ -63,6 +63,8 @@ python3.12 scripts/start.py --no-build
 python3.12 scripts/start.py --no-build --log-level debug
 ```
 
+macOS 的系统 `python3` 可能仍是 3.9；`python3 --version` 与 `python3.12 --version` 可确认实际解释器。启动、构建和补丁检查要求 3.12+，IDE 运行配置也应选择该解释器。Windows 可用 `py -3.12 scripts/start.py`。
+
 默认构建 Release；切换 SDK 时脚本会刷新 CMake 中的 Qt 路径。日志默认写入 `build/logs/echomusicnext-yyyy-MM-dd_HH-mm-ss-SSS-PID.log`，可通过 `--log-dir` 指定目录。直接打开应用时使用标准应用数据目录下的 `logs`。
 
 仅在需要 Debug 调试或断言时显式执行 `python3.12 scripts/build.py --preset debug`。平时只保留 Release；Debug 任务结束后保留必要日志与测试结果，确认没有进程使用，再清理 `build/debug/`。`--log-level debug` 只调整日志级别，不要求 Debug 构建。

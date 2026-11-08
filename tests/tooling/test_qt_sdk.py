@@ -12,13 +12,62 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 import build
 import qt_sdk
+import start
 
 spec = importlib.util.spec_from_file_location("echo_install_qt", ROOT / "scripts/install-qt.py")
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
+spec = importlib.util.spec_from_file_location("echo_patch_qml", ROOT / "scripts/patch-qt-qml.py")
+patcher = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(patcher)
 
 
 class QtSdkTest(unittest.TestCase):
+    def test_old_python_fails_before_sdk_queries_or_build(self):
+        for version in ((3, 9, 6), (3, 11, 9)):
+            with (
+                self.subTest(version=version),
+                patch.object(qt_sdk.sys, "version_info", version),
+                patch.object(qt_sdk.subprocess, "check_output") as query,
+                patch.object(build, "validate_sdk") as validate,
+                patch.object(build.subprocess, "run") as commands,
+            ):
+                with self.assertRaisesRegex(RuntimeError, r"Python 3\.12\+ is required"):
+                    qt_sdk.validate_sdk(self.prefix)
+                with self.assertRaisesRegex(RuntimeError, "python3.12"):
+                    build.build_app("release", self.prefix)
+                query.assert_not_called()
+                validate.assert_not_called()
+                commands.assert_not_called()
+
+    def test_old_python_cannot_launch_even_with_no_build(self):
+        with (
+            patch.object(start.sys, "version_info", (3, 9, 6)),
+            patch.object(start.sys, "argv", ["start.py", "--no-build"]),
+            patch.object(start, "build_app") as build_app,
+            patch.object(start.subprocess, "Popen") as launch,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "running 3.9.6"):
+                start.main()
+            build_app.assert_not_called()
+            launch.assert_not_called()
+
+    def test_old_python_cannot_check_patch_rebuild_or_restore_sdk(self):
+        for args in ([], ["--check"], ["--restore"]):
+            with (
+                self.subTest(args=args),
+                patch.object(patcher.sys, "version_info", (3, 9, 6)),
+                patch.object(patcher.sys, "argv", ["patch-qt-qml.py", *args]),
+                patch.object(patcher, "validate_runtime_patch") as validate,
+                patch.object(patcher, "ensure_qml_patch") as rebuild,
+                patch.object(patcher, "restore") as restore,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "Python 3.12"):
+                    patcher.main()
+                validate.assert_not_called()
+                rebuild.assert_not_called()
+                restore.assert_not_called()
+
     def setUp(self):
         self.patch_runtime = patch("qt_qv4_patch.validate_runtime_patch")
         self.patch_runtime.start()

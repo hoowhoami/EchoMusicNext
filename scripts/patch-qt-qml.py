@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from qt_sdk import official_prefix
+from qt_sdk import official_prefix, require_python
 from qt_qv4_patch import ensure_qml_patch, restore, validate_runtime_patch
 
 
@@ -21,6 +21,7 @@ def main():
         "--archive", type=Path, help="Existing pinned source archive (checksum verified)"
     )
     args = parser.parse_args()
+    require_python()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
     if args.check:

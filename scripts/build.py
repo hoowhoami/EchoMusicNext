@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from qt_sdk import ROOT, cached_prefix, preferred_prefix, validate_sdk
+from qt_sdk import ROOT, cached_prefix, preferred_prefix, require_python, validate_sdk
 
 
 def build_app(
@@ -18,6 +18,7 @@ def build_app(
     no_tests=False,
     no_ffi_check=False,
 ):
+    require_python()
     prefix = Path(qt_prefix) if qt_prefix else preferred_prefix()
     try:
         prefix = validate_sdk(prefix)

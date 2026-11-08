@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 from build import build_app
+from qt_sdk import require_python
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -40,6 +41,7 @@ def main():
         "--smoke-test", action="store_true", help="Use isolated app state and exit after startup"
     )
     args = parser.parse_args()
+    require_python()
     build = ROOT / "build" / args.preset
     if not args.no_build:
         build_app(args.preset, args.qt_prefix)

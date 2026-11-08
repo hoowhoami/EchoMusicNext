@@ -11,6 +11,7 @@ import sys
 import tarfile
 import tempfile
 from urllib.request import urlopen
+from qt_sdk import require_python
 
 ROOT = Path(__file__).resolve().parent.parent
 VERSION = "6.12.0"
@@ -42,6 +43,7 @@ def qml_binary(prefix):
 
 
 def validate_runtime_patch(prefix):
+    require_python()
     prefix = Path(prefix)
     try:
         stamp = json.loads((prefix / STAMP).read_text(encoding="utf-8"))
@@ -200,6 +202,7 @@ def require_unused(binary):
 
 
 def restore(prefix):
+    require_python()
     binary = qml_binary(prefix)
     backup = prefix / "share/echomusicnext-qt-patches/original" / binary.relative_to(prefix)
     if not backup.is_file():
@@ -219,6 +222,7 @@ def restore(prefix):
 
 
 def ensure_qml_patch(prefix, *, jobs=4, keep_build=False, archive=None):
+    require_python()
     prefix = Path(prefix).resolve()
     try:
         validate_runtime_patch(prefix)

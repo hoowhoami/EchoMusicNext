@@ -28,6 +28,15 @@ COMPONENTS = (
 )
 
 
+def require_python():
+    if sys.version_info < (3, 12):
+        version = ".".join(str(part) for part in sys.version_info[:3])
+        raise RuntimeError(
+            f"Python 3.12+ is required (running {version}). "
+            "Use python3.12 on macOS/Linux or py -3.12 on Windows."
+        )
+
+
 def official_kit():
     """Official native desktop kits; Linux ARM64 requires glibc 2.39 or newer."""
     if sys.platform == "darwin":
@@ -64,6 +73,7 @@ def preferred_prefix():
 
 def validate_sdk(prefix, *, runtime_patch=True):
     """Reject partial installs and version drift before configuring the app."""
+    require_python()
     prefix = Path(prefix).resolve()
     components = COMPONENTS + (("WaylandClient",) if sys.platform.startswith("linux") else ())
     missing = [
