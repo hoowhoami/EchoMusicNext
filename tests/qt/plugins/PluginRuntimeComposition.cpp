@@ -460,6 +460,36 @@ void PluginRuntimeTest::compositionWrapPreservesNativeContentAndRetires()
     QTRY_VERIFY(!visual(window->contentItem(), "compositionWrapper"));
     QTRY_VERIFY(visual(window->contentItem(), "compositionNative"));
 }
+void PluginRuntimeTest::compositionRefreshRetainsLiveContent()
+{
+    Host host;
+    auto root = compositionWindow(host);
+    QVERIFY(root);
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QTRY_VERIFY(visual(window->contentItem(), "compositionNative"));
+    const auto plugin = compositionPlugin(host, "wrap-refresh", R"(
+ var layer=c.ui.parts.contribute('wrap',{role:'test.region'},{operation:'wrap',component:'View.qml',priority:20});
+ if(!layer) throw new Error(c.ui.parts.errorMessage);
+)",
+                                          wrapView);
+    QCOMPARE(host.runtime.state(plugin), PluginRuntime::Active);
+    QTRY_VERIFY(visual(window->contentItem(), "compositionWrapper"));
+    auto *hostItem = visual(window->contentItem(), "compositionRegion");
+    auto *part = qobject_cast<EchoUiPartRegistration *>(
+        hostItem->property("publicPart").value<QObject *>());
+    QVERIFY(part);
+    QPointer<QQuickItem> wrapper = visual(window->contentItem(), "compositionWrapper");
+    // Declaration edits that cannot touch identity, address or the
+    // composition chain re-resolve in place; the live wrapper must ride out
+    // the update with its state instead of being rebuilt.
+    part->setProperties(QStringList{"probeKeep"});
+    part->setActions(QStringList{"probeAct"});
+    QTest::qWait(20);
+    QCOMPARE(visual(window->contentItem(), "compositionWrapper"), wrapper.data());
+    QVERIFY(host.runtime.setEnabled(plugin, false));
+    QTRY_VERIFY(!visual(window->contentItem(), "compositionWrapper"));
+    QTRY_VERIFY(visual(window->contentItem(), "compositionNative"));
+}
 void PluginRuntimeTest::compositionMoveConflictAndRestoration()
 {
     Host host;

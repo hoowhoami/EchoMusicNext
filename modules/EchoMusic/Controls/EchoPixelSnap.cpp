@@ -1,9 +1,11 @@
 #include "EchoPixelSnap.h"
 #include "EchoItemObserver.h"
+#include "EchoQueuedNotice.h"
 #include <QDebug>
 #include <QQuickWindow>
 #include <QtMath>
 #include <cmath>
+#include <utility>
 
 namespace EchoMusic
 {
@@ -78,11 +80,30 @@ void EchoPixelSnapAttached::refresh()
     m_devicePixelRatio = dpr;
     m_densityX = densityX;
     m_densityY = densityY;
+    // Values land immediately so any re-evaluation reads fresh data, but the
+    // notifications take the event-loop road. A synchronous emit re-runs the
+    // consumer snap bindings, which write child geometry, whose change
+    // signals re-enter refresh() through the observer chain; under scene
+    // churn (model resets, loader rebuilds) that round trip nests on one
+    // stack until it overflows. Queuing coalesces a burst into one flush per
+    // event-loop turn and turns the feedback into a bounded settle - snap
+    // only affects sub-pixel alignment, so a one-turn lag is invisible.
     if (positionChanged)
-        emit scenePositionChanged();
+        m_pendingPosition = true;
     if (ratioChanged)
-        emit devicePixelRatioChanged();
+        m_pendingRatio = true;
     if (densityValueChanged)
+        m_pendingDensity = true;
+    queueCoalescedNotice(this, m_flushPending, [this] { flushNotifications(); });
+}
+
+void EchoPixelSnapAttached::flushNotifications()
+{
+    if (std::exchange(m_pendingPosition, false))
+        emit scenePositionChanged();
+    if (std::exchange(m_pendingRatio, false))
+        emit devicePixelRatioChanged();
+    if (std::exchange(m_pendingDensity, false))
         emit densityChanged();
 }
 } // namespace EchoMusic

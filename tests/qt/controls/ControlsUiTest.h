@@ -18,6 +18,7 @@ private slots:
     void imageDensitySharesAncestorsAndReleasesInactiveObservers();
     void coverKeepsNativeResolutionUnderAncestorZoom();
     void viewPoolResetIsCanceledWithOwner();
+    void contentHostKeepsItemAcrossTransientFactoryFlap();
     void iconRasterTracksZoomAndReleasesWhenHidden();
     void pixelSnapTracksScenePositionAcrossReparentAndWindows();
     void pixelSnapDisabledUsesLogicalGeometry();

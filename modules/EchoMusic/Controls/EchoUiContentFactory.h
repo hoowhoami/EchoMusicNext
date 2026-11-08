@@ -169,11 +169,12 @@ protected:
     void geometryChange(const QRectF &, const QRectF &) override;
 
 private:
-    void reconcile();
+    void reconcile(bool rebuild = true);
     void requestReconcile(bool rebuild = true);
     void release();
     void sizeContent();
     QPointer<EchoUiContentFactory> m_factory;
+    QPointer<EchoUiContentFactory> m_itemFactory;
     QPointer<QQuickItem> m_item;
     QList<QMetaObject::Connection> m_factoryConnections, m_itemConnections;
     QString m_error;
@@ -182,5 +183,6 @@ private:
     QPointer<EchoUiContentFactory> m_heldFactory;
     bool m_heldActive = false, m_heldPending = false;
     bool m_active = true, m_complete = false, m_constructing = false, m_pending = false;
+    bool m_rebuildPending = false;
 };
 } // namespace EchoMusic

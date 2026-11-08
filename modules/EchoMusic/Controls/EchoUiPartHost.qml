@@ -27,7 +27,10 @@ Item {
         },
         Loader {
             anchors.fill: host
-            active: host.visible && host.Window.window !== null && host.Window.window.visible && host.Window.window.visibility !== Window.Minimized && !hostPart.replaced && Object.keys(hostPart.overrides).some(name => name !== "opacity")
+            // hasVisualOverrides is recomputed one event-loop turn after the
+            // overrides settle, so a refresh()'s detach-then-attach no longer
+            // tears this content down and rebuilds it for the same outcome.
+            active: host.visible && host.Window.window !== null && host.Window.window.visible && host.Window.window.visibility !== Window.Minimized && !hostPart.replaced && hostPart.hasVisualOverrides
             sourceComponent: Rectangle {
                 color: hostPart.value("background", "transparent")
                 radius: hostPart.value("radius", 0)

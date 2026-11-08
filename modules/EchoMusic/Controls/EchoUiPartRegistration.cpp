@@ -1,5 +1,6 @@
 #include "EchoUiPartRegistration.h"
 #include "EchoUiPartRegistry.h"
+#include "EchoQueuedNotice.h"
 #include "EchoUiLayout.h"
 #include "EchoUiScope.h"
 #include "EchoUiPresentation.h"
@@ -89,15 +90,7 @@ void EchoUiPartRegistration::setState(const QVariantMap &v)
     emit stateChanged();
     if (m_registry)
         m_registry->nativeStateChanged(this);
-    if (std::exchange(m_stateNoticePending, true))
-        return;
-    QMetaObject::invokeMethod(
-        this,
-        [this] {
-            m_stateNoticePending = false;
-            emit changed();
-        },
-        Qt::QueuedConnection);
+    queueCoalescedNotice(this, m_stateNoticePending, [this] { emit changed(); });
 }
 void EchoUiPartRegistration::componentComplete()
 {
@@ -150,11 +143,36 @@ ECHO_PART_SETTER(Owner, const QString &, m_owner)
 ECHO_PART_SETTER(Role, const QString &, m_role)
 ECHO_PART_SETTER(Key, const QString &, m_key)
 ECHO_PART_SETTER(Surface, const QString &, m_surface)
-ECHO_PART_SETTER(Properties, const QStringList &, m_properties)
-ECHO_PART_SETTER(Actions, const QStringList &, m_actions)
 ECHO_PART_SETTER(Active, bool, m_active)
 ECHO_PART_SETTER(Replaceable, bool, m_replaceable)
 #undef ECHO_PART_SETTER
+// Properties and actions never touch identity, address or the composition
+// chain: they only feed style resolution and the composition payload.
+// Re-resolve in place (the setPreference idiom) instead of running the
+// detach/attach cycle, which unregisters the part, rebuilds the cached
+// chain and tears down live plugin content for no semantic change.
+void EchoUiPartRegistration::setProperties(const QStringList &value)
+{
+    if (m_properties == value)
+        return;
+    m_properties = value;
+    emit declarationChanged();
+    if (m_registry && !identity().isEmpty()) {
+        m_registry->resolve(this);
+        m_registry->resolveComposition(this);
+    }
+    emit changed();
+}
+void EchoUiPartRegistration::setActions(const QStringList &value)
+{
+    if (m_actions == value)
+        return;
+    m_actions = value;
+    emit declarationChanged();
+    if (m_registry && !identity().isEmpty())
+        m_registry->resolveComposition(this);
+    emit changed();
+}
 void EchoUiPartRegistration::connectTarget()
 {
     for (const auto &c : m_connections)
@@ -270,6 +288,21 @@ void EchoUiPartRegistration::setResolved(const QVariantMap &values, const QVaria
         emit overridesChanged();
     if (self)
         emit changed();
+    if (!valuesChanged)
+        return;
+    // The visual-presence flag feeds Loader re-creation in EchoUiPartHost, and
+    // refresh() passes overrides through {} on its way between registrations.
+    // Recomputing it synchronously would rebuild that Loader for the empty
+    // map and again for the resolved one on every such cycle; queued, the
+    // interim states collapse and the flag only flips on the settled value.
+    queueCoalescedNotice(this, m_visualNoticePending, [this] {
+        const bool visual = std::any_of(m_overrides.keyBegin(), m_overrides.keyEnd(),
+                                        [](const QString &key) { return key != "opacity"; });
+        if (m_hasVisualOverrides == visual)
+            return;
+        m_hasVisualOverrides = visual;
+        emit hasVisualOverridesChanged();
+    });
 }
 QMap<QString, QString> EchoUiPartRegistration::nativeProperties() const
 {

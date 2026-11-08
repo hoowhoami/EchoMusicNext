@@ -54,12 +54,17 @@ signals:
     void densityChanged();
 
 private:
+    void flushNotifications();
     QPointer<QQuickItem> m_item;
     QSharedPointer<EchoItemObserver> m_observer;
     QPointF m_scenePosition;
     qreal m_devicePixelRatio = 1.0;
     qreal m_densityX = 1.0;
     qreal m_densityY = 1.0;
+    bool m_flushPending = false;
+    bool m_pendingPosition = false;
+    bool m_pendingRatio = false;
+    bool m_pendingDensity = false;
 };
 
 class EchoPixelSnap final : public QObject

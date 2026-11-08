@@ -122,6 +122,9 @@ signals:
     void partChanged(EchoMusic::EchoUiPartRegistration *part);
 
 private:
+    // setProperties/setActions re-resolve a declaration in place (the
+    // setPreference idiom) and reach the private resolve() for it.
+    friend class EchoUiPartRegistration;
     int m_publicationDepth = 0;
     QSet<QString> m_maskedPublications;
     void forgetAddress(const QString &identity);

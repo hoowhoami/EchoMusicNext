@@ -203,11 +203,20 @@ Window {
     QCOMPARE(attached->devicePixelRatio(), session.window->effectiveDevicePixelRatio());
 
     // Ancestor moves and scale changes both flow through the chain watchers.
+    // Values settle immediately, but the notification is queued (coalesced per
+    // event-loop turn) so burst geometry churn cannot nest binding re-runs on
+    // one stack; the spy therefore needs the loop to turn.
     hostA->setX(hostA->x() + 4.4);
     QTRY_COMPARE(attached->scenePosition(), probe->mapToScene(QPointF()));
-    QCOMPARE(moved.size(), 1);
-    hostA->setX(hostA->x());
-    QCOMPARE(moved.size(), 1);
+    QTRY_COMPARE(moved.size(), 1);
+    // A settled change must produce exactly one notification: after a second
+    // move, drain the coalescer's turn and require the count to hold - with
+    // the emit queued, a duplicate only lands past the QTRY above.
+    hostA->setX(hostA->x() - 1.2);
+    QTRY_COMPARE(attached->scenePosition(), probe->mapToScene(QPointF()));
+    QTRY_COMPARE(moved.size(), 2);
+    QTest::qWait(0);
+    QCOMPARE(moved.size(), 2);
     hostA->setScale(1.25);
     QTRY_COMPARE(attached->scenePosition(), probe->mapToScene(QPointF()));
     hostA->setScale(1.);
