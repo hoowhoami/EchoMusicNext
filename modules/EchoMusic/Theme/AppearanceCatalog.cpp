@@ -4,6 +4,13 @@
 #include <QTimer>
 namespace EchoMusic
 {
+namespace
+{
+const QList<QPair<QString, QString>> builtinSkins{
+    {QStringLiteral("cover"), QString::fromUtf8("封面歌词")},
+    {QStringLiteral("portrait"), QString::fromUtf8("写真")},
+    {QStringLiteral("lyric"), QString::fromUtf8("简洁歌词")}};
+}
 AppearanceCatalog::AppearanceCatalog(EchoMusic::SettingsStore &s, QObject *p)
     : QObject(p), m_settings(s),
       m_selectedTheme(s.value(SettingsKeys::Appearance::ExtensionTheme).toString()),
@@ -189,7 +196,9 @@ void AppearanceCatalog::clearTheme()
 bool AppearanceCatalog::chooseSkin(const QString &key)
 {
     auto e = find(key);
-    if (key != "cover" && key != "portrait" && (!e || e->kind != "skin"))
+    const bool builtin = std::any_of(builtinSkins.begin(), builtinSkins.end(),
+                                     [&key](const auto &skin) { return skin.first == key; });
+    if (!builtin && (!e || e->kind != "skin"))
         return false;
     if (e)
         e->error.clear();
@@ -268,19 +277,16 @@ QVariant AppearanceListModel::data(const QModelIndex &i, int r) const
     if (i.row() < builtinCount()) {
         switch (r - Qt::UserRole) {
         case 1:
-            return m_kind == "theme" ? "echo" : i.row() == 0 ? "cover" : "portrait";
+            return m_kind == "theme" ? QStringLiteral("echo") : builtinSkins.at(i.row()).first;
         case 2:
-            return m_kind == "theme" ? "Echo"
-                   : i.row() == 0    ? QString::fromUtf8("封面歌词")
-                                     : QString::fromUtf8("写真");
+            return m_kind == "theme" ? QStringLiteral("Echo") : builtinSkins.at(i.row()).second;
         case 3:
             return m_kind == "theme" ? QString::fromUtf8("简约清爽，让音乐成为主角。") : QString();
         case 4:
             return QUrl();
         case 5:
-            return m_kind == "theme"
-                       ? m_catalog.selectedTheme().isEmpty()
-                       : m_catalog.selectedSkin() == (i.row() == 0 ? "cover" : "portrait");
+            return m_kind == "theme" ? m_catalog.selectedTheme().isEmpty()
+                                     : m_catalog.selectedSkin() == builtinSkins.at(i.row()).first;
         case 6:
             return QVariant::fromValue<AppearanceEntry *>(nullptr);
         default:
@@ -317,7 +323,9 @@ QList<AppearanceEntry *> AppearanceListModel::filtered() const
 }
 int AppearanceListModel::builtinCount() const
 {
-    return m_typeFilter.isEmpty() || m_typeFilter == "default" ? (m_kind == "skin" ? 2 : 1) : 0;
+    return m_typeFilter.isEmpty() || m_typeFilter == "default"
+               ? (m_kind == "skin" ? int(builtinSkins.size()) : 1)
+               : 0;
 }
 void AppearanceListModel::setTypeFilter(const QString &value)
 {

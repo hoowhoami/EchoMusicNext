@@ -2378,6 +2378,7 @@ void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold_data()
     QTest::addColumn<QString>("skin");
     QTest::addColumn<bool>("compact");
     QTest::newRow("cover") << QString("cover") << false;
+    QTest::newRow("simple") << QString("lyric") << false;
     QTest::newRow("portrait") << QString("portrait") << false;
     QTest::newRow("portrait-compact") << QString("portrait") << true;
 }
@@ -2494,9 +2495,10 @@ void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
         QJsonArray data;
         for (const auto &frame : frames)
             data.append(QJsonArray{double(frame.first), frame.second});
-        const auto suffix = skin == "cover" ? QString()
-                            : compact       ? QString("-portrait-compact")
-                                            : QString("-portrait");
+        const auto suffix = skin == "cover"   ? QString()
+                            : skin == "lyric" ? QString("-simple")
+                            : compact         ? QString("-portrait-compact")
+                                              : QString("-portrait");
         QFile out(captureDir + "/native-engine-cadence" + suffix + ".json");
         QVERIFY(out.open(QIODevice::WriteOnly));
         out.write(QJsonDocument(data).toJson());
@@ -3061,7 +3063,7 @@ void PlaybackPageTest::lateRubyLayoutKeepsRowsSeparated_data()
     QTest::addColumn<QString>("skin");
     QTest::addColumn<qreal>("scale");
     QTest::addColumn<bool>("overlap");
-    for (const auto &skin : {QString("cover"), QString("portrait")})
+    for (const auto &skin : {QString("cover"), QString("portrait"), QString("lyric")})
         for (const qreal scale : {1., 1.25})
             for (const bool overlap : {false, true})
                 QTest::newRow(
@@ -3567,8 +3569,14 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime_data()
     QTest::addColumn<bool>("wordTimed");
     QTest::addColumn<bool>("initiallyPlaying");
     QTest::addColumn<int>("sourceOffset");
-    QTest::newRow("word-timed-paused-positive-offset") << true << false << 1500;
-    QTest::newRow("whole-line-playing-negative-offset") << false << true << -1500;
+    QTest::addColumn<QString>("skin");
+    QTest::newRow("word-timed-paused-positive-offset") << true << false << 1500 << QString("cover");
+    QTest::newRow("whole-line-playing-negative-offset")
+        << false << true << -1500 << QString("cover");
+    QTest::newRow("simple-word-timed-paused-positive-offset")
+        << true << false << 1500 << QString("lyric");
+    QTest::newRow("simple-whole-line-playing-negative-offset")
+        << false << true << -1500 << QString("lyric");
 }
 void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
 {
@@ -3577,7 +3585,9 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
     QFETCH(bool, wordTimed);
     QFETCH(bool, initiallyPlaying);
     QFETCH(int, sourceOffset);
+    QFETCH(QString, skin);
     Session session;
+    QVERIFY(session.theme.extensions()->chooseSkin(skin));
     session.playback.setVolume(0);
     QVERIFY(session.create(false));
     QTRY_VERIFY_WITH_TIMEOUT(session.playback.engineReady(), 15000);
@@ -4796,4 +4806,133 @@ void PlaybackPageTest::portraitCollapseKeepsMotionAndAvoidsVisibleControls()
                  portrait->property("lyricOffsetTarget").toReal()) < .05);
     QCOMPARE(sameViewport.data(), session.item("portraitLyricViewport"));
     QVERIFY(warnings.isEmpty());
+}
+
+void PlaybackPageTest::simpleSkinPreferencesLayoutAndLifecycle()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    auto *appearance = session.playback.lyricAppearance();
+    auto *simple = appearance->simple();
+    QCOMPARE(simple->fontWeight(), 900);
+    QVERIFY(!simple->customized());
+    appearance->setFontScale(.8);
+    appearance->setFontWeight(500);
+    appearance->portrait()->setFontScale(1.2);
+    appearance->setPlayedColor("#abcdef");
+    simple->setFontScale(1.1);
+    simple->setFontWeight(700);
+    simple->setUnplayedTextColor("#61758a");
+    {
+        LyricAppearance restored(session.settings);
+        QCOMPARE(restored.simple()->fontScale(), 1.1);
+        QCOMPARE(restored.simple()->fontWeight(), 700);
+        QCOMPARE(restored.fontScale(), .8);
+        QCOMPARE(restored.portrait()->fontScale(), 1.2);
+    }
+    simple->setFontScale(std::numeric_limits<double>::quiet_NaN());
+    QCOMPARE(simple->fontScale(), 1.1);
+    QVERIFY(session.theme.extensions()->chooseSkin("lyric"));
+    {
+        AppearanceCatalog restored(session.settings, nullptr);
+        QCOMPARE(restored.selectedSkin(), QString("lyric"));
+    }
+    QVERIFY(session.create());
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    auto *text = session.playback.lyricText();
+    text->setWantTranslation(true);
+    text->setWantRomanization(true);
+    text->setRomanizationAsRuby(false);
+    QQuickItem *body = nullptr, *viewport = nullptr;
+    QTRY_VERIFY((body = session.item("simplePlayback")));
+    QTRY_VERIFY((viewport = session.item("simpleLyricViewport")));
+    QVERIFY(!session.item("playbackPageCover"));
+    QVERIFY(!session.item("playbackPageTitle"));
+    QVERIFY(!session.item("portraitPlayback"));
+    QVERIFY(!session.page()->property("coverMoving").toBool());
+    QCOMPARE(viewport->property("horizontalAlignment").toInt(), int(Qt::AlignHCenter));
+    QTRY_COMPARE(viewport->property("textColor").value<QColor>(), QColor("#abcdef"));
+    QCOMPARE(viewport->property("unplayedColor").value<QColor>(), QColor("#61758a"));
+    simple->setTextColor("#ffffff");
+    QTRY_COMPARE(viewport->property("textColor").value<QColor>(), QColor(Qt::white));
+    QCOMPARE(appearance->playedColor(), QString("#abcdef"));
+    for (const auto *property : {"springEnabled", "blurEnabled", "scaleEnabled", "softFocus"})
+        QVERIFY(viewport->property(property).toBool());
+    const auto captures = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    for (const auto &size : {QSize(1200, 800), QSize(720, 800)})
+        for (const bool dark : {false, true})
+            for (const double scale : {1., 1.25}) {
+                session.window->resize(size);
+                session.root->setProperty("surfaceScale", scale);
+                session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+                QTest::qWait(100);
+                const auto pageWidth = session.page()->property("width").toReal();
+                QVERIFY(qAbs(body->width() - qMin(900., pageWidth)) < 1);
+                auto *owner = session.item("simplePlaybackOwner");
+                QVERIFY(owner);
+                QVERIFY(qAbs(owner->x() + owner->width() / 2 - pageWidth / 2) < 1);
+                QCOMPARE(viewport->x(), 32.);
+                QVERIFY(qAbs(viewport->width() - (body->width() - 64)) < 1);
+                auto *transport = session.item("playbackTransport");
+                QVERIFY(transport);
+                const auto bottom =
+                    viewport->mapToItem(transport->parentItem(), 0, viewport->height()).y();
+                QVERIFY(bottom <= transport->y() - 96 + 1);
+                auto *list = session.item("playbackLyricList");
+                QVERIFY(list);
+                QVERIFY(lyricItems(list) > 0 && lyricItems(list) < 100);
+                if (!captures.isEmpty())
+                    QVERIFY(session.window->grabWindow().save(
+                        captures +
+                        QString("/simple-%1-%2-%3.png").arg(size.width()).arg(dark).arg(scale)));
+            }
+    session.window->resize(1200, 800);
+    session.root->setProperty("surfaceScale", 1.);
+    QVERIFY(QMetaObject::invokeMethod(session.page(), "openSkins"));
+    QTRY_VERIFY(session.item("simpleLyricSkinCard"));
+    if (!captures.isEmpty())
+        QVERIFY(session.window->grabWindow().save(captures + "/simple-skin-catalog.png"));
+    QVERIFY(QMetaObject::invokeMethod(session.item("simpleLyricSkinCard"), "clicked"));
+    QTRY_VERIFY(session.item("simpleLyricSkinColorAction"));
+    if (!captures.isEmpty())
+        QVERIFY(session.window->grabWindow().save(captures + "/simple-skin-settings.png"));
+    QVERIFY(QMetaObject::invokeMethod(session.item("simpleLyricSkinColorAction"), "clicked"));
+    QObject *picker = nullptr;
+    QTRY_VERIFY((picker = session.page()->findChild<QObject *>("simpleLyricSkinColorPicker")));
+    QPointer<QObject> oldPicker(picker);
+    QVERIFY(QMetaObject::invokeMethod(picker, "confirmed", Q_ARG(QString, "#fedcba")));
+    QTRY_COMPARE(simple->textColor(), QString("#fedcba"));
+    QTRY_VERIFY(oldPicker.isNull());
+    QCOMPARE(appearance->textColor(), QString());
+    QVERIFY(QMetaObject::invokeMethod(session.item("simpleResetLyricSkinPlayedColor"), "clicked"));
+    QTRY_COMPARE(simple->textColor(), QString("#ffffff"));
+    QVERIFY(QMetaObject::invokeMethod(session.item("simpleResetLyricSkin"), "clicked"));
+    QTRY_VERIFY(!simple->customized());
+    QCOMPARE(appearance->fontScale(), .8);
+    QCOMPARE(appearance->portrait()->fontScale(), 1.2);
+    QVERIFY(QMetaObject::invokeMethod(session.page(), "openSkins"));
+    QPointer<QQuickItem> oldBody(body);
+    QVERIFY(session.theme.extensions()->chooseSkin("cover"));
+    QTRY_VERIFY(oldBody.isNull());
+    QTRY_VERIFY(session.item("playbackPageCover"));
+    QVERIFY(session.theme.extensions()->chooseSkin("lyric"));
+    QTRY_VERIFY((body = session.item("simplePlayback")));
+    QPointer<QQuickItem> hidden(body);
+    session.window->hide();
+    QTRY_VERIFY(hidden.isNull());
+    session.window->show();
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QTRY_VERIFY((body = session.item("simplePlayback")));
+    QPointer<QQuickItem> minimized(body);
+    session.window->showMinimized();
+    QTRY_VERIFY(minimized.isNull());
+    session.window->showNormal();
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QTRY_VERIFY((body = session.item("simplePlayback")));
+    QPointer<QQuickItem> closed(body);
+    QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+    QTRY_VERIFY(closed.isNull());
+    QVERIFY2(warnings.isEmpty(), "The production simple skin must not produce QML warnings");
 }

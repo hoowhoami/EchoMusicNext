@@ -475,8 +475,8 @@ void PluginRuntimeTest::compositionRefreshRetainsLiveContent()
     QCOMPARE(host.runtime.state(plugin), PluginRuntime::Active);
     QTRY_VERIFY(visual(window->contentItem(), "compositionWrapper"));
     auto *hostItem = visual(window->contentItem(), "compositionRegion");
-    auto *part = qobject_cast<EchoUiPartRegistration *>(
-        hostItem->property("publicPart").value<QObject *>());
+    auto *part =
+        qobject_cast<EchoUiPartRegistration *>(hostItem->property("publicPart").value<QObject *>());
     QVERIFY(part);
     QPointer<QQuickItem> wrapper = visual(window->contentItem(), "compositionWrapper");
     // Declaration edits that cannot touch identity, address or the

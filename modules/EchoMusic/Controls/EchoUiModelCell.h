@@ -13,6 +13,10 @@ public:
     {
         return false;
     }
+    virtual bool arm(const QVariantMap &)
+    {
+        return false;
+    }
     virtual bool activate(const QVariantMap &, const QVariantMap &)
     {
         return false;
@@ -70,11 +74,14 @@ private:
     void schedule();
     void updateActive();
     void updateResourceKey();
+    void refreshData(bool structural = false);
     QPointer<EchoUiModelRecipe> m_recipe;
     QPointer<EchoUiContentFactory> m_cellFactory;
     QVariantMap m_row, m_entry;
     QList<QMetaObject::Connection> m_recipeConnections;
     bool m_complete = false, m_pending = false;
     int m_viewRow = -1, m_viewColumn = 0;
+    QString m_realizedResource;
+    QObject m_cellCallbacks;
 };
 } // namespace EchoMusic

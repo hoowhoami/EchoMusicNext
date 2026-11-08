@@ -12,19 +12,33 @@ Item {
     readonly property string _echoUiModelKind: "tabs"
     property QtObject _echoUiModelAdapter: null
     readonly property var extensionEntries: _echoUiModelAdapter ? _echoUiModelAdapter.entries : []
-    readonly property var shownLabels: extensionEntries.length ? labels.concat(extensionEntries.map(entry => entry.label)) : labels
-    readonly property int shownIndex: _echoUiModelAdapter && _echoUiModelAdapter.selectedKey.length ? labels.length + extensionEntries.findIndex(entry => entry.identity === _echoUiModelAdapter.selectedKey) : currentIndex
-    readonly property Item _echoUiNativeFocusItem: tabs.count ? tabs.itemAt(currentIndex) : null
+    readonly property var displayedEntries: _echoUiModelAdapter ? _echoUiModelAdapter.displayEntries : []
+    readonly property var shownLabels: _echoUiModelAdapter ? displayedEntries.map(entry => entry.label) : labels
+    function nativeIndex(displayIndex: int): int {
+        return _echoUiModelAdapter ? (displayedEntries[displayIndex]?.nativeIndex ?? -1) : displayIndex;
+    }
+
+    readonly property int shownIndex: !_echoUiModelAdapter ? currentIndex : _echoUiModelAdapter.selectedKey.length ? displayedEntries.findIndex(entry => entry.identity === _echoUiModelAdapter.selectedKey) : displayedEntries.findIndex(entry => entry.nativeIndex === currentIndex)
+    readonly property Item _echoUiNativeFocusItem: tabs.count ? tabs.itemAt(shownIndex) : null
     function selectTab(index: int): void {
-        if (index < labels.length) {
+        const native = nativeIndex(index);
+        if (native >= 0) {
             if (_echoUiModelAdapter)
                 _echoUiModelAdapter.clearSelection();
-            picked(index);
-        } else if (_echoUiModelAdapter)
-            _echoUiModelAdapter.selectEntry(index - labels.length);
+            picked(native);
+        } else if (_echoUiModelAdapter) {
+            const entry = displayedEntries[index];
+            _echoUiModelAdapter.selectEntry(extensionEntries.findIndex(value => value.identity === entry.identity));
+        }
     }
     function available(index: int): bool {
-        return index >= 0 && index < shownLabels.length && (index < labels.length || extensionEntries[index - labels.length]?.enabled === true);
+        return index >= 0 && index < shownLabels.length && (nativeIndex(index) >= 0 || displayedEntries[index]?.enabled === true);
+    }
+    function echoUiSelectIndex(index: int): bool {
+        if (!available(index))
+            return false;
+        selectTab(index);
+        return true;
     }
     property list<string> labels: []
     // Numeric counts include zero. An empty string hides the badge.
@@ -52,6 +66,7 @@ Item {
     }
     onShownIndexChanged: activeTabItem = tabs ? tabs.itemAt(shownIndex) : null
     function countVisible(index: int): bool {
+        index = nativeIndex(index);
         if (index < 0 || index >= root.counts.length)
             return false;
         const value = root.counts[index];
@@ -104,8 +119,8 @@ Item {
                 id: tab
                 required property int index
                 required property string modelData
-                readonly property string extensionGlyph: index >= root.labels.length ? (root.extensionEntries[index - root.labels.length]?.glyph || "") : ""
-                objectName: root.objectNames.length > tab.index ? root.objectNames[tab.index] : "detailTab-" + tab.index
+                readonly property string extensionGlyph: root.nativeIndex(index) < 0 ? (root.displayedEntries[index]?.glyph || "") : ""
+                objectName: root.nativeIndex(tab.index) >= 0 && root.objectNames.length > root.nativeIndex(tab.index) ? root.objectNames[root.nativeIndex(tab.index)] : "detailTab-" + tab.index
                 enabled: root.available(tab.index)
                 flat: true
                 padding: 0
@@ -189,7 +204,7 @@ Item {
                         EchoBadge {
                             objectName: "detailTabBadge-" + tab.index
                             visible: root.countVisible(tab.index)
-                            count: visible ? root.counts[tab.index] : undefined
+                            count: visible ? root.counts[root.nativeIndex(tab.index)] : undefined
                             // Song-tab badges use the neutral tone.
                             tone: EchoBadge.Neutral
                         }

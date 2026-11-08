@@ -64,6 +64,10 @@ namespace EchoMusic::PluginTest
 {
 inline QQuickItem *visual(QQuickItem *root, const QString &name)
 {
+    // Prepared transaction trees are not published UI and must not satisfy
+    // assertions about a real entry, its geometry, focus or interaction.
+    if (!root || root->property("_echoUiStaging").toBool())
+        return nullptr;
     if (root->objectName() == name)
         return root;
     for (auto *child : root->childItems())

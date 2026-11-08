@@ -24,11 +24,14 @@ public:
     Q_INVOKABLE EchoMusic::EchoUiBatch *applyBatch(const QString &id, const QVariantList &entries);
     Q_INVOKABLE EchoMusic::EchoUiContribution *
     contribute(const QString &id, const QVariantMap &selector, const QVariantMap &definition);
-    Q_INVOKABLE EchoMusic::EchoUiModelContribution *
-    contributeModel(const QString &id, const QVariantMap &selector, const QVariantMap &definition);
+    Q_INVOKABLE EchoMusic::EchoUiModelContribution *contributeModel(const QString &id,
+                                                                    const QVariantMap &selector,
+                                                                    const QVariantMap &definition,
+                                                                    const QJSValue &provider = {});
     Q_INVOKABLE EchoMusic::EchoUiPartRef *query(const QVariantMap &selector = {});
     Q_INVOKABLE EchoMusic::EchoUiPartRef *queryUnique(const QVariantMap &selector);
     Q_INVOKABLE QVariantList queryAll(const QVariantMap &selector = {});
+    Q_INVOKABLE QVariantMap preflightBatch(const QVariantList &entries, const QString &id = {});
     Q_INVOKABLE QVariantMap preflight(const QVariantMap &selector, const QVariantMap &definition);
     Q_INVOKABLE EchoMusic::EchoPluginRegistration *observe(const QString &id,
                                                            const QVariantMap &selector,

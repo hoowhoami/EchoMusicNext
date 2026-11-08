@@ -25,5 +25,6 @@ signals:
 private:
     void refresh();
     bool m_presented = false;
+    QObject m_callbacks;
 };
 } // namespace EchoMusic

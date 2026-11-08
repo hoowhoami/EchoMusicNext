@@ -27,6 +27,10 @@ public:
     {
         return {};
     }
+    virtual bool updateModelData(const QVariantMap &, const QVariantMap &)
+    {
+        return false;
+    }
     virtual QQuickItem *create(QQuickItem *parent, EchoUiContentFactory *content = nullptr) = 0;
 signals:
     void changed();
@@ -184,5 +188,8 @@ private:
     bool m_heldActive = false, m_heldPending = false;
     bool m_active = true, m_complete = false, m_constructing = false, m_pending = false;
     bool m_rebuildPending = false;
+    // Disconnect incoming callbacks before the C++ fields and QQuickItem base
+    // are destroyed; QObject's own connection teardown happens too late.
+    QObject m_contentCallbacks;
 };
 } // namespace EchoMusic

@@ -158,7 +158,7 @@ void PluginRuntimeTest::appearanceCatalogConfigurationAndRetirement()
     QVERIFY(scope);
     auto *catalog = host.theme.extensions();
     QCOMPARE(catalog->themes()->rowCount(), 2);
-    QCOMPARE(catalog->skins()->rowCount(), 3);
+    QCOMPARE(catalog->skins()->rowCount(), 4);
     QVERIFY(catalog->theme() == nullptr);
     QVERIFY(catalog->skin() == nullptr);
     QVERIFY(scope->appearance()->snapshot().contains("themeMetadata"));
@@ -375,7 +375,7 @@ void PluginRuntimeTest::appearanceProductionThemeSkinAndMini()
     QVERIFY(QMetaObject::invokeMethod(page, "openSkins"));
     QQuickItem *skinCatalog = nullptr;
     QTRY_VERIFY((skinCatalog = visual(window->contentItem(), "lyricSkinCatalog")));
-    QTRY_COMPARE(skinCatalog->property("count").toInt(), 3);
+    QTRY_COMPARE(skinCatalog->property("count").toInt(), 4);
     auto *scope = host.runtime.context(installation);
     QVERIFY(scope->appearance()->useSkin("wide"));
     auto *skinHost = visual(window->contentItem(), "pluginPlaybackSkinHost");
@@ -475,7 +475,7 @@ void PluginRuntimeTest::appearanceErrorsAndActivationRollback()
     QVERIFY(!failures.isEmpty());
     QVERIFY(failures.last()[1].toString().contains("activation rollback"));
     QCOMPARE(host.theme.extensions()->themes()->rowCount(), 1);
-    QCOMPARE(host.theme.extensions()->skins()->rowCount(), 2);
+    QCOMPARE(host.theme.extensions()->skins()->rowCount(), 3);
     const auto second = installAppearance(host,
                                           appearancePackage(host, R"(
  if(c.theme.registerTheme({id:"invalid",title:"Invalid",defaults:{},validate:()=>{throw "bad configuration";}}))throw new Error("primitive throw accepted");
@@ -573,7 +573,7 @@ void PluginRuntimeTest::appearancePreviewCatalogAndFloatingIsolation()
     QVERIFY(api->useTheme("ocean"));
     const auto themeKey = catalog->selectedTheme();
     QVERIFY(api->themes().size() >= 2);
-    QCOMPARE(api->skins().size(), 3);
+    QCOMPARE(api->skins().size(), 4);
     QVERIFY(api->previewTheme("ocean"));
     auto owner = std::make_unique<QObject>();
     auto *child = scope->createPresentation(owner.get(), "preview-test");
@@ -592,6 +592,8 @@ void PluginRuntimeTest::appearancePreviewCatalogAndFloatingIsolation()
     QVERIFY(transient->appearance()->previewTheme(themeKey));
     disposable.reset();
     QTRY_VERIFY(!catalog->previewing());
+    QVERIFY(api->useSkin("lyric"));
+    QCOMPARE(catalog->selectedSkin(), "lyric");
     QVERIFY(api->useSkin("portrait"));
     QCOMPARE(catalog->selectedSkin(), "portrait");
     const auto elevated = host.theme.elevated();

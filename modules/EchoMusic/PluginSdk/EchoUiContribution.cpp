@@ -86,6 +86,28 @@ EchoUiPluginContentFactory::~EchoUiPluginContentFactory()
 {
     discardPrepared();
 }
+void EchoUiPluginContentFactory::setModelData(const QVariantMap &row, const QVariantMap &entry)
+{
+    m_hasModelData = true;
+    m_modelRow = row;
+    m_modelEntry = entry;
+    const QPointer<QQuickItem> view = m_preparedView ? m_preparedView : m_view;
+    if (!view || !m_scope || !m_scope->active())
+        return;
+    if (view->metaObject()->indexOfProperty("row") >= 0)
+        view->setProperty("row",
+                          QVariant::fromValue(PluginScript::nativeValue(m_scope->engine(), row)));
+    if (view && view->metaObject()->indexOfProperty("entry") >= 0)
+        view->setProperty("entry",
+                          QVariant::fromValue(PluginScript::nativeValue(m_scope->engine(), entry)));
+}
+bool EchoUiPluginContentFactory::updateModelData(const QVariantMap &row, const QVariantMap &entry)
+{
+    if (m_failed || !m_scope || !m_scope->active())
+        return false;
+    setModelData(row, entry);
+    return true;
+}
 void EchoUiPluginContentFactory::discardPrepared()
 {
     if (m_preparedScope)
@@ -284,10 +306,10 @@ void EchoUiHostContent::setPart(EchoUiPartRef *part)
     if (m_part == part)
         return;
     if (m_part)
-        disconnect(m_part, nullptr, this, nullptr);
+        disconnect(m_part, nullptr, &m_callbacks, nullptr);
     m_part = part;
     if (part)
-        connect(part, &EchoUiPartRef::invalidated, this, [this] { setFactory(nullptr); });
+        connect(part, &EchoUiPartRef::invalidated, &m_callbacks, [this] { setFactory(nullptr); });
     setFactory(part && part->valid() ? part->hostContent() : nullptr);
     emit partChanged();
 }

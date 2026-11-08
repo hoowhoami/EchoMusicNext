@@ -25,6 +25,7 @@ Menu {
     padding: Math.round(6 * uiScale)
     margins: 12 * uiScale
     property real uiScale: 1
+    property var modelContext: ({})
     // Native popup windows size themselves from width/height, not Popup.scale.
     // Scale the recipe's dimensions so its native bounds include every row.
     // Basic's default modeless dimmer is rectangular, including the native
@@ -85,6 +86,8 @@ Menu {
     Component.onCompleted: menuRoot.refreshMeasuredSize()
     contentItem: ListView {
         id: entries
+        EchoUiScope.modelContext: menuRoot.modelContext
+        EchoUiScope.contextActive: menuRoot.visible
         readonly property string _echoUiModelKind: "menu"
         readonly property var _echoUiModelOwner: menuRoot
         implicitHeight: contentHeight

@@ -24,6 +24,34 @@ NATIVE_POPUPS = {
 }
 
 
+def owns_native_menu_recipe(path, source, declaration, ancestors):
+    """The live menu projection owns Qt's native submenu graph, not a loader.
+
+    It exists only while the menu part is registered. Qt requires the submenu
+    object to create its native MenuItem; projection teardown removes the whole
+    graph. Keep this narrow factory contract checked, alongside runtime
+    QPointer assertions for the submenu and its item after the parent closes.
+    """
+    if path.relative_to(BASE).as_posix() != "Controls/EchoUiMenuProjection.qml":
+        return False
+    if declaration["type"] != "EchoMenu":
+        return False
+    components = [parent for parent in ancestors if parent["type"] == "Component"]
+    if len(components) != 1:
+        return False
+    recipe = source[components[0]["start"] : components[0]["body"]]
+    required = (
+        "menuComponent.createObject(container,",
+        "container.addMenu(submenu)",
+        "object: submenu",
+        "record.container.removeMenu(record.object)",
+        "Component.onDestruction: clear()",
+    )
+    return "property Component menuComponent:" in recipe and all(
+        fragment in source for fragment in required
+    )
+
+
 def mask(source):
     """Preserve offsets/newlines while removing comments and string literals."""
     literals = r"""//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`"""
@@ -34,7 +62,7 @@ def declarations(source):
     masked = mask(source)
     pattern = (
         r"(?m)^(?P<indent>\s*)"
-        r"(?:(?:property\s+[\w.<>]+\s+)?\w+\s*:\s*)?"
+        r"(?:(?:(?:readonly\s+)?property\s+[\w.<>]+\s+)?\w+\s*:\s*)?"
         r"(?P<type>[A-Z]\w*(?:\.\w+)?)\s*\{"
     )
     for match in re.finditer(pattern, masked):
@@ -75,7 +103,9 @@ def main():
             owners = ("EchoPopupLoader", "EchoFileDialogLoader", "EchoFolderDialogLoader")
             if declaration["type"] == "EchoToolTipPopup":
                 owners = ("Instantiator",)
-            if not any(parent["type"] in owners for parent in ancestors):
+            if not any(
+                parent["type"] in owners for parent in ancestors
+            ) and not owns_native_menu_recipe(path, source, declaration, ancestors):
                 line = source[: declaration["start"]].count("\n") + 1
                 unowned.append(f"{path.relative_to(BASE)}:{line}: {declaration['type']}")
             module = path.parent.name

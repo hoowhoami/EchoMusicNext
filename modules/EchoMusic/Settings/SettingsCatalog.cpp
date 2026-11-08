@@ -102,7 +102,7 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
          tr("自动检查更新 检查预发布版本 静默安装 当前版本 更新日志 免责声明 项目源码"),
          "AboutSettingsSection",
          {}}};
-    m_nativeCount = m_entries.size();
+    m_nativeEntries = m_entries;
     for (int i = 0; i < m_entries.size(); ++i)
         m_visible.append(i);
 }
@@ -201,6 +201,13 @@ void SettingsCatalog::rebuild(bool preserve, bool resetting)
     endResetModel();
     emit changed();
 }
+QStringList SettingsCatalog::nativeKeys() const
+{
+    QStringList values;
+    for (const auto &entry : m_nativeEntries)
+        values.append(entry.key);
+    return values;
+}
 QObject *SettingsCatalog::uiExtensions() const
 {
     return m_extensions;
@@ -239,20 +246,32 @@ void SettingsCatalog::setUiExtensions(QObject *value)
 void SettingsCatalog::refreshExtensions()
 {
     beginResetModel();
-    m_entries.resize(m_nativeCount);
-    if (m_extensions)
-        for (const auto &value : m_extensions->entries()) {
-            const auto descriptor = value.toMap();
-            const auto identity = descriptor.value("identity").toString();
-            const auto entry = m_extensions->entryFor(identity);
-            m_entries.append({"extension:" + identity,
-                              entry.value("label").toString(),
-                              entry.value("glyph", "puzzle").toString(),
-                              entry.value("keywords").toString(),
-                              {},
-                              identity,
-                              entry.value("enabled", true).toBool()});
+    m_entries = m_nativeEntries;
+    if (m_extensions) {
+        QVariantList keys;
+        for (const auto &key : nativeKeys())
+            keys.append(key);
+        const auto projection = m_extensions->projectEntries(keys);
+        if (projection.value("valid").toBool()) {
+            m_entries.clear();
+            for (const auto &value : projection.value("entries").toList()) {
+                const auto descriptor = value.toMap();
+                if (descriptor.contains("nativeIndex")) {
+                    m_entries.append(m_nativeEntries[descriptor.value("nativeIndex").toInt()]);
+                    continue;
+                }
+                const auto identity = descriptor.value("identity").toString();
+                const auto entry = m_extensions->entryFor(identity);
+                m_entries.append({"extension:" + identity,
+                                  entry.value("label").toString(),
+                                  entry.value("glyph", "puzzle").toString(),
+                                  entry.value("keywords").toString(),
+                                  {},
+                                  identity,
+                                  entry.value("enabled", true).toBool()});
+            }
         }
+    }
     rebuild(true, true);
 }
 void SettingsCatalog::select(const QString &key)

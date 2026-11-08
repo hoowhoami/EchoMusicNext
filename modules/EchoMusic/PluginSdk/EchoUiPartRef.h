@@ -41,6 +41,7 @@ class EchoUiPartRef final : public QObject
     Q_PROPERTY(bool visible READ visible NOTIFY changed)
     Q_PROPERTY(QRectF geometry READ geometry NOTIFY changed)
     Q_PROPERTY(QVariantMap state READ state NOTIFY changed)
+    Q_PROPERTY(QVariantMap modelContext READ modelContext NOTIFY changed)
     Q_PROPERTY(QVariantMap stateSchema READ stateSchema NOTIFY changed)
     Q_PROPERTY(QVariantMap actionSchema READ actionSchema NOTIFY changed)
     Q_PROPERTY(QVariantMap visuals READ visuals NOTIFY changed)
@@ -102,6 +103,7 @@ public:
     QVariantMap visualSources() const;
     QVariantMap palette() const;
     QVariantMap state() const;
+    QVariantMap modelContext() const;
     QVariantMap stateSchema() const;
     QVariantMap actionSchema() const;
     Q_INVOKABLE QVariantMap mapPoint(const QVariantMap &point,

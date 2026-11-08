@@ -5,6 +5,12 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void nativeUiActionsCommitBusinessIntent();
+    void nativeUiModelSelectionAndLiveCells();
+    void nativeUiModelRelativeOrderAndRejectedRevision();
+    void nativeUiCompositeColumnsVirtualizationAndRecovery();
+    void nativeUiModelContextProvidersAndStaleCommands();
+    void nativeUiMixedModelBatchAndPreflight();
     void nativeUiBatchPreparationCommitAndRollback();
     void nativeUiAdjacentFocusAndCapacity();
     void nativeUiBoundedPublicValues();

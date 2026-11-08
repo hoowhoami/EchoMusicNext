@@ -1,6 +1,7 @@
 #include "EchoUiNativeContract.h"
 #include <QQuickWindow>
 #include <QMetaProperty>
+#include <QPointer>
 #include <cmath>
 #include <QtQuick/private/qquickitem_p.h>
 namespace EchoMusic::EchoUiNativeContract
@@ -21,6 +22,18 @@ bool number(const QVariant &value)
     return (value.metaType().id() == QMetaType::Int || value.metaType().id() == QMetaType::Double ||
             value.metaType().id() == QMetaType::LongLong) &&
            std::isfinite(value.toDouble());
+}
+const char *valueIntent(QQuickItem *item)
+{
+    if (item && (item->inherits("QQuickSlider") || item->inherits("QQuickDial")))
+        return "moved";
+    if (item && item->inherits("QQuickSpinBox"))
+        return "valueModified";
+    return nullptr;
+}
+bool selectionAdapter(QQuickItem *item)
+{
+    return item && item->metaObject()->indexOfMethod("echoUiSelectIndex(int)") >= 0;
 }
 } // namespace
 QStringList stateProperties(QQuickItem *item)
@@ -55,9 +68,9 @@ QStringList actions(QQuickItem *item)
     result += {"focus", "focusNext", "focusPrevious"};
     if (item->inherits("QQuickAbstractButton") && item->metaObject()->indexOfMethod("click()") >= 0)
         result.append("activate");
-    if (has(item, "value") && has(item, "from") && has(item, "to"))
+    if (valueIntent(item))
         result.append("setValue");
-    if (has(item, "currentIndex") && has(item, "count"))
+    if (selectionAdapter(item) || (has(item, "currentIndex") && has(item, "count")))
         result.append("selectIndex");
     if (item->inherits("QQuickFlickable"))
         result.append("scrollTo");
@@ -96,14 +109,39 @@ bool invoke(QQuickItem *item, const QString &action, const QVariantMap &argument
         if (arguments.size() != 1 || !number(value))
             return false;
         const auto a = item->property("from").toDouble(), b = item->property("to").toDouble();
-        return value.toDouble() >= qMin(a, b) && value.toDouble() <= qMax(a, b) &&
-               item->setProperty("value", value);
+        if (value.toDouble() < qMin(a, b) || value.toDouble() > qMax(a, b) ||
+            (item->inherits("QQuickSpinBox") && value.toDouble() != value.toInt()))
+            return false;
+        const QPointer<QQuickItem> target(item);
+        const auto before = item->property("value");
+        const auto *intent = valueIntent(item);
+        if (!intent || !item->setProperty("value", value) || !target)
+            return false;
+        // These native signals are user-intent commits, unlike valueChanged.
+        // Keep the control's existing validation and business handlers in charge.
+        return target->property("value") == before ||
+               QMetaObject::invokeMethod(target, intent, Qt::DirectConnection);
     }
     if (action == "selectIndex") {
         const auto value = arguments.value("index");
-        return arguments.size() == 1 && number(value) && value.toDouble() == value.toInt() &&
-               value.toInt() >= 0 && value.toInt() < item->property("count").toInt() &&
-               item->setProperty("currentIndex", value.toInt());
+        if (arguments.size() != 1 || !number(value) || value.toDouble() != value.toInt() ||
+            value.toInt() < 0)
+            return false;
+        if (selectionAdapter(item)) {
+            bool accepted = false;
+            return QMetaObject::invokeMethod(item, "echoUiSelectIndex", Qt::DirectConnection,
+                                             Q_RETURN_ARG(bool, accepted),
+                                             Q_ARG(int, value.toInt())) &&
+                   accepted;
+        }
+        if (value.toInt() >= item->property("count").toInt())
+            return false;
+        const QPointer<QQuickItem> target(item);
+        if (!item->setProperty("currentIndex", value.toInt()) || !target)
+            return false;
+        return !target->inherits("QQuickComboBox") ||
+               QMetaObject::invokeMethod(target, "activated", Qt::DirectConnection,
+                                         Q_ARG(int, value.toInt()));
     }
     if (action == "scrollTo") {
         if (arguments.isEmpty() || arguments.size() > 2)

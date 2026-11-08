@@ -8,15 +8,18 @@ import EchoMusic.Playback
 ColumnLayout {
     id: settings
     required property LyricAppearance appearance
+    property bool simpleMode: false
+    readonly property var textStyle: simpleMode ? appearance.simple : appearance
     property color coverColor: "#0071e3"
-    readonly property color resolvedPlayedColor: LyricColors.played(appearance, coverColor)
-    readonly property color resolvedUnplayedColor: LyricColors.unplayed(appearance, coverColor)
+    readonly property color resolvedPlayedColor: simpleMode ? LyricColors.simplePlayed(appearance, coverColor) : LyricColors.played(appearance, coverColor)
+    readonly property color resolvedUnplayedColor: simpleMode ? LyricColors.simpleUnplayed(appearance, coverColor) : LyricColors.unplayed(appearance, coverColor)
     property real uiScale: 1
     spacing: 18
     // The bounded settings form uses native stacking and shared controls.
     LyricSkinSection {
         heading: qsTr("歌词显示")
         LyricSkinRangeRow {
+            visible: !settings.simpleMode
             objectName: "lyricAlignSetting"
             heading: qsTr("歌词位置")
             hint: qsTr("当前歌词在页面高度上的停留位置")
@@ -28,6 +31,7 @@ ColumnLayout {
             onMoved: value => settings.appearance.alignPosition = value
         }
         LyricSkinToggleRow {
+            visible: !settings.simpleMode
             heading: qsTr("隐藏已播放")
             hint: qsTr("只显示当前与后续歌词")
             checked: settings.appearance.hidePassedLines
@@ -36,24 +40,24 @@ ColumnLayout {
         LyricSkinColorRow {
             heading: qsTr("已播字色")
             hint: qsTr("歌曲已播放部分与逐字高亮")
-            actionObjectName: "lyricSkinColorAction"
-            resetObjectName: "resetLyricSkinPlayedColor"
+            actionObjectName: settings.simpleMode ? "simpleLyricSkinColorAction" : "lyricSkinColorAction"
+            resetObjectName: settings.simpleMode ? "simpleResetLyricSkinPlayedColor" : "resetLyricSkinPlayedColor"
             swatchColor: settings.resolvedPlayedColor
             onResetColor: {
-                settings.appearance.useCoverColor = false;
-                settings.appearance.textColor = LyricColors.defaultCoverPlayedColor.toString();
+                settings.textStyle.useCoverColor = false;
+                settings.textStyle.textColor = LyricColors.defaultCoverPlayedColor.toString();
             }
             onOpenPicker: playedColorPicker.open()
         }
         LyricSkinColorRow {
             heading: qsTr("未播字色")
             hint: qsTr("未播放歌词的颜色，默认为半透明白色")
-            actionObjectName: "lyricSkinUnplayedColorAction"
-            resetObjectName: "resetLyricSkinUnplayedColor"
+            actionObjectName: settings.simpleMode ? "simpleLyricSkinUnplayedColorAction" : "lyricSkinUnplayedColorAction"
+            resetObjectName: settings.simpleMode ? "simpleResetLyricSkinUnplayedColor" : "resetLyricSkinUnplayedColor"
             swatchColor: settings.resolvedUnplayedColor
             onResetColor: {
-                settings.appearance.unplayedUseCoverColor = false;
-                settings.appearance.unplayedTextColor = LyricColors.defaultCoverUnplayedColor.toString();
+                settings.textStyle.unplayedUseCoverColor = false;
+                settings.textStyle.unplayedTextColor = LyricColors.defaultCoverUnplayedColor.toString();
             }
             onOpenPicker: unplayedColorPicker.open()
         }
@@ -66,8 +70,8 @@ ColumnLayout {
             from: .7
             to: 1.4
             stepSize: .1
-            value: settings.appearance.fontScale
-            onMoved: value => settings.appearance.fontScale = value
+            value: settings.textStyle.fontScale
+            onMoved: value => settings.textStyle.fontScale = value
         }
         LyricSkinRangeRow {
             heading: qsTr("字重")
@@ -75,11 +79,12 @@ ColumnLayout {
             from: 100
             to: 900
             stepSize: 100
-            value: settings.appearance.fontWeight
-            onMoved: value => settings.appearance.fontWeight = value
+            value: settings.textStyle.fontWeight
+            onMoved: value => settings.textStyle.fontWeight = value
         }
     }
     LyricSkinSection {
+        visible: !settings.simpleMode
         heading: qsTr("歌词动画")
         LyricSkinToggleRow {
             heading: qsTr("高刷新率动画")
@@ -117,6 +122,7 @@ ColumnLayout {
         }
     }
     LyricSkinSection {
+        visible: !settings.simpleMode
         heading: qsTr("封面显示")
         LyricSkinToggleRow {
             heading: qsTr("动态专辑封面")
@@ -133,11 +139,11 @@ ColumnLayout {
             Layout.fillWidth: true
         }
         EchoSoftButton {
-            objectName: "resetLyricSkin"
+            objectName: settings.simpleMode ? "simpleResetLyricSkin" : "resetLyricSkin"
             text: qsTr("恢复全部默认")
             colors: Theme.floating
-            enabled: settings.appearance.customized
-            onClicked: settings.appearance.resetSkin()
+            enabled: settings.textStyle.customized
+            onClicked: settings.textStyle.resetSkin()
         }
     }
     EchoPopupLoader {
@@ -147,22 +153,22 @@ ColumnLayout {
         sourceComponent: Component {
             EchoColorPickerDialog {
                 id: colorPicker
-                objectName: "lyricSkinColorPicker"
+                objectName: settings.simpleMode ? "simpleLyricSkinColorPicker" : "lyricSkinColorPicker"
                 title: qsTr("选择已播字色")
                 uiScale: settings.uiScale
                 value: LyricColors.opaqueHex(settings.resolvedPlayedColor)
                 dynamicLabel: qsTr("封面主题色")
                 dynamicColor: settings.coverColor
-                dynamicSelected: settings.appearance.useCoverColor
+                dynamicSelected: settings.textStyle.useCoverColor
                 presets: ["#ffffff", "#31cfa1", "#0071e3", "#ffcc00", "#ff6b6b", "#ec4899", "#8b5cf6", "#3b82f6", "#14b8a6", "#f97316", "#a3e635", "#94a3b8"]
                 onDynamicConfirmed: {
-                    settings.appearance.textColor = "";
-                    settings.appearance.useCoverColor = true;
+                    settings.textStyle.textColor = "";
+                    settings.textStyle.useCoverColor = true;
                     close();
                 }
                 onConfirmed: color => {
-                    settings.appearance.useCoverColor = false;
-                    settings.appearance.textColor = color;
+                    settings.textStyle.useCoverColor = false;
+                    settings.textStyle.textColor = color;
                     close();
                 }
             }
@@ -175,22 +181,22 @@ ColumnLayout {
         sourceComponent: Component {
             EchoColorPickerDialog {
                 id: colorPicker
-                objectName: "lyricSkinUnplayedColorPicker"
+                objectName: settings.simpleMode ? "simpleLyricSkinUnplayedColorPicker" : "lyricSkinUnplayedColorPicker"
                 title: qsTr("选择未播字色")
                 uiScale: settings.uiScale
                 value: LyricColors.opaqueHex(settings.resolvedUnplayedColor)
                 dynamicLabel: qsTr("封面主题色")
                 dynamicColor: settings.coverColor
-                dynamicSelected: settings.appearance.unplayedUseCoverColor
+                dynamicSelected: settings.textStyle.unplayedUseCoverColor
                 presets: ["#ffffff", "#b9b9b9", "#31cfa1", "#0071e3", "#ffcc00", "#ff6b6b", "#ec4899", "#8b5cf6", "#3b82f6", "#14b8a6", "#f97316", "#94a3b8"]
                 onDynamicConfirmed: {
-                    settings.appearance.unplayedTextColor = "";
-                    settings.appearance.unplayedUseCoverColor = true;
+                    settings.textStyle.unplayedTextColor = "";
+                    settings.textStyle.unplayedUseCoverColor = true;
                     close();
                 }
                 onConfirmed: color => {
-                    settings.appearance.unplayedUseCoverColor = false;
-                    settings.appearance.unplayedTextColor = color;
+                    settings.textStyle.unplayedUseCoverColor = false;
+                    settings.textStyle.unplayedTextColor = color;
                     close();
                 }
             }

@@ -12,7 +12,7 @@ Button {
     required property bool selected
     property url preview
     signal chosen
-    objectName: entryKey === "cover" ? "coverLyricSkinCard" : entryKey === "portrait" ? "portraitLyricSkinCard" : "pluginLyricSkinCard"
+    objectName: entryKey === "cover" ? "coverLyricSkinCard" : entryKey === "portrait" ? "portraitLyricSkinCard" : entryKey === "lyric" ? "simpleLyricSkinCard" : "pluginLyricSkinCard"
     implicitHeight: (width - 22) * 9 / 16 + 7 + 19.5 + 22
     padding: 11
     hoverEnabled: true
@@ -44,7 +44,7 @@ Button {
                 }
             }
             Rectangle {
-                visible: card && card.entryKey !== "portrait"
+                visible: card && card.entryKey !== "portrait" && card.entryKey !== "lyric"
                 x: 12
                 y: (parent.height - height) / 2
                 width: 34
@@ -66,19 +66,19 @@ Button {
                 }
             }
             Column {
-                x: card && card.entryKey === "portrait" ? 16 : 56
+                x: card && (card.entryKey === "portrait" || card.entryKey === "lyric") ? 16 : 56
                 y: card && card.entryKey === "portrait" ? parent.height - height - 12 : (parent.height - height) / 2
-                width: parent.width - (card && card.entryKey === "portrait" ? 32 : 68)
+                width: parent.width - (card && (card.entryKey === "portrait" || card.entryKey === "lyric") ? 32 : 68)
                 spacing: 5
                 Repeater {
-                    model: [.8, .55, .65]
+                    model: card && card.entryKey === "lyric" ? [.5, .78, .6, .4] : [.8, .55, .65]
                     Rectangle {
                         required property real modelData
                         width: parent ? parent.width * modelData : 0
-                        anchors.horizontalCenter: card && card.entryKey === "portrait" ? parent.horizontalCenter : undefined
-                        height: 4
+                        anchors.horizontalCenter: card && (card.entryKey === "portrait" || card.entryKey === "lyric") ? parent.horizontalCenter : undefined
+                        height: card && card.entryKey === "lyric" && modelData === .78 ? 6 : 4
                         radius: Theme.microRadius
-                        color: Theme.withAlpha("white", modelData === .55 ? .4 : .22)
+                        color: Theme.withAlpha("white", card && card.entryKey === "lyric" ? modelData === .78 ? .9 : .18 : modelData === .55 ? .4 : .22)
                     }
                 }
             }

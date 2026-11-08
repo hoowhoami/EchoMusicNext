@@ -59,6 +59,33 @@ QJsonObject usage()
 #endif
     return result;
 }
+bool pausedLyricMotionIdle(QQuickWindow &window, QQmlEngine &engine)
+{
+    QSet<QObject *> seen;
+    QList<QObject *> pending{&window, &engine};
+    while (!pending.isEmpty()) {
+        auto *object = pending.takeLast();
+        if (!object || seen.contains(object))
+            continue;
+        seen.insert(object);
+        if (object->inherits("EchoMusic::LyricSpring") && object->property("running").toBool()) {
+            QQuickItem *owner = nullptr;
+            bool pooled = false;
+            for (auto *parent = object->parent(); parent; parent = parent->parent()) {
+                pooled = pooled || parent->property("pooled").toBool();
+                if (!owner)
+                    owner = qobject_cast<QQuickItem *>(parent);
+            }
+            if (!pooled && owner && owner->window() == &window && owner->isVisible())
+                return false;
+        }
+        if (auto *item = qobject_cast<QQuickItem *>(object))
+            for (auto *child : item->childItems())
+                pending.append(child);
+        pending.append(object->children());
+    }
+    return true;
+}
 void makeAudio(const QString &path, int seconds)
 {
     QFile file(path);
@@ -203,6 +230,17 @@ Item {
                             host.shellSettings.zoomIn();
                     QTest::qWait(750);
                     const auto name = QString("%1-%2-%3.png").arg(scene).arg(int(theme)).arg(scale);
+                    if (scene == "playback") {
+                        // Fixed sleep is insufficient for the existing delayed
+                        // scroll springs after a short seek. Wait for their real
+                        // completion; never snap production motion for a capture.
+                        QElapsedTimer settling;
+                        settling.start();
+                        if (!QTest::qWaitFor(
+                                [&] { return pausedLyricMotionIdle(*target, host.engine); }, 5000))
+                            return false;
+                        qInfo() << "paused_soak_motion_settle_ms" << name << settling.elapsed();
+                    }
                     if (!target->grabWindow().save(output + '/' + name))
                         return false;
                     if (scene == "playback") {
@@ -321,6 +359,12 @@ Item {
                     QTRY_VERIFY_WITH_TIMEOUT(host.playback.playing() && !host.playback.loading(),
                                              15000);
                 } else if (phase == 2) {
+                    if (qEnvironmentVariableIsSet("ECHO_UI_SOAK_SOURCE_POSITION")) {
+                        const int sourcePosition =
+                            qEnvironmentVariableIntValue("ECHO_UI_SOAK_SOURCE_POSITION");
+                        host.playback.seek(sourcePosition);
+                        QTRY_VERIFY(qAbs(host.playback.positionMs() - sourcePosition) < 100);
+                    }
                     QString krc;
                     const auto text = QStringLiteral("歌词绘制与布局测试 Sample line");
                     for (int second = 0; second < mediaDuration; second += 4) {

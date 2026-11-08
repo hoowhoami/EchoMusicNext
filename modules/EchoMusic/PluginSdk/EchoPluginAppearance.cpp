@@ -469,7 +469,7 @@ bool EchoPluginAppearance::useSkin(const QString &id)
 {
     return m_scope.active() && m_scope.committed() &&
            m_scope.host().theme.extensions()->chooseSkin(
-               id == "cover" || id == "portrait" ? id : key(id, "skin"));
+               id == "cover" || id == "portrait" || id == "lyric" ? id : key(id, "skin"));
 }
 bool EchoPluginAppearance::previewTheme(const QString &id)
 {

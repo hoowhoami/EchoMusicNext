@@ -7,6 +7,10 @@ import EchoMusic.Theme
 // it can also be declared directly for custom visibility or danger state.
 MenuItem {
     id: entry
+    onReleased: {
+        if (action && typeof action.echoUiArm === "function")
+            action.echoUiArm();
+    }
     EchoMotionScope {
         id: motion
         target: entry

@@ -142,6 +142,19 @@ ItemDelegate {
         }
     }
     contentItem: RowLayout {
+        EchoUiColumnGroup.controller: row.geometry
+        EchoUiColumnGroup.keys: row.geometry.uiColumnKeys
+        EchoUiColumnGroup.rowIndex: row.index
+        EchoUiColumnGroup.active: row.resourceActive
+        EchoUiColumnGroup.row: ({
+                resourceId: row.resourceId,
+                title: row.title,
+                artistText: row.artistText,
+                albumText: row.albumText,
+                albumId: row.albumId,
+                durationText: row.durationText,
+                coverUrl: row.coverUrl
+            })
         spacing: 0
         Item {
             objectName: "songIndexColumn"

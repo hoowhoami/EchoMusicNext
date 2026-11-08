@@ -11,6 +11,18 @@ QtObject {
     readonly property color defaultCoverPlayedColor: defaultPlayedColor
     readonly property color defaultCoverUnplayedColor: Qt.rgba(1, 1, 1, .2)
     readonly property color defaultPortraitUnplayedColor: defaultCoverUnplayedColor
+    function simplePlayed(appearance: var, accent: color): color {
+        const skin = appearance.simple;
+        if (skin.textColor.length > 0)
+            return skin.textColor;
+        return skin.useCoverColor ? accent : globalPlayed(appearance, accent);
+    }
+    function simpleUnplayed(appearance: var, accent: color): color {
+        const skin = appearance.simple;
+        if (skin.unplayedTextColor.length > 0)
+            return skin.unplayedTextColor;
+        return skin.unplayedUseCoverColor ? accent : globalUnplayed(appearance, accent);
+    }
     function portraitPlayed(appearance: var, accent: color): color {
         const skin = appearance.portrait;
         if (skin.textColor.length > 0)

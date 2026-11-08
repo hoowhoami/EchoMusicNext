@@ -11,6 +11,7 @@ EchoDrawer {
     objectName: "lyricSkinDrawer"
     required property PlaybackService playback
     readonly property bool portraitSelected: Theme.store.extensions.selectedSkin === "portrait"
+    readonly property bool simpleSelected: Theme.store.extensions.selectedSkin === "lyric"
     property bool showSettings: false
     signal globalSettingsRequested
     preferredWidth: 360
@@ -32,7 +33,7 @@ EchoDrawer {
         EchoDrawerHeader {
             Layout.fillWidth: true
             heading: drawer.showSettings ? qsTr("皮肤设置") : qsTr("换肤")
-            description: drawer.showSettings ? (Theme.store.extensions.skin ? Theme.store.extensions.skin.title : drawer.portraitSelected ? qsTr("写真") : qsTr("封面歌词")) : ""
+            description: drawer.showSettings ? (Theme.store.extensions.skin ? Theme.store.extensions.skin.title : drawer.portraitSelected ? qsTr("写真") : drawer.simpleSelected ? qsTr("简洁歌词") : qsTr("封面歌词")) : ""
             headingFont: Theme.font(16, 800)
             closeLabel: qsTr("关闭皮肤设置")
             onCloseRequested: drawer.close()
@@ -130,11 +131,20 @@ EchoDrawer {
                     Layout.preferredHeight: item ? (item as Item).implicitHeight : 0
                     Layout.margins: active ? 16 : 0
                     Layout.bottomMargin: active ? 24 : 0
-                    sourceComponent: drawer.portraitSelected ? portraitRecipe : coverRecipe
+                    sourceComponent: drawer.portraitSelected ? portraitRecipe : drawer.simpleSelected ? simpleRecipe : coverRecipe
                 }
                 Component {
                     id: coverRecipe
                     LyricSkinSettings {
+                        appearance: drawer.playback.lyricAppearance
+                        coverColor: Theme.store.lyricAccent(drawer.playback.coverColor)
+                        uiScale: drawer.uiScale
+                    }
+                }
+                Component {
+                    id: simpleRecipe
+                    LyricSkinSettings {
+                        simpleMode: true
                         appearance: drawer.playback.lyricAppearance
                         coverColor: Theme.store.lyricAccent(drawer.playback.coverColor)
                         uiScale: drawer.uiScale

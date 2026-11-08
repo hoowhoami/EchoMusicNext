@@ -164,6 +164,7 @@ public:
             emit observedChanged();
     }
     QVariantMap state() const;
+    QVariantMap modelContext() const;
     void setState(const QVariantMap &v);
     bool replaced() const
     {

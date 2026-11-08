@@ -31,12 +31,8 @@ public:
     void discardPrepared();
     QSizeF naturalSizeHint() const override;
     bool ready() const override;
-    void setModelData(const QVariantMap &row, const QVariantMap &entry)
-    {
-        m_hasModelData = true;
-        m_modelRow = row;
-        m_modelEntry = entry;
-    }
+    void setModelData(const QVariantMap &row, const QVariantMap &entry);
+    bool updateModelData(const QVariantMap &row, const QVariantMap &entry) override;
     bool suspended() const override;
     bool constructed() const
     {
@@ -89,6 +85,7 @@ signals:
 
 private:
     QPointer<EchoUiPartRef> m_part;
+    QObject m_callbacks;
 };
 class EchoUiContribution final : public QObject
 {

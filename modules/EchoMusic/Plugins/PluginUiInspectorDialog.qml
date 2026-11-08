@@ -96,6 +96,9 @@ EchoDialog {
             if (part.identity === dialog.selectedId)
                 selectedRefresh.restart();
         }
+        function onModelDiagnosticsChanged() {
+            selectedRefresh.restart();
+        }
         function onTreeChanged() {
             dialog.refresh();
         }
@@ -226,6 +229,8 @@ EchoDialog {
                                 automatic: dialog.selected.automatic,
                                 state: dialog.selected.state,
                                 capabilities: dialog.selected.capabilities,
+                                model: dialog.selected.model,
+                                modelContext: dialog.selected.modelContext,
                                 visualSources: dialog.selected.visualSources,
                                 properties: dialog.selected.properties,
                                 actions: dialog.selected.actions,

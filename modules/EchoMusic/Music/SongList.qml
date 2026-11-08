@@ -29,6 +29,7 @@ ListView {
     signal artistRequested(string id)
     signal albumRequested(string id)
     signal mvRequested(string id)
+    readonly property QtObject _echoUiColumns: list.geometry
     readonly property SongListGeometry geometry: SongListGeometry {
         rowCount: list.count
     }

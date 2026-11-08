@@ -6,7 +6,7 @@ namespace EchoMusic
 PresentationScope::PresentationScope(QQuickItem *parent) : QQuickItem(parent)
 {
     auto *observer = new EchoUiPresentation(this, this);
-    connect(observer, &EchoUiPresentation::changed, this, &PresentationScope::refresh);
+    connect(observer, &EchoUiPresentation::changed, &m_callbacks, [this] { refresh(); });
     refresh();
 }
 PresentationScope::~PresentationScope() = default;

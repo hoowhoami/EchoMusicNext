@@ -78,8 +78,13 @@ Control {
         closePopup()
     function choose(row: int): void {
         const option = projection.option(row);
+        if (option.sourceIndex !== undefined)
+            echoUiSelectIndex(option.sourceIndex);
+    }
+    function echoUiSelectIndex(index: int): bool {
+        const option = projection.optionAtSource(index);
         if (!enabled || option.disabled || option.sourceIndex === undefined)
-            return;
+            return false;
         if (multiple) {
             const next = multiValues.slice();
             const position = next.indexOf(option.value);
@@ -95,6 +100,7 @@ Control {
             closePopup();
         }
         searchTerm = "";
+        return true;
     }
     function clearSelection(): void {
         if (!enabled)

@@ -41,7 +41,8 @@ bool EchoUiBatch::validate(EchoPluginUiParts &owner, const QVariantList &entries
         }
         const auto entry = value.toMap();
         for (const auto &key : entry.keys())
-            if (!QStringList{"id", "selector", "definition", "style", "priority"}.contains(key)) {
+            if (!QStringList{"id", "selector", "definition", "style", "model", "priority"}.contains(
+                    key)) {
                 error = "Unknown batch entry field: " + key;
                 return false;
             }
@@ -57,11 +58,18 @@ bool EchoUiBatch::validate(EchoPluginUiParts &owner, const QVariantList &entries
             error = "Invalid batch target selector";
             return false;
         }
-        if (entry.contains("style") == entry.contains("definition")) {
-            error = "A batch entry requires either style or definition";
+        if (int(entry.contains("style")) + int(entry.contains("definition")) +
+                int(entry.contains("model")) !=
+            1) {
+            error = "A batch entry requires exactly one of style, definition, or model";
             return false;
         }
-        if (entry.contains("style")) {
+        if (entry.contains("model")) {
+            if (entry.contains("priority") ||
+                entry.value("model").metaType().id() != QMetaType::QVariantMap ||
+                !EchoUiModelContribution::validate(owner, entry.value("model").toMap(), error))
+                return false;
+        } else if (entry.contains("style")) {
             auto style = entry.value("style").toMap();
             const auto priority = entry.value("priority", 0);
             if (entry.value("style").metaType().id() != QMetaType::QVariantMap || style.isEmpty() ||
@@ -126,6 +134,8 @@ void EchoUiBatch::clear(std::unique_ptr<Revision> &revision)
             target.lease->dispose();
         if (target.contribution)
             target.contribution->stop();
+        if (target.modelContribution)
+            target.modelContribution->stop();
         if (!target.style.isEmpty() && m_registry)
             m_registry->removeStyle(target.token);
         if (target.factory)
@@ -185,8 +195,25 @@ bool EchoUiBatch::update(const QVariantList &entries)
             target.selector["id"] = target.identity;
             target.definition = entry.value("definition").toMap();
             target.style = entry.value("style").toMap();
+            target.model = entry.value("model").toMap();
             target.priority = entry.value("priority", 0).toInt();
-            if (!target.style.isEmpty()) {
+            if (!target.model.isEmpty()) {
+                target.lease =
+                    new EchoPluginRegistration(target.token, revision->number, revision->owner);
+                target.modelContribution = new EchoUiModelContribution(
+                    *m_owner, *target.lease, target.logicalId, target.selector, target.model);
+                target.modelContribution->m_prepareOnly = true;
+                auto *model = target.modelContribution.data();
+                target.lease->stage(
+                    [model] {
+                        model->start();
+                        return true;
+                    },
+                    [model] { model->stop(); });
+                target.lease->commit();
+                model->reconcile();
+                error = model->errorMessage();
+            } else if (!target.style.isEmpty()) {
                 if (!EchoUiPartRegistry::normalize(target.style, error))
                     break;
                 for (const auto &field : target.style.keys())
@@ -210,8 +237,8 @@ bool EchoUiBatch::update(const QVariantList &entries)
             bool condition = m_registry->allowed(part, m_owner->scope().id(), target.logicalId);
             for (auto when = target.definition.value("when").toMap(); const auto &key : when.keys())
                 condition = condition && part->state().value(key) == when.value(key);
-            if (target.style.isEmpty() && condition && part->presented() &&
-                QStringList{"insert", "wrap", "replace"}.contains(operation)) {
+            if (target.style.isEmpty() && target.model.isEmpty() && condition &&
+                part->presented() && QStringList{"insert", "wrap", "replace"}.contains(operation)) {
                 target.stage = new QQuickItem;
                 target.stage->setParent(revision->owner);
                 target.stage->setProperty("_echoUiInternal", true);
@@ -293,6 +320,13 @@ void EchoUiBatch::prepare()
             reject("Batch target retired during preparation");
             return;
         }
+        if (target.modelContribution) {
+            target.modelContribution->reconcile();
+            if (!target.modelContribution->errorMessage().isEmpty()) {
+                reject(target.modelContribution->errorMessage());
+                return;
+            }
+        }
         if (target.factory) {
             if (target.factory->failed()) {
                 reject(target.factory->errorMessage());
@@ -337,7 +371,13 @@ QVariantList EchoUiBatch::matches() const
     if (!m_current)
         return result;
     for (const auto &target : m_current->targets) {
-        if (target.contribution)
+        if (target.modelContribution) {
+            for (const auto &value : target.modelContribution->matches()) {
+                auto match = value.toMap();
+                match["entry"] = target.entry;
+                result.append(match);
+            }
+        } else if (target.contribution)
             for (const auto &value : target.contribution->matches()) {
                 auto match = value.toMap();
                 match["entry"] = target.entry;
@@ -359,6 +399,8 @@ void EchoUiBatch::commit()
         return;
     int styles = 0, compositions = 0, moves = 0;
     for (const auto &target : m_preparing->targets) {
+        if (!target.model.isEmpty())
+            continue;
         if (!target.style.isEmpty())
             ++styles;
         else {
@@ -390,13 +432,35 @@ void EchoUiBatch::commit()
     for (const auto &target : m_preparing->targets)
         if (target.item && target.item->window())
             hold(hold, target.item->window()->contentItem());
+    QList<QPointer<EchoUiModelAdapter>> modelAdapters;
+    QSet<QString> oldModelTokens;
+    if (m_current)
+        for (const auto &target : m_current->targets)
+            if (target.modelContribution)
+                for (const auto &instance : target.modelContribution->m_instances) {
+                    oldModelTokens.insert(instance.token);
+                    if (instance.adapter && !modelAdapters.contains(instance.adapter))
+                        modelAdapters.append(instance.adapter);
+                }
+    for (const auto &target : m_preparing->targets)
+        if (target.modelContribution)
+            for (const auto &instance : target.modelContribution->m_instances)
+                if (instance.adapter && !modelAdapters.contains(instance.adapter))
+                    modelAdapters.append(instance.adapter);
+    for (auto adapter : modelAdapters)
+        if (adapter)
+            adapter->beginPublication(oldModelTokens);
     m_committing = true;
     const auto oldTokens = tokens(m_current.get());
     m_registry->beginPublication();
     m_registry->maskPublication(oldTokens, true);
     QString error;
     for (auto &target : m_preparing->targets) {
-        if (!target.style.isEmpty()) {
+        if (target.modelContribution) {
+            target.modelContribution->m_prepareOnly = false;
+            target.modelContribution->reconcile();
+            error = target.modelContribution->errorMessage();
+        } else if (!target.style.isEmpty()) {
             if (!m_registry->putStyle(target.token, m_owner->scope().id(), target.logicalId,
                                       target.priority, target.selector, target.style)) {
                 error = "UI style capacity exceeded";
@@ -467,6 +531,9 @@ void EchoUiBatch::commit()
         m_registry->maskPublication(oldTokens, false);
         m_registry->endPublication();
         m_registry->settleInsertions();
+        for (auto adapter : modelAdapters)
+            if (adapter)
+                adapter->endPublication(false);
         for (auto host : held)
             if (host)
                 host->endPublicationHold(false);
@@ -482,6 +549,9 @@ void EchoUiBatch::commit()
     clear(m_current);
     m_registry->maskPublication(oldTokens, false);
     m_registry->endPublication();
+    for (auto adapter : modelAdapters)
+        if (adapter)
+            adapter->endPublication(true);
     m_current = std::move(m_preparing);
     m_revision = m_current->number;
     m_definition = m_current->entries;

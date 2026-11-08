@@ -943,6 +943,7 @@ target_sources(
             plugins/PluginRuntimeComposition.cpp
             plugins/PluginRuntimeCompositionBoundaries.cpp
             plugins/PluginRuntimeUiContracts.cpp
+            plugins/PluginRuntimeUiModels.cpp
             plugins/PluginRuntimeUiParts.cpp
             plugins/PluginRuntimeAppearance.cpp
             plugins/PluginRuntimeEcosystemFixture.h
@@ -2226,6 +2227,10 @@ add_test(
         nativeUiBoundedPublicValues modelProjectionValueForms nativeUiTabModelContentAndSelection
         nativeUiSettingsModelSections nativeUiInspectorPointerPick nativeUiMenuModelActions
         nativeUiStateStylesAndCommands nativeUiPresentationBoundary nativeUiControlContentFactories
+        nativeUiActionsCommitBusinessIntent nativeUiModelSelectionAndLiveCells
+        nativeUiModelRelativeOrderAndRejectedRevision
+        nativeUiCompositeColumnsVirtualizationAndRecovery
+        nativeUiModelContextProvidersAndStaleCommands nativeUiMixedModelBatchAndPreflight
         nativeUiFocusOrderAndCoordinateMapping modelProjectionNativeDataAndLifecycles
         compositionDecorationDoesNotLayout compositionAddressesAndScopedPreferences
         compositionVirtualDelegateGeneration compositionAnchoredSiblingRestoresBindings

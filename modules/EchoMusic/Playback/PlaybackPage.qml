@@ -45,6 +45,7 @@ Popup {
     readonly property bool presentationActive: visible && !playbackPart.replaced && !playbackPart.contentReplaced && (!contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized))
     readonly property bool resourceActive: presentationActive && !skinHost.loaded
     readonly property bool portraitSelected: Theme.store.extensions.selectedSkin === "portrait"
+    readonly property bool simpleSelected: Theme.store.extensions.selectedSkin === "lyric"
     readonly property real portraitControlsOpacity: portraitBody.item ? (portraitBody.item as PortraitPlayback).controlsOpacity : 1
     readonly property bool portraitControlsShown: !portraitBody.item || (portraitBody.item as PortraitPlayback).controlsShown
     readonly property real lyricToolsMargin: 16
@@ -266,7 +267,7 @@ Popup {
             }
             PauseAnimation {
                 // The transition job captures this before ScriptAction runs.
-                duration: !Theme.store.motionEnabled ? 0 : !page.portraitSelected && page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 460 : 400
+                duration: !Theme.store.motionEnabled ? 0 : !page.portraitSelected && !page.simpleSelected && page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 460 : 400
             }
         }
     }
@@ -281,7 +282,7 @@ Popup {
                 }
             }
             PauseAnimation {
-                duration: !Theme.store.motionEnabled ? 0 : !page.portraitSelected && page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 360 : 400
+                duration: !Theme.store.motionEnabled ? 0 : !page.portraitSelected && !page.simpleSelected && page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 360 : 400
             }
         }
     }
@@ -340,7 +341,7 @@ Popup {
                     objectName: "playbackPageMotion"
                     anchors.fill: parent
                     z: 10
-                    sourceCover: page.portraitSelected ? null : page.sourceCover
+                    sourceCover: page.portraitSelected || page.simpleSelected ? null : page.sourceCover
                     targetCover: coverBody.item ? (coverBody.item as CoverPlayback).cover : null
                 }
                 // AppKit owns the native traffic lights outside this subtree. Every
@@ -393,7 +394,7 @@ Popup {
                     // The actual Popup is created on demand. Keep its cover layout
                     // stable through open/close transitions; decoders and lyric rows
                     // still follow resourceActive, and other skins unload this body.
-                    active: !page.portraitSelected && !skinHost.loaded
+                    active: !page.portraitSelected && !page.simpleSelected && !skinHost.loaded
                     sourceComponent: CoverPlayback {
                         playback: page.playback
                         colors: page.colors
@@ -424,6 +425,26 @@ Popup {
                         lyricToolsTop: lyricTools.y
                         lyricToolsLeft: lyricTools.x
                         popupOpen: skinsOwner.visible || sourceDialogOwner.visible
+                    }
+                }
+                Loader {
+                    id: simpleBody
+                    objectName: "simplePlaybackOwner"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: 96
+                    width: Math.min(900, parent.width)
+                    height: Math.max(0, transport.y - y)
+                    opacity: motion.hostOpacity * motion.contentOpacity
+                    active: page.resourceActive && page.simpleSelected
+                    sourceComponent: SimplePlayback {
+                        playback: page.playback
+                        colors: page.colors
+                        renderTime: page.renderTime
+                        resourceActive: page.resourceActive
+                        pageWidth: page.width
+                        pageHeight: page.height
+                        controlsTopReserve: page.controlsTopReserve
+                        overlayRightReserve: Math.max(0, simpleBody.x + simpleBody.width - 32 - (page.width - lyricTools.width - page.lyricToolsMargin - 12))
                     }
                 }
                 Loader {

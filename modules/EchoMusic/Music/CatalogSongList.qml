@@ -110,6 +110,7 @@ Item {
             container: root.pageContainer
             viewActive: root.resourceActive
         }
+        readonly property QtObject _echoUiColumns: songs.geometry
         readonly property SongListGeometry geometry: SongListGeometry {
             rowCount: root.collection.count
         }

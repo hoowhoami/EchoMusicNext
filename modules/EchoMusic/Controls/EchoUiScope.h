@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QPointer>
+#include <QVariantMap>
 #include <QtQml/qqmlregistration.h>
 #include <QtQml/qqml.h>
 class QQuickItem;
@@ -19,6 +20,10 @@ class EchoUiScope final : public QObject
     Q_PROPERTY(QString resourceKey READ resourceKey WRITE setResourceKey NOTIFY changed)
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY changed)
     Q_PROPERTY(qulonglong generation READ generation NOTIFY changed)
+    Q_PROPERTY(
+        QVariantMap modelContext READ modelContext WRITE setModelContext NOTIFY modelContextChanged)
+    Q_PROPERTY(
+        bool contextActive READ contextActive WRITE setContextActive NOTIFY modelContextChanged)
 public:
     explicit EchoUiScope(QObject *);
     ~EchoUiScope() override;
@@ -56,10 +61,25 @@ public:
     void setKey(const QString &);
     void setResourceKey(const QString &);
     void setActive(bool);
+    QVariantMap modelContext() const
+    {
+        return m_modelContext;
+    }
+    bool contextActive() const
+    {
+        return m_contextActive;
+    }
+    quint64 contextRevision() const
+    {
+        return m_contextRevision;
+    }
+    void setModelContext(const QVariantMap &);
+    void setContextActive(bool);
     Q_INVOKABLE void configure(const QString &owner, const QString &surface, const QString &key);
     void renew();
 signals:
     void changed();
+    void modelContextChanged();
 
 private:
     void invalidate();
@@ -67,6 +87,9 @@ private:
     QString m_owner, m_surface, m_key, m_resource;
     qulonglong m_generation = 0;
     bool m_active = true;
+    QVariantMap m_modelContext;
+    quint64 m_contextRevision = 0;
+    bool m_contextActive = true;
 };
 } // namespace EchoMusic
 QML_DECLARE_TYPEINFO(EchoMusic::EchoUiScope, QML_HAS_ATTACHED_PROPERTIES)

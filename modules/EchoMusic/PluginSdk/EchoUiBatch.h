@@ -1,6 +1,7 @@
 #pragma once
 #include "EchoPluginRegistration.h"
 #include "EchoUiContribution.h"
+#include "EchoUiModelContribution.h"
 #include <QElapsedTimer>
 #include <QVariantList>
 #include <memory>
@@ -66,13 +67,14 @@ private:
     struct Target
     {
         QString entry, logicalId, identity, token;
-        QVariantMap selector, definition, style;
+        QVariantMap selector, definition, style, model;
         int priority = 0;
         QPointer<EchoUiPartRegistration> part;
         QPointer<QQuickItem> item, stage;
         QPointer<EchoUiPluginContentFactory> factory;
         QPointer<EchoPluginRegistration> lease;
         QPointer<EchoUiContribution> contribution;
+        QPointer<EchoUiModelContribution> modelContribution;
     };
     struct Revision
     {

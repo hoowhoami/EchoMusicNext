@@ -36,6 +36,8 @@ public:
     Q_INVOKABLE void releaseStructure(QObject *consumer);
     void retainStructure(QObject *consumer);
     void scopeChanged(QQuickItem *root);
+    void modelContextChanged(QQuickItem *root);
+    void modelDataChanged(QQuickItem *view);
     void addressTreeChanged(QQuickItem *root);
     QList<QQuickItem *> presentationRoots() const;
     QString address(const EchoUiPartRegistration *) const;
@@ -113,6 +115,7 @@ public:
         return m_styles.size();
     }
 signals:
+    void modelDiagnosticsChanged();
     void structureChanged();
     void compositionChanged(const QString &part);
     void treeChanged();

@@ -1,4 +1,5 @@
 #include "EchoUiPartRegistry.h"
+#include "EchoUiModelAdapter.h"
 #include "EchoUiPartRegistration.h"
 #include "EchoUiContentFactory.h"
 #include "EchoUiLayout.h"
@@ -235,6 +236,32 @@ void EchoUiPartRegistry::scopeChanged(QQuickItem *root)
                     attach(part);
             notifyStructure();
         });
+}
+void EchoUiPartRegistry::modelDataChanged(QQuickItem *view)
+{
+    const auto declarations = m_targetDeclarations.value(view);
+    QList<QPointer<EchoUiPartRegistration>> parts;
+    for (auto *part : declarations)
+        parts.append(part);
+    for (auto part : parts)
+        if (part) {
+            emit part->changed();
+            if (part)
+                emit partChanged(part);
+        }
+}
+void EchoUiPartRegistry::modelContextChanged(QQuickItem *root)
+{
+    if (!root)
+        return;
+    QList<QPointer<EchoUiPartRegistration>> targets;
+    for (auto *part : declarationsWithin(root, true))
+        targets.append(part);
+    for (auto part : targets)
+        if (part) {
+            emit part->changed();
+            emit partChanged(part);
+        }
 }
 void EchoUiPartRegistry::rebuildAddresses() const
 {
@@ -1044,17 +1071,23 @@ QVariantMap EchoUiPartRegistry::describe(const QString &identity) const
                                                      ? QVariantMap{{"address", part->address()}}
                                                      : QVariantMap{{"id", part->identity()}}},
                               {"contributions", contributions(part->identity())}};
+    result["modelContext"] = part->modelContext();
+    if (auto *engine = qmlEngine(part->target()))
+        if (auto *adapter = EchoUiModelAdapter::forView(part->target(), *engine, false))
+            result["model"] = adapter->diagnostics();
     const bool compose = part->canCompose();
     const auto *target = part->target();
     const bool move =
         target && target->parentItem() && !EchoUiLayout::kind(target->parentItem()).isEmpty();
     const auto layout = EchoUiLayout::itemProperties(target ? target->parentItem() : nullptr);
+    const bool composite = target && target->property("_echoUiColumns").value<QObject *>();
     const bool table = target && target->inherits("QQuickTableView");
     const bool rows = target && (table || target->inherits("QQuickItemView"));
-    const auto modelKind = table    ? QString("columns")
-                           : rows   ? QString("rows")
-                           : target ? target->property("_echoUiModelKind").toString()
-                                    : QString();
+    const auto modelKind = composite ? QString("composite")
+                           : table   ? QString("columns")
+                           : rows    ? QString("rows")
+                           : target  ? target->property("_echoUiModelKind").toString()
+                                     : QString();
     result["capabilities"] = QVariantMap{
         {"insert", QVariantMap{{"supported", !part->insertionPositions().isEmpty()},
                                {"positions", part->insertionPositions()}}},
@@ -1074,10 +1107,13 @@ QVariantMap EchoUiPartRegistry::describe(const QString &identity) const
                                    : "The source is not in a native container"}}},
         {"style", QVariantMap{{"supported", !part->properties().isEmpty()},
                               {"properties", part->properties()}}},
-        {"model", QVariantMap{{"kind", modelKind},
-                              {"supported", !modelKind.isEmpty()},
-                              {"nativeRows", rows},
-                              {"nativeColumns", table}}}};
+        {"model",
+         QVariantMap{{"kind", modelKind},
+                     {"supported", !modelKind.isEmpty()},
+                     {"nativeRows", rows},
+                     {"nativeColumns", table || composite},
+                     {"relativePlacement", true},
+                     {"structureOperations", QStringList{"insert", "hide", "move", "replace"}}}}};
     return result;
 }
 QVariantList EchoUiPartRegistry::contributions(const QString &part) const

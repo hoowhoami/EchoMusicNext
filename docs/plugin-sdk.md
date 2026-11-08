@@ -159,7 +159,7 @@ TTML 来源信息，时间与预算见[TTML 文档](lyrics-ttml.md)。两项均�
 
 `graphics.resources` / `graphics.submissions` 补充有界一次性命令、资源快照和 GPU 完成 operation；支持区域上传、GPU 缓冲/纹理复制、mipmap、区域/mip 回读、uniform 范围和 viewport/scissor/base vertex/instance。非 uniform 更新使用 GPU 暂存，缓冲回读经过独立 GPU 快照和实际完成确认，不在 GUI 等待。普通窗口和 HDR 输出边界不变。
 
-主题目录、内置选择、调用者拥有的预览、Mini 配色和模式快照已公开；material、浮层/对话框透明和 Bezier 过渡复用现有宿主实现。浮层背景与主界面 elevated 独立。浮窗统一走可撤销 windows 授权，提供合并快照订阅、原生状态和窗口控制；全局偏好动作与插件窗口资源生命周期分开。
+`ctx.appearance.useSkin(id)` 支持内置播放页皮肤 ID：`cover`（封面）、`portrait`（写真）和 `lyric`（简洁歌词）；皮肤目录及当前选择使用同一宿主状态。主题目录、内置选择、调用者拥有的预览、Mini 配色和模式快照已公开；material、浮层/对话框透明和 Bezier 过渡复用现有宿主实现。浮层背景与主界面 elevated 独立。浮窗统一走可撤销 windows 授权，提供合并快照订阅、原生状态和窗口控制；全局偏好动作与插件窗口资源生命周期分开。
 
 作者契约见 EchoMusicNextPlugins 的 `docs/gpu-submissions.md` 与 `docs/presentation-services.md`。已接入 MRT、逐附件混合、mip 视图、二维纹理数组的分层传输/渲染/读回，立方体/三维纹理的面与切片，以及 GPU 参数间接绘制。同插件/账号的跨画布资源分享、多顶点流与实例属性已接入，包含实际GPU对象复用和代际回收。共享限同RHI设备/线程，跨不兼容设备互操作和真正局部HDR仍未提供；平台验收另行记录。
 
@@ -213,6 +213,12 @@ lease.dispose();
 
 公开区域提供 `stateSchema/actionSchema`、原生属性通知、状态选择器、坐标转换和逐字段 `visualSources`。共享 Qt 控件的内容、背景及指示器可按需借入组合；编辑内容和密码不会加入状态快照。设置/选择/滚动/焦点动作沿原生 Qt 路径执行，撤下后恢复原绑定与焦点关系。
 
-`ui.models` 对应 `parts.contributeModel`：原生 List/Grid/Table 与数值、列表、JS 数组模型保留原始数据和原委托，插件行追加，Table 支持追加列；共享菜单使用 Qt Action，Tab 保留宿主索引并接实际正文，设置章节进入同一目录、搜索和正文 Loader。单元格随复用退休，账号变化或插件停用回收贡献。
+`ui.models` 对应 `parts.contributeModel`：原生 List/Grid/Table 与数值、列表、JS 数组模型保留源数据，扩展行列通过源索引映射；实际歌曲列表与表头共用复合列协议，支持列宽及表头命令。`position/anchor` 支持相对定位，`operation/target` 支持受管隐藏、移动和替换；`native:<key>` 定位原条目，`native:#<index>` 使用本次源索引，插件条目用 `<owner>:<contribution>:<key>`。菜单支持组与子菜单；Tab/设置目录保留原业务索引及正文入口。
+
+新包按需声明 ui.models.context（上下文/provider）、ui.models.placement（定位/结构）、ui.models.columns（复合列）和 ui.models.transactions（模型修订/批次），由实际宿主能力校验；应用和 SDK 版本不变。
+
+模型可传第四参数 provider，接收公开 `modelContext`（资源、路由、调用处提供的值、有界原生选择）；返回条目、部分定义、null 或 Promise。上下文变化、关闭菜单、账号退休和停用取消旧 provider，超时为15秒。已接受的菜单点击保留捕获的上下文，正常收起菜单不吞掉该点击；资源或账号变化仍撤销尚未执行的旧命令。单元同资源字段变化保持编辑和焦点，复用/隐藏/停用回收；修订准备失败保留旧定义与投影，错误通过句柄和检查器可见。
+
+`applyBatch` 同时接收 `model`、`definition` 和 `style` 条目，模型沿用普通修订的准备和提交路径。`preflight` 可检查视觉定义、模型定义或 `{style}`；`preflightBatch` 检查整组当前目标，均不执行 provider 或创建插件界面，也不预留未来资源。检查器显示模型预算、条目来源、选择桥、错误及公开上下文。
 
 `ui.transactions` 对应 `parts.applyBatch(id, entries)`：对当前目标快照准备并提交多条样式及结构贡献，返回可更新/取消/撤销的组句柄；失败的更新保留当前组。可见组件先在隐藏作用域中完成创建，提交前检查目标与资源预算，提交中验证布局容量。未来页面实例仍使用持续匹配的 `contribute`。完整参数、边界和用法统一见作者仓库 `docs/ui-parts.md`；本段描述实现契约，当前执行进度见本轮验证记录。

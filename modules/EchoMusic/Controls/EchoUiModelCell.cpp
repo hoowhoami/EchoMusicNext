@@ -10,10 +10,11 @@ EchoUiModelCell::EchoUiModelCell(QQuickItem *parent) : EchoUiContentHost(parent)
     setImplicitHeight(32);
     setActive(false);
     auto *presentation = new EchoUiPresentation(this, this);
-    connect(presentation, &EchoUiPresentation::changed, this, &EchoUiModelCell::updateActive);
+    connect(presentation, &EchoUiPresentation::changed, &m_cellCallbacks,
+            [this] { updateActive(); });
     auto *scope = EchoUiScope::get(this, true);
     scope->setResourceKey("@model:pending");
-    connect(scope, &EchoUiScope::changed, this, [this, scope] {
+    connect(scope, &EchoUiScope::changed, &m_cellCallbacks, [this, scope] {
         if (!scope->active())
             retire();
         else
@@ -33,7 +34,7 @@ void EchoUiModelCell::schedule()
     retire();
     if (!m_complete || std::exchange(m_pending, true))
         return;
-    QTimer::singleShot(0, this, [this] {
+    QTimer::singleShot(0, &m_cellCallbacks, [this] {
         m_pending = false;
         rebuild();
     });
@@ -48,10 +49,10 @@ void EchoUiModelCell::setRecipe(QObject *value)
     m_recipeConnections.clear();
     m_recipe = recipe;
     if (recipe) {
-        m_recipeConnections << connect(recipe, &EchoUiModelRecipe::changed, this,
-                                       &EchoUiModelCell::schedule)
-                            << connect(recipe, &QObject::destroyed, this,
-                                       &EchoUiModelCell::schedule);
+        m_recipeConnections << connect(recipe, &EchoUiModelRecipe::changed, &m_cellCallbacks,
+                                       [this] { schedule(); })
+                            << connect(recipe, &QObject::destroyed, &m_cellCallbacks,
+                                       [this] { schedule(); });
     }
     schedule();
     emit cellChanged();
@@ -61,18 +62,19 @@ void EchoUiModelCell::setRowData(const QVariantMap &value)
     if (m_row != value) {
         m_row = value;
         updateResourceKey();
-        schedule();
+        refreshData();
         emit cellChanged();
     }
 }
 void EchoUiModelCell::setEntryData(const QVariantMap &value)
 {
     if (m_entry != value) {
+        const bool structural = m_entry.value("component") != value.value("component");
         m_entry = value;
         updateResourceKey();
         setImplicitWidth(value.value("width", 160).toDouble());
         setImplicitHeight(value.value("height", 32).toDouble());
-        schedule();
+        refreshData(structural);
         emit cellChanged();
     }
 }
@@ -81,7 +83,7 @@ void EchoUiModelCell::setViewRow(int value)
     if (m_viewRow != value) {
         m_viewRow = value;
         updateResourceKey();
-        schedule();
+        refreshData();
         emit cellChanged();
     }
 }
@@ -90,9 +92,18 @@ void EchoUiModelCell::setViewColumn(int value)
     if (m_viewColumn != value) {
         m_viewColumn = value;
         updateResourceKey();
-        schedule();
+        refreshData();
         emit cellChanged();
     }
+}
+void EchoUiModelCell::refreshData(bool structural)
+{
+    const auto *scope = EchoUiScope::get(this);
+    const QVariantMap row{{"index", m_viewRow}, {"column", m_viewColumn}, {"values", m_row}};
+    if (!structural && m_cellFactory && scope && scope->active() &&
+        scope->resourceKey() == m_realizedResource && m_cellFactory->updateModelData(row, m_entry))
+        return;
+    schedule();
 }
 void EchoUiModelCell::updateResourceKey()
 {
@@ -121,6 +132,7 @@ void EchoUiModelCell::rebuild()
         return;
     const QVariantMap row{{"index", m_viewRow}, {"column", m_viewColumn}, {"values", m_row}};
     m_cellFactory = m_recipe->factory(this, row, m_entry);
+    m_realizedResource = EchoUiScope::get(this)->resourceKey();
     setFactory(m_cellFactory);
     updateActive();
 }

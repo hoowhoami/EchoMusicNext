@@ -770,6 +770,9 @@ ApplicationWindow {
     };
     QTRY_VERIFY2(visual(window->contentItem(), "modelCell-spectrum"), qPrintable(diagnostic()));
     QVERIFY(catalog->source().isEmpty());
+    QTRY_VERIFY(dialog->property("opened").toBool());
+    QCOMPARE(catalog->current(), key);
+    QVERIFY(visual(window->contentItem(), "modelCell-spectrum"));
     auto *loader = visual(window->contentItem(), "settingsSectionLoader");
     QVERIFY(loader);
     QVERIFY(loader->height() > 0);
@@ -888,10 +891,20 @@ ApplicationWindow {
         other->setParent(window->contentItem());
         other->setParentItem(window->contentItem());
         QTRY_VERIFY(!handle->errorMessage().isEmpty());
-        QTRY_COMPARE(view->property("count").toInt(), rows);
-        QVERIFY(handle->matches().size() == 2);
-        for (const auto &match : handle->matches())
-            QCOMPARE(match.toMap().value("state").toString(), "error");
+        // Reject the new target without retiring the committed projection.
+        QTRY_COMPARE(view->property("count").toInt(), rows + 1);
+        QTRY_COMPARE(handle->matches().size(), 2);
+        int active = 0, rejected = 0;
+        for (const auto &value : handle->matches()) {
+            const auto match = value.toMap();
+            QVERIFY(!match.value("error").toString().isEmpty());
+            if (match.value("state") == "active")
+                ++active;
+            if (match.value("state") == "error")
+                ++rejected;
+        }
+        QCOMPARE(active, 1);
+        QCOMPARE(rejected, 1);
         delete other;
         QTRY_VERIFY(handle->errorMessage().isEmpty());
         QTRY_COMPARE(view->property("count").toInt(), rows + 1);

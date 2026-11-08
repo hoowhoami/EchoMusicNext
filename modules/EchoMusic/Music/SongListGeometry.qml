@@ -4,6 +4,8 @@ import EchoMusic.Theme
 
 QtObject {
     id: geometry
+    property QtObject uiColumnAdapter: null
+    readonly property list<string> uiColumnKeys: ["index", "title", "album", "duration"]
     property int rowCount: 0
     readonly property real albumWidth: 142
     readonly property real lyricWidth: 260

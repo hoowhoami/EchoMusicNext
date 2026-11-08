@@ -7,7 +7,7 @@ import EchoMusic.Theme
 import EchoMusic.Controls
 import EchoMusic.Playback
 
-// Shared virtual lyric presentation for the cover, portrait and Mini layouts.
+// Shared virtual lyric presentation for built-in playback skins and Mini.
 EchoUiPartHost {
     id: viewport
     Connections {

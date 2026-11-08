@@ -39,14 +39,14 @@ Popup {
     property bool searchExpanded: false
     property string initialSection: ""
     onInitialSectionChanged: {
-        if (opened && initialSection.length) {
+        if (visible && initialSection.length) {
             navigation.select(initialSection);
             initialSection = "";
         }
     }
     function openSection(section) {
         initialSection = section;
-        if (!opened)
+        if (!visible)
             open();
     }
     readonly property real uiScale: settings.uiScale
@@ -64,7 +64,7 @@ Popup {
     focus: true
     padding: 0
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    onOpened: {
+    onAboutToShow: {
         search.clear();
         navigation.reset();
         searchExpanded = false;
@@ -101,6 +101,7 @@ Popup {
     contentItem: ColumnLayout {
         id: sectionRoot
         readonly property string _echoUiModelKind: "settings"
+        readonly property var _echoUiNativeModelKeys: dialog.catalog.nativeKeys
         property QtObject _echoUiModelAdapter: null
         spacing: 0
         RowLayout {

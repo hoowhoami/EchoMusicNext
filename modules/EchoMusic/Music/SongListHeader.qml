@@ -39,6 +39,9 @@ Item {
         onClicked: header.sortPicked(field)
     }
     RowLayout {
+        EchoUiColumnGroup.controller: header.geometry
+        EchoUiColumnGroup.keys: header.geometry.uiColumnKeys
+        EchoUiColumnGroup.header: true
         anchors.fill: parent
         spacing: 0
         Item {

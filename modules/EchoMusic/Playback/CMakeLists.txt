@@ -25,6 +25,7 @@ qt_add_qml_module(
     PlaybackControls.qml
     PlaybackPage.qml
     CoverPlayback.qml
+    SimplePlayback.qml
     PortraitPlayback.qml
     PortraitBackdrop.qml
     PlaybackPageMotion.qml

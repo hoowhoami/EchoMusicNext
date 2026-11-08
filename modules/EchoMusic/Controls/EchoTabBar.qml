@@ -7,23 +7,36 @@ import EchoMusic.Theme
 Rectangle {
     id: tabs
     readonly property string _echoUiModelKind: "tabs"
-    readonly property Item _echoUiNativeFocusItem: buttons.count ? buttons.itemAt(currentIndex) : null
+    readonly property Item _echoUiNativeFocusItem: buttons.count ? buttons.itemAt(shownIndex) : null
     property QtObject _echoUiModelAdapter: null
     readonly property var extensionEntries: _echoUiModelAdapter ? _echoUiModelAdapter.entries : []
-    readonly property var shownLabels: extensionEntries.length ? labels.concat(extensionEntries.map(entry => entry.label)) : labels
-    readonly property int shownIndex: _echoUiModelAdapter && _echoUiModelAdapter.selectedKey.length ? labels.length + extensionEntries.findIndex(entry => entry.identity === _echoUiModelAdapter.selectedKey) : currentIndex
+    readonly property var displayedEntries: _echoUiModelAdapter ? _echoUiModelAdapter.displayEntries : []
+    readonly property var shownLabels: _echoUiModelAdapter ? displayedEntries.map(entry => entry.label) : labels
+    function nativeIndex(displayIndex: int): int {
+        return _echoUiModelAdapter ? (displayedEntries[displayIndex]?.nativeIndex ?? -1) : displayIndex;
+    }
+
+    readonly property int shownIndex: !_echoUiModelAdapter ? currentIndex : _echoUiModelAdapter.selectedKey.length ? displayedEntries.findIndex(entry => entry.identity === _echoUiModelAdapter.selectedKey) : displayedEntries.findIndex(entry => entry.nativeIndex === currentIndex)
     onCurrentIndexChanged: {
         if (_echoUiModelAdapter)
             _echoUiModelAdapter.clearSelection();
     }
     function selectTab(index: int): void {
-        if (index < labels.length) {
+        const native = nativeIndex(index);
+        if (native >= 0) {
             if (_echoUiModelAdapter)
                 _echoUiModelAdapter.clearSelection();
-            picked(index);
+            picked(native);
         } else if (_echoUiModelAdapter) {
-            _echoUiModelAdapter.selectEntry(index - labels.length);
+            const entry = displayedEntries[index];
+            _echoUiModelAdapter.selectEntry(extensionEntries.findIndex(value => value.identity === entry.identity));
         }
+    }
+    function echoUiSelectIndex(index: int): bool {
+        if (!available(index))
+            return false;
+        selectTab(index);
+        return true;
     }
     required property list<string> labels
     property list<string> glyphs: []
@@ -51,7 +64,8 @@ Rectangle {
     function available(index: int): bool {
         if (index < 0 || index >= shownLabels.length)
             return false;
-        return index >= labels.length ? extensionEntries[index - labels.length]?.enabled === true : availableTabs.length === 0 || availableTabs[index];
+        const native = nativeIndex(index);
+        return native < 0 ? displayedEntries[index]?.enabled === true : availableTabs.length === 0 || availableTabs[native];
     }
     function boundary(last: bool): int {
         for (let i = 0; i < shownLabels.length; ++i) {
@@ -93,7 +107,7 @@ Rectangle {
             id: tab
             required property int index
             required property string modelData
-            readonly property string shownGlyph: index < tabs.labels.length ? (tabs.glyphs[index] || "") : (tabs.extensionEntries[index - tabs.labels.length]?.glyph || "")
+            readonly property string shownGlyph: tabs.nativeIndex(index) >= 0 ? (tabs.glyphs[tabs.nativeIndex(index)] || "") : (tabs.displayedEntries[index]?.glyph || "")
             objectName: "tab-" + index
             enabled: tabs.available(index)
             opacity: enabled ? 1 : 0.35
@@ -137,13 +151,13 @@ Rectangle {
                         wrapTags: false
                         EchoStatusDot {
                             objectName: "tabCurrentDot"
-                            visible: tabs.markedTabs.length > tab.index && tabs.markedTabs[tab.index]
+                            visible: tabs.nativeIndex(tab.index) >= 0 && tabs.markedTabs[tabs.nativeIndex(tab.index)] === true
                             color: tabs.colors.accent
                             accessibleName: tabs.markerDescription.arg(tab.text)
                         }
                         EchoBadge {
-                            visible: tabs.counts.length > tab.index && (tabs.countKnown.length <= tab.index || tabs.countKnown[tab.index])
-                            count: visible ? tabs.counts[tab.index] : undefined
+                            visible: tabs.nativeIndex(tab.index) >= 0 && tabs.counts.length > tabs.nativeIndex(tab.index) && (tabs.countKnown.length <= tabs.nativeIndex(tab.index) || tabs.countKnown[tabs.nativeIndex(tab.index)])
+                            count: visible ? tabs.counts[tabs.nativeIndex(tab.index)] : undefined
                             tone: tab.index === tabs.shownIndex ? EchoBadge.Accent : tabs.countTone
                             colors: tabs.colors
                         }

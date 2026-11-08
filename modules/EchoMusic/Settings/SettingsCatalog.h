@@ -13,6 +13,7 @@ class SettingsCatalog : public QAbstractListModel
 {
     Q_OBJECT
     QML_ELEMENT
+    Q_PROPERTY(QStringList nativeKeys READ nativeKeys CONSTANT)
     Q_PROPERTY(QObject *uiExtensions READ uiExtensions WRITE setUiExtensions NOTIFY changed)
     Q_PROPERTY(QObject *extensionRecipe READ extensionRecipe NOTIFY changed)
     Q_PROPERTY(QVariantMap extensionEntry READ extensionEntry NOTIFY changed)
@@ -34,6 +35,7 @@ public:
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
+    QStringList nativeKeys() const;
     QObject *uiExtensions() const;
     QObject *extensionRecipe() const;
     QVariantMap extensionEntry() const;
@@ -71,13 +73,12 @@ private:
     };
     void rebuild(bool preserve, bool resetting = false);
     void refreshExtensions();
-    int m_nativeCount = 0;
     QPointer<EchoUiModelAdapter> m_extensions;
     QList<QMetaObject::Connection> m_extensionConnections;
     QString m_lastNative = "interface";
     bool available(const Entry &entry) const;
     bool m_playbackAvailable = false;
-    QList<Entry> m_entries;
+    QList<Entry> m_entries, m_nativeEntries;
     QList<int> m_visible;
     QString m_filter, m_current = QStringLiteral("interface");
 };

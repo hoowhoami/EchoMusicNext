@@ -1,5 +1,7 @@
 #include "EchoUiScope.h"
 #include "EchoUiPartRegistry.h"
+#include "EchoUiValue.h"
+#include <QJsonDocument>
 #include <QQuickItem>
 #include <QQmlEngine>
 
@@ -79,5 +81,34 @@ void EchoUiScope::setActive(bool value)
         return;
     m_active = value;
     invalidate();
+}
+void EchoUiScope::setModelContext(const QVariantMap &value)
+{
+    qsizetype budget = 65536;
+    const auto normalized = EchoUiValue::json(value, budget).toMap();
+    if (QJsonDocument::fromVariant(value).toJson(QJsonDocument::Compact).size() > 65536 ||
+        normalized != value) {
+        qWarning("UI model context requires finite JSON within 64 KiB");
+        return;
+    }
+    if (m_modelContext == normalized)
+        return;
+    m_modelContext = normalized;
+    ++m_contextRevision;
+    emit modelContextChanged();
+    if (m_root)
+        if (auto *engine = qmlEngine(m_root))
+            EchoUiPartRegistry::forEngine(*engine)->modelContextChanged(m_root);
+}
+void EchoUiScope::setContextActive(bool value)
+{
+    if (m_contextActive == value)
+        return;
+    m_contextActive = value;
+    ++m_contextRevision;
+    emit modelContextChanged();
+    if (m_root)
+        if (auto *engine = qmlEngine(m_root))
+            EchoUiPartRegistry::forEngine(*engine)->modelContextChanged(m_root);
 }
 } // namespace EchoMusic

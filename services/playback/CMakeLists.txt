@@ -45,6 +45,8 @@ add_library(
     DynamicCoverController.cpp
     LyricAppearance.h
     LyricAppearance.cpp
+    LyricSimpleAppearance.h
+    LyricSimpleAppearance.cpp
     LyricPortraitAppearance.h
     LyricPortraitAppearance.cpp
     PortraitController.h

@@ -15,6 +15,7 @@ class PlaybackPageTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void simpleSkinPreferencesLayoutAndLifecycle();
     void progressReleaseWaitsForSeekConfirmation_data();
     void progressReleaseWaitsForSeekConfirmation();
     void portraitGalleryCancelsCachesAndUsesPreferredCategory();

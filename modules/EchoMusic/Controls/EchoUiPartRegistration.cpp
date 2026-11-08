@@ -1,4 +1,6 @@
 #include "EchoUiPartRegistration.h"
+#include "EchoUiValue.h"
+#include "EchoUiModelAdapter.h"
 #include "EchoUiPartRegistry.h"
 #include "EchoQueuedNotice.h"
 #include "EchoUiLayout.h"
@@ -11,6 +13,7 @@
 #include <QQuickWindow>
 #include <QQmlEngine>
 #include <QJsonDocument>
+#include <QCryptographicHash>
 #include <QQmlComponent>
 #include <QQmlProperty>
 #include <QMetaMethod>
@@ -65,6 +68,54 @@ QVariantMap EchoUiPartRegistration::state() const
     for (auto it = m_state.begin(); it != m_state.end(); ++it)
         result.insert(it.key(), it.value());
     return result;
+}
+QVariantMap EchoUiPartRegistration::modelContext() const
+{
+    QList<EchoUiScope *> scopes;
+    QSet<QObject *> seen;
+    for (auto *object = static_cast<QObject *>(m_target.data()); object;
+         object = object->parent()) {
+        seen.insert(object);
+        if (auto *scope = EchoUiScope::get(object))
+            scopes.prepend(scope);
+    }
+    for (auto *item = m_target ? m_target->parentItem() : nullptr; item; item = item->parentItem())
+        if (!seen.contains(item))
+            if (auto *scope = EchoUiScope::get(item);
+                scope && (scope->owner().isEmpty() || scope->owner() == owner()))
+                scopes.prepend(scope);
+    QVariantMap values;
+    QStringList revisions;
+    bool active = true;
+    for (auto *scope : scopes) {
+        active = active && scope->active() && scope->contextActive();
+        revisions.append(QString::number(scope->generation()) + ':' +
+                         QString::number(scope->contextRevision()));
+        const auto context = scope->modelContext();
+        for (auto it = context.begin(); it != context.end(); ++it)
+            values.insert(it.key(), it.value());
+    }
+    if (m_target)
+        if (auto *engine = qmlEngine(m_target)) {
+            if (auto *adapter = EchoUiModelAdapter::forView(m_target, *engine, false);
+                adapter && (adapter->kind() == "rows" || adapter->kind() == "columns" ||
+                            adapter->kind() == "composite"))
+                values["model"] = adapter->contextData();
+        }
+    qsizetype budget = 65536;
+    const auto bounded = EchoUiValue::json(values, budget).toMap();
+    const auto revision =
+        QCryptographicHash::hash(
+            identity().toUtf8() + revisions.join('/').toUtf8() +
+                QJsonDocument::fromVariant(bounded).toJson(QJsonDocument::Compact),
+            QCryptographicHash::Sha256)
+            .toHex();
+    return {{"revision", QString::fromLatin1(revision)},
+            {"targetId", identity()},
+            {"surface", surface()},
+            {"resourceKey", resourceKey()},
+            {"active", active},
+            {"values", bounded}};
 }
 void EchoUiPartRegistration::nativeStateChanged()
 {

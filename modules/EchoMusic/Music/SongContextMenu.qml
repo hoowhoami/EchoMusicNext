@@ -24,6 +24,7 @@ EchoMenu {
     property bool removeEnabled: true
     signal removeTriggered
     property var pluginContext: ({})
+    modelContext: root.pluginContext
     property var pluginItems: []
     onAboutToShow: {
         pluginContext = root.ready && typeof root.commands.pluginMenuContext === "function" ? root.commands.pluginMenuContext(root.songId) : ({});

@@ -217,7 +217,8 @@ void EchoUiContentHost::setFactory(EchoUiContentFactory *factory)
     m_factoryConnections.clear();
     m_factory = factory;
     if (factory) {
-        m_factoryConnections << connect(factory, &EchoUiContentFactory::presentationChanged, this,
+        m_factoryConnections << connect(factory, &EchoUiContentFactory::presentationChanged,
+                                        &m_contentCallbacks,
                                         [this] {
                                             if (m_factory && m_factory->suspended() &&
                                                 !m_constructing && !m_publicationHolds) {
@@ -231,9 +232,9 @@ void EchoUiContentHost::setFactory(EchoUiContentFactory *factory)
                                                               (!m_item && !m_constructing)))
                                                 requestReconcile();
                                         })
-                             << connect(factory, &EchoUiContentFactory::changed, this,
-                                        [this] { requestReconcile(); })
-                             << connect(factory, &QObject::destroyed, this, [this] {
+                             << connect(factory, &EchoUiContentFactory::changed,
+                                        &m_contentCallbacks, [this] { requestReconcile(); })
+                             << connect(factory, &QObject::destroyed, &m_contentCallbacks, [this] {
                                     m_factory = nullptr;
                                     requestReconcile();
                                 });
@@ -343,7 +344,7 @@ void EchoUiContentHost::requestReconcile(bool rebuild)
     }
     m_rebuildPending = rebuild;
     const auto revision = ++m_reconcileRevision;
-    QTimer::singleShot(0, this, [this, revision] {
+    QTimer::singleShot(0, &m_contentCallbacks, [this, revision] {
         if (revision != m_reconcileRevision)
             return;
         m_pending = false;
@@ -411,8 +412,10 @@ void EchoUiContentHost::reconcile(bool rebuild)
             setImplicitHeight(m_item->implicitHeight());
         }
     };
-    m_itemConnections << connect(next, &QQuickItem::implicitWidthChanged, this, measure)
-                      << connect(next, &QQuickItem::implicitHeightChanged, this, measure);
+    m_itemConnections << connect(next, &QQuickItem::implicitWidthChanged, &m_contentCallbacks,
+                                 measure)
+                      << connect(next, &QQuickItem::implicitHeightChanged, &m_contentCallbacks,
+                                 measure);
     measure();
     sizeContent();
     emit itemChanged();

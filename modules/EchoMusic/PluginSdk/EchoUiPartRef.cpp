@@ -160,6 +160,10 @@ QVariantMap EchoUiPartRef::state() const
     qsizetype budget = 65536;
     return valid() ? EchoUiValue::json(m_part->state(), budget).toMap() : QVariantMap();
 }
+QVariantMap EchoUiPartRef::modelContext() const
+{
+    return valid() ? m_part->modelContext() : QVariantMap();
+}
 QVariantMap EchoUiPartRef::visualSources() const
 {
     return valid() && m_registry ? m_registry->styleSources(m_id) : QVariantMap();

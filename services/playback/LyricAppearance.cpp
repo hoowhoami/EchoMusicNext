@@ -5,7 +5,7 @@
 namespace EchoMusic
 {
 LyricAppearance::LyricAppearance(EchoMusic::SettingsStore &settings, QObject *parent)
-    : QObject(parent), m_settings(settings), m_portrait(settings, this)
+    : QObject(parent), m_settings(settings), m_portrait(settings, this), m_simple(settings, this)
 {
     setPlayedColor(settings.value(EchoMusic::SettingsKeys::Lyrics::PagePlayedColor, "").toString());
     setUnplayedColor(

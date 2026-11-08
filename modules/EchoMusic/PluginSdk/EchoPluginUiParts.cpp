@@ -73,11 +73,13 @@ EchoUiBatch *EchoPluginUiParts::applyBatch(const QString &id, const QVariantList
 }
 EchoUiModelContribution *EchoPluginUiParts::contributeModel(const QString &id,
                                                             const QVariantMap &selector,
-                                                            const QVariantMap &definition)
+                                                            const QVariantMap &definition,
+                                                            const QJSValue &provider)
 {
     QString message;
-    if (!EchoUiPartRegistry::validSelector(selector) ||
-        !EchoUiModelContribution::validate(*this, definition, message)) {
+    if ((!provider.isUndefined() && !provider.isNull() && !provider.isCallable()) ||
+        !EchoUiPartRegistry::validSelector(selector) ||
+        !EchoUiModelContribution::validate(*this, definition, message, provider.isCallable())) {
         error(message.isEmpty() ? "Invalid model selector" : message);
         return nullptr;
     }
@@ -86,7 +88,8 @@ EchoUiModelContribution *EchoPluginUiParts::contributeModel(const QString &id,
         error("Invalid model contribution ID or retired scope");
         return nullptr;
     }
-    auto *contribution = new EchoUiModelContribution(*this, *lease, id, selector, definition);
+    auto *contribution =
+        new EchoUiModelContribution(*this, *lease, id, selector, definition, provider);
     m_scope.engine().newQObject(contribution);
     QQmlEngine::setObjectOwnership(contribution, QQmlEngine::CppOwnership);
     connect(&m_scope, &EchoPluginContext::sessionInvalidated, lease,
@@ -162,13 +165,111 @@ QVariantList EchoPluginUiParts::queryAll(const QVariantMap &selector)
             result.append(QVariant::fromValue(reference(*part)));
     return result;
 }
+QVariantMap EchoPluginUiParts::preflightBatch(const QVariantList &entries, const QString &id)
+{
+    QString error;
+    if (!EchoUiBatch::validate(*this, entries, error))
+        return {{"valid", false}, {"error", error}, {"entries", QVariantList()}};
+    QVariantList results;
+    bool valid = true;
+    QHash<QQuickItem *, QList<EchoUiModelAdapter::Record>> models;
+    for (const auto &value : entries) {
+        const auto entry = value.toMap();
+        auto result =
+            preflight(entry.value("selector").toMap(),
+                      entry.contains("model")   ? entry.value("model").toMap()
+                      : entry.contains("style") ? QVariantMap{{"style", entry.value("style")}}
+                                                : entry.value("definition").toMap());
+        if (entry.contains("model")) {
+            const auto definition = entry.value("model").toMap();
+            for (auto *part : registry()->query(entry.value("selector").toMap())) {
+                if (part->surface() == "inspector" || part->owner() == m_scope.id())
+                    continue;
+                EchoUiModelAdapter::Record record;
+                record.id = (id.isEmpty() ? QString() : id + '.') + entry.value("id").toString();
+                record.owner = m_scope.id();
+                record.token = "@preflight:" + record.id;
+                record.kind = definition.value("kind").toString();
+                record.priority = definition.value("priority").toInt();
+                for (const auto &value : definition.value("entries").toList()) {
+                    const auto item = value.toMap();
+                    auto values = item.value("values").toMap();
+                    for (const auto &key : item.keys())
+                        if (key != "values")
+                            values[key] = item[key];
+                    const auto key = item.value("key").toString();
+                    record.entries.append({key, record.owner, record.id, record.token + ':' + key,
+                                           values, item.value("enabled", true).toBool()});
+                }
+                models[part->target()].append(record);
+            }
+        }
+        if (entry.contains("model") && m_scope.active()) {
+            result["valid"] =
+                result.value("matchCount").toInt() > 0 && result.value("matchCount").toInt() <= 256;
+            result["error"] = result.value("valid").toBool()
+                                  ? QString()
+                                  : QStringLiteral("Expected 1..256 live model targets");
+        }
+        result["id"] = entry.value("id");
+        results.append(result);
+        if (!result.value("valid").toBool()) {
+            valid = false;
+            if (error.isEmpty())
+                error = result.value("error").toString();
+        }
+    }
+    for (auto it = models.begin(); it != models.end(); ++it) {
+        const auto result =
+            EchoUiModelAdapter::inspectRecords(it.key(), m_scope.engine(), it.value());
+        for (auto &entryResult : results) {
+            auto entry = entryResult.toMap();
+            auto targets = entry.value("targets").toList();
+            bool matched = false;
+            for (auto &targetValue : targets) {
+                auto target = targetValue.toMap();
+                auto *part = registry()->find(target.value("id").toString());
+                if (part && part->target() == it.key() &&
+                    !target.value("model").toMap().isEmpty()) {
+                    target["model"] = result;
+                    target["supported"] = result.value("supported");
+                    target["error"] = result.value("error");
+                    targetValue = target;
+                    matched = true;
+                }
+            }
+            if (matched) {
+                entry["targets"] = targets;
+                if (!result.value("supported").toBool()) {
+                    entry["valid"] = false;
+                    entry["error"] = result.value("error");
+                }
+                entryResult = entry;
+            }
+        }
+        if (!result.value("supported").toBool()) {
+            valid = false;
+            if (error.isEmpty())
+                error = result.value("error").toString();
+        }
+    }
+    return {{"valid", valid}, {"error", error}, {"entries", results}};
+}
 QVariantMap EchoPluginUiParts::preflight(const QVariantMap &selector, const QVariantMap &definition)
 {
     QString message;
     if (!m_scope.active() || !registry() || !EchoUiPartRegistry::validSelector(selector))
         message = "Invalid selector or closed activation";
-    else if (!EchoUiContribution::validate(m_scope, definition, message)) {
-    }
+    else if (definition.contains("kind"))
+        EchoUiModelContribution::validate(*this, definition, message);
+    else if (definition.contains("style")) {
+        auto style = definition.value("style").toMap();
+        if (definition.size() != 1 || style.isEmpty() ||
+            !EchoUiPartRegistry::normalize(style, message))
+            if (message.isEmpty())
+                message = "Invalid style preflight definition";
+    } else
+        EchoUiContribution::validate(m_scope, definition, message);
     if (!message.isEmpty())
         return {{"valid", false}, {"error", message}, {"matchCount", 0}};
     QObject discovery;
@@ -185,7 +286,34 @@ QVariantMap EchoPluginUiParts::preflight(const QVariantMap &selector, const QVar
                                     : "UI contribution exceeds 256 live targets";
     for (auto *part : matches) {
         QString reason;
-        if ((operation == "wrap" || operation == "replace") && !part->canCompose())
+        QVariantMap model;
+        if (definition.contains("kind")) {
+            EchoUiModelAdapter::Record record;
+            record.token = "@preflight";
+            record.owner = m_scope.id();
+            record.id = "preflight";
+            record.kind = definition.value("kind").toString();
+            for (const auto &value : definition.value("entries").toList()) {
+                const auto entry = value.toMap();
+                auto values = entry.value("values").toMap();
+                for (const auto &key : entry.keys())
+                    if (key != "values")
+                        values[key] = entry[key];
+                const auto key = entry.value("key").toString();
+                record.entries.append({key, record.owner, record.id, record.token + ':' + key,
+                                       values, entry.value("enabled", true).toBool()});
+            }
+            model = EchoUiModelAdapter::inspect(part->target(), m_scope.engine(), record);
+            if (!model.value("supported").toBool())
+                reason = model.value("error").toString();
+        } else if (definition.contains("style")) {
+            const auto style = definition.value("style").toMap();
+            for (const auto &key : style.keys())
+                if (!part->properties().contains(key)) {
+                    reason = "Unsupported style field: " + key;
+                    break;
+                }
+        } else if ((operation == "wrap" || operation == "replace") && !part->canCompose())
             reason = "Native content factory is unavailable for this item type";
         else if (operation == "insert") {
             const auto position = definition.value("position", "append").toString();
@@ -211,11 +339,14 @@ QVariantMap EchoPluginUiParts::preflight(const QVariantMap &selector, const QVar
             EchoUiLayout::validate(part->target()->parentItem(), definition.value("layout").toMap(),
                                    reason);
         valid = valid && reason.isEmpty();
+        if (message.isEmpty() && !reason.isEmpty())
+            message = reason;
         targets.append(QVariantMap{{"id", part->identity()},
                                    {"address", part->address()},
                                    {"persistent", part->persistent()},
                                    {"supported", reason.isEmpty()},
                                    {"error", reason},
+                                   {"model", model},
                                    {"layoutEngine", part->layoutEngine()},
                                    {"insertionPositions", part->insertionPositions()}});
     }

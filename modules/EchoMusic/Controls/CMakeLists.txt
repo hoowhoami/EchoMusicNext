@@ -61,12 +61,18 @@ qt_add_qml_module(
     EchoUiValue.cpp
     EchoUiValueModel.h
     EchoUiValueModel.cpp
+    EchoUiColumnGroup.h
+    EchoUiColumnGroup.cpp
+    EchoUiModelOrder.h
+    EchoUiModelOrder.cpp
     EchoUiExtensionModel.h
     EchoUiExtensionModel.cpp
     EchoUiModelCell.h
     EchoUiModelCell.cpp
     EchoUiModelAdapter.h
     EchoUiModelAdapter.cpp
+    EchoUiSelectionModel.h
+    EchoUiSelectionModel.cpp
     EchoUiPropertyRelay.h
     EchoUiPropertyRelay.cpp
     EchoUiAnchorGroup.h
@@ -110,6 +116,7 @@ qt_add_qml_module(
     EchoUiNativeStyle.qml
     EchoUiControlContentVisibility.qml
     EchoUiMenuProjection.qml
+    EchoUiColumnHeader.qml
     EchoUiAnchorPadding.qml
     EchoWindowDragArea.qml
     EchoUiPartHost.qml
