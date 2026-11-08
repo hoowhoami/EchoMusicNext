@@ -1,4 +1,5 @@
 #include "PlaybackRepository_p.h"
+#include "EchoWindowPixelSnap.h"
 #include "SongCatalogModel.h"
 #include "ArtistDirectorySliceModel.h"
 #include "DiscoveryService.h"
@@ -3119,5 +3120,5 @@ Window {
         api.shutdown();
     }
 };
-QTEST_MAIN(DiscoveryTest)
+QTEST_MAIN_WRAPPER(DiscoveryTest, QTEST_MAIN_SETUP() EchoMusic::installWindowPixelSnap();)
 #include "DiscoveryTest.moc"

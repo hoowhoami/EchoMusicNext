@@ -468,6 +468,7 @@ Rectangle {
     QTRY_COMPARE(firstOpen->state(), EchoPluginOperation::Succeeded);
     QTRY_COMPARE(parts->queryAll({{"owner", "boundary-windows"}, {"key", "bareWindowRoot"}}).size(),
                  1);
+    QVERIFY(parts->queryAll({{"key", "echoWindowPixelSnap"}}).isEmpty());
     auto *first = parts->query({{"owner", "boundary-windows"}, {"key", "bareWindowRoot"}});
     QVERIFY(first && first->visible() && first->surface() == "window.first");
     const auto keepFirst = host.engine.newQObject(first);
@@ -594,6 +595,7 @@ ApplicationWindow {
     auto *field = visual(window->contentItem(), "productionField");
     auto *clear = visual(field, "clearTextAction");
     QVERIFY(field && clear);
+    QVERIFY(Test::settleNativeItem(clear)); // Capture the painted presentation, including phase.
     const auto padding = field->property("rightPadding").toDouble();
     const auto base = clear->mapToScene(clear->boundingRect().center());
     const QByteArray definition = R"(

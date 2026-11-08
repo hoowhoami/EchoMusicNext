@@ -111,13 +111,12 @@ Item {
             height: page.toolbarHeight
             // Clip rows below sticky layers and reuse the main skin.
             // An extra opaque or blurred surface would obscure it.
-            Rectangle {
+            EchoDivider {
                 objectName: "songCatalogTabDivider"
                 x: page.contentInset
                 y: page.songToolbarRowHeight - 1
                 width: Math.max(0, parent.width - page.contentInset * 2)
-                height: 1
-                color: Theme.subtleBorder
+                lineColor: Theme.subtleBorder
             }
             ColumnLayout {
                 anchors.fill: parent
@@ -162,15 +161,15 @@ Item {
                                 tone: EchoBadge.Neutral
                             }
                         }
-                        Rectangle {
+                        EchoDivider {
                             objectName: "songCatalogTabUnderline"
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
-                            height: 2
-                            radius: 1
+                            thickness: 2
+                            rounded: true
                             // The compact toolbar uses a 70% accent underline.
-                            color: songTabSlot.exploreTab ? Theme.withAlpha(Theme.accent, 0.7) : Theme.accent
+                            lineColor: songTabSlot.exploreTab ? Theme.withAlpha(Theme.accent, 0.7) : Theme.accent
                         }
                     }
                     EchoDetailTabs {

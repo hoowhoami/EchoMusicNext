@@ -97,6 +97,10 @@ qt_add_qml_module(
     EchoItemObserver.cpp
     EchoPixelSnap.h
     EchoPixelSnap.cpp
+    EchoWindowPixelSnap.h
+    EchoWindowPixelSnap.cpp
+    EchoDashedFrameSurface.h
+    EchoDashedFrameSurface.cpp
     EchoColorValue.h
     EchoColorValue.cpp
     EchoSelectModel.h
@@ -158,6 +162,7 @@ qt_add_qml_module(
     EchoMenu.qml
     EchoMenuEntry.qml
     EchoDivider.qml
+    EchoDashedFrame.qml
     EchoMenuSeparator.qml
     EchoPageScrollContainer.qml
     EchoListPositioning.qml

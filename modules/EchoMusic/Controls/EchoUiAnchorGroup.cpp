@@ -1,5 +1,6 @@
 #include "EchoUiAnchorGroup.h"
 #include "EchoUiLayout.h"
+#include "EchoWindowPixelSnap.h"
 #include <QQmlComponent>
 #include <QTimer>
 #include <QTransform>
@@ -318,12 +319,12 @@ void EchoUiAnchorGroup::layout()
     // its original scale/rotation/transform entries and all anchor bindings.
     m_translation.setX(0);
     m_translation.setY(0);
-    const auto zero = m_source->mapToItem(parent, QPointF());
+    const auto zero = EchoWindowPixelSnap::layoutPositionInParent(m_source);
     m_translation.setX(1);
-    const auto x = m_source->mapToItem(parent, QPointF()) - zero;
+    const auto x = EchoWindowPixelSnap::layoutPositionInParent(m_source) - zero;
     m_translation.setX(0);
     m_translation.setY(1);
-    const auto y = m_source->mapToItem(parent, QPointF()) - zero;
+    const auto y = EchoWindowPixelSnap::layoutPositionInParent(m_source) - zero;
     m_translation.setY(0);
     const QTransform basis(x.x(), x.y(), y.x(), y.y(), 0, 0);
     bool invertible = false;

@@ -21,6 +21,10 @@ private slots:
     void contentHostKeepsItemAcrossTransientFactoryFlap();
     void iconRasterTracksZoomAndReleasesWhenHidden();
     void pixelSnapTracksScenePositionAcrossReparentAndWindows();
+    void thinSurfacesKeepDeviceGrid();
+    void windowPixelSnapCoversTextControlsAndDynamicContent();
+    void windowPixelSnapPreservesTransformsAndRetiresWindows();
+    void windowPixelSnapResourceBudget();
     void pixelSnapDisabledUsesLogicalGeometry();
     void coverCropAndRoundedPixels();
     void frostedCornersRetainAntialiasCoverage();

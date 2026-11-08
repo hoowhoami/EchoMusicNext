@@ -1,4 +1,5 @@
 #include "EchoPopupAnchor.h"
+#include "EchoItemObserver.h"
 #include <QSet>
 #include <QQuickWindow>
 #include <QScreen>
@@ -56,6 +57,12 @@ void EchoPopupAnchor::rebuild()
     for (const auto &connection : m_connections)
         disconnect(connection);
     m_connections.clear();
+    m_sceneObserver = observeItem(m_item);
+    m_coordinateObserver = observeItem(m_coordinateItem);
+    for (const auto &observer : {m_sceneObserver, m_coordinateObserver})
+        if (observer)
+            m_connections << connect(observer.data(), &EchoItemObserver::sceneChanged, this,
+                                     &EchoPopupAnchor::updateGeometry);
     QSet<QQuickItem *> seen;
     for (auto *root : {m_item.data(), m_coordinateItem.data()}) {
         for (auto *item = root; item && !seen.contains(item); item = item->parentItem()) {

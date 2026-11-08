@@ -107,11 +107,10 @@ Item {
             }
         }
     }
-    Rectangle {
+    EchoDivider {
         objectName: "songListHeaderDivider"
         anchors.bottom: parent.bottom
         width: parent.width
-        height: 1
-        color: Theme.subtleBorder
+        lineColor: Theme.subtleBorder
     }
 }

@@ -140,7 +140,7 @@ void EchoItemObserver::reparent()
     }
     if (m_density)
         m_densityChanged = connect(m_density.data(), &WindowDensityObserver::changed, this,
-                                   &EchoItemObserver::changed);
+                                   &EchoItemObserver::notifyTransform);
     emit changed();
     emit sceneChanged();
 }
@@ -148,6 +148,13 @@ void EchoItemObserver::reparent()
 QSharedPointer<EchoItemObserver> observeItem(QQuickItem *item)
 {
     return observe<EchoItemObserver>(item);
+}
+void notifyItemScenePositionChanged(QQuickItem *item)
+{
+    const auto it = observers<EchoItemObserver>().constFind(item);
+    if (it != observers<EchoItemObserver>().cend())
+        if (auto observer = it->weak.toStrongRef())
+            emit observer->sceneChanged();
 }
 } // namespace EchoMusic
 

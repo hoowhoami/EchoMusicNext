@@ -1,9 +1,11 @@
 #pragma once
 #include <QPointer>
 #include <QQuickItem>
+#include <QSharedPointer>
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
 {
+class EchoItemObserver;
 /// Tracks the complete ancestor transform chain, including animated sidebar
 /// width/zoom and reparenting. Popups stay anchored to the real trigger.
 class EchoPopupAnchor : public QObject
@@ -43,6 +45,7 @@ private:
     void rebuild();
     void updateGeometry();
     QPointer<QQuickItem> m_item, m_coordinateItem;
+    QSharedPointer<EchoItemObserver> m_sceneObserver, m_coordinateObserver;
     QList<QMetaObject::Connection> m_connections;
     QRectF m_rect, m_screenRect;
     bool m_available = false;

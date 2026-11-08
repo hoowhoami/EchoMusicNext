@@ -72,12 +72,12 @@ Item {
         const value = root.counts[index];
         return value !== undefined && value !== null && value !== "";
     }
-    Rectangle {
+    EchoDivider {
         objectName: "detailTabIndicator"
         y: root.tabBoxTop + root.tabBoxHeight - 2
-        height: 2
-        radius: 1
-        color: Theme.accent
+        thickness: 2
+        rounded: true
+        lineColor: Theme.accent
         x: root.activeTabItem ? root.activeTabItem.x : 0
         width: root.activeTabItem ? root.activeTabItem.width : 0
         Behavior on x {

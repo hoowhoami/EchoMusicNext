@@ -1,6 +1,7 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
 #include "EchoUiContentFactory.h"
+#include "EchoWindowPixelSnap.h"
 #include <QOperatingSystemVersion>
 
 void ControlsUiTest::windowCaptionSeparatesDoubleClickFromDrag()
@@ -205,8 +206,11 @@ Item {
         const auto required = qCeil(20 * zoom * session.window->effectiveDevicePixelRatio());
         QTRY_VERIFY(image->property("sourceSize").toSize().width() >= required);
         if (supportsFloatingEffects(session.window)) {
-            const auto actual = renderedTextureSize(session.window, image);
-            QVERIFY2(actual.width() >= required, qPrintable(QString::number(actual.width())));
+            // Image.Ready precedes the native texture upload. Observe the
+            // actual render resource, not just its CPU-side decoded status.
+            QSize actual;
+            QTRY_VERIFY2((actual = renderedTextureSize(session.window, image)).width() >= required,
+                         qPrintable(QString::number(actual.width())));
         }
     }
     host->setVisible(false);
@@ -616,12 +620,20 @@ void ControlsUiTest::progressClimaxTicksAndWaitPreview()
             QCOMPARE(end->size(), QSizeF(2, 6));
             const auto track = slider->property("background").value<QQuickItem *>();
             QVERIFY(track);
-            QVERIFY(qAbs(start->mapToItem(track, {1, 3}).x() - .25 * track->width()) < .01);
-            QVERIFY(qAbs(end->mapToItem(track, {1, 3}).x() - .75 * track->width()) < .01);
+            // Model fractions own logical marker centers; presentation can
+            // move the rendered origin by at most half a device pixel.
+            QVERIFY(qAbs(start->x() + 1 - .25 * track->width()) < .01);
+            QVERIFY(qAbs(end->x() + 1 - .75 * track->width()) < .01);
             Test::FrameSpy committed(session.window);
             session.window->update();
             QTRY_VERIFY(!committed.isEmpty());
             const auto image = session.window->grabWindow();
+            if (EchoWindowPixelSnap::forWindow(session.window, false)) {
+                const auto origin =
+                    start->mapToScene({}) * session.window->effectiveDevicePixelRatio();
+                QVERIFY(qAbs(origin.x() - std::round(origin.x())) < .0002);
+                QVERIFY(qAbs(origin.y() - std::round(origin.y())) < .0002);
+            }
             const auto ratio = image.width() / qreal(session.window->width());
             const auto inside = end->mapToScene({1, .5}) * ratio;
             const auto outside = end->mapToScene({8, .5}) * ratio;

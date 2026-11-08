@@ -3,6 +3,7 @@
 #include "QuickAnimationDriver.h"
 #include "WindowPresentationDiagnostics.h"
 #include "WindowResizeSync.h"
+#include "EchoWindowPixelSnap.h"
 #include "PlaybackService.h"
 #include "PointerHoverRefresh.h"
 #include "TrayIconTheme.h"
@@ -178,6 +179,7 @@ void WindowController::attach(QQuickWindow *window)
     if (!window)
         return;
     m_window = window;
+    installWindowPixelSnap();
     installQuickAnimationDriverGuard(*window);
     m_appIcons.attach(window);
     connect(window, &QWindow::activeChanged, this, [this] {

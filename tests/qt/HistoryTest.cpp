@@ -1,4 +1,5 @@
 #include "HistoryService.h"
+#include "EchoWindowPixelSnap.h"
 #include "NativeWindow.h"
 #include "NetworkPreferences.h"
 #include "PlaybackRepository.h"
@@ -776,5 +777,5 @@ Window {
         api.shutdown();
     }
 };
-QTEST_MAIN(HistoryTest)
+QTEST_MAIN_WRAPPER(HistoryTest, QTEST_MAIN_SETUP() EchoMusic::installWindowPixelSnap();)
 #include "HistoryTest.moc"

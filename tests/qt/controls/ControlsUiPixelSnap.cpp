@@ -1,6 +1,8 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
 #include "EchoPixelSnap.h"
+#include "EchoItemObserver.h"
+#include "EchoDashedFrameSurface.h"
 #include <cmath>
 
 void ControlsUiTest::iconButtonHoverScalesStableRasterAndHitRegion()
@@ -202,6 +204,14 @@ Window {
     QCOMPARE(attached->scenePosition(), probe->mapToScene(QPointF()));
     QCOMPARE(attached->devicePixelRatio(), session.window->effectiveDevicePixelRatio());
 
+    // A window DPR notification must invalidate scene consumers too, even
+    // when no logical geometry changed (e.g. moving between monitors).
+    const auto observer = observeItem(probe);
+    QSignalSpy sceneInvalidated(observer.data(), &EchoItemObserver::sceneChanged);
+    QEvent densityEvent(QEvent::DevicePixelRatioChange);
+    QCoreApplication::sendEvent(session.window, &densityEvent);
+    QCOMPARE(sceneInvalidated.size(), 1);
+
     // Ancestor moves and scale changes both flow through the chain watchers.
     // Values settle immediately, but the notification is queued (coalesced per
     // event-loop turn) so burst geometry churn cannot nest binding re-runs on
@@ -288,6 +298,153 @@ Window {
     QCOMPARE(warnings.size(), 0);
 }
 
+void ControlsUiTest::thinSurfacesKeepDeviceGrid()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Theme
+import EchoMusic.Controls
+Window {
+    visible: true; width: 416; height: 280; color: Theme.main
+    Item {
+        objectName: "thinHost"
+        x: 20.3; y: 15.2
+        EchoDivider {
+            objectName: "thinHorizontal"
+            x: 4.1; y: 8.2; width: 101.6
+            thickness: 2; rounded: true; lineColor: Theme.text
+        }
+        EchoDivider {
+            objectName: "thinVertical"
+            x: 140.1; y: 8.2; height: 80.3
+            orientation: Qt.Vertical; lineColor: Theme.text
+        }
+        EchoDashedFrame {
+            objectName: "thinFrame"
+            x: 4.1; y: 44.3; width: 101.6; height: 46.4
+            radius: 8; strokeColor: Theme.text
+        }
+    }
+})",
+                      QUrl("qrc:/thin-surfaces.qml"));
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    auto *host = session.item("thinHost");
+    auto *horizontal = session.item("thinHorizontal");
+    auto *vertical = session.item("thinVertical");
+    auto *frame = session.item("thinFrame");
+    QVERIFY(host && horizontal && vertical && frame);
+    auto *line = findVisual(horizontal, "dividerAlignedSurface");
+    auto *edge = findVisual(vertical, "dividerAlignedSurface");
+    auto *outline = findVisual(frame, "dashedFrameAlignedSurface");
+    QVERIFY(line && edge && outline);
+    auto *raster = qobject_cast<EchoDashedFrameSurface *>(outline);
+    QVERIFY(raster);
+    const auto capture = qEnvironmentVariable("ECHO_THIN_SURFACE_CAPTURES");
+    if (!capture.isEmpty())
+        QVERIFY(QDir().mkpath(capture));
+    const auto integer = [](qreal value) { return qAbs(value - std::round(value)) < 1e-6; };
+    const qreal dpr = session.window->effectiveDevicePixelRatio();
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const qreal scale : {.75, 1., 1.25, 1.5}) {
+            host->setScale(scale);
+            for (const qreal phase : {0., .2, .6}) {
+                host->setPosition({20.3 + phase, 15.2 + phase});
+                const qreal density = dpr * scale;
+                for (auto *surface : {line, edge, outline}) {
+                    QTRY_VERIFY(integer(surface->mapToScene({}).x() * dpr));
+                    QTRY_VERIFY(integer(surface->mapToScene({}).y() * dpr));
+                    QTRY_VERIFY(integer(surface->width() * density));
+                    QTRY_VERIFY(integer(surface->height() * density));
+                }
+                QCOMPARE(horizontal->height(), 2.);
+                QCOMPARE(vertical->width(), 1.);
+                QTRY_COMPARE(qRound(line->height() * density), qMax(1, qRound(2 * density)));
+                QTRY_COMPARE(qRound(edge->width() * density), qMax(1, qRound(density)));
+                const auto image = session.window->grabWindow();
+                QVERIFY(!image.isNull());
+                if (!capture.isEmpty())
+                    QVERIFY(image.save(
+                        capture + QString("/%1-%2-%3.png").arg(int(mode)).arg(scale).arg(phase)));
+                // The software backend has its own Rectangle rasterization
+                // rules. Verify its geometry/lifetime here; native device-row
+                // coverage is asserted on the RHI rendering path below.
+                if (!supportsFloatingEffects(session.window))
+                    continue;
+                // Assert actual pure-color device rows, not just QML geometry.
+                const auto origin = line->mapToScene({}) * dpr;
+                const int left = qRound(origin.x()), top = qRound(origin.y());
+                const int width = qRound(line->width() * density);
+                const int rows = qRound(line->height() * density);
+                for (int y = top; y < top + rows; ++y)
+                    QCOMPARE(image.pixelColor(left + width / 2, y), session.theme.text());
+                QCOMPARE(image.pixelColor(left + width / 2, top - 1), session.theme.main());
+                QCOMPARE(image.pixelColor(left + width / 2, top + rows), session.theme.main());
+                const auto borderOrigin = outline->mapToScene({}) * dpr;
+                const int borderTop = qRound(borderOrigin.y());
+                const int borderLeft = qRound(borderOrigin.x());
+                const int strokeRows = qMax(1, qRound(density));
+                int solidColumns = 0;
+                for (int x = borderLeft + qCeil(12 * density);
+                     x < borderLeft + qFloor(85 * density); ++x) {
+                    bool solid = true;
+                    for (int y = borderTop; y < borderTop + strokeRows; ++y)
+                        solid &= image.pixelColor(x, y) == session.theme.text();
+                    if (solid) {
+                        ++solidColumns;
+                        QCOMPARE(image.pixelColor(x, borderTop - 1), session.theme.main());
+                        QCOMPARE(image.pixelColor(x, borderTop + strokeRows), session.theme.main());
+                    }
+                }
+                QVERIFY2(solidColumns >= 5,
+                         qPrintable(QString("mode=%1 scale=%2 phase=%3 origin=%4,%5 logical=%6x%7 "
+                                            "upload=%8x%9 color=%10")
+                                        .arg(int(mode))
+                                        .arg(scale)
+                                        .arg(phase)
+                                        .arg(borderOrigin.x())
+                                        .arg(borderOrigin.y())
+                                        .arg(outline->width())
+                                        .arg(outline->height())
+                                        .arg(raster->lastUploadSize().width())
+                                        .arg(raster->lastUploadSize().height())
+                                        .arg(image.pixelColor(borderLeft + 20, borderTop).name())));
+                QCOMPARE(raster->lastUploadSize(), QSize(qRound(outline->width() * density),
+                                                         qRound(outline->height() * density)));
+            }
+        }
+    }
+    const auto uploads = raster->textureUploadCount();
+    const auto origin = outline->mapToScene({});
+    host->setX(host->x() + 4 / dpr);
+    QTRY_VERIFY(qAbs(outline->mapToScene({}).x() - origin.x() - 4 / dpr) < 1e-6);
+    QVERIFY(!session.window->grabWindow().isNull());
+    QCOMPARE(raster->textureUploadCount(), uploads);
+    frame->setProperty("fillColor", QColor("#4285ab"));
+    QTRY_COMPARE(session.window->grabWindow().pixelColor(
+                     (frame->mapToScene(frame->boundingRect().center()) * dpr).toPoint()),
+                 QColor("#4285ab"));
+    QPointer<QQuickItem> retired = outline;
+    frame->setVisible(false);
+    QTRY_VERIFY(retired.isNull());
+    frame->setVisible(true);
+    QTRY_VERIFY(findVisual(frame, "dashedFrameAlignedSurface"));
+    retired = findVisual(frame, "dashedFrameAlignedSurface");
+    session.window->hide();
+    QTRY_VERIFY(retired.isNull());
+    session.window->show();
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QTRY_VERIFY(findVisual(frame, "dashedFrameAlignedSurface"));
+    QCOMPARE(warnings.size(), 0);
+}
+
 void ControlsUiTest::pixelSnapDisabledUsesLogicalGeometry()
 {
     if (qEnvironmentVariable("ECHO_PIXEL_SNAP") != QLatin1String("0"))
@@ -314,6 +471,14 @@ Window {
             objectName: "snapDisabledCover"
             x: 5.75; y: 31.5; width: 41; height: 41
         }
+        EchoDivider {
+            objectName: "snapDisabledLine"
+            x: 1.2; y: 78.4; width: 101.6; thickness: 2
+        }
+        EchoDashedFrame {
+            objectName: "snapDisabledFrame"
+            x: 1.2; y: 90.4; width: 101.6; height: 46.4
+        }
     }
 })",
                       QUrl("qrc:/pixel-snap-disabled.qml"));
@@ -336,5 +501,15 @@ Window {
         QTRY_COMPARE(surface->y(), 0.);
         QTRY_COMPARE(surface->width(), control->width());
         QTRY_COMPARE(surface->height(), control->height());
+    }
+    for (const auto &name : {"snapDisabledLine", "snapDisabledFrame"}) {
+        auto *control = session.item(name);
+        QVERIFY(control);
+        auto *surface = findVisual(control, QString::fromLatin1(name) == "snapDisabledLine"
+                                                ? "dividerAlignedSurface"
+                                                : "dashedFrameAlignedSurface");
+        QVERIFY(surface);
+        QCOMPARE(surface->position(), QPointF());
+        QCOMPARE(surface->size(), control->size());
     }
 }

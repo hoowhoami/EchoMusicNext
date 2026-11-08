@@ -213,29 +213,12 @@ Item {
                 }
             }
             onClicked: shortcuts.addRequested()
-            background: Canvas {
-                readonly property color outlineColor: Theme.colors.strongBorder
-                onOutlineColorChanged: requestPaint()
-                onWidthChanged: requestPaint()
-                onHeightChanged: requestPaint()
-                onPaint: {
-                    const ctx = getContext("2d");
-                    ctx.reset();
-                    ctx.fillStyle = add.hovered ? Theme.hover : "transparent";
-                    ctx.strokeStyle = outlineColor;
-                    ctx.lineWidth = 1;
-                    ctx.setLineDash([3, 3]);
-                    ctx.beginPath();
-                    ctx.roundedRect(0.5, 0.5, width - 1, height - 1, Theme.cardRadius, Theme.cardRadius);
-                    ctx.fill();
-                    ctx.stroke();
-                }
-                Connections {
-                    target: add
-                    function onHoveredChanged() {
-                        add.background.requestPaint();
-                    }
-                }
+            background: EchoDashedFrame {
+                objectName: "sidebarShortcutAddFrame"
+                resourceActive: shortcuts.resourceActive
+                strokeColor: Theme.colors.strongBorder
+                fillColor: add.hovered ? Theme.hover : "transparent"
+                radius: Theme.cardRadius
             }
         }
     }
