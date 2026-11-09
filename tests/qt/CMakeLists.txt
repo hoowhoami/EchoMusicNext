@@ -279,7 +279,8 @@ target_sources(
             controls/ControlsUiEffects.cpp
             controls/ControlsUiBehavior.cpp
             controls/ControlsUiPixelSnap.cpp
-            controls/ControlsUiWindowPixelSnap.cpp
+            controls/ControlsUiSelectivePixelSnap.cpp
+            controls/ControlsUiSelectLifecycle.cpp
 )
 qt_add_executable(echo-tab-count-alignment-test TabCountAlignmentTest.cpp)
 qt_add_executable(echo-background-banding-test BackgroundBandingTest.cpp)
@@ -326,8 +327,9 @@ target_link_libraries(
             Qt6::QuickControls2
             Qt6::Test
 )
-set(ECHO_CONTROLS_TEST_GROUPS controls-ui-inputs controls-ui-popups controls-ui-typography
-                              controls-ui-effects controls-ui-behavior
+set(ECHO_CONTROLS_TEST_GROUPS
+    controls-ui-inputs controls-ui-popups controls-ui-typography controls-ui-effects
+    controls-ui-behavior controls-selective-pixel-snap
 )
 add_test(
     NAME controls-ui-inputs
@@ -335,7 +337,7 @@ add_test(
         echo-controls-ui-test continuousAngleWheelPreservesDistanceAndPixelInput
         wheelCancellationAndMotionPreferences pageWheelRegionsPreserveNativeEvents
         imageDensityTracksScaleWithoutTrackingScroll
-        selectProjectionKeepsTypedValuesAndTracksModelChanges
+        selectProjectionKeepsTypedValuesAndTracksModelChanges selectPublishesPopupAfterConstruction
         selectSearchMultiKeyboardPlacementAndVirtualization
         numberInputCommitsAndClampsAcrossAllInputPaths textEditorsShareFocusCaretAndSurfaces
         caretsStayOnTheWindowDevicePixelGrid
@@ -392,15 +394,12 @@ add_test(
 add_test(NAME controls-ui-hover-scale COMMAND echo-controls-ui-test
                                               iconButtonHoverScalesStableRasterAndHitRegion
 )
-add_test(
-    NAME controls-window-pixel-snap
-    COMMAND
-        echo-controls-ui-test windowPixelSnapCoversTextControlsAndDynamicContent
-        windowPixelSnapPreservesTransformsAndRetiresWindows windowPixelSnapLayerLifecycle
-        windowPixelSnapRetiresPendingScopesAndReparents windowPixelSnapResourceBudget
+add_test(NAME controls-selective-pixel-snap
+         COMMAND echo-controls-ui-test pixelSnapOnlyTouchesExplicitDrawingSurfaces
+                 formerCanvasDrawingsUseNativePixelsAndRelease
 )
 target_link_libraries(echo-controls-ui-test PRIVATE Qt6::QuickPrivate)
-set_tests_properties(controls-window-pixel-snap PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+set_tests_properties(controls-selective-pixel-snap PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
 set_tests_properties(
     controls-ui-hover-scale PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
 )
@@ -693,6 +692,7 @@ target_sources(
             desktop/DesktopPagesTestFixture.h
             desktop/DesktopPagesSettings1.cpp
             desktop/DesktopPagesSettings2.cpp
+            desktop/DesktopPagesSettingsHandoff.cpp
             desktop/DesktopPagesPlayback1.cpp
             desktop/DesktopPagesPlayback2.cpp
             desktop/DesktopPagesPlayback3.cpp
@@ -769,8 +769,17 @@ target_link_libraries(
             Qt6::Sql
             Qt6::Test
 )
-set(ECHO_DESKTOP_TEST_GROUPS desktop-pages-settings desktop-pages-playback desktop-pages-navigation
-                             desktop-pages-presentation desktop-pages-popups desktop-pages-library
+set(ECHO_DESKTOP_TEST_GROUPS
+    desktop-pages-settings
+    desktop-pages-settings-handoff
+    desktop-pages-playback
+    desktop-pages-navigation
+    desktop-pages-presentation
+    desktop-pages-popups
+    desktop-pages-library
+)
+add_test(NAME desktop-pages-settings-handoff COMMAND echo-desktop-pages-test
+                                                     lyricSkinGlobalSettingsHandoff
 )
 add_test(
     NAME desktop-pages-settings
@@ -1753,10 +1762,6 @@ endif()
 set_tests_properties(
     ${ECHO_RENDERED_TEST_GROUPS} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=${echo_test_platform}"
                                             RUN_SERIAL TRUE
-)
-set_tests_properties(
-    controls-window-pixel-snap
-    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=${echo_test_platform};ECHO_PIXEL_SNAP_ALL=1"
 )
 set_tests_properties(${ECHO_DESKTOP_TEST_GROUPS} playback-page PROPERTIES TIMEOUT 240)
 set_tests_properties(${ECHO_CONTROLS_TEST_GROUPS} PROPERTIES TIMEOUT 120)

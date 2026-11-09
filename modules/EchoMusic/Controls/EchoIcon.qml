@@ -11,7 +11,7 @@ Item {
     // A short glyph scale transition can rasterize at its stable endpoint
     // density instead of reloading the SVG on every animation frame.
     property Item rasterizationItem: control
-    // Scale the already aligned raster, without re-quantizing its geometry or
+    // Scale the existing raster without changing its logical geometry or
     // requesting another SVG texture at every frame of hover feedback.
     property real visualScale: 1
     property alias asynchronous: image.asynchronous
@@ -32,25 +32,14 @@ Item {
         active: control.resourceActive && control.visible
         source: image.source
     }
-    // Device-pixel alignment, mirroring EchoCover: a glyph whose physical
-    // position rides a half-device-pixel boundary flips a whole pixel on
-    // every re-quantization. The attached scene position re-syncs wherever
-    // layout carries the icon; the density divisor includes the ancestor scale
-    // chain because the compensation is applied in local coordinates. Feedback
-    // scales the inner surface after alignment; layout zoom remains tracked.
-    readonly property bool snapEnabled: EchoPixelSnap.enabled
-    readonly property point snapScene: EchoPixelSnap.scenePosition
-    readonly property real snapDpr: EchoPixelSnap.devicePixelRatio
-    readonly property real snapDensityX: EchoPixelSnap.densityX
-    readonly property real snapDensityY: EchoPixelSnap.densityY
+    // SVG glyph geometry stays native. Decode density and hover feedback are
+    // independent of pixel-phase compensation on bitmap artwork and dividers.
     Item {
         id: alignedSurface
         objectName: "iconAlignedSurface"
         scale: control.visualScale
-        x: control.snapEnabled ? (Math.round(control.snapScene.x * control.snapDpr) - control.snapScene.x * control.snapDpr) / control.snapDensityX : 0
-        y: control.snapEnabled ? (Math.round(control.snapScene.y * control.snapDpr) - control.snapScene.y * control.snapDpr) / control.snapDensityY : 0
-        width: control.snapEnabled ? Math.round(control.width * control.snapDensityX) / control.snapDensityX : control.width
-        height: control.snapEnabled ? Math.round(control.height * control.snapDensityY) / control.snapDensityY : control.height
+        width: control.width
+        height: control.height
         Image {
             id: image
             objectName: "iconImage"

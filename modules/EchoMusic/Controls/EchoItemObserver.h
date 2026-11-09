@@ -39,7 +39,4 @@ private:
 };
 
 QSharedPointer<EchoItemObserver> observeItem(QQuickItem *item);
-// Broadcast an existing shared scene chain after presentation-only transforms.
-// Does not allocate observers or invalidate image decode density.
-void notifyItemScenePositionChanged(QQuickItem *item);
 } // namespace EchoMusic

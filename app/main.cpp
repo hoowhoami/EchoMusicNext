@@ -13,7 +13,6 @@
 #include <QCommandLineParser>
 #include <QCommandLineOption>
 #include "UiTypography.h"
-#include "EchoWindowPixelSnap.h"
 #include <QApplication>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -64,7 +63,6 @@ int main(int argc, char *argv[])
 #endif
     QGuiApplication::setDesktopFileName(QStringLiteral(ECHO_APPLICATION_ID));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
-    EchoMusic::installWindowPixelSnap();
     app.setQuitOnLastWindowClosed(false);
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("EchoMusicNext desktop application"));

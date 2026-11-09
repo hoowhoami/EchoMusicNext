@@ -1,4 +1,3 @@
-#include "EchoWindowPixelSnap.h"
 #include "ArtistDetailService.h"
 #include "NetworkPreferences.h"
 #include "PlaybackService.h"
@@ -509,7 +508,7 @@ Window {
         auto *initialPage = artistVisual(window->contentItem(), "songDetailSkeleton");
         auto *detailViewport = artistVisual(window->contentItem(), "artistDetailViewport");
         QVERIFY(initialCover && headerCover && initialPage && detailViewport);
-        QCOMPARE(initialCover->size(), QSizeF(178, 178));
+        QCOMPARE(initialCover->size(), QSizeF(150, 150));
         QVERIFY(!detailViewport->isVisible());
         const auto skeletonArtifacts = qEnvironmentVariable("ECHO_ARTIST_ARTIFACTS");
         if (!skeletonArtifacts.isEmpty())
@@ -543,15 +542,19 @@ Window {
                         return qAbs(a.red() - b.red()) + qAbs(a.green() - b.green()) +
                                qAbs(a.blue() - b.blue());
                     };
-                    QVERIFY2(distance(corner, outside) < 20,
-                             "circular skeleton corner must expose background");
-                    QVERIFY(distance(center, outside) > 2);
+                    if (distance(center, outside) <= 2)
+                        qWarning()
+                            << "Skeleton probe" << cover->objectName() << dark << scale << origin
+                            << size << cover->isVisible() << outside << corner << center;
                     if (!skeletonArtifacts.isEmpty())
                         QVERIFY(frame.save(skeletonArtifacts +
                                            QString("/skeleton-%1-%2-%3.png")
                                                .arg(cover == initialCover ? "initial" : "header")
                                                .arg(dark ? "dark" : "light")
                                                .arg(scale)));
+                    QVERIFY2(distance(corner, outside) < 20,
+                             "circular skeleton corner must expose background");
+                    QVERIFY(distance(center, outside) > 2);
                 }
             }
         shell.resetZoom();
@@ -588,8 +591,8 @@ Window {
         QVERIFY(introduction);
         for (auto *text : {counts, fans, introduction})
             QCOMPARE(text->property("font").value<QFont>().pixelSize(), 11);
-        QCOMPARE(header->property("coverSize").toReal(), 178.);
-        QCOMPARE(header->property("expandedHeight").toReal(), 204.);
+        QCOMPARE(header->property("coverSize").toReal(), 150.);
+        QCOMPARE(header->property("expandedHeight").toReal(), 176.);
         const auto countCenter =
             counts->mapToItem(header, {0, counts->property("firstLineInkCenter").toReal()}).y();
         const auto fansCenter =
@@ -774,8 +777,8 @@ Window {
             header, introduction->parentItem()->boundingRect());
         ArtistDetailContextTestAccess::setDescription(*context, "");
         QTest::qWait(100);
-        QCOMPARE(header->property("coverSize").toReal(), 178.);
-        QCOMPARE(header->property("expandedHeight").toReal(), 204.);
+        QCOMPARE(header->property("coverSize").toReal(), 150.);
+        QCOMPARE(header->property("expandedHeight").toReal(), 176.);
         QCOMPARE(avatarCover->size(), coverSize);
         QCOMPARE(factsRow->mapRectToItem(header, factsRow->boundingRect()), facts);
         QCOMPARE(introduction->parentItem()->mapRectToItem(
@@ -790,5 +793,5 @@ Window {
         api.shutdown();
     }
 };
-QTEST_MAIN_WRAPPER(ArtistDetailTest, QTEST_MAIN_SETUP() EchoMusic::installWindowPixelSnap();)
+QTEST_MAIN_WRAPPER(ArtistDetailTest, QTEST_MAIN_SETUP())
 #include "ArtistDetailTest.moc"

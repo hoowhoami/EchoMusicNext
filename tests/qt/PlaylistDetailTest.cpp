@@ -1,4 +1,3 @@
-#include "EchoWindowPixelSnap.h"
 #include "PlaylistDetailService.h"
 #include "ShellSettings.h"
 #include "ThemeStore.h"
@@ -1369,7 +1368,7 @@ Window {
         auto *skeletonCover =
             playlistVisual(window->contentItem(), "songDetailInitialCoverSkeleton");
         QVERIFY(skeletonCover);
-        QTRY_COMPARE(skeletonCover->size(), QSizeF(178, 178));
+        QTRY_COMPARE(skeletonCover->size(), QSizeF(150, 150));
         PlaylistDetailContextTestAccess::seed(*context, "Short playlist");
         QTest::qWait(100);
         QJsonArray songs;
@@ -1415,9 +1414,9 @@ Window {
                             variant == 0 ? "兴奋,车载,游戏" : "",
                             (variant == 2 || variant == 4) ? 1 : 0);
                         QTest::qWait(100);
-                        QCOMPARE(header->property("coverSize").toReal(), 178.);
-                        QCOMPARE(header->property("expandedHeight").toReal(), 204.);
-                        QCOMPARE(view->property("expandedHeaderHeight").toReal(), 204.);
+                        QCOMPARE(header->property("coverSize").toReal(), 150.);
+                        QCOMPARE(header->property("expandedHeight").toReal(), 176.);
+                        QCOMPARE(view->property("expandedHeaderHeight").toReal(), 176.);
                         auto *preview = playlistVisual(header, "songDetailDescriptionPreview");
                         auto *songCount = playlistVisual(header, "playlistSongCount");
                         QVERIFY(preview && songCount);
@@ -1675,8 +1674,6 @@ Window {
         const auto reportedWidth = qEnvironmentVariableIntValue("ECHO_HEADER_ALIGNMENT_WIDTH");
         if (reportedWidth > 0)
             window->resize(reportedWidth, window->height());
-        if (qEnvironmentVariableIntValue("ECHO_PIXEL_SNAP_ALL") == 1)
-            QTRY_VERIFY(window->contentItem()->findChild<EchoWindowPixelSnap *>());
         const auto artifacts = qEnvironmentVariable("ECHO_HEADER_ALIGNMENT_ARTIFACTS");
         if (!artifacts.isEmpty())
             QVERIFY(QDir().mkpath(artifacts));
@@ -1980,12 +1977,15 @@ Window {
                         const QList<qreal> gaps{box(creator).top() - box(title).bottom(),
                                                 box(description).top() - box(creator).bottom(),
                                                 box(actions).top() - box(description).bottom()};
-                        for (auto gap : gaps)
+                        for (auto gap : gaps) {
                             QVERIFY2(qAbs(gap - gaps.first()) <= 1.01,
                                      qPrintable(QString("Metadata gaps %1 %2 %3")
                                                     .arg(gaps[0])
                                                     .arg(gaps[1])
                                                     .arg(gaps[2])));
+                            QVERIFY2(gap <= 16.01,
+                                     qPrintable(QString("Compact metadata gap %1").arg(gap)));
+                        }
                         for (const auto &pair :
                              {QPair<QString, QString>{"playlistSongCount",
                                                       "songDetailDescriptionPreview"},
@@ -2618,5 +2618,5 @@ Window {
         api.shutdown();
     }
 };
-QTEST_MAIN_WRAPPER(PlaylistDetailTest, QTEST_MAIN_SETUP() EchoMusic::installWindowPixelSnap();)
+QTEST_MAIN_WRAPPER(PlaylistDetailTest, QTEST_MAIN_SETUP())
 #include "PlaylistDetailTest.moc"

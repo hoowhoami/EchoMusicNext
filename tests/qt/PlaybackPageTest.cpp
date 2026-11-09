@@ -3,7 +3,6 @@
 #include "FloatingPlayerController.h"
 #include "RenderedInk.h"
 #include "EchoBackdropRoot.h"
-#include "EchoWindowPixelSnap.h"
 #include "PlaybackService.h"
 #include "PlaybackRepository.h"
 #include "LyricLine.h"
@@ -3942,11 +3941,6 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
     QTRY_VERIFY(list->property("initialized").toBool());
     QTRY_VERIFY(session.page()->property("opened").toBool());
     QTRY_VERIFY(session.item("lyricTextRow0"));
-    if (qEnvironmentVariableIntValue("ECHO_PIXEL_SNAP_ALL") == 1) {
-        auto *scope = EchoWindowPixelSnap::forWindow(session.window, false);
-        QVERIFY(scope);
-        QTRY_VERIFY(scope->statistics().compensatedItems > 0);
-    }
     QSignalSpy sought(&session.playback, &PlaybackService::seekCompleted);
     QList<qint64> landed;
     connect(&session.playback, &PlaybackService::seekCompleted, &session.playback,
@@ -4803,7 +4797,6 @@ int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
     QQuickStyle::setStyle("Basic");
-    installWindowPixelSnap();
     configureUiTypography("system-ui");
     PlaybackPageTest test;
     return QTest::qExec(&test, argc, argv);

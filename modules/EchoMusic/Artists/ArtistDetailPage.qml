@@ -12,7 +12,7 @@ RoutePage {
     required property ArtistDetailService service
     readonly property ArtistDetailContext detail: service.contextFor(context)
     readonly property string activeTab: context.query.tab === "albums" ? "albums" : "songs"
-    readonly property real expandedHeaderHeight: (heading.item as SongDetailHeader)?.expandedHeight ?? 204
+    readonly property real expandedHeaderHeight: (heading.item as SongDetailHeader)?.expandedHeight ?? 176
     readonly property real songToolbarRowHeight: 56
     readonly property real toolbarHeight: page.songToolbarRowHeight + (page.activeTab === "songs" ? 44 : 0)
     objectName: "artistDetailPage"

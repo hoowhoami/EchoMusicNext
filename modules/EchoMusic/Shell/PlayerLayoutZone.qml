@@ -137,25 +137,19 @@ Rectangle {
             }
         }
         delegate: LayoutSlot {}
-        Canvas {
+        EchoDashedFrame {
             parent: chips.contentItem
             objectName: "playerLayoutGap-" + pane.zone
             x: chips.originX + (pane.insertionGap ? pane.reorder.targetIndex * 40 : 0)
             visible: pane.insertionGap || pane.previewCount === 0
+            resourceActive: pane.resourceActive
             width: 32
             height: 32
             y: 30
-            property color strokeColor: pane.insertionGap ? Theme.withAlpha(Theme.floatingAccentText, 0.35) : Theme.withAlpha(Theme.store.floatingTone, 0.16)
-            onStrokeColorChanged: requestPaint()
-            onPaint: {
-                const context = getContext("2d");
-                context.reset();
-                context.strokeStyle = strokeColor;
-                context.lineWidth = 1;
-                context.setLineDash([3, 3]);
-                context.roundedRect(0.5, 0.5, width - 1, height - 1, Theme.cardRadius, Theme.cardRadius);
-                context.stroke();
-            }
+            strokeColor: pane.insertionGap ? Theme.withAlpha(Theme.floatingAccentText, 0.35) : Theme.withAlpha(Theme.store.floatingTone, 0.16)
+            radius: Theme.cardRadius
+            thickness: 1
+            dashLength: 3
         }
     }
 

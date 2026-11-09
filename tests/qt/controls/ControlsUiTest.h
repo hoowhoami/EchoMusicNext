@@ -5,6 +5,7 @@ class ControlsUiTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void cleanup();
     void sendButtonKeepsIconGeometryAndBusyState();
     void windowCaptionSeparatesDoubleClickFromDrag();
     void listLocationPreservesVisibleRowsAndChecksOcclusion();
@@ -22,12 +23,8 @@ private slots:
     void iconRasterTracksZoomAndReleasesWhenHidden();
     void pixelSnapTracksScenePositionAcrossReparentAndWindows();
     void thinSurfacesKeepDeviceGrid();
-    void windowPixelSnapCoversTextControlsAndDynamicContent();
-    void windowPixelSnapPreservesTransformsAndRetiresWindows();
-    void windowPixelSnapLayerLifecycle_data();
-    void windowPixelSnapLayerLifecycle();
-    void windowPixelSnapRetiresPendingScopesAndReparents();
-    void windowPixelSnapResourceBudget();
+    void pixelSnapOnlyTouchesExplicitDrawingSurfaces();
+    void formerCanvasDrawingsUseNativePixelsAndRelease();
     void pixelSnapDisabledUsesLogicalGeometry();
     void coverCropAndRoundedPixels();
     void frostedCornersRetainAntialiasCoverage();
@@ -44,6 +41,7 @@ private slots:
     void shadowsReleaseTheirNativeMaterials();
     void sourceControlRolesKeepOrdinaryActionsAndLargeFormsDistinct();
     void selectProjectionKeepsTypedValuesAndTracksModelChanges();
+    void selectPublishesPopupAfterConstruction();
     void selectSearchMultiKeyboardPlacementAndVirtualization();
     void backdropSourceIsWindowLocalAndReleasedWhenHidden();
     void backdropSamplerTracksBothItemTrees();

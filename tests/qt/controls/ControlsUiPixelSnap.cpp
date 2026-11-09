@@ -243,13 +243,17 @@ Window {
     const qreal density = dpr * ancestorScale;
     hostA->setScale(ancestorScale);
     hostB->setScale(ancestorScale);
-    for (auto *control : {icon, cover}) {
+    auto *iconSurface = findVisual(icon, "iconAlignedSurface");
+    QVERIFY(iconSurface);
+    QVERIFY(!qmlAttachedPropertiesObject<EchoMusic::EchoPixelSnap>(icon, false));
+    QCOMPARE(iconSurface->position(), QPointF());
+    QCOMPARE(iconSurface->size(), icon->size());
+    for (auto *control : {cover}) {
         auto *attachedControl = qobject_cast<EchoMusic::EchoPixelSnapAttached *>(
             qmlAttachedPropertiesObject<EchoMusic::EchoPixelSnap>(control));
         QVERIFY(attachedControl);
         QTRY_VERIFY(qAbs(attachedControl->densityX() - density) < 1e-6);
-        auto *surface =
-            findVisual(control, control == icon ? "iconAlignedSurface" : "coverAlignedSurface");
+        auto *surface = findVisual(control, "coverAlignedSurface");
         QVERIFY(surface);
         QTRY_VERIFY2(onDeviceGrid(surface->mapToScene(QPointF(0, 0)).x() * dpr) &&
                          onDeviceGrid(surface->mapToScene(QPointF(0, 0)).y() * dpr),
@@ -489,13 +493,17 @@ Window {
     auto *icon = session.item("snapDisabledIcon");
     auto *cover = session.item("snapDisabledCover");
     QVERIFY(icon && cover);
-    for (auto *control : {icon, cover}) {
+    QVERIFY(!qmlAttachedPropertiesObject<EchoMusic::EchoPixelSnap>(icon, false));
+    auto *iconSurface = findVisual(icon, "iconAlignedSurface");
+    QVERIFY(iconSurface);
+    QCOMPARE(iconSurface->position(), QPointF());
+    QCOMPARE(iconSurface->size(), icon->size());
+    for (auto *control : {cover}) {
         auto *attached = qobject_cast<EchoMusic::EchoPixelSnapAttached *>(
             qmlAttachedPropertiesObject<EchoMusic::EchoPixelSnap>(control));
         QVERIFY(attached);
         QVERIFY(!attached->enabled());
-        auto *surface =
-            findVisual(control, control == icon ? "iconAlignedSurface" : "coverAlignedSurface");
+        auto *surface = findVisual(control, "coverAlignedSurface");
         QVERIFY(surface);
         QTRY_COMPARE(surface->x(), 0.);
         QTRY_COMPARE(surface->y(), 0.);

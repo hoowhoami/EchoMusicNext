@@ -53,29 +53,17 @@ Popup {
     background: EchoFloatingSurface {
         // Anchored popovers are borderless; dialogs and search panels can opt into a ring.
         border.width: 0
-        Canvas {
+        EchoPopupArrow {
             id: arrow
             objectName: "anchoredPopupArrow"
-            readonly property color fillColor: Theme.elevated
-            readonly property bool above: popup.placedAbove
+            fillColor: Theme.elevated
+            above: popup.placedAbove
             visible: popup.showArrow
+            resourceActive: popup.visible
             width: 14
             height: 8
             x: Math.max(Theme.popoverRadius, Math.min((popup.anchorRect.x + popup.anchorRect.width / 2 - popup.x) / popup.uiScale - width / 2, popup.width - Theme.popoverRadius - width))
             y: above ? popup.height - 1 : -height + 1
-            onFillColorChanged: requestPaint()
-            onAboveChanged: requestPaint()
-            onPaint: {
-                const ctx = getContext("2d");
-                ctx.reset();
-                ctx.fillStyle = fillColor;
-                ctx.beginPath();
-                ctx.moveTo(0, above ? 0 : height);
-                ctx.lineTo(width / 2, above ? height : 0);
-                ctx.lineTo(width, above ? 0 : height);
-                ctx.closePath();
-                ctx.fill();
-            }
         }
     }
     EchoPopupMotion {

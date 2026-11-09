@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import EchoMusic.Theme
 
 Control {
@@ -52,13 +53,34 @@ Control {
     property var model: options === undefined ? [] : options
     property string textRole: options === undefined ? "" : "label"
     property string valueRole: options === undefined ? "" : "value"
-    readonly property var popup: selectPopupOwner.item
-    readonly property EchoBoundedListView optionList: selectPopupOwner.item ? selectPopupOwner.item.contentItem as EchoBoundedListView : null
+    // Publishing the recipe's QObject through var during asynchronous creation
+    // invokes AOT QObject-to-QVariant conversion before construction completes.
+    // Keep the reference typed and unavailable until the whole control is ready.
+    property bool _componentReady: false
+    property bool _openRequested: false
+    readonly property T.Popup popup: _componentReady ? selectPopupOwner.item : null
+    readonly property EchoBoundedListView optionList: popup ? popup.contentItem as EchoBoundedListView : null
+    Component.onCompleted: {
+        _componentReady = true;
+        if (_openRequested) {
+            _openRequested = false;
+            selectPopupOwner.open();
+        }
+    }
+    Component.onDestruction: {
+        _componentReady = false;
+        _openRequested = false;
+    }
     function openPopup(): void {
-        selectPopupOwner.open();
+        if (_componentReady)
+            selectPopupOwner.open();
+        else
+            _openRequested = true;
     }
     function closePopup(): void {
-        selectPopupOwner.close();
+        _openRequested = false;
+        if (_componentReady)
+            selectPopupOwner.close();
     }
     signal activated(int index)
     focusPolicy: Qt.StrongFocus

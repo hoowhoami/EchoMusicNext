@@ -36,12 +36,12 @@ Item {
     property bool compactExpandedActions: false
     property Component leadingActions
     property bool loading: false
-    // Album/playlist counts keep the second metadata row even without an
-    // introduction. Its geometry must not depend on optional text arriving.
+    // Shared detail pages retain both metadata rows at the compact size,
+    // independent of whether optional introduction text has arrived.
     readonly property bool hasDescriptionRow: uniformMetadataRows || descriptionLeadingComponent !== null || description.length > 0
-    property real expandedHeight: 176 + (hasDescriptionRow ? 28 : 0)
+    property real expandedHeight: uniformMetadataRows ? 176 : 176 + (hasDescriptionRow ? 28 : 0)
     readonly property real progress: Math.max(0, Math.min(1, scrollTop / (expandedHeight - 56)))
-    property real coverSize: 150 + (hasDescriptionRow ? 28 : 0)
+    property real coverSize: expandedHeight - 26
     readonly property real coverScale: 1 - progress * (1 - 32 / coverSize)
     signal playRequested
     signal batchRequested

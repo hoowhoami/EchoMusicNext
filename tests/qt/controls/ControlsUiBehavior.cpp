@@ -1,7 +1,6 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
 #include "EchoUiContentFactory.h"
-#include "EchoWindowPixelSnap.h"
 #include <QOperatingSystemVersion>
 
 void ControlsUiTest::windowCaptionSeparatesDoubleClickFromDrag()
@@ -628,12 +627,6 @@ void ControlsUiTest::progressClimaxTicksAndWaitPreview()
             session.window->update();
             QTRY_VERIFY(!committed.isEmpty());
             const auto image = session.window->grabWindow();
-            if (EchoWindowPixelSnap::forWindow(session.window, false)) {
-                const auto origin =
-                    start->mapToScene({}) * session.window->effectiveDevicePixelRatio();
-                QVERIFY(qAbs(origin.x() - std::round(origin.x())) < .0002);
-                QVERIFY(qAbs(origin.y() - std::round(origin.y())) < .0002);
-            }
             const auto ratio = image.width() / qreal(session.window->width());
             const auto inside = end->mapToScene({1, .5}) * ratio;
             const auto outside = end->mapToScene({8, .5}) * ratio;

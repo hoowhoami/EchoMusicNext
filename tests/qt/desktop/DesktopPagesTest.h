@@ -18,6 +18,8 @@ private slots:
     void settingsSearchClearRestoresCategoriesAndKeepsFocus();
     void playbackFallbackControlsUseProductionUi();
     void lyricFontSettingsApplyToProductionWindows();
+    void lyricSkinGlobalSettingsHandoff_data();
+    void lyricSkinGlobalSettingsHandoff();
     void menuBarLyricsUseMacOnlyProductionSettingsAndRelease();
     void lyricVariantSettingUsesProductionSelectAndReleasesPopup();
     void productionPopupsFollowRequestOwnership();

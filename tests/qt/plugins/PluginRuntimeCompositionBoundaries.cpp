@@ -361,8 +361,11 @@ ApplicationWindow {
     QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
     QTRY_COMPARE(root->property("clicks").toInt(), 1);
     window->resize(700, 440);
-    QTRY_COMPARE(button->x(), 700. - 24 - 80);
-    QTRY_COMPARE(button->y(), 440. - 24 - 32);
+    // Fractional QPA scale can round the native size on resize. The original
+    // anchors must follow the resulting logical parent, not the requested size.
+    qInfo() << "Native anchor resize" << window->size() << parent->size() << button->position();
+    QTRY_COMPARE(button->x(), parent->width() - 24 - button->width());
+    QTRY_COMPARE(button->y(), parent->height() - 24 - button->height());
     QCOMPARE(ref->address(), address);
     auto decoration = boundaryView;
     decoration.replace("boundaryExtension", "boundaryDecoration");
@@ -415,8 +418,8 @@ ApplicationWindow {
     QCOMPARE(button->parentItem(), parent);
     QTRY_COMPARE(button->mapToScene(QPointF()), button->position());
     window->resize(640, 400);
-    QTRY_COMPARE(button->x(), 640. - 24 - 80);
-    QTRY_COMPARE(button->y(), 400. - 24 - 32);
+    QTRY_COMPARE(button->x(), parent->width() - 24 - button->width());
+    QTRY_COMPARE(button->y(), parent->height() - 24 - button->height());
     QTRY_COMPARE(registry->structureWatchCount(), 0);
 }
 

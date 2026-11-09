@@ -1,4 +1,3 @@
-#include "EchoWindowPixelSnap.h"
 #include "AlbumDetailService.h"
 #include "NetworkPreferences.h"
 #include "PlaybackService.h"
@@ -628,8 +627,8 @@ Window {
         const auto introPosition = introRow->mapToItem(header, QPointF());
         AlbumDetailContextTestAccess::setDescription(*context, "");
         QTest::qWait(100);
-        QCOMPARE(header->property("coverSize").toReal(), 178.);
-        QCOMPARE(header->property("expandedHeight").toReal(), 204.);
+        QCOMPARE(header->property("coverSize").toReal(), 150.);
+        QCOMPARE(header->property("expandedHeight").toReal(), 176.);
         QCOMPARE(coverSlot->size(), coverSize);
         QCOMPARE(titleRow->mapToItem(header, QPointF()), titlePosition);
         QCOMPARE(metadataRow->mapToItem(header, QPointF()), metadataPosition);
@@ -646,5 +645,5 @@ Window {
         api.shutdown();
     }
 };
-QTEST_MAIN_WRAPPER(AlbumDetailTest, QTEST_MAIN_SETUP() EchoMusic::installWindowPixelSnap();)
+QTEST_MAIN_WRAPPER(AlbumDetailTest, QTEST_MAIN_SETUP())
 #include "AlbumDetailTest.moc"
