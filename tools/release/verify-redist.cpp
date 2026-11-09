@@ -45,7 +45,8 @@ int verify(const wchar_t *file)
     trust.dwStateAction = WTD_STATEACTION_VERIFY;
     trust.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
     GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-    const LONG status = WinVerifyTrust(INVALID_HANDLE_VALUE, &action, &trust);
+    const LONG status =
+        WinVerifyTrust(reinterpret_cast<HWND>(INVALID_HANDLE_VALUE), &action, &trust);
 
     bool microsoft = false;
     if (status == ERROR_SUCCESS) {
@@ -70,7 +71,7 @@ int verify(const wchar_t *file)
     }
     // WinTrust state must be closed after both successful and failed checks.
     trust.dwStateAction = WTD_STATEACTION_CLOSE;
-    WinVerifyTrust(INVALID_HANDLE_VALUE, &action, &trust);
+    WinVerifyTrust(reinterpret_cast<HWND>(INVALID_HANDLE_VALUE), &action, &trust);
     if (status != ERROR_SUCCESS) {
         std::fprintf(stderr, "Runtime Authenticode verification failed (0x%08lx)\n",
                      static_cast<unsigned long>(status));

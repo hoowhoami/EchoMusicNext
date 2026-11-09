@@ -20,10 +20,17 @@ Item {
     property bool wrapTags: true
     // Flex labels can reserve the remaining line width and pin tags to its end.
     property bool fillTextWidth: false
+    // Same-size inline text can share Qt's font-line baseline instead of
+    // independently moving each string by its own visible outline bounds.
+    property bool alignFontBaseline: false
+    // Identity names align their letter body consistently; underscores and
+    // descenders remain visible without moving the other letters upward.
+    property bool alignFontBody: false
     readonly property bool truncated: !wrap && ink.displayText !== text
     property int horizontalAlignment: Text.AlignLeft
     property alias textItem: label
     readonly property alias textBox: textSlot
+    baselineOffset: flow.y + textSlot.y + label.y + label.baselineOffset
     readonly property real firstLineInkCenter: flow.y + textSlot.y + label.y + label.baselineOffset + ink.firstLineInkCenterFromBaseline
     implicitWidth: ink.naturalWidth + (tagRow.implicitWidth > 0 ? textTagSpacing + tagRow.implicitWidth : 0)
     implicitHeight: flow.implicitHeight
@@ -60,7 +67,7 @@ Item {
                     height: implicitHeight
                     // baselineOffset is local to this Text. Center the shaped
                     // multiline ink without changing inter-line spacing.
-                    y: ink.hasInk ? textSlot.height / 2 - baselineOffset - ink.inkCenterFromBaseline : (textSlot.height - height) / 2
+                    y: row.alignFontBody ? textSlot.height / 2 - baselineOffset - ink.fontCapCenterFromBaseline : !row.alignFontBaseline && ink.hasInk ? textSlot.height / 2 - baselineOffset - ink.inkCenterFromBaseline : (textSlot.height - height) / 2
                     text: ink.displayText
                     Accessible.role: Accessible.StaticText
                     Accessible.name: row.text

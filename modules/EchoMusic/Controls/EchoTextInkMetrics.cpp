@@ -6,6 +6,15 @@
 
 namespace EchoMusic
 {
+qreal EchoTextInkMetrics::fontCapCenterFromBaseline() const
+{
+    // A stable font reference keeps capitals in names level when punctuation
+    // or descenders change the outline bounds of the particular string.
+    QPainterPath reference;
+    reference.addText(QPointF(0, 0), font_, QStringLiteral("H"));
+    const auto bounds = reference.boundingRect();
+    return bounds.isEmpty() ? -QFontMetricsF(font_).capHeight() / 2 : bounds.center().y();
+}
 void EchoTextInkMetrics::setFont(const QFont &font)
 {
     if (font_ == font)

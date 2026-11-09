@@ -20,7 +20,9 @@ Item {
     readonly property EchoPageScrollContainer pageContainer: viewport
     property Component extraTabs
     property Component extraActions
-    property real expandedHeaderHeight: 176
+    // The mounted header owns expanded geometry; scroll placeholders and
+    // comment pages must use that same height, including when intro is absent.
+    property real expandedHeaderHeight: (heading.item as SongDetailHeader)?.expandedHeight ?? 176
     property real contentInset: 24
     property real headerTopMargin: 0
     // Explore uses a 36px control row with 10px bottom padding; detail

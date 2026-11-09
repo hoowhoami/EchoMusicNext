@@ -42,6 +42,7 @@ add_library(
     WindowsTaskbarThumbnail.h
     WindowsTaskbarThumbnail.cpp
     MenuBarLyric.h
+    MenuBarLyricLayout.h
     MenuBarLyric.cpp
 )
 target_compile_definitions(echo_platform PRIVATE ECHO_APPLICATION_ID="${ECHO_APPLICATION_ID}")

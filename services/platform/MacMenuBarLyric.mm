@@ -1,6 +1,7 @@
 // Native status-item interaction/layout is based on echo-menu-lyrics (MIT),
 // revision acfdff13c25b216857e8e1056ad8abf53ea54290. See docs/licenses/echo-menu-lyrics-MIT.txt.
 #include "MenuBarLyric.h"
+#include "MenuBarLyricLayout.h"
 #include <QGuiApplication>
 #include <QElapsedTimer>
 #include <algorithm>
@@ -144,6 +145,10 @@ struct CachedLine
     bool hovered;
     quint64 builds, ticks, displayRequests;
     CGFloat cutoff;
+    CGFloat availableWidth;
+    CGFloat layoutRightEdge;
+    CGFloat layoutDecoration;
+    quint64 layoutProbes;
 @private
     NSTrackingArea *tracking;
     NSTimer *animation;
@@ -155,9 +160,13 @@ struct CachedLine
     bool stopped;
     QElapsedTimer lineAge;
     bool rebuilding;
+    bool layoutPending;
+    bool measuringLayout;
 }
 - (void)applyState:(const MenuBarLyricState &)next style:(const MenuBarLyricStyle &)nextStyle;
 - (void)rebuild;
+- (void)scheduleLayout;
+- (void)finishLayout;
 - (void)refreshAnimation;
 - (void)stop;
 - (BOOL)animationActive;
@@ -168,6 +177,7 @@ struct CachedLine
 {
     if ((self = [super initWithFrame:frame])) {
         self.wantsLayer = YES;
+        availableWidth = MenuBarLyricLayout::compactWidth;
         lineAge.start();
         NSMutableArray *controls = [NSMutableArray array];
         for (int i = 0; i < 5; ++i) {
@@ -201,6 +211,19 @@ struct CachedLine
             addObserver:self
                selector:@selector(visibilityChanged:)
                    name:NSWindowDidChangeOcclusionStateNotification
+                 object:nil];
+        for (NSString *name in @[
+                 NSWindowDidMoveNotification, NSWindowDidChangeScreenNotification,
+                 NSWindowDidUpdateNotification
+             ])
+            [[NSNotificationCenter defaultCenter] addObserver:self
+                                                     selector:@selector(layoutChanged:)
+                                                         name:name
+                                                       object:nil];
+        [[NSNotificationCenter defaultCenter]
+            addObserver:self
+               selector:@selector(screenParametersChanged:)
+                   name:NSApplicationDidChangeScreenParametersNotification
                  object:nil];
         [[NSWorkspace sharedWorkspace].notificationCenter
             addObserver:self
@@ -250,7 +273,7 @@ struct CachedLine
     if (!hovered || !state.hasTrack)
         return -1;
     for (NSButton *button in buttons)
-        if (NSPointInRect(point, button.frame))
+        if (!button.hidden && NSPointInRect(point, button.frame))
             return button.tag;
     return -1;
 }
@@ -289,9 +312,24 @@ struct CachedLine
     if (callback)
         callback(static_cast<MenuBarLyric::Action>(sender.tag));
 }
-- (void)rightMouseDown:(NSEvent *)event
+- (NSMenu *)menuForEvent:(NSEvent *)event
 {
     auto *menu = [[NSMenu alloc] initWithTitle:@""];
+    if (self.bounds.size.width < 128 && state.hasTrack) {
+        // A crowded menu bar can fit a lyric fragment but not five buttons.
+        // Keep play/pause on hover and the remaining actions in this native menu.
+        for (NSButton *button in buttons) {
+            auto *entry = [[NSMenuItem alloc] initWithTitle:button.accessibilityLabel
+                                                     action:@selector(menuCommand:)
+                                              keyEquivalent:@""];
+            entry.target = self;
+            entry.tag = button.tag;
+            entry.enabled = button.enabled;
+            [menu addItem:entry];
+        }
+        menu.autoenablesItems = NO;
+        [menu addItem:NSMenuItem.separatorItem];
+    }
     const std::array<std::pair<QString, MenuBarLyric::Action>, 3> entries{
         {{QObject::tr("打开主窗口"), MenuBarLyric::Action::OpenMain},
          {QObject::tr("菜单栏歌词设置"), MenuBarLyric::Action::Settings},
@@ -304,6 +342,11 @@ struct CachedLine
         entry.tag = static_cast<NSInteger>(command);
         [menu addItem:entry];
     }
+    return menu;
+}
+- (void)rightMouseDown:(NSEvent *)event
+{
+    auto *menu = [self menuForEvent:event];
     [self setHovered:NO];
     [NSMenu popUpContextMenu:menu withEvent:event forView:self];
 }
@@ -354,7 +397,10 @@ struct CachedLine
                          state.hasTrack != next.hasTrack || state.visible != next.visible;
     state = next;
     style = nextStyle;
+    const bool showing = state.visible && !item.visible;
     item.visible = state.visible;
+    if (showing)
+        [self scheduleLayout];
     if (contentChanged)
         lineAge.restart();
     if (!state.visible) {
@@ -626,9 +672,11 @@ struct CachedLine
     const auto firstInk = inkBounds(first), secondInk = inkBounds(second);
     CFRelease(first);
     CFRelease(second);
-    const auto maximum = std::min(double(style.maxWidth),
-                                  std::max(128., double(NSScreen.mainScreen.frame.size.width) / 2));
-    const auto width = std::clamp(measured + 16., 128., maximum);
+    const auto maximum = measuringLayout
+                             ? MenuBarLyricLayout::compactWidth
+                             : std::max(MenuBarLyricLayout::compactWidth,
+                                        std::min(double(style.maxWidth), double(availableWidth)));
+    const auto width = std::min(std::max(measured + 16., 128.), maximum);
     if (std::abs(item.length - width) > .25)
         item.length = width;
     self.frame = NSMakeRect(0, 0, width, height);
@@ -700,9 +748,11 @@ struct CachedLine
     const CGFloat controlWidth = std::min(180., width - 8.);
     for (int i = 0; i < 5; ++i) {
         auto *button = buttons[i];
-        button.hidden = !controls;
-        button.frame = NSMakeRect((width - controlWidth) / 2 + i * controlWidth / 5., 0,
-                                  controlWidth / 5., height);
+        const bool compact = width < 128;
+        button.hidden = !controls || (compact && i != 2);
+        button.frame = compact ? NSMakeRect(4, 0, width - 8., height)
+                               : NSMakeRect((width - controlWidth) / 2 + i * controlWidth / 5., 0,
+                                            controlWidth / 5., height);
         button.image = [[NSImage imageWithSystemSymbolName:symbols[i]
                                   accessibilityDescription:nativeText(titles[i])]
             imageWithSymbolConfiguration:[NSImageSymbolConfiguration
@@ -752,6 +802,8 @@ struct CachedLine
       [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 4, 2) xRadius:6
                                        yRadius:6] fill];
       for (int i = 0; i < 5; ++i) {
+          if (buttons[i].hidden)
+              continue;
           NSImage *symbol = buttons[i].image;
           const auto color = i == 4 && state.favorite ? NSColor.systemRedColor : NSColor.labelColor;
           NSImage *tinted =
@@ -794,6 +846,55 @@ struct CachedLine
         [self rebuild];
     }
     [self refreshAnimation];
+    if (item && self.window)
+        [self scheduleLayout];
+}
+- (void)scheduleLayout
+{
+    if (stopped || !item || !state.visible || layoutPending)
+        return;
+    layoutPending = true;
+    // Overflowing status windows keep stale origins. Measure once at a compact
+    // width after AppKit/WindowServer have had time to place the native item.
+    measuringLayout = true;
+    [self rebuild];
+    __weak EchoMenuBarLyricView *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(),
+                   ^{
+                     [weakSelf finishLayout];
+                   });
+}
+- (void)finishLayout
+{
+    measuringLayout = false;
+    layoutPending = false;
+    if (stopped || !item || !state.visible)
+        return;
+    auto *screen = self.window.screen;
+    if (!screen)
+        return;
+    const auto frame = self.window.frame;
+    const auto rect = [](NSRect r) {
+        return QRectF(r.origin.x, r.origin.y, r.size.width, r.size.height);
+    };
+    availableWidth = MenuBarLyricLayout::availableWidth(
+        rect(screen.frame), rect(screen.auxiliaryTopRightArea), rect(frame), item.length);
+    layoutRightEdge = NSMaxX(frame);
+    layoutDecoration = frame.size.width - item.length;
+    ++layoutProbes;
+    [self rebuild];
+}
+- (void)layoutChanged:(NSNotification *)note
+{
+    if (note.object == self.window && !rebuilding && !measuringLayout &&
+        std::abs(self.window.frame.size.width - item.length - layoutDecoration) < .5 &&
+        (note.name == NSWindowDidChangeScreenNotification ||
+         std::abs(NSMaxX(self.window.frame) - layoutRightEdge) > .5))
+        [self scheduleLayout];
+}
+- (void)screenParametersChanged:(NSNotification *)note
+{
+    [self scheduleLayout];
 }
 - (void)viewDidChangeBackingProperties
 {
@@ -868,6 +969,7 @@ struct MenuBarLyric::Impl
     ~Impl()
     {
         [view stop];
+        item.view = nil;
         [view removeFromSuperview];
         [NSStatusBar.systemStatusBar removeStatusItem:item];
     }
@@ -883,15 +985,18 @@ void MenuBarLyric::create(std::function<void(Action)> action, std::function<doub
     if (m_impl || QGuiApplication::platformName() != QStringLiteral("cocoa"))
         return;
     m_impl = std::make_unique<Impl>();
-    m_impl->item = [NSStatusBar.systemStatusBar statusItemWithLength:128];
-    m_impl->item.visible = NO;
+    m_impl->item =
+        [NSStatusBar.systemStatusBar statusItemWithLength:MenuBarLyricLayout::compactWidth];
+    m_impl->item.visible = YES;
     m_impl->item.autosaveName = @"EchoMusicNextMenuBarLyrics";
     m_impl->view = [[EchoMenuBarLyricView alloc] initWithFrame:m_impl->item.button.bounds];
     m_impl->view->item = m_impl->item;
     m_impl->view->action = std::move(action);
     m_impl->view->position = std::move(position);
     m_impl->item.button.title = @"";
-    [m_impl->item.button addSubview:m_impl->view];
+    // Use AppKit's custom-status-view contract so the remote menu-bar host
+    // owns this view's placement and presentation lifecycle.
+    m_impl->item.view = m_impl->view;
     m_impl->view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 }
 void MenuBarLyric::update(const MenuBarLyricState &state, const MenuBarLyricStyle &style)
@@ -917,8 +1022,15 @@ QVariantMap MenuBarLyric::diagnostics() const
     return {{"created", true},
             {"visible", bool(m_impl->item.visible)},
             {"width", m_impl->item.length},
+            {"availableWidth", view->availableWidth},
+            {"layoutRightEdge", view->layoutRightEdge},
+            {"layoutProbes", QVariant::fromValue(view->layoutProbes)},
             {"height", view.bounds.size.height},
             {"windowNumber", qlonglong(view.window.windowNumber)},
+            {"windowX", view.window.frame.origin.x},
+            {"windowY", view.window.frame.origin.y},
+            {"windowWidth", view.window.frame.size.width},
+            {"windowHeight", view.window.frame.size.height},
             {"windowVisible", bool(view.window.visible)},
             {"occlusion", qulonglong(view.window.occlusionState)},
             {"hiddenAncestor", bool(view.hiddenOrHasHiddenAncestor)},

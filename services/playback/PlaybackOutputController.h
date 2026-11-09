@@ -2,6 +2,7 @@
 #include "PlaybackTrack.h"
 #include <QJsonObject>
 #include <QStringList>
+#include <optional>
 
 namespace EchoMusic
 {
@@ -16,8 +17,14 @@ public:
     void mediaRouteChanged();
     void consumeOutputEvent(const QJsonObject &event);
     void publishMedia();
+    void publishTimeline();
+    void syncMediaState();
 
 private:
+    friend class PlaybackServiceTestAccess;
+    bool mediaPlaying() const;
+    // Publication cache only; playback intent remains owned by PlaybackService.
+    std::optional<bool> m_publishedPlaying;
     PlaybackService &m_playback;
 };
 } // namespace EchoMusic

@@ -17,9 +17,9 @@ SongDetailHeader {
     readonly property int mvCount: Number(info.mv_count || 0)
     readonly property int fansCount: Number(info.fans || 0)
     readonly property string countsLine: {
-        const parts = [qsTr("%1 歌曲").arg(header.songCount)];
+        const parts = [qsTr("%1 首歌曲").arg(header.songCount)];
         if (header.albumCount > 0)
-            parts.push(qsTr("%1 专辑").arg(header.albumCount));
+            parts.push(qsTr("%1 张专辑").arg(header.albumCount));
         if (header.mvCount > 0)
             parts.push(qsTr("%1 MV").arg(header.mvCount));
         return parts.join(" • ");
@@ -113,24 +113,17 @@ SongDetailHeader {
             placeholderGlyphSize: 32
         }
     }
+    uniformMetadataRows: true
     detailsComponent: Component {
-        EchoTextTagRow {
-            objectName: "artistCountsLine"
-            text: header.countsLine
-            color: Theme.text
-            font: Theme.font(13, Theme.semiboldWeight)
-            fillTextWidth: true
+        DetailMetadataRow {
+            resourceActive: header.resourceActive
+            compact: header.width < 680
+            secondaryText: header.fansLine
+            secondaryObjectName: "artistFansLine"
+            rowObjectName: "artistFactsRow"
+            leadingText: header.countsLine
+            leadingObjectName: "artistCountsLine"
         }
     }
-    secondaryDetailsComponent: header.fansLine.length > 0 ? fansDetails : null
-    Component {
-        id: fansDetails
-        EchoTextTagRow {
-            objectName: "artistFansLine"
-            text: header.fansLine
-            color: Theme.secondaryText
-            font: Theme.font(12, Theme.regularWeight)
-            fillTextWidth: true
-        }
-    }
+    secondaryDetailsComponent: null
 }

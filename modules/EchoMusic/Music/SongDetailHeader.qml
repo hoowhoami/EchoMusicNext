@@ -14,6 +14,9 @@ Item {
     property string subtitle: ""
     property string metadata: ""
     property string description: ""
+    property bool uniformMetadataRows: descriptionLeadingComponent !== null
+    // Detail metadata and introductions share one font-size recipe.
+    property font descriptionFont: Theme.font(uniformMetadataRows ? 11 : 12, Theme.regularWeight)
     property string day: ""
     property bool ranking: false
     property bool playable: false
@@ -33,9 +36,12 @@ Item {
     property bool compactExpandedActions: false
     property Component leadingActions
     property bool loading: false
-    property real expandedHeight: 176 + (description.length > 0 ? 28 : 0)
+    // Album/playlist counts keep the second metadata row even without an
+    // introduction. Its geometry must not depend on optional text arriving.
+    readonly property bool hasDescriptionRow: uniformMetadataRows || descriptionLeadingComponent !== null || description.length > 0
+    property real expandedHeight: 176 + (hasDescriptionRow ? 28 : 0)
     readonly property real progress: Math.max(0, Math.min(1, scrollTop / (expandedHeight - 56)))
-    property real coverSize: 150 + (description.length > 0 ? 28 : 0)
+    property real coverSize: 150 + (hasDescriptionRow ? 28 : 0)
     readonly property real coverScale: 1 - progress * (1 - 32 / coverSize)
     signal playRequested
     signal batchRequested
@@ -176,12 +182,19 @@ Item {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.fillHeight: false
-                    visible: descriptionLeading.active || preview.text.length > 0
+                    Layout.minimumHeight: header.uniformMetadataRows ? 20 : implicitHeight
+                    Layout.maximumHeight: header.uniformMetadataRows ? 20 : Number.POSITIVE_INFINITY
+                    visible: header.uniformMetadataRows || descriptionLeading.active || preview.text.length > 0
                     spacing: 8
                     Loader {
                         id: descriptionLeading
                         objectName: "songDetailDescriptionLeading"
                         Layout.fillHeight: false
+                        Layout.alignment: Qt.AlignBaseline
+                        baselineOffset: {
+                            const content = item as Item;
+                            return content ? content.y + content.baselineOffset : 0;
+                        }
                         active: header.descriptionLeadingComponent !== null
                         visible: active
                         sourceComponent: header.descriptionLeadingComponent
@@ -192,9 +205,12 @@ Item {
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         Layout.fillHeight: false
-                        visible: text.length > 0
+                        Layout.alignment: header.uniformMetadataRows && text.length > 0 ? Qt.AlignBaseline : Qt.AlignVCenter
+                        // Retain the elastic slot when empty so the count row
+                        // has the same width/line box as an introduced page.
                         text: header.description.replace(/\s+/g, " ").trim()
-                        font: Theme.font(12, Theme.regularWeight)
+                        font: header.descriptionFont
+                        alignFontBaseline: header.uniformMetadataRows
                         color: Theme.secondaryText
                         lineHeight: 20
                         fillTextWidth: true
@@ -214,6 +230,8 @@ Item {
                         font: Theme.font(11, Theme.semiboldWeight)
                         padding: 0
                         Layout.fillHeight: false
+                        Layout.alignment: header.uniformMetadataRows ? Qt.AlignBaseline : Qt.AlignVCenter
+                        baselineOffset: contentItem ? contentItem.y + contentItem.baselineOffset : 0
                         hoverEnabled: true
                         HoverHandler {
                             enabled: detailsAction.enabled
@@ -224,6 +242,7 @@ Item {
                         contentItem: EchoTextTagRow {
                             text: detailsAction.text
                             font: detailsAction.font
+                            alignFontBaseline: header.uniformMetadataRows
                             lineHeight: 20
                             color: Theme.accentText
                         }

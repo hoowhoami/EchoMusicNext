@@ -17,6 +17,12 @@ public:
     void reset();
     void observe(const QJsonObject &event);
     Reason reason(bool available, bool playing) const;
+    /// Native EOF reports draining before state-change/playback-end. The
+    /// existing context-filtered snapshot bridges that automatic handoff.
+    bool draining() const
+    {
+        return m_core == "draining";
+    }
 
 private:
     QString m_core;

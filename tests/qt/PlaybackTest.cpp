@@ -2,6 +2,7 @@
 #include "PlaybackRepository.h"
 #include "AudioEngine.h"
 #include "PlaybackService.h"
+#include "PlaybackOutputController.h"
 #include "PlaybackSourcePlan.h"
 #include "SongCommands.h"
 #include "SongShareText.h"
@@ -93,6 +94,48 @@ public:
 class PlaybackServiceTestAccess
 {
 public:
+    static bool ready(const PlaybackService &p)
+    {
+        return p.m_ready && !p.m_queueRestorePending;
+    }
+    static void holdNativeEvents(PlaybackService &p)
+    {
+        QObject::disconnect(&p.m_engine, &AudioEngine::eventReceived, &p,
+                            &PlaybackService::onEvent);
+    }
+    static int publishedMediaPlaying(const PlaybackService &p)
+    {
+        const auto published = p.m_outputController->m_publishedPlaying;
+        return published ? int(*published) : -1;
+    }
+    static quint64 audioSequence(const PlaybackService &p)
+    {
+        return p.m_audioSequence;
+    }
+    static void acknowledge(PlaybackService &p, bool playing, quint64 sequence = 0)
+    {
+        p.consumeOutputEvent({{"event", "state-change"},
+                              {"track_seq", qint64(sequence ? sequence : p.m_audioSequence)},
+                              {"state", QJsonObject{{"playing", playing}, {"paused", !playing}}}});
+    }
+    static void loaded(PlaybackService &p)
+    {
+        p.consumeOutputEvent({{"event", "file-loaded"},
+                              {"seq", qint64(p.m_audioSequence)},
+                              {"track_seq", qint64(p.m_audioSequence)}});
+    }
+    static void failSource(PlaybackService &p)
+    {
+        emit p.m_source.failed(QStringLiteral("fixture source failure"));
+    }
+    static bool mediaTick(PlaybackService &p)
+    {
+        return QMetaObject::invokeMethod(&p.m_mediaTimer, "timeout", Qt::DirectConnection);
+    }
+    static void refreshMedia(PlaybackService &p)
+    {
+        p.publishMedia();
+    }
     static ListeningReporter &listening(PlaybackService &p)
     {
         return p.m_listening;
@@ -314,6 +357,142 @@ class PlaybackTest : public QObject
         return -1;
     }
 private slots:
+    void systemMediaStaysPlayingAcrossTrackLoadingAndHonorsTerminalStates()
+    {
+        using A = PlaybackServiceTestAccess;
+        QTemporaryDir dir;
+        SettingsStore settings(dir.filePath("settings.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        api.addInterceptor(100, [](const QJsonObject &, ApiInterceptNext, ApiInterceptDone) {
+            return std::function<void()>([] {});
+        });
+        PlaybackService playback(api, settings, nullptr, dir.filePath("queue.sqlite"));
+        QTRY_VERIFY_WITH_TIMEOUT(A::ready(playback), 15000);
+        A::holdNativeEvents(playback);
+        playback.preferences()->setMvAudioFallbackEnabled(false);
+        playback.preferences()->setAutoNext(false);
+        PlaybackTracks tracks;
+        for (int i = 1; i <= 3; ++i) {
+            auto t = track(i);
+            t.localPath.clear();
+            t.songId = quint64(i);
+            t.hash = QString(32, QChar('a' + i));
+            tracks.append(t);
+        }
+
+        // Observe the value submitted by the production publication boundary,
+        // while controlling source/native ACK order independently of hardware.
+        playback.playTracks(tracks, 0, "Media state", "media-state");
+        QVERIFY(playback.loading());
+        QVERIFY(!playback.playing());
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+        A::loaded(playback);
+        QVERIFY(playback.loading()); // Still waiting for the native Play ACK.
+        A::acknowledge(playback, false);
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+        A::acknowledge(playback, true);
+        QVERIFY(playback.playing());
+        QVERIFY(!playback.loading());
+
+        // Real native EOF order is draining -> paused state -> playback-end.
+        // Protect the state-change before the queue has begun loading next.
+        A::outputEvent(playback, {{"event", "core-state-change"},
+                                  {"core_state", "draining"},
+                                  {"reason", "playback-end"},
+                                  {"track_seq", qint64(A::audioSequence(playback))},
+                                  {"event_id", 100},
+                                  {"generation", 1}});
+        A::acknowledge(playback, false);
+        QVERIFY(!playback.playing());
+        QVERIFY(!playback.loading());
+        QVERIFY(A::mediaTick(playback));
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+        A::outputEvent(playback, {{"event", "playback-end"}, {"reason", "eof"}});
+        QVERIFY(playback.loading());
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+        A::loaded(playback);
+        A::acknowledge(playback, true);
+
+        const auto first = A::audioSequence(playback);
+        playback.next();
+        QVERIFY(playback.loading());
+        QVERIFY(!playback.playing());
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+        QVERIFY(A::mediaTick(playback));
+        A::refreshMedia(playback); // Covers/artwork may arrive during loading.
+        A::acknowledge(playback, false);
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+        const auto second = A::audioSequence(playback);
+        playback.next(); // Supersede a track that has not finished loading.
+        A::acknowledge(playback, true, first);
+        A::acknowledge(playback, false, second);
+        QVERIFY(!playback.playing());
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+
+        playback.toggle(); // Explicit pause while resolving the third track.
+        QCOMPARE(A::publishedMediaPlaying(playback), 0);
+        playback.toggle();
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+        playback.pause();
+        QCOMPARE(A::publishedMediaPlaying(playback), 0);
+        playback.play(); // Resume before file-loaded must restore media intent.
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+        A::loaded(playback);
+        QVERIFY(playback.loading());
+        QVERIFY(A::mediaTick(playback));
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+        playback.pause(); // Cancel while waiting for the Play ACK.
+        QVERIFY(!playback.loading());
+        QCOMPARE(A::publishedMediaPlaying(playback), 0);
+
+        playback.setPlayMode(PlaybackService::Sequential);
+        playback.playIndex(2);
+        A::loaded(playback);
+        A::acknowledge(playback, true);
+        A::outputEvent(playback, {{"event", "core-state-change"},
+                                  {"core_state", "draining"},
+                                  {"reason", "playback-end"},
+                                  {"track_seq", qint64(A::audioSequence(playback))},
+                                  {"event_id", 101},
+                                  {"generation", 1}});
+        A::acknowledge(playback, false);
+        QCOMPARE(A::publishedMediaPlaying(playback), 1);
+        A::outputEvent(playback, {{"event", "playback-end"}, {"reason", "eof"}});
+        QVERIFY(!playback.loading());
+        QCOMPARE(A::publishedMediaPlaying(playback), 0); // End of sequential queue.
+
+        playback.playIndex(0);
+        A::loaded(playback);
+        A::acknowledge(playback, true);
+        playback.pause();
+        A::acknowledge(playback, false);
+        QCOMPARE(A::publishedMediaPlaying(playback), 0);
+
+        playback.playIndex(1);
+        A::failSource(playback);
+        QVERIFY(!playback.loading());
+        QCOMPARE(A::publishedMediaPlaying(playback), 0);
+        playback.playIndex(2);
+        A::loaded(playback);
+        A::outputEvent(
+            playback,
+            {{"event", "error"}, {"error_code", "device"}, {"message", "fixture output failure"}});
+        QVERIFY(!playback.loading());
+        QCOMPARE(A::publishedMediaPlaying(playback), 0);
+
+        playback.playIndex(0);
+        const auto stopped = A::audioSequence(playback);
+        playback.stop();
+        A::acknowledge(playback, true, stopped);
+        QVERIFY(!playback.playing());
+        QVERIFY(A::mediaTick(playback));
+        QCOMPARE(A::publishedMediaPlaying(playback), 0);
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
+
     void localFilePickerReturnsImmediatelyAndCancelsOnSessionOrShutdown()
     {
         QTemporaryDir directory;

@@ -234,8 +234,7 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         if (!m_playback.m_cast->remoteMedia())
             m_playback.m_recovery->handleEvent(event);
         m_playback.m_listenTick.restart();
-        m_playback.m_engine.mediaTimeline(m_playback.m_position, m_playback.m_duration,
-                                          m_playback.m_playing, m_playback.speed());
+        publishTimeline();
         emit m_playback.changed();
     } else if (kind == "playback-end") {
         if (event.value("reason").toString() != "eof")
@@ -283,12 +282,40 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
 
 void PlaybackOutputController::publishMedia()
 {
-    if (!m_playback.m_ready)
+    if (!m_playback.m_ready || m_playback.m_closing)
         return;
     m_playback.m_engine.mediaMetadata(m_playback.m_track.title, m_playback.m_track.artist,
                                       m_playback.m_track.album, m_playback.m_duration,
                                       m_playback.m_coverPng);
-    m_playback.m_engine.mediaTimeline(m_playback.m_position, m_playback.m_duration,
-                                      m_playback.m_playing, m_playback.speed());
+    publishTimeline();
+}
+
+bool PlaybackOutputController::mediaPlaying() const
+{
+    // Like EchoMusic's buildMediaState: a requested track remains Playing in
+    // SMTC/Now Playing/MPRIS throughout EOF, source loading and the native Play ACK.
+    // A transient Paused here can hand Bluetooth multipoint audio to another
+    // device. Keep this projection separate from the actual engine/UI state.
+    return !m_playback.m_closing && m_playback.hasTrack() &&
+           (m_playback.m_playing ||
+            (m_playback.m_autoplay && (m_playback.loading() || m_playback.m_progress.draining())));
+}
+
+void PlaybackOutputController::publishTimeline()
+{
+    if (!m_playback.m_ready || m_playback.m_closing)
+        return;
+    const auto playing = mediaPlaying();
+    m_playback.m_engine.mediaTimeline(m_playback.m_position, m_playback.m_duration, playing,
+                                      m_playback.speed());
+    m_publishedPlaying = playing;
+}
+
+void PlaybackOutputController::syncMediaState()
+{
+    // Covers terminal source errors and explicit pause/stop without waiting
+    // for the periodic timeline tick. Metadata/lyric-only changes do no work.
+    if (m_publishedPlaying != mediaPlaying())
+        publishTimeline();
 }
 } // namespace EchoMusic

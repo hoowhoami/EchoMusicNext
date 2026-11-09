@@ -13,9 +13,10 @@ Item {
     property string typeLabel: ""
     property bool coverRound: false
     property real expandedHeight: 176
+    property real coverSize: expandedHeight - 26
     property bool resourceActive: true
     readonly property real inset: width < 768 ? 18 : 24
-    readonly property real infoWidth: Math.max(0, body.width - inset * 2 - (width < 768 ? 0 : 170))
+    readonly property real infoWidth: Math.max(0, body.width - inset * 2 - (width < 768 ? 0 : coverSize + 20))
     SongListGeometry {
         id: skeletonGeometry
     }
@@ -49,8 +50,8 @@ Item {
                     columnSpacing: 20
                     rowSpacing: 16
                     Item {
-                        Layout.preferredWidth: 150
-                        Layout.preferredHeight: 150
+                        Layout.preferredWidth: skeleton.coverSize
+                        Layout.preferredHeight: skeleton.coverSize
                         Layout.alignment: Qt.AlignLeft | Qt.AlignTop
                         EchoSurfaceShadow {
                             anchors.fill: parent
@@ -76,7 +77,7 @@ Item {
                         // Resolve percentages from the available column, avoiding a
                         // child preferred width -> parent implicit width loop.
                         Layout.preferredWidth: skeleton.infoWidth
-                        Layout.preferredHeight: 150
+                        Layout.preferredHeight: skeleton.coverSize
                         spacing: 0
                         RowLayout {
                             Layout.fillWidth: true

@@ -63,7 +63,6 @@ RoutePage {
             }
         }
         menuSongId: page.menuSongId
-        expandedHeaderHeight: 176 + (page.detail.detail.description ? 28 : 0)
         onRetryRequested: page.detail.reload()
         onMoreRequested: (id, sceneX, sceneY) => page.showSongMenu(id, sceneX, sceneY)
         extraActions: page.detail.orderListId > 0 ? orderAction : null
@@ -100,6 +99,7 @@ RoutePage {
         active: page.detail.loading && !page.detail.detail.global_id
         sourceComponent: SongDetailSkeleton {
             typeLabel: "PLAYLIST"
+            expandedHeight: catalog.expandedHeaderHeight
             resourceActive: page.pageActive
         }
     }

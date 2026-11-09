@@ -1,9 +1,11 @@
+#include "EchoWindowPixelSnap.h"
 #include "AlbumDetailService.h"
 #include "NetworkPreferences.h"
 #include "PlaybackService.h"
 #include "ShellSettings.h"
 #include "ThemeStore.h"
 #include <QAbstractItemModelTester>
+#include <algorithm>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QQmlComponent>
@@ -53,6 +55,11 @@ public:
                       {"language", "国语"},
                       {"category", "录音室专辑"}};
         c.m_actions.setQueueContext(title, "queue:album:" + c.m_route.resourceId());
+        emit c.changed();
+    }
+    static void setDescription(AlbumDetailContext &c, const QString &description)
+    {
+        c.m_detail["description"] = description;
         emit c.changed();
     }
     static void setSize(AlbumDetailContext &c, quint32 size)
@@ -304,6 +311,54 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
         api.shutdown();
     }
+    void sharedMetadataPreservesAuthorActions()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Music
+import EchoMusic.Theme
+Window {
+ visible: true; width: 900; height: 120; color: Theme.main
+ DetailMetadataRow {
+  objectName: "sharedMetadata"; width: parent.width - 48; x: 24; y: 24
+  authors: [{id: "3520", name: "MAKE_LOVE"}, {id: "3521", name: "Mingginyu"}]
+  authorLinks: true; authorObjectName: "sharedAuthor"
+  secondaryText: "2021-10-03 发布"; labels: ["兴奋", "车载", "游戏"]
+ }
+})",
+                          QUrl("qrc:/shared-metadata-actions.qml"));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        window->requestActivate();
+        if (QGuiApplication::platformName() != "offscreen")
+            QVERIFY(QTest::qWaitForWindowActive(window));
+        auto *metadata = albumVisual(window->contentItem(), "sharedMetadata");
+        QVERIFY(metadata);
+        QSignalSpy activated(metadata, SIGNAL(authorActivated(QString)));
+        QVERIFY(activated.isValid());
+        const auto click = [&] {
+            auto *author = albumVisual(metadata, "sharedAuthor");
+            const auto center = author->mapToScene(author->boundingRect().center()).toPoint();
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center);
+        };
+        QTest::qWait(100);
+        click();
+        QTRY_COMPARE(activated.size(), 1);
+        QCOMPARE(activated.first().first().toString(), QString("3520"));
+        metadata->setProperty("authorLinks", false);
+        QTest::qWait(100);
+        click();
+        QTest::qWait(30);
+        QCOMPARE(activated.size(), 1);
+    }
     void nativeAlbumPage()
     {
         QTemporaryDir dir;
@@ -419,6 +474,8 @@ Window {
         auto *categoryTag = albumVisual(category, "albumCategoryTag");
         auto *preview = albumVisual(header, "songDetailDescriptionPreview");
         QVERIFY(count && avatar && categoryTag && preview);
+        QCOMPARE(preview->property("font").value<QFont>().pixelSize(),
+                 count->property("font").value<QFont>().pixelSize());
         QCOMPARE(count->property("text").toString(), QString("200 首歌曲"));
         QCOMPARE(categoryTag->property("text").toString(), QString("录音室专辑"));
         QCOMPARE(avatar->property("source").toUrl(), QUrl(coverUrl));
@@ -494,6 +551,65 @@ Window {
                     QTest::qWait(200);
                     const auto frame = window->grabWindow();
                     QVERIFY(!frame.isNull());
+                    const auto ratio = qreal(frame.width()) / window->width();
+                    const auto rowCenter =
+                        avatar->mapRectToScene(avatar->boundingRect()).center().y();
+                    QList<qreal> authorBaselines;
+                    const auto verifyInk = [&](auto &&self, QQuickItem *item, bool textRow,
+                                               bool authorRow) -> bool {
+                        authorRow = authorRow || item->objectName() == "albumArtistLink";
+                        textRow = textRow || item->objectName() == "albumArtistLink" ||
+                                  item->objectName() == "albumPublishLine" ||
+                                  item->objectName() == "albumCategoryTag" ||
+                                  item->objectName() == "albumLanguage";
+                        if (textRow && item->isVisible() &&
+                            item->property("textFormat").isValid() &&
+                            item->property("lineHeight").isValid()) {
+                            if (authorRow)
+                                authorBaselines.append(
+                                    item->mapToItem(header, {0, item->baselineOffset()}).y());
+                            const auto shown = item->property("text").toString();
+                            if (std::none_of(shown.cbegin(), shown.cend(),
+                                             [](QChar c) { return c.isLetterOrNumber(); }))
+                                return true; // An elided name keeps its baseline; dots are below
+                                             // its letter body.
+                            const auto bounds = item->mapRectToScene(
+                                QRectF(0, -2, item->width(), item->height() + 4));
+                            const auto region =
+                                QRectF(bounds.topLeft() * ratio, bounds.size() * ratio)
+                                    .toAlignedRect()
+                                    .intersected(frame.rect());
+                            const auto ink = item->property("color").value<QColor>();
+                            int top = frame.height(), bottom = -1;
+                            for (int y = region.top(); y <= region.bottom(); ++y)
+                                for (int x = region.left(); x <= region.right(); ++x) {
+                                    const auto color = frame.pixelColor(x, y);
+                                    if (qAbs(color.red() - ink.red()) +
+                                            qAbs(color.green() - ink.green()) +
+                                            qAbs(color.blue() - ink.blue()) <
+                                        50) {
+                                        top = qMin(top, y);
+                                        bottom = qMax(bottom, y);
+                                    }
+                                }
+                            const auto center = (top + bottom + 1) / (2 * ratio);
+                            if (bottom < top || qAbs(center - rowCenter) > 1. / ratio) {
+                                qWarning()
+                                    << "Album identity ink/avatar center" << item->property("text")
+                                    << center << rowCenter << scale << width;
+                                return false;
+                            }
+                        }
+                        for (auto *child : item->childItems())
+                            if (!self(self, child, textRow, authorRow))
+                                return false;
+                        return true;
+                    };
+                    QVERIFY(
+                        verifyInk(verifyInk, albumVisual(header, "albumArtistRow"), false, false));
+                    QVERIFY(!authorBaselines.isEmpty());
+                    for (auto baseline : authorBaselines)
+                        QVERIFY(qAbs(baseline - authorBaselines.first()) < .01);
                     QVERIFY(category->mapToItem(header, QPointF(category->width(), 0)).x() <=
                             header->width() - 24);
                     if (!artifacts.isEmpty())
@@ -502,7 +618,22 @@ Window {
                                                            .arg(scale)
                                                            .arg(width)));
                 }
-        AlbumDetailContextTestAccess::seed(*context, "无简介专辑", "");
+        auto *coverSlot = albumVisual(header, "songDetailCoverSlot");
+        auto *titleRow = albumVisual(header, "songDetailTitleRow");
+        auto *metadataRow = albumVisual(header, "albumArtistRow");
+        auto *introRow = albumVisual(header, "songDetailDescription");
+        const auto coverSize = coverSlot->size();
+        const auto titlePosition = titleRow->mapToItem(header, QPointF());
+        const auto metadataPosition = metadataRow->mapToItem(header, QPointF());
+        const auto introPosition = introRow->mapToItem(header, QPointF());
+        AlbumDetailContextTestAccess::setDescription(*context, "");
+        QTest::qWait(100);
+        QCOMPARE(header->property("coverSize").toReal(), 178.);
+        QCOMPARE(header->property("expandedHeight").toReal(), 204.);
+        QCOMPARE(coverSlot->size(), coverSize);
+        QCOMPARE(titleRow->mapToItem(header, QPointF()), titlePosition);
+        QCOMPARE(metadataRow->mapToItem(header, QPointF()), metadataPosition);
+        QCOMPARE(introRow->mapToItem(header, QPointF()), introPosition);
         QTRY_VERIFY(count->isVisible());
         QTRY_VERIFY(!introAction->isVisible());
         QVERIFY(!introOwner->property("item").value<QObject *>());
@@ -515,5 +646,5 @@ Window {
         api.shutdown();
     }
 };
-QTEST_MAIN(AlbumDetailTest)
+QTEST_MAIN_WRAPPER(AlbumDetailTest, QTEST_MAIN_SETUP() EchoMusic::installWindowPixelSnap();)
 #include "AlbumDetailTest.moc"

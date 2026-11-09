@@ -15,6 +15,7 @@ qt_add_qml_module(
     ArtistDirectorySliceModel.cpp
     QML_FILES
     SongDetailHeader.qml
+    DetailMetadataRow.qml
     SongDetailSkeleton.qml
     SongCatalogView.qml
     CatalogSongList.qml

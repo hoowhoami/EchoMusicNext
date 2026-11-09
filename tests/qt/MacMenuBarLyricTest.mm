@@ -1,8 +1,10 @@
 #include "MenuBarLyric.h"
+#include "MenuBarLyricLayout.h"
 #include <QElapsedTimer>
 #include <QImage>
 #include <QPainter>
 #include <QDir>
+#include <QProcess>
 #include <ctime>
 #include <cmath>
 #include <QtTest>
@@ -22,6 +24,11 @@ NSView *findView(NSView *root)
 }
 NSView *nativeView(const MenuBarLyric &item)
 {
+    // Initial compact probing is queued across AppKit's status-bar layout.
+    if (item.diagnostics().value("layoutProbes").toULongLong() == 0)
+        QTest::qWait(150);
+    QCoreApplication::processEvents();
+    QCoreApplication::processEvents();
     return findView(
         [NSApp windowWithWindowNumber:item.diagnostics().value("windowNumber").toLongLong()]
             .contentView);
@@ -69,6 +76,108 @@ class MacMenuBarLyricTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void availableSpaceUsesHostScreenAndCompactAnchor()
+    {
+        using MenuBarLyricLayout::availableWidth;
+        const QRectF builtIn(0, 0, 1512, 982);
+        const QRectF notchRight(848.5, 950, 663.5, 32);
+        QCOMPARE(availableWidth(builtIn, notchRight, QRectF(854, 949, 40, 33), 24), 27.);
+        // More space to the right of the notch; decorations are not lyric space.
+        QCOMPARE(availableWidth(builtIn, notchRight, QRectF(1150, 949, 40, 33), 24), 323.);
+        // A non-notched external display can be left of the primary display.
+        QCOMPARE(availableWidth(QRectF(-1920, 0, 1920, 1080), {}, QRectF(-300, 1058, 24, 22), 24),
+                 682.);
+        // No unsafe clamp with a 128-point lower bound, even when 24 cannot fit.
+        QCOMPARE(availableWidth(builtIn, notchRight, QRectF(820, 949, 40, 33), 24), 24.);
+        QCOMPARE(availableWidth({}, {}, {}, 24), 24.);
+    }
+    void longLyricsRespectViewportWithAndWithoutScrolling()
+    {
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Native AppKit display required");
+        MenuBarLyric item;
+        item.create([](auto) {}, [] { return 1000.; });
+        auto state = timedState();
+        state.content.primary = QString(160, QChar(0x56fd));
+        state.content.secondary.clear();
+        state.content.wordTimed = false;
+        state.content.words.clear();
+        MenuBarLyricStyle style;
+        style.maxWidth = 800;
+        style.colorMode = 2;
+        style.primaryColor = QColor("#ee3030");
+        item.update(state, style);
+        auto *view = nativeView(item);
+        QVERIFY(view);
+        QTRY_VERIFY(item.diagnostics().value("layoutProbes").toULongLong() > 0);
+        QTest::qWait(700);
+        const auto width = item.diagnostics().value("width").toDouble();
+        const auto safe = view.window.screen.auxiliaryTopRightArea;
+        qInfo() << "Native lyric width/budget/anchor" << width
+                << item.diagnostics().value("availableWidth")
+                << item.diagnostics().value("layoutRightEdge");
+        QVERIFY(width <= item.diagnostics().value("availableWidth").toDouble());
+        QVERIFY(width >= MenuBarLyricLayout::compactWidth);
+        if (!NSIsEmptyRect(safe) && NSMaxX(view.window.frame) - NSMinX(safe) >= 40)
+            QVERIFY(NSMinX(view.window.frame) >= NSMinX(safe));
+        QVERIFY(!item.diagnostics().value("timerActive").toBool());
+        auto pixels = hostSnapshot(view);
+        QVERIFY(!pixels.isNull());
+        int ink = 0;
+        for (int y = 0; y < pixels.height(); ++y)
+            for (int x = 0; x < pixels.width(); ++x)
+                ink += pixels.pixelColor(x, y).alpha() > 40;
+        QVERIFY2(ink > 10, "A constrained non-scrolling lyric must retain visible text/ellipsis");
+        const auto artifacts = qEnvironmentVariable("ECHO_MENU_BAR_ARTIFACTS");
+        if (!artifacts.isEmpty()) {
+            QVERIFY(pixels.save(artifacts + "/constrained-static.png"));
+            // A proxy outside the screen has no meaningful capture rectangle.
+            // Captures are evidence for review, not a visibility assertion.
+            const auto frame = view.window.frame;
+            // Remote status proxies can report a vertically shifted window;
+            // the menu bar itself remains at the host screen's physical top.
+            if (NSMaxX(frame) > NSMidX(view.window.screen.frame)) {
+                const auto top =
+                    NSMaxY(NSScreen.screens.firstObject.frame) - NSMaxY(view.window.screen.frame);
+                const auto barHeight =
+                    std::max(frame.size.height, view.window.screen.safeAreaInsets.top);
+                const auto region = QString("-R%1,%2,%3,%4")
+                                        .arg(int(frame.origin.x))
+                                        .arg(int(top))
+                                        .arg(int(frame.size.width))
+                                        .arg(int(barHeight));
+                QCOMPARE(QProcess::execute("/usr/sbin/screencapture",
+                                           {"-x", region, artifacts + "/constrained-menu-bar.png"}),
+                         0);
+            }
+        }
+        style.scrolling = true;
+        item.update(state, style);
+        QTRY_VERIFY(item.diagnostics().value("timerActive").toBool());
+        QCOMPARE(item.diagnostics().value("width").toDouble(), width);
+        const auto builds = item.diagnostics().value("textBuilds");
+        const auto scrollingProbes = item.diagnostics().value("layoutProbes");
+        const auto requests = item.diagnostics().value("displayRequests").toULongLong();
+        QTest::qWait(1800);
+        QVERIFY(item.diagnostics().value("displayRequests").toULongLong() > requests);
+        // Other applications can resize status items during this real-bar test
+        // (for example network-speed digits). Only unchanged geometry promises
+        // reuse of the exact same text surface.
+        if (item.diagnostics().value("layoutProbes") == scrollingProbes)
+            QCOMPARE(item.diagnostics().value("textBuilds"), builds);
+        if (!artifacts.isEmpty())
+            QVERIFY(hostSnapshot(view).save(artifacts + "/constrained-scrolling.png"));
+        const auto probes = item.diagnostics().value("layoutProbes").toULongLong();
+        [[NSNotificationCenter defaultCenter]
+            postNotificationName:NSApplicationDidChangeScreenParametersNotification
+                          object:NSApp];
+        QTRY_VERIFY(item.diagnostics().value("layoutProbes").toULongLong() > probes);
+        QTest::qWait(350);
+        QVERIFY(item.diagnostics().value("width").toDouble() <=
+                item.diagnostics().value("availableWidth").toDouble());
+        item.reset();
+        QCoreApplication::processEvents();
+    }
     void originalModeCentersSingleLineEvenAfterBilingual()
     {
         if (QGuiApplication::platformName() != "cocoa")
@@ -89,6 +198,8 @@ private slots:
             item.update(state, style);
             auto *view = nativeView(item);
             QVERIFY(view);
+            if (view.bounds.size.width < 128)
+                QSKIP("This pixel fixture needs 128 points of physical menu-bar space");
             [view setFrameSize:NSMakeSize(view.frame.size.width, height)];
             style.displayMode = 0;
             item.update(state, style);
@@ -141,6 +252,8 @@ private slots:
             item.update(state, style);
             auto *view = nativeView(item);
             QVERIFY(view);
+            if (view.bounds.size.width < 128)
+                QSKIP("This pixel fixture needs 128 points of physical menu-bar space");
             const auto pixels = hostSnapshot(view);
             QRect primary, secondary;
             for (int y = 0; y < pixels.height(); ++y)
@@ -208,6 +321,8 @@ private slots:
                 item.update(state, style);
                 auto *view = nativeView(item);
                 QVERIFY(view);
+                if (view.bounds.size.width < 128)
+                    QSKIP("This pixel fixture needs 128 points of physical menu-bar space");
                 [view setFrameSize:NSMakeSize(view.frame.size.width, height)];
                 const auto pixels = hostSnapshot(view);
                 QRect all;
@@ -301,6 +416,8 @@ private slots:
         item.update(state, style);
         auto *view = nativeView(item);
         QVERIFY(view);
+        if (view.bounds.size.width < 128)
+            QSKIP("This pixel fixture needs 128 points of physical menu-bar space");
         QCoreApplication::processEvents();
         [view displayIfNeeded];
         const auto builds = item.diagnostics().value("textBuilds").toULongLong();
@@ -485,9 +602,12 @@ private slots:
         QVERIFY(!item.diagnostics().value("timerActive").toBool());
         QList<NSButton *> buttons;
         for (NSView *child in view.subviews)
-            if ([child isKindOfClass:NSButton.class] && !child.hidden)
+            if ([child isKindOfClass:NSButton.class])
                 buttons << (NSButton *)child;
         QCOMPARE(buttons.size(), 5);
+        const bool compact = view.bounds.size.width < 128;
+        for (int i = 0; i < 5; ++i)
+            QCOMPARE(bool(buttons[i].hidden), compact && i != 2);
         for (int i = 0; i < 5; ++i) {
             auto *button = buttons[i];
             QVERIFY(button.accessibilityLabel.length > 0);
@@ -520,6 +640,16 @@ private slots:
         state.favoriteEnabled = false;
         item.update(state, {});
         QVERIFY(!buttons.last().enabled);
+        if (compact) {
+            auto *menu = [view menuForEvent:[NSEvent new]];
+            QCOMPARE(menu.numberOfItems, 9); // Five controls, separator, three shell actions.
+            for (int i = 0; i < 5; ++i) {
+                auto *entry = [menu itemAtIndex:i];
+                QCOMPARE(entry.tag, i);
+                QCOMPARE(bool(entry.enabled), i != 4);
+                QVERIFY(entry.title.length > 0);
+            }
+        }
         [buttons.last() performClick:nil];
         QCOMPARE(commands.size(), before + 1);
         [view mouseExited:[NSEvent new]];
@@ -533,6 +663,8 @@ private slots:
             QVERIFY(pixels.save(artifacts + "/native-controls.png"));
             QVERIFY(pixels.pixelColor(pixels.width() / 2, 4).alpha() < 40);
             for (int i = 0; i < 5; ++i) {
+                if (buttons[i].hidden)
+                    continue;
                 int ink = 0;
                 const auto cell = buttons[i].frame;
                 for (int y = 4; y < pixels.height() - 4; ++y)

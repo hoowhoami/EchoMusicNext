@@ -24,6 +24,8 @@ class EchoTextInkMetrics : public QObject
     Q_PROPERTY(qreal inkCenterFromBaseline READ inkCenterFromBaseline NOTIFY metricsChanged FINAL)
     Q_PROPERTY(qreal firstLineInkCenterFromBaseline READ firstLineInkCenterFromBaseline NOTIFY
                    metricsChanged FINAL)
+    Q_PROPERTY(
+        qreal fontCapCenterFromBaseline READ fontCapCenterFromBaseline NOTIFY fontChanged FINAL)
     Q_PROPERTY(bool hasInk READ hasInk NOTIFY metricsChanged FINAL)
 public:
     explicit EchoTextInkMetrics(QObject *parent = nullptr) : QObject(parent) {}
@@ -71,6 +73,7 @@ public:
     {
         return hasInk_;
     }
+    qreal fontCapCenterFromBaseline() const;
     void setFont(const QFont &font);
     void setText(const QString &text);
     void setLayoutWidth(qreal width);

@@ -509,11 +509,13 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
             m_probedSource.clear();
         });
     m_mediaTimer.setInterval(1000);
+    connect(this, &PlaybackService::changed, this,
+            [this] { m_outputController->syncMediaState(); });
     connect(&m_mediaTimer, &QTimer::timeout, this, [this] {
         m_sleepTimer.tick(hasTrack() ? m_track.stableKey() : QString(), m_playing);
         m_transition->tick();
         if (m_ready && hasTrack())
-            m_engine.mediaTimeline(m_position, m_duration, m_playing, speed());
+            m_outputController->publishTimeline();
     });
     m_mediaTimer.start();
     connect(&m_audioControls, &PlaybackAudioControls::selectedOutputDisconnected, this,
@@ -900,9 +902,9 @@ void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
     m_duration = qint64(resolved.durationMs);
     m_error.clear();
     m_playing = false;
-    publishMedia();
     m_loading = true;
     m_autoplay = true;
+    publishMedia();
     m_lyricText.clear();
     m_lyricState = "loading";
     m_revision = m_api.sessionRevision();
@@ -1024,6 +1026,7 @@ void PlaybackService::toggle()
             m_listenTogether->localPauseRequested();
         if (!m_autoplay)
             m_engine.command(AudioEngine::Pause);
+        emit changed();
     } else if (m_startPending || m_playing)
         pause();
     else
@@ -1045,8 +1048,10 @@ void PlaybackService::play()
         return;
     }
     m_autoplay = true;
-    if (loading())
+    if (loading()) {
+        emit changed();
         return;
+    }
     if (!m_loaded || !m_error.isEmpty()) {
         if (m_personalFm->active() && m_personalFm->m_resetPending) {
             m_personalFm->play();
@@ -1071,9 +1076,8 @@ void PlaybackService::pause()
     m_recovery->cancel();
     m_listening.resetPosition();
     m_autoplay = false;
-    const bool startWasPending = std::exchange(m_startPending, false);
-    if (startWasPending)
-        emit changed();
+    m_startPending = false;
+    emit changed();
     m_sleepInhibitor.setRequired(false);
     if (m_cast->remoteMedia()) {
         m_cast->pauseMedia();

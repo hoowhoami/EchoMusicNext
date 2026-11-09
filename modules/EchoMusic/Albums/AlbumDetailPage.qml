@@ -56,7 +56,6 @@ RoutePage {
             }
         }
         menuSongId: page.menuSongId
-        expandedHeaderHeight: 176 + (page.detail.detail.description ? 28 : 0)
         onRetryRequested: page.detail.reload()
         onMoreRequested: (id, sceneX, sceneY) => page.showSongMenu(id, sceneX, sceneY)
         headerComponent: Component {
@@ -83,6 +82,7 @@ RoutePage {
         active: page.detail.detailLoading && !page.detail.detail.id
         sourceComponent: SongDetailSkeleton {
             typeLabel: "ALBUM"
+            expandedHeight: catalog.expandedHeaderHeight
             resourceActive: page.pageActive
         }
     }

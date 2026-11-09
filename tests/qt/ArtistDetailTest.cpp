@@ -1,3 +1,4 @@
+#include "EchoWindowPixelSnap.h"
 #include "ArtistDetailService.h"
 #include "NetworkPreferences.h"
 #include "PlaybackService.h"
@@ -52,6 +53,11 @@ public:
     static void setSize(ArtistDetailContext &c, quint32 size)
     {
         c.m_pageSize = size;
+    }
+    static void setDescription(ArtistDetailContext &c, const QString &description)
+    {
+        c.m_detail["description"] = description;
+        emit c.changed();
     }
     static void setAvatar(ArtistDetailContext &c, const QString &url)
     {
@@ -503,6 +509,7 @@ Window {
         auto *initialPage = artistVisual(window->contentItem(), "songDetailSkeleton");
         auto *detailViewport = artistVisual(window->contentItem(), "artistDetailViewport");
         QVERIFY(initialCover && headerCover && initialPage && detailViewport);
+        QCOMPARE(initialCover->size(), QSizeF(178, 178));
         QVERIFY(!detailViewport->isVisible());
         const auto skeletonArtifacts = qEnvironmentVariable("ECHO_ARTIST_ARTIFACTS");
         if (!skeletonArtifacts.isEmpty())
@@ -577,8 +584,19 @@ Window {
         auto *avatarCover = artistVisual(header, "artistDetailCover");
         QVERIFY(counts && fans && typeTag && avatarCover);
         QCOMPARE(typeTag->property("text").toString(), QString("ARTIST"));
-        QVERIFY(counts->property("text").toString().contains("200 歌曲"));
-        QVERIFY(counts->property("text").toString().contains("49 专辑"));
+        auto *introduction = artistVisual(header, "songDetailDescriptionPreview");
+        QVERIFY(introduction);
+        for (auto *text : {counts, fans, introduction})
+            QCOMPARE(text->property("font").value<QFont>().pixelSize(), 11);
+        QCOMPARE(header->property("coverSize").toReal(), 178.);
+        QCOMPARE(header->property("expandedHeight").toReal(), 204.);
+        const auto countCenter =
+            counts->mapToItem(header, {0, counts->property("firstLineInkCenter").toReal()}).y();
+        const auto fansCenter =
+            fans->mapToItem(header, {0, fans->property("firstLineInkCenter").toReal()}).y();
+        QCOMPARE(countCenter, fansCenter);
+        QVERIFY(counts->property("text").toString().contains("200 首歌曲"));
+        QVERIFY(counts->property("text").toString().contains("49 张专辑"));
         QVERIFY(counts->property("text").toString().contains("2826 MV"));
         QVERIFY(fans->property("text").toString().contains("2580.2万"));
         QVERIFY(fans->property("text").toString().contains("1979-01-18"));
@@ -745,6 +763,24 @@ Window {
         QCOMPARE(context->songs()->count(), 200);
         QVERIFY(QMetaObject::invokeMethod(detailViewport, "scrollTo", Q_ARG(double, 0.)));
         QTRY_COMPARE(detailViewport->property("scrollTop").toReal(), 0.);
+        // Returning from albums restores the action row on the next polish.
+        // Capture geometry only after that layout is presented.
+        QTRY_COMPARE(artistVisual(header, "songDetailActions")->height(), 36.);
+        QVERIFY(!window->grabWindow().isNull());
+        const auto coverSize = avatarCover->size();
+        auto *factsRow = artistVisual(header, "artistFactsRow");
+        const auto facts = factsRow->mapRectToItem(header, factsRow->boundingRect());
+        const auto intro = introduction->parentItem()->mapRectToItem(
+            header, introduction->parentItem()->boundingRect());
+        ArtistDetailContextTestAccess::setDescription(*context, "");
+        QTest::qWait(100);
+        QCOMPARE(header->property("coverSize").toReal(), 178.);
+        QCOMPARE(header->property("expandedHeight").toReal(), 204.);
+        QCOMPARE(avatarCover->size(), coverSize);
+        QCOMPARE(factsRow->mapRectToItem(header, factsRow->boundingRect()), facts);
+        QCOMPARE(introduction->parentItem()->mapRectToItem(
+                     header, introduction->parentItem()->boundingRect()),
+                 intro);
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
         service.shutdown();
         router.shutdown();
@@ -754,5 +790,5 @@ Window {
         api.shutdown();
     }
 };
-QTEST_MAIN(ArtistDetailTest)
+QTEST_MAIN_WRAPPER(ArtistDetailTest, QTEST_MAIN_SETUP() EchoMusic::installWindowPixelSnap();)
 #include "ArtistDetailTest.moc"

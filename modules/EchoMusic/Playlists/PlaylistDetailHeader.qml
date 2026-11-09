@@ -111,82 +111,60 @@ SongDetailHeader {
             placeholderGlyph: "playlist-add"
         }
     }
+    uniformMetadataRows: true
     detailsComponent: Component {
-        Item {
-            implicitHeight: metadataRow.implicitHeight
-            RowLayout {
-                id: metadataRow
-                width: Math.min(parent.width, implicitWidth)
-                height: implicitHeight
-                objectName: "playlistCreatorRow"
-                spacing: 12
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: 20
-                    Layout.maximumWidth: implicitWidth
-                    spacing: 8
-                    EchoCover {
-                        Layout.preferredWidth: 20
-                        Layout.preferredHeight: 20
-                        circular: true
-                        source: header.info.creator_avatar_url || ""
-                        placeholderGlyph: "user"
-                        placeholderGlyphSize: 12
-                        resourceActive: header.resourceActive
-                    }
-                    EchoTextTagRow {
-                        objectName: "playlistCreatorName"
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        text: header.info.creator_name || ""
-                        font: Theme.font(13, Theme.semiboldWeight)
-                        color: Theme.accentText
-                    }
+        DetailMetadataRow {
+            authors: [
+                {
+                    name: header.info.creator_name || ""
                 }
-                EchoTextTagRow {
-                    objectName: "playlistPublishedDate"
-                    text: header.info.published_at ? String(header.info.published_at).split(/[ T]/)[0] + qsTr(" 发布") : header.info.created_at_seconds ? Qt.formatDate(new Date(header.info.created_at_seconds * 1000), "yyyy-MM-dd") + qsTr(" 创建") : ""
-                    font: Theme.font(11, Theme.semiboldWeight)
-                    color: Theme.secondaryText
-                }
-                RowLayout {
-                    objectName: "playlistMetadataTags"
-                    spacing: 8
-                    Repeater {
-                        model: String(header.info.tags || "").split(",").filter(tag => tag.trim().length > 0)
-                        delegate: EchoTag {
-                            required property string modelData
-                            objectName: "playlistMetadataTag"
-                            text: modelData
-                            tone: EchoTag.Accent
-                        }
-                    }
-                }
-            }
+            ]
+            avatarSource: header.info.creator_avatar_url || ""
+            secondaryText: header.info.published_at ? String(header.info.published_at).split(/[ T]/)[0] + qsTr(" 发布") : header.info.created_at_seconds ? Qt.formatDate(new Date(header.info.created_at_seconds * 1000), "yyyy-MM-dd") + qsTr(" 创建") : ""
+            labels: String(header.info.tags || "").split(",").filter(tag => tag.trim().length > 0)
+            compact: header.width < 680
+            resourceActive: header.resourceActive
+            rowObjectName: "playlistCreatorRow"
+            avatarObjectName: "playlistCreatorAvatar"
+            authorObjectName: "playlistCreatorName"
+            secondaryObjectName: "playlistPublishedDate"
+            labelsObjectName: "playlistMetadataTags"
+            labelObjectName: "playlistMetadataTag"
         }
     }
     secondaryDetailsComponent: null
     descriptionLeadingComponent: Component {
         RowLayout {
+            baselineOffset: countLabel.y + countLabel.baselineOffset
             spacing: 4
             EchoTextTagRow {
+                id: countLabel
                 objectName: "playlistSongCount"
+                alignFontBaseline: true
                 lineHeight: 20
                 text: qsTr("%1 首歌曲").arg(header.detailContext.total)
                 font: Theme.font(11, Theme.semiboldWeight)
                 color: Theme.secondaryText
             }
-            EchoIconButton {
-                objectName: "playlistFilterInfo"
+            Item {
                 visible: header.detailContext.filteredInvalidCount > 0
-                visualContentActive: header.resourceActive && visible
-                glyph: "info-circle"
-                text: qsTr("查看无效歌曲过滤说明")
-                tooltipText: qsTr("当前列表已过滤 %1 首无效歌曲\n通常是因为歌曲信息缺失无法参与播放").arg(header.detailContext.filteredInvalidCount)
                 implicitWidth: 18
-                implicitHeight: 18
-                padding: 2
-                foreground: hovered || visualFocus ? "#d97706" : "#f59e0b"
+                implicitHeight: countLabel.implicitHeight
+                // The count shares its font baseline with the introduction;
+                // its ink center can differ from the surrounding line box.
+                EchoIconButton {
+                    objectName: "playlistFilterInfo"
+                    y: countLabel.firstLineInkCenter - height / 2
+                    width: 18
+                    height: 18
+                    visualContentActive: header.resourceActive && visible
+                    glyph: "info-circle"
+                    hoverBackground: false
+                    text: qsTr("查看无效歌曲过滤说明")
+                    tooltipText: qsTr("当前列表已过滤 %1 首无效歌曲\n通常是因为歌曲信息缺失无法参与播放").arg(header.detailContext.filteredInvalidCount)
+                    padding: 2
+                    foreground: hovered || visualFocus ? "#d97706" : "#f59e0b"
+                }
             }
         }
     }

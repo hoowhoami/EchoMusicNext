@@ -1,3 +1,4 @@
+#include "EchoWindowPixelSnap.h"
 #include "PlaylistDetailService.h"
 #include "ShellSettings.h"
 #include "ThemeStore.h"
@@ -13,6 +14,7 @@
 #include <QScopeGuard>
 #include <QAbstractItemModelTester>
 #include <QJsonArray>
+#include <QFontMetricsF>
 #include <QJsonDocument>
 #include <QQmlComponent>
 #include <QQmlEngine>
@@ -144,6 +146,20 @@ public:
         c.m_actions.setQueueContext(title, "queue:playlist:" + c.m_resourceId);
         emit c.changed();
     }
+    static void headerFields(PlaylistDetailContext &c, const QString &description,
+                             const QString &tags, quint64 filtered)
+    {
+        c.m_detail["description"] = description;
+        c.m_detail["tags"] = tags;
+        c.m_filteredInvalidCount = filtered;
+        emit c.changed();
+    }
+    static void publisher(PlaylistDetailContext &c, const QString &name, const QString &date)
+    {
+        c.m_detail["creator_name"] = name;
+        c.m_detail["published_at"] = date;
+        emit c.changed();
+    }
     static void setSize(PlaylistDetailContext &c, quint32 size)
     {
         c.m_pageSize = size;
@@ -245,16 +261,19 @@ QQuickItem *renderedText(QQuickItem *item)
             return found;
     return nullptr;
 }
-qreal renderedInkCenter(const QImage &image, QQuickWindow *window, QQuickItem *label)
+qreal renderedInkCenter(const QImage &image, QQuickWindow *window, QQuickItem *label,
+                        const QColor &inkColor = {}, qreal inkWidth = -1)
 {
     if (!label)
         return -1;
     const qreal ratio = image.width() / qreal(window->width());
-    const auto bounds = label->mapRectToScene(QRectF(0, -2, label->width(), label->height() + 4));
+    const auto bounds = label->mapRectToScene(
+        QRectF(0, -2, inkWidth >= 0 ? inkWidth : label->width(), label->height() + 4));
     const auto region = QRectF(bounds.topLeft() * ratio, bounds.size() * ratio)
                             .toAlignedRect()
                             .intersected(image.rect());
-    const auto foreground = label->property("color").value<QColor>();
+    const auto foreground =
+        inkColor.isValid() ? inkColor : label->property("color").value<QColor>();
     int top = image.height(), bottom = -1;
     for (int y = region.top(); y <= region.bottom(); ++y)
         for (int x = region.left(); x <= region.right(); ++x) {
@@ -268,6 +287,20 @@ qreal renderedInkCenter(const QImage &image, QQuickWindow *window, QQuickItem *l
             }
         }
     return bottom >= top ? (top + bottom + 1) / (2 * ratio) : -1;
+}
+qreal renderedNameBodyCenter(const QImage &frame, QQuickWindow *window, QQuickItem *item)
+{
+    auto *label = renderedText(item);
+    if (!label)
+        return -1;
+    const auto name = label->property("text").toString();
+    const auto font = label->property("font").value<QFont>();
+    // A capital at the beginning isolates the letter body from later
+    // underscores/descenders. CJK names retain their complete glyph check.
+    const auto width = !name.isEmpty() && name.front().isUpper()
+                           ? QFontMetricsF(font).horizontalAdvance(name.left(1))
+                           : label->width();
+    return renderedInkCenter(frame, window, label, {}, width);
 }
 int playlistVisualCount(QQuickItem *item, const QString &name)
 {
@@ -1281,6 +1314,7 @@ Window {
             for (int height : {500, 650, 800})
                 QTest::newRow(qPrintable(QString("%1-%2").arg(count).arg(height)))
                     << count << height;
+        QTest::newRow("77-800") << 77 << 800;
     }
     void shortPlaylistKeepsExpandedHeader()
     {
@@ -1332,6 +1366,10 @@ Window {
         PlaylistDetailContextTestAccess::pending(*context, 910001, 0);
         emit context->changed();
         QTRY_VERIFY(playlistVisual(window->contentItem(), "songDetailSkeleton"));
+        auto *skeletonCover =
+            playlistVisual(window->contentItem(), "songDetailInitialCoverSkeleton");
+        QVERIFY(skeletonCover);
+        QTRY_COMPARE(skeletonCover->size(), QSizeF(178, 178));
         PlaylistDetailContextTestAccess::seed(*context, "Short playlist");
         QTest::qWait(100);
         QJsonArray songs;
@@ -1348,6 +1386,193 @@ Window {
         QTest::qWait(100);
         QTRY_COMPARE_WITH_TIMEOUT(view->property("scrollTop").toReal(), 0., 1000);
         QCOMPARE(header->property("progress").toReal(), 0.);
+        if ((count == 3 || count == 77) && height == 800) {
+            if (count == 77)
+                PlaylistDetailContextTestAccess::publisher(*context, "MAKE_LOVE", "2021-10-03");
+            const auto capture = qEnvironmentVariable("ECHO_DETAIL_GEOMETRY_ARTIFACTS");
+            if (!capture.isEmpty())
+                QVERIFY(QDir().mkpath(capture));
+            const QStringList names{"songDetailCoverSlot", "songDetailTitleRow",
+                                    "songDetailPrimaryDetails", "songDetailDescription",
+                                    "songDetailActions"};
+            for (bool dark : {false, true})
+                for (double scale : {1., 1.25}) {
+                    theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+                    shell.resetZoom();
+                    if (scale > 1.)
+                        for (int i = 0; i < 5; ++i)
+                            shell.zoomIn();
+                    QList<QRectF> baseline;
+                    for (int variant = 0; variant < 5; ++variant) {
+                        // Present/absent/whitespace intro and absent tags/filter
+                        // all retain the same two metadata slots in the real page.
+                        PlaylistDetailContextTestAccess::headerFields(
+                            *context,
+                            (variant == 0 || variant == 4)
+                                ? "GTA5无止境流行音乐 Non-Stop-Pop FM 已按电台顺序排列"
+                            : variant == 3 ? "   "
+                                           : "",
+                            variant == 0 ? "兴奋,车载,游戏" : "",
+                            (variant == 2 || variant == 4) ? 1 : 0);
+                        QTest::qWait(100);
+                        QCOMPARE(header->property("coverSize").toReal(), 178.);
+                        QCOMPARE(header->property("expandedHeight").toReal(), 204.);
+                        QCOMPARE(view->property("expandedHeaderHeight").toReal(), 204.);
+                        auto *preview = playlistVisual(header, "songDetailDescriptionPreview");
+                        auto *songCount = playlistVisual(header, "playlistSongCount");
+                        QVERIFY(preview && songCount);
+                        QCOMPARE(preview->property("font").value<QFont>().pixelSize(),
+                                 songCount->property("font").value<QFont>().pixelSize());
+                        QList<QRectF> actual;
+                        for (const auto &name : names) {
+                            auto *item = playlistVisual(header, name);
+                            QVERIFY2(item, qPrintable(name));
+                            actual.append(item->mapRectToItem(header, item->boundingRect()));
+                        }
+                        if (variant == 0)
+                            baseline = actual;
+                        else
+                            QCOMPARE(actual, baseline);
+                        auto *creator = playlistVisual(header, "playlistCreatorRow");
+                        auto *intro = playlistVisual(header, "songDetailDescription");
+                        auto *title = playlistVisual(header, "songDetailTitleRow");
+                        QCOMPARE(creator->mapToItem(header, QPointF()).x(),
+                                 title->mapToItem(header, QPointF()).x());
+                        QCOMPARE(intro->mapToItem(header, QPointF()).x(),
+                                 title->mapToItem(header, QPointF()).x());
+                        const auto frame = window->grabWindow();
+                        const auto ratio = qreal(frame.width()) / window->width();
+                        auto *avatar = playlistVisual(header, "playlistCreatorAvatar");
+                        QVERIFY(avatar);
+                        const auto identityCenter =
+                            avatar->mapRectToScene(avatar->boundingRect()).center().y();
+                        const auto verifyIdentity = [&](auto &&self, QQuickItem *item) -> bool {
+                            if ((item->objectName() == "playlistCreatorName" ||
+                                 item->objectName() == "playlistPublishedDate" ||
+                                 item->objectName() == "playlistMetadataTag") &&
+                                item->isVisible()) {
+                                const auto center =
+                                    item->objectName() == "playlistCreatorName"
+                                        ? renderedNameBodyCenter(frame, window, item)
+                                        : renderedInkCenter(frame, window, renderedText(item));
+                                if (center <= 0 || qAbs(center - identityCenter) > 1. / ratio) {
+                                    qWarning() << "Identity ink/avatar center" << item->objectName()
+                                               << center << identityCenter << scale;
+                                    return false;
+                                }
+                            }
+                            for (auto *child : item->childItems())
+                                if (!self(self, child))
+                                    return false;
+                            return true;
+                        };
+                        if (!capture.isEmpty())
+                            QVERIFY(frame.save(capture + QString("/identity-%1-%2-variant%3.png")
+                                                             .arg(dark ? "dark" : "light")
+                                                             .arg(scale)
+                                                             .arg(variant)));
+                        QVERIFY(verifyIdentity(verifyIdentity, creator));
+                        auto *date = playlistVisual(header, "playlistPublishedDate");
+                        QVERIFY(!date->property("truncated").toBool());
+                        if (!capture.isEmpty() && count == 77) {
+                            const auto saveRow = [&](QQuickItem *row, const QString &name) {
+                                const auto scene =
+                                    row->mapRectToScene(row->boundingRect()).adjusted(0, -6, 0, 6);
+                                const auto pixels =
+                                    QRectF(scene.topLeft() * ratio, scene.size() * ratio)
+                                        .toAlignedRect();
+                                return frame.copy(pixels).save(
+                                    capture + QString("/%1-%2-%3-variant%4.png")
+                                                  .arg(name, dark ? "dark" : "light")
+                                                  .arg(scale)
+                                                  .arg(variant));
+                            };
+                            QVERIFY(saveRow(creator, "publisher-row"));
+                            QVERIFY(saveRow(intro, "count-row"));
+                        }
+                        if (variant == 2 || variant == 4) {
+                            auto *hint = playlistVisual(header, "playlistFilterInfo");
+                            QVERIFY(hint && hint->isVisible());
+                            QVERIFY(!hint->property("hoverBackground").toBool());
+                            QCOMPARE(hint->property("text").toString(),
+                                     QString("查看无效歌曲过滤说明"));
+                            QCOMPARE(hint->property("tooltipText").toString(),
+                                     QString("当前列表已过滤 1 "
+                                             "首无效歌曲\n通常是因为歌曲信息缺失无法参与播放"));
+                            const auto textCenter =
+                                renderedInkCenter(frame, window, renderedText(songCount));
+                            const auto iconCenter = renderedInkCenter(
+                                frame, window, hint, hint->property("foreground").value<QColor>());
+                            if (!capture.isEmpty())
+                                QVERIFY(frame.save(capture + QString("/filter-%1-%2-variant%3.png")
+                                                                 .arg(dark ? "dark" : "light")
+                                                                 .arg(scale)
+                                                                 .arg(variant)));
+                            QVERIFY2(textCenter > 0 && iconCenter > 0 &&
+                                         qAbs(textCenter - iconCenter) <= 1. / ratio,
+                                     qPrintable(QString("Filter icon/text ink: %1 / %2 at %3")
+                                                    .arg(iconCenter)
+                                                    .arg(textCenter)
+                                                    .arg(scale)));
+                            if (dark && scale == 1 && variant == 2) {
+                                QTest::mouseMove(
+                                    window,
+                                    hint->mapToScene(hint->boundingRect().center()).toPoint());
+                                QTRY_VERIFY(hint->property("hovered").toBool());
+                                auto *background = hint->property("background").value<QObject *>();
+                                QVERIFY(background);
+                                QVERIFY(!background->property("active").toBool());
+                                QTest::mouseMove(window, QPoint(2, 2));
+                            }
+                        }
+                        if (!capture.isEmpty())
+                            QVERIFY(window->grabWindow().save(
+                                capture + QString("/playlist-%1-%2-variant%3.png")
+                                              .arg(dark ? "dark" : "light")
+                                              .arg(scale)
+                                              .arg(variant)));
+                    }
+                }
+            if (count == 77) {
+                for (double scale : {1., 1.25}) {
+                    shell.resetZoom();
+                    if (scale > 1.)
+                        for (int i = 0; i < 5; ++i)
+                            shell.zoomIn();
+                    qreal baseline = -1;
+                    for (const auto &name : {QString("MAKE_LOVE"), QString("MAKE LOVE"),
+                                             QString("Mingginyu"), QString("中文姓名")}) {
+                        PlaylistDetailContextTestAccess::publisher(*context, name, "2021-10-03");
+                        QTest::qWait(100);
+                        auto *item = playlistVisual(header, "playlistCreatorName");
+                        auto *label = renderedText(item);
+                        const auto actual = label->mapToScene({0, label->baselineOffset()}).y();
+                        if (baseline < 0)
+                            baseline = actual;
+                        else
+                            QVERIFY2(qAbs(actual - baseline) < .01,
+                                     qPrintable(QString("Name baseline moved: %1 %2 / %3")
+                                                    .arg(name)
+                                                    .arg(actual)
+                                                    .arg(baseline)));
+                        const auto frame = window->grabWindow();
+                        const auto center = renderedNameBodyCenter(frame, window, item);
+                        auto *avatar = playlistVisual(header, "playlistCreatorAvatar");
+                        const auto reference =
+                            avatar->mapRectToScene(avatar->boundingRect()).center().y();
+                        const auto ratio = qreal(frame.width()) / window->width();
+                        QVERIFY2(qAbs(center - reference) <= 1. / ratio,
+                                 qPrintable(QString("Name body/avatar center: %1 %2 / %3")
+                                                .arg(name)
+                                                .arg(center)
+                                                .arg(reference)));
+                    }
+                }
+            }
+            shell.resetZoom();
+            PlaylistDetailContextTestAccess::headerFields(*context, "歌单介绍 Description",
+                                                          "韩语,R&B,安静", 0);
+        }
         for (int i = 0; i < 3; ++i) {
             router.replaceQuery({{"tab", "comments"}});
             QTest::qWait(80);
@@ -1432,7 +1657,8 @@ Window {
    descriptionLeadingComponent: Component {
     EchoTextTagRow {
      objectName: "descriptionCount"
-     text: "24 首歌曲"
+     alignFontBaseline: true
+     text: "25 首歌曲"
      font: Theme.font(11, Theme.semiboldWeight)
      color: Theme.secondaryText
      lineHeight: 20
@@ -1446,10 +1672,18 @@ Window {
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window);
+        const auto reportedWidth = qEnvironmentVariableIntValue("ECHO_HEADER_ALIGNMENT_WIDTH");
+        if (reportedWidth > 0)
+            window->resize(reportedWidth, window->height());
+        if (qEnvironmentVariableIntValue("ECHO_PIXEL_SNAP_ALL") == 1)
+            QTRY_VERIFY(window->contentItem()->findChild<EchoWindowPixelSnap *>());
         const auto artifacts = qEnvironmentVariable("ECHO_HEADER_ALIGNMENT_ARTIFACTS");
         if (!artifacts.isEmpty())
             QVERIFY(QDir().mkpath(artifacts));
         const QStringList samples{
+            QStringLiteral("在充斥着快节奏的生活里，我们难得有机会放松心情，来享受一个很慢的下午茶"
+                           "。 爵士乐的慵懒与舒缓。 ")
+                .repeated(8),
             QStringLiteral("轻松的节拍和快乐的旋律，往往具有治愈力。 "
                            "音乐就像良友，永远陪伴在你身边。 戴上耳机，静静欣赏。 ")
                 .repeated(8),
@@ -1481,12 +1715,27 @@ Window {
                         auto *action =
                             playlistVisual(window->contentItem(), "songDetailDescriptionAction");
                         QVERIFY(count && preview && action && action->isVisible());
+                        QCOMPARE(preview->property("font").value<QFont>().pixelSize(),
+                                 count->property("font").value<QFont>().pixelSize());
+                        if (!artifacts.isEmpty() && sample == 0 && phase == 0) {
+                            auto *row = preview->parentItem();
+                            const auto scene =
+                                row->mapRectToScene(row->boundingRect()).adjusted(0, -6, 0, 6);
+                            const auto ratio = qreal(frame.width()) / window->width();
+                            const auto pixels =
+                                QRectF(scene.topLeft() * ratio, scene.size() * ratio)
+                                    .toAlignedRect();
+                            QVERIFY(frame.copy(pixels).save(artifacts +
+                                                            QString("/reported-row-%1-%2.png")
+                                                                .arg(dark ? "dark" : "light")
+                                                                .arg(scale)));
+                        }
                         const auto center = renderedInkCenter(frame, window, renderedText(preview));
                         // The reported Retina/Metal case must stay within half
                         // a device pixel. Software hinting and Latin descenders
                         // can quantize one outer edge to the adjacent pixel.
                         const auto strict =
-                            QGuiApplication::platformName() == "cocoa" && sample != 1;
+                            QGuiApplication::platformName() == "cocoa" && sample != 2;
                         const auto tolerance =
                             (strict ? .5 : 1.) / (qreal(frame.width()) / window->width());
                         for (auto *neighbor : {count, action}) {
@@ -1745,7 +1994,10 @@ Window {
                             auto *left = playlistVisual(header, pair.first);
                             auto *right = playlistVisual(header, pair.second);
                             QVERIFY(left && right && left->isVisible() && right->isVisible());
-                            const auto a = renderedInkCenter(frame, window, renderedText(left));
+                            const auto a =
+                                pair.first == "playlistCreatorName"
+                                    ? renderedNameBodyCenter(frame, window, left)
+                                    : renderedInkCenter(frame, window, renderedText(left));
                             const auto b = renderedInkCenter(frame, window, renderedText(right));
                             if (qAbs(a - b) > .85 * scale) {
                                 for (auto *item :
@@ -2366,5 +2618,5 @@ Window {
         api.shutdown();
     }
 };
-QTEST_MAIN(PlaylistDetailTest)
+QTEST_MAIN_WRAPPER(PlaylistDetailTest, QTEST_MAIN_SETUP() EchoMusic::installWindowPixelSnap();)
 #include "PlaylistDetailTest.moc"
