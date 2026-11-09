@@ -32,7 +32,7 @@ EchoUiPartRef::EchoUiPartRef(EchoPluginContext &scope, EchoUiPartRegistration &p
     connect(&scope, &QObject::destroyed, this, &EchoUiPartRef::notify);
     m_registry = EchoUiPartRegistry::forEngine(scope.engine());
     if (m_registry)
-        m_registry->retainStructure(this);
+        m_registry->retainStructure(this, part.automatic());
     if (m_registry)
         connect(m_registry, &EchoUiPartRegistry::removed, this, [this](const auto &id) {
             if (id == m_id)
@@ -298,6 +298,11 @@ namespace EchoMusic
 {
 QString EchoUiPartRef::parentId() const
 {
+    // A declared semantic target can be used without indexing every native
+    // sibling. Asking for its public parent explicitly needs unnamed native
+    // intermediate nodes too; retain that discovery for this reference.
+    if (valid() && m_registry)
+        m_registry->acquireStructure(const_cast<EchoUiPartRef *>(this));
     return valid() ? m_part->parentId() : QString();
 }
 QString EchoUiPartRef::address() const

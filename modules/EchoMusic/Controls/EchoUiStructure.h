@@ -4,6 +4,7 @@
 #include <QSet>
 #include <QPointer>
 #include <QTimer>
+#include "EchoUiIndexSet.h"
 
 class QQuickItem;
 class QQuickWindow;
@@ -18,7 +19,7 @@ class EchoUiStructure final : public QObject
     Q_OBJECT
 public:
     explicit EchoUiStructure(EchoUiPartRegistry &);
-    void acquire(QObject *consumer, bool inspector, bool immediate = true);
+    void acquire(QObject *consumer, bool inspector, bool immediate = true, bool discovery = true);
     void release(QObject *consumer);
     void schedule(QQuickItem *root = nullptr);
     void synchronize();
@@ -27,10 +28,15 @@ public:
     {
         return m_watches.size();
     }
+    int declarationWatchCount() const
+    {
+        return m_declarationAncestors.size();
+    }
     bool hasConsumers() const
     {
         return !m_consumers.isEmpty();
     }
+    bool needsDiscovery() const;
     bool owns(EchoUiPartRegistration *) const;
 
 protected:
@@ -43,6 +49,11 @@ private:
     void renewView(QQuickItem *, int first = -1, int last = -1, bool unknownOnly = false,
                    bool deactivate = false);
     void releaseDelegates();
+    void releaseDelegate(QQuickItem *);
+    void releaseView(QQuickItem *);
+    void synchronizeDeclarations();
+    void clearDiscovery();
+    void clearDeclarationAncestors();
     struct Delegate
     {
         QPointer<QObject> attached, relay;
@@ -63,6 +74,7 @@ private:
     struct Consumer
     {
         bool inspector;
+        bool discovery;
         QMetaObject::Connection destroyed;
     };
     void clear();
@@ -75,10 +87,12 @@ private:
     QHash<QQuickItem *, QList<QMetaObject::Connection>> m_watches;
     QHash<QQuickItem *, QPointer<QQuickItem>> m_dirty;
     QHash<QQuickItem *, QQuickItem *> m_parents;
-    QHash<QQuickItem *, QSet<QQuickItem *>> m_children;
+    QHash<QQuickItem *, EchoUiIndexSet<QQuickItem *>> m_children;
     QSet<QQuickWindow *> m_windows;
     quint64 m_sequence = 0;
     bool m_full = true;
+    bool m_declarationsDirty = true;
     bool m_building = false, m_filterInstalled = false;
+    QHash<QQuickItem *, QList<QMetaObject::Connection>> m_declarationAncestors;
 };
 } // namespace EchoMusic

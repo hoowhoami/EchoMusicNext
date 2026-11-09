@@ -88,9 +88,42 @@ void EchoUiPartRegistry::notifyStructure()
 }
 void EchoUiPartRegistry::acquireStructure(QObject *consumer, bool inspector)
 {
+    acquireStructure(consumer, inspector, true);
+}
+void EchoUiPartRegistry::acquireStructure(QObject *consumer, bool inspector, bool discovery)
+{
     if (!m_structure)
         m_structure = new EchoUiStructure(*this);
-    m_structure->acquire(consumer, inspector);
+    m_structure->acquire(consumer, inspector, true, discovery);
+}
+bool EchoUiPartRegistry::selectorNeedsDiscovery(const QVariantMap &selector,
+                                                const QVariantMap &definition) const
+{
+    if (definition.contains("destination") &&
+        selectorNeedsDiscovery(definition.value("destination").toMap()))
+        return true;
+    // Relationships must include unnamed native intermediate parents. Custom
+    // semantic roles are declarations; the conservative native role families
+    // cover every role emitted by EchoUiStructure's native role adapter.
+    if (selector.contains("parentOf") || selector.contains("ancestor") ||
+        selector.contains("parentId"))
+        return true;
+    if (selector.contains("id")) {
+        const auto *part = find(selector.value("id").toString());
+        return !part || part->automatic();
+    }
+    const auto role = selector.value("role").toString();
+    if (role.isEmpty() || role == "*")
+        return true;
+    for (const auto &family : {"layout", "control", "item", "view", "model"})
+        if (role == QLatin1StringView(family) || role.startsWith(QLatin1StringView(family) + '.'))
+            return true;
+    return false;
+}
+void EchoUiPartRegistry::acquireStructureFor(QObject *consumer, const QVariantMap &selector,
+                                             const QVariantMap &definition)
+{
+    acquireStructure(consumer, false, selectorNeedsDiscovery(selector, definition));
 }
 void EchoUiPartRegistry::releaseStructure(QObject *consumer)
 {
@@ -105,13 +138,13 @@ void EchoUiPartRegistry::releaseStructure(QObject *consumer)
         }
     }
 }
-void EchoUiPartRegistry::retainStructure(QObject *consumer)
+void EchoUiPartRegistry::retainStructure(QObject *consumer, bool discovery)
 {
     if (!m_structure)
         m_structure = new EchoUiStructure(*this);
     // References already point at a discovered node. Do not recursively scan
     // half-constructed sibling controls while delivering a registration signal.
-    m_structure->acquire(consumer, false, false);
+    m_structure->acquire(consumer, false, false, discovery);
 }
 int EchoUiPartRegistry::structureWatchCount() const
 {
@@ -169,6 +202,8 @@ QList<EchoUiPartRegistration *> EchoUiPartRegistry::declarationsWithin(QQuickIte
 }
 void EchoUiPartRegistry::addressTreeChanged(QQuickItem *root)
 {
+    if (m_structure && !m_structure->needsDiscovery())
+        m_structure->schedule(root);
     // Uncached declarations are already dirty from attach. With no extension
     // consumer there is no reason to walk the ordinary UI's QObject subtree.
     if (m_rawAddresses.isEmpty())
@@ -230,12 +265,18 @@ void EchoUiPartRegistry::scopeChanged(QQuickItem *root)
     if (!std::exchange(m_scopeScheduled, true))
         QTimer::singleShot(0, this, [this] {
             m_scopeScheduled = false;
-            const auto pending = std::exchange(m_scopePending, {});
-            for (auto part : pending)
-                if (part && (!part->automatic() || (m_structure && m_structure->owns(part))))
-                    attach(part);
-            notifyStructure();
+            flushScopeChanges();
         });
+}
+void EchoUiPartRegistry::flushScopeChanges()
+{
+    const auto pending = std::exchange(m_scopePending, {});
+    if (pending.isEmpty())
+        return;
+    for (auto part : pending)
+        if (part && (!part->automatic() || (m_structure && m_structure->owns(part))))
+            attach(part);
+    notifyStructure();
 }
 void EchoUiPartRegistry::modelDataChanged(QQuickItem *view)
 {
@@ -399,6 +440,8 @@ void EchoUiPartRegistry::attach(EchoUiPartRegistration *part)
                         m_targetDeclarations.erase(it);
                 }
             }
+            if (m_structure && !m_structure->needsDiscovery())
+                m_structure->schedule();
         });
     }
     auto *declaredTarget = m_declarationTargets.value(part);
@@ -629,7 +672,7 @@ QList<EchoUiPartRegistration *> EchoUiPartRegistry::query(const QVariantMap &sel
     else if (local.contains("address") || local.contains("scope") ||
              local.contains("resourceKey")) {
         rebuildAddresses();
-        QSet<QString> ids;
+        EchoUiIndexSet<QString> ids;
         if (local.contains("address")) {
             const auto address = local.value("address").toString();
             if (address.startsWith('@')) {

@@ -564,7 +564,7 @@ void EchoUiModelContribution::start()
     if (m_started || !m_registry || !active())
         return;
     m_started = true;
-    m_registry->acquireStructure(this);
+    m_registry->acquireStructureFor(this, m_selector);
     m_connections << connect(m_registry, &EchoUiPartRegistry::structureChanged, this,
                              &EchoUiModelContribution::schedule)
                   << connect(m_registry, &EchoUiPartRegistry::preferencesChanged, this,

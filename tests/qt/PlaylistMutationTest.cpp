@@ -103,7 +103,7 @@ private slots:
         PlaylistMutationService service(api);
         QList<ApiClient::PlaylistTrackFileId> files;
         for (quint64 i = 1; i <= 650; ++i)
-            files.append({i});
+            files.append(ApiClient::PlaylistTrackFileId{i});
         QSignalSpy completed(&service, &PlaylistMutationService::completed);
         QSignalSpy invalidated(&service, &PlaylistMutationService::tracksInvalidated);
         QSignalSpy removed(&service, &PlaylistMutationService::trackFilesRemoved);

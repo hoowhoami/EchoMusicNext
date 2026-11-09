@@ -89,6 +89,8 @@ private:
     void commit();
     void reject(const QString &);
     void clear(std::unique_ptr<Revision> &);
+    bool needsDiscovery(const QVariantList &) const;
+    void refreshStructureDemand();
     QSet<QString> tokens(const Revision *) const;
     QPointer<EchoPluginUiParts> m_owner;
     QPointer<EchoPluginRegistration> m_lease;

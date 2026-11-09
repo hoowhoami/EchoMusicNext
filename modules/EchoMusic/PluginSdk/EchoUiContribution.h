@@ -131,6 +131,7 @@ private:
         bool observing = false;
     };
     void schedule();
+    void refreshStructureDemand();
     void reconcile();
     void apply(Instance &);
     void remove(Instance &, bool retire = true);

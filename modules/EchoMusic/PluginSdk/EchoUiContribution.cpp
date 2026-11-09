@@ -488,14 +488,24 @@ void EchoUiContribution::commitUpdate(const QVariantMap &definition)
     m_previousDefinition = m_definition;
     m_previous = std::exchange(m_instances, {});
     m_definition = definition;
+    // Preserve the old selector dependencies until publication succeeds or
+    // rolls back, including an unnamed native move destination.
+    if (m_registry && m_started)
+        m_registry->acquireStructure(
+            this, false,
+            m_registry->selectorNeedsDiscovery(m_selector, m_definition) ||
+                m_registry->selectorNeedsDiscovery(m_selector, m_previousDefinition));
     ++m_revision;
     m_error.clear();
     schedule();
 }
 void EchoUiContribution::finishUpdate()
 {
-    if (m_previous.isEmpty())
+    if (m_previous.isEmpty()) {
+        m_previousDefinition.clear();
+        refreshStructureDemand();
         return;
+    }
     bool ready = true, failed = false;
     for (const auto &instance : m_instances) {
         const auto effective =
@@ -515,6 +525,7 @@ void EchoUiContribution::finishUpdate()
             remove(instance);
         m_definition = m_previousDefinition;
         m_instances = std::exchange(m_previous, {});
+        m_previousDefinition.clear();
         m_error = "Contribution update failed; previous contribution restored";
         for (auto &instance : m_instances) {
             instance.state.clear();
@@ -526,6 +537,15 @@ void EchoUiContribution::finishUpdate()
             remove(instance);
         m_previousDefinition.clear();
     }
+    refreshStructureDemand();
+}
+void EchoUiContribution::refreshStructureDemand()
+{
+    if (m_registry && m_started)
+        m_registry->retainStructure(
+            this, m_registry->selectorNeedsDiscovery(m_selector, m_definition) ||
+                      (!m_previousDefinition.isEmpty() &&
+                       m_registry->selectorNeedsDiscovery(m_selector, m_previousDefinition)));
 }
 
 void EchoUiContribution::dispose()
@@ -538,7 +558,7 @@ void EchoUiContribution::start()
     if (m_started || !m_registry)
         return;
     m_started = true;
-    m_registry->acquireStructure(this);
+    m_registry->acquireStructureFor(this, m_selector, m_definition);
     const auto structural = [this] {
         if (m_registry && m_registry->enabled())
             schedule();

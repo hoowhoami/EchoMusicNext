@@ -6,6 +6,10 @@ class PluginRuntimeTest : public QObject
     Q_OBJECT
 private slots:
     void nativeUiActionsCommitBusinessIntent();
+    void uiSemanticDiscoveryAndAncestryStayLazy();
+    void uiAutomaticGeometryObservationIsDemandOwned();
+    void uiSemanticVirtualDelegatesRetireWithoutDiscovery();
+    void uiIndexBucketsPreserveSetValues();
     void nativeUiModelSelectionAndLiveCells();
     void nativeUiModelRelativeOrderAndRejectedRevision();
     void nativeUiCompositeColumnsVirtualizationAndRecovery();

@@ -268,42 +268,43 @@ void EchoUiPartRegistration::connectTarget()
         if (m_registry && !m_identity.isEmpty())
             emit m_registry->partChanged(this);
     };
-    m_connections << connect(m_target, &QQuickItem::xChanged, this, update)
-                  << connect(m_target, &QQuickItem::yChanged, this, update)
-                  << connect(m_target, &QQuickItem::widthChanged, this, update)
-                  << connect(m_target, &QQuickItem::heightChanged, this, update)
-                  << connect(m_target, &QQuickItem::visibleChanged, this, update)
-                  << connect(m_target, &QQuickItem::enabledChanged, this, update)
-                  << connect(m_target, &QQuickItem::parentChanged, this,
-                             [this] {
-                                 connectTarget();
-                                 applyNativeStyles();
-                                 if (m_registry) {
-                                     m_registry->addressTreeChanged(m_target);
-                                     m_registry->notifyStructure();
-                                 }
-                                 // Reparenting inside the same live window preserves semantic
-                                 // identity. Delegate key/session changes still retire it.
-                                 if (!m_target || !m_target->window() || !m_target->parentItem())
-                                     refresh();
-                                 else {
-                                     emit changed();
-                                     if (m_registry)
-                                         emit m_registry->partChanged(this);
-                                 }
-                             })
-                  << connect(m_target, &QQuickItem::windowChanged, this,
-                             [this] {
-                                 connectTarget();
-                                 refresh();
-                             })
-                  << connect(m_target, &QObject::destroyed, this, [this] {
-                         if (m_registry)
-                             m_registry->detach(this);
-                         m_target = nullptr;
-                         emit changed();
-                     });
-    if (auto *window = m_target->window())
+    // Discovery needs identity/ancestry, not per-frame geometry for every
+    // anonymous node. References and conditional styles acquire observation
+    // before reading live state. Explicit QML declarations keep their binding
+    // notification contract even without an SDK reference.
+    if (!m_automatic || observed())
+        m_connections << connect(m_target, &QQuickItem::xChanged, this, update)
+                      << connect(m_target, &QQuickItem::yChanged, this, update)
+                      << connect(m_target, &QQuickItem::widthChanged, this, update)
+                      << connect(m_target, &QQuickItem::heightChanged, this, update)
+                      << connect(m_target, &QQuickItem::visibleChanged, this, update)
+                      << connect(m_target, &QQuickItem::enabledChanged, this, update);
+    m_connections << connect(m_target, &QQuickItem::parentChanged, this, [this] {
+        connectTarget();
+        applyNativeStyles();
+        if (m_registry) {
+            m_registry->addressTreeChanged(m_target);
+            m_registry->notifyStructure();
+        }
+        // Reparenting inside the same live window preserves semantic
+        // identity. Delegate key/session changes still retire it.
+        if (!m_target || !m_target->window() || !m_target->parentItem())
+            refresh();
+        else {
+            emit changed();
+            if (m_registry)
+                emit m_registry->partChanged(this);
+        }
+    }) << connect(m_target, &QQuickItem::windowChanged, this, [this] {
+        connectTarget();
+        refresh();
+    }) << connect(m_target, &QObject::destroyed, this, [this] {
+        if (m_registry)
+            m_registry->detach(this);
+        m_target = nullptr;
+        emit changed();
+    });
+    if (auto *window = m_target->window(); window && (!m_automatic || observed()))
         m_connections << connect(window, &QWindow::visibilityChanged, this, update);
 }
 void EchoUiPartRegistration::setBaseValues(const QVariantMap &values)

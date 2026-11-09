@@ -50,7 +50,7 @@ void EchoUiPartMount::start()
         return;
     m_started = true;
     if (m_registry)
-        m_registry->acquireStructure(this);
+        m_registry->acquireStructure(this, false, m_part && m_part->automatic());
     reconcile();
     emit changed();
 }

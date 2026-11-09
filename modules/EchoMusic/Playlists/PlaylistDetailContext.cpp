@@ -720,7 +720,7 @@ bool PlaylistDetailContext::removeSongs(const QStringList &ids)
                 return false;
             if (!seen.contains(file)) {
                 seen.insert(file);
-                files.append({file});
+                files.append(ApiClient::PlaylistTrackFileId{file});
             }
         }
     if (files.isEmpty())

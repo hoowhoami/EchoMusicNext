@@ -48,6 +48,8 @@
 
 当前公开目录：
 
+只选择显式语义角色的扩展可直接使用声明索引，无需为无关原生子项建立整树索引。通用/原生角色、关系选择器和检查器仍支持完整原生发现；读取引用的 `parentId` 时也会按需保留原生父节点发现。虚拟委托的池化、复用和模型代际保护在两种路径中保持一致，作者无需修改已有选择器或启用新的 feature。
+
 | role | 区域 | 主要视觉属性 |
 | --- | --- | --- |
 | control.button / control.iconButton | 共享图文、图标按钮 | foreground、background、radius、borderColor/borderWidth；图文按钮另含完整字体及字号/字重/字距 |

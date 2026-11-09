@@ -54,17 +54,25 @@ EchoUiStructure::EchoUiStructure(EchoUiPartRegistry &registry)
     m_update.setSingleShot(true);
     connect(&m_update, &QTimer::timeout, this, &EchoUiStructure::synchronize);
 }
-void EchoUiStructure::acquire(QObject *consumer, bool inspector, bool immediate)
+bool EchoUiStructure::needsDiscovery() const
+{
+    return std::any_of(m_consumers.cbegin(), m_consumers.cend(),
+                       [](const auto &c) { return c.inspector || c.discovery; });
+}
+void EchoUiStructure::acquire(QObject *consumer, bool inspector, bool immediate, bool discovery)
 {
     if (!consumer)
         return;
     if (!m_consumers.contains(consumer)) {
-        m_consumers.insert(consumer, {inspector, connect(consumer, &QObject::destroyed, this,
-                                                         [this, consumer] { release(consumer); })});
-    } else if (inspector) {
-        m_consumers[consumer].inspector = true;
+        m_consumers.insert(consumer, {inspector, discovery,
+                                      connect(consumer, &QObject::destroyed, this,
+                                              [this, consumer] { release(consumer); })});
+    } else {
+        auto &state = m_consumers[consumer];
+        state.inspector = state.inspector || inspector;
+        state.discovery = discovery;
     }
-    if (immediate)
+    if (immediate && !m_building)
         synchronize();
     else if (!m_update.isActive())
         m_update.start(0);
@@ -83,6 +91,15 @@ void EchoUiStructure::release(QObject *consumer)
 }
 void EchoUiStructure::schedule(QQuickItem *root)
 {
+    if (!needsDiscovery()) {
+        // A later general consumer discovers the current tree from scratch.
+        // Explicit declarations already publish their own lifecycle changes.
+        m_full = true;
+        m_declarationsDirty = true;
+        if (hasConsumers() && !m_update.isActive())
+            m_update.start(0);
+        return;
+    }
     if (root)
         m_dirty.insert(root, root);
     else if (!m_building)
@@ -104,7 +121,12 @@ bool EchoUiStructure::owns(EchoUiPartRegistration *part) const
 }
 void EchoUiStructure::clear()
 {
+    clearDeclarationAncestors();
     releaseDelegates();
+    clearDiscovery();
+}
+void EchoUiStructure::clearDiscovery()
+{
     if (m_filterInstalled) {
         qGuiApp->removeEventFilter(this);
         m_filterInstalled = false;
@@ -118,6 +140,7 @@ void EchoUiStructure::clear()
     m_dirty.clear();
     m_windows.clear();
     m_full = true;
+    m_declarationsDirty = true;
     const auto nodes = std::exchange(m_nodes, {});
     for (auto node : nodes)
         if (node) {
@@ -142,11 +165,20 @@ void EchoUiStructure::synchronize()
     const bool forced = std::any_of(m_consumers.cbegin(), m_consumers.cend(),
                                     [](const auto &c) { return c.inspector; });
     m_building = true;
-    if (m_consumers.isEmpty() || (!m_registry.enabled() && !forced)) {
+    if (!hasConsumers() || (!m_registry.enabled() && !forced)) {
         clear();
         m_building = false;
         return;
     }
+    if (!needsDiscovery()) {
+        if (m_filterInstalled || !m_watches.isEmpty() || !m_nodes.isEmpty())
+            clearDiscovery();
+        if (std::exchange(m_declarationsDirty, false))
+            synchronizeDeclarations();
+        m_building = false;
+        return;
+    }
+    clearDeclarationAncestors();
     // Consumer acquire/release does not invalidate a structural subtree.
     if (!m_full && m_dirty.isEmpty()) {
         m_building = false;
@@ -394,22 +426,90 @@ void EchoUiStructure::watchDelegate(QQuickItem *item)
 }
 void EchoUiStructure::releaseDelegates()
 {
-    const auto views = std::exchange(m_views, {});
-    for (const auto &view : views)
-        for (const auto &connection : view.connections + view.modelConnections)
-            disconnect(connection);
-    const auto delegates = std::exchange(m_delegates, {});
-    for (auto it = delegates.begin(); it != delegates.end(); ++it) {
-        for (const auto &connection : it->connections)
-            disconnect(connection);
-        if (it->relay)
-            it->relay->deleteLater();
-        if (auto *scope = EchoUiScope::get(it.key())) {
-            scope->setActive(true);
-            if (it->managedResource)
-                scope->setResourceKey({});
+    for (auto *view : m_views.keys())
+        releaseView(view);
+    for (auto *delegate : m_delegates.keys())
+        releaseDelegate(delegate);
+}
+void EchoUiStructure::releaseView(QQuickItem *view)
+{
+    const auto state = m_views.take(view);
+    for (const auto &connection : state.connections + state.modelConnections)
+        disconnect(connection);
+}
+void EchoUiStructure::releaseDelegate(QQuickItem *item)
+{
+    const auto state = m_delegates.take(item);
+    for (const auto &connection : state.connections)
+        disconnect(connection);
+    if (state.relay)
+        state.relay->deleteLater();
+    if (auto *scope = EchoUiScope::get(item)) {
+        scope->setActive(true);
+        if (state.managedResource)
+            scope->setResourceKey({});
+    }
+}
+void EchoUiStructure::synchronizeDeclarations()
+{
+    // An explicit part inside a virtual delegate still needs pooled/reused
+    // and model-generation protection. Follow declaration ancestors only;
+    // do not publish or observe unrelated native siblings as automatic parts.
+    QSet<QQuickItem *> ancestors;
+    QSet<QQuickItem *> targets;
+    for (auto *part : m_registry.m_declarations)
+        if (!part->automatic()) {
+            targets.insert(part->target());
+            // A visual move preserves QObject ownership. Keep the original
+            // delegate's identity guard as well as the current visual ancestry.
+            for (auto *object = static_cast<QObject *>(part->target()); object;
+                 object = object->parent())
+                if (auto *item = qobject_cast<QQuickItem *>(object))
+                    ancestors.insert(item);
+            for (auto *item = part->target(); item; item = item->parentItem()) {
+                ancestors.insert(item);
+            }
+        }
+    for (auto *item : ancestors) {
+        watchView(item);
+        watchDelegate(item);
+        if (!targets.contains(item) && !m_declarationAncestors.contains(item)) {
+            const auto changed = [this, item] {
+                m_registry.addressTreeChanged(item);
+                schedule(item);
+                m_registry.notifyStructure();
+            };
+            m_declarationAncestors[item] = {
+                connect(item, &QQuickItem::parentChanged, this, changed),
+                connect(item, &QQuickItem::windowChanged, this, changed),
+                connect(item, &QObject::objectNameChanged, this, changed),
+                connect(item, &QObject::destroyed, this, [this, item] {
+                    m_declarationAncestors.remove(item);
+                    schedule();
+                })};
         }
     }
+    for (auto *item : m_declarationAncestors.keys())
+        if (!ancestors.contains(item) || targets.contains(item))
+            for (const auto &connection : m_declarationAncestors.take(item))
+                disconnect(connection);
+    for (auto *view : m_views.keys())
+        if (!ancestors.contains(view))
+            releaseView(view);
+    for (auto *delegate : m_delegates.keys())
+        if (!ancestors.contains(delegate))
+            releaseDelegate(delegate);
+    // Installing a delegate guard can retire the old declaration identity.
+    // Publish its new identity before a synchronous query returns, so a
+    // temporary discovery lease can produce and retain a valid reference.
+    m_registry.flushScopeChanges();
+}
+void EchoUiStructure::clearDeclarationAncestors()
+{
+    const auto watchers = std::exchange(m_declarationAncestors, {});
+    for (const auto &connections : watchers)
+        for (const auto &connection : connections)
+            disconnect(connection);
 }
 void EchoUiStructure::watchView(QQuickItem *view)
 {

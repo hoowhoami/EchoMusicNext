@@ -39,6 +39,7 @@ qt_add_qml_module(
     EchoSongMenuRegistry.cpp
     EchoUiPartRegistry.h
     EchoUiPartRegistry.cpp
+    EchoUiIndexSet.h
     EchoUiLayout.h
     EchoUiLayout.cpp
     EchoUiStructure.h

@@ -5,7 +5,11 @@
 #include "EchoUiPartRegistry.h"
 #include "EchoUiPartRegistration.h"
 #include "EchoUiPartMount.h"
+#include "EchoUiStructure.h"
 #include <QElapsedTimer>
+#include <QRandomGenerator>
+#include <QStandardItemModel>
+#include <QQmlContext>
 namespace
 {
 QByteArray partWindow = R"(
@@ -592,4 +596,212 @@ void PluginRuntimeTest::uiPartInstanceStylesAndLeasesStayBounded()
     registry->releaseStructure(&discovery);
     QTRY_COMPARE(registry->structureWatchCount(), 0);
     QTRY_COMPARE(registry->partCount(), inactiveParts);
+}
+
+void PluginRuntimeTest::uiIndexBucketsPreserveSetValues()
+{
+    EchoUiIndexSet<QString> actual;
+    QSet<QString> expected;
+    QRandomGenerator random(0xead011);
+    for (int step = 0; step < 12000; ++step) {
+        const auto value = QString::number(random.bounded(2048));
+        if (random.bounded(3)) {
+            actual.insert(value);
+            expected.insert(value);
+        } else {
+            QCOMPARE(actual.remove(value), expected.remove(value));
+        }
+        QCOMPARE(actual.size(), expected.size());
+        QCOMPARE(actual.contains(value), expected.contains(value));
+        if (step % 113 == 0) {
+            QCOMPARE(QSet<QString>(actual.begin(), actual.end()), expected);
+            auto copy = actual;
+            copy.insert("copy-only");
+            QVERIFY(!actual.contains("copy-only"));
+        }
+    }
+    for (const auto &value : expected)
+        QVERIFY(actual.remove(value));
+    QVERIFY(actual.isEmpty());
+    actual.insert("single");
+    actual.insert("single");
+    QCOMPARE(actual.size(), 1);
+    auto copy = actual;
+    copy.insert("other");
+    QVERIFY(copy.remove("single"));
+    QCOMPARE(*copy.begin(), QString("other"));
+    QCOMPARE(*actual.begin(), QString("single"));
+    EchoUiIndexSet<QObject *> pointers;
+    pointers.insert(nullptr);
+    QCOMPARE(pointers.size(), 1);
+    QVERIFY(pointers.remove(nullptr));
+    QVERIFY(pointers.isEmpty());
+}
+
+void PluginRuntimeTest::uiSemanticDiscoveryAndAncestryStayLazy()
+{
+    Host host;
+    auto root = createPartWindow(host);
+    QVERIFY(root);
+    const auto installation = activatePartPlugin(host, "test.semantic-demand", "", mountComponent);
+    auto *scope = host.runtime.context(installation);
+    QVERIFY(scope);
+    auto *registry = EchoUiPartRegistry::forEngine(host.engine);
+    const auto baseParts = registry->partCount();
+    auto *ref = scope->ui()->parts()->queryUnique({{"role", "page.test"}});
+    QVERIFY(ref);
+    auto keep = host.engine.newQObject(ref);
+    QCOMPARE(registry->structureWatchCount(), 0);
+    QCOMPARE(registry->partCount(), baseParts);
+    auto *structure = registry->findChild<EchoUiStructure *>();
+    QVERIFY(structure);
+    QVERIFY(structure->declarationWatchCount() > 0);
+    auto *owner =
+        visual(qobject_cast<QQuickWindow *>(root.get())->contentItem(), "publicHost")->parentItem();
+    QVERIFY(owner);
+    owner->setObjectName("semanticOwnerOne");
+    QTRY_VERIFY(ref->address().contains("semanticOwnerOne"));
+    owner->setObjectName("semanticOwnerTwo");
+    QTRY_VERIFY(ref->address().contains("semanticOwnerTwo"));
+    QVERIFY(!ref->address().contains("semanticOwnerOne"));
+    QVERIFY(!registry->selectorNeedsDiscovery({{"role", "page.*"}}));
+    QVERIFY(registry->selectorNeedsDiscovery({{"role", "control.*"}}));
+    QVERIFY(registry->selectorNeedsDiscovery(
+        {{"role", "page.test"}, {"ancestor", QVariantMap{{"role", "page.*"}}}}));
+    QVERIFY(registry->selectorNeedsDiscovery(
+        {{"role", "page.test"}}, {{"destination", QVariantMap{{"role", "layout.row"}}}}));
+    auto *rule = scope->ui()->styles()->registerRule("semantic-only", {{"role", "page.test"}},
+                                                     {{"opacity", .7}});
+    QVERIFY(rule);
+    QTRY_COMPARE(
+        visual(qobject_cast<QQuickWindow *>(root.get())->contentItem(), "publicHost")->opacity(),
+        .7);
+    QCOMPARE(registry->structureWatchCount(), 0);
+    QObject general;
+    registry->acquireStructure(&general);
+    QVERIFY(registry->structureWatchCount() > 0);
+    registry->releaseStructure(&general);
+    QTRY_COMPARE(registry->structureWatchCount(), 0);
+    QVERIFY(ref->valid());
+    rule->dispose();
+    // An explicit reference escalates only when native parent identity is read.
+    QVERIFY(!ref->parentId().isEmpty());
+    QVERIFY(registry->structureWatchCount() > 0);
+    QVERIFY(registry->partCount() > baseParts);
+    QVERIFY(host.runtime.setEnabled(installation, false));
+    QTRY_VERIFY(!ref->valid());
+    QTRY_COMPARE(registry->structureWatchCount(), 0);
+    QTRY_COMPARE(registry->partCount(), baseParts);
+    QTRY_COMPARE(structure->declarationWatchCount(), 0);
+}
+
+void PluginRuntimeTest::uiAutomaticGeometryObservationIsDemandOwned()
+{
+    Host host;
+    auto root = createPartWindow(host);
+    QVERIFY(root);
+    const auto installation = activatePartPlugin(host, "test.geometry-demand", "", mountComponent);
+    auto *scope = host.runtime.context(installation);
+    QVERIFY(scope);
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(window);
+    auto *item = new QQuickItem(window->contentItem());
+    item->setObjectName("demandOnlyLeaf");
+    item->setSize({30, 20});
+    auto *registry = EchoUiPartRegistry::forEngine(host.engine);
+    QObject discovery;
+    registry->acquireStructure(&discovery);
+    const auto found = registry->query({{"key", "demandOnlyLeaf"}});
+    QCOMPARE(found.size(), 1);
+    auto *part = found.first();
+    QVERIFY(part->automatic());
+    QVERIFY(!part->observed());
+    QSignalSpy changes(part, &EchoUiPartRegistration::changed);
+    item->setX(3);
+    item->setWidth(40);
+    QCOMPARE(changes.size(), 0);
+    QCOMPARE(part->geometry().width(), 40.);
+    part->acquireState();
+    QVERIFY(part->observed());
+    changes.clear();
+    item->setX(7);
+    item->setWidth(50);
+    QVERIFY(!changes.isEmpty());
+    part->releaseState();
+    changes.clear();
+    item->setX(9);
+    item->setWidth(60);
+    QCOMPARE(changes.size(), 0);
+    auto *conditional =
+        scope->ui()->styles()->registerRule("conditional-demand",
+                                            {{"role", "item.region"},
+                                             {"key", "demandOnlyLeaf"},
+                                             {"state", QVariantMap{{"enabled", false}}}},
+                                            {{"opacity", .3}});
+    QVERIFY(conditional);
+    QTRY_VERIFY(part->observed());
+    item->setEnabled(false);
+    QTRY_COMPARE(item->opacity(), .3);
+    item->setEnabled(true);
+    QTRY_COMPARE(item->opacity(), 1.);
+    conditional->dispose();
+    QTRY_VERIFY(!part->observed());
+    // Identity changes remain observed without a state reader.
+    const auto id = part->identity();
+    item->setParentItem(nullptr);
+    QTRY_VERIFY(registry->find(id) == nullptr);
+    registry->releaseStructure(&discovery);
+    QTRY_COMPARE(registry->structureWatchCount(), 0);
+    delete item;
+}
+
+void PluginRuntimeTest::uiSemanticVirtualDelegatesRetireWithoutDiscovery()
+{
+    Host host;
+    QStandardItemModel model;
+    for (int row = 0; row < 200; ++row)
+        model.appendRow(new QStandardItem(QString("resource-%1").arg(row)));
+    host.engine.rootContext()->setContextProperty("auditRows", &model);
+    QQmlComponent component(&host.engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+ApplicationWindow {
+ width:400; height:200; visible:true
+ function jump(n) { rows.positionViewAtIndex(n,ListView.Beginning); rows.forceLayout(); }
+ ListView {
+  id:rows; width:300; height:108; model:auditRows; reuseItems:true; cacheBuffer:0; currentIndex:-1
+  delegate: Item { id:rowItem
+   required property int index; required property string display
+   width:100; height:36; property string resourceId:display
+   EchoUiPart { target:rowItem; role:"test.semantic-row"; key:"row" }
+  }
+ }
+})",
+                      QUrl("qrc:/semantic-delegate-demand.qml"));
+    auto root = std::unique_ptr<QObject>(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    const auto installation = activatePartPlugin(host, "test.semantic-reuse", "", mountComponent);
+    auto *scope = host.runtime.context(installation);
+    QVERIFY(scope);
+    auto *registry = EchoUiPartRegistry::forEngine(host.engine);
+    auto *parts = scope->ui()->parts();
+    EchoUiPartRef *ref = nullptr;
+    QTRY_VERIFY(ref = parts->query({{"role", "test.semantic-row"}}));
+    auto keep = host.engine.newQObject(ref);
+    const auto original = ref->id();
+    QCOMPARE(registry->structureWatchCount(), 0);
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "jump", Q_ARG(QVariant, 120)));
+    QTRY_VERIFY(!ref->valid());
+    QVERIFY(registry->find(original) == nullptr);
+    QTRY_VERIFY(parts->query({{"role", "test.semantic-row"}}));
+    QCOMPARE(registry->structureWatchCount(), 0);
+    auto *resetRef = parts->query({{"role", "test.semantic-row"}});
+    QVERIFY(resetRef);
+    auto keepReset = host.engine.newQObject(resetRef);
+    model.clear();
+    QTRY_VERIFY(!resetRef->valid());
+    QVERIFY(host.runtime.setEnabled(installation, false));
+    QTRY_COMPARE(registry->structureWatchCount(), 0);
 }

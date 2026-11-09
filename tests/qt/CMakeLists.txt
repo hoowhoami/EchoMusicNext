@@ -1140,6 +1140,8 @@ add_test(
         echo-plugin-runtime-test uiStyleLayersRestoreLiveBindings
         uiPartsIdentityObservationAndPublicActions uiPartMountsReplaceAndRetire
         uiPartsProductionPlaybackAndMini uiPartInstanceStylesAndLeasesStayBounded
+        uiSemanticDiscoveryAndAncestryStayLazy uiAutomaticGeometryObservationIsDemandOwned
+        uiSemanticVirtualDelegatesRetireWithoutDiscovery uiIndexBucketsPreserveSetValues
 )
 
 add_test(

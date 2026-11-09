@@ -132,7 +132,7 @@ bool FavoritesService::removeSongs(const QStringList &ids)
             return false;
         if (!seen.contains(quint64(file))) {
             seen.insert(quint64(file));
-            files.append({quint64(file)});
+            files.append(ApiClient::PlaylistTrackFileId{quint64(file)});
         }
     }
     if (files.isEmpty())

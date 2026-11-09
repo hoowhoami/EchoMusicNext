@@ -6,6 +6,7 @@
 #include "EchoUiLayout.h"
 #include <QTimer>
 #include <memory>
+#include <algorithm>
 namespace EchoMusic
 {
 EchoPluginUiParts::EchoPluginUiParts(EchoPluginContext &scope) : QObject(&scope), m_scope(scope) {}
@@ -123,7 +124,7 @@ EchoUiPartRef *EchoPluginUiParts::query(const QVariantMap &selector)
     }
     error({});
     QObject discovery;
-    registry()->acquireStructure(&discovery);
+    registry()->acquireStructureFor(&discovery, selector);
     for (auto *part : registry()->query(selector))
         if (part->surface() != "inspector")
             return reference(*part);
@@ -138,7 +139,7 @@ EchoUiPartRef *EchoPluginUiParts::queryUnique(const QVariantMap &selector)
         return nullptr;
     }
     QObject discovery;
-    registry()->acquireStructure(&discovery);
+    registry()->acquireStructureFor(&discovery, selector);
     auto matches = registry()->query(selector);
     matches.removeIf([](auto *part) { return part->surface() == "inspector"; });
     if (matches.size() != 1) {
@@ -159,7 +160,7 @@ QVariantList EchoPluginUiParts::queryAll(const QVariantMap &selector)
     }
     error({});
     QObject discovery;
-    registry()->acquireStructure(&discovery);
+    registry()->acquireStructureFor(&discovery, selector);
     for (auto *part : registry()->query(selector))
         if (part->surface() != "inspector")
             result.append(QVariant::fromValue(reference(*part)));
@@ -172,6 +173,13 @@ QVariantMap EchoPluginUiParts::preflightBatch(const QVariantList &entries, const
         return {{"valid", false}, {"error", error}, {"entries", QVariantList()}};
     QVariantList results;
     bool valid = true;
+    QObject discovery;
+    const bool native = std::any_of(entries.cbegin(), entries.cend(), [this](const auto &value) {
+        const auto entry = value.toMap();
+        return registry()->selectorNeedsDiscovery(entry.value("selector").toMap(),
+                                                  entry.value("definition").toMap());
+    });
+    registry()->acquireStructure(&discovery, false, native);
     QHash<QQuickItem *, QList<EchoUiModelAdapter::Record>> models;
     for (const auto &value : entries) {
         const auto entry = value.toMap();
@@ -273,7 +281,7 @@ QVariantMap EchoPluginUiParts::preflight(const QVariantMap &selector, const QVar
     if (!message.isEmpty())
         return {{"valid", false}, {"error", message}, {"matchCount", 0}};
     QObject discovery;
-    registry()->acquireStructure(&discovery);
+    registry()->acquireStructureFor(&discovery, selector, definition);
     auto matches = registry()->query(selector);
     matches.removeIf([this](auto *part) {
         return part->surface() == "inspector" || part->owner() == m_scope.id();
@@ -466,7 +474,7 @@ EchoPluginRegistration *EchoPluginUiParts::observe(const QString &id, const QVar
             auto *source = registry();
             if (!source)
                 return false;
-            source->acquireStructure(lease);
+            source->acquireStructureFor(lease, selector);
             state->registryConnections
                 << connect(source, &EchoUiPartRegistry::added, lease,
                            [attach](auto *part) { attach(part, true); })

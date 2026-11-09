@@ -50,7 +50,7 @@ EchoUiStyleRule *EchoPluginUiStyles::registerRule(const QString &id, const QVari
         return nullptr;
     }
     if (auto *source = registry()) {
-        source->acquireStructure(lease);
+        source->acquireStructureFor(lease, selector);
         connect(lease, &EchoPluginRegistration::activeChanged, lease,
                 [source = QPointer<EchoUiPartRegistry>(source), lease] {
                     if (source && !lease->active())

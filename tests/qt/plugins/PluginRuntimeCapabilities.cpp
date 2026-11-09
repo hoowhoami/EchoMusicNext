@@ -2,6 +2,8 @@
 #include "EchoGpuSurface.h"
 #include "PluginRuntimeTestFixture.h"
 #include "EchoUiContribution.h"
+#include "EchoUiPartRegistry.h"
+#include "EchoUiPartRegistration.h"
 
 void PluginRuntimeTest::settingsContributionRetiresWithScope()
 {
@@ -203,6 +205,13 @@ ApplicationWindow {
     describe(window->contentItem());
     describe(mini->contentItem());
     QTRY_COMPARE(host.playback.spectrum()->subscriberCount(), entryOnly ? 1 : 3);
+    auto *registry = EchoUiPartRegistry::forEngine(host.engine);
+    QTRY_COMPARE(registry->structureWatchCount(), 0);
+    const auto declaredParts = registry->query({});
+    QVERIFY(std::none_of(declaredParts.cbegin(), declaredParts.cend(),
+                         [](auto *part) { return part->automatic(); }));
+    qInfo() << "UI_DEMAND declared parts" << declaredParts.size()
+            << "automatic parts 0; structure watches" << registry->structureWatchCount();
     QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
     QTRY_VERIFY_WITH_TIMEOUT(host.playback.engineReady(), 15000);
     // Quiet, real local PCM passes through the production decoder, mixer,

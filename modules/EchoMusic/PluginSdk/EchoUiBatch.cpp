@@ -10,6 +10,7 @@
 #include <QTimer>
 #include <QQuickWindow>
 #include <functional>
+#include <algorithm>
 namespace EchoMusic
 {
 EchoUiBatch::EchoUiBatch(EchoPluginUiParts &owner, EchoPluginRegistration &lease, QString id,
@@ -121,6 +122,7 @@ void EchoUiBatch::cancel()
     if (m_committing || !m_preparing)
         return;
     clear(m_preparing);
+    refreshStructureDemand();
     m_error.clear();
     emit changed();
 }
@@ -148,6 +150,25 @@ void EchoUiBatch::clear(std::unique_ptr<Revision> &revision)
     if (retiring->owner)
         retiring->owner->deleteLater();
 }
+bool EchoUiBatch::needsDiscovery(const QVariantList &entries) const
+{
+    return std::any_of(entries.cbegin(), entries.cend(), [this](const auto &value) {
+        const auto entry = value.toMap();
+        return m_registry->selectorNeedsDiscovery(entry.value("selector").toMap(),
+                                                  entry.value("definition").toMap());
+    });
+}
+void EchoUiBatch::refreshStructureDemand()
+{
+    if (!m_registry)
+        return;
+    if (!m_current && !m_preparing)
+        m_registry->releaseStructure(this);
+    else
+        m_registry->retainStructure(this,
+                                    (m_current && needsDiscovery(m_current->entries)) ||
+                                        (m_preparing && needsDiscovery(m_preparing->entries)));
+}
 bool EchoUiBatch::update(const QVariantList &entries)
 {
     QString error;
@@ -157,7 +178,8 @@ bool EchoUiBatch::update(const QVariantList &entries)
         emit changed();
         return false;
     }
-    m_registry->acquireStructure(this);
+    m_registry->acquireStructure(
+        this, false, needsDiscovery(entries) || (m_current && needsDiscovery(m_current->entries)));
     auto revision = std::make_unique<Revision>();
     revision->owner = new QObject(this);
     revision->entries = entries;
@@ -360,8 +382,7 @@ void EchoUiBatch::reject(const QString &message)
 {
     clear(m_preparing);
     m_error = message;
-    if (!m_current && m_registry)
-        m_registry->releaseStructure(this);
+    refreshStructureDemand();
     emit changed();
     emit rejected(message);
 }
@@ -538,6 +559,7 @@ void EchoUiBatch::commit()
             if (host)
                 host->endPublicationHold(false);
         m_committing = false;
+        refreshStructureDemand();
         m_error = error;
         emit changed();
         emit rejected(error);
@@ -555,6 +577,7 @@ void EchoUiBatch::commit()
     m_current = std::move(m_preparing);
     m_revision = m_current->number;
     m_definition = m_current->entries;
+    refreshStructureDemand();
     m_error.clear();
     for (auto host : held)
         if (host)

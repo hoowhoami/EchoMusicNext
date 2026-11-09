@@ -5,6 +5,7 @@
 #include <QQmlEngine>
 #include <QQuickWindow>
 #include <QtQml/qqmlregistration.h>
+#include "EchoUiIndexSet.h"
 namespace EchoMusic
 {
 class EchoUiPartRegistration;
@@ -33,8 +34,12 @@ public:
         return m_engine;
     }
     Q_INVOKABLE void acquireStructure(QObject *consumer, bool inspector = false);
+    void acquireStructure(QObject *consumer, bool inspector, bool discovery);
+    void acquireStructureFor(QObject *consumer, const QVariantMap &selector,
+                             const QVariantMap &definition = {});
+    bool selectorNeedsDiscovery(const QVariantMap &, const QVariantMap &definition = {}) const;
     Q_INVOKABLE void releaseStructure(QObject *consumer);
-    void retainStructure(QObject *consumer);
+    void retainStructure(QObject *consumer, bool discovery = true);
     void scopeChanged(QQuickItem *root);
     void modelContextChanged(QQuickItem *root);
     void modelDataChanged(QQuickItem *view);
@@ -125,6 +130,7 @@ signals:
     void partChanged(EchoMusic::EchoUiPartRegistration *part);
 
 private:
+    friend class EchoUiStructure;
     // setProperties/setActions re-resolve a declaration in place (the
     // setPreference idiom) and reach the private resolve() for it.
     friend class EchoUiPartRegistration;
@@ -132,6 +138,7 @@ private:
     QSet<QString> m_maskedPublications;
     void forgetAddress(const QString &identity);
     void refreshStyleDependencies();
+    void flushScopeChanges();
     QList<EchoUiPartRegistration *> declarationsWithin(QQuickItem *, bool visual) const;
     QSet<QString> m_styleDependencySources;
     QHash<QString, QSet<QString>> m_styleTargets, m_partStyleTokens;
@@ -139,12 +146,13 @@ private:
     void rebuildAddresses() const;
     QSet<EchoUiPartRegistration *> m_declarations;
     QHash<EchoUiPartRegistration *, QQuickItem *> m_declarationTargets;
-    QHash<QQuickItem *, QSet<EchoUiPartRegistration *>> m_targetDeclarations;
+    QHash<QQuickItem *, EchoUiIndexSet<EchoUiPartRegistration *>> m_targetDeclarations;
     QSet<QQuickItem *> m_presentationRoots;
     QList<QPointer<EchoUiPartRegistration>> m_scopePending;
     bool m_scopeScheduled = false;
     mutable QHash<QString, QString> m_addresses, m_rawAddresses, m_scopes, m_resources;
-    mutable QHash<QString, QSet<QString>> m_addressMembers, m_scopeMembers, m_resourceMembers;
+    mutable QHash<QString, EchoUiIndexSet<QString>> m_addressMembers, m_scopeMembers,
+        m_resourceMembers;
     mutable QSet<QString> m_dirtyAddresses;
     struct Composition
     {
@@ -195,7 +203,8 @@ private:
     void resolveReplacement(EchoUiPartRegistration *);
     QHash<QString, QPointer<EchoUiPartRegistration>> m_parts;
     QHash<QString, Style> m_styles;
-    QHash<QString, QSet<QString>> m_styleBuckets, m_keyIndex, m_roleIndex;
+    QHash<QString, QSet<QString>> m_styleBuckets;
+    QHash<QString, EchoUiIndexSet<QString>> m_keyIndex, m_roleIndex;
     QHash<QString, Style> m_replacements;
     mutable QHash<QQuickWindow *, QString> m_windows;
     mutable quint64 m_windowSequence = 0;
