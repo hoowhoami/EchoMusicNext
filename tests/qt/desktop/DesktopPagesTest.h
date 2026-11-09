@@ -39,6 +39,8 @@ private slots:
     void nativeFloatingWindowsShareStateAndReleaseAcrossCycles();
     void audibleTransitionPublishesOneToastThroughShell();
     void nativePlaybackFailurePublishesVisibleToast();
+    void toastKeepsPlacementAcrossPlaybackPageSwitches();
+    void sidebarPluginRegistrationKeepsHeaderVisible();
     void nativePlaybackSurvivesRepeatedAppearanceUpdates();
     void productionHeaderWindowActionsStayAtRightEdge();
     void fullscreenShortcutReachesModalPlaybackPage();

@@ -1612,3 +1612,125 @@ void DesktopPagesTest::productionContentBlacklistKeepsPreferencesDraftAndVirtual
     QVERIFY(QMetaObject::invokeMethod(preferences.data(), "close"));
     QCOMPARE(warnings.size(), 0);
 }
+
+void DesktopPagesTest::toastKeepsPlacementAcrossPlaybackPageSwitches()
+{
+    Session session;
+    PlaybackService playback(session.api, session.preferences);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&] {
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QVERIFY(Test::prepareNativeInput(session.window));
+    auto *owner = session.root->findChild<QObject *>("playbackPageOwner");
+    QVERIFY(owner);
+    auto *toasts = session.commands.toasts();
+    for (const auto scale : {1., 1.25}) {
+        session.shell.resetZoom();
+        while (session.shell.uiScale() < scale - .001)
+            session.shell.zoomIn();
+        for (const bool fromPlayback : {false, true}) {
+            if (fromPlayback) {
+                QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+                QTRY_VERIFY(session.root->findChild<QObject *>("playbackPage"));
+                QTRY_VERIFY(session.root->findChild<QObject *>("playbackPage")
+                                ->property("opened")
+                                .toBool());
+            }
+            toasts->show("切换页面时保留提示位置", ToastService::Info, 0);
+            auto *card = visual(session.window->contentItem(), "toastCard");
+            QVERIFY(card);
+            QTRY_COMPARE(card->scale(), 1.);
+            QTRY_COMPARE(card->parentItem()->property("rise").toReal(), 0.);
+            QCOMPARE(card->mapToScene(QPointF(card->width() / 2, 0)).x(),
+                     session.window->width() / 2.);
+            const auto before = card->mapToScene(QPointF());
+            const auto notice = toasts->noticeId();
+            QVERIFY(fromPlayback
+                        ? QMetaObject::invokeMethod(owner, "close")
+                        : QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+            // Sample the production transition, including destruction of its controls.
+            QElapsedTimer timer;
+            timer.start();
+            while (timer.elapsed() < 700) {
+                QTest::qWait(16);
+                QCOMPARE(card->mapToScene(QPointF()), before);
+                QCOMPARE(toasts->noticeId(), notice);
+            }
+            const auto image = session.window->grabWindow();
+            QVERIFY(!image.isNull());
+            const auto capture = qEnvironmentVariable("ECHO_TOAST_SIDEBAR_CAPTURE_DIR");
+            if (!capture.isEmpty()) {
+                QVERIFY(QDir().mkpath(capture));
+                QVERIFY(
+                    image.save(capture + QString("/toast-%1-%2.png").arg(scale).arg(fromPlayback)));
+            }
+            toasts->dismiss(notice);
+            QVERIFY(QMetaObject::invokeMethod(owner, "close"));
+            QTRY_VERIFY(!session.root->findChild<QObject *>("playbackPage"));
+        }
+    }
+}
+
+void DesktopPagesTest::sidebarPluginRegistrationKeepsHeaderVisible()
+{
+    Session session;
+    QVERIFY(session.create());
+    QVERIFY(Test::prepareNativeInput(session.window));
+    UserPlaylistModelTestAccess::present(session.accounts.playlists, session.api, 1000);
+    auto *scroll = visual(session.window->contentItem(), "sidebarPlaylistScroll");
+    auto *cards = visual(session.window->contentItem(), "sidebarShortcuts");
+    auto *menu = visual(session.window->contentItem(), "sidebarMusicMenu");
+    QVERIFY(scroll && cards && menu);
+    QObject provider;
+    auto *layout = session.shell.sidebarLayout();
+    for (const auto scale : {1., 1.25}) {
+        session.shell.resetZoom();
+        while (session.shell.uiScale() < scale - .001)
+            session.shell.zoomIn();
+        for (const bool collapsed : {false, true}) {
+            if (session.shell.sidebarCollapsed() != collapsed)
+                session.shell.toggleSidebar();
+            QVERIFY(session.settleScene());
+            QVERIFY(QMetaObject::invokeMethod(scroll, "positionViewAtBeginning"));
+            QTest::qWait(300);
+            const auto top = cards->mapToScene(QPointF()).y();
+            const auto check = [&] {
+                return qAbs(cards->mapToScene(QPointF()).y() - top) < .01 &&
+                       scroll->property("atYBeginning").toBool();
+            };
+            for (int cycle = 0; cycle < 2; ++cycle) {
+                const auto generation = layout->registerPluginEntry(
+                    {"test:late-menu", {{"title", "延迟注册插件"}}, false, &provider});
+                QVERIFY(generation);
+                QTRY_VERIFY(visual(menu, "sidebarMenu-test:late-menu"));
+                QTRY_VERIFY(check());
+                QVERIFY(session.settleScene());
+                QVERIFY(check());
+                const auto image = session.window->grabWindow();
+                QVERIFY(!image.isNull());
+                const auto capture = qEnvironmentVariable("ECHO_TOAST_SIDEBAR_CAPTURE_DIR");
+                if (!capture.isEmpty() && cycle == 0) {
+                    QVERIFY(QDir().mkpath(capture));
+                    QVERIFY(image.save(capture +
+                                       QString("/sidebar-%1-%2.png").arg(scale).arg(collapsed)));
+                }
+                layout->unregisterPluginEntry("test:late-menu", generation);
+                QTRY_VERIFY(!visual(menu, "sidebarMenu-test:late-menu"));
+                QTRY_VERIFY(check());
+            }
+            // A late contribution must not pull a user who has scrolled back to the top.
+            scroll->setProperty("contentY", 300.);
+            QVERIFY(session.settleScene());
+            const auto y = scroll->property("contentY").toReal();
+            const auto generation = layout->registerPluginEntry(
+                {"test:late-menu", {{"title", "延迟注册插件"}}, false, &provider});
+            QTRY_VERIFY(visual(menu, "sidebarMenu-test:late-menu"));
+            QVERIFY(session.settleScene());
+            QCOMPARE(scroll->property("contentY").toReal(), y);
+            layout->unregisterPluginEntry("test:late-menu", generation);
+            QTRY_VERIFY(!visual(menu, "sidebarMenu-test:late-menu"));
+        }
+    }
+}

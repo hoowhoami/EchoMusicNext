@@ -837,7 +837,8 @@ add_test(
     NAME desktop-pages-presentation
     COMMAND
         echo-desktop-pages-test audibleTransitionPublishesOneToastThroughShell
-        nativePlaybackFailurePublishesVisibleToast nativeOutputDeviceSelectHasOneDefaultChoice
+        nativePlaybackFailurePublishesVisibleToast toastKeepsPlacementAcrossPlaybackPageSwitches
+        sidebarPluginRegistrationKeepsHeaderVisible nativeOutputDeviceSelectHasOneDefaultChoice
         committedTrackClimaxFromLiveNativeApi productionEffectPanelAlignmentAndCompactContentTabs
         productionResolvedQualityMarksPickerAndToolbar productionAddToReopenStableHeight
         productionAddToHeaderAlignment productionAddToFailureUsesOnlyToast

@@ -11,24 +11,28 @@ Item {
     required property ToastService service
     property Item anchorItem: null
     property real uiScale: 1
-    // mapToItem alone does not subscribe to ancestor movement/zoom. Reuse the
-    // popup geometry owner so a notice follows the final layout and resize.
+    // Resolve vertical placement only when a new notice appears. Its controls
+    // may move, hide or be destroyed during a page transition; retain values,
+    // never the originating page. Window resize/zoom still uses these margins.
     EchoPopupAnchor {
         id: anchorGeometry
         item: viewport.anchorItem
         coordinateItem: viewport.parent
     }
-    readonly property point anchorStart: Qt.point(anchorGeometry.rect.x, anchorGeometry.rect.y)
-    readonly property point anchorEnd: Qt.point(anchorGeometry.rect.x + anchorGeometry.rect.width, anchorGeometry.rect.y)
-    readonly property bool anchored: anchorGeometry.available && anchorItem.height >= 24 && anchorItem.opacity > 0.05
+    property real bottomInset: 24
+    function capturePlacement(): void {
+        const anchored = anchorGeometry.available && anchorItem.height >= 24 && anchorItem.opacity > 0.05;
+        const rect = anchorGeometry.rect;
+        bottomInset = anchored ? Math.max(24, (parent.height - rect.y) / uiScale + 12) : 24;
+    }
     readonly property real logicalWidth: parent ? parent.width / uiScale : 460
     readonly property real logicalHeight: parent ? parent.height / uiScale : 0
     readonly property color stateColor: service.tone === ToastService.Warning ? "#f59e0b" : service.tone === ToastService.Danger ? "#ef4444" : service.tone === ToastService.Success ? "#10b981" : Theme.accent
     readonly property real borderRatio: service.tone === ToastService.Warning ? service.standard ? 0.58 : 0.40 : service.tone === ToastService.Danger ? service.standard ? 0.58 : 0.40 : service.tone === ToastService.Success ? service.standard ? 0.54 : 0.36 : service.standard ? 0.20 : 0
-    width: Math.max(220, Math.min(460, logicalWidth - 24, anchored ? (anchorEnd.x - anchorStart.x) / uiScale - 24 : 460))
+    width: Math.max(220, Math.min(460, logicalWidth - 24))
     height: card.height
-    x: anchored ? (anchorStart.x + anchorEnd.x) / 2 - width * uiScale / 2 : (parent.width - width * uiScale) / 2
-    y: Math.max(12, (anchored ? Math.min(anchorStart.y / uiScale - 12, logicalHeight - 24) : logicalHeight - 24) - height) * uiScale
+    x: (parent.width - width * uiScale) / 2
+    y: Math.max(12, logicalHeight - bottomInset - height) * uiScale
     scale: uiScale
     transformOrigin: Item.TopLeft
     visible: service.visible
@@ -56,6 +60,7 @@ Item {
         target: viewport.service
         function onChanged() {
             if (viewport.service.visible && viewport.announcedId !== viewport.service.noticeId) {
+                viewport.capturePlacement();
                 viewport.announcedId = viewport.service.noticeId;
                 viewport.Accessible.announce(viewport.Accessible.name, Accessible.Polite);
                 if (motion.allowed)
@@ -65,6 +70,10 @@ Item {
                 countBump.restart();
             viewport.lastRepetitions = viewport.service.visible ? viewport.service.repetitions : 0;
         }
+    }
+    Component.onCompleted: {
+        if (service.visible)
+            capturePlacement();
     }
     property real rise: 0
     ParallelAnimation {
@@ -103,6 +112,7 @@ Item {
         width: Math.min(viewport.width, content.implicitWidth + (viewport.service.standard ? viewport.service.title.length ? 28 : 32 : 24))
         height: viewport.service.standard ? Math.max(48, content.implicitHeight + (viewport.service.title.length ? 20 : 24)) : 36
         anchors.horizontalCenter: parent.horizontalCenter
+        anchors.alignWhenCentered: false
         y: viewport.rise
         shadowEnabled: false
         border.color: Theme.mix(Theme.floating.subtleBorder, viewport.service.tone === ToastService.Info ? Theme.floatingText : viewport.stateColor, viewport.borderRatio)

@@ -165,6 +165,36 @@ EchoUiPartHost {
                     sidebarScroll.restoreHeaderPosition();
                 }
             }
+            // Plugin menus arrive after startup and change the inline header's
+            // extent just like shortcut edits. Capture before Qt adjusts the
+            // outer ListView origin, while atYBeginning still describes the user.
+            Connections {
+                target: sidebar.settings.sidebarLayout.navigationModel
+                function onRowsAboutToBeInserted() {
+                    sidebarScroll.captureHeaderPosition();
+                }
+                function onRowsAboutToBeRemoved() {
+                    sidebarScroll.captureHeaderPosition();
+                }
+                function onRowsAboutToBeMoved() {
+                    sidebarScroll.captureHeaderPosition();
+                }
+                function onModelAboutToBeReset() {
+                    sidebarScroll.captureHeaderPosition();
+                }
+                function onRowsInserted() {
+                    sidebarScroll.restoreHeaderPosition();
+                }
+                function onRowsRemoved() {
+                    sidebarScroll.restoreHeaderPosition();
+                }
+                function onRowsMoved() {
+                    sidebarScroll.restoreHeaderPosition();
+                }
+                function onModelReset() {
+                    sidebarScroll.restoreHeaderPosition();
+                }
+            }
             Connections {
                 target: sidebarScroll.headerItem
                 function onHeightChanged() {
