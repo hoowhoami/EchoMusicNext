@@ -137,7 +137,7 @@ private slots:
                                     : mode == 2 ? QString::fromUtf8("原文 · 译文")
                                                 : QString::fromUtf8("原文");
             state.content.secondary = mode == 1 ? QString() : QString::fromUtf8("译文");
-            state.content.primaryIsTranslation = mode == 1;
+            state.content.primaryIsSecondary = mode == 1;
             item.update(state, style);
             auto *view = nativeView(item);
             QVERIFY(view);
@@ -158,6 +158,10 @@ private slots:
                 QVERIFY(primary.isEmpty());
             else {
                 QVERIFY(!primary.isEmpty());
+                QVERIFY(secondary.height() < primary.height());
+                const auto mainSize = item.diagnostics().value("primaryFontSize").toDouble();
+                QVERIFY(qAbs(item.diagnostics().value("secondaryFontSize").toDouble() -
+                             mainSize * .8) < .01);
                 if (mode == 3) {
                     const auto gap = secondary.top() - primary.bottom() - 1;
                     qInfo() << "Bilingual ink gap in backing pixels" << gap;
@@ -166,13 +170,88 @@ private slots:
                     QVERIFY(qAbs((ink.top() + ink.bottom() + 1.) / 2 - pixels.height() / 2.) <= 1.);
                 } else {
                     QVERIFY(primary.right() < secondary.left());
-                    QVERIFY(qAbs(primary.center().y() - secondary.center().y()) <= 1);
+                    QVERIFY(qAbs(primary.bottom() - secondary.bottom()) <= 1);
                 }
             }
             const auto artifacts = qEnvironmentVariable("ECHO_MENU_BAR_ARTIFACTS");
             if (!artifacts.isEmpty())
                 QVERIFY(pixels.save(artifacts + QString("/secondary-mode-%1.png").arg(mode)));
         }
+    }
+    void rubyFitsBarAndRetainsCachedWordProgress()
+    {
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Native AppKit display required");
+        double now = 1200;
+        MenuBarLyric item;
+        item.create([](auto) {}, [&] { return now; });
+        auto state = timedState();
+        state.advancing = false;
+        state.content.primary = QString::fromUtf8("你好世界");
+        state.content.secondary.clear();
+        state.content.words = {
+            QVariantMap{
+                {"text", QString::fromUtf8("你好")}, {"start_ms", 0}, {"duration_ms", 2000}},
+            QVariantMap{
+                {"text", QString::fromUtf8("世界")}, {"start_ms", 2000}, {"duration_ms", 2000}}};
+        state.content.ruby = {
+            QVariantMap{{"text", QString::fromUtf8("你好")}, {"ruby", "ni hao"}},
+            QVariantMap{{"text", QString::fromUtf8("世界")}, {"ruby", "shi jie"}}};
+        MenuBarLyricStyle style;
+        style.colorMode = style.secondaryColorMode = 2;
+        style.primaryColor = QColor("#ee3030");
+        style.secondaryColor = QColor("#3060ee");
+        style.wordByWord = false;
+        for (const double height : {22., 24., 37.}) {
+            for (const int mode : {3, 2}) {
+                style.displayMode = mode;
+                item.update(state, style);
+                auto *view = nativeView(item);
+                QVERIFY(view);
+                [view setFrameSize:NSMakeSize(view.frame.size.width, height)];
+                const auto pixels = hostSnapshot(view);
+                QRect all;
+                int bands = 0, translated = 0;
+                bool previous = false;
+                for (int y = 0; y < pixels.height(); ++y) {
+                    bool row = false;
+                    for (int x = 0; x < pixels.width(); ++x) {
+                        const auto c = pixels.pixelColor(x, y);
+                        if (c.alpha() < 40)
+                            continue;
+                        if (c.red() > 150 && c.blue() < 100)
+                            all |= QRect(x, y, 1, 1);
+                        if (c.blue() > 150 && c.red() < 100)
+                            ++translated;
+                        if (c.red() > 150 && c.blue() < 100)
+                            row = true;
+                    }
+                    if (row && !previous)
+                        ++bands;
+                    previous = row;
+                }
+                QVERIFY2(bands >= 2, "Ruby annotation must form visible ink above the original");
+                QVERIFY(all.top() > 0 && all.bottom() < pixels.height() - 1);
+                QVERIFY(qAbs((all.top() + all.bottom() + 1.) / 2 - pixels.height() / 2.) <= 1.5);
+                QCOMPARE(translated, 0);
+                QCOMPARE(item.diagnostics().value("secondaryFontSize").toDouble(), 0.);
+                QCOMPARE(item.diagnostics().value("rubyGroups").toInt(), 2);
+                const auto artifacts = qEnvironmentVariable("ECHO_MENU_BAR_ARTIFACTS");
+                if (!artifacts.isEmpty())
+                    QVERIFY(
+                        pixels.save(artifacts + QString("/ruby-%1-%2.png").arg(mode).arg(height)));
+            }
+        }
+        style.displayMode = 3;
+        style.wordByWord = true;
+        state.content.primary = QString::fromUtf8("你好世界");
+        item.update(state, style);
+        const auto builds = item.diagnostics().value("textBuilds").toULongLong();
+        const auto cutoff = item.diagnostics().value("cutoff").toDouble();
+        now += 1000;
+        item.update(state, style);
+        QCOMPARE(item.diagnostics().value("textBuilds").toULongLong(), builds);
+        QVERIFY(item.diagnostics().value("cutoff").toDouble() > cutoff);
     }
     void wordProgressSchedulesHostDisplayAndAdvancesThroughAllGlyphs()
     {

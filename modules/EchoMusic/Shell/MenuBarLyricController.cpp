@@ -2,11 +2,13 @@
 #include "PlaybackService.h"
 #include "PlaybackLibraryActions.h"
 #include "LyricModel.h"
+#include "LyricTextController.h"
 #include "ThemeStore.h"
 #include <QGuiApplication>
 namespace
 {
-QVariantMap menuBarLineAt(const EchoMusic::LyricModel &model, qint64 position, bool keepPrevious)
+QVariantMap menuBarLineAt(const EchoMusic::LyricModel &model, qint64 position, bool keepPrevious,
+                          int *selectedRow = nullptr)
 {
     int row = model.scrollable() ? model.indexAt(position) : model.nextVisible(-1);
     auto line = model.lineAt(row);
@@ -19,6 +21,8 @@ QVariantMap menuBarLineAt(const EchoMusic::LyricModel &model, qint64 position, b
     } else if (line.value("filtered").toBool() || expired) {
         return {};
     }
+    if (selectedRow)
+        *selectedRow = row;
     return line;
 }
 } // namespace
@@ -40,6 +44,8 @@ void MenuBarLyricController::attachPlayback(PlaybackService &playback)
     connect(&playback, &PlaybackService::changed, this, &MenuBarLyricController::sync);
     connect(&playback, &PlaybackService::clockChanged, this, &MenuBarLyricController::sync);
     connect(playback.lyrics(), &LyricModel::changed, this, &MenuBarLyricController::sync);
+    connect(playback.lyricText(), &LyricTextController::changed, this,
+            &MenuBarLyricController::sync);
     connect(&playback, &QObject::destroyed, this, [this] { m_native.reset(); });
     sync();
 }
@@ -64,27 +70,38 @@ void MenuBarLyricController::shutdown()
 }
 
 MenuBarLyricContent MenuBarLyricController::contentAt(const LyricModel &model, qint64 position,
-                                                      int mode, bool keepPrevious)
+                                                      int mode, bool keepPrevious,
+                                                      int secondaryContent, bool romanizationAsRuby)
 {
-    const auto line = menuBarLineAt(model, position, keepPrevious);
+    int row = -1;
+    const auto line = menuBarLineAt(model, position, keepPrevious, &row);
     const auto original = line.value("lineText").toString();
     const auto translation = line.value("translation").toString();
+    const auto romanization = line.value("romanization").toString();
     MenuBarLyricContent result;
     result.primary = original;
     result.offsetMs = model.offsetMs();
     result.wordTimed = model.scrollable() && line.value("wordTimed").toBool();
     if (result.wordTimed)
         result.words = line.value("words").toList();
-    if (mode == 1 && !translation.isEmpty()) {
-        result.primary = translation;
-        result.primaryIsTranslation = true;
+    if (mode >= 2 && secondaryContent != 0 && romanizationAsRuby && result.wordTimed)
+        result.ruby = model.rubyAt(row);
+    QStringList parts;
+    if (secondaryContent != 0 && result.ruby.isEmpty() && !romanization.trimmed().isEmpty())
+        parts.append(romanization);
+    if (result.ruby.isEmpty() && secondaryContent != 1 && !translation.trimmed().isEmpty())
+        parts.append(translation);
+    const auto secondary = parts.join(QStringLiteral(" / "));
+    if (mode == 1 && !secondary.isEmpty()) {
+        result.primary = secondary;
+        result.primaryIsSecondary = true;
         result.wordTimed = false;
         result.words.clear();
-    } else if (mode == 2 && !translation.isEmpty()) {
-        result.primary += QStringLiteral(" · ") + translation;
-        result.secondary = translation;
+    } else if (mode == 2 && !secondary.isEmpty()) {
+        result.primary += QStringLiteral(" · ") + secondary;
+        result.secondary = secondary;
     } else if (mode == 3) {
-        result.secondary = translation;
+        result.secondary = secondary;
     }
     return result;
 }
@@ -116,7 +133,8 @@ void MenuBarLyricController::sync()
     const auto at = qint64(m_playback->clockPosition());
     if (state.hasTrack)
         state.content = contentAt(*m_playback->lyrics(), at, m_settings.displayMode(),
-                                  m_settings.idleBehavior() == 1);
+                                  m_settings.idleBehavior() == 1, m_settings.secondaryContent(),
+                                  m_playback->lyricText()->romanizationAsRuby());
     const bool empty = state.content.primary.isEmpty();
     state.visible = !(empty && m_settings.idleBehavior() == 2) &&
                     !(!state.playing && m_settings.pauseBehavior() == 2);

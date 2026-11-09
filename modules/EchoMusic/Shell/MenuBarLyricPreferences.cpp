@@ -12,6 +12,7 @@ MenuBarLyricPreferences::MenuBarLyricPreferences(SettingsStore &settings, QObjec
         return ok ? qBound(low, value, high) : fallback;
     };
     m_enabled = values.value("enabled", false).toBool();
+    m_secondaryContent = number("secondaryContent", 2, 0, 2);
     m_style.displayMode = number("displayMode", 0, 0, 3);
     m_style.maxWidth = number("maxWidth", 280, 128, 800);
     m_style.fontSize = number("fontSize", 13, 10, 22);
@@ -35,6 +36,7 @@ void MenuBarLyricPreferences::save()
     m_settings.setValue(
         SettingsKeys::MenuBarLyric::Preferences,
         QVariantMap{{"enabled", m_enabled},
+                    {"secondaryContent", m_secondaryContent},
                     {"displayMode", m_style.displayMode},
                     {"maxWidth", m_style.maxWidth},
                     {"fontSize", m_style.fontSize},
@@ -54,6 +56,14 @@ void MenuBarLyricPreferences::setEnabled(bool value)
 {
     if (m_enabled != value) {
         m_enabled = value;
+        save();
+    }
+}
+void MenuBarLyricPreferences::setSecondaryContent(int value)
+{
+    value = qBound(0, value, 2);
+    if (m_secondaryContent != value) {
+        m_secondaryContent = value;
         save();
     }
 }

@@ -354,11 +354,14 @@ void DesktopPagesTest::menuBarLyricsUseMacOnlyProductionSettingsAndRelease()
     QVERIFY(section->isVisible());
     QVERIFY(!preferences->enabled());
     QCOMPARE(preferences->displayMode(), 0);
+    QCOMPARE(preferences->secondaryContent(), 2);
     QVERIFY(!controller->diagnostics().value("created").toBool());
     QVERIFY(session.clickItem("menuBarLyricEnabled"));
     QTRY_VERIFY(preferences->enabled());
     QCOMPARE(controller->diagnostics().value("created").toBool(), native);
     if (native) {
+        preferences->setSecondaryContent(0);
+        playback.lyricText()->setRomanizationAsRuby(false);
         preferences->setDisplayMode(1);
         const auto path = session.directory.filePath("menu-bar-audio.wav");
         QVERIFY(writeFloatingTestWave(path));
@@ -375,6 +378,7 @@ void DesktopPagesTest::menuBarLyricsUseMacOnlyProductionSettingsAndRelease()
              QJsonArray{QJsonObject{
                  {"text", "你好世界"},
                  {"translation", "Hello world"},
+                 {"romanization", "ni hao shi jie"},
                  {"start_ms", 0},
                  {"duration_ms", 16000},
                  {"words",
@@ -385,6 +389,18 @@ void DesktopPagesTest::menuBarLyricsUseMacOnlyProductionSettingsAndRelease()
         QTRY_COMPARE(controller->diagnostics().value("primary").toString(), QString("Hello world"));
         preferences->setDisplayMode(3);
         QTRY_VERIFY(controller->diagnostics().value("timerActive").toBool());
+        preferences->setSecondaryContent(1);
+        QTRY_COMPARE(controller->diagnostics().value("secondary").toString(),
+                     QString("ni hao shi jie"));
+        preferences->setSecondaryContent(2);
+        QTRY_COMPARE(controller->diagnostics().value("secondary").toString(),
+                     QString("ni hao shi jie / Hello world"));
+        playback.lyricText()->setRomanizationAsRuby(true);
+        QTRY_VERIFY(controller->diagnostics().value("secondary").toString().isEmpty());
+        QTRY_VERIFY(controller->diagnostics().value("rubyGroups").toInt() > 0);
+        QTRY_COMPARE(controller->diagnostics().value("secondaryFontSize").toDouble(), 0.);
+        playback.lyricText()->setRomanizationAsRuby(false);
+        QTRY_COMPARE(controller->diagnostics().value("rubyGroups").toInt(), 0);
         QTest::qWait(300);
         QVERIFY(controller->diagnostics().value("cutoff").toDouble() > 0);
         playback.pause();
@@ -403,6 +419,19 @@ void DesktopPagesTest::menuBarLyricsUseMacOnlyProductionSettingsAndRelease()
             session.shell.resetZoom();
             for (int value = 100; value < zoom; value += 5)
                 session.shell.zoomIn();
+            QVERIFY(session.clickItem("menuBarLyricSecondaryContent"));
+            auto *contentSelector =
+                visual(session.window->contentItem(), "menuBarLyricSecondaryContent");
+            QVERIFY(contentSelector);
+            QPointer<QObject> contentPopup;
+            QTRY_VERIFY((contentPopup = contentSelector->property("popup").value<QObject *>()));
+            QTRY_VERIFY(contentPopup->property("opened").toBool());
+            QQuickItem *contentOption = nullptr;
+            QTRY_VERIFY((contentOption = visual(session.window->contentItem(), "selectOption-2")) &&
+                        contentOption->isVisible());
+            QVERIFY(session.clickItem(contentOption));
+            QTRY_COMPARE(preferences->secondaryContent(), 2);
+            QTRY_VERIFY(contentPopup.isNull());
             QVERIFY(session.clickItem("menuBarLyricDisplayMode"));
             auto *selector = visual(session.window->contentItem(), "menuBarLyricDisplayMode");
             QVERIFY(selector);

@@ -10,6 +10,7 @@ class MenuBarLyricPreferences final : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by the menu bar lyric controller")
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY changed)
+    Q_PROPERTY(int secondaryContent READ secondaryContent WRITE setSecondaryContent NOTIFY changed)
     Q_PROPERTY(int displayMode READ displayMode WRITE setDisplayMode NOTIFY changed)
     Q_PROPERTY(int maxWidth READ maxWidth WRITE setMaxWidth NOTIFY changed)
     Q_PROPERTY(int fontSize READ fontSize WRITE setFontSize NOTIFY changed)
@@ -30,6 +31,11 @@ public:
     {
         return m_enabled;
     }
+    int secondaryContent() const
+    {
+        return m_secondaryContent;
+    }
+    void setSecondaryContent(int value);
     int displayMode() const
     {
         return m_style.displayMode;
@@ -108,7 +114,8 @@ private:
     SettingsStore &m_settings;
     MenuBarLyricStyle m_style;
     bool m_enabled = false;
-    int m_pauseBehavior = 0; // keep, dim, hide
-    int m_idleBehavior = 1;  // title, previous visible line, hide
+    int m_secondaryContent = 2; // translation, romanization, both
+    int m_pauseBehavior = 0;    // keep, dim, hide
+    int m_idleBehavior = 1;     // title, previous visible line, hide
 };
 } // namespace EchoMusic

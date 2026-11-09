@@ -33,17 +33,31 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
-        description: qsTr("没有译文时显示原文；双行字号会根据实际菜单栏高度自动调整")
+        description: qsTr("没有所选副行时显示原文；双行字号根据菜单栏高度自动调整，副行小于原文")
         heading: qsTr("显示模式")
 
         EchoSelect {
             colors: Theme.floating
             currentIndex: section.preferences.displayMode
             implicitWidth: 180
-            model: [qsTr("原文"), qsTr("译文优先"), qsTr("单行双语"), qsTr("双行双语")]
+            model: [qsTr("原文"), section.preferences.secondaryContent === 0 ? qsTr("译文优先") : section.preferences.secondaryContent === 1 ? qsTr("音译优先") : qsTr("副行优先"), qsTr("单行双语"), qsTr("双行双语")]
             objectName: "menuBarLyricDisplayMode"
 
             onActivated: section.preferences.displayMode = currentIndex
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("副行内容")
+        description: qsTr("普通模式可显示音译 / 译文；显示注音时只保留原文与上方注音，隐藏译文")
+        EchoSelect {
+            objectName: "menuBarLyricSecondaryContent"
+            Accessible.name: qsTr("菜单栏歌词副行内容")
+            colors: Theme.floating
+            implicitWidth: 180
+            model: [qsTr("译文"), qsTr("音译"), qsTr("音译 / 译文")]
+            currentIndex: section.preferences.secondaryContent
+            onActivated: section.preferences.secondaryContent = currentIndex
         }
     }
     SettingsDivider {}
@@ -117,7 +131,7 @@ SettingsSection {
     }
     SettingsRow {
         heading: qsTr("副行颜色")
-        description: qsTr("译文独立配色；跟随系统时使用次级文字色")
+        description: qsTr("译文、音译共用副行颜色；跟随系统时使用次级文字色")
         EchoSelect {
             colors: Theme.floating
             implicitWidth: 180

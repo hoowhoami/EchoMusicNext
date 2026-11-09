@@ -23,6 +23,7 @@ QJsonObject document(bool wordTimed = true, bool scrollable = true)
                                 {"words", QJsonArray{}}},
                     QJsonObject{{"text", "你好世界"},
                                 {"translation", "Hello world"},
+                                {"romanization", "ni hao shi jie"},
                                 {"start_ms", 1000},
                                 {"duration_ms", 2000},
                                 {"words", wordTimed ? QJsonArray{QJsonObject{{"text", "你好"},
@@ -57,7 +58,7 @@ private slots:
         QCOMPARE(MenuBarLyricController::contentAt(model, 1200, 1, false).primary,
                  QString("Hello world"));
         QVERIFY(!MenuBarLyricController::contentAt(model, 1200, 1, false).wordTimed);
-        QVERIFY(MenuBarLyricController::contentAt(model, 1200, 1, false).primaryIsTranslation);
+        QVERIFY(MenuBarLyricController::contentAt(model, 1200, 1, false).primaryIsSecondary);
         QCOMPARE(MenuBarLyricController::contentAt(model, 1200, 2, false).secondary,
                  QString("Hello world"));
         QCOMPARE(MenuBarLyricController::contentAt(model, 1200, 2, false).primary,
@@ -78,6 +79,56 @@ private slots:
                  QString("你好世界"));
         QVERIFY(!MenuBarLyricController::contentAt(model, 0, 0, false).wordTimed);
     }
+    void secondarySelectionAndRubyKeepSourceTiming()
+    {
+        LyricModel model(nullptr);
+        QVERIFY(model.replace(document()));
+        const auto project = [&](int mode, int content, bool ruby = false) {
+            return MenuBarLyricController::contentAt(model, 1200, mode, false, content, ruby);
+        };
+        QCOMPARE(project(3, 0).secondary, QString("Hello world"));
+        QCOMPARE(project(3, 1).secondary, QString("ni hao shi jie"));
+        QCOMPARE(project(3, 2).secondary, QString("ni hao shi jie / Hello world"));
+        QCOMPARE(project(2, 2).primary, QString("你好世界 · ni hao shi jie / Hello world"));
+        const auto only = project(1, 2, true);
+        QCOMPARE(only.primary, QString("ni hao shi jie / Hello world"));
+        QVERIFY(only.primaryIsSecondary);
+        QVERIFY(!only.wordTimed && only.words.isEmpty() && only.ruby.isEmpty());
+        const auto ruby = project(3, 2, true);
+        QCOMPARE(ruby.primary, QString("你好世界"));
+        QVERIFY(ruby.secondary.isEmpty());
+        QCOMPARE(ruby.ruby, model.rubyAt(1));
+        QVERIFY(!ruby.ruby.isEmpty());
+        QCOMPARE(ruby.ruby.first().toMap().value("start_ms").toInt(), 1000);
+        QCOMPARE(ruby.offsetMs, 200);
+        QCOMPARE(ruby.words, project(3, 0).words);
+        const auto inlineRuby = project(2, 2, true);
+        QCOMPARE(inlineRuby.primary, QString("你好世界"));
+        QVERIFY(inlineRuby.secondary.isEmpty());
+        QCOMPARE(inlineRuby.ruby, ruby.ruby);
+        const auto phoneticRuby = project(3, 1, true);
+        QVERIFY(!phoneticRuby.ruby.isEmpty());
+        QVERIFY(phoneticRuby.secondary.isEmpty());
+        QVERIFY(project(0, 2, true).ruby.isEmpty());
+        auto missing = MenuBarLyricController::contentAt(model, 4300, 3, false, 2, true);
+        QVERIFY(missing.secondary.isEmpty() && missing.ruby.isEmpty());
+        QCOMPARE(MenuBarLyricController::contentAt(model, 4300, 1, false, 1).primary,
+                 QString("纯原文"));
+        QVERIFY(model.replace(document(false)));
+        const auto untimed = project(3, 2, true);
+        QVERIFY(untimed.ruby.isEmpty());
+        QCOMPARE(untimed.secondary, QString("ni hao shi jie / Hello world"));
+        QVERIFY(!untimed.wordTimed);
+        // No dangling separator when only one auxiliary field is present.
+        auto single = document();
+        auto rows = single.value("lines").toArray();
+        auto row = rows[1].toObject();
+        row.remove("translation");
+        rows[1] = row;
+        single["lines"] = rows;
+        QVERIFY(model.replace(single));
+        QCOMPARE(project(3, 2).secondary, QString("ni hao shi jie"));
+    }
     void preferencesAreBoundedPortableAndIndependent()
     {
         QTemporaryDir directory;
@@ -88,12 +139,16 @@ private slots:
             QVERIFY(!preferences.enabled());
             QCOMPARE(preferences.displayMode(), 0);
             QCOMPARE(preferences.idleBehavior(), 1);
+            QCOMPARE(preferences.secondaryContent(), 2);
             QCOMPARE(preferences.secondaryColorMode(), 0);
             preferences.setEnabled(true);
             preferences.setMaxWidth(9000);
             preferences.setFontSize(-5);
             preferences.setOpacity(0);
             preferences.setDisplayMode(3);
+            preferences.setSecondaryContent(999);
+            QCOMPARE(preferences.secondaryContent(), 2);
+            preferences.setSecondaryContent(1);
             preferences.setPauseBehavior(2);
             preferences.setIdleBehavior(1);
             preferences.setColorMode(2);
@@ -112,6 +167,7 @@ private slots:
         MenuBarLyricPreferences preferences(reopened);
         QVERIFY(preferences.enabled());
         QCOMPARE(preferences.displayMode(), 3);
+        QCOMPARE(preferences.secondaryContent(), 1);
         QCOMPARE(preferences.pauseBehavior(), 2);
         QCOMPARE(preferences.idleBehavior(), 1);
         QCOMPARE(preferences.primaryColor(), QColor("#123456"));

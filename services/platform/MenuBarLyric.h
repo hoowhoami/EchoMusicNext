@@ -12,10 +12,10 @@ namespace EchoMusic
 struct MenuBarLyricContent
 {
     QString primary, secondary;
-    QVariantList words;
+    QVariantList words, ruby;
     qint64 offsetMs = 0;
     bool wordTimed = false;
-    bool primaryIsTranslation = false;
+    bool primaryIsSecondary = false;
     bool operator==(const MenuBarLyricContent &) const = default;
 };
 struct MenuBarLyricStyle

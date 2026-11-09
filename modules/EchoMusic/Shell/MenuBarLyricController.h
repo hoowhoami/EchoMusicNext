@@ -31,9 +31,10 @@ public:
     void setPresentationReady();
     void shutdown();
     /// Projects only the needed source row; static lyrics use the first visible row.
-    /// Display modes never manufacture translation timing for ordinary LRC.
+    /// Display modes never manufacture timing for translation or romanization.
     static MenuBarLyricContent contentAt(const LyricModel &model, qint64 position, int displayMode,
-                                         bool keepPrevious);
+                                         bool keepPrevious, int secondaryContent = 0,
+                                         bool romanizationAsRuby = false);
     QVariantMap diagnostics() const
     {
         return m_native.diagnostics();

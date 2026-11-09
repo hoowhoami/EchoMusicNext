@@ -51,15 +51,42 @@ NSFont *nativeFont(const MenuBarLyricStyle &style, CGFloat size)
     auto resolved = [NSFont fontWithDescriptor:descriptor size:size];
     return resolved ? resolved : font;
 }
-CTLineRef makeLine(const QString &text, NSFont *font)
+CTLineRef makeLine(const QString &text, NSFont *font, NSFont *secondaryFont = nullptr,
+                   CFIndex secondaryStart = -1, const QVariantList *ruby = nullptr,
+                   NSColor *color = nil)
 {
-    return CTLineCreateWithAttributedString(
-        (__bridge CFAttributedStringRef)[[NSAttributedString alloc]
-            initWithString:nativeText(text)
-                attributes:@{
-                    NSFontAttributeName : font,
-                    (__bridge NSString *)kCTForegroundColorFromContextAttributeName : @YES
-                }]);
+    auto foreground = color ? color : NSColor.whiteColor;
+    auto attributed = [[NSMutableAttributedString alloc]
+        initWithString:nativeText(text)
+            attributes:@{NSFontAttributeName : font, NSForegroundColorAttributeName : foreground}];
+    if (secondaryFont && secondaryStart >= 0 && secondaryStart < text.size())
+        [attributed addAttribute:NSFontAttributeName
+                           value:secondaryFont
+                           range:NSMakeRange(secondaryStart, text.size() - secondaryStart)];
+    CFIndex index = 0;
+    if (ruby)
+        for (const auto &value : *ruby) {
+            const auto unit = value.toMap();
+            const auto base = unit.value("text").toString();
+            const auto reading = unit.value("ruby").toString();
+            if (base.isEmpty() || text.mid(index, base.size()) != base)
+                break;
+            if (!reading.isEmpty()) {
+                auto annotation = CTRubyAnnotationCreateWithAttributes(
+                    kCTRubyAlignmentCenter, kCTRubyOverhangNone, kCTRubyPositionBefore,
+                    (__bridge CFStringRef)nativeText(reading), (__bridge CFDictionaryRef) @{
+                        (__bridge NSString *)kCTRubyAnnotationSizeFactorAttributeName : @.5,
+                        (__bridge NSString *)kCTRubyAnnotationScaleToFitAttributeName : @YES,
+                        NSForegroundColorAttributeName : foreground
+                    });
+                [attributed addAttribute:(__bridge NSString *)kCTRubyAnnotationAttributeName
+                                   value:(__bridge id)annotation
+                                   range:NSMakeRange(index, base.size())];
+                CFRelease(annotation);
+            }
+            index += base.size();
+        }
+    return CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)attributed);
 }
 CGFloat textWidth(CTLineRef line)
 {
@@ -81,7 +108,7 @@ struct CachedLine
 {
     __strong CALayer *container = nil, *base = nil, *sung = nil, *mask = nil;
     std::vector<Span> spans;
-    CGFloat width = 0;
+    CGFloat width = 0, fontSize = 0;
     bool timed = false;
 };
 } // namespace
@@ -299,7 +326,11 @@ struct CachedLine
 }
 - (NSString *)accessibilityValue
 {
+    QStringList readings;
+    for (const auto &unit : state.content.ruby)
+        readings.append(unit.toMap().value("ruby").toString());
     return nativeText(state.content.primary +
+                      (readings.isEmpty() ? QString() : " " + readings.join(' ')) +
                       (style.displayMode == 3 ? " " + state.content.secondary : QString()));
 }
 - (BOOL)accessibilityPerformPress
@@ -444,6 +475,7 @@ struct CachedLine
 - (void)buildLine:(CachedLine &)cached
              text:(const QString &)text
              font:(NSFont *)font
+    secondaryFont:(NSFont *)secondaryFont
             color:(NSColor *)color
            height:(CGFloat)height
         clipStart:(CGFloat)clipStart
@@ -452,17 +484,23 @@ struct CachedLine
     cached.spans.clear();
     cached.timed = false;
     cached.width = 0;
+    cached.fontSize = 0;
     cached.base.contents = nil;
     cached.sung.contents = nil;
     if (text.isEmpty())
         return;
-    CTLineRef full = makeLine(text, font);
+    const auto secondaryStart = secondaryFont ? text.size() - state.content.secondary.size() : -1;
+    cached.fontSize =
+        secondaryFont && &cached == &lines[1] ? secondaryFont.pointSize : font.pointSize;
+    const auto *ruby = &cached == &lines[0] || secondaryFont ? &state.content.ruby : nullptr;
+    CTLineRef full = makeLine(text, font, secondaryFont, secondaryStart, ruby, color);
     CTLineRef line = full;
     const auto available = self.bounds.size.width - 12;
     // Bound individual textures even for maliciously long plugin/source rows.
     const CGFloat limit = style.scrolling ? 4096. : available;
     if (textWidth(full) > limit) {
-        const auto token = makeLine(QStringLiteral("…"), font);
+        const auto token = makeLine(QStringLiteral("…"), secondaryFont ? secondaryFont : font,
+                                    nullptr, -1, nullptr, color);
         line = CTLineCreateTruncatedLine(full, limit, kCTLineTruncationEnd, token);
         CFRelease(token);
         if (!line)
@@ -539,26 +577,45 @@ struct CachedLine
     constexpr CGFloat bilingualGap = 2.;
     const bool inlineBilingual = style.displayMode == 2 && !state.content.secondary.isEmpty();
     const bool bilingual = style.displayMode == 3 && !state.content.secondary.isEmpty();
-    if (bilingual) {
-        // Measure mixed-script ink, including fallback and Latin descenders.
+    constexpr CGFloat secondaryScale = .8;
+    if (bilingual || !state.content.ruby.isEmpty()) {
+        // Both font sizes fit the native bar together, including fallback
+        // ascenders/descenders; the secondary line always remains smaller.
         while (size > 8) {
-            auto sample = makeLine(QStringLiteral("国한Agjp"), nativeFont(style, size));
-            const auto required = inkBounds(sample).size.height * 2 + bilingualGap;
+            auto primaryFont = nativeFont(style, size);
+            auto secondaryFont = nativeFont(style, size * secondaryScale);
+            const auto sample = makeLine(QStringLiteral("国한Agjp"), primaryFont);
+            const auto subSample = makeLine(QStringLiteral("国한Agjp"), secondaryFont);
+            const auto primary =
+                makeLine(state.content.primary, primaryFont, nullptr, -1, &state.content.ruby);
+            const auto secondary = makeLine(state.content.secondary, secondaryFont);
+            const auto required =
+                std::max(inkBounds(sample).size.height, inkBounds(primary).size.height) +
+                (bilingual ? std::max(inkBounds(subSample).size.height,
+                                      inkBounds(secondary).size.height) +
+                                 bilingualGap
+                           : 0);
             CFRelease(sample);
+            CFRelease(subSample);
+            CFRelease(primary);
+            CFRelease(secondary);
             if (required <= height - 2)
                 break;
             size -= .25;
         }
     }
     auto font = nativeFont(style, size);
-    const auto first = makeLine(state.content.primary, font);
-    const auto second = makeLine(bilingual ? state.content.secondary : QString(), font);
+    auto secondaryFont = nativeFont(style, size * secondaryScale);
+    const auto secondaryStart =
+        inlineBilingual ? state.content.primary.size() - state.content.secondary.size() : -1;
+    // Inline layers share one attributed CTLine and baseline, so word offsets,
+    // truncation, color clips and scrolling all use the same mixed-size shaping.
+    const auto first =
+        makeLine(state.content.primary, font, inlineBilingual ? secondaryFont : nullptr,
+                 secondaryStart, &state.content.ruby);
+    const auto second = makeLine(bilingual ? state.content.secondary : QString(), secondaryFont);
     const auto inlineSplit =
-        inlineBilingual
-            ? CTLineGetOffsetForStringIndex(
-                  first, state.content.primary.size() - state.content.secondary.size(), nullptr) +
-                  1
-            : 0;
+        inlineBilingual ? CTLineGetOffsetForStringIndex(first, secondaryStart, nullptr) + 1 : 0;
     const auto measured = std::max(textWidth(first), textWidth(second));
     const auto firstInk = inkBounds(first), secondInk = inkBounds(second);
     CFRelease(first);
@@ -572,20 +629,23 @@ struct CachedLine
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     const auto scale = renderedScale > 0 ? renderedScale : 2.;
-    const CGFloat rowHeight =
-        bilingual ? std::ceil((height - bilingualGap) / 2 * scale) / scale : height;
-    // Center the union of both actual ink boxes rather than two equal row
-    // boxes; translation and CJK fallback often have different visible heights.
+    const CGFloat primaryHeight =
+        bilingual ? std::ceil(firstInk.size.height * scale) / scale + 2 : height;
+    const CGFloat secondaryHeight =
+        bilingual ? std::ceil(secondInk.size.height * scale) / scale + 2 : height;
+    // Center the actual union of differently sized ink, with pixel-aligned
+    // row origins; neither line is clipped into an equal half-height box.
     const auto groupHeight = firstInk.size.height + bilingualGap + secondInk.size.height;
     const auto bottom = (height - groupHeight) / 2;
     const auto primaryY = bilingual ? bottom + secondInk.size.height + bilingualGap +
-                                          firstInk.size.height / 2 - rowHeight / 2
+                                          firstInk.size.height / 2 - primaryHeight / 2
                                     : 0;
-    const auto secondaryY = bilingual ? bottom + secondInk.size.height / 2 - rowHeight / 2 : 0;
+    const auto secondaryY =
+        bilingual ? bottom + secondInk.size.height / 2 - secondaryHeight / 2 : 0;
     lines[0].container.frame =
-        CGRectMake(6, std::round(primaryY * scale) / scale, width - 12, rowHeight);
+        CGRectMake(6, std::round(primaryY * scale) / scale, width - 12, primaryHeight);
     lines[1].container.frame =
-        CGRectMake(6, std::round(secondaryY * scale) / scale, width - 12, rowHeight);
+        CGRectMake(6, std::round(secondaryY * scale) / scale, width - 12, secondaryHeight);
     [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
       NSColor *primary = NSColor.labelColor, *secondary = NSColor.secondaryLabelColor;
       if (style.colorMode == 1 && state.coverColor.isValid())
@@ -596,24 +656,26 @@ struct CachedLine
           secondary = nativeColor(state.coverColor);
       else if (style.secondaryColorMode == 2)
           secondary = nativeColor(style.secondaryColor);
-      if (state.content.primaryIsTranslation)
+      if (state.content.primaryIsSecondary)
           primary = secondary;
       [self buildLine:lines[0]
-                 text:state.content.primary
-                 font:font
-                color:primary
-               height:rowHeight
-            clipStart:0
-              clipEnd:inlineBilingual ? inlineSplit : 4098];
+                   text:state.content.primary
+                   font:font
+          secondaryFont:inlineBilingual ? secondaryFont : nullptr
+                  color:primary
+                 height:primaryHeight
+              clipStart:0
+                clipEnd:inlineBilingual ? inlineSplit : 4098];
       [self buildLine:lines[1]
-                 text:inlineBilingual ? state.content.primary
-                      : bilingual     ? state.content.secondary
-                                      : QString()
-                 font:font
-                color:secondary
-               height:rowHeight
-            clipStart:inlineBilingual ? inlineSplit : 0
-              clipEnd:4098];
+                   text:inlineBilingual ? state.content.primary
+                        : bilingual     ? state.content.secondary
+                                        : QString()
+                   font:inlineBilingual ? font : secondaryFont
+          secondaryFont:inlineBilingual ? secondaryFont : nullptr
+                  color:secondary
+                 height:secondaryHeight
+              clipStart:inlineBilingual ? inlineSplit : 0
+                clipEnd:4098];
     }];
     const bool controls = hovered && state.hasTrack && state.visible;
     for (auto &line : lines)
@@ -857,6 +919,9 @@ QVariantMap MenuBarLyric::diagnostics() const
             {"advancing", view->state.advancing},
             {"position", view->position ? view->position() : 0.},
             {"spans", int(view->lines[0].spans.size())},
+            {"rubyGroups", int(view->state.content.ruby.size())},
+            {"primaryFontSize", view->lines[0].fontSize},
+            {"secondaryFontSize", view->lines[1].fontSize},
             {"primary", view->state.content.primary},
             {"secondary", view->state.content.secondary},
             {"hovered", view->hovered},
