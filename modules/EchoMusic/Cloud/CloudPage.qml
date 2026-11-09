@@ -148,9 +148,9 @@ RoutePage {
                                 glyph: "play"
                                 glyphSize: 12
                                 spacing: 6
-                                lineHeight: 18
+                                lineHeight: 16.5
                                 text: qsTr("%1 首歌曲").arg(page.displaySongCount)
-                                font: Theme.font(12, Theme.mediumWeight)
+                                font: Theme.font(11, Theme.semiboldWeight)
                                 color: Theme.secondaryText
                             }
                         }
@@ -170,7 +170,7 @@ RoutePage {
                                         Text {
                                             text: qsTr("已用 %1").arg(page.formatBytes(page.capacityUsed))
                                             color: Theme.secondaryText
-                                            font: Theme.font(11, Theme.mediumWeight)
+                                            font: Theme.font(11, Theme.semiboldWeight)
                                             lineHeight: 16
                                             lineHeightMode: Text.FixedHeight
                                         }
@@ -180,7 +180,7 @@ RoutePage {
                                         Text {
                                             text: page.formatBytes(page.service.storageCapacityBytes)
                                             color: Theme.secondaryText
-                                            font: Theme.font(11, Theme.mediumWeight)
+                                            font: Theme.font(11, Theme.semiboldWeight)
                                             lineHeight: 16
                                             lineHeightMode: Text.FixedHeight
                                         }

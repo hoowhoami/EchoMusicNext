@@ -25,6 +25,12 @@ public:
     {
         c.m_requests.insert(id, {page, c.m_api.sessionRevision(), c.m_generation});
     }
+    static void pendingAvatar(AlbumDetailContext &c, quint64 id)
+    {
+        c.m_avatarRequest = id;
+        c.m_avatarArtistId = 3520;
+        c.m_avatarPending = {0, c.m_api.sessionRevision(), c.m_generation};
+    }
     static void finishPending(AlbumDetailContext &c, quint64 id)
     {
         c.m_requests.remove(id);
@@ -270,13 +276,28 @@ private slots:
         AlbumDetailContextTestAccess::setSize(*context, 2);
         AlbumDetailContextTestAccess::pending(*context, 3001, 1);
         AlbumDetailContextTestAccess::pending(*context, 3002, 2);
+        AlbumDetailContextTestAccess::pendingAvatar(*context, 3003);
+        QVERIFY(!context->detailLoading());
         api.advanceSession();
         QCOMPARE(context->songs()->count(), 0);
         QVERIFY(context->detail().isEmpty());
         AlbumDetailContextTestAccess::accept(*context, 3001, domainPage(1, {1, 2}));
         AlbumDetailContextTestAccess::accept(*context, 3002, domainPage(2, {3, 4}));
         QCOMPARE(context->songs()->count(), 0);
+        AlbumDetailContextTestAccess::seed(*context, "新会话专辑");
+        AlbumDetailContextTestAccess::accept(*context, 3003, {{"avatar_url", "file:///late.png"}});
+        QVERIFY(!context->detail()["artists"].toList().first().toMap().contains("avatar_url"));
+        AlbumDetailContextTestAccess::pendingAvatar(*context, 3004);
+        AlbumDetailContextTestAccess::accept(*context, 3004,
+                                             {{"avatar_url", "file:///current.png"}});
+        QCOMPARE(context->detail()["artists"].toList().first().toMap()["avatar_url"].toString(),
+                 QString("file:///current.png"));
+        AlbumDetailContextTestAccess::pendingAvatar(*context, 3005);
         service.shutdown();
+        AlbumDetailContextTestAccess::accept(*context, 3005,
+                                             {{"avatar_url", "file:///closed.png"}});
+        QCOMPARE(context->detail()["artists"].toList().first().toMap()["avatar_url"].toString(),
+                 QString("file:///current.png"));
         router.shutdown();
         QSignalSpy drain(&playback, &PlaybackService::closed);
         playback.shutdown();
@@ -365,6 +386,8 @@ Window {
         QVERIFY(cover.save(dir.filePath("album-cover.png")));
         const auto coverUrl = QUrl::fromLocalFile(dir.filePath("album-cover.png")).toString();
         AlbumDetailContextTestAccess::setCover(*context, coverUrl);
+        AlbumDetailContextTestAccess::pendingAvatar(*context, 4002);
+        AlbumDetailContextTestAccess::accept(*context, 4002, {{"avatar_url", coverUrl}});
         QTRY_VERIFY(albumVisual(pageItem, "albumDetailCover"));
         auto *albumCover = albumVisual(pageItem, "albumDetailCover");
         QTRY_COMPARE(albumCover->property("source").toUrl(), QUrl(coverUrl));
@@ -390,8 +413,26 @@ Window {
         QVERIFY(title && publish && category && artist && typeTag);
         QCOMPARE(typeTag->property("text").toString(), QString("ALBUM"));
         QVERIFY(publish->property("text").toString().contains("2008-10-15"));
-        QVERIFY(publish->property("text").toString().contains("200"));
-        QCOMPARE(category->property("text").toString(), QString("录音室专辑 • 国语"));
+        QCOMPARE(publish->property("text").toString(), QString("2008-10-15 发布"));
+        auto *count = albumVisual(header, "albumSongCount");
+        auto *avatar = albumVisual(header, "albumArtistAvatar");
+        auto *categoryTag = albumVisual(category, "albumCategoryTag");
+        auto *preview = albumVisual(header, "songDetailDescriptionPreview");
+        QVERIFY(count && avatar && categoryTag && preview);
+        QCOMPARE(count->property("text").toString(), QString("200 首歌曲"));
+        QCOMPARE(categoryTag->property("text").toString(), QString("录音室专辑"));
+        QCOMPARE(avatar->property("source").toUrl(), QUrl(coverUrl));
+        QTRY_COMPARE(avatar->property("status").toInt(), 1);
+        QCOMPARE(avatar->size(), QSizeF(20, 20));
+        QVERIFY(avatar->property("circular").toBool());
+        QVERIFY(publish->mapToItem(header, QPointF()).x() >
+                artist->mapToItem(header, QPointF()).x());
+        QVERIFY(category->mapToItem(header, QPointF()).x() >
+                publish->mapToItem(header, QPointF()).x());
+        QVERIFY(preview->mapToItem(header, QPointF()).x() >
+                count->mapToItem(header, QPointF()).x());
+        QCOMPARE(count->mapToItem(header, QPointF()).x(),
+                 albumVisual(header, "albumArtistRow")->mapToItem(header, QPointF()).x());
         QCOMPARE(albumVisualCount(header, "albumArtistLink"), 2);
         // Header collapse follows the shared sliver rules.
         auto *list = albumVisual(window->contentItem(), "discoverySongs");
@@ -410,7 +451,10 @@ Window {
         const auto artifacts = qEnvironmentVariable("ECHO_ALBUM_ARTIFACTS");
         if (!artifacts.isEmpty())
             QVERIFY(QDir().mkpath(artifacts));
-        QVERIFY(QMetaObject::invokeMethod(introOwner, "open", Q_ARG(QVariant, QVariant())));
+        auto *introAction = albumVisual(header, "songDetailDescriptionAction");
+        QVERIFY(introAction && introAction->isVisible());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          introAction->mapToScene(introAction->boundingRect().center()).toPoint());
         QTRY_VERIFY(introOwner->property("item").value<QObject *>());
         auto *dialog = introOwner->property("item").value<QObject *>();
         QCOMPARE(dialog->property("heading").toString(), QString("专辑介绍"));
@@ -437,22 +481,31 @@ Window {
             QVERIFY(window->grabWindow().save(artifacts + "/intro-end.png"));
         QVERIFY(introOwner->metaObject()->invokeMethod(introOwner, "close"));
         QTRY_VERIFY(!introOwner->property("item").value<QObject *>());
-        // Render the real header at both themes and zooms for visual review.
+        // Render the real header at both themes, zooms and window widths.
         for (bool dark : {false, true})
-            for (double scale : {1., 1.25}) {
-                theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
-                shell.resetZoom();
-                if (scale > 1.)
-                    for (int i = 0; i < 5; ++i)
-                        shell.zoomIn();
-                QTest::qWait(200);
-                const auto frame = window->grabWindow();
-                QVERIFY(!frame.isNull());
-                if (!artifacts.isEmpty())
-                    QVERIFY(frame.save(
-                        artifacts +
-                        QString("/album-%1-%2.png").arg(dark ? "dark" : "light").arg(scale)));
-            }
+            for (double scale : {1., 1.25})
+                for (int width : {1150, 650}) {
+                    window->resize(width, 800);
+                    theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+                    shell.resetZoom();
+                    if (scale > 1.)
+                        for (int i = 0; i < 5; ++i)
+                            shell.zoomIn();
+                    QTest::qWait(200);
+                    const auto frame = window->grabWindow();
+                    QVERIFY(!frame.isNull());
+                    QVERIFY(category->mapToItem(header, QPointF(category->width(), 0)).x() <=
+                            header->width() - 24);
+                    if (!artifacts.isEmpty())
+                        QVERIFY(frame.save(artifacts + QString("/album-%1-%2-w%3.png")
+                                                           .arg(dark ? "dark" : "light")
+                                                           .arg(scale)
+                                                           .arg(width)));
+                }
+        AlbumDetailContextTestAccess::seed(*context, "无简介专辑", "");
+        QTRY_VERIFY(count->isVisible());
+        QTRY_VERIFY(!introAction->isVisible());
+        QVERIFY(!introOwner->property("item").value<QObject *>());
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
         service.shutdown();
         router.shutdown();

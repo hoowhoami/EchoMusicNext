@@ -23,6 +23,8 @@ Item {
     property Component detailsComponent
     property Component secondaryDetailsComponent: metadata.length > 0 ? defaultMetadata : null
     property Component tertiaryDetailsComponent
+    // Optional count/metadata preceding the shared elided introduction.
+    property Component descriptionLeadingComponent
     property Component collapsedActions
     property Component additionalActions
     property bool showPlaybackActions: true
@@ -174,14 +176,23 @@ Item {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.fillHeight: false
-                    visible: preview.text.length > 0
+                    visible: descriptionLeading.active || preview.text.length > 0
                     spacing: 8
+                    Loader {
+                        id: descriptionLeading
+                        objectName: "songDetailDescriptionLeading"
+                        Layout.fillHeight: false
+                        active: header.descriptionLeadingComponent !== null
+                        visible: active
+                        sourceComponent: header.descriptionLeadingComponent
+                    }
                     EchoTextTagRow {
                         id: preview
                         objectName: "songDetailDescriptionPreview"
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         Layout.fillHeight: false
+                        visible: text.length > 0
                         text: header.description.replace(/\s+/g, " ").trim()
                         font: Theme.font(12, Theme.regularWeight)
                         color: Theme.secondaryText
@@ -197,7 +208,7 @@ Item {
                         id: detailsAction
                         objectName: "songDetailDescriptionAction"
                         // Measure overflow against the full line before reserving button space.
-                        visible: introductionMetrics.advanceWidth > introduction.width
+                        visible: preview.text.length > 0 && introductionMetrics.advanceWidth > introduction.width - (descriptionLeading.active ? descriptionLeading.width + introduction.spacing : 0)
                         text: qsTr("查看详情")
                         Accessible.name: qsTr("查看完整简介")
                         font: Theme.font(11, Theme.semiboldWeight)

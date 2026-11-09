@@ -30,9 +30,22 @@ Q_LOGGING_CATEGORY(pixelLog, "echo.presentation.pixel")
 class PhaseTranslation final : public QQuickTransform
 {
 public:
-    explicit PhaseTranslation(std::unique_ptr<PhaseTranslation> *owner) : lease(owner) {}
+    PhaseTranslation(std::unique_ptr<PhaseTranslation> *owner, QQuickItem *item)
+        : lease(owner), target(item)
+    {
+    }
     std::unique_ptr<PhaseTranslation> *lease;
+    QQuickItem *target;
     QPointF offset;
+    void targetDestroyed(QQuickItem *item)
+    {
+        // Qt can replace a layer proxy's transforms directly. Its destructor
+        // then cannot find our transform to remove this reverse association.
+        // Retire the link during the item notification, without destroying a
+        // transform or mutating the item's list inside a listener broadcast.
+        QQuickTransformPrivate::get(this)->items.removeAll(item);
+        target = nullptr;
+    }
     void setOffset(QPointF next)
     {
         if (qAbs(next.x() - offset.x()) < 1e-7 && qAbs(next.y() - offset.y()) < 1e-7)
@@ -257,8 +270,10 @@ struct EchoWindowPixelSnap::State
         {
             state->schedule(true);
         }
-        void itemDestroyed(QQuickItem *) override
+        void itemDestroyed(QQuickItem *destroyed) override
         {
+            if (translation)
+                translation->targetDestroyed(destroyed);
             item = nullptr;
             state->schedule(true);
         }
@@ -328,6 +343,9 @@ struct EchoWindowPixelSnap::State
     }
     void reconcile()
     {
+        // Retiring transforms can synchronously change a Qt layer's subtree.
+        // Preserve those new invalidations for the next polish.
+        dirtyTree = false;
         ordered.clear();
         std::unordered_set<QQuickItem *> present;
         const auto visit = [&](auto &&self, QQuickItem *item, Entry *parent) -> void {
@@ -353,21 +371,12 @@ struct EchoWindowPixelSnap::State
                 it = entries.erase(it);
             else
                 ++it;
-        dirtyTree = false;
     }
     void align(Entry &entry, qreal dpr)
     {
         auto *item = entry.item;
         if (!item)
             return;
-        // A reparent can reach a new window's polish before the old window
-        // retires its entry. Hand off the one transform here, outside native
-        // change-listener broadcasts; never compound two window corrections.
-        const auto transforms = QQuickItemPrivate::get(item)->transforms;
-        for (auto *transform : transforms)
-            if (auto *phase = dynamic_cast<PhaseTranslation *>(transform);
-                phase && phase != entry.translation.get())
-                phase->lease->reset();
         const auto *data = QQuickItemPrivate::get(item);
         const bool referenced =
             data->extra.isAllocated() && data->extra->recursiveEffectRefCount > 0;
@@ -376,8 +385,27 @@ struct EchoWindowPixelSnap::State
         entry.viewport = entry.parent ? entry.parent->viewport : QRectF(QPointF(), window->size());
         if (item->clip())
             entry.viewport = entry.viewport.intersected(item->mapRectToScene(item->boundingRect()));
-        if (!entry.presented || item == root || !(item->flags() & QQuickItem::ItemHasContents) ||
-            item->width() <= 0 || item->height() <= 0) {
+        // Qt owns the root matrices of its positioner-transparent render
+        // proxies (layer effect/source). updateMatrix() replaces their entire
+        // transforms list with the source's borrowed list. Compensate that
+        // source instead, including a non-painting Item with an enabled layer.
+        if (data->isTransparentForPositioner()) {
+            entry.translation.reset();
+            return;
+        }
+        // A reparent can reach the new window's polish before the old window
+        // retires its entry. Only hand off a transform attached to this item;
+        // a borrowed source transform is not a second owner's correction.
+        const auto transforms = data->transforms;
+        for (auto *transform : transforms)
+            if (auto *phase = dynamic_cast<PhaseTranslation *>(transform);
+                phase && phase->target == item && phase != entry.translation.get())
+                phase->lease->reset();
+        const bool layered =
+            data->extra.isAllocated() && data->extra->layer && data->extra->layer->enabled();
+        if (!entry.presented || item == root ||
+            (!(item->flags() & QQuickItem::ItemHasContents) && !layered) || item->width() <= 0 ||
+            item->height() <= 0) {
             entry.translation.reset();
             return;
         }
@@ -411,7 +439,7 @@ struct EchoWindowPixelSnap::State
             return;
         }
         if (!entry.translation) {
-            entry.translation = std::make_unique<PhaseTranslation>(&entry.translation);
+            entry.translation = std::make_unique<PhaseTranslation>(&entry.translation, item);
             entry.translation->appendToItem(item);
         }
         if (qAbs(next.x() - previous.x()) >= 1e-7 || qAbs(next.y() - previous.y()) >= 1e-7)
@@ -508,8 +536,10 @@ void EchoWindowPixelSnap::updatePolish()
     state.stats.totalNanoseconds += elapsed;
     state.stats.maximumNanoseconds = qMax(state.stats.maximumNanoseconds, elapsed);
     state.applying = false;
+    const QPointer<EchoWindowPixelSnap> guard(this);
     notifyItemScenePositionChanged(state.root);
-    if (state.dirtyTree)
+    // A scene observer may synchronously close/destroy its window or scope.
+    if (guard && state.dirtyTree)
         state.schedule(true);
 }
 void EchoWindowPixelSnap::scheduleAlignment()

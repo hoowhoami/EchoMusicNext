@@ -75,11 +75,17 @@ void EchoTextInkMetrics::measure()
     const auto lineBounds = [&](const QString &text) {
         auto bounds = fm.tightBoundingRect(text, option);
         // Native font metrics can include a descender pixel absent from the
-        // visible Latin/digit outline. Qt shapes this entire line; no custom
-        // glyph walk or per-entry correction. Color/fallback text keeps its
-        // existing metrics (including emoji with no vector outline).
+        // visible outline, including fallback faces. Qt shapes the entire
+        // line; no custom glyph walk or per-entry correction. Color/symbol text
+        // keeps native metrics (including emoji with no vector outline).
         const bool outlineLine = std::all_of(text.cbegin(), text.cend(), [](QChar c) {
-            return (c.unicode() >= 32 && c.unicode() < 127) || c == QChar(0x2026);
+            // Ordinary script/punctuation runs share the same outline path;
+            // a Han-only allowlist would miss Korean/Japanese descriptions.
+            // Keep variation/keycap sequences on native color-glyph metrics.
+            if ((c.unicode() >= 0xfe00 && c.unicode() <= 0xfe0f) || c == QChar(0x20e3))
+                return false;
+            return (c.unicode() >= 32 && c.unicode() < 127) || c.isLetterOrNumber() ||
+                   c.isPunct() || c.isSpace() || c.isMark();
         });
         if (outlineLine) {
             // Cache only the last measured line/bounds, including the common

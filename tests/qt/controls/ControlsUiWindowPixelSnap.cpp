@@ -1,7 +1,9 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
+#include "EchoItemObserver.h"
 #include "EchoWindowPixelSnap.h"
 #include <QProcess>
+#include <QtQuick/private/qquickitem_p.h>
 #ifdef Q_OS_MACOS
 #include <mach/mach.h>
 #endif
@@ -283,7 +285,8 @@ Window {
     QVERIFY(Test::prepareNativeInput(session.window));
     button->forceActiveFocus();
     QTRY_VERIFY(!editor->hasActiveFocus()); // A blinking native caret is an actual scene change.
-    QTest::qWait(30);
+    QVERIFY(Test::settleNativeItem(button));
+    QTRY_VERIFY(!QQuickItemPrivate::get(scope)->polishScheduled);
     const auto settled = scope->statistics().passes;
     QTest::qWait(60);
     QCOMPARE(scope->statistics().passes, settled);
@@ -359,6 +362,202 @@ Window {
     delete item;
     QTRY_VERIFY(removed.isNull());
     QVERIFY(!other->grabWindow().isNull());
+}
+
+void ControlsUiTest::windowPixelSnapLayerLifecycle_data()
+{
+    QTest::addColumn<bool>("effect");
+    QTest::addColumn<bool>("sourcePaints");
+    QTest::newRow("item-layer") << false << false;
+    QTest::newRow("rectangle-layer") << false << true;
+    QTest::newRow("item-multieffect") << true << false;
+    QTest::newRow("rectangle-multieffect") << true << true;
+}
+
+void ControlsUiTest::windowPixelSnapLayerLifecycle()
+{
+    QFETCH(bool, effect);
+    QFETCH(bool, sourcePaints);
+    ControlsSession session;
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(QString(R"(
+import QtQuick
+import QtQuick.Effects
+Window {
+    id: host
+    visible: true; width: 480; height: 320; color: "white"
+    property bool contentActive: true
+    property bool layered: true
+    property bool useEffect: false
+    property real phase: .17
+    Component {
+        id: effectComponent
+        MultiEffect { blurEnabled: true; blurMax: 12; blur: .2 }
+    }
+    Loader {
+        id: content
+        x: 13.3; y: 19.7
+        active: host.contentActive
+        sourceComponent: %1 {
+            objectName: "layerSource"
+            x: host.phase; y: host.phase
+            width: 260; height: 130
+            transformOrigin: Item.TopLeft
+            scale: .96 + host.phase / 100
+            transform: Translate { objectName: "originalLayerTransform"; x: 1.37; y: 2.61 }
+            layer.enabled: host.layered
+            layer.effect: host.useEffect ? effectComponent : null
+            Rectangle { x: 20.3; y: 17.7; width: 80; height: 45; color: "red" }
+            Text { x: 22.1; y: 75.3; text: "歌词 Layer"; font.pixelSize: 20; color: "black" }
+        }
+    }
+})")
+                          .arg(sourcePaints ? "Rectangle" : "Item")
+                          .toUtf8(),
+                      QUrl("qrc:/window-snap-layer-lifecycle.qml"));
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    auto *scope = EchoWindowPixelSnap::forWindow(session.window);
+    session.root->setProperty("useEffect", effect);
+    for (int generation = 0; generation < 4; ++generation) {
+        session.root->setProperty("contentActive", true);
+        QQuickItem *source = nullptr;
+        QTRY_VERIFY((source = session.item("layerSource")));
+        const QPointer<QObject> original = source->findChild<QObject *>("originalLayerTransform");
+        QVERIFY(original);
+        const QRectF layout(source->position(), source->size());
+        auto *layer = QQuickItemPrivate::get(source)->layer();
+        QVERIFY(layer);
+        session.root->setProperty("layered", true);
+        QTRY_VERIFY(layer->effectSource());
+        for (qreal phase : {.17, .39, .63, .87}) {
+            session.root->setProperty("phase", phase);
+            const auto dpr = session.window->effectiveDevicePixelRatio();
+            // Even a non-painting layer source owns the matrix of its rendered
+            // proxy. Qt must receive its correction through this source.
+            QTRY_VERIFY(aligned(source->mapToScene(QPointF()).x() * dpr));
+            QTRY_VERIFY(aligned(source->mapToScene(QPointF()).y() * dpr));
+            QVERIFY(original);
+            QCOMPARE(original->property("x").toReal(), 1.37);
+            QCOMPARE(original->property("y").toReal(), 2.61);
+            QCOMPARE(source->size(), layout.size());
+            const auto image = session.window->grabWindow();
+            QVERIFY(!image.isNull());
+            int redPixels = 0;
+            for (int y = 0; y < image.height(); ++y)
+                for (int x = 0; x < image.width(); ++x) {
+                    const auto color = image.pixelColor(x, y);
+                    redPixels += color.red() > 180 && color.green() < 80 && color.blue() < 80;
+                }
+            QVERIFY2(redPixels > 100, "The layer lost its rendered source content");
+            const auto capture = qEnvironmentVariable("ECHO_WINDOW_SNAP_CAPTURES");
+            if (!capture.isEmpty() && generation == 0 && (phase == .17 || phase == .87)) {
+                QVERIFY(QDir().mkpath(capture));
+                QVERIFY(image.save(QString("%1/layer-%2-effect-%3-phase-%4.png")
+                                       .arg(capture)
+                                       .arg(sourcePaints)
+                                       .arg(effect)
+                                       .arg(phase)));
+            }
+        }
+        // Track real Qt proxies, including a MultiEffect instance, by their
+        // private positioner flag. Their root transforms are Qt-owned mirrors.
+        QList<QPointer<QQuickItem>> proxies;
+        QList<QPointer<QQuickTransform>> transforms;
+        auto *parent = source->parentItem();
+        for (auto *child : parent->childItems()) {
+            if (child == source || !QQuickItemPrivate::get(child)->isTransparentForPositioner())
+                continue;
+            proxies.append(child);
+            const auto values = QQuickItemPrivate::get(child)->transforms;
+            for (auto *transform : values)
+                transforms.append(transform);
+        }
+        QVERIFY(!proxies.isEmpty());
+        // A synchronous Qt matrix update used to overwrite a proxy-local
+        // correction without unregistering the transform's reverse item link.
+        source->setRotation(.1);
+        source->setRotation(0);
+        session.root->setProperty("layered", false);
+        for (const auto &proxy : proxies)
+            QVERIFY(proxy.isNull());
+        for (const auto &transform : transforms) {
+            if (!transform)
+                continue;
+            for (auto *target : QQuickTransformPrivate::get(transform)->items)
+                QVERIFY2(parent->childItems().contains(target) || target == source,
+                         "A transform retained a destroyed Qt layer proxy");
+        }
+        QVERIFY(original);
+        session.root->setProperty("layered", true);
+        QTRY_VERIFY(layer->effectSource());
+        QPointer<QQuickItem> removed = source;
+        session.root->setProperty("contentActive", false);
+        QTRY_VERIFY(removed.isNull());
+        QTRY_VERIFY(original.isNull());
+        QVERIFY(!session.window->grabWindow().isNull());
+    }
+    scope->setAlignmentEnabled(false);
+    QTRY_COMPARE(scope->statistics().trackedItems, 0);
+    QCOMPARE(warnings.size(), 0);
+}
+
+void ControlsUiTest::windowPixelSnapRetiresPendingScopesAndReparents()
+{
+    QQuickWindow first, second;
+    first.resize(320, 240);
+    second.resize(320, 240);
+    first.show();
+    second.show();
+    QVERIFY(Test::prepareNativeInput(&second));
+    QPointer<EchoWindowPixelSnap> firstScope = EchoWindowPixelSnap::forWindow(&first);
+    QPointer<EchoWindowPixelSnap> secondScope = EchoWindowPixelSnap::forWindow(&second);
+    auto item = std::make_unique<QQuickItem>(first.contentItem());
+    item->setFlag(QQuickItem::ItemHasContents);
+    item->setSize({60, 40});
+    item->setPosition({13.17, 19.31});
+    for (int pass = 0; pass < 8; ++pass) {
+        auto *target = pass % 2 ? &first : &second;
+        auto *scope = pass % 2 ? firstScope.data() : secondScope.data();
+        item->setParentItem(target->contentItem());
+        QTRY_VERIFY(aligned(item->mapToScene(QPointF()).x() * target->effectiveDevicePixelRatio()));
+        QTRY_VERIFY(scope->statistics().compensatedItems > 0);
+        auto transforms = item->transform();
+        QCOMPARE(transforms.count(&transforms), 1);
+        if (pass == 3) {
+            first.hide();
+            QTRY_COMPARE(firstScope->statistics().trackedItems, 0);
+            first.show();
+        }
+    }
+    firstScope->setAlignmentEnabled(false);
+    secondScope->setAlignmentEnabled(false);
+    // Destruction before the queued suspension work must cancel that work.
+    delete firstScope;
+    delete secondScope;
+    QVERIFY(firstScope.isNull() && secondScope.isNull());
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+    auto transforms = item->transform();
+    QCOMPARE(transforms.count(&transforms), 0);
+    firstScope = EchoWindowPixelSnap::forWindow(&first);
+    QTRY_VERIFY(firstScope->statistics().compensatedItems > 0);
+    const auto observer = observeItem(first.contentItem());
+    const auto connection = connect(observer.data(), &EchoItemObserver::sceneChanged, &first,
+                                    [&firstScope] { delete firstScope; });
+    item->setX(13.39);
+    QTRY_VERIFY(firstScope.isNull());
+    disconnect(connection);
+    QCOMPARE(transforms.count(&transforms), 0);
+    firstScope = EchoWindowPixelSnap::forWindow(&first);
+    QTRY_VERIFY(firstScope->statistics().compensatedItems > 0);
+    QPointer<QQuickItem> removed = item.get();
+    item.reset();
+    QVERIFY(removed.isNull());
+    first.hide();
+    QTRY_COMPARE(firstScope->statistics().trackedItems, 0);
 }
 
 void ControlsUiTest::windowPixelSnapResourceBudget()

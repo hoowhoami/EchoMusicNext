@@ -1,6 +1,7 @@
 #include "AlbumDetailContext.h"
 #include <QJsonDocument>
 #include <QQmlEngine>
+#include <utility>
 
 namespace EchoMusic
 {
@@ -60,6 +61,10 @@ void AlbumDetailContext::cancel()
     m_pages.clear();
     m_errors.clear();
     m_refreshSongs = {};
+    const auto avatarRequest = std::exchange(m_avatarRequest, 0);
+    m_avatarArtistId = 0;
+    if (avatarRequest)
+        m_api.cancel(avatarRequest);
     for (auto id : ids)
         m_api.cancel(id);
 }
@@ -94,8 +99,27 @@ void AlbumDetailContext::activate()
     if (!m_route.active()) {
         cancel();
         emit changed();
-    } else if (m_detail.isEmpty() || !m_complete || m_refreshing)
-        reload();
+    } else {
+        if (m_detail.isEmpty() || !m_complete || m_refreshing)
+            reload();
+        else
+            ensureArtistAvatar();
+    }
+}
+void AlbumDetailContext::ensureArtistAvatar()
+{
+    if (m_closed || !m_network || !m_route.active() || m_avatarRequest)
+        return;
+    const auto artists = m_detail["artists"].toArray();
+    if (artists.isEmpty())
+        return;
+    const auto artist = artists.first().toObject();
+    const auto artistId = artist["id"].toVariant().toULongLong();
+    if (!artistId || !artist["avatar_url"].toString().isEmpty())
+        return;
+    m_avatarArtistId = artistId;
+    m_avatarPending = {0, m_api.sessionRevision(), m_generation};
+    m_avatarRequest = m_api.artistDetail(artistId);
 }
 void AlbumDetailContext::reload()
 {
@@ -158,6 +182,26 @@ void AlbumDetailContext::requestBatch()
 }
 void AlbumDetailContext::accept(quint64 id, const QByteArray &bytes)
 {
+    if (id && id == m_avatarRequest) {
+        m_avatarRequest = 0;
+        if (m_closed || !m_route.active() || m_avatarPending.session != m_api.sessionRevision() ||
+            m_avatarPending.generation != m_generation)
+            return;
+        auto artists = m_detail["artists"].toArray();
+        if (artists.isEmpty())
+            return;
+        auto artist = artists.first().toObject();
+        if (artist["id"].toVariant().toULongLong() != m_avatarArtistId)
+            return;
+        const auto avatar = QJsonDocument::fromJson(bytes).object()["avatar_url"].toString();
+        if (!avatar.isEmpty()) {
+            artist["avatar_url"] = avatar;
+            artists[0] = artist;
+            m_detail["artists"] = artists;
+            emit changed();
+        }
+        return;
+    }
     if (!m_requests.contains(id))
         return;
     const auto pending = m_requests.take(id);
@@ -183,6 +227,7 @@ void AlbumDetailContext::accept(quint64 id, const QByteArray &bytes)
             m_detailError.clear();
             m_actions.setQueueContext(m_detail["title"].toString(),
                                       "queue:album:" + m_route.resourceId());
+            ensureArtistAvatar();
         }
     } else
         finishPage(pending.page, doc.object());
@@ -246,6 +291,10 @@ void AlbumDetailContext::consumeBatch()
 }
 void AlbumDetailContext::fail(quint64 id, const QByteArray &bytes)
 {
+    if (id && id == m_avatarRequest) {
+        m_avatarRequest = 0;
+        return; // Optional avatar failure retains the shared user placeholder.
+    }
     if (!m_requests.contains(id))
         return;
     const auto pending = m_requests.take(id);

@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { root } from './contract.mjs';
 import { prepareQtLicenseTexts } from './qt-licenses.mjs';
+import { verifyMicrosoftRuntime } from './windows-redist.mjs';
 const directory = path.join(root, 'build/release-tools');
 fs.mkdirSync(directory, { recursive: true });
 async function download(url, file, expected) {
@@ -33,35 +34,7 @@ if (process.platform === 'win32') {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   const file = path.join(directory, `vc_redist.${arch}.exe`);
   await download(`https://aka.ms/vc14/vc_redist.${arch}.exe`, file);
-  const args = [
-    '-NoProfile',
-    '-NonInteractive',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-File',
-    path.join(root, 'tools/release/verify-redist.ps1'),
-    '-File',
-    file,
-  ];
-  // Windows PowerShell 5.1 is being stripped from recent Insider builds and
-  // cannot load its Security module there; fall back to PowerShell 7. Report
-  // every attempted shell, otherwise a missing executable hides the real error
-  // behind the fallback's unrelated failure.
-  const failures = [];
-  let result = null;
-  for (const shell of ['powershell.exe', 'pwsh.exe']) {
-    const attempt = spawnSync(shell, args, { encoding: 'utf8' });
-    if (attempt.status === 0) {
-      result = attempt;
-      break;
-    }
-    const detail = attempt.error?.message || attempt.stderr || `exit ${attempt.status}`;
-    failures.push(`${shell}: ${String(detail).trim()}`);
-  }
-  if (!result)
-    throw new Error('Microsoft runtime signature validation failed: ' + failures.join('; '));
-  const version = result.stdout.trim();
-  if (!/^14\.\d+\.\d+\.\d+$/.test(version)) throw new Error('Invalid Microsoft runtime version');
+  const version = verifyMicrosoftRuntime(file, directory);
   fs.writeFileSync(
     path.join(directory, `vc_redist.${arch}.json`),
     JSON.stringify({ version }) + '\n',

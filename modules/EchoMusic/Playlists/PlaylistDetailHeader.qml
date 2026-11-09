@@ -112,76 +112,81 @@ SongDetailHeader {
         }
     }
     detailsComponent: Component {
-        RowLayout {
-            objectName: "playlistCreatorRow"
-            spacing: 12
+        Item {
+            implicitHeight: metadataRow.implicitHeight
             RowLayout {
-                spacing: 8
-                EchoCover {
-                    Layout.preferredWidth: 20
-                    Layout.preferredHeight: 20
-                    circular: true
-                    source: header.info.creator_avatar_url || ""
-                    placeholderGlyph: "user"
-                    placeholderGlyphSize: 12
-                    resourceActive: header.resourceActive
+                id: metadataRow
+                width: Math.min(parent.width, implicitWidth)
+                height: implicitHeight
+                objectName: "playlistCreatorRow"
+                spacing: 12
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 20
+                    Layout.maximumWidth: implicitWidth
+                    spacing: 8
+                    EchoCover {
+                        Layout.preferredWidth: 20
+                        Layout.preferredHeight: 20
+                        circular: true
+                        source: header.info.creator_avatar_url || ""
+                        placeholderGlyph: "user"
+                        placeholderGlyphSize: 12
+                        resourceActive: header.resourceActive
+                    }
+                    EchoTextTagRow {
+                        objectName: "playlistCreatorName"
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        text: header.info.creator_name || ""
+                        font: Theme.font(13, Theme.semiboldWeight)
+                        color: Theme.accentText
+                    }
                 }
                 EchoTextTagRow {
-                    objectName: "playlistCreatorName"
-                    text: header.info.creator_name || ""
-                    font: Theme.font(13, Theme.semiboldWeight)
-                    color: Theme.accentText
-                }
-            }
-            EchoTextTagRow {
-                objectName: "playlistPublishedDate"
-                Layout.fillWidth: true
-                text: header.info.published_at ? header.info.published_at + qsTr(" 发布") : header.info.created_at_seconds ? Qt.formatDate(new Date(header.info.created_at_seconds * 1000), "yyyy-MM-dd") + qsTr(" 创建") : ""
-                font: Theme.font(11, Theme.semiboldWeight)
-                color: Theme.secondaryText
-            }
-        }
-    }
-    secondaryDetailsComponent: Component {
-        Flow {
-            objectName: "playlistMetadataTags"
-            spacing: 8
-            RowLayout {
-                width: implicitWidth
-                height: implicitHeight
-                spacing: 4
-                EchoButtonContent {
-                    objectName: "playlistSongCount"
-                    // Flow aligns item tops; keep the same line box as the tags.
-                    lineHeight: 18
-                    glyph: "music"
-                    glyphSize: 12
-                    spacing: 4
-                    text: String(header.detailContext.total)
+                    objectName: "playlistPublishedDate"
+                    text: header.info.published_at ? String(header.info.published_at).split(/[ T]/)[0] + qsTr(" 发布") : header.info.created_at_seconds ? Qt.formatDate(new Date(header.info.created_at_seconds * 1000), "yyyy-MM-dd") + qsTr(" 创建") : ""
                     font: Theme.font(11, Theme.semiboldWeight)
                     color: Theme.secondaryText
                 }
-                EchoIconButton {
-                    objectName: "playlistFilterInfo"
-                    visible: header.detailContext.filteredInvalidCount > 0
-                    visualContentActive: header.resourceActive && visible
-                    glyph: "info-circle"
-                    text: qsTr("查看无效歌曲过滤说明")
-                    tooltipText: qsTr("当前列表已过滤 %1 首无效歌曲\n通常是因为歌曲信息缺失无法参与播放").arg(header.detailContext.filteredInvalidCount)
-                    implicitWidth: 18
-                    implicitHeight: 18
-                    padding: 2
-                    foreground: hovered || visualFocus ? "#d97706" : "#f59e0b"
+                RowLayout {
+                    objectName: "playlistMetadataTags"
+                    spacing: 8
+                    Repeater {
+                        model: String(header.info.tags || "").split(",").filter(tag => tag.trim().length > 0)
+                        delegate: EchoTag {
+                            required property string modelData
+                            objectName: "playlistMetadataTag"
+                            text: modelData
+                            tone: EchoTag.Accent
+                        }
+                    }
                 }
             }
-            Repeater {
-                model: String(header.info.tags || "").split(",").filter(tag => tag.trim().length > 0)
-                delegate: EchoTag {
-                    required property string modelData
-                    objectName: "playlistMetadataTag"
-                    text: modelData
-                    tone: EchoTag.Accent
-                }
+        }
+    }
+    secondaryDetailsComponent: null
+    descriptionLeadingComponent: Component {
+        RowLayout {
+            spacing: 4
+            EchoTextTagRow {
+                objectName: "playlistSongCount"
+                lineHeight: 20
+                text: qsTr("%1 首歌曲").arg(header.detailContext.total)
+                font: Theme.font(11, Theme.semiboldWeight)
+                color: Theme.secondaryText
+            }
+            EchoIconButton {
+                objectName: "playlistFilterInfo"
+                visible: header.detailContext.filteredInvalidCount > 0
+                visualContentActive: header.resourceActive && visible
+                glyph: "info-circle"
+                text: qsTr("查看无效歌曲过滤说明")
+                tooltipText: qsTr("当前列表已过滤 %1 首无效歌曲\n通常是因为歌曲信息缺失无法参与播放").arg(header.detailContext.filteredInvalidCount)
+                implicitWidth: 18
+                implicitHeight: 18
+                padding: 2
+                foreground: hovered || visualFocus ? "#d97706" : "#f59e0b"
             }
         }
     }

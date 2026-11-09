@@ -1396,6 +1396,115 @@ Window {
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
         api.shutdown();
     }
+    void descriptionGlyphCentersWithCountAndAction()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Theme
+import EchoMusic.Controls
+import EchoMusic.Music
+Window {
+ id: window
+ visible: true
+ width: 1100; height: 320
+ color: Theme.main
+ property real sampleScale: 1
+ property real samplePhase: 0
+ property string introduction: ""
+ Item {
+  y: window.samplePhase
+  width: parent.width / window.sampleScale
+  height: parent.height / window.sampleScale
+  scale: window.sampleScale
+  transformOrigin: Item.TopLeft
+  SongDetailHeader {
+   anchors.left: parent.left; anchors.right: parent.right
+   heading: "简介文字对齐"
+   description: window.introduction
+   showPlaybackActions: false
+   descriptionLeadingComponent: Component {
+    EchoTextTagRow {
+     objectName: "descriptionCount"
+     text: "24 首歌曲"
+     font: Theme.font(11, Theme.semiboldWeight)
+     color: Theme.secondaryText
+     lineHeight: 20
+    }
+   }
+  }
+ }
+})",
+                          QUrl("qrc:/description-glyph-centering.qml"));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        const auto artifacts = qEnvironmentVariable("ECHO_HEADER_ALIGNMENT_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QVERIFY(QDir().mkpath(artifacts));
+        const QStringList samples{
+            QStringLiteral("轻松的节拍和快乐的旋律，往往具有治愈力。 "
+                           "音乐就像良友，永远陪伴在你身边。 戴上耳机，静静欣赏。 ")
+                .repeated(8),
+            QStringLiteral("轻松的节拍和快乐的旋律，Enjoy happy rhythms，永远陪伴在你身边。 ")
+                .repeated(8),
+            QStringLiteral("2020년 1월 8일 ~ 2020년 3월 12일 현실이 비극이라는 생각이 들 때 "
+                           "살아있는 것만으로도 괜찮은지 물어본다. ")
+                .repeated(8)};
+        for (bool dark : {false, true})
+            for (qreal scale : {1., 1.25})
+                for (qreal phase : {0., .25, .5, .75})
+                    for (int sample = 0; sample < samples.size(); ++sample) {
+                        window->setProperty("samplePhase", phase);
+                        theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+                        window->setProperty("sampleScale", scale);
+                        window->setProperty("introduction", samples[sample]);
+                        QTest::qWait(120);
+                        const auto frame = window->grabWindow();
+                        QVERIFY(!frame.isNull());
+                        if (!artifacts.isEmpty())
+                            QVERIFY(frame.save(artifacts + QString("/description-%1-%2-%3-y%4.png")
+                                                               .arg(dark ? "dark" : "light")
+                                                               .arg(scale)
+                                                               .arg(sample)
+                                                               .arg(phase)));
+                        auto *count = playlistVisual(window->contentItem(), "descriptionCount");
+                        auto *preview =
+                            playlistVisual(window->contentItem(), "songDetailDescriptionPreview");
+                        auto *action =
+                            playlistVisual(window->contentItem(), "songDetailDescriptionAction");
+                        QVERIFY(count && preview && action && action->isVisible());
+                        const auto center = renderedInkCenter(frame, window, renderedText(preview));
+                        // The reported Retina/Metal case must stay within half
+                        // a device pixel. Software hinting and Latin descenders
+                        // can quantize one outer edge to the adjacent pixel.
+                        const auto strict =
+                            QGuiApplication::platformName() == "cocoa" && sample != 1;
+                        const auto tolerance =
+                            (strict ? .5 : 1.) / (qreal(frame.width()) / window->width());
+                        for (auto *neighbor : {count, action}) {
+                            const auto adjacent =
+                                renderedInkCenter(frame, window, renderedText(neighbor));
+                            QVERIFY2(
+                                center > 0 && adjacent > 0 && qAbs(center - adjacent) <= tolerance,
+                                qPrintable(
+                                    QString("Description ink %1, %2 ink %3 at scale %4 sample %5")
+                                        .arg(center)
+                                        .arg(neighbor->objectName())
+                                        .arg(adjacent)
+                                        .arg(scale)
+                                        .arg(sample)));
+                        }
+                    }
+    }
+
     void nativePlaylistPage()
     {
         const bool ownedLive = qEnvironmentVariableIsSet("ECHO_PLAYLIST_LIVE_OWNED_UI");
@@ -1613,19 +1722,24 @@ Window {
                         const auto box = [header](QQuickItem *item) {
                             return item->mapRectToItem(header, item->boundingRect());
                         };
+                        QVERIFY(box(tags).left() >
+                                box(playlistVisual(header, "playlistPublishedDate")).left());
+                        QCOMPARE(playlistVisual(header, "playlistSongCount")
+                                     ->property("text")
+                                     .toString(),
+                                 QString("10000 首歌曲"));
                         const QList<qreal> gaps{box(creator).top() - box(title).bottom(),
-                                                box(tags).top() - box(creator).bottom(),
-                                                box(description).top() - box(tags).bottom(),
+                                                box(description).top() - box(creator).bottom(),
                                                 box(actions).top() - box(description).bottom()};
                         for (auto gap : gaps)
                             QVERIFY2(qAbs(gap - gaps.first()) <= 1.01,
-                                     qPrintable(QString("Metadata gaps %1 %2 %3 %4")
+                                     qPrintable(QString("Metadata gaps %1 %2 %3")
                                                     .arg(gaps[0])
                                                     .arg(gaps[1])
-                                                    .arg(gaps[2])
-                                                    .arg(gaps[3])));
+                                                    .arg(gaps[2])));
                         for (const auto &pair :
-                             {QPair<QString, QString>{"playlistSongCount", "playlistMetadataTag"},
+                             {QPair<QString, QString>{"playlistSongCount",
+                                                      "songDetailDescriptionPreview"},
                               {"songDetailDescriptionPreview", "songDetailDescriptionAction"},
                               {"playlistCreatorName", "playlistPublishedDate"}}) {
                             auto *left = playlistVisual(header, pair.first);
@@ -1653,7 +1767,7 @@ Window {
                         }
                     }
                     if (!live) {
-                        auto *count = playlistVisual(header, "playlistSongCount");
+                        auto *count = playlistVisual(header, "playlistPublishedDate");
                         const auto center = renderedInkCenter(frame, window, renderedText(count));
                         const auto verifyTags = [&](auto &&self, QQuickItem *item) -> bool {
                             if (item->objectName() == "playlistMetadataTag" && item->isVisible()) {

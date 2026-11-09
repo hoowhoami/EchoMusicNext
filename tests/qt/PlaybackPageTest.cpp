@@ -3,6 +3,7 @@
 #include "FloatingPlayerController.h"
 #include "RenderedInk.h"
 #include "EchoBackdropRoot.h"
+#include "EchoWindowPixelSnap.h"
 #include "PlaybackService.h"
 #include "PlaybackRepository.h"
 #include "LyricLine.h"
@@ -3855,13 +3856,21 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime_data()
     QTest::addColumn<bool>("initiallyPlaying");
     QTest::addColumn<int>("sourceOffset");
     QTest::addColumn<QString>("skin");
-    QTest::newRow("word-timed-paused-positive-offset") << true << false << 1500 << QString("cover");
+    QTest::addColumn<bool>("animated");
+    QTest::newRow("word-timed-paused-positive-offset")
+        << true << false << 1500 << QString("cover") << false;
     QTest::newRow("whole-line-playing-negative-offset")
-        << false << true << -1500 << QString("cover");
+        << false << true << -1500 << QString("cover") << false;
     QTest::newRow("simple-word-timed-paused-positive-offset")
-        << true << false << 1500 << QString("lyric");
+        << true << false << 1500 << QString("lyric") << false;
     QTest::newRow("simple-whole-line-playing-negative-offset")
-        << false << true << -1500 << QString("lyric");
+        << false << true << -1500 << QString("lyric") << false;
+    QTest::newRow("animated-cover-layer-reopen")
+        << true << false << 1500 << QString("cover") << true;
+    QTest::newRow("animated-simple-layer-reopen")
+        << true << false << 1500 << QString("lyric") << true;
+    QTest::newRow("animated-portrait-layer-reopen")
+        << true << false << 1500 << QString("portrait") << true;
 }
 void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
 {
@@ -3871,6 +3880,7 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
     QFETCH(bool, initiallyPlaying);
     QFETCH(int, sourceOffset);
     QFETCH(QString, skin);
+    QFETCH(bool, animated);
     Session session;
     QVERIFY(session.theme.extensions()->chooseSkin(skin));
     session.playback.setVolume(0);
@@ -3905,7 +3915,7 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
         session.playback.pause();
         QTRY_VERIFY(!session.playback.playing());
     }
-    session.theme.setMotionEnabled(false);
+    session.theme.setMotionEnabled(animated);
     session.playback.lyricText()->setGlobalOffsetMs(500);
     session.playback.lyricText()->setOffsetStep(.2);
     const QJsonArray words =
@@ -3932,6 +3942,11 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
     QTRY_VERIFY(list->property("initialized").toBool());
     QTRY_VERIFY(session.page()->property("opened").toBool());
     QTRY_VERIFY(session.item("lyricTextRow0"));
+    if (qEnvironmentVariableIntValue("ECHO_PIXEL_SNAP_ALL") == 1) {
+        auto *scope = EchoWindowPixelSnap::forWindow(session.window, false);
+        QVERIFY(scope);
+        QTRY_VERIFY(scope->statistics().compensatedItems > 0);
+    }
     QSignalSpy sought(&session.playback, &PlaybackService::seekCompleted);
     QList<qint64> landed;
     connect(&session.playback, &PlaybackService::seekCompleted, &session.playback,
@@ -3940,6 +3955,30 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
         auto *row = session.item(QString("lyricTextRow%1").arg(index));
         return row->mapToScene({row->width() * .3, row->height() / 2}).toPoint();
     };
+    const auto settled = [&] {
+        const auto springs = session.window->findChildren<LyricSpring *>();
+        return std::none_of(springs.cbegin(), springs.cend(),
+                            [](const auto *spring) { return spring->running(); });
+    };
+    if (animated)
+        QTRY_VERIFY_WITH_TIMEOUT(settled(), 5000);
+    if (animated) {
+        const auto hasBlurredLayer = [&](auto &&self, QQuickItem *item) -> bool {
+            if (item->isVisible() && item->property("blurAmount").toReal() > .01)
+                return true;
+            for (auto *child : item->childItems())
+                if (self(self, child))
+                    return true;
+            return false;
+        };
+        QTRY_VERIFY(hasBlurredLayer(hasBlurredLayer, session.window->contentItem()));
+        const auto capture = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+        if (!capture.isEmpty()) {
+            QVERIFY(QDir().mkpath(capture));
+            QVERIFY(
+                session.window->grabWindow().save(capture + "/" + skin + "-animated-layer.png"));
+        }
+    }
     auto point = pointForRow();
     Test::moveNativePointer(session.window, point);
     QTest::mouseClick(session.window, Qt::LeftButton, {}, point);
@@ -3958,6 +3997,8 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
     QCOMPARE(sought.count(), 0);
     QVERIFY(QMetaObject::invokeMethod(list, "cancelFlick"));
     QTRY_VERIFY(!list->property("moving").toBool());
+    if (animated)
+        QTRY_VERIFY_WITH_TIMEOUT(settled(), 5000);
     point = pointForRow();
     Test::moveNativePointer(session.window, point);
     QTest::mouseDClick(session.window, Qt::LeftButton, {}, point, 10);
@@ -3974,6 +4015,8 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
     QTest::qWait(200);
     QCOMPARE(sought.count(), 1);
     QTRY_VERIFY(session.item("lyricTextRow1"));
+    if (animated)
+        QTRY_VERIFY_WITH_TIMEOUT(settled(), 5000);
     point = pointForRow(1);
     Test::moveNativePointer(session.window, point);
     QTest::mouseDClick(session.window, Qt::LeftButton, {}, point, 10);
@@ -3993,6 +4036,25 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
     QTest::qWait(200);
     QCOMPARE(sought.count(), 2);
     QVERIFY(!session.playback.playing());
+    if (animated) {
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            session.playback.lyricText()->replace(timed, "double-click-local");
+            QVERIFY(QMetaObject::invokeMethod(session.page(), "close"));
+            QTRY_VERIFY(!session.page()->property("visible").toBool());
+            QTRY_COMPARE(lyricItems(session.window->contentItem()), 0);
+            QVERIFY(QMetaObject::invokeMethod(session.page(), "open"));
+            QTRY_VERIFY(session.page()->property("opened").toBool());
+            QTRY_VERIFY((list = session.item("playbackLyricList")));
+            QTRY_VERIFY(session.item("lyricTextRow0"));
+            QTRY_VERIFY_WITH_TIMEOUT(settled(), 5000);
+            const auto previous = sought.count();
+            point = pointForRow();
+            Test::moveNativePointer(session.window, point);
+            QTest::mouseDClick(session.window, Qt::LeftButton, {}, point, 10);
+            QTRY_COMPARE_WITH_TIMEOUT(sought.count(), previous + 1, 5000);
+            QVERIFY(qAbs(landed.last() - 6500) < 80);
+        }
+    }
 }
 void PlaybackPageTest::manualScrollRecoversAndLargeSeeksRemainVirtualized()
 {
@@ -4741,6 +4803,7 @@ int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
     QQuickStyle::setStyle("Basic");
+    installWindowPixelSnap();
     configureUiTypography("system-ui");
     PlaybackPageTest test;
     return QTest::qExec(&test, argc, argv);

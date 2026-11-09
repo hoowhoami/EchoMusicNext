@@ -24,6 +24,9 @@ private slots:
     void thinSurfacesKeepDeviceGrid();
     void windowPixelSnapCoversTextControlsAndDynamicContent();
     void windowPixelSnapPreservesTransformsAndRetiresWindows();
+    void windowPixelSnapLayerLifecycle_data();
+    void windowPixelSnapLayerLifecycle();
+    void windowPixelSnapRetiresPendingScopesAndReparents();
     void windowPixelSnapResourceBudget();
     void pixelSnapDisabledUsesLogicalGeometry();
     void coverCropAndRoundedPixels();

@@ -98,6 +98,7 @@ private:
     void cancelSongRequests();
     void requestPage(quint32 page);
     void requestBatch();
+    void ensureArtistAvatar();
     void consumeBatch();
     void accept(quint64 id, const QByteArray &bytes);
     void fail(quint64 id, const QByteArray &bytes);
@@ -110,6 +111,10 @@ private:
     CommentsController m_comments;
     QJsonObject m_detail;
     QHash<quint64, Pending> m_requests;
+    // The new identity avatar uses the existing typed artist-detail endpoint.
+    // Keep this optional request independent of album loading/errors/pagination.
+    quint64 m_avatarRequest = 0, m_avatarArtistId = 0;
+    Pending m_avatarPending{};
     QMap<quint32, QJsonObject> m_pages;
     QMap<quint32, QString> m_errors;
     // A refresh of an already complete album is committed only after all pages

@@ -392,14 +392,15 @@ add_test(
 add_test(NAME controls-ui-hover-scale COMMAND echo-controls-ui-test
                                               iconButtonHoverScalesStableRasterAndHitRegion
 )
-add_test(NAME controls-window-pixel-snap
-         COMMAND echo-controls-ui-test windowPixelSnapCoversTextControlsAndDynamicContent
-                 windowPixelSnapPreservesTransformsAndRetiresWindows windowPixelSnapResourceBudget
+add_test(
+    NAME controls-window-pixel-snap
+    COMMAND
+        echo-controls-ui-test windowPixelSnapCoversTextControlsAndDynamicContent
+        windowPixelSnapPreservesTransformsAndRetiresWindows windowPixelSnapLayerLifecycle
+        windowPixelSnapRetiresPendingScopesAndReparents windowPixelSnapResourceBudget
 )
-set_tests_properties(
-    controls-window-pixel-snap
-    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;ECHO_PIXEL_SNAP_ALL=1" TIMEOUT 90
-)
+target_link_libraries(echo-controls-ui-test PRIVATE Qt6::QuickPrivate)
+set_tests_properties(controls-window-pixel-snap PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
 set_tests_properties(
     controls-ui-hover-scale PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
 )
@@ -1752,6 +1753,10 @@ endif()
 set_tests_properties(
     ${ECHO_RENDERED_TEST_GROUPS} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=${echo_test_platform}"
                                             RUN_SERIAL TRUE
+)
+set_tests_properties(
+    controls-window-pixel-snap
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=${echo_test_platform};ECHO_PIXEL_SNAP_ALL=1"
 )
 set_tests_properties(${ECHO_DESKTOP_TEST_GROUPS} playback-page PROPERTIES TIMEOUT 240)
 set_tests_properties(${ECHO_CONTROLS_TEST_GROUPS} PROPERTIES TIMEOUT 120)

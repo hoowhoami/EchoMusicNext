@@ -166,6 +166,8 @@ node tools/release/package.mjs --qt=/path/to/Qt/6.12.0/kit
 - Windows：需要 NSIS 3.11，默认读取 `Program Files (x86)/NSIS/makensis.exe`，也可传 `--nsis=...`；通过 `windeployqt` 部署后生成当前用户安装程序，包含协议与 `.echomod` 关联；缺少运行库时安装已验证 Microsoft 签名的官方 VC14 Redistributable，可能请求系统授权。
 - Linux：x64 在 Ubuntu 22.04、ARM64 在 Ubuntu 24.04 构建。需要 Ruby/FPM 1.17.0、rpm、zstd、libarchive-tools、libfuse2；准备步骤下载并校验锁定的 linuxdeploy / Qt 插件。部署 Qt 6.12 的 `libqwayland.so`、offscreen 平台插件及 Wayland 客户端配套插件，保留 X11 支持。打包前会从所选 SDK 的 SQL 驱动目录移除非 SQLite 驱动；Qt Multimedia 后端保留，系统依赖清单包含 GStreamer Base、Play/Photography 和 GL 库。传 `--linuxdeploy=build/release-tools/linuxdeploy-x86_64.AppImage`（ARM64 使用 `aarch64`）生成 AppImage、DEB、RPM、Arch 包和 tar.gz。tar.gz 解压后运行 `echomusicnext/AppRun`。
 
+Windows 发布准备须在匹配架构的 MSVC 开发环境中运行。`prepare.mjs` 使用 `cl.exe` 临时编译静态 CRT 的原生验签工具，通过 Windows WinTrust 检查官方 VC14 Redistributable 的 Authenticode 签名、可信签名链和 `Microsoft Corporation` 签名者，再读取文件版本；验证失败则停止打包。此步骤不启动 PowerShell/.NET，临时工具与对象文件在完成或失败后清理，不进入安装包。可在 Windows 开发终端设置 `ECHO_TEST_REDIST` 为官方安装器的本地路径，执行 `node --test tools/release/windows-redist.test.mjs`，检查真实验签、签名者拒绝及篡改拒绝路径。
+
 安装包保留项目许可、第三方许可、Qt SPDX 或源码通知，以及锁定的 Rust 依赖清单。应用运行时不部署 Node.js、Python 或 Qt WebEngine。
 
 ### CI 缓存
