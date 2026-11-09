@@ -1,6 +1,7 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
 #include "LyricLine.h"
+#include <QFontInfo>
 #include <QQmlIncubationController>
 #include <QStyleHints>
 #include "ShortcutActions.h"
@@ -538,6 +539,118 @@ void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
         }
     }
     QCOMPARE(warnings.size(), 0);
+}
+
+void DesktopPagesTest::rubyLyricsShareNativeRenderingOnFloatingSurfaces()
+{
+    Session session;
+    PlaybackService playback(session.api, session.preferences);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&] {
+        session.router.shutdown();
+        session.commands.shutdown();
+        session.windows.shutdown();
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    const auto path = session.directory.filePath("ruby-native.wav");
+    QVERIFY(writeFloatingTestWave(path));
+    PlaybackTrack track;
+    track.id = path;
+    track.localPath = path;
+    playback.setVolume(0);
+    playback.playTracks({track}, 0, "Ruby", "ruby-native");
+    QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.lyricState() != "loading", 15000);
+    playback.lyricText()->setWantRomanization(true);
+    playback.lyricText()->setRomanizationAsRuby(true);
+    QJsonArray rows;
+    for (int row = 0; row < 80; ++row) {
+        QJsonArray words;
+        QString original, reading;
+        const int count = row % 2 ? 8 : 3;
+        for (int word = 0; word < count; ++word) {
+            original += QStringLiteral("音乐");
+            reading += "yin yue ";
+            words.append(QJsonObject{{"text", QStringLiteral("音乐")},
+                                     {"start_ms", row * 1800 + word * 1800 / count},
+                                     {"duration_ms", 1800 / count}});
+        }
+        rows.append(QJsonObject{{"text", original},
+                                {"romanization", reading},
+                                {"words", words},
+                                {"start_ms", row * 1800},
+                                {"duration_ms", 1800}});
+    }
+    QVERIFY(playback.lyricText()->replace({{"lines", rows}}, track.id));
+    auto *floating = session.windows.floating();
+    floating->setDesktopEnabled(true);
+    QPointer<QQuickWindow> desktop;
+    QTRY_VERIFY(([&] {
+        for (auto *window : QGuiApplication::topLevelWindows())
+            if (window->objectName() == "desktopLyricWindow")
+                desktop = qobject_cast<QQuickWindow *>(window);
+        return desktop != nullptr;
+    })());
+    const auto renderers = [](QQuickWindow *window) {
+        QList<LyricLine *> found;
+        const auto visit = [&](auto &&self, QQuickItem *item) -> void {
+            if (auto *line = qobject_cast<LyricLine *>(item); line && !line->rubyText().isEmpty())
+                found.append(line);
+            for (auto *child : item->childItems())
+                self(self, child);
+        };
+        visit(visit, window->contentItem());
+        return found;
+    };
+    const auto capture = qEnvironmentVariable("ECHO_FLOATING_CAPTURE_DIR");
+    for (const bool mini : {false, true}) {
+        if (mini) {
+            floating->showMini();
+            floating->setPanel("lyric");
+            QTRY_VERIFY(floating->miniWindow());
+        }
+        auto *window = mini ? floating->miniWindow() : desktop.data();
+        QPointer<LyricLine> ink;
+        QTRY_VERIFY(([&] {
+            for (auto *line : renderers(window))
+                if (line->current() && line->timeMs() >= 0 && line->textureUploads() > 0) {
+                    ink = line;
+                    return true;
+                }
+            return false;
+        })());
+        const auto revision = ink->maskRevision(), uploads = ink->textureUploads();
+        const auto time = ink->timeMs();
+        QTRY_VERIFY(ink && ink->timeMs() > time + 100);
+        QCOMPARE(ink->maskRevision(), revision);
+        QCOMPARE(ink->textureUploads(), uploads);
+        QVERIFY(ink->rubyFont().pixelSize() > QFontInfo(ink->font()).pixelSize() * .7);
+        if (!capture.isEmpty()) {
+            QDir().mkpath(capture);
+            QVERIFY(window->grabWindow().save(capture +
+                                              (mini ? "/mini-ruby.png" : "/desktop-ruby.png")));
+        }
+    }
+    auto *viewport = visual(floating->miniWindow()->contentItem(), "miniLyricViewport");
+    QVERIFY(viewport);
+    QSignalSpy reports(&playback, &PlaybackService::positionChanged);
+    QSignalSpy scrolls(viewport, SIGNAL(scrollRequested(double, double, bool)));
+    QVERIFY(scrolls.isValid());
+    const auto index = viewport->property("focusLine").toInt();
+    QTest::qWait(3800);
+    QVERIFY(reports.count() >= 8);
+    QVERIFY(viewport->property("focusLine").toInt() > index);
+    QVERIFY(!scrolls.isEmpty());
+    QVERIFY2(std::all_of(scrolls.cbegin(), scrolls.cend(),
+                         [](const QList<QVariant> &event) { return event[2].toBool(); }),
+             "Real Ruby line advances must retain animated scrolling through virtual reflow");
+    QPointer<QQuickWindow> mini = floating->miniWindow();
+    floating->showMain();
+    QTRY_VERIFY(mini.isNull());
+    floating->setDesktopEnabled(false);
+    QTRY_VERIFY(desktop.isNull());
+    QVERIFY(warnings.isEmpty());
 }
 
 void DesktopPagesTest::floatingLyricsFollowRealAudioAndStopMotionOnPause()

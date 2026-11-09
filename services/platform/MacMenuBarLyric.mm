@@ -13,6 +13,7 @@
 using namespace EchoMusic;
 namespace
 {
+constexpr CGFloat rubyScale = .8;
 NSString *nativeText(const QString &text)
 {
     return [[NSString alloc] initWithCharacters:reinterpret_cast<const unichar *>(text.utf16())
@@ -74,9 +75,14 @@ CTLineRef makeLine(const QString &text, NSFont *font, NSFont *secondaryFont = nu
             if (!reading.isEmpty()) {
                 auto annotation = CTRubyAnnotationCreateWithAttributes(
                     kCTRubyAlignmentCenter, kCTRubyOverhangNone, kCTRubyPositionBefore,
-                    (__bridge CFStringRef)nativeText(reading), (__bridge CFDictionaryRef) @{
-                        (__bridge NSString *)kCTRubyAnnotationSizeFactorAttributeName : @.5,
-                        (__bridge NSString *)kCTRubyAnnotationScaleToFitAttributeName : @YES,
+                    // Readings from adjacent groups must not visually join.
+                    (__bridge CFStringRef)nativeText(QChar(0x2009) + reading + QChar(0x2009)),
+                    (__bridge CFDictionaryRef) @{
+                        (__bridge NSString *)
+                        kCTRubyAnnotationSizeFactorAttributeName : @(rubyScale),
+                        // Let CoreText reserve reading width instead of shrinking
+                        // a long romanization into an unreadable base-word box.
+                        (__bridge NSString *)kCTRubyAnnotationScaleToFitAttributeName : @NO,
                         NSForegroundColorAttributeName : foreground
                     });
                 [attributed addAttribute:(__bridge NSString *)kCTRubyAnnotationAttributeName
@@ -920,6 +926,8 @@ QVariantMap MenuBarLyric::diagnostics() const
             {"position", view->position ? view->position() : 0.},
             {"spans", int(view->lines[0].spans.size())},
             {"rubyGroups", int(view->state.content.ruby.size())},
+            {"rubyFontSize",
+             view->state.content.ruby.isEmpty() ? 0. : view->lines[0].fontSize * rubyScale},
             {"primaryFontSize", view->lines[0].fontSize},
             {"secondaryFontSize", view->lines[1].fontSize},
             {"primary", view->state.content.primary},

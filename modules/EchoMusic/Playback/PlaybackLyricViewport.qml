@@ -325,7 +325,10 @@ EchoUiPartHost {
     Timer {
         id: reflow
         interval: 0
-        onTriggered: viewport.follow(true)
+        // Newly shaped ruby rows can resize the virtual prefix during a line
+        // transition. Retarget its springs instead of cancelling their motion;
+        // opening, seeking and explicit layout changes still settle directly.
+        onTriggered: viewport.follow(!lines.animateScroll)
     }
     Timer {
         id: resume

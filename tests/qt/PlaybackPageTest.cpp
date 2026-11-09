@@ -34,6 +34,7 @@
 #include <QDir>
 #include <QFontDatabase>
 #include <QFontInfo>
+#include <QFontMetricsF>
 #include <QVector4D>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -144,6 +145,15 @@ public:
                         float(pose.halo)};
             }
         }
+        return {};
+    }
+    static QVector4D annotationMotion(const LyricLine &line)
+    {
+        for (const auto &fragment : line.m_fragments)
+            if (fragment.annotation) {
+                const auto p = line.pose(fragment);
+                return {float(p.scale), float(p.push), float(p.lift), float(p.halo)};
+            }
         return {};
     }
 };
@@ -2479,13 +2489,19 @@ void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold_data()
 {
     QTest::addColumn<QString>("skin");
     QTest::addColumn<bool>("compact");
-    QTest::newRow("cover") << QString("cover") << false;
-    QTest::newRow("simple") << QString("lyric") << false;
-    QTest::newRow("portrait") << QString("portrait") << false;
-    QTest::newRow("portrait-compact") << QString("portrait") << true;
+    QTest::addColumn<bool>("ruby");
+    QTest::newRow("cover") << QString("cover") << false << false;
+    QTest::newRow("simple") << QString("lyric") << false << false;
+    QTest::newRow("portrait") << QString("portrait") << false << false;
+    QTest::newRow("portrait-compact") << QString("portrait") << true << false;
+    QTest::newRow("cover-ruby") << QString("cover") << false << true;
+    QTest::newRow("simple-ruby") << QString("lyric") << false << true;
+    QTest::newRow("portrait-ruby") << QString("portrait") << false << true;
+    QTest::newRow("portrait-compact-ruby") << QString("portrait") << true << true;
 }
 void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
 {
+    QFETCH(bool, ruby);
     QFETCH(QString, skin);
     QFETCH(bool, compact);
     Session session;
@@ -2526,6 +2542,7 @@ void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
                        {"text", QStringLiteral("音乐逐字符流动 Music")},
                        {"start_ms", 0},
                        {"duration_ms", 10000},
+                       {"romanization", ruby ? "yin yue zhu zi fu liu dong Music" : ""},
                        {"words", QJsonArray{QJsonObject{{"text", QStringLiteral("音乐逐字符流动 ")},
                                                         {"start_ms", 0},
                                                         {"duration_ms", 5000}},
@@ -2533,6 +2550,10 @@ void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
                                                         {"start_ms", 5000},
                                                         {"duration_ms", 4500}}}}}}}},
         "local-render-only");
+    if (ruby) {
+        session.playback.lyricText()->setWantRomanization(true);
+        session.playback.lyricText()->setRomanizationAsRuby(true);
+    }
     if (compact) {
         auto *portrait = session.item("portraitPlayback");
         QVERIFY(portrait);
@@ -2550,6 +2571,9 @@ void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
     };
     visit(session.window->contentItem());
     QVERIFY(!glyphItems.isEmpty());
+    if (ruby)
+        QVERIFY(std::any_of(glyphItems.cbegin(), glyphItems.cend(),
+                            [](LyricLine *line) { return !line->rubyText().isEmpty(); }));
     QList<quint64> uploads;
     for (auto *item : glyphItems) {
         QVERIFY(item->textureUploads() > 0);
@@ -2604,8 +2628,8 @@ void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
         QFile out(captureDir + "/native-engine-cadence" + suffix + ".json");
         QVERIFY(out.open(QIODevice::WriteOnly));
         out.write(QJsonDocument(data).toJson());
-        QVERIFY(
-            session.window->grabWindow().save(captureDir + "/native-gpu-lyrics" + suffix + ".png"));
+        QVERIFY(session.window->grabWindow().save(captureDir + "/native-gpu-lyrics" + suffix +
+                                                  (ruby ? "-ruby" : "") + ".png"));
     }
     for (int i = 0; i < glyphItems.size(); ++i)
         QCOMPARE(glyphItems[i]->textureUploads(), uploads[i]);
@@ -2638,6 +2662,75 @@ void PlaybackPageTest::nativeEngineTimelineHasNoPeriodicHold()
     const auto paused = session.page()->property("renderTime").toDouble();
     QTest::qWait(100);
     QCOMPARE(session.page()->property("renderTime").toDouble(), paused);
+}
+void PlaybackPageTest::rubySharesWordEffectsAndCachedMasks()
+{
+    for (const qreal scale : {1., 1.25}) {
+        LyricLine line;
+        line.setWidth(300 * scale);
+        line.setFont(styledUiFont(QGuiApplication::font(), 40 * scale, 600, 0, false, false));
+        line.setText(QStringLiteral("歌"));
+        line.setRubyText("ge");
+        line.setWords(
+            {QVariantMap{{"text", QStringLiteral("歌")}, {"start_ms", 0}, {"duration_ms", 600}}});
+        line.setDurationMs(600);
+        line.setAlignment(Qt::AlignHCenter);
+        line.setCurrent(true);
+        line.setPlayedColor(Qt::white);
+        line.setUnplayedColor(QColor(255, 255, 255, 40));
+        QCOMPARE(line.rubyFont().pixelSize(), qRound(40 * scale * .75));
+        const auto revision = line.maskRevision();
+        const auto capture = [&](qreal time) {
+            line.setTimeMs(time);
+            QImage image(QSize(qCeil(line.width()), qCeil(line.implicitHeight())),
+                         QImage::Format_ARGB32_Premultiplied);
+            image.fill(Qt::black);
+            QPainter painter(&image);
+            line.paint(&painter);
+            return image;
+        };
+        const auto energy = [&](const QImage &image, bool annotation) {
+            qint64 sum = 0;
+            const int split = qRound(40 * scale + line.rubyFont().pixelSize() * 1.2);
+            for (int y = annotation ? 0 : split; y < (annotation ? split : image.height()); ++y)
+                for (int x = 0; x < image.width(); ++x)
+                    sum += qRed(image.pixel(x, y));
+            return sum;
+        };
+        line.setAnimateWords(false);
+        const auto before = capture(-1), middle = capture(300), after = capture(600);
+        for (const bool annotation : {true, false}) {
+            QVERIFY(energy(before, annotation) > 1000);
+            QVERIFY(energy(middle, annotation) > energy(before, annotation));
+            QVERIFY(energy(after, annotation) > energy(middle, annotation));
+        }
+        QCOMPARE(capture(300), middle); // Seek back reproduces the annotation, too.
+        QCOMPARE(line.maskRevision(), revision);
+        line.setAnimateWords(true);
+        line.setTimeMs(300);
+        const auto original = LyricLineTestAccess::motion(line, 0);
+        const auto ruby = LyricLineTestAccess::annotationMotion(line);
+        QVERIFY(ruby.z() < 0);
+        QVERIFY(qAbs(ruby.z() - original.z() * 40 * scale) < .001);
+        QCOMPARE(ruby.x(), 1.f);
+        QCOMPARE(ruby.w(), 0.f);
+        line.setAnimateWords(false);
+        QCOMPARE(LyricLineTestAccess::annotationMotion(line).z(), 0.f);
+        line.setAnimateWords(true);
+        line.setWords(
+            {QVariantMap{{"text", QStringLiteral("歌")}, {"start_ms", 0}, {"duration_ms", 2000}}});
+        line.setDurationMs(2000);
+        line.setTimeMs(800);
+        QVERIFY(LyricLineTestAccess::motion(line, 0).x() > 1);
+        QCOMPARE(LyricLineTestAccess::annotationMotion(line), QVector4D(1, 0, 0, 0));
+        const auto directory = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
+        if (!directory.isEmpty()) {
+            QDir().mkpath(directory);
+            QVERIFY(middle.save(directory + QString("/ruby-sweep-%1.png").arg(scale)));
+        }
+        line.setRubyText("");
+        QVERIFY(line.textHeight() < 60 * scale);
+    }
 }
 void PlaybackPageTest::shapedWordPixelsProgressSeekAndWrap()
 {
@@ -3157,6 +3250,96 @@ void PlaybackPageTest::lyricLineBeginningsUseFullInkImmediately()
         QDir().mkpath(directory);
         QVERIFY(session.window->grabWindow().save(directory + "/line-beginning.png"));
     }
+    QVERIFY(warnings.isEmpty());
+}
+
+void PlaybackPageTest::rubyReflowKeepsScrollingMotion_data()
+{
+    QTest::addColumn<QString>("skin");
+    QTest::addColumn<qreal>("scale");
+    for (const auto &skin : {QString("cover"), QString("portrait"), QString("lyric")})
+        for (const qreal scale : {1., 1.25})
+            QTest::newRow(qPrintable(skin + QString::number(scale))) << skin << scale;
+}
+
+void PlaybackPageTest::rubyReflowKeepsScrollingMotion()
+{
+    QFETCH(QString, skin);
+    QFETCH(qreal, scale);
+    Session session;
+    QVERIFY(session.theme.extensions()->chooseSkin(skin));
+    session.playback.lyricAppearance()->portrait()->setAutoCollapse(false);
+    session.playback.lyricText()->setWantRomanization(true);
+    session.playback.lyricText()->setRomanizationAsRuby(true);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QVERIFY(session.create());
+    session.root->setProperty("surfaceScale", scale);
+    const auto name = skin == "cover"   ? "playbackLyricViewport"
+                      : skin == "lyric" ? "simpleLyricViewport"
+                                        : "portraitLyricViewport";
+    auto *viewport = session.item(name);
+    auto *list = session.item("playbackLyricList");
+    QVERIFY(viewport && list);
+    PlaybackServiceTestAccess::position(session.playback, 43300);
+    QTest::qWait(600);
+    const auto textRow = [&](int index) -> QQuickItem * {
+        QQuickItem *delegate = nullptr;
+        if (!QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, delegate),
+                                       Q_ARG(int, index)) ||
+            !delegate)
+            return nullptr;
+        return findVisual(delegate, QString("lyricTextRow%1").arg(index));
+    };
+    auto *first = textRow(10), *second = textRow(11);
+    QVERIFY(first && second);
+    QSignalSpy scrolls(viewport, SIGNAL(scrollRequested(double, double, bool)));
+    QVERIFY(scrolls.isValid());
+    PlaybackServiceTestAccess::playing(session.playback, true);
+    PlaybackServiceTestAccess::position(session.playback, 43420);
+    QTRY_VERIFY(!scrolls.isEmpty());
+    QVERIFY(scrolls.last()[2].toBool());
+    QTest::qWait(50);
+    auto *lineMotion = second->findChild<QObject *>("appleMusicLineMotion");
+    QVERIFY(lineMotion);
+    QVERIFY(lineMotion->property("running").toBool());
+    const auto highlight = lineMotion->property("highlight").toReal();
+    QVERIFY(highlight > 0 && highlight < .999);
+    QElapsedTimer reshaping;
+    reshaping.start();
+    QPointer<QQuickItem> row = first->parentItem();
+    const auto before = row->property("scrollY").toReal();
+    const auto destination = list->property("contentY").toReal();
+    QVERIFY(qAbs(before - destination) > 2);
+    scrolls.clear();
+    // Native shaping can finish while a line is already moving. Force that
+    // production geometry path without replacing lyrics or seeking the clock.
+    LyricLine *ink = nullptr;
+    const auto visit = [&](auto &&self, QQuickItem *item) -> void {
+        if (auto *line = qobject_cast<LyricLine *>(item); line && !line->rubyText().isEmpty())
+            ink = line;
+        for (auto *child : item->childItems())
+            self(self, child);
+    };
+    visit(visit, first);
+    QVERIFY(ink);
+    const auto oldHeight = row->height();
+    const auto advance = QFontMetricsF(ink->rubyFont()).horizontalAdvance("a ");
+    const auto columns = qCeil((ink->width() - 2 * ink->paintPadding()) / advance);
+    ink->setRubyText(QString("a ").repeated(columns * 2));
+    QTRY_VERIFY(row && row->height() > oldHeight + 20);
+    QTRY_VERIFY(!scrolls.isEmpty());
+    QVERIFY2(std::all_of(scrolls.cbegin(), scrolls.cend(),
+                         [](const QList<QVariant> &event) { return event[2].toBool(); }),
+             "Late ruby reflow must not cancel an in-progress scrolling transition");
+    if (reshaping.elapsed() < 100) {
+        QVERIFY(lineMotion->property("running").toBool());
+        QVERIFY(lineMotion->property("highlight").toReal() < .999);
+    }
+    QVERIFY(qAbs(row->property("scrollY").toReal() - list->property("contentY").toReal()) > 1);
+    const auto previous = row->property("scrollY").toReal();
+    QTest::qWait(80);
+    QVERIFY(qAbs(row->property("scrollY").toReal() - previous) > 1);
+    QTRY_VERIFY(qAbs(row->property("scrollY").toReal() - list->property("contentY").toReal()) < .5);
     QVERIFY(warnings.isEmpty());
 }
 

@@ -212,6 +212,7 @@ private slots:
                 const auto pixels = hostSnapshot(view);
                 QRect all;
                 int bands = 0, translated = 0;
+                QList<QRect> inkBands;
                 bool previous = false;
                 for (int y = 0; y < pixels.height(); ++y) {
                     bool row = false;
@@ -226,16 +227,23 @@ private slots:
                         if (c.red() > 150 && c.blue() < 100)
                             row = true;
                     }
-                    if (row && !previous)
+                    if (row && !previous) {
                         ++bands;
+                        inkBands.append(QRect(0, y, 1, 1));
+                    } else if (row) {
+                        inkBands.last().setBottom(y);
+                    }
                     previous = row;
                 }
                 QVERIFY2(bands >= 2, "Ruby annotation must form visible ink above the original");
+                QVERIFY2(inkBands.first().height() >= inkBands.last().height() * .6,
+                         "Actual annotation ink must remain readable beside the original");
                 QVERIFY(all.top() > 0 && all.bottom() < pixels.height() - 1);
                 QVERIFY(qAbs((all.top() + all.bottom() + 1.) / 2 - pixels.height() / 2.) <= 1.5);
                 QCOMPARE(translated, 0);
                 QCOMPARE(item.diagnostics().value("secondaryFontSize").toDouble(), 0.);
                 QCOMPARE(item.diagnostics().value("rubyGroups").toInt(), 2);
+                QVERIFY(item.diagnostics().value("rubyFontSize").toDouble() >= 7);
                 const auto artifacts = qEnvironmentVariable("ECHO_MENU_BAR_ARTIFACTS");
                 if (!artifacts.isEmpty())
                     QVERIFY(
@@ -252,6 +260,21 @@ private slots:
         item.update(state, style);
         QCOMPARE(item.diagnostics().value("textBuilds").toULongLong(), builds);
         QVERIFY(item.diagnostics().value("cutoff").toDouble() > cutoff);
+        // A long reading must gain horizontal space, never shrink back into
+        // the old tiny base-word box. The status bar still has only mask/scroll
+        // updates, with no word transforms or implicit CoreAnimation effects.
+        state.content.ruby[0] =
+            QVariantMap{{"text", QString::fromUtf8("你好")}, {"ruby", "sayonaramata"}};
+        style.wordByWord = false;
+        style.maxWidth = 800;
+        item.update(state, style);
+        auto *view = nativeView(item);
+        [view setFrameSize:NSMakeSize(view.frame.size.width, 24)];
+        const auto longReading = hostSnapshot(view);
+        QVERIFY(item.diagnostics().value("rubyFontSize").toDouble() >= 7);
+        const auto artifacts = qEnvironmentVariable("ECHO_MENU_BAR_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QVERIFY(longReading.save(artifacts + "/ruby-long-readable.png"));
     }
     void wordProgressSchedulesHostDisplayAndAdvancesThroughAllGlyphs()
     {

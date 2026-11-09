@@ -56,9 +56,12 @@ private slots:
     void themeEventBurstKeepsTrayStableDuringNativePlayback();
     void presentationClockHandlesJitterPauseSpeedAndSeek();
     void shapedWordPixelsProgressSeekAndWrap();
+    void rubySharesWordEffectsAndCachedMasks();
     void shapedClustersKeepCompleteInk();
     void nativeGpuClustersMatchWholeQtInk();
     void lyricRowsMoveIndependentlyAndSettle();
+    void rubyReflowKeepsScrollingMotion_data();
+    void rubyReflowKeepsScrollingMotion();
     void lateRubyLayoutKeepsRowsSeparated_data();
     void lateRubyLayoutKeepsRowsSeparated();
     void lyricRowBoxClearsRightSideTools();

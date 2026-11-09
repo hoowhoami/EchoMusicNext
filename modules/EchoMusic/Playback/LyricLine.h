@@ -17,6 +17,8 @@ class LyricLine : public QQuickItem
     Q_PROPERTY(bool wrap READ wrap WRITE setWrap NOTIFY layoutChanged)
     Q_PROPERTY(qreal textWidth READ textWidth NOTIFY layoutChanged)
     Q_PROPERTY(QString text READ text WRITE setText NOTIFY layoutChanged)
+    Q_PROPERTY(QString rubyText READ rubyText WRITE setRubyText NOTIFY layoutChanged)
+    Q_PROPERTY(QFont rubyFont READ rubyFont NOTIFY fontChanged)
     Q_PROPERTY(QVariantList glyphs READ glyphs NOTIFY layoutChanged)
     Q_PROPERTY(QVariantList words READ words WRITE setWords NOTIFY layoutChanged)
     Q_PROPERTY(QFont font READ font WRITE setFont NOTIFY layoutChanged)
@@ -77,6 +79,12 @@ public:
         return m_text;
     }
     void setText(const QString &);
+    QString rubyText() const
+    {
+        return m_rubyText;
+    }
+    void setRubyText(const QString &);
+    QFont rubyFont() const;
     QVariantList glyphs() const;
     QVariantList words() const
     {
@@ -142,6 +150,7 @@ public:
     }
     void setAnimateWords(bool);
 signals:
+    void fontChanged();
     void layoutChanged();
     void timeChanged();
     void colorsChanged();
@@ -167,6 +176,8 @@ private:
         bool rtl;
         int character = 0, characters = 1;
         bool emphasis = false, last = false;
+        bool annotation = false;
+        qreal sweepScale = 1;
         qreal readingOrigin = 0;
     };
     struct Pose
@@ -189,12 +200,14 @@ private:
     quint64 m_maskRevision = 0;
     Qt::Alignment m_alignment = Qt::AlignLeft;
     QString m_text;
+    QString m_rubyText;
     QVariantList m_words;
     bool m_hasWordTiming = false;
     QList<Word> m_timeline;
     QList<Fragment> m_fragments;
     QFont m_font;
     QTextLayout m_layout;
+    QTextLayout m_rubyLayout;
     qreal m_maskDevicePixelRatio = 1;
     qreal m_time = -1;
     qint64 m_start = 0, m_duration = 0;

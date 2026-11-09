@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls.Basic
 import EchoMusic.Theme
 import EchoMusic.Playback
 
@@ -78,8 +77,7 @@ Item {
         id: unit
         required property var modelData
         required property int index
-        readonly property real rubyHeight: root.font.pixelSize * .8
-        readonly property real naturalWidth: Math.max(baseMetrics.advanceWidth, rubyMetrics.advanceWidth) + 2
+        readonly property real naturalWidth: Math.max(baseMetrics.advanceWidth, rubyMetrics.advanceWidth) + Math.max(2, root.font.pixelSize * .2)
         readonly property real sweepX: base.readingPosition(root.timeMs) - root.font.pixelSize
         readonly property bool sweepActive: root.current && root.timeMs >= modelData.start_ms && root.timeMs < modelData.start_ms + modelData.duration_ms
         onSweepActiveChanged: if (sweepActive)
@@ -87,7 +85,7 @@ Item {
         Component.onCompleted: if (sweepActive)
             root.activeUnit = unit
         width: root.wrap ? Math.min(root.width, naturalWidth) : naturalWidth
-        height: base.textHeight + rubyHeight
+        height: base.textHeight
         TextMetrics {
             id: baseMetrics
             font: root.font
@@ -95,20 +93,8 @@ Item {
         }
         TextMetrics {
             id: rubyMetrics
-            font: annotation.font
-            text: annotation.text
-        }
-        Label {
-            id: annotation
-            width: parent.width
-            height: unit.rubyHeight
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
+            font: base.rubyFont
             text: unit.modelData.ruby
-            textFormat: Text.PlainText
-            font: Theme.store.styledFont(root.font, root.font.pixelSize * .6, root.font.weight, 0, false, false)
-            color: root.current ? root.playedColor : root.unplayedColor
-            opacity: .7
         }
         LyricLine {
             id: base
@@ -119,10 +105,11 @@ Item {
                 active: root.effectSurface !== ""
             }
             x: -root.font.pixelSize
-            y: unit.rubyHeight - root.font.pixelSize
+            y: -root.font.pixelSize
             width: parent.width + root.font.pixelSize * 2
             height: implicitHeight
             text: unit.modelData.text
+            rubyText: unit.modelData.ruby
             words: unit.modelData.words
             startMs: unit.modelData.start_ms
             durationMs: unit.modelData.duration_ms

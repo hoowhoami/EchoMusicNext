@@ -115,6 +115,19 @@ void LyricLine::setText(const QString &value)
     rebuildTimeline();
     layout();
 }
+void LyricLine::setRubyText(const QString &value)
+{
+    if (m_rubyText == value)
+        return;
+    m_rubyText = value;
+    layout();
+}
+QFont LyricLine::rubyFont() const
+{
+    auto font = m_font;
+    font.setPixelSize(std::max(1, qRound(QFontInfo(m_font).pixelSize() * .75)));
+    return font;
+}
 void LyricLine::setWords(const QVariantList &value)
 {
     if (m_words == value)
@@ -156,6 +169,7 @@ void LyricLine::setFont(const QFont &value)
         return;
     m_font = value;
     layout();
+    emit fontChanged();
 }
 void LyricLine::setTimeMs(qreal value)
 {
@@ -322,12 +336,36 @@ void LyricLine::layout()
     option.setWrapMode(m_wrap ? QTextOption::WrapAtWordBoundaryOrAnywhere : QTextOption::NoWrap);
     option.setAlignment(m_alignment);
     m_layout.setTextOption(option);
-    m_layout.beginLayout();
     const qreal em = QFontInfo(m_font).pixelSize();
     m_paintPadding = em;
     const qreal lineHeight = em * 1.2;
     qreal y = m_paintPadding;
     m_textWidth = 0;
+    // Shape the annotation once alongside its original group. Its mask uses
+    // the original word frontier; romanization contributes no new word times.
+    m_rubyLayout.setText(m_rubyText);
+    const auto annotationFont = rubyFont();
+    m_rubyLayout.setFont(annotationFont);
+    m_rubyLayout.setTextOption(option);
+    m_rubyLayout.beginLayout();
+    if (!m_rubyText.isEmpty()) {
+        while (true) {
+            auto line = m_rubyLayout.createLine();
+            if (!line.isValid())
+                break;
+            const qreal available = std::max<qreal>(1, width() - 2 * em);
+            line.setLineWidth(available);
+            if (!m_wrap && line.naturalTextWidth() > available)
+                line.setLineWidth(line.naturalTextWidth());
+            const qreal height = std::max(line.height(), annotationFont.pixelSize() * 1.2);
+            line.setPosition({em, y + (height - line.height()) / 2});
+            y += height;
+            m_textWidth = std::max(m_textWidth, line.naturalTextWidth());
+        }
+        y += em * .08;
+    }
+    m_rubyLayout.endLayout();
+    m_layout.beginLayout();
     while (true) {
         auto line = m_layout.createLine();
         if (!line.isValid())
@@ -382,6 +420,38 @@ void LyricLine::rebuildMasks()
         }
     }
     const qreal padding = QFontInfo(m_font).pixelSize() * .4 + 2;
+    const auto stageMask = [&](Fragment &fragment, const QList<QGlyphRun> &runs) {
+        const QSize pixels(qCeil(fragment.rect.width() * dpr), qCeil(fragment.rect.height() * dpr));
+        QImage mask(pixels, QImage::Format_ARGB32_Premultiplied);
+        mask.setDevicePixelRatio(dpr);
+        mask.fill(Qt::transparent);
+        QImage glow;
+        {
+            QPainter painter(&mask);
+            painter.setPen(Qt::white);
+            for (const auto &run : runs)
+                painter.drawGlyphRun(-fragment.rect.topLeft(), run);
+        }
+        if (fragment.emphasis && !fragment.annotation) {
+            const qreal ratio = qreal(fragment.word.duration) / 3000.;
+            const qreal strength =
+                std::min(.8, (ratio < 1 ? ratio * ratio * ratio : std::sqrt(ratio)) * .5 *
+                                 (fragment.last ? 1.5 : 1.));
+            glow =
+                wordHalo(mask, Qt::white,
+                         std::max(1, qCeil(QFontInfo(m_font).pixelSize() * dpr * strength * .15)));
+        }
+        fragment.packed = QImage(pixels, QImage::Format_RGBA8888);
+        for (int py = 0; py < pixels.height(); ++py) {
+            auto *dst = fragment.packed.scanLine(py);
+            for (int px = 0; px < pixels.width(); ++px) {
+                dst[px * 4] = qAlpha(mask.pixel(px, py));
+                dst[px * 4 + 1] = glow.isNull() ? 0 : qAlpha(glow.pixel(px, py));
+                dst[px * 4 + 2] = 0;
+                dst[px * 4 + 3] = 255;
+            }
+        }
+    };
     if (timeline.isEmpty() && !m_text.isEmpty())
         timeline.append({0, int(m_text.size()), m_start, m_duration});
     qreal prefix = 0;
@@ -460,41 +530,50 @@ void LyricLine::rebuildMasks()
                                               ? right - fragment.rect.right()
                                               : fragment.rect.left() - left;
                 fragment.rtl = line.cursorToX(end) < line.cursorToX(start);
-                const QSize pixels(qCeil(fragment.rect.width() * dpr),
-                                   qCeil(fragment.rect.height() * dpr));
-                QImage mask(pixels, QImage::Format_ARGB32_Premultiplied);
-                mask.setDevicePixelRatio(dpr);
-                mask.fill(Qt::transparent);
-                QImage glow;
-                {
-                    QPainter painter(&mask);
-                    painter.setPen(Qt::white);
-                    for (const auto &run : runs)
-                        painter.drawGlyphRun(-fragment.rect.topLeft(), run);
-                }
-                if (emphasize) {
-                    const qreal ratio = qreal(word.duration) / 3000.;
-                    const qreal strength =
-                        std::min(.8, (ratio < 1 ? ratio * ratio * ratio : std::sqrt(ratio)) * .5 *
-                                         (fragment.last ? 1.5 : 1.));
-                    glow = wordHalo(
-                        mask, Qt::white,
-                        std::max(1, qCeil(QFontInfo(m_font).pixelSize() * dpr * strength * .15)));
-                }
-                fragment.packed = QImage(pixels, QImage::Format_RGBA8888);
-                for (int py = 0; py < pixels.height(); ++py) {
-                    auto *dst = fragment.packed.scanLine(py);
-                    for (int px = 0; px < pixels.width(); ++px) {
-                        dst[px * 4] = qAlpha(mask.pixel(px, py));
-                        dst[px * 4 + 1] = glow.isNull() ? 0 : qAlpha(glow.pixel(px, py));
-                        dst[px * 4 + 2] = 0;
-                        dst[px * 4 + 3] = 255;
-                    }
-                }
+                stageMask(fragment, runs);
                 m_fragments.append(std::move(fragment));
             }
         }
         prefix += advance;
+    }
+    qreal annotationWidth = 0;
+    for (int n = 0; n < m_rubyLayout.lineCount(); ++n) {
+        const auto line = m_rubyLayout.lineAt(n);
+        annotationWidth += std::abs(line.cursorToX(line.textStart() + line.textLength()) -
+                                    line.cursorToX(line.textStart()));
+    }
+    qreal annotationPrefix = 0;
+    for (int n = 0; n < m_rubyLayout.lineCount() && prefix > 0; ++n) {
+        const auto line = m_rubyLayout.lineAt(n);
+        const auto runs = line.glyphRuns();
+        QRectF bounds;
+        for (const auto &run : runs)
+            bounds |= run.boundingRect();
+        if (bounds.isEmpty())
+            continue;
+        Fragment fragment;
+        const auto padded = bounds.adjusted(-padding, -padding, padding, padding);
+        fragment.rect = QRectF(
+            QPointF(std::floor(padded.left() * dpr) / dpr, std::floor(padded.top() * dpr) / dpr),
+            QPointF(std::ceil(padded.right() * dpr) / dpr, std::ceil(padded.bottom() * dpr) / dpr));
+        fragment.annotation = true;
+        fragment.sweepScale = std::max(1., annotationWidth) / prefix;
+        const qreal from = line.cursorToX(line.textStart());
+        const qreal to = line.cursorToX(line.textStart() + line.textLength());
+        fragment.rtl = to < from;
+        fragment.readingOrigin =
+            annotationPrefix + (fragment.rtl ? std::max(from, to) - fragment.rect.right()
+                                             : fragment.rect.left() - std::min(from, to));
+        fragment.word = {0, int(m_text.size()), m_start, m_duration};
+        // A grouped reading has no independently timed syllables. It shares
+        // the source group's normal float; emphasized base characters retain
+        // their own stagger/scale/glow, as in the reference presentation.
+        fragment.emphasis =
+            std::any_of(m_fragments.cbegin(), m_fragments.cend(),
+                        [](const Fragment &f) { return !f.annotation && f.emphasis; });
+        stageMask(fragment, runs);
+        m_fragments.append(std::move(fragment));
+        annotationPrefix += std::abs(to - from);
     }
     // Pack immutable masks once. Separate textures/uniforms per fragment force
     // one draw call per word/character, including every dimmed background row.
@@ -569,16 +648,20 @@ LyricLine::Pose LyricLine::pose(const Fragment &f) const
     const qreal em = QFontInfo(m_font).pixelSize();
     const qreal duration = std::max<qint64>(1, f.word.duration);
     const qreal fade = std::max(1., em * 1.2 * m_fadeWidth);
-    Pose p{revealDistance(fade) - f.readingOrigin, fade, 0, 1, 0, 0};
+    // Rescale the source advance, not the physical gradient width: a long
+    // reading above one short glyph must not turn the entire reading into haze.
+    Pose p{revealDistance(fade / f.sweepScale) * f.sweepScale - f.readingOrigin, fade, 0, 1, 0, 0};
     if (!m_current || m_highlightAmount <= 0) {
-        p.edge = -2 * fade;
+        p.edge = -2 * p.fade;
         return p;
     }
     if (!m_hasWordTiming) {
-        p.edge = m_layout.boundingRect().width() + m_layout.boundingRect().height() + 4 * fade;
+        p.edge = f.annotation ? f.rect.width() + 4 * fade
+                              : m_layout.boundingRect().width() + m_layout.boundingRect().height() +
+                                    4 * fade;
         return p;
     }
-    if (!m_animateWords)
+    if (!m_animateWords || (f.annotation && f.emphasis))
         return p;
     const qreal t = qreal(m_time - f.word.time);
     QEasingCurve ease(QEasingCurve::BezierSpline);
@@ -727,6 +810,7 @@ void LyricLine::paint(QPainter *painter)
     if (!m_current || m_highlightAmount <= 0) {
         painter->setPen(m_unplayed);
         m_layout.draw(painter, QPointF());
+        m_rubyLayout.draw(painter, QPointF());
         return;
     }
     // Diagnostic CPU snapshot shares the production pose. It is never called

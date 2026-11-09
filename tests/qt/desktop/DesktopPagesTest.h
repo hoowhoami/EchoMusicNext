@@ -23,6 +23,7 @@ private slots:
     void productionPopupsFollowRequestOwnership();
     void productionChatBubblesKeepBalancedTextInsets();
     void floatingLyricsFollowRealAudioAndStopMotionOnPause();
+    void rubyLyricsShareNativeRenderingOnFloatingSurfaces();
     void desktopLyricsKeepRenderingUnderTranslucentOcclusion_data();
     void desktopLyricsKeepRenderingUnderTranslucentOcclusion();
     void miniWidthPreferencesClampAndRestore_data();
