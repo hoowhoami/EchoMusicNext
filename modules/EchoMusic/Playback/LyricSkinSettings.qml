@@ -37,6 +37,21 @@ ColumnLayout {
             checked: settings.appearance.hidePassedLines
             onToggled: value => settings.appearance.hidePassedLines = value
         }
+        LyricSkinSettingRow {
+            heading: qsTr("副行颜色")
+            hint: qsTr("译文、音译等副行；默认沿用全局设置")
+            action: Component {
+                LyricSecondaryColorControl {
+                    preferences: settings.textStyle
+                    resetColor: Qt.rgba(1, 1, 1, .3).toString()
+                    colorProperty: "secondaryTextColor"
+                    followProperty: "secondaryUseCoverColor"
+                    resolvedColor: LyricColors.pageSecondary(settings.appearance, settings.textStyle, settings.coverColor, Theme.withAlpha(settings.resolvedPlayedColor, .3))
+                    coverColor: settings.coverColor
+                    uiScale: settings.uiScale
+                }
+            }
+        }
         LyricSkinColorRow {
             heading: qsTr("已播字色")
             hint: qsTr("歌曲已播放部分与逐字高亮")

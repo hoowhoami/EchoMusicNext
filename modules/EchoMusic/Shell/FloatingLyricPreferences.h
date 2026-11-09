@@ -8,6 +8,9 @@ namespace EchoMusic
 class FloatingLyricPreferences final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QString secondaryColor READ secondaryColor WRITE setSecondaryColor NOTIFY changed)
+    Q_PROPERTY(bool secondaryFollowCoverColor READ secondaryFollowCoverColor WRITE
+                   setSecondaryFollowCoverColor NOTIFY changed)
     QML_ELEMENT
     QML_UNCREATABLE("Owned by the window controller")
     Q_PROPERTY(bool alwaysOnTop READ alwaysOnTop WRITE setAlwaysOnTop NOTIFY changed)
@@ -30,6 +33,16 @@ class FloatingLyricPreferences final : public QObject
     Q_PROPERTY(int fontWeight READ fontWeight WRITE setFontWeight NOTIFY changed)
     Q_PROPERTY(bool backgroundBlur READ backgroundBlur WRITE setBackgroundBlur NOTIFY changed)
 public:
+    QString secondaryColor() const
+    {
+        return m_secondaryColor;
+    }
+    bool secondaryFollowCoverColor() const
+    {
+        return m_secondaryFollowCoverColor;
+    }
+    void setSecondaryColor(const QString &value);
+    void setSecondaryFollowCoverColor(bool value);
     FloatingLyricPreferences(EchoMusic::SettingsStore &settings, bool desktop,
                              QObject *parent = nullptr);
     bool patch(const QVariantMap &values);
@@ -119,6 +132,8 @@ signals:
     void changed();
 
 private:
+    QString m_secondaryColor;
+    bool m_secondaryFollowCoverColor = false;
     EchoMusic::SettingsStore &m_settings;
     QString m_prefix;
     bool m_mini;

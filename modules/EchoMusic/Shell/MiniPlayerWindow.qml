@@ -292,6 +292,7 @@ Window {
                             textWeight: window.style.fontWeight
                             textColor: LyricColors.miniPlayed(window.style, Theme.store.lyricAccent(window.playback.coverColor), window.miniColors.text)
                             unplayedColor: LyricColors.miniUnplayed(window.style, Theme.store.lyricAccent(window.playback.coverColor), window.miniColors.text)
+                            secondaryColor: LyricColors.secondary(window.style, Theme.store.lyricAccent(window.playback.coverColor), Theme.withAlpha(textColor, .3))
                             secondaryFontSize: window.style.secondaryFontSize
                             secondaryGap: window.style.lineGap
                             horizontalAlignment: window.style.alignment === "left" ? Qt.AlignLeft : window.style.alignment === "right" ? Qt.AlignRight : Qt.AlignHCenter

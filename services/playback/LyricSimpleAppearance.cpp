@@ -7,6 +7,10 @@ namespace EchoMusic
 LyricSimpleAppearance::LyricSimpleAppearance(SettingsStore &settings, QObject *parent)
     : QObject(parent), m_settings(settings)
 {
+    setSecondaryTextColor(
+        settings.value(SettingsKeys::Lyrics::SimpleSecondaryTextColor, QString()).toString());
+    setSecondaryUseCoverColor(
+        settings.value(SettingsKeys::Lyrics::SimpleSecondaryUseCoverColor, false).toBool());
     setFontScale(settings.value(SettingsKeys::Lyrics::SimpleFontScale, 1.0).toDouble());
     setFontWeight(settings.value(SettingsKeys::Lyrics::SimpleFontWeight, 900).toInt());
     setTextColor(settings.value(SettingsKeys::Lyrics::SimpleTextColor, QString()).toString());
@@ -75,17 +79,36 @@ void LyricSimpleAppearance::setUnplayedUseCoverColor(bool value)
 }
 bool LyricSimpleAppearance::customized() const
 {
-    return m_fontScale != 1.0 || m_fontWeight != 900 || m_textColor != QString() ||
-           m_unplayedTextColor != QString() || m_useCoverColor != false ||
-           m_unplayedUseCoverColor != false;
+    return !m_secondaryTextColor.isEmpty() || m_secondaryUseCoverColor || m_fontScale != 1.0 ||
+           m_fontWeight != 900 || m_textColor != QString() || m_unplayedTextColor != QString() ||
+           m_useCoverColor != false || m_unplayedUseCoverColor != false;
 }
 void LyricSimpleAppearance::resetSkin()
 {
+    setSecondaryTextColor("");
+    setSecondaryUseCoverColor(false);
     setFontScale(1.0);
     setFontWeight(900);
     setTextColor(QString());
     setUnplayedTextColor(QString());
     setUseCoverColor(false);
     setUnplayedUseCoverColor(false);
+}
+
+void LyricSimpleAppearance::setSecondaryTextColor(const QString &value)
+{
+    if ((!value.isEmpty() && !QColor(value).isValid()) || m_secondaryTextColor == value)
+        return;
+    m_secondaryTextColor = value;
+    m_settings.setValue(SettingsKeys::Lyrics::SimpleSecondaryTextColor, value);
+    emit changed();
+}
+void LyricSimpleAppearance::setSecondaryUseCoverColor(bool value)
+{
+    if (m_secondaryUseCoverColor == value)
+        return;
+    m_secondaryUseCoverColor = value;
+    m_settings.setValue(SettingsKeys::Lyrics::SimpleSecondaryUseCoverColor, value);
+    emit changed();
 }
 } // namespace EchoMusic

@@ -227,6 +227,7 @@ Item {
             pageHeight: portrait.height
             fontSize: Math.max(22, Math.min(32, portrait.width * .03)) * portrait.settings.fontScale
             textWeight: portrait.settings.fontWeight
+            secondaryColor: LyricColors.pageSecondary(portrait.playback.lyricAppearance, portrait.playback.lyricAppearance.portrait, coverAccent, Theme.withAlpha(textColor, .3))
             textColor: LyricColors.portraitPlayed(portrait.playback.lyricAppearance, coverAccent)
             unplayedColor: LyricColors.portraitUnplayed(portrait.playback.lyricAppearance, coverAccent)
             horizontalAlignment: Qt.AlignHCenter

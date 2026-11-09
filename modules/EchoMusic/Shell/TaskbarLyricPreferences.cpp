@@ -1,3 +1,4 @@
+#include <QColor>
 #include "SettingsKeys.h"
 #include "TaskbarLyricPreferences.h"
 namespace EchoMusic
@@ -45,6 +46,17 @@ TaskbarLyricPreferences::TaskbarLyricPreferences(EchoMusic::SettingsStore &setti
                                                  QObject *parent)
     : QObject(parent), m_settings(settings)
 {
+    setSecondaryColor(
+        settings
+            .value(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::SecondaryColor,
+                   QString())
+            .toString());
+    setSecondaryFollowCoverColor(
+        settings
+            .value(SettingsKeys::Taskbar::Prefix +
+                       SettingsKeys::TaskbarFields::SecondaryFollowCoverColor,
+                   false)
+            .toBool());
     m_position = positionFromKey(
         settings.value(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::Position)
             .toString());
@@ -139,6 +151,26 @@ void TaskbarLyricPreferences::setDragOffsetX(int value)
     m_dragOffsetX = qMax(0, value);
     m_settings.setValue(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::DragOffsetX,
                         m_dragOffsetX);
+    emit changed();
+}
+
+void TaskbarLyricPreferences::setSecondaryColor(const QString &value)
+{
+    if ((!value.isEmpty() && !QColor(value).isValid()) || m_secondaryColor == value)
+        return;
+    m_secondaryColor = value;
+    m_settings.setValue(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::SecondaryColor,
+                        value);
+    emit changed();
+}
+void TaskbarLyricPreferences::setSecondaryFollowCoverColor(bool value)
+{
+    if (m_secondaryFollowCoverColor == value)
+        return;
+    m_secondaryFollowCoverColor = value;
+    m_settings.setValue(SettingsKeys::Taskbar::Prefix +
+                            SettingsKeys::TaskbarFields::SecondaryFollowCoverColor,
+                        value);
     emit changed();
 }
 } // namespace EchoMusic

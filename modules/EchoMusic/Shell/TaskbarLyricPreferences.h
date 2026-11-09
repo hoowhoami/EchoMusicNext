@@ -13,9 +13,22 @@ namespace EchoMusic
 class TaskbarLyricPreferences final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QString secondaryColor READ secondaryColor WRITE setSecondaryColor NOTIFY changed)
+    Q_PROPERTY(bool secondaryFollowCoverColor READ secondaryFollowCoverColor WRITE
+                   setSecondaryFollowCoverColor NOTIFY changed)
     QML_ELEMENT
     QML_UNCREATABLE("Owned by the window controller")
 public:
+    QString secondaryColor() const
+    {
+        return m_secondaryColor;
+    }
+    bool secondaryFollowCoverColor() const
+    {
+        return m_secondaryFollowCoverColor;
+    }
+    void setSecondaryColor(const QString &value);
+    void setSecondaryFollowCoverColor(bool value);
     /// How the strip picks its seat. The declaration order is the settings
     /// picker's order (the combo binds its index to this value), and the stored
     /// key of each mode lives in positionKey() only.
@@ -77,6 +90,8 @@ signals:
     void changed();
 
 private:
+    QString m_secondaryColor;
+    bool m_secondaryFollowCoverColor = false;
     EchoMusic::SettingsStore &m_settings;
     Position m_position = Position::AutoRight;
     int m_maxWidth = 400;

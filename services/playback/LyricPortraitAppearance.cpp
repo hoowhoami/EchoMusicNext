@@ -8,6 +8,10 @@ LyricPortraitAppearance::LyricPortraitAppearance(EchoMusic::SettingsStore &setti
                                                  QObject *parent)
     : QObject(parent), m_settings(settings)
 {
+    setSecondaryTextColor(
+        settings.value(SettingsKeys::Lyrics::PortraitSecondaryTextColor, QString()).toString());
+    setSecondaryUseCoverColor(
+        settings.value(SettingsKeys::Lyrics::PortraitSecondaryUseCoverColor, false).toBool());
     setEnableSpring(settings.value(SettingsKeys::Lyrics::PortraitEnableSpring, true).toBool());
     setEnableBlur(settings.value(SettingsKeys::Lyrics::PortraitEnableBlur, true).toBool());
     setEnableScale(settings.value(SettingsKeys::Lyrics::PortraitEnableScale, true).toBool());
@@ -177,7 +181,8 @@ void LyricPortraitAppearance::setEnableScale(bool value)
 }
 bool LyricPortraitAppearance::customized() const
 {
-    return !m_enableSpring || !m_enableBlur || !m_enableScale || m_backdropOpacity != 50 ||
+    return !m_secondaryTextColor.isEmpty() || m_secondaryUseCoverColor || !m_enableSpring ||
+           !m_enableBlur || !m_enableScale || m_backdropOpacity != 50 ||
            m_carouselEnabled != true || m_carouselInterval != 15 || m_fallbackCover != false ||
            m_autoCollapse != true || m_collapseDelay != 5 || m_hideControls != false ||
            m_fontScale != 1.0 || m_fontWeight != 700 || m_textColor != QString() ||
@@ -186,6 +191,8 @@ bool LyricPortraitAppearance::customized() const
 }
 void LyricPortraitAppearance::reset()
 {
+    setSecondaryTextColor("");
+    setSecondaryUseCoverColor(false);
     setEnableSpring(true);
     setEnableBlur(true);
     setEnableScale(true);
@@ -203,5 +210,22 @@ void LyricPortraitAppearance::reset()
     setUnplayedTextColor(QString());
     setUseCoverColor(false);
     setUnplayedUseCoverColor(false);
+}
+
+void LyricPortraitAppearance::setSecondaryTextColor(const QString &value)
+{
+    if ((!value.isEmpty() && !QColor(value).isValid()) || m_secondaryTextColor == value)
+        return;
+    m_secondaryTextColor = value;
+    m_settings.setValue(SettingsKeys::Lyrics::PortraitSecondaryTextColor, value);
+    emit changed();
+}
+void LyricPortraitAppearance::setSecondaryUseCoverColor(bool value)
+{
+    if (m_secondaryUseCoverColor == value)
+        return;
+    m_secondaryUseCoverColor = value;
+    m_settings.setValue(SettingsKeys::Lyrics::PortraitSecondaryUseCoverColor, value);
+    emit changed();
 }
 } // namespace EchoMusic

@@ -16,6 +16,8 @@ bool validPreference(const QString &name, const QVariant &value, bool mini)
                (!mini && value == "both");
     if (name == "shadowStrength")
         return QStringList{"none", "soft", "normal", "strong"}.contains(value.toString());
+    if (name == "secondaryColor")
+        return value.toString().isEmpty() || QColor(value.toString()).isValid();
     if (name == "playedColor" || name == "unplayedColor")
         return (mini && value.toString().isEmpty()) || QColor(value.toString()).isValid();
     if (name == "fontWeight")
@@ -53,6 +55,12 @@ FloatingLyricPreferences::FloatingLyricPreferences(EchoMusic::SettingsStore &set
                        : EchoMusic::SettingsKeys::Floating::MiniPrefix),
       m_mini(!desktop)
 {
+    setSecondaryColor(
+        settings.value(m_prefix + SettingsKeys::FloatingFields::SecondaryColor, QString())
+            .toString());
+    setSecondaryFollowCoverColor(
+        settings.value(m_prefix + SettingsKeys::FloatingFields::SecondaryFollowCoverColor, false)
+            .toBool());
     m_alwaysOnTop = true;
     m_showUnlockButton = true;
     m_layout = QStringLiteral("horizontal");
@@ -264,6 +272,8 @@ void FloatingLyricPreferences::setBackgroundBlur(bool value)
 }
 void FloatingLyricPreferences::resetColors()
 {
+    setSecondaryColor("");
+    setSecondaryFollowCoverColor(false);
     setPlayedColor(m_mini ? "" : "#31cfa1");
     setUnplayedColor(m_mini ? "" : "#7a7a7a");
     setFollowCoverColor(false);
@@ -277,5 +287,22 @@ void FloatingLyricPreferences::resetLayout()
     setFontWeight(780);
     setAlignment(m_mini ? "center" : "both");
     setBackgroundBlur(true);
+}
+
+void FloatingLyricPreferences::setSecondaryColor(const QString &value)
+{
+    if ((!value.isEmpty() && !QColor(value).isValid()) || m_secondaryColor == value)
+        return;
+    m_secondaryColor = value;
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::SecondaryColor, value);
+    emit changed();
+}
+void FloatingLyricPreferences::setSecondaryFollowCoverColor(bool value)
+{
+    if (m_secondaryFollowCoverColor == value)
+        return;
+    m_secondaryFollowCoverColor = value;
+    m_settings.setValue(m_prefix + SettingsKeys::FloatingFields::SecondaryFollowCoverColor, value);
+    emit changed();
 }
 } // namespace EchoMusic

@@ -92,6 +92,8 @@ Window {
     // 恒为「未在播放」，与占位封面（软件图标）、品牌名标题配套。
     readonly property string artist: playback.hasTrack ? (playback.artist || "") : qsTr("未在播放")
     readonly property string primaryText: hasLine ? lineMap.lineText : songTitle
+    readonly property bool secondaryIsLyric: hasLine && ((showTranslation && !!lineMap.translation) || (playback.lyricText.wantRomanization && !!lineMap.romanization) || hasNextLine)
+    readonly property color secondaryInk: LyricColors.secondary(controller.settings, Theme.store.lyricAccent(playback.coverColor), muted)
     readonly property string secondaryText: {
         if (!hasLine)
             return artist;
@@ -185,8 +187,8 @@ Window {
                 endTimeMs: group.payload ? group.payload.endTimeMs : 0
                 timeOffset: group.payload ? group.payload.offsetMs : 0
                 anchorRight: window.anchorRight
-                accentColor: window.accentText
-                baseColor: window.muted
+                accentColor: group.payload && group.payload.secondaryIsLyric ? window.secondaryInk : window.muted
+                baseColor: group.payload && group.payload.secondaryIsLyric ? window.secondaryInk : window.muted
                 fontSize: Math.min(window.fontSize, Math.max(11, (window.stripHeight - 10) / 2.3)) * 0.82
                 onNaturalWidth: function (value) {
                     group.pairWidth(false, value);
@@ -367,6 +369,7 @@ Window {
                             return {
                                 primary: window.primaryText,
                                 secondary: window.secondaryText,
+                                secondaryIsLyric: window.secondaryIsLyric,
                                 wordByWord: window.wordByWord,
                                 units: window.units,
                                 startMs: window.lineStartMs,

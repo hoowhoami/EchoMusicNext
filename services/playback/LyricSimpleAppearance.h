@@ -7,6 +7,10 @@ namespace EchoMusic
 class LyricSimpleAppearance final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QString secondaryTextColor READ secondaryTextColor WRITE setSecondaryTextColor NOTIFY
+                   changed)
+    Q_PROPERTY(bool secondaryUseCoverColor READ secondaryUseCoverColor WRITE
+                   setSecondaryUseCoverColor NOTIFY changed)
     Q_PROPERTY(double fontScale READ fontScale WRITE setFontScale NOTIFY changed)
     Q_PROPERTY(int fontWeight READ fontWeight WRITE setFontWeight NOTIFY changed)
     Q_PROPERTY(QString textColor READ textColor WRITE setTextColor NOTIFY changed)
@@ -17,6 +21,16 @@ class LyricSimpleAppearance final : public QObject
                    NOTIFY changed)
     Q_PROPERTY(bool customized READ customized NOTIFY changed)
 public:
+    QString secondaryTextColor() const
+    {
+        return m_secondaryTextColor;
+    }
+    bool secondaryUseCoverColor() const
+    {
+        return m_secondaryUseCoverColor;
+    }
+    void setSecondaryTextColor(const QString &value);
+    void setSecondaryUseCoverColor(bool value);
     explicit LyricSimpleAppearance(SettingsStore &settings, QObject *parent = nullptr);
     double fontScale() const
     {
@@ -54,6 +68,8 @@ signals:
     void changed();
 
 private:
+    QString m_secondaryTextColor;
+    bool m_secondaryUseCoverColor = false;
     SettingsStore &m_settings;
     double m_fontScale = 1.0;
     int m_fontWeight = 900;

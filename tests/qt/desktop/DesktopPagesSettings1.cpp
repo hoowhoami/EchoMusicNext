@@ -323,6 +323,147 @@ void DesktopPagesTest::settingsSearchClearRestoresCategoriesAndKeepsFocus()
     }
 }
 
+void DesktopPagesTest::menuBarLyricsUseMacOnlyProductionSettingsAndRelease()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    session.shell.setMotionEnabled(false);
+    PlaybackService playback(session.api, session.preferences);
+    session.windows.attachPlayback(playback);
+    session.windows.menuBarLyrics()->attachTheme(session.theme);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&session] {
+        session.windows.shutdown();
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QVERIFY(Test::prepareNativeInput(session.window));
+    session.router.navigate("settings");
+    QPointer<QObject> dialog = session.root->findChild<QObject *>("settingsDialog");
+    QVERIFY(dialog);
+    QTRY_VERIFY(dialog->property("opened").toBool());
+    QVERIFY(QMetaObject::invokeMethod(dialog, "openSection", Q_ARG(QVariant, QString("lyric"))));
+    QVERIFY(session.settingsSectionReady());
+    auto *controller = session.windows.menuBarLyrics();
+    auto *preferences = controller->settings();
+    const bool native = QGuiApplication::platformName() == "cocoa";
+#ifdef Q_OS_MACOS
+    QQuickItem *section = nullptr;
+    QTRY_VERIFY((section = visual(session.window->contentItem(), "menuBarLyricSettings")));
+    QVERIFY(section->isVisible());
+    QVERIFY(!preferences->enabled());
+    QCOMPARE(preferences->displayMode(), 0);
+    QVERIFY(!controller->diagnostics().value("created").toBool());
+    QVERIFY(session.clickItem("menuBarLyricEnabled"));
+    QTRY_VERIFY(preferences->enabled());
+    QCOMPARE(controller->diagnostics().value("created").toBool(), native);
+    if (native) {
+        preferences->setDisplayMode(1);
+        const auto path = session.directory.filePath("menu-bar-audio.wav");
+        QVERIFY(writeFloatingTestWave(path));
+        PlaybackTrack track;
+        track.id = track.localPath = path;
+        track.title = "菜单栏歌词原生播放验证";
+        track.durationMs = 16000;
+        playback.setVolume(0);
+        playback.playTracks({track}, 0, "Menu bar audio", "menu-bar-audio");
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing(), 15000);
+        QTRY_VERIFY(playback.lyricState() != "loading");
+        QVERIFY(playback.lyrics()->replace(QJsonObject{
+            {"lines",
+             QJsonArray{QJsonObject{
+                 {"text", "你好世界"},
+                 {"translation", "Hello world"},
+                 {"start_ms", 0},
+                 {"duration_ms", 16000},
+                 {"words",
+                  QJsonArray{QJsonObject{{"text", "你好"}, {"start_ms", 0}, {"duration_ms", 8000}},
+                             QJsonObject{{"text", "世界"},
+                                         {"start_ms", 8000},
+                                         {"duration_ms", 8000}}}}}}}}));
+        QTRY_COMPARE(controller->diagnostics().value("primary").toString(), QString("Hello world"));
+        preferences->setDisplayMode(3);
+        QTRY_VERIFY(controller->diagnostics().value("timerActive").toBool());
+        QTest::qWait(300);
+        QVERIFY(controller->diagnostics().value("cutoff").toDouble() > 0);
+        playback.pause();
+        QTRY_VERIFY(!playback.playing());
+        QTRY_VERIFY(!controller->diagnostics().value("timerActive").toBool());
+        preferences->setPauseBehavior(2);
+        QTRY_VERIFY(!controller->diagnostics().value("visible").toBool());
+        QCOMPARE(controller->diagnostics().value("bitmapBytes").toInt(), 0);
+        preferences->setPauseBehavior(0);
+        QTRY_VERIFY(controller->diagnostics().value("visible").toBool());
+        preferences->setDisplayMode(1);
+    }
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const int zoom : {100, 125}) {
+            session.shell.resetZoom();
+            for (int value = 100; value < zoom; value += 5)
+                session.shell.zoomIn();
+            QVERIFY(session.clickItem("menuBarLyricDisplayMode"));
+            auto *selector = visual(session.window->contentItem(), "menuBarLyricDisplayMode");
+            QVERIFY(selector);
+            QPointer<QObject> popup;
+            QTRY_VERIFY((popup = selector->property("popup").value<QObject *>()));
+            QTRY_VERIFY(popup->property("opened").toBool());
+            QQuickItem *option = nullptr;
+            QTRY_VERIFY((option = visual(session.window->contentItem(), "selectOption-2")) &&
+                        option->isVisible());
+            QVERIFY(session.clickItem(option));
+            QTRY_COMPARE(preferences->displayMode(), 2);
+            QTRY_COMPARE(selector->property("currentIndex").toInt(), preferences->displayMode());
+            QTRY_VERIFY(popup.isNull());
+            const auto artifacts = qEnvironmentVariable("ECHO_MENU_BAR_ARTIFACTS");
+            if (!artifacts.isEmpty()) {
+                QVERIFY(QDir().mkpath(artifacts));
+                QVERIFY(session.window->grabWindow().save(
+                    artifacts + QString("/settings-%1-%2.png").arg(mode).arg(zoom)));
+            }
+            preferences->setDisplayMode(1);
+        }
+    }
+    QPointer<QObject> retiredSection = section;
+    session.window->hide();
+    QCoreApplication::processEvents();
+    if (native)
+        QVERIFY(controller->diagnostics().value("visible").toBool());
+    session.window->show();
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QTRY_VERIFY(retiredSection.isNull());
+    auto *owner = session.root->findChild<QObject *>("settingsDialogOwner");
+    QVERIFY(owner);
+    QVERIFY(QMetaObject::invokeMethod(
+        owner, "open", Q_ARG(QVariant, QVariant(QVariantMap{{"initialSection", "lyric"}}))));
+    QTRY_VERIFY((dialog = owner->property("item").value<QObject *>()));
+    QTRY_VERIFY(dialog->property("opened").toBool());
+    QVERIFY(session.settingsSectionReady());
+    const auto artifacts = qEnvironmentVariable("ECHO_MENU_BAR_ARTIFACTS");
+    if (!artifacts.isEmpty()) {
+        auto *weight = visual(session.window->contentItem(), "menuBarLyricFontWeight");
+        QVERIFY(weight);
+        QVERIFY(session.revealItem(weight));
+        QVERIFY(session.settleScene());
+        QVERIFY(session.window->grabWindow().save(artifacts + "/settings-font-rows.png"));
+    }
+    QVERIFY(session.clickItem("menuBarLyricEnabled"));
+    QTRY_VERIFY(!preferences->enabled());
+    QVERIFY(!controller->diagnostics().value("created").toBool());
+    retiredSection = visual(session.window->contentItem(), "menuBarLyricSettings");
+    QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    QTRY_VERIFY(!retiredSection);
+#else
+    Q_UNUSED(preferences)
+    Q_UNUSED(native)
+    QVERIFY(!visual(session.window->contentItem(), "menuBarLyricSettings"));
+#endif
+    for (const auto &warning : warnings)
+        qWarning() << warning;
+    QCOMPARE(warnings.size(), 0);
+}
+
 void DesktopPagesTest::lyricFontSettingsApplyToProductionWindows()
 {
     Session session;
@@ -837,6 +978,26 @@ void DesktopPagesTest::lyricSettingsShareCoverPickerAndExcludeTaskbar()
     // 没有显式颜色时全局预览回到 LyricColors.defaultUnplayedColor：白色 20% alpha。
     QTRY_COMPARE(globalRow->property("unplayedColor").value<QColor>(),
                  QColor::fromRgbF(1., 1., 1., .2));
+    const auto secondaryActions = visualAll(section, "lyricSecondaryColorAction");
+    QCOMPARE(secondaryActions.size(), 4); // global, desktop, Windows taskbar, Mini
+    for (auto *action : secondaryActions) {
+        if (!action->isVisible())
+            continue;
+        auto *control = action->parentItem();
+        auto *owner = control->property("preferences").value<QObject *>();
+        QVERIFY(owner);
+        QVERIFY(QMetaObject::invokeMethod(action, "clicked"));
+        QQuickItem *preset = nullptr;
+        QTRY_VERIFY((preset = visibleItem("colorPreset-5")));
+        QVERIFY(QMetaObject::invokeMethod(preset, "clicked"));
+        auto *confirm = visibleItem("colorConfirmAction");
+        QVERIFY(confirm);
+        QVERIFY(QMetaObject::invokeMethod(confirm, "clicked"));
+        QTRY_COMPARE(owner->property("secondaryColor").toString(), QString("#118ab2"));
+        QTRY_COMPARE(control->property("resolvedColor").value<QColor>(), QColor("#118ab2"));
+        QTRY_VERIFY(!visibleItem("colorConfirmAction"));
+        owner->setProperty("secondaryColor", "");
+    }
     QList<QObject *> owners{playback.lyricAppearance(), session.windows.floating()->desktop(),
                             session.windows.floating()->mini()};
     const auto capture = qEnvironmentVariable("ECHO_FLOATING_CAPTURE_DIR");

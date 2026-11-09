@@ -34,6 +34,7 @@ qt_add_qml_module(
     BackgroundArtwork.qml
     PlaybackAlbumCover.qml
     PlaybackLyricViewport.qml
+    LyricSecondaryColorControl.qml
     LyricColors.qml
     FloatingLyricViewport.qml
     FloatingLyricContent.qml

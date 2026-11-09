@@ -51,6 +51,7 @@ Item {
                 appearance: {
                     font: root.baseFont,
                     playedColor: root.playedColor,
+                    secondaryColor: root.secondaryColor,
                     unplayedColor: root.unplayedColor
                 },
                 currentIndex: root.currentIndex,
@@ -77,6 +78,7 @@ Item {
     property bool sourceSpacing: false
     property string shadowStrength: "normal"
     property color playedColor: "#31cfa1"
+    property color secondaryColor: unplayedColor
     property color unplayedColor: "#7a7a7a"
     property real renderTime: playback ? playback.positionMs : 0
     property bool initialized: false
@@ -267,6 +269,7 @@ Item {
             sourceSpacing: root.sourceSpacing
             alignment: root.alignment
             playedColor: root.playedColor
+            secondaryColor: root.secondaryColor
             unplayedColor: root.unplayedColor
         }
     }
@@ -301,6 +304,7 @@ Item {
         sourceSpacing: root.sourceSpacing
         alignment: root.alignment
         playedColor: root.playedColor
+        secondaryColor: root.secondaryColor
         unplayedColor: root.unplayedColor
     }
 }

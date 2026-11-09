@@ -11,6 +11,7 @@
 #include "FloatingPlayerController.h"
 #include "TaskbarButtonController.h"
 #include "TaskbarLyricController.h"
+#include "MenuBarLyricController.h"
 #include "WindowBackdrop.h"
 #include <memory>
 class QSystemTrayIcon;
@@ -28,6 +29,7 @@ class WindowController final : public QObject
     QML_UNCREATABLE("Owned by the application")
     Q_PROPERTY(EchoMusic::FloatingPlayerController *floating READ floating CONSTANT)
     Q_PROPERTY(EchoMusic::TaskbarLyricController *taskbar READ taskbar CONSTANT)
+    Q_PROPERTY(EchoMusic::MenuBarLyricController *menuBarLyrics READ menuBarLyrics CONSTANT)
     Q_PROPERTY(EchoMusic::TaskbarButtonController *taskbarButton READ taskbarButton CONSTANT)
     Q_PROPERTY(bool maximized READ maximized NOTIFY changed)
     Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY changed)
@@ -73,6 +75,10 @@ public:
     TaskbarLyricController *taskbar()
     {
         return &m_taskbar;
+    }
+    MenuBarLyricController *menuBarLyrics()
+    {
+        return &m_menuBarLyrics;
     }
     TaskbarButtonController *taskbarButton()
     {
@@ -193,6 +199,7 @@ private:
     EchoMusic::SettingsStore &m_settings;
     FloatingPlayerController m_floating;
     TaskbarLyricController m_taskbar;
+    MenuBarLyricController m_menuBarLyrics;
     TaskbarButtonController m_taskbarButton;
     QPointer<QQuickWindow> m_window;
     QList<QPointer<QQuickWindow>> m_pluginWindows;

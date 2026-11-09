@@ -1,11 +1,14 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import EchoMusic.Controls
+import EchoMusic.Playback
 import EchoMusic.Theme
 import EchoMusic.Shell
 
 SettingsSection {
     id: section
+    property real uiScale: 1
+    required property PlaybackService playback
     required property WindowController windowService
     readonly property TaskbarLyricController taskbar: windowService.taskbar
     readonly property TaskbarLyricPreferences style: taskbar.settings
@@ -87,6 +90,17 @@ SettingsSection {
             checked: section.style.showTranslation
             Accessible.name: qsTr("显示翻译")
             onToggled: section.style.showTranslation = checked
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("副行颜色")
+        description: qsTr("译文、音译等副行使用的颜色，可单独设置或跟随封面")
+        LyricSecondaryColorControl {
+            uiScale: section.uiScale
+            preferences: section.style
+            resolvedColor: LyricColors.secondary(section.style, Theme.store.lyricAccent(section.playback.coverColor), section.taskbar.dark ? "#bcbcbc" : "#666666")
+            coverColor: Theme.store.lyricAccent(section.playback.coverColor)
         }
     }
     SettingsDivider {}

@@ -148,6 +148,186 @@ ApplicationWindow {
     return std::unique_ptr<QObject>(object);
 }
 } // namespace
+void PluginRuntimeTest::builtDynamicThemePackage()
+{
+    const auto source = qEnvironmentVariable("ECHO_DYNAMIC_THEME_PACKAGE");
+    if (source.isEmpty())
+        QSKIP("Set ECHO_DYNAMIC_THEME_PACKAGE to the built dynamic-themes .echomod");
+    Host host;
+    host.shell.attachPlayback(host.playback);
+    host.shell.attachTheme(host.theme);
+    host.theme.setMotionEnabled(false);
+    const auto sampleScale = qEnvironmentVariable("ECHO_DYNAMIC_THEME_SCALE").toDouble();
+    for (int step = 0; step < 20 && sampleScale > host.shellSettings.uiScale() + .001; ++step)
+        host.shellSettings.zoomIn();
+    host.runtime.importDirectory(source);
+    QTRY_VERIFY(!host.runtime.loading());
+    const auto installation = host.runtime.installationForId("dynamic-themes");
+    QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Active);
+    auto *catalog = host.theme.extensions();
+    QCOMPARE(catalog->entries("theme").size(), 5);
+    QVERIFY(catalog->entries("skin").isEmpty());
+    QVERIFY(!catalog->theme());
+    const auto originalSkin = catalog->selectedSkin();
+    QQmlComponent component(&host.engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Shell
+import EchoMusic.Theme
+import EchoMusic.Themes
+ApplicationWindow {
+ id: root; width: 960; height: 540; visible: true
+ required property RouteController routes
+ required property ShellSettings preferences
+ property bool galleryOpen: false
+ property bool settingsOpen: false
+ Item {
+  width: parent.width/root.preferences.uiScale; height: parent.height/root.preferences.uiScale
+  scale: root.preferences.uiScale; transformOrigin: Item.TopLeft
+  ThemeBackground { anchors.fill: parent; opacity: 1-Theme.store.transparency/100 }
+  ThemeCenterPage { anchors.fill: parent; visible: root.galleryOpen; router: root.routes; settings: root.preferences; context: root.routes.current }
+  AppearanceHost { anchors.fill: parent; entry: Theme.store.extensions.theme; placement: "settings"; visible: root.settingsOpen }
+ }
+})",
+                      QUrl("qrc:/dynamic-theme-production.qml"));
+    std::unique_ptr<QObject> root(component.createWithInitialProperties(
+        {{"routes", QVariant::fromValue(&host.router)},
+         {"preferences", QVariant::fromValue(&host.shellSettings)}}));
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(Test::prepareNativeInput(window));
+    const auto capture = qEnvironmentVariable("ECHO_DYNAMIC_THEME_CAPTURE_DIR");
+    if (!capture.isEmpty())
+        QDir().mkpath(capture);
+    const auto select = [&](const QString &id) {
+        return host.runtime.context(installation)->appearance()->useTheme(id);
+    };
+    for (const auto &id :
+         QStringList{"autumn", "prism", "golden-ribbon", "willow", "ferris-wheel"}) {
+        QVERIFY(select(id));
+        QQuickItem *scene = nullptr;
+        QTRY_VERIFY2((scene = visual(window->contentItem(), "dynamicThemeScene")),
+                     qPrintable(id + ": " +
+                                (catalog->find(installation + ":theme:" + id)
+                                     ? catalog->find(installation + ":theme:" + id)->error
+                                     : "missing entry")));
+        QTRY_COMPARE(scene->property("kind").toString(), id);
+        QVERIFY(catalog->theme()->error.isEmpty());
+        QCOMPARE(catalog->selectedSkin(), originalSkin);
+        auto *configuration = catalog->theme()->configuration();
+        QVERIFY(!configuration->patch({{"speed", 0}}));
+        QVERIFY(configuration->patch({{"speed", 1.5}}));
+        QTRY_VERIFY(!configuration->busy());
+        QTRY_COMPARE(scene->property("speed").toDouble(), 1.5);
+        root->setProperty("settingsOpen", true);
+        QTRY_VERIFY(visual(window->contentItem(), "dynamicThemeSettings"));
+        root->setProperty("settingsOpen", false);
+        QTRY_VERIFY(!visual(window->contentItem(), "dynamicThemeSettings"));
+        // Let asynchronous artwork decode and the native scene graph compile.
+        QTest::qWait(250);
+        auto staticFrame = window->grabWindow();
+        QVERIFY(!staticFrame.isNull());
+        if (!capture.isEmpty())
+            QVERIFY(staticFrame.save(capture + '/' + id + "-static.png"));
+        QTest::qWait(70);
+        QCOMPARE(window->grabWindow(), staticFrame);
+        host.theme.setMotionEnabled(true);
+        QTRY_VERIFY(scene->property("animated").toBool());
+        QTest::qWait(250);
+        const auto moving = window->grabWindow();
+        const bool softwareEffect =
+            window->rendererInterface()->graphicsApi() == QSGRendererInterface::Software &&
+            (id == "prism" || id == "golden-ribbon");
+        if (!softwareEffect)
+            QVERIFY(moving != staticFrame);
+        if (!capture.isEmpty())
+            QVERIFY(moving.save(capture + '/' + id + "-moving.png"));
+        if (qEnvironmentVariableIsSet("ECHO_DYNAMIC_THEME_PROFILE")) {
+            for (bool animate : {true, false}) {
+                host.theme.setMotionEnabled(animate);
+                QTest::qWait(100);
+                QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                const auto cpu = std::clock();
+                QElapsedTimer wall;
+                wall.start();
+                QTest::qWait(1500);
+                qInfo().noquote() << "Dynamic theme profile" << id << "animated=" << animate
+                                  << "cpuMs=" << (std::clock() - cpu) * 1000.0 / CLOCKS_PER_SEC
+                                  << "wallMs=" << wall.elapsed() << "frames=" << frames.count();
+            }
+            host.theme.setMotionEnabled(true);
+        }
+        QVERIFY(configuration->patch({{"enabled", false}}));
+        QTRY_VERIFY(!configuration->busy());
+        QTRY_VERIFY(!scene->property("animated").toBool());
+        QTest::qWait(60);
+        const auto disabledFrame = window->grabWindow();
+        QTest::qWait(60);
+        QCOMPARE(window->grabWindow(), disabledFrame);
+        QVERIFY(configuration->reset());
+        QTRY_VERIFY(!configuration->busy());
+        host.theme.setMotionEnabled(false);
+        QPointer<QQuickItem> hiddenScene(scene);
+        window->hide();
+        QTRY_VERIFY(hiddenScene.isNull());
+        window->show();
+        QTRY_VERIFY(visual(window->contentItem(), "dynamicThemeScene"));
+        QPointer<QQuickItem> transparentScene(visual(window->contentItem(), "dynamicThemeScene"));
+        host.theme.setTransparency(100);
+        QTRY_VERIFY(transparentScene.isNull());
+        host.theme.setTransparency(0);
+        QTRY_VERIFY(visual(window->contentItem(), "dynamicThemeScene"));
+        QPointer<QQuickItem> oldScene(visual(window->contentItem(), "dynamicThemeScene"));
+        host.theme.selectEcho();
+        QTRY_VERIFY(oldScene.isNull());
+    }
+    QVERIFY(select("prism"));
+    root->setProperty("galleryOpen", true);
+    QTRY_VERIFY(visual(window->contentItem(), "themeCatalog-dynamic"));
+    QCOMPARE(catalog->themeGroup("dynamic")->count(), 5);
+    const auto visualItems = [&] {
+        QList<QQuickItem *> items{window->contentItem()};
+        for (qsizetype i = 0; i < items.size(); ++i)
+            items.append(items[i]->childItems());
+        return items;
+    };
+    for (auto *item : visualItems())
+        if (item->inherits("QQuickFlickable") && !item->inherits("QQuickItemView"))
+            item->setProperty(
+                "contentY", qMax(0.0, item->property("contentHeight").toDouble() - item->height()));
+    QQuickItem *dynamicCard = nullptr;
+    QTRY_VERIFY(([&] {
+        for (auto *item : visualItems())
+            if (item->property("entryKey").toString() == installation + ":theme:autumn")
+                dynamicCard = item;
+        return dynamicCard != nullptr;
+    })());
+    QVERIFY(QMetaObject::invokeMethod(dynamicCard, "chosen"));
+    QTRY_COMPARE(catalog->theme()->key, installation + ":theme:autumn");
+    if (!capture.isEmpty()) {
+        QTest::qWait(300);
+        QVERIFY(window->grabWindow().save(capture + "/theme-center.png"));
+    }
+    root->setProperty("galleryOpen", false);
+    QVERIFY(select("prism"));
+    QTRY_VERIFY(visual(window->contentItem(), "dynamicThemeScene"));
+    const auto selected = catalog->selectedTheme();
+    QVERIFY(host.runtime.setEnabled(installation, false));
+    QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Disabled);
+    QTRY_VERIFY(!visual(window->contentItem(), "dynamicThemeScene"));
+    QCOMPARE(catalog->selectedTheme(), selected);
+    QVERIFY(!catalog->theme());
+    QVERIFY(host.runtime.setEnabled(installation, true));
+    QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Active);
+    QTRY_VERIFY(visual(window->contentItem(), "dynamicThemeScene"));
+    QCOMPARE(catalog->selectedSkin(), originalSkin);
+    QVERIFY(catalog->theme()->error.isEmpty());
+    QPointer<QQuickItem> minimizedScene(visual(window->contentItem(), "dynamicThemeScene"));
+    window->showMinimized();
+    QTRY_VERIFY(minimizedScene.isNull());
+    window->hide();
+}
 void PluginRuntimeTest::appearanceCatalogConfigurationAndRetirement()
 {
     Host host;

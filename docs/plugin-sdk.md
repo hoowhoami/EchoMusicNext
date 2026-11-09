@@ -80,6 +80,8 @@
 
 `player.snapshot/lyricsInfo/lyricSnapshot/on/control`提供曲目、模式、质量、音效、收藏、FM和歌词时间上下文；`appearance.snapshot/fonts`提供语义外观和完整字体链。`windows.snapshot/command`调用现有浮窗控制器；共享`EchoPluginPlaybackControls/EchoPluginProgress/EchoPluginLyricsView`可用于整页皮肤及Mini。作者签名与例子见[外观文档](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/appearance.md)，执行证据与平台边界见[本轮记录](internal/verification/2026-10-21-plugin-p0.md)。
 
+共享`EchoPluginLyricsView.secondaryColor`默认读取全局歌词副行颜色；`player.lyricsInfo.secondaryColor`为空表示沿用视图默认，`secondaryFollowCoverColor`为true时使用当前封面取色。作者可显式绑定`secondaryColor`自定义共享视图的译文/音译颜色，主歌词`playedColor/unplayedColor`保持独立。
+
 `lyrics.onSnapshot`在同一歌词文档内复用只读的`lines`及嵌套数据，换行只更新当前行等轻量信息；歌词内容、过滤或偏移变化后发布新的行数组。需要改写数据时先自行复制，避免在每次回调中深度遍历不变的整首歌词。订阅释放后宿主回收其缓存，调用者显式保留的旧快照继续保持原值。
 
 音源解析/转换（playback.audioSource）与多队列（playback.queues）已接入正常播放、预加载及宿主队列目录。作者用法见[音源与队列](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/audio-sources-and-queues.md)。

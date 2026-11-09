@@ -1,3 +1,4 @@
+#include "TaskbarLyricController.h"
 #include "PlaybackPageTest.h"
 #include "FloatingPlayerController.h"
 #include "RenderedInk.h"
@@ -1025,8 +1026,10 @@ void PlaybackPageTest::desktopSubtitlesUseRestingColorInBothLayouts()
         for (bool custom : {false, true}) {
             style->setPlayedColor(custom ? "#ff3366" : "#31cfa1");
             style->setUnplayedColor(custom ? "#3098ff" : "#7a7a7a");
-            const QColor expected(style->unplayedColor());
-            QTRY_COMPARE(viewport->property("unplayedColor").value<QColor>(), expected);
+            style->setSecondaryColor(custom ? "#d9a020" : "");
+            const QColor expected(custom ? style->secondaryColor() : style->unplayedColor());
+            QTRY_COMPARE(viewport->property("unplayedColor").value<QColor>(),
+                         QColor(style->unplayedColor()));
             auto *content = findVisual(viewport, "desktopCurrentLyricContent");
             QVERIFY(content);
             QTRY_COMPARE(content->property("secondaryColor").value<QColor>(), expected);
@@ -1069,6 +1072,8 @@ void PlaybackPageTest::desktopSubtitlesUseRestingColorInBothLayouts()
                     image.save(captures + QString("/desktop-%1-%2.png").arg(vertical).arg(custom)));
             }
         }
+        style->setSecondaryColor("");
+        style->setSecondaryFollowCoverColor(true);
         style->setUnplayedFollowCoverColor(true);
         const auto accent = session.theme.lyricAccent(session.playback.coverColor());
         QTRY_COMPARE(viewport->property("unplayedColor").value<QColor>(), accent);
@@ -1076,6 +1081,7 @@ void PlaybackPageTest::desktopSubtitlesUseRestingColorInBothLayouts()
                          ->property("secondaryColor")
                          .value<QColor>(),
                      accent);
+        style->setSecondaryFollowCoverColor(false);
         style->setUnplayedFollowCoverColor(false);
     }
     QCOMPARE(warnings.size(), 0);
@@ -1895,6 +1901,102 @@ void PlaybackPageTest::lyricColorLayersResolvePerSlotInQml()
     session.theme.setMotionEnabled(false);
     QTRY_VERIFY(session.item("lyricTextRow1"));
     QTRY_COMPARE(session.item("lyricTextRow1")->parentItem()->property("lineOpacity").toReal(), 1.);
+}
+void PlaybackPageTest::secondaryColorsResolveAcrossPageSkins()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    QVERIFY(session.create());
+    auto *appearance = session.playback.lyricAppearance();
+    session.playback.lyricText()->setWantTranslation(true);
+    session.playback.lyricText()->setWantRomanization(true);
+    session.playback.lyricText()->setRomanizationAsRuby(false);
+    QVERIFY(session.playback.lyricText()->replace(
+        {{"lines", QJsonArray{QJsonObject{{"text", "Original 主歌词"},
+                                          {"start_ms", 0},
+                                          {"duration_ms", 10000},
+                                          {"translation", "译文 Translation"},
+                                          {"romanization", "yin yi Romanization"},
+                                          {"words", QJsonArray{}}}}}},
+        "secondary-colors"));
+    PlaybackServiceTestAccess::position(session.playback, 1000);
+    const auto captures = qEnvironmentVariable("ECHO_SECONDARY_CAPTURE_DIR");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    for (const auto &key : {QString("cover"), QString("lyric"), QString("portrait")}) {
+        QVERIFY(session.theme.extensions()->chooseSkin(key));
+        const auto name = key == "cover"   ? "playbackLyricViewport"
+                          : key == "lyric" ? "simpleLyricViewport"
+                                           : "portraitLyricViewport";
+        QQuickItem *viewport = nullptr;
+        QTRY_VERIFY((viewport = session.item(name)));
+        QObject *skin = key == "cover"   ? static_cast<QObject *>(appearance)
+                        : key == "lyric" ? static_cast<QObject *>(appearance->simple())
+                                         : static_cast<QObject *>(appearance->portrait());
+        appearance->setSecondaryColor("#c04de8");
+        QTRY_COMPARE(viewport->property("secondaryColor").value<QColor>(), QColor("#c04de8"));
+        const auto primary = viewport->property("textColor").value<QColor>();
+        const auto unplayed = viewport->property("unplayedColor").value<QColor>();
+        QVERIFY(skin->setProperty("secondaryTextColor", "#27b8cd"));
+        QVERIFY(skin->setProperty("secondaryTextColor", "bad-color"));
+        QTRY_COMPARE(viewport->property("secondaryColor").value<QColor>(), QColor("#27b8cd"));
+        appearance->setSecondaryColor("#ffaa22");
+        QCOMPARE(viewport->property("secondaryColor").value<QColor>(), QColor("#27b8cd"));
+        {
+            LyricAppearance restored(session.settings);
+            QObject *restoredSkin = key == "cover"   ? static_cast<QObject *>(&restored)
+                                    : key == "lyric" ? static_cast<QObject *>(restored.simple())
+                                                     : static_cast<QObject *>(restored.portrait());
+            QCOMPARE(restored.secondaryColor(), QString("#ffaa22"));
+            QCOMPARE(restoredSkin->property("secondaryTextColor").toString(), QString("#27b8cd"));
+        }
+        QQuickItem *secondary = nullptr;
+        QTRY_VERIFY((secondary = findVisual(viewport, "lyricSecondaryText0")) &&
+                    secondary->isVisible());
+        QTRY_COMPARE(secondary->property("color").value<QColor>(), QColor("#27b8cd"));
+        QCOMPARE(secondary->property("text").toString(),
+                 QString::fromUtf8("yin yi Romanization\n译文 Translation"));
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (const double scale : {1., 1.25}) {
+                session.theme.setMode(mode);
+                session.root->setProperty("surfaceScale", scale);
+                QTest::qWait(60);
+                QCOMPARE(viewport->property("textColor").value<QColor>(), primary);
+                QCOMPARE(viewport->property("unplayedColor").value<QColor>(), unplayed);
+                if (!captures.isEmpty())
+                    QVERIFY(session.window->grabWindow().save(
+                        captures + QString("/%1-%2-%3.png").arg(key).arg(int(mode)).arg(scale)));
+            }
+        QVERIFY(skin->setProperty("secondaryUseCoverColor", true));
+        QTRY_COMPARE(viewport->property("secondaryColor").value<QColor>(),
+                     viewport->property("coverAccent").value<QColor>());
+        QVERIFY(skin->setProperty("secondaryUseCoverColor", false));
+        QVERIFY(skin->setProperty("secondaryTextColor", ""));
+        QTRY_COMPARE(viewport->property("secondaryColor").value<QColor>(), QColor("#ffaa22"));
+        appearance->resetColors();
+        QCOMPARE(viewport->property("textColor").value<QColor>(), primary);
+    }
+    auto *library = new UserPlaylistModel(session.api, &session.playback);
+    auto *mutations = new PlaylistMutationService(session.api, &session.playback);
+    session.playback.attachLibrary(*library, *mutations);
+    TaskbarLyricController taskbar(session.settings);
+    QQmlComponent component(&session.engine,
+                            QUrl("qrc:/qt/qml/EchoMusic/Shell/TaskbarLyricWindow.qml"));
+    QScopedPointer<QObject> strip(component.createWithInitialProperties(
+        {{"controller", QVariant::fromValue(&taskbar)},
+         {"playback", QVariant::fromValue(&session.playback)}}));
+    QVERIFY2(strip, qPrintable(component.errorString()));
+    taskbar.settings()->setSecondaryColor("#3dbb74");
+    QTRY_COMPARE(strip->property("secondaryInk").value<QColor>(), QColor("#3dbb74"));
+    taskbar.settings()->setSecondaryFollowCoverColor(true);
+    QTRY_COMPARE(strip->property("secondaryInk").value<QColor>(),
+                 session.theme.lyricAccent(session.playback.coverColor()));
+    taskbar.settings()->setSecondaryFollowCoverColor(false);
+    taskbar.settings()->setSecondaryColor("");
+    QTRY_COMPARE(strip->property("secondaryInk").value<QColor>(),
+                 strip->property("muted").value<QColor>());
+    QCOMPARE(warnings.size(), 0);
 }
 void PlaybackPageTest::playbackHoverTracksSourceBackgroundPalette()
 {

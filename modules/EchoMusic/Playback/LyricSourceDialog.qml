@@ -418,7 +418,7 @@ EchoDialog {
                                                         text: [line.translation, line.romanization].filter(value => value.length).join("\n")
                                                         wrapMode: Text.Wrap
                                                         horizontalAlignment: Text.AlignHCenter
-                                                        color: Theme.floatingSecondaryText
+                                                        color: LyricColors.secondary(dialog.playback.lyricAppearance, Theme.store.lyricAccent(dialog.playback.coverColor), Theme.floatingSecondaryText)
                                                         font: Theme.font(12, Theme.regularWeight)
                                                     }
                                                 }

@@ -50,6 +50,9 @@ class ThemeStore final : public QObject
     Q_PROPERTY(QFont desktopLyricBaseFont READ desktopLyricBaseFont NOTIFY lyricFontsChanged)
     Q_PROPERTY(QFont miniLyricBaseFont READ miniLyricBaseFont NOTIFY lyricFontsChanged)
     Q_PROPERTY(QFont taskbarLyricBaseFont READ taskbarLyricBaseFont NOTIFY lyricFontsChanged)
+    Q_PROPERTY(QString menuBarLyricFont READ menuBarLyricFont WRITE setMenuBarLyricFont NOTIFY
+                   lyricFontsChanged)
+    Q_PROPERTY(QFont menuBarLyricBaseFont READ menuBarLyricBaseFont NOTIFY lyricFontsChanged)
     Q_PROPERTY(QStringList fontFamilies READ fontFamilies CONSTANT)
     Q_PROPERTY(Mode mode READ mode NOTIFY changed)
     Q_PROPERTY(bool dark READ dark NOTIFY changed)
@@ -176,6 +179,12 @@ public:
     void setDesktopLyricFont(const QString &family);
     void setMiniLyricFont(const QString &family);
     void setTaskbarLyricFont(const QString &family);
+    QString menuBarLyricFont() const
+    {
+        return m_menuBarLyricFont;
+    }
+    void setMenuBarLyricFont(const QString &family);
+    QFont menuBarLyricBaseFont() const;
     QFont lyricBaseFont() const;
     QFont desktopLyricBaseFont() const;
     QFont miniLyricBaseFont() const;
@@ -459,6 +468,7 @@ private:
     QString m_desktopLyricFont = QStringLiteral("follow");
     QString m_miniLyricFont = QStringLiteral("follow");
     QString m_taskbarLyricFont = QStringLiteral("follow");
+    QString m_menuBarLyricFont = QStringLiteral("follow");
     void setLyricFontPreference(QString &preference, const QString &key, const QString &family);
     QFont resolvedLyricFont(const QString &family) const;
     QColor extensionSurface(const QString &, const QColor &) const;

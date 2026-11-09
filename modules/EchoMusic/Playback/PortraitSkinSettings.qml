@@ -92,6 +92,21 @@ ColumnLayout {
             stepSize: 100
             onMoved: value => form.settings.fontWeight = value
         }
+        LyricSkinSettingRow {
+            heading: qsTr("副行颜色")
+            hint: qsTr("译文、音译等副行；默认沿用全局设置")
+            action: Component {
+                LyricSecondaryColorControl {
+                    preferences: form.settings
+                    resetColor: Qt.rgba(1, 1, 1, .3).toString()
+                    colorProperty: "secondaryTextColor"
+                    followProperty: "secondaryUseCoverColor"
+                    resolvedColor: LyricColors.pageSecondary(form.appearance, form.settings, form.coverColor, Theme.withAlpha(LyricColors.portraitPlayed(form.appearance, form.coverColor), .3))
+                    coverColor: form.coverColor
+                    uiScale: form.uiScale
+                }
+            }
+        }
         LyricSkinColorRow {
             heading: qsTr("已播字色")
             swatchColor: LyricColors.portraitPlayed(form.appearance, form.coverColor)

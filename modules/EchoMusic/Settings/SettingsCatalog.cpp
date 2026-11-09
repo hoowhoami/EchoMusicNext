@@ -51,7 +51,14 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
         {"lyric",
          tr("歌词设置"),
          "typography",
-         tr("播放页 桌面歌词 Mini 歌词 任务栏歌词 翻译 音译 校准 字体 颜色 系统默认 跟随全局"),
+#ifdef Q_OS_MACOS
+         tr("播放页 桌面歌词 Mini 歌词 菜单栏歌词 双语 滚动 任务栏歌词 翻译 音译 校准 字体 颜色 "
+            "副行颜色 "
+            "系统默认 跟随全局"),
+#else
+         tr("播放页 桌面歌词 Mini 歌词 任务栏歌词 翻译 音译 校准 字体 颜色 副行颜色 系统默认 "
+            "跟随全局"),
+#endif
          "LyricSettingsSection",
          {}},
         {"shortcuts",

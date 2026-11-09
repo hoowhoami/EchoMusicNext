@@ -152,6 +152,7 @@ private slots:
     void pluginQueueValidationReportsFieldAndKeepsState();
     void appearanceCatalogConfigurationAndRetirement();
     void appearanceProductionThemeSkinAndMini();
+    void builtDynamicThemePackage();
     void appearanceErrorsAndActivationRollback();
     void playbackPresentationAndFloatingSdk();
     void uiStyleLayersRestoreLiveBindings();

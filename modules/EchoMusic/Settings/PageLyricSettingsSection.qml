@@ -42,6 +42,17 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
+        heading: qsTr("副行颜色")
+        description: qsTr("译文、音译等副行使用的颜色，可单独设置或跟随封面")
+        LyricSecondaryColorControl {
+            uiScale: section.uiScale
+            preferences: section.playback.lyricAppearance
+            resolvedColor: LyricColors.secondary(section.playback.lyricAppearance, section.lyricAccent, Theme.withAlpha(LyricColors.globalPlayed(section.playback.lyricAppearance, section.lyricAccent), .3))
+            coverColor: section.lyricAccent
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
         heading: qsTr("封面模糊背景")
         description: qsTr("使用模糊封面作为背景，关闭后使用主题色")
         EchoSwitch {

@@ -136,6 +136,20 @@ qt_add_executable(echo-taskbar-lyric-preferences-test TaskbarLyricPreferencesTes
 target_link_libraries(echo-taskbar-lyric-preferences-test PRIVATE echo_shell Qt6::Test)
 add_test(NAME taskbar-lyric-preferences COMMAND echo-taskbar-lyric-preferences-test)
 set_tests_properties(taskbar-lyric-preferences PROPERTIES TIMEOUT 20)
+qt_add_executable(echo-menu-bar-lyric-test MenuBarLyricTest.cpp)
+target_link_libraries(echo-menu-bar-lyric-test PRIVATE echo_shell echo_theme Qt6::Test)
+add_test(NAME menu-bar-lyric COMMAND echo-menu-bar-lyric-test)
+set_tests_properties(menu-bar-lyric PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+if(APPLE)
+    qt_add_executable(echo-mac-menu-bar-lyric-test MacMenuBarLyricTest.mm)
+    target_link_libraries(
+        echo-mac-menu-bar-lyric-test PRIVATE echo_platform Qt6::Test "-framework Cocoa"
+                                             "-framework QuartzCore"
+    )
+    set_source_files_properties(MacMenuBarLyricTest.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    add_test(NAME mac-menu-bar-lyric COMMAND echo-mac-menu-bar-lyric-test)
+    set_tests_properties(mac-menu-bar-lyric PROPERTIES TIMEOUT 30)
+endif()
 qt_add_executable(echo-taskbar-progress-state-test TaskbarProgressStateTest.cpp)
 target_link_libraries(echo-taskbar-progress-state-test PRIVATE echo_platform Qt6::Test)
 add_test(NAME taskbar-progress-state COMMAND echo-taskbar-progress-state-test)
@@ -764,6 +778,7 @@ add_test(
         recoveryStartupWindowRetriesAndExitsWithoutBusinessOwners
         settingsSearchClearRestoresCategoriesAndKeepsFocus
         lyricFontSettingsApplyToProductionWindows
+        menuBarLyricsUseMacOnlyProductionSettingsAndRelease
         lyricVariantSettingUsesProductionSelectAndReleasesPopup miniWidthPreferencesClampAndRestore
         lyricSettingsShareCoverPickerAndExcludeTaskbar fullscreenShortcutReachesModalPlaybackPage
         productionExperimentalIdentitySettings productionExperimentalLoggingSettings

@@ -41,6 +41,8 @@ add_library(
     WindowsTaskbarThumbar.cpp
     WindowsTaskbarThumbnail.h
     WindowsTaskbarThumbnail.cpp
+    MenuBarLyric.h
+    MenuBarLyric.cpp
 )
 target_compile_definitions(echo_platform PRIVATE ECHO_APPLICATION_ID="${ECHO_APPLICATION_ID}")
 qt_extract_metatypes(echo_platform)
@@ -56,12 +58,19 @@ if(APPLE)
     target_sources(
         echo_platform
         PRIVATE MacStartupIntegration.mm MacWindowBackdrop.mm MacSystemSleepInhibitor.mm
-                MacGlobalShortcuts.mm MacBrowserWindowLauncher.mm
+                MacGlobalShortcuts.mm MacBrowserWindowLauncher.mm MacMenuBarLyric.mm
     )
     target_link_libraries(
-        echo_platform PRIVATE "-framework ServiceManagement" "-framework Foundation"
-                              "-framework Cocoa" "-framework IOKit" "-framework Carbon"
+        echo_platform
+        PRIVATE "-framework ServiceManagement"
+                "-framework Foundation"
+                "-framework Cocoa"
+                "-framework IOKit"
+                "-framework Carbon"
+                "-framework CoreText"
+                "-framework QuartzCore"
     )
+    set_source_files_properties(MacMenuBarLyric.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
 if(WIN32)

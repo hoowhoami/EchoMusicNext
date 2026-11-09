@@ -15,6 +15,13 @@ namespace EchoMusic
 class LyricAppearance final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QString secondaryTextColor READ secondaryTextColor WRITE setSecondaryTextColor NOTIFY
+                   changed)
+    Q_PROPERTY(bool secondaryUseCoverColor READ secondaryUseCoverColor WRITE
+                   setSecondaryUseCoverColor NOTIFY changed)
+    Q_PROPERTY(QString secondaryColor READ secondaryColor WRITE setSecondaryColor NOTIFY changed)
+    Q_PROPERTY(bool secondaryFollowCoverColor READ secondaryFollowCoverColor WRITE
+                   setSecondaryFollowCoverColor NOTIFY changed)
     Q_PROPERTY(QString skinKey READ skinKey CONSTANT)
     Q_PROPERTY(EchoMusic::LyricPortraitAppearance *portrait READ portrait CONSTANT)
     Q_PROPERTY(EchoMusic::LyricSimpleAppearance *simple READ simple CONSTANT)
@@ -44,6 +51,26 @@ class LyricAppearance final : public QObject
     Q_PROPERTY(bool unplayedUseCoverColor READ unplayedUseCoverColor WRITE setUnplayedUseCoverColor
                    NOTIFY changed)
 public:
+    QString secondaryTextColor() const
+    {
+        return m_secondaryTextColor;
+    }
+    bool secondaryUseCoverColor() const
+    {
+        return m_secondaryUseCoverColor;
+    }
+    void setSecondaryTextColor(const QString &value);
+    void setSecondaryUseCoverColor(bool value);
+    QString secondaryColor() const
+    {
+        return m_secondaryColor;
+    }
+    bool secondaryFollowCoverColor() const
+    {
+        return m_secondaryFollowCoverColor;
+    }
+    void setSecondaryColor(const QString &value);
+    void setSecondaryFollowCoverColor(bool value);
     LyricSimpleAppearance *simple()
     {
         return &m_simple;
@@ -165,6 +192,10 @@ signals:
     void changed();
 
 private:
+    QString m_secondaryTextColor;
+    bool m_secondaryUseCoverColor = false;
+    QString m_secondaryColor;
+    bool m_secondaryFollowCoverColor = false;
     EchoMusic::SettingsStore &m_settings;
     LyricPortraitAppearance m_portrait;
     LyricSimpleAppearance m_simple;

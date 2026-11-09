@@ -69,10 +69,10 @@ Item {
     property string alignment: "left"
     property real contentInset: 16
     property bool sourceSpacing: false
-    // Desktop secondary lines use the configured resting ink, independently
-    // of the primary line's sung color and its word-by-word progress.
-    readonly property color secondaryColor: linePart.value("secondaryForeground", content.unplayedColor)
-    readonly property real secondaryOpacity: sourceSpacing ? 1 : .72
+    // Independent secondary ink defaults to the resting color. Public appearance
+    // overrides keep their existing secondaryForeground behavior.
+    property color secondaryColor: unplayedColor
+    readonly property color resolvedSecondaryColor: linePart.value("secondaryForeground", content.secondaryColor)
 
     anchors.fill: parent
     anchors.margins: Math.min(contentInset, parent ? parent.height * .12 : contentInset)
@@ -258,8 +258,7 @@ Item {
                     wrapMode: Text.NoWrap
                     elide: content.preview ? Text.ElideRight : Text.ElideNone
                     font: Theme.store.styledFont(content.baseFont, content.fontSize * (content.preview ? .8 : content.sourceSpacing ? .72 : .64), content.bold ? 700 : 400, 0, false, false)
-                    color: content.secondary.length > 0 || content.preview ? content.secondaryColor : content.playedColor
-                    opacity: content.secondaryOpacity
+                    color: content.secondary.length > 0 || content.preview ? content.resolvedSecondaryColor : content.playedColor
                 }
             }
         }
@@ -274,9 +273,8 @@ Item {
             units: content.playback.lyrics.verticalText(content.secondary)
             font: Theme.store.styledFont(content.baseFont, content.fontSize * .64, content.bold ? 700 : 400, 0, false, false)
             alignment: content.textAlignment === Qt.AlignRight ? Qt.AlignBottom : content.textAlignment === Qt.AlignHCenter ? Qt.AlignVCenter : Qt.AlignTop
-            playedColor: content.secondaryColor
-            unplayedColor: content.secondaryColor
-            opacity: content.secondaryOpacity
+            playedColor: content.resolvedSecondaryColor
+            unplayedColor: content.resolvedSecondaryColor
         }
     }
 }

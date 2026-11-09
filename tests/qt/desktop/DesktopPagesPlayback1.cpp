@@ -670,6 +670,14 @@ void DesktopPagesTest::floatingLyricsFollowRealAudioAndStopMotionOnPause()
     QTRY_COMPARE(miniViewport->property("textColor").value<QColor>(), QColor(Qt::black));
     QCOMPARE(miniViewport->property("unplayedColor").value<QColor>(),
              QColor::fromRgbF(0, 0, 0, .2));
+    floating->mini()->setSecondaryColor("#d9a020");
+    QTRY_COMPARE(miniViewport->property("secondaryColor").value<QColor>(), QColor("#d9a020"));
+    QCOMPARE(miniViewport->property("textColor").value<QColor>(), QColor(Qt::black));
+    floating->mini()->setSecondaryFollowCoverColor(true);
+    QTRY_COMPARE(miniViewport->property("secondaryColor").value<QColor>(),
+                 session.theme.lyricAccent(playback.coverColor()));
+    floating->mini()->setSecondaryFollowCoverColor(false);
+    floating->mini()->setSecondaryColor("");
     floating->mini()->setUnplayedColor("#26a4ff");
     QTRY_COMPARE(miniViewport->property("unplayedColor").value<QColor>(), QColor("#26a4ff"));
     floating->mini()->setUnplayedColor("");
@@ -1475,11 +1483,17 @@ void DesktopPagesTest::floatingPreferencesAndFilteredTimelineKeepIdentity()
     QCOMPARE(mini.alignment(), QString("center"));
     mini.setFollowCoverColor(true);
     mini.setPlayedColor("#FF00AA");
+    mini.setSecondaryColor("#27b8cd");
+    mini.setSecondaryFollowCoverColor(true);
     FloatingLyricPreferences restored(settings, false);
     QCOMPARE(restored.playedColor(), QString("#ff00aa"));
+    QCOMPARE(restored.secondaryColor(), QString("#27b8cd"));
+    QVERIFY(restored.secondaryFollowCoverColor());
     QVERIFY(restored.followCoverColor());
     restored.resetColors();
     QCOMPARE(restored.playedColor(), QString());
+    QVERIFY(restored.secondaryColor().isEmpty());
+    QVERIFY(!restored.secondaryFollowCoverColor());
     QVERIFY(!restored.followCoverColor());
     LyricModel model(nullptr);
     QJsonArray rows;

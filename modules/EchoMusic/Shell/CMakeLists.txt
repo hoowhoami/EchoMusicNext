@@ -38,6 +38,10 @@ qt_add_qml_module(
     FloatingLyricPreferences.cpp
     TaskbarLyricPreferences.h
     TaskbarLyricPreferences.cpp
+    MenuBarLyricPreferences.h
+    MenuBarLyricPreferences.cpp
+    MenuBarLyricController.h
+    MenuBarLyricController.cpp
     TaskbarLyricController.h
     TaskbarLyricController.cpp
     TaskbarButtonController.h

@@ -26,8 +26,20 @@ ColumnLayout {
         uiScale: section.settings.uiScale
     }
     TaskbarLyricSettingsSection {
+        playback: section.playback
+        uiScale: section.settings.uiScale
         Layout.fillWidth: true
         windowService: section.windowService
+    }
+    Loader {
+        Layout.fillWidth: true
+        active: section.windowService.menuBarLyrics.available
+        visible: active
+        sourceComponent: MenuBarLyricSettingsSection {
+            windowService: section.windowService
+            playback: section.playback
+            uiScale: section.settings.uiScale
+        }
     }
     MiniLyricSettingsSection {
         Layout.fillWidth: true

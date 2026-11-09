@@ -84,6 +84,18 @@ QtObject {
             return preferences.unplayedColor;
         return foreground.hslLightness > .5 ? defaultCoverUnplayedColor : Qt.rgba(0, 0, 0, defaultCoverUnplayedColor.a);
     }
+    function secondary(preferences: var, accent: color, fallback: color): color {
+        if (preferences.secondaryFollowCoverColor)
+            return accent;
+        return preferences.secondaryColor.length > 0 ? preferences.secondaryColor : fallback;
+    }
+    function pageSecondary(appearance: var, skin: var, accent: color, fallback: color): color {
+        if (skin.secondaryUseCoverColor)
+            return accent;
+        if (skin.secondaryTextColor.length > 0)
+            return skin.secondaryTextColor;
+        return secondary(appearance, accent, fallback);
+    }
     // The shared picker accepts opaque #rgb/#rrggbb only; preview alpha at the
     // swatch instead of letting the picker normalize the derived color away.
     function opaqueHex(value: color): string {

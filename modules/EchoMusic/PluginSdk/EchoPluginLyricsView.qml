@@ -11,6 +11,7 @@ Item {
     required property EchoPluginViewContext page
     property font baseFont: Theme.store.lyricBaseFont
     property color playedColor: Theme.text
+    property color secondaryColor: page.player.lyricsInfo.secondaryFollowCoverColor ? Theme.store.lyricAccent(page.player.snapshot.coverColor) : page.player.lyricsInfo.secondaryColor || unplayedColor
     property color unplayedColor: Theme.secondaryText
     property bool followCurrent: true
     readonly property bool live: visible && page.active && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized
@@ -78,7 +79,7 @@ Item {
                 text: [root.page.player.lyricsInfo.romanization ? line.romanization : "", root.page.player.lyricsInfo.translation ? line.translation : ""].filter(s => s.length > 0).join("\n")
                 visible: text.length > 0
                 font: Theme.font(Math.max(12, root.baseFont.pixelSize * .6), Theme.regularWeight)
-                color: root.unplayedColor
+                color: root.secondaryColor
                 wrapMode: Text.Wrap
             }
             TapHandler {

@@ -41,7 +41,7 @@ Control {
     implicitHeight: EchoControlSize.heightFor(size)
     implicitWidth: 160
     leftPadding: EchoControlSize.fieldPaddingFor(size)
-    rightPadding: showClear ? leftPadding + (size === EchoControlSize.Small ? 20 : 24) : leftPadding + 22
+    rightPadding: showClear ? leftPadding + (size === EchoControlSize.Small ? 20 : 24) : indicatorAction.width + 20
     font: Theme.font(size === EchoControlSize.Large ? 15 : size === EchoControlSize.Standard ? 13 : 12, Theme.mediumWeight)
     hoverEnabled: true
     opacity: enabled ? 1 : 0.5
@@ -270,10 +270,11 @@ Control {
         requestedVisible: !control.popupActive && control.hovered && !control.searchTerm.length && (control.multiple ? control.overflowCount > 0 : control.filterable ? searchPlaceholderMetrics.advanceWidth > searchInput.width : triggerLabel.isTruncated())
     }
     Button {
+        id: indicatorAction
         objectName: "selectIndicatorAction"
         x: control.width - width - 12
         y: (control.height - height) / 2
-        width: control.showClear ? 16 : 14
+        width: control.showClear ? 16 : control.size === EchoControlSize.Small ? 18 : 20
         height: width
         padding: control.showClear ? 2 : 0
         Accessible.name: control.showClear ? qsTr("清空选择") : qsTr("展开选项")

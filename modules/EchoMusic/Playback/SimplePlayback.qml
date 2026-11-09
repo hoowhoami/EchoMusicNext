@@ -29,6 +29,7 @@ Item {
         pageHeight: body.pageHeight
         fontSize: (pageWidth <= 768 ? Math.max(12, pageWidth * .08) : Math.max(12, pageHeight * .05, pageWidth * .025)) * body.settings.fontScale
         textWeight: body.settings.fontWeight
+        secondaryColor: LyricColors.pageSecondary(body.playback.lyricAppearance, body.playback.lyricAppearance.simple, coverAccent, Theme.withAlpha(textColor, .3))
         textColor: LyricColors.simplePlayed(body.playback.lyricAppearance, coverAccent)
         unplayedColor: LyricColors.simpleUnplayed(body.playback.lyricAppearance, coverAccent)
         horizontalAlignment: Qt.AlignHCenter

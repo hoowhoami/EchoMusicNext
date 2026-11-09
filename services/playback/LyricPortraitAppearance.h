@@ -7,6 +7,10 @@ namespace EchoMusic
 class LyricPortraitAppearance final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QString secondaryTextColor READ secondaryTextColor WRITE setSecondaryTextColor NOTIFY
+                   changed)
+    Q_PROPERTY(bool secondaryUseCoverColor READ secondaryUseCoverColor WRITE
+                   setSecondaryUseCoverColor NOTIFY changed)
     Q_PROPERTY(int backdropOpacity READ backdropOpacity WRITE setBackdropOpacity NOTIFY changed)
     Q_PROPERTY(bool carouselEnabled READ carouselEnabled WRITE setCarouselEnabled NOTIFY changed)
     Q_PROPERTY(int carouselInterval READ carouselInterval WRITE setCarouselInterval NOTIFY changed)
@@ -27,6 +31,16 @@ class LyricPortraitAppearance final : public QObject
     Q_PROPERTY(bool enableBlur READ enableBlur WRITE setEnableBlur NOTIFY changed)
     Q_PROPERTY(bool enableScale READ enableScale WRITE setEnableScale NOTIFY changed)
 public:
+    QString secondaryTextColor() const
+    {
+        return m_secondaryTextColor;
+    }
+    bool secondaryUseCoverColor() const
+    {
+        return m_secondaryUseCoverColor;
+    }
+    void setSecondaryTextColor(const QString &value);
+    void setSecondaryUseCoverColor(bool value);
     explicit LyricPortraitAppearance(EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     int backdropOpacity() const
     {
@@ -114,6 +128,8 @@ signals:
     void changed();
 
 private:
+    QString m_secondaryTextColor;
+    bool m_secondaryUseCoverColor = false;
     bool m_enableSpring = true;
     bool m_enableBlur = true;
     bool m_enableScale = true;

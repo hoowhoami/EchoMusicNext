@@ -76,7 +76,8 @@ WindowController::WindowController(EchoMusic::SettingsStore &settings, bool pers
       m_appIcons(this, persist ? QString()
                                : QFileInfo(settings.fileName()).absolutePath() + "/app-icons"),
       m_settings(settings), m_floating(settings, persist, this), m_taskbar(settings, this),
-      m_taskbarButton(settings, this), m_persist(persist), m_startup(persist), m_backdrop(persist)
+      m_menuBarLyrics(settings, this), m_taskbarButton(settings, this), m_persist(persist),
+      m_startup(persist), m_backdrop(persist)
 {
     connect(&m_floating, &FloatingPlayerController::mainRequested, this,
             &WindowController::showWindow);
@@ -84,6 +85,12 @@ WindowController::WindowController(EchoMusic::SettingsStore &settings, bool pers
             &WindowController::showWindow);
     connect(&m_taskbar, &TaskbarLyricController::menuRequested, this,
             &WindowController::showTaskbarLyricMenu);
+    connect(&m_menuBarLyrics, &MenuBarLyricController::openMainRequested, this,
+            &WindowController::showWindow);
+    connect(&m_menuBarLyrics, &MenuBarLyricController::settingsRequested, this, [this] {
+        showWindow();
+        emit settingsRequested(QStringLiteral("lyric"));
+    });
     connect(&m_floating, &FloatingPlayerController::miniEntered, this, [this] {
         m_restoreMini = true;
         if (!m_window)
@@ -284,6 +291,7 @@ void WindowController::attach(QQuickWindow *window)
     updateIncubationController();
     setAppearance(m_frosted, m_dark, m_transparency);
     m_presentationReady = true;
+    m_menuBarLyrics.setPresentationReady();
     emit presentationReadyChanged();
     // Native capability is known only after the QML window has been attached.
     emit changed();
@@ -293,6 +301,7 @@ void WindowController::attachPlayback(PlaybackService &playback)
     Q_ASSERT(!m_playback);
     m_playback = &playback;
     m_taskbarButton.attachPlayback(playback);
+    m_menuBarLyrics.attachPlayback(playback);
 #ifdef Q_OS_WIN
     // Windows tracks the bound menu as a native menu whose WM_COMMAND dispatch
     // keys off the last tracked popup; rebinding a fresh menu per activation
@@ -854,6 +863,7 @@ bool WindowController::eventFilter(QObject *watched, QEvent *event)
 void WindowController::shutdown()
 {
     m_shuttingDown = true;
+    m_menuBarLyrics.shutdown();
     if (m_trayMenu) {
         m_trayMenu->close();
         m_trayMenu->deleteLater();

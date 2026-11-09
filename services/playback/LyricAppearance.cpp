@@ -7,6 +7,14 @@ namespace EchoMusic
 LyricAppearance::LyricAppearance(EchoMusic::SettingsStore &settings, QObject *parent)
     : QObject(parent), m_settings(settings), m_portrait(settings, this), m_simple(settings, this)
 {
+    setSecondaryTextColor(
+        settings.value(SettingsKeys::Lyrics::AppearanceSecondaryTextColor, QString()).toString());
+    setSecondaryUseCoverColor(
+        settings.value(SettingsKeys::Lyrics::AppearanceSecondaryUseCoverColor, false).toBool());
+    setSecondaryColor(
+        settings.value(SettingsKeys::Lyrics::PageSecondaryColor, QString()).toString());
+    setSecondaryFollowCoverColor(
+        settings.value(SettingsKeys::Lyrics::PageSecondaryFollowCoverColor, false).toBool());
     setPlayedColor(settings.value(EchoMusic::SettingsKeys::Lyrics::PagePlayedColor, "").toString());
     setUnplayedColor(
         settings.value(EchoMusic::SettingsKeys::Lyrics::PageUnplayedColor, "").toString());
@@ -108,6 +116,8 @@ void LyricAppearance::setUnplayedUseCoverColor(bool value)
 }
 void LyricAppearance::resetColors()
 {
+    setSecondaryColor("");
+    setSecondaryFollowCoverColor(false);
     setPlayedColor("");
     setUnplayedColor("");
     setFollowCoverColor(false);
@@ -115,6 +125,8 @@ void LyricAppearance::resetColors()
 }
 void LyricAppearance::resetSkinColors()
 {
+    setSecondaryTextColor("");
+    setSecondaryUseCoverColor(false);
     setTextColor(QString());
     setUseCoverColor(false);
     setUnplayedTextColor(QString());
@@ -122,11 +134,12 @@ void LyricAppearance::resetSkinColors()
 }
 bool LyricAppearance::customized() const
 {
-    return m_alignPosition != 0.5 || m_enableSpring != true || m_highRefreshRate != false ||
-           m_enableBlur != true || m_enableScale != true || m_hidePassedLines != false ||
-           m_wordFadeWidth != 0.5 || m_dynamicAlbumCover != false || m_textColor != QString() ||
-           m_useCoverColor != false || m_unplayedTextColor != QString() ||
-           m_unplayedUseCoverColor != false || m_fontScale != 1. || m_fontWeight != 900;
+    return !m_secondaryTextColor.isEmpty() || m_secondaryUseCoverColor || m_alignPosition != 0.5 ||
+           m_enableSpring != true || m_highRefreshRate != false || m_enableBlur != true ||
+           m_enableScale != true || m_hidePassedLines != false || m_wordFadeWidth != 0.5 ||
+           m_dynamicAlbumCover != false || m_textColor != QString() || m_useCoverColor != false ||
+           m_unplayedTextColor != QString() || m_unplayedUseCoverColor != false ||
+           m_fontScale != 1. || m_fontWeight != 900;
 }
 void LyricAppearance::resetSkin()
 {
@@ -274,6 +287,40 @@ void LyricAppearance::setBackgroundRhythm(bool value)
         return;
     m_backgroundRhythm = normalized;
     m_settings.setValue(EchoMusic::SettingsKeys::Lyrics::AppearanceBackgroundRhythm, normalized);
+    emit changed();
+}
+
+void LyricAppearance::setSecondaryColor(const QString &value)
+{
+    if ((!value.isEmpty() && !QColor(value).isValid()) || m_secondaryColor == value)
+        return;
+    m_secondaryColor = value;
+    m_settings.setValue(SettingsKeys::Lyrics::PageSecondaryColor, value);
+    emit changed();
+}
+void LyricAppearance::setSecondaryFollowCoverColor(bool value)
+{
+    if (m_secondaryFollowCoverColor == value)
+        return;
+    m_secondaryFollowCoverColor = value;
+    m_settings.setValue(SettingsKeys::Lyrics::PageSecondaryFollowCoverColor, value);
+    emit changed();
+}
+
+void LyricAppearance::setSecondaryTextColor(const QString &value)
+{
+    if ((!value.isEmpty() && !QColor(value).isValid()) || m_secondaryTextColor == value)
+        return;
+    m_secondaryTextColor = value;
+    m_settings.setValue(SettingsKeys::Lyrics::AppearanceSecondaryTextColor, value);
+    emit changed();
+}
+void LyricAppearance::setSecondaryUseCoverColor(bool value)
+{
+    if (m_secondaryUseCoverColor == value)
+        return;
+    m_secondaryUseCoverColor = value;
+    m_settings.setValue(SettingsKeys::Lyrics::AppearanceSecondaryUseCoverColor, value);
     emit changed();
 }
 } // namespace EchoMusic

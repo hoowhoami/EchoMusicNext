@@ -145,6 +145,17 @@ SettingsSection {
         }
         onResetRequested: section.style.resetColors()
     }
+    SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("副行颜色")
+        description: qsTr("译文、音译等副行使用的颜色，可单独设置或跟随封面")
+        LyricSecondaryColorControl {
+            uiScale: section.uiScale
+            preferences: section.style
+            resolvedColor: LyricColors.secondary(section.style, Theme.store.lyricAccent(section.playback.coverColor), section.style.unplayedFollowCoverColor ? Theme.store.lyricAccent(section.playback.coverColor) : section.style.unplayedColor)
+            coverColor: Theme.store.lyricAccent(section.playback.coverColor)
+        }
+    }
     SettingsNotice {
         visible: section.windows.wayland
         text: qsTr("Wayland 下窗口位置、置顶和鼠标穿透由桌面合成器决定；可通过托盘或设置解锁。")

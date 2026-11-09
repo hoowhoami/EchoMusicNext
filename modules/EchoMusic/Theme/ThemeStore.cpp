@@ -204,6 +204,7 @@ ThemeStore::ThemeStore(EchoMusic::SettingsStore &settings, QObject *parent,
     m_desktopLyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::DesktopLyricFont);
     m_miniLyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::MiniLyricFont);
     m_taskbarLyricFont = loadLyricFont(EchoMusic::SettingsKeys::Typography::TaskbarLyricFont);
+    m_menuBarLyricFont = loadLyricFont(SettingsKeys::Typography::MenuBarLyricFont);
     connect(this, &ThemeStore::fontChanged, this, &ThemeStore::lyricFontsChanged);
     qApp->installEventFilter(this);
 #ifdef Q_OS_LINUX
@@ -356,6 +357,14 @@ QFont ThemeStore::miniLyricBaseFont() const
 QFont ThemeStore::taskbarLyricBaseFont() const
 {
     return resolvedLyricFont(m_taskbarLyricFont);
+}
+void ThemeStore::setMenuBarLyricFont(const QString &family)
+{
+    setLyricFontPreference(m_menuBarLyricFont, SettingsKeys::Typography::MenuBarLyricFont, family);
+}
+QFont ThemeStore::menuBarLyricBaseFont() const
+{
+    return resolvedLyricFont(m_menuBarLyricFont);
 }
 bool ThemeStore::eventFilter(QObject *object, QEvent *event)
 {

@@ -43,6 +43,7 @@ private slots:
     void lyricResourcesReleaseAcrossPageCycles();
     void preferencesValidateAndPersistWithoutResettingGlobalBackground();
     void lyricColorLayersResolvePerSlotInQml();
+    void secondaryColorsResolveAcrossPageSkins();
     void playbackHoverTracksSourceBackgroundPalette();
     void optionalArtworkCancelsStaleTrackAndRestoresBoundedMemoryCache();
     void interludeMotionMatchesObservedReference();

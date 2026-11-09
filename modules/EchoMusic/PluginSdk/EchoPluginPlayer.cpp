@@ -66,6 +66,8 @@ EchoPluginPlayer::EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &ho
     });
     connect(host.lyrics(), &LyricModel::changed, this, &EchoPluginPlayer::lyricChanged);
     connect(host.lyrics(), &LyricModel::currentChanged, this, &EchoPluginPlayer::lyricChanged);
+    connect(host.lyricAppearance(), &LyricAppearance::changed, this,
+            &EchoPluginPlayer::lyricChanged);
     connect(host.lyricText(), &LyricTextController::changed, this, &EchoPluginPlayer::lyricChanged);
     connect(host.lyricSource(), &LyricSourceController::changed, this,
             &EchoPluginPlayer::lyricChanged);
@@ -214,6 +216,8 @@ QVariantMap EchoPluginPlayer::lyricsInfo() const
          {"hasTranslation", lyrics->hasTranslation()},
          {"hasRomanization", lyrics->hasRomanization()},
          {"translation", text->wantTranslation()},
+         {"secondaryColor", m_host.lyricAppearance()->secondaryColor()},
+         {"secondaryFollowCoverColor", m_host.lyricAppearance()->secondaryFollowCoverColor()},
          {"romanization", text->wantRomanization()},
          {"conversion", text->conversion()},
          {"globalOffsetMs", text->globalOffsetMs()},

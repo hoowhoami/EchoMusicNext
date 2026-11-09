@@ -33,6 +33,8 @@ EchoMusic 派生资源包括 `Profile.vue` 等级星球插画、平台应用图�
 
 验证码 SDK 由系统浏览器从官方地址动态加载，不随应用打包。产品不包含 Qt WebEngine。开发安装与格式工具不进入应用运行时。
 
+macOS 菜单栏歌词的原生状态栏布局与悬停交互参考 [echo-menu-lyrics](https://github.com/whuyfk/echo-menu-lyrics)，revision `acfdff13c25b216857e8e1056ad8abf53ea54290`，在进程内 Qt / Objective-C++ 中实现。保留其 [MIT 版权与许可](licenses/echo-menu-lyrics-MIT.txt)；不包含该项目的插件、通信桥或 WebKit 设置界面。
+
 发布包须按实际目标、链接方式和构建选项附带第三方许可、版权以及适用的源码提供材料。完整依赖清单、SBOM 和部署许可核查仍需在分发前完成。
 
 歌词 KRC 解压使用 zlib：Windows 复用上述固定 revision 的 Chromium zlib 静态依赖与[许可](licenses/crashpad/chromium-zlib.txt)，macOS/Linux 使用系统 zlib；不新增另一份下载或运行库。

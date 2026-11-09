@@ -31,6 +31,7 @@ EchoUiPartHost {
             appearance: {
                 font: viewport.baseFont,
                 playedColor: viewport.textColor,
+                secondaryColor: viewport.secondaryColor,
                 unplayedColor: viewport.unplayedColor
             },
             currentIndex: viewport.focusLine,
@@ -65,6 +66,7 @@ EchoUiPartHost {
     property real fontSize: (pageWidth <= 768 ? Math.max(12, pageWidth * .08) : Math.max(12, pageHeight * .05, pageWidth * .025)) * appearance.fontScale
     readonly property color coverAccent: Theme.store.lyricAccent(playback.coverColor)
     property color textColor: LyricColors.played(appearance, coverAccent)
+    property color secondaryColor: LyricColors.pageSecondary(appearance, appearance, coverAccent, Theme.withAlpha(textColor, .3))
     property color unplayedColor: LyricColors.unplayed(appearance, coverAccent)
     property int horizontalAlignment: Qt.AlignLeft
     property real secondaryFontSize: Math.max(10, fontSize * .5)
@@ -646,6 +648,7 @@ EchoUiPartHost {
                 }
                 Label {
                     id: secondary
+                    objectName: "lyricSecondaryText" + line.index
                     y: line.mainHeight + viewport.secondaryGap
                     width: parent.width
                     visible: text.length > 0
@@ -656,8 +659,7 @@ EchoUiPartHost {
                     lineHeight: viewport.secondaryFontSize * 1.5
                     font: Theme.store.styledFont(viewport.baseFont, viewport.secondaryFontSize, Math.min(650, viewport.textWeight), 0, false, false)
                     horizontalAlignment: viewport.horizontalAlignment
-                    color: viewport.textColor
-                    opacity: .3
+                    color: viewport.secondaryColor
                 }
             }
             HoverHandler {

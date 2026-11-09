@@ -27,6 +27,7 @@ qt_add_qml_module(
     PageLyricSettingsSection.qml
     DesktopLyricSettingsSection.qml
     TaskbarLyricSettingsSection.qml
+    MenuBarLyricSettingsSection.qml
     MiniLyricSettingsSection.qml
     LyricColorSettingsRow.qml
     PlaybackSettingsSection.qml

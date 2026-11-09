@@ -49,6 +49,17 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
+        heading: qsTr("副行颜色")
+        description: qsTr("译文、音译等副行使用的颜色，可单独设置或跟随封面")
+        LyricSecondaryColorControl {
+            uiScale: section.uiScale
+            preferences: section.style
+            resolvedColor: LyricColors.secondary(section.style, Theme.store.lyricAccent(section.playback.coverColor), Theme.withAlpha(LyricColors.miniPlayed(section.style, Theme.store.lyricAccent(section.playback.coverColor), section.defaultForeground), .3))
+            coverColor: Theme.store.lyricAccent(section.playback.coverColor)
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
         heading: qsTr("主歌词字号")
         description: qsTr("Mini 模式主歌词文字大小")
         EchoSpinBox {

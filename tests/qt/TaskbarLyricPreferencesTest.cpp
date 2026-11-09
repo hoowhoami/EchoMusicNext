@@ -135,6 +135,9 @@ void TaskbarLyricPreferencesTest::valuesPersistUnderTheTaskbarKeys()
         preferences.setShowTranslation(false);
         preferences.setWordByWord(false);
         preferences.setDragOffsetX(240);
+        preferences.setSecondaryColor("#26a4ff");
+        preferences.setSecondaryColor("invalid");
+        preferences.setSecondaryFollowCoverColor(true);
         settings.sync();
     }
 
@@ -156,6 +159,8 @@ void TaskbarLyricPreferencesTest::valuesPersistUnderTheTaskbarKeys()
     QCOMPARE(preferences.showTranslation(), false);
     QCOMPARE(preferences.wordByWord(), false);
     QCOMPARE(preferences.dragOffsetX(), 240);
+    QCOMPARE(preferences.secondaryColor(), QString("#26a4ff"));
+    QVERIFY(preferences.secondaryFollowCoverColor());
 }
 
 QTEST_GUILESS_MAIN(TaskbarLyricPreferencesTest)

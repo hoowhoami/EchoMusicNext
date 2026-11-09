@@ -230,6 +230,7 @@ Window {
             bold: window.style.bold
             shadowStrength: window.style.shadowStrength
             playedColor: window.style.followCoverColor ? Theme.store.lyricAccent(window.playback.coverColor) : window.style.playedColor
+            secondaryColor: LyricColors.secondary(window.style, Theme.store.lyricAccent(window.playback.coverColor), window.style.unplayedFollowCoverColor ? Theme.store.lyricAccent(window.playback.coverColor) : window.style.unplayedColor)
             unplayedColor: window.style.unplayedFollowCoverColor ? Theme.store.lyricAccent(window.playback.coverColor) : window.style.unplayedColor
         }
         // Native edge resize retains the platform's drag/scale behavior on Wayland too.

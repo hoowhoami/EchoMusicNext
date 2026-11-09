@@ -279,6 +279,7 @@ qt_add_resources(
     icons/info-circle.svg
     icons/keyboard.svg
     icons/layout-bottombar.svg
+    icons/layout-navbar.svg
     icons/layout-sidebar.svg
     icons/list.svg
     icons/lock.svg

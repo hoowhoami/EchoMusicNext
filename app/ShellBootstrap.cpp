@@ -30,6 +30,7 @@ void AppContext::createShell()
          [&] { theme.setMotionEnabled(shell.motionEnabled()); });
     m_window = std::make_unique<WindowController>(settings, !smoke);
     auto &window = *m_window;
+    window.menuBarLyrics()->attachTheme(theme);
     bind(&theme, &EchoMusic::ThemeStore::changed, &window,
          [&] { window.setAppearance(theme.windowFrosted(), theme.dark(), theme.transparency()); });
     if (m_instance)
