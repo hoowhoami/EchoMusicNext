@@ -47,7 +47,10 @@ ListView {
         const first = itemAtIndex(0), last = itemAtIndex(count - 1);
         measuredExtent = Math.max(0, last.y + last.height - first.y) + topMargin + bottomMargin;
     }
-    onWidthChanged: invalidateExtent()
+    // Width animations do not change model identity. Keep the last native
+    // extent until rows finish reflowing; resetting to the viewport budget on
+    // every width tick makes an inline header push the following content away.
+    onWidthChanged: Qt.callLater(measureExtent)
     onCountChanged: invalidateExtent()
     onModelChanged: invalidateExtent()
     onVisibleChanged: if (visible)

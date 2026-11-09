@@ -227,10 +227,77 @@ ApplicationWindow {
     uiWindow->setProperty("uiScale", 1.);
     host.theme.setMode(ThemeStore::Light);
     QTRY_VERIFY(catalogFitsBelowHeading());
+    // Canonical display rows extend the real fetched catalog; only the original
+    // card installs the actual package served above. No upstream mapping is faked.
+    const auto originalEntries = manager.m_entries;
+    const auto originalArchiveForScroll = archive;
+    const auto installKey = originalEntries.first().toMap().value("key").toString();
+    QVariantList browsingRows;
+    for (int i = 0; i < 41; ++i) {
+        auto row = originalEntries.first().toMap();
+        if (i != 20) {
+            row["id"] = QString("org.test.display-%1").arg(i);
+            row["key"] = QString("display-%1").arg(i);
+        }
+        browsingRows.append(row);
+    }
+    manager.m_entries = browsingRows;
+    manager.rebuild();
+    auto *list = visual(uiWindow->contentItem(), "pluginCardList");
+    QVERIFY(list);
+    QSignalSpy resets(manager.catalog(), &QAbstractItemModel::modelReset);
+    QSignalSpy sourceResets(manager.sources(), &QAbstractItemModel::modelReset);
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        host.theme.setMode(mode);
+        for (const auto scale : {1., 1.25}) {
+            uiWindow->setProperty("uiScale", scale);
+            QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(int, 10),
+                                              Q_ARG(int, 0)));
+            QTest::qWait(100);
+            QTRY_VERIFY(list->property("contentY").toReal() > 500);
+            auto *card = visual(uiWindow->contentItem(), "pluginCard-org.test.catalog");
+            auto *button = visual(card, "pluginMarketplaceInstall");
+            QVERIFY(button && button->isEnabled());
+            const auto before = list->property("contentY").toReal();
+            holdCatalog = true;
+            archive = originalArchiveForScroll + "tampered-for-scroll-regression";
+            resets.clear();
+            sourceResets.clear();
+            QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+            QVERIFY(manager.busy());
+            QCOMPARE(manager.installingKey(), installKey);
+            QCOMPARE(resets.size(), 0);
+            QCOMPARE(sourceResets.size(), 0);
+            QTest::qWait(80);
+            QCOMPARE(list->property("contentY").toReal(), before);
+            QTRY_VERIFY(!heldRequests.isEmpty());
+            holdCatalog = false;
+            for (auto &socket : heldRequests)
+                if (socket)
+                    QVERIFY(QMetaObject::invokeMethod(socket, "readyRead", Qt::QueuedConnection));
+            heldRequests.clear();
+            QTRY_VERIFY(!manager.busy());
+            QTest::qWait(80);
+            QCOMPARE(resets.size(), 0);
+            QCOMPARE(sourceResets.size(), 0);
+            QCOMPARE(list->property("contentY").toReal(), before);
+            if (!uiOutput.isEmpty())
+                QVERIFY(uiWindow->grabWindow().save(
+                    uiOutput +
+                    QString("/marketplace-install-scroll-%1-%2.png").arg(int(mode)).arg(scale)));
+        }
+    }
+    archive = originalArchiveForScroll;
+    manager.m_entries = originalEntries;
+    manager.rebuild();
+    uiWindow->setProperty("uiScale", 1.);
+    host.theme.setMode(ThemeStore::Light);
+    QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtBeginning"));
+    QTRY_VERIFY(catalogFitsBelowHeading());
     auto *sourceAction = visual(uiWindow->contentItem(), "pluginSourceManage");
     QVERIFY(sourceAction);
     QVERIFY(QMetaObject::invokeMethod(sourceAction, "clicked"));
-    auto *sourceDialog = uiRoot->findChild<QObject *>("pluginSourceDialog");
+    QPointer<QObject> sourceDialog = uiRoot->findChild<QObject *>("pluginSourceDialog");
     QVERIFY(sourceDialog);
     QTRY_VERIFY(sourceDialog->property("visible").toBool());
     QTRY_COMPARE(sourceDialog->property("opacity").toReal(), 1.0);
@@ -239,7 +306,8 @@ ApplicationWindow {
         QVERIFY(uiWindow->grabWindow().save(uiOutput + "/source-dialog.png"));
     }
     QVERIFY2(uiWarnings.isEmpty(), qPrintable(uiWarnings.join('\n')));
-    uiRoot.reset();
+    QVERIFY(QMetaObject::invokeMethod(sourceDialog, "close"));
+    QTRY_VERIFY(!sourceDialog || !sourceDialog->property("visible").toBool());
     const auto key = manager.catalog()
                          ->data(manager.catalog()->index(0), Qt::UserRole + 1)
                          .toMap()
@@ -276,8 +344,22 @@ ApplicationWindow {
          {"context", QVariant::fromValue(host.router.current())},
          {"settings", QVariant::fromValue(&shellSettings)}}));
     QVERIFY2(shareRoot, qPrintable(sharePage.errorString()));
+    manager.m_entries = browsingRows;
+    manager.rebuild();
+    QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(int, 10), Q_ARG(int, 0)));
+    QTest::qWait(100);
+    QTRY_VERIFY(list->property("contentY").toReal() > 500);
+    const auto successPosition = list->property("contentY").toReal();
+    resets.clear();
+    sourceResets.clear();
     QVERIFY(manager.installShared());
     QTRY_VERIFY(!manager.busy());
+    QTest::qWait(80);
+    QCOMPARE(resets.size(), 0);
+    QCOMPARE(sourceResets.size(), 0);
+    QCOMPARE(list->property("contentY").toReal(), successPosition);
+    QVERIFY2(uiWarnings.isEmpty(), qPrintable(uiWarnings.join('\n')));
+    uiRoot.reset();
     QTRY_VERIFY(!reportedEvent.isEmpty());
     QVERIFY(!QJsonDocument(reportedEvent).toJson().contains("Private local label"));
     QCOMPARE(reportedEvent.value("plugin").toObject().value("sourceName").toString(),

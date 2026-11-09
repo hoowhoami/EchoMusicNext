@@ -28,11 +28,29 @@ public:
     {
         return {{Qt::UserRole + 1, "pluginRecord"}};
     }
-    void replace(QVariantList rows)
+    // State-only updates retain native view position and row identity. A changed
+    // membership/order still resets the projection, as search/source filters do.
+    void replace(QVariantList rows, const QString &identity = QStringLiteral("key"))
     {
-        beginResetModel();
-        m_rows = std::move(rows);
-        endResetModel();
+        if (rows == m_rows)
+            return;
+        bool sameOrder = rows.size() == m_rows.size();
+        for (qsizetype row = 0; sameOrder && row < rows.size(); ++row) {
+            const auto key = rows[row].toMap().value(identity).toString();
+            sameOrder = !key.isEmpty() && key == m_rows[row].toMap().value(identity).toString();
+        }
+        if (sameOrder) {
+            for (qsizetype row = 0; row < rows.size(); ++row) {
+                if (m_rows[row] == rows[row])
+                    continue;
+                m_rows[row] = std::move(rows[row]);
+                emit dataChanged(index(int(row)), index(int(row)), {Qt::UserRole + 1});
+            }
+        } else {
+            beginResetModel();
+            m_rows = std::move(rows);
+            endResetModel();
+        }
         emit changed();
     }
 signals:

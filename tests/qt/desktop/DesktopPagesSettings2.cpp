@@ -211,6 +211,12 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
     QFETCH(qreal, scale);
     QFETCH(int, cardCount);
     Session session;
+    for (const auto &entry :
+         {qMakePair(QString("favorites"), QString("Favorites/FavoritesPage.qml")),
+          qMakePair(QString("cloud"), QString("Cloud/CloudPage.qml")),
+          qMakePair(QString("history"), QString("History/HistoryPage.qml"))})
+        QVERIFY(session.router.registerPage(
+            {entry.first, "/main/" + entry.first, QUrl("qrc:/qt/qml/EchoMusic/" + entry.second)}));
     session.theme.setMode(ThemeStore::Mode(themeMode));
     session.theme.setMotionEnabled(true);
     session.shell.setMotionEnabled(true);
@@ -222,6 +228,7 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
     if (cardCount == 4)
         layout->toggleShortcut("discover-flow");
     QVERIFY(session.create());
+    UserPlaylistModelTestAccess::present(session.accounts.playlists, session.api, 100);
     session.window->resize(1150, 800);
     QVERIFY(Test::prepareNativeInput(session.window));
     const auto item = [&session](const QString &name) {
@@ -230,7 +237,11 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
     auto *cards = item("sidebarShortcuts");
     auto *add = item("sidebarShortcutAdd");
     auto *content = item("sidebarContent");
-    QVERIFY(cards && add && content);
+    auto *menu = item("sidebarMusicMenu");
+    auto *playlistHeader = item("sidebarPlaylistHeader");
+    auto *scroll = item("sidebarPlaylistScroll");
+    QVERIFY(cards && add && content && menu && playlistHeader && scroll);
+    QTRY_VERIFY(item("sidebarPlaylistRow"));
     QTRY_COMPARE(cards->width(), 194.);
     QTRY_COMPARE(content->opacity(), 1.);
     QList<QPointer<QQuickItem>> retained;
@@ -303,22 +314,59 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
                                   .arg(y)
                                   .arg(cards->width());
             }
-            samples.append(QJsonObject{{"phase", phase},
-                                       {"elapsed", elapsed.elapsed()},
-                                       {"collapsed", collapsed},
-                                       {"width", cards->width()},
-                                       {"contentOpacity", content->opacity()},
-                                       {"positions", positions}});
+            qreal expandedMenuHeight = 0, collapsedMenuHeight = 0;
+            auto *navigation = layout->navigationModel();
+            for (int row = 0; row < navigation->rowCount(); ++row) {
+                const auto data =
+                    navigation->data(navigation->index(row, 0), Qt::UserRole + 1).toMap();
+                const bool heading = data.value("heading").toBool();
+                expandedMenuHeight += heading ? 32 : 39;
+                collapsedMenuHeight += heading ? 0 : 44;
+            }
+            expandedMenuHeight = qMin(expandedMenuHeight, 240.);
+            collapsedMenuHeight = qMin(collapsedMenuHeight, 240.);
+            const auto expectedMenuHeight = collapsed ? collapsedMenuHeight : expandedMenuHeight;
+            auto *menuEntry = item("sidebarMenu-favorites");
+            const auto entryY = menuEntry ? menuEntry->mapToItem(menu, QPointF()).y() : -999.;
+            samples.append(
+                QJsonObject{{"menuContentY", menu->property("contentY").toReal()},
+                            {"menuEntryY", entryY},
+                            {"menuHeight", menu->height()},
+                            {"expectedMenuHeight", expectedMenuHeight},
+                            {"playlistHeaderY", playlistHeader->mapToScene(QPointF()).y()},
+                            {"contentY", scroll->property("contentY").toReal()},
+                            {"phase", phase},
+                            {"elapsed", elapsed.elapsed()},
+                            {"collapsed", collapsed},
+                            {"width", cards->width()},
+                            {"contentOpacity", content->opacity()},
+                            {"positions", positions}});
             if (!directory.isEmpty() && frameCount <= 12 &&
                 (frameCount % 2 == 0 || !failure.isEmpty())) {
-                const auto origin = cards->mapToScene(QPointF());
+                const auto origin = content->mapToScene(QPointF());
                 const auto dpr = session.window->devicePixelRatio();
                 const QRect crop(qRound(origin.x() * dpr), qRound(origin.y() * dpr),
-                                 qRound(220 * scale * dpr), qRound(260 * scale * dpr));
+                                 qRound(220 * scale * dpr), qRound(720 * scale * dpr));
                 captures.append({prefix + QString("-%1-%2.png").arg(phase).arg(frameCount),
                                  frame.copy(crop.intersected(frame.rect()))});
             }
             QVERIFY2(failure.isEmpty(), qPrintable(failure));
+            QVERIFY2(menuEntry && entryY >= -.01 && entryY < menu->height(),
+                     qPrintable(QString("menu entry y=%1 contentY=%2 originY=%3 phase=%4 t=%5")
+                                    .arg(entryY)
+                                    .arg(menu->property("contentY").toReal())
+                                    .arg(menu->property("originY").toReal())
+                                    .arg(phase)
+                                    .arg(elapsed.elapsed())));
+            // Native polish may still expose the previous mode's measured
+            // extent for one frame. Neither valid mode may expand to the budget.
+            QVERIFY2(menu->height() >= qMin(expandedMenuHeight, collapsedMenuHeight) - .01 &&
+                         menu->height() <= qMax(expandedMenuHeight, collapsedMenuHeight) + .01,
+                     qPrintable(QString("menu height %1, target %2, phase %3 at %4ms")
+                                    .arg(menu->height())
+                                    .arg(expectedMenuHeight)
+                                    .arg(phase)
+                                    .arg(elapsed.elapsed())));
         }
         QVERIFY(frameCount >= 4);
         QVERIFY(intermediateWidth);

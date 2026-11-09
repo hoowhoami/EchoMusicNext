@@ -570,7 +570,7 @@ void PluginManager::rebuild()
         rows.append(e);
     }
     m_catalog.replace(rows);
-    m_sourceModel.replace(m_sources);
+    m_sourceModel.replace(m_sources, QStringLiteral("id"));
     emit changed();
 }
 void PluginManager::save()
