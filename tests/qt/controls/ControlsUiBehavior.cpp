@@ -244,7 +244,27 @@ Item {
  property real zoom: 1
  scale: zoom; transformOrigin: Item.TopLeft
  EchoCover { objectName: "zoomCover"; x: 32; y: 32; width: 100; height: 100 }
- Image { objectName: "directCover"; x: 288; y: 32; width: 100; height: 100; fillMode: Image.PreserveAspectCrop }
+ // The reference shares EchoCover's device-grid alignment policy. EchoCover
+ // parks its artwork surface on whole device pixels (round(100 x 1.25 x 1.25)
+ // = 156, not 156.25), so an unsnapped Image would render the same content at
+ // a 0.16% different scale and a high-frequency pattern reports that phase
+ // drift as a large mean difference even though neither render is wrong.
+ Item {
+  objectName: "directHost"; x: 288; y: 32; width: 100; height: 100
+  readonly property bool snapEnabled: EchoPixelSnap.enabled
+  readonly property point snapScene: EchoPixelSnap.scenePosition
+  readonly property real snapDpr: EchoPixelSnap.devicePixelRatio
+  readonly property real snapDensityX: EchoPixelSnap.densityX
+  readonly property real snapDensityY: EchoPixelSnap.densityY
+  Image {
+   objectName: "directCover"
+   x: parent.snapEnabled ? (Math.round(parent.snapScene.x * parent.snapDpr) - parent.snapScene.x * parent.snapDpr) / parent.snapDensityX : 0
+   y: parent.snapEnabled ? (Math.round(parent.snapScene.y * parent.snapDpr) - parent.snapScene.y * parent.snapDpr) / parent.snapDensityY : 0
+   width: parent.snapEnabled ? Math.round(parent.width * parent.snapDensityX) / parent.snapDensityX : parent.width
+   height: parent.snapEnabled ? Math.round(parent.height * parent.snapDensityY) / parent.snapDensityY : parent.height
+   fillMode: Image.PreserveAspectCrop
+  }
+ }
 })",
                       QUrl());
     QScopedPointer<QObject> object(component.create());
@@ -292,13 +312,15 @@ Item {
         error /= masked.width() * masked.height();
         qInfo() << "Artwork DPR" << frame.devicePixelRatio() << "zoom" << zoom << "texture"
                 << texture << "mean difference" << error;
-        QVERIFY2(error < 2., qPrintable(QString::number(error)));
+        // Save before asserting: a failing zoom must still leave its pair on
+        // disk for pixel-level diagnosis.
         const auto artifacts = qEnvironmentVariable("ECHO_COVER_CAPTURE_DIR");
         if (!artifacts.isEmpty()) {
             QDir().mkpath(artifacts);
             QVERIFY(masked.save(artifacts + QString("/masked-%1.png").arg(zoom)));
             QVERIFY(reference.save(artifacts + QString("/direct-%1.png").arg(zoom)));
         }
+        QVERIFY2(error < 2., qPrintable(QString::number(error)));
     }
 }
 

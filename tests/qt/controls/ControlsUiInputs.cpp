@@ -845,20 +845,29 @@ Window {
                                                 .arg(ratio)));
                     const int expectedWidth = qMax(1, qRound(zoom * ratio));
                     QCOMPARE(qRound(pixels.width()), expectedWidth);
-                    const auto bounds =
-                        pixels.toAlignedRect().adjusted(-2, -2, 2, 2).intersected(frame.rect());
-                    int paintedColumns = 0;
-                    for (int x = bounds.left(); x <= bounds.right(); ++x) {
-                        const int y = qRound(pixels.center().y());
-                        const auto color = frame.pixelColor(x, y);
-                        // Other foreground in this region is grayscale text.
-                        // A pink fringe reveals partial coverage of a caret edge.
-                        if (color.red() > color.green() + 1 && color.blue() > color.green() + 1) {
-                            ++paintedColumns;
-                            QCOMPARE(color, foreground);
-                        }
+                    const auto context = QString("%1 zoom %2 phase %3 position %4 DPR %5")
+                                             .arg(name)
+                                             .arg(zoom)
+                                             .arg(phase)
+                                             .arg(position)
+                                             .arg(ratio);
+                    // The caret paints an opaque rectangle on whole device pixels,
+                    // so its own columns must show the pure foreground: a partial
+                    // edge or a one-column paint shift would blend with the content
+                    // beneath and read as a different color there. Surrounding
+                    // margin columns are not scanned - background, text and focus
+                    // inks around the caret are arbitrary blends that no tint
+                    // heuristic can separate from a real fringe.
+                    const int center = qRound(pixels.center().y());
+                    for (int x = qRound(pixels.left()); x < qRound(pixels.right()); ++x) {
+                        const auto color = frame.pixelColor(x, center);
+                        QVERIFY2(color == foreground,
+                                 qPrintable(QString("%1 x %2 y %3 color %4")
+                                                .arg(context)
+                                                .arg(x)
+                                                .arg(center)
+                                                .arg(color.name())));
                     }
-                    QCOMPARE(paintedColumns, expectedWidth);
                     if (!captures.isEmpty() && phase == .43 && position > 0)
                         QVERIFY(frame.save(
                             captures +

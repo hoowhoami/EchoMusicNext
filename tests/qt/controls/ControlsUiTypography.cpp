@@ -260,15 +260,33 @@ void ControlsUiTest::textTagAlignmentAcrossProductionRecipes()
             const auto pixels = QRectF(bounds.topLeft() * ratio, bounds.size() * ratio)
                                     .toAlignedRect()
                                     .intersected(image.rect());
+            // A row counts as ink when it holds at least one full pixel of
+            // coverage. Channel-ratio filters cannot be used instead: at small
+            // hinted sizes the horizontal strokes of fallback CJK glyphs
+            // antialias below ~65% alpha, so such a filter sees only the denser
+            // lower half of the line and reports the text as sitting low.
+            // Projecting every pixel onto the ink-over-background line recovers
+            // the coverage of any blend depth between the two known colors.
+            const QColor ink = label->property("color").value<QColor>();
+            const QColor background = session.window->color();
+            const qreal dr = ink.red() - background.red();
+            const qreal dg = ink.green() - background.green();
+            const qreal db = ink.blue() - background.blue();
+            const qreal denominator = dr * dr + dg * dg + db * db;
             int top = image.height(), bottom = -1;
             for (int y = pixels.top(); y <= pixels.bottom(); ++y) {
+                qreal mass = 0;
                 for (int x = pixels.left(); x <= pixels.right(); ++x) {
                     const auto color = image.pixelColor(x, y);
-                    if (color.red() > 120 && color.blue() > 70 &&
-                        color.red() > color.green() * 1.8 && color.blue() > color.green() * 1.4) {
-                        top = std::min(top, y);
-                        bottom = std::max(bottom, y);
-                    }
+                    const qreal alpha = ((color.red() - background.red()) * dr +
+                                         (color.green() - background.green()) * dg +
+                                         (color.blue() - background.blue()) * db) /
+                                        denominator;
+                    mass += std::clamp(alpha, 0., 1.);
+                }
+                if (mass >= 1.) {
+                    top = std::min(top, y);
+                    bottom = std::max(bottom, y);
                 }
             }
             if (bottom < top)
