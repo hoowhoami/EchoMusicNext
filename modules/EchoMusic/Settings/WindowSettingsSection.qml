@@ -86,7 +86,7 @@ ColumnLayout {
         SettingsDivider {}
         SettingsRow {
             heading: qsTr("后台运行时在菜单栏中隐藏")
-            description: qsTr("关闭窗口后隐藏菜单栏图标，恢复窗口时重新显示；仅在「最小化到托盘」时生效")
+            description: qsTr("关闭窗口后隐藏菜单栏图标及歌词，恢复窗口时按歌词开关重新显示；仅在「最小化到托盘」时生效")
             EchoSwitch {
                 checked: section.windowService.hideMenuBarInBackground
                 enabled: section.windowService.closeToTray

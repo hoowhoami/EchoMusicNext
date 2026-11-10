@@ -146,14 +146,17 @@ struct CachedLine
     quint64 builds, ticks, displayRequests;
     CGFloat cutoff;
     CGFloat availableWidth;
-    CGFloat layoutRightEdge;
-    CGFloat layoutDecoration;
-    quint64 layoutProbes, layoutCompactions;
+    quint64 layoutProbes;
 @private
     NSTrackingArea *tracking;
     NSTimer *animation;
     NSArray<NSButton *> *buttons;
     CALayer *controlsLayer;
+    CALayer *iconLayer;
+    EchoMenuBarPlaybackButton *trayButton;
+    qint64 iconKey;
+    CGFloat iconScale;
+    NSColor *iconColor;
     CGFloat renderedScale;
     NSString *renderedAppearance;
     bool appearancePending;
@@ -161,16 +164,12 @@ struct CachedLine
     QElapsedTimer lineAge;
     bool rebuilding;
     bool layoutPending;
-    bool measuringLayout;
-    NSRect layoutFrame;
-    CGFloat layoutItemWidth;
-    bool positionLayoutPending;
 }
 - (void)applyState:(const MenuBarLyricState &)next style:(const MenuBarLyricStyle &)nextStyle;
 - (void)rebuild;
 - (void)scheduleLayout;
 - (void)finishLayout;
-- (void)finishPositionLayout;
+- (void)buildTrayIcon;
 - (void)refreshAnimation;
 - (void)stop;
 - (BOOL)animationActive;
@@ -209,6 +208,15 @@ struct CachedLine
             [line.container addSublayer:line.sung];
             [self.layer addSublayer:line.container];
         }
+        trayButton = [[EchoMenuBarPlaybackButton alloc] initWithFrame:NSZeroRect];
+        trayButton.bordered = NO;
+        trayButton.target = self;
+        trayButton.action = @selector(activateTray:);
+        trayButton.accessibilityLabel = @"EchoMusicNext";
+        trayButton.toolTip = @"EchoMusicNext";
+        [self addSubview:trayButton];
+        iconLayer = [CALayer layer];
+        [self.layer addSublayer:iconLayer];
         controlsLayer = [CALayer layer];
         [self.layer addSublayer:controlsLayer];
         [[NSNotificationCenter defaultCenter]
@@ -216,14 +224,6 @@ struct CachedLine
                selector:@selector(visibilityChanged:)
                    name:NSWindowDidChangeOcclusionStateNotification
                  object:nil];
-        for (NSString *name in @[
-                 NSWindowDidMoveNotification, NSWindowDidChangeScreenNotification,
-                 NSWindowDidUpdateNotification
-             ])
-            [[NSNotificationCenter defaultCenter] addObserver:self
-                                                     selector:@selector(layoutChanged:)
-                                                         name:name
-                                                       object:nil];
         [[NSNotificationCenter defaultCenter]
             addObserver:self
                selector:@selector(screenParametersChanged:)
@@ -294,6 +294,10 @@ struct CachedLine
                            fromView:nil];
     if (!NSPointInRect(point, self.bounds))
         point = [self convertPoint:event.locationInWindow fromView:nil];
+    if (!trayButton.hidden && NSPointInRect(point, trayButton.frame)) {
+        [self activateTray:trayButton];
+        return;
+    }
     const auto chosen = [self controlAt:point];
     if (chosen >= 0)
         [self activateControl:buttons[chosen]];
@@ -309,6 +313,12 @@ struct CachedLine
     const auto callback = action;
     if (callback)
         callback(static_cast<MenuBarLyric::Action>(sender.tag));
+}
+- (void)activateTray:(id)sender
+{
+    const auto callback = action;
+    if (callback)
+        callback(MenuBarLyric::Action::TrayActivate);
 }
 - (void)menuCommand:(NSMenuItem *)sender
 {
@@ -350,6 +360,13 @@ struct CachedLine
 }
 - (void)rightMouseDown:(NSEvent *)event
 {
+    const auto point = [self convertPoint:event.locationInWindow fromView:nil];
+    if (!trayButton.hidden && NSPointInRect(point, trayButton.frame)) {
+        const auto callback = action;
+        if (callback)
+            callback(MenuBarLyric::Action::TrayMenu);
+        return;
+    }
     auto *menu = [self menuForEvent:event];
     [self setHovered:NO];
     [NSMenu popUpContextMenu:menu withEvent:event forView:self];
@@ -375,10 +392,12 @@ struct CachedLine
 }
 - (NSString *)accessibilityLabel
 {
-    return nativeText(QObject::tr("菜单栏歌词"));
+    return state.lyricsVisible ? nativeText(QObject::tr("菜单栏歌词")) : @"EchoMusicNext";
 }
 - (NSString *)accessibilityValue
 {
+    if (!state.lyricsVisible)
+        return @"";
     QStringList readings;
     for (const auto &unit : state.content.ruby)
         readings.append(unit.toMap().value("ruby").toString());
@@ -394,11 +413,12 @@ struct CachedLine
 - (void)applyState:(const MenuBarLyricState &)next style:(const MenuBarLyricStyle &)nextStyle
 {
     const bool contentChanged = state.content != next.content;
-    const bool rebuild = contentChanged || style != nextStyle ||
-                         state.coverColor != next.coverColor || state.playing != next.playing ||
-                         state.playMode != next.playMode || state.favorite != next.favorite ||
-                         state.favoriteEnabled != next.favoriteEnabled ||
-                         state.hasTrack != next.hasTrack || state.visible != next.visible;
+    const bool rebuild =
+        contentChanged || style != nextStyle || state.coverColor != next.coverColor ||
+        state.playing != next.playing || state.playMode != next.playMode ||
+        state.favorite != next.favorite || state.favoriteEnabled != next.favoriteEnabled ||
+        state.hasTrack != next.hasTrack || state.visible != next.visible ||
+        state.lyricsVisible != next.lyricsVisible || state.icon.cacheKey() != next.icon.cacheKey();
     state = next;
     style = nextStyle;
     const bool showing = state.visible && !item.visible;
@@ -422,8 +442,13 @@ struct CachedLine
         for (NSButton *button in buttons)
             button.hidden = YES;
         controlsLayer.contents = nil;
+        iconLayer.contents = nil;
+        iconKey = 0;
+        trayButton.hidden = YES;
     }
-    self.layer.opacity = style.opacity / 100. * (state.dimmed ? .45 : 1.);
+    self.layer.opacity = 1.;
+    for (auto &line : lines)
+        line.container.opacity = style.opacity / 100. * (state.dimmed ? .45 : 1.);
     [self tick:nil];
     [self refreshAnimation];
 }
@@ -431,8 +456,8 @@ struct CachedLine
 {
     return style.scrolling && style.motionEnabled &&
            !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion && state.advancing &&
-           (lines[0].width > self.bounds.size.width - 12 ||
-            lines[1].width > self.bounds.size.width - 12);
+           (lines[0].width > lines[0].container.bounds.size.width ||
+            lines[1].width > lines[1].container.bounds.size.width);
 }
 - (BOOL)presented
 {
@@ -551,7 +576,7 @@ struct CachedLine
     const auto *ruby = &cached == &lines[0] || secondaryFont ? &state.content.ruby : nullptr;
     CTLineRef full = makeLine(text, font, secondaryFont, secondaryStart, ruby, color);
     CTLineRef line = full;
-    const auto available = self.bounds.size.width - 12;
+    const auto available = cached.container.bounds.size.width;
     // Bound individual textures even for maliciously long plugin/source rows.
     const CGFloat limit = style.scrolling ? 4096. : available;
     if (textWidth(full) > limit) {
@@ -622,9 +647,11 @@ struct CachedLine
     rebuilding = true;
     renderedScale = self.window.backingScaleFactor;
     renderedAppearance = [self.effectiveAppearance bestMatchFromAppearancesWithNames:@[
-        NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-        NSAppearanceNameAccessibilityHighContrastAqua,
-        NSAppearanceNameAccessibilityHighContrastDarkAqua
+        NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSAppearanceNameVibrantLight,
+        NSAppearanceNameVibrantDark, NSAppearanceNameAccessibilityHighContrastAqua,
+        NSAppearanceNameAccessibilityHighContrastDarkAqua,
+        NSAppearanceNameAccessibilityHighContrastVibrantLight,
+        NSAppearanceNameAccessibilityHighContrastVibrantDark
     ]];
     ++builds;
     const auto height = self.bounds.size.height > 0 ? self.bounds.size.height
@@ -676,11 +703,16 @@ struct CachedLine
     const auto firstInk = inkBounds(first), secondInk = inkBounds(second);
     CFRelease(first);
     CFRelease(second);
-    const auto maximum = measuringLayout
-                             ? MenuBarLyricLayout::compactWidth
-                             : std::max(MenuBarLyricLayout::compactWidth,
-                                        std::min(double(style.maxWidth), double(availableWidth)));
-    const auto width = std::min(std::max(measured + 16., 128.), maximum);
+    auto *screen = self.window.screen ?: NSScreen.mainScreen;
+    const auto sf = screen.frame;
+    availableWidth = MenuBarLyricLayout::availableWidth(
+        QRectF(sf.origin.x, sf.origin.y, sf.size.width, sf.size.height), style.maxWidth);
+    const auto iconWidth = state.icon.isNull() ? 0. : MenuBarLyricLayout::compactWidth;
+    const auto width = state.lyricsVisible
+                           ? std::min(std::max(measured + 16. + iconWidth, 128. + iconWidth),
+                                      double(availableWidth))
+                           : std::max(iconWidth, MenuBarLyricLayout::compactWidth);
+    const auto bodyWidth = state.lyricsVisible ? width - iconWidth : 0.;
     if (std::abs(item.length - width) > .25)
         item.length = width;
     self.frame = NSMakeRect(0, 0, width, height);
@@ -700,12 +732,17 @@ struct CachedLine
                                     : 0;
     const auto secondaryY =
         bilingual ? bottom + secondInk.size.height / 2 - secondaryHeight / 2 : 0;
-    lines[0].container.frame =
-        CGRectMake(6, std::round(primaryY * scale) / scale, width - 12, primaryHeight);
-    lines[1].container.frame =
-        CGRectMake(6, std::round(secondaryY * scale) / scale, width - 12, secondaryHeight);
+    lines[0].container.frame = CGRectMake(6, std::round(primaryY * scale) / scale,
+                                          std::max(0., bodyWidth - 12), primaryHeight);
+    lines[1].container.frame = CGRectMake(6, std::round(secondaryY * scale) / scale,
+                                          std::max(0., bodyWidth - 12), secondaryHeight);
     [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
-      NSColor *primary = NSColor.labelColor, *secondary = NSColor.secondaryLabelColor;
+      // Vibrant secondaryLabelColor is an opaque gray intended for AppKit's
+      // material blending. Baking it into our glyph image loses that blending.
+      // Derive the system subtitle from the actual status foreground instead.
+      NSColor *foreground = [NSColor.labelColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+      NSColor *primary = foreground;
+      NSColor *secondary = [foreground colorWithAlphaComponent:foreground.alphaComponent * .8];
       if (style.colorMode == 1 && state.coverColor.isValid())
           primary = nativeColor(state.coverColor);
       else if (style.colorMode == 2)
@@ -717,7 +754,7 @@ struct CachedLine
       if (state.content.primaryIsSecondary)
           primary = secondary;
       [self buildLine:lines[0]
-                   text:state.content.primary
+                   text:state.lyricsVisible ? state.content.primary : QString()
                    font:font
           secondaryFont:inlineBilingual ? secondaryFont : nullptr
                   color:primary
@@ -725,9 +762,10 @@ struct CachedLine
               clipStart:0
                 clipEnd:inlineBilingual ? inlineSplit : 4098];
       [self buildLine:lines[1]
-                   text:inlineBilingual ? state.content.primary
-                        : bilingual     ? state.content.secondary
-                                        : QString()
+                   text:!state.lyricsVisible ? QString()
+                        : inlineBilingual    ? state.content.primary
+                        : bilingual          ? state.content.secondary
+                                             : QString()
                    font:inlineBilingual ? font : secondaryFont
           secondaryFont:inlineBilingual ? secondaryFont : nullptr
                   color:secondary
@@ -735,9 +773,9 @@ struct CachedLine
               clipStart:inlineBilingual ? inlineSplit : 0
                 clipEnd:4098];
     }];
-    const bool controls = hovered && state.hasTrack && state.visible;
+    const bool controls = hovered && state.hasTrack && state.visible && state.lyricsVisible;
     for (auto &line : lines)
-        line.container.hidden = controls;
+        line.container.hidden = controls || !state.lyricsVisible;
     const std::array<QString, 4> modes{QObject::tr("列表循环"), QObject::tr("单曲循环"),
                                        QObject::tr("随机播放"), QObject::tr("顺序播放")};
     const std::array<NSString *, 4> modeSymbols{@"repeat", @"repeat.1", @"shuffle", @"arrow.right"};
@@ -749,14 +787,14 @@ struct CachedLine
         modeSymbols[std::clamp(state.playMode, 0, 3)], @"backward.end.fill",
         state.playing ? @"pause.fill" : @"play.fill", @"forward.end.fill",
         state.favorite ? @"heart.fill" : @"heart"};
-    const CGFloat controlWidth = std::min(180., width - 8.);
+    const CGFloat controlWidth = std::min(180., bodyWidth - 8.);
     for (int i = 0; i < 5; ++i) {
         auto *button = buttons[i];
-        const bool compact = width < 128;
+        const bool compact = bodyWidth < 100;
         button.hidden = !controls || (compact && i != 2);
-        button.frame = compact ? NSMakeRect(4, 0, width - 8., height)
-                               : NSMakeRect((width - controlWidth) / 2 + i * controlWidth / 5., 0,
-                                            controlWidth / 5., height);
+        button.frame = compact ? NSMakeRect(4, 0, std::max(0., bodyWidth - 8.), height)
+                               : NSMakeRect((bodyWidth - controlWidth) / 2 + i * controlWidth / 5.,
+                                            0, controlWidth / 5., height);
         button.image = [[NSImage imageWithSystemSymbolName:symbols[i]
                                   accessibilityDescription:nativeText(titles[i])]
             imageWithSymbolConfiguration:[NSImageSymbolConfiguration
@@ -768,6 +806,12 @@ struct CachedLine
         button.contentTintColor =
             i == 4 && state.favorite ? NSColor.systemRedColor : NSColor.labelColor;
     }
+    trayButton.hidden = iconWidth == 0 || !state.visible;
+    trayButton.frame = NSMakeRect(width - iconWidth, 0, iconWidth, height);
+    iconLayer.frame =
+        CGRectMake(width - iconWidth + (iconWidth - 16.) / 2, (height - 16.) / 2, 16., 16.);
+    iconLayer.hidden = trayButton.hidden;
+    [self buildTrayIcon];
     [self buildControls];
     [CATransaction commit];
     rebuilding = false;
@@ -779,7 +823,7 @@ struct CachedLine
 }
 - (void)buildControls
 {
-    const bool controls = hovered && state.hasTrack && state.visible;
+    const bool controls = hovered && state.hasTrack && state.visible && state.lyricsVisible;
     controlsLayer.hidden = !controls;
     controlsLayer.frame = self.bounds;
     controlsLayer.contents = nil;
@@ -802,9 +846,6 @@ struct CachedLine
     NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithCGContext:context
                                                                                flipped:NO];
     [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
-      [[NSColor.labelColor colorWithAlphaComponent:.08] setFill];
-      [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 4, 2) xRadius:6
-                                       yRadius:6] fill];
       for (int i = 0; i < 5; ++i) {
           if (buttons[i].hidden)
               continue;
@@ -835,6 +876,50 @@ struct CachedLine
     CGImageRelease(bitmap);
     CGContextRelease(context);
 }
+- (void)buildTrayIcon
+{
+    if (state.icon.isNull()) {
+        iconLayer.contents = nil;
+        iconKey = 0;
+        return;
+    }
+    const auto scale = renderedScale > 0 ? renderedScale : 2.;
+    __block NSColor *color;
+    [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+      color = [NSColor.labelColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    }];
+    if (iconKey == state.icon.cacheKey() && iconScale == scale && [iconColor isEqual:color])
+        return;
+    const auto source = state.icon.convertToFormat(QImage::Format_RGBA8888_Premultiplied);
+    auto data = CFDataCreate(nullptr, source.constBits(), source.sizeInBytes());
+    auto provider = CGDataProviderCreateWithCFData(data);
+    auto space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    auto mask = CGImageCreate(source.width(), source.height(), 8, 32, source.bytesPerLine(), space,
+                              kCGImageAlphaPremultipliedLast, provider, nullptr, false,
+                              kCGRenderingIntentDefault);
+    const size_t pixels = std::ceil(16. * scale);
+    auto context = CGBitmapContextCreate(nullptr, pixels, pixels, 8, pixels * 4, space,
+                                         kCGImageAlphaPremultipliedLast);
+    if (context && mask) {
+        CGContextClipToMask(context, CGRectMake(0, 0, pixels, pixels), mask);
+        CGContextSetFillColorWithColor(context, color.CGColor);
+        CGContextFillRect(context, CGRectMake(0, 0, pixels, pixels));
+        auto bitmap = CGBitmapContextCreateImage(context);
+        iconLayer.contents = (__bridge id)bitmap;
+        iconLayer.contentsScale = scale;
+        CGImageRelease(bitmap);
+        iconKey = state.icon.cacheKey();
+        iconScale = scale;
+        iconColor = color;
+    }
+    if (context)
+        CGContextRelease(context);
+    if (mask)
+        CGImageRelease(mask);
+    CGColorSpaceRelease(space);
+    CGDataProviderRelease(provider);
+    CFRelease(data);
+}
 - (void)setFrameSize:(NSSize)size
 {
     const bool changed = !NSEqualSizes(size, self.frame.size);
@@ -858,93 +943,18 @@ struct CachedLine
     if (stopped || !item || !state.visible || layoutPending)
         return;
     layoutPending = true;
-    // Overflowing status windows keep stale origins. Measure once at a compact
-    // width after AppKit/WindowServer have had time to place the native item.
-    measuringLayout = true;
-    ++layoutCompactions;
-    [self rebuild];
     __weak EchoMenuBarLyricView *weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(),
-                   ^{
-                     [weakSelf finishLayout];
-                   });
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf finishLayout];
+    });
 }
 - (void)finishLayout
 {
-    measuringLayout = false;
     layoutPending = false;
     if (stopped || !item || !state.visible)
         return;
-    auto *screen = self.window.screen;
-    if (!screen)
-        return;
-    const auto frame = self.window.frame;
-    const auto rect = [](NSRect r) {
-        return QRectF(r.origin.x, r.origin.y, r.size.width, r.size.height);
-    };
-    availableWidth = MenuBarLyricLayout::availableWidth(
-        rect(screen.frame), rect(screen.auxiliaryTopRightArea), rect(frame), item.length);
-    layoutRightEdge = NSMaxX(frame);
-    layoutDecoration = frame.size.width - item.length;
-    layoutFrame = frame;
-    layoutItemWidth = item.length;
     ++layoutProbes;
     [self rebuild];
-}
-- (void)layoutChanged:(NSNotification *)note
-{
-    if (note.object != self.window || rebuilding || measuringLayout || stopped || !item ||
-        !state.visible)
-        return;
-    if (note.name == NSWindowDidChangeScreenNotification) {
-        [self scheduleLayout];
-        return;
-    }
-    if (positionLayoutPending)
-        return;
-    positionLayoutPending = true;
-    __weak EchoMenuBarLyricView *weakSelf = self;
-    dispatch_async(dispatch_get_main_queue(), ^{
-      auto *view = weakSelf;
-      if (!view)
-          return;
-      view->positionLayoutPending = false;
-      [view finishPositionLayout];
-    });
-}
-- (void)finishPositionLayout
-{
-    if (stopped || !item || !state.visible || rebuilding || measuringLayout)
-        return;
-    const auto frame = self.window.frame;
-    // Wait for the native window to adopt our requested size. Its own resize
-    // can move either edge, especially for system-hosted proxy windows. Feeding
-    // that move back into compact probing makes long lyrics collapse/expand
-    // forever and repeatedly rasterizes their text.
-    if (std::abs(frame.size.width - item.length - layoutDecoration) >= .5)
-        return;
-    const auto rect = [](NSRect r) {
-        return QRectF(r.origin.x, r.origin.y, r.size.width, r.size.height);
-    };
-    const bool moved =
-        MenuBarLyricLayout::relocated(rect(layoutFrame), layoutItemWidth, rect(frame), item.length);
-    layoutFrame = frame;
-    layoutItemWidth = item.length;
-    if (!moved)
-        return;
-    // A laid-out item can be measured in place after an actual neighbour move.
-    // Reserve compact probing for initial registration and screen changes.
-    const auto *screen = self.window.screen;
-    if (!screen)
-        return;
-    const auto nextWidth = MenuBarLyricLayout::availableWidth(
-        rect(screen.frame), rect(screen.auxiliaryTopRightArea), rect(frame), item.length);
-    layoutRightEdge = NSMaxX(frame);
-    ++layoutProbes;
-    if (std::abs(nextWidth - availableWidth) > .5) {
-        availableWidth = nextWidth;
-        [self rebuild];
-    }
 }
 - (void)screenParametersChanged:(NSNotification *)note
 {
@@ -976,9 +986,11 @@ struct CachedLine
 - (void)applyNativeAppearance
 {
     NSString *appearance = [self.effectiveAppearance bestMatchFromAppearancesWithNames:@[
-        NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-        NSAppearanceNameAccessibilityHighContrastAqua,
-        NSAppearanceNameAccessibilityHighContrastDarkAqua
+        NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSAppearanceNameVibrantLight,
+        NSAppearanceNameVibrantDark, NSAppearanceNameAccessibilityHighContrastAqua,
+        NSAppearanceNameAccessibilityHighContrastDarkAqua,
+        NSAppearanceNameAccessibilityHighContrastVibrantLight,
+        NSAppearanceNameAccessibilityHighContrastVibrantDark
     ]];
     if (item && renderedAppearance != appearance &&
         ![renderedAppearance isEqualToString:appearance]) {
@@ -1018,6 +1030,7 @@ namespace EchoMusic
 {
 struct MenuBarLyric::Impl
 {
+    quint64 identity = 0;
     __strong NSStatusItem *item = nil;
     __strong EchoMenuBarLyricView *view = nil;
     ~Impl()
@@ -1039,6 +1052,8 @@ void MenuBarLyric::create(std::function<void(Action)> action, std::function<doub
     if (m_impl || QGuiApplication::platformName() != QStringLiteral("cocoa"))
         return;
     m_impl = std::make_unique<Impl>();
+    static quint64 nextIdentity = 0;
+    m_impl->identity = ++nextIdentity;
     m_impl->item =
         [NSStatusBar.systemStatusBar statusItemWithLength:MenuBarLyricLayout::compactWidth];
     m_impl->item.visible = YES;
@@ -1074,12 +1089,15 @@ QVariantMap MenuBarLyric::diagnostics() const
             bytes += CGImageGetBytesPerRow(bitmap) * CGImageGetHeight(bitmap);
     }
     return {{"created", true},
+            {"nativeItemId", QVariant::fromValue(m_impl->identity)},
             {"visible", bool(m_impl->item.visible)},
             {"width", m_impl->item.length},
             {"availableWidth", view->availableWidth},
-            {"layoutRightEdge", view->layoutRightEdge},
+            {"bodyWidth", view->lines[0].container.bounds.size.width},
+            {"iconVisible", bool(!view->state.icon.isNull() && view->state.visible)},
+            {"lyricsVisible", view->state.lyricsVisible},
             {"layoutProbes", QVariant::fromValue(view->layoutProbes)},
-            {"layoutCompactions", QVariant::fromValue(view->layoutCompactions)},
+            {"layoutCompactions", 0},
             {"height", view.bounds.size.height},
             {"windowNumber", qlonglong(view.window.windowNumber)},
             {"windowX", view.window.frame.origin.x},

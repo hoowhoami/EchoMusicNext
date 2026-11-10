@@ -149,6 +149,13 @@ if(APPLE)
     set_source_files_properties(MacMenuBarLyricTest.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     add_test(NAME mac-menu-bar-lyric COMMAND echo-mac-menu-bar-lyric-test)
     set_tests_properties(mac-menu-bar-lyric PROPERTIES TIMEOUT 30)
+    add_test(NAME mac-menu-bar-status-lifecycle
+             COMMAND echo-menu-bar-lyric-test oneStatusItemOwnsIconLyricsAndBackgroundHiding
+    )
+    set_tests_properties(
+        mac-menu-bar-status-lifecycle PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa" TIMEOUT 30
+                                                 RUN_SERIAL TRUE
+    )
 endif()
 qt_add_executable(echo-taskbar-progress-state-test TaskbarProgressStateTest.cpp)
 target_link_libraries(echo-taskbar-progress-state-test PRIVATE echo_platform Qt6::Test)

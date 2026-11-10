@@ -131,7 +131,7 @@ SettingsSection {
     }
     SettingsRow {
         heading: qsTr("副行颜色")
-        description: qsTr("译文、音译共用副行颜色；跟随系统时使用次级文字色")
+        description: qsTr("译文、音译共用副行颜色；跟随系统时使用菜单栏正文色的80%不透明度")
         EchoSelect {
             colors: Theme.floating
             implicitWidth: 180

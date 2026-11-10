@@ -189,6 +189,8 @@ private:
     bool eventFilter(QObject *watched, QEvent *event) override;
     void setBackground(bool background);
     void popupTrayMenu();
+    void updateTrayIcon();
+    void updateTrayVisibility();
     void installTrayMenuModel();
     QMenu *createTrayMenu();
     QMenu *createDockMenu();

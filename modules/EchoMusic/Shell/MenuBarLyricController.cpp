@@ -5,6 +5,7 @@
 #include "LyricTextController.h"
 #include "ThemeStore.h"
 #include <QGuiApplication>
+#include <utility>
 namespace
 {
 QVariantMap menuBarLineAt(const EchoMusic::LyricModel &model, qint64 position, bool keepPrevious,
@@ -46,7 +47,11 @@ void MenuBarLyricController::attachPlayback(PlaybackService &playback)
     connect(playback.lyrics(), &LyricModel::changed, this, &MenuBarLyricController::sync);
     connect(playback.lyricText(), &LyricTextController::changed, this,
             &MenuBarLyricController::sync);
-    connect(&playback, &QObject::destroyed, this, [this] { m_native.reset(); });
+    connect(&playback, &QObject::destroyed, this, [this] {
+        m_playback = nullptr;
+        m_library = nullptr;
+        sync();
+    });
     sync();
 }
 void MenuBarLyricController::attachTheme(ThemeStore &theme)
@@ -67,6 +72,22 @@ void MenuBarLyricController::shutdown()
 {
     m_closing = true;
     m_native.reset();
+    m_presented = false;
+}
+void MenuBarLyricController::setIcon(const QImage &icon)
+{
+    if (m_icon.cacheKey() == icon.cacheKey())
+        return;
+    m_icon = icon;
+    sync();
+    emit presentationChanged();
+}
+void MenuBarLyricController::setShellVisible(bool visible)
+{
+    if (m_shellVisible == visible)
+        return;
+    m_shellVisible = visible;
+    sync();
 }
 
 MenuBarLyricContent MenuBarLyricController::contentAt(const LyricModel &model, qint64 position,
@@ -107,11 +128,14 @@ MenuBarLyricContent MenuBarLyricController::contentAt(const LyricModel &model, q
 }
 void MenuBarLyricController::sync()
 {
-    if (m_closing || !available() || !m_ready || !m_playback || !m_settings.enabled()) {
+    const bool lyricsEnabled = m_settings.enabled() && m_playback;
+    if (m_closing || !available() || !m_ready || (m_icon.isNull() && !lyricsEnabled)) {
         m_native.reset();
+        if (std::exchange(m_presented, false))
+            emit presentationChanged();
         return;
     }
-    if (m_library != m_playback->libraryActions()) {
+    if (m_playback && m_library != m_playback->libraryActions()) {
         if (m_library)
             disconnect(m_library, nullptr, this, nullptr);
         m_library = m_playback->libraryActions();
@@ -122,22 +146,24 @@ void MenuBarLyricController::sync()
     m_native.create([this](auto action) { invoke(action); },
                     [this] { return m_playback ? m_playback->clockPosition() : 0.; });
     MenuBarLyricState state;
-    state.hasTrack = m_playback->hasTrack();
-    state.playing = m_playback->playing();
-    state.advancing = m_playback->clock().value("isAdvancing").toBool();
+    state.icon = m_icon;
+    state.hasTrack = m_playback && m_playback->hasTrack();
+    state.playing = m_playback && m_playback->playing();
+    state.advancing = m_playback && m_playback->clock().value("isAdvancing").toBool();
     state.title = state.hasTrack ? m_playback->title() : QStringLiteral("EchoMusicNext");
-    state.coverColor = m_playback->coverColor();
-    state.playMode = m_playback->playMode();
+    state.coverColor = m_playback ? m_playback->coverColor() : QColor();
+    state.playMode = m_playback ? m_playback->playMode() : 0;
     state.favorite = m_library && m_library->favorite();
     state.favoriteEnabled = m_library && state.hasTrack && !m_library->favoriteLoading();
-    const auto at = qint64(m_playback->clockPosition());
-    if (state.hasTrack)
+    const auto at = m_playback ? qint64(m_playback->clockPosition()) : 0;
+    if (lyricsEnabled && state.hasTrack)
         state.content = contentAt(*m_playback->lyrics(), at, m_settings.displayMode(),
                                   m_settings.idleBehavior() == 1, m_settings.secondaryContent(),
                                   m_playback->lyricText()->romanizationAsRuby());
     const bool empty = state.content.primary.isEmpty();
-    state.visible = !(empty && m_settings.idleBehavior() == 2) &&
-                    !(!state.playing && m_settings.pauseBehavior() == 2);
+    state.lyricsVisible = lyricsEnabled && !(empty && m_settings.idleBehavior() == 2) &&
+                          !(!state.playing && m_settings.pauseBehavior() == 2);
+    state.visible = m_shellVisible && (state.lyricsVisible || !state.icon.isNull());
     state.dimmed = !state.playing && m_settings.pauseBehavior() == 1;
     if (empty)
         state.content.primary = state.title;
@@ -147,6 +173,11 @@ void MenuBarLyricController::sync()
         style.motionEnabled = m_theme->motionEnabled();
     }
     m_native.update(state, style);
+    // Confirm creation once; clock updates must not allocate diagnostic maps.
+    if (!m_presented && m_native.diagnostics().value("created").toBool()) {
+        m_presented = true;
+        emit presentationChanged();
+    }
 }
 void MenuBarLyricController::invoke(MenuBarLyric::Action action)
 {
@@ -158,7 +189,8 @@ void MenuBarLyricController::invoke(MenuBarLyric::Action action)
     if (action == Action::Disable) {
         QMetaObject::invokeMethod(
             this, [this] { m_settings.setEnabled(false); }, Qt::QueuedConnection);
-    } else if (action == Action::Settings || action == Action::OpenMain) {
+    } else if (action == Action::Settings || action == Action::OpenMain ||
+               action == Action::TrayActivate || action == Action::TrayMenu) {
         QMetaObject::invokeMethod(
             this,
             [this, action] {
@@ -166,6 +198,10 @@ void MenuBarLyricController::invoke(MenuBarLyric::Action action)
                     return;
                 if (action == Action::Settings)
                     emit settingsRequested();
+                else if (action == Action::TrayActivate)
+                    emit trayActivateRequested();
+                else if (action == Action::TrayMenu)
+                    emit trayMenuRequested();
                 else
                     emit openMainRequested();
             },

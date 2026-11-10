@@ -29,6 +29,12 @@ public:
     void attachPlayback(PlaybackService &playback);
     void attachTheme(ThemeStore &theme);
     void setPresentationReady();
+    void setIcon(const QImage &icon);
+    void setShellVisible(bool visible);
+    bool ownsTray() const
+    {
+        return m_presented && !m_icon.isNull();
+    }
     void shutdown();
     /// Projects only the needed source row; static lyrics use the first visible row.
     /// Display modes never manufacture timing for translation or romanization.
@@ -42,6 +48,9 @@ public:
 signals:
     void openMainRequested();
     void settingsRequested();
+    void trayActivateRequested();
+    void trayMenuRequested();
+    void presentationChanged();
 
 private:
     void sync();
@@ -51,6 +60,8 @@ private:
     QPointer<PlaybackService> m_playback;
     QPointer<PlaybackLibraryActions> m_library;
     QPointer<ThemeStore> m_theme;
+    QImage m_icon;
+    bool m_presented = false, m_shellVisible = true;
     bool m_ready = false, m_closing = false;
 };
 } // namespace EchoMusic

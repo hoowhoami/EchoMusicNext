@@ -1,6 +1,7 @@
 #pragma once
 #include <QColor>
 #include <QFont>
+#include <QImage>
 #include <QVariantMap>
 #include <functional>
 #include <memory>
@@ -40,12 +41,14 @@ struct MenuBarLyricState
     MenuBarLyricContent content;
     QString title;
     QColor coverColor;
+    QImage icon;
     bool hasTrack = false;
     bool playing = false;
     bool advancing = false;
     bool favorite = false;
     bool favoriteEnabled = false;
     bool visible = true;
+    bool lyricsVisible = true;
     bool dimmed = false;
     int playMode = 0; // PlaybackService: list, single, shuffle, sequential
 };
@@ -63,7 +66,9 @@ public:
         Favorite,
         OpenMain,
         Settings,
-        Disable
+        Disable,
+        TrayActivate,
+        TrayMenu
     };
     MenuBarLyric();
     ~MenuBarLyric();

@@ -3,6 +3,7 @@
 #include "ThemeStore.h"
 #include "ApiClient.h"
 #include "PlaybackService.h"
+#include "WindowController.h"
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QQuickWindow>
@@ -43,6 +44,63 @@ class MenuBarLyricTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void oneStatusItemOwnsIconLyricsAndBackgroundHiding()
+    {
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Native AppKit display required");
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("settings.ini"));
+        ApiClient api;
+        PlaybackService playback(api, settings, nullptr, directory.filePath("playback.sqlite"));
+        WindowController windows(settings, false);
+        auto *controller = windows.menuBarLyrics();
+        const QImage icon(QFINDTESTDATA("../../modules/EchoMusic/Shell/assets/mac-tray.png"));
+        QVERIFY(!icon.isNull());
+        controller->setIcon(icon);
+        windows.attachPlayback(playback);
+        QQuickWindow window;
+        windows.attach(&window);
+        windows.showWindow();
+        QVERIFY(!controller->settings()->enabled());
+        QVERIFY(controller->ownsTray());
+        QCOMPARE(controller->diagnostics().value("width").toDouble(), 24.);
+        const auto identity = controller->diagnostics().value("nativeItemId");
+        QVERIFY(identity.toULongLong() > 0);
+        for (int i = 0; i < 3; ++i) {
+            controller->settings()->setEnabled(true);
+            QVERIFY(controller->diagnostics().value("lyricsVisible").toBool());
+            QVERIFY(controller->diagnostics().value("width").toDouble() >= 128.);
+            QCOMPARE(controller->diagnostics().value("nativeItemId"), identity);
+            controller->settings()->setEnabled(false);
+            QCOMPARE(controller->diagnostics().value("width").toDouble(), 24.);
+            QCOMPARE(controller->diagnostics().value("nativeItemId"), identity);
+        }
+        controller->settings()->setEnabled(true);
+        windows.setCloseToTray(true);
+        windows.setHideMenuBarInBackground(true);
+        QVERIFY(windows.trayAvailable());
+        windows.close();
+        QTRY_VERIFY(windows.background());
+        QVERIFY(!controller->diagnostics().value("visible").toBool());
+        QVERIFY(!controller->diagnostics().value("iconVisible").toBool());
+        QVERIFY(!controller->diagnostics().value("timerActive").toBool());
+        QCOMPARE(controller->diagnostics().value("bitmapBytes").toLongLong(), 0);
+        QCOMPARE(controller->diagnostics().value("nativeItemId"), identity);
+        controller->settings()->setEnabled(false);
+        controller->settings()->setEnabled(true);
+        QVERIFY(!controller->diagnostics().value("visible").toBool());
+        windows.showWindow();
+        QVERIFY(controller->settings()->enabled());
+        QVERIFY(controller->diagnostics().value("visible").toBool());
+        QVERIFY(controller->diagnostics().value("iconVisible").toBool());
+        QCOMPARE(controller->diagnostics().value("nativeItemId"), identity);
+        windows.shutdown();
+        QVERIFY(!controller->diagnostics().value("created").toBool());
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void projectionUsesSharedFilteringOffsetsAndSourceTimes()
     {
         LyricModel model(nullptr);

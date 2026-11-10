@@ -86,6 +86,12 @@ WindowController::WindowController(EchoMusic::SettingsStore &settings, bool pers
             &WindowController::showTaskbarLyricMenu);
     connect(&m_menuBarLyrics, &MenuBarLyricController::openMainRequested, this,
             &WindowController::showWindow);
+    connect(&m_menuBarLyrics, &MenuBarLyricController::trayActivateRequested, this,
+            &WindowController::restoreWindow);
+    connect(&m_menuBarLyrics, &MenuBarLyricController::trayMenuRequested, this,
+            &WindowController::popupTrayMenu);
+    connect(&m_menuBarLyrics, &MenuBarLyricController::presentationChanged, this,
+            &WindowController::updateTrayVisibility);
     connect(&m_menuBarLyrics, &MenuBarLyricController::settingsRequested, this, [this] {
         showWindow();
         emit settingsRequested(QStringLiteral("lyric"));
@@ -203,21 +209,22 @@ void WindowController::attach(QQuickWindow *window)
     // Test/offscreen controllers never allocate a QWidget menu or touch the OS.
     if (m_persist && qobject_cast<QApplication *>(QCoreApplication::instance()) &&
         QGuiApplication::platformName() != "offscreen") {
-        m_tray = std::make_unique<QSystemTrayIcon>();
-        m_trayTheme = std::make_unique<TrayIconTheme>([this] {
-            if (m_tray)
-                m_tray->setIcon(m_appIcons.trayIcon(TrayIconTheme::icon()));
-        });
-        m_tray->setIcon(m_appIcons.trayIcon(TrayIconTheme::icon()));
-        connect(&m_appIcons, &AppIconService::changed, this, [this] {
-            if (m_tray)
-                m_tray->setIcon(m_appIcons.trayIcon(TrayIconTheme::icon()));
-        });
-        m_tray->setToolTip("EchoMusicNext");
-        // Never bind a context menu on Cocoa: AppKit then intercepts BOTH mouse
-        // buttons, so left activation would also open a menu.
-        connect(m_tray.get(), &QSystemTrayIcon::activated, this,
+#ifdef Q_OS_MACOS
+        const bool nativeStatusItem = QGuiApplication::platformName() == "cocoa";
+#else
+        constexpr bool nativeStatusItem = false;
+#endif
+        if (!nativeStatusItem)
+            m_tray = std::make_unique<QSystemTrayIcon>();
+        m_trayTheme = std::make_unique<TrayIconTheme>([this] { updateTrayIcon(); });
+        updateTrayIcon();
+        connect(&m_appIcons, &AppIconService::changed, this, &WindowController::updateTrayIcon);
+        if (m_tray) {
+            m_tray->setToolTip("EchoMusicNext");
+            connect(
+                m_tray.get(), &QSystemTrayIcon::activated, this,
                 [this](QSystemTrayIcon::ActivationReason reason) { activateTray(int(reason)); });
+        }
 #ifdef Q_OS_LINUX
         // SNI panels may fetch/cache GetLayout before any Context activation.
         // Bind before registration so Qt exports /MenuBar, not /NO_DBUSMENU.
@@ -230,7 +237,7 @@ void WindowController::attach(QQuickWindow *window)
                 createMacDockMenuOwner(this, [this] { return createDockMenu(); }));
         }
 #endif
-        m_tray->show();
+        updateTrayVisibility();
         // Qt's Cocoa delegate forwards Finder/Dock reopen with forcePropagate,
         // even if already active. Use that public signal, not delegate swizzling.
         connect(qGuiApp, &QGuiApplication::applicationStateChanged, this,
@@ -317,6 +324,28 @@ void WindowController::activateTray(int reason)
         restoreWindow();
     else if (reason == QSystemTrayIcon::Context)
         popupTrayMenu();
+}
+void WindowController::updateTrayIcon()
+{
+    if (!m_tray && !m_menuBarLyrics.available())
+        return;
+    const auto icon = m_appIcons.trayIcon(TrayIconTheme::icon());
+    if (m_tray)
+        m_tray->setIcon(icon);
+#ifdef Q_OS_MACOS
+    // One native item owns both icon-only and lyric modes, including plugin
+    // icon overrides. Cocoa never creates a separate QSystemTrayIcon.
+    m_menuBarLyrics.setIcon(icon.pixmap(64, 64).toImage());
+#endif
+}
+void WindowController::updateTrayVisibility()
+{
+    if (m_shuttingDown)
+        return;
+    const bool hidden = m_background && !m_floating.miniActive() && macOS() && m_hideMenu;
+    m_menuBarLyrics.setShellVisible(!hidden);
+    if (m_tray)
+        m_tray->setVisible(!hidden);
 }
 void WindowController::restoreWindow()
 {
@@ -732,7 +761,7 @@ bool WindowController::macOS() const
 }
 bool WindowController::trayAvailable() const
 {
-    return m_tray && QSystemTrayIcon::isSystemTrayAvailable();
+    return (m_tray || m_menuBarLyrics.ownsTray()) && QSystemTrayIcon::isSystemTrayAvailable();
 }
 void WindowController::setCloseToTray(bool value)
 {
@@ -780,8 +809,7 @@ void WindowController::setAutoLaunch(bool value)
 void WindowController::setBackground(bool value)
 {
     m_background = value;
-    if (m_tray)
-        m_tray->setVisible(!(value && !m_floating.miniActive() && macOS() && m_hideMenu));
+    updateTrayVisibility();
 #ifdef Q_OS_MACOS
     if (m_persist && QGuiApplication::platformName() == "cocoa")
         setMacDockHidden(value && !m_floating.miniActive() && m_hideDock);
