@@ -57,7 +57,7 @@ EchoInputBackground {
         panelOwner.close();
     }
     function submit(keyword: string) {
-        if (input.inputMethodComposing)
+        if (input.preeditText.length > 0)
             return;
         const term = keyword.trim() || service.suggestions.defaultKeyword;
         if (!term.length)
@@ -181,6 +181,7 @@ EchoInputBackground {
                 box.service.suggestions.setQuery(text);
                 panelOwner.open();
             }
+            onAccepted: box.submit(box.activeSuggestion >= 0 && panelOwner.opened ? box.service.suggestions.textAt(box.activeSuggestion) : text)
             Keys.onPressed: event => {
                 if (input.inputMethodComposing)
                     return;
@@ -190,9 +191,6 @@ EchoInputBackground {
                 } else if (event.key === Qt.Key_Escape) {
                     panelOwner.close();
                     input.focus = false;
-                    event.accepted = true;
-                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                    box.submit(box.activeSuggestion >= 0 && panelOwner.opened ? box.service.suggestions.textAt(box.activeSuggestion) : text);
                     event.accepted = true;
                 }
             }
