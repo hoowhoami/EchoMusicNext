@@ -353,8 +353,8 @@ add_test(
     NAME controls-ui-popups
     COMMAND
         echo-controls-ui-test scaledPopupTextKeepsNativePixelResolution
-        floatingPanelEdgesAndMenuHeight menusDrawersAndFileDialogsReleaseAfterClose
-        filePickerPreservesSelectionAndCancelsWithOwner
+        floatingPanelEdgesAndMenuHeight anchoredPopupsPassOutsideInputAndKeepNestedSurfaces
+        menusDrawersAndFileDialogsReleaseAfterClose filePickerPreservesSelectionAndCancelsWithOwner
         businessPopupsAreCreatedOnDemandAndDestroyedAfterExit
         verificationCoverPreservesPopupInstancesAndDrafts tooltipPopupsExistOnlyDuringTheirTrigger
         nativeMenuCancelsVisibleAndDelayedHintsUntilNewHover tooltipPressPreservesClickAndRelease
@@ -873,7 +873,7 @@ add_test(
 )
 add_test(NAME desktop-pages-popups
          COMMAND echo-desktop-pages-test productionQualityPopupContainsAndScrollsAllOptions
-                 taskIndicatorUsesSingleDot
+                 productionPopoversSwitchOnOneOutsideClick taskIndicatorUsesSingleDot
 )
 add_test(
     NAME desktop-pages-library

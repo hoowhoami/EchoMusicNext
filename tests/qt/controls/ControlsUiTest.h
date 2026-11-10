@@ -29,6 +29,7 @@ private slots:
     void coverCropAndRoundedPixels();
     void frostedCornersRetainAntialiasCoverage();
     void floatingPanelEdgesAndMenuHeight();
+    void anchoredPopupsPassOutsideInputAndKeepNestedSurfaces();
     void clearActionIsOneUserEditButProgrammaticClearIsNot();
     void colorPresetsKeepVisibleEdgesInBothThemes();
     void boundedListAutoHeightSurvivesReopenAndVariableRows();

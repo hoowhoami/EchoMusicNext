@@ -28,8 +28,13 @@ ItemDelegate {
     rightPadding: 12
     topPadding: 0
     bottomPadding: 0
-    onDoubleClicked: if (actionsEnabled && !pendingPlay)
-        playRequested(index)
+    // Observe taps passively so viewport-owned dragging can take over without
+    // relying on AbstractButton's exclusive mouse grab for double clicks.
+    TapHandler {
+        enabled: row.actionsEnabled && !row.pendingPlay
+        acceptedButtons: Qt.LeftButton
+        onDoubleTapped: row.playRequested(row.index)
+    }
     background: Rectangle {
         radius: Theme.controlRadius
         color: row.active || row.hovered ? Theme.floating.hover : "transparent"

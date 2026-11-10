@@ -240,6 +240,127 @@ class PlaybackQueueReorderTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void rowButtonsAndLoadingKeepTheirOwnGestures()
+    {
+        Fixture f;
+        QVERIFY(f.create());
+        QQmlComponent component(&f.engine);
+        component.setData(R"(
+            import QtQuick
+            import EchoMusic.Playback
+            Window {
+                width: 420; height: 56; visible: true
+                PlaybackQueueRow {
+                    objectName: "standaloneQueueRow"
+                    anchors.fill: parent
+                    index: 2; title: "Song"; artistText: "Artist"; coverUrl: ""
+                    isCurrent: true; viewActive: true
+                }
+            }
+        )",
+                          QUrl());
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        auto *row = item(window->contentItem(), "standaloneQueueRow");
+        QVERIFY(row);
+        QSignalSpy play(row, SIGNAL(playRequested(int)));
+        QSignalSpy remove(row, SIGNAL(removeRequested(int)));
+        const auto doubleClick = [&](QQuickItem *target) {
+            const auto point =
+                target->mapToScene({target->width() / 2, target->height() / 2}).toPoint();
+            Test::moveNativePointer(window, point);
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
+            QTest::mouseDClick(window, Qt::LeftButton, Qt::NoModifier, point);
+            QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, point);
+        };
+        auto *playButton = item(row, "queuePlayButton");
+        QVERIFY(playButton && playButton->isVisible());
+        QSignalSpy clicks(playButton, SIGNAL(clicked()));
+        doubleClick(playButton);
+        QVERIFY(!clicks.isEmpty());
+        QCOMPARE(play.size(), clicks.size());
+        auto *removeButton = item(row, "queueRemoveButton");
+        QVERIFY(removeButton);
+        Test::moveNativePointer(window, removeButton->mapToScene({12, 12}).toPoint());
+        QTRY_VERIFY(removeButton->isVisible());
+        const auto plays = play.size();
+        doubleClick(removeButton);
+        QVERIFY(!remove.isEmpty());
+        QCOMPARE(play.size(), plays);
+        row->setProperty("playbackLoading", true);
+        doubleClick(row);
+        QCOMPARE(play.size(), plays);
+        row->setProperty("playbackLoading", false);
+        row->setProperty("actionsEnabled", false);
+        doubleClick(row);
+        QCOMPARE(play.size(), plays);
+    }
+    void doubleClickPlaysViewedQueue_data()
+    {
+        QTest::addColumn<bool>("preview");
+        QTest::addColumn<QPoint>("position");
+        for (bool preview : {false, true}) {
+            const auto prefix = preview ? QStringLiteral("history-") : QStringLiteral("active-");
+            QTest::newRow(qPrintable(prefix + "cover")) << preview << QPoint(90, 28);
+            QTest::newRow(qPrintable(prefix + "title")) << preview << QPoint(180, 16);
+            QTest::newRow(qPrintable(prefix + "artist")) << preview << QPoint(180, 40);
+        }
+    }
+    void doubleClickPlaysViewedQueue()
+    {
+        QFETCH(bool, preview);
+        QFETCH(QPoint, position);
+        Fixture f;
+        QVERIFY(f.create());
+        QTRY_VERIFY(!PlaybackServiceTestAccess::restoring(f.playback));
+        auto *catalog = f.playback.queueCatalog();
+        auto *active = catalog->activate("active", "Active", songs("a"), -1);
+        auto *history = catalog->retain("history", "History", songs("h"));
+        auto *model = preview ? history : active;
+        QPointer<QObject> drawer = f.open();
+        QVERIFY(drawer);
+        QTRY_VERIFY(drawer->property("opened").toBool());
+        if (preview)
+            catalog->setViewIndex(catalog->rowCount() - 1);
+        auto *view = f.find("playbackQueueList");
+        auto *control = f.find("playbackQueueReorder");
+        QVERIFY(view && control);
+        QTRY_COMPARE(view->property("model").value<QObject *>(), model);
+        auto *guard = view->findChild<QObject *>("viewPoolGuard");
+        QVERIFY(guard);
+        auto *reset = guard->property("resetTimer").value<QObject *>();
+        QVERIFY(reset);
+        QTRY_VERIFY(!reset->property("running").toBool());
+        QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtBeginning"));
+        QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
+        Test::FrameSpy rendered(f.window);
+        f.window->requestUpdate();
+        QVERIFY(rendered.wait(1000));
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(view, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, row),
+                                              Q_ARG(int, 2)) &&
+                    row);
+        auto *visual = item(row, "queueRowVisual");
+        QVERIFY(visual);
+        QSignalSpy requested(visual, SIGNAL(playRequested(int)));
+        QSignalSpy moves(model, &QAbstractItemModel::rowsMoved);
+        const auto sequence = PlaybackServiceTestAccess::sequence(f.playback);
+        const auto point = visual->mapToScene(position).toPoint();
+        Test::moveNativePointer(f.window, point);
+        QTest::mouseClick(f.window, Qt::LeftButton, Qt::NoModifier, point);
+        QCOMPARE(requested.size(), 0);
+        QTest::mouseDClick(f.window, Qt::LeftButton, Qt::NoModifier, point);
+        QTest::mouseRelease(f.window, Qt::LeftButton, Qt::NoModifier, point);
+        QTRY_COMPARE(requested.size(), 1);
+        QCOMPARE(requested.first().first().toInt(), 2);
+        QCOMPARE(catalog->activeModel(), model);
+        QCOMPARE(model->currentIndex(), 2);
+        QCOMPARE(PlaybackServiceTestAccess::sequence(f.playback), sequence + 1);
+        QCOMPARE(moves.size(), 0);
+        QVERIFY(!control->property("busy").toBool());
+    }
     void dragCommitsOnceAndPersists_data()
     {
         QTest::addColumn<bool>("dark");

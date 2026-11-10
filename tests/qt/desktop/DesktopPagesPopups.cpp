@@ -1,6 +1,65 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
 
+void DesktopPagesTest::productionPopoversSwitchOnOneOutsideClick()
+{
+    Session session;
+    session.preferences.setValue("playback/volume", 0);
+    PlaybackService playback(session.api, session.preferences);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&session] {
+        session.root.reset();
+        session.window = nullptr;
+    });
+    session.theme.setFloatingFrosted(false);
+    session.window->resize(1150, 900);
+    QQuickItem anchor(session.window->contentItem());
+    anchor.setSize(QSizeF(32, 32));
+    anchor.setPosition(QPointF(820, 820));
+    const auto captures = qEnvironmentVariable("ECHO_POPUP_INPUT_CAPTURES");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const auto scale : {1., 1.25}) {
+            session.shell.resetZoom();
+            if (scale > 1)
+                for (int step = 0; step < 5; ++step)
+                    session.shell.zoomIn();
+            for (const auto &kind :
+                 {"volume", "speed", "quality", "play-mode", "effect", "cast", "sleep", "more"}) {
+                const auto owner = qstrcmp(kind, "effect") == 0  ? "playbackEffectPopupOwner"
+                                   : qstrcmp(kind, "cast") == 0  ? "playbackCastPopupOwner"
+                                   : qstrcmp(kind, "sleep") == 0 ? "sleepTimerPopupOwner"
+                                   : qstrcmp(kind, "more") == 0  ? "playerbarMorePopupOwner"
+                                                                 : "playbackOptionsPopupOwner";
+                QVariantMap properties{{"anchorItem", QVariant::fromValue(&anchor)}};
+                if (qstrcmp(kind, "effect") == 0)
+                    properties.insert("tab", 2);
+                if (qstrcmp(owner, "playbackOptionsPopupOwner") == 0)
+                    properties.insert("kind", kind);
+                auto popup = session.openOwnedPopup(owner, properties);
+                QVERIFY2(popup, kind);
+                QVERIFY(session.clickItem("titlebarMoreAction"));
+                QPointer<QObject> more;
+                QTRY_VERIFY((more = session.root->findChild<QObject *>("titlebarMorePopup")));
+                QTRY_VERIFY(more->property("opened").toBool());
+                QTRY_VERIFY(popup.isNull());
+                if (!captures.isEmpty() && qstrcmp(kind, "volume") == 0) {
+                    QVERIFY(session.settleScene());
+                    QVERIFY(session.window->grabWindow().save(
+                        captures +
+                        QString("/production-switch-%1-%2.png").arg(int(mode)).arg(scale)));
+                }
+                QTest::keyClick(session.window, Qt::Key_Escape);
+                QTRY_VERIFY(more.isNull());
+            }
+        }
+    }
+    QCOMPARE(warnings.size(), 0);
+}
+
 void DesktopPagesTest::productionQualityPopupContainsAndScrollsAllOptions()
 {
     Session session;

@@ -47,9 +47,20 @@ Popup {
     y: side === EchoAnchoredPopup.Beside ? Math.max(placementRect.y + edge, Math.min(alignEnd ? anchorRect.y + anchorRect.height - height * uiScale : anchorRect.y, placementRect.y + placementRect.height - edge - height * uiScale)) : placedAbove ? anchorRect.y - sideOffset * uiScale - height * uiScale : anchorRect.y + anchorRect.height + sideOffset * uiScale
     padding: 8
     focus: true
-    modal: true
+    // EchoMusic popovers dismiss on an outside press while letting the same
+    // gesture reach the background control. Drawers and dialogs own modality.
+    modal: false
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     Overlay.modal: Item {}
+    onOpened: {
+        // Qt 6.12 can restore window focus when an older popup finishes exiting
+        // during this entry. Recover only from the window/trigger, never from
+        // another popup or editor that has already taken focus.
+        const window = parent ? parent.Window.window : null;
+        const target = window ? window.activeFocusItem : null;
+        if (focus && !activeFocus && window && (target === window.contentItem || target === anchorItem))
+            forceActiveFocus(Qt.PopupFocusReason);
+    }
     background: EchoFloatingSurface {
         // Anchored popovers are borderless; dialogs and search panels can opt into a ring.
         border.width: 0

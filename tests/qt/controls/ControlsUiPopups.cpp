@@ -157,6 +157,215 @@ ApplicationWindow {
     }
 }
 
+void ControlsUiTest::anchoredPopupsPassOutsideInputAndKeepNestedSurfaces()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    session.theme.setFloatingFrosted(false);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+ApplicationWindow {
+    id: host
+    width: 900; height: 700; visible: true
+    property real zoom: 1
+    property int outsideClicks: 0
+    property int insideClicks: 0
+    property alias panel: owner.item
+    property alias sibling: siblingOwner.item
+    property alias drawer: drawerOwner.item
+    function showPanel() { owner.open() }
+    function showDrawer() { drawerOwner.open() }
+    EchoButton {
+        id: anchor; objectName: "popupAnchor"
+        x: 60; y: 80; text: "浮层"
+        onClicked: owner.open()
+    }
+    EchoButton {
+        id: siblingAnchor; objectName: "siblingAnchor"
+        x: 600; y: 80; text: "另一个浮层"
+        onClicked: siblingOwner.open()
+    }
+    EchoButton {
+        objectName: "outsideAction"
+        x: 60; y: 600; text: "主界面操作"
+        onClicked: host.outsideClicks++
+    }
+    EchoPopupLoader {
+        id: owner; hostItem: host.contentItem
+        sourceComponent: EchoAnchoredPopup {
+            id: panel
+            anchorItem: anchor; uiScale: host.zoom
+            preferredWidth: 300; alignEnd: false
+            implicitHeight: 220
+            property alias confirmation: confirmationOwner.item
+            property alias dialog: dialogOwner.item
+            function showDialog() { dialogOwner.open() }
+            contentItem: Item {
+                EchoButton {
+                    objectName: "insideAction"; x: 12; y: 8; text: "浮层操作"
+                    onClicked: host.insideClicks++
+                }
+                EchoSelect {
+                    objectName: "nestedSelect"; x: 12; y: 60; width: 220
+                    options: [
+                        {label: "选项一", value: "one"}, {label: "选项二", value: "two"},
+                        {label: "选项三", value: "three"}, {label: "选项四", value: "four"},
+                        {label: "选项五", value: "five"}, {label: "选项六", value: "six"}
+                    ]
+                }
+                EchoButton {
+                    id: confirmAnchor; objectName: "confirmationAnchor"
+                    x: 12; y: 120; text: "二级确认"
+                    onClicked: confirmationOwner.open()
+                }
+            }
+            EchoPopupLoader {
+                id: confirmationOwner; hostItem: confirmAnchor
+                sourceComponent: EchoPopconfirm {
+                    anchorItem: confirmAnchor; uiScale: host.zoom
+                    side: EchoAnchoredPopup.Beside
+                    title: "确认操作"
+                }
+            }
+            EchoPopupLoader {
+                id: dialogOwner; hostItem: panel.contentItem
+                sourceComponent: EchoDialog {
+                    uiScale: host.zoom; heading: "模态对话框"
+                    body: Component { Item { implicitHeight: 100 } }
+                }
+            }
+        }
+    }
+    EchoPopupLoader {
+        id: siblingOwner; hostItem: host.contentItem
+        sourceComponent: EchoAnchoredPopup {
+            anchorItem: siblingAnchor; uiScale: host.zoom
+            preferredWidth: 160; implicitHeight: 90
+        }
+    }
+    EchoPopupLoader {
+        id: drawerOwner; hostItem: host.contentItem
+        sourceComponent: EchoDrawer {
+            uiScale: host.zoom
+            contentItem: Item {}
+        }
+    }
+})",
+                      QUrl("popup-outside-input.qml"));
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    const auto click = [&](const QString &name) {
+        auto *item = session.item(name);
+        if (!item)
+            return false;
+        QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier,
+                          item->mapToScene(item->boundingRect().center()).toPoint());
+        return true;
+    };
+    const auto captures = qEnvironmentVariable("ECHO_POPUP_INPUT_CAPTURES");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const auto zoom : {1., 1.25}) {
+            session.root->setProperty("zoom", zoom);
+            // Exercise delivery while the real exit animation is still running.
+            session.theme.setMotionEnabled(true);
+            QVERIFY(click("popupAnchor"));
+            QPointer<QObject> panel = session.root->property("panel").value<QObject *>();
+            QVERIFY(panel);
+            QTRY_VERIFY(panel->property("opened").toBool());
+            const auto outsideBefore = session.root->property("outsideClicks").toInt();
+            QVERIFY(click("outsideAction"));
+            QCOMPARE(session.root->property("outsideClicks").toInt(), outsideBefore + 1);
+            QTRY_VERIFY(panel.isNull());
+
+            QVERIFY(click("popupAnchor"));
+            panel = session.root->property("panel").value<QObject *>();
+            QVERIFY(panel);
+            QTRY_VERIFY(panel->property("opened").toBool());
+            const auto insideBefore = session.root->property("insideClicks").toInt();
+            QVERIFY(click("insideAction"));
+            QCOMPARE(session.root->property("insideClicks").toInt(), insideBefore + 1);
+            QVERIFY(panel->property("visible").toBool());
+            QVERIFY(click("nestedSelect"));
+            auto *select = session.item("nestedSelect");
+            QPointer<QObject> options;
+            QTRY_VERIFY((options = select->property("popup").value<QObject *>()));
+            QTRY_VERIFY(options->property("opened").toBool());
+            QTest::keyClick(session.window, Qt::Key_Down);
+            QTest::keyClick(session.window, Qt::Key_Return);
+            QTRY_VERIFY(options.isNull());
+            QVERIFY(panel && panel->property("opened").toBool());
+
+            QVERIFY(click("confirmationAnchor"));
+            QPointer<QObject> confirmation = panel->property("confirmation").value<QObject *>();
+            QVERIFY(confirmation);
+            QTRY_VERIFY(confirmation->property("opened").toBool());
+            if (!captures.isEmpty()) {
+                session.window->update();
+                QTest::qWait(60);
+                QVERIFY(session.window->grabWindow().save(
+                    captures + QString("/nested-%1-%2.png").arg(int(mode)).arg(zoom)));
+            }
+            QVERIFY(click("popconfirmCancel"));
+            QTRY_VERIFY(confirmation.isNull());
+            QVERIFY(panel && panel->property("opened").toBool());
+            // Select retains its editing focus and handles Escape itself.
+            // Outside dismissal must still work after both nested surfaces.
+            QVERIFY(click("outsideAction"));
+            QCOMPARE(session.root->property("outsideClicks").toInt(), outsideBefore + 2);
+            QTRY_VERIFY(panel.isNull());
+
+            QVERIFY(click("popupAnchor"));
+            panel = session.root->property("panel").value<QObject *>();
+            QVERIFY(panel);
+            QTRY_VERIFY(panel->property("opened").toBool());
+            QVERIFY(click("siblingAnchor"));
+            QPointer<QObject> sibling = session.root->property("sibling").value<QObject *>();
+            QVERIFY(sibling);
+            QTRY_VERIFY(sibling->property("opened").toBool());
+            QTRY_VERIFY(panel.isNull());
+            QVERIFY(sibling->property("activeFocus").toBool());
+            QTest::keyClick(session.window, Qt::Key_Escape);
+            QTRY_VERIFY(sibling.isNull());
+
+            // A dialog above a modeless popover must still consume its outside
+            // press, and closing it must keep the existing parent instance.
+            QVERIFY(click("popupAnchor"));
+            panel = session.root->property("panel").value<QObject *>();
+            QVERIFY(panel);
+            QTRY_VERIFY(panel->property("opened").toBool());
+            QVERIFY(QMetaObject::invokeMethod(panel, "showDialog"));
+            QPointer<QObject> dialog = panel->property("dialog").value<QObject *>();
+            QVERIFY(dialog);
+            QTRY_VERIFY(dialog->property("opened").toBool());
+            const auto blockedBefore = session.root->property("outsideClicks").toInt();
+            QVERIFY(click("outsideAction"));
+            QCOMPARE(session.root->property("outsideClicks").toInt(), blockedBefore);
+            QTRY_VERIFY(dialog.isNull());
+            QVERIFY(panel && panel->property("opened").toBool());
+            QVERIFY(QMetaObject::invokeMethod(panel, "close"));
+            QTRY_VERIFY(panel.isNull());
+
+            QVERIFY(QMetaObject::invokeMethod(session.root.data(), "showDrawer"));
+            QPointer<QObject> drawer = session.root->property("drawer").value<QObject *>();
+            QVERIFY(drawer);
+            QTRY_VERIFY(drawer->property("opened").toBool());
+            QVERIFY(click("outsideAction"));
+            QCOMPARE(session.root->property("outsideClicks").toInt(), blockedBefore);
+            QTRY_VERIFY(drawer.isNull());
+        }
+    }
+    QCOMPARE(warnings.size(), 0);
+}
+
 void ControlsUiTest::floatingPanelEdgesAndMenuHeight()
 {
     ControlsSession session;

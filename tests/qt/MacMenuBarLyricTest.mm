@@ -5,6 +5,7 @@
 #include <QPainter>
 #include <QDir>
 #include <QProcess>
+#include <QTimer>
 #include <ctime>
 #include <cmath>
 #include <QtTest>
@@ -196,7 +197,7 @@ private slots:
         // Between the top edge and the glyphs there is no custom hover surface.
         QCOMPARE(controls.pixelColor(controls.width() / 2, int(3 * scale)).alpha(), 0);
         NSButton *tray = nil;
-        for (NSView *child in view.subviews)
+        for (NSView *child in view.accessibilityChildren)
             if ([child isKindOfClass:NSButton.class] &&
                 [child.accessibilityLabel isEqualToString:@"EchoMusicNext"])
                 tray = (NSButton *)child;
@@ -501,7 +502,7 @@ private slots:
         now += 1000;
         item.update(state, style);
         QCOMPARE(item.diagnostics().value("textBuilds").toULongLong(), builds);
-        QVERIFY(item.diagnostics().value("cutoff").toDouble() > cutoff);
+        QTRY_VERIFY(item.diagnostics().value("cutoff").toDouble() > cutoff);
         // A long reading must gain horizontal space, never shrink back into
         // the old tiny base-word box. The status bar still has only mask/scroll
         // updates, with no word transforms or implicit CoreAnimation effects.
@@ -555,8 +556,8 @@ private slots:
         for (int word = 0; word < 4; ++word) {
             now = 2200 + word * 1000;
             item.update(state, style);
-            QVERIFY2(item.diagnostics().value("displayRequests").toULongLong() > requests,
-                     "Changed mask must request a hosted NSView display");
+            QTRY_VERIFY2(item.diagnostics().value("displayRequests").toULongLong() > requests,
+                         "Changed mask must publish a native frame within the menu-bar budget");
             requests = item.diagnostics().value("displayRequests").toULongLong();
             const auto pixels = hostSnapshot(view);
             if (!previous.isNull())
@@ -624,11 +625,7 @@ private slots:
         QCoreApplication::processEvents();
         auto *view = nativeView(item);
         QVERIFY(view);
-        auto *bitmap = [view bitmapImageRepForCachingDisplayInRect:view.bounds];
-        QVERIFY(bitmap);
-        [view cacheDisplayInRect:view.bounds toBitmapImageRep:bitmap];
-        auto *png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
-        const auto pixels = QImage::fromData(static_cast<const uchar *>(png.bytes), png.length);
+        const auto pixels = hostSnapshot(view);
         QVERIFY(!pixels.isNull());
         int original = 0, translation = 0;
         for (int y = 0; y < pixels.height(); ++y)
@@ -728,7 +725,7 @@ private slots:
         QVERIFY(item.diagnostics().value("hovered").toBool());
         QVERIFY(!item.diagnostics().value("timerActive").toBool());
         QList<NSButton *> buttons;
-        for (NSView *child in view.subviews)
+        for (NSView *child in view.accessibilityChildren)
             if ([child isKindOfClass:NSButton.class] &&
                 ![child.accessibilityLabel isEqualToString:@"EchoMusicNext"])
                 buttons << (NSButton *)child;
@@ -740,6 +737,10 @@ private slots:
             auto *button = buttons[i];
             QVERIFY(button.accessibilityLabel.length > 0);
             [button performClick:nil];
+            QCOMPARE(commands.last(), i);
+            QVERIFY(button.accessibilityParent == view);
+            QVERIFY(NSEqualSizes(button.accessibilityFrame.size, button.frame.size));
+            QVERIFY([button accessibilityPerformPress]);
             QCOMPARE(commands.last(), i);
         }
         const auto before = commands.size();
@@ -768,6 +769,7 @@ private slots:
         state.favoriteEnabled = false;
         item.update(state, {});
         QVERIFY(!buttons.last().enabled);
+        QVERIFY(![buttons.last() accessibilityPerformPress]);
         if (compact) {
             auto *menu = [view menuForEvent:[NSEvent new]];
             QCOMPARE(menu.numberOfItems, 9); // Five controls, separator, three shell actions.
@@ -806,6 +808,151 @@ private slots:
             }
         }
     }
+    void lyricsDisableReturnsNativeHostToIdle()
+    {
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Native AppKit display required");
+        const auto sample = [](const char *phase) {
+            QElapsedTimer wall;
+            wall.start();
+            const auto start = std::clock();
+            qInfo() << phase << "begin";
+            const auto duration =
+                qstrcmp(phase, "lyrics-active") == 0
+                    ? qBound(1200, qEnvironmentVariableIntValue("ECHO_MENU_BAR_CPU_SAMPLE_MS"),
+                             10000)
+                    : 1200;
+            QTest::qWait(duration);
+            const double cpu = 1000. * (std::clock() - start) / CLOCKS_PER_SEC;
+            qInfo() << phase << wall.elapsed() << "ms wall," << cpu << "ms process CPU";
+            return cpu / wall.elapsed();
+        };
+        const auto baseline = sample("before-create");
+        MenuBarLyric item;
+        QElapsedTimer clock;
+        clock.start();
+        item.create([](auto) {}, [&] { return double(clock.elapsed()); });
+        auto state = timedState();
+        state.icon = QImage(32, 32, QImage::Format_ARGB32_Premultiplied);
+        state.icon.fill(Qt::black);
+        state.lyricsVisible = false;
+        MenuBarLyricStyle style;
+        item.update(state, style);
+        const auto identity = item.diagnostics().value("nativeItemId");
+        QTimer updates;
+        connect(&updates, &QTimer::timeout, this, [&] { item.update(state, style); });
+        updates.start(50); // Playback clock notifications continue with lyrics disabled.
+        QTest::qWait(750);
+        const auto iconOnly = sample("icon-only");
+        state.lyricsVisible = true;
+        state.content.primary = QString(80, QChar(0x56fd));
+        state.content.words = {
+            QVariantMap{{"text", state.content.primary}, {"start_ms", 0}, {"duration_ms", 60000}}};
+        style.scrolling = true;
+        item.update(state, style);
+        QTest::qWait(750);
+        const auto activeBefore = item.diagnostics();
+        const auto active = sample("lyrics-active");
+        const auto frames = item.diagnostics().value("displayRequests").toULongLong() -
+                            activeBefore.value("displayRequests").toULongLong();
+        qInfo() << "active frame requests" << frames;
+        QCOMPARE(item.diagnostics().value("textBuilds"), activeBefore.value("textBuilds"));
+        const auto activeTicks = item.diagnostics().value("ticks").toULongLong();
+        state.lyricsVisible = false;
+        state.content = {};
+        item.update(state, style);
+        QTest::qWait(750);
+        const auto ticks = item.diagnostics().value("ticks");
+        const auto builds = item.diagnostics().value("textBuilds");
+        const auto requests = item.diagnostics().value("displayRequests");
+        const auto disabled = sample("lyrics-disabled");
+        QCOMPARE(item.diagnostics().value("nativeItemId"), identity);
+        QVERIFY(item.diagnostics().value("iconVisible").toBool());
+        QVERIFY(!item.diagnostics().value("timerActive").toBool());
+        QCOMPARE(item.diagnostics().value("ticks"), ticks);
+        QCOMPARE(item.diagnostics().value("textBuilds"), builds);
+        QCOMPARE(item.diagnostics().value("displayRequests"), requests);
+        QVERIFY(!item.diagnostics().value("framePending").toBool());
+        updates.stop();
+        item.reset();
+        QTest::qWait(750);
+        const auto retired = sample("after-reset");
+        QVERIFY(activeTicks > 0);
+        const auto sampledMs =
+            qBound(1200, qEnvironmentVariableIntValue("ECHO_MENU_BAR_CPU_SAMPLE_MS"), 10000);
+        QVERIFY(frames <= quint64(sampledMs / 100 + 2));
+        QVERIFY2(iconOnly < baseline + .08, "Static status icon must not keep AppKit repainting");
+        QVERIFY2(disabled < baseline + .08, "Disabling lyrics must return the native host to idle");
+        QVERIFY2(retired < baseline + .08, "Retired status items must leave no recurring work");
+        QVERIFY2(active < baseline + .20,
+                 "Cached lyric progress must stay within the native CPU budget");
+    }
+
+    void pendingFinalFrameFlushesAndDisableCancelsAllWork()
+    {
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Native AppKit display required");
+        double now = 0;
+        MenuBarLyric item;
+        item.create([](auto) {}, [&] { return now; });
+        auto state = timedState();
+        state.icon = QImage(32, 32, QImage::Format_ARGB32_Premultiplied);
+        state.icon.fill(Qt::black);
+        MenuBarLyricStyle style;
+        item.update(state, style);
+        QVERIFY(nativeView(item));
+        QTest::qWait(250);
+        const auto identity = item.diagnostics().value("nativeItemId");
+        for (int cycle = 0; cycle < 4; ++cycle) {
+            state.visible = state.lyricsVisible = state.advancing = true;
+            style.opacity = cycle % 2 ? 100 : 99; // Immediate visual change.
+            now = 0;
+            item.update(state, style);
+            const auto requests = item.diagnostics().value("displayRequests").toULongLong();
+            now = 5000; // Last word is over; no ongoing animation can rescue a lost final frame.
+            state.advancing = false;
+            item.update(state, style);
+            QTRY_VERIFY(!item.diagnostics().value("framePending").toBool());
+            QTRY_VERIFY(!item.diagnostics().value("timerActive").toBool());
+            QVERIFY(item.diagnostics().value("displayRequests").toULongLong() > requests);
+            QVERIFY(item.diagnostics().value("cutoff").toDouble() > 0);
+            now = 500;
+            state.advancing = true;
+            item.update(state, style);
+            QVERIFY(item.diagnostics().value("framePending").toBool());
+            if (cycle % 2)
+                state.visible = false;
+            else
+                state.lyricsVisible = false;
+            item.update(state, style);
+            QVERIFY(!item.diagnostics().value("framePending").toBool());
+            QVERIFY(!item.diagnostics().value("timerActive").toBool());
+            QCOMPARE(item.diagnostics().value("bitmapBytes").toInt(), 0);
+            const auto disabled = item.diagnostics();
+            for (int update = 0; update < 20; ++update) {
+                now += 50;
+                item.update(state, style);
+            }
+            QTest::qWait(150);
+            for (const auto key : {"ticks", "textBuilds", "displayRequests"})
+                QCOMPARE(item.diagnostics().value(key), disabled.value(key));
+            QCOMPARE(item.diagnostics().value("nativeItemId"), identity);
+        }
+        state.visible = state.lyricsVisible = true;
+        state.playing = state.advancing = false;
+        state.dimmed = true;
+        style.opacity = 67; // A non-exact native float must not look changed on every clock.
+        now = 1000;
+        item.update(state, style);
+        QTest::qWait(250);
+        const auto pausedRequests = item.diagnostics().value("displayRequests");
+        for (int update = 0; update < 20; ++update)
+            item.update(state, style);
+        QTest::qWait(150);
+        QCOMPARE(item.diagnostics().value("displayRequests"), pausedRequests);
+        QVERIFY(!item.diagnostics().value("timerActive").toBool());
+    }
+
     void hiddenAndRepeatedDisableReleaseNativeResources()
     {
         if (QGuiApplication::platformName() != "cocoa")

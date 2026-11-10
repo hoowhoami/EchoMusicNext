@@ -15,6 +15,9 @@ using namespace EchoMusic;
 namespace
 {
 constexpr CGFloat rubyScale = .8;
+// AppKit snapshots system-hosted status views on each invalidation. This small
+// presentation has its own budget; playback and main lyric clocks stay intact.
+constexpr int nativeFrameIntervalMs = 100;
 NSString *nativeText(const QString &text)
 {
     return [[NSString alloc] initWithCharacters:reinterpret_cast<const unichar *>(text.utf16())
@@ -123,8 +126,29 @@ struct CachedLine
 // Physical tracking belongs to the status view. These native buttons retain
 // keyboard/VoiceOver actions without letting NSStatusBarButton steal mouse-up.
 @interface EchoMenuBarPlaybackButton : NSButton
+@property(nonatomic, weak) NSView *statusHost;
 @end
 @implementation EchoMenuBarPlaybackButton
+- (id)accessibilityParent
+{
+    return self.statusHost;
+}
+- (NSRect)accessibilityFrame
+{
+    auto *host = self.statusHost;
+    return [host.window convertRectToScreen:[host convertRect:self.frame toView:nil]];
+}
+- (BOOL)isAccessibilityElement
+{
+    return self.statusHost && !self.hidden;
+}
+- (BOOL)accessibilityPerformPress
+{
+    // Detached action targets have no NSControl window/tracking loop. Dispatch
+    // through the same target/action used by the status view's physical hit test.
+    return self.statusHost && !self.hidden && self.enabled &&
+           [NSApp sendAction:self.action to:self.target from:self];
+}
 - (NSView *)hitTest:(NSPoint)point
 {
     return nil;
@@ -147,6 +171,7 @@ struct CachedLine
     CGFloat cutoff;
     CGFloat availableWidth;
     quint64 layoutProbes;
+    bool framePending;
 @private
     NSTrackingArea *tracking;
     NSTimer *animation;
@@ -164,6 +189,7 @@ struct CachedLine
     QElapsedTimer lineAge;
     bool rebuilding;
     bool layoutPending;
+    QElapsedTimer lastFrame;
 }
 - (void)applyState:(const MenuBarLyricState &)next style:(const MenuBarLyricStyle &)nextStyle;
 - (void)rebuild;
@@ -171,6 +197,7 @@ struct CachedLine
 - (void)finishLayout;
 - (void)buildTrayIcon;
 - (void)refreshAnimation;
+- (void)publishFrame;
 - (void)stop;
 - (BOOL)animationActive;
 @end
@@ -192,7 +219,7 @@ struct CachedLine
             button.target = self;
             button.action = @selector(activateControl:);
             button.hidden = YES;
-            [self addSubview:button];
+            button.statusHost = self;
             [controls addObject:button];
         }
         buttons = controls;
@@ -214,7 +241,7 @@ struct CachedLine
         trayButton.action = @selector(activateTray:);
         trayButton.accessibilityLabel = @"EchoMusicNext";
         trayButton.toolTip = @"EchoMusicNext";
-        [self addSubview:trayButton];
+        trayButton.statusHost = self;
         iconLayer = [CALayer layer];
         [self.layer addSublayer:iconLayer];
         controlsLayer = [CALayer layer];
@@ -247,14 +274,15 @@ struct CachedLine
 }
 - (void)updateTrackingAreas
 {
-    if (tracking)
-        [self removeTrackingArea:tracking];
-    tracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
-                                            options:NSTrackingMouseEnteredAndExited |
-                                                    NSTrackingActiveAlways | NSTrackingInVisibleRect
-                                              owner:self
-                                           userInfo:nil];
-    [self addTrackingArea:tracking];
+    if (!tracking) {
+        tracking =
+            [[NSTrackingArea alloc] initWithRect:NSZeroRect
+                                         options:NSTrackingMouseEnteredAndExited |
+                                                 NSTrackingActiveAlways | NSTrackingInVisibleRect
+                                           owner:self
+                                        userInfo:nil];
+        [self addTrackingArea:tracking];
+    }
     [super updateTrackingAreas];
 }
 - (void)setHovered:(BOOL)value
@@ -390,6 +418,19 @@ struct CachedLine
 {
     return NSAccessibilityGroupRole;
 }
+- (NSArray *)accessibilityChildren
+{
+    // Native cells remain action/VoiceOver targets, but are not drawing views.
+    // A hosted status snapshot otherwise traverses their cell/vibrancy trees
+    // although all visible symbols are already in controlsLayer/iconLayer.
+    NSMutableArray *children = [NSMutableArray array];
+    for (NSButton *button in buttons)
+        if (!button.hidden)
+            [children addObject:button];
+    if (!trayButton.hidden)
+        [children addObject:trayButton];
+    return children;
+}
 - (NSString *)accessibilityLabel
 {
     return state.lyricsVisible ? nativeText(QObject::tr("菜单栏歌词")) : @"EchoMusicNext";
@@ -421,8 +462,13 @@ struct CachedLine
         state.lyricsVisible != next.lyricsVisible || state.icon.cacheKey() != next.icon.cacheKey();
     state = next;
     style = nextStyle;
+    // The persistent tray icon has no lyric progress. Clock notifications must
+    // not keep writing native properties after the lyric portion is disabled.
+    if (!rebuild && !state.lyricsVisible)
+        return;
     const bool showing = state.visible && !item.visible;
-    item.visible = state.visible;
+    if (item.visible != state.visible)
+        item.visible = state.visible;
     if (showing)
         [self scheduleLayout];
     if (contentChanged)
@@ -446,15 +492,26 @@ struct CachedLine
         iconKey = 0;
         trayButton.hidden = YES;
     }
-    self.layer.opacity = 1.;
-    for (auto &line : lines)
-        line.container.opacity = style.opacity / 100. * (state.dimmed ? .45 : 1.);
-    [self tick:nil];
+    // CALayer stores opacity as float; compare at its precision so a paused
+    // fractional/dimmed opacity is not re-applied on every observation.
+    const float opacity = float(style.opacity / 100. * (state.dimmed ? .45 : 1.));
+    if (std::any_of(lines.begin(), lines.end(),
+                    [&](const auto &line) { return line.container.opacity != opacity; })) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        for (auto &line : lines)
+            line.container.opacity = opacity;
+        [CATransaction commit];
+        if (!rebuild && state.visible)
+            [self publishFrame];
+    }
+    if (!rebuild)
+        [self tick:nil];
     [self refreshAnimation];
 }
 - (BOOL)canScroll
 {
-    return style.scrolling && style.motionEnabled &&
+    return state.visible && state.lyricsVisible && style.scrolling && style.motionEnabled &&
            !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion && state.advancing &&
            (lines[0].width > lines[0].container.bounds.size.width ||
             lines[1].width > lines[1].container.bounds.size.width);
@@ -468,14 +525,19 @@ struct CachedLine
 }
 - (void)refreshAnimation
 {
+    if (stopped || !state.visible || !state.lyricsVisible || hovered || ![self presented]) {
+        [animation invalidate];
+        animation = nil;
+        framePending = false;
+        return;
+    }
     const auto &spans = lines[0].spans;
     const double now = position ? position() - state.content.offsetMs : 0;
     const bool progressing = style.wordByWord && state.content.wordTimed && !spans.empty() &&
                              now < spans.back().start + spans.back().duration;
-    const bool needs =
-        [self presented] && !hovered && state.advancing && (progressing || [self canScroll]);
+    const bool needs = framePending || (state.advancing && (progressing || [self canScroll]));
     if (needs && !animation) {
-        animation = [NSTimer timerWithTimeInterval:1. / 30.
+        animation = [NSTimer timerWithTimeInterval:nativeFrameIntervalMs / 1000.
                                             target:self
                                           selector:@selector(tick:)
                                           userInfo:nil
@@ -487,8 +549,27 @@ struct CachedLine
         animation = nil;
     }
 }
+- (void)publishFrame
+{
+    framePending = false;
+    lastFrame.start();
+    ++displayRequests;
+    self.needsDisplay = YES;
+}
 - (void)tick:(NSTimer *)timer
 {
+    if (stopped || !state.visible || !state.lyricsVisible) {
+        [self refreshAnimation];
+        return;
+    }
+    // Coalesce before changing live layers: their property setters can also
+    // cause AppKit to refresh the hosted snapshot, without needsDisplay.
+    if (lastFrame.isValid() && lastFrame.elapsed() < nativeFrameIntervalMs) {
+        framePending = true;
+        [self refreshAnimation];
+        return;
+    }
+    framePending = false;
     if (timer)
         ++ticks;
     const double now = position ? position() - state.content.offsetMs : 0;
@@ -543,15 +624,11 @@ struct CachedLine
         }
     }
     [CATransaction commit];
-    // A system-hosted status view does not publish mask-only CALayer changes
-    // by itself. Invalidate the native surface, reusing the cached glyph images.
-    if (changed && state.visible && !hovered) {
-        ++displayRequests;
-        self.needsDisplay = YES;
-        item.button.needsDisplay = YES;
-    }
-    if (timer)
-        [self refreshAnimation];
+    // Coalesce playback observations with the native animation timer. Keep the
+    // final dirty frame scheduled even after the last word has finished.
+    if (changed && !hovered)
+        [self publishFrame];
+    [self refreshAnimation];
 }
 - (void)buildLine:(CachedLine &)cached
              text:(const QString &)text
@@ -645,6 +722,7 @@ struct CachedLine
         return;
     }
     rebuilding = true;
+    lastFrame.invalidate(); // Content, appearance and user interaction render immediately.
     renderedScale = self.window.backingScaleFactor;
     renderedAppearance = [self.effectiveAppearance bestMatchFromAppearancesWithNames:@[
         NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSAppearanceNameVibrantLight,
@@ -816,9 +894,7 @@ struct CachedLine
     [CATransaction commit];
     rebuilding = false;
     [self tick:nil];
-    ++displayRequests;
-    self.needsDisplay = YES;
-    item.button.needsDisplay = YES;
+    [self publishFrame];
     [self refreshAnimation];
 }
 - (void)buildControls
@@ -969,7 +1045,6 @@ struct CachedLine
 }
 - (void)viewDidChangeEffectiveAppearance
 {
-    [super viewDidChangeEffectiveAppearance];
     // Drawing under performAsCurrentDrawingAppearance can notify views while
     // AppKit temporarily changes the drawing appearance. Resolve once after
     // that context has unwound, rather than creating a repaint/notify loop.
@@ -1013,6 +1088,7 @@ struct CachedLine
 - (void)stop
 {
     stopped = true;
+    framePending = false;
     [animation invalidate];
     animation = nil;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -1122,6 +1198,7 @@ QVariantMap MenuBarLyric::diagnostics() const
             {"textBuilds", QVariant::fromValue(view->builds)},
             {"ticks", QVariant::fromValue(view->ticks)},
             {"displayRequests", QVariant::fromValue(view->displayRequests)},
+            {"framePending", view->framePending},
             {"cutoff", view->cutoff},
             {"bitmapBytes", bytes}};
 }
