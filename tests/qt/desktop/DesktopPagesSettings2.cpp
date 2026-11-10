@@ -245,7 +245,8 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
                  [&] {
                      return qFuzzyCompare(shellContent->width(),
                                           session.window->width() / session.shell.uiScale());
-                 }, 2000),
+                 },
+                 2000),
              qPrintable(QString("viewport settle: shellW=%1 winW=%2 scale=%3")
                             .arg(shellContent->width())
                             .arg(session.window->width())

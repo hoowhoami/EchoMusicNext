@@ -27,8 +27,7 @@ EchoAnchoredPopup {
         const rows = list.model;
         for (let i = 0; i < rows.rowCount(); ++i) {
             rowMeasure.text = rows.titleAt(i);
-            widest = Math.max(widest, 40 + Math.ceil(rowMeasure.advanceWidth)
-                                         + (rows.badgeVisibleAt(i) ? 90 : 50));
+            widest = Math.max(widest, 40 + Math.ceil(rowMeasure.advanceWidth) + (rows.badgeVisibleAt(i) ? 90 : 50));
         }
         menu.measuredRowWidth = Math.min(Math.max(280, widest + 16), 420);
     }
@@ -43,10 +42,20 @@ EchoAnchoredPopup {
         function onModelReset() {
             menu.remeasureRowWidth();
         }
-        function onDataChanged() {
-            menu.remeasureRowWidth();
+        function onDataChanged(topLeft, bottomRight, roles) {
+            // Hover/busy changes do not affect title metrics; only the title
+            // and badge visibility alter the measured row width.
+            if (roles.length === 0 || roles.indexOf(ShellActionModel.TitleRole) !== -1 || roles.indexOf(ShellActionModel.BadgeVisibleRole) !== -1) {
+                menu.remeasureRowWidth();
+            }
         }
         function onActionsChanged() {
+            menu.remeasureRowWidth();
+        }
+    }
+    Connections {
+        target: Theme.store
+        function onFontChanged() {
             menu.remeasureRowWidth();
         }
     }

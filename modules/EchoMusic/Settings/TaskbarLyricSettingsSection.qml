@@ -61,13 +61,13 @@ SettingsSection {
     SettingsDivider {}
     SettingsRow {
         heading: qsTr("歌曲信息偏移高度")
-        description: qsTr("展开时歌曲信息向上避开进度条的高度，0 为垂直居中（0 - 6 像素）")
+        description: qsTr("展开时歌曲信息向上避开进度条的高度，0 为垂直居中（0 - %1 逻辑像素）").arg(section.style.infoOffsetMax)
         EchoSpinBox {
             implicitWidth: 130
             // Same split as the width picker above; the ceiling is half the
             // strip's seek area height (TaskbarLyricWindow).
             from: 0
-            to: 6
+            to: section.style.infoOffsetMax
             stepSize: 1
             value: section.style.infoOffset
             // Same commit path as the width field above.

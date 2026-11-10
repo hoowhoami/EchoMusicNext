@@ -42,6 +42,7 @@ void TaskbarLyricPreferencesTest::defaultsMatchTheShippedStrip()
     QVERIFY(preferences.position() == Position::AutoRight);
     QCOMPARE(preferences.maxWidth(), 400);
     QCOMPARE(preferences.infoOffset(), 6);
+    QCOMPARE(preferences.infoOffsetMax(), 6);
     QCOMPARE(preferences.fontSize(), 14);
     QCOMPARE(preferences.showTranslation(), true);
     QCOMPARE(preferences.wordByWord(), true);

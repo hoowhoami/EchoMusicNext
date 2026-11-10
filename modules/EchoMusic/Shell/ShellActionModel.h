@@ -50,6 +50,7 @@ public:
         HoverRole,
         PlaybackPageOnlyRole
     };
+    Q_ENUM(Role)
     struct Handle
     {
         QString key;

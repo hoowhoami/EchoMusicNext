@@ -519,8 +519,8 @@ Window {
                         anchors.verticalCenter: parent.verticalCenter
                         // Lifts the song info above the seek area; 0 keeps it
                         // vertically centered. The stored preference is clamped
-                        // (TaskbarLyricPreferences) and the Math.min re-applies
-                        // the ceiling against the live seek area height.
+                        // to TaskbarLyricPreferences::InfoOffsetMax and the
+                        // Math.min re-applies the live seek area ceiling.
                         anchors.verticalCenterOffset: (seekArea.active ? -Math.round(Math.min(infoOffset, seekArea.height / 2)) : 0)
                         spacing: 0
                         opacity: window.expanded ? 1 : 0

@@ -496,10 +496,10 @@ private slots:
         // frosted hint on - on GPU-backed platforms the expectation is the
         // frosted hint itself, unchanged.
         const auto graphicsApi = window->rendererInterface()->graphicsApi();
-        const bool frostedSupported = graphicsApi != QSGRendererInterface::Unknown
-                                      && graphicsApi != QSGRendererInterface::Software
-                                      && graphicsApi != QSGRendererInterface::OpenVG
-                                      && graphicsApi != QSGRendererInterface::Null;
+        const bool frostedSupported = graphicsApi != QSGRendererInterface::Unknown &&
+                                      graphicsApi != QSGRendererInterface::Software &&
+                                      graphicsApi != QSGRendererInterface::OpenVG &&
+                                      graphicsApi != QSGRendererInterface::Null;
         const auto artifacts = qEnvironmentVariable("ECHO_ACCOUNT_ARTIFACTS");
         if (!artifacts.isEmpty())
             QDir().mkpath(artifacts);
@@ -889,6 +889,7 @@ QtObject {
         QTemporaryDir directory;
         EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ThemeStore theme(preferences);
+        theme.setMotionEnabled(false);
         ShellSettings shell(preferences);
         shell.setMotionEnabled(false);
         WindowController windows(preferences, false);
@@ -1304,9 +1305,10 @@ QtObject {
         QTRY_VERIFY(!shell.sidebarCollapsed());
         auto *trigger = visible("sidebarAccountTrigger");
         QVERIFY(trigger);
+        QVERIFY(Test::settleNativeItem(trigger));
         click(trigger);
-        QPointer<QObject> panel = root->findChild<QObject *>("sidebarAccountPopover");
-        QVERIFY(panel);
+        QPointer<QObject> panel;
+        QTRY_VERIFY((panel = root->findChild<QObject *>("sidebarAccountPopover")));
         QTRY_VERIFY(panel->property("opened").toBool());
         QCOMPARE(panel->property("width").toReal(), 320.0);
         QTest::keyClick(window, Qt::Key_Escape);
@@ -2244,19 +2246,24 @@ QtObject {
                                        shortText->property("lineCount").toInt() == 1;
                             };
                             const auto shortDiag = [&] {
-                                return QString("kind=%1 title=%2 text=%3 lines=%4 labelW=%5 textW=%6 implicitW=%7 fontPx=%8 menuW=%9")
+                                return QString("kind=%1 title=%2 text=%3 lines=%4 labelW=%5 "
+                                               "textW=%6 implicitW=%7 fontPx=%8 menuW=%9")
                                     .arg(kind)
                                     .arg(title)
-                                    .arg(shortText ? shortText->property("text").toString() : QString())
+                                    .arg(shortText ? shortText->property("text").toString()
+                                                   : QString())
                                     .arg(shortText ? shortText->property("lineCount").toInt() : -1)
                                     .arg(shortLabel ? shortLabel->width() : -1.)
                                     .arg(shortText ? shortText->width() : -1.)
-                                    .arg(shortText ? shortText->property("implicitWidth").toReal() : -1.)
-                                    .arg(shortText ? shortText->property("font").value<QFont>().pixelSize() : -1)
+                                    .arg(shortText ? shortText->property("implicitWidth").toReal()
+                                                   : -1.)
+                                    .arg(
+                                        shortText
+                                            ? shortText->property("font").value<QFont>().pixelSize()
+                                            : -1)
                                     .arg(menu->property("width").toReal());
                             };
-                            QVERIFY2(QTest::qWaitFor(shortWhole, 5000),
-                                     qPrintable(shortDiag()));
+                            QVERIFY2(QTest::qWaitFor(shortWhole, 5000), qPrintable(shortDiag()));
                         }
                         if (kind == "titlebar")
                             QTRY_VERIFY(longText->property("lineCount").toInt() > 1);
@@ -3031,18 +3038,21 @@ QtObject {
             for (auto *group : {leading, center, trailing}) {
                 // Evaluated at failure time: the row layout can drift between
                 // the first probe and the wait timeout.
-                QVERIFY2(QTest::qWaitFor([&] {
-                             return qAbs(centerY(group) - bar->height() / 2) * scale <=
-                                    1. / window->devicePixelRatio() + .01;
-                         }, 5000),
-                         qPrintable(QString("group=%1 center=%2 barHalf=%3 gy=%4 row1H=%5 row1IH=%6")
-                                        .arg(group->objectName())
-                                        .arg(centerY(group))
-                                        .arg(bar->height() / 2)
-                                        .arg(group->y())
-                                        .arg(group->parentItem() ? group->parentItem()->height() : -1)
-                                        .arg(group->parentItem() ? group->parentItem()->implicitHeight()
-                                                                 : -1)));
+                QVERIFY2(
+                    QTest::qWaitFor(
+                        [&] {
+                            return qAbs(centerY(group) - bar->height() / 2) * scale <=
+                                   1. / window->devicePixelRatio() + .01;
+                        },
+                        5000),
+                    qPrintable(QString("group=%1 center=%2 barHalf=%3 gy=%4 row1H=%5 row1IH=%6")
+                                   .arg(group->objectName())
+                                   .arg(centerY(group))
+                                   .arg(bar->height() / 2)
+                                   .arg(group->y())
+                                   .arg(group->parentItem() ? group->parentItem()->height() : -1)
+                                   .arg(group->parentItem() ? group->parentItem()->implicitHeight()
+                                                            : -1)));
             }
             QTRY_VERIFY(centerY(transport) > centerY(song) + 2);
             QTRY_VERIFY(centerY(progress) > centerY(left) + 2);
@@ -3303,14 +3313,15 @@ QtObject {
                     return taskButton->isVisible() && recognizeButton->isVisible();
                 };
                 QVERIFY2(QTest::qWaitFor(buttonsReady, 5000),
-                         qPrintable(QString("zoom=%1 pending=%2 windowW=%3 pooled=%4 visible=%5 x=%6 y=%7")
-                                        .arg(shell.uiScale())
-                                        .arg(root->property("startupPending").toBool())
-                                        .arg(window->width())
-                                        .arg(taskButton->property("pooled").toBool())
-                                        .arg(taskButton->isVisible())
-                                        .arg(taskButton->x())
-                                        .arg(taskButton->y())));
+                         qPrintable(
+                             QString("zoom=%1 pending=%2 windowW=%3 pooled=%4 visible=%5 x=%6 y=%7")
+                                 .arg(shell.uiScale())
+                                 .arg(root->property("startupPending").toBool())
+                                 .arg(window->width())
+                                 .arg(taskButton->property("pooled").toBool())
+                                 .arg(taskButton->isVisible())
+                                 .arg(taskButton->x())
+                                 .arg(taskButton->y())));
                 for (const bool before : {true, false}) {
                     const auto oldX = taskButton->x();
                     const auto savedOrder = preferences.value("shell/titlebar/order");
@@ -3325,13 +3336,13 @@ QtObject {
                     Test::moveNativePointer(window, start);
                     QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
                     const auto pressChild = window->contentItem()->childAt(start.x(), start.y());
-                    QVERIFY2(taskButton->property("pressed").toBool(),
-                             qPrintable(QString("hovered=%1 enabled=%2 pooled=%3 childAt=%4")
-                                            .arg(taskButton->property("hovered").toBool())
-                                            .arg(taskButton->isEnabled())
-                                            .arg(taskButton->property("pooled").toBool())
-                                            .arg(pressChild ? pressChild->objectName()
-                                                            : QString())));
+                    QVERIFY2(
+                        taskButton->property("pressed").toBool(),
+                        qPrintable(QString("hovered=%1 enabled=%2 pooled=%3 childAt=%4")
+                                       .arg(taskButton->property("hovered").toBool())
+                                       .arg(taskButton->isEnabled())
+                                       .arg(taskButton->property("pooled").toBool())
+                                       .arg(pressChild ? pressChild->objectName() : QString())));
                     QTest::mouseMove(window, start + QPoint(0, 8));
                     QTest::mouseMove(window, destination);
                     QTRY_VERIFY(taskHandle->property("dragging").toBool());
@@ -3352,7 +3363,8 @@ QtObject {
                     // LIVE drag ghost, not the first name match.
                     auto *ghost = findVisibleVisual(window->contentItem(), "host/tasks");
                     QVERIFY2(ghost && ghost->isVisible(),
-                             qPrintable(QString("motion=%1 zoomed=%2 before=%3 resourceActive=%4 armed=%5 dragging=%6")
+                             qPrintable(QString("motion=%1 zoomed=%2 before=%3 resourceActive=%4 "
+                                                "armed=%5 dragging=%6")
                                             .arg(motion)
                                             .arg(zoomed)
                                             .arg(before)
@@ -3538,6 +3550,13 @@ QtObject {
         // shift against the production default geometry.
         window->resize(1150, 750);
         QVERIFY(Test::prepareNativeInput(window));
+        // resetZoom() changes toolbar capacity and may pool delegates; resolve
+        // the live instances again before the cancel/pin/shift legs.
+        QTRY_VERIFY(
+            (taskButton = findVisibleVisual(window->contentItem(), "titlebar-action-tasks")));
+        QTRY_VERIFY((recognizeButton =
+                         findVisibleVisual(window->contentItem(), "titlebar-action-recognize")));
+        QTRY_VERIFY((taskHandle = findVisual(taskButton, "shellDragHandle-host/tasks")));
         // Cancelling a held preview restores the view without saving anything.
         const auto beforeCancel = preferences.value("shell/titlebar/order");
         const auto cancelStart = taskButton->mapToScene({2, taskButton->height() / 2}).toPoint();
