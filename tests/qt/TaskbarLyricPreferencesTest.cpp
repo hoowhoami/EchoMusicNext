@@ -41,6 +41,7 @@ void TaskbarLyricPreferencesTest::defaultsMatchTheShippedStrip()
 
     QVERIFY(preferences.position() == Position::AutoRight);
     QCOMPARE(preferences.maxWidth(), 400);
+    QCOMPARE(preferences.infoOffset(), 6);
     QCOMPARE(preferences.fontSize(), 14);
     QCOMPARE(preferences.showTranslation(), true);
     QCOMPARE(preferences.wordByWord(), true);
@@ -107,6 +108,15 @@ void TaskbarLyricPreferencesTest::numericValuesAreClamped()
     preferences.setMaxWidth(512);
     QCOMPARE(preferences.maxWidth(), 512);
 
+    // 0 keeps the song info vertically centered; 6 is half the seek area's
+    // height, the shift the strip shipped with before the preference existed.
+    preferences.setInfoOffset(-1);
+    QCOMPARE(preferences.infoOffset(), 0);
+    preferences.setInfoOffset(7);
+    QCOMPARE(preferences.infoOffset(), 6);
+    preferences.setInfoOffset(3);
+    QCOMPARE(preferences.infoOffset(), 3);
+
     preferences.setFontSize(10);
     QCOMPARE(preferences.fontSize(), 11);
     preferences.setFontSize(23);
@@ -131,6 +141,7 @@ void TaskbarLyricPreferencesTest::valuesPersistUnderTheTaskbarKeys()
         TaskbarLyricPreferences preferences(settings);
         preferences.setPosition(Position::FixedLeft);
         preferences.setMaxWidth(300);
+        preferences.setInfoOffset(4);
         preferences.setFontSize(20);
         preferences.setShowTranslation(false);
         preferences.setWordByWord(false);
@@ -144,6 +155,7 @@ void TaskbarLyricPreferencesTest::valuesPersistUnderTheTaskbarKeys()
     EchoMusic::SettingsStore stored(path);
     QCOMPARE(stored.value(taskbarKey("position")).toString(), QStringLiteral("fixedLeft"));
     QCOMPARE(stored.value(taskbarKey("maxWidth")).toInt(), 300);
+    QCOMPARE(stored.value(taskbarKey("infoOffset")).toInt(), 4);
     QCOMPARE(stored.value(taskbarKey("fontSize")).toInt(), 20);
     QCOMPARE(stored.value(taskbarKey("showTranslation")).toBool(), false);
     QCOMPARE(stored.value(taskbarKey("wordByWord")).toBool(), false);
@@ -155,6 +167,7 @@ void TaskbarLyricPreferencesTest::valuesPersistUnderTheTaskbarKeys()
     TaskbarLyricPreferences preferences(reopened);
     QVERIFY(preferences.position() == Position::FixedLeft);
     QCOMPARE(preferences.maxWidth(), 300);
+    QCOMPARE(preferences.infoOffset(), 4);
     QCOMPARE(preferences.fontSize(), 20);
     QCOMPARE(preferences.showTranslation(), false);
     QCOMPARE(preferences.wordByWord(), false);
