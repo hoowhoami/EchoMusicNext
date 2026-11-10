@@ -119,6 +119,11 @@ void PlaybackFailureController::failed()
     auto &p = m_playback;
     if (p.m_closing || !p.hasTrack())
         return;
+    // A failed new-track load has no source to resume. Retire its retained
+    // output and pending opens; a paused same-track replacement still owns a
+    // usable old source and must keep it. Normal user pause keeps its idle policy.
+    if (!p.m_playing && !p.loading() && !p.m_seamless)
+        p.m_engine.command(AudioEngine::Stop);
     const bool scheduled =
         !p.m_playing && p.m_autoplay && p.m_preferences.autoNext() &&
         (p.m_personalFm->active() || p.sourceKey() == DiscoverQueueController::queueKey() ||

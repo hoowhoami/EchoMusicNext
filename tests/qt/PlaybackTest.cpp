@@ -103,6 +103,10 @@ public:
         QObject::disconnect(&p.m_engine, &AudioEngine::eventReceived, &p,
                             &PlaybackService::onEvent);
     }
+    static AudioEngine &engine(PlaybackService &p)
+    {
+        return p.m_engine;
+    }
     static int publishedMediaPlaying(const PlaybackService &p)
     {
         const auto published = p.m_outputController->m_publishedPlaying;
@@ -357,6 +361,82 @@ class PlaybackTest : public QObject
         return -1;
     }
 private slots:
+    void manualSkipRetainsNativeSessionWhileResolvingNextTrack()
+    {
+        QTemporaryDir dir;
+        const auto path = dir.filePath("silence.wav");
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QDataStream stream(&file);
+        stream.setByteOrder(QDataStream::LittleEndian);
+        constexpr quint32 bytes = 48000 * 10 * 4;
+        stream.writeRawData("RIFF", 4);
+        stream << quint32(36 + bytes);
+        stream.writeRawData("WAVEfmt ", 8);
+        stream << quint32(16) << quint16(1) << quint16(2) << quint32(48000) << quint32(192000)
+               << quint16(4) << quint16(16);
+        stream.writeRawData("data", 4);
+        stream << bytes;
+        stream.writeRawData(QByteArray(bytes, 0).constData(), int(bytes));
+        file.close();
+        SettingsStore settings(dir.filePath("settings.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        api.addInterceptor(100, [](const QJsonObject &, ApiInterceptNext, ApiInterceptDone) {
+            return std::function<void()>([] {});
+        });
+        PlaybackService playback(api, settings, nullptr, dir.filePath("queue.sqlite"));
+        playback.preferences()->setAutoNext(false);
+        playback.setVolume(0);
+        QTRY_VERIFY_WITH_TIMEOUT(PlaybackServiceTestAccess::ready(playback), 15000);
+        auto local = track(1), online = track(2);
+        local.localPath = path;
+        local.durationMs = 10000;
+        online.localPath.clear();
+        online.songId = 2;
+        online.hash = QString(32, 'a');
+        playback.playTracks({local, online}, 0, "Native skip", "native-skip");
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.positionMs() > 50, 15000);
+
+        auto &engine = PlaybackServiceTestAccess::engine(playback);
+        QSignalSpy events(&engine, &AudioEngine::eventReceived);
+        const auto snapshot = [&events](quint64 revision) {
+            for (const auto &entry : events) {
+                const auto event = entry[0].toJsonObject();
+                if (event.value("event") == "spectrum" &&
+                    quint64(event.value("spectrum_revision").toInteger()) == revision)
+                    return event;
+            }
+            return QJsonObject();
+        };
+        playback.next(); // Hold the next URL request; do not inject native ACKs.
+        QVERIFY(playback.loading());
+        // This real native request runs after the transport commands. A frame
+        // exists only while a session exists, so the old full Stop fails here.
+        engine.spectrumSnapshot(10001);
+        QTRY_VERIFY_WITH_TIMEOUT(!snapshot(10001).isEmpty(), 5000);
+        QVERIFY(snapshot(10001).value("frame").isObject());
+        QCOMPARE(PlaybackServiceTestAccess::publishedMediaPlaying(playback), 1);
+        playback.playIndex(0);
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.positionMs() > 50, 15000);
+        playback.next();
+        playback.playIndex(0); // A newer load cancels an unresolved manual skip.
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.positionMs() > 50, 15000);
+        playback.next();
+        PlaybackServiceTestAccess::failSource(playback);
+        engine.spectrumSnapshot(10003);
+        QTRY_VERIFY_WITH_TIMEOUT(!snapshot(10003).isEmpty(), 5000);
+        QVERIFY(snapshot(10003).value("frame").isNull());
+        playback.playIndex(0);
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.positionMs() > 50, 15000);
+        playback.stop();
+        engine.spectrumSnapshot(10002);
+        QTRY_VERIFY_WITH_TIMEOUT(!snapshot(10002).isEmpty(), 5000);
+        QVERIFY(snapshot(10002).value("frame").isNull());
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void systemMediaStaysPlayingAcrossTrackLoadingAndHonorsTerminalStates()
     {
         using A = PlaybackServiceTestAccess;

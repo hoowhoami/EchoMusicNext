@@ -34,6 +34,32 @@ EchoUiPartHost {
         value: sidebar.libraryController
     }
     readonly property bool collapsed: settings.sidebarCollapsed
+    // One reversible clock drives both the shell width and every internal slot.
+    // Boolean mode changes are reserved for commands and endpoint visibility.
+    property real resizeProgress: collapsed ? 1 : 0
+    // Layouts polish width changes after the animation tick. Derive internal
+    // presentation from the allocated width so it never runs a frame ahead.
+    readonly property real collapseProgress: resizeScope.allowed ? Math.max(0, Math.min(1, (230 - width) / 150)) : resizeProgress
+    readonly property bool resizing: resizeAnimation.running
+    readonly property real expandedOpacity: Math.max(0, 1 - collapseProgress * 2)
+    // Unfold rows before merging columns, reversing that order on expand.
+    // The overlap leaves a gentle handoff without cards passing through peers.
+    readonly property real shortcutProgress: Theme.sidebarPhase(resizeProgress, 0, 0.4)
+    implicitWidth: 230 - 150 * Theme.sidebarPhase(resizeProgress, 0.35, 1)
+    clip: true
+    EchoMotionScope {
+        id: resizeScope
+        target: sidebar
+        animations: [resizeAnimation]
+    }
+    Behavior on resizeProgress {
+        enabled: resizeScope.allowed
+        NumberAnimation {
+            id: resizeAnimation
+            duration: Theme.sidebarResizeDuration
+            easing.type: Easing.Linear
+        }
+    }
     // Resizing reuses this content tree; replaying its entry fade would blank
     // every row on each toggle, including rapid reversals of the width motion.
     EchoEnter {
@@ -121,12 +147,13 @@ EchoUiPartHost {
         }
         SidebarAccount {
             Layout.fillWidth: true
-            Layout.preferredHeight: sidebar.collapsed ? 42 : 56
-            Layout.leftMargin: sidebar.collapsed ? 8 : 18
-            Layout.rightMargin: sidebar.collapsed ? 8 : 18
-            Layout.bottomMargin: sidebar.collapsed ? 8 : 22
+            Layout.preferredHeight: 56 - 14 * sidebar.collapseProgress
+            Layout.leftMargin: 18 - 10 * sidebar.collapseProgress
+            Layout.rightMargin: 18 - 10 * sidebar.collapseProgress
+            Layout.bottomMargin: 22 - 14 * sidebar.collapseProgress
             service: sidebar.accountController
             collapsed: sidebar.collapsed
+            collapseProgress: sidebar.collapseProgress
             uiScale: sidebar.uiScale
             onProfileRequested: sidebar.router.navigate("profile")
         }
@@ -139,6 +166,16 @@ EchoUiPartHost {
             model: sidebar.settings.sidebarLayout.playlistAreaVisible ? sidebar.libraryController.playlists : null
             property bool keepHeaderStart: false
             onMovementStarted: keepHeaderStart = false
+            onAtYBeginningChanged: {
+                if (atYBeginning && sidebar.resizing)
+                    keepHeaderStart = true;
+            }
+            Connections {
+                target: sidebar
+                function onCollapsedChanged(): void {
+                    sidebarScroll.captureHeaderPosition();
+                }
+            }
             function captureHeaderPosition() {
                 keepHeaderStart = atYBeginning;
             }
@@ -206,7 +243,7 @@ EchoUiPartHost {
                 targetView: sidebarScroll
             }
             cacheBuffer: 40 * 3
-            spacing: sidebar.collapsed ? 7 : 2
+            spacing: 2 + 5 * sidebar.collapseProgress
             boundsBehavior: Flickable.StopAtBounds
             // Keep the normal shared reveal/overflow policy in both sidebar
             // modes, with Qt owning the scroll ratio and thumb drag mapping.
@@ -233,8 +270,8 @@ EchoUiPartHost {
                 ListView.onReused: pooled = false
                 SidebarPlaylistRow {
                     id: playlistRow
-                    width: sidebar.collapsed ? 42 : Math.max(0, playlistDelegate.width - sidebar.playlistRowLeftInset - 16)
-                    x: sidebar.collapsed ? (playlistDelegate.width - width) / 2 : sidebar.playlistRowLeftInset
+                    width: Math.max(0, playlistDelegate.width - sidebar.playlistRowLeftInset - 16 - 4 * sidebar.collapseProgress)
+                    x: sidebar.playlistRowLeftInset + sidebar.collapseProgress
                     title: playlistDelegate.title
                     coverUrl: playlistDelegate.coverUrl
                     cloudListId: playlistDelegate.cloudListId
@@ -243,6 +280,7 @@ EchoUiPartHost {
                     kind: playlistDelegate.kind
                     defaultKind: playlistDelegate.defaultKind
                     collapsed: sidebar.collapsed
+                    collapseProgress: sidebar.collapseProgress
                     busy: sidebar.libraryController.busy
                     resourceActive: sidebar.visible && !playlistDelegate.pooled
                     selected: sidebar.router.current && sidebar.router.current.name === "playlist-detail" && sidebar.router.current.resourceId === (kind === "owned" ? globalId : creatorGlobalId)
@@ -258,16 +296,18 @@ EchoUiPartHost {
                     Layout.topMargin: 28
                     Layout.bottomMargin: 28
                     visible: sidebar.settings.sidebarLayout.playlistAreaVisible && sidebar.libraryController.playlists.count === 0
-                    text: sidebar.collapsed ? "" : !sidebar.libraryController.signedIn ? qsTr("登录同步云端歌单") : sidebar.libraryController.loading ? qsTr("正在加载歌单…") : sidebar.playlistTab === 0 ? qsTr("暂无自建歌单") : qsTr("暂无收藏内容")
+                    opacity: sidebar.expandedOpacity
+                    text: !sidebar.libraryController.signedIn ? qsTr("登录同步云端歌单") : sidebar.libraryController.loading ? qsTr("正在加载歌单…") : sidebar.playlistTab === 0 ? qsTr("暂无自建歌单") : qsTr("暂无收藏内容")
                     color: Theme.secondaryText
                     font: Theme.decoratedFont(12, Theme.regularWeight, 0, true, false)
                     horizontalAlignment: Text.AlignHCenter
                 }
                 Label {
                     Layout.fillWidth: true
-                    Layout.leftMargin: 16
-                    Layout.rightMargin: 16
-                    visible: text.length > 0 && !sidebar.collapsed
+                    Layout.leftMargin: 16 + 5 * sidebar.collapseProgress
+                    Layout.rightMargin: 16 + 5 * sidebar.collapseProgress
+                    visible: text.length > 0 && sidebar.collapseProgress < 1
+                    opacity: sidebar.expandedOpacity
                     text: sidebar.libraryController.errorMessage
                     color: Theme.colors.dangerText
                     font: Theme.font(12, Theme.regularWeight)
@@ -279,6 +319,7 @@ EchoUiPartHost {
                 spacing: 0
                 SidebarShortcuts {
                     objectName: "sidebarShortcuts"
+                    railProgress: sidebar.shortcutProgress
                     Layout.fillWidth: true
                     // The rail adds 8px padding outside the shortcut component's 10px inset.
                     Layout.leftMargin: 18
@@ -286,6 +327,7 @@ EchoUiPartHost {
                     layout: sidebar.settings.sidebarLayout
                     router: sidebar.router
                     collapsed: sidebar.collapsed
+                    collapseProgress: sidebar.collapseProgress
                     resourceActive: sidebar.visible && sidebar.Window.window !== null && sidebar.Window.window.visible && sidebar.Window.window.visibility !== Window.Minimized
                     onAddRequested: shortcutPopupOwner.open()
                 }
@@ -307,27 +349,29 @@ EchoUiPartHost {
                     id: menu
                     objectName: "sidebarMusicMenu"
                     visible: sidebar.settings.sidebarLayout.menuVisible
-                    Layout.fillWidth: !sidebar.collapsed
-                    Layout.preferredWidth: sidebar.collapsed ? 38 : -1
-                    Layout.alignment: sidebar.collapsed ? Qt.AlignHCenter : Qt.AlignLeft
-                    Layout.leftMargin: 16
-                    Layout.rightMargin: 16
-                    Layout.topMargin: sidebar.collapsed ? 12 : 24
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: -1
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.leftMargin: 16 + 5 * sidebar.collapseProgress
+                    Layout.rightMargin: 16 + 5 * sidebar.collapseProgress
+                    Layout.topMargin: 24 - 12 * sidebar.collapseProgress
                     layout: sidebar.settings.sidebarLayout
                     router: sidebar.router
                     collapsed: sidebar.collapsed
+                    collapseProgress: sidebar.collapseProgress
                 }
                 SidebarPlaylistHeader {
                     visible: sidebar.settings.sidebarLayout.playlistAreaVisible
                     Layout.fillWidth: true
                     Layout.preferredHeight: implicitHeight
                     Layout.bottomMargin: 8
-                    Layout.topMargin: sidebar.collapsed ? 12 : menu.visible ? 18 : 24
-                    Layout.leftMargin: sidebar.collapsed ? 8 : 30
-                    Layout.rightMargin: sidebar.collapsed ? 8 : 12
+                    Layout.topMargin: (menu.visible ? 18 : 24) * (1 - sidebar.collapseProgress) + 12 * sidebar.collapseProgress
+                    Layout.leftMargin: 30 - 22 * sidebar.collapseProgress
+                    Layout.rightMargin: 12 - 4 * sidebar.collapseProgress
                     service: sidebar.libraryController
                     uiScale: sidebar.uiScale
                     collapsed: sidebar.collapsed
+                    collapseProgress: sidebar.collapseProgress
                     onOrderRequested: orderDialogOwner.open()
                     onCreateRequested: createDialogOwner.open()
                     onImportRequested: {
@@ -338,55 +382,68 @@ EchoUiPartHost {
                 }
             }
         }
-        EchoUiRow {
-            partRole: "layout.sidebar"
-            partKey: "row2"
+        Item {
             Layout.fillWidth: true
-            Layout.leftMargin: sidebar.collapsed ? 8 : 16
-            Layout.rightMargin: sidebar.collapsed ? 8 : 16
+            Layout.preferredHeight: 32
             Layout.topMargin: 6
             Layout.bottomMargin: 10
-            spacing: 8
-            Item {
-                Layout.fillWidth: true
-            }
-            EchoIconButton {
-                glyph: sidebar.collapsed ? "circle-chevron-right" : "circle-chevron-left"
-                text: sidebar.collapsed ? qsTr("展开侧栏") : qsTr("折叠侧栏")
-                implicitWidth: 32
-                implicitHeight: 32
-                onClicked: sidebar.settings.toggleSidebar()
-            }
-            EchoIconButton {
-                id: layoutTrigger
-                objectName: "sidebarLayoutTrigger"
-                visible: !sidebar.collapsed
-                glyph: "layout-sidebar"
-                text: qsTr("编辑侧栏布局")
-                tooltipText: text
-                onClicked: layoutPopupOwner.open()
-                implicitWidth: 32
-                implicitHeight: 32
-            }
-            EchoIconButton {
-                visible: !sidebar.collapsed
-                glyph: "settings"
-                text: qsTr("设置")
-                implicitWidth: 32
-                implicitHeight: 32
-                onClicked: sidebar.router.navigate("settings")
-            }
-            EchoIconButton {
-                visible: !sidebar.collapsed
-                glyph: "shirt"
-                text: qsTr("主题中心")
-                tooltipText: text
-                implicitWidth: 32
-                implicitHeight: 32
-                onClicked: sidebar.router.navigate("themes")
-            }
-            Item {
-                Layout.fillWidth: true
+            EchoUiRow {
+                partRole: "layout.sidebar"
+                partKey: "row2"
+                anchors.centerIn: parent
+                anchors.alignWhenCentered: false
+                width: 152 - 120 * sidebar.collapseProgress
+                height: 32
+                spacing: 0
+                EchoIconButton {
+                    objectName: "sidebarCollapseTrigger"
+                    glyph: "circle-chevron-left"
+                    text: sidebar.collapsed ? qsTr("展开侧栏") : qsTr("折叠侧栏")
+                    implicitWidth: 32
+                    implicitHeight: 32
+                    contentItem: EchoIcon {
+                        name: "circle-chevron-left"
+                        color: parent.foreground
+                        rotation: -180 * sidebar.collapseProgress
+                    }
+                    onClicked: sidebar.settings.toggleSidebar()
+                }
+                Item {
+                    Layout.preferredWidth: 120 * (1 - sidebar.collapseProgress)
+                    Layout.preferredHeight: 32
+                    visible: sidebar.collapseProgress < 1
+                    opacity: sidebar.expandedOpacity
+                    enabled: !sidebar.collapsed
+                    RowLayout {
+                        x: 8
+                        width: 112
+                        height: 32
+                        spacing: 8
+                        EchoIconButton {
+                            id: layoutTrigger
+                            objectName: "sidebarLayoutTrigger"
+                            glyph: "layout-sidebar"
+                            text: qsTr("编辑侧栏布局")
+                            onClicked: layoutPopupOwner.open()
+                            implicitWidth: 32
+                            implicitHeight: 32
+                        }
+                        EchoIconButton {
+                            glyph: "settings"
+                            text: qsTr("设置")
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            onClicked: sidebar.router.navigate("settings")
+                        }
+                        EchoIconButton {
+                            glyph: "shirt"
+                            text: qsTr("主题中心")
+                            implicitWidth: 32
+                            implicitHeight: 32
+                            onClicked: sidebar.router.navigate("themes")
+                        }
+                    }
+                }
             }
         }
     }

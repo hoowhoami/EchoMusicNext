@@ -1,4 +1,5 @@
 #include "PlaybackLibraryActions.h"
+#include "FavoriteSongIndex.h"
 #include "PlaybackService.h"
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -8,70 +9,62 @@ namespace EchoMusic
 {
 namespace
 {
-QString favoriteKey(const PlaybackTrack &track)
+FavoriteSongIndex::Identity favoriteIdentity(const PlaybackTrack &track)
 {
-    return track.hash.toUpper();
-}
-QString errorText(const QByteArray &bytes)
-{
-    return ApiClient::errorMessage(bytes, QObject::tr("歌单操作失败，请重试"));
+    return {track.id, track.hash, track.songId};
 }
 } // namespace
 PlaybackLibraryActions::PlaybackLibraryActions(PlaybackService &playback, ApiClient &api,
                                                UserPlaylistModel &library,
                                                PlaylistMutationService &writer, QObject *parent)
     : QAbstractListModel(parent), m_playback(playback), m_api(api), m_library(library),
-      m_writer(writer)
+      m_writer(writer), m_favorites(*library.favoriteSongs())
 {
     connect(&api, &ApiClient::sessionChanged, this, &PlaybackLibraryActions::reset);
     connect(&api, &ApiClient::closed, this, &PlaybackLibraryActions::reset);
-    connect(&api, &ApiClient::succeeded, this, &PlaybackLibraryActions::favoritePage);
-    connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &bytes) {
-        if (!id || id != m_favoriteRead || m_revision != m_api.sessionRevision())
-            return;
-        m_favoriteRead = 0;
-        failFavoriteRead(errorText(bytes));
+    connect(&m_favorites, &FavoriteSongIndex::changed, this, [this] {
+        if (m_favoriteIntent && !m_favorites.loading()) {
+            if (!m_favorites.errorMessage().isEmpty()) {
+                m_favoriteIntent.reset();
+                m_error = m_favorites.errorMessage();
+                emit notice(m_error, true);
+            } else
+                QTimer::singleShot(0, this, &PlaybackLibraryActions::resumeFavorite);
+        }
+        emit changed();
     });
     connect(&library, &UserPlaylistModel::changed, this, [this] {
         rebuild();
-        if (m_library.state() == UserPlaylistModel::State::Ready && !m_favoriteRead &&
-            !m_favoritesReady && !m_ownedWrite)
-            refreshFavorites();
-        if (m_favoriteIntent && (m_library.state() == UserPlaylistModel::State::Error ||
-                                 m_library.state() == UserPlaylistModel::State::RestartRequired))
-            failFavoriteRead(m_library.errorMessage());
+        if (m_library.state() == UserPlaylistModel::State::Ready && !m_ownedWrite)
+            m_favorites.ensureLoaded();
+        if (m_favoriteIntent && m_library.cloudIdAt(likedRow()) &&
+            !m_favorites.contains(favoriteIdentity(*m_favoriteIntent)))
+            QTimer::singleShot(0, this, &PlaybackLibraryActions::resumeFavorite);
     });
     connect(playback.queueCatalog(), &PlaybackQueueCatalog::changed, this,
             &PlaybackLibraryActions::rebuild);
     connect(&playback, &PlaybackService::changed, this, &PlaybackLibraryActions::changed);
     connect(&writer, &PlaylistMutationService::completed, this,
             &PlaybackLibraryActions::writeCompleted);
-    connect(&writer, &PlaylistMutationService::trackFilesRemoved, this,
-            [this](quint64 listId, const QList<quint64> &files, quint64 session) {
-                const auto liked = m_library.cloudIdAt(likedRow());
-                if (session != m_api.sessionRevision() || !liked || liked->value != listId ||
-                    (m_ownedWrite && m_favoriteWrite))
-                    return;
-                const QSet<quint64> removed(files.begin(), files.end());
-                const auto current = m_playback.currentTrack();
-                const bool currentRemoved =
-                    m_favorites.contains(favoriteKey(current)) &&
-                    removed.contains(m_favorites.value(favoriteKey(current)));
-                for (auto it = m_favorites.begin(); it != m_favorites.end();)
-                    if (removed.contains(it.value()))
-                        it = m_favorites.erase(it);
-                    else
-                        ++it;
-                // Retire a pre-write read rather than restoring removed likes
-                // from its late snapshot. The next canonical refresh resumes it.
-                if (m_favoriteRead) {
-                    m_api.cancel(std::exchange(m_favoriteRead, 0));
-                    m_readFavorites.clear();
-                    m_favoritesReady = false;
-                }
-                if (currentRemoved)
+    connect(&m_favorites, &FavoriteSongIndex::filesRemoved, this, [this](const QJsonArray &rows) {
+        if (m_ownedWrite && m_favoriteWrite)
+            return;
+        const auto current = m_playback.currentTrack();
+        const auto keys = FavoriteSongIndex::keys(favoriteIdentity(current));
+        for (const auto &row : rows) {
+            const auto removed = FavoriteSongIndex::keys(
+                FavoriteSongIndex::identity(row.toObject().value("song").toObject()));
+            for (const auto &key : keys)
+                if (removed.contains(key)) {
                     emit favoriteWritten(current, false);
-                emit changed();
+                    return;
+                }
+        }
+    });
+    m_favorites.attachMutations(writer);
+    connect(&playback, &PlaybackService::changed, &m_favorites,
+            [&favorites = m_favorites, &playback] {
+                favorites.enrichIdentity(favoriteIdentity(playback.currentTrack()));
             });
     connect(&writer, &PlaylistMutationService::changed, this, [this] {
         if (!m_ownedWrite)
@@ -82,11 +75,7 @@ PlaybackLibraryActions::PlaybackLibraryActions(PlaybackService &playback, ApiCli
     });
     reset();
 }
-PlaybackLibraryActions::~PlaybackLibraryActions()
-{
-    if (m_favoriteRead)
-        m_api.cancel(m_favoriteRead);
-}
+PlaybackLibraryActions::~PlaybackLibraryActions() = default;
 int PlaybackLibraryActions::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : m_targets.size();
@@ -149,15 +138,9 @@ void PlaybackLibraryActions::notifyRows()
 }
 void PlaybackLibraryActions::reset()
 {
-    if (m_favoriteRead)
-        m_api.cancel(m_favoriteRead);
-    m_favoriteRead = 0;
     m_revision = m_api.sessionRevision();
     m_likedId = 0;
-    m_favoritesReady = false;
     m_favoriteIntent.reset();
-    m_favorites.clear();
-    m_readFavorites.clear();
     m_ownedWrite = m_busy = m_favoriteWrite = false;
     m_multiple = false;
     m_pending.clear();
@@ -218,92 +201,10 @@ void PlaybackLibraryActions::rebuild()
 }
 void PlaybackLibraryActions::refreshFavorites()
 {
-    const int row = likedRow();
-    const auto id = m_library.cloudIdAt(row);
-    if (m_favoriteRead || m_ownedWrite || !m_api.currentAccountUserId())
-        return;
-    if (!id) {
-        if (!m_favoriteIntent)
-            return;
-        if (m_library.state() == UserPlaylistModel::State::Idle)
-            m_library.reload();
-        else if (m_library.canFetchMore({}))
-            QTimer::singleShot(0, this, [this] {
-                if (m_favoriteIntent)
-                    m_library.fetchMore({});
-            });
-        else if (m_library.state() != UserPlaylistModel::State::Loading)
-            failFavoriteRead(tr("未找到收藏歌单，请刷新歌单后重试"));
-        return;
-    }
-    m_likedId = id->value;
-    m_revision = m_api.sessionRevision();
-    m_favoritePage = 1;
-    m_favoriteSeen = 0;
-    m_favoriteTotal = 0;
-    m_favoriteVersion = 0;
-    m_readFavorites.clear();
-    readFavoritePage();
-}
-void PlaybackLibraryActions::readFavoritePage()
-{
-    m_favoriteRead = m_api.cloudPlaylistTracks({m_likedId}, m_favoritePage, 300);
-    if (!m_favoriteRead)
-        failFavoriteRead(tr("无法加载收藏歌曲"));
-    emit changed();
-}
-void PlaybackLibraryActions::favoritePage(quint64 id, const QByteArray &bytes)
-{
-    if (!id || id != m_favoriteRead || m_revision != m_api.sessionRevision())
-        return;
-    m_favoriteRead = 0;
-    const auto root = QJsonDocument::fromJson(bytes).object();
-    const auto page = root.value("page").toObject();
-    const auto version = quint64(root.value("revision").toInteger(-1));
-    const auto total = page.value("total").toInteger(-1);
-    const auto items = page.value("items").toArray();
-    if (m_favoritePage > 1 && version != m_favoriteVersion) {
-        failFavoriteRead(tr("收藏列表已改变，请重试"));
-        return;
-    }
-    const auto previousCount = m_readFavorites.size();
-    m_favoriteVersion = version;
-    m_favoriteTotal = quint64(qMax<qint64>(0, total));
-    for (const auto &value : items) {
-        const auto item = value.toObject();
-        const auto track = PlaybackTrack::fromDomain(item.value("song").toObject());
-        const auto file = item.value("file_id").toInteger();
-        // This projection can act only on hash/file identities. Incomplete
-        // records must not discard other favorites in the accepted page.
-        if (track.hash.isEmpty() || file <= 0)
-            continue;
-        m_readFavorites.insert(favoriteKey(track), quint64(file));
-    }
-    m_favoriteSeen += items.size();
-    if (m_readFavorites.size() > previousCount &&
-        (total >= 0 ? m_favoriteSeen < quint64(total) : items.size() >= 200)) {
-        ++m_favoritePage;
-        readFavoritePage();
-        return;
-    }
-    m_favorites = std::move(m_readFavorites);
-    m_favoritesReady = true;
-    m_error.clear();
-    emit changed();
-    // Reading can span several pages. Resume only the captured track in the
-    // same account; never turn a late click into a mutation of the next song.
-    QTimer::singleShot(0, this, &PlaybackLibraryActions::resumeFavorite);
-}
-void PlaybackLibraryActions::failFavoriteRead(const QString &message)
-{
-    m_favoritesReady = false;
-    const bool requested = m_favoriteIntent.has_value();
-    m_favoriteIntent.reset();
-    m_readFavorites.clear();
-    m_error = message;
-    if (requested)
-        emit notice(message, true);
-    emit changed();
+    const auto list = m_library.cloudIdAt(likedRow());
+    if (list)
+        m_likedId = list->value;
+    m_favorites.ensureLoaded();
 }
 void PlaybackLibraryActions::resumeFavorite()
 {
@@ -311,14 +212,24 @@ void PlaybackLibraryActions::resumeFavorite()
         return;
     const auto song = *m_favoriteIntent;
     m_favoriteIntent.reset();
-    if (m_revision == m_api.sessionRevision() &&
-        (!m_favoriteIntentRequiresCurrent || song.key() == m_playback.currentTrack().key()))
-        toggleFavoriteTrack(song, m_favoriteIntentRequiresCurrent);
+    if (m_revision != m_api.sessionRevision() ||
+        (m_favoriteIntentRequiresCurrent && song.key() != m_playback.currentTrack().key())) {
+        emit changed();
+        return;
+    }
+    if (m_favorites.contains(favoriteIdentity(song)) &&
+        !m_favorites.fileId(favoriteIdentity(song))) {
+        m_error = tr("无法取消收藏：歌曲缺少歌单文件标识");
+        emit notice(m_error, true);
+        emit changed();
+        return;
+    }
+    toggleFavoriteTrack(song, m_favoriteIntentRequiresCurrent);
     emit changed();
 }
 bool PlaybackLibraryActions::favoriteTrack(const PlaybackTrack &track) const
 {
-    return m_favorites.contains(favoriteKey(track));
+    return m_favorites.contains(favoriteIdentity(track));
 }
 void PlaybackLibraryActions::toggleFavorite()
 {
@@ -333,7 +244,8 @@ void PlaybackLibraryActions::toggleFavoriteTrack(const PlaybackTrack &song, bool
     }
     if (m_busy || m_favoriteIntent || !song.playable())
         return;
-    if (!m_favoritesReady) {
+    const auto list = m_library.cloudIdAt(likedRow());
+    if (!list) {
         m_favoriteIntent = song;
         m_favoriteIntentRequiresCurrent = requireCurrent;
         refreshFavorites();
@@ -342,10 +254,17 @@ void PlaybackLibraryActions::toggleFavoriteTrack(const PlaybackTrack &song, bool
     }
     if (song.hash.isEmpty())
         return;
+    m_likedId = list->value;
     m_removing = favoriteTrack(song);
+    if (m_removing && !m_favorites.fileId(favoriteIdentity(song))) {
+        m_favoriteIntent = song;
+        m_favoriteIntentRequiresCurrent = requireCurrent;
+        m_favorites.ensureLoaded(true);
+        return;
+    }
     const bool accepted =
         m_removing
-            ? m_writer.removeTracks({m_likedId}, {{m_favorites.value(favoriteKey(song))}})
+            ? m_writer.removeTracks({m_likedId}, {{m_favorites.fileId(favoriteIdentity(song))}})
             : m_writer.addTracks({m_likedId}, {{song.title, song.hash, song.albumId, song.songId}});
     if (!accepted) {
         m_error = m_writer.errorMessage().isEmpty() ? tr("歌单正在处理中，请稍后重试")
@@ -356,6 +275,7 @@ void PlaybackLibraryActions::toggleFavoriteTrack(const PlaybackTrack &song, bool
     }
     m_writeSongs = {song};
     m_favoriteWrite = m_ownedWrite = m_busy = true;
+    m_favorites.beginPending(favoriteIdentity(song), song.toCatalog(), !m_removing);
     m_error.clear();
     emit changed();
 }
@@ -484,8 +404,17 @@ void PlaybackLibraryActions::nextWrite()
         m_failed.clear();
         if (m_pending.isEmpty()) {
             m_busy = false;
-            if (!m_favoritesReady && m_selected.contains("playlist/" + QString::number(m_likedId)))
-                refreshFavorites();
+            const auto liked = m_library.cloudIdAt(likedRow());
+            if (liked && m_selected.contains("playlist/" + QString::number(liked->value))) {
+                bool missingFile = false;
+                for (const auto &song : m_songs)
+                    missingFile |=
+                        favoriteTrack(song) && !m_favorites.fileId(favoriteIdentity(song));
+                if (missingFile)
+                    m_favorites.ensureLoaded(true);
+                else
+                    m_favorites.ensureLoaded();
+            }
             notifyRows();
             int failed = 0;
             for (const auto &result : std::as_const(m_results))
@@ -546,10 +475,7 @@ void PlaybackLibraryActions::writeCompleted(const QByteArray &bytes)
             m_removing || (outcomes.isEmpty() ||
                            outcomes.first().toObject().value("resource_code").toInt(1) == 1);
         if (ok) {
-            const auto key = favoriteKey(m_writeSongs.first());
-            if (m_removing)
-                m_favorites.remove(key);
-            else
+            if (!m_removing)
                 applyFavoriteAdds(outcomes);
             if (m_removing)
                 emit favoriteWritten(m_writeSongs.first(), false);
@@ -563,14 +489,12 @@ void PlaybackLibraryActions::writeCompleted(const QByteArray &bytes)
             emit notice(m_error, true);
         }
         m_favoriteWrite = m_busy = false;
-        // The API acknowledgement commits this membership change.
-        // Keep the complete membership index instead of re-reading every page
-        // after a known single-song change. Unknown file IDs still need a read.
-        m_favoritesReady =
-            ok && (m_removing || m_favorites.value(favoriteKey(m_writeSongs.first())) > 0);
+        m_favorites.finishPending();
+        const bool missingFile =
+            ok && !m_removing && !m_favorites.fileId(favoriteIdentity(m_writeSongs.first()));
         m_removing = false;
-        if (!m_favoritesReady)
-            refreshFavorites();
+        if (missingFile)
+            m_favorites.ensureLoaded(true);
         emit changed();
         return;
     }
@@ -596,32 +520,31 @@ void PlaybackLibraryActions::writeCompleted(const QByteArray &bytes)
 }
 void PlaybackLibraryActions::applyFavoriteAdds(const QJsonArray &outcomes)
 {
+    QJsonArray entries;
+    PlaybackTracks newlyLiked;
+    QList<FavoriteSongIndex::Identity> identities;
     for (int i = 0; i < m_writeSongs.size(); ++i) {
         const auto outcome = i < outcomes.size() ? outcomes[i].toObject() : QJsonObject{};
         if (outcome.value("resource_code").toInt(1) != 1)
             continue;
         const auto &song = m_writeSongs[i];
-        const auto key = favoriteKey(song);
-        if (key.isEmpty()) {
-            m_favoritesReady = false;
-            continue;
-        }
-        const bool alreadyFavorite = m_favorites.contains(key);
-        const auto file = outcome.value("file_id").toInteger();
-        // Keep a known removal identity when an idempotent add omits it.
-        if (file > 0 || !alreadyFavorite)
-            m_favorites.insert(key, file > 0 ? quint64(file) : 0);
-        if (!m_favorites.value(key))
-            m_favoritesReady = false;
-        if (!alreadyFavorite)
-            emit favoriteWritten(song, true);
+        const auto identity = favoriteIdentity(song);
+        if (!m_favorites.committedContains(identity))
+            newlyLiked.append(song);
+        identities.append(identity);
+        entries.append(
+            QJsonObject{{"song", song.toCatalog()}, {"file_id", outcome.value("file_id")}});
     }
+    m_favorites.add(entries, identities);
+    for (const auto &song : newlyLiked)
+        emit favoriteWritten(song, true);
 }
 void PlaybackLibraryActions::writeFailed(const QString &message)
 {
     m_error = message;
     emit notice(message, true);
     m_ownedWrite = false;
+    m_favorites.finishPending();
     if (!m_currentTarget.isEmpty()) {
         m_failed.append(m_remaining);
         m_results[m_currentTarget] = {tr("添加失败"), m_failed};

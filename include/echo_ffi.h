@@ -144,6 +144,13 @@ bool echo_audio_load_track(struct EchoAudio *audio,
                            int64_t track_id);
 
 /**
+ * Called on the host worker before URL resolution, outside the serial transport
+ * queue. Cancels old opens/decoding and clears PCM while retaining the output;
+ * explicit stop and shutdown still tear down the session.
+ */
+bool echo_audio_begin_source_change(struct EchoAudio *audio);
+
+/**
  * Call from a host worker. Registers the native cancellation epoch before HTTP
  * resolution; zero means there is no current output session to prepare against.
  */

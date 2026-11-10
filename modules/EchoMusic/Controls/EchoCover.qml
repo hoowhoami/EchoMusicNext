@@ -89,6 +89,9 @@ Item {
         color: control.placeholderColor
         EchoIcon {
             objectName: "coverPlaceholderGlyph"
+            // Resizing keeps the previous raster until the same glyph is ready
+            // at its new density, avoiding a blank placeholder between frames.
+            retainWhileLoading: true
             // The small bundled glyph must exist on the first flight frame.
             asynchronous: !surface.synchronous
             anchors.centerIn: parent

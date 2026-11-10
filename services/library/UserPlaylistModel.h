@@ -4,10 +4,12 @@
 #include <QList>
 #include <QPointer>
 #include "StorageService.h"
+#include <memory>
 
 namespace EchoMusic
 {
 class UserPlaylistModelTestAccess;
+class FavoriteSongIndex;
 /// GUI-owned canonical library model. No upstream fields or account credentials
 /// reach delegates; pagination and version checks belong to this single owner.
 class UserPlaylistModel final : public QAbstractListModel
@@ -52,6 +54,11 @@ public:
     Q_ENUM(Role)
     explicit UserPlaylistModel(ApiClient &api, QObject *parent = nullptr);
     ~UserPlaylistModel() override;
+    /// One account-scoped snapshot feeds the favorites page and shared hearts.
+    FavoriteSongIndex *favoriteSongs() const
+    {
+        return m_favoriteSongs.get();
+    }
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
@@ -106,6 +113,7 @@ signals:
     void coverChanged(const QString &globalId);
 
 private:
+    std::unique_ptr<FavoriteSongIndex> m_favoriteSongs;
     friend class UserPlaylistModelTestAccess;
     struct Row
     {

@@ -1,5 +1,6 @@
 #pragma once
 #include "ArtistDetailService.h"
+#include "FavoriteSongIndex.h"
 #include "DetailsService.h"
 #include "AlbumDetailService.h"
 #include <ctime>
@@ -96,11 +97,10 @@ public:
     }
     static void favorite(PlaybackLibraryActions &actions, const PlaybackTrack &track, bool value)
     {
-        if (value)
-            actions.m_favorites.insert(track.hash.toUpper(), 1);
-        else
-            actions.m_favorites.remove(track.hash.toUpper());
-        emit actions.changed();
+        // Selected-state fixtures use the account index's local visual
+        // projection without sending a favorite mutation request.
+        actions.m_favorites.beginPending({track.id, track.hash, track.songId}, track.toCatalog(),
+                                         value);
     }
 };
 class TrackTransitionControllerTestAccess

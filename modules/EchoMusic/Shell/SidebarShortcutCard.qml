@@ -18,6 +18,7 @@ Item {
     property string resourceId: ""
     required property int entryIndex
     property bool collapsed: false
+    property real collapseProgress: collapsed ? 1 : 0
     property bool resourceActive: true
     property bool gestureArmed: false
     property bool dragging: false
@@ -93,8 +94,9 @@ Item {
                 visible: !card.resourceId
                 name: card.glyph
                 color: card.selected ? Theme.accentText : Theme.iconMain
-                opacity: card.hovered && !card.collapsed ? 0 : 1
+                opacity: card.hovered ? card.collapseProgress : 1
                 Behavior on opacity {
+                    enabled: card.collapseProgress === 0 || card.collapseProgress === 1
                     NumberAnimation {
                         duration: Theme.normalDuration
                         easing.type: Easing.BezierSpline
@@ -107,7 +109,7 @@ Item {
                 width: 20
                 height: 20
                 active: !!card.resourceId && card.resourceActive
-                opacity: card.hovered && !card.collapsed ? 0 : 1
+                opacity: card.hovered ? card.collapseProgress : 1
                 sourceComponent: EchoCover {
                     source: card.cover
                     coverAlt: card.title
@@ -118,6 +120,7 @@ Item {
                     resourceActive: card.resourceActive
                 }
                 Behavior on opacity {
+                    enabled: card.collapseProgress === 0 || card.collapseProgress === 1
                     NumberAnimation {
                         duration: Theme.normalDuration
                         easing.type: Easing.BezierSpline
@@ -130,8 +133,8 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: Math.max(0, parent.width - (card.canRemove ? 24 : 0))
                 height: parent.height
-                visible: !card.collapsed
-                opacity: card.hovered ? 1 : 0
+                visible: card.collapseProgress < 1
+                opacity: card.hovered ? Math.max(0, 1 - 2 * card.collapseProgress) : 0
                 text: card.title
                 color: Theme.text
                 font: Theme.font(13, Theme.mediumWeight)
@@ -143,6 +146,7 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 wrapMode: Text.WrapAnywhere
                 Behavior on opacity {
+                    enabled: card.collapseProgress === 0 || card.collapseProgress === 1
                     NumberAnimation {
                         duration: Theme.normalDuration
                         easing.type: Easing.BezierSpline
@@ -276,9 +280,9 @@ Item {
         focusPolicy: Qt.StrongFocus
         // Keep the close button in the keyboard focus chain.
         // Gating its visibility on previous focus interrupts Qt focus transfer.
-        visible: card.canRemove
+        visible: card.layout.shortcuts.length > 1 && card.collapseProgress < 1
         enabled: card.canRemove && !card.dragging
-        opacity: card.hovered ? 1 : 0
+        opacity: card.hovered ? Math.max(0, 1 - 2 * card.collapseProgress) : 0
         glyph: "x"
         foreground: hovered || visualFocus ? Theme.text : Theme.secondaryText
         background: Rectangle {
@@ -300,6 +304,7 @@ Item {
             }
         }
         Behavior on opacity {
+            enabled: card.collapseProgress === 0 || card.collapseProgress === 1
             NumberAnimation {
                 duration: Theme.fastDuration
                 easing.type: Easing.BezierSpline

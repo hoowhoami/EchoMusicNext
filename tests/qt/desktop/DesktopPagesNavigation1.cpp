@@ -1330,6 +1330,69 @@ void DesktopPagesTest::productionSidebarScrollbar()
     session.window->resize(1150, 1200);
     QTRY_VERIFY(scroll->property("contentHeight").toReal() <= scroll->height());
     QTRY_VERIFY(!bar->isVisible());
+    // The sidebar toolbar must not give refresh a different source grid.
+    // Inspect the production content and its decoded raster at common zooms.
+    const auto motionEnabled = session.theme.motionEnabled();
+    session.theme.setMotionEnabled(false);
+    session.shell.resetZoom();
+    if (session.shell.sidebarCollapsed())
+        session.shell.toggleSidebar();
+    const auto item = [&session](const QString &name) {
+        return visual(session.window->contentItem(), name);
+    };
+    auto *header = item("sidebarPlaylistHeader");
+    QVERIFY(header);
+    QTRY_COMPARE(header->height(), qreal(24));
+    const auto iconCenter = [header](QQuickItem *button) {
+        auto *content = button->property("contentItem").value<QQuickItem *>();
+        return content->mapRectToItem(header, content->boundingRect()).center().y();
+    };
+    qInfo() << "Sidebar icon device pixel ratio" << session.window->effectiveDevicePixelRatio();
+    const auto iconCaptures = qEnvironmentVariable("ECHO_SIDEBAR_ICON_CAPTURE_DIR");
+    if (!iconCaptures.isEmpty())
+        QVERIFY(QDir().mkpath(iconCaptures));
+    for (bool dark : {false, true}) {
+        session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+        for (qreal scale : {1., 1.25, 1.5}) {
+            session.shell.resetZoom();
+            while (session.shell.uiScale() < scale - .001)
+                session.shell.zoomIn();
+            for (const auto &name :
+                 {"sidebarPlaylistOrder", "sidebarPlaylistRefresh", "sidebarPlaylistAdd"}) {
+                auto *button = item(name);
+                QVERIFY(button && button->isVisible());
+                QCOMPARE(button->size(), QSizeF(24, 24));
+                auto *content = button->property("contentItem").value<QQuickItem *>();
+                QVERIFY(content);
+                QTRY_COMPARE(content->size(), QSizeF(12, 12));
+                QTRY_COMPARE_WITH_TIMEOUT(iconCenter(button),
+                                          iconCenter(item("sidebarPlaylistOrder")), 2000);
+                auto *image = visual(button, "iconImage");
+                QVERIFY(image);
+                QTRY_COMPARE(image->property("status").toInt(), 1);
+                const auto pixels = qCeil(12 * session.shell.uiScale() *
+                                          session.window->effectiveDevicePixelRatio());
+                QTRY_COMPARE(image->property("sourceSize").toSize(), QSize(pixels, pixels));
+            }
+            const auto frame = session.window->grabWindow();
+            QVERIFY(!frame.isNull());
+            if (!iconCaptures.isEmpty()) {
+                const auto box =
+                    header->mapRectToScene(header->boundingRect()).adjusted(0, -4, 0, 4);
+                const auto ratio = qreal(frame.width()) / session.window->width();
+                QVERIFY(
+                    frame.copy(QRectF(box.topLeft() * ratio, box.size() * ratio).toAlignedRect())
+                        .save(iconCaptures +
+                              QString("/%1-%2-dpr%3.png")
+                                  .arg(dark ? "dark" : "light")
+                                  .arg(scale)
+                                  .arg(session.window->effectiveDevicePixelRatio())));
+            }
+        }
+    }
+    session.shell.resetZoom();
+    session.theme.setMode(ThemeStore::Light);
+    session.theme.setMotionEnabled(motionEnabled);
     QCOMPARE(warnings.size(), 0);
 }
 

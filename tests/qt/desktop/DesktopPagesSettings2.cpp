@@ -270,6 +270,7 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
     // Two ordinary transitions, then rapid reversal while both directions
     // are in flight. Sample rendered frames, not only settled endpoints.
     for (int phase = 0; phase < 3; ++phase) {
+        QVERIFY(Test::prepareNativeInput(session.window));
         session.shell.toggleSidebar();
         QCOMPARE(content->opacity(), 1.);
         QElapsedTimer elapsed;
@@ -288,7 +289,8 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
             QCOMPARE(content->opacity(), 1.);
             ++frameCount;
             const bool collapsed = session.shell.sidebarCollapsed();
-            const qreal cellWidth = collapsed ? cards->width() : (cards->width() - 8) / 2;
+            const qreal progress = cards->property("collapseProgress").toReal();
+            const qreal railProgress = cards->property("railProgress").toReal();
             intermediateWidth |= cards->width() > 44 && cards->width() < 194;
             QJsonArray positions;
             QString failure;
@@ -296,8 +298,8 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
                 auto *card = index == retained.size() ? add : retained[index].data();
                 QVERIFY(card);
                 const bool fullAdd = card == add && cardCount % 2 == 0;
-                const qreal x = collapsed || fullAdd ? 0 : (index % 2) * (cellWidth + 8);
-                const qreal y = collapsed ? index * 48 : (index / 2) * 54;
+                const qreal x = fullAdd ? 0 : (index % 2) * 101 * (1 - progress);
+                const qreal y = (index / 2) * 54 * (1 - railProgress) + index * 48 * railProgress;
                 positions.append(QJsonObject{{"name", card->objectName()},
                                              {"x", card->x()},
                                              {"y", card->y()},
@@ -325,7 +327,8 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
             }
             expandedMenuHeight = qMin(expandedMenuHeight, 240.);
             collapsedMenuHeight = qMin(collapsedMenuHeight, 240.);
-            const auto expectedMenuHeight = collapsed ? collapsedMenuHeight : expandedMenuHeight;
+            const auto expectedMenuHeight =
+                expandedMenuHeight * (1 - progress) + collapsedMenuHeight * progress;
             auto *menuEntry = item("sidebarMenu-favorites");
             const auto entryY = menuEntry ? menuEntry->mapToItem(menu, QPointF()).y() : -999.;
             samples.append(
@@ -358,8 +361,8 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
                                     .arg(menu->property("originY").toReal())
                                     .arg(phase)
                                     .arg(elapsed.elapsed())));
-            // Native polish may still expose the previous mode's measured
-            // extent for one frame. Neither valid mode may expand to the budget.
+            // Continuous row heights stay within the two endpoint extents;
+            // native measurement must never fall back to its viewport budget.
             QVERIFY2(menu->height() >= qMin(expandedMenuHeight, collapsedMenuHeight) - .01 &&
                          menu->height() <= qMax(expandedMenuHeight, collapsedMenuHeight) + .01,
                      qPrintable(QString("menu height %1, target %2, phase %3 at %4ms")

@@ -6,8 +6,17 @@
 namespace EchoMusic::MenuBarLyricLayout
 {
 constexpr double compactWidth = 24.;
-// Measure from a compact, laid-out item: an overflowing status window can keep
-// a stale origin while its width grows, so its right edge is no longer an anchor.
+// AppKit may keep either edge fixed while resizing a status window. Neither
+// form is a relocation of the item among its neighbours.
+inline bool relocated(const QRectF &previous, double previousItemWidth, const QRectF &current,
+                      double itemWidth)
+{
+    return !previous.isEmpty() && std::abs(previousItemWidth - itemWidth) < .5 &&
+           std::abs(previous.width() - current.width()) < .5 &&
+           std::abs(previous.right() - current.right()) > .5;
+}
+// Measure a laid-out item. Initial/screen probes use a compact item because an
+// overflowing window may retain a stale origin while its requested width grows.
 inline double availableWidth(const QRectF &screen, const QRectF &rightSafeArea,
                              const QRectF &statusWindow, double itemWidth)
 {

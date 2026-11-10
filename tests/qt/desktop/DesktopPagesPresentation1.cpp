@@ -1694,7 +1694,8 @@ void DesktopPagesTest::sidebarPluginRegistrationKeepsHeaderVisible()
                 session.shell.toggleSidebar();
             QVERIFY(session.settleScene());
             QVERIFY(QMetaObject::invokeMethod(scroll, "positionViewAtBeginning"));
-            QTest::qWait(300);
+            QTRY_COMPARE(cards->width(), collapsed ? 44. : 194.);
+            QVERIFY(session.settleScene());
             const auto top = cards->mapToScene(QPointF()).y();
             const auto check = [&] {
                 return qAbs(cards->mapToScene(QPointF()).y() - top) < .01 &&
@@ -1733,4 +1734,154 @@ void DesktopPagesTest::sidebarPluginRegistrationKeepsHeaderVisible()
             QTRY_VERIFY(!visual(menu, "sidebarMenu-test:late-menu"));
         }
     }
+}
+
+void DesktopPagesTest::sidebarResizeKeepsContinuousGeometryAndIdentity()
+{
+    Session session;
+    for (const auto &name : {QString("home"), QString("explore")})
+        QVERIFY(session.router.registerPage(
+            {name, "/test/" + name, QUrl("qrc:/qt/qml/EchoMusic/Shell/RoutePage.qml"), {}}));
+    session.theme.setMotionEnabled(false);
+    QVERIFY(session.create());
+    session.window->resize(1150, 800);
+    QVERIFY(Test::prepareNativeInput(session.window));
+    UserPlaylistModelTestAccess::present(session.accounts.playlists, session.api, 1000);
+    const auto item = [&](const QString &name) {
+        return visual(session.window->contentItem(), name);
+    };
+    auto *content = item("sidebarContent");
+    QVERIFY(content);
+    auto *sidebar = content->parentItem();
+    while (sidebar && !sidebar->property("resizeProgress").isValid())
+        sidebar = sidebar->parentItem();
+    auto *cards = item("sidebarShortcuts");
+    auto *header = item("sidebarPlaylistHeader");
+    auto *avatar = item("sidebarAccountAvatar");
+    auto *toggle = item("sidebarCollapseTrigger");
+    QVERIFY(sidebar && cards && header && avatar && toggle);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const auto scale : {1., 1.25}) {
+            session.shell.resetZoom();
+            while (session.shell.uiScale() < scale - .001)
+                session.shell.zoomIn();
+            // Exercise both full-width and half-width trailing add slots.
+            for (bool odd : {false, true}) {
+                if (odd)
+                    session.shell.sidebarLayout()->toggleShortcut("free-listen");
+                QTRY_COMPARE(sidebar->width(), 230.);
+                QVERIFY(session.settleScene());
+                QPointer<QQuickItem> home(item("sidebarShortcut-home"));
+                QPointer<QQuickItem> explore(item("sidebarShortcut-explore"));
+                QVERIFY(home && explore);
+                auto *activation = home->property("activation").value<QQuickItem *>();
+                QVERIFY(activation);
+                QVERIFY(activation->isEnabled());
+                activation->forceActiveFocus(Qt::TabFocusReason);
+                QCOMPARE(activation, session.window->activeFocusItem());
+                const auto expandedY = explore->y();
+                const auto railY = explore->property("entryIndex").toInt() * 48.;
+                QVERIFY(Test::prepareNativeInput(session.window));
+                QVERIFY(!session.window->grabWindow().isNull());
+                session.theme.setMotionEnabled(true);
+                session.shell.toggleSidebar();
+                // The boolean preference must not immediately reflow the scene.
+                QCOMPARE(sidebar->width(), 230.);
+                QCOMPARE(explore->y(), expandedY);
+                QCOMPARE(avatar->width(), 36.);
+                qreal previous = 0;
+                int frames = 0;
+                while (sidebar->property("collapseProgress").toReal() < 1) {
+                    QTest::qWait(16);
+                    QVERIFY(session.settleScene());
+                    const auto progress = sidebar->property("collapseProgress").toReal();
+                    QVERIFY(progress >= previous);
+                    QVERIFY(qAbs(sidebar->width() - (230 - 150 * progress)) < 1.1);
+                    QVERIFY(qAbs(explore->y() -
+                                 (expandedY * (1 - cards->property("railProgress").toReal()) +
+                                  railY * cards->property("railProgress").toReal())) < .1);
+                    QVERIFY(qAbs(avatar->width() - (36 - 4 * progress)) < 1.1);
+                    QCOMPARE(content->opacity(), 1.);
+                    QVERIFY(home && explore);
+                    const auto homeBox = home->mapRectToItem(cards, home->boundingRect());
+                    const auto exploreBox = explore->mapRectToItem(cards, explore->boundingRect());
+                    QVERIFY(!homeBox.intersects(exploreBox));
+                    if (sidebar->property("resizeProgress").toReal() > 0 && progress < 1)
+                        ++frames;
+                    previous = progress;
+                }
+                QVERIFY(frames >= 2);
+                QCOMPARE(home.data(), item("sidebarShortcut-home"));
+                QCOMPARE(explore.data(), item("sidebarShortcut-explore"));
+                QCOMPARE(activation, session.window->activeFocusItem());
+                QCOMPARE(header->height(), 30.);
+                session.shell.toggleSidebar();
+                QTest::qWait(60);
+                const auto beforeReverse = sidebar->property("collapseProgress").toReal();
+                QVERIFY(beforeReverse > 0 && beforeReverse < 1);
+                const auto position = toggle->mapToScene(QPointF());
+                session.shell.toggleSidebar();
+                QCOMPARE(sidebar->property("collapseProgress").toReal(), beforeReverse);
+                QCOMPARE(toggle->mapToScene(QPointF()), position);
+                // Lifecycle changes complete the same clock, including width.
+                session.theme.setMotionEnabled(false);
+                QTRY_COMPARE(sidebar->width(), 80.);
+                session.shell.toggleSidebar();
+                QTRY_COMPARE(sidebar->width(), 230.);
+                session.theme.setMotionEnabled(true);
+                session.shell.toggleSidebar();
+                QTest::qWait(40);
+                session.window->hide();
+                QTRY_COMPARE(sidebar->property("collapseProgress").toReal(), 1.);
+                session.shell.toggleSidebar();
+                QCOMPARE(sidebar->property("collapseProgress").toReal(), 0.);
+                session.window->show();
+                QVERIFY(Test::prepareNativeInput(session.window));
+                session.theme.setMotionEnabled(false);
+                QVERIFY(session.settleScene());
+                if (odd)
+                    session.shell.sidebarLayout()->toggleShortcut("free-listen");
+            }
+        }
+    }
+
+    QObject provider;
+    auto *layout = session.shell.sidebarLayout();
+    for (int index = 0; index < 14; ++index) {
+        const auto key = QString("test:motion-card-%1").arg(index);
+        QVERIFY(layout->registerPluginEntry({key, {{"title", key}}, true, &provider}));
+        layout->toggleShortcut(key);
+    }
+    QTRY_VERIFY(layout->shortcuts().size() > 12);
+    QTRY_VERIFY(item("sidebarShortcutAddVirtual"));
+    QTRY_VERIFY(!item("sidebarShortcutAdd")->isVisible());
+    QVERIFY(session.settleScene());
+    QPointer<QQuickItem> virtualHome(item("sidebarShortcut-home"));
+    QPointer<QQuickItem> virtualExplore(item("sidebarShortcut-explore"));
+    QVERIFY(virtualHome && virtualExplore);
+    QCOMPARE(cards->height(), 240.);
+    session.theme.setMotionEnabled(true);
+    session.shell.toggleSidebar();
+    int virtualFrames = 0;
+    while (sidebar->property("collapseProgress").toReal() < 1) {
+        QTest::qWait(16);
+        QVERIFY(session.settleScene());
+        const auto progress = sidebar->property("collapseProgress").toReal();
+        QVERIFY(virtualHome && virtualExplore);
+        const auto position = virtualExplore->mapToItem(cards, QPointF());
+        QVERIFY(qAbs(position.x() - 101 * (1 - progress)) < 1.1);
+        QVERIFY(qAbs(position.y() - 48 * cards->property("railProgress").toReal()) < 1.1);
+        QVERIFY(visualCount(cards, "sidebarShortcutIcon") < layout->shortcuts().size());
+        if (progress > 0 && progress < 1)
+            ++virtualFrames;
+    }
+    QVERIFY(virtualFrames >= 2);
+    QCOMPARE(virtualHome.data(), item("sidebarShortcut-home"));
+    QCOMPARE(virtualExplore.data(), item("sidebarShortcut-explore"));
+    session.theme.setMotionEnabled(false);
+    for (const auto &warning : warnings)
+        qWarning() << warning;
+    QCOMPARE(warnings.size(), 0);
 }

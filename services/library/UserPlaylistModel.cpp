@@ -1,4 +1,5 @@
 #include "UserPlaylistModel.h"
+#include "FavoriteSongIndex.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -20,6 +21,7 @@ UserPlaylistModel::UserPlaylistModel(ApiClient &api, QObject *parent)
         m_closed = true;
         resetState();
     });
+    m_favoriteSongs = std::make_unique<FavoriteSongIndex>(api, *this);
 }
 UserPlaylistModel::~UserPlaylistModel()
 {

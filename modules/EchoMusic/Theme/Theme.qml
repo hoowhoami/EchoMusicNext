@@ -115,6 +115,13 @@ QtObject {
     readonly property int loginBannerDuration: store.motionEnabled ? 700 : 0
     readonly property int loginPulseDuration: 2600
     readonly property int sidebarDuration: store.motionEnabled ? 200 : 0
+    readonly property int sidebarResizeDuration: store.motionEnabled ? 320 : 0
+    // A linear clock with eased intervals avoids applying the easing twice
+    // when the sidebar's vertical and horizontal phases overlap.
+    function sidebarPhase(value: real, start: real, end: real): real {
+        const t = Math.max(0, Math.min(1, (value - start) / (end - start)));
+        return t * t * (3 - 2 * t);
+    }
     readonly property int noticeFadeDuration: store.motionEnabled ? 200 : 0
     readonly property int staggerDelay: store.motionEnabled ? 32 : 0
     // BezierSpline accepts control points followed by the terminal point.

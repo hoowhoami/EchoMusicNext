@@ -39,7 +39,9 @@ public:
     }
     bool favoriteLoading() const
     {
-        return m_favoriteRead != 0 || m_favoriteIntent.has_value();
+        // Background enumeration does not block a source-style optimistic like.
+        // Only resolving this explicit command's list/file identity is blocking.
+        return m_favoriteIntent.has_value();
     }
     bool busy() const
     {
@@ -108,9 +110,6 @@ private:
     int likedRow() const;
     void refreshFavorites();
     void resumeFavorite();
-    void failFavoriteRead(const QString &message);
-    void readFavoritePage();
-    void favoritePage(quint64, const QByteArray &);
     void nextWrite();
     void writeCompleted(const QByteArray &);
     void applyFavoriteAdds(const QJsonArray &outcomes);
@@ -120,6 +119,7 @@ private:
     ApiClient &m_api;
     UserPlaylistModel &m_library;
     PlaylistMutationService &m_writer;
+    FavoriteSongIndex &m_favorites;
     QList<Target> m_targets;
     int m_sectionCount = 0;
     PlaybackTracks m_songs, m_writeSongs, m_remaining, m_failed;
@@ -127,15 +127,12 @@ private:
     QHash<QString, Target> m_writeTargets;
     QSet<QString> m_selected;
     QQueue<QString> m_pending;
-    QHash<QString, quint64> m_favorites, m_readFavorites;
     std::optional<PlaybackTrack> m_favoriteIntent;
     QString m_currentTarget, m_error;
-    quint64 m_revision = 0, m_favoriteRead = 0, m_likedId = 0, m_favoriteVersion = 0;
-    quint32 m_favoritePage = 1;
-    quint64 m_favoriteSeen = 0, m_favoriteTotal = 0;
+    quint64 m_revision = 0, m_likedId = 0;
     bool m_playbackQueues = true;
-    bool m_favoritesReady = false, m_multiple = false, m_busy = false, m_favoriteWrite = false,
-         m_removing = false, m_ownedWrite = false;
+    bool m_multiple = false, m_busy = false, m_favoriteWrite = false, m_removing = false,
+         m_ownedWrite = false;
     bool m_favoriteIntentRequiresCurrent = true;
 };
 } // namespace EchoMusic

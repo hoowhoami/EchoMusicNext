@@ -32,6 +32,8 @@ public:
     void switchSource(const QString &source, quint64 sequence, qint64 audioTrack = 0,
                       quint64 sourceRevision = 0);
     void cancelSourceReplacement();
+    /// Retire old audio while retaining the output device during URL resolution.
+    void beginSourceChange();
     void beginNext(quint64 revision);
     void prepareNext(const QString &source, qint64 trackId, quint64 sequence, quint64 requestId,
                      quint64 revision, double normalizationGainDb);

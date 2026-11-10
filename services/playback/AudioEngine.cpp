@@ -149,6 +149,16 @@ void AudioEngine::cancelSourceReplacement()
     QMetaObject::invokeMethod(
         m_worker, [sink = m_sink] { echo_audio_cancel_source_replacement(sink->handle); });
 }
+void AudioEngine::beginSourceChange()
+{
+    if (!m_closing)
+        QMetaObject::invokeMethod(m_worker, [sink = m_sink] {
+            if (!echo_audio_begin_source_change(sink->handle))
+                sink->push({{"event", "error"},
+                            {"track_seq", qint64(sink->sequence)},
+                            {"message", "歌曲切换请求未被接受"}});
+        });
+}
 void AudioEngine::command(Command command, double value)
 {
     if (m_closing)

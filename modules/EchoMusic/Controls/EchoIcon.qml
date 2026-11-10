@@ -15,6 +15,7 @@ Item {
     // requesting another SVG texture at every frame of hover feedback.
     property real visualScale: 1
     property alias asynchronous: image.asynchronous
+    property alias retainWhileLoading: image.retainWhileLoading
     readonly property alias status: image.status
     // Rasterize glyphs 1:1 at device pixels: the artwork bucket floor (32px)
     // would make a small icon render at ~2x its display size, and the bilinear

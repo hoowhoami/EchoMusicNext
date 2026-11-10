@@ -10,6 +10,11 @@ Item {
     id: content
     anchors.alignWhenCentered: false
     property string text: ""
+    // Optional continuous label retirement keeps icon/text geometry stable
+    // while a containing navigation surface contracts to an icon rail.
+    property real textOpacity: 1
+    property real textExtent: 1
+    property bool retainGlyphWhileLoading: false
     property string glyph: ""
     property bool loading: false
     property color color: Theme.text
@@ -75,6 +80,7 @@ Item {
                     width: content.glyphSize
                     height: content.glyphSize
                     name: content.glyph
+                    retainWhileLoading: content.retainGlyphWhileLoading
                     color: content.iconColor
                 }
             }
@@ -82,13 +88,15 @@ Item {
         EchoTextLine {
             id: label
             objectName: "buttonLabel"
-            visible: content.text.length > 0
+            visible: content.text.length > 0 && content.textExtent > 0
+            opacity: content.textOpacity
             text: content.text
             color: content.color
             font: content.font
             lineHeight: content.lineHeight
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.maximumWidth: content.textExtent < 1 ? implicitWidth * content.textExtent : Infinity
             Layout.minimumWidth: 0
             fillTextWidth: true
             wrap: content.wrap

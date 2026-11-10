@@ -10,15 +10,27 @@ Item {
     id: header
     required property LibraryController service
     required property bool collapsed
+    property real collapseProgress: collapsed ? 1 : 0
     property real uiScale: 1
     signal orderRequested
     signal createRequested
     signal importRequested
     objectName: "sidebarPlaylistHeader"
-    implicitHeight: collapsed ? 30 : 24
+    implicitHeight: 24 + 6 * collapseProgress
+    // Keep the three toolbar glyphs on the same 12px source grid. A 13px
+    // refresh box requires fractional resampling at common display scales.
+    component PlaylistAction: EchoIconButton {
+        implicitWidth: 24
+        implicitHeight: 24
+        padding: 6
+    }
     RowLayout {
-        anchors.fill: parent
-        visible: !header.collapsed
+        width: 188
+        height: 24
+        anchors.verticalCenter: parent.verticalCenter
+        visible: header.collapseProgress < 1
+        enabled: !header.collapsed
+        opacity: Math.max(0, 1 - 2 * header.collapseProgress)
         spacing: 6
         RowLayout {
             Layout.fillHeight: false
@@ -67,31 +79,25 @@ Item {
             Layout.fillHeight: false
             spacing: 2
             Layout.leftMargin: 2
-            EchoIconButton {
+            PlaylistAction {
                 glyph: "arrows-sort"
                 text: qsTr("调整歌单顺序")
                 tooltipText: text
                 objectName: "sidebarPlaylistOrder"
                 enabled: header.service.signedIn && !header.service.busy
                 onClicked: header.orderRequested()
-                implicitWidth: 24
-                implicitHeight: 24
-                padding: 6
             }
-            EchoIconButton {
+            PlaylistAction {
                 objectName: "sidebarPlaylistRefresh"
                 glyph: "refresh"
                 text: qsTr("刷新歌单")
                 enabled: header.service.signedIn && !header.service.busy
                 onClicked: header.service.reload()
-                implicitWidth: 24
-                implicitHeight: 24
-                padding: 5.5
             }
             Item {
                 Layout.preferredWidth: 24
                 Layout.preferredHeight: 24
-                EchoIconButton {
+                PlaylistAction {
                     anchors.fill: parent
                     visible: header.service.tab === 0
                     objectName: "sidebarPlaylistAdd"
@@ -99,7 +105,6 @@ Item {
                     text: qsTr("添加歌单")
                     enabled: header.service.signedIn && !header.service.busy
                     onClicked: addMenuOwner.open()
-                    padding: 6
                 }
             }
         }
@@ -204,7 +209,9 @@ Item {
     }
     Rectangle {
         anchors.fill: parent
-        visible: header.collapsed
+        visible: header.collapseProgress > 0
+        enabled: header.collapsed
+        opacity: Math.max(0, 2 * header.collapseProgress - 1)
         radius: Theme.itemRadius
         color: Theme.withAlpha(Theme.text, 0.06)
         border.color: Theme.withAlpha(Theme.text, 0.04)
@@ -230,6 +237,7 @@ Item {
             Repeater {
                 model: [qsTr("自建歌单"), qsTr("收藏歌单")]
                 delegate: EchoIconButton {
+                    id: railTab
                     required property int index
                     required property string modelData
                     objectName: "sidebarRailPlaylistTab-" + index
@@ -239,6 +247,16 @@ Item {
                     text: modelData
                     tooltipText: text
                     padding: 4.5
+                    contentItem: Item {
+                        EchoIcon {
+                            anchors.centerIn: parent
+                            width: 15
+                            height: 15
+                            name: railTab.glyph
+                            color: railTab.foreground
+                            retainWhileLoading: true
+                        }
+                    }
                     foreground: header.service.tab === index ? Theme.accentText : hovered ? Theme.text : Theme.iconMain
                     background: null
                     onClicked: header.service.tab = index

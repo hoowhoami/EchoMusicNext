@@ -71,6 +71,9 @@ RoutePage {
                         scrollTop: viewport.scrollTop
                         coverComponent: Component {
                             ThemedIconCover {
+                                id: favoriteCover
+                                source: page.service.coverUrl || "data:image/svg+xml;utf8," + encodeURIComponent(favoriteCover.artwork)
+                                resourceActive: favoritesHeader.resourceActive
                                 cornerRadius: Theme.mediaRadius / favoritesHeader.coverScale
                                 iconPath: "M19.5 12.572L12 20l-7.5-7.428A5 5 0 1 1 12 6.006a5 5 0 1 1 7.5 6.572"
                             }

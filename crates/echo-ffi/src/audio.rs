@@ -201,6 +201,18 @@ pub unsafe extern "C" fn echo_audio_load_track(
     .unwrap_or(false)
 }
 
+/// Called on the host worker before URL resolution, outside the serial transport
+/// queue. Cancels old opens/decoding and clears PCM while retaining the output;
+/// explicit stop and shutdown still tear down the session.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn echo_audio_begin_source_change(audio: *mut EchoAudio) -> bool {
+    if audio.is_null() || unsafe { &*audio }.closing.load(Ordering::Acquire) {
+        return false;
+    }
+    catch_unwind(AssertUnwindSafe(echo_audio::begin_source_change))
+        .is_ok_and(|result| result.is_ok())
+}
+
 /// Call from a host worker. Registers the native cancellation epoch before HTTP
 /// resolution; zero means there is no current output session to prepare against.
 #[unsafe(no_mangle)]

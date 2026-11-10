@@ -834,7 +834,7 @@ add_test(
         socialAndDeviceCachesBelongToAccountAndTab productionSidebarImportEntranceAndModes
         productionSidebarOrderEditor sidebarHomeAndDragTransaction
         sidebarHistoryNavigationRevealsPlaylistSection productionSidebarScrollbar
-        productionSidebarCardsMenusAndLayout
+        productionSidebarCardsMenusAndLayout sidebarResizeKeepsContinuousGeometryAndIdentity
         sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots
         accountProfileAndGradeRejectOldAccountResult
         fixedProfileSocialAndSidebarActionsKeepIntrinsicWidths productionProfileNameTagsStayAligned

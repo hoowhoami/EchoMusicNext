@@ -1,4 +1,5 @@
 #include "ApiClient.h"
+#include "FavoriteSongIndex.h"
 #include "CloudService.h"
 #include "FavoritesService.h"
 #include "NativeWindow.h"
@@ -37,6 +38,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QFile>
+#include <QBuffer>
 #include <QScopeGuard>
 #include <QCryptographicHash>
 #include <QUuid>
@@ -45,30 +47,70 @@
 using namespace EchoMusic;
 namespace EchoMusic
 {
+class FavoriteSongIndexTestAccess
+{
+public:
+    static void start(FavoriteSongIndex &index, quint64 list = 7)
+    {
+        index.start(list);
+    }
+    static quint64 request(const FavoriteSongIndex &index)
+    {
+        return index.m_request;
+    }
+    static void page(FavoriteSongIndex &index, const QJsonArray &items, qint64 total,
+                     qint64 version = 7)
+    {
+        if (!index.m_reading)
+            index.start(7);
+        if (index.m_request)
+            index.m_api.cancel(std::exchange(index.m_request, 0));
+        index.acceptPage({{"cloud_list_id", 7},
+                          {"revision", version},
+                          {"page", QJsonObject{{"items", items}, {"total", total}}}});
+    }
+    static void accept(FavoriteSongIndex &index, quint64 id, const QJsonObject &root)
+    {
+        index.accept(id, QJsonDocument(root).toJson());
+    }
+    static void failure(FavoriteSongIndex &index)
+    {
+        if (index.m_request)
+            index.m_api.cancel(std::exchange(index.m_request, 0));
+        index.fail(QStringLiteral("加载失败"));
+    }
+};
 class PlaybackLibraryActionsTestAccess
 {
 public:
     static void ready(PlaybackLibraryActions &actions, ApiClient &api)
     {
-        if (actions.m_favoriteRead)
-            api.cancel(actions.m_favoriteRead);
-        actions.m_favoriteRead = 0;
+        auto &index = actions.m_favorites;
+        FavoriteSongIndexTestAccess::start(index);
+        FavoriteSongIndexTestAccess::page(index, {}, 0);
         actions.m_revision = api.sessionRevision();
         actions.m_likedId = 7;
-        actions.m_favoritesReady = true;
     }
     static quint64 favoriteRead(const PlaybackLibraryActions &actions)
     {
-        return actions.m_favoriteRead;
+        return FavoriteSongIndexTestAccess::request(actions.m_favorites);
     }
     static void favorite(PlaybackLibraryActions &actions, const PlaybackTrack &track, quint64 file)
     {
-        actions.m_favorites.insert(track.hash.toUpper(), file);
+        actions.m_favorites.add(
+            {QJsonObject{{"song", track.toCatalog()}, {"file_id", qint64(file)}}});
     }
 };
 class UserPlaylistModelTestAccess
 {
 public:
+    static void cover(UserPlaylistModel &model, const QString &url, bool custom = false)
+    {
+        model.m_rows[0].cover = url;
+        model.m_rows[0].customCover = custom;
+        emit model.dataChanged(model.index(0), model.index(0), {UserPlaylistModel::CoverUrlRole});
+        emit model.changed();
+    }
     static void ready(UserPlaylistModel &model)
     {
         model.m_state = UserPlaylistModel::State::Ready;
@@ -141,7 +183,7 @@ class FavoritesServiceTestAccess
 public:
     static void prepareLiked(FavoritesService &s)
     {
-        s.prepareLikedSongs(s.likedListId());
+        FavoriteSongIndexTestAccess::start(*s.m_library.favoriteSongs(), s.likedListId());
     }
     static quint64 metadataTicket(const FavoritesService &s)
     {
@@ -165,12 +207,8 @@ public:
     static void acceptSongs(FavoritesService &s, const QJsonArray &items, qint64 total,
                             quint64 id = 900103, qint64 revision = 7)
     {
-        s.m_pending.insert(id,
-                           {FavoritesService::PendingKind::LikedSongs, s.m_api.sessionRevision()});
-        s.accept(id, QJsonDocument(
-                         QJsonObject{{"revision", revision},
-                                     {"page", QJsonObject{{"items", items}, {"total", total}}}})
-                         .toJson());
+        Q_UNUSED(id);
+        FavoriteSongIndexTestAccess::page(*s.m_library.favoriteSongs(), items, total, revision);
     }
     static bool complete(const FavoritesService &s)
     {
@@ -178,10 +216,7 @@ public:
     }
     static quint64 songRequest(const FavoritesService &s)
     {
-        for (auto it = s.m_pending.cbegin(); it != s.m_pending.cend(); ++it)
-            if (it->kind == FavoritesService::PendingKind::LikedSongs)
-                return it.key();
-        return 0;
+        return FavoriteSongIndexTestAccess::request(*s.m_library.favoriteSongs());
     }
     static void enablePaging(FavoritesService &s)
     {
@@ -726,6 +761,583 @@ private slots:
         QVERIFY(cardChanges.isEmpty());
     }
 
+    void favoritesUsesCanonicalSongArtworkAndThemedFallback()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        UserPlaylistModelTestAccess::cover(library, {});
+        PlaylistMutationService mutations(api);
+        PlaylistOrderModel order(api, mutations);
+        SongMetadataService metadata(api);
+        RouteController router;
+        FavoritesService favorites(api, playback, library, order, metadata, router, false);
+        favorites.registerRoutes(router);
+        QTcpServer images;
+        QVERIFY(images.listen(QHostAddress::LocalHost));
+        const QColor photoColor("#d34267");
+        QImage photo(64, 64, QImage::Format_RGB32);
+        photo.fill(photoColor);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(photo.save(&buffer, "PNG"));
+        connect(&images, &QTcpServer::newConnection, this, [&] {
+            while (auto *socket = images.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, socket, [socket, png] {
+                    auto request = socket->property("imageRequest").toByteArray();
+                    request += socket->readAll();
+                    socket->setProperty("imageRequest", request);
+                    if (!request.contains("\r\n\r\n"))
+                        return;
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: " +
+                                  QByteArray::number(png.size()) + "\r\nConnection: close\r\n\r\n" +
+                                  png);
+                    socket->disconnectFromHost();
+                });
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            }
+        });
+        const auto imageUrl = [&](const QString &name) {
+            return QString("http://127.0.0.1:%1/%2.png").arg(images.serverPort()).arg(name);
+        };
+        const auto cached = imageUrl("cached");
+        const auto first = imageUrl("first-song");
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        ShellSettings shell(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &values) {
+            for (const auto &value : values)
+                warnings.append(value.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Window
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window {
+    id: window
+    required property RouteController router
+    required property ShellSettings settings
+    width: 1000; height: 800; visible: true
+    color: Theme.main
+    RouteHost { anchors.fill: parent; router: window.router; settings: window.settings }
+})",
+                          QUrl("qrc:/favorite-cover-production.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"router", QVariant::fromValue(&router)}, {"settings", QVariant::fromValue(&shell)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        const auto find = [&](auto &&self, QQuickItem *item, const QString &name) -> QQuickItem * {
+            if (item->objectName() == name)
+                return item;
+            for (auto *child : item->childItems())
+                if (auto *found = self(self, child, name))
+                    return found;
+            return nullptr;
+        };
+        QVERIFY(router.navigate("favorites"));
+        QQuickItem *cover = nullptr;
+        QTRY_VERIFY((cover = find(find, window->contentItem(), "themedDetailCover")));
+        const auto source = [&] { return cover->property("source").toUrl().toString(); };
+        // The offscreen software backend decodes images but does not draw the
+        // shared MultiEffect mask. Validate its pixels on the native backend.
+        const bool pixelChecks = QGuiApplication::platformName() != "offscreen";
+        const auto paintedPhoto = [&] {
+            const auto frame = window->grabWindow();
+            if (frame.isNull())
+                return false;
+            const qreal ratio = qreal(frame.width()) / window->width();
+            const auto center = cover->mapToScene(cover->boundingRect().center()) * ratio;
+            if (!frame.rect().contains(center.toPoint()))
+                return false;
+            const auto pixel = frame.pixelColor(center.toPoint());
+            return qAbs(pixel.red() - photoColor.red()) + qAbs(pixel.green() - photoColor.green()) +
+                       qAbs(pixel.blue() - photoColor.blue()) <
+                   6;
+        };
+        QVERIFY(favorites.coverUrl().isEmpty());
+        QTRY_VERIFY(source().startsWith("data:image/svg+xml"));
+        QSignalSpy directoryChanges(&library, &UserPlaylistModel::changed);
+        QSignalSpy favoriteChanges(&favorites, &FavoritesService::changed);
+        library.publishAutoCover({7}, 1, cached, api.sessionRevision());
+        QVERIFY(directoryChanges.isEmpty()); // Cache restoration only emits coverChanged.
+        QVERIFY(!favoriteChanges.isEmpty());
+        QCOMPARE(favorites.coverUrl(), cached);
+        QTRY_COMPARE(source(), cached);
+        QTRY_COMPARE(cover->property("status").toInt(), 1); // Image.Ready.
+        QTRY_VERIFY(!pixelChecks || paintedPhoto());
+        const auto entry = [](int id, int sort, const QString &cover) {
+            return QJsonObject{
+                {"file_id", 1000 + id},
+                {"sort_index", sort},
+                {"song", QJsonObject{{"id", QString::number(id)},
+                                     {"title", QString("Song %1").arg(id)},
+                                     {"hash", QString("%1").arg(id, 32, 16, QLatin1Char('0'))},
+                                     {"cover_url", cover}}}};
+        };
+        FavoritesServiceTestAccess::prepareLiked(favorites);
+        FavoritesServiceTestAccess::acceptSongs(
+            favorites, {entry(4, 3, imageUrl("later-song")), entry(3, 2, imageUrl("middle-song"))},
+            80);
+        QCOMPARE(favorites.coverUrl(), cached); // Partial pages keep the previous cover.
+        FavoritesServiceTestAccess::acceptSongs(favorites, {entry(2, 1, {})}, 80);
+        QCOMPARE(favorites.coverUrl(), cached);
+        QJsonArray last{entry(1, 0, first)};
+        for (int id = 5; id <= 80; ++id)
+            last.append(entry(id, id - 1, {}));
+        FavoritesServiceTestAccess::acceptSongs(favorites, last, 80);
+        QCOMPARE(favorites.coverUrl(), first); // Global sort, not first arrival.
+        QTRY_COMPARE(source(), first);
+        QTRY_COMPARE(cover->property("status").toInt(), 1);
+        QTRY_VERIFY(!pixelChecks || paintedPhoto());
+        const auto captures = qEnvironmentVariable("ECHO_FAVORITE_COVER_CAPTURES");
+        if (!captures.isEmpty()) {
+            QVERIFY(QDir().mkpath(captures));
+            QVERIFY(window->grabWindow().save(captures + "/favorite-cover-expanded.png"));
+        }
+        auto *header = find(find, window->contentItem(), "songDetailHeader");
+        auto *list = find(find, window->contentItem(), "discoverySongs");
+        QVERIFY(header && list);
+        list->setProperty("contentY", 300);
+        QTRY_VERIFY(header->property("progress").toReal() >= .999);
+        QVERIFY(qAbs(cover->mapRectToScene(cover->boundingRect()).width() - 32) < .01);
+        QTRY_VERIFY(!pixelChecks || paintedPhoto());
+        QCOMPARE(source(), first);
+        if (!captures.isEmpty()) {
+            QVERIFY(window->grabWindow().save(captures + "/favorite-cover-sticky.png"));
+        }
+        FavoritesServiceTestAccess::acceptSongs(favorites, {}, 0, 900200, 8);
+        QVERIFY(favorites.coverUrl().isEmpty());
+        QTRY_VERIFY(source().startsWith("data:image/svg+xml"));
+        QTRY_COMPARE(cover->property("status").toInt(), 1);
+        QTRY_VERIFY(!pixelChecks || !paintedPhoto());
+        const auto manual = imageUrl("manual");
+        UserPlaylistModelTestAccess::cover(library, manual, true);
+        library.publishAutoCover({7}, 9, first, api.sessionRevision());
+        QCOMPARE(favorites.coverUrl(), manual);
+        QTRY_COMPARE(source(), manual);
+        const auto oldSession = api.sessionRevision();
+        QVERIFY(api.setAccount(200, "other-offline-domain-fixture"));
+        QVERIFY(favorites.coverUrl().isEmpty());
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        UserPlaylistModelTestAccess::cover(library, {});
+        library.publishAutoCover({7}, 99, first, oldSession);
+        QVERIFY(favorites.coverUrl().isEmpty());
+        QTRY_VERIFY(source().startsWith("data:image/svg+xml"));
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        root.reset();
+        favorites.shutdown();
+        metadata.shutdown();
+        router.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
+    void favoriteIdentityMatchesSourceAndKeepsRemovalIdentity()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        UserPlaylistModelTestAccess::ready(library);
+        PlaylistMutationService mutations(api);
+        playback.attachLibrary(library, mutations);
+        auto *actions = playback.libraryActions();
+        PlaybackLibraryActionsTestAccess::ready(*actions, api);
+        auto *index = library.favoriteSongs();
+        const QJsonObject song{{"id", "1"}, {"title", "Song"}, {"hash", " ABC "}};
+        FavoriteSongIndexTestAccess::page(
+            *index,
+            {QJsonObject{{"song", song}, {"file_id", 91}},
+             QJsonObject{{"song", QJsonObject{{"id", "2"}, {"hash", QString(32, 'b')}}}},
+             QJsonObject{{"song", QJsonObject{{"id", "local-only"}}}},
+             QJsonObject{{"song", QJsonObject{{"id", "0"}}}}},
+            4);
+        QVERIFY(index->contains({"90", "abc", 90}));
+        QVERIFY(index->contains({"1", QString(32, 'c'), 1}));
+        QVERIFY(!index->contains({"1", QString(32, 'c'), 3})); // Reused view ID is not a song ID.
+        QVERIFY(index->contains({"local-only", {}, 0}));
+        QVERIFY(!index->contains({"", {}, 0}));
+        QVERIFY(!index->contains({"0", {}, 0}));
+        QVERIFY(index->contains({"2", QString(32, 'b'), 2})); // No file ID still means liked.
+        QCOMPARE(index->fileId({"2", QString(32, 'b'), 2}), quint64(0));
+        index->enrichIdentity({"90", "abc", 900});
+        QVERIFY(index->contains({"900", QString(32, 'd'), 900}));
+        QCOMPARE(index->fileId({"900", QString(32, 'd'), 900}), quint64(91));
+        auto playing = PlaybackTrack::fromDomain(
+            {{"id", "1"}, {"hash", QString(32, 'c')}, {"title", "Other source"}});
+        QVERIFY(actions->favoriteTrack(playing));
+        actions->toggleFavoriteTrack(playing);
+        QVERIFY(!actions->favoriteTrack(playing));
+        QVERIFY(PlaylistMutationServiceTestAccess::removingTracks(mutations));
+        const auto request = ApiClientTestAccess::request(
+            api, PlaylistMutationServiceTestAccess::request(mutations));
+        QCOMPARE(request.value("query").toObject().value("file_ids").toArray(), QJsonArray{91});
+        PlaylistMutationServiceTestAccess::complete(
+            mutations, PlaylistMutationServiceTestAccess::request(mutations), "{}");
+        QVERIFY(!index->contains({"90", "abc", 90}));
+        QVERIFY(!index->contains({"900", QString(32, 'd'), 900}));
+        QVERIFY(index->contains({"2", QString(32, 'b'), 2}));
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
+    void favoritePaginationUsesRawRowsAndNeverPublishesTruncationAsComplete()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        auto *index = library.favoriteSongs();
+        const QJsonObject first{{"song", QJsonObject{{"id", "1"}, {"hash", "abc"}}},
+                                {"file_id", 91}};
+        const QJsonObject last{{"song", QJsonObject{{"id", "9"}, {"hash", "def"}}},
+                               {"file_id", 99}};
+        index->ensureLoaded();
+        FavoriteSongIndexTestAccess::page(*index, {first}, 4);
+        QVERIFY(index->contains({"1", "ABC", 1})); // First page is usable immediately.
+        QVERIFY(!index->complete());
+        FavoriteSongIndexTestAccess::page(*index, {first}, 4); // A duplicate-hash page is not EOF.
+        QVERIFY(index->loading());
+        auto query =
+            ApiClientTestAccess::request(api, FavoriteSongIndexTestAccess::request(*index))["query"]
+                .toObject();
+        QCOMPARE(query["page"].toInt(), 3);
+        FavoriteSongIndexTestAccess::page(*index, {QJsonObject{{"song", QJsonObject{{"id", "0"}}}}},
+                                          4);
+        QVERIFY(index->loading()); // An entirely unindexable page is not EOF either.
+        FavoriteSongIndexTestAccess::page(*index, {last}, 4);
+        QVERIFY(index->complete());
+        QVERIFY(index->contains({"9", "def", 9}));
+        index->refresh();
+        FavoriteSongIndexTestAccess::page(*index, {last}, 2);
+        QVERIFY(index->contains({"1", "abc", 1})); // Keep the old complete view while refreshing.
+        FavoriteSongIndexTestAccess::failure(*index);
+        QVERIFY(index->complete());
+        QVERIFY(!index->errorMessage().isEmpty());
+        QVERIFY(index->contains({"1", "abc", 1}));
+        // A broken endpoint is bounded and reports partial, never a complete tiny index.
+        ApiClient other(DeviceIdentity::temporary());
+        QVERIFY(other.setNetworkTransport(1));
+        QVERIFY(other.setAccount(200, "offline-domain-fixture"));
+        UserPlaylistModel otherLibrary(other);
+        UserPlaylistModelTestAccess::seed(otherLibrary, other, "我喜欢的音乐", 1, 0, 7);
+        auto *partial = otherLibrary.favoriteSongs();
+        partial->ensureLoaded();
+        for (int page = 0; page < 50; ++page)
+            FavoriteSongIndexTestAccess::page(*partial, {first}, 100);
+        QVERIFY(!partial->complete());
+        QVERIFY(!partial->loading());
+        QVERIFY(!partial->errorMessage().isEmpty());
+        QVERIFY(partial->contains({"1", "abc", 1}));
+        other.shutdown();
+        api.shutdown();
+    }
+    void favoritePageSharesReadAndRefreshesEveryHeart()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        UserPlaylistModelTestAccess::ready(library);
+        PlaylistMutationService mutations(api);
+        playback.attachLibrary(library, mutations);
+        PlaylistOrderModel order(api, mutations);
+        SongMetadataService metadata(api);
+        RouteController router;
+        FavoritesService favorites(api, playback, library, order, metadata, router, true);
+        favorites.attachPlaylistMutations(mutations);
+        favorites.registerRoutes(router);
+        auto *index = library.favoriteSongs();
+        index->ensureLoaded();
+        const auto read = FavoriteSongIndexTestAccess::request(*index);
+        QVERIFY(read);
+        QVERIFY(router.navigate("favorites"));
+        QCOMPARE(FavoriteSongIndexTestAccess::request(*index), read); // Joining the existing read.
+        const auto row = [](int id) {
+            return QJsonObject{{"song", QJsonObject{{"id", QString::number(id)},
+                                                    {"title", QString::number(id)},
+                                                    {"hash", QString(32, QChar('a' + id))}}},
+                               {"file_id", 90 + id}};
+        };
+        const auto first = PlaybackTrack::fromDomain(row(1)["song"].toObject());
+        const auto second = PlaybackTrack::fromDomain(row(2)["song"].toObject());
+        QSignalSpy hearts(playback.libraryActions(), &PlaybackLibraryActions::changed);
+        FavoriteSongIndexTestAccess::page(*index, {row(1)}, 1);
+        QVERIFY(playback.libraryActions()->favoriteTrack(first));
+        QCOMPARE(favorites.songs()->totalCount(), 1);
+        QVERIFY(!hearts.isEmpty());
+        favorites.refresh();
+        const auto oldRead = FavoriteSongIndexTestAccess::request(*index);
+        QVERIFY(oldRead);
+        favorites.refresh();
+        QVERIFY(FavoriteSongIndexTestAccess::request(*index) != oldRead);
+        FavoriteSongIndexTestAccess::accept(
+            *index, oldRead,
+            {{"revision", 7}, {"page", QJsonObject{{"items", QJsonArray{row(1)}}, {"total", 1}}}});
+        FavoriteSongIndexTestAccess::page(*index, {row(2)}, 1);
+        QVERIFY(!playback.libraryActions()->favoriteTrack(first));
+        QVERIFY(playback.libraryActions()->favoriteTrack(second));
+        QCOMPARE(favorites.songs()->item(0)["resourceId"].toString(), QString("2"));
+        const auto finished = FavoriteSongIndexTestAccess::request(*index);
+        QCOMPARE(finished, quint64(0));
+        QVERIFY(favorites.canRemoveSongs());
+        favorites.refresh();
+        FavoriteSongIndexTestAccess::failure(*index);
+        QVERIFY(favorites.canRemoveSongs()); // A failed refresh retains the complete view.
+        QVERIFY(playback.libraryActions()->favoriteTrack(second));
+        index->acceptReadback({{"cloud_list_id", 7},
+                               {"revision", 6},
+                               {"page", QJsonObject{{"items", QJsonArray{row(1)}}, {"total", 1}}}},
+                              api.sessionRevision());
+        QVERIFY(playback.libraryActions()->favoriteTrack(second));
+        favorites.shutdown();
+        metadata.shutdown();
+        router.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
+    void favoriteOptimisticRefreshAndRollback_data()
+    {
+        QTest::addColumn<bool>("initiallyLiked");
+        QTest::addColumn<QString>("result");
+        for (bool liked : {false, true})
+            for (const auto &result : {QString("ok"), QString("failure"), QString("account")})
+                QTest::newRow(qPrintable((liked ? "remove-" : "add-") + result)) << liked << result;
+        QTest::newRow("resource-rejected") << false << QString("resource");
+    }
+    void favoriteOptimisticRefreshAndRollback()
+    {
+        QFETCH(bool, initiallyLiked);
+        QFETCH(QString, result);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        UserPlaylistModelTestAccess::ready(library);
+        PlaylistMutationService mutations(api);
+        playback.attachLibrary(library, mutations);
+        auto *actions = playback.libraryActions();
+        PlaybackLibraryActionsTestAccess::ready(*actions, api);
+        PlaylistOrderModel order(api, mutations);
+        SongMetadataService metadata(api);
+        RouteController router;
+        FavoritesService favorites(api, playback, library, order, metadata, router, false);
+        favorites.attachPlaylistMutations(mutations);
+        favorites.registerRoutes(router);
+        QVERIFY(router.navigate("favorites"));
+        const QJsonObject row{
+            {"song", QJsonObject{{"id", "1"}, {"title", "Song"}, {"hash", QString(32, 'a')}}},
+            {"file_id", 91}};
+        const QJsonObject other{
+            {"song", QJsonObject{{"id", "2"}, {"title", "Other"}, {"hash", QString(32, 'b')}}},
+            {"file_id", 92}};
+        auto *index = library.favoriteSongs();
+        FavoriteSongIndexTestAccess::page(*index, initiallyLiked ? QJsonArray{row} : QJsonArray{},
+                                          initiallyLiked ? 1 : 0);
+        const auto track = PlaybackTrack::fromDomain(row["song"].toObject());
+        QSignalSpy feedback(actions, &PlaybackLibraryActions::favoriteWritten);
+        actions->toggleFavoriteTrack(track);
+        QVERIFY(actions->busy());
+        QCOMPARE(actions->favoriteTrack(track), !initiallyLiked);
+        QCOMPARE(favorites.songs()->totalCount(), initiallyLiked ? 0 : 1);
+        QVERIFY(feedback.isEmpty()); // Optimistic UI never reports a successful FM action.
+        const auto write = PlaylistMutationServiceTestAccess::request(mutations);
+        index->refresh();
+        const auto stale = FavoriteSongIndexTestAccess::request(*index);
+        QJsonArray incoming{other};
+        if (initiallyLiked)
+            incoming.append(row);
+        FavoriteSongIndexTestAccess::page(*index, incoming, incoming.size());
+        QCOMPARE(actions->favoriteTrack(track), !initiallyLiked);
+        if (result == "account") {
+            QVERIFY(api.setAccount(200, "other-offline-domain-fixture"));
+            PlaylistMutationServiceTestAccess::complete(mutations, write, "{}");
+            FavoriteSongIndexTestAccess::accept(
+                *index, stale,
+                {{"revision", 7},
+                 {"page", QJsonObject{{"items", incoming}, {"total", incoming.size()}}}});
+            QVERIFY(!actions->favoriteTrack(track));
+            QCOMPARE(favorites.songs()->totalCount(), 0);
+            QVERIFY(feedback.isEmpty());
+        } else {
+            if (result == "failure")
+                PlaylistMutationServiceTestAccess::fail(mutations, write,
+                                                        R"({"message":"拒绝收藏操作"})");
+            else
+                PlaylistMutationServiceTestAccess::complete(
+                    mutations, write,
+                    result == "resource" ? R"({"outcomes":[{"resource_code":0}]})"
+                                         : R"({"outcomes":[{"resource_code":1,"file_id":91}]})");
+            const bool liked = result == "ok" ? !initiallyLiked : initiallyLiked;
+            QCOMPARE(actions->favoriteTrack(track), liked);
+            QVERIFY(!actions->busy());
+            QCOMPARE(favorites.songs()->totalCount(), liked ? 2 : 1);
+            QVERIFY(index->contains(
+                {"2", QString(32, 'b'), 2})); // Unrelated new server state survives rollback.
+            QCOMPARE(feedback.size(), result == "ok" ? 1 : 0);
+            if (result == "ok") {
+                // A stale post-ACK replica must not undo the successful operation either.
+                PlaylistMutationServiceTestAccess::complete(
+                    mutations, PlaylistMutationServiceTestAccess::background(mutations),
+                    QJsonDocument(QJsonObject{{"cloud_list_id", 7},
+                                              {"revision", 7},
+                                              {"page", QJsonObject{{"items", incoming},
+                                                                   {"total", incoming.size()}}}})
+                        .toJson());
+                QCOMPARE(actions->favoriteTrack(track), liked);
+            }
+        }
+        favorites.shutdown();
+        metadata.shutdown();
+        router.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
+    void favoriteMissingRemovalIdentityResolvesOnce_data()
+    {
+        QTest::addColumn<bool>("resolved");
+        QTest::newRow("resolved-file") << true;
+        QTest::newRow("missing-file") << false;
+    }
+    void favoriteMissingRemovalIdentityResolvesOnce()
+    {
+        QFETCH(bool, resolved);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        UserPlaylistModelTestAccess::ready(library);
+        PlaylistMutationService mutations(api);
+        playback.attachLibrary(library, mutations);
+        auto *actions = playback.libraryActions();
+        auto *index = library.favoriteSongs();
+        QJsonObject row{
+            {"song", QJsonObject{{"id", "1"}, {"title", "Song"}, {"hash", QString(32, 'a')}}}};
+        FavoriteSongIndexTestAccess::page(*index, {row}, 1);
+        const auto track = PlaybackTrack::fromDomain(row["song"].toObject());
+        QSignalSpy notices(actions, &PlaybackLibraryActions::notice);
+        actions->toggleFavoriteTrack(track);
+        QVERIFY(index->loading());
+        if (resolved)
+            row.insert("file_id", 91);
+        FavoriteSongIndexTestAccess::page(*index, {row}, 1);
+        QTRY_VERIFY(!actions->favoriteLoading());
+        QCOMPARE(index->loading(), false);
+        if (resolved) {
+            QTRY_VERIFY(actions->busy());
+            QVERIFY(!actions->favoriteTrack(track));
+            PlaylistMutationServiceTestAccess::complete(
+                mutations, PlaylistMutationServiceTestAccess::request(mutations), "{}");
+            QVERIFY(!actions->favoriteTrack(track));
+        } else {
+            QTRY_COMPARE(notices.size(), 1);
+            QVERIFY(actions->favoriteTrack(track));
+            QCOMPARE(PlaylistMutationServiceTestAccess::request(mutations), quint64(0));
+            QVERIFY(!actions->busy());
+            QCOMPARE(FavoriteSongIndexTestAccess::request(*index), quint64(0));
+        }
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
+    void favoriteSuccessfulAddSurvivesAnOlderInitialPage_data()
+    {
+        QTest::addColumn<bool>("throughChooser");
+        QTest::newRow("add-to-liked") << true;
+        QTest::newRow("heart-before-first-page") << false;
+    }
+    void favoriteSuccessfulAddSurvivesAnOlderInitialPage()
+    {
+        QFETCH(bool, throughChooser);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        UserPlaylistModel library(api);
+        UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+        UserPlaylistModelTestAccess::ready(library);
+        PlaylistMutationService mutations(api);
+        playback.attachLibrary(library, mutations);
+        auto *actions = playback.libraryActions();
+        auto *index = library.favoriteSongs();
+        const auto row = [](int id) {
+            return QJsonObject{{"song", QJsonObject{{"id", QString::number(id)},
+                                                    {"title", QString::number(id)},
+                                                    {"hash", QString(32, QChar('a' + id))}}},
+                               {"file_id", 90 + id}};
+        };
+        index->ensureLoaded();
+        if (throughChooser)
+            FavoriteSongIndexTestAccess::page(*index, {row(1)}, 2);
+        const auto oldPage = FavoriteSongIndexTestAccess::request(*index);
+        QVERIFY(oldPage);
+        const auto added = PlaybackTrack::fromDomain(row(3)["song"].toObject());
+        QSignalSpy feedback(actions, &PlaybackLibraryActions::favoriteWritten);
+        if (throughChooser) {
+            actions->prepareTracks({added}, false);
+            actions->choose(0);
+        } else {
+            QVERIFY(!actions->favoriteLoading());
+            actions->toggleFavoriteTrack(added);
+            QVERIFY(actions->favoriteTrack(added));
+        }
+        PlaylistMutationServiceTestAccess::complete(
+            mutations, PlaylistMutationServiceTestAccess::request(mutations),
+            R"({"outcomes":[{"resource_code":1,"file_id":93}]})");
+        QVERIFY(actions->favoriteTrack(added));
+        if (!throughChooser)
+            FavoriteSongIndexTestAccess::page(*index, {row(1)}, 2);
+        FavoriteSongIndexTestAccess::page(*index, {row(2)}, 2);
+        QVERIFY(index->complete());
+        QVERIFY(actions->favoriteTrack(added));
+        QVERIFY(index->contains({"1", QString(32, 'b'), 1}));
+        QVERIFY(index->contains({"2", QString(32, 'c'), 2}));
+        QCOMPARE(index->fileId({"3", QString(32, 'd'), 3}), quint64(93));
+        QTRY_VERIFY(!actions->busy());
+        QCOMPARE(feedback.size(), 1);
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void favoritesRemovalUsesPlaylistFilesAndUpdatesMembership_data()
     {
         QTest::addColumn<bool>("batch");
@@ -1099,10 +1711,13 @@ Window {
             QCOMPARE(actions->favoriteTrack(songs[1]), liked && !partial);
             QCOMPARE(actions->hasFailures(), partial);
             QCOMPARE(written.size(), liked ? (partial ? 1 : 2) : 0);
+            // The shared readback now supplies removal identities to both page
+            // and hearts, so an extra full membership reload is unnecessary.
             if (missingFile)
-                QVERIFY(PlaybackLibraryActionsTestAccess::favoriteRead(*actions));
-            else
-                QCOMPARE(PlaybackLibraryActionsTestAccess::favoriteRead(*actions), quint64(0));
+                QCOMPARE(
+                    library.favoriteSongs()->fileId({songs[0].id, songs[0].hash, songs[0].songId}),
+                    quint64(91));
+            QCOMPARE(PlaybackLibraryActionsTestAccess::favoriteRead(*actions), quint64(0));
             QVERIFY(resets.isEmpty());
         }
         // The same session's confirmed file identity is retained for unlike.

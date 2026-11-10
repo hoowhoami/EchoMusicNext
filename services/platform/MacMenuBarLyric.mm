@@ -148,7 +148,7 @@ struct CachedLine
     CGFloat availableWidth;
     CGFloat layoutRightEdge;
     CGFloat layoutDecoration;
-    quint64 layoutProbes;
+    quint64 layoutProbes, layoutCompactions;
 @private
     NSTrackingArea *tracking;
     NSTimer *animation;
@@ -162,11 +162,15 @@ struct CachedLine
     bool rebuilding;
     bool layoutPending;
     bool measuringLayout;
+    NSRect layoutFrame;
+    CGFloat layoutItemWidth;
+    bool positionLayoutPending;
 }
 - (void)applyState:(const MenuBarLyricState &)next style:(const MenuBarLyricStyle &)nextStyle;
 - (void)rebuild;
 - (void)scheduleLayout;
 - (void)finishLayout;
+- (void)finishPositionLayout;
 - (void)refreshAnimation;
 - (void)stop;
 - (BOOL)animationActive;
@@ -857,6 +861,7 @@ struct CachedLine
     // Overflowing status windows keep stale origins. Measure once at a compact
     // width after AppKit/WindowServer have had time to place the native item.
     measuringLayout = true;
+    ++layoutCompactions;
     [self rebuild];
     __weak EchoMenuBarLyricView *weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(),
@@ -881,16 +886,65 @@ struct CachedLine
         rect(screen.frame), rect(screen.auxiliaryTopRightArea), rect(frame), item.length);
     layoutRightEdge = NSMaxX(frame);
     layoutDecoration = frame.size.width - item.length;
+    layoutFrame = frame;
+    layoutItemWidth = item.length;
     ++layoutProbes;
     [self rebuild];
 }
 - (void)layoutChanged:(NSNotification *)note
 {
-    if (note.object == self.window && !rebuilding && !measuringLayout &&
-        std::abs(self.window.frame.size.width - item.length - layoutDecoration) < .5 &&
-        (note.name == NSWindowDidChangeScreenNotification ||
-         std::abs(NSMaxX(self.window.frame) - layoutRightEdge) > .5))
+    if (note.object != self.window || rebuilding || measuringLayout || stopped || !item ||
+        !state.visible)
+        return;
+    if (note.name == NSWindowDidChangeScreenNotification) {
         [self scheduleLayout];
+        return;
+    }
+    if (positionLayoutPending)
+        return;
+    positionLayoutPending = true;
+    __weak EchoMenuBarLyricView *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      auto *view = weakSelf;
+      if (!view)
+          return;
+      view->positionLayoutPending = false;
+      [view finishPositionLayout];
+    });
+}
+- (void)finishPositionLayout
+{
+    if (stopped || !item || !state.visible || rebuilding || measuringLayout)
+        return;
+    const auto frame = self.window.frame;
+    // Wait for the native window to adopt our requested size. Its own resize
+    // can move either edge, especially for system-hosted proxy windows. Feeding
+    // that move back into compact probing makes long lyrics collapse/expand
+    // forever and repeatedly rasterizes their text.
+    if (std::abs(frame.size.width - item.length - layoutDecoration) >= .5)
+        return;
+    const auto rect = [](NSRect r) {
+        return QRectF(r.origin.x, r.origin.y, r.size.width, r.size.height);
+    };
+    const bool moved =
+        MenuBarLyricLayout::relocated(rect(layoutFrame), layoutItemWidth, rect(frame), item.length);
+    layoutFrame = frame;
+    layoutItemWidth = item.length;
+    if (!moved)
+        return;
+    // A laid-out item can be measured in place after an actual neighbour move.
+    // Reserve compact probing for initial registration and screen changes.
+    const auto *screen = self.window.screen;
+    if (!screen)
+        return;
+    const auto nextWidth = MenuBarLyricLayout::availableWidth(
+        rect(screen.frame), rect(screen.auxiliaryTopRightArea), rect(frame), item.length);
+    layoutRightEdge = NSMaxX(frame);
+    ++layoutProbes;
+    if (std::abs(nextWidth - availableWidth) > .5) {
+        availableWidth = nextWidth;
+        [self rebuild];
+    }
 }
 - (void)screenParametersChanged:(NSNotification *)note
 {
@@ -1025,6 +1079,7 @@ QVariantMap MenuBarLyric::diagnostics() const
             {"availableWidth", view->availableWidth},
             {"layoutRightEdge", view->layoutRightEdge},
             {"layoutProbes", QVariant::fromValue(view->layoutProbes)},
+            {"layoutCompactions", QVariant::fromValue(view->layoutCompactions)},
             {"height", view.bounds.size.height},
             {"windowNumber", qlonglong(view.window.windowNumber)},
             {"windowX", view.window.frame.origin.x},

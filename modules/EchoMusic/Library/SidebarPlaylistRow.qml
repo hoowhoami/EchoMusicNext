@@ -16,31 +16,33 @@ ItemDelegate {
     required property string kind
     required property var defaultKind
     property bool collapsed: false
+    property real collapseProgress: collapsed ? 1 : 0
     property bool selected: false
     property bool resourceActive: true
     property bool busy: false
     signal openRequested(double cloudId)
     property bool playbackBusy: false
     signal playRequested(double cloudId)
-    height: collapsed ? 42 : 40
-    padding: collapsed ? 5 : 14
-    topPadding: collapsed ? 5 : 6
-    bottomPadding: collapsed ? 5 : 6
+    height: 40 + 2 * collapseProgress
+    padding: 14 - 9 * collapseProgress
+    topPadding: 6 - collapseProgress
+    bottomPadding: 6 - collapseProgress
     hoverEnabled: true
     Accessible.name: title
     onClicked: openRequested(cloudListId)
     background: Rectangle {
-        radius: row.collapsed ? Theme.controlRadius : Theme.cardRadius
+        radius: Theme.cardRadius + (Theme.controlRadius - Theme.cardRadius) * row.collapseProgress
         color: row.selected ? Theme.selected : row.hovered || row.visualFocus ? Theme.rowHover : "transparent"
     }
     contentItem: RowLayout {
-        spacing: 12
+        spacing: 12 * (1 - row.collapseProgress)
         EchoCover {
             id: playlistCover
             objectName: "sidebarPlaylistCover"
+            minimumDecodeSize: 32
 
-            Layout.preferredWidth: row.collapsed ? 32 : 28
-            Layout.preferredHeight: row.collapsed ? 32 : 28
+            Layout.preferredWidth: 28 + 4 * row.collapseProgress
+            Layout.preferredHeight: 28 + 4 * row.collapseProgress
             source: row.coverUrl
             placeholderOpacity: playAction.visible ? 0 : 0.3
             resourceActive: row.resourceActive
@@ -48,7 +50,8 @@ ItemDelegate {
         EchoTextLine {
             id: titleLabel
             objectName: "sidebarPlaylistTitle"
-            visible: !row.collapsed
+            visible: row.collapseProgress < 1
+            opacity: Math.max(0, 1 - 2 * row.collapseProgress)
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.alignment: Qt.AlignVCenter
@@ -63,7 +66,8 @@ ItemDelegate {
         id: playAction
         objectName: "sidebarPlaylistPlay"
         parent: playlistCover
-        visible: !row.collapsed && (row.hovered || row.visualFocus || hovered || visualFocus || row.playbackBusy)
+        visible: row.collapseProgress < 1 && (row.hovered || row.visualFocus || hovered || visualFocus || row.playbackBusy)
+        opacity: Math.max(0, 1 - 2 * row.collapseProgress)
         enabled: !row.busy && !row.playbackBusy
         visualContentActive: row.resourceActive
         loading: row.playbackBusy

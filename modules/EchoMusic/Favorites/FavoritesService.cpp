@@ -1,4 +1,5 @@
 #include "FavoritesService.h"
+#include "FavoriteSongIndex.h"
 #include "PlaybackService.h"
 #include <QJsonDocument>
 #include <QQmlEngine>
@@ -49,38 +50,31 @@ FavoritesService::FavoritesService(ApiClient &api, PlaybackService &playback,
         if (m_closed)
             return;
         projectAlbums();
-        if (m_awaitingLibrary) {
-            if (m_library.likedRow() >= 0) {
-                m_awaitingLibrary = false;
-                requestLikedSongs();
-            } else if (m_library.state() == UserPlaylistModel::State::Error ||
-                       m_library.state() == UserPlaylistModel::State::RestartRequired) {
-                m_awaitingLibrary = false;
-                m_error = m_library.errorMessage();
-            } else if (m_library.state() != UserPlaylistModel::State::Loading) {
-                if (m_library.canFetchMore({}))
-                    m_library.fetchMore({});
-                else {
-                    m_awaitingLibrary = false;
-                    m_error = tr("未找到收藏歌单，请刷新歌单后重试");
-                }
-            }
-        }
         emit changed();
     });
+    connect(&library, &UserPlaylistModel::coverChanged, this, [this](const QString &global) {
+        const auto row = m_library.likedRow();
+        if (!m_closed && row >= 0 &&
+            m_library.data(m_library.index(row), UserPlaylistModel::GlobalIdRole).toString() ==
+                global)
+            emit changed();
+    });
+    connect(m_library.favoriteSongs(), &FavoriteSongIndex::snapshotChanged, this, [this] {
+        if (!m_closed && m_active && m_tab == 0)
+            syncLikedSongs();
+        else
+            m_likedLoaded = false;
+    });
+    connect(m_library.favoriteSongs(), &FavoriteSongIndex::changed, this, [this] {
+        if (!m_closed && m_active && m_tab == 0) {
+            m_error = m_library.favoriteSongs()->errorMessage();
+            emit changed();
+        }
+    });
     connect(&order, &PlaylistOrderModel::saved, this, [this, &order] {
-        if (m_closed || order.mode() != 1 ||
-            (order.listId() != m_likedId && order.listId() != likedListId()))
-            return;
-        // Reload liked songs after ordering saves;
-        // the page resets its own sort and search controls.
-        m_likedLoaded = false;
-        m_songReceived = 0;
-        m_songTotal = 0;
-        m_songs.clear();
-        if (m_active && m_network && m_api.currentAccountUserId())
-            requestLikedSongs();
-        emit changed();
+        if (!m_closed && order.mode() == 1 &&
+            (order.listId() == m_likedId || order.listId() == likedListId()))
+            m_library.favoriteSongs()->refresh();
     });
 }
 FavoritesService::~FavoritesService()
@@ -89,11 +83,9 @@ FavoritesService::~FavoritesService()
 }
 void FavoritesService::attachPlaylistMutations(PlaylistMutationService &mutations)
 {
-    disconnect(m_mutationConnection);
     disconnect(m_mutationStateConnection);
     m_mutations = &mutations;
-    m_mutationConnection = connect(&mutations, &PlaylistMutationService::trackPageReconciled, this,
-                                   &FavoritesService::applyTrackReadback);
+    m_library.favoriteSongs()->attachMutations(mutations);
     m_mutationStateConnection =
         connect(&mutations, &PlaylistMutationService::changed, this, [this] {
             if (m_removeSession && m_removeSession != m_api.sessionRevision())
@@ -143,27 +135,6 @@ bool FavoritesService::removeSongs(const QStringList &ids)
     m_removeSession = 0;
     return false;
 }
-void FavoritesService::applyTrackReadback(const QJsonObject &snapshot, quint64 session)
-{
-    const auto list = m_library.cloudIdAt(m_library.likedRow());
-    if (m_closed || session != m_api.sessionRevision() || !list ||
-        quint64(snapshot["cloud_list_id"].toInteger()) != list->value ||
-        (m_songRevision && quint64(snapshot["revision"].toInteger()) < *m_songRevision))
-        return;
-    m_likedLoaded = false;
-    if (!m_active || m_tab != 0) {
-        m_pendingTrackReadback = snapshot;
-        return;
-    }
-    for (auto id : m_pending.keys())
-        if (m_pending.value(id).kind == PendingKind::LikedSongs) {
-            m_pending.remove(id);
-            m_api.cancel(id);
-        }
-    prepareLikedSongs(list->value);
-    acceptLikedPage(snapshot);
-    emit changed();
-}
 const QStringList &FavoritesService::tabs()
 {
     static const QStringList value{"songs", "singers", "users", "albums", "videos"};
@@ -178,14 +149,14 @@ bool FavoritesService::hasPending(PendingKind kind) const
 }
 bool FavoritesService::loading() const
 {
-    if (!m_pending.isEmpty() || (m_active && m_awaitingLibrary))
+    if (!m_pending.isEmpty() || (m_active && m_tab == 0 && m_library.favoriteSongs()->loading()))
         return true;
     return m_active && m_tab == 3 && m_library.state() == UserPlaylistModel::State::Loading;
 }
 bool FavoritesService::hasMore() const
 {
     if (m_tab == 0)
-        return m_songHasMore;
+        return !m_library.favoriteSongs()->complete() && m_library.favoriteSongs()->loading();
     if (m_tab == 4)
         return !m_videoExhausted && m_videoTotal > 0 && m_videoReceived < m_videoTotal;
     return false;
@@ -227,13 +198,7 @@ void FavoritesService::loadTab()
         return;
     switch (m_tab) {
     case 0:
-        if (!m_pendingTrackReadback.isEmpty()) {
-            const auto snapshot = std::exchange(m_pendingTrackReadback, {});
-            applyTrackReadback(snapshot, m_api.sessionRevision());
-        } else if (!m_likedLoaded)
-            requestLikedSongs();
-        else
-            resumeMetadata();
+        requestLikedSongs();
         break;
     case 1:
     case 2:
@@ -282,52 +247,37 @@ void FavoritesService::requestFollow()
 }
 void FavoritesService::requestLikedSongs()
 {
-    if (hasPending(PendingKind::LikedSongs))
-        return;
-    const auto id = m_library.cloudIdAt(m_library.likedRow());
-    if (!id) {
-        // Wait for the shared library to resolve the liked playlist, then continue.
-        if (m_library.state() == UserPlaylistModel::State::Idle) {
-            m_awaitingLibrary = true;
-            m_library.reload();
-        } else if (m_library.canFetchMore({})) {
-            m_awaitingLibrary = true;
-            m_library.fetchMore({});
-        } else if (m_library.state() != UserPlaylistModel::State::Loading) {
-            m_error = tr("未找到收藏歌单，请刷新歌单后重试");
-        }
-        return;
-    }
-    m_awaitingLibrary = false;
-    prepareLikedSongs(id->value);
-    requestLikedPage();
+    auto *favorites = m_library.favoriteSongs();
+    favorites->ensureLoaded();
+    syncLikedSongs();
 }
-void FavoritesService::prepareLikedSongs(quint64 listId)
+void FavoritesService::syncLikedSongs()
 {
-    m_pendingTrackReadback = {};
-    cancelMetadata();
-    m_likedId = listId;
-    m_songRevision.reset();
-    m_songCoverConsistent = true;
-    m_keepSongsDuringRefresh = m_songs.totalCount() > 0;
-    m_songReceived = 0;
-    m_songTotal = 0;
-    m_songPage = 1;
-    m_songRows = {};
-    m_songHasMore = false;
-}
-void FavoritesService::requestLikedPage()
-{
-    if (hasPending(PendingKind::LikedSongs) || !m_active || !m_network || m_closed)
-        return;
-    const auto request = m_api.cloudPlaylistTracks({m_likedId}, m_songPage, 300);
-    if (!request) {
-        m_error = tr("无法加载收藏歌曲");
-        emit changed();
-        return;
+    auto *favorites = m_library.favoriteSongs();
+    if (m_songSnapshotGeneration != favorites->generation()) {
+        cancelMetadata();
+        m_songSnapshotGeneration = favorites->generation();
     }
-    m_pending.insert(request, {PendingKind::LikedSongs, m_api.sessionRevision()});
-    m_error.clear();
+    m_likedId = favorites->listId();
+    m_songRevision = favorites->revision();
+    m_songCoverConsistent = favorites->coverConsistent();
+    m_songRows = favorites->rows();
+    m_songReceived = favorites->received();
+    m_songTotal = quint64(m_songRows.size());
+    m_songHasMore = !favorites->complete() && favorites->loading();
+    m_likedLoaded = favorites->complete();
+    m_error = favorites->errorMessage();
+    QJsonArray songs;
+    for (const auto &value : m_songRows) {
+        const auto row = value.toObject();
+        auto song = row.value("song").toObject();
+        song.insert("metadata", row.value("metadata"));
+        songs.append(song);
+    }
+    m_songs.replaceSongs(songs, true);
+    completeSongs(m_songRows);
+    if (m_likedLoaded)
+        publishCover();
     emit changed();
 }
 void FavoritesService::requestVideos()
@@ -353,8 +303,10 @@ void FavoritesService::refresh()
     case 0:
         m_likedLoaded = false;
         cancelAll();
-        if (m_active)
-            loadTab();
+        if (m_active) {
+            m_library.favoriteSongs()->refresh();
+            syncLikedSongs();
+        }
         break;
     case 1:
     case 2:
@@ -386,10 +338,6 @@ void FavoritesService::loadMore()
 {
     if (m_closed || !m_active || !m_network || !m_api.currentAccountUserId())
         return;
-    if (m_tab == 0 && hasMore() && !hasPending(PendingKind::LikedSongs)) {
-        requestLikedPage();
-        return;
-    }
     if (m_tab == 4 && hasMore() && !hasPending(PendingKind::Video)) {
         const auto request = m_api.userVideoCollect(quint32(m_videoReceived / 30 + 1), 30);
         if (request)
@@ -460,6 +408,13 @@ QString FavoritesService::likedTitle() const
     if (row < 0)
         return {};
     return m_library.data(m_library.index(row), UserPlaylistModel::TitleRole).toString();
+}
+QString FavoritesService::coverUrl() const
+{
+    const auto row = m_library.likedRow();
+    return row < 0
+               ? QString()
+               : m_library.data(m_library.index(row), UserPlaylistModel::CoverUrlRole).toString();
 }
 void FavoritesService::invalidateVideos()
 {
@@ -546,6 +501,7 @@ void FavoritesService::acceptMetadata(quint64 ticket, const QJsonArray &values)
         entry["song"] = completed;
         m_songRows[i] = entry;
     }
+    m_library.favoriteSongs()->applyPresentations(values);
     m_songs.applyPresentations(values);
     if (m_metadataRequests.isEmpty())
         publishCover();
@@ -582,23 +538,20 @@ void FavoritesService::cancelAll()
         m_pending.remove(id);
         m_api.cancel(id);
     }
-    m_awaitingLibrary = false;
 }
 void FavoritesService::reset()
 {
-    if (m_pending.isEmpty() && !m_awaitingLibrary && !m_likedLoaded && !m_followLoaded &&
-        !m_videosLoaded && m_songRows.isEmpty() && m_metadataRequests.isEmpty())
+    if (m_pending.isEmpty() && !m_likedLoaded && !m_followLoaded && !m_videosLoaded &&
+        m_songRows.isEmpty() && m_metadataRequests.isEmpty())
         return;
     cancelAll();
     m_likedId = 0;
     m_songTotal = m_songReceived = 0;
-    m_songPage = 1;
     m_songRows = {};
-    m_songHasMore = m_keepSongsDuringRefresh = false;
+    m_songHasMore = false;
     m_videoTotal = m_videoReceived = 0;
     m_videoRows = {};
     m_songs.clear();
-    m_pendingTrackReadback = {};
     m_albums.replaceCards({});
     m_videos.replaceCards({});
     m_singers.replace({});
@@ -610,53 +563,6 @@ void FavoritesService::reset()
     if (m_active && m_router.current() && m_router.current()->name() == "favorites")
         loadTab();
     emit changed();
-}
-void FavoritesService::acceptLikedPage(const QJsonObject &object)
-{
-    const auto revision = object.value("revision").toInteger(-1);
-    // An uncertain version only suppresses auto-cover publication; it
-    // never rejects rows or blocks ordinary metadata completion.
-    if (revision < 0 || (m_songRevision && *m_songRevision != quint64(revision)))
-        m_songCoverConsistent = false;
-    else
-        m_songRevision = quint64(revision);
-    const auto page = object.value("page").toObject();
-    const auto items = page.value("items").toArray();
-    for (const auto &value : items)
-        m_songRows.append(value);
-    m_songReceived += quint64(items.size());
-    if (page.value("total").isDouble())
-        m_songTotal = quint64(qMax<qint64>(0, page.value("total").toInteger()));
-    m_songHasMore =
-        !items.isEmpty() &&
-        (page.value("total").isDouble() ? m_songReceived < m_songTotal : items.size() >= 300);
-    ++m_songPage;
-    // Sort the complete snapshot by global playlist position.
-    // Pages contain mixed positions; reversing pages or arrival order is incorrect.
-    QList<QJsonObject> ordered;
-    for (const auto &value : std::as_const(m_songRows))
-        ordered.append(value.toObject());
-    std::stable_sort(ordered.begin(), ordered.end(), [](const auto &a, const auto &b) {
-        const auto left = a.value("sort_index"), right = b.value("sort_index");
-        if (!left.isDouble())
-            return false;
-        return !right.isDouble() || left.toInteger() < right.toInteger();
-    });
-    QJsonArray songs;
-    for (const auto &entry : ordered) {
-        auto song = entry.value("song").toObject();
-        song.insert("metadata", entry.value("metadata"));
-        songs.append(song);
-    }
-    if (!m_keepSongsDuringRefresh || !m_songHasMore)
-        m_songs.replaceSongs(songs, true);
-    m_likedLoaded = !m_songHasMore;
-    m_error.clear();
-    completeSongs(items);
-    if (m_likedLoaded)
-        publishCover();
-    if (m_songHasMore)
-        requestLikedPage();
 }
 void FavoritesService::accept(quint64 id, const QByteArray &bytes)
 {
@@ -674,9 +580,6 @@ void FavoritesService::accept(quint64 id, const QByteArray &bytes)
         m_error.clear();
         break;
     }
-    case PendingKind::LikedSongs:
-        acceptLikedPage(object);
-        break;
     case PendingKind::Video: {
         const auto page = object.value("page").toObject();
         const auto items = page.value("items").toArray();
@@ -735,7 +638,6 @@ void FavoritesService::fail(quint64 id, const QByteArray &bytes)
         bytes, pending.kind == PendingKind::Follow  ? tr("关注列表加载失败")
                : pending.kind == PendingKind::Video ? tr("收藏视频加载失败")
                                                     : tr("收藏歌曲加载失败"));
-    m_awaitingLibrary = false;
     emit changed();
     if (m_active && (pending.kind == PendingKind::Follow || pending.kind == PendingKind::Video))
         emit notice(m_error, true);

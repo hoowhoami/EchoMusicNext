@@ -1,4 +1,5 @@
 #include "PlaylistDetailService.h"
+#include "FavoriteSongIndex.h"
 #include "ShellSettings.h"
 #include "ThemeStore.h"
 #include "NativeWindow.h"
@@ -287,6 +288,44 @@ qreal renderedInkCenter(const QImage &image, QQuickWindow *window, QQuickItem *l
         }
     return bottom >= top ? (top + bottom + 1) / (2 * ratio) : -1;
 }
+qreal renderedIconInkCenter(const QImage &image, QQuickWindow *window, QQuickItem *button)
+{
+    const qreal ratio = image.width() / qreal(window->width());
+    const auto scene = button->mapRectToScene(button->boundingRect());
+    const auto region = QRectF(scene.topLeft() * ratio, scene.size() * ratio)
+                            .toAlignedRect()
+                            .intersected(image.rect());
+    if (region.isEmpty())
+        return -1;
+    // Padding isolates the glyph from adjacent text. The button has no hover
+    // plate; sample its actual surface rather than assuming a white theme.
+    const auto background = image.pixelColor(region.topLeft());
+    const auto foreground = button->property("foreground").value<QColor>();
+    const qreal direction[] = {qreal(foreground.red() - background.red()),
+                               qreal(foreground.green() - background.green()),
+                               qreal(foreground.blue() - background.blue())};
+    const qreal contrast =
+        direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2];
+    if (contrast <= 0)
+        return -1;
+    int top = image.height(), bottom = -1;
+    for (int y = region.top(); y <= region.bottom(); ++y)
+        for (int x = region.left(); x <= region.right(); ++x) {
+            const auto pixel = image.pixelColor(x, y);
+            const qreal coverage = ((pixel.red() - background.red()) * direction[0] +
+                                    (pixel.green() - background.green()) * direction[1] +
+                                    (pixel.blue() - background.blue()) * direction[2]) /
+                                   contrast;
+            // Fractionally scaled SVG strokes may have no opaque edge pixels.
+            // Measure the half-coverage silhouette, not a near-pure-color subset
+            // whose missing antialiased edges can bias the apparent center.
+            if (coverage >= .5) {
+                top = qMin(top, y);
+                bottom = qMax(bottom, y);
+            }
+        }
+    return bottom >= top ? (top + bottom + 1) / (2 * ratio) : -1;
+}
 qreal renderedNameBodyCenter(const QImage &frame, QQuickWindow *window, QQuickItem *item)
 {
     auto *label = renderedText(item);
@@ -461,7 +500,7 @@ Window {
             component.createWithInitialProperties({{"detail", QVariant::fromValue(&context)}}));
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
-        QVERIFY(window);
+        QVERIFY(window && Test::prepareNativeInput(window));
         QTRY_VERIFY(playlistVisual(window->contentItem(), "playlistFilterInfo"));
         auto *info = playlistVisual(window->contentItem(), "playlistFilterInfo");
         QVERIFY(!info->isVisible());
@@ -480,7 +519,7 @@ Window {
         for (bool dark : {false, true})
             for (double scale : {1., 1.25})
                 for (int width : {1000, 650}) {
-                    QTest::mouseMove(window, QPoint(1, 1));
+                    Test::moveNativePointer(window, QPoint(1, 1));
                     theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
                     root->setProperty("uiScale", scale);
                     window->resize(width, 320);
@@ -490,9 +529,24 @@ Window {
                     const auto countBounds = count->mapRectToScene(count->boundingRect());
                     const auto infoBounds = info->mapRectToScene(info->boundingRect());
                     QVERIFY(infoBounds.left() >= countBounds.right());
-                    QVERIFY(qAbs(countBounds.center().y() - infoBounds.center().y()) < .6);
+                    QVERIFY(qAbs(infoBounds.left() - countBounds.right() - 4 * scale) < .01);
+                    QCOMPARE(info->width(), qreal(18));
+                    QCOMPARE(info->height(), qreal(18));
+                    QVERIFY(!info->property("hoverBackground").toBool());
+                    const auto alignmentFrame = window->grabWindow();
+                    QVERIFY(!alignmentFrame.isNull());
+                    const auto ratio = qreal(alignmentFrame.width()) / window->width();
+                    const auto textCenter =
+                        renderedInkCenter(alignmentFrame, window, renderedText(count));
+                    const auto iconCenter = renderedIconInkCenter(alignmentFrame, window, info);
+                    QVERIFY2(textCenter > 0 && iconCenter > 0 &&
+                                 qAbs(textCenter - iconCenter) <= 1. / ratio,
+                             qPrintable(QString("Filter icon/text ink: %1 / %2 at %3")
+                                            .arg(iconCenter)
+                                            .arg(textCenter)
+                                            .arg(scale)));
                     QVERIFY(window->contentItem()->boundingRect().contains(infoBounds));
-                    QTest::mouseMove(window, infoBounds.center().toPoint());
+                    Test::moveNativePointer(window, infoBounds.center().toPoint());
                     QTRY_VERIFY(info->property("hovered").toBool());
                     QTRY_VERIFY(info->findChild<QObject *>("iconButtonToolTip"));
                     auto *tip = info->findChild<QObject *>("iconButtonToolTip");
@@ -1281,9 +1335,9 @@ Window {
                  "Current-account playlist detail or cloud tracks failed");
         QVERIFY(context->complete());
         QVERIFY(context->owned());
-        QTRY_VERIFY_WITH_TIMEOUT(!playback.libraryActions()->favoriteLoading(), 45000);
-        QVERIFY2(playback.libraryActions()->errorMessage().isEmpty(),
-                 qPrintable(playback.libraryActions()->errorMessage()));
+        QTRY_VERIFY_WITH_TIMEOUT(!library.favoriteSongs()->loading(), 45000);
+        QVERIFY2(library.favoriteSongs()->errorMessage().isEmpty(),
+                 qPrintable(library.favoriteSongs()->errorMessage()));
         QVERIFY(context->songs()->count() > 0);
         const auto tracks = context->songs()->tracks();
         QVERIFY(!tracks.isEmpty());
@@ -1500,8 +1554,7 @@ Window {
                                              "首无效歌曲\n通常是因为歌曲信息缺失无法参与播放"));
                             const auto textCenter =
                                 renderedInkCenter(frame, window, renderedText(songCount));
-                            const auto iconCenter = renderedInkCenter(
-                                frame, window, hint, hint->property("foreground").value<QColor>());
+                            const auto iconCenter = renderedIconInkCenter(frame, window, hint);
                             if (!capture.isEmpty())
                                 QVERIFY(frame.save(capture + QString("/filter-%1-%2-variant%3.png")
                                                                  .arg(dark ? "dark" : "light")

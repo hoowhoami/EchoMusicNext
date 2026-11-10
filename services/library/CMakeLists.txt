@@ -1,5 +1,7 @@
 add_library(
     echo_library STATIC
+    FavoriteSongIndex.cpp
+    FavoriteSongIndex.h
     LibraryCollectionService.cpp
     LibraryCollectionService.h
     SongMetadataService.cpp

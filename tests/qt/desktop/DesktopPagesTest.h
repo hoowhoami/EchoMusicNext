@@ -44,6 +44,7 @@ private slots:
     void nativePlaybackFailurePublishesVisibleToast();
     void toastKeepsPlacementAcrossPlaybackPageSwitches();
     void sidebarPluginRegistrationKeepsHeaderVisible();
+    void sidebarResizeKeepsContinuousGeometryAndIdentity();
     void nativePlaybackSurvivesRepeatedAppearanceUpdates();
     void productionHeaderWindowActionsStayAtRightEdge();
     void fullscreenShortcutReachesModalPlaybackPage();

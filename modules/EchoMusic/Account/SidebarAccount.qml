@@ -11,28 +11,31 @@ Item {
     required property AccountController service
     required property real uiScale
     property bool collapsed: false
+    property real collapseProgress: collapsed ? 1 : 0
+    readonly property real detailsOpacity: Math.max(0, 1 - 2 * collapseProgress)
     signal profileRequested
-    implicitHeight: collapsed ? 42 : 56
+    implicitHeight: 56 - 14 * collapseProgress
     Rectangle {
-        visible: !profile.collapsed
+        visible: profile.collapseProgress < 1
+        opacity: profile.detailsOpacity
         anchors.fill: parent
         radius: Theme.cardRadius
         color: userLink.hovered || accountTrigger.hovered ? Theme.hover : Theme.mutedSurface
     }
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: profile.collapsed ? (profile.width - 42) / 2 : 8
-        anchors.rightMargin: profile.collapsed ? (profile.width - 42) / 2 : 4
-        anchors.topMargin: profile.collapsed ? 0 : 4
-        anchors.bottomMargin: profile.collapsed ? 0 : 4
-        spacing: profile.collapsed ? 0 : 3
+        anchors.leftMargin: 8 + 3 * profile.collapseProgress
+        anchors.rightMargin: 4 + 7 * profile.collapseProgress
+        anchors.topMargin: 4 * (1 - profile.collapseProgress)
+        anchors.bottomMargin: 4 * (1 - profile.collapseProgress)
+        spacing: 3 * (1 - profile.collapseProgress)
         Button {
             id: userLink
             objectName: "sidebarUserLink"
-            Layout.fillWidth: !profile.collapsed
+            Layout.fillWidth: true
 
-            Layout.preferredWidth: profile.collapsed ? 42 : -1
-            Layout.preferredHeight: profile.collapsed ? 42 : 44
+            Layout.preferredWidth: -1
+            Layout.preferredHeight: 44 - 2 * profile.collapseProgress
             padding: 0
             leftPadding: 0
             rightPadding: 0
@@ -44,28 +47,32 @@ Item {
             background: Rectangle {
                 objectName: "sidebarUserLinkBackground"
                 radius: Theme.cardRadius
-                color: profile.collapsed ? userLink.hovered ? Theme.hover : Theme.mutedSurface : "transparent"
+                color: userLink.hovered ? Theme.hover : Theme.mutedSurface
+                opacity: profile.collapseProgress
             }
             contentItem: RowLayout {
-                spacing: 10
+                spacing: 10 * (1 - profile.collapseProgress)
                 AccountAvatar {
                     objectName: "sidebarAccountAvatar"
+                    minimumDecodeSize: 36
                     Layout.alignment: Qt.AlignVCenter
-                    Layout.fillWidth: profile.collapsed
-                    Layout.leftMargin: profile.collapsed ? 5 : 0
-                    Layout.rightMargin: profile.collapsed ? 5 : 0
-                    Layout.preferredWidth: profile.collapsed ? 32 : 36
-                    Layout.maximumWidth: profile.collapsed ? 32 : 36
-                    Layout.preferredHeight: profile.collapsed ? 32 : 36
+                    Layout.fillWidth: false
+                    Layout.leftMargin: 5 * profile.collapseProgress
+                    Layout.rightMargin: 5 * profile.collapseProgress
+                    Layout.preferredWidth: 36 - 4 * profile.collapseProgress
+                    Layout.maximumWidth: 36 - 4 * profile.collapseProgress
+                    Layout.preferredHeight: 36 - 4 * profile.collapseProgress
                     source: profile.service.account.avatarUrl
                     identityIcon: profile.service.account.avatarIdentityIcon
                     identityLabel: profile.service.account.avatarIdentityLabel
-                    placeholderOpacity: profile.collapsed ? 0.3 : 0.1
+                    placeholderOpacity: 0.1 + 0.2 * profile.collapseProgress
                 }
                 ColumnLayout {
                     Layout.fillHeight: false
-                    visible: !profile.collapsed
+                    visible: profile.collapseProgress < 1
+                    opacity: profile.detailsOpacity
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     spacing: 3
                     Label {
                         Layout.fillWidth: true
@@ -96,18 +103,23 @@ Item {
             }
         }
         Rectangle {
-            visible: !profile.collapsed
-            Layout.preferredWidth: 1
+            visible: profile.collapseProgress < 1
+            opacity: profile.detailsOpacity
+            Layout.preferredWidth: 1 - profile.collapseProgress
             Layout.preferredHeight: 18
             color: Theme.withAlpha(Theme.store.tone, 0.1)
         }
         EchoIconButton {
             id: accountTrigger
-            visible: !profile.collapsed
+            enabled: !profile.collapsed
+            visible: profile.collapseProgress < 1
+            opacity: profile.detailsOpacity
             objectName: "sidebarAccountTrigger"
-            Layout.preferredWidth: profile.collapsed ? 22 : 28
-            Layout.preferredHeight: profile.collapsed ? 42 : 44
-            padding: profile.collapsed ? 4 : 5
+            Layout.minimumWidth: 0
+            Layout.maximumWidth: 28 * (1 - profile.collapseProgress)
+            Layout.preferredWidth: 28 * (1 - profile.collapseProgress)
+            Layout.preferredHeight: 44 - 2 * profile.collapseProgress
+            padding: 5
             background: Rectangle {
                 color: "transparent"
                 radius: Theme.controlRadius

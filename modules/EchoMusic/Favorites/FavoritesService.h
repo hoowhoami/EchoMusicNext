@@ -15,7 +15,7 @@ namespace EchoMusic
 {
 class PlaybackService;
 class FavoritesServiceTestAccess;
-/// Favorites data owner: automatically page liked songs in global server order,
+/// Favorites presentation: project shared liked songs in global server order,
 /// split followed singers and users by singerid / iden_type, project favorite
 /// albums from library rows with source_code == 2, and retain collected videos.
 class FavoritesService final : public QObject
@@ -37,6 +37,7 @@ class FavoritesService final : public QObject
     Q_PROPERTY(bool removeBusy READ removeBusy NOTIFY changed)
     Q_PROPERTY(quint64 likedListId READ likedListId NOTIFY changed)
     Q_PROPERTY(QString likedTitle READ likedTitle NOTIFY changed)
+    Q_PROPERTY(QString coverUrl READ coverUrl NOTIFY changed)
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY changed)
@@ -76,6 +77,8 @@ public:
     Q_INVOKABLE bool removeSongs(const QStringList &ids);
     quint64 likedListId() const;
     QString likedTitle() const;
+    /// Same manual/automatic account playlist cover as the sidebar and details.
+    QString coverUrl() const;
     SongCatalogModel *albums()
     {
         return &m_albums;
@@ -122,7 +125,6 @@ private:
     enum class PendingKind
     {
         Follow,
-        LikedSongs,
         Video
     };
     struct Pending
@@ -144,15 +146,10 @@ private:
     void loadTab();
     void requestFollow();
     void requestLikedSongs();
-    void prepareLikedSongs(quint64 listId);
-    void acceptLikedPage(const QJsonObject &page);
-    void applyTrackReadback(const QJsonObject &snapshot, quint64 session);
-    QJsonObject m_pendingTrackReadback;
-    QMetaObject::Connection m_mutationConnection;
+    void syncLikedSongs();
     QMetaObject::Connection m_mutationStateConnection;
     QPointer<PlaylistMutationService> m_mutations;
     quint64 m_removeSession = 0;
-    void requestLikedPage();
     void requestVideos();
     void projectAlbums();
     void projectFollow();
@@ -181,13 +178,13 @@ private:
     QJsonArray m_songRows;
     QString m_singerQuery;
     quint64 m_likedId = 0, m_songTotal = 0, m_songReceived = 0;
-    quint32 m_songPage = 1;
-    bool m_songHasMore = false, m_keepSongsDuringRefresh = false;
+    bool m_songHasMore = false;
+    quint64 m_songSnapshotGeneration = 0;
     quint64 m_videoTotal = 0, m_videoReceived = 0;
     int m_tab = 0;
     QString m_instance, m_error;
     bool m_network = false, m_active = false, m_closed = false;
     bool m_likedLoaded = false, m_followLoaded = false, m_videosLoaded = false;
-    bool m_videoExhausted = false, m_awaitingLibrary = false;
+    bool m_videoExhausted = false;
 };
 } // namespace EchoMusic

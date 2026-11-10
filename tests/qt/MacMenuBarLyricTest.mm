@@ -91,6 +91,18 @@ private slots:
         QCOMPARE(availableWidth(builtIn, notchRight, QRectF(820, 949, 40, 33), 24), 24.);
         QCOMPARE(availableWidth({}, {}, {}, 24), 24.);
     }
+    void ownStatusWindowResizeDoesNotRelocateTheItem()
+    {
+        using MenuBarLyricLayout::relocated;
+        const QRectF compact(1100, 949, 40, 33);
+        // Right-anchored AppKit window and left-anchored system proxy.
+        QVERIFY(!relocated(compact, 24, QRectF(844, 949, 296, 33), 280));
+        QVERIFY(!relocated(compact, 24, QRectF(1100, 949, 296, 33), 280));
+        // A delayed window notification with the old width is not a move either.
+        QVERIFY(!relocated(compact, 24, compact, 280));
+        QVERIFY(!relocated(compact, 24, compact, 24));
+        QVERIFY(relocated(compact, 24, QRectF(1050, 949, 40, 33), 24));
+    }
     void longLyricsRespectViewportWithAndWithoutScrolling()
     {
         if (QGuiApplication::platformName() != "cocoa")
@@ -155,10 +167,15 @@ private slots:
         item.update(state, style);
         QTRY_VERIFY(item.diagnostics().value("timerActive").toBool());
         QCOMPARE(item.diagnostics().value("width").toDouble(), width);
+        // AppKit can finish adopting the scrolling surface's frame/backing
+        // after update(). Measure steady-state reuse after that adoption.
+        QTest::qWait(250);
         const auto builds = item.diagnostics().value("textBuilds");
         const auto scrollingProbes = item.diagnostics().value("layoutProbes");
+        const auto compactions = item.diagnostics().value("layoutCompactions");
         const auto requests = item.diagnostics().value("displayRequests").toULongLong();
         QTest::qWait(1800);
+        QCOMPARE(item.diagnostics().value("layoutCompactions"), compactions);
         QVERIFY(item.diagnostics().value("displayRequests").toULongLong() > requests);
         // Other applications can resize status items during this real-bar test
         // (for example network-speed digits). Only unchanged geometry promises

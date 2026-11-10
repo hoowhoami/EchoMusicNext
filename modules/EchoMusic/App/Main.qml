@@ -387,7 +387,7 @@ ApplicationWindow {
                 anchors.fill: parent
                 spacing: 0
                 Rectangle {
-                    Layout.preferredWidth: mainWindow.shellSettings.sidebarCollapsed ? 80 : 230
+                    Layout.preferredWidth: sidebar.implicitWidth
                     Layout.fillHeight: true
                     color: "transparent"
                     EchoWindowDragArea {
@@ -396,14 +396,8 @@ ApplicationWindow {
                         onMoveRequested: mainWindow.windowService.startSystemMove()
                         onDoubleClickRequested: mainWindow.windowService.toggleMaximized()
                     }
-                    Behavior on Layout.preferredWidth {
-                        enabled: mainWindow.shellSettings.motionEnabled
-                        NumberAnimation {
-                            duration: Theme.panelDuration
-                            easing.type: Easing.OutCubic
-                        }
-                    }
                     Sidebar {
+                        id: sidebar
                         anchors.fill: parent
                         router: mainWindow.router
                         settings: mainWindow.shellSettings

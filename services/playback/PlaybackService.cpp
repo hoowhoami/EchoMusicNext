@@ -871,7 +871,12 @@ void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
     }
     m_startupAutoPlayPending = false;
     invalidate();
-    m_engine.command(AudioEngine::Stop);
+    // A manual skip retires the decoder, not the audio device. A full Stop here
+    // closes the output before resolving the next URL and can yield multipoint audio.
+    if (m_ready && !m_cast->remoteMedia())
+        m_engine.beginSourceChange();
+    else
+        m_engine.command(AudioEngine::Stop);
     if (index >= 0) {
         queue()->setCurrent(index);
         queue()->adoptIdentity(index, resolved);
