@@ -838,7 +838,25 @@ void DesktopPagesTest::productionPlaybackPopoverSpacingAndEffectMarkers()
                                 QPointF(button->width() / 2, button->height() / 2));
                             const auto copyMiddle =
                                 copy->mapToScene(QPointF(copy->width() / 2, copy->height() / 2));
-                            QVERIFY(qAbs(copyMiddle.y() - middle.y()) < .5);
+                            auto *copyParent = copy->parentItem();
+                            // anchors.centerIn snaps the odd column height that real CJK
+                            // metrics produce (48-35)/2=6.5 to 6, so the group can sit half
+                            // a layout pixel off the button center, scaled by the zoom.
+                            QVERIFY2(qAbs(copyMiddle.y() - middle.y()) < .5 * scale + .1,
+                                     qPrintable(QString("minutes=%1 scale=%2 above=%3 "
+                                                        "copyMiddle=%4 middle=%5 "
+                                                        "buttonH=%6 itemY=%7 itemH=%8 "
+                                                        "copyY=%9 copyH=%10")
+                                                    .arg(minutes)
+                                                    .arg(scale)
+                                                    .arg(above)
+                                                    .arg(copyMiddle.y())
+                                                    .arg(middle.y())
+                                                    .arg(button->height())
+                                                    .arg(copyParent ? copyParent->y() : -1.)
+                                                    .arg(copyParent ? copyParent->height() : -1.)
+                                                    .arg(copy->y())
+                                                    .arg(copy->height())));
                             // Check painted number/unit pixels, not only the container.
                             const auto inkCenter = glyphCenterY(session.window, image, copy);
                             QVERIFY2(qAbs(inkCenter - middle.y()) < 2 * scale,

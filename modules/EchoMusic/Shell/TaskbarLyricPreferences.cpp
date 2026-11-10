@@ -64,6 +64,10 @@ TaskbarLyricPreferences::TaskbarLyricPreferences(EchoMusic::SettingsStore &setti
                     .value(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::MaxWidth,
                            m_maxWidth)
                     .toInt());
+    setInfoOffset(settings
+                      .value(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::InfoOffset,
+                             m_infoOffset)
+                      .toInt());
     setFontSize(settings
                     .value(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::FontSize,
                            m_fontSize)
@@ -106,6 +110,22 @@ void TaskbarLyricPreferences::setMaxWidth(int value)
         return;
     m_maxWidth = value;
     m_settings.setValue(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::MaxWidth,
+                        value);
+    emit changed();
+}
+
+void TaskbarLyricPreferences::setInfoOffset(int value)
+{
+    // 0 keeps the song info vertically centered; the ceiling is half the seek
+    // area's height (TaskbarLyricWindow's TaskbarLyricSeekBar, 12 DIP) - the
+    // shift the strip shipped with before this preference existed. The QML
+    // side owns the picker range; see setMaxWidth for the split of
+    // responsibilities between the picker and the storage guard.
+    value = qBound(0, value, 6);
+    if (m_infoOffset == value)
+        return;
+    m_infoOffset = value;
+    m_settings.setValue(SettingsKeys::Taskbar::Prefix + SettingsKeys::TaskbarFields::InfoOffset,
                         value);
     emit changed();
 }

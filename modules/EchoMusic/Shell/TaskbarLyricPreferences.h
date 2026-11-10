@@ -43,6 +43,7 @@ public:
     Q_ENUM(Position)
     Q_PROPERTY(Position position READ position WRITE setPosition NOTIFY changed)
     Q_PROPERTY(int maxWidth READ maxWidth WRITE setMaxWidth NOTIFY changed)
+    Q_PROPERTY(int infoOffset READ infoOffset WRITE setInfoOffset NOTIFY changed)
     Q_PROPERTY(int fontSize READ fontSize WRITE setFontSize NOTIFY changed)
     Q_PROPERTY(bool showTranslation READ showTranslation WRITE setShowTranslation NOTIFY changed)
     Q_PROPERTY(bool wordByWord READ wordByWord WRITE setWordByWord NOTIFY changed)
@@ -63,6 +64,14 @@ public:
         return m_maxWidth;
     }
     void setMaxWidth(int value);
+    /// Vertical lift (DIP) of the expanded song info above the strip's seek
+    /// area. 0 keeps the row vertically centered; the ceiling is half the seek
+    /// area's height (TaskbarLyricWindow's TaskbarLyricSeekBar, 12 DIP).
+    int infoOffset() const
+    {
+        return m_infoOffset;
+    }
+    void setInfoOffset(int value);
     int fontSize() const
     {
         return m_fontSize;
@@ -95,6 +104,9 @@ private:
     EchoMusic::SettingsStore &m_settings;
     Position m_position = Position::AutoRight;
     int m_maxWidth = 400;
+    /// Half the seek area height: keeps the shift the strip shipped with
+    /// before this preference existed.
+    int m_infoOffset = 6;
     int m_fontSize = 14;
     bool m_showTranslation = true;
     bool m_wordByWord = true;

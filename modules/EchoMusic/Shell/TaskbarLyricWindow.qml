@@ -23,6 +23,7 @@ Window {
     readonly property color muted: dark ? "#bcbcbc" : "#666666"
     readonly property color accentText: Theme.store.lyricAccent(Theme.accent)
     readonly property int maxWidth: controller.maxWidth
+    readonly property int infoOffset: controller.infoOffset
     readonly property int fontSize: controller.fontSize
     readonly property bool showTranslation: controller.showTranslation
     readonly property bool wordByWord: controller.wordByWord
@@ -516,7 +517,11 @@ Window {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.verticalCenterOffset: (seekArea.active ? -Math.round(seekArea.height / 2) : 0)
+                        // Lifts the song info above the seek area; 0 keeps it
+                        // vertically centered. The stored preference is clamped
+                        // (TaskbarLyricPreferences) and the Math.min re-applies
+                        // the ceiling against the live seek area height.
+                        anchors.verticalCenterOffset: (seekArea.active ? -Math.round(Math.min(infoOffset, seekArea.height / 2)) : 0)
                         spacing: 0
                         opacity: window.expanded ? 1 : 0
                         visible: opacity > 0.01

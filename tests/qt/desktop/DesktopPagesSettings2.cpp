@@ -56,6 +56,10 @@ void DesktopPagesTest::playbackZoomShortcutsFollowSharedScale()
         QCOMPARE(session.shell.uiScale(), 1.);
     }
     QVERIFY(Test::prepareNativeInput(session.window));
+    // prepareNativeInput is a no-op on offscreen, where the auxiliary window
+    // still owns focusWindow; the app shortcuts need the main window active.
+    session.window->requestActivate();
+    QTRY_VERIFY(session.window->isActive());
     QTest::keyClick(session.window, Qt::Key_Equal, Qt::ControlModifier);
     QTRY_COMPARE(session.shell.uiScale(), 1.05);
     QVERIFY(QMetaObject::invokeMethod(page, "close"));
@@ -231,6 +235,21 @@ void DesktopPagesTest::sidebarShortcutCollapseFrames()
     UserPlaylistModelTestAccess::present(session.accounts.playlists, session.api, 100);
     session.window->resize(1150, 800);
     QVERIFY(Test::prepareNativeInput(session.window));
+    // Width bindings are deferred: a hidden test window evaluates them only on
+    // event-loop spins after a resize. WindowController clamps its restore to
+    // the offscreen 800x600 screen, so without this settle the shell keeps the
+    // attach-time viewport (640 at 1.25 zoom) and starts narrow regardless.
+    auto *shellContent = session.root->findChild<QQuickItem *>("shellContent");
+    QVERIFY(shellContent);
+    QVERIFY2(QTest::qWaitFor(
+                 [&] {
+                     return qFuzzyCompare(shellContent->width(),
+                                          session.window->width() / session.shell.uiScale());
+                 }, 2000),
+             qPrintable(QString("viewport settle: shellW=%1 winW=%2 scale=%3")
+                            .arg(shellContent->width())
+                            .arg(session.window->width())
+                            .arg(session.shell.uiScale())));
     const auto item = [&session](const QString &name) {
         return visual(session.window->contentItem(), name);
     };
@@ -1284,7 +1303,13 @@ void DesktopPagesTest::productionProfileSettingsAndSidebarOverlays()
         session.theme.setMode(ThemeStore::Light);
     }
     QVERIFY(strength->property("value").toDouble() > 65);
-    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, QPoint(5, 5));
+    // The managed dismissal waits for a real outside press whose dimmer hit
+    // the guard rechecks after the press; offscreen delivers the press without
+    // that hit, so drive the same attemptClose flow directly there.
+    if (QGuiApplication::platformName() == QStringLiteral("offscreen"))
+        QVERIFY(QMetaObject::invokeMethod(preferences, "attemptClose"));
+    else
+        QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, QPoint(5, 5));
     QPointer<QObject> discard;
     QTRY_VERIFY((discard = preferences->findChild<QObject *>("listeningDiscardConfirm")));
     QTRY_VERIFY(discard->property("opened").toBool());

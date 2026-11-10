@@ -170,6 +170,21 @@ public:
     Q_INVOKABLE bool beginReorder(const QString &key);
     Q_INVOKABLE void previewReorder(int target);
     Q_INVOKABLE void finishReorder(bool commit);
+    // Row metadata for QML-side width measurement: TitleBarMorePopup grows to
+    // the widest shown title so a moderate one stays whole instead of wrapping
+    // into the row's badge reserve.
+    Q_INVOKABLE QString titleAt(int row) const
+    {
+        return row >= 0 && row < m_rows.size()
+                   ? m_rows[row].data(ShellActionModel::TitleRole).toString()
+                   : QString();
+    }
+    Q_INVOKABLE bool badgeVisibleAt(int row) const
+    {
+        return row >= 0 && row < m_rows.size()
+                   ? m_rows[row].data(ShellActionModel::BadgeVisibleRole).toBool()
+                   : false;
+    }
 signals:
     void actionsChanged();
     void zoneChanged();

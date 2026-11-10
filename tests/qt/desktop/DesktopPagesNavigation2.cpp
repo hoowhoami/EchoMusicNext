@@ -976,10 +976,13 @@ void DesktopPagesTest::profileMembershipDatesUseAllAvailableWidth()
     window.show();
     QVERIFY(Test::prepareNativeInput(&window));
     Test::moveNativePointer(&window, {10, 10});
+    // requestUpdate() is platform-driven and never delivers a frame on
+    // offscreen; update() marks the scene dirty and swaps through the basic
+    // render loop on every platform.
     const auto render = [&] {
         for (int frame = 0; frame < 2; ++frame) {
             Test::FrameSpy rendered(&window);
-            window.requestUpdate();
+            window.update();
             if (!rendered.wait(1000))
                 return false;
         }

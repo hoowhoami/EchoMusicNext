@@ -394,7 +394,11 @@ void DesktopPagesTest::realPlaybackSurfacesAndBoundedFiftyThousandQueue()
     QVERIFY(visual(session.window->contentItem(), "playbackLyricList"));
     auto *sourceAction = visual(session.window->contentItem(), "lyricSourceAction");
     QVERIFY(sourceAction);
-    QVERIFY(session.clickItem(sourceAction));
+    // The lyric tools only enable on page-content hover, which offscreen never
+    // delivers (see the volume hover skip above); emit the button signal there.
+    QVERIFY(QGuiApplication::platformName() == QStringLiteral("offscreen")
+                ? QMetaObject::invokeMethod(sourceAction, "clicked")
+                : session.clickItem(sourceAction));
     QPointer<QObject> sourceDialog;
     QTRY_VERIFY((sourceDialog = page->findChild<QObject *>("lyricSourceDialog")));
     QTest::qWait(80);

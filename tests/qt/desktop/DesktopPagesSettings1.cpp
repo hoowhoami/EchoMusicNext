@@ -1644,6 +1644,12 @@ void DesktopPagesTest::productionVariableDialogSizingReopens()
         session.root.reset();
         session.window = nullptr;
     });
+    // The dialogs cap themselves at parent.height / uiScale - 64. At the
+    // offscreen-restored 750-high window the 1.25 zoom leaves 536px, less than
+    // the sources dialog's controls grid plus both full cards, so the list
+    // would legitimately scroll instead of matching its measured extent.
+    session.window->resize(1150, 900);
+    QVERIFY(session.settleScene());
     session.theme.setFloatingFrosted(false);
     QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
     const auto capture = qEnvironmentVariable("ECHO_DIALOG_CAPTURE_DIR");

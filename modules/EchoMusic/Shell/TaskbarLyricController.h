@@ -29,6 +29,7 @@ class TaskbarLyricController final : public QObject
     // binding on its plain properties would never re-evaluate. These mirror the
     // values the strip needs with a proper notify signal.
     Q_PROPERTY(int maxWidth READ maxWidth NOTIFY settingsChanged)
+    Q_PROPERTY(int infoOffset READ infoOffset NOTIFY settingsChanged)
     Q_PROPERTY(int fontSize READ fontSize NOTIFY settingsChanged)
     Q_PROPERTY(bool showTranslation READ showTranslation NOTIFY settingsChanged)
     Q_PROPERTY(bool wordByWord READ wordByWord NOTIFY settingsChanged)
@@ -61,6 +62,10 @@ public:
     int maxWidth() const
     {
         return m_settingsStore.maxWidth();
+    }
+    int infoOffset() const
+    {
+        return m_settingsStore.infoOffset();
     }
     int fontSize() const
     {

@@ -59,6 +59,22 @@ SettingsSection {
         }
     }
     SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("歌曲信息偏移高度")
+        description: qsTr("展开时歌曲信息向上避开进度条的高度，0 为垂直居中（0 - 6 像素）")
+        EchoSpinBox {
+            implicitWidth: 130
+            // Same split as the width picker above; the ceiling is half the
+            // strip's seek area height (TaskbarLyricWindow).
+            from: 0
+            to: 6
+            stepSize: 1
+            value: section.style.infoOffset
+            // Same commit path as the width field above.
+            onValueModified: section.style.infoOffset = Math.round(value)
+        }
+    }
+    SettingsDivider {}
     FontFamilySettingsRow {
         heading: qsTr("任务栏歌词字体")
         description: qsTr("任务栏歌词条使用的字体，跟随全局或单独指定")

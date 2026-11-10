@@ -1152,6 +1152,11 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
         session.window = nullptr;
     });
     QVERIFY(Test::prepareNativeInput(session.window));
+    // The offscreen screen clamps the restored window to 800 wide; with the
+    // sidebar open the player bar then keeps only two of the four right-side
+    // actions, pooling desktop-lyric into More before the test can reach it.
+    session.window->resize(1150, 750);
+    QVERIFY(session.settleScene());
     const auto path = session.directory.filePath("mini-controls.wav");
     QVERIFY(writeFloatingTestWave(path));
     QImage art(800, 800, QImage::Format_RGB32);
