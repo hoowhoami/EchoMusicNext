@@ -297,8 +297,16 @@ void DesktopPagesTest::taskIndicatorUsesSingleDot()
         session.window = nullptr;
     });
     QVERIFY(Test::prepareNativeInput(session.window));
+    // The offscreen platform screen clamps the ApplicationWindow to 800 wide,
+    // which leaves the title bar toolbar without capacity; match the app's
+    // real window size so the pinned toolbar actions exist. At 1.25 zoom the
+    // zoom-scaled sidebar and window actions consume a 1150-wide window's
+    // whole toolbar budget, so give the toolbar the extra room it needs.
+    session.window->resize(scale > 1. ? 1400 : 1150, 750);
+    QVERIFY(session.settleScene());
     for (int step = 0; step < qRound((scale - 1) / .05); ++step)
         session.shell.zoomIn();
+    QVERIFY(session.settleScene());
     auto *button = visual(session.window->contentItem(), "titlebar-action-tasks");
     QVERIFY(button);
     auto *dot = visual(button, "taskIndicatorDot");

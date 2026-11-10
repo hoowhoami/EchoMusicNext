@@ -17,8 +17,14 @@ QFont styledUiFont(const QFont &base, qreal pixelSize, int weight, qreal letterS
         // point-size setter using Qt's own conversion. A large reference size
         // avoids minimum-size rounding at 1px.
         font.setPixelSize(100);
+        // A platform that cannot resolve the probe reports a non-positive point
+        // size (offscreen yields -0.75); the setter would then reject the result
+        // and silently keep the 100px probe, inflating every metric downstream.
         const auto pointsPerPixel = QFontInfo(font).pointSizeF() / 100;
-        font.setPointSizeF(pixelSize * pointsPerPixel);
+        if (pointsPerPixel > 0)
+            font.setPointSizeF(pixelSize * pointsPerPixel);
+        else
+            font.setPixelSize(qMax(1, qRound(pixelSize)));
     }
     font.setWeight(static_cast<QFont::Weight>(weight));
     font.setLetterSpacing(QFont::AbsoluteSpacing, letterSpacing);

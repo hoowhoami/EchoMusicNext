@@ -11,6 +11,47 @@ EchoAnchoredPopup {
     objectName: "titlebarMorePopup"
     required property ShellActionModel actions
     implicitHeight: body.implicitHeight + topPadding + bottomPadding
+    // Rows reserve 40 DIP before the label and 50/90 after it (pin/badge
+    // zone). Grow to the widest shown title, bounded, so a moderate title
+    // stays whole instead of wrapping into that reserve; only genuinely long
+    // titles reach the bound and wrap into the second line. Measured
+    // imperatively: a binding that writes rowMeasure.text would dirty its own
+    // advanceWidth dependency on every evaluation - a detected binding loop.
+    TextMetrics {
+        id: rowMeasure
+        font: Theme.font(13, Theme.mediumWeight)
+    }
+    property real measuredRowWidth: 280
+    function remeasureRowWidth() {
+        let widest = 0;
+        const rows = list.model;
+        for (let i = 0; i < rows.rowCount(); ++i) {
+            rowMeasure.text = rows.titleAt(i);
+            widest = Math.max(widest, 40 + Math.ceil(rowMeasure.advanceWidth)
+                                         + (rows.badgeVisibleAt(i) ? 90 : 50));
+        }
+        menu.measuredRowWidth = Math.min(Math.max(280, widest + 16), 420);
+    }
+    Connections {
+        target: list.model
+        function onRowsInserted() {
+            menu.remeasureRowWidth();
+        }
+        function onRowsRemoved() {
+            menu.remeasureRowWidth();
+        }
+        function onModelReset() {
+            menu.remeasureRowWidth();
+        }
+        function onDataChanged() {
+            menu.remeasureRowWidth();
+        }
+        function onActionsChanged() {
+            menu.remeasureRowWidth();
+        }
+    }
+    Component.onCompleted: menu.remeasureRowWidth()
+    preferredWidth: menu.measuredRowWidth
     function activate(key: string) {
         if (actions.activate(key))
             close();

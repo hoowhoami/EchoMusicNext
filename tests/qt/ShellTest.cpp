@@ -489,6 +489,17 @@ private slots:
         QVERIFY(QTest::qWaitForWindowExposed(window));
         qInfo() << "Login rendering platform" << QGuiApplication::platformName() << "graphics API"
                 << window->rendererInterface()->graphicsApi();
+        // EchoFloatingSurface gates the frosted effect graph on RhiShader
+        // shading: the software rasterizer, OpenVG and an unresolved backend
+        // keep the plain fill (its comment says exactly that). Mirror the gate
+        // here so the offscreen platform expects the plain fill even with the
+        // frosted hint on - on GPU-backed platforms the expectation is the
+        // frosted hint itself, unchanged.
+        const auto graphicsApi = window->rendererInterface()->graphicsApi();
+        const bool frostedSupported = graphicsApi != QSGRendererInterface::Unknown
+                                      && graphicsApi != QSGRendererInterface::Software
+                                      && graphicsApi != QSGRendererInterface::OpenVG
+                                      && graphicsApi != QSGRendererInterface::Null;
         const auto artifacts = qEnvironmentVariable("ECHO_ACCOUNT_ARTIFACTS");
         if (!artifacts.isEmpty())
             QDir().mkpath(artifacts);
@@ -508,7 +519,7 @@ private slots:
                         auto *backdrop = window->property("echoBackdropRoot").value<QQuickItem *>();
                         QVERIFY(backdrop);
                         QCOMPARE(backdrop->objectName(), QString("loginBackdropScene"));
-                        QCOMPARE(card->property("hasBackdrop").toBool(), frost);
+                        QCOMPARE(card->property("hasBackdrop").toBool(), frost && frostedSupported);
                         const auto image = window->grabWindow();
                         QVERIFY(!image.isNull());
                         const auto point = card->mapToScene({12, card->height() / 2});
@@ -2224,15 +2235,34 @@ QtObject {
                             // Presentation changes rebuild the menu's row recipe.
                             // Resolve the live delegate after polish, never retain
                             // a raw text pointer across model notifications.
-                            QTRY_VERIFY(resolveLabels() &&
-                                        shortText->property("text").toString() == title);
-                            QCOMPARE(shortText->property("lineCount").toInt(), 1);
+                            // The text rebinds one polish cycle before the line
+                            // metrics follow, so the whole condition - not just
+                            // the text - waits for the updated line count.
+                            const auto shortWhole = [&] {
+                                return resolveLabels() &&
+                                       shortText->property("text").toString() == title &&
+                                       shortText->property("lineCount").toInt() == 1;
+                            };
+                            const auto shortDiag = [&] {
+                                return QString("kind=%1 title=%2 text=%3 lines=%4 labelW=%5 textW=%6 implicitW=%7 fontPx=%8 menuW=%9")
+                                    .arg(kind)
+                                    .arg(title)
+                                    .arg(shortText ? shortText->property("text").toString() : QString())
+                                    .arg(shortText ? shortText->property("lineCount").toInt() : -1)
+                                    .arg(shortLabel ? shortLabel->width() : -1.)
+                                    .arg(shortText ? shortText->width() : -1.)
+                                    .arg(shortText ? shortText->property("implicitWidth").toReal() : -1.)
+                                    .arg(shortText ? shortText->property("font").value<QFont>().pixelSize() : -1)
+                                    .arg(menu->property("width").toReal());
+                            };
+                            QVERIFY2(QTest::qWaitFor(shortWhole, 5000),
+                                     qPrintable(shortDiag()));
                         }
                         if (kind == "titlebar")
-                            QVERIFY(longText->property("lineCount").toInt() > 1);
+                            QTRY_VERIFY(longText->property("lineCount").toInt() > 1);
                         else {
-                            QCOMPARE(longText->property("lineCount").toInt(), 1);
-                            QVERIFY(longLabel->property("truncated").toBool());
+                            QTRY_COMPARE(longText->property("lineCount").toInt(), 1);
+                            QTRY_VERIFY(longLabel->property("truncated").toBool());
                         }
                         QVERIFY(content->mapRectToScene(content->boundingRect())
                                     .contains(longText->mapRectToScene(longText->boundingRect())));
@@ -2998,14 +3028,22 @@ QtObject {
         for (int width : {900, 1400}) {
             window->setWidth(width);
             // Each region is centered as a group, with independent internal rows.
-            for (auto *group : {leading, center, trailing})
-                QTRY_VERIFY2(qAbs(centerY(group) - bar->height() / 2) * scale <=
-                                 1. / window->devicePixelRatio() + .01,
-                             qPrintable(QString("group=%1 center=%2 bar=%3 height=%4")
-                                            .arg(group->objectName())
-                                            .arg(centerY(group))
-                                            .arg(bar->height() / 2)
-                                            .arg(group->height())));
+            for (auto *group : {leading, center, trailing}) {
+                // Evaluated at failure time: the row layout can drift between
+                // the first probe and the wait timeout.
+                QVERIFY2(QTest::qWaitFor([&] {
+                             return qAbs(centerY(group) - bar->height() / 2) * scale <=
+                                    1. / window->devicePixelRatio() + .01;
+                         }, 5000),
+                         qPrintable(QString("group=%1 center=%2 barHalf=%3 gy=%4 row1H=%5 row1IH=%6")
+                                        .arg(group->objectName())
+                                        .arg(centerY(group))
+                                        .arg(bar->height() / 2)
+                                        .arg(group->y())
+                                        .arg(group->parentItem() ? group->parentItem()->height() : -1)
+                                        .arg(group->parentItem() ? group->parentItem()->implicitHeight()
+                                                                 : -1)));
+            }
             QTRY_VERIFY(centerY(transport) > centerY(song) + 2);
             QTRY_VERIFY(centerY(progress) > centerY(left) + 2);
             QTRY_VERIFY(qAbs(transport->mapToItem(center, {0, 0}).y()) < .01);
@@ -3180,7 +3218,7 @@ QtObject {
             taskIcon->mapToScene({taskIcon->width() / 2, taskIcon->height() / 2}).toPoint());
         QTRY_COMPARE(taskIcon->property("cursorShape").toInt(), int(Qt::ArrowCursor));
         QTRY_COMPARE(window->cursor().shape(), Qt::ArrowCursor);
-        auto *taskButton = item("titlebar-action-tasks");
+        QQuickItem *taskButton = item("titlebar-action-tasks");
         QVERIFY(taskButton);
         for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
             theme.setMode(mode);
@@ -3190,9 +3228,9 @@ QtObject {
         }
         // Reordering starts even in the button padding, without a business
         // activation or native caption move; native button clicks still work.
-        auto *recognizeButton = item("titlebar-action-recognize");
+        QQuickItem *recognizeButton = item("titlebar-action-recognize");
         QVERIFY(recognizeButton);
-        auto *taskHandle = findVisual(taskButton, "shellDragHandle-host/tasks");
+        QQuickItem *taskHandle = findVisual(taskButton, "shellDragHandle-host/tasks");
         QVERIFY(taskHandle);
         QSignalSpy taskClicks(taskButton, SIGNAL(clicked()));
         auto *caption = item("titlebarWindowDragArea");
@@ -3243,7 +3281,36 @@ QtObject {
                 if (zoomed)
                     for (int step = 0; step < 5; ++step)
                         shell.zoomIn();
+                // At 1.25 the zoom-scaled sidebar and window actions consume a
+                // 1150-wide window's whole toolbar budget, and production moves
+                // every action into More (capacity 0) - its own contract, not a
+                // bug. The zoomed leg verifies the DRAG gesture under zoom, so
+                // give the toolbar room to keep its actions first.
+                window->resize(zoomed ? 1400 : 1150, 750);
+                QVERIFY(Test::prepareNativeInput(window));
                 QTest::qWait(250);
+                // The zoom changes the shell scale, and the toolbar pools the
+                // delegates that no longer fit. Pooling hides the instance
+                // without destroying it, so re-resolving by objectName restores
+                // the live instance before every gesture; pressing the stale
+                // coordinates of a pooled button would hit empty caption area.
+                taskButton = findVisual(window->contentItem(), "titlebar-action-tasks");
+                recognizeButton = findVisual(window->contentItem(), "titlebar-action-recognize");
+                QVERIFY(taskButton && recognizeButton);
+                taskHandle = findVisual(taskButton, "shellDragHandle-host/tasks");
+                QVERIFY(taskHandle);
+                const auto buttonsReady = [&] {
+                    return taskButton->isVisible() && recognizeButton->isVisible();
+                };
+                QVERIFY2(QTest::qWaitFor(buttonsReady, 5000),
+                         qPrintable(QString("zoom=%1 pending=%2 windowW=%3 pooled=%4 visible=%5 x=%6 y=%7")
+                                        .arg(shell.uiScale())
+                                        .arg(root->property("startupPending").toBool())
+                                        .arg(window->width())
+                                        .arg(taskButton->property("pooled").toBool())
+                                        .arg(taskButton->isVisible())
+                                        .arg(taskButton->x())
+                                        .arg(taskButton->y())));
                 for (const bool before : {true, false}) {
                     const auto oldX = taskButton->x();
                     const auto savedOrder = preferences.value("shell/titlebar/order");
@@ -3257,7 +3324,14 @@ QtObject {
                             .toPoint();
                     Test::moveNativePointer(window, start);
                     QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
-                    QVERIFY(taskButton->property("pressed").toBool());
+                    const auto pressChild = window->contentItem()->childAt(start.x(), start.y());
+                    QVERIFY2(taskButton->property("pressed").toBool(),
+                             qPrintable(QString("hovered=%1 enabled=%2 pooled=%3 childAt=%4")
+                                            .arg(taskButton->property("hovered").toBool())
+                                            .arg(taskButton->isEnabled())
+                                            .arg(taskButton->property("pooled").toBool())
+                                            .arg(pressChild ? pressChild->objectName()
+                                                            : QString())));
                     QTest::mouseMove(window, start + QPoint(0, 8));
                     QTest::mouseMove(window, destination);
                     QTRY_VERIFY(taskHandle->property("dragging").toBool());
@@ -3273,8 +3347,18 @@ QtObject {
                                                 .arg(oldX)
                                                 .arg(duringX)));
                     }
-                    auto *ghost = findVisual(window->contentItem(), "host/tasks");
-                    QVERIFY(ghost && ghost->isVisible());
+                    // The zoom transitions churn toolbar capacity, which can
+                    // leave a pooled handle's invisible ghost behind; pick the
+                    // LIVE drag ghost, not the first name match.
+                    auto *ghost = findVisibleVisual(window->contentItem(), "host/tasks");
+                    QVERIFY2(ghost && ghost->isVisible(),
+                             qPrintable(QString("motion=%1 zoomed=%2 before=%3 resourceActive=%4 armed=%5 dragging=%6")
+                                            .arg(motion)
+                                            .arg(zoomed)
+                                            .arg(before)
+                                            .arg(taskHandle->property("resourceActive").toBool())
+                                            .arg(taskHandle->property("gestureArmed").toBool())
+                                            .arg(taskHandle->property("dragging").toBool())));
                     QVERIFY(QLineF(ghost->mapToScene(ghost->boundingRect().center()), destination)
                                 .length() < 2);
                     QCOMPARE(preferences.value("shell/titlebar/order"), savedOrder);
@@ -3388,8 +3472,14 @@ QtObject {
         }
 #endif
         // A second drag can begin before the previous animation and queued
-        // commit finish. Do not settle the view between these gestures.
+        // commit finish. Do not settle the view between these gestures. The
+        // stress runs at the baseline geometry: at 1.25 the toolbar budget of
+        // a 1150-wide window drops to zero and production pools every action,
+        // which is the covered virtualization contract, not a drag target.
         theme.setMotionEnabled(true);
+        shell.resetZoom();
+        window->resize(1150, 750);
+        QVERIFY(Test::prepareNativeInput(window));
         for (int round = 0; round < 80; ++round) {
             const auto rect = taskButton->mapRectToItem(toolbar, taskButton->boundingRect());
             QVERIFY2(rect.left() >= -0.5 && rect.right() <= toolbar->width() + 0.5,
@@ -3399,22 +3489,33 @@ QtObject {
                                     .arg(rect.right())
                                     .arg(toolbar->property("contentX").toReal())
                                     .arg(caption->x())));
-            const auto start = taskButton
-                                   ->mapToScene({round % 3 == 0   ? 2.0
-                                                 : round % 3 == 1 ? taskButton->width() / 2
-                                                                  : taskButton->width() - 2,
-                                                 taskButton->height() / 2})
-                                   .toPoint();
-            const auto end =
-                toolbar
-                    ->mapToScene({round % 2 ? toolbar->width() - 12 : 8.0, toolbar->height() / 2})
-                    .toPoint();
-            QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
+            // The stress presses while the previous commit still animates, so
+            // the button may slide away between mapToScene and delivery. Retry
+            // with fresh coordinates; a miss releases on the spot (a bare
+            // caption click moves nothing) instead of dragging the wrong item.
+            QPoint start;
+            for (int attempt = 0; attempt < 5; ++attempt) {
+                start = taskButton
+                            ->mapToScene({round % 3 == 0   ? 2.0
+                                          : round % 3 == 1 ? taskButton->width() / 2
+                                                           : taskButton->width() - 2,
+                                          taskButton->height() / 2})
+                            .toPoint();
+                QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
+                if (taskButton->property("pressed").toBool())
+                    break;
+                QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, start);
+                QTest::qWait(30);
+            }
             QVERIFY2(taskButton->property("pressed").toBool(),
                      qPrintable(QString("re-press round=%1 start=%2,%3")
                                     .arg(round)
                                     .arg(start.x())
                                     .arg(start.y())));
+            const auto end =
+                toolbar
+                    ->mapToScene({round % 2 ? toolbar->width() - 12 : 8.0, toolbar->height() / 2})
+                    .toPoint();
             QTest::mouseMove(window, start + QPoint(0, 8));
             QTest::mouseMove(window, end);
             QVERIFY2(taskHandle->property("dragging").toBool(),
@@ -3433,6 +3534,10 @@ QtObject {
         const auto visualTaskX = [&] { return taskButton->mapToItem(toolbar, QPointF{}).x(); };
         QTRY_COMPARE(visualTaskX(), 38.0);
         shell.resetZoom();
+        // Back to the baseline window: the following legs pin, cancel and
+        // shift against the production default geometry.
+        window->resize(1150, 750);
+        QVERIFY(Test::prepareNativeInput(window));
         // Cancelling a held preview restores the view without saving anything.
         const auto beforeCancel = preferences.value("shell/titlebar/order");
         const auto cancelStart = taskButton->mapToScene({2, taskButton->height() / 2}).toPoint();
