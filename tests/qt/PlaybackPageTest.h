@@ -81,6 +81,6 @@ private slots:
     void backgroundMemoryAndLifecycle();
     void backgroundMeshQualityAndRhythmBudget();
     void backgroundMeshReferenceAndCoverTransitions();
-    void transparentBackgroundComposesOnceAndFrostReleasesTextures();
+    void transparentBackgroundComposesOnceAndTracksWindowBackdrop();
     void liveOptionalArtworkDecodesAndStopsWhenPageCloses();
 };

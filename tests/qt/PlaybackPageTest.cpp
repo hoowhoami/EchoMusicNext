@@ -4547,7 +4547,7 @@ void PlaybackPageTest::backgroundMeshReferenceAndCoverTransitions()
     QVERIFY(warnings.isEmpty());
 }
 
-void PlaybackPageTest::transparentBackgroundComposesOnceAndFrostReleasesTextures()
+void PlaybackPageTest::transparentBackgroundComposesOnceAndTracksWindowBackdrop()
 {
     Session session;
     QVERIFY(session.create(false, QStringLiteral("PlaybackBackgroundHarness.qml")));
@@ -4605,25 +4605,28 @@ void PlaybackPageTest::transparentBackgroundComposesOnceAndFrostReleasesTextures
     appearance->setBackgroundRhythm(true);
     QTRY_VERIFY(background->property("blurReady").toBool());
     for (int cycle = 0; cycle < 6; ++cycle) {
-        QPointer<QQuickItem> previous = texture();
+        session.theme.setTransparency(0);
         session.theme.setWindowFrosted(true);
-        QTRY_VERIFY(previous.isNull());
-        QVERIFY(!background->property("blurActive").toBool());
-        QVERIFY(!background->property("rhythmActive").toBool());
+        background->setProperty("windowBackdropActive", false);
+        QTRY_VERIFY(background->property("blurReady").toBool());
+        QVERIFY(texture());
+        QVERIFY(background->property("blurActive").toBool());
+        QVERIFY(background->property("rhythmActive").toBool());
         QVERIFY(appearance->backgroundBlur() && appearance->backgroundRhythm());
         for (const int transparency : {0, 60, 100}) {
             session.theme.setTransparency(transparency);
-            const auto scrim = pixel(capture());
-            QVERIFY(qAbs(scrim.alpha() - 140) <= 1);
-            QCOMPARE(scrim.red(), 0);
-            QCOMPARE(scrim.green(), 0);
-            QCOMPARE(scrim.blue(), 0);
+            const auto frostedPage = pixel(capture());
+            const int expectedAlpha = qRound(255 * (1 - transparency / 100.));
+            QVERIFY(qAbs(frostedPage.alpha() - expectedAlpha) <= 2);
+            if (transparency == 0)
+                QVERIFY2(texture(), "Playback cover blur must remain active with window frost enabled");
         }
         const auto phase = background->property("phase").toReal();
         QTest::qWait(60);
         QCOMPARE(background->property("phase").toReal(), phase);
         session.theme.setTransparency(60);
         session.theme.setWindowFrosted(false);
+        background->setProperty("windowBackdropActive", true);
         QTRY_VERIFY(background->property("blurReady").toBool());
         QVERIFY(qAbs(pixel(capture()).alpha() - 102) <= 2);
         QVERIFY(texture()->property("textureSize").toSize().width() <= 512);
@@ -4633,7 +4636,9 @@ void PlaybackPageTest::transparentBackgroundComposesOnceAndFrostReleasesTextures
         QDir().mkpath(captureDirectory);
         QVERIFY(capture().save(captureDirectory + "/transparent-blur.png"));
         session.theme.setWindowFrosted(true);
-        QVERIFY(capture().save(captureDirectory + "/frost-scrim.png"));
+        background->setProperty("windowBackdropActive", false);
+        QTRY_VERIFY(background->property("blurReady").toBool());
+        QVERIFY(capture().save(captureDirectory + "/frosted-playback-blur.png"));
     }
 }
 

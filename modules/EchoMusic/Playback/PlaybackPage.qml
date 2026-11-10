@@ -37,6 +37,10 @@ Popup {
     readonly property alias discussionHost: discussion.item
     readonly property bool discussionActive: presentationActive && (opened || enteringPage)
     property Component controlsComponent: null
+    // The playback page owns its cover background. The window-level backdrop is
+    // disabled while this page covers the shell, so never leave this surface
+    // dependent on compositor blur.
+    property bool windowBackdropActive: false
     readonly property alias controlsItem: transport.item
     property real controlsTopReserve: 0
     property Component windowActions: null
@@ -333,8 +337,11 @@ Popup {
                     playback: page.playback
                     resourceActive: page.resourceActive && (!page.portraitSelected || !portraitBody.item || !(portraitBody.item as PortraitPlayback).backgroundReady)
                     visible: !page.portraitSelected || !portraitBody.item || !(portraitBody.item as PortraitPlayback).backgroundReady
+                    windowBackdropActive: page.windowBackdropActive
                     baseColor: page.backgroundColor
-                    opacity: motion.hostOpacity
+                    // The page owns the background when the window backdrop is
+                    // disabled. Keep it opaque during the cover flight too.
+                    opacity: page.windowBackdropActive ? motion.hostOpacity : 1
                 }
                 PlaybackPageMotion {
                     id: motion
