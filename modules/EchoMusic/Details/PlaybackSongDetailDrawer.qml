@@ -33,10 +33,9 @@ EchoDrawer {
                 }
             }
         }
-        Rectangle {
+        EchoDivider {
             Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.subtleBorder
+            lineColor: Theme.subtleBorder
         }
         Flickable {
             id: scroll

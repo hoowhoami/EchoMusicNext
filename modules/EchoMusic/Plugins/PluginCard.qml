@@ -414,11 +414,10 @@ Rectangle {
             Layout.fillWidth: true
             implicitHeight: 47
             Layout.topMargin: 2
-            Rectangle {
+            EchoDivider {
                 objectName: "pluginCardDivider"
                 width: parent.width
-                height: 1
-                color: Theme.subtleBorder
+                lineColor: Theme.subtleBorder
             }
             RowLayout {
                 width: parent.width

@@ -192,11 +192,10 @@ ColumnLayout {
         Layout.leftMargin: 10
         Layout.rightMargin: 10
         implicitHeight: 34
-        Rectangle {
+        EchoDivider {
             anchors.bottom: parent.bottom
             width: parent.width
-            height: 1
-            color: Theme.floating.controlBorder
+            lineColor: Theme.floating.controlBorder
         }
         RowLayout {
             width: parent.width

@@ -166,10 +166,9 @@ Item {
                 Item {
                     Layout.fillWidth: true
                     implicitHeight: 43
-                    Rectangle {
+                    EchoDivider {
                         width: parent.width
-                        height: 1
-                        color: Theme.subtleBorder
+                        lineColor: Theme.subtleBorder
                     }
                     RowLayout {
                         y: 11

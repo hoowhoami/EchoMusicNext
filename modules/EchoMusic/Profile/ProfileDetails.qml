@@ -157,19 +157,18 @@ Rectangle {
                     Layout.fillHeight: true
                     Layout.minimumWidth: 0
                     implicitHeight: memberContent.implicitHeight + (body.width <= 440 ? 24 : 0)
-                    Rectangle {
+                    EchoDivider {
                         visible: !member.first
                         x: -member.inset
-                        width: 1
                         height: parent.height
-                        color: Theme.subtleBorder
+                        orientation: Qt.Vertical
+                        lineColor: Theme.subtleBorder
                     }
-                    Rectangle {
+                    EchoDivider {
                         visible: body.width <= 440 && member.index >= 2
                         x: member.first ? 0 : -member.inset
                         width: parent.width + member.inset
-                        height: 1
-                        color: Theme.subtleBorder
+                        lineColor: Theme.subtleBorder
                     }
                     GridLayout {
                         id: memberContent

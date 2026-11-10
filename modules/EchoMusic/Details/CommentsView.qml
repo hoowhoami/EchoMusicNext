@@ -219,14 +219,13 @@ Item {
                         lineHeight: font.pixelSize * 1.5
                         color: root.compact ? Theme.secondaryText : Theme.text
                     }
-                    Rectangle {
+                    EchoDivider {
                         objectName: "commentSingerDivider"
                         visible: !parent.heading
                         x: root.compact ? 4 : 12
                         y: (root.compact ? 12 : 16) - list.spacing
                         width: Math.max(0, parent.width - (root.compact ? 8 : 24))
-                        height: 1
-                        color: Theme.subtleBorder
+                        lineColor: Theme.subtleBorder
                     }
                 }
             }

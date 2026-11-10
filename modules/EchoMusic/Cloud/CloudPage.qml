@@ -235,13 +235,12 @@ RoutePage {
             flowPosition: page.expandedHeaderHeight
             stickyTop: header.height
             height: page.toolbarHeight
-            Rectangle {
+            EchoDivider {
                 objectName: "cloudTabDivider"
                 x: 24
                 y: page.toolbarRowHeight - 1
                 width: Math.max(0, parent.width - 48)
-                height: 1
-                color: Theme.subtleBorder
+                lineColor: Theme.subtleBorder
             }
             ColumnLayout {
                 anchors.fill: parent

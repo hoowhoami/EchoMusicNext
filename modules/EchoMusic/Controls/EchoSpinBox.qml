@@ -141,10 +141,10 @@ T.DoubleSpinBox {
         height: control.height / 2 - 1
         topRightRadius: Theme.controlRadius - 1
         color: !control.canIncrease ? "transparent" : control.up.pressed ? control.colors.neutralPressed : control.up.hovered ? control.colors.hover : "transparent"
-        Rectangle {
-            width: 1
+        EchoDivider {
             height: parent.height
-            color: control.colors.controlBorder
+            orientation: Qt.Vertical
+            lineColor: control.colors.controlBorder
         }
         EchoIcon {
             anchors.centerIn: parent
@@ -162,15 +162,14 @@ T.DoubleSpinBox {
         height: control.height / 2 - 1
         bottomRightRadius: Theme.controlRadius - 1
         color: !control.canDecrease ? "transparent" : control.down.pressed ? control.colors.neutralPressed : control.down.hovered ? control.colors.hover : "transparent"
-        Rectangle {
-            width: 1
+        EchoDivider {
             height: parent.height
-            color: control.colors.controlBorder
+            orientation: Qt.Vertical
+            lineColor: control.colors.controlBorder
         }
-        Rectangle {
+        EchoDivider {
             width: parent.width
-            height: 1
-            color: control.colors.controlBorder
+            lineColor: control.colors.controlBorder
         }
         EchoIcon {
             anchors.centerIn: parent

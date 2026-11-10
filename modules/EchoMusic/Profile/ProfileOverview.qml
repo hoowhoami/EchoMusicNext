@@ -207,12 +207,12 @@ Rectangle {
                             overview.socialRequested(index - 1);
                     }
                     background: Item {
-                        Rectangle {
+                        EchoDivider {
                             visible: stat.index > 0
-                            width: 1
                             height: 18
                             anchors.verticalCenter: parent.verticalCenter
-                            color: Theme.subtleBorder
+                            orientation: Qt.Vertical
+                            lineColor: Theme.subtleBorder
                         }
                     }
                     contentItem: GridLayout {

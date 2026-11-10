@@ -251,11 +251,10 @@ Item {
                     }
                 }
             }
-            Rectangle {
+            EchoDivider {
                 anchors.bottom: parent.bottom
                 width: parent.width
-                height: 1
-                color: Theme.subtleBorder
+                lineColor: Theme.subtleBorder
             }
         }
         EchoPageScrollContainer {

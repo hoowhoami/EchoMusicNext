@@ -385,10 +385,9 @@ EchoDialog {
                             objectName: "taskCenterDetailRow"
                             width: details.width
                             height: detailBody.implicitHeight + 16
-                            Rectangle {
+                            EchoDivider {
                                 width: parent.width
-                                height: 1
-                                color: Theme.floating.mutedSurface
+                                lineColor: Theme.floating.mutedSurface
                             }
                             RowLayout {
                                 id: detailBody

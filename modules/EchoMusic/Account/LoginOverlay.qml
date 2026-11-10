@@ -263,11 +263,10 @@ Item {
                     anchors.bottomMargin: 28
                     // Reserve the caption, spacing and large form action in the panel height.
                     height: 1 + 20 + 16.5 + 12 + 56
-                    Rectangle {
+                    EchoDivider {
                         anchors.top: parent.top
                         width: parent.width
-                        height: 1
-                        color: Theme.subtleBorder
+                        lineColor: Theme.subtleBorder
                     }
                     Label {
                         objectName: "loginMethodsTitle"

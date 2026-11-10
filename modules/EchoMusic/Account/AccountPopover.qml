@@ -168,16 +168,14 @@ EchoAnchoredPopup {
                     Layout.topMargin: 18
                     implicitHeight: 76.5
                     color: "transparent"
-                    Rectangle {
+                    EchoDivider {
                         width: parent.width
-                        height: 1
-                        color: Theme.floating.subtleBorder
+                        lineColor: Theme.floating.subtleBorder
                     }
-                    Rectangle {
+                    EchoDivider {
                         width: parent.width
-                        height: 1
                         anchors.bottom: parent.bottom
-                        color: Theme.floating.subtleBorder
+                        lineColor: Theme.floating.subtleBorder
                     }
                     RowLayout {
                         anchors.fill: parent
@@ -192,12 +190,12 @@ EchoAnchoredPopup {
                                 required property var modelData
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                Rectangle {
+                                EchoDivider {
                                     visible: stat.index > 0
                                     anchors.left: parent.left
-                                    width: 1
                                     height: parent.height
-                                    color: Theme.floating.subtleBorder
+                                    orientation: Qt.Vertical
+                                    lineColor: Theme.floating.subtleBorder
                                 }
                                 ColumnLayout {
                                     anchors.centerIn: parent

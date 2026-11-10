@@ -13,10 +13,9 @@ Control {
     Layout.fillWidth: true
     implicitHeight: Math.max(52, contentItem.implicitHeight + 24)
     padding: 12
-    Rectangle {
+    EchoDivider {
         width: parent.width
-        height: 1
-        color: Theme.floating.strongBorder
+        lineColor: Theme.floating.strongBorder
         visible: row.y > 0
     }
     contentItem: RowLayout {
