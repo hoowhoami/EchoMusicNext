@@ -192,3 +192,72 @@ test('API and transport failures do not retry writes or disclose secrets', async
     /HTTP 502, invalid JSON/,
   );
 });
+
+test('QQ sends once per distinct group and reuses one access token', async (t) => {
+  for (const [secondGroup, expectedGroups] of [
+    [' second-group ', ['group-openid', 'second-group']],
+    [' group-openid ', ['group-openid']],
+    ['   ', ['group-openid']],
+  ]) {
+    const calls = [];
+    await notifyRelease('qq', {
+      env: await setup(t, { ...qq, QQ_GROUP_OPENID_2: secondGroup }),
+      log() {},
+      fetchImpl: async (url, options) => {
+        calls.push(url);
+        if (calls.length === 1) return json({ access_token: 'ephemeral-token' });
+        assert.equal(options.headers.Authorization, 'QQBot ephemeral-token');
+        return json({ id: 'message-id' });
+      },
+    });
+    assert.deepEqual(calls, [
+      'https://api.bot.qq.com/app/getAppAccessToken',
+      ...expectedGroups.map((group) => `https://api.bot.qq.com/v2/groups/${group}/messages`),
+    ]);
+  }
+});
+
+test('QQ attempts the other group after failure without retries or leaking identifiers', async (t) => {
+  for (const failedGroup of [1, 2]) {
+    const calls = [];
+    const logs = [];
+    await assert.rejects(
+      notifyRelease('qq', {
+        env: await setup(t, { ...qq, QQ_GROUP_OPENID_2: ' second-group ' }),
+        log: (line) => logs.push(line),
+        fetchImpl: async (url) => {
+          calls.push(url);
+          if (calls.length === 1) return json({ access_token: 'ephemeral-token' });
+          if (calls.length - 1 === failedGroup)
+            return json(
+              {
+                err_code: 304046,
+                message: 'group-openid second-group ephemeral-token private-secret denied',
+              },
+              403,
+            );
+          return json({ id: 'message-id' });
+        },
+      }),
+      (error) => {
+        assert.match(error.message, /304046/);
+        for (const value of ['group-openid', 'second-group', 'ephemeral-token', 'private-secret'])
+          assert.ok(!error.message.includes(value));
+        return true;
+      },
+    );
+    assert.equal(calls.length, 3);
+    assert.equal(logs.length, 1);
+    assert.match(logs[0], /: sent$/);
+  }
+});
+
+test('configuring only the optional QQ group fails before network access', async () => {
+  await assert.rejects(
+    notifyRelease('qq', {
+      env: { QQ_GROUP_OPENID_2: 'second-group' },
+      fetchImpl: () => assert.fail('unexpected network request'),
+    }),
+    /Missing notification secrets: QQ_BOT_APP_ID, QQ_BOT_APP_SECRET, QQ_GROUP_OPENID/,
+  );
+});

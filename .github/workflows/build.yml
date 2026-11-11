@@ -233,4 +233,5 @@ jobs:
           QQ_BOT_APP_ID: ${{ secrets.QQ_BOT_APP_ID }}
           QQ_BOT_APP_SECRET: ${{ secrets.QQ_BOT_APP_SECRET }}
           QQ_GROUP_OPENID: ${{ secrets.QQ_GROUP_OPENID }}
+          QQ_GROUP_OPENID_2: ${{ secrets.QQ_GROUP_OPENID_2 }}
         run: node tools/release/notify.mjs qq

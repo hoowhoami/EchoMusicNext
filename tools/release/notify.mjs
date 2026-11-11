@@ -59,7 +59,7 @@ export async function notifyRelease(
   const names = required[channel];
   if (!names) throw new Error('Expected notification channel: telegram or qq');
   const missing = names.filter((name) => !env[name]?.trim());
-  if (missing.length === names.length) {
+  if (missing.length === names.length && !(channel === 'qq' && env.QQ_GROUP_OPENID_2?.trim())) {
     log(`::warning::${channel} notification skipped: configure ${names.join(', ')}`);
     return;
   }
@@ -145,17 +145,34 @@ export async function notifyRelease(
     if (typeof result.access_token !== 'string' || !result.access_token)
       throw new Error('QQ access token: response is missing access_token');
     secrets.push(result.access_token);
-    const sent = await post(
-      'QQ group message',
-      `${qqApi}/v2/groups/${encodeURIComponent(env.QQ_GROUP_OPENID)}/messages`,
-      {
-        // Omit msg_id/event_id: release announcements are proactive messages.
-        msg_type: 0,
-        content: `🎉 ${product} ${tag} 已发布\n\n📋 更新摘要\n${summary}\n\n⬇️ 下载与完整更新\n${releaseUrl}`,
-      },
-      { Authorization: `QQBot ${result.access_token}` },
-    );
-    if (!sent.id) throw new Error('QQ group message: response is missing message id');
+    const groupOpenids = [
+      ...new Set(
+        [env.QQ_GROUP_OPENID, env.QQ_GROUP_OPENID_2].map((value) => value?.trim()).filter(Boolean),
+      ),
+    ];
+    secrets.push(...groupOpenids);
+    const failures = [];
+    for (const [index, groupOpenid] of groupOpenids.entries()) {
+      const label = `QQ group message (${index + 1}/${groupOpenids.length})`;
+      try {
+        const sent = await post(
+          label,
+          `${qqApi}/v2/groups/${encodeURIComponent(groupOpenid)}/messages`,
+          {
+            // Omit msg_id/event_id: release announcements are proactive messages.
+            msg_type: 0,
+            content: `🎉 ${product} ${tag} 已发布\n\n📋 更新摘要\n${summary}\n\n⬇️ 下载与完整更新\n${releaseUrl}`,
+          },
+          { Authorization: `QQBot ${result.access_token}` },
+        );
+        if (!sent.id) throw new Error(`${label}: response is missing message id`);
+        log(`${label}: sent`);
+      } catch (error) {
+        // Attempt every group once, even when another group rejects the announcement.
+        failures.push(safe(error.message));
+      }
+    }
+    if (failures.length) throw new Error(failures.join('; '));
   }
   log(`${channel} release notification sent`);
 }
