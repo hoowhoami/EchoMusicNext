@@ -87,7 +87,6 @@ SongDetailHeader {
             resourceActive: header.resourceActive
             cornerRadius: Theme.mediaRadius / header.coverScale
             placeholderGlyph: "vinyl"
-            placeholderGlyphSize: 32
         }
     }
     uniformMetadataRows: true

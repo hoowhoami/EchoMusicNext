@@ -46,7 +46,6 @@ Rectangle {
             Layout.preferredWidth: 48
             Layout.preferredHeight: 48
             placeholderGlyph: "microphone"
-            placeholderGlyphSize: 22
             placeholderOpacity: 0.2
             placeholderColor: Theme.colors.mutedSurface
         }

@@ -3,6 +3,7 @@
 #include <winsock2.h>
 #endif
 #include "CrashDiagnostics.h"
+#include "DiagnosticRecords.h"
 #include "EchoBuildInfo.h"
 #include "LogRedaction.h"
 #include "LogFiles.h"
@@ -109,6 +110,15 @@ struct CrashDiagnostics::State
     std::unique_ptr<crashpad::CrashReportDatabase> database;
     crashpad::CrashpadClient client;
 };
+QJsonObject CrashDiagnostics::buildIdentity()
+{
+    return {{"version", QStringLiteral(ECHO_RELEASE_VERSION)},
+            {"buildId", QStringLiteral(ECHO_BUILD_ID)},
+            {"configuration", QStringLiteral(ECHO_BUILD_CONFIGURATION)},
+            {"arch", QSysInfo::buildCpuArchitecture()},
+            {"qtVersion", QString::fromLatin1(qVersion())},
+            {"compiler", QStringLiteral(ECHO_BUILD_COMPILER)}};
+}
 QString CrashDiagnostics::buildDescription()
 {
     return QStringLiteral("version=%1 build=%2 configuration=%3 arch=%4 Qt=%5 compiler=%6")
@@ -300,12 +310,19 @@ CrashDiagnostics::CrashDiagnostics(const QString &directory) : m_state(std::make
             m_state->summaries.append(QString::fromUtf8(bytes));
         }
     }
+    QLockFile diagnosticsGate(root.filePath("diagnostics.lock"));
+    diagnosticsGate.setStaleLockTime(0);
+    const bool mayPrune = diagnosticsGate.tryLock(0);
     // Use Crashpad's locked database operations for pruning; never remove an
     // active report file behind the handler's back.
     crashpad::BinaryPruneCondition retention(crashpad::BinaryPruneCondition::OR,
                                              new crashpad::AgePruneCondition(7),
                                              new crashpad::DatabaseSizePruneCondition(200 * 1024));
-    crashpad::PruneCrashReportDatabase(m_state->database.get(), &retention);
+    if (mayPrune) {
+        crashpad::PruneCrashReportDatabase(m_state->database.get(), &retention);
+        DiagnosticRecords::pruneSidecars(directory);
+        diagnosticsGate.unlock();
+    }
     QString executable;
 #ifdef Q_OS_WIN
     wchar_t path[32768]{};

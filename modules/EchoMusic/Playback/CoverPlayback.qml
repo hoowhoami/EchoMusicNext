@@ -50,7 +50,6 @@ EchoUiGrid {
             playback: body.playback
             colors: body.colors
             placeholderColor: body.colors.mutedSurface
-            placeholderGlyphSize: 32
             resourceActive: body.resourceActive
             EchoSurfaceShadow {
                 objectName: "playbackCoverShadow"

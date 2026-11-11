@@ -55,6 +55,21 @@ void AppContext::createShell()
     if (m_logging)
         bind(m_logging, &LogService::notice, &shellController,
              [&](const QString &message) { shellController.toasts()->show(message); });
+    if (m_logging && m_logging->diagnostics()) {
+        auto *diagnostics = m_logging->diagnostics();
+        bind(diagnostics, &DiagnosticService::notice, &shellController,
+             [&](const QString &message, bool failure) {
+                 shellController.toasts()->show(message, failure ? ToastService::Warning
+                                                                 : ToastService::Success);
+             });
+        bind(diagnostics, &DiagnosticService::startupNotice, &shellController,
+             [&, diagnostics](const QString &message) {
+                 shellController.toasts()->showAction(
+                     *diagnostics, message, QObject::tr("查看记录"),
+                     [diagnostics] { emit diagnostics->recordsRequested(); }, ToastService::Warning,
+                     10000);
+             });
+    }
     shellController.attachTheme(theme);
     router.setCachePolicy(shell.keepAliveEnabled(), shell.keepAliveMax());
     bind(&shell, &EchoMusic::ShellSettings::changed, &router,

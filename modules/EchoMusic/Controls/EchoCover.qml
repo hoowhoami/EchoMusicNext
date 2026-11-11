@@ -28,7 +28,8 @@ Item {
         }
     }
     property string placeholderGlyph: "music"
-    property real placeholderGlyphSize: 20
+    // Keep the fallback balanced from compact rows to full playback artwork.
+    property real placeholderGlyphSize: Math.max(0, Math.min(width, height)) * 0.5
     property real placeholderOpacity: 0.3
     // Pooled/inactive delegates release decoded images and their mask textures.
     property bool resourceActive: true

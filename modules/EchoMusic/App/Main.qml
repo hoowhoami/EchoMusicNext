@@ -80,6 +80,10 @@ ApplicationWindow {
     property SettingsDataService settingsDataService: null
     property RelaunchService relaunchService: null
     property LogService logService: null
+    readonly property bool diagnosticNoticeReady: logService !== null && logService.diagnostics !== null && visible && visibility !== Window.Minimized && !startupPending && mainShell !== null && mainShell.initialPageReady
+    onDiagnosticNoticeReadyChanged: if (diagnosticNoticeReady)
+        logService.diagnostics.checkStartupNotice()
+
     // Application-owned recovery remains reachable even if a plugin hides the
     // shell or replaces its controls. No contribution can target this surface.
     Shortcut {
@@ -491,6 +495,21 @@ ApplicationWindow {
                         }
                     }
                 }
+            }
+        }
+        Connections {
+            target: mainWindow.logService ? mainWindow.logService.diagnostics : null
+            function onRecordsRequested(): void {
+                startupCrashRecordsOwner.open();
+            }
+        }
+        EchoPopupLoader {
+            id: startupCrashRecordsOwner
+            objectName: "startupCrashRecordsOwner"
+            hostItem: mainWindow.contentItem
+            sourceComponent: CrashRecordsDialog {
+                service: mainWindow.logService.diagnostics
+                uiScale: mainWindow.shellSettings.uiScale
             }
         }
         EchoPopupLoader {

@@ -924,6 +924,21 @@ add_dependencies(echo-crash-diagnostics-test echo-crash-probe)
 add_test(NAME crash-diagnostics COMMAND echo-crash-diagnostics-test)
 set_tests_properties(crash-diagnostics PROPERTIES TIMEOUT 180)
 
+add_test(NAME diagnostic-settings COMMAND echo-desktop-pages-test
+                                          productionDiagnosticRecordsAndExport
+)
+set_tests_properties(
+    diagnostic-settings PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90
+)
+
+qt_add_executable(echo-diagnostic-service-test DiagnosticServiceTest.cpp)
+target_include_directories(echo-diagnostic-service-test PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(echo-diagnostic-service-test PRIVATE echo_logging Qt6::Test crashpad::client)
+add_dependencies(echo-diagnostic-service-test echo-crash-probe)
+add_test(NAME diagnostic-service COMMAND echo-diagnostic-service-test)
+set_tests_properties(diagnostic-service PROPERTIES TIMEOUT 120)
+echo_copy_rust_runtime(echo-diagnostic-service-test)
+
 qt_add_executable(echo-playback-test PlaybackTest.cpp)
 qt_add_executable(echo-effect-catalog-test AudioEffectCatalogTest.cpp)
 qt_add_qml_module(

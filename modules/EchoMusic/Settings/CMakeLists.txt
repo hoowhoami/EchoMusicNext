@@ -45,6 +45,8 @@ qt_add_qml_module(
     FontFamilySettingsRow.qml
     ExperimentalSettingsSection.qml
     SettingsUserInfoDialog.qml
+    CrashRecordsDialog.qml
+    DiagnosticExportDialog.qml
     PluginSettingsSection.qml
     NetworkSettingsSection.qml
     ShortcutSettingsSection.qml

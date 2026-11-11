@@ -116,7 +116,6 @@ Item {
                     circular: card.routeName === "artist-detail"
                     cornerRadius: circular ? width / 2 : 5
                     placeholderGlyph: card.routeName === "artist-detail" ? "user" : "playlist-add"
-                    placeholderGlyphSize: 16
                     resourceActive: card.resourceActive
                 }
                 Behavior on opacity {

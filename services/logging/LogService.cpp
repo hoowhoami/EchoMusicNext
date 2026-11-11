@@ -1,6 +1,7 @@
 #include "SettingsKeys.h"
 #include "LogService.h"
 #include "CrashDiagnostics.h"
+#include "DiagnosticRecords.h"
 #include "LogRedaction.h"
 #include "LogFiles.h"
 #include "echo_ffi.h"
@@ -23,6 +24,8 @@
 #include <atomic>
 #include <deque>
 #include <cstdio>
+#include <utility>
+#include <QFileInfo>
 
 namespace EchoMusic
 {
@@ -93,6 +96,19 @@ public:
           m_retentionDays(retentionDays)
     {
     }
+    // The export worker waits for accepted records, never the GUI thread.
+    bool snapshotForDiagnostics(const QString &directory, const std::atomic_bool &cancel)
+    {
+        QMutexLocker lock(&m_mutex);
+        const auto ticket = ++m_flushRequested;
+        m_snapshotDirectory = directory;
+        m_snapshotCancel = &cancel;
+        m_ready.wakeOne();
+        // The borrowed cancel flag stays valid until the writer finishes copying.
+        while (m_flushed < ticket && !m_stopping)
+            m_flushedReady.wait(&m_mutex, 50);
+        return m_flushed >= ticket && m_fileAvailable;
+    }
     void setLevel(int level, qint64 diagnosticUntil)
     {
         m_diagnosticUntil.store(diagnosticUntil, std::memory_order_relaxed);
@@ -138,7 +154,16 @@ protected:
         active.setStaleLockTime(0);
         fileAlive = fileAlive && active.tryLock(0);
         int removed = 0, cleanupFailures = 0;
-        if (fileAlive) {
+        QLockFile cleanupGate(directory.filePath("crashes/diagnostics.lock"));
+        cleanupGate.setStaleLockTime(0);
+        const bool hasCrashDirectory = QFileInfo::exists(directory.filePath("crashes"));
+        const bool mayClean = !hasCrashDirectory || cleanupGate.tryLock(0);
+        if (fileAlive && mayClean) {
+            QSet<QString> crashLogStems;
+            const std::atomic_bool notCancelled{false};
+            for (const auto &record : DiagnosticRecords::scan(m_directory, notCancelled).records)
+                if (!record.runLog.isEmpty())
+                    crashLogStems.insert(record.runLog.chopped(4));
             // Releases using PID-only filenames have a crash-session lease but
             // no log lease. Read it without acquiring/removing crash artifacts.
             QSet<qint64> livePids;
@@ -161,7 +186,8 @@ protected:
             for (const auto &file : files) {
                 const auto match = owned.match(file.fileName());
                 if (!match.hasMatch() || file.lastModified() >= cutoff ||
-                    livePids.contains(match.captured(2).toLongLong()))
+                    livePids.contains(match.captured(2).toLongLong()) ||
+                    crashLogStems.contains(match.captured(1)))
                     continue;
                 QLockFile lease(directory.filePath(match.captured(1) + ".log.lock"));
                 lease.setStaleLockTime(0);
@@ -173,6 +199,8 @@ protected:
                     ++cleanupFailures;
             }
         }
+        if (cleanupGate.isLocked())
+            cleanupGate.unlock();
         QFile file(path);
         fileAlive = fileAlive && file.open(QIODevice::WriteOnly | QIODevice::Append);
         bool consoleAlive = m_console;
@@ -237,12 +265,18 @@ protected:
         for (;;) {
             std::deque<Record> batch;
             bool stopping;
+            quint64 flushTicket;
+            QString snapshotDirectory;
+            const std::atomic_bool *snapshotCancel = nullptr;
             {
                 QMutexLocker lock(&m_mutex);
-                if (m_queue.empty() && !m_stopping)
+                if (m_queue.empty() && !m_stopping && m_flushed == m_flushRequested)
                     m_ready.wait(&m_mutex, 100);
                 batch.swap(m_queue);
                 stopping = m_stopping;
+                flushTicket = m_flushRequested;
+                snapshotDirectory = std::exchange(m_snapshotDirectory, {});
+                snapshotCancel = std::exchange(m_snapshotCancel, nullptr);
             }
             const auto dropped = m_dropped.exchange(0);
             if (dropped)
@@ -253,6 +287,53 @@ protected:
                 write(record);
             if (fileAlive)
                 file.flush();
+            bool snapshotOk = fileAlive;
+            if (!snapshotDirectory.isEmpty()) {
+                // The same writer owns rotation and this snapshot. Producers keep
+                // using the bounded queue; no GUI/disk lock is held during copy.
+                const auto stem = sessionLogFileName().chopped(4);
+                for (int segment = 0; segment < retainedFiles; ++segment) {
+                    if (*snapshotCancel) {
+                        snapshotOk = false;
+                        break;
+                    }
+                    const auto name = segment == 0 ? sessionLogFileName()
+                                                   : stem + QStringLiteral(".%1.log").arg(segment);
+                    if (segment && !QFileInfo::exists(directory.filePath(name)))
+                        continue;
+                    QFile input(directory.filePath(name));
+                    QFile output(QDir(snapshotDirectory).filePath(name));
+                    if (!input.open(QIODevice::ReadOnly) ||
+                        !output.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+                        snapshotOk = false;
+                        continue;
+                    }
+                    output.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+                    bool complete = true;
+                    while (!input.atEnd()) {
+                        const auto bytes = input.read(65536);
+                        if (*snapshotCancel || bytes.isEmpty() ||
+                            output.write(bytes) != bytes.size()) {
+                            complete = false;
+                            break;
+                        }
+                    }
+                    if (!output.flush())
+                        complete = false;
+                    output.close();
+                    if (!complete) {
+                        QFile::remove(output.fileName());
+                        snapshotOk = false;
+                    }
+                }
+            }
+            {
+                QMutexLocker lock(&m_mutex);
+                if (!snapshotDirectory.isEmpty())
+                    m_fileAvailable = snapshotOk;
+                m_flushed = flushTicket;
+                m_flushedReady.wakeAll();
+            }
             if (stopping)
                 break;
         }
@@ -278,6 +359,11 @@ private:
     QWaitCondition m_ready;
     std::deque<Record> m_queue;
     std::atomic<quint64> m_dropped{0};
+    QString m_snapshotDirectory;
+    const std::atomic_bool *m_snapshotCancel = nullptr;
+    QWaitCondition m_flushedReady;
+    quint64 m_flushRequested = 0, m_flushed = 0;
+    bool m_fileAvailable = false;
     bool m_stopping = false;
 };
 namespace
@@ -367,6 +453,10 @@ LogService::LogService(const QString &directory, int level, bool console,
         sink = m_sink;
     }
     m_sink->start();
+    m_diagnosticService = std::make_unique<DiagnosticService>(
+        m_directory, [writer = m_sink](const QString &directory, const std::atomic_bool &cancel) {
+            return writer->snapshotForDiagnostics(directory, cancel);
+        });
     m_previous = qInstallMessageHandler(messageHandler);
     m_active = true;
     echo_log_api_responses(m_responseBody);
@@ -480,6 +570,7 @@ bool LogService::openDirectory()
 }
 LogService::~LogService()
 {
+    m_diagnosticService.reset();
     if (!m_active)
         return;
     m_poll.stop();

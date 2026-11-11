@@ -56,7 +56,6 @@ Item {
                 circular: true
                 source: metadata.avatarSource
                 placeholderGlyph: "user"
-                placeholderGlyphSize: 12
                 resourceActive: metadata.resourceActive
             }
             RowLayout {

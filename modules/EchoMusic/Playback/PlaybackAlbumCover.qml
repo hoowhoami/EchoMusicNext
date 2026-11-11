@@ -16,7 +16,6 @@ EchoCover {
     // Match the playerbar's current-track cache key before the flight starts.
     minimumDecodeSize: 380
     placeholderColor: colors.mutedSurface
-    placeholderGlyphSize: 32
     function sync(): void {
         if (!canPlay && videoSurface)
             videoSurface.release();
