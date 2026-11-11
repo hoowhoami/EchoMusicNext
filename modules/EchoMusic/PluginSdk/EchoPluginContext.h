@@ -56,6 +56,7 @@ class ShortcutService;
 class VerificationService;
 class BackupHost;
 class AppIconService;
+class NetworkPreferences;
 class FloatingPlayerController;
 struct PluginHost
 {
@@ -76,6 +77,7 @@ struct PluginHost
     ShellSettings *settings = nullptr;
     AppIconService *appIcons = nullptr;
     std::function<QQuickWindow *()> mainWindow = {};
+    NetworkPreferences *network = nullptr;
 };
 /// One activation's GUI-thread scope. No raw host object is exposed to JS/QML.
 /// beginRetire invalidates delivery before cleanup, then waits for SQL drain.

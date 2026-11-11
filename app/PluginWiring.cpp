@@ -73,6 +73,7 @@ void AppContext::createPlugins()
         return nullptr;
     };
     pluginHost.settings = m_shell.get();
+    pluginHost.network = &network;
     pluginHost.appIcons = &window.appIcons();
     pluginHost.attachPluginWindow = [&window](QQuickWindow *surface) {
         window.attachPluginWindow(surface);

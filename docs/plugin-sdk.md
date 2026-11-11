@@ -139,13 +139,13 @@
 
 ## 宿主导航、偏好、操作与封面
 
-`ctx.ui.navigation` 接入真实 RouteController 的内置页面、当前首页、设置入口、参数、历史与观察；原 `ui.navigate` 保留本插件注册页语义。`ctx.settings` 提供 playback/shell/appearance/lyrics/mini/desktop 的有限目录、分域类型化读写及合并快照订阅，调用原状态所有者保存，不访问任意 QSettings 或凭证。
+`ctx.ui.navigation` 接入真实 RouteController 的内置页面、当前首页、设置入口、参数、历史与观察；原 `ui.navigate` 保留本插件注册页语义。`ctx.settings` 提供 playback/shell/appearance/lyrics/mini/desktop/network 的有限目录、分域类型化读写及合并快照订阅，调用原状态所有者保存，不访问任意 QSettings 或凭证。
 
 工具栏 definition 注册返回可 patch/refresh/invoke/cancel/dispose 的句柄，动态显隐/禁用/徽标、tooltip、默认位置/order、hover 及 Promise 忙态进入实际标题栏、播放栏和更多菜单；用户布局偏好仍优先。旧四参数注册共用此实现。
 
 `ctx.cover` 生成原生 SVG 主题图标封面，`ctx.ui.cover.setFallback` 接入共享 EchoCover 的空值/错误处理。多贡献按优先级及稳定键仲裁，加载失败继续下一层，撤下恢复下一贡献或当前宿主占位；保留原解码密度、裁切、过渡及池化资源释放。SVG 自定义图形限制为静态、自包含图形。
 
-feature 为 `ui.navigation/settings.host/ui.actions/cover.themed/ui.cover`；涉及读取与改变宿主的操作分别需要 navigation/hostSettings/cover 声明和首次授权，管理页可撤销。账号变化及 scope 退役撤销观察、动作与封面注册并取消在途交付；已完成的用户设置持久保留。完整签名及用法见[作者指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/host-access.md)。
+feature 为 `ui.navigation/settings.host/settings.network/ui.actions/cover.themed/ui.cover`；涉及读取与改变宿主的操作分别需要 navigation/hostSettings/cover 声明和首次授权，管理页可撤销。账号变化及 scope 退役撤销观察、动作与封面注册并取消在途交付；已完成的用户设置持久保留。完整签名及用法见[作者指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/host-access.md)。
 
 `appearance.metadata` 为 `appearance.snapshot.themeMetadata` 增加当前实际生效主题的
 `{ key, title, description }`；预览期间返回预览主题，内置颜色返回 `null`。字段只读，
@@ -226,3 +226,9 @@ lease.dispose();
 `applyBatch` 同时接收 `model`、`definition` 和 `style` 条目，模型沿用普通修订的准备和提交路径。`preflight` 可检查视觉定义、模型定义或 `{style}`；`preflightBatch` 检查整组当前目标，均不执行 provider 或创建插件界面，也不预留未来资源。检查器显示模型预算、条目来源、选择桥、错误及公开上下文。
 
 `ui.transactions` 对应 `parts.applyBatch(id, entries)`：对当前目标快照准备并提交多条样式及结构贡献，返回可更新/取消/撤销的组句柄；失败的更新保留当前组。可见组件先在隐藏作用域中完成创建，提交前检查目标与资源预算，提交中验证布局容量。未来页面实例仍使用持续匹配的 `contribute`。完整参数、边界和用法统一见作者仓库 `docs/ui-parts.md`；本段描述实现契约，当前执行进度见本轮验证记录。
+
+## 网络偏好
+
+`settings.network` 提供 `ctx.settings.read/update/observe('network', ...)`，字段为 `githubProxyUrl`、`apiTimeoutSeconds`、`playerTimeoutSeconds`、`playerUserAgent`，沿现有 `hostSettings` 授权。由应用注入唯一 `NetworkPreferences`，调用原保存方法并返回真实错误；不暴露代理凭证或任意存储。GitHub 插件可在激活完成后后台检测并应用地址，通过现有 parts 贡献显示接管提示；撤权/停用恢复输入，已保存设置保留。参数范围、示例和生命周期见[网络设置指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/host-access.md#网络设置)。
+
+插件可用manifest的`requires.hostVersion`声明宿主版本范围。兼容检查与SDK导出的`hostVersion`共用由VERSION派生的构建数值版本；同时声明所需features。GitHub加速插件1.0.1要求宿主>=0.1.3及settings.network。

@@ -1136,6 +1136,17 @@ add_test(
         optionalDependencyAndServiceLeasePreserveOwnership
 )
 add_test(
+    NAME plugin-runtime-host-settings
+    COMMAND
+        echo-plugin-runtime-test hostSettingsPersistenceSubscriptionsAndRevocation
+        hostNetworkSettingsPersistencePermissionsAndRetirement
+        builtGithubAccelerateStartupAndTakeover
+)
+set_tests_properties(
+    plugin-runtime-host-settings PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
+)
+
+add_test(
     NAME plugin-runtime-json
     COMMAND
         echo-plugin-runtime-test operationJsonArraysAcrossIoCommandsAndQml

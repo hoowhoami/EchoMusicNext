@@ -18,6 +18,7 @@ add_library(
     PluginDependencyGraph.cpp
 )
 target_include_directories(echo_plugin_packages PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(echo_plugin_packages PRIVATE ECHO_HOST_VERSION="${ECHO_RELEASE_CORE}")
 target_link_libraries(
     echo_plugin_packages
     PUBLIC Qt6::Core

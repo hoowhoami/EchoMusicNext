@@ -31,7 +31,9 @@ QString PluginPackage::extractArchive(const QString &archive, const QString &des
 }
 QVersionNumber PluginPackage::hostVersion()
 {
-    return {0, 1, 0};
+    // Plugin ranges use the same numeric release core as native application
+    // metadata; VERSION remains the sole application version source.
+    return QVersionNumber::fromString(QStringLiteral(ECHO_HOST_VERSION));
 }
 QVersionNumber PluginPackage::sdkVersion()
 {
@@ -61,6 +63,7 @@ QStringList PluginPackage::supportedFeatures()
                          "graphics.readback",
                          "ui.navigation",
                          "settings.host",
+                         "settings.network",
                          "ui.actions",
                          "cover.themed",
                          "ui.cover",

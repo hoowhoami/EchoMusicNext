@@ -6,12 +6,15 @@
 #include "ShellSettings.h"
 #include "FloatingPlayerController.h"
 #include "ThemeStore.h"
+#include "NetworkPreferences.h"
 #include <QMetaProperty>
 #include <QFontDatabase>
 #include <QMetaMethod>
 #include <QTimer>
 #include <QSet>
 #include <cmath>
+#include <algorithm>
+#include <QUrl>
 namespace EchoMusic
 {
 namespace
@@ -19,6 +22,7 @@ namespace
 // Deliberately finite public preference surface. Never enumerate EchoMusic::SettingsStore,
 // credentials, paths or arbitrary writable QObject properties.
 const QMap<QString, QStringList> fields{
+    {"network", {"githubProxyUrl", "apiTimeoutSeconds", "playerTimeoutSeconds", "playerUserAgent"}},
     {"playback",
      {"mvAudioFallbackEnabled", "queueMode", "defaultQuality", "autoPlayOnLaunch",
       "compatibilityMode", "volumeFade", "volumeFadeMs", "viperQualityEnabled", "autoNext",
@@ -65,6 +69,10 @@ QVariantMap descriptor(const QString &domain, const QString &key, const QMetaPro
         {"fontScale", {.7, 1.4}},           {"fontSize", {12, 22}},
         {"secondaryFontSize", {10, 18}},    {"lineGap", {0, 12}},
         {"fontWeight", {100, 900}},         {"mode", {0, 3}}};
+    if (domain == "network" && key.endsWith("TimeoutSeconds")) {
+        out["minimum"] = key == "apiTimeoutSeconds" ? 0 : 1;
+        out["maximum"] = 300;
+    }
     if (ranges.contains(key)) {
         out["minimum"] = ranges.value(key).first;
         out["maximum"] = ranges.value(key).second;
@@ -94,6 +102,20 @@ bool validate(const QVariantMap &d, const QVariant &v, const QString &domain)
     if (type == "boolean")
         return v.metaType().id() == QMetaType::Bool;
     if (type == "string") {
+        if (domain == "network") {
+            if (v.metaType().id() != QMetaType::QString)
+                return false;
+            const auto value = v.toString();
+            if (d.value("key") == "playerUserAgent")
+                return value.size() <= 512 && std::all_of(value.begin(), value.end(), [](QChar c) {
+                           return c.unicode() >= 0x20 && c.unicode() <= 0x7e;
+                       });
+            const QUrl url(value, QUrl::StrictMode);
+            return value.isEmpty() ||
+                   (value.size() <= 4096 && url.isValid() && !url.host().isEmpty() &&
+                    (url.scheme() == "http" || url.scheme() == "https") &&
+                    url.userInfo().isEmpty());
+        }
         if (v.metaType().id() != QMetaType::QString || v.toString().size() > 256)
             return false;
         if (d.contains("choices") && !d.value("choices").toStringList().contains(v.toString()))
@@ -153,6 +175,8 @@ EchoPluginSettings::EchoPluginSettings(EchoPluginContext &scope) : QObject(&scop
 }
 QObject *EchoPluginSettings::owner(const QString &domain) const
 {
+    if (domain == "network")
+        return m_scope.host().network;
     if (domain == "playback")
         return m_scope.host().playback.preferences();
     if (domain == "shell")
@@ -223,6 +247,42 @@ EchoPluginOperation *EchoPluginSettings::update(const QString &domain, const QVa
             auto *source = owner(domain);
             if (!source) {
                 op->fail("Unavailable", "Settings owner is unavailable");
+                return;
+            }
+            if (domain == "network") {
+                // Network preferences have command setters and real save errors;
+                // do not report success from a read-only QMetaProperty write.
+                auto *network = m_scope.host().network;
+                if (network->busy()) {
+                    op->fail("Busy", "Network preferences are being saved");
+                    return;
+                }
+                const auto fail = [op, network] {
+                    op->fail("StorageError", network->errorMessage());
+                };
+                if ((patch.contains("apiTimeoutSeconds") ||
+                     patch.contains("playerTimeoutSeconds")) &&
+                    !network->applyTimeouts(
+                        patch.value("apiTimeoutSeconds", network->apiTimeoutSeconds()).toDouble(),
+                        patch.value("playerTimeoutSeconds", network->playerTimeoutSeconds())
+                            .toDouble())) {
+                    fail();
+                    return;
+                }
+                if (patch.contains("playerUserAgent") &&
+                    !network->applyPlayerUserAgent(patch.value("playerUserAgent").toString())) {
+                    fail();
+                    return;
+                }
+                if (patch.contains("githubProxyUrl")) {
+                    const auto value = patch.value("githubProxyUrl").toString();
+                    network->setGithubProxyUrl(value);
+                    if (network->githubProxyUrl() != value) {
+                        fail();
+                        return;
+                    }
+                }
+                op->succeed(snapshot(domain));
                 return;
             }
             if (domain == "playback" &&

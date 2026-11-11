@@ -4,6 +4,7 @@
 #include "EchoPluginHost.h"
 #include "PlaybackPreferences.h"
 #include "LyricAppearance.h"
+#include "WindowController.h"
 namespace
 {
 EchoPluginContext *hostAccess(Host &host, bool approve = true, const QString &id = "host-access")
@@ -108,6 +109,7 @@ void PluginRuntimeTest::hostSettingsPersistenceSubscriptionsAndRevocation()
     QVERIFY(scope);
     auto *settings = scope->settings();
     QCOMPARE(settings->catalog().size(), 6);
+    QCOMPARE(settings->read("network")->errorCode(), "Unavailable");
     for (const auto &entry : settings->catalog()) {
         const auto domain = entry.toMap().value("domain").toString();
         auto *read = settings->read(domain);
@@ -194,6 +196,212 @@ void PluginRuntimeTest::hostSettingsPersistenceSubscriptionsAndRevocation()
     QVERIFY(!accountWatch->active());
     QTRY_COMPARE(pending->state(), EchoPluginOperation::Canceled);
     QVERIFY(host.playback.preferences()->autoNext());
+}
+void PluginRuntimeTest::hostNetworkSettingsPersistencePermissionsAndRetirement()
+{
+    Host host({}, true);
+    auto *scope = hostAccess(host);
+    QVERIFY(scope);
+    auto *settings = scope->settings();
+    QCOMPARE(settings->catalog().size(), 7);
+    auto *write = settings->update("network", {{"githubProxyUrl", "https://mirror.example"},
+                                               {"apiTimeoutSeconds", 12.5},
+                                               {"playerTimeoutSeconds", 45.0},
+                                               {"playerUserAgent", QString(512, 'a')}});
+    auto writeRoot = host.engine.newQObject(write);
+    QTRY_COMPARE(write->state(), EchoPluginOperation::Succeeded);
+    const auto values = write->result().toMap();
+    QCOMPARE(values.size(), 4);
+    QCOMPARE(values.value("githubProxyUrl").toString(), "https://mirror.example");
+    QCOMPARE(host.network->apiTimeoutSeconds(), 12.5);
+    QCOMPARE(host.network->playerTimeoutSeconds(), 45.0);
+    QCOMPARE(host.network->playerUserAgent(), QString(512, 'a'));
+    QCOMPARE(host.network->acceleratedGithubUrl(QUrl("https://raw.githubusercontent.com/a/b")),
+             QUrl("https://mirror.example/https://raw.githubusercontent.com/a/b"));
+    SettingsStore disk(host.settings.fileName());
+    NetworkPreferences restored(disk, host.api);
+    QCOMPARE(restored.githubProxyUrl(), "https://mirror.example");
+    QCOMPARE(restored.apiTimeoutSeconds(), 12.5);
+    QCOMPARE(restored.playerTimeoutSeconds(), 45.0);
+    QCOMPARE(restored.playerUserAgent(), QString(512, 'a'));
+    const QVariantList invalid{
+        QVariantMap{{"playerTimeoutSeconds", 0}},
+        QVariantMap{{"apiTimeoutSeconds", 301}},
+        QVariantMap{{"playerUserAgent", "bad\nagent"}},
+        QVariantMap{{"playerUserAgent", QString(513, 'a')}},
+        QVariantMap{{"githubProxyUrl", "file:///tmp/mirror"}},
+        QVariantMap{{"githubProxyUrl", "https://user:secret@mirror.example"}},
+        QVariantMap{{"proxyPassword", "not exposed"}}};
+    for (const auto &patch : invalid) {
+        auto bad = patch.toMap();
+        bad.insert("githubProxyUrl", bad.value("githubProxyUrl", "https://must-not-save.example"));
+        QCOMPARE(settings->update("network", bad)->errorCode(), "InvalidArgument");
+        QCOMPARE(host.network->githubProxyUrl(), "https://mirror.example");
+    }
+    auto *watch = registration(
+        host,
+        settings->observe(
+            "network", "network",
+            js(host,
+               "(function(v){probe.networkCalls=(probe.networkCalls||0)+1;probe.network=v;})")));
+    QVERIFY(watch);
+    auto watchRoot = host.engine.newQObject(watch);
+    QTRY_COMPARE(js(host, "probe.networkCalls").toInt(), 1);
+    host.network->setGithubProxyUrl("https://changed.example");
+    QVERIFY(host.network->applyPlayerUserAgent("changed"));
+    QTRY_COMPARE(js(host, "probe.networkCalls").toInt(), 2);
+    QCOMPARE(js(host, "probe.network.githubProxyUrl").toString(), "https://changed.example");
+    for (const auto &row : host.runtime.permissions()->records())
+        if (row.toMap().value("capability") == "hostSettings")
+            QVERIFY(host.runtime.permissions()->revoke(row.toMap().value("id").toString()));
+    QVERIFY(!watch->active());
+    QSignalSpy revoked(settings, &EchoPluginSettings::sourceChanged);
+    host.network->setGithubProxyUrl("https://retained.example");
+    QCOMPARE(revoked.count(), 0);
+    auto *pending = settings->update("network", {{"githubProxyUrl", "https://stale.example"}});
+    auto pendingRoot = host.engine.newQObject(pending);
+    host.api.advanceSession();
+    QTRY_COMPARE(pending->state(), EchoPluginOperation::Canceled);
+    QCOMPARE(host.network->githubProxyUrl(), "https://retained.example");
+    auto *clear = settings->update("network", {{"githubProxyUrl", ""}, {"playerUserAgent", ""}});
+    auto clearRoot = host.engine.newQObject(clear);
+    QTRY_COMPARE(clear->state(), EchoPluginOperation::Succeeded);
+    QVERIFY(host.network->githubProxyUrl().isEmpty());
+    QVERIFY(host.network->playerUserAgent().isEmpty());
+    auto *late = settings->update("network", {{"githubProxyUrl", "https://late.example"}});
+    auto lateRoot = host.engine.newQObject(late);
+    QVERIFY(host.runtime.setEnabled(host.runtime.installationForId("host-access"), false));
+    QTRY_COMPARE(late->state(), EchoPluginOperation::Canceled);
+    QVERIFY(host.network->githubProxyUrl().isEmpty());
+
+    Host denied({}, true);
+    auto *unapproved = hostAccess(denied, false);
+    QVERIFY(unapproved);
+    QObject::connect(denied.runtime.permissions(), &PluginPermissionStore::confirmationRequested,
+                     denied.runtime.permissions(),
+                     [&denied](const QString &request, const QVariantMap &) {
+                         denied.runtime.permissions()->decide(request, false);
+                     });
+    auto *blocked =
+        unapproved->settings()->update("network", {{"githubProxyUrl", "https://blocked.example"}});
+    auto blockedRoot = denied.engine.newQObject(blocked);
+    QTRY_COMPARE(blocked->state(), EchoPluginOperation::Failed);
+    QVERIFY(denied.network->githubProxyUrl().isEmpty());
+}
+void PluginRuntimeTest::builtGithubAccelerateStartupAndTakeover()
+{
+    const auto archive = qEnvironmentVariable("ECHO_GITHUB_ACCELERATE_PACKAGE");
+    if (archive.isEmpty())
+        QSKIP("Set ECHO_GITHUB_ACCELERATE_PACKAGE to the built GitHub accelerator package");
+    Host host({}, true);
+    QObject::connect(host.runtime.permissions(), &PluginPermissionStore::confirmationRequested,
+                     host.runtime.permissions(),
+                     [&host](const QString &request, const QVariantMap &) {
+                         host.runtime.permissions()->decide(request, true);
+                     });
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    int requests = 0;
+    QObject::connect(&server, &QTcpServer::newConnection, &server, [&] {
+        auto *socket = server.nextPendingConnection();
+        QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+            socket->readAll();
+            ++requests;
+            socket->write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+            socket->disconnectFromHost();
+        });
+        QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+    });
+    const auto mirror = "http://127.0.0.1:" + QString::number(server.serverPort());
+    const auto source = host.temporary.path() + "/github-source";
+    QVERIFY(PluginPackage::extractArchive(archive, source).isEmpty());
+    QFile file(source + "/entry.mjs");
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto entry = file.readAll();
+    file.close();
+    // Seed public mirror data through the real private KV owner, then reload
+    // the unmodified package entry. No production network/user data is touched.
+    write(source + "/entry.mjs", "export function activate(c){}\n");
+    host.runtime.importDirectory(source);
+    QTRY_COMPARE(host.runtime.state(host.runtime.installationForId("github-accelerate")),
+                 PluginRuntime::Active);
+    const auto installation = host.runtime.installationForId("github-accelerate");
+    auto *seed = host.runtime.context(installation);
+    auto *data = seed->io()->writeValue(
+        "data",
+        QVariantMap{
+            {"version", "1.0.0"},
+            {"update", ""},
+            {"test", QVariantMap{{"url", mirror + "/probe"}, {"random", false}, {"timeout", 1000}}},
+            {"mirrors", QVariantList{mirror}}});
+    auto dataRoot = host.engine.newQObject(data);
+    QTRY_COMPARE(data->state(), EchoPluginOperation::Succeeded);
+    auto *date = seed->io()->writeValue("lastUpdateDate",
+                                        QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd"));
+    auto dateRoot = host.engine.newQObject(date);
+    QTRY_COMPARE(date->state(), EchoPluginOperation::Succeeded);
+    write(source + "/entry.mjs", entry);
+    QVERIFY(host.runtime.reload(installation));
+    QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Active);
+    QTRY_COMPARE_WITH_TIMEOUT(host.network->githubProxyUrl(), mirror, 10000);
+    QCOMPARE(requests, 1);
+    auto *scope = host.runtime.context(installation);
+    QTRY_VERIFY(scope->ui()->state().value("controlled").toBool());
+    QVERIFY(!scope->ui()->settingsComponent().isEmpty());
+    WindowController windows(host.settings, false);
+    auto window = ecosystemWindow(host, R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Settings
+import EchoMusic.Shell
+import EchoMusic.Theme
+ApplicationWindow {
+    id: win
+    required property ShellSettings settings
+    required property WindowController windowService
+    required property NetworkPreferences network
+    width: 1000; height: 850; visible: true; color: Theme.main
+    NetworkSettingsSection {
+        width: parent.width - 48; x: 24; y: 24
+        settings: win.settings; windowService: win.windowService; network: win.network
+    }
+})",
+                                  {{"settings", QVariant::fromValue(&host.shellSettings)},
+                                   {"windowService", QVariant::fromValue(&windows)},
+                                   {"network", QVariant::fromValue(host.network.get())}});
+    QVERIFY(window);
+    QCOMPARE(window->property("network").value<NetworkPreferences *>(), host.network.get());
+    auto *quick = qobject_cast<QQuickWindow *>(window.get());
+    QVERIFY(quick);
+    QTRY_VERIFY(visual(quick->contentItem(), "githubAccelerateTakeover"));
+    auto *input = visual(quick->contentItem(), "settingsGithubProxyUrl");
+    QVERIFY(input);
+    QCOMPARE(input->property("text").toString(), mirror);
+    QTRY_VERIFY(!input->isVisible());
+    auto *hint = visual(quick->contentItem(), "githubAccelerateTakeover");
+    QTRY_VERIFY(hint->isVisible());
+    QVERIFY(hint->width() > 0 && hint->height() > 0);
+    const auto screenshots = qEnvironmentVariable("ECHO_PLUGIN_NETWORK_SCREENSHOTS");
+    if (!screenshots.isEmpty()) {
+        QVERIFY(QDir().mkpath(screenshots));
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            host.theme.setMode(mode);
+            QTest::qWait(80);
+            QVERIFY(quick->grabWindow().save(screenshots + (mode == ThemeStore::Light
+                                                                ? "/takeover-light.png"
+                                                                : "/takeover-dark.png")));
+        }
+    }
+    for (const auto &record : host.runtime.permissions()->records())
+        if (record.toMap().value("capability") == "hostSettings")
+            QVERIFY(host.runtime.permissions()->revoke(record.toMap().value("id").toString()));
+    QTRY_VERIFY(input->isVisible());
+    QTRY_VERIFY(!visual(quick->contentItem(), "githubAccelerateTakeover"));
+    QCOMPARE(host.network->githubProxyUrl(), mirror);
+    QCOMPARE(requests, 1);
+    QVERIFY(host.runtime.setEnabled(installation, false));
+    QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Disabled);
+    QCOMPARE(host.network->githubProxyUrl(), mirror);
 }
 void PluginRuntimeTest::hostActionsDynamicAsyncAndLifecycle()
 {

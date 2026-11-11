@@ -112,8 +112,24 @@ void PluginRuntimeTest::initTestCase()
 
 void PluginRuntimeTest::packageIntegrityAndCompatibility()
 {
+    QFile versionFile(QFINDTESTDATA("../../../VERSION"));
+    QVERIFY(versionFile.open(QIODevice::ReadOnly));
+    const auto release =
+        QVersionNumber::fromString(QString::fromUtf8(versionFile.readAll()).trimmed());
+    QCOMPARE(PluginPackage::hostVersion(), release);
     QTemporaryDir directory;
     const auto source = package(directory.path(), "export function activate(ctx) {}\n");
+    QFile manifestFile(source + "/manifest.json");
+    QVERIFY(manifestFile.open(QIODevice::ReadOnly));
+    auto manifest = QJsonDocument::fromJson(manifestFile.readAll()).object();
+    manifestFile.close();
+    auto requirements = manifest.value("requires").toObject();
+    requirements["hostVersion"] = ">=" + release.toString();
+    manifest["requires"] = requirements;
+    QVERIFY(PluginPackage::inspectManifest(QJsonDocument(manifest).toJson()).error.isEmpty());
+    requirements["hostVersion"] = ">=" + QString::number(release.majorVersion() + 1) + ".0.0";
+    manifest["requires"] = requirements;
+    QVERIFY(PluginPackage::inspectManifest(QJsonDocument(manifest).toJson()).incompatible);
     const auto first =
         PluginPackage::importDirectory(source, directory.path() + "/packages", "identity");
     QVERIFY2(first.error.isEmpty(), qPrintable(first.error));

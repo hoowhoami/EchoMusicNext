@@ -135,6 +135,7 @@ struct Host
     VerificationService verification{api};
     QQmlEngine engine;
     QPointer<QQuickWindow> mainWindow;
+    std::unique_ptr<NetworkPreferences> network;
     PluginRuntime runtime{engine,
                           settings,
                           {playback,
@@ -153,9 +154,12 @@ struct Host
                            {},
                            &shellSettings,
                            nullptr,
-                           [this] { return mainWindow.data(); }},
+                           [this] { return mainWindow.data(); },
+                           network.get()},
                           temporary.path() + "/plugins"};
-    explicit Host(const std::function<void(const QString &)> &prepareRoot = {})
+    explicit Host(const std::function<void(const QString &)> &prepareRoot = {},
+                  bool withNetwork = false)
+        : network(withNetwork ? std::make_unique<NetworkPreferences>(settings, api) : nullptr)
     {
         theme.attachToEngine(engine);
         router.registerPage(

@@ -102,6 +102,8 @@ private slots:
     void dataManagementProductionDialogAndRetirement();
     void hostNavigationRoutesHistoryCancellationAndAccount();
     void hostSettingsPersistenceSubscriptionsAndRevocation();
+    void hostNetworkSettingsPersistencePermissionsAndRetirement();
+    void builtGithubAccelerateStartupAndTakeover();
     void hostActionsDynamicAsyncAndLifecycle();
     void hostActionsProductionHoverBadgeAndBusy();
     void hostCoverFallbackPriorityErrorsThemeAndRetirement();

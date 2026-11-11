@@ -861,12 +861,11 @@ Window {
                     const int center = qRound(pixels.center().y());
                     for (int x = qRound(pixels.left()); x < qRound(pixels.right()); ++x) {
                         const auto color = frame.pixelColor(x, center);
-                        QVERIFY2(color == foreground,
-                                 qPrintable(QString("%1 x %2 y %3 color %4")
-                                                .arg(context)
-                                                .arg(x)
-                                                .arg(center)
-                                                .arg(color.name())));
+                        QVERIFY2(color == foreground, qPrintable(QString("%1 x %2 y %3 color %4")
+                                                                     .arg(context)
+                                                                     .arg(x)
+                                                                     .arg(center)
+                                                                     .arg(color.name())));
                     }
                     if (!captures.isEmpty() && phase == .43 && position > 0)
                         QVERIFY(frame.save(
