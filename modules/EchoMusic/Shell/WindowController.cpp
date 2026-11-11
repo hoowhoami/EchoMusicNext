@@ -124,6 +124,9 @@ WindowController::WindowController(EchoMusic::SettingsStore &settings, bool pers
         settings.value(EchoMusic::SettingsKeys::Window::HideMenuBarInBackground, false).toBool();
     m_startMinimized =
         settings.value(EchoMusic::SettingsKeys::Window::StartMinimized, false).toBool();
+    m_optimizeDisplayEffects =
+        settings.value(EchoMusic::SettingsKeys::Window::OptimizeDisplayEffects, false).toBool();
+    m_backdrop.setOptimizeResizeSnap(m_optimizeDisplayEffects);
     connect(&m_backdrop, &WindowBackdrop::completed, this, [this](const QString &error) {
         if (m_appearanceError == error)
             return;
@@ -651,6 +654,15 @@ void WindowController::setRememberSize(bool remember)
         return;
     m_remember = remember;
     m_settings.setValue(EchoMusic::SettingsKeys::Window::RememberSize, remember);
+    emit changed();
+}
+void WindowController::setOptimizeDisplayEffects(bool enabled)
+{
+    if (m_optimizeDisplayEffects == enabled)
+        return;
+    m_optimizeDisplayEffects = enabled;
+    m_settings.setValue(EchoMusic::SettingsKeys::Window::OptimizeDisplayEffects, enabled);
+    m_backdrop.setOptimizeResizeSnap(enabled);
     emit changed();
 }
 void WindowController::minimize()

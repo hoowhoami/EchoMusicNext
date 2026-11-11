@@ -93,6 +93,20 @@ SettingsSection {
             onClicked: section.settings.resetZoom()
         }
     }
+    SettingsDivider {
+        visible: Qt.platform.os === "windows"
+    }
+    SettingsRow {
+        visible: Qt.platform.os === "windows"
+        heading: qsTr("优化显示效果")
+        description: qsTr("在拖拽窗口大小时出现内容边缘抖动时可尝试开启")
+        EchoSwitch {
+            objectName: "settingsOptimizeDisplayEffects"
+            checked: section.windowService.optimizeDisplayEffects
+            Accessible.name: qsTr("优化显示效果")
+            onToggled: section.windowService.optimizeDisplayEffects = checked
+        }
+    }
     SettingsDivider {}
     SettingsRow {
         visible: !section.windowService.macOS

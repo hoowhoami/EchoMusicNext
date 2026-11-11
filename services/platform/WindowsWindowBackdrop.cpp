@@ -7,6 +7,8 @@
 #include <QColor>
 #include <dwmapi.h>
 #include <commctrl.h>
+#include <algorithm>
+#include <cmath>
 namespace EchoMusic
 {
 namespace
@@ -867,6 +869,54 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
             if (GetWindowRect(window, &bounds))
                 *reinterpret_cast<RECT *>(lParam) = bounds;
             return TRUE;
+        }
+    }
+    // A fractional DPR renders the scene at an integer-logical size while the
+    // native client rect moves in single device pixels, so the per-size
+    // logical-to-client mapping carries a fractional phase, and during a live
+    // drag every edge in the window re-rasterizes at a shifting sub-pixel
+    // position - visible as border jitter on high-contrast surfaces such as
+    // the FM disc. Snapping the proposed client size down to the smallest
+    // device-pixel unit whose logical size is whole (the DPR fraction's
+    // numerator: 5 px at 125%, 3 px at 150%) pins that phase to the nominal
+    // DPR for the whole drag; the cost is that the layout grows in whole-DIP
+    // steps instead of per device pixel. Unlike the fullscreen override above,
+    // this only rewrites the proposal and falls through: the modal sizing loop
+    // applies the modified RECT itself.
+    if (message == WM_SIZING && lParam && !self->fullscreen() && self->m_optimizeResizeSnap) {
+        auto &proposal = *reinterpret_cast<RECT *>(lParam);
+        const qreal dpr = self->m_window ? self->m_window->devicePixelRatio() : 1.0;
+        // Windows' fractional scale presets all reduce to small denominators
+        // (125% -> 5/4, 150% -> 3/2, 175% -> 7/4); 16 is headroom beyond every
+        // preset, and a DPR outside it keeps unit at 1, disabling snapping.
+        qreal unit = 1.0;
+        for (int denominator = 1; denominator <= 16; ++denominator) {
+            const qreal scaled = dpr * denominator;
+            if (qAbs(scaled - std::round(scaled)) < 1e-9) {
+                unit = std::round(scaled);
+                break;
+            }
+        }
+        RECT windowRect{};
+        RECT clientRect{};
+        if (unit > 1.0 && GetWindowRect(window, &windowRect) && GetClientRect(window, &clientRect)) {
+            const LONG frameWidth =
+                (windowRect.right - windowRect.left) - (clientRect.right - clientRect.left);
+            const LONG frameHeight =
+                (windowRect.bottom - windowRect.top) - (clientRect.bottom - clientRect.top);
+            const LONG proposedWidth = proposal.right - proposal.left - frameWidth;
+            const LONG proposedHeight = proposal.bottom - proposal.top - frameHeight;
+            const auto snapped = [unit](LONG proposed) {
+                return static_cast<LONG>(std::max(unit, std::floor(proposed / unit) * unit));
+            };
+            if (wParam != WMSZ_LEFT && wParam != WMSZ_TOPLEFT && wParam != WMSZ_BOTTOMLEFT)
+                proposal.right = proposal.left + frameWidth + snapped(proposedWidth);
+            else
+                proposal.left = proposal.right - frameWidth - snapped(proposedWidth);
+            if (wParam != WMSZ_TOP && wParam != WMSZ_TOPLEFT && wParam != WMSZ_TOPRIGHT)
+                proposal.bottom = proposal.top + frameHeight + snapped(proposedHeight);
+            else
+                proposal.top = proposal.bottom - frameHeight - snapped(proposedHeight);
         }
     }
     // The Acrylic stays on while the window is dragged: suspending it for the

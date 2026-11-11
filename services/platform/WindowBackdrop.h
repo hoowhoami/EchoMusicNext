@@ -21,6 +21,8 @@ public:
     /// Select before native creation; appearance changes keep the same surface.
     static Qt::WindowFlags mainWindowFlags();
     void attach(QWindow *window);
+    /// Opt-in resize snapping; see WindowsWindowBackdrop::setOptimizeResizeSnap.
+    void setOptimizeResizeSnap(bool enabled);
     bool supported() const;
     QString apply(bool enabled, bool dark, int transparency = 0);
     /// Call right before minimizing/maximizing/restoring the window so the

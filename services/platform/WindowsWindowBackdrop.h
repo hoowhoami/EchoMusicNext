@@ -32,6 +32,14 @@ public:
     /// ring rect a captioned maximize lands covers the taskbar for topmost
     /// windows.
     void prepareWindowTransition(bool maximizing = false);
+    /// Snap interactive resizes to the smallest device-pixel unit whose logical
+    /// size is whole (the DPR fraction's numerator), which pins the renderer's
+    /// logical-to-client mapping phase and removes the resize-edge jitter on
+    /// fractional-DPI displays. Opt-in from the appearance settings.
+    void setOptimizeResizeSnap(bool enabled)
+    {
+        m_optimizeResizeSnap = enabled;
+    }
     QVariantMap diagnostics() const;
     bool nativeEventFilter(const QByteArray &type, void *message, qintptr *result) override;
 
@@ -72,6 +80,7 @@ private:
     bool m_enabled = false, m_dark = false, m_repairQueued = false;
     bool m_geometryQueued = false;
     bool m_restoreFullscreen = false;
+    bool m_optimizeResizeSnap = false;
     bool m_framelessForFullscreen = false;
     // Set by every maximize entry; consumed by the first queued repair, which
     // uncaptions the maximized window and shrinks it onto the bare work area

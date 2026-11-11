@@ -202,6 +202,19 @@ DISPLAYCHANGE/THEMECHANGED/SETTINGCHANGE/EXITSIZEMOVE 等）汇入
 去重的 repair 队列，按最近一次外观请求**重放整个材质状态**；
 apply 在 surface 就绪前失败时也由 repair 重试。
 
+### 6. 交互式 resize 的 DPR 步进吸附（2026-11-12，设置可关）
+
+分数 DPR 下 Qt 以整数逻辑尺寸渲染场景，而原生客户区逐设备像素移动，
+逐尺寸的逻辑→客户映射携带分数相位；拖拽中每条边都以漂移的亚像素
+位置重栅格化，高对比表面（FM 黑胶边框）表现为抖动。设置项
+「优化显示效果」（`window/optimizeDisplayEffects`，默认关）开启后，
+`WM_SIZING` 把提议客户尺寸向下吸附到"逻辑尺寸为整"的最小设备像素
+单位——DPR 分数的分子（125%→5px、150%→3px、175%→7px、200%→2px），
+整个拖拽期相位钉在标称 DPR；代价是布局按整 DIP 步进增长而非逐像素。
+只改写提议矩形后继续走 DefSubclassProc——模态缩放循环直接应用改写
+后的矩形，不同于全屏分支的返回 TRUE 拦截。分母搜索上限 16 覆盖
+全部 Windows 缩放预设（超出则不吸附）；DPR=1 不吸附。
+
 ## 已知边界
 
 - 最大化转场采用"动画先行、落地收缩"（见 §4b）：settle（约 30ms）
@@ -261,3 +274,7 @@ apply 在 surface 就绪前失败时也由 repair 重试。
 11. DWM 窗口转场仍以转场开始时的 `WS_CAPTION` 为门控，且转场中途
     移除 CAPTION 不中断动画；转场路径仍不合成 legacy Accent 的
     亚克力（tint 仍合成）。
+12. 逻辑尺寸↔客户区的映射仍是"整数逻辑 = round(客户/dpr)"语义、
+    `WM_SIZING` 仍以同步消息到达真实子类链（Qt 不在全局过滤器处理
+    它）——§6 吸附的相位推导依赖这两点；若 Qt 开始自行处理或改写
+    `WM_SIZING` 提议，吸附需重新验证。
