@@ -59,6 +59,14 @@ endif()
 
 qt_add_executable(echo-foundation-test FoundationTest.cpp)
 qt_add_executable(echo-back-to-top-test BackToTopTest.cpp)
+qt_add_executable(echo-cover-transition-test CoverTransitionTest.cpp)
+set_target_properties(echo-cover-transition-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+target_link_libraries(
+    echo-cover-transition-test
+    PRIVATE echo_controls echo_controlsplugin echo_theme echo_themeplugin Qt6::Quick Qt6::Test
+)
+add_test(NAME cover-transition COMMAND echo-cover-transition-test)
+set_tests_properties(cover-transition PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
 qt_add_qml_module(echo-back-to-top-test URI EchoMusic.BackToTopTests QML_FILES BackToTopHarness.qml)
 target_link_libraries(
     echo-back-to-top-test
