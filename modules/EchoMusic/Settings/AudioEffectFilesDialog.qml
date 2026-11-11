@@ -47,11 +47,10 @@ EchoDialog {
             Layout.fillWidth: true
             Layout.rightMargin: 24
             implicitHeight: 37
-            Rectangle {
+            EchoDivider {
                 anchors.bottom: parent.bottom
                 width: parent.width
-                height: 1
-                color: Theme.floating.controlBorder
+                lineColor: Theme.floating.controlBorder
             }
             RowLayout {
                 width: parent.width

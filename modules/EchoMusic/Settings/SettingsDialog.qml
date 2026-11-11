@@ -262,11 +262,11 @@ Popup {
                         }
                     }
                 }
-                Rectangle {
+                EchoDivider {
                     anchors.right: parent.right
-                    width: 1
                     height: parent.height
-                    color: Theme.floating.subtleBorder
+                    orientation: Qt.Vertical
+                    lineColor: Theme.floating.subtleBorder
                 }
             }
             Flickable {

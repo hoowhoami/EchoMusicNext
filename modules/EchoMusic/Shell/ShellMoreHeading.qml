@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 Item {
@@ -33,10 +34,15 @@ Item {
             sourceComponent: heading.trailingControl
         }
     }
-    Rectangle {
-        width: parent.width
-        height: 1
-        y: parent.height - 1
-        color: Theme.floating.subtleBorder
+    // A bare 1-DIP Rectangle rasterizes by pixel-center sampling (no MSAA, no
+    // AA material), so at 125% its 1.25 device pixels cover one or two whole
+    // rows depending on the fractional position - the line visibly flips
+    // between 1px and 2px as layout shifts. EchoDivider parks the line on a
+    // whole device row and rounds its thickness, keeping it exactly 1px.
+    EchoDivider {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        lineColor: Theme.floating.subtleBorder
     }
 }

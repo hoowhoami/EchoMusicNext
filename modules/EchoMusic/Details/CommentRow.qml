@@ -116,13 +116,12 @@ Item {
         threadExpanded: row.threadExpanded
         replyOpen: row.replyOpen
     }
-    Rectangle {
+    EchoDivider {
         objectName: "commentReplyDivider"
         visible: row.replyRow && !row.entry.reply_first
         x: surface.mainLeft + surface.floorPadding
         width: Math.max(0, row.width - x - row.contentRight)
-        height: 1
-        color: Theme.subtleBorder
+        lineColor: Theme.subtleBorder
     }
     RowLayout {
         id: content

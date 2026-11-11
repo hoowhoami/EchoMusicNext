@@ -59,11 +59,10 @@ EchoDrawer {
             topPadding: 10
             bottomPadding: 12
             background: Item {
-                Rectangle {
+                EchoDivider {
                     anchors.bottom: parent.bottom
                     width: parent.width
-                    height: 1
-                    color: Theme.floating.subtleBorder
+                    lineColor: Theme.floating.subtleBorder
                 }
             }
             contentItem: RowLayout {
@@ -200,10 +199,9 @@ EchoDrawer {
             topPadding: drawer.compactViewport ? 12 : 16
             bottomPadding: topPadding
             background: Item {
-                Rectangle {
+                EchoDivider {
                     width: parent.width
-                    height: 1
-                    color: Theme.floating.subtleBorder
+                    lineColor: Theme.floating.subtleBorder
                 }
             }
             contentItem: RowLayout {

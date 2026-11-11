@@ -163,12 +163,11 @@ ColumnLayout {
                     required property int index
                     width: missedList.width
                     height: 58
-                    Rectangle {
+                    EchoDivider {
                         anchors.bottom: parent.bottom
                         width: parent.width
-                        height: 1
                         visible: stageRow.index < pane.importer.stages.length - 1 || missedList.count > 0
-                        color: Theme.floating.controlBorder
+                        lineColor: Theme.floating.controlBorder
                     }
                     RowLayout {
                         anchors.fill: parent
@@ -217,12 +216,11 @@ ColumnLayout {
             required property string reason
             width: missedList.width
             height: 58
-            Rectangle {
+            EchoDivider {
                 anchors.bottom: parent.bottom
                 width: parent.width
-                height: 1
                 visible: missedRow.index < missedList.count - 1
-                color: Theme.floating.controlBorder
+                lineColor: Theme.floating.controlBorder
             }
             RowLayout {
                 anchors.fill: parent

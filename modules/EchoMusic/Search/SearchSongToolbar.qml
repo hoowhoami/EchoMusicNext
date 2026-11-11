@@ -250,12 +250,11 @@ Rectangle {
     }
     // Separate the song-count/filter row from the sortable column header,
     // independently of the short active underline and the header's own rule.
-    Rectangle {
+    EchoDivider {
         objectName: "searchSongTabDivider"
         anchors.left: parent.left
         anchors.right: parent.right
         y: songTabRow.y + songTabRow.height - height
-        height: 1
-        color: Theme.subtleBorder
+        lineColor: Theme.subtleBorder
     }
 }

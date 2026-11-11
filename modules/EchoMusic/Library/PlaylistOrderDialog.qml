@@ -166,11 +166,11 @@ EchoDialog {
                         Layout.preferredWidth: 11
                         Layout.preferredHeight: 16
                         color: "transparent"
-                        Rectangle {
+                        EchoDivider {
                             anchors.centerIn: parent
-                            width: 1
                             height: 16
-                            color: Theme.floating.controlBorder
+                            orientation: Qt.Vertical
+                            lineColor: Theme.floating.controlBorder
                         }
                     }
                     RowLayout {

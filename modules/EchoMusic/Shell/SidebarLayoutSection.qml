@@ -99,13 +99,13 @@ Rectangle {
         width: pane.width - 16
         height: entries.implicitHeight
         visible: entries.count > 0
-        Rectangle {
+        EchoDivider {
             x: 13
             y: 4
-            width: 1
             height: Math.max(0, parent.height - 8)
-            radius: Theme.microRadius
-            color: Theme.withAlpha(Theme.floatingText, 0.08)
+            orientation: Qt.Vertical
+            rounded: true
+            lineColor: Theme.withAlpha(Theme.floatingText, 0.08)
         }
         EchoBoundedListView {
             id: entries

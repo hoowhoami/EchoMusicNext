@@ -144,13 +144,12 @@ RoutePage {
             flowPosition: page.expandedHeaderHeight
             stickyTop: header.height
             height: page.toolbarHeight
-            Rectangle {
+            EchoDivider {
                 objectName: "historyTabDivider"
                 x: 24
                 y: 55
                 width: Math.max(0, parent.width - 48)
-                height: 1
-                color: Theme.subtleBorder
+                lineColor: Theme.subtleBorder
             }
             ColumnLayout {
                 anchors.fill: parent
