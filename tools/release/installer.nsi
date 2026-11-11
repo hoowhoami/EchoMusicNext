@@ -16,7 +16,7 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_RUN "$INSTDIR\bin\echomusicnext.exe"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\bin\EchoMusicNext.exe"
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -61,16 +61,16 @@ Section "EchoMusicNext" Main
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EchoMusicNext" "Publisher" "hoowhoami"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EchoMusicNext" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EchoMusicNext" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EchoMusicNext" "DisplayIcon" "$INSTDIR\bin\echomusicnext.exe"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\EchoMusicNext" "DisplayIcon" "$INSTDIR\bin\EchoMusicNext.exe"
   WriteRegStr HKCU "Software\Classes\echomusicnext" "" "URL:EchoMusicNext"
   WriteRegStr HKCU "Software\Classes\echomusicnext" "URL Protocol" ""
-  WriteRegStr HKCU "Software\Classes\echomusicnext\shell\open\command" "" '$\"$INSTDIR\bin\echomusicnext.exe$\" --open-url $\"%1$\"'
+  WriteRegStr HKCU "Software\Classes\echomusicnext\shell\open\command" "" '$\"$INSTDIR\bin\EchoMusicNext.exe$\" --open-url $\"%1$\"'
   WriteRegStr HKCU "Software\Classes\.echomod" "" "io.github.hoowhoami.echomusicnext.echomod"
   WriteRegStr HKCU "Software\Classes\io.github.hoowhoami.echomusicnext.echomod" "" "EchoMusicNext Plugin"
-  WriteRegStr HKCU "Software\Classes\io.github.hoowhoami.echomusicnext.echomod\shell\open\command" "" '$\"$INSTDIR\bin\echomusicnext.exe$\" $\"%1$\"'
+  WriteRegStr HKCU "Software\Classes\io.github.hoowhoami.echomusicnext.echomod\shell\open\command" "" '$\"$INSTDIR\bin\EchoMusicNext.exe$\" $\"%1$\"'
   CreateDirectory "$SMPROGRAMS\EchoMusicNext"
-  CreateShortcut "$SMPROGRAMS\EchoMusicNext\EchoMusicNext.lnk" "$INSTDIR\bin\echomusicnext.exe"
-  CreateShortcut "$DESKTOP\EchoMusicNext.lnk" "$INSTDIR\bin\echomusicnext.exe"
+  CreateShortcut "$SMPROGRAMS\EchoMusicNext\EchoMusicNext.lnk" "$INSTDIR\bin\EchoMusicNext.exe"
+  CreateShortcut "$DESKTOP\EchoMusicNext.lnk" "$INSTDIR\bin\EchoMusicNext.exe"
 SectionEnd
 Section "Uninstall"
   SetShellVarContext current

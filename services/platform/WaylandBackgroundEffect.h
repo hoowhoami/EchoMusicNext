@@ -24,8 +24,7 @@ public:
     bool available() const;
     bool attach(QWindow *window);
     void setEnabled(bool enabled);
-    void bindGlobal(wl_registry *registry, uint32_t name, const char *interface,
-                    uint32_t version);
+    void bindGlobal(wl_registry *registry, uint32_t name, const char *interface, uint32_t version);
     void setCapabilities(uint32_t flags);
 
 signals:

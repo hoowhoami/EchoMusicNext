@@ -603,8 +603,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         echo-wayland-background-effect-test PRIVATE "${CMAKE_BINARY_DIR}/services/platform"
     )
     target_link_libraries(
-        echo-wayland-background-effect-test
-        PRIVATE echo_platform Qt6::Test PkgConfig::ECHO_WAYLAND_CLIENT
+        echo-wayland-background-effect-test PRIVATE echo_platform Qt6::Test
+                                                    PkgConfig::ECHO_WAYLAND_CLIENT
     )
     add_test(NAME wayland-background-effect COMMAND echo-wayland-background-effect-test)
     set_tests_properties(
@@ -1075,9 +1075,12 @@ add_test(
         localHttpRealRequestsChunkingAndErrors localWebSocketUpgradeBinaryPingAndLimits
         resourceAccountAndDisableDrainRealTransports
 )
-add_test(NAME plugin-runtime-backups
-         COMMAND echo-plugin-runtime-test backupsCreateInspectTokensAndStorageBarrier
-                 backupsProvidersUseRealUiAndRetire backupsRestoreCommitAndRollback
+add_test(
+    NAME plugin-runtime-backups
+    COMMAND
+        echo-plugin-runtime-test backupsCreateInspectTokensAndStorageBarrier
+        backupsProvidersUseRealUiAndRetire backupsRestoreCommitAndRollback
+        builtWebDavProviderAndSettingsLifecycle
 )
 add_test(
     NAME plugin-runtime-sqlite
@@ -1202,7 +1205,8 @@ add_test(
     COMMAND
         echo-plugin-runtime-test fileSelectionReadWriteAndIsolation mediaLeaseRangesAndLifecycle
         downloadsResumeChecksumAndRetirement unifiedNetworkRequestOptionsAndCancellation
-        fileGrantLedgerPersistenceAndIsolation mediaLeaseFeedsPlaybackAndRevocationStopsIt
+        binaryNetworkTransferBudgetsAndCancellation fileGrantLedgerPersistenceAndIsolation
+        mediaLeaseFeedsPlaybackAndRevocationStopsIt
         fileDownloadTrackRevocationAndAccountCancellation fileGrantManagementDialogUsesRealLedger
 )
 

@@ -105,11 +105,14 @@ if(UNIX AND NOT APPLE)
     pkg_check_modules(ECHO_WAYLAND_CLIENT REQUIRED IMPORTED_TARGET GLOBAL wayland-client)
     find_package(WaylandScanner REQUIRED)
     set(echo_background_effect_protocol
-        "${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-background-effect-v1.xml")
+        "${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-background-effect-v1.xml"
+    )
     set(echo_background_effect_header
-        "${CMAKE_CURRENT_BINARY_DIR}/wayland-ext-background-effect-v1-client-protocol.h")
+        "${CMAKE_CURRENT_BINARY_DIR}/wayland-ext-background-effect-v1-client-protocol.h"
+    )
     set(echo_background_effect_code
-        "${CMAKE_CURRENT_BINARY_DIR}/wayland-ext-background-effect-v1-protocol.c")
+        "${CMAKE_CURRENT_BINARY_DIR}/wayland-ext-background-effect-v1-protocol.c"
+    )
     add_custom_command(
         OUTPUT "${echo_background_effect_header}" "${echo_background_effect_code}"
         COMMAND Wayland::Scanner client-header "${echo_background_effect_protocol}"
@@ -120,14 +123,10 @@ if(UNIX AND NOT APPLE)
         VERBATIM
     )
     target_sources(
-        echo_platform
-        PRIVATE "${echo_background_effect_header}" "${echo_background_effect_code}"
+        echo_platform PRIVATE "${echo_background_effect_header}" "${echo_background_effect_code}"
     )
     target_include_directories(echo_platform PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
-    target_link_libraries(
-        echo_platform
-        PRIVATE Qt6::GuiPrivate PkgConfig::ECHO_WAYLAND_CLIENT
-    )
+    target_link_libraries(echo_platform PRIVATE Qt6::GuiPrivate PkgConfig::ECHO_WAYLAND_CLIENT)
     target_sources(echo_platform PRIVATE LinuxSystemSleepInhibitor.cpp LinuxGlobalShortcuts.cpp)
     target_link_libraries(
         echo_platform

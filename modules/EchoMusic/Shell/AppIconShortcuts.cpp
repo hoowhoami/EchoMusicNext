@@ -194,8 +194,9 @@ QString AppIconShortcuts::currentIcon(const QString &path, int *index, QString &
     }
     const auto content = QString::fromUtf8(file.readAll());
     const auto command = field(content, "Exec");
+    const auto executableName = QFileInfo(executable()).fileName();
     if (!command.startsWith(executable()) && !command.startsWith('"' + executable() + '"') &&
-        !command.startsWith("echomusicnext ") && command != "echomusicnext") {
+        !command.startsWith(executableName + ' ') && command != executableName) {
         error = "Desktop entry does not belong to this executable";
         return {};
     }

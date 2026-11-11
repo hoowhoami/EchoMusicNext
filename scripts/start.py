@@ -45,9 +45,9 @@ def main():
     build = ROOT / "build" / args.preset
     if not args.no_build:
         build_app(args.preset, args.qt_prefix)
-    executable = build / "app" / "echomusicnext"
+    executable = build / "app" / "EchoMusicNext"
     if sys.platform == "darwin":
-        executable = build / "app" / "echomusicnext.app" / "Contents" / "MacOS" / "echomusicnext"
+        executable = build / "app" / "EchoMusicNext.app" / "Contents" / "MacOS" / "EchoMusicNext"
     elif os.name == "nt":
         executable = executable.with_suffix(".exe")
     if not executable.is_file():

@@ -180,3 +180,57 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node tools/release/publish.mjs
+
+  notify:
+    name: Send Telegram Notification
+    needs: [prepare, release]
+    if: needs.release.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: build/release-notes
+      - name: Send release announcement
+        env:
+          RELEASE_PRODUCT: EchoMusicNext
+          RELEASE_TAG: v${{ needs.prepare.outputs.version }}
+          ECHO_CHANGELOG_FILE: build/release-notes/CHANGELOG.md
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
+        run: node tools/release/notify.mjs telegram
+
+  notify-qq:
+    name: Send QQ Official Bot Notification
+    needs: [prepare, release]
+    if: needs.release.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: build/release-notes
+      - name: Send release announcement
+        env:
+          RELEASE_PRODUCT: EchoMusicNext
+          RELEASE_TAG: v${{ needs.prepare.outputs.version }}
+          ECHO_CHANGELOG_FILE: build/release-notes/CHANGELOG.md
+          QQ_BOT_APP_ID: ${{ secrets.QQ_BOT_APP_ID }}
+          QQ_BOT_APP_SECRET: ${{ secrets.QQ_BOT_APP_SECRET }}
+          QQ_GROUP_OPENID: ${{ secrets.QQ_GROUP_OPENID }}
+        run: node tools/release/notify.mjs qq

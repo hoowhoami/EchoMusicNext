@@ -135,6 +135,8 @@ private slots:
     void fileDownloadTrackRevocationAndAccountCancellation();
     void fileGrantManagementDialogUsesRealLedger();
     void unifiedNetworkRequestOptionsAndCancellation();
+    void binaryNetworkTransferBudgetsAndCancellation();
+    void builtWebDavProviderAndSettingsLifecycle();
     void backupsCreateInspectTokensAndStorageBarrier();
     void backupsPortableFilesFreezeCancellationAndRetirement();
     void backupsProvidersUseRealUiAndRetire();

@@ -85,9 +85,9 @@ ctest --preset release
 
 应用目标为 `echomusicnext`。Release 产物分别为：
 
-- macOS：`build/release/app/echomusicnext.app`。
-- Windows：`build/release/app/echomusicnext.exe`。
-- Linux：`build/release/app/echomusicnext`。
+- macOS：`build/release/app/EchoMusicNext.app`。
+- Windows：`build/release/app/EchoMusicNext.exe`。
+- Linux：`build/release/app/EchoMusicNext`。
 
 Windows 的 MSVC / Ninja 构建默认通过 Python 3.12+ 的链接启动器拆分超长响应文件行，保留带空格路径和参数引用，避免特定 MSVC 版本截断链接输入。启动器仅用于构建，不进入安装包；可用 `-DECHO_MSVC_LINK_RESPONSE_WORKAROUND=OFF` 关闭，其它平台和生成器保持原链接方式。
 
@@ -106,6 +106,8 @@ Cargo 默认复用仓库根 `target/`，可通过 `ECHO_CARGO_DIR` 显式指定�
 HTTP 代理认证使用 libcurl：macOS 链接系统库，Linux 需要 `libcurl4-openssl-dev`（最低 7.81，需 NTLM 支持），Windows 由 `cmake/Curl.cmake` 下载固定哈希的 curl 8.23.0 并构建静态库，使用 Schannel / SSPI。Windows 构建需要 Git 来应用 `cmake/patches/curl-8.23.0-native-http-digest.patch`：HTTP Digest 使用 curl 原生实现，保留完整显式用户名（包括 `DOMAIN\user` 和 `DOMAIN/user`）及代理挑战的 realm，支持 MD5 / SHA-256；Schannel TLS 和 NTLM 仍使用 SSPI。该补丁不启用系统身份自动认证。
 
 Linux 还需要 `libproxy-dev` 和 `libglib2.0-dev`。系统代理与 PAC 功能依赖桌面环境提供的 libproxy 配置和 JavaScript 插件，CI 的安装列表包含所需软件包。源码 Qt Multimedia SDK 需要 FFmpeg 及相应音频开发库。
+
+Wayland 背景模糊适配还需要 Wayland 客户端开发库和 `wayland-scanner`，对应依赖已包含在 CI 共享清单中。运行时按合成器的 `ext-background-effect-v1` 与 BLUR 能力启用；Hyprland 保留 `hyprctl` 回退，其他不支持该协议的环境继续使用原有透明效果。
 
 Rust 音频后端同时编译 ALSA、PipeWire/SPA 和 PulseAudio。Ubuntu 需要 `pkg-config`、`libasound2-dev`、`libpipewire-0.3-dev`、`libspa-0.2-dev`、`libpulse-dev`，绑定生成还需要 `clang` 和 `libclang-dev`；这些依赖已包含在共享清单中，须在 Rust 检查前安装。可用 `pkg-config --modversion libpipewire-0.3 libspa-0.2 alsa libpulse` 确认当前构建环境可以发现开发库。
 
@@ -209,6 +211,10 @@ macOS CI 使用 `macos-26`（ARM64）和 `macos-26-intel`（x64）。构建机�
 CI 在准备阶段生成 `build/release-notes/CHANGELOG.md`，六个平台和发布步骤使用同一份文件。安装包的内置日志及随包文件只含选中的当前版本章节，GitHub Release 正文也只取该章节内容。当前版本中的“新增 / 优化 / 修复”等三级标题保留，源码中的历史记录不变。
 
 安装包工具要求使用 `--distribution` 配置并重新构建，避免把含完整源码日志的开发程序打包。本地发行构建自动生成同样的当前版本文件；也可先执行 `node tools/release/changelog.mjs prepare` 预览，命令只写入 `build/release-notes/`。可用 `ECHO_CHANGELOG_FILE` 指定已准备的说明输入；CMake 仍在自己的构建目录提取当前章节。普通开发构建继续读取源码日志。应用内在线更新弹窗读取 GitHub Release 的当前版本正文。
+
+### 发布通知
+
+Release 发布成功后，工作流可向 Telegram 和 QQ 群发送当前版本摘要及下载链接。在仓库 Actions secrets 中配置：Telegram 使用 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`，可选 `TELEGRAM_TOPIC_ID`；QQ 官方机器人使用 `QQ_BOT_APP_ID`、`QQ_BOT_APP_SECRET`、`QQ_GROUP_OPENID`。某渠道全部未配置时跳过该渠道，部分配置缺失或发送失败会令对应通知任务失败。通知读取发布版本及已准备的当前版本 changelog，不自动重试发送。
 
 ### 应用内更新
 

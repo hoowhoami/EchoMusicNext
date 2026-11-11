@@ -102,6 +102,8 @@
 
 普通HTTP统一为`ctx.net.request(options)`，不保留受限网络接口或get/post别名；支持方法、头部、正文、响应解码及TLS选项，沿用宿主代理并随操作实际取消。`ctx.io`保留私有存储职责。作者签名、预算与生命周期见[文件、媒体与网络](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/files-and-network.md)。
 
+`maxRequestBytes`和`maxResponseBytes`可显式指定请求与响应的字节上限，均须为正安全整数；省略时分别沿用8MiB和32MiB默认值。宿主按实际编码或接收的字节检查，不按声明上限预分配内存或累计预留额度，文本、JSON和二进制共用这一规则。
+
 ## 业务、入口、任务与歌词动效
 
 `ctx.kugou`公开98个固定类型化业务命令与验证；调用宿主同一ApiClient/VerificationService，账号由宿主绑定，业务ID使用十进制字符串。插件取消只撤销本请求的验证等待，宿主验证界面的取消仍关闭当前共享验证；账号切换或停用取消请求，登录确认不跨账号续跑插件操作。登录仍由宿主账号入口管理。

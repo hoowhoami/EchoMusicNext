@@ -22,8 +22,7 @@ void registryGlobal(void *data, wl_registry *registry, uint32_t name, const char
     static_cast<WaylandBackgroundEffect *>(data)->bindGlobal(registry, name, interface, version);
 }
 
-void registryRemove(void *, wl_registry *, uint32_t)
-{}
+void registryRemove(void *, wl_registry *, uint32_t) {}
 
 void capabilities(void *data, ext_background_effect_manager_v1 *, uint32_t flags)
 {
@@ -33,8 +32,7 @@ void capabilities(void *data, ext_background_effect_manager_v1 *, uint32_t flags
 const ext_background_effect_manager_v1_listener managerListener{capabilities};
 } // namespace
 
-WaylandBackgroundEffect::WaylandBackgroundEffect(QObject *parent) : QObject(parent)
-{}
+WaylandBackgroundEffect::WaylandBackgroundEffect(QObject *parent) : QObject(parent) {}
 
 WaylandBackgroundEffect::~WaylandBackgroundEffect()
 {
@@ -85,8 +83,8 @@ bool WaylandBackgroundEffect::bindProtocol()
         qCInfo(waylandBackdropLog) << "protocol already bound, available=" << m_available;
         return m_available;
     }
-    auto *application = qGuiApp ? qGuiApp->nativeInterface<QNativeInterface::QWaylandApplication>()
-                                : nullptr;
+    auto *application =
+        qGuiApp ? qGuiApp->nativeInterface<QNativeInterface::QWaylandApplication>() : nullptr;
     qCInfo(waylandBackdropLog) << "binding protocol, platform="
                                << (qGuiApp ? QGuiApplication::platformName() : QString())
                                << "applicationInterface=" << application;
@@ -110,8 +108,8 @@ bool WaylandBackgroundEffect::bindProtocol()
     static const wl_registry_listener listener{registryGlobal, registryRemove};
     wl_registry_add_listener(m_registry, &listener, this);
     if (wl_display_roundtrip(m_display) < 0) {
-        qCWarning(waylandBackdropLog) << "registry roundtrip failed, displayError="
-                                      << wl_display_get_error(m_display);
+        qCWarning(waylandBackdropLog)
+            << "registry roundtrip failed, displayError=" << wl_display_get_error(m_display);
         wl_registry_destroy(m_registry);
         m_registry = nullptr;
         return false;
@@ -124,8 +122,8 @@ bool WaylandBackgroundEffect::bindProtocol()
         return false;
     }
     if (wl_display_roundtrip(m_display) < 0) {
-        qCWarning(waylandBackdropLog) << "capability roundtrip failed, displayError="
-                                      << wl_display_get_error(m_display);
+        qCWarning(waylandBackdropLog)
+            << "capability roundtrip failed, displayError=" << wl_display_get_error(m_display);
         return false;
     }
     qCInfo(waylandBackdropLog) << "protocol available=" << m_available;
@@ -235,16 +233,27 @@ void WaylandBackgroundEffect::updateRegion()
 #else
 namespace EchoMusic
 {
-WaylandBackgroundEffect::WaylandBackgroundEffect(QObject *parent) : QObject(parent)
-{}
+WaylandBackgroundEffect::WaylandBackgroundEffect(QObject *parent) : QObject(parent) {}
 WaylandBackgroundEffect::~WaylandBackgroundEffect() = default;
-bool WaylandBackgroundEffect::available() const { return false; }
-bool WaylandBackgroundEffect::attach(QWindow *) { return false; }
+bool WaylandBackgroundEffect::available() const
+{
+    return false;
+}
+bool WaylandBackgroundEffect::attach(QWindow *)
+{
+    return false;
+}
 void WaylandBackgroundEffect::setEnabled(bool) {}
 void WaylandBackgroundEffect::bindGlobal(wl_registry *, uint32_t, const char *, uint32_t) {}
 void WaylandBackgroundEffect::setCapabilities(uint32_t) {}
-bool WaylandBackgroundEffect::eventFilter(QObject *, QEvent *) { return false; }
-bool WaylandBackgroundEffect::bindProtocol() { return false; }
+bool WaylandBackgroundEffect::eventFilter(QObject *, QEvent *)
+{
+    return false;
+}
+bool WaylandBackgroundEffect::bindProtocol()
+{
+    return false;
+}
 void WaylandBackgroundEffect::attachSurface() {}
 void WaylandBackgroundEffect::detachSurface() {}
 void WaylandBackgroundEffect::updateRegion() {}

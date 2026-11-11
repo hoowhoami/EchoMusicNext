@@ -18,7 +18,7 @@ BEGIN
    VALUE "FileVersion", "@ECHO_RELEASE_VERSION@\0"
    VALUE "ProductVersion", "@ECHO_RELEASE_VERSION@\0"
    VALUE "ProductName", "EchoMusicNext\0"
-   VALUE "OriginalFilename", "echomusicnext.exe\0"
+   VALUE "OriginalFilename", "EchoMusicNext.exe\0"
    VALUE "Comments", "Build @ECHO_BUILD_ID@\0"
   END
  END
