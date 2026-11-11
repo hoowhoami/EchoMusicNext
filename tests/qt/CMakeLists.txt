@@ -594,6 +594,23 @@ target_link_libraries(
 )
 add_test(NAME theme COMMAND echo-theme-test)
 set_tests_properties(theme PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    qt_add_executable(echo-wayland-background-effect-test WaylandBackgroundEffectTest.cpp)
+    set_target_properties(
+        echo-wayland-background-effect-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE
+    )
+    target_include_directories(
+        echo-wayland-background-effect-test PRIVATE "${CMAKE_BINARY_DIR}/services/platform"
+    )
+    target_link_libraries(
+        echo-wayland-background-effect-test
+        PRIVATE echo_platform Qt6::Test PkgConfig::ECHO_WAYLAND_CLIENT
+    )
+    add_test(NAME wayland-background-effect COMMAND echo-wayland-background-effect-test)
+    set_tests_properties(
+        wayland-background-effect PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15
+    )
+endif()
 qt_add_executable(echo-system-theme-mode-test SystemThemeModeTest.cpp)
 # This test exercises the C++ store only and creates no QML engine or page.
 set_target_properties(echo-system-theme-mode-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
