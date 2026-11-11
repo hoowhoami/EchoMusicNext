@@ -777,23 +777,27 @@ struct CachedLine
     const auto second = makeLine(bilingual ? state.content.secondary : QString(), secondaryFont);
     const auto inlineSplit =
         inlineBilingual ? CTLineGetOffsetForStringIndex(first, secondaryStart, nullptr) + 1 : 0;
-    const auto measured = std::max(textWidth(first), textWidth(second));
     const auto firstInk = inkBounds(first), secondInk = inkBounds(second);
     CFRelease(first);
     CFRelease(second);
-    auto *screen = self.window.screen ?: NSScreen.mainScreen;
+    auto *screen = self.window.screen;
+    if (!screen)
+        screen = NSScreen.mainScreen;
     const auto sf = screen.frame;
     availableWidth = MenuBarLyricLayout::availableWidth(
         QRectF(sf.origin.x, sf.origin.y, sf.size.width, sf.size.height), style.maxWidth);
     const auto iconWidth = state.icon.isNull() ? 0. : MenuBarLyricLayout::compactWidth;
-    const auto width = state.lyricsVisible
-                           ? std::min(std::max(measured + 16. + iconWidth, 128. + iconWidth),
-                                      double(availableWidth))
-                           : std::max(iconWidth, MenuBarLyricLayout::compactWidth);
+    // Keep a stable viewport across lyric lines and hover controls. Growing a
+    // status item for a long sentence can make AppKit evict the entire item.
+    // Only explicit width/visibility or screen changes resize the custom view.
+    const auto width = state.lyricsVisible ? double(availableWidth)
+                                           : std::max(iconWidth, MenuBarLyricLayout::compactWidth);
     const auto bodyWidth = state.lyricsVisible ? width - iconWidth : 0.;
-    if (std::abs(item.length - width) > .25)
-        item.length = width;
-    self.frame = NSMakeRect(0, 0, width, height);
+    // NSVariableStatusItemLength follows the custom view's size. Do not also
+    // set a numeric item.length or reset its AppKit-owned origin: those create
+    // a second layout authority in physical and remote menu-bar hosts.
+    if (std::abs(self.frame.size.width - width) > .25)
+        [self setFrameSize:NSMakeSize(width, height)];
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     const auto scale = renderedScale > 0 ? renderedScale : 2.;
@@ -1130,19 +1134,18 @@ void MenuBarLyric::create(std::function<void(Action)> action, std::function<doub
     m_impl = std::make_unique<Impl>();
     static quint64 nextIdentity = 0;
     m_impl->identity = ++nextIdentity;
-    m_impl->item =
-        [NSStatusBar.systemStatusBar statusItemWithLength:MenuBarLyricLayout::compactWidth];
+    m_impl->item = [NSStatusBar.systemStatusBar statusItemWithLength:NSVariableStatusItemLength];
     m_impl->item.visible = YES;
     m_impl->item.autosaveName = @"EchoMusicNextMenuBarLyrics";
-    m_impl->view = [[EchoMenuBarLyricView alloc] initWithFrame:m_impl->item.button.bounds];
+    m_impl->view = [[EchoMenuBarLyricView alloc]
+        initWithFrame:NSMakeRect(0, 0, MenuBarLyricLayout::compactWidth,
+                                 NSStatusBar.systemStatusBar.thickness)];
     m_impl->view->item = m_impl->item;
     m_impl->view->action = std::move(action);
     m_impl->view->position = std::move(position);
-    m_impl->item.button.title = @"";
     // Use AppKit's custom-status-view contract so the remote menu-bar host
     // owns this view's placement and presentation lifecycle.
     m_impl->item.view = m_impl->view;
-    m_impl->view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 }
 void MenuBarLyric::update(const MenuBarLyricState &state, const MenuBarLyricStyle &style)
 {
@@ -1167,7 +1170,8 @@ QVariantMap MenuBarLyric::diagnostics() const
     return {{"created", true},
             {"nativeItemId", QVariant::fromValue(m_impl->identity)},
             {"visible", bool(m_impl->item.visible)},
-            {"width", m_impl->item.length},
+            {"width", view.frame.size.width},
+            {"lengthPolicy", m_impl->item.length},
             {"availableWidth", view->availableWidth},
             {"bodyWidth", view->lines[0].container.bounds.size.width},
             {"iconVisible", bool(!view->state.icon.isNull() && view->state.visible)},

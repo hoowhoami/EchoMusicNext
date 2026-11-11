@@ -79,6 +79,54 @@ class MacMenuBarLyricTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void lyricLengthDoesNotResizeNativeStatusItem()
+    {
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Native AppKit display required");
+        MenuBarLyric item;
+        item.create([](auto) {}, [] { return 1000.; });
+        auto state = timedState();
+        state.icon = QImage(QFINDTESTDATA("../../modules/EchoMusic/Shell/assets/mac-tray.png"));
+        QVERIFY(!state.icon.isNull());
+        state.content.primary = "短句";
+        state.content.secondary.clear();
+        state.content.wordTimed = false;
+        state.content.words.clear();
+        MenuBarLyricStyle style;
+        style.maxWidth = 280;
+        item.update(state, style);
+        auto *view = nativeView(item);
+        QVERIFY(view);
+        const auto identity = item.diagnostics().value("nativeItemId");
+        const auto shortWidth = view.frame.size.width;
+        for (bool scrolling : {false, true}) {
+            style.scrolling = scrolling;
+            for (const auto &text : {QString(300, QChar(0x56fd)), QString("短句")}) {
+                state.content.primary = text;
+                item.update(state, style);
+                QTest::qWait(150);
+                QCOMPARE(view.frame.size.width, shortWidth);
+                QCOMPARE(item.diagnostics().value("nativeItemId"), identity);
+                QVERIFY(!hostSnapshot(view).isNull());
+            }
+        }
+        // AppKit owns the status view's origin, including hosted containers.
+        [view setFrameOrigin:NSMakePoint(7, 0)];
+        state.content.primary = "另一句";
+        item.update(state, style);
+        QCOMPARE(view.frame.origin.x, 7.);
+        QCOMPARE(item.diagnostics().value("lengthPolicy").toDouble(),
+                 double(NSVariableStatusItemLength));
+        [view setFrameOrigin:NSZeroPoint];
+        state.lyricsVisible = false;
+        item.update(state, style);
+        QCOMPARE(view.frame.size.width, 24.);
+        state.lyricsVisible = true;
+        item.update(state, style);
+        QCOMPARE(view.frame.size.width, shortWidth);
+        QCOMPARE(item.diagnostics().value("nativeItemId"), identity);
+        item.reset();
+    }
     void proxyOriginsCannotCollapseContentWidth()
     {
         using MenuBarLyricLayout::availableWidth;
@@ -786,9 +834,11 @@ private slots:
         QVERIFY(!item.diagnostics().value("hovered").toBool());
         const auto artifacts = qEnvironmentVariable("ECHO_MENU_BAR_ARTIFACTS");
         if (!artifacts.isEmpty()) {
-            [view mouseEntered:[NSEvent new]];
             view.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
             QCoreApplication::processEvents();
+            // Settle AppKit appearance/layout and pending physical mouse exits
+            // before the explicit hover used for this isolated layer capture.
+            [view mouseEntered:[NSEvent new]];
             const auto pixels = capture(view);
             QVERIFY(pixels.save(artifacts + "/native-controls.png"));
             QVERIFY(pixels.pixelColor(pixels.width() / 2, 4).alpha() < 40);

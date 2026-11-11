@@ -62,7 +62,7 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
-        description: qsTr("短句自动收缩，长句受此宽度限制（128 - 800 点）")
+        description: qsTr("固定歌词区域宽度，长句在区域内省略或滚动；菜单栏拥挤时可调小（128 - 800 点）")
         heading: qsTr("最大宽度")
 
         EchoSpinBox {
