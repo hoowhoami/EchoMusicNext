@@ -45,8 +45,20 @@ bool LibraryCollectionService::available(bool album, const QJsonObject &d) const
 }
 int LibraryCollectionService::find(bool album, const QJsonObject &d) const
 {
+    // Playlist list IDs are scoped to an account/creator and can collide across
+    // unrelated collections. Prefer GID aliases. Only when both sides lack a
+    // GID may the complete creator/user + creator/list pair identify a playlist.
+    // Deletion still uses the matched catalog row's account-local ID; albums
+    // retain their numeric album identity.
+    const auto keys = album ? QStringList{"id", "global_id", "creator_list_id", "creator_global_id"}
+                            : QStringList{"global_id", "creator_global_id"};
+    const auto roles =
+        album ? QList<int>{UserPlaylistModel::CloudListIdRole, UserPlaylistModel::GlobalIdRole,
+                           UserPlaylistModel::CreatorGlobalIdRole,
+                           UserPlaylistModel::CreatorListIdRole}
+              : QList<int>{UserPlaylistModel::GlobalIdRole, UserPlaylistModel::CreatorGlobalIdRole};
     QSet<QString> ids;
-    for (const auto *key : {"id", "global_id", "creator_list_id", "creator_global_id"}) {
+    for (const auto &key : keys) {
         const auto v = d[key];
         const auto s = v.isString()   ? v.toString()
                        : v.isDouble() ? QString::number(v.toInteger())
@@ -62,11 +74,21 @@ int LibraryCollectionService::find(bool album, const QJsonObject &d) const
         if (!album &&
             i.data(UserPlaylistModel::CreatorIdRole).toULongLong() == m_api.currentAccountUserId())
             continue;
-        for (int role :
-             {UserPlaylistModel::CloudListIdRole, UserPlaylistModel::GlobalIdRole,
-              UserPlaylistModel::CreatorGlobalIdRole, UserPlaylistModel::CreatorListIdRole}) {
+        bool hasIdentity = false;
+        for (int role : roles) {
             const auto s = i.data(role).toString();
-            if (!s.isEmpty() && s != "0" && ids.contains(s))
+            if (!s.isEmpty() && s != "0") {
+                hasIdentity = true;
+                if (ids.contains(s))
+                    return row;
+            }
+        }
+        if (!album && ids.isEmpty() && !hasIdentity) {
+            const auto creator = d["creator_id"].toInteger();
+            const auto list = d["creator_list_id"].toInteger();
+            if (creator > 0 && list > 0 &&
+                i.data(UserPlaylistModel::CreatorIdRole).toULongLong() == quint64(creator) &&
+                i.data(UserPlaylistModel::CreatorListIdRole).toULongLong() == quint64(list))
                 return row;
         }
     }
