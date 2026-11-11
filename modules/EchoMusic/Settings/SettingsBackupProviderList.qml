@@ -96,7 +96,7 @@ ColumnLayout {
                 }
                 ColumnLayout {
                     Label {
-                        text: String(entry.modelData.createdAt || "")
+                        text: list.service.formatTimestamp(String(entry.modelData.createdAt || ""))
                         color: Theme.floatingSecondaryText
                         font: Theme.font(10, Theme.regularWeight)
                         visible: text !== ""

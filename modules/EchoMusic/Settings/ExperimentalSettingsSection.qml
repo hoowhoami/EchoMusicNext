@@ -412,7 +412,7 @@ SettingsSection {
                     surface: restoreDialog
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("备份版本：EchoMusicNext %1\n创建时间：%2").arg(section.dataService.summary.appVersion || "").arg(section.dataService.summary.createdAt || "")
+                        text: qsTr("备份版本：EchoMusicNext %1\n创建时间：%2").arg(section.dataService.summary.appVersion || "").arg(section.dataService.formatTimestamp(String(section.dataService.summary.createdAt || "")))
                         font: Theme.font(12, Theme.regularWeight)
                         color: Theme.floatingSecondaryText
                         wrapMode: Text.Wrap

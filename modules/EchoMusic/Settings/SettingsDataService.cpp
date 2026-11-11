@@ -12,6 +12,7 @@
 #include <QtConcurrent>
 #include <QUuid>
 #include <QDateTime>
+#include <QTimeZone>
 
 namespace EchoMusic
 {
@@ -70,6 +71,13 @@ SettingsDataService::~SettingsDataService()
 {
     shutdown();
     m_workers.waitForDone();
+}
+QString SettingsDataService::formatTimestamp(const QString &value) const
+{
+    // Backup timestamps use a fixed GMT+8 display zone on every device.
+    return QDateTime::fromString(value, Qt::ISODateWithMs)
+        .toTimeZone(QTimeZone::fromSecondsAheadOfUtc(8 * 60 * 60))
+        .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
 }
 QVariantMap SettingsDataService::summary() const
 {
