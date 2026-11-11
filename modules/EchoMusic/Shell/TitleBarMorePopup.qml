@@ -126,8 +126,9 @@ EchoAnchoredPopup {
                 RowLayout {
                     anchors.fill: parent
                     spacing: 4
-                    Button {
+                    EchoActionButton {
                         id: action
+                        cursorShape: Qt.ArrowCursor
                         objectName: "titlebarMenuAction-" + row.actionKey
                         Layout.fillWidth: true
                         Layout.fillHeight: true

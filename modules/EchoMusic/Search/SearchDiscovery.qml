@@ -54,7 +54,7 @@ ColumnLayout {
             // History is bounded at twenty domain records, not a result list.
             Repeater {
                 model: discovery.service.searchHistory
-                delegate: Button {
+                delegate: EchoActionButton {
                     id: chip
                     required property string modelData
                     text: modelData
@@ -181,7 +181,7 @@ ColumnLayout {
                     rowSpacing: 4
                     Repeater {
                         model: group.keywords
-                        delegate: Button {
+                        delegate: EchoActionButton {
                             id: hot
                             objectName: "searchHotKeyword"
                             required property int index

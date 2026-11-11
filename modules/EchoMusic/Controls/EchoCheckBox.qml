@@ -7,6 +7,7 @@ import EchoMusic.Theme
 // Shared checkbox surface. Qt owns tristate, keyboard and accessibility semantics.
 CheckBox {
     id: control
+    EchoActionCursor {}
     EchoMotionScope {
         id: motion
         target: control

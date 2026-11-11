@@ -212,7 +212,7 @@ GridView {
             HoverHandler {
                 id: presetHover
             }
-            Button {
+            EchoActionButton {
                 id: presetButton
                 objectName: "dspPresetButton-" + preset.modelData.id
                 anchors.left: parent.left

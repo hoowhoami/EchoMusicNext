@@ -16,7 +16,7 @@ EchoDialog {
         Layout.fillWidth: true
         Layout.minimumWidth: 0
         implicitHeight: artist ? 142 : modelData.resourceId ? Math.max(36, label.implicitHeight) + 20 : Math.max(23, label.implicitHeight) + 30
-        Button {
+        EchoActionButton {
             id: activate
             objectName: "shortcutCandidate-" + option.modelData.key
             anchors.fill: parent

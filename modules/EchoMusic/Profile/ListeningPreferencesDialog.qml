@@ -196,7 +196,7 @@ EchoDialog {
                 PreferenceCard {
                     visible: dialog.service.loaded
                     Layout.fillWidth: true
-                    Button {
+                    EchoActionButton {
                         Layout.fillWidth: true
                         implicitHeight: 28
                         padding: 0

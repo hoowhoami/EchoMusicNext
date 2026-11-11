@@ -72,7 +72,7 @@ EchoDialog {
                     color: Theme.floatingSecondaryText
                     text: section
                 }
-                delegate: Button {
+                delegate: EchoActionButton {
                     id: target
                     required property int index
                     required property string targetTitle

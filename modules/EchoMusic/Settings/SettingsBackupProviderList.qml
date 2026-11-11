@@ -58,6 +58,7 @@ ColumnLayout {
         }
         delegate: ItemDelegate {
             id: entry
+            EchoActionCursor {}
             required property var modelData
             width: ListView.view.width
             height: 56

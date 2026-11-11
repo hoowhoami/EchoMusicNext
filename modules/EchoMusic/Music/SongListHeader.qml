@@ -16,7 +16,7 @@ Item {
     signal sortPicked(int field)
     implicitHeight: 44
     // The shared view contract uses Index/Title/Artist/Album/Duration = 1..5.
-    component SortChoice: Button {
+    component SortChoice: EchoActionButton {
         id: choice
         required property int field
         required property string label

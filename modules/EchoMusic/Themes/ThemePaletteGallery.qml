@@ -22,7 +22,7 @@ ColumnLayout {
         Item {
             Layout.fillWidth: true
         }
-        Button {
+        EchoActionButton {
             id: customize
             objectName: "customSkinAction"
             text: qsTr("自选颜色")
@@ -58,7 +58,7 @@ ColumnLayout {
         // Fixed 24-swatch gallery. Catalog/content lists use virtual views.
         Repeater {
             model: gallery.colors
-            delegate: Button {
+            delegate: EchoActionButton {
                 id: swatch
                 required property string modelData
                 required property int index

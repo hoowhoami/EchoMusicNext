@@ -95,7 +95,7 @@ EchoAnchoredPopup {
                         color: Theme.floating.secondaryText
                         Layout.fillWidth: true
                     }
-                    Button {
+                    EchoActionButton {
                         id: reset
                         implicitWidth: 44
                         implicitHeight: 22
@@ -223,7 +223,7 @@ EchoAnchoredPopup {
                     required property var modelData
                     Layout.fillWidth: true
                     spacing: 0
-                    Button {
+                    EchoActionButton {
                         id: option
                         readonly property var modelData: optionRow.modelData
                         objectName: "playbackOption-" + modelData.value

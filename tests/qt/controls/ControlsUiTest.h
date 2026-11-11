@@ -7,6 +7,8 @@ class ControlsUiTest : public QObject
 private slots:
     void cleanup();
     void sendButtonKeepsIconGeometryAndBusyState();
+    void actionCursorsFollowAvailabilityAndPreserveEditing();
+    void customActionButtonPreservesQtContentAndInput();
     void windowCaptionSeparatesDoubleClickFromDrag();
     void listLocationPreservesVisibleRowsAndChecksOcclusion();
     void continuousAngleWheelPreservesDistanceAndPixelInput();

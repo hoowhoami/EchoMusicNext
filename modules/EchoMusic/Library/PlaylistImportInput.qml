@@ -18,7 +18,7 @@ ColumnLayout {
         spacing: 12
         Repeater {
             model: [qsTr("链接导入"), qsTr("截图导入")]
-            delegate: Button {
+            delegate: EchoActionButton {
                 id: choice
                 required property int index
                 required property string modelData
@@ -99,7 +99,7 @@ ColumnLayout {
         visible: pane.draft.mode === 1
         Layout.fillWidth: true
         spacing: 12
-        Button {
+        EchoActionButton {
             id: dropzone
             objectName: "playlistImportImages"
             Layout.fillWidth: true

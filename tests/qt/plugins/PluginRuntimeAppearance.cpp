@@ -309,6 +309,81 @@ ApplicationWindow {
         QTest::qWait(300);
         QVERIFY(window->grabWindow().save(capture + "/theme-center.png"));
     }
+    // The real theme dialog owns the only reset action; the contribution owns fields.
+    auto *themeConfiguration = catalog->theme()->configuration();
+    auto *otherConfiguration = catalog->find(installation + ":theme:prism")->configuration();
+    QVERIFY(themeConfiguration->patch({{"enabled", false}, {"speed", 1.7}}));
+    QVERIFY(otherConfiguration->patch({{"speed", 1.2}}));
+    QTRY_VERIFY(!themeConfiguration->busy() && !otherConfiguration->busy());
+    // Configuration notifications can rebuild the virtual catalog delegates.
+    dynamicCard = nullptr;
+    QTRY_VERIFY(([&] {
+        for (auto *item : visualItems())
+            if (item->property("entryKey").toString() == installation + ":theme:autumn")
+                dynamicCard = item;
+        return dynamicCard != nullptr;
+    })());
+    QVERIFY(QMetaObject::invokeMethod(dynamicCard, "settingsRequested"));
+    QPointer<QObject> dialog;
+    QTRY_VERIFY((dialog = root->findChild<QObject *>("appearanceSettingsDialog")) &&
+                dialog->property("opened").toBool());
+    auto *dialogContent = dialog->property("contentItem").value<QQuickItem *>();
+    QVERIFY(dialogContent);
+    QQuickItem *form = nullptr;
+    QTRY_VERIFY((form = visual(dialogContent, "dynamicThemeSettings")));
+    QVERIFY(form->implicitHeight() < 100);
+    auto *formHost = visual(dialogContent, "appearanceSettingsHost");
+    auto *heading = visual(dialogContent, "dialogHeading");
+    auto *reset = visual(dialogContent, "appearanceSettingsReset");
+    auto *speedLabel = visual(form, "dynamicThemeSpeedLabel");
+    auto *speed = visual(form, "dynamicThemeSpeed");
+    QVERIFY(formHost && heading && reset && speedLabel && speed);
+    QTRY_VERIFY(qAbs(formHost->mapToScene({0, 0}).x() - heading->mapToScene({0, 0}).x()) < .6);
+    QVERIFY(qAbs(formHost->mapToScene({formHost->width(), 0}).x() -
+                 heading->mapToScene({heading->width(), 0}).x()) < .6);
+    QVERIFY(qAbs(reset->mapToScene({reset->width(), 0}).x() -
+                 heading->mapToScene({heading->width(), 0}).x()) < .6);
+    QVERIFY(reset->width() < dialog->property("width").toReal() / 2);
+    QCOMPARE(reset->height(), 36.);
+    QVERIFY(qAbs(speedLabel->mapToScene(speedLabel->boundingRect().center()).y() -
+                 speed->mapToScene(speed->boundingRect().center()).y()) < 1);
+    int resets = 0;
+    QList<QQuickItem *> formItems{dialogContent};
+    for (qsizetype index = 0; index < formItems.size(); ++index) {
+        auto *item = formItems[index];
+        formItems.append(item->childItems());
+        resets += item->isVisible() && item->property("text").toString() == QString("恢复默认") &&
+                  item->metaObject()->indexOfSignal("clicked()") >= 0;
+    }
+    QCOMPARE(resets, 1);
+    const auto originalMode = host.theme.mode();
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        host.theme.setMode(mode);
+        Test::FrameSpy committed(window);
+        window->update();
+        QVERIFY(!committed.isEmpty() || committed.wait(2000));
+        if (!capture.isEmpty()) {
+            const auto frame = window->grabWindow();
+            QVERIFY(frame.save(capture + QString("/theme-settings-layout-%1.png").arg(int(mode))));
+            auto *background = dialog->property("background").value<QQuickItem *>();
+            QVERIFY(background);
+            const auto area = background->mapRectToScene(background->boundingRect());
+            const auto dpr = frame.devicePixelRatio();
+            QVERIFY(frame.copy(QRectF(area.topLeft() * dpr, area.size() * dpr).toAlignedRect())
+                        .save(capture + QString("/theme-settings-dialog-%1.png").arg(int(mode))));
+        }
+    }
+    host.theme.setMode(originalMode);
+    const auto resetPoint = reset->mapToScene(reset->boundingRect().center()).toPoint();
+    Test::moveNativePointer(window, resetPoint);
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, resetPoint);
+    QTRY_VERIFY(!themeConfiguration->busy());
+    QTRY_COMPARE(themeConfiguration->values(), themeConfiguration->defaults());
+    QCOMPARE(otherConfiguration->values().value("speed").toDouble(), 1.2);
+    QVERIFY(otherConfiguration->reset());
+    QTRY_VERIFY(!otherConfiguration->busy());
+    QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    QTRY_VERIFY(dialog.isNull());
     root->setProperty("galleryOpen", false);
     QVERIFY(select("prism"));
     QTRY_VERIFY(visual(window->contentItem(), "dynamicThemeScene"));

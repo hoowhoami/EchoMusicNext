@@ -386,7 +386,8 @@ add_test(
 add_test(
     NAME controls-ui-behavior
     COMMAND
-        echo-controls-ui-test windowCaptionSeparatesDoubleClickFromDrag
+        echo-controls-ui-test actionCursorsFollowAvailabilityAndPreserveEditing
+        customActionButtonPreservesQtContentAndInput windowCaptionSeparatesDoubleClickFromDrag
         listLocationPreservesVisibleRowsAndChecksOcclusion
         coverKeepsNativeResolutionUnderAncestorZoom coverCropAndRoundedPixels
         pixelSnapTracksScenePositionAcrossReparentAndWindows thinSurfacesKeepDeviceGrid

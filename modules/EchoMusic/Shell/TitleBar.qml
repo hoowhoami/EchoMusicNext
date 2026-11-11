@@ -140,6 +140,7 @@ EchoUiPartHost {
             }
             delegate: ShellActionButton {
                 id: actionButton
+                cursorShape: Qt.ArrowCursor
                 actions: bar.controller.titlebarActions
                 projection: ShellActionModel.Toolbar
                 property bool pooled: false

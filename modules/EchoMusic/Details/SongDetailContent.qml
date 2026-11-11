@@ -104,6 +104,7 @@ Column {
                     spacing: 0
                     AbstractButton {
                         id: rankToggle
+                        EchoActionCursor {}
                         objectName: "songRankingToggle"
                         Layout.fillWidth: true
                         implicitHeight: rankRow.implicitHeight + 36

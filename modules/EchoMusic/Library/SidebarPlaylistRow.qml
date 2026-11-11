@@ -7,6 +7,7 @@ import EchoMusic.Theme
 
 ItemDelegate {
     id: row
+    EchoActionCursor {}
     objectName: "sidebarPlaylistRow"
     required property string title
     required property string coverUrl
@@ -83,6 +84,7 @@ ItemDelegate {
     }
     // A disabled child button otherwise passes its click to the playlist row.
     MouseArea {
+        cursorShape: Qt.ArrowCursor
         parent: playlistCover
         anchors.fill: playAction
         enabled: playAction.visible && !playAction.enabled

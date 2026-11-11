@@ -352,6 +352,7 @@ RoutePage {
                             model: page.detail.sources
                             delegate: AbstractButton {
                                 id: source
+                                EchoActionCursor {}
                                 objectName: "mvSourceCard"
                                 required property var modelData
                                 Layout.fillWidth: true

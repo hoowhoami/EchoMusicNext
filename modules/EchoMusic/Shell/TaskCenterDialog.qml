@@ -329,7 +329,7 @@ EchoDialog {
                             color: Theme.floating.hover
                         }
                     }
-                    Button {
+                    EchoActionButton {
                         id: detailToggle
                         objectName: "taskDetailsToggle-" + task.taskId
                         Layout.fillWidth: true

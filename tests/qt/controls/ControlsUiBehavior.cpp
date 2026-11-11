@@ -1,7 +1,241 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
 #include "EchoUiContentFactory.h"
+#include "EchoActionCursor.h"
 #include <QOperatingSystemVersion>
+
+void ControlsUiTest::actionCursorsFollowAvailabilityAndPreserveEditing()
+{
+    ControlsSession session;
+    QVERIFY(session.create());
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+        import QtQuick
+        import QtQuick.Controls.Basic
+        import EchoMusic.Controls
+        Item {
+            width: 720; height: 290
+            property int activations: 0
+            // Isolate this matrix from the harness controls underneath it.
+            MouseArea { anchors.fill: parent; cursorShape: Qt.ArrowCursor; acceptedButtons: Qt.NoButton }
+            EchoButton { objectName: "action"; x: 20; y: 20; text: "Action"; onClicked: parent.activations++ }
+            EchoSoftButton { objectName: "soft"; x: 150; y: 20; text: "Soft" }
+            EchoIconButton { objectName: "icon"; x: 280; y: 20; glyph: "play"; text: "Play" }
+            EchoSwitch { objectName: "switch"; x: 360; y: 20 }
+            EchoCheckBox { objectName: "check"; x: 440; y: 20 }
+            EchoTabBar { objectName: "tabs"; x: 20; y: 80; width: 200; labels: ["One", "Two"] }
+            EchoSelect { objectName: "select"; x: 250; y: 80; width: 180; model: ["One", "Two"] }
+            EchoSelectOption { objectName: "option"; x: 460; y: 80; width: 150; text: "Option" }
+            EchoTextField { objectName: "text"; x: 20; y: 160; width: 160; text: "Editable" }
+            EchoIconButton { objectName: "caption"; x: 230; y: 160; glyph: "x"; text: "Close"; cursorShape: Qt.ArrowCursor }
+            Button {
+                objectName: "card"; x: 330; y: 150; width: 320; height: 80
+                property bool visualHovered: cardHover.hovered
+                property bool blockDisabled: false
+                HoverHandler { id: cardHover }
+                onClicked: parent.activations++
+                EchoActionCursor {}
+                EchoSoftButton { objectName: "nestedEnabled"; x: 165; y: 20; text: "Available" }
+                EchoSoftButton { id: nestedDisabled; objectName: "nestedDisabled"; x: 40; y: 20; text: "Unavailable"; enabled: false }
+                // Production sidebar covers block a disabled play action from
+                // falling through to navigation; the cursor follows that region.
+                MouseArea {
+                    x: nestedDisabled.x; y: nestedDisabled.y
+                    width: nestedDisabled.width; height: nestedDisabled.height
+                    enabled: parent.blockDisabled
+                    cursorShape: Qt.ArrowCursor
+                }
+            }
+        }
+    )",
+                      QUrl());
+    QScopedPointer<QObject> owner(component.create());
+    QVERIFY2(owner, qPrintable(component.errorString()));
+    auto *host = qobject_cast<QQuickItem *>(owner.data());
+    QVERIFY(host);
+    host->setParentItem(session.window->contentItem());
+    host->setZ(1000);
+    const auto pointAt = [&](QQuickItem *item) {
+        Test::moveNativePointer(session.window,
+                                item->mapToScene(item->boundingRect().center()).toPoint());
+    };
+    for (const auto &name :
+         {"action", "soft", "icon", "switch", "check", "tab-0", "select", "option"}) {
+        auto *item = findVisual(host, QString::fromLatin1(name));
+        QVERIFY2(item, name);
+        qInfo() << "Checking action cursor" << name << item->size();
+        pointAt(item);
+        QTRY_COMPARE(session.window->cursor().shape(), Qt::PointingHandCursor);
+        item->setEnabled(false);
+        pointAt(item);
+        QTRY_COMPARE(session.window->cursor().shape(), Qt::ArrowCursor);
+        item->setEnabled(true);
+        pointAt(item);
+        QTRY_COMPARE(session.window->cursor().shape(), Qt::PointingHandCursor);
+    }
+    auto *action = findVisual(host, "action");
+    pointAt(action);
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier,
+                      action->mapToScene(action->boundingRect().center()).toPoint());
+    QCOMPARE(host->property("activations").toInt(), 1);
+    // The fixture's original controls must not become cursor targets behind
+    // a disabled matrix: real modal/overlay surfaces supply this isolation.
+    for (auto *underlying : session.window->contentItem()->childItems())
+        if (underlying != host)
+            underlying->setVisible(false);
+    host->setEnabled(false);
+    pointAt(action);
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::ArrowCursor);
+    host->setEnabled(true);
+    qInfo() << "Checking caption arrow";
+    pointAt(findVisual(host, "caption"));
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::ArrowCursor);
+    pointAt(findVisual(host, "text"));
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::IBeamCursor);
+    qInfo() << "Checking nested disabled arrow";
+    pointAt(findVisual(host, "nestedEnabled"));
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::PointingHandCursor);
+    auto *card = findVisual(host, "card");
+    QTRY_VERIFY(card->property("visualHovered").toBool());
+    pointAt(findVisual(host, "nestedDisabled"));
+    // The disabled action itself owns no hand; Qt resolves any ancestor hit.
+    QCOMPARE(findVisual(host, "nestedDisabled")->cursor().shape(), Qt::ArrowCursor);
+    card->setProperty("blockDisabled", true);
+    pointAt(findVisual(host, "nestedDisabled"));
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::ArrowCursor);
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier,
+                      findVisual(host, "nestedDisabled")->mapToScene({10, 10}).toPoint());
+    QCOMPARE(host->property("activations").toInt(), 1);
+    Test::moveNativePointer(session.window, card->mapToScene({10, 10}).toPoint());
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::PointingHandCursor);
+    qInfo() << "Checking hidden card arrow";
+    card->setVisible(false);
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::ArrowCursor);
+    // Releasing or retargeting cursor ownership must not leave an old hand.
+    auto *cursor = card->findChild<EchoActionCursor *>(QString(), Qt::FindDirectChildrenOnly);
+    QVERIFY(cursor);
+    card->setVisible(true);
+    cursor->setEnabled(false);
+    Test::moveNativePointer(session.window, card->mapToScene({10, 10}).toPoint());
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::ArrowCursor);
+    cursor->setEnabled(true);
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::PointingHandCursor);
+    {
+        QQuickItem replacement(host);
+        replacement.setPosition({570, 240});
+        replacement.setSize({100, 40});
+        cursor->setTarget(&replacement);
+        QTRY_COMPARE(session.window->cursor().shape(), Qt::ArrowCursor);
+        Test::moveNativePointer(session.window, replacement.mapToScene({10, 10}).toPoint());
+        QTRY_COMPARE(session.window->cursor().shape(), Qt::PointingHandCursor);
+    }
+    QVERIFY(!cursor->target());
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::ArrowCursor);
+}
+
+void ControlsUiTest::customActionButtonPreservesQtContentAndInput()
+{
+    ControlsSession session;
+    QVERIFY(session.create());
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+        import QtQuick
+        import QtQuick.Controls.Basic
+        import EchoMusic.Controls
+        import EchoMusic.Theme
+        Rectangle {
+            width: 720; height: 290; color: "#123456"
+            component CardContent: EchoButtonContent {
+                text: "定制内容 Custom"
+                glyph: "music"
+                glyphSize: 22
+                font: Theme.font(13, Theme.semiboldWeight)
+                spacing: 11
+            }
+            Button {
+                objectName: "nativeRecipe"; x: 20; y: 30
+                padding: 9; hoverEnabled: true
+                contentItem: CardContent {}
+                background: Rectangle { implicitWidth: 120; implicitHeight: 60; color: "#345678"; radius: 12 }
+            }
+            EchoActionButton {
+                objectName: "sharedRecipe"; x: 320; y: 30
+                padding: 9
+                contentItem: CardContent {}
+                background: Rectangle { implicitWidth: 120; implicitHeight: 60; color: "#345678"; radius: 12 }
+            }
+        }
+    )",
+                      QUrl());
+    QScopedPointer<QObject> owner(component.create());
+    QVERIFY2(owner, qPrintable(component.errorString()));
+    auto *host = qobject_cast<QQuickItem *>(owner.data());
+    QVERIFY(host);
+    host->setParentItem(session.window->contentItem());
+    host->setZ(1000);
+    auto *native = findVisual(host, "nativeRecipe");
+    auto *shared = findVisual(host, "sharedRecipe");
+    QVERIFY(native && shared);
+    for (const auto &property : {"implicitWidth", "implicitHeight", "leftPadding", "rightPadding",
+                                 "topPadding", "bottomPadding", "font", "focusPolicy"})
+        QCOMPARE(shared->property(property), native->property(property));
+    auto *nativeContent = native->property("contentItem").value<QQuickItem *>();
+    auto *sharedContent = shared->property("contentItem").value<QQuickItem *>();
+    QVERIFY(nativeContent && sharedContent);
+    QCOMPARE(sharedContent->size(), nativeContent->size());
+    QCOMPARE(sharedContent->position(), nativeContent->position());
+    QQuickItem *nativeIcon = nullptr, *sharedIcon = nullptr;
+    QTRY_VERIFY((nativeIcon = findVisual(nativeContent, "iconImage")) &&
+                nativeIcon->property("status").toInt() == 1);
+    QTRY_VERIFY((sharedIcon = findVisual(sharedContent, "iconImage")) &&
+                sharedIcon->property("status").toInt() == 1);
+    Test::FrameSpy committed(session.window);
+    session.window->update();
+    QVERIFY(!committed.isEmpty() || committed.wait(2000));
+    const auto frame = session.window->grabWindow();
+    QVERIFY(!frame.isNull());
+    const auto pixels = [&](QQuickItem *item) {
+        const auto area = item->mapRectToScene(item->boundingRect());
+        const auto dpr = frame.devicePixelRatio();
+        return frame.copy(QRectF(area.topLeft() * dpr, area.size() * dpr).toAlignedRect());
+    };
+    const auto nativePixels = pixels(native), sharedPixels = pixels(shared);
+    const auto captures = qEnvironmentVariable("ECHO_ACTION_BUTTON_CAPTURE_DIR");
+    if (!captures.isEmpty()) {
+        QVERIFY(QDir().mkpath(captures));
+        QVERIFY(nativePixels.save(captures + "/native.png"));
+        QVERIFY(sharedPixels.save(captures + "/shared.png"));
+    }
+    qint64 difference = 0;
+    int maximumChannelDifference = 0;
+    QCOMPARE(sharedPixels.size(), nativePixels.size());
+    for (int y = 0; y < nativePixels.height(); ++y)
+        for (int x = 0; x < nativePixels.width(); ++x) {
+            const auto a = nativePixels.pixelColor(x, y), b = sharedPixels.pixelColor(x, y);
+            const int red = qAbs(a.red() - b.red()), green = qAbs(a.green() - b.green()),
+                      blue = qAbs(a.blue() - b.blue());
+            difference += red + green + blue;
+            maximumChannelDifference = qMax(maximumChannelDifference, qMax(red, qMax(green, blue)));
+        }
+    qInfo() << "Custom button mean channel difference"
+            << difference / qreal(nativePixels.width() * nativePixels.height() * 3);
+    // Rounded-edge quantization at different scene positions may differ by
+    // one RGB step; geometry/text/content differences must still fail.
+    QVERIFY(maximumChannelDifference <= 1);
+    QVERIFY(difference <= 3);
+    QSignalSpy clicks(shared, SIGNAL(clicked()));
+    const auto point = shared->mapToScene(shared->boundingRect().center()).toPoint();
+    Test::moveNativePointer(session.window, point);
+    QTRY_COMPARE(session.window->cursor().shape(), Qt::PointingHandCursor);
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, point);
+    QCOMPARE(clicks.size(), 1);
+    shared->forceActiveFocus(Qt::OtherFocusReason);
+    QTest::keyClick(session.window, Qt::Key_Space);
+    QCOMPARE(clicks.size(), 2);
+    shared->setEnabled(false);
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, point);
+    QCOMPARE(clicks.size(), 2);
+}
 
 void ControlsUiTest::windowCaptionSeparatesDoubleClickFromDrag()
 {

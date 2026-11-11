@@ -309,7 +309,7 @@ Control {
                         // Calendar is a bounded 42-cell surface, never a catalog list.
                         Repeater {
                             model: 42
-                            delegate: Button {
+                            delegate: EchoActionButton {
                                 id: cell
                                 required property int index
                                 readonly property date date: picker.cellDate(index)

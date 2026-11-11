@@ -7,6 +7,7 @@ import EchoMusic.Controls
 
 ItemDelegate {
     id: card
+    EchoActionCursor {}
     objectName: "contentDelegate"
     required property string title
     required property string artistText

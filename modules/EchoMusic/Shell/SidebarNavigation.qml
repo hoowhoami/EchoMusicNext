@@ -27,7 +27,7 @@ EchoBoundedListView {
         required property var rowData
         width: navigation.width
         height: rowData.heading === true ? 32 * (1 - navigation.collapseProgress) : 39 + 5 * navigation.collapseProgress
-        Button {
+        EchoActionButton {
             id: entry
             objectName: "sidebarMenu-" + row.rowData.key
             anchors.horizontalCenter: parent.horizontalCenter

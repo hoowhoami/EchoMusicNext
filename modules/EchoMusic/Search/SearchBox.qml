@@ -357,7 +357,7 @@ EchoInputBackground {
                                 color: Theme.floating.secondaryText
                                 font: Theme.font(11, Theme.regularWeight)
                             }
-                            Button {
+                            EchoActionButton {
                                 id: choice
                                 x: 8
                                 y: suggestion.groupStart ? 33 : 0
@@ -433,7 +433,7 @@ EchoInputBackground {
                             anchors.leftMargin: 16
                             anchors.rightMargin: 16
                             spacing: 12
-                            Button {
+                            EchoActionButton {
                                 Layout.fillWidth: true
                                 padding: 0
                                 focusPolicy: Qt.NoFocus

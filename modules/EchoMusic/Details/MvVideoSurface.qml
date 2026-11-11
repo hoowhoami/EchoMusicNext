@@ -68,6 +68,7 @@ Rectangle {
         asynchronous: true
         sourceSize.width: 1120
     }
+    EchoActionCursor {}
     TapHandler {
         onTapped: surface.detail.toggle()
     }

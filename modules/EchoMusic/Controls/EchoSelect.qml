@@ -168,6 +168,7 @@ Control {
         }
     }
     MouseArea {
+        cursorShape: control.enabled && !control.filterable ? Qt.PointingHandCursor : Qt.ArrowCursor
         anchors.fill: parent
         z: -0.1
         onClicked: {
@@ -214,21 +215,23 @@ Control {
                         font: formPart.styledFont(Theme.font(11, Theme.semiboldWeight))
                         elide: Text.ElideRight
                     }
-                    Button {
+                    EchoIconButton {
                         id: removeTagAction
                         objectName: "selectTagRemoveAction"
                         Layout.preferredWidth: 14
                         Layout.preferredHeight: 14
                         padding: 2
-                        Accessible.name: qsTr("移除 %1").arg(selectedTag.modelData.label)
+                        // Preserve Basic.Button's prior content box in the 14px tag action.
+                        horizontalPadding: padding + 2
+                        glyph: "x"
+                        text: qsTr("移除 %1").arg(selectedTag.modelData.label)
+                        tooltipText: ""
+                        disabledOpacity: 1
+                        foreground: formPart.value("foreground", control.colors.accentText)
                         onClicked: control.removeTag(selectedTag.modelData.value)
                         background: Rectangle {
                             radius: Theme.controlRadius
                             color: removeTagAction.hovered ? Theme.withAlpha(control.colors.accent, 0.2) : "transparent"
-                        }
-                        contentItem: EchoIcon {
-                            name: "x"
-                            color: formPart.value("foreground", control.colors.accentText)
                         }
                     }
                 }
@@ -291,7 +294,7 @@ Control {
         text: control.multiple ? control.selectedTags.map(t => t.label).join("、") : control.displayText || control.placeholder
         requestedVisible: !control.popupActive && control.hovered && !control.searchTerm.length && (control.multiple ? control.overflowCount > 0 : control.filterable ? searchPlaceholderMetrics.advanceWidth > searchInput.width : triggerLabel.isTruncated())
     }
-    Button {
+    EchoActionButton {
         id: indicatorAction
         objectName: "selectIndicatorAction"
         x: control.width - width - 12

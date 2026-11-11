@@ -29,7 +29,7 @@ Item {
         anchors.topMargin: 4 * (1 - profile.collapseProgress)
         anchors.bottomMargin: 4 * (1 - profile.collapseProgress)
         spacing: 3 * (1 - profile.collapseProgress)
-        Button {
+        EchoActionButton {
             id: userLink
             objectName: "sidebarUserLink"
             Layout.fillWidth: true

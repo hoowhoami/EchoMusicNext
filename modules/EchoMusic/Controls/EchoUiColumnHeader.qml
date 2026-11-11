@@ -3,7 +3,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import EchoMusic.Theme
 
-Button {
+EchoActionButton {
     id: header
     required property var adapter
     required property var entry

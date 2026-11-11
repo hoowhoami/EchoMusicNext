@@ -58,7 +58,7 @@ Rectangle {
             reuseItems: true
             spacing: group.compact ? 5 : 8
             boundsBehavior: Flickable.StopAtBounds
-            delegate: Button {
+            delegate: EchoActionButton {
                 id: device
                 required property string targetId
                 required property string deviceTitle

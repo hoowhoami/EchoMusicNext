@@ -151,6 +151,7 @@ EchoDialog {
                         resourceActive: dialog.visible
                     }
                     delegate: ItemDelegate {
+                        EchoActionCursor {}
                         required property var modelData
                         Accessible.role: Accessible.Button
                         Accessible.name: modelData.role + " " + modelData.key

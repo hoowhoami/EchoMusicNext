@@ -5,6 +5,11 @@ import EchoMusic.Theme
 
 ToolButton {
     id: control
+    // Native window controls and reorder handles can retain an arrow.
+    property int cursorShape: Qt.PointingHandCursor
+    EchoActionCursor {
+        cursorShape: control.cursorShape
+    }
     readonly property EchoUiPart publicPart: EchoUiPart {
         target: control
         role: "control.iconButton"

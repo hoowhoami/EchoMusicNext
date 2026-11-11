@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import EchoMusic.Theme
 import EchoMusic.Controls
 
-Button {
+EchoActionButton {
     id: card
     required property string themeName
     required property string description
@@ -45,29 +45,6 @@ Button {
                     cornerRadius: Theme.mediaRadius
                 }
             }
-            RowLayout {
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.margins: 8
-                spacing: 4
-                visible: card.extension && (card.hovered || card.visualFocus || previewAction.activeFocus || settingsAction.activeFocus)
-                EchoIconButton {
-                    id: previewAction
-                    implicitWidth: 32
-                    implicitHeight: 32
-                    glyph: "eye"
-                    text: qsTr("预览主题")
-                    onClicked: card.previewRequested()
-                }
-                EchoIconButton {
-                    id: settingsAction
-                    implicitWidth: 32
-                    implicitHeight: 32
-                    glyph: "settings"
-                    text: qsTr("主题设置")
-                    onClicked: card.settingsRequested()
-                }
-            }
             EchoSelectionBadge {
                 anchors.right: parent.right
                 anchors.top: parent.top
@@ -75,14 +52,41 @@ Button {
                 visible: card.selected
             }
         }
-        Label {
+        RowLayout {
+            objectName: "themeCardTitleRow"
             Layout.fillWidth: true
+            Layout.preferredHeight: EchoControlSize.heightFor(EchoControlSize.Compact)
             Layout.topMargin: 10
             Layout.bottomMargin: 4
-            text: card.themeName
-            font: Theme.font(14, Theme.semiboldWeight)
-            color: Theme.text
-            elide: Text.ElideRight
+            spacing: 4
+            EchoTextLine {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: card.themeName
+                font: Theme.font(14, Theme.semiboldWeight)
+                color: Theme.text
+                lineHeight: EchoControlSize.heightFor(EchoControlSize.Compact)
+                fillTextWidth: true
+                stableElisionBaseline: true
+            }
+            EchoIconButton {
+                objectName: "themeCardPreviewAction"
+                visible: card.extension
+                implicitWidth: 32
+                implicitHeight: 32
+                glyph: "eye"
+                text: qsTr("预览主题")
+                onClicked: card.previewRequested()
+            }
+            EchoIconButton {
+                objectName: "themeCardSettingsAction"
+                visible: card.extension
+                implicitWidth: 32
+                implicitHeight: 32
+                glyph: "settings"
+                text: qsTr("主题设置")
+                onClicked: card.settingsRequested()
+            }
         }
         Label {
             Layout.fillWidth: true

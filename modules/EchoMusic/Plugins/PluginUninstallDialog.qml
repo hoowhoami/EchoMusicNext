@@ -35,6 +35,7 @@ EchoDialog {
                 font: Theme.font(14, Theme.regularWeight)
                 wrapMode: Text.Wrap
                 MouseArea {
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     anchors.fill: parent
                     enabled: !dialog.runtime.loading
                     onClicked: dialog.removeData = !dialog.removeData

@@ -55,7 +55,7 @@ EchoDialog {
                 Layout.leftMargin: 12
                 Layout.rightMargin: 12
                 spacing: 10
-                Button {
+                EchoActionButton {
                     id: spectrumAction
                     objectName: "colorSpectrumAction"
                     implicitWidth: 36
@@ -103,7 +103,7 @@ EchoDialog {
                 // The finite preset palette is not a scrolling business model.
                 Repeater {
                     model: picker.presets
-                    delegate: Button {
+                    delegate: EchoActionButton {
                         id: swatch
                         required property string modelData
                         required property int index
@@ -146,7 +146,7 @@ EchoDialog {
                     }
                 }
             }
-            Button {
+            EchoActionButton {
                 id: dynamicAction
                 objectName: "colorDynamicAction"
                 visible: picker.dynamicLabel.length > 0

@@ -17,6 +17,8 @@ qt_add_qml_module(
     URI
     EchoMusic.Controls
     SOURCES
+    EchoActionCursor.h
+    EchoActionCursor.cpp
     EchoItemTranslation.h
     EchoItemTranslation.cpp
     QuickAnimationDriver.h
@@ -134,6 +136,7 @@ qt_add_qml_module(
     EchoReorderRow.qml
     EchoSpinner.qml
     EchoControlSize.qml
+    EchoActionButton.qml
     EchoButton.qml
     EchoSendButton.qml
     EchoInputBackground.qml

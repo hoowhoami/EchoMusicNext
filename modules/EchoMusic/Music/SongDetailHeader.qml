@@ -220,7 +220,7 @@ Item {
                         font: preview.font
                         text: preview.text
                     }
-                    Button {
+                    EchoActionButton {
                         id: detailsAction
                         objectName: "songDetailDescriptionAction"
                         // Measure overflow against the full line before reserving button space.
@@ -233,10 +233,6 @@ Item {
                         Layout.alignment: header.uniformMetadataRows ? Qt.AlignBaseline : Qt.AlignVCenter
                         baselineOffset: contentItem ? contentItem.y + contentItem.baselineOffset : 0
                         hoverEnabled: true
-                        HoverHandler {
-                            enabled: detailsAction.enabled
-                            cursorShape: Qt.PointingHandCursor
-                        }
                         enabled: header.progress <= .4
                         onClicked: header.introRequested()
                         contentItem: EchoTextTagRow {

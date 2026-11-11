@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import EchoMusic.Controls
 import EchoMusic.Theme
 
-Button {
+EchoActionButton {
     id: card
     required property var room
     objectName: "listenRoomCard"

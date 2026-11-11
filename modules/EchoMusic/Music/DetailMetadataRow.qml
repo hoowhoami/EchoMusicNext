@@ -89,7 +89,7 @@ Item {
                             }
                             Component {
                                 id: link
-                                Button {
+                                EchoActionButton {
                                     objectName: metadata.authorObjectName
                                     flat: true
                                     padding: 0
@@ -103,10 +103,6 @@ Item {
                                         color: Theme.accentText
                                         lineHeight: 20
                                         alignFontBody: true
-                                    }
-                                    HoverHandler {
-                                        enabled: parent.enabled
-                                        cursorShape: Qt.PointingHandCursor
                                     }
                                 }
                             }

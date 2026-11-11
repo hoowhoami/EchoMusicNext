@@ -132,6 +132,7 @@ EchoUiPartHost {
                 Accessible.role: Accessible.Button
                 Accessible.name: qsTr("打开播放页")
                 Accessible.onPressAction: bar.playbackPageRequested()
+                EchoActionCursor {}
                 TapHandler {
                     onTapped: bar.playbackPageRequested()
                 }

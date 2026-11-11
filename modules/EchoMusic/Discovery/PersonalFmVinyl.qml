@@ -4,7 +4,7 @@ import QtQuick.Controls.Basic
 import EchoMusic.Controls
 import EchoMusic.Theme
 
-Button {
+EchoActionButton {
     id: vinyl
     property url artwork
     property bool resourceActive: true

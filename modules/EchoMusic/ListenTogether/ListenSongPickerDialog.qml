@@ -59,7 +59,7 @@ EchoDialog {
                     Layout.fillHeight: true
                     clip: true
                     model: dialog.picker?.playlists ?? null
-                    delegate: Button {
+                    delegate: EchoActionButton {
                         id: playlistRow
                         required property var rowData
                         width: playlistList.width
@@ -102,7 +102,7 @@ EchoDialog {
                         active: dialog.visible
                         rowHeight: 62
                     }
-                    delegate: Button {
+                    delegate: EchoActionButton {
                         id: songRow
                         required property string resourceId
                         required property string title

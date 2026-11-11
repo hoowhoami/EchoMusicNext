@@ -63,10 +63,7 @@ Item {
                             color: button.hovered || button.visualFocus ? links.hoverColor : links.color
                             lineHeight: links.lineHeight
                         }
-                        HoverHandler {
-                            cursorShape: Qt.PointingHandCursor
-                            enabled: button.enabled
-                        }
+                        EchoActionCursor {}
                         onClicked: links.artistRequested(entry.modelData.id)
                     }
                     Loader {

@@ -313,7 +313,7 @@ Item {
                                     glyph: "user"
                                 }
                             ]
-                            delegate: Button {
+                            delegate: EchoActionButton {
                                 id: methodButton
                                 objectName: "loginMethod-" + method
                                 required property var modelData

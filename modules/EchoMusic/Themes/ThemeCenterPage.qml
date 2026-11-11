@@ -172,7 +172,7 @@ RoutePage {
                                 id: section
                                 width: group.width + 18
                                 columns: Math.max(1, Math.floor(width / 218))
-                                cellHeight: (cellWidth - 38) / 1.6 + 20 + 10 + 20 + 4 + 38.4 + 24
+                                cellHeight: (cellWidth - 38) / 1.6 + 20 + 10 + EchoControlSize.heightFor(EchoControlSize.Compact) + 4 + 38.4 + 24
                                 scrollView: catalog
                                 contentTop: group.y + y
                                 resourceActive: catalog.visible && page.pageActive

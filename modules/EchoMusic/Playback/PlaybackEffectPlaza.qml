@@ -331,7 +331,7 @@ Item {
                         font: Theme.font(11, Theme.boldWeight)
                     }
                 }
-                delegate: Button {
+                delegate: EchoActionButton {
                     id: brand
                     required property int index
                     required property var effect

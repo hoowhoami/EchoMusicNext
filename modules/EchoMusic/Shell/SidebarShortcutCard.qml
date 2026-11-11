@@ -53,8 +53,9 @@ Item {
             }
         }
     }
-    Button {
+    EchoActionButton {
         id: activate
+        cursorShape: Qt.ArrowCursor
         anchors.fill: parent
         enabled: card.layout.isPlugin(card.entryKey) ? card.layout.entryEnabled(card.entryKey) : card.router.available(card.routeName)
         Accessible.name: card.title + (card.entryIndex === 0 ? qsTr("（首页）") : "")
