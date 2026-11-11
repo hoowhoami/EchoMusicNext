@@ -83,6 +83,68 @@ private slots:
             PortableSettingsCodec::encode({{"network/deviceUuid", "secret"}}, &error).isEmpty());
         QVERIFY(!error.isEmpty());
     }
+    void invalidPortableValuesSurviveBackupRestore()
+    {
+        QTemporaryDir root;
+        const auto sourceFile = root.filePath("source/portable/settings.ini");
+        {
+            SettingsStore source(sourceFile);
+            source.setValue("shell/titlebar/order", QVariant{});
+            source.setValue("sidebar/hiddenEntries", QVariant{});
+            source.setValue("sidebar/hiddenGroups", QVariant{});
+            source.setValue("sidebar/pluginCollapsed", QVariant{});
+            source.setValue("interface/futurePreference",
+                            QVariantMap{{"empty", QVariant{}},
+                                        {"null", QVariant::fromValue(nullptr)},
+                                        {"items", QVariantList{QVariant{}, 7}}});
+            source.setValue("network/deviceUuid", "source-device");
+            source.sync();
+            QCOMPARE(source.status(), SettingsStore::NoError);
+        }
+        SettingsStore source(sourceFile);
+        QString error;
+        const auto values = source.portableValues(&error);
+        QVERIFY(error.isEmpty());
+        QVERIFY(values.contains("sidebar/hiddenEntries"));
+        QVERIFY(!values.value("sidebar/hiddenEntries").isValid());
+        const auto preferences = SettingsBackupArchive::encodePreferences(values, &error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(preferences.value("sidebar/hiddenEntries").toObject().value("type").toString(),
+                 "invalid");
+        std::atomic_bool cancel = false;
+        const auto archive = SettingsBackupArchive::create(
+            root.filePath("settings.backup"), root.filePath("capture"), preferences, true, {},
+            false, {}, {}, "0.1.3", cancel);
+        QVERIFY2(archive.error.isEmpty(), qPrintable(archive.error));
+        const auto inspection = SettingsBackupArchive::inspect(root.filePath("settings.backup"),
+                                                               root.filePath("inspection"), cancel);
+        QVERIFY2(inspection.error.isEmpty(), qPrintable(inspection.error));
+        const auto decoded = SettingsBackupArchive::decodePreferences(
+            inspection.manifest.value("settings").toObject(), &error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(decoded.size(), values.size());
+        QVERIFY(decoded.contains("sidebar/hiddenEntries"));
+        QVERIFY(!decoded.value("sidebar/hiddenEntries").isValid());
+        const auto nested = decoded.value("interface/futurePreference").toMap();
+        QVERIFY(nested.contains("empty") && !nested.value("empty").isValid());
+        QCOMPARE(nested.value("null").metaType(), QMetaType::fromType<std::nullptr_t>());
+        const auto items = nested.value("items").toList();
+        QCOMPARE(items.size(), 2);
+        QVERIFY(!items.first().isValid());
+        QCOMPARE(items.last().toInt(), 7);
+        const auto targetFile = root.filePath("target/portable/settings.ini");
+        {
+            SettingsStore target(targetFile);
+            target.setValue("network/deviceUuid", "target-device");
+            SettingsBackupArchive::applyPreferences(target, decoded);
+            target.sync();
+            QCOMPARE(target.status(), SettingsStore::NoError);
+        }
+        SettingsStore target(targetFile);
+        QVERIFY(target.contains("sidebar/hiddenEntries"));
+        QVERIFY(!target.value("sidebar/hiddenEntries").isValid());
+        QCOMPARE(target.value("network/deviceUuid").toString(), "target-device");
+    }
     void unsupportedValuesAndTamperedPortableStoreFailExplicitly()
     {
         QTemporaryDir root;

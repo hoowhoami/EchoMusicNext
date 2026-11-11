@@ -528,6 +528,8 @@ void PluginRuntimeTest::builtWebDavProviderAndSettingsLifecycle()
     if (archive.isEmpty())
         QSKIP("Set ECHO_WEBDAV_PLUGIN_PACKAGE to the built webdav-backup package");
     Fixture f;
+    f.host.settings.setValue("shell/titlebar/order", QVariant{});
+    f.host.settings.setValue("sidebar/hiddenEntries", QVariant{});
     DavStore server;
     QVERIFY(server.isListening());
     f.host.runtime.importDirectory(archive);
