@@ -130,6 +130,13 @@ WindowController::WindowController(EchoMusic::SettingsStore &settings, bool pers
         m_appearanceError = error;
         emit changed();
     });
+    connect(
+        &m_backdrop, &WindowBackdrop::supportedChanged, this,
+        [this] {
+            setAppearance(m_frosted, m_dark, m_transparency);
+            emit changed();
+        },
+        Qt::QueuedConnection);
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(250);
     connect(&m_saveTimer, &QTimer::timeout, this, &WindowController::save);
