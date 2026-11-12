@@ -722,6 +722,137 @@ Window {
         QTRY_COMPARE_WITH_TIMEOUT(drained.size(), 1, 15000);
         api.shutdown();
     }
+    void statisticsRollSummaryNumbersAndRetireHiddenPresentation()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QStringList errors;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &warnings) {
+            for (const auto &warning : warnings)
+                errors.append(warning.toString());
+        });
+        QVariantMap stats{
+            {"totalPlaysLabel", "1,597"},
+            {"statCards",
+             QVariantList{QVariantMap{{"value", "211"}, {"unit", "首"}, {"label", "听过的歌曲"}},
+                          QVariantMap{{"value", "88 小时"}, {"unit", ""}, {"label", "已记录时长"}},
+                          QVariantMap{{"value", "188"}, {"unit", "位"}, {"label", "常听歌手"}},
+                          QVariantMap{{"value", "59"}, {"unit", "%"}, {"label", "复听歌曲占比"}}}}};
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.History
+import EchoMusic.Theme
+Window {
+    id: window
+    required property var stats
+    visible: true
+    width: 820
+    height: 240
+    color: Theme.main
+    HistoryStatsOverview {
+        objectName: "overview"
+        x: 24
+        y: 24
+        width: parent.width - 48
+        stats: window.stats
+    }
+})",
+                          QUrl("qrc:/statistics-number-test.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties({{"stats", stats}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        auto *overview = historyVisual(window->contentItem(), "overview");
+        auto *total = historyVisual(overview, "historyTotalPlays");
+        QVERIFY(total);
+        QList<QPointer<QQuickItem>> numbers{total};
+        QList<QQuickItem *> pending{overview};
+        while (!pending.isEmpty()) {
+            auto *item = pending.takeFirst();
+            pending.append(item->childItems());
+            if (item->objectName() == "historyMetricValue")
+                numbers.append(item);
+        }
+        QCOMPARE(numbers.size(), 5);
+        for (auto number : numbers) {
+            QTRY_VERIFY(historyObject(number, "digitRoll"));
+            QCOMPARE(historyObject(number, "digitRoll")->property("duration").toInt(), 900);
+        }
+        auto *roll = historyObject(total, "digitRoll");
+        QPointer<QObject> presentation = roll->property("target").value<QObject *>();
+        QSet<int> intermediateDigits;
+        const auto artifacts = qEnvironmentVariable("ECHO_HISTORY_ARTIFACTS");
+        bool capturedFrame = false;
+        QElapsedTimer clock;
+        clock.start();
+        while (roll->property("running").toBool() && clock.elapsed() < 2000) {
+            auto *digit = historyVisual(total, "rollingDigit-3");
+            QVERIFY(digit);
+            const auto value = historyObject(digit, "rollingDigitValue")->property("text").toInt();
+            if (value > 0 && value < 9) {
+                intermediateDigits.insert(value);
+                if (!artifacts.isEmpty() && !capturedFrame) {
+                    QVERIFY(QDir().mkpath(artifacts));
+                    QVERIFY(window->grabWindow().save(artifacts + "/statistics-number-midway.png"));
+                    capturedFrame = true;
+                }
+            }
+            QTest::qWait(16);
+        }
+        QVERIFY(intermediateDigits.size() >= 2);
+        for (auto number : numbers)
+            QTRY_VERIFY(!historyObject(number, "digitRoll")->property("running").toBool());
+        QCOMPARE(total->property("text").toString(), QString("1,597 次播放"));
+        if (!artifacts.isEmpty())
+            QVERIFY(window->grabWindow().save(artifacts + "/statistics-number-final.png"));
+
+        auto cards = stats["statCards"].toList();
+        const QStringList values{"212", "89 小时", "189", "60"};
+        for (int i = 0; i < cards.size(); ++i) {
+            auto card = cards[i].toMap();
+            card["value"] = values[i];
+            cards[i] = card;
+        }
+        stats["statCards"] = cards;
+        stats["totalPlaysLabel"] = "1,608";
+        root->setProperty("stats", stats);
+        QCOMPARE(roll->property("target").value<QObject *>(), presentation.data());
+        for (auto number : numbers) {
+            QVERIFY(number); // A snapshot refresh must retain all four delegates.
+            QTRY_VERIFY(historyObject(number, "digitRoll")->property("running").toBool());
+        }
+        QTest::qWait(100);
+        auto *units = historyVisual(total, "rollingDigit-4");
+        QVERIFY(units);
+        QVERIFY(units->property("position").toReal() > 7);
+        QVERIFY(units->property("position").toReal() < 8);
+        overview->setProperty("resourceActive", false);
+        for (auto number : numbers)
+            QTRY_VERIFY(!historyObject(number, "digitRoll"));
+        QTRY_VERIFY(presentation.isNull());
+        overview->setProperty("resourceActive", true);
+        for (auto number : numbers) {
+            QTRY_VERIFY(historyObject(number, "digitRoll"));
+            QVERIFY(!historyObject(number, "digitRoll")->property("running").toBool());
+        }
+        overview->setProperty("animate", false);
+        for (auto number : numbers)
+            QTRY_VERIFY(!historyObject(number, "digitRoll"));
+        QCOMPARE(total->property("text").toString(), QString("1,608 次播放"));
+        overview->setProperty("animate", true);
+        theme.setMotionEnabled(false);
+        for (auto number : numbers)
+            QTRY_VERIFY(!historyObject(number, "digitRoll"));
+        theme.setMotionEnabled(true);
+        window->hide();
+        for (auto number : numbers)
+            QTRY_VERIFY(!historyObject(number, "digitRoll"));
+        QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
+    }
     void nativeHistoryPageAndClearDialog()
     {
         QTemporaryDir dir;

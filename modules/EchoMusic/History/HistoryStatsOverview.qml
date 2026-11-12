@@ -38,11 +38,14 @@ ColumnLayout {
         ColumnLayout {
             Layout.alignment: Qt.AlignBottom
             spacing: 3
-            EchoTextTagRow {
+            EchoRollingNumber {
                 objectName: "historyTotalPlays"
                 Layout.alignment: Qt.AlignRight
                 text: qsTr("%1 次播放").arg(overview.stats.totalPlaysLabel || "0")
                 font: Theme.font(overview.compact ? 13 : 19, Theme.semiboldWeight)
+                lineHeightMode: Text.FixedHeight
+                lineHeight: font.pixelSize * 1.5
+                resourceActive: overview.resourceActive && overview.animate
             }
             EchoTextTagRow {
                 visible: !overview.compact
@@ -259,28 +262,34 @@ ColumnLayout {
         id: metrics
         objectName: "historyStatGrid"
         Layout.fillWidth: true
+        visible: (overview.stats.statCards || []).length > 0
         columns: width >= 640 * Theme.store.globalFontSizeScale / 100 ? 4 : width >= 300 * Theme.store.globalFontSizeScale / 100 ? 2 : 1
         columnSpacing: 20
         rowSpacing: 18
         Repeater {
-            model: overview.stats.statCards || []
+            // Preserve digit-wheel identity when the service replaces its snapshot.
+            model: 4
             delegate: ColumnLayout {
                 id: metric
-                required property var modelData
+                required property int index
+                readonly property var modelData: (overview.stats.statCards || [])[index] || ({})
                 objectName: "historyStatCard"
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
                 Layout.preferredWidth: 1
                 spacing: 5
-                EchoTextTagRow {
+                EchoRollingNumber {
+                    objectName: "historyMetricValue"
                     Layout.fillWidth: true
-                    text: metric.modelData.value + (metric.modelData.unit ? " " + metric.modelData.unit : "")
+                    text: (metric.modelData.value || "0") + (metric.modelData.unit ? " " + metric.modelData.unit : "")
                     font: Theme.font(26, Theme.semiboldWeight)
+                    lineHeightMode: Text.FixedHeight
                     lineHeight: font.pixelSize * 1.3
+                    resourceActive: overview.resourceActive && overview.animate
                 }
                 EchoTextTagRow {
                     Layout.fillWidth: true
-                    text: metric.modelData.label
+                    text: metric.modelData.label || ""
                     color: Theme.secondaryText
                     font: Theme.font(11, Theme.regularWeight)
                 }

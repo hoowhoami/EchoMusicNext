@@ -169,7 +169,9 @@ Item {
                     color: number.color
                     lineHeightMode: number.lineHeightMode
                     lineHeight: number.lineHeight
-                    y: -digit.fraction * digit.height
+                    // Isolated characters may use different fallback ascents.
+                    // Keep the formatted line's native baseline for every cell.
+                    y: measurement.baselineOffset - baselineOffset - digit.fraction * digit.height
                     Accessible.ignored: true
                 }
                 Text {
@@ -180,7 +182,7 @@ Item {
                     lineHeightMode: number.lineHeightMode
                     lineHeight: number.lineHeight
                     visible: digit.modelData.numeric && digit.fraction > 0
-                    y: (1 - digit.fraction) * digit.height
+                    y: measurement.baselineOffset - baselineOffset + (1 - digit.fraction) * digit.height
                     Accessible.ignored: true
                 }
             }

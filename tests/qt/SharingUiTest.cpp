@@ -389,6 +389,7 @@ Window {
         bool snapshotMatches = true;
         bool viewportMatches = true;
         bool clockCentered = false;
+        bool staticNumbers = false;
         connect(history.statsShare(), &HistoryStatsShare::busyChanged, this, [&] {
             if (history.statsShare()->busy()) {
                 lastStage = visual(window->contentItem(), "historyStatsCapture");
@@ -401,6 +402,10 @@ Window {
                     lastStage && grid &&
                     qAbs(lastStage->property("viewportWidth").toReal() - viewportWidth) < .001 &&
                     grid->property("columns").toInt() >= 1;
+                auto *total = lastStage ? visual(lastStage, "historyTotalPlays") : nullptr;
+                staticNumbers = total && !total->property("resourceActive").toBool() &&
+                                lastStage->findChildren<QObject *>("digitRoll").isEmpty() &&
+                                total->property("text").toString() == "40 次播放";
             } else if (lastStage) {
                 // Capture releases the polished tree before publishing. Observe
                 // geometry here, while deleteLater has not retired the stage.
@@ -445,6 +450,7 @@ Window {
                                             .arg(notices.size())));
                     QVERIFY(snapshotMatches);
                     QVERIFY(viewportMatches);
+                    QVERIFY(staticNumbers);
                     auto *metrics = visual(lastStage, "historyStatGrid");
                     QTRY_COMPARE(metrics->property("columns").toInt(), metrics->width() >= 640 ? 4
                                                                        : metrics->width() >= 300

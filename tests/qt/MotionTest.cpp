@@ -1,6 +1,9 @@
 #include "ThemeStore.h"
 #include "SongCatalogModel.h"
+#include "RenderedInk.h"
 #include <QDir>
+#include <QFontMetricsF>
+#include <QRegularExpression>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -349,6 +352,150 @@ Window {
         QTRY_VERIFY(motionObject(number, "digitRoll"));
         window->hide();
         QTRY_VERIFY(!motionObject(number, "digitRoll"));
+        QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
+    }
+    void rollingStatisticsAlignMixedGlyphsWithNativeText()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QStringList errors;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &warnings) {
+            for (const auto &warning : warnings)
+                errors.append(warning.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Theme
+Window {
+    id: window
+    visible: true
+    width: 720
+    height: 590
+    color: Theme.main
+    property real zoom: 1
+    Item {
+        scale: window.zoom
+        transformOrigin: Item.TopLeft
+        Column {
+            x: 24
+            y: 24
+            Repeater {
+                model: ["1,597 次播放", "211 首", "88 小时", "188 位", "59 %", "5 天 2 小时", "1,597 / 2,000"]
+                delegate: Item {
+                    id: row
+                    required property string modelData
+                    required property int index
+                    width: 650
+                    height: 76
+                    EchoRollingNumber {
+                        id: number
+                        objectName: "mixedNumber-" + row.index
+                        text: row.modelData
+                        font: Theme.font(row.index === 0 ? 19 : row.index === 5 ? 18 : row.index === 6 ? 12 : 26, Theme.semiboldWeight)
+                        lineHeightMode: Text.FixedHeight
+                        lineHeight: font.pixelSize * 1.3
+                    }
+                    Text {
+                        objectName: "mixedReference-" + row.index
+                        y: 36
+                        text: number.text
+                        textFormat: Text.PlainText
+                        font: number.font
+                        color: number.color
+                        lineHeightMode: number.lineHeightMode
+                        lineHeight: number.lineHeight
+                    }
+                }
+            }
+        }
+    }
+})",
+                          QUrl("qrc:/mixed-number-baseline.qml"));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        for (int i = 0; i < 7; ++i) {
+            auto *number = motionObject(root.data(), "mixedNumber-" + QString::number(i));
+            QVERIFY(number);
+            QTRY_VERIFY(motionObject(number, "digitRoll"));
+            QTRY_VERIFY(!motionObject(number, "digitRoll")->property("running").toBool());
+        }
+        const auto output = qEnvironmentVariable("ECHO_MOTION_ARTIFACT_DIR");
+        const QRegularExpression groups(QStringLiteral(R"(\d[\d,.]*|[^\d\s,.]+)"));
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (const auto zoom : {1., 1.25}) {
+                window->setProperty("zoom", zoom);
+                window->resize(qRound(720 * zoom), qRound(590 * zoom));
+                for (const auto active : {true, false}) {
+                    for (int i = 0; i < 7; ++i)
+                        motionObject(root.data(), "mixedNumber-" + QString::number(i))
+                            ->setProperty("resourceActive", active);
+                    QTest::qWait(50);
+                    const auto image = window->grabWindow();
+                    QVERIFY(!image.isNull());
+                    if (!output.isEmpty()) {
+                        QVERIFY(QDir().mkpath(output));
+                        QVERIFY(image.save(output + QString("/mixed-number-%1-%2-%3.png")
+                                                        .arg(int(mode))
+                                                        .arg(zoom)
+                                                        .arg(active)));
+                    }
+                    const auto ratio = qreal(image.width()) / window->width();
+                    for (int i = 0; i < 7; ++i) {
+                        auto *number = qobject_cast<QQuickItem *>(
+                            motionObject(root.data(), "mixedNumber-" + QString::number(i)));
+                        auto *reference = qobject_cast<QQuickItem *>(
+                            motionObject(root.data(), "mixedReference-" + QString::number(i)));
+                        QVERIFY(number && reference);
+                        const auto text = number->property("text").toString();
+                        const auto font = qvariant_cast<QFont>(number->property("font"));
+                        const auto color = qvariant_cast<QColor>(number->property("color"));
+                        const QFontMetricsF metrics(font);
+                        auto matches = groups.globalMatch(text);
+                        while (matches.hasNext()) {
+                            const auto match = matches.next();
+                            const auto left =
+                                metrics.horizontalAdvance(text.left(match.capturedStart()));
+                            const auto right =
+                                metrics.horizontalAdvance(text.left(match.capturedEnd()));
+                            const auto region = [&](QQuickItem *item) {
+                                const auto scene = item->mapRectToScene(
+                                    QRectF(left, 0, right - left, item->implicitHeight()));
+                                return QRectF(scene.topLeft() * ratio, scene.size() * ratio)
+                                    .toAlignedRect();
+                            };
+                            const auto actual =
+                                Test::renderedInkBounds(image, region(number), color);
+                            const auto expected =
+                                Test::renderedInkBounds(image, region(reference), color);
+                            QVERIFY(actual && expected);
+                            const auto offset = (number->mapToScene(QPointF()).y() -
+                                                 reference->mapToScene(QPointF()).y()) *
+                                                ratio;
+                            QVERIFY2(qAbs(actual->top() - expected->top() - offset) <= 1. &&
+                                         qAbs(actual->bottom() - expected->bottom() - offset) <= 1.,
+                                     qPrintable(QString("%1 group=%2 zoom=%3 active=%4 "
+                                                        "actual=%5/%6 expected=%7/%8 offset=%9")
+                                                    .arg(text, match.captured())
+                                                    .arg(zoom)
+                                                    .arg(active)
+                                                    .arg(actual->top())
+                                                    .arg(actual->bottom())
+                                                    .arg(expected->top())
+                                                    .arg(expected->bottom())
+                                                    .arg(offset)));
+                        }
+                    }
+                }
+            }
+        }
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
     }
     void contentEntryHonorsMotionVisibilityAndStagger()
