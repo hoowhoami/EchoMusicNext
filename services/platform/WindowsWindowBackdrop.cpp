@@ -899,24 +899,60 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
         }
         RECT windowRect{};
         RECT clientRect{};
-        if (unit > 1.0 && GetWindowRect(window, &windowRect) && GetClientRect(window, &clientRect)) {
+        if (unit > 1.0 && self->m_window && GetWindowRect(window, &windowRect) &&
+            GetClientRect(window, &clientRect)) {
             const LONG frameWidth =
                 (windowRect.right - windowRect.left) - (clientRect.right - clientRect.left);
             const LONG frameHeight =
                 (windowRect.bottom - windowRect.top) - (clientRect.bottom - clientRect.top);
             const LONG proposedWidth = proposal.right - proposal.left - frameWidth;
             const LONG proposedHeight = proposal.bottom - proposal.top - frameHeight;
-            const auto snapped = [unit](LONG proposed) {
-                return static_cast<LONG>(std::max(unit, std::floor(proposed / unit) * unit));
+            // The native min/max track bounds are device-pixel values that need
+            // not sit on the grid (650 DIP -> ~813 px at 125%), and flooring a
+            // proposal clamped to them would apply a rect past the declared
+            // bound - the sizing loop applies the rewritten rect verbatim.
+            // Aligning the declared bounds onto the grid first - minimum up,
+            // maximum down - keeps the floored size inside [min, max] in one
+            // step. Qt leaves the minimum at 0 and the maximum at
+            // QWINDOWSIZE_MAX when unset: a minimum of zero aligns to one grid
+            // unit (the previous floor), an unset maximum converts to a bound
+            // no real window reaches, so it never binds.
+            const auto align = [unit, dpr](int logical, bool up) {
+                const qreal device = logical * dpr / unit;
+                return static_cast<LONG>((up ? std::ceil(device) : std::floor(device)) * unit);
             };
-            if (wParam != WMSZ_LEFT && wParam != WMSZ_TOPLEFT && wParam != WMSZ_BOTTOMLEFT)
-                proposal.right = proposal.left + frameWidth + snapped(proposedWidth);
-            else
-                proposal.left = proposal.right - frameWidth - snapped(proposedWidth);
-            if (wParam != WMSZ_TOP && wParam != WMSZ_TOPLEFT && wParam != WMSZ_TOPRIGHT)
-                proposal.bottom = proposal.top + frameHeight + snapped(proposedHeight);
-            else
-                proposal.top = proposal.bottom - frameHeight - snapped(proposedHeight);
+            const QSize minimumSize = self->m_window->minimumSize();
+            const QSize maximumSize = self->m_window->maximumSize();
+            const LONG minimumWidth = align(std::max(1, minimumSize.width()), true);
+            const LONG minimumHeight = align(std::max(1, minimumSize.height()), true);
+            const LONG maximumWidth = align(maximumSize.width(), false);
+            const LONG maximumHeight = align(maximumSize.height(), false);
+            const auto snapped = [unit](LONG proposed, LONG minimum, LONG maximum) {
+                return std::min(
+                    maximum,
+                    std::max(minimum, static_cast<LONG>(std::floor(proposed / unit) * unit)));
+            };
+            // WMSZ_* selects the fixed edge per axis, but the untouched axis
+            // keeps its proposal values verbatim: a horizontal drag never moves
+            // the vertical edges, and vice versa.
+            const bool draggingWidth = wParam != WMSZ_TOP && wParam != WMSZ_BOTTOM;
+            const bool draggingHeight = wParam != WMSZ_LEFT && wParam != WMSZ_RIGHT;
+            if (draggingWidth) {
+                if (wParam != WMSZ_LEFT && wParam != WMSZ_TOPLEFT && wParam != WMSZ_BOTTOMLEFT)
+                    proposal.right = proposal.left + frameWidth +
+                                     snapped(proposedWidth, minimumWidth, maximumWidth);
+                else
+                    proposal.left = proposal.right - frameWidth -
+                                    snapped(proposedWidth, minimumWidth, maximumWidth);
+            }
+            if (draggingHeight) {
+                if (wParam != WMSZ_TOP && wParam != WMSZ_TOPLEFT && wParam != WMSZ_TOPRIGHT)
+                    proposal.bottom = proposal.top + frameHeight +
+                                      snapped(proposedHeight, minimumHeight, maximumHeight);
+                else
+                    proposal.top = proposal.bottom - frameHeight -
+                                   snapped(proposedHeight, minimumHeight, maximumHeight);
+            }
         }
     }
     // The Acrylic stays on while the window is dragged: suspending it for the
