@@ -7,10 +7,12 @@
 #include "ThemeStore.h"
 #include "RenderedInk.h"
 #include <QJsonArray>
+#include <QFile>
 #include <QJsonDocument>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
+#include <QQuickItemGrabResult>
 #include <QQuickWindow>
 #include "SettingsStore.h"
 #include <QTemporaryDir>
@@ -423,8 +425,8 @@ private slots:
         QCOMPARE(stats.value("totalSongs").toInt(), 2);
         QCOMPARE(stats.value("totalPlays").toLongLong(), 2);
         QCOMPARE(stats.value("statCards").toList().size(), 4);
-        QCOMPARE(stats.value("recentDays").toList().size(), 7);
-        QCOMPARE(stats.value("timeBuckets").toList().size(), 4);
+        QCOMPARE(stats.value("calendarDays").toList().size(), 35);
+        QCOMPARE(stats.value("hourlyFootprint").toList().size(), 24);
         QCOMPARE(stats.value("topArtists").toList().size(), 1);
         QCOMPARE(stats.value("topArtists").toList().first().toMap().value("name").toString(),
                  QString("周杰伦"));
@@ -503,6 +505,221 @@ private slots:
         QSignalSpy drain(&playback, &PlaybackService::closed);
         playback.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
+    void statisticsRespectSnapshotSemanticsAndRenderBoundedContent()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        SongMetadataService metadata(api);
+        HistoryService service(api, playback, metadata, router, false);
+        const auto today = QDate::currentDate();
+        const auto at = QDateTime(today, QTime(7, 0)).toMSecsSinceEpoch();
+        const auto yesterday = QDateTime(today.addDays(-1), QTime(20, 0)).toMSecsSinceEpoch();
+        QJsonArray entries;
+        const auto append = [&](int id, int plays, qint64 time, qint64 listened) {
+            entries.append(
+                QJsonObject{{"key", QString::number(id)},
+                            {"play_count", plays},
+                            {"played_at", time},
+                            {"listened_ms", listened},
+                            {"track", historyTrack(QString::number(id), "歌曲").toDomain()}});
+        };
+        append(1, 10, at, 60000);
+        append(2, 1, yesterday, 60000);
+        append(3, 2, 0, -1000);
+        HistoryServiceTestAccess::accept(service, entries);
+        const auto stats = service.stats();
+        QCOMPARE(stats["totalPlays"].toInt(), 13);
+        QCOMPARE(stats["listenedMs"].toLongLong(), 120000); // Never duration * plays.
+        QCOMPARE(stats["datedSongs"].toInt(), 2);           // Unknown dates are not 1970.
+        QCOMPARE(stats["calendarDays"].toList().size(), 35);
+        QCOMPARE(stats["hourlyFootprint"].toList().size(), 24);
+        QCOMPARE(stats["hourlyFootprint"].toList()[7].toMap()["count"].toInt(), 1);
+        QCOMPARE(stats["hourlyFootprint"].toList()[20].toMap()["count"].toInt(), 1);
+        QCOMPARE(stats["topSongs"].toList().first().toMap()["id"].toString(), QString("1"));
+        QCOMPARE(stats["replayPercent"].toInt(), 67);
+        QCOMPARE(stats["statCards"].toList()[1].toMap()["value"].toString(), QString("2 分钟"));
+        int dated = 0;
+        for (const auto &bucket : stats["hourlyFootprint"].toList()) {
+            dated += bucket.toMap()["count"].toInt();
+        }
+        QCOMPARE(dated, 2);
+        QCOMPARE(stats["dateRangeLabel"].toString(),
+                 today.addDays(-1).toString("yyyy.MM.dd") + " — " + today.toString("yyyy.MM.dd"));
+
+        // Large snapshots keep six song tiles and at most twelve artist entries.
+        entries = {};
+        const QStringList titles{"海边的风", "Midnight Walk", "晴天之后",
+                                 "慢慢喜欢", "Echoes",        "下一站"};
+        const QStringList artists{"林间", "The Blue Hour", "山海", "白日梦", "River", "晚风",
+                                  "青空", "北岸",          "远山", "星河",   "小岛",  "南风"};
+        for (int i = 0; i < 1000; ++i) {
+            auto track = historyTrack(QString::number(i + 1), titles[i % 6]);
+            track.artist = artists[i % artists.size()];
+            track.album = i % 2 ? "日常的回响" : "沿途的风景";
+            QImage cover(48, 48, QImage::Format_RGB32);
+            cover.fill(QColor::fromHsv(((i % 6) * 44 + 150) % 360, 95, 180));
+            const auto path = dir.filePath(QString("cover-%1.png").arg(i % 6));
+            QVERIFY(cover.save(path));
+            track.cover = QUrl::fromLocalFile(path).toString();
+            entries.append(QJsonObject{
+                {"key", track.id},
+                {"track", track.toDomain()},
+                {"play_count", 1 + i % 8},
+                {"listened_ms", 90000},
+                {"played_at",
+                 QDateTime(today.addDays(-i % 11), QTime(i % 24, 0)).toMSecsSinceEpoch()}});
+        }
+        HistoryServiceTestAccess::accept(service, entries);
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &items) {
+            for (const auto &item : items)
+                warnings.append(item.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.History
+import EchoMusic.Theme
+Window {
+    id: window
+    required property var stats
+    visible: true
+    width: 1040
+    height: stage.height
+    color: Theme.main
+    Rectangle {
+    id: stage
+    objectName: "statsStage"
+    color: Theme.main
+    width: parent.width
+    height: body.implicitHeight + 48
+    HistoryStatsContent {
+        id: body
+        objectName: "statsBody"
+        x: 24; y: 24
+        width: parent.width - 48
+        viewportWidth: window.width
+        stats: window.stats
+    }
+    }
+})",
+                          QUrl("qrc:/statistics-render-test.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"stats", service.stats()}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QTRY_COMPARE(historyVisualCount(window->contentItem(), "historyTopSongRow"), 6);
+        QCOMPARE(historyVisualCount(window->contentItem(), "historyTopArtistRow"), 12);
+        auto *body = historyVisual(window->contentItem(), "statsBody");
+        auto *bar = historyVisual(body, "historyDayBar");
+        QVERIFY(body && bar);
+        auto *animation = historyObject(bar, "historyBarMotion");
+        QVERIFY(animation);
+        const auto originalRatio = bar->property("ratio").toReal();
+        bar->setProperty("ratio", 1.);
+        QTest::qWait(300);
+        bar->setProperty("ratio", .2);
+        QTest::qWait(60);
+        QVERIFY(bar->property("presentedRatio").toReal() > .2);
+        QVERIFY(bar->property("presentedRatio").toReal() < 1.);
+        QVERIFY(animation->property("running").toBool());
+        auto *fill = historyVisual(bar, "historyBarFill");
+        QVERIFY(fill && fill->height() > bar->height() * .2 && fill->height() < bar->height());
+        window->hide();
+        QTRY_COMPARE(bar->property("presentedRatio").toReal(), .2);
+        QVERIFY(!animation->property("running").toBool());
+        window->show();
+        theme.setMotionEnabled(false);
+        bar->setProperty("ratio", .7);
+        QCOMPARE(bar->property("presentedRatio").toReal(), .7);
+        bar->setProperty("ratio", originalRatio);
+        theme.setMotionEnabled(true);
+        QSignalSpy playRequested(body, SIGNAL(playRequested(QString)));
+        auto *favoritePlay = historyVisual(body, "historyFavoritePlay");
+        QVERIFY(favoritePlay && favoritePlay->isEnabled());
+        QVERIFY(QMetaObject::invokeMethod(favoritePlay, "clicked"));
+        QCOMPARE(playRequested.size(), 1);
+        QCOMPARE(playRequested.first().first().toString(),
+                 service.stats()["topSongs"].toList().first().toMap()["id"].toString());
+        const auto artifacts = qEnvironmentVariable("ECHO_HISTORY_ARTIFACTS");
+        // An explicit local domain snapshot can render current artwork after
+        // the deterministic regression above. It never opens a user database.
+        const auto preview = qEnvironmentVariable("ECHO_HISTORY_RENDER_SNAPSHOT");
+        if (!preview.isEmpty() && !artifacts.isEmpty()) {
+            QFile input(preview);
+            QVERIFY(input.open(QIODevice::ReadOnly));
+            const auto document = QJsonDocument::fromJson(input.readAll());
+            QVERIFY(document.isArray() && !document.array().isEmpty());
+            HistoryServiceTestAccess::accept(service, document.array());
+            window->setProperty("stats", service.stats());
+        }
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (const auto width : {1040, 430}) {
+                window->resize(width, window->height());
+                QTest::qWait(250);
+                QTRY_VERIFY(body->height() > 500);
+                auto *clock = historyVisual(body, "historyClockDial");
+                auto *timePanel = historyVisual(body, "historyTimeCard");
+                qInfo() << "clock-layout" << width << clock->x() << clock->parentItem()->width()
+                        << timePanel->width()
+                        << clock->mapToScene(QPointF(clock->width() / 2, 0)).x()
+                        << timePanel->mapToScene(QPointF(timePanel->width() / 2, 0)).x();
+                QTRY_COMPARE_WITH_TIMEOUT(body->property("pendingImages").toInt(), 0, 8000);
+                if (!artifacts.isEmpty()) {
+                    QVERIFY(QDir().mkpath(artifacts));
+                    auto *stage = historyVisual(window->contentItem(), "statsStage");
+                    auto capture = stage->grabToImage();
+                    QVERIFY(capture);
+                    QSignalSpy ready(capture.data(), &QQuickItemGrabResult::ready);
+                    QTRY_VERIFY(!ready.isEmpty());
+                    QVERIFY(capture->image().save(
+                        artifacts + QString("/redesign-%1-%2.png")
+                                        .arg(mode == ThemeStore::Light ? "light" : "dark")
+                                        .arg(width)));
+                }
+            }
+        }
+        theme.setGlobalFontSizeScale(150);
+        window->setWidth(850);
+        QTRY_COMPARE(historyVisual(body, "historyStatGrid")->property("columns").toInt(), 2);
+        QTRY_COMPARE(historyVisual(body, "historyActivityGrid")->property("columns").toInt(), 1);
+        theme.setGlobalFontSizeScale(100);
+        HistoryServiceTestAccess::accept(service, {});
+        window->setProperty("stats", service.stats());
+        QTRY_VERIFY(historyVisual(body, "historyStatsEmpty")->isVisible());
+        QVERIFY(!historyVisual(body, "historyRankingGrid")->isVisible());
+        body->setProperty("loading", true);
+        QTRY_COMPARE(historyVisual(body, "historyStatsEmptyTitle")->property("text").toString(),
+                     QString("正在整理听歌记录"));
+        body->setProperty("loading", false);
+        body->setProperty("errorMessage", "读取失败");
+        auto *retry = historyVisual(body, "historyStatsRetry");
+        QTRY_VERIFY(retry->isVisible());
+        QSignalSpy retryRequested(body, SIGNAL(retryRequested()));
+        QVERIFY(QMetaObject::invokeMethod(retry, "clicked"));
+        QCOMPARE(retryRequested.size(), 1);
+        QCOMPARE(service.stats()["listenedMs"].toLongLong(), 0);
+        QVERIFY(service.stats()["dateRangeLabel"].toString().isEmpty());
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        root.reset();
+        service.shutdown();
+        metadata.shutdown();
+        router.shutdown();
+        QSignalSpy drained(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drained.size(), 1, 15000);
         api.shutdown();
     }
     void nativeHistoryPageAndClearDialog()
@@ -646,8 +863,8 @@ Window {
         QVERIFY(statsView->isVisible());
         QTRY_COMPARE_WITH_TIMEOUT(statsView->property("opacity").toDouble(), 1., 2000);
         QTRY_COMPARE_WITH_TIMEOUT(historyVisualCount(statsView, "historyStatCard"), 4, 2000);
-        QCOMPARE(historyVisualCount(statsView, "historyRecentDay"), 7);
-        QCOMPARE(historyVisualCount(statsView, "historyTimeBucket"), 4);
+        QCOMPARE(historyVisualCount(statsView, "historyCalendarDay"), 35);
+        QCOMPARE(historyVisualCount(statsView, "historyHourSpoke"), 24);
         QCOMPARE(historyVisualCount(statsView, "historyTopArtistRow"), 1);
         QCOMPARE(historyVisualCount(statsView, "historyTopSongRow"), 2);
         {
@@ -656,7 +873,7 @@ Window {
             while (!stack.isEmpty() && !icon) {
                 auto *item = stack.takeFirst();
                 stack.append(item->childItems());
-                if (item->objectName() == "iconImage")
+                if (item->objectName() == "iconImage" && item->isVisible())
                     icon = item;
             }
             QVERIFY(icon);
@@ -687,43 +904,59 @@ Window {
                 auto *artists = historyVisual(statsView, "historyArtistCard");
                 auto *topSongs = historyVisual(statsView, "historyTopSongsCard");
                 auto *latest = historyVisual(pageItem, "historyLatestPlayed");
-                auto *chart = historyVisual(statsView, "historyWeekChart");
+                auto *chart = historyVisual(statsView, "historyCalendar");
+                auto *clock = historyVisual(statsView, "historyClockDial");
+                auto *clockFrame = historyVisual(statsView, "historyClockFrame");
                 QVERIFY(statGrid && activityGrid && rankingGrid && week && time && artists &&
-                        topSongs && latest && chart);
+                        topSongs && latest && chart && clock && clockFrame);
                 for (const int viewportWidth : {639, 640, 641, 979, 980, 981, 1150}) {
                     window->resize(qRound(viewportWidth * zoom), 1000);
                     for (const int sidebarWidth : {0, 216}) {
                         window->setProperty("sidebarWidth", sidebarWidth);
                         const auto logicalWidth = window->width() / shell.uiScale();
-                        const int columns = logicalWidth <= 640 ? 1 : logicalWidth <= 980 ? 2 : 4;
+                        const auto contentWidth = logicalWidth - sidebarWidth - 48;
+                        QTRY_COMPARE(statsView->width(), contentWidth);
+                        const int columns = contentWidth >= 640 ? 4 : contentWidth >= 300 ? 2 : 1;
                         QTRY_COMPARE(statGrid->property("columns").toInt(), columns);
                         QTRY_COMPARE(activityGrid->property("columns").toInt(),
-                                     logicalWidth <= 980 ? 1 : 2);
+                                     contentWidth < 700 ? 1 : 2);
                         QTRY_COMPARE(rankingGrid->property("columns").toInt(),
-                                     logicalWidth <= 980 ? 1 : 2);
+                                     contentWidth < 700 ? 1 : 2);
                         QTRY_COMPARE(latest->isVisible(), logicalWidth >= 640);
-                        QTRY_COMPARE(chart->property("spacing").toReal(),
-                                     logicalWidth <= 640 ? 6. : 10.);
-                        if (logicalWidth > 980) {
-                            // Both widths change during the resize polish. Do
-                            // not freeze the previous grid width before waiting.
-                            QTRY_VERIFY2(
-                                qAbs(time->width() -
-                                     qMax(260., (activityGrid->width() - 14) * .9 / 2.35)) <= 1.,
-                                qPrintable(QString("time=%1 grid=%2 viewport=%3 sidebar=%4")
-                                               .arg(time->width())
-                                               .arg(activityGrid->width())
-                                               .arg(logicalWidth)
-                                               .arg(sidebarWidth)));
+                        QTRY_COMPARE(chart->property("columns").toInt(), 7);
+                        QTRY_VERIFY(qAbs(clockFrame->width() - time->width()) < .01);
+                        QTRY_VERIFY2(
+                            qAbs(clock->mapToScene(QPointF(clock->width() / 2, 0)).x() -
+                                 time->mapToScene(QPointF(time->width() / 2, 0)).x()) *
+                                    window->devicePixelRatio() <=
+                                1.,
+                            qPrintable(
+                                QString("viewport=%1 sidebar=%2 zoom=%3 time=(%4,%5) frame=(%6,%7) "
+                                        "dial=(%8,%9) parent=(%10,%11) centers=%12/%13")
+                                    .arg(logicalWidth)
+                                    .arg(sidebarWidth)
+                                    .arg(zoom)
+                                    .arg(time->x())
+                                    .arg(time->width())
+                                    .arg(clockFrame->x())
+                                    .arg(clockFrame->width())
+                                    .arg(clock->x())
+                                    .arg(clock->width())
+                                    .arg(clockFrame->parentItem()->x())
+                                    .arg(clockFrame->parentItem()->width())
+                                    .arg(clock->mapToScene(QPointF(clock->width() / 2, 0)).x())
+                                    .arg(time->mapToScene(QPointF(time->width() / 2, 0)).x())));
+                        if (contentWidth >= 700) {
+                            QTRY_VERIFY(week->width() >= 280);
+                            QTRY_VERIFY(time->width() >= 240);
                             QTRY_COMPARE(week->y(), time->y());
                             QTRY_COMPARE(week->height(), time->height());
-                            QTRY_VERIFY(qAbs(week->width() + time->width() + 14 -
+                            QTRY_VERIFY(qAbs(week->width() + time->width() + 40 -
                                              activityGrid->width()) <= 1.);
-                            QTRY_VERIFY(qAbs(artists->width() -
-                                             (rankingGrid->width() - 14) * .92 / 2) <= 1.);
-                            QTRY_VERIFY(qAbs(topSongs->x() - artists->width() - 14) <= 1.);
+                            QTRY_VERIFY(qAbs(artists->width() + topSongs->width() + 40 -
+                                             rankingGrid->width()) <= 1.);
+                            QTRY_VERIFY(qAbs(topSongs->x() - artists->width() - 40) <= 1.);
                             QTRY_COMPARE(artists->y(), topSongs->y());
-                            QTRY_COMPARE(artists->height(), topSongs->height());
                         } else {
                             QTRY_VERIFY(time->y() > week->y());
                             QTRY_VERIFY(topSongs->y() > artists->y());
@@ -775,7 +1008,7 @@ Window {
                          qPrintable(QString("collapsed clock fraction %1").arg(glyphFraction)));
                 QCOMPARE(detailHeader->property("heading").toString(), QString("播放历史"));
                 statsView->setProperty("contentY", -statsView->property("topMargin").toReal());
-                QTRY_COMPARE(detailHeader->property("progress").toDouble(), 0.);
+                QTRY_COMPARE(detailHeader->property("progress").toDouble(), 1.);
             }
         }
         theme.setMode(ThemeStore::Light);

@@ -123,17 +123,17 @@ QVariantMap buildStats(const QJsonArray &entries)
     };
     struct Album
     {
-        QString name;
+        QString name, cover;
+        qint64 coverPlays = -1;
         qint64 plays = 0, songs = 0;
     };
     struct Song
     {
-        QString key, title, artist, cover;
+        QString key, id, title, artist, cover;
         qint64 plays = 0;
         QDateTime at;
     };
-    qint64 totalPlays = 0, totalSeconds = 0, replayed = 0;
-    QSet<QDate> activeDays;
+    qint64 totalPlays = 0, listenedMs = 0, replayed = 0;
     QDateTime latest, oldest;
     QMap<QString, Artist> artists;
     QMap<QString, Album> albums;
@@ -143,14 +143,14 @@ QVariantMap buildStats(const QJsonArray &entries)
         const auto entry = value.toObject();
         const auto track = entry["track"].toObject();
         const auto plays = std::max<qint64>(1, entry["play_count"].toInteger());
-        const auto at = QDateTime::fromMSecsSinceEpoch(entry["played_at"].toInteger());
+        const auto timestamp = entry["played_at"].toInteger();
+        const auto at = timestamp > 0 ? QDateTime::fromMSecsSinceEpoch(timestamp) : QDateTime{};
         totalPlays += plays;
-        const auto duration = track["duration_ms"].toDouble();
-        totalSeconds += qint64(duration / 1000.0) * plays;
+        // This is the settled listening ledger, not duration multiplied by plays.
+        listenedMs += std::max<qint64>(0, entry["listened_ms"].toInteger());
         if (plays > 1)
             ++replayed;
         if (at.isValid()) {
-            activeDays.insert(at.date());
             playedAts.append(at);
             if (!latest.isValid() || at > latest)
                 latest = at;
@@ -170,76 +170,37 @@ QVariantMap buildStats(const QJsonArray &entries)
         album.name = albumName;
         album.plays += plays;
         album.songs += 1;
-        songs.append(Song{entry["key"].toString(), track["title"].toString(),
-                          track["artist"].toString(), track["cover"].toString(), plays, at});
+        const auto cover = track["cover"].toString();
+        if (!cover.isEmpty() && plays > album.coverPlays) {
+            album.cover = cover;
+            album.coverPlays = plays;
+        }
+        songs.append(Song{entry["key"].toString(), track["id"].toString(),
+                          track["title"].toString(), track["artist"].toString(),
+                          track["cover"].toString(), plays, at});
     }
     const auto totalSongs = entries.size();
-    const auto spanDays = oldest.isValid() ? oldest.date().daysTo(latest.date()) + 1 : 0;
-    QVariantList cards{
-        QVariantMap{{"label", QObject::tr("累计播放")},
-                    {"value", compact(totalPlays)},
-                    {"caption", QObject::tr("%1 首本地历史").arg(totalSongs)},
-                    {"icon", "play"},
-                    {"tone", "primary"}},
-        QVariantMap{{"label", QObject::tr("估算时长")},
-                    {"value", listenDuration(totalSeconds)},
-                    {"caption", QObject::tr("按歌曲时长与次数估算")},
-                    {"icon", "clock"},
-                    {"tone", "cyan"}},
-        QVariantMap{{"label", QObject::tr("活跃天数")},
-                    {"value", QObject::tr("%1 天").arg(activeDays.size())},
-                    {"caption", spanDays > 0 ? QObject::tr("覆盖最近 %1 天").arg(spanDays)
-                                             : QObject::tr("暂无日期记录")},
-                    {"icon", "heartbeat"},
-                    {"tone", "emerald"}},
-        QVariantMap{{"label", QObject::tr("复听占比")},
-                    {"value", totalSongs > 0
-                                  ? QObject::tr("%1%").arg(qRound(replayed * 100.0 / totalSongs))
-                                  : QStringLiteral("0%")},
-                    {"caption", QObject::tr("%1 首听过多次").arg(replayed)},
-                    {"icon", "star"},
-                    {"tone", "amber"}}};
-    const QStringList weekdays{"一", "二", "三", "四", "五", "六", "日"};
-    QVariantList recent;
-    qint64 maxDay = 1;
-    QList<qint64> dayValues;
-    const auto today = QDate::currentDate();
-    for (int i = 0; i < 7; ++i) {
-        const auto date = today.addDays(i - 6);
-        const auto start = QDateTime(date, QTime(0, 0));
-        const auto end = start.addDays(1);
-        qint64 count = 0;
-        for (const auto &at : std::as_const(playedAts))
-            if (at >= start && at < end)
-                ++count;
-        dayValues.append(count);
-        maxDay = std::max(maxDay, count);
-    }
-    for (int i = 0; i < 7; ++i) {
-        const auto date = today.addDays(i - 6);
-        recent.append(
-            QVariantMap{{"label", i == 6 ? QObject::tr("今天")
-                                         : QObject::tr("周%1").arg(weekdays[date.dayOfWeek() - 1])},
-                        {"dateLabel", QStringLiteral("%1/%2").arg(date.month()).arg(date.day())},
-                        {"value", dayValues[i]},
-                        {"ratio", double(dayValues[i]) / double(maxDay)}});
-    }
-    const QList<QPair<QString, QString>> bucketInfo{{QObject::tr("凌晨"), "00:00-05:59"},
-                                                    {QObject::tr("上午"), "06:00-11:59"},
-                                                    {QObject::tr("下午"), "12:00-17:59"},
-                                                    {QObject::tr("夜晚"), "18:00-23:59"}};
-    QList<qint64> bucketCounts(4, 0);
-    for (const auto &at : std::as_const(playedAts))
-        ++bucketCounts[std::clamp(at.time().hour() / 6, 0, 3)];
-    qint64 maxBucket = 1;
-    for (auto count : std::as_const(bucketCounts))
-        maxBucket = std::max(maxBucket, count);
-    QVariantList buckets;
-    for (int i = 0; i < 4; ++i)
-        buckets.append(QVariantMap{{"label", bucketInfo[i].first},
-                                   {"hint", bucketInfo[i].second},
-                                   {"value", bucketCounts[i]},
-                                   {"ratio", double(bucketCounts[i]) / double(maxBucket)}});
+    const auto replayPercent = totalSongs > 0 ? qRound(replayed * 100.0 / totalSongs) : 0;
+    QVariantList cards{QVariantMap{{"label", QObject::tr("听过的歌曲")},
+                                   {"value", compact(totalSongs)},
+                                   {"unit", QObject::tr("首")},
+                                   {"caption", QObject::tr("每首歌，都是一次相遇")},
+                                   {"icon", "music"}},
+                       QVariantMap{{"label", QObject::tr("已记录时长")},
+                                   {"value", listenDuration(listenedMs / 1000)},
+                                   {"unit", ""},
+                                   {"caption", QObject::tr("来自已结算的收听记录")},
+                                   {"icon", "clock"}},
+                       QVariantMap{{"label", QObject::tr("常听歌手")},
+                                   {"value", compact(artists.size())},
+                                   {"unit", QObject::tr("位")},
+                                   {"caption", QObject::tr("不同的声音，同样的喜欢")},
+                                   {"icon", "microphone"}},
+                       QVariantMap{{"label", QObject::tr("复听歌曲占比")},
+                                   {"value", QString::number(replayPercent)},
+                                   {"unit", "%"},
+                                   {"caption", QObject::tr("%1 首歌曲不止听过一次").arg(replayed)},
+                                   {"icon", "repeat"}}};
     QList<Artist> artistList;
     for (const auto &artist : std::as_const(artists))
         artistList.append(artist);
@@ -250,7 +211,7 @@ QVariantMap buildStats(const QJsonArray &entries)
     });
     QVariantList topArtists;
     const auto maxArtistPlays = artistList.isEmpty() ? 1 : artistList.first().plays;
-    for (int i = 0; i < artistList.size() && i < 6; ++i)
+    for (int i = 0; i < artistList.size() && i < 12; ++i)
         topArtists.append(
             QVariantMap{{"name", artistList[i].name},
                         {"songs", artistList[i].songs},
@@ -269,25 +230,75 @@ QVariantMap buildStats(const QJsonArray &entries)
     });
     const auto topAlbum = albumList.isEmpty() ? QVariantMap{}
                                               : QVariantMap{{"name", albumList.first().name},
+                                                            {"cover", albumList.first().cover},
                                                             {"plays", albumList.first().plays},
                                                             {"songs", albumList.first().songs}};
     QVariantList topSongs;
     for (int i = 0; i < songs.size() && i < 6; ++i)
         topSongs.append(QVariantMap{{"key", songs[i].key},
+                                    {"id", songs[i].id},
                                     {"title", songs[i].title},
                                     {"artist", songs[i].artist},
                                     {"cover", songs[i].cover},
                                     {"plays", songs[i].plays},
                                     {"lastPlayedLabel", playDate(songs[i].at)}});
-    return {{"totalSongs", totalSongs},
-            {"totalPlays", totalPlays},
-            {"latestPlayedLabel", playDate(latest)},
-            {"statCards", cards},
-            {"recentDays", recent},
-            {"timeBuckets", buckets},
-            {"topArtists", topArtists},
-            {"topAlbum", topAlbum},
-            {"topSongs", topSongs}};
+    // Only a track's latest date/hour is retained by the repository. These
+    // bounded views show that footprint, never a fabricated event timeline.
+    QHash<QDate, int> dateCounts;
+    QList<int> hourCounts(24, 0);
+    for (const auto &at : std::as_const(playedAts)) {
+        ++dateCounts[at.date()];
+        ++hourCounts[at.time().hour()];
+    }
+    const auto today = QDate::currentDate();
+    const auto calendarEnd = today.addDays(7 - today.dayOfWeek());
+    const auto calendarStart = calendarEnd.addDays(-34);
+    int calendarMax = 1, calendarSongs = 0, maxHour = 1, peakHour = -1;
+    for (int i = 0; i < 35; ++i)
+        calendarMax = std::max(calendarMax, dateCounts.value(calendarStart.addDays(i)));
+    for (int i = 0; i < 24; ++i) {
+        if (hourCounts[i] > (peakHour < 0 ? 0 : hourCounts[peakHour]))
+            peakHour = i;
+        maxHour = std::max(maxHour, hourCounts[i]);
+    }
+    QVariantList calendar, hours;
+    for (int i = 0; i < 35; ++i) {
+        const auto date = calendarStart.addDays(i);
+        const auto count = dateCounts.value(date);
+        calendarSongs += count;
+        calendar.append(QVariantMap{{"day", date.day()},
+                                    {"date", date.toString("yyyy-MM-dd")},
+                                    {"count", count},
+                                    {"ratio", double(count) / calendarMax},
+                                    {"today", date == today},
+                                    {"future", date > today}});
+    }
+    for (int i = 0; i < 24; ++i)
+        hours.append(QVariantMap{
+            {"hour", i}, {"count", hourCounts[i]}, {"ratio", double(hourCounts[i]) / maxHour}});
+    return {
+        {"totalSongs", totalSongs},
+        {"totalPlays", totalPlays},
+        {"totalPlaysLabel", compact(totalPlays)},
+        {"calendarDays", calendar},
+        {"calendarSongs", calendarSongs},
+        {"calendarLabel",
+         calendarStart.toString("MM.dd") + QStringLiteral(" — ") + today.toString("MM.dd")},
+        {"hourlyFootprint", hours},
+        {"peakHourLabel", peakHour < 0 ? QStringLiteral("—")
+                                       : QStringLiteral("%1:00").arg(peakHour, 2, 10, QChar('0'))},
+        {"listenedMs", listenedMs},
+        {"datedSongs", playedAts.size()},
+        {"replayPercent", replayPercent},
+        {"dateRangeLabel",
+         oldest.isValid()
+             ? oldest.toString("yyyy.MM.dd") + QStringLiteral(" — ") + latest.toString("yyyy.MM.dd")
+             : QString{}},
+        {"latestPlayedLabel", playDate(latest)},
+        {"statCards", cards},
+        {"topArtists", topArtists},
+        {"topAlbum", topAlbum},
+        {"topSongs", topSongs}};
 }
 } // namespace
 HistoryService::HistoryService(ApiClient &api, PlaybackService &playback,

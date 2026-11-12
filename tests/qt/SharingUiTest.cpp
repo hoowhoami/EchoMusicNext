@@ -380,7 +380,7 @@ Window {
         QTRY_VERIFY(!history.loading());
         const auto entries = historyEntries();
         HistoryServiceTestAccess::accept(history, entries);
-        QTRY_VERIFY(visual(window->contentItem(), "historyStatsShareAction"));
+        QTRY_VERIFY(visual(window->contentItem(), "historyStatsShareCollapsed"));
         QVERIFY(!visual(window->contentItem(), "historyStatsCapture"));
         QSignalSpy captured(history.statsShare(), &HistoryStatsShare::captured);
         QSignalSpy notices(history.statsShare(), &HistoryStatsShare::notice);
@@ -388,6 +388,7 @@ Window {
         int createdStages = 0;
         bool snapshotMatches = true;
         bool viewportMatches = true;
+        bool clockCentered = false;
         connect(history.statsShare(), &HistoryStatsShare::busyChanged, this, [&] {
             if (history.statsShare()->busy()) {
                 lastStage = visual(window->contentItem(), "historyStatsCapture");
@@ -399,9 +400,18 @@ Window {
                 viewportMatches =
                     lastStage && grid &&
                     qAbs(lastStage->property("viewportWidth").toReal() - viewportWidth) < .001 &&
-                    grid->property("columns").toInt() == (viewportWidth <= 640   ? 1
-                                                          : viewportWidth <= 980 ? 2
-                                                                                 : 4);
+                    grid->property("columns").toInt() >= 1;
+            } else if (lastStage) {
+                // Capture releases the polished tree before publishing. Observe
+                // geometry here, while deleteLater has not retired the stage.
+                auto *clock = visual(lastStage, "historyClockDial");
+                auto *timePanel = visual(lastStage, "historyTimeCard");
+                clockCentered =
+                    clock && timePanel && timePanel->width() > 200 &&
+                    qAbs(clock->mapToScene(QPointF(clock->width() / 2, 0)).x() -
+                         timePanel->mapToScene(QPointF(timePanel->width() / 2, 0)).x()) *
+                            window->devicePixelRatio() <=
+                        1.;
             }
         });
         const auto output = qEnvironmentVariable("ECHO_SHARE_UI_CAPTURE_DIR");
@@ -420,7 +430,7 @@ Window {
                     window->update();
                     QTRY_VERIFY(!frames.isEmpty());
                     QVERIFY(Test::prepareNativeInput(window));
-                    auto *button = visual(window->contentItem(), "historyStatsShareAction");
+                    auto *button = visual(window->contentItem(), "historyStatsShareCollapsed");
                     QVERIFY(button && button->isVisible() && button->isEnabled());
                     const auto point =
                         button->mapToScene(QPointF(button->width() / 2, button->height() / 2))
@@ -435,7 +445,13 @@ Window {
                                             .arg(notices.size())));
                     QVERIFY(snapshotMatches);
                     QVERIFY(viewportMatches);
+                    auto *metrics = visual(lastStage, "historyStatGrid");
+                    QTRY_COMPARE(metrics->property("columns").toInt(), metrics->width() >= 640 ? 4
+                                                                       : metrics->width() >= 300
+                                                                           ? 2
+                                                                           : 1);
                     QTRY_COMPARE_WITH_TIMEOUT(captured.size(), before + 1, 5000);
+                    QVERIFY(clockCentered);
                     QTRY_VERIFY(lastStage.isNull());
                     QVERIFY(!history.statsShare()->busy());
                     QVERIFY(!visual(window->contentItem(), "historyStatsCapture"));
@@ -451,7 +467,12 @@ Window {
                             if (pixel.red() > 230 && pixel.green() < 60 && pixel.blue() < 80)
                                 ++redPixels;
                         }
-                    QVERIFY(redPixels > 100); // Artwork loaded and painted before capture.
+                    if (!output.isEmpty() && redPixels <= 100)
+                        image.save(output + "/artwork-failure.png");
+                    QVERIFY2(redPixels > 100, qPrintable(QString("artwork pixels=%1 size=%2x%3")
+                                                             .arg(redPixels)
+                                                             .arg(image.width())
+                                                             .arg(image.height())));
                     QVERIFY(QGuiApplication::clipboard()->mimeData()->hasImage());
                     QCOMPARE(QGuiApplication::clipboard()->image(), image);
                     if (!output.isEmpty())

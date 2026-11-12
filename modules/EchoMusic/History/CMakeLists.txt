@@ -17,6 +17,11 @@ qt_add_qml_module(
     HistoryHeader.qml
     HistoryStatsContent.qml
     HistoryStatsCapture.qml
+    HistoryStatsOverview.qml
+    HistoryStatsActivity.qml
+    HistoryStatsRankings.qml
+    HistoryStatsPanel.qml
+    HistoryStatsBar.qml
 )
 target_link_libraries(
     echo_history

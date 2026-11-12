@@ -14,8 +14,8 @@ RoutePage {
     readonly property real expandedHeaderHeight: 176
     readonly property real toolbarHeight: 56 + (page.activeTab === "songs" ? 44 : 0)
     readonly property var stats: service.stats
-    // EchoMusic's media queries use the zoom-adjusted window, not the page
-    // width remaining after the sidebar and content padding.
+    // The window width is also supplied to image export; chart columns adapt
+    // to their actual available width, including sidebar and application zoom.
     readonly property real responsiveWidth: Window.window ? Window.window.width / settings.uiScale : width
     objectName: "historyPage"
     function selectTab(tab: string): void {
@@ -93,7 +93,7 @@ RoutePage {
             height: parent.height
             visible: page.activeTab === "stats"
             // Content padding scrolls with the page body.
-            topMargin: page.expandedHeaderHeight + 56 + 20
+            topMargin: 56 + 56 + 20
             bottomMargin: 48
             interactive: true
             boundsBehavior: Flickable.StopAtBounds
@@ -111,6 +111,10 @@ RoutePage {
                     width: parent.width
                     viewportWidth: page.responsiveWidth
                     stats: page.stats
+                    loading: page.service.loading
+                    errorMessage: page.service.errorMessage
+                    onRetryRequested: page.service.refresh()
+                    onPlayRequested: id => page.service.actions.play(id, false)
                     resourceActive: page.pageActive && page.activeTab === "stats"
                 }
             }
@@ -126,7 +130,7 @@ RoutePage {
                 sourceComponent: Component {
                     HistoryHeader {
                         service: page.service
-                        scrollTop: viewport.scrollTop
+                        scrollTop: page.activeTab === "stats" ? page.expandedHeaderHeight - 56 : viewport.scrollTop
                         resourceActive: page.pageActive
                         showPlaybackActions: page.activeTab === "songs"
                         showClear: page.activeTab === "songs"
@@ -141,7 +145,7 @@ RoutePage {
         EchoPageStickyHeader {
             id: toolbar
             container: viewport
-            flowPosition: page.expandedHeaderHeight
+            flowPosition: page.activeTab === "stats" ? 56 : page.expandedHeaderHeight
             stickyTop: header.height
             height: page.toolbarHeight
             EchoDivider {

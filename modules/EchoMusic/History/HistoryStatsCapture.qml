@@ -55,6 +55,7 @@ Rectangle {
             stats: stage.stats
             viewportWidth: stage.viewportWidth
             animate: false
+            interactive: false
         }
     }
 }
