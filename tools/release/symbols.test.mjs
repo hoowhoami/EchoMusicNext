@@ -53,8 +53,8 @@ test('archive rejects a same-name PDB with a different native identity', () => {
       '#define ECHO_BUILD_ID "test"\n',
     );
     const guid = '00112233445566778899aabbccddeeff';
-    fs.writeFileSync(path.join(stage, 'echomusicnext.exe'), pe(guid, 4));
-    fs.writeFileSync(path.join(build, 'echomusicnext.pdb'), pdb(guid, 3));
+    fs.writeFileSync(path.join(stage, 'EchoMusicNext.exe'), pe(guid, 4));
+    fs.writeFileSync(path.join(build, 'EchoMusicNext.pdb'), pdb(guid, 3));
     assert.deepEqual(peDebugIdentity(pe(guid, 4)), { guid, age: 4 });
     assert.deepEqual(pdbDebugIdentity(pdb(guid, 3)), { guid, age: 3 });
     assert.throws(
@@ -69,7 +69,7 @@ test('archive rejects a same-name PDB with a different native identity', () => {
         }),
       /Missing matching PDB/,
     );
-    fs.writeFileSync(path.join(build, 'echomusicnext.pdb'), pdb(guid, 4));
+    fs.writeFileSync(path.join(build, 'EchoMusicNext.pdb'), pdb(guid, 4));
     const result = collectSymbols({
       build,
       stage,
@@ -80,7 +80,7 @@ test('archive rejects a same-name PDB with a different native identity', () => {
     });
     assert.equal(result.files.length, 1);
     assert.deepEqual(result.files[0].debugIdentity, { guid, age: 4 });
-    assert.equal(fs.readFileSync(path.join(output, 'echomusicnext.pdb')).length, 2048);
+    assert.equal(fs.readFileSync(path.join(output, 'EchoMusicNext.pdb')).length, 2048);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -104,8 +104,8 @@ test('Rust PDB lookup follows the configured external Cargo directory and keeps 
     fs.writeFileSync(path.join(build, 'CMakeCache.txt'), `ECHO_CARGO_DIR:PATH=${cargo}\r\n`);
     const appGuid = '00112233445566778899aabbccddeeff',
       rustGuid = '11223344556677889900aabbccddeeff';
-    fs.writeFileSync(path.join(stage, 'echomusicnext.exe'), pe(appGuid, 4));
-    fs.writeFileSync(path.join(build, 'echomusicnext.pdb'), pdb(appGuid, 4));
+    fs.writeFileSync(path.join(stage, 'EchoMusicNext.exe'), pe(appGuid, 4));
+    fs.writeFileSync(path.join(build, 'EchoMusicNext.pdb'), pdb(appGuid, 4));
     fs.writeFileSync(path.join(stage, 'echo_ffi.dll'), pe(rustGuid, 7));
     fs.writeFileSync(path.join(build, 'echo_ffi.pdb'), pdb(rustGuid, 6));
     const rustPdb = path.join(cargo, 'release/deps/echo_ffi.pdb');
@@ -139,8 +139,8 @@ test('Rust ELF symbols are found in the configured Cargo output with their origi
     fs.mkdirSync(stage);
     fs.writeFileSync(path.join(build, 'generated/EchoBuildInfo.h'), 'test');
     fs.writeFileSync(path.join(build, 'CMakeCache.txt'), `ECHO_CARGO_DIR:PATH=${cargo}\n`);
-    fs.writeFileSync(path.join(stage, 'echomusicnext'), 'app');
-    fs.writeFileSync(path.join(build, 'echomusicnext'), 'app-dwarf');
+    fs.writeFileSync(path.join(stage, 'EchoMusicNext'), 'app');
+    fs.writeFileSync(path.join(build, 'EchoMusicNext'), 'app-dwarf');
     fs.writeFileSync(path.join(stage, 'libecho_ffi.so'), 'rust-stripped');
     fs.writeFileSync(path.join(cargo, 'release/libecho_ffi.so'), 'rust-dwarf');
     let rustId = 'cc33';
@@ -179,8 +179,8 @@ test('stripped Linux deployment retains only DWARF with the same ELF build ID', 
     fs.mkdirSync(path.join(build, 'generated'), { recursive: true });
     fs.mkdirSync(stage);
     fs.writeFileSync(path.join(build, 'generated/EchoBuildInfo.h'), 'test');
-    fs.writeFileSync(path.join(stage, 'echomusicnext'), 'stripped');
-    fs.writeFileSync(path.join(build, 'echomusicnext'), 'original-dwarf');
+    fs.writeFileSync(path.join(stage, 'EchoMusicNext'), 'stripped');
+    fs.writeFileSync(path.join(build, 'EchoMusicNext'), 'original-dwarf');
     let originalId = 'aa22';
     const run = (_, args) => ({
       status: 0,
@@ -201,7 +201,7 @@ test('stripped Linux deployment retains only DWARF with the same ELF build ID', 
     const result = collectSymbols(options);
     assert.equal(result.files[0].debugIdentity, 'aa22');
     assert.notEqual(result.files[0].sha256, result.files[0].packagedSha256);
-    assert.equal(fs.readFileSync(path.join(output, 'echomusicnext'), 'utf8'), 'original-dwarf');
+    assert.equal(fs.readFileSync(path.join(output, 'EchoMusicNext'), 'utf8'), 'original-dwarf');
     originalId = 'bb33';
     assert.throws(() => collectSymbols(options), /Missing matching DWARF ELF/);
   } finally {

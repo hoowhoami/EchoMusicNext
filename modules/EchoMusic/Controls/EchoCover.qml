@@ -28,10 +28,12 @@ Item {
         }
     }
     property string placeholderGlyph: "music"
-    property real placeholderGlyphSize: 20
+    // Keep the fallback balanced from compact rows to full playback artwork.
+    property real placeholderGlyphSize: Math.max(0, Math.min(width, height)) * 0.5
     property real placeholderOpacity: 0.3
     // Pooled/inactive delegates release decoded images and their mask textures.
     property bool resourceActive: true
+    property bool transitionSourceActive: false
     property real revealOpacity: 1
     EchoMotionScope {
         id: revealScope
@@ -60,7 +62,7 @@ Item {
         id: coverSource
         objectName: "coverSource"
         source: control.source
-        active: control.resourceActive && control.visible
+        active: control.resourceActive && (control.visible || control.transitionSourceActive)
         context: ({
                 scope: control.coverScope,
                 alt: control.coverAlt,
@@ -73,7 +75,7 @@ Item {
         id: metrics
         objectName: "coverMetrics"
         item: control
-        active: control.resourceActive && control.visible
+        active: control.resourceActive && (control.visible || control.transitionSourceActive)
         source: coverSource.resolvedSource
         minimumSize: Qt.size(control.minimumDecodeSize, control.minimumDecodeSize)
     }

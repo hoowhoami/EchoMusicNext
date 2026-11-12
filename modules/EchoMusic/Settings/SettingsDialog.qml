@@ -232,7 +232,7 @@ Popup {
                     cacheBuffer: 41 * 2
                     spacing: 3
                     boundsBehavior: Flickable.StopAtBounds
-                    delegate: Button {
+                    delegate: EchoActionButton {
                         id: entry
                         required property string sectionKey
                         required property string sectionLabel

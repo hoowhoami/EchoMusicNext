@@ -60,7 +60,7 @@ EchoAnchoredPopup {
                 spacing: 4
                 Repeater {
                     model: [qsTr("歌曲音效"), qsTr("均衡器"), qsTr("音效"), qsTr("音效广场")]
-                    delegate: Button {
+                    delegate: EchoActionButton {
                         id: tabButton
                         required property string modelData
                         required property int index

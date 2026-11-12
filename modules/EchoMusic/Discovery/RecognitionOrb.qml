@@ -118,7 +118,7 @@ Item {
             }
         }
     }
-    Button {
+    EchoActionButton {
         id: button
         objectName: "recognitionMainButton"
         anchors.fill: parent

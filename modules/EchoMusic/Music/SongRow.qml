@@ -328,10 +328,7 @@ ItemDelegate {
                 font: publicRow.styledFont(Theme.font(13, Theme.regularWeight))
                 elide: Text.ElideRight
             }
-            HoverHandler {
-                cursorShape: Qt.PointingHandCursor
-                enabled: albumLink.enabled
-            }
+            EchoActionCursor {}
             onClicked: row.albumRequested(row.albumId)
         }
         Text {

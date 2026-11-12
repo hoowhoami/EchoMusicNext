@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import EchoMusic.Theme
 import EchoMusic.Controls
 
-Button {
+EchoActionButton {
     id: card
     required property string entryKey
     required property string title

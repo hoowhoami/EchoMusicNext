@@ -4,6 +4,7 @@
 mod asset_archive;
 mod audio;
 mod capabilities;
+mod diagnostic_zip;
 mod interception;
 mod logging;
 mod plugin_archive;

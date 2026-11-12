@@ -103,7 +103,7 @@ Rectangle {
     Repeater {
         id: buttons
         model: tabs.shownLabels
-        delegate: Button {
+        delegate: EchoActionButton {
             id: tab
             required property int index
             required property string modelData

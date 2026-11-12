@@ -42,7 +42,7 @@ ColumnLayout {
                 Layout.fillHeight: false
                 Layout.fillWidth: true
                 spacing: 2
-                Button {
+                EchoActionButton {
                     id: currentEffect
                     Layout.fillWidth: true
                     implicitHeight: 26
@@ -202,7 +202,7 @@ ColumnLayout {
             spacing: 4
             Repeater {
                 model: pane.sourceLabels
-                delegate: Button {
+                delegate: EchoActionButton {
                     id: sourceButton
                     required property int index
                     required property string modelData

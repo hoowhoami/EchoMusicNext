@@ -80,6 +80,10 @@ ApplicationWindow {
     property SettingsDataService settingsDataService: null
     property RelaunchService relaunchService: null
     property LogService logService: null
+    readonly property bool diagnosticNoticeReady: logService !== null && logService.diagnostics !== null && visible && visibility !== Window.Minimized && !startupPending && mainShell !== null && mainShell.initialPageReady
+    onDiagnosticNoticeReadyChanged: if (diagnosticNoticeReady)
+        logService.diagnostics.checkStartupNotice()
+
     // Application-owned recovery remains reachable even if a plugin hides the
     // shell or replaces its controls. No contribution can target this surface.
     Shortcut {
@@ -479,7 +483,8 @@ ApplicationWindow {
                             // Frost hides the shell before the cover flight takes its
                             // snapshot. Keep only this small static source until the
                             // transition ends, then release it with the hidden bar.
-                            coverItem.resourceActive: playerBar.visible || playbackPageLoader.item !== null && (playbackPageLoader.item as PlaybackPage).visible && !(playbackPageLoader.item as PlaybackPage).opened
+                            coverItem.transitionSourceActive: playbackPageLoader.item !== null && (playbackPageLoader.item as PlaybackPage).visible && !(playbackPageLoader.item as PlaybackPage).opened
+                            coverItem.resourceActive: playerBar.visible || playerBar.coverItem.transitionSourceActive
                             manageCapacity: !playbackPageLoader.item || !(playbackPageLoader.item as PlaybackPage).visible
                             onPlaybackPageRequested: {
                                 playbackPageLoader.open();
@@ -491,6 +496,21 @@ ApplicationWindow {
                         }
                     }
                 }
+            }
+        }
+        Connections {
+            target: mainWindow.logService ? mainWindow.logService.diagnostics : null
+            function onRecordsRequested(): void {
+                startupCrashRecordsOwner.open();
+            }
+        }
+        EchoPopupLoader {
+            id: startupCrashRecordsOwner
+            objectName: "startupCrashRecordsOwner"
+            hostItem: mainWindow.contentItem
+            sourceComponent: CrashRecordsDialog {
+                service: mainWindow.logService.diagnostics
+                uiScale: mainWindow.shellSettings.uiScale
             }
         }
         EchoPopupLoader {

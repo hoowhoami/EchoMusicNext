@@ -506,6 +506,9 @@ void ControlsUiTest::selectSearchMultiKeyboardPlacementAndVirtualization()
     QVERIFY(popup->property("visible").toBool());
     auto *removeTag = findVisual(selector, "selectTagRemoveAction");
     QVERIFY(removeTag);
+    QCOMPARE(removeTag->size(), QSizeF(14, 14));
+    QCOMPARE(removeTag->property("availableWidth").toReal(), 6.);
+    QCOMPARE(removeTag->property("availableHeight").toReal(), 10.);
     const auto removePoint =
         removeTag->mapToScene(QPointF(removeTag->width() / 2, removeTag->height() / 2)).toPoint();
     Test::moveNativePointer(session.window, removePoint);

@@ -8,7 +8,7 @@ import { verifyStage } from './verify-stage.mjs';
 function fixture(platform, arch) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'echo-stage-'));
   const stage = path.join(root, 'stage');
-  const bin = path.join(stage, platform === 'macOS' ? 'echomusicnext.app/Contents/MacOS' : 'bin');
+  const bin = path.join(stage, platform === 'macOS' ? 'EchoMusicNext.app/Contents/MacOS' : 'bin');
   const helpers = platform === 'macOS' ? path.join(bin, '../Helpers') : bin;
   const tools = path.join(root, 'tools');
   fs.mkdirSync(bin, { recursive: true });
@@ -28,7 +28,7 @@ function fixture(platform, arch) {
     bytes.writeUInt32LE(arch === 'arm64' ? 0x100000c : 0x1000007, 4);
   }
   const suffix = platform === 'Windows' ? '.exe' : '';
-  fs.writeFileSync(path.join(bin, 'echomusicnext' + suffix), bytes);
+  fs.writeFileSync(path.join(bin, 'EchoMusicNext' + suffix), bytes);
   for (const name of [
     'echo-update-helper',
     'crashpad_handler',
@@ -128,7 +128,7 @@ for (const name of [
       try {
         const file = path.join(f.bin, '..', name);
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        const bytes = fs.readFileSync(path.join(f.bin, 'echomusicnext'));
+        const bytes = fs.readFileSync(path.join(f.bin, 'EchoMusicNext'));
         bytes.writeUInt32LE(0x1000007, 4);
         fs.writeFileSync(file, bytes);
         assert.throws(() => verifyStage(f.stage, 'macOS', 'arm64'), /architecture mismatch/);

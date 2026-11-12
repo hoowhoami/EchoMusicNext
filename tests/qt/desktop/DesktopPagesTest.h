@@ -50,6 +50,8 @@ private slots:
     void fullscreenShortcutReachesModalPlaybackPage();
     void productionExperimentalIdentitySettings_data();
     void productionExperimentalIdentitySettings();
+    void productionDiagnosticRecordsAndExport_data();
+    void productionDiagnosticRecordsAndExport();
     void productionExperimentalLoggingSettings_data();
     void productionExperimentalLoggingSettings();
     void productionNetworkSettingsAutoSaveResetAndTheme_data();

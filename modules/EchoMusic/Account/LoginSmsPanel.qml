@@ -125,7 +125,7 @@ ColumnLayout {
             ScrollBar.vertical: EchoScrollBar {
                 resourceActive: panel.visible
             }
-            delegate: Button {
+            delegate: EchoActionButton {
                 id: candidate
                 objectName: "smsCandidateRow-" + index
                 required property int index

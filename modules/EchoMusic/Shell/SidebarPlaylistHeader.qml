@@ -37,7 +37,7 @@ Item {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             spacing: 4
-            Button {
+            EchoActionButton {
                 id: created
                 objectName: "sidebarCreatedTab"
                 padding: 0
@@ -56,7 +56,7 @@ Item {
                 Layout.preferredHeight: 12
                 color: Theme.withAlpha(Theme.text, Theme.dark ? 0.36 : 0.22)
             }
-            Button {
+            EchoActionButton {
                 id: collected
                 objectName: "sidebarCollectedTab"
                 padding: 0
@@ -137,6 +137,7 @@ Item {
                         model: [qsTr("新建空歌单"), qsTr("导入外部歌单")]
                         delegate: ItemDelegate {
                             id: action
+                            EchoActionCursor {}
                             required property int index
                             required property string modelData
                             objectName: index === 0 ? "sidebarPlaylistNew" : "sidebarPlaylistImport"

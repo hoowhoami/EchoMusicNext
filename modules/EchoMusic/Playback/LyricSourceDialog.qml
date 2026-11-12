@@ -137,7 +137,7 @@ EchoDialog {
                                     readonly property string displayArtist: sourceArtist || dialog.playback.artist
                                     width: candidates.width
                                     height: candidateButton.implicitHeight
-                                    Button {
+                                    EchoActionButton {
                                         id: candidateButton
                                         objectName: "lyricSourceChoice-" + candidate.index
                                         x: 0

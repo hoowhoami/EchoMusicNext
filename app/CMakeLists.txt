@@ -17,6 +17,7 @@ qt_add_executable(
     UiBootstrap.cpp
     RecoveryBootstrap.cpp
 )
+set_target_properties(echomusicnext PROPERTIES OUTPUT_NAME EchoMusicNext)
 set(ECHO_APPLICATION_OUTPUT_DIRECTORY
     ""
     CACHE PATH "Optional isolated executable output for active-session validation"
@@ -150,7 +151,7 @@ add_dependencies(echomusicnext echo-theme-image-worker echo-plugin-asset-worker)
 add_dependencies(echomusicnext echo-update-helper)
 echo_copy_crash_runtime(echomusicnext)
 if(APPLE)
-    install(TARGETS crashpad_handler RUNTIME DESTINATION "echomusicnext.app/Contents/Helpers")
+    install(TARGETS crashpad_handler RUNTIME DESTINATION "EchoMusicNext.app/Contents/Helpers")
 else()
     install(TARGETS crashpad_handler RUNTIME DESTINATION bin)
     if(WIN32)
@@ -165,15 +166,15 @@ install(
 )
 if(APPLE)
     install(TARGETS echo-theme-image-worker echo-plugin-asset-worker echo-update-helper
-            RUNTIME DESTINATION "echomusicnext.app/Contents/Helpers"
+            RUNTIME DESTINATION "EchoMusicNext.app/Contents/Helpers"
     )
-    install(FILES "$<TARGET_FILE:echo_ffi>" DESTINATION "echomusicnext.app/Contents/Frameworks")
+    install(FILES "$<TARGET_FILE:echo_ffi>" DESTINATION "EchoMusicNext.app/Contents/Frameworks")
     install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${ECHO_PACKAGED_CHANGELOG_FILE}"
                   "${PROJECT_SOURCE_DIR}/docs/third-party-notices.md"
-            DESTINATION "echomusicnext.app/Contents/Resources/licenses"
+            DESTINATION "EchoMusicNext.app/Contents/Resources/licenses"
     )
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/docs/licenses/"
-            DESTINATION "echomusicnext.app/Contents/Resources/licenses/third-party"
+            DESTINATION "EchoMusicNext.app/Contents/Resources/licenses/third-party"
     )
 else()
     install(TARGETS echo-theme-image-worker echo-plugin-asset-worker echo-update-helper

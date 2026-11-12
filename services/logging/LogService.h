@@ -5,6 +5,7 @@
 #include <QtLogging>
 #include <memory>
 #include "SettingsStore.h"
+#include "DiagnosticService.h"
 namespace EchoMusic
 {
 class LogSink;
@@ -13,6 +14,7 @@ class LogSink;
 class LogService final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(EchoMusic::DiagnosticService *diagnostics READ diagnostics CONSTANT)
     Q_PROPERTY(QString level READ level WRITE setLevel NOTIFY changed)
     Q_PROPERTY(bool apiResponseBody READ apiResponseBody WRITE setApiResponseBody NOTIFY changed)
     Q_PROPERTY(bool diagnosticActive READ diagnosticActive NOTIFY changed)
@@ -29,6 +31,10 @@ public:
     QString directory() const
     {
         return m_directory;
+    }
+    DiagnosticService *diagnostics() const
+    {
+        return m_diagnosticService.get();
     }
     QString level() const;
     void setLevel(const QString &level);
@@ -53,6 +59,7 @@ private:
     QtMessageHandler m_previous = nullptr;
     QTimer m_poll;
     std::shared_ptr<LogSink> m_sink;
+    std::unique_ptr<DiagnosticService> m_diagnosticService;
     bool m_active = false;
     int m_level = 2;
     bool m_responseBody = false;

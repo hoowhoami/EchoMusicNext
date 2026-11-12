@@ -115,7 +115,7 @@ Item {
                 if (root.activeTabItem === item)
                     root.activeTabItem = null;
             }
-            delegate: Button {
+            delegate: EchoActionButton {
                 id: tab
                 required property int index
                 required property string modelData

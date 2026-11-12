@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=EchoMusicNext
-Exec=echomusicnext %U
+Exec=EchoMusicNext %U
 Icon=@ECHO_APPLICATION_ID@
 Terminal=false
 Categories=AudioVideo;Audio;Player;

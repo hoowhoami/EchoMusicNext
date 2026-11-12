@@ -188,7 +188,7 @@ Popup {
                         spacing: 9
                         Repeater {
                             model: 7
-                            delegate: Button {
+                            delegate: EchoActionButton {
                                 id: preset
                                 required property int index
                                 readonly property color swatchColor: drawer.accentPresets[index]
@@ -215,26 +215,20 @@ Popup {
                                 }
                             }
                         }
-                        Button {
+                        EchoIconButton {
                             objectName: "customAccentAction"
                             implicitWidth: 24
                             implicitHeight: 24
-                            Accessible.name: qsTr("自定义强调色")
+                            glyph: "plus"
+                            text: qsTr("自定义强调色")
+                            padding: 5
+                            foreground: Theme.floatingText
                             onClicked: accentPickerOwner.open()
                             background: Rectangle {
                                 radius: 12
                                 color: Theme.store.customColor
                                 border.width: 1
                                 border.color: Theme.floatingBorder
-                            }
-                            contentItem: Item {
-                                EchoIcon {
-                                    anchors.centerIn: parent
-                                    width: 14
-                                    height: 14
-                                    name: "plus"
-                                    color: Theme.floatingText
-                                }
                             }
                         }
                     }

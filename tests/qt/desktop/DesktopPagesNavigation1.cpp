@@ -1515,12 +1515,16 @@ void DesktopPagesTest::productionSidebarCardsMenusAndLayout()
     QCOMPARE(item("sidebarShortcut-explore"), keptExplore.data());
     home = item("sidebarShortcut-home");
     QVERIFY(Test::prepareNativeInput(session.window));
-    QTest::mouseMove(session.window, QPoint(700, 50), 20);
-    QTest::mouseMove(session.window, center(home), 20);
-    QTRY_VERIFY(item("sidebarShortcutRemove-home")->isVisible());
+    Test::moveNativePointer(session.window, QPoint(700, 50));
+    Test::moveNativePointer(session.window, center(home));
+    auto *removeHome = item("sidebarShortcutRemove-home");
+    QVERIFY(removeHome);
+    // Cursor changes/captures can reconcile Cocoa hover with the real pointer.
+    // Wait for the actual hover fade instead of the always-visible hit item.
+    QTRY_VERIFY(removeHome->property("opacity").toReal() > .9);
     QVERIFY(capture("sidebar-card-hover"));
-    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier,
-                      center(item("sidebarShortcutRemove-home")));
+    Test::moveNativePointer(session.window, center(removeHome));
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, center(removeHome));
     QTRY_COMPARE(layout->shortcuts().size(), 1);
     QTRY_COMPARE(item("sidebarShortcutAdd")->height(), 46.0);
     // Odd card counts used to allocate nearly all width to the add button.

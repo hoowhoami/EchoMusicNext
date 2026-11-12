@@ -129,7 +129,7 @@ EchoAnchoredPopup {
                         spacing: 8
                         Repeater {
                             model: [10, 20, 30, 60]
-                            delegate: Button {
+                            delegate: EchoActionButton {
                                 id: durationButton
                                 required property int modelData
                                 objectName: "sleepDuration-" + modelData
@@ -170,7 +170,7 @@ EchoAnchoredPopup {
                             }
                         }
                     }
-                    Button {
+                    EchoActionButton {
                         id: customButton
                         Layout.fillWidth: true
                         implicitHeight: 38
@@ -272,7 +272,7 @@ EchoAnchoredPopup {
                                     description: qsTr("停止音乐并关闭电脑")
                                 }
                             ]
-                            delegate: Button {
+                            delegate: EchoActionButton {
                                 id: actionButton
                                 required property var modelData
                                 objectName: "sleepAction-" + modelData.action

@@ -249,7 +249,7 @@ Item {
                                         note: qsTr("仅限受邀成员，按 APP 默认最多 5 人")
                                     }
                                 ]
-                                Button {
+                                EchoActionButton {
                                     id: privacyOption
                                     objectName: "listenPrivacyOption" + index
                                     required property var modelData

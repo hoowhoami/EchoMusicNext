@@ -5,15 +5,15 @@ import { isMacosBinary, verifyMacosArchitecture } from './macos-architecture.mjs
 export function verifyStage(stage, platform, arch, { smoke = false } = {}) {
   const binaryDirectory =
     platform === 'macOS'
-      ? path.join(stage, 'echomusicnext.app/Contents/MacOS')
+      ? path.join(stage, 'EchoMusicNext.app/Contents/MacOS')
       : path.join(stage, 'bin');
   const executable = path.join(
     binaryDirectory,
-    platform === 'Windows' ? 'echomusicnext.exe' : 'echomusicnext',
+    platform === 'Windows' ? 'EchoMusicNext.exe' : 'EchoMusicNext',
   );
   const helper =
     platform === 'macOS'
-      ? path.join(stage, 'echomusicnext.app/Contents/Helpers/echo-update-helper')
+      ? path.join(stage, 'EchoMusicNext.app/Contents/Helpers/echo-update-helper')
       : path.join(
           binaryDirectory,
           platform === 'Windows' ? 'echo-update-helper.exe' : 'echo-update-helper',
@@ -34,14 +34,14 @@ export function verifyStage(stage, platform, arch, { smoke = false } = {}) {
   }
   const crashHandler =
     platform === 'macOS'
-      ? path.join(stage, 'echomusicnext.app/Contents/Helpers/crashpad_handler')
+      ? path.join(stage, 'EchoMusicNext.app/Contents/Helpers/crashpad_handler')
       : path.join(
           binaryDirectory,
           platform === 'Windows' ? 'crashpad_handler.exe' : 'crashpad_handler',
         );
   const imageHelpers = ['echo-theme-image-worker', 'echo-plugin-asset-worker'].map((name) =>
     platform === 'macOS'
-      ? path.join(stage, 'echomusicnext.app/Contents/Helpers', name)
+      ? path.join(stage, 'EchoMusicNext.app/Contents/Helpers', name)
       : path.join(binaryDirectory, platform === 'Windows' ? `${name}.exe` : name),
   );
   const nativeExecutables = [executable, helper, crashHandler, ...imageHelpers];

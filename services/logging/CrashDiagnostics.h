@@ -21,6 +21,7 @@ public:
     static QString argumentLogDirectory(int argc, char **argv);
     static QJsonObject summarizeDump(const QString &path);
     static QString buildDescription();
+    static QJsonObject buildIdentity();
     static void recordFatal(const char *reason) noexcept;
     static void recordQtFatal(const QString &message);
     // Only for an already-sanitized Qt fatal message, outside a signal handler.

@@ -47,6 +47,10 @@ struct Codec
             !consume(value.toByteArray().size() * 2))
             return {};
         switch (value.metaType().id()) {
+        case QMetaType::UnknownType:
+            // QSettings can retain an explicitly unset entry as @Invalid().
+            // Preserve it separately from nullptr and from an absent key.
+            return {{"type", "invalid"}};
         case QMetaType::Nullptr:
             return {{"type", "null"}};
         case QMetaType::Bool:
@@ -128,6 +132,8 @@ struct Codec
             return {};
         const auto type = entry.value("type").toString();
         const auto value = entry.value("value");
+        if (type == "invalid")
+            return {};
         if (type == "null")
             return QVariant::fromValue(nullptr);
         if (type == "bool" && value.isBool())

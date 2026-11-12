@@ -269,7 +269,6 @@ Window {
                 // 一样，回退到兜底封面（EchoCover 的 music 字形占位）。
                 source: window.playback.cover
                 placeholderGlyph: "music"
-                placeholderGlyphSize: 14
                 placeholderColor: Qt.rgba(window.fg.r, window.fg.g, window.fg.b, 0.08)
                 placeholderOpacity: 1
                 Behavior on Layout.preferredWidth {

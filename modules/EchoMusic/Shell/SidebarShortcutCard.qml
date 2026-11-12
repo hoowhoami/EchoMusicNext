@@ -53,8 +53,9 @@ Item {
             }
         }
     }
-    Button {
+    EchoActionButton {
         id: activate
+        cursorShape: Qt.ArrowCursor
         anchors.fill: parent
         enabled: card.layout.isPlugin(card.entryKey) ? card.layout.entryEnabled(card.entryKey) : card.router.available(card.routeName)
         Accessible.name: card.title + (card.entryIndex === 0 ? qsTr("（首页）") : "")
@@ -116,7 +117,6 @@ Item {
                     circular: card.routeName === "artist-detail"
                     cornerRadius: circular ? width / 2 : 5
                     placeholderGlyph: card.routeName === "artist-detail" ? "user" : "playlist-add"
-                    placeholderGlyphSize: 16
                     resourceActive: card.resourceActive
                 }
                 Behavior on opacity {

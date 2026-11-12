@@ -57,7 +57,7 @@ EchoDialog {
                 spacing: 4
                 Repeater {
                     model: manager.labels
-                    delegate: Button {
+                    delegate: EchoActionButton {
                         id: tab
                         required property string modelData
                         required property int index

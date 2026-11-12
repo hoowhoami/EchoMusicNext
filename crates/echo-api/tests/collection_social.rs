@@ -33,6 +33,57 @@ fn collected_playlist_and_album_acknowledge_local_library_ids() {
         assert_eq!(removed.playlist_count, Some(46));
     }
 }
+
+#[test]
+fn playlist_identity_conversion_preserves_missing_gid_namespaces() {
+    // Missing-field variants of saved responses exercise the production converters;
+    // they are regression inputs, not evidence of a new upstream response shape.
+    let mut library: Value =
+        serde_json::from_slice(&payload("user_playlist", "full-page")).unwrap();
+    let rows = library["data"]["info"].as_array_mut().unwrap();
+    let row = rows
+        .iter_mut()
+        .find(|row| row["type"].as_u64() == Some(1) && row["source"].as_u64() == Some(1))
+        .unwrap()
+        .as_object_mut()
+        .unwrap();
+    let original_gid = row["global_collection_id"].clone();
+    let original_creator = row["list_create_userid"].clone();
+    let original_list = row["list_create_listid"].clone();
+    row.remove("list_create_gid");
+    let one_row = Value::Object(row.clone());
+    library["data"]["info"] = serde_json::json!([one_row]);
+    let mapped =
+        module::user_playlist::convert(&serde_json::to_vec(&library).unwrap(), 1, 100).unwrap();
+    let mapped = serde_json::to_value(&mapped.page.items[0]).unwrap();
+    assert_eq!(mapped["global_id"], original_gid);
+    assert_eq!(mapped["creator_global_id"], "");
+    assert_eq!(mapped["creator_id"], original_creator);
+    assert_eq!(mapped["creator_list_id"], original_list);
+    library["data"]["info"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("global_collection_id");
+    let mapped =
+        module::user_playlist::convert(&serde_json::to_vec(&library).unwrap(), 1, 100).unwrap();
+    assert!(mapped.page.items[0].global_id.is_empty());
+    assert!(mapped.page.items[0].creator_global_id.is_empty());
+
+    let mut detail: Value =
+        serde_json::from_slice(&payload("playlist_detail", "public-list")).unwrap();
+    let row = detail["data"][0].as_object_mut().unwrap();
+    let public_id = row["specialid"].clone();
+    row.remove("global_collection_id");
+    row.remove("list_create_gid");
+    let mapped = module::playlist_detail::convert(&serde_json::to_vec(&detail).unwrap()).unwrap();
+    assert!(mapped[0].global_id.is_empty());
+    assert!(mapped[0].creator_global_id.is_none());
+    assert_eq!(
+        serde_json::to_value(mapped[0].public_id).unwrap(),
+        public_id
+    );
+}
+
 #[test]
 fn sampled_artist_and_social_mutations() {
     assert_eq!(

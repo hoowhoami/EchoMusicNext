@@ -65,13 +65,13 @@ const stage =
 run('cmake', ['--install', build, '--prefix', stage, '--config', 'Release']);
 const licenseDirectory =
   platform === 'macOS'
-    ? path.join(stage, 'echomusicnext.app/Contents/Resources/licenses')
+    ? path.join(stage, 'EchoMusicNext.app/Contents/Resources/licenses')
     : path.join(stage, 'share/echomusicnext/licenses');
 collectLicenses(licenseDirectory, qt, version);
 if (platform === 'macOS') {
   // Filter before macdeployqt follows optional database-client dependencies.
   keepSqliteDriver(path.join(qt, 'plugins/sqldrivers'), 'libqsqlite.dylib');
-  const app = path.join(stage, 'echomusicnext.app');
+  const app = path.join(stage, 'EchoMusicNext.app');
   const platforms = path.join(app, 'Contents/PlugIns/platforms');
   fs.mkdirSync(platforms, { recursive: true });
   fs.copyFileSync(
@@ -133,7 +133,7 @@ if (platform === 'macOS') {
     path.join(build, 'qml'),
     '--dir',
     path.join(stage, 'bin'),
-    path.join(stage, 'bin/echomusicnext.exe'),
+    path.join(stage, 'bin/EchoMusicNext.exe'),
     path.join(stage, 'bin/echo-plugin-asset-worker.exe'),
   ]);
   fs.copyFileSync(
@@ -198,7 +198,7 @@ if (platform === 'macOS') {
       '--appdir',
       appdir,
       '--executable',
-      path.join(stage, 'bin/echomusicnext'),
+      path.join(stage, 'bin/EchoMusicNext'),
       '--executable',
       path.join(stage, 'bin/echo-theme-image-worker'),
       '--executable',
@@ -254,7 +254,7 @@ if (platform === 'macOS') {
         fs.cpSync(source, path.join(shared, directory), { recursive: true });
     }
     fs.mkdirSync(path.join(pkgroot, 'usr/bin'), { recursive: true });
-    fs.symlinkSync('/opt/echomusicnext/AppRun', path.join(pkgroot, 'usr/bin/echomusicnext'));
+    fs.symlinkSync('/opt/echomusicnext/AppRun', path.join(pkgroot, 'usr/bin/EchoMusicNext'));
     if (kind === 'tar') {
       run('tar', ['-czf', name(kind), '-C', path.join(pkgroot, 'opt'), 'echomusicnext']);
       continue;

@@ -324,6 +324,21 @@ bool echo_capabilities_cancel(const struct EchoCapabilities *native, uint64_t id
 void echo_capabilities_destroy(struct EchoCapabilities *native);
 
 /**
+ * Synchronous ZIP writer. The Qt host owns staging, cleanup and atomic publication.
+ * No upload, runtime, or global state. Returns only after all callbacks have ended.
+ * # Safety
+ * Paths are borrowed NUL-terminated UTF-8 strings. The error buffer has
+ * error_capacity writable bytes. Callback/context remain valid until return;
+ * the callback may not unwind and must not call back into this function.
+ */
+bool echo_diagnostic_zip(const char *staging,
+                         const char *output,
+                         bool (*progress)(void*, uint64_t),
+                         void *context,
+                         uint8_t *error,
+                         size_t error_capacity);
+
+/**
  * Host-only protocol continuation, copied before return. No plugin JS runs on a Rust worker.
  * # Safety
  * Same runtime/input/callback ownership rules as echo_runtime_submit.

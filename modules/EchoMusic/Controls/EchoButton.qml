@@ -3,7 +3,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import EchoMusic.Theme
 
-Button {
+EchoActionButton {
     id: control
     readonly property EchoUiPart publicPart: EchoUiPart {
         target: control

@@ -45,6 +45,7 @@ Control {
         font: control.font
         color: control.recording ? Theme.floating.accentText : !control.shortcutLabel.length ? Theme.floatingSecondaryText : Theme.floatingText
     }
+    EchoActionCursor {}
     TapHandler {
         onTapped: eventPoint => {
             if (control.shortcutLabel.length && eventPoint.position.x >= control.width - 26)

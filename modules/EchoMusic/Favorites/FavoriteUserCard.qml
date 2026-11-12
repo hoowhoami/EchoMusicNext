@@ -9,6 +9,7 @@ import EchoMusic.Theme
 // followed users have no navigation target.
 ItemDelegate {
     id: card
+    EchoActionCursor {}
     objectName: "favoriteUserCard"
     required property string nickname
     required property string avatarUrl

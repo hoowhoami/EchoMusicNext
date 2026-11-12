@@ -40,6 +40,19 @@ public:
 class UserPlaylistModelTestAccess
 {
 public:
+    static void seed(UserPlaylistModel &m, ApiClient &a, const QJsonArray &items)
+    {
+        m.beginResetModel();
+        m.m_rows.clear();
+        for (const auto &item : items)
+            m.m_rows.append(UserPlaylistModel::readRow(item.toObject()));
+        m.m_sessionRevision = a.sessionRevision();
+        m.m_total = quint64(items.size());
+        m.m_exhausted = true;
+        m.m_state = UserPlaylistModel::State::Ready;
+        m.endResetModel();
+        emit m.changed();
+    }
     static void seed(UserPlaylistModel &m, ApiClient &a, int source = 1)
     {
         m.beginResetModel();
@@ -69,6 +82,14 @@ public:
     static void accept(PlaylistMutationService &s, const char *v)
     {
         s.succeed(s.m_request, v);
+    }
+    static void accept(PlaylistMutationService &s, quint64 id, const char *v)
+    {
+        s.succeed(id, v);
+    }
+    static bool hasRefresh(const PlaylistMutationService &s)
+    {
+        return s.m_refresh.has_value() || s.m_refreshRequest != 0;
     }
     static quint64 request(PlaylistMutationService &s)
     {
@@ -327,6 +348,269 @@ private slots:
         api.setAccount(0, {});
         QVERIFY(!collections.available(true, QJsonObject{{"id", 960399}}));
         QVERIFY(!collections.collected(true, QJsonObject{{"id", 960399}}));
+    }
+    void playlistMembershipUsesOnlyGlobalIds_data()
+    {
+        QTest::addColumn<QJsonObject>("detail");
+        QTest::addColumn<bool>("expected");
+        QTest::newRow("library-gid") << QJsonObject{{"global_id", "local-122"}} << true;
+        QTest::newRow("original-gid") << QJsonObject{{"global_id", "public-playlist"}} << true;
+        QTest::newRow("creator-gid-conflicts-despite-library-alias")
+            << QJsonObject{{"creator_global_id", "local-122"}} << false;
+        QTest::newRow("creator-gid-only")
+            << QJsonObject{{"creator_global_id", "public-playlist"}} << true;
+        QTest::newRow("creator-to-original-gid")
+            << QJsonObject{{"global_id", "rewritten-gid"}, {"creator_global_id", "public-playlist"}}
+            << true;
+        QTest::newRow("cloud-id-collision")
+            << QJsonObject{{"id", 122}, {"global_id", "another-playlist"}} << false;
+        QTest::newRow("creator-list-id-collision")
+            << QJsonObject{{"creator_list_id", 287}, {"global_id", "another-playlist"}} << false;
+        QTest::newRow("global-id-collides-with-local-id")
+            << QJsonObject{{"global_id", "122"}} << false;
+        QTest::newRow("local-id-collides-with-global-id")
+            << QJsonObject{{"id", "public-playlist"}} << false;
+        QTest::newRow("missing-gids") << QJsonObject{{"creator_list_id", 287}} << false;
+        QTest::newRow("empty-gids")
+            << QJsonObject{{"global_id", ""}, {"creator_global_id", ""}} << false;
+    }
+    void playlistMembershipUsesOnlyGlobalIds()
+    {
+        QFETCH(QJsonObject, detail);
+        QFETCH(bool, expected);
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(sink.serverPort()));
+        QVERIFY(api.setAccount(900001, "isolated-test-token"));
+        UserPlaylistModel library(api);
+        PlaylistMutationService mutations(api);
+        LibraryCollectionService collections(api, library, mutations);
+        UserPlaylistModelTestAccess::seed(library, api);
+        QCOMPARE(collections.collected(false, detail), expected);
+        UserPlaylistModelTestAccess::seed(library, api, 2);
+        QVERIFY(!collections.collected(false, detail));
+    }
+    void playlistToggleDoesNotDeleteCollidingCollection()
+    {
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(sink.serverPort()));
+        QVERIFY(api.setAccount(900001, "isolated-test-token"));
+        UserPlaylistModel library(api);
+        PlaylistMutationService mutations(api);
+        LibraryCollectionService collections(api, library, mutations);
+        const QJsonObject detail{{"title", "Target"},
+                                 {"creator_id", 77},
+                                 {"creator_list_id", 287},
+                                 {"global_id", "target-gid"},
+                                 {"source_code", 1}};
+        UserPlaylistModelTestAccess::seed(library, api);
+        collections.toggle(false, detail);
+        auto id = PlaylistMutationServiceTestAccess::request(mutations);
+        QVERIFY(id);
+        QCOMPARE(ApiClientTestAccess::request(api, id)["operation"].toString(),
+                 QString("playlist_add"));
+        PlaylistMutationServiceTestAccess::reject(mutations);
+
+        // The first entry shares only its creator-local number with the target.
+        // A later GID match must select that row's account-local deletion ID.
+        UserPlaylistModelTestAccess::seed(
+            library, api,
+            QJsonArray{QJsonObject{{"cloud_list_id", 122},
+                                   {"creator_list_id", 287},
+                                   {"creator_id", 42},
+                                   {"global_id", "unrelated-library-gid"},
+                                   {"creator_global_id", "unrelated-public-gid"},
+                                   {"source_code", 1},
+                                   {"kind", "collected"}},
+                       QJsonObject{{"cloud_list_id", 456},
+                                   {"creator_list_id", 287},
+                                   {"creator_id", 77},
+                                   {"global_id", "target-library-gid"},
+                                   {"creator_global_id", "target-gid"},
+                                   {"source_code", 1},
+                                   {"kind", "collected"}}});
+        QVERIFY(collections.collected(false, detail));
+        collections.toggle(false, detail);
+        id = PlaylistMutationServiceTestAccess::request(mutations);
+        QVERIFY(id);
+        const auto request = ApiClientTestAccess::request(api, id);
+        QCOMPARE(request["operation"].toString(), QString("playlist_del"));
+        QCOMPARE(request["query"].toObject()["cloud_list_id"].toInteger(), 456);
+        PlaylistMutationServiceTestAccess::reject(mutations);
+
+        // Even a matching GID must not turn the current user's playlist into a collection.
+        auto own = detail;
+        own["global_id"] = "public-playlist";
+        own["creator_id"] = 900001;
+        UserPlaylistModelTestAccess::seed(library, api,
+                                          QJsonArray{QJsonObject{{"cloud_list_id", 122},
+                                                                 {"creator_id", 900001},
+                                                                 {"global_id", "public-playlist"},
+                                                                 {"source_code", 1},
+                                                                 {"kind", "owned"}}});
+        QVERIFY(!collections.collected(false, own));
+        QVERIFY(!collections.available(false, own));
+    }
+    void playlistCreatorIdentityFallback_data()
+    {
+        QTest::addColumn<QJsonObject>("detail");
+        QTest::addColumn<QJsonObject>("entry");
+        QTest::addColumn<bool>("expected");
+        const QJsonObject detail{{"creator_id", 42}, {"creator_list_id", 287}};
+        const QJsonObject entry{{"cloud_list_id", 122},
+                                {"creator_id", 42},
+                                {"creator_list_id", 287},
+                                {"source_code", 1},
+                                {"kind", "collected"}};
+        QTest::newRow("exact-pair-without-gids") << detail << entry << true;
+        for (const auto *field : {"creator_id", "creator_list_id"}) {
+            auto different = entry;
+            different[field] = 999;
+            QTest::newRow(qPrintable(QString("different-%1").arg(field)))
+                << detail << different << false;
+            auto missing = detail;
+            missing.remove(field);
+            QTest::newRow(qPrintable(QString("missing-%1").arg(field)))
+                << missing << entry << false;
+        }
+        for (const auto *field : {"global_id", "creator_global_id"}) {
+            auto detailWithGid = detail;
+            detailWithGid[field] = "public-gid";
+            auto entryWithGid = entry;
+            entryWithGid[field] = "different-gid";
+            QTest::newRow(qPrintable(QString("detail-has-%1").arg(field)))
+                << detailWithGid << entry << true;
+            QTest::newRow(qPrintable(QString("entry-has-%1").arg(field)))
+                << detail << entryWithGid << true;
+            QTest::newRow(qPrintable(QString("conflicting-%1").arg(field)))
+                << detailWithGid << entryWithGid
+                << (QString::fromLatin1(field) != "creator_global_id");
+        }
+        auto publicDetail = detail;
+        publicDetail["global_id"] = "collection_3_42_287_0";
+        auto libraryEntry = entry;
+        libraryEntry["global_id"] = "collection_3_900001_122_0";
+        QTest::newRow("library-gid-without-creator-alias") << publicDetail << libraryEntry << true;
+        publicDetail["creator_global_id"] = "collection_3_42_287_0";
+        QTest::newRow("explicit-creator-gid-and-library-gid")
+            << publicDetail << libraryEntry << true;
+        libraryEntry["creator_global_id"] = "collection_3_42_999_0";
+        QTest::newRow("explicit-creator-conflict") << publicDetail << libraryEntry << false;
+        publicDetail["global_id"] = libraryEntry["global_id"];
+        QTest::newRow("shared-library-gid-cannot-mask-creator-conflict")
+            << publicDetail << libraryEntry << false;
+        for (const auto *field : {"creator_id", "creator_list_id"}) {
+            auto incomplete = publicDetail;
+            incomplete.remove(field);
+            auto missingAlias = libraryEntry;
+            missingAlias.remove("creator_global_id");
+            incomplete["global_id"] = "collection_3_42_287_0";
+            QTest::newRow(qPrintable(QString("different-gids-missing-%1").arg(field)))
+                << incomplete << missingAlias << false;
+            incomplete[field] = 0;
+            QTest::newRow(qPrintable(QString("different-gids-zero-%1").arg(field)))
+                << incomplete << missingAlias << false;
+        }
+    }
+    void playlistCreatorIdentityFallback()
+    {
+        QFETCH(QJsonObject, detail);
+        QFETCH(QJsonObject, entry);
+        QFETCH(bool, expected);
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(sink.serverPort()));
+        QVERIFY(api.setAccount(900001, "isolated-test-token"));
+        UserPlaylistModel library(api);
+        PlaylistMutationService mutations(api);
+        LibraryCollectionService collections(api, library, mutations);
+        UserPlaylistModelTestAccess::seed(library, api, QJsonArray{entry});
+        QCOMPARE(collections.collected(false, detail), expected);
+        if (expected) {
+            QVERIFY(collections.available(false, detail));
+            collections.toggle(false, detail);
+            const auto id = PlaylistMutationServiceTestAccess::request(mutations);
+            QVERIFY(id);
+            const auto request = ApiClientTestAccess::request(api, id);
+            QCOMPARE(request["operation"].toString(), QString("playlist_del"));
+            QCOMPARE(request["query"].toObject()["cloud_list_id"].toInteger(), 122);
+            PlaylistMutationServiceTestAccess::reject(mutations);
+        }
+    }
+    void playlistExactGidWinsOverEarlierCreatorFallback()
+    {
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(sink.serverPort()));
+        QVERIFY(api.setAccount(900001, "isolated-test-token"));
+        UserPlaylistModel library(api);
+        PlaylistMutationService mutations(api);
+        LibraryCollectionService collections(api, library, mutations);
+        const QJsonObject detail{{"title", "Target"},
+                                 {"creator_id", 42},
+                                 {"creator_list_id", 287},
+                                 {"global_id", "public-playlist"}};
+        auto fallback = detail;
+        fallback["cloud_list_id"] = 122;
+        fallback["global_id"] = "library-gid-without-creator-alias";
+        fallback["source_code"] = 1;
+        fallback["kind"] = "collected";
+        auto exact = fallback;
+        exact["cloud_list_id"] = 456;
+        exact["creator_global_id"] = "public-playlist";
+        UserPlaylistModelTestAccess::seed(library, api, QJsonArray{fallback, exact});
+        collections.toggle(false, detail);
+        const auto id = PlaylistMutationServiceTestAccess::request(mutations);
+        QVERIFY(id);
+        const auto request = ApiClientTestAccess::request(api, id);
+        QCOMPARE(request["operation"].toString(), QString("playlist_del"));
+        QCOMPARE(request["query"].toObject()["cloud_list_id"].toInteger(), 456);
+        PlaylistMutationServiceTestAccess::reject(mutations);
+    }
+    void playlistUnfavoriteIgnoresLateSuccessAfterAccountChange_data()
+    {
+        QTest::addColumn<bool>("missingCreatorAlias");
+        QTest::newRow("gid-alias") << false;
+        QTest::newRow("creator-pair-fallback") << true;
+    }
+    void playlistUnfavoriteIgnoresLateSuccessAfterAccountChange()
+    {
+        QFETCH(bool, missingCreatorAlias);
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(sink.serverPort()));
+        QVERIFY(api.setAccount(900001, "isolated-test-token"));
+        UserPlaylistModel library(api);
+        PlaylistMutationService mutations(api);
+        LibraryCollectionService collections(api, library, mutations);
+        UserPlaylistModelTestAccess::seed(library, api);
+        const QJsonObject detail{
+            {"creator_id", 42}, {"creator_list_id", 287}, {"global_id", "public-playlist"}};
+        if (missingCreatorAlias) {
+            auto entry = detail;
+            entry["cloud_list_id"] = 122;
+            entry["global_id"] = "local-122";
+            entry["source_code"] = 1;
+            entry["kind"] = "collected";
+            UserPlaylistModelTestAccess::seed(library, api, QJsonArray{entry});
+        }
+        collections.toggle(false, detail);
+        const auto id = PlaylistMutationServiceTestAccess::request(mutations);
+        QVERIFY(id);
+        const auto request = ApiClientTestAccess::request(api, id);
+        QCOMPARE(request["operation"].toString(), QString("playlist_del"));
+        QCOMPARE(request["query"].toObject()["cloud_list_id"].toInteger(), 122);
+
+        QVERIFY(api.setAccount(900002, "another-isolated-test-token"));
+        UserPlaylistModelTestAccess::seed(library, api);
+        QSignalSpy notices(&collections, &LibraryCollectionService::notice);
+        QSignalSpy completed(&mutations, &PlaylistMutationService::completed);
+        QSignalSpy reconciled(&mutations, &PlaylistMutationService::libraryReconciled);
+        PlaylistMutationServiceTestAccess::accept(
+            mutations, id, R"({"user_id":900001,"cloud_list_id":122,"total_revision":2})");
+        QVERIFY(notices.isEmpty());
+        QVERIFY(completed.isEmpty());
+        QVERIFY(reconciled.isEmpty());
+        QVERIFY(!PlaylistMutationServiceTestAccess::hasRefresh(mutations));
+        QVERIFY(!collections.writingCollection());
+        QVERIFY(collections.collected(false, detail));
+        QCOMPARE(library.rowCount(), 1);
     }
     void sharedSocialStateAndAccountIsolation()
     {

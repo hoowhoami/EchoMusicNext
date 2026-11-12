@@ -22,7 +22,7 @@ EchoDialog {
         surface: dialog
         Label {
             Layout.fillWidth: true
-            text: qsTr("备份版本：EchoMusicNext %1\n创建时间：%2").arg(dialog.service.confirmation.summary?.appVersion || "").arg(dialog.service.confirmation.summary?.createdAt || "")
+            text: qsTr("备份版本：EchoMusicNext %1\n创建时间：%2").arg(dialog.service.confirmation.summary?.appVersion || "").arg(dialog.service.formatTimestamp(String(dialog.service.confirmation.summary?.createdAt || "")))
             color: Theme.floatingSecondaryText
             font: Theme.font(12, Theme.regularWeight)
             wrapMode: Text.Wrap

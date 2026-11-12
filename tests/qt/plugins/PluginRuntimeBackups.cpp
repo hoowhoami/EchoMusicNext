@@ -7,6 +7,84 @@
 #include "WindowController.h"
 #include "EchoPluginBackups.h"
 #include <QBuffer>
+
+namespace
+{
+struct DavStore : QTcpServer
+{
+    QMap<QByteArray, QByteArray> archives;
+    QSet<QByteArray> directories{QByteArray("/dav/")};
+    QList<QPointer<QTcpSocket>> held;
+    bool hold = false, authenticated = true;
+    DavStore()
+    {
+        listen(QHostAddress::LocalHost);
+        connect(this, &QTcpServer::newConnection, this, [this] {
+            auto *socket = nextPendingConnection();
+            auto bytes = std::make_shared<QByteArray>();
+            connect(socket, &QTcpSocket::readyRead, socket, [this, socket, bytes] {
+                bytes->append(socket->readAll());
+                const auto end = bytes->indexOf("\r\n\r\n");
+                if (end < 0 || socket->property("handled").toBool())
+                    return;
+                const auto headers = bytes->left(end);
+                const auto length = QRegularExpression("(?im)^content-length: *([0-9]+)")
+                                        .match(QString::fromLatin1(headers))
+                                        .captured(1)
+                                        .toLongLong();
+                if (bytes->size() < end + 4 + length)
+                    return;
+                socket->setProperty("handled", true);
+                authenticated &=
+                    headers.toLower().contains("authorization: basic zml4dhvyztpzzwnyzxq=");
+                if (hold) {
+                    held.append(socket);
+                    return;
+                }
+                const auto first = bytes->split('\n').first().split(' ');
+                const auto method = first.value(0), path = first.value(1);
+                QByteArray status = "200 OK", body;
+                if (method == "PROPFIND") {
+                    if (!directories.contains(path))
+                        status = "404 Not Found";
+                    else {
+                        status = "207 Multi-Status";
+                        body = "<d:multistatus xmlns:d=\"DAV:\">";
+                        if (headers.toLower().contains("depth: 1"))
+                            for (auto it = archives.begin(); it != archives.end(); ++it)
+                                body +=
+                                    "<d:response><d:href>" + it.key() +
+                                    "</d:href><d:propstat><d:prop><d:getcontentlength>" +
+                                    QByteArray::number(it.value().size()) +
+                                    "</d:getcontentlength><d:getlastmodified>Wed, 11 Nov 2026 "
+                                    "10:00:00 GMT</d:getlastmodified></d:prop><d:status>HTTP/1.1 "
+                                    "200 OK</d:status></d:propstat></d:response>";
+                        body += "</d:multistatus>";
+                    }
+                } else if (method == "MKCOL") {
+                    directories.insert(path);
+                    status = "201 Created";
+                } else if (method == "PUT") {
+                    archives[path] = bytes->mid(end + 4);
+                    status = "201 Created";
+                } else if (method == "GET") {
+                    body = archives.value(path);
+                    if (!archives.contains(path))
+                        status = "404 Not Found";
+                } else if (method == "DELETE") {
+                    archives.remove(path);
+                    status = "204 No Content";
+                }
+                socket->write("HTTP/1.1 " + status +
+                              "\r\nContent-Length: " + QByteArray::number(body.size()) +
+                              "\r\nConnection: close\r\n\r\n" + body);
+                socket->disconnectFromHost();
+            });
+            connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        });
+    }
+};
+} // namespace
 namespace EchoMusic
 {
 class SettingsBackupTestAccess
@@ -442,4 +520,156 @@ void PluginRuntimeTest::backupsPortableFilesFreezeCancellationAndRetirement()
                     .state,
                 EchoPluginOperation::Succeeded);
     }
+}
+
+void PluginRuntimeTest::builtWebDavProviderAndSettingsLifecycle()
+{
+    const auto archive = qEnvironmentVariable("ECHO_WEBDAV_PLUGIN_PACKAGE");
+    if (archive.isEmpty())
+        QSKIP("Set ECHO_WEBDAV_PLUGIN_PACKAGE to the built webdav-backup package");
+    Fixture f;
+    f.host.settings.setValue("shell/titlebar/order", QVariant{});
+    f.host.settings.setValue("sidebar/hiddenEntries", QVariant{});
+    DavStore server;
+    QVERIFY(server.isListening());
+    f.host.runtime.importDirectory(archive);
+    QTRY_COMPARE(f.host.runtime.state(f.host.runtime.installationForId("webdav-backup")),
+                 PluginRuntime::Active);
+    auto *c = f.host.runtime.context(f.host.runtime.installationForId("webdav-backup"));
+    QVERIFY(c);
+    QCOMPARE(f.data.providers().size(), 0);
+    const QVariantMap config{{"enabled", true},
+                             {"url", QString("http://127.0.0.1:%1/dav/").arg(server.serverPort())},
+                             {"username", "fixture"},
+                             {"password", "secret"},
+                             {"directory", "EchoMusicNext/test"},
+                             {"rememberPassword", false}};
+    const auto saved = wait(f.host, c->executeCommand("settings.save", {{"config", config}}));
+    QCOMPARE(saved.state, EchoPluginOperation::Succeeded);
+    QCOMPARE(f.data.providers().size(), 1);
+    const auto stored = wait(f.host, c->io()->readValue("settings"));
+    QVERIFY(stored.value.toMap().value("password").toString().isEmpty());
+    QVERIFY(!c->ui()->state().contains("password"));
+    const auto key = f.data.providers().first().toMap().value("key").toString();
+    QByteArray payload(9 * 1024 * 1024, Qt::Uninitialized);
+    quint32 random = 0x3f1a8c23;
+    for (qsizetype i = 0; i < payload.size(); ++i) {
+        random ^= random << 13;
+        random ^= random >> 17;
+        random ^= random << 5;
+        payload[i] = char(random & 255);
+    }
+    write(f.host.settings.files("webdav-test", SettingsDomain::Portable) + "/payload.bin", payload);
+    f.data.saveToProvider(key, true, true);
+    QTRY_VERIFY_WITH_TIMEOUT(!f.data.providerBusy() && !f.data.busy(), 30000);
+    QVERIFY2(f.data.providerError().isEmpty(), qPrintable(f.data.providerError()));
+    QCOMPARE(server.archives.size(), 1);
+    QVERIFY(server.archives.first().startsWith("ECHONEXTBACKUP"));
+    QVERIFY(server.archives.first().size() > 8 * 1024 * 1024);
+    f.data.refreshProvider(key);
+    QTRY_VERIFY(!f.data.providerBusy());
+    QVERIFY2(f.data.providerError().isEmpty(), qPrintable(f.data.providerError()));
+    QCOMPARE(f.data.providerEntries().size(), 1);
+    const auto id = f.data.providerEntries().first().toMap().value("id").toString();
+    QSignalSpy inspected(&f.data, &SettingsDataService::inspected);
+    f.data.loadFromProvider(key, id);
+    QTRY_VERIFY_WITH_TIMEOUT(!f.data.providerBusy() && !f.data.busy(), 30000);
+    QVERIFY2(f.data.providerError().isEmpty(), qPrintable(f.data.providerError()));
+    QTRY_VERIFY(!inspected.isEmpty());
+    QVERIFY(f.data.canRestore());
+    f.data.releaseInspection();
+    f.data.removeFromProvider(key, id);
+    QTRY_VERIFY(!f.data.providerBusy());
+    QVERIFY(server.archives.isEmpty());
+    QVERIFY(server.authenticated);
+
+    QStringList warnings;
+    connect(&f.host.engine, &QQmlEngine::warnings, &f.host.engine,
+            [&](const QList<QQmlError> &errors) {
+                for (const auto &error : errors)
+                    warnings.append(error.toString());
+            });
+    auto root =
+        ecosystemWindow(f.host, R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+import EchoMusic.Plugins
+import EchoMusic.PluginSdk
+import EchoMusic.Theme
+ApplicationWindow {
+ id: win
+ required property PluginRuntime runtime
+ required property EchoPluginContext scope
+ required property string installation
+ property real uiScale: 1
+ width: 900; height: 900; visible: true; color: Theme.main
+ function openSettings() { owner.open(); }
+ function closeSettings() { owner.close(); }
+ EchoPopupLoader {
+  id: owner; hostItem: win.contentItem
+  sourceComponent: Component {
+   PluginSettingsDialog { runtime: win.runtime; scope: win.scope; installationId: win.installation; uiScale: win.uiScale }
+  }
+ }
+ Component.onCompleted: openSettings()
+})",
+                        {{"runtime", QVariant::fromValue(&f.host.runtime)},
+                         {"scope", QVariant::fromValue(c)},
+                         {"installation", f.host.runtime.installationForId("webdav-backup")}});
+    QVERIFY(root);
+    auto *win = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(win);
+    QTRY_VERIFY(visual(win->contentItem(), "webdavBackupSettings"));
+    auto *settings = visual(win->contentItem(), "webdavBackupSettings");
+    QTRY_VERIFY(settings->property("loaded").toBool());
+    QCOMPARE(visual(win->contentItem(), "webdavUrl")->property("text").toString(),
+             config.value("url").toString());
+    QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    QTRY_VERIFY(qAbs(visual(win->contentItem(), "webdavUsername")->width() -
+                     visual(win->contentItem(), "webdavPassword")->width()) < 1.0);
+    const auto output = qEnvironmentVariable("ECHO_PLUGIN_UI_OUTPUT");
+    if (!output.isEmpty()) {
+        QDir().mkpath(output);
+        for (double scale : {1.0, 1.25}) {
+            root->setProperty("uiScale", scale);
+            for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+                f.host.theme.setMode(mode);
+                QTest::qWait(100);
+                if (scale > 1.0) {
+                    auto *save = visual(win->contentItem(), "webdavSave");
+                    for (auto *parent = save->parentItem(); parent; parent = parent->parentItem()) {
+                        if (!parent->inherits("QQuickFlickable"))
+                            continue;
+                        parent->setProperty("contentY",
+                                            qMax(0.0, parent->property("contentHeight").toDouble() -
+                                                          parent->height()));
+                        const auto point =
+                            save->mapToItem(parent, QPointF(save->width() / 2, save->height() / 2));
+                        QVERIFY(point.y() >= 0 && point.y() <= parent->height());
+                        QTest::qWait(30);
+                        break;
+                    }
+                }
+                QVERIFY(win->grabWindow().save(output +
+                                               QString("/webdav-%1-%2.png")
+                                                   .arg(mode == ThemeStore::Dark ? "dark" : "light")
+                                                   .arg(scale)));
+            }
+        }
+    }
+    server.hold = true;
+    QVERIFY(QMetaObject::invokeMethod(settings, "test"));
+    QTRY_VERIFY(!server.held.isEmpty());
+    const auto held = server.held.last();
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "closeSettings"));
+    QTRY_VERIFY(!held);
+    QTRY_VERIFY(!visual(win->contentItem(), "webdavBackupSettings"));
+    QCOMPARE(f.data.providers().size(), 1);
+    QVERIFY(c->active());
+    QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    const auto install = f.host.runtime.installationForId("webdav-backup");
+    QVERIFY(f.host.runtime.setEnabled(install, false));
+    QTRY_COMPARE(f.host.runtime.state(install), PluginRuntime::Disabled);
+    QVERIFY(f.data.providers().isEmpty());
 }

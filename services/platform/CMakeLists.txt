@@ -15,6 +15,8 @@ add_library(
     WindowBackdrop.cpp
     HyprlandWindowBackdrop.h
     HyprlandWindowBackdrop.cpp
+    WaylandBackgroundEffect.h
+    WaylandBackgroundEffect.cpp
     BrowserWindowLauncher.h
     BrowserWindowLauncher.cpp
     # Windows shell identity (AppUserModelID + its Start Menu shortcut); the
@@ -100,6 +102,31 @@ endif()
 if(UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(ECHO_GIO REQUIRED IMPORTED_TARGET gio-2.0)
+    pkg_check_modules(ECHO_WAYLAND_CLIENT REQUIRED IMPORTED_TARGET GLOBAL wayland-client)
+    find_package(WaylandScanner REQUIRED)
+    set(echo_background_effect_protocol
+        "${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-background-effect-v1.xml"
+    )
+    set(echo_background_effect_header
+        "${CMAKE_CURRENT_BINARY_DIR}/wayland-ext-background-effect-v1-client-protocol.h"
+    )
+    set(echo_background_effect_code
+        "${CMAKE_CURRENT_BINARY_DIR}/wayland-ext-background-effect-v1-protocol.c"
+    )
+    add_custom_command(
+        OUTPUT "${echo_background_effect_header}" "${echo_background_effect_code}"
+        COMMAND Wayland::Scanner client-header "${echo_background_effect_protocol}"
+                "${echo_background_effect_header}"
+        COMMAND Wayland::Scanner private-code "${echo_background_effect_protocol}"
+                "${echo_background_effect_code}"
+        DEPENDS "${echo_background_effect_protocol}" Wayland::Scanner
+        VERBATIM
+    )
+    target_sources(
+        echo_platform PRIVATE "${echo_background_effect_header}" "${echo_background_effect_code}"
+    )
+    target_include_directories(echo_platform PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(echo_platform PRIVATE Qt6::GuiPrivate PkgConfig::ECHO_WAYLAND_CLIENT)
     target_sources(echo_platform PRIVATE LinuxSystemSleepInhibitor.cpp LinuxGlobalShortcuts.cpp)
     target_link_libraries(
         echo_platform

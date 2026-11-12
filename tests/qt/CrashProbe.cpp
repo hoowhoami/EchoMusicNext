@@ -1,5 +1,10 @@
 #include "CrashDiagnostics.h"
 #include "LogService.h"
+#include "LogFiles.h"
+#include <QElapsedTimer>
+#include <QFileInfo>
+#include <QDir>
+#include <QThread>
 #include <QCoreApplication>
 #include <QDebug>
 #include <QTimer>
@@ -75,6 +80,23 @@ int main(int argc, char **argv)
         std::fflush(stdout);
         QTimer::singleShot(20000, &app, &QCoreApplication::quit);
         return app.exec();
+    }
+    if (mode == "fatal-logged") {
+        // This case specifically exercises the log attachment fallback. A fault
+        // before the writer creates a file legitimately has no log attachment;
+        // the early-fatal/startup cases continue covering that separate boundary.
+        QElapsedTimer wait;
+        wait.start();
+        const auto path =
+            QDir(QString::fromLocal8Bit(argv[2])).filePath(EchoMusic::sessionLogFileName());
+        while (QFileInfo(path).size() <= 0 && wait.elapsed() < 5000) {
+            qCritical(
+                "log attachment probe ready"); // This probe intentionally logs at error level.
+            QThread::msleep(5);
+        }
+        if (QFileInfo(path).size() <= 0)
+            return 4;
+        qFatal("logged crash probe password=do-not-store");
     }
     if (mode == "fatal")
         qFatal("crash probe password=do-not-store");

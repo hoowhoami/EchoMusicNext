@@ -143,7 +143,6 @@ Item {
             source: row.entry.avatar_url || ""
             circular: true
             placeholderGlyph: "user"
-            placeholderGlyphSize: 14
             Image {
                 width: row.replyRow ? 14 : 16
                 height: width

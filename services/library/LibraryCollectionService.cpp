@@ -45,8 +45,22 @@ bool LibraryCollectionService::available(bool album, const QJsonObject &d) const
 }
 int LibraryCollectionService::find(bool album, const QJsonObject &d) const
 {
+    // Playlist list IDs are scoped to an account/creator and can collide across
+    // unrelated collections. Library GIDs and creator GIDs use different
+    // namespaces: a missing creator alias cannot make differing library GIDs
+    // disprove an exact creator/user + creator/list pair. Explicit creator GID
+    // conflicts still exclude a row. Search all GID aliases before using a pair.
+    // Deletion still uses the matched catalog row's account-local ID; albums
+    // retain their numeric album identity.
+    const auto keys = album ? QStringList{"id", "global_id", "creator_list_id", "creator_global_id"}
+                            : QStringList{"global_id", "creator_global_id"};
+    const auto roles =
+        album ? QList<int>{UserPlaylistModel::CloudListIdRole, UserPlaylistModel::GlobalIdRole,
+                           UserPlaylistModel::CreatorGlobalIdRole,
+                           UserPlaylistModel::CreatorListIdRole}
+              : QList<int>{UserPlaylistModel::GlobalIdRole, UserPlaylistModel::CreatorGlobalIdRole};
     QSet<QString> ids;
-    for (const auto *key : {"id", "global_id", "creator_list_id", "creator_global_id"}) {
+    for (const auto &key : keys) {
         const auto v = d[key];
         const auto s = v.isString()   ? v.toString()
                        : v.isDouble() ? QString::number(v.toInteger())
@@ -54,6 +68,11 @@ int LibraryCollectionService::find(bool album, const QJsonObject &d) const
         if (!s.isEmpty() && s != "0")
             ids.insert(s);
     }
+    const auto hasGid = [](const QString &s) { return !s.isEmpty() && s != "0"; };
+    const auto creatorGid = d["creator_global_id"].toString();
+    const auto creator = d["creator_id"].toInteger();
+    const auto list = d["creator_list_id"].toInteger();
+    int creatorMatch = -1;
     for (int row = 0; row < m_library.rowCount(); ++row) {
         const auto i = m_library.index(row, 0);
         const auto source = i.data(UserPlaylistModel::SourceCodeRole).toUInt();
@@ -62,15 +81,21 @@ int LibraryCollectionService::find(bool album, const QJsonObject &d) const
         if (!album &&
             i.data(UserPlaylistModel::CreatorIdRole).toULongLong() == m_api.currentAccountUserId())
             continue;
-        for (int role :
-             {UserPlaylistModel::CloudListIdRole, UserPlaylistModel::GlobalIdRole,
-              UserPlaylistModel::CreatorGlobalIdRole, UserPlaylistModel::CreatorListIdRole}) {
+        const auto entryCreatorGid = i.data(UserPlaylistModel::CreatorGlobalIdRole).toString();
+        if (!album && hasGid(creatorGid) && hasGid(entryCreatorGid) &&
+            creatorGid != entryCreatorGid)
+            continue;
+        for (int role : roles) {
             const auto s = i.data(role).toString();
-            if (!s.isEmpty() && s != "0" && ids.contains(s))
+            if (hasGid(s) && ids.contains(s))
                 return row;
         }
+        if (!album && creatorMatch < 0 && creator > 0 && list > 0 &&
+            i.data(UserPlaylistModel::CreatorIdRole).toULongLong() == quint64(creator) &&
+            i.data(UserPlaylistModel::CreatorListIdRole).toULongLong() == quint64(list))
+            creatorMatch = row;
     }
-    return -1;
+    return creatorMatch;
 }
 bool LibraryCollectionService::collected(bool album, const QJsonObject &d) const
 {

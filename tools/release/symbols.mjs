@@ -103,7 +103,7 @@ export function collectSymbols({
   run = spawnSync,
 }) {
   const binaries = walk(stage).filter((file) => owned.test(path.basename(file)));
-  if (!binaries.some((file) => /^echomusicnext(?:\.exe)?$/.test(path.basename(file))))
+  if (!binaries.some((file) => /^echomusicnext(?:\.exe)?$/i.test(path.basename(file))))
     throw new Error('No staged application for symbols');
   fs.mkdirSync(output, { recursive: true });
   const nativeFiles = platform === 'Windows' || platform === 'Linux' ? nativeBuildFiles(build) : [];

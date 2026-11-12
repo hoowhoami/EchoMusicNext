@@ -128,11 +128,11 @@ EchoUiPartHost {
                 minimumDecodeSize: 380
                 colors: bar.colors
                 placeholderColor: bar.colors.mutedSurface
-                placeholderGlyphSize: 24
                 resourceActive: bar.visible
                 Accessible.role: Accessible.Button
                 Accessible.name: qsTr("打开播放页")
                 Accessible.onPressAction: bar.playbackPageRequested()
+                EchoActionCursor {}
                 TapHandler {
                     onTapped: bar.playbackPageRequested()
                 }

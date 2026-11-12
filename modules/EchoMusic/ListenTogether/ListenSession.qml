@@ -237,7 +237,7 @@ Item {
                                     required property int index
                                     width: songList.width
                                     height: 62
-                                    Button {
+                                    EchoActionButton {
                                         id: songRow
                                         readonly property bool current: session.room.currentSong.hash === rowData.hash
                                         objectName: "listenRoomSongButton"

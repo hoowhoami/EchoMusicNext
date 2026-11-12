@@ -254,7 +254,7 @@ RoutePage {
                                             requestedVisible: dislike.hovered
                                         }
                                     }
-                                    Button {
+                                    EchoActionButton {
                                         id: fmPlayButton
                                         objectName: "personalFmPlay"
                                         implicitWidth: 52

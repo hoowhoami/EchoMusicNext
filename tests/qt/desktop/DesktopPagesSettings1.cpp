@@ -1,5 +1,6 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
+#include <QLockFile>
 
 void DesktopPagesTest::startupUsesRealFailuresAndReleasesItsEntirePage()
 {
@@ -1221,6 +1222,152 @@ void DesktopPagesTest::productionExperimentalIdentitySettings()
     catalog->setFilter({});
     QTRY_VERIFY(confirmation.isNull());
     QTRY_VERIFY(visual(session.window->contentItem(), "appearanceMode"));
+    QCOMPARE(warnings.size(), 0);
+}
+
+void DesktopPagesTest::productionDiagnosticRecordsAndExport_data()
+{
+    productionNetworkSettingsAutoSaveResetAndTheme_data();
+}
+void DesktopPagesTest::productionDiagnosticRecordsAndExport()
+{
+    QFETCH(bool, dark);
+    QFETCH(qreal, scale);
+    Session session;
+    const auto logs = session.directory.filePath("logs");
+    QVERIFY(QDir().mkpath(logs + "/crashes"));
+    for (int i = 0; i < 121; ++i) {
+        const auto name = QString("echomusicnext-20261110T102030000-%1").arg(i + 1000);
+        QFile file(logs + "/crashes/" + name + ".jsonl");
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const auto event =
+            QJsonDocument(QJsonObject{{"event", "session_started"},
+                                      {"timestamp", "2026-11-10T10:20:30.000Z"},
+                                      {"build", "version=0.1.3 build=ui-fixture arch=arm64"},
+                                      {"os", "Fixture OS"},
+                                      {"runLog", logs + '/' + name + ".log"}})
+                .toJson(QJsonDocument::Compact);
+        const auto fatal =
+            i < 120 ? QByteArray("{\"event\":\"fatal\",\"reason\":\"qt_fatal\"}\n") : QByteArray{};
+        QVERIFY(file.write(event + '\n' + fatal) > 0);
+    }
+    QProcess crashProbe;
+    auto probePath = QCoreApplication::applicationDirPath() + "/echo-crash-probe";
+#ifdef Q_OS_MACOS
+    probePath =
+        QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../../../echo-crash-probe");
+#elif defined(Q_OS_WIN)
+    probePath += ".exe";
+#endif
+    crashProbe.start(probePath, {"fatal", logs});
+    QVERIFY(crashProbe.waitForFinished(25000));
+    QVERIFY(crashProbe.exitCode() != 0 || crashProbe.exitStatus() == QProcess::CrashExit);
+    LogService logging(logs, 2, false, &session.preferences);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QVERIFY(session.create(nullptr, nullptr, &logging));
+    const auto cleanup = qScopeGuard([&session] {
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QVERIFY(Test::prepareNativeInput(session.window));
+    session.theme.setFloatingFrosted(false);
+    session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+    for (int step = 0; step < qRound((scale - 1) / .05); ++step)
+        session.shell.zoomIn();
+    session.router.navigate("settings");
+    auto *settings = session.root->findChild<QObject *>("settingsDialog");
+    QVERIFY(settings);
+    QTRY_VERIFY(settings->property("opened").toBool());
+    auto *catalog = settings->property("catalog").value<SettingsCatalog *>();
+    QVERIFY(catalog);
+    catalog->select("experimental");
+    QVERIFY(session.settingsSectionReady());
+    auto *button = visual(session.window->contentItem(), "settingsViewCrashRecords");
+    QVERIFY(button);
+    QVERIFY(session.revealItem(button));
+    QCOMPARE(button->height(), 36.);
+    button->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(session.window, Qt::Key_Space);
+    auto *owner = session.root->findChild<QObject *>("settingsCrashRecordsOwner");
+    QVERIFY(owner);
+    QPointer<QObject> records;
+    QTRY_VERIFY((records = owner->property("item").value<QObject *>()));
+    QTRY_VERIFY(records->property("opened").toBool());
+    QTRY_COMPARE(logging.diagnostics()->count(), 121);
+    QVERIFY(logging.diagnostics()->record("echomusicnext-20261110T102030000-1120").isEmpty());
+    QTRY_VERIFY(!logging.diagnostics()->loading());
+    auto *list = visual(session.window->contentItem(), "crashRecordsList");
+    QVERIFY(list);
+    QTRY_VERIFY(list->height() >= 120);
+    QTRY_VERIFY(visual(session.window->contentItem(), "crashRecordExport"));
+    auto *exportButton = visual(session.window->contentItem(), "crashRecordExport");
+    QVERIFY(exportButton);
+    // Native ListView realizes a bounded viewport even with a long record history.
+    auto *listContent = list->property("contentItem").value<QQuickItem *>();
+    QVERIFY(listContent);
+    QVERIFY(listContent->childItems().size() < 20);
+    const auto saveFrame = [&](const QString &name) {
+        const auto directory = qEnvironmentVariable("ECHO_UI_SNAPSHOT_DIR");
+        if (directory.isEmpty())
+            return true;
+        QDir().mkpath(directory);
+        return session.window->grabWindow().save(directory + "/diagnostics-" + name + '-' +
+                                                 (dark ? "dark-" : "light-") +
+                                                 QString::number(qRound(scale * 100)) + ".png");
+    };
+    QVERIFY(saveFrame("records"));
+    const auto exportCenter =
+        exportButton->mapToScene({exportButton->width() / 2, exportButton->height() / 2}).toPoint();
+    const auto inList = exportButton->mapRectToItem(list, exportButton->boundingRect());
+    QVERIFY(inList.top() >= 0 && inList.bottom() <= list->height());
+    QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, exportCenter);
+    auto *exportOwner = records->findChild<QObject *>("crashExportOwner");
+    QVERIFY(exportOwner);
+    QPointer<QObject> exportDialog;
+    QTRY_VERIFY((exportDialog = exportOwner->property("item").value<QObject *>()));
+    QTRY_VERIFY(exportDialog->property("opened").toBool());
+    QVERIFY(!exportDialog->property("currentSession").toBool());
+    QVERIFY(exportDialog->property("includeDump").toBool());
+    QVERIFY(visual(session.window->contentItem(), "diagnosticIncludeDump"));
+    QVERIFY(visual(session.window->contentItem(), "diagnosticNotes"));
+    QVERIFY(visual(session.window->contentItem(), "diagnosticSaveZip"));
+    QVERIFY(saveFrame("export"));
+    QVERIFY(QMetaObject::invokeMethod(exportDialog, "close"));
+    QTRY_VERIFY(exportDialog.isNull());
+    QVERIFY(QMetaObject::invokeMethod(records, "close"));
+    QTRY_VERIFY(records.isNull());
+    auto *currentButton = visual(session.window->contentItem(), "settingsExportDiagnostics");
+    QVERIFY(currentButton && session.revealItem(currentButton));
+    currentButton->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(session.window, Qt::Key_Space);
+    auto *currentOwner = session.root->findChild<QObject *>("settingsDiagnosticExportOwner");
+    QVERIFY(currentOwner);
+    QTRY_VERIFY((exportDialog = currentOwner->property("item").value<QObject *>()));
+    QTRY_VERIFY(exportDialog->property("opened").toBool());
+    QVERIFY(exportDialog->property("currentSession").toBool());
+    // The native picker calls these same typed commands on acceptance. Closing
+    // the owning category must cancel the worker and release the whole viewer.
+    QLockFile exportGate(logs + "/crashes/diagnostics.lock");
+    QVERIFY(exportGate.tryLock(0));
+    exportDialog->setProperty("exportStarted", true);
+    logging.diagnostics()->exportCurrent(
+        QUrl::fromLocalFile(session.directory.filePath("cancelled-ui.zip")));
+    QVERIFY(logging.diagnostics()->busy());
+    catalog->select("interface");
+    QTRY_VERIFY(exportDialog.isNull());
+    QTRY_VERIFY(!logging.diagnostics()->busy());
+    QVERIFY(logging.diagnostics()->exportedFile().isEmpty());
+    QVERIFY(!QFileInfo::exists(session.directory.filePath("cancelled-ui.zip")));
+    exportGate.unlock();
+    // Startup action uses the same production list, independently of settings.
+    QVERIFY(QMetaObject::invokeMethod(settings, "close"));
+    emit logging.diagnostics()->recordsRequested();
+    auto *startupOwner = session.root->findChild<QObject *>("startupCrashRecordsOwner");
+    QVERIFY(startupOwner);
+    QTRY_VERIFY((records = startupOwner->property("item").value<QObject *>()));
+    QTRY_VERIFY(records->property("opened").toBool());
+    QVERIFY(QMetaObject::invokeMethod(records, "close"));
+    QTRY_VERIFY(records.isNull());
     QCOMPARE(warnings.size(), 0);
 }
 

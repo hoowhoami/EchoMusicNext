@@ -152,13 +152,34 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
-        heading: qsTr("查看运行日志")
-        description: qsTr("打开本地日志目录以供排查问题")
+        heading: qsTr("运行日志")
+        description: qsTr("导出当前会话的诊断信息，或打开本地日志目录")
+        controlGap: 8
         EchoSoftButton {
-            text: qsTr("立即查看")
+            objectName: "settingsExportDiagnostics"
+            text: qsTr("导出诊断包")
+            enabled: section.logging !== null && section.logging.diagnostics !== null && !section.logging.diagnostics.busy
+            colors: Theme.floating
+            onClicked: diagnosticExportOwner.open()
+        }
+        EchoSoftButton {
+            objectName: "settingsOpenLogDirectory"
+            text: qsTr("打开目录")
             enabled: section.logging !== null
             colors: Theme.floating
             onClicked: section.logging.openDirectory()
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("崩溃记录")
+        description: section.logging && section.logging.diagnostics && section.logging.diagnostics.count > 0 ? qsTr("最近有 %1 条记录，可导出对应诊断包").arg(section.logging.diagnostics.count) : qsTr("查看本机崩溃与异常退出记录")
+        EchoSoftButton {
+            objectName: "settingsViewCrashRecords"
+            text: qsTr("查看记录")
+            enabled: section.logging !== null && section.logging.diagnostics !== null
+            colors: Theme.floating
+            onClicked: crashRecordsOwner.open()
         }
     }
     SettingsDivider {}
@@ -412,7 +433,7 @@ SettingsSection {
                     surface: restoreDialog
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("备份版本：EchoMusicNext %1\n创建时间：%2").arg(section.dataService.summary.appVersion || "").arg(section.dataService.summary.createdAt || "")
+                        text: qsTr("备份版本：EchoMusicNext %1\n创建时间：%2").arg(section.dataService.summary.appVersion || "").arg(section.dataService.formatTimestamp(String(section.dataService.summary.createdAt || "")))
                         font: Theme.font(12, Theme.regularWeight)
                         color: Theme.floatingSecondaryText
                         wrapMode: Text.Wrap
@@ -517,6 +538,24 @@ SettingsSection {
                 nameFilters: [qsTr("EchoMusicNext 备份 (*.echonext-backup)")]
                 onAccepted: section.dataService.inspect(selectedFile)
             }
+        }
+    }
+    EchoPopupLoader {
+        id: diagnosticExportOwner
+        objectName: "settingsDiagnosticExportOwner"
+        hostItem: section
+        sourceComponent: DiagnosticExportDialog {
+            service: section.logging.diagnostics
+            uiScale: section.settings.uiScale
+        }
+    }
+    EchoPopupLoader {
+        id: crashRecordsOwner
+        objectName: "settingsCrashRecordsOwner"
+        hostItem: section
+        sourceComponent: CrashRecordsDialog {
+            service: section.logging.diagnostics
+            uiScale: section.settings.uiScale
         }
     }
     EchoPopupLoader {

@@ -89,6 +89,7 @@ EchoDialog {
                 ]
                 delegate: ItemDelegate {
                     id: option
+                    EchoActionCursor {}
                     required property var modelData
                     required property int index
                     objectName: "cloudUploadOption" + index
@@ -230,6 +231,7 @@ EchoDialog {
                     }
                     delegate: ItemDelegate {
                         id: candidate
+                        EchoActionCursor {}
                         required property var modelData
                         required property int index
                         width: ListView.view.width

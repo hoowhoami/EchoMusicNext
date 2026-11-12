@@ -80,7 +80,7 @@ EchoAnchoredPopup {
                 view: list
                 resourceActive: menu.visible && !menu.editing
             }
-            delegate: Button {
+            delegate: EchoActionButton {
                 id: row
                 required property string actionKey
                 required property string actionTitle

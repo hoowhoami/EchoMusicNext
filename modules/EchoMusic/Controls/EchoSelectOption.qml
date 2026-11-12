@@ -5,6 +5,7 @@ import EchoMusic.Theme
 
 ItemDelegate {
     id: option
+    EchoActionCursor {}
     EchoMotionScope {
         id: motion
         target: option

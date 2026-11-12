@@ -20,6 +20,13 @@ struct NetworkPreferencesRegistration
     QML_NAMED_ELEMENT(NetworkPreferences)
     QML_UNCREATABLE("Application-owned network policy")
 };
+struct DiagnosticServiceRegistration
+{
+    Q_GADGET
+    QML_FOREIGN(DiagnosticService)
+    QML_NAMED_ELEMENT(DiagnosticService)
+    QML_UNCREATABLE("Application-owned local diagnostics")
+};
 struct LogServiceRegistration
 {
     Q_GADGET

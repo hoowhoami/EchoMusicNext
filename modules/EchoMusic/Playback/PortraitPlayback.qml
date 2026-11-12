@@ -107,6 +107,9 @@ Item {
             portrait.scheduleCollapse();
         }
     }
+    EchoActionCursor {
+        enabled: portrait.collapsed
+    }
     TapHandler {
         enabled: portrait.collapsed
         acceptedButtons: Qt.LeftButton

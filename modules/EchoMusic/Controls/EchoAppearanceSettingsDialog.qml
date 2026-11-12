@@ -21,7 +21,7 @@ EchoDialog {
             id: viewport
             implicitHeight: contentHeight
             contentWidth: width
-            contentHeight: content.implicitHeight + 24
+            contentHeight: content.implicitHeight
             boundsBehavior: Flickable.StopAtBounds
             clip: true
             ScrollBar.vertical: EchoPopupScrollBar {
@@ -31,8 +31,8 @@ EchoDialog {
             }
             ColumnLayout {
                 id: content
-                x: 24
-                width: Math.max(0, viewport.width - 48)
+                // EchoDialog already owns the left inset; only reserve its right edge.
+                width: Math.max(0, viewport.width - 24)
                 spacing: 16
                 AppearanceHost {
                     id: form
@@ -63,10 +63,17 @@ EchoDialog {
         }
     }
     footerContent: Component {
-        EchoSoftButton {
-            text: qsTr("恢复默认")
-            enabled: dialog.entry !== null
-            onClicked: dialog.entry.configuration.reset()
+        RowLayout {
+            Item {
+                Layout.fillWidth: true
+            }
+            EchoSoftButton {
+                objectName: "appearanceSettingsReset"
+                text: qsTr("恢复默认")
+                colors: Theme.floating
+                enabled: dialog.entry !== null && !dialog.entry.configuration.busy
+                onClicked: dialog.entry.configuration.reset()
+            }
         }
     }
 }

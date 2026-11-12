@@ -8,6 +8,7 @@ import EchoMusic.Theme
 // The directory intentionally differs from the metadata-rich search artist card.
 ItemDelegate {
     id: entry
+    EchoActionCursor {}
     required property string title
     required property string coverUrl
     required property string resourceId

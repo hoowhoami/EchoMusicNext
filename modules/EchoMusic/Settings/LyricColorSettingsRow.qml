@@ -36,7 +36,7 @@ SettingsRow {
                         font: Theme.font(13, Theme.semiboldWeight)
                         color: Theme.floatingSecondaryText
                     }
-                    Button {
+                    EchoActionButton {
                         objectName: field.index === 0 ? "lyricPlayedColor" : "lyricUnplayedColor"
                         implicitWidth: 32
                         implicitHeight: 32

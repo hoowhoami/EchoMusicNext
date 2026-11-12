@@ -2470,6 +2470,97 @@ elif sys.argv[1] == 'dispatch':
         }
         QCOMPARE(warnings.count(), 0);
     }
+    void catalogActionsRemainVisibleOutsideArtwork()
+    {
+        ThemeSession session;
+        QVERIFY(session.create());
+        QVERIFY(Test::prepareNativeInput(session.window));
+        QQmlComponent component(&session.engine,
+                                QUrl("qrc:/qt/qml/EchoMusic/Themes/ThemeCatalogCard.qml"));
+        const auto captures = qEnvironmentVariable("ECHO_THEME_CARD_ACTION_CAPTURE_DIR");
+        if (!captures.isEmpty())
+            QVERIFY(QDir().mkpath(captures));
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            session.theme.setMode(mode);
+            for (const bool white : {false, true}) {
+                QImage artwork(160, 100, QImage::Format_RGB32);
+                artwork.fill(white ? Qt::white : Qt::black);
+                const auto path = session.directory.filePath(white ? "white.png" : "black.png");
+                QVERIFY(artwork.save(path));
+                for (const qreal width : {230., 310.})
+                    for (const qreal scale : {1., 1.25}) {
+                        QScopedPointer<QObject> owner(component.createWithInitialProperties(
+                            {{"themeName", QString("一段很长的主题名称，用于检查操作入口")},
+                             {"description", QString("主题说明与缩略图保持独立。")},
+                             {"selected", false},
+                             {"extension", true},
+                             {"previewSource", QUrl::fromLocalFile(path)},
+                             {"width", width}}));
+                        QVERIFY2(owner, qPrintable(component.errorString()));
+                        auto *card = qobject_cast<QQuickItem *>(owner.data());
+                        QVERIFY(card);
+                        card->setParentItem(session.window->contentItem());
+                        card->setPosition({60, 120});
+                        card->setTransformOrigin(QQuickItem::TopLeft);
+                        card->setScale(scale);
+                        card->setZ(10000);
+                        // Sample the card over a clean theme surface, not over
+                        // unrelated foreground controls in the fixture window.
+                        for (auto *underlying : session.window->contentItem()->childItems())
+                            if (underlying != card)
+                                underlying->setVisible(false);
+                        session.window->setColor(session.theme.main());
+                        auto *thumbnail = visual(card, "themeThumbnail");
+                        auto *preview = visual(card, "themeCardPreviewAction");
+                        auto *settings = visual(card, "themeCardSettingsAction");
+                        QVERIFY(thumbnail && preview && settings);
+                        QQuickItem *image = nullptr;
+                        QTRY_VERIFY((image = visual(thumbnail, "coverImage")) &&
+                                    image->property("status").toInt() == 1);
+                        render(session.window);
+                        Test::moveNativePointer(session.window, {700, 700});
+                        QVERIFY(preview->isVisible() && settings->isVisible());
+                        const auto bottom =
+                            thumbnail->mapRectToScene(thumbnail->boundingRect()).bottom();
+                        for (auto *action : {preview, settings}) {
+                            const auto bounds = action->mapRectToScene(action->boundingRect());
+                            QVERIFY(bounds.top() > bottom);
+                            QVERIFY(card->mapRectToScene(card->boundingRect()).contains(bounds));
+                            QCOMPARE(action->size(), QSizeF(32, 32));
+                        }
+                        QSignalSpy previews(owner.data(), SIGNAL(previewRequested()));
+                        QSignalSpy settingsRequests(owner.data(), SIGNAL(settingsRequested()));
+                        QSignalSpy chosen(owner.data(), SIGNAL(chosen()));
+                        click(session.window, preview);
+                        QCOMPARE(previews.size(), 1);
+                        QCOMPARE(chosen.size(), 0);
+                        click(session.window, settings);
+                        QCOMPARE(settingsRequests.size(), 1);
+                        QCOMPARE(chosen.size(), 0);
+                        settings->forceActiveFocus(Qt::TabFocusReason);
+                        QTest::keyClick(session.window, Qt::Key_Space);
+                        QCOMPARE(settingsRequests.size(), 2);
+                        QCOMPARE(chosen.size(), 0);
+                        if (!captures.isEmpty() && width == 230. && scale == 1.25) {
+                            Test::moveNativePointer(session.window, {700, 700});
+                            render(session.window);
+                            const auto frame = session.window->grabWindow();
+                            const auto area = card->mapRectToScene(card->boundingRect());
+                            const auto dpr = frame.devicePixelRatio();
+                            QVERIFY(
+                                frame
+                                    .copy(QRectF(area.topLeft() * dpr, area.size() * dpr)
+                                              .toAlignedRect())
+                                    .save(captures +
+                                          QString("/card-%1-%2.png").arg(int(mode)).arg(white)));
+                        }
+                        card->setProperty("extension", false);
+                        QVERIFY(!preview->isVisible() && !settings->isVisible());
+                    }
+            }
+        }
+    }
+
     void realThemeTabsColorDialogAndDrawer()
     {
         ThemeSession session;
@@ -2483,7 +2574,8 @@ elif sys.argv[1] == 'dispatch':
         QCOMPARE(tabs->property("inset").toReal(), 4.0);
         QQuickItem *thirdTab = nullptr;
         QTRY_VERIFY((thirdTab = visual(tabs, "tab-2")));
-        QVERIFY(thirdTab->isEnabled());
+        // Route items can exist before their inherited input gate is released.
+        QTRY_VERIFY(thirdTab->isEnabled());
         // A selected background is insufficient: the shared check must load.
         QQuickItem *selectionCheck = nullptr;
         QTRY_VERIFY((selectionCheck = session.item("selectionCheck")));

@@ -40,7 +40,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignTop
                 spacing: overview.compact ? 12 : 14
-                Button {
+                EchoActionButton {
                     id: avatarButton
                     objectName: "profileChangeAvatar"
                     Layout.preferredWidth: 56
@@ -52,8 +52,8 @@ Rectangle {
                     Layout.minimumHeight: 56
                     Layout.maximumHeight: 56
                     padding: 0
-                    // Basic.Button keeps padding + 2 horizontal padding by
-                    // default, which otherwise makes the inner avatar 52x56.
+                    // EchoActionButton preserves Qt's extra horizontal padding;
+                    // clear it here to keep the inner avatar exactly 56x56.
                     horizontalPadding: 0
                     enabled: !overview.uploadingAvatar
                     hoverEnabled: true
@@ -188,7 +188,7 @@ Rectangle {
             rowSpacing: 0
             Repeater {
                 model: [qsTr("等级"), qsTr("好友"), qsTr("关注"), qsTr("粉丝"), qsTr("访客")]
-                delegate: Button {
+                delegate: EchoActionButton {
                     id: stat
                     required property int index
                     required property string modelData

@@ -35,6 +35,7 @@ public:
         return m_busy;
     }
     QVariantMap summary() const;
+    Q_INVOKABLE QString formatTimestamp(const QString &value) const;
     bool canRestore() const
     {
         return m_staging && !m_manifest.isEmpty() && !m_busy;

@@ -464,6 +464,94 @@ void PluginRuntimeTest::unifiedNetworkRequestOptionsAndCancellation()
     QCOMPARE(EchoPluginIo::staticMetaObject.indexOfMethod("get(QUrl)"), -1);
     QCOMPARE(EchoPluginIo::staticMetaObject.indexOfMethod("post(QUrl,QByteArray,QString)"), -1);
 }
+void PluginRuntimeTest::binaryNetworkTransferBudgetsAndCancellation()
+{
+    Host host;
+    auto *scope = installFiles(host);
+    QVERIFY(scope);
+    Operations ops{host.engine};
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    QPointer<QTcpSocket> held;
+    const QByteArray bytes(8 * 1024 * 1024 + 17, 'w');
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+        auto *socket = server.nextPendingConnection();
+        auto received = std::make_shared<QByteArray>();
+        connect(socket, &QTcpSocket::readyRead, socket, [&, socket, received] {
+            received->append(socket->readAll());
+            const auto end = received->indexOf("\r\n\r\n");
+            if (end < 0 || socket->property("sent").toBool())
+                return;
+            const auto length = QRegularExpression("(?i)Content-Length: ([0-9]+)")
+                                    .match(QString::fromLatin1(received->left(end)))
+                                    .captured(1)
+                                    .toLongLong();
+            if (received->size() < end + 4 + length)
+                return;
+            socket->setProperty("sent", true);
+            if (received->startsWith("GET /hold")) {
+                held = socket;
+                return;
+            }
+            const auto body = received->mid(end + 4);
+            socket->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(body.size()) +
+                          "\r\nConnection: close\r\n\r\n" + body);
+            socket->disconnectFromHost();
+        });
+        connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+    });
+    const auto url = QString("http://127.0.0.1:%1/echo").arg(server.serverPort());
+    QCOMPARE(scope->net()->request({{"url", url}, {"method", "PUT"}, {"body", bytes}})->errorCode(),
+             "QuotaExceeded");
+    const auto saved =
+        ops.success(scope->net()->request({{"url", url},
+                                           {"method", "PUT"},
+                                           {"body", bytes},
+                                           {"maxRequestBytes", 256 * 1024 * 1024},
+                                           {"responseType", "arrayBuffer"},
+                                           {"maxResponseBytes", 256 * 1024 * 1024}}));
+    QCOMPARE(saved.value("data").toByteArray(), bytes);
+    QCOMPARE(scope->net()->request({{"url", url}, {"maxRequestBytes", 0}})->errorCode(),
+             "InvalidArgument");
+    QCOMPARE(scope->net()->request({{"url", url}, {"maxResponseBytes", 0.5}})->errorCode(),
+             "InvalidArgument");
+    QCOMPARE(ops.success(scope->net()->request({{"url", url},
+                                                {"maxRequestBytes", 1024ll * 1024 * 1024},
+                                                {"maxResponseBytes", 1024ll * 1024 * 1024},
+                                                {"responseType", "text"}}))
+                 .value("status")
+                 .toInt(),
+             200);
+    QCOMPARE(ops.success(scope->net()->request({{"url", url},
+                                                {"method", "PUT"},
+                                                {"body", QString::fromLatin1(bytes)},
+                                                {"maxRequestBytes", 256 * 1024 * 1024},
+                                                {"responseType", "text"}}))
+                 .value("data")
+                 .toString()
+                 .size(),
+             bytes.size());
+    auto *pending = ops.keep(scope->net()->request(
+        {{"url", QString("http://127.0.0.1:%1/hold").arg(server.serverPort())},
+         {"responseType", "arrayBuffer"},
+         {"maxResponseBytes", 256 * 1024 * 1024}}));
+    QTRY_VERIFY(held);
+    // A large declared ceiling must not reserve memory or block a concurrent small response.
+    QCOMPARE(ops.success(scope->net()->request({{"url", url},
+                                                {"maxRequestBytes", 1024ll * 1024 * 1024},
+                                                {"maxResponseBytes", 1024ll * 1024 * 1024},
+                                                {"responseType", "text"}}))
+                 .value("status")
+                 .toInt(),
+             200);
+    pending->cancel();
+    QTRY_VERIFY(!held);
+    QCOMPARE(pending->state(), EchoPluginOperation::Canceled);
+    QCOMPARE(ops.success(scope->net()->request({{"url", url}, {"responseType", "text"}}))
+                 .value("status")
+                 .toInt(),
+             200);
+}
 void PluginRuntimeTest::fileGrantLedgerPersistenceAndIsolation()
 {
     QTemporaryDir temporary;

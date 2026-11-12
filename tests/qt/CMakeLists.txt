@@ -59,6 +59,14 @@ endif()
 
 qt_add_executable(echo-foundation-test FoundationTest.cpp)
 qt_add_executable(echo-back-to-top-test BackToTopTest.cpp)
+qt_add_executable(echo-cover-transition-test CoverTransitionTest.cpp)
+set_target_properties(echo-cover-transition-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+target_link_libraries(
+    echo-cover-transition-test
+    PRIVATE echo_controls echo_controlsplugin echo_theme echo_themeplugin Qt6::Quick Qt6::Test
+)
+add_test(NAME cover-transition COMMAND echo-cover-transition-test)
+set_tests_properties(cover-transition PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
 qt_add_qml_module(echo-back-to-top-test URI EchoMusic.BackToTopTests QML_FILES BackToTopHarness.qml)
 target_link_libraries(
     echo-back-to-top-test
@@ -386,7 +394,8 @@ add_test(
 add_test(
     NAME controls-ui-behavior
     COMMAND
-        echo-controls-ui-test windowCaptionSeparatesDoubleClickFromDrag
+        echo-controls-ui-test actionCursorsFollowAvailabilityAndPreserveEditing
+        customActionButtonPreservesQtContentAndInput windowCaptionSeparatesDoubleClickFromDrag
         listLocationPreservesVisibleRowsAndChecksOcclusion
         coverKeepsNativeResolutionUnderAncestorZoom coverCropAndRoundedPixels
         pixelSnapTracksScenePositionAcrossReparentAndWindows thinSurfacesKeepDeviceGrid
@@ -594,6 +603,23 @@ target_link_libraries(
 )
 add_test(NAME theme COMMAND echo-theme-test)
 set_tests_properties(theme PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    qt_add_executable(echo-wayland-background-effect-test WaylandBackgroundEffectTest.cpp)
+    set_target_properties(
+        echo-wayland-background-effect-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE
+    )
+    target_include_directories(
+        echo-wayland-background-effect-test PRIVATE "${CMAKE_BINARY_DIR}/services/platform"
+    )
+    target_link_libraries(
+        echo-wayland-background-effect-test PRIVATE echo_platform Qt6::Test
+                                                    PkgConfig::ECHO_WAYLAND_CLIENT
+    )
+    add_test(NAME wayland-background-effect COMMAND echo-wayland-background-effect-test)
+    set_tests_properties(
+        wayland-background-effect PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15
+    )
+endif()
 qt_add_executable(echo-system-theme-mode-test SystemThemeModeTest.cpp)
 # This test exercises the C++ store only and creates no QML engine or page.
 set_target_properties(echo-system-theme-mode-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
@@ -907,6 +933,21 @@ add_dependencies(echo-crash-diagnostics-test echo-crash-probe)
 add_test(NAME crash-diagnostics COMMAND echo-crash-diagnostics-test)
 set_tests_properties(crash-diagnostics PROPERTIES TIMEOUT 180)
 
+add_test(NAME diagnostic-settings COMMAND echo-desktop-pages-test
+                                          productionDiagnosticRecordsAndExport
+)
+set_tests_properties(
+    diagnostic-settings PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90
+)
+
+qt_add_executable(echo-diagnostic-service-test DiagnosticServiceTest.cpp)
+target_include_directories(echo-diagnostic-service-test PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(echo-diagnostic-service-test PRIVATE echo_logging Qt6::Test crashpad::client)
+add_dependencies(echo-diagnostic-service-test echo-crash-probe)
+add_test(NAME diagnostic-service COMMAND echo-diagnostic-service-test)
+set_tests_properties(diagnostic-service PROPERTIES TIMEOUT 120)
+echo_copy_rust_runtime(echo-diagnostic-service-test)
+
 qt_add_executable(echo-playback-test PlaybackTest.cpp)
 qt_add_executable(echo-effect-catalog-test AudioEffectCatalogTest.cpp)
 qt_add_qml_module(
@@ -1058,9 +1099,12 @@ add_test(
         localHttpRealRequestsChunkingAndErrors localWebSocketUpgradeBinaryPingAndLimits
         resourceAccountAndDisableDrainRealTransports
 )
-add_test(NAME plugin-runtime-backups
-         COMMAND echo-plugin-runtime-test backupsCreateInspectTokensAndStorageBarrier
-                 backupsProvidersUseRealUiAndRetire backupsRestoreCommitAndRollback
+add_test(
+    NAME plugin-runtime-backups
+    COMMAND
+        echo-plugin-runtime-test backupsCreateInspectTokensAndStorageBarrier
+        backupsProvidersUseRealUiAndRetire backupsRestoreCommitAndRollback
+        builtWebDavProviderAndSettingsLifecycle
 )
 add_test(
     NAME plugin-runtime-sqlite
@@ -1185,7 +1229,8 @@ add_test(
     COMMAND
         echo-plugin-runtime-test fileSelectionReadWriteAndIsolation mediaLeaseRangesAndLifecycle
         downloadsResumeChecksumAndRetirement unifiedNetworkRequestOptionsAndCancellation
-        fileGrantLedgerPersistenceAndIsolation mediaLeaseFeedsPlaybackAndRevocationStopsIt
+        binaryNetworkTransferBudgetsAndCancellation fileGrantLedgerPersistenceAndIsolation
+        mediaLeaseFeedsPlaybackAndRevocationStopsIt
         fileDownloadTrackRevocationAndAccountCancellation fileGrantManagementDialogUsesRealLedger
 )
 

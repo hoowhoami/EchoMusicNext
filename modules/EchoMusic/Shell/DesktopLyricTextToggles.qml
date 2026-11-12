@@ -24,6 +24,7 @@ Rectangle {
             model: ["translation", "romanization"]
             delegate: ToolButton {
                 id: toggle
+                EchoActionCursor {}
                 required property string modelData
                 readonly property bool translation: modelData === "translation"
                 readonly property bool first: translation || !group.playback.lyrics.hasTranslation

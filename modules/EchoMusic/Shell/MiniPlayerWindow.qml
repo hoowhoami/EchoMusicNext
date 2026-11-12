@@ -351,7 +351,7 @@ Window {
                             required property bool isCurrent
                             width: queue.width
                             height: 42
-                            Button {
+                            EchoActionButton {
                                 id: queueAction
                                 x: 8
                                 width: parent.width - 16
@@ -434,7 +434,7 @@ Window {
                                 onClicked: window.service.showMain()
                             }
                         }
-                        Button {
+                        EchoActionButton {
                             id: coverAction
                             objectName: "miniPlayerLyricAction"
                             implicitWidth: 44

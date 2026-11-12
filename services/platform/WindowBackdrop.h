@@ -6,6 +6,7 @@
 class QWindow;
 namespace EchoMusic
 {
+class WaylandBackgroundEffect;
 class HyprlandWindowBackdrop;
 #ifdef Q_OS_WIN
 class WindowsWindowBackdrop;
@@ -32,10 +33,13 @@ public:
 
 signals:
     void completed(const QString &error);
+    void supportedChanged();
 
 private:
     void reportError(const QString &error);
+    std::unique_ptr<WaylandBackgroundEffect> m_wayland;
     std::unique_ptr<HyprlandWindowBackdrop> m_hyprland;
+    bool m_hyprlandActive = false;
 #ifdef Q_OS_WIN
     std::unique_ptr<WindowsWindowBackdrop> m_windows;
 #endif

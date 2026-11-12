@@ -5,6 +5,7 @@ import EchoMusic.Theme
 
 Switch {
     id: control
+    EchoActionCursor {}
     EchoMotionScope {
         id: motion
         target: control

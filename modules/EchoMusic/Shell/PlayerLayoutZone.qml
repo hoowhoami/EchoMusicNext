@@ -284,7 +284,7 @@ Rectangle {
                     event.accepted = true;
                 }
             }
-            Button {
+            EchoActionButton {
                 id: badge
                 objectName: "playerBadgePreference-" + slot.actionKey
                 width: 24

@@ -10,6 +10,7 @@ WindowActionGroup {
     property ThemeColors colors: Theme.colors
     visible: !service.fullscreen
     EchoIconButton {
+        cursorShape: Qt.ArrowCursor
         hoverWhenDisabled: true
         objectName: "windowMinimizeAction"
         colors: controls.colors
@@ -20,6 +21,7 @@ WindowActionGroup {
         onClicked: controls.service.minimize()
     }
     EchoIconButton {
+        cursorShape: Qt.ArrowCursor
         hoverWhenDisabled: true
         objectName: "windowMaximizeAction"
         colors: controls.colors
@@ -31,6 +33,7 @@ WindowActionGroup {
     }
     EchoIconButton {
         id: closeAction
+        cursorShape: Qt.ArrowCursor
         hoverWhenDisabled: true
         objectName: "windowCloseAction"
         colors: controls.colors

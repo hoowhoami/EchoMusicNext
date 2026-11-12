@@ -110,7 +110,6 @@ SongDetailHeader {
             circular: true
             resourceActive: header.resourceActive
             placeholderGlyph: "user"
-            placeholderGlyphSize: 32
         }
     }
     uniformMetadataRows: true

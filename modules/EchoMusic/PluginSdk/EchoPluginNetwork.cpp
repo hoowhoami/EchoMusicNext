@@ -183,7 +183,7 @@ EchoPluginOperation *EchoPluginNetwork::request(const QVariantMap &options)
         return m_scope.rejected("CapabilityDenied", "Declare unrestrictedNetwork capability");
     const QStringList allowed{"url",          "method",    "headers",          "body",
                               "responseType", "timeoutMs", "maxResponseBytes", "maxRedirects",
-                              "decompress",   "tls",       "revision"};
+                              "decompress",   "tls",       "revision",         "maxRequestBytes"};
     for (auto it = options.begin(); it != options.end(); ++it)
         if (!allowed.contains(it.key()))
             return m_scope.rejected("InvalidArgument", "Unknown request option: " + it.key());
@@ -193,7 +193,7 @@ EchoPluginOperation *EchoPluginNetwork::request(const QVariantMap &options)
     const QUrl url(options.value("url").toString());
     const auto method = options.value("method", "GET").toString().toLatin1();
     const auto type = options.value("responseType", "json").toString();
-    qint64 timeout, limit, redirects;
+    qint64 timeout, limit, redirects, requestLimit;
     if (!url.isValid() || !QStringList{"http", "https"}.contains(url.scheme()) ||
         url.host().isEmpty() || !url.userInfo().isEmpty() || url.toEncoded().size() > 8192 ||
         method.isEmpty() || method.size() > 32 ||
@@ -202,8 +202,9 @@ EchoPluginOperation *EchoPluginNetwork::request(const QVariantMap &options)
              .hasMatch() ||
         !QStringList{"json", "text", "arrayBuffer"}.contains(type) ||
         !integer(options, "timeoutMs", 30000, 24 * 60 * 60 * 1000, timeout) ||
-        !integer(options, "maxResponseBytes", 32 * 1024 * 1024, 128 * 1024 * 1024, limit) ||
-        !limit || !integer(options, "maxRedirects", 5, 32, redirects))
+        !integer(options, "maxResponseBytes", 32 * 1024 * 1024, 9007199254740991ll, limit) ||
+        !integer(options, "maxRequestBytes", 8 * 1024 * 1024, 9007199254740991ll, requestLimit) ||
+        !requestLimit || !limit || !integer(options, "maxRedirects", 5, 32, redirects))
         return invalid();
     QNetworkRequest request(url);
     request.setTransferTimeout(int(timeout));
@@ -268,8 +269,8 @@ EchoPluginOperation *EchoPluginNetwork::request(const QVariantMap &options)
                 request.setRawHeader("Content-Type", "application/json");
         } else
             return invalid();
-        if (body.size() > 8 * 1024 * 1024)
-            return m_scope.rejected("QuotaExceeded", "Request body exceeds 8 MiB");
+        if (body.size() > requestLimit)
+            return m_scope.rejected("QuotaExceeded", "Request body exceeds maxRequestBytes");
     }
     const auto revision = options.value("revision").toString();
     if (options.contains("revision") &&
