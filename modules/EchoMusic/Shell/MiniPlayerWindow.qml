@@ -591,6 +591,7 @@ Window {
                                 colors: window.miniColors
                                 glyph: window.playback.volume > 0 ? "volume" : "volume-off"
                                 text: qsTr("音量")
+                                tooltipText: qsTr("音量 %1%").arg(Math.round(window.playback.volume))
                                 onClicked: volumePopupOwner.visible ? volumePopupOwner.close() : volumePopupOwner.open()
                                 PlayerVolumeWheelArea {
                                     anchors.fill: parent

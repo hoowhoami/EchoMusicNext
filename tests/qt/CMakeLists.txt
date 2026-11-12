@@ -62,8 +62,8 @@ qt_add_executable(echo-back-to-top-test BackToTopTest.cpp)
 qt_add_executable(echo-cover-transition-test CoverTransitionTest.cpp)
 set_target_properties(echo-cover-transition-test PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
 target_link_libraries(
-    echo-cover-transition-test
-    PRIVATE echo_controls echo_controlsplugin echo_theme echo_themeplugin Qt6::Quick Qt6::Test
+    echo-cover-transition-test PRIVATE echo_controls echo_controlsplugin echo_theme
+                                       echo_themeplugin Qt6::Quick Qt6::Test
 )
 add_test(NAME cover-transition COMMAND echo-cover-transition-test)
 set_tests_properties(cover-transition PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
@@ -827,9 +827,9 @@ add_test(
         productionExperimentalIdentitySettings productionExperimentalLoggingSettings
         productionNetworkSettingsAutoSaveResetAndTheme
         productionPlayerEngineSettingsDecimalInputAndLifecycle
-        productionVariableDialogSizingReopens settingsDefaultsAndSourceEffectFileManager
-        playbackZoomShortcutsFollowSharedScale windowSettingsNeverHideWithoutNativeRecovery
-        startupEntryEscapesBothDesktopParsingLayers
+        productionVariableDialogSizingReopens playbackQueueModeUsesProductionSelection
+        settingsDefaultsAndSourceEffectFileManager playbackZoomShortcutsFollowSharedScale
+        windowSettingsNeverHideWithoutNativeRecovery startupEntryEscapesBothDesktopParsingLayers
         sidebarLayoutPersistsAndKeepsGroupsAndOneShortcut sidebarShortcutCollapseFrames
         sidebarShortcutHoverDragAcrossThemesAndScales sidebarShortcutHoverDragAndFocus
         signedOutAccountPopoverAndOddShortcutWidths remainingSettingsProductionSections
@@ -845,6 +845,7 @@ add_test(
         desktopLyricsKeepRenderingUnderTranslucentOcclusion
         miniProgressVolumeBackdropFavoriteAndDesktopBadge miniQueueRendersAndScrolls
         miniScaleAndMenuUseProductionSurfaces miniVolumeDismissesAcrossHost
+        nativeInputPreparationSurvivesWindowRetirement
         floatingPreferencesAndFilteredTimelineKeepIdentity
         desktopLyricsMatchSourceChromeAndHoverUnlock
         nativeFloatingWindowsShareStateAndReleaseAcrossCycles

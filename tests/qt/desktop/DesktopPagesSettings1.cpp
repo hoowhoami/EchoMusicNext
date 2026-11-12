@@ -1868,6 +1868,123 @@ void DesktopPagesTest::productionVariableDialogSizingReopens()
     QCOMPARE(warnings.size(), 0);
 }
 
+void DesktopPagesTest::playbackQueueModeUsesProductionSelection()
+{
+    Session session;
+    QVERIFY(session.api.setNetworkTransport(1));
+    session.preferences.setValue("playback/autoNext", false);
+    PlaybackService playback(session.api, session.preferences);
+    SongMetadataService metadata(session.api);
+    PlaylistDetailService playlists(session.api, playback, session.accounts.playlists,
+                                    session.accounts.mutations, *session.accounts.library.order(),
+                                    metadata, session.router, false);
+    playlists.registerRoutes(session.router);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&session] {
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QVERIFY(Test::prepareNativeInput(session.window));
+    session.router.navigate("settings");
+    QPointer<QObject> settings = session.root->findChild<QObject *>("settingsDialog");
+    QVERIFY(settings);
+    QTRY_VERIFY(settings->property("opened").toBool());
+    auto *catalog = settings->property("catalog").value<SettingsCatalog *>();
+    QVERIFY(catalog);
+    catalog->select("playback");
+    QVERIFY(session.settingsSectionReady());
+    QQuickItem *queueMode = nullptr;
+    QTRY_VERIFY((queueMode = visual(session.window->contentItem(), "settingsQueueMode")));
+    QCOMPARE(playback.preferences()->queueMode(), QString("context"));
+    QVERIFY(session.clickItem(queueMode));
+    QQuickItem *option = nullptr;
+    QTRY_VERIFY((option = visual(session.window->contentItem(), "selectOption-1")));
+    QVERIFY(session.clickItem(option));
+    QTRY_COMPARE(queueMode->property("currentIndex").toInt(), 1);
+    QCOMPARE(playback.preferences()->queueMode(), QString("single"));
+    QCOMPARE(session.preferences.value("playback/queueMode").toString(), QString("single"));
+
+    QVERIFY(QMetaObject::invokeMethod(settings, "close"));
+    QTRY_VERIFY(settings.isNull());
+    QVERIFY(session.router.navigate("playlist-detail", {}, "public-playlist"));
+    auto *context = playlists.contextFor(session.router.current());
+    QVERIFY(context);
+    PlaylistDetailContextTestAccess::seed(*context);
+    auto *actions = context->actions();
+    actions->setQueueContext("Single", "queue:playlist:public-playlist");
+    context->songs()->replaceSongs(
+        QJsonArray{QJsonObject{{"id", "a"}, {"hash", QString(32, u'a')}, {"title", "First"}},
+                   QJsonObject{{"id", "b"}, {"hash", QString(32, u'b')}, {"title", "Second"}},
+                   QJsonObject{{"id", "c"}, {"hash", QString(32, u'c')}, {"title", "Third"}}});
+    QQuickItem *page = nullptr;
+    QTRY_VERIFY((page = visual(session.window->contentItem(), "playlistDetailPage")));
+    QTRY_VERIFY(page->isEnabled());
+    auto *body = visual(page, "catalogSongList");
+    QVERIFY(body);
+    auto *view = body->property("listView").value<QQuickItem *>();
+    QVERIFY(view);
+    const auto doubleClick = [&](int index) {
+        QQuickItem *row = nullptr;
+        if (!QMetaObject::invokeMethod(view, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, row),
+                                       Q_ARG(int, index)) ||
+            !row || !session.settleScene())
+            return false;
+        QSignalSpy clicked(row, SIGNAL(doubleClicked()));
+        const auto point = row->mapToScene(QPointF(120, row->height() / 2)).toPoint();
+        Test::moveNativePointer(session.window, point);
+        QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, point);
+        QTest::mouseDClick(session.window, Qt::LeftButton, Qt::NoModifier, point);
+        QTest::mouseRelease(session.window, Qt::LeftButton, Qt::NoModifier, point);
+        return clicked.size() == 1;
+    };
+    QTRY_COMPARE(view->property("count").toInt(), 3);
+    QVERIFY(doubleClick(1));
+    QCOMPARE(playback.trackId(), QString("b"));
+    QCOMPARE(playback.queue()->rowCount(), 1);
+    QVERIFY(doubleClick(2));
+    QCOMPARE(playback.trackId(), QString("c"));
+    QCOMPARE(playback.queue()->rowCount(), 2);
+    QCOMPARE(playback.sourceKey(), QString("queue:playlist:public-playlist"));
+
+    session.router.navigate("settings");
+    settings = session.root->findChild<QObject *>("settingsDialog");
+    QVERIFY(settings);
+    QTRY_VERIFY(settings->property("opened").toBool());
+    catalog = settings->property("catalog").value<SettingsCatalog *>();
+    QVERIFY(catalog);
+    catalog->select("playback");
+    QVERIFY(session.settingsSectionReady());
+    QTRY_VERIFY((queueMode = visual(session.window->contentItem(), "settingsQueueMode")));
+    // Rebuilding the settings section must retain the saved preference.
+    QPointer<QQuickItem> retired = queueMode;
+    catalog->select("interface");
+    QTRY_VERIFY(retired.isNull());
+    catalog->select("playback");
+    QVERIFY(session.settingsSectionReady());
+    QTRY_VERIFY((queueMode = visual(session.window->contentItem(), "settingsQueueMode")));
+    QCOMPARE(queueMode->property("currentIndex").toInt(), 1);
+    PlaybackPreferences reopened(session.preferences);
+    QCOMPARE(reopened.queueMode(), QString("single"));
+
+    // Play-all is an explicit list command even while single-song is selected.
+    actions->play();
+    QCOMPARE(playback.queue()->rowCount(), 3);
+    actions->play("b", false);
+    QCOMPARE(playback.queue()->rowCount(), 3); // Existing source membership is retained.
+    QCOMPARE(playback.preferences()->queueMode(), QString("single"));
+    bool accepted = false;
+    QVERIFY(QMetaObject::invokeMethod(queueMode, "echoUiSelectIndex", Q_RETURN_ARG(bool, accepted),
+                                      Q_ARG(int, 0)));
+    QVERIFY(accepted);
+    QCOMPARE(playback.preferences()->queueMode(), QString("context"));
+    actions->setQueueContext("Context", "context-selection");
+    actions->play("b", false);
+    QCOMPARE(playback.trackId(), QString("b"));
+    QCOMPARE(playback.queue()->rowCount(), 3);
+    QCOMPARE(warnings.size(), 0);
+}
+
 void DesktopPagesTest::settingsDefaultsAndSourceEffectFileManager()
 {
     Session session;

@@ -22,6 +22,7 @@ SettingsSection {
         heading: qsTr("播放时载入队列")
         description: qsTr("单击或双击播放歌曲时，选择要载入的歌曲范围")
         EchoSelect {
+            objectName: "settingsQueueMode"
             colors: Theme.floating
             implicitWidth: 180
             model: [qsTr("当前歌曲所在列表"), qsTr("仅当前歌曲")]

@@ -176,7 +176,7 @@ void DesktopPagesTest::miniScaleAndMenuUseProductionSurfaces()
                 QPointer<QObject> volumePopup;
                 QTRY_VERIFY((volumePopup = volumeOwner->property("item").value<QObject *>()));
                 QTRY_VERIFY(volumePopup->property("opened").toBool());
-                QCOMPARE(volumePopup->property("width").toReal(), 176 * scale);
+                QCOMPARE(volumePopup->property("width").toReal(), 224 * scale);
                 auto *volumeContent = volumePopup->property("contentItem").value<QQuickItem *>();
                 auto *slider = visual(volumeContent, "playbackVolumeSlider");
                 QVERIFY(slider);
@@ -318,6 +318,34 @@ void DesktopPagesTest::miniQueueRendersAndScrolls()
         }
     }
     QCOMPARE(warnings.size(), 0);
+}
+
+void DesktopPagesTest::nativeInputPreparationSurvivesWindowRetirement_data()
+{
+    QTest::addColumn<bool>("exposed");
+    QTest::newRow("waiting-for-exposure") << false;
+    QTest::newRow("waiting-for-activation") << true;
+}
+
+void DesktopPagesTest::nativeInputPreparationSurvivesWindowRetirement()
+{
+    QFETCH(bool, exposed);
+    if (QGuiApplication::platformName() == "offscreen")
+        QSKIP("Requires the native exposure/activation wait");
+    QPointer<QWindow> window = new QWindow;
+    const auto cleanup = qScopeGuard([&] { delete window.data(); });
+    if (exposed) {
+        window->setFlag(Qt::WindowDoesNotAcceptFocus);
+        window->resize(120, 80);
+        window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(!window->isActive());
+    }
+    // Popup owners can retire their window while input preparation processes
+    // queued events, during either exposure or activation waits.
+    QTimer::singleShot(0, window, [window] { delete window.data(); });
+    QVERIFY(!Test::prepareNativeInput(window));
+    QVERIFY(window.isNull());
 }
 
 void DesktopPagesTest::miniVolumeDismissesAcrossHost_data()
@@ -1326,8 +1354,8 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
     QPointer<QObject> popup;
     QVERIFY(volume);
     QVERIFY(!mini->findChild<QObject *>("miniPlayerVolumePopup"));
-    QQuickItem *popupContent = nullptr, *volumeSlider = nullptr, *mute = nullptr;
-    QQuickWindow *popupWindow = nullptr;
+    QPointer<QQuickItem> popupContent, volumeSlider, mute;
+    QPointer<QQuickWindow> popupWindow;
     const auto volumeOpened = [&] {
         popup = mini->findChild<QObject *>("miniPlayerVolumePopup");
         if (!popup || !popup->property("opened").toBool())
@@ -1339,41 +1367,24 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
         return volumeSlider && mute && popupWindow;
     };
     playback.setVolume(50);
-    const auto click = [](QQuickWindow *window, QQuickItem *item) {
-        QVERIFY(item);
-        QVERIFY(Test::prepareNativeInput(window));
-        QPointer<QQuickItem> retained(item);
-        QRectF previous;
-        int stable = 0;
-        for (int turn = 0; turn < 60 && stable < 2; ++turn) {
-            Test::FrameSpy frame(window);
-            window->update();
-            QTRY_VERIFY(!frame.isEmpty());
-            QVERIFY(retained);
-            const auto bounds = retained->mapRectToScene(retained->boundingRect());
-            const QRectF windowBounds(QPointF(), QSizeF(window->size()));
-            const bool ready = retained->window() == window &&
-                               window->contentItem()->size() == QSizeF(window->size()) &&
-                               windowBounds.contains(bounds.center());
-            stable = ready && bounds == previous ? stable + 1 : 0;
-            previous = bounds;
-        }
-        QVERIFY2(
-            stable >= 2,
-            qPrintable(
-                QString("Mini scene did not settle: window=%1x%2 content=%3x%4 item=%5,%6 %7x%8")
-                    .arg(window->width())
-                    .arg(window->height())
-                    .arg(window->contentItem()->width())
-                    .arg(window->contentItem()->height())
-                    .arg(previous.x())
-                    .arg(previous.y())
-                    .arg(previous.width())
-                    .arg(previous.height())));
-        const auto p = item->mapToScene({item->width() / 2, item->height() / 2}).toPoint();
-        QVERIFY(QRectF(QPointF(), QSizeF(window->size())).contains(p));
-        Test::moveNativePointer(window, p);
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, p);
+    const auto click = [&](QQuickWindow *window, QQuickItem *item) {
+        const QPointer<QQuickWindow> targetWindow(window);
+        const QPointer<QQuickItem> target(item);
+        QVERIFY(target && targetWindow);
+        // Activate the host before opening a popup. Reactivating its temporary
+        // native window can dismiss it while the input helper processes events.
+        if (window == mini)
+            QVERIFY(Test::prepareNativeInput(targetWindow));
+        else
+            QTRY_VERIFY(targetWindow && targetWindow->isExposed());
+        QVERIFY(target && targetWindow);
+        QVERIFY(Test::settleNativeItem(target));
+        QVERIFY(target && targetWindow);
+        const auto p = target->mapToScene({target->width() / 2, target->height() / 2}).toPoint();
+        QVERIFY(QRectF(QPointF(), QSizeF(targetWindow->size())).contains(p));
+        Test::moveNativePointer(targetWindow, p);
+        QVERIFY(target && targetWindow);
+        QTest::mouseClick(targetWindow, Qt::LeftButton, Qt::NoModifier, p);
     };
     Test::moveNativePointer(mini, volume->mapToScene({12, 15}).toPoint());
     QTest::qWait(80);
@@ -1383,7 +1394,7 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
     QCOMPARE(playback.volume(), 50.);
     QCOMPARE(mini->height(), 64);
     QCOMPARE(popup->property("height").toReal(), 57.);
-    QCOMPARE(popup->property("width").toReal(), 176.);
+    QCOMPARE(popup->property("width").toReal(), 224.);
 
     QVERIFY(volumeSlider && mute);
     QCOMPARE(volumeSlider->property("orientation").toInt(), int(Qt::Horizontal));

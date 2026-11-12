@@ -76,20 +76,30 @@ void postNativeLeftMouse(QWindow *window, QPoint position, QEvent::Type type);
 /// platform step. Keep native input preconditions shared across formal UI tests.
 inline bool prepareNativeInput(QWindow *window)
 {
+    const QPointer<QWindow> target(window);
+    if (!target)
+        return false;
     if (QGuiApplication::platformName() == QStringLiteral("offscreen"))
         return true;
 #ifdef Q_OS_MACOS
     activateTestApplication();
 #endif
-    if (!QTest::qWaitForWindowExposed(window)) {
-        qInfo() << "Native test window not exposed" << window->isVisible() << window->geometry();
+    // Native activation and the waits can dispatch close/deferred-delete
+    // events for an on-demand popup. Stop waiting when its owner retires it;
+    // even failure diagnostics must not dereference the former window.
+    if (!QTest::qWaitFor([&] { return !target || target->isExposed(); }) || !target) {
+        if (target)
+            qInfo() << "Native test window not exposed" << target->isVisible()
+                    << target->geometry();
         return false;
     }
-    window->raise();
-    window->requestActivate();
-    const bool active = QTest::qWaitForWindowActive(window);
-    if (!active)
-        qInfo() << "Native test window not active" << window->isExposed()
+    target->raise();
+    if (!target)
+        return false;
+    target->requestActivate();
+    const bool active = QTest::qWaitFor([&] { return !target || target->isActive(); }) && target;
+    if (!active && target)
+        qInfo() << "Native test window not active" << target->isExposed()
                 << QGuiApplication::applicationState();
     return active;
 }

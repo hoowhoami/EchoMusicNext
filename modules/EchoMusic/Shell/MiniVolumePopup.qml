@@ -25,7 +25,7 @@ EchoAnchoredPopup {
     screenBounded: true
     // Popup.Window uses actual width/height for its native bounds. Scale the
     // bounded content inside those bounds instead of clipping a Popup.scale.
-    preferredWidth: 176 * contentScale
+    preferredWidth: 224 * contentScale
     implicitHeight: (bodyHeight + tipHeight) * contentScale
     // Flipping swaps top/bottom padding. The fixed single-row height must not
     // depend on those paddings through the shared scrolling content limit.
@@ -68,7 +68,7 @@ EchoAnchoredPopup {
                 Layout.fillHeight: true
                 padding: 0
                 from: 0
-                to: 100
+                to: popup.playback.cast.remote ? 100 : 150
                 stepSize: 1
                 value: popup.playback.volume
                 onMoved: popup.playback.setVolume(value)
@@ -83,6 +83,17 @@ EchoAnchoredPopup {
                     border.width: slider.visualFocus ? 1 : 0
                     border.color: slider.colors.text
                 }
+            }
+            EchoTextLine {
+                objectName: "miniVolumeValue"
+                Layout.minimumWidth: implicitWidth
+                Layout.preferredWidth: Math.max(40, implicitWidth)
+                Layout.fillHeight: true
+                text: Math.round(popup.playback.volume) + "%"
+                font: Theme.font(11, Theme.semiboldWeight)
+                color: Theme.floating.secondaryText
+                horizontalAlignment: Text.AlignRight
+                fillTextWidth: true
             }
         }
     }

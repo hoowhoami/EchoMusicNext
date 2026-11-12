@@ -34,6 +34,8 @@ private slots:
     void miniProgressVolumeBackdropFavoriteAndDesktopBadge();
     void miniVolumeDismissesAcrossHost_data();
     void miniVolumeDismissesAcrossHost();
+    void nativeInputPreparationSurvivesWindowRetirement_data();
+    void nativeInputPreparationSurvivesWindowRetirement();
     void miniQueueRendersAndScrolls();
     void miniScaleAndMenuUseProductionSurfaces();
     void lyricSettingsShareCoverPickerAndExcludeTaskbar();
@@ -58,6 +60,7 @@ private slots:
     void productionNetworkSettingsAutoSaveResetAndTheme();
     void productionPlayerEngineSettingsDecimalInputAndLifecycle();
     void productionVariableDialogSizingReopens();
+    void playbackQueueModeUsesProductionSelection();
     void settingsDefaultsAndSourceEffectFileManager();
     void nativeOutputDeviceSelectHasOneDefaultChoice();
     void playbackQueueEmptyIndicatorAndCloseIcon();

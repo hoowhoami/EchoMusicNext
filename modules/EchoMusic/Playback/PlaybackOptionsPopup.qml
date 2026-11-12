@@ -56,7 +56,7 @@ EchoAnchoredPopup {
                     padding: 0
                     orientation: Qt.Vertical
                     from: 0
-                    to: 100
+                    to: popup.playback.cast.remote ? 100 : 150
                     value: popup.playback.volume
                     onMoved: popup.playback.setVolume(value)
                     Accessible.name: qsTr("音量")

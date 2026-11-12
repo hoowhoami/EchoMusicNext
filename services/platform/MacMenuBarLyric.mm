@@ -109,6 +109,15 @@ CGRect inkBounds(CTLineRef line)
                ? CTLineGetBoundsWithOptions(line, kCTLineBoundsExcludeTypographicLeading)
                : rect;
 }
+void drawCachedImage(CGContextRef context, CALayer *layer)
+{
+    if (layer.hidden || !layer.contents || layer.opacity <= 0)
+        return;
+    CGContextSaveGState(context);
+    CGContextSetAlpha(context, layer.opacity);
+    CGContextDrawImage(context, layer.frame, (__bridge CGImageRef)layer.contents);
+    CGContextRestoreGState(context);
+}
 struct Span
 {
     CGFloat from, to;
@@ -121,6 +130,22 @@ struct CachedLine
     CGFloat width = 0, fontSize = 0;
     bool timed = false;
 };
+CGFloat wordCursor(const CachedLine &line, double position)
+{
+    CGFloat cursor = 0;
+    for (const auto &span : line.spans) {
+        if (position < span.start)
+            break;
+        const auto fraction =
+            std::clamp((position - span.start) / std::max(1., span.duration), 0., 1.);
+        cursor = span.from + (span.to - span.from) * fraction;
+        if (fraction < 1)
+            break;
+    }
+    if (!line.spans.empty() && position >= line.spans.back().start + line.spans.back().duration)
+        cursor = line.width;
+    return std::clamp(cursor, CGFloat(0), line.width);
+}
 } // namespace
 
 // Physical tracking belongs to the status view. These native buttons retain
@@ -167,7 +192,8 @@ struct CachedLine
     __weak NSStatusItem *item;
     std::array<CachedLine, 2> lines;
     bool hovered;
-    quint64 builds, ticks, displayRequests;
+    quint64 builds, ticks, displayRequests, draws, frameBuilds;
+    __strong id frameImage;
     CGFloat cutoff;
     CGFloat availableWidth;
     quint64 layoutProbes;
@@ -198,6 +224,7 @@ struct CachedLine
 - (void)buildTrayIcon;
 - (void)refreshAnimation;
 - (void)publishFrame;
+- (void)compositeCachesInContext:(CGContextRef)context;
 - (void)stop;
 - (BOOL)animationActive;
 @end
@@ -206,7 +233,6 @@ struct CachedLine
 - (instancetype)initWithFrame:(NSRect)frame
 {
     if ((self = [super initWithFrame:frame])) {
-        self.wantsLayer = YES;
         availableWidth = MenuBarLyricLayout::compactWidth;
         lineAge.start();
         NSMutableArray *controls = [NSMutableArray array];
@@ -223,17 +249,13 @@ struct CachedLine
             [controls addObject:button];
         }
         buttons = controls;
+        // Detached image/geometry records, never part of the hosted view's
+        // presentation tree. drawRect composites their cached pixels.
         for (auto &line : lines) {
             line.container = [CALayer layer];
-            line.container.masksToBounds = YES;
             line.base = [CALayer layer];
             line.sung = [CALayer layer];
             line.mask = [CALayer layer];
-            line.mask.backgroundColor = NSColor.blackColor.CGColor;
-            line.sung.mask = line.mask;
-            [line.container addSublayer:line.base];
-            [line.container addSublayer:line.sung];
-            [self.layer addSublayer:line.container];
         }
         trayButton = [[EchoMenuBarPlaybackButton alloc] initWithFrame:NSZeroRect];
         trayButton.bordered = NO;
@@ -243,9 +265,7 @@ struct CachedLine
         trayButton.toolTip = @"EchoMusicNext";
         trayButton.statusHost = self;
         iconLayer = [CALayer layer];
-        [self.layer addSublayer:iconLayer];
         controlsLayer = [CALayer layer];
-        [self.layer addSublayer:controlsLayer];
         [[NSNotificationCenter defaultCenter]
             addObserver:self
                selector:@selector(visibilityChanged:)
@@ -263,6 +283,79 @@ struct CachedLine
                  object:nil];
     }
     return self;
+}
+- (void)drawRect:(NSRect)rect
+{
+    if (stopped || !state.visible)
+        return;
+    auto context = NSGraphicsContext.currentContext.CGContext;
+    if (!context)
+        return;
+    ++draws;
+    // AppKit may request the same status snapshot repeatedly. Flatten each
+    // published frame once so those requests only copy a viewport-sized image,
+    // without replaying full-width glyph images or their progress composite.
+    if (!frameImage) {
+        const auto scale = renderedScale > 0 ? renderedScale : 2.;
+        const size_t width = std::max<size_t>(1, std::ceil(self.bounds.size.width * scale));
+        const size_t height = std::max<size_t>(1, std::ceil(self.bounds.size.height * scale));
+        auto space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        auto bitmap = CGBitmapContextCreate(nullptr, width, height, 8, width * 4, space,
+                                            kCGImageAlphaPremultipliedLast);
+        CGColorSpaceRelease(space);
+        if (bitmap) {
+            CGContextScaleCTM(bitmap, scale, scale);
+            [self compositeCachesInContext:bitmap];
+            auto image = CGBitmapContextCreateImage(bitmap);
+            frameImage = (__bridge id)image;
+            CGImageRelease(image);
+            CGContextRelease(bitmap);
+            ++frameBuilds;
+        }
+    }
+    CGContextSaveGState(context);
+    CGContextClipToRect(context, NSRectToCGRect(rect));
+    if (frameImage)
+        CGContextDrawImage(context, NSRectToCGRect(self.bounds), (__bridge CGImageRef)frameImage);
+    else
+        [self compositeCachesInContext:context];
+    CGContextRestoreGState(context);
+}
+- (void)compositeCachesInContext:(CGContextRef)context
+{
+    CGContextSaveGState(context);
+    CGContextClipToRect(context, NSRectToCGRect(self.bounds));
+    for (const auto &line : lines) {
+        if (line.container.hidden || line.container.opacity <= 0)
+            continue;
+        CGContextSaveGState(context);
+        CGContextClipToRect(context, line.container.frame);
+        CGContextTranslateCTM(context, line.container.frame.origin.x,
+                              line.container.frame.origin.y);
+        const bool groupOpacity = line.container.opacity < 1;
+        if (groupOpacity) {
+            // Apply dimming to the combined base/progress result, preserving
+            // antialiased edges instead of multiplying the two passes twice.
+            CGContextSetAlpha(context, line.container.opacity);
+            CGContextBeginTransparencyLayer(context, nullptr);
+        }
+        drawCachedImage(context, line.base);
+        if (!line.sung.hidden) {
+            CGContextSaveGState(context);
+            // Explicit rectangular clipping works without CALayer mask
+            // composition or renderInContext's platform-dependent mask support.
+            CGContextClipToRect(context, CGRectOffset(line.mask.frame, line.sung.frame.origin.x,
+                                                      line.sung.frame.origin.y));
+            drawCachedImage(context, line.sung);
+            CGContextRestoreGState(context);
+        }
+        if (groupOpacity)
+            CGContextEndTransparencyLayer(context);
+        CGContextRestoreGState(context);
+    }
+    drawCachedImage(context, iconLayer);
+    drawCachedImage(context, controlsLayer);
+    CGContextRestoreGState(context);
 }
 - (BOOL)acceptsFirstMouse:(NSEvent *)event
 {
@@ -479,6 +572,7 @@ struct CachedLine
     if (rebuild && state.visible)
         [self rebuild];
     if (!state.visible) {
+        frameImage = nil;
         for (auto &line : lines) {
             line.base.contents = nil;
             line.sung.contents = nil;
@@ -509,12 +603,23 @@ struct CachedLine
         [self tick:nil];
     [self refreshAnimation];
 }
-- (BOOL)canScroll
+- (BOOL)scrollingEnabled
 {
     return state.visible && state.lyricsVisible && style.scrolling && style.motionEnabled &&
-           !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion && state.advancing &&
-           (lines[0].width > lines[0].container.bounds.size.width ||
-            lines[1].width > lines[1].container.bounds.size.width);
+           !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+}
+- (BOOL)canScroll
+{
+    if (![self scrollingEnabled] || !state.advancing)
+        return NO;
+    const auto &primary = lines[0];
+    if (primary.timed && !primary.spans.empty()) {
+        const double now = position ? position() - state.content.offsetMs : 0;
+        if (now >= primary.spans.back().start + primary.spans.back().duration)
+            return NO;
+    }
+    return lines[0].width > lines[0].container.bounds.size.width ||
+           lines[1].width > lines[1].container.bounds.size.width;
 }
 - (BOOL)presented
 {
@@ -551,6 +656,7 @@ struct CachedLine
 }
 - (void)publishFrame
 {
+    frameImage = nil;
     framePending = false;
     lastFrame.start();
     ++displayRequests;
@@ -562,8 +668,8 @@ struct CachedLine
         [self refreshAnimation];
         return;
     }
-    // Coalesce before changing live layers: their property setters can also
-    // cause AppKit to refresh the hosted snapshot, without needsDisplay.
+    // Coalesce before updating the detached image/geometry caches and
+    // invalidating the native view. Only publishFrame schedules a snapshot.
     if (lastFrame.isValid() && lastFrame.elapsed() < nativeFrameIntervalMs) {
         framePending = true;
         [self refreshAnimation];
@@ -574,25 +680,16 @@ struct CachedLine
         ++ticks;
     const double now = position ? position() - state.content.offsetMs : 0;
     const auto scale = renderedScale > 0 ? renderedScale : 2.;
+    const auto cursor = wordCursor(lines[0], now);
+    const bool timedScroll = lines[0].timed && !lines[0].spans.empty();
+    const bool scrolling = [self scrollingEnabled];
+    const auto fraction =
+        lines[0].width > 0 ? std::clamp(double(cursor / lines[0].width), 0., 1.) : 0.;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     bool changed = false;
     for (auto &line : lines) {
-        CGFloat painted = line.width;
-        if (line.timed && style.wordByWord) {
-            painted = 0;
-            for (const auto &span : line.spans) {
-                if (now < span.start)
-                    break;
-                const double fraction =
-                    std::clamp((now - span.start) / std::max(1., span.duration), 0., 1.);
-                painted = span.from + (span.to - span.from) * fraction;
-                if (fraction < 1)
-                    break;
-            }
-            if (!line.spans.empty() && now >= line.spans.back().start + line.spans.back().duration)
-                painted = line.width;
-        }
+        const CGFloat painted = line.timed && style.wordByWord ? cursor : line.width;
         if (&line == &lines[0])
             cutoff = painted;
         const auto mask = CGRectMake(0, 0, std::round(painted * scale) / scale,
@@ -603,16 +700,26 @@ struct CachedLine
         }
         const auto width = line.container.bounds.size.width;
         const auto overflow = std::max(0., double(line.width - width));
-        // Bounce between both ends, with a short dwell; no blank wraparound.
         double shift = 0;
-        if ([self canScroll] && overflow > 0) {
-            const auto leg = overflow / 28.;
-            const auto phase =
-                std::fmod(std::max(0., lineAge.elapsed() / 1000. - 1.5), 2 * leg + 3.);
-            shift = phase < leg             ? phase * 28.
-                    : phase < leg + 1.5     ? overflow
-                    : phase < 2 * leg + 1.5 ? overflow - (phase - leg - 1.5) * 28.
-                                            : 0.;
+        if (scrolling && overflow > 0) {
+            if (timedScroll) {
+                // Use the very same shaped word cursor as the sung mask.
+                // Center it where possible, with no speed cap that could lag
+                // fast words. Pausing retains the position; seeks move both
+                // mask and viewport together. The secondary view follows this
+                // spatial fraction without inventing secondary word times.
+                const auto focus = &line == &lines[0] ? double(cursor) : fraction * line.width;
+                shift = std::clamp(focus - width / 2., 0., overflow);
+            } else if (state.advancing) {
+                // Untimed text has no sung cursor. Preserve its free scrolling.
+                const auto leg = overflow / 28.;
+                const auto phase =
+                    std::fmod(std::max(0., lineAge.elapsed() / 1000. - 1.5), 2 * leg + 3.);
+                shift = phase < leg             ? phase * 28.
+                        : phase < leg + 1.5     ? overflow
+                        : phase < 2 * leg + 1.5 ? overflow - (phase - leg - 1.5) * 28.
+                                                : 0.;
+            }
         }
         const auto x = overflow > 0 ? -shift : (width - line.width) / 2.;
         const auto textFrame = CGRectMake(std::round(x * scale) / scale, 0, line.width,
@@ -1092,6 +1199,7 @@ struct CachedLine
 - (void)stop
 {
     stopped = true;
+    frameImage = nil;
     framePending = false;
     [animation invalidate];
     animation = nil;
@@ -1167,6 +1275,8 @@ QVariantMap MenuBarLyric::diagnostics() const
         if (bitmap)
             bytes += CGImageGetBytesPerRow(bitmap) * CGImageGetHeight(bitmap);
     }
+    const auto frame = (__bridge CGImageRef)view->frameImage;
+    const qsizetype frameBytes = frame ? CGImageGetBytesPerRow(frame) * CGImageGetHeight(frame) : 0;
     return {{"created", true},
             {"nativeItemId", QVariant::fromValue(m_impl->identity)},
             {"visible", bool(m_impl->item.visible)},
@@ -1174,6 +1284,10 @@ QVariantMap MenuBarLyric::diagnostics() const
             {"lengthPolicy", m_impl->item.length},
             {"availableWidth", view->availableWidth},
             {"bodyWidth", view->lines[0].container.bounds.size.width},
+            {"textWidth", view->lines[0].width},
+            {"scrollOffset", std::max(0., -view->lines[0].base.frame.origin.x)},
+            {"secondaryTextWidth", view->lines[1].width},
+            {"secondaryScrollOffset", std::max(0., -view->lines[1].base.frame.origin.x)},
             {"iconVisible", bool(!view->state.icon.isNull() && view->state.visible)},
             {"lyricsVisible", view->state.lyricsVisible},
             {"layoutProbes", QVariant::fromValue(view->layoutProbes)},
@@ -1202,6 +1316,9 @@ QVariantMap MenuBarLyric::diagnostics() const
             {"textBuilds", QVariant::fromValue(view->builds)},
             {"ticks", QVariant::fromValue(view->ticks)},
             {"displayRequests", QVariant::fromValue(view->displayRequests)},
+            {"nativeDraws", QVariant::fromValue(view->draws)},
+            {"frameBuilds", QVariant::fromValue(view->frameBuilds)},
+            {"frameBitmapBytes", frameBytes},
             {"framePending", view->framePending},
             {"cutoff", view->cutoff},
             {"bitmapBytes", bytes}};

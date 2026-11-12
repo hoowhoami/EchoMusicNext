@@ -47,6 +47,15 @@ MenuBarLyricState timedState()
         QVariantMap{{"text", "世界 Agjp"}, {"start_ms", 2000}, {"duration_ms", 2000}}};
     return state;
 }
+QColor densestPixel(const QImage &pixels)
+{
+    QColor result(Qt::transparent);
+    for (int y = 0; y < pixels.height(); ++y)
+        for (int x = 0; x < pixels.width(); ++x)
+            if (const auto color = pixels.pixelColor(x, y); color.alpha() > result.alpha())
+                result = color;
+    return result;
+}
 QImage capture(NSView *view)
 {
     if (!view)
@@ -60,7 +69,13 @@ QImage capture(NSView *view)
     auto context = CGBitmapContextCreate(image.bits(), width, height, 8, image.bytesPerLine(),
                                          space, kCGImageAlphaPremultipliedLast);
     CGContextScaleCTM(context, 2, 2);
-    [view.layer renderInContext:context];
+    // Check the native drawing callback in a controlled sRGB destination.
+    // hostSnapshot separately exercises AppKit's real hosted-view capture.
+    [NSGraphicsContext saveGraphicsState];
+    NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithCGContext:context
+                                                                               flipped:NO];
+    [view drawRect:view.bounds];
+    [NSGraphicsContext restoreGraphicsState];
     CGContextRelease(context);
     CGColorSpaceRelease(space);
     return image;
@@ -136,6 +151,131 @@ private slots:
         QCOMPARE(availableWidth(QRectF(0, 0, 600, 800), 800), 568.);
         QCOMPARE(availableWidth({}, 24), 128.);
     }
+    void timedScrollingKeepsSungCursorVisible_data()
+    {
+        QTest::addColumn<int>("mode");
+        QTest::addColumn<bool>("ruby");
+        QTest::newRow("original") << 0 << false;
+        QTest::newRow("inline") << 2 << false;
+        QTest::newRow("two-lines") << 3 << false;
+        QTest::newRow("ruby") << 3 << true;
+    }
+    void timedScrollingKeepsSungCursorVisible()
+    {
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Native AppKit display required");
+        QFETCH(int, mode);
+        QFETCH(bool, ruby);
+        double now = 1220;
+        MenuBarLyric item;
+        item.create([](auto) {}, [&] { return now; });
+        auto state = timedState();
+        state.content.primary = QString(80, QChar(0x56fd));
+        state.content.secondary = mode >= 2 && !ruby ? QString(160, 'W') : QString();
+        state.content.offsetMs = 200;
+        state.content.words.clear();
+        for (int i = 0; i < 80; ++i) {
+            state.content.words << QVariantMap{
+                {"text", QString(QChar(0x56fd))}, {"start_ms", 1000 + i * 40}, {"duration_ms", 40}};
+            if (ruby)
+                state.content.ruby
+                    << QVariantMap{{"text", QString(QChar(0x56fd))}, {"ruby", "kuni"}};
+        }
+        if (mode == 2)
+            state.content.primary += " · " + state.content.secondary;
+        MenuBarLyricStyle style;
+        style.displayMode = mode;
+        style.scrolling = true;
+        style.maxWidth = 128;
+        style.colorMode = 2;
+        style.primaryColor = QColor("#ee3030");
+        item.update(state, style);
+        auto *view = nativeView(item);
+        QVERIFY(view);
+        view.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+        [view mouseExited:[NSEvent new]];
+        QTest::qWait(250);
+        const auto builds = item.diagnostics().value("textBuilds");
+        const auto checkCursor = [&] {
+            const auto at = item.diagnostics();
+            const double viewport = at.value("bodyWidth").toDouble();
+            const double focus =
+                at.value("cutoff").toDouble() - at.value("scrollOffset").toDouble();
+            QVERIFY2(
+                focus >= -1 && focus <= viewport + 1,
+                qPrintable(QString("Sung cursor %1 outside viewport %2").arg(focus).arg(viewport)));
+            if (mode == 2 || mode == 3) {
+                const auto width = at.value("secondaryTextWidth").toDouble();
+                if (width > viewport) {
+                    const double secondaryFocus =
+                        at.value("cutoff").toDouble() / at.value("textWidth").toDouble() * width -
+                        at.value("secondaryScrollOffset").toDouble();
+                    QVERIFY(secondaryFocus >= -1 && secondaryFocus <= viewport + 1);
+                }
+            }
+        };
+        for (int word : {20, 40, 60}) {
+            const auto previous = item.diagnostics().value("cutoff").toDouble();
+            now = 1220 + word * 40;
+            item.update(state, style);
+            QTRY_VERIFY(item.diagnostics().value("cutoff").toDouble() > previous);
+            checkCursor();
+            QCOMPARE(item.diagnostics().value("textBuilds"), builds);
+        }
+        const auto middle = item.diagnostics().value("scrollOffset").toDouble();
+        QVERIFY(middle > 0);
+        state.playing = state.advancing = false;
+        item.update(state, style);
+        QCOMPARE(item.diagnostics().value("scrollOffset").toDouble(), middle);
+        QTest::qWait(150);
+        QCOMPARE(item.diagnostics().value("scrollOffset").toDouble(), middle);
+        QVERIFY(!item.diagnostics().value("timerActive").toBool());
+        now = 1220 + 10 * 40;
+        item.update(state, style);
+        QTRY_VERIFY(item.diagnostics().value("scrollOffset").toDouble() < middle);
+        checkCursor();
+        now = 1220 + 70 * 40;
+        item.update(state, style);
+        QTRY_VERIFY(item.diagnostics().value("scrollOffset").toDouble() > middle);
+        checkCursor();
+        [view mouseEntered:[NSEvent new]];
+        now = 1220 + 75 * 40;
+        item.update(state, style);
+        [view mouseExited:[NSEvent new]];
+        checkCursor();
+        QTest::qWait(150); // Let AppKit publish the lyric surface after hover.
+        const auto pixels = hostSnapshot(view);
+        if (mode == 0) {
+            const auto at = item.diagnostics();
+            const double scale = double(pixels.width()) / view.bounds.size.width;
+            const double split =
+                (6. + at.value("cutoff").toDouble() - at.value("scrollOffset").toDouble()) * scale;
+            int sungBefore = 0, sungAfter = 0, unsungAfter = 0;
+            for (int y = 0; y < pixels.height(); ++y)
+                for (int x = 0; x < pixels.width(); ++x) {
+                    const auto color = pixels.pixelColor(x, y);
+                    if (color.red() < 150 || color.blue() > 100)
+                        continue;
+                    sungBefore += x < split - 2 && color.alpha() > 180;
+                    sungAfter += x > split + 2 && color.alpha() > 180;
+                    unsungAfter += x > split + 2 && color.alpha() > 40 && color.alpha() < 130;
+                }
+            QVERIFY(sungBefore > 10);
+            QCOMPARE(sungAfter, 0);
+            QVERIFY(unsungAfter > 10);
+        }
+        const auto artifacts = qEnvironmentVariable("ECHO_MENU_BAR_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QVERIFY(pixels.save(artifacts +
+                                QString("/timed-follow-%1.png").arg(QTest::currentDataTag())));
+        now = 1220 + 80 * 40;
+        state.playing = state.advancing = true;
+        item.update(state, style);
+        QTRY_VERIFY(!item.diagnostics().value("framePending").toBool());
+        checkCursor();
+        QVERIFY(!item.diagnostics().value("timerActive").toBool());
+        item.reset();
+    }
     void longLyricsRespectViewportWithAndWithoutScrolling()
     {
         if (QGuiApplication::platformName() != "cocoa")
@@ -154,6 +294,9 @@ private slots:
         item.update(state, style);
         auto *view = nativeView(item);
         QVERIFY(view);
+        // Material changes may legitimately rebuild glyphs. Hold appearance
+        // stable while this test measures free-scroll cache reuse.
+        view.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
         QTRY_VERIFY(item.diagnostics().value("layoutProbes").toULongLong() > 0);
         QTest::qWait(700);
         const auto width = item.diagnostics().value("width").toDouble();
@@ -410,14 +553,7 @@ private slots:
         item.update(state, style);
         auto *view = nativeView(item);
         QVERIFY(view);
-        const auto densestPixel = [](const QImage &pixels) {
-            QColor result(Qt::transparent);
-            for (int y = 0; y < pixels.height(); ++y)
-                for (int x = 0; x < pixels.width(); ++x)
-                    if (const auto color = pixels.pixelColor(x, y); color.alpha() > result.alpha())
-                        result = color;
-            return result;
-        };
+
         for (NSString *name in @[
                  NSAppearanceNameAqua, NSAppearanceNameVibrantLight, NSAppearanceNameDarkAqua,
                  NSAppearanceNameVibrantDark
@@ -566,6 +702,45 @@ private slots:
         const auto artifacts = qEnvironmentVariable("ECHO_MENU_BAR_ARTIFACTS");
         if (!artifacts.isEmpty())
             QVERIFY(longReading.save(artifacts + "/ruby-long-readable.png"));
+    }
+    void nativeDrawingAppliesOpacityToCombinedCachedProgress()
+    {
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Native AppKit display required");
+        double now = 1000;
+        MenuBarLyric item;
+        item.create([](auto) {}, [&] { return now; });
+        auto state = timedState();
+        state.advancing = false;
+        state.content.secondary.clear();
+        MenuBarLyricStyle style;
+        style.colorMode = 2;
+        style.primaryColor = QColor("#ee3030");
+        style.opacity = 50;
+        item.update(state, style);
+        auto *view = nativeView(item);
+        QVERIFY(view);
+        view.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+        QCoreApplication::processEvents();
+        const auto builds = item.diagnostics().value("textBuilds");
+        const auto draws = item.diagnostics().value("nativeDraws").toULongLong();
+        const auto partial = hostSnapshot(view);
+        QVERIFY(item.diagnostics().value("nativeDraws").toULongLong() > draws);
+        const auto ink = densestPixel(partial);
+        QVERIFY(qAbs(ink.alpha() - 128) <= 2);
+        QVERIFY(ink.red() > ink.green() * 3);
+        const auto frames = item.diagnostics().value("frameBuilds");
+        QCOMPARE(hostSnapshot(view), partial);
+        QCOMPARE(item.diagnostics().value("frameBuilds"), frames);
+        QVERIFY(item.diagnostics().value("frameBitmapBytes").toLongLong() > 0);
+        now = 5000;
+        item.update(state, style);
+        QTRY_VERIFY(!item.diagnostics().value("framePending").toBool());
+        const auto complete = hostSnapshot(view);
+        QVERIFY(complete != partial);
+        QVERIFY(qAbs(densestPixel(complete).alpha() - 128) <= 2);
+        QVERIFY(item.diagnostics().value("frameBuilds").toULongLong() > frames.toULongLong());
+        QCOMPARE(item.diagnostics().value("textBuilds"), builds);
     }
     void wordProgressSchedulesHostDisplayAndAdvancesThroughAllGlyphs()
     {
@@ -888,6 +1063,9 @@ private slots:
         state.lyricsVisible = false;
         MenuBarLyricStyle style;
         item.update(state, style);
+        auto *view = nativeView(item);
+        QVERIFY(view);
+        view.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
         const auto identity = item.diagnostics().value("nativeItemId");
         QTimer updates;
         connect(&updates, &QTimer::timeout, this, [&] { item.update(state, style); });
@@ -905,7 +1083,13 @@ private slots:
         const auto active = sample("lyrics-active");
         const auto frames = item.diagnostics().value("displayRequests").toULongLong() -
                             activeBefore.value("displayRequests").toULongLong();
+        const auto composites = item.diagnostics().value("frameBuilds").toULongLong() -
+                                activeBefore.value("frameBuilds").toULongLong();
         qInfo() << "active frame requests" << frames;
+        qInfo() << "active frame composites" << composites;
+        qInfo() << "active native draws"
+                << item.diagnostics().value("nativeDraws").toULongLong() -
+                       activeBefore.value("nativeDraws").toULongLong();
         QCOMPARE(item.diagnostics().value("textBuilds"), activeBefore.value("textBuilds"));
         const auto activeTicks = item.diagnostics().value("ticks").toULongLong();
         state.lyricsVisible = false;
@@ -931,6 +1115,7 @@ private slots:
         const auto sampledMs =
             qBound(1200, qEnvironmentVariableIntValue("ECHO_MENU_BAR_CPU_SAMPLE_MS"), 10000);
         QVERIFY(frames <= quint64(sampledMs / 100 + 2));
+        QVERIFY(composites <= frames + 1);
         QVERIFY2(iconOnly < baseline + .08, "Static status icon must not keep AppKit repainting");
         QVERIFY2(disabled < baseline + .08, "Disabling lyrics must return the native host to idle");
         QVERIFY2(retired < baseline + .08, "Retired status items must leave no recurring work");
@@ -950,7 +1135,9 @@ private slots:
         state.icon.fill(Qt::black);
         MenuBarLyricStyle style;
         item.update(state, style);
-        QVERIFY(nativeView(item));
+        auto *view = nativeView(item);
+        QVERIFY(view);
+        view.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
         QTest::qWait(250);
         const auto identity = item.diagnostics().value("nativeItemId");
         for (int cycle = 0; cycle < 4; ++cycle) {
@@ -1026,6 +1213,7 @@ private slots:
                 item.update(state, style);
                 QVERIFY(!item.diagnostics().value("timerActive").toBool());
                 QCOMPARE(item.diagnostics().value("bitmapBytes").toInt(), 0);
+                QCOMPARE(item.diagnostics().value("frameBitmapBytes").toInt(), 0);
                 state.visible = true;
                 item.update(state, style);
                 QVERIFY(item.diagnostics().value("bitmapBytes").toInt() > 0);
