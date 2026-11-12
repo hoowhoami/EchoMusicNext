@@ -86,6 +86,15 @@ void WindowBackdrop::attach(QWindow *window)
         m_windows->attach(window);
 #endif
 }
+void WindowBackdrop::setOptimizeResizeSnap(bool enabled)
+{
+#ifdef Q_OS_WIN
+    if (m_windows)
+        m_windows->setOptimizeResizeSnap(enabled);
+#else
+    Q_UNUSED(enabled)
+#endif
+}
 bool WindowBackdrop::supported() const
 {
 #ifdef Q_OS_MACOS

@@ -35,6 +35,8 @@ class WindowController final : public QObject
     Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY changed)
     Q_PROPERTY(bool presentationReady READ presentationReady NOTIFY presentationReadyChanged)
     Q_PROPERTY(bool rememberSize READ rememberSize WRITE setRememberSize NOTIFY changed)
+    Q_PROPERTY(bool optimizeDisplayEffects READ optimizeDisplayEffects WRITE
+                   setOptimizeDisplayEffects NOTIFY changed)
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray NOTIFY changed)
     Q_PROPERTY(bool trayAvailable READ trayAvailable NOTIFY changed)
     Q_PROPERTY(bool background READ background NOTIFY changed)
@@ -95,6 +97,11 @@ public:
         return m_remember;
     }
     void setRememberSize(bool remember);
+    bool optimizeDisplayEffects() const
+    {
+        return m_optimizeDisplayEffects;
+    }
+    void setOptimizeDisplayEffects(bool enabled);
     bool closeToTray() const
     {
         return m_closeToTray;
@@ -219,6 +226,7 @@ private:
     bool m_persist, m_remember = true, m_restoring = false, m_wasMaximized = false;
     bool m_closeToTray = true, m_hideDock = false, m_hideMenu = false, m_startMinimized = false,
          m_background = false, m_shuttingDown = false;
+    bool m_optimizeDisplayEffects = false;
     Qt::WindowState m_backgroundState = Qt::WindowNoState;
     StartupIntegration m_startup;
     WindowBackdrop m_backdrop;

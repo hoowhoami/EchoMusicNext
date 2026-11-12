@@ -7,6 +7,8 @@
 #include <QColor>
 #include <dwmapi.h>
 #include <commctrl.h>
+#include <algorithm>
+#include <cmath>
 namespace EchoMusic
 {
 namespace
@@ -867,6 +869,90 @@ LRESULT CALLBACK WindowsWindowBackdrop::windowProcedure(HWND window, UINT messag
             if (GetWindowRect(window, &bounds))
                 *reinterpret_cast<RECT *>(lParam) = bounds;
             return TRUE;
+        }
+    }
+    // A fractional DPR renders the scene at an integer-logical size while the
+    // native client rect moves in single device pixels, so the per-size
+    // logical-to-client mapping carries a fractional phase, and during a live
+    // drag every edge in the window re-rasterizes at a shifting sub-pixel
+    // position - visible as border jitter on high-contrast surfaces such as
+    // the FM disc. Snapping the proposed client size down to the smallest
+    // device-pixel unit whose logical size is whole (the DPR fraction's
+    // numerator: 5 px at 125%, 3 px at 150%) pins that phase to the nominal
+    // DPR for the whole drag; the cost is that the layout grows in whole-DIP
+    // steps instead of per device pixel. Unlike the fullscreen override above,
+    // this only rewrites the proposal and falls through: the modal sizing loop
+    // applies the modified RECT itself.
+    if (message == WM_SIZING && lParam && !self->fullscreen() && self->m_optimizeResizeSnap) {
+        auto &proposal = *reinterpret_cast<RECT *>(lParam);
+        const qreal dpr = self->m_window ? self->m_window->devicePixelRatio() : 1.0;
+        // Windows' fractional scale presets all reduce to small denominators
+        // (125% -> 5/4, 150% -> 3/2, 175% -> 7/4); 16 is headroom beyond every
+        // preset, and a DPR outside it keeps unit at 1, disabling snapping.
+        qreal unit = 1.0;
+        for (int denominator = 1; denominator <= 16; ++denominator) {
+            const qreal scaled = dpr * denominator;
+            if (qAbs(scaled - std::round(scaled)) < 1e-9) {
+                unit = std::round(scaled);
+                break;
+            }
+        }
+        RECT windowRect{};
+        RECT clientRect{};
+        if (unit > 1.0 && self->m_window && GetWindowRect(window, &windowRect) &&
+            GetClientRect(window, &clientRect)) {
+            const LONG frameWidth =
+                (windowRect.right - windowRect.left) - (clientRect.right - clientRect.left);
+            const LONG frameHeight =
+                (windowRect.bottom - windowRect.top) - (clientRect.bottom - clientRect.top);
+            const LONG proposedWidth = proposal.right - proposal.left - frameWidth;
+            const LONG proposedHeight = proposal.bottom - proposal.top - frameHeight;
+            // The native min/max track bounds are device-pixel values that need
+            // not sit on the grid (650 DIP -> ~813 px at 125%), and flooring a
+            // proposal clamped to them would apply a rect past the declared
+            // bound - the sizing loop applies the rewritten rect verbatim.
+            // Aligning the declared bounds onto the grid first - minimum up,
+            // maximum down - keeps the floored size inside [min, max] in one
+            // step. Qt leaves the minimum at 0 and the maximum at
+            // QWINDOWSIZE_MAX when unset: a minimum of zero aligns to one grid
+            // unit (the previous floor), an unset maximum converts to a bound
+            // no real window reaches, so it never binds.
+            const auto align = [unit, dpr](int logical, bool up) {
+                const qreal device = logical * dpr / unit;
+                return static_cast<LONG>((up ? std::ceil(device) : std::floor(device)) * unit);
+            };
+            const QSize minimumSize = self->m_window->minimumSize();
+            const QSize maximumSize = self->m_window->maximumSize();
+            const LONG minimumWidth = align(std::max(1, minimumSize.width()), true);
+            const LONG minimumHeight = align(std::max(1, minimumSize.height()), true);
+            const LONG maximumWidth = align(maximumSize.width(), false);
+            const LONG maximumHeight = align(maximumSize.height(), false);
+            const auto snapped = [unit](LONG proposed, LONG minimum, LONG maximum) {
+                return std::min(
+                    maximum,
+                    std::max(minimum, static_cast<LONG>(std::floor(proposed / unit) * unit)));
+            };
+            // WMSZ_* selects the fixed edge per axis, but the untouched axis
+            // keeps its proposal values verbatim: a horizontal drag never moves
+            // the vertical edges, and vice versa.
+            const bool draggingWidth = wParam != WMSZ_TOP && wParam != WMSZ_BOTTOM;
+            const bool draggingHeight = wParam != WMSZ_LEFT && wParam != WMSZ_RIGHT;
+            if (draggingWidth) {
+                if (wParam != WMSZ_LEFT && wParam != WMSZ_TOPLEFT && wParam != WMSZ_BOTTOMLEFT)
+                    proposal.right = proposal.left + frameWidth +
+                                     snapped(proposedWidth, minimumWidth, maximumWidth);
+                else
+                    proposal.left = proposal.right - frameWidth -
+                                    snapped(proposedWidth, minimumWidth, maximumWidth);
+            }
+            if (draggingHeight) {
+                if (wParam != WMSZ_TOP && wParam != WMSZ_TOPLEFT && wParam != WMSZ_TOPRIGHT)
+                    proposal.bottom = proposal.top + frameHeight +
+                                      snapped(proposedHeight, minimumHeight, maximumHeight);
+                else
+                    proposal.top = proposal.bottom - frameHeight -
+                                   snapped(proposedHeight, minimumHeight, maximumHeight);
+            }
         }
     }
     // The Acrylic stays on while the window is dragged: suspending it for the
