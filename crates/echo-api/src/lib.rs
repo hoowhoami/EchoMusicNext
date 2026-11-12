@@ -140,6 +140,10 @@ pub enum Request {
         query: module::user_playlist::Query,
         identity: Identity,
     },
+    UserHistory {
+        query: module::user_history::Query,
+        identity: Identity,
+    },
     UserCloud {
         query: module::user_cloud::Query,
         identity: Identity,
@@ -649,6 +653,9 @@ async fn execute_request(request: Request, client: &ApiClient) -> Result<Vec<u8>
         Request::SearchHot { identity } => module::search_hot::execute(client, &identity).await,
         Request::UserPlaylist { query, identity } => {
             module::user_playlist::execute(client, &identity, query).await
+        }
+        Request::UserHistory { query, identity } => {
+            module::user_history::execute(client, &identity, query).await
         }
         Request::PlaylistDetail { query, identity } => {
             module::playlist_detail::execute(client, &identity, query).await

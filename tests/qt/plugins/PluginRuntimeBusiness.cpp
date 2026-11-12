@@ -121,6 +121,20 @@ void PluginRuntimeTest::ecosystemBusinessRequestsAndSharedVerification()
         catalogRoots.append(host.engine.newQObject(rejected));
         QCOMPARE(rejected->errorCode(), "InvalidArgument");
     }
+    auto *history = scope->kugou()->request("userHistory", {{"cursor", "fixture-cursor"}});
+    auto historyRoot = host.engine.newQObject(history);
+    const auto historyId = ApiClientTestAccess::pending(host.api, "user_history");
+    QVERIFY(historyId);
+    QCOMPARE(ApiClientTestAccess::request(host.api, historyId)
+                 .value("query")
+                 .toObject()
+                 .value("bp")
+                 .toString(),
+             QString("fixture-cursor"));
+    ApiClientTestAccess::complete(host.api, historyId,
+                                  R"({"bp":"next-cursor","list":[{"mixsongid":"1"}]})");
+    QCOMPARE(history->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(history->result().toMap().value("bp").toString(), QString("next-cursor"));
     auto *lyric =
         scope->kugou()->request("lyric", {{"id", "fixture-lyric"}, {"accessKey", "fixture-key"}});
     auto lyricRoot = host.engine.newQObject(lyric);

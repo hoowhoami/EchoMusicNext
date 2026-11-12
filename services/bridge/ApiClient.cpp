@@ -702,6 +702,10 @@ quint64 ApiClient::userPlaylists(quint32 page, quint32 pageSize)
 {
     return m_library->userPlaylists(page, pageSize);
 }
+quint64 ApiClient::userHistory(const QString &cursor)
+{
+    return m_library->userHistory(cursor);
+}
 quint64 ApiClient::importPlaylistLink(const QString &text)
 {
     return m_library->importPlaylistLink(text);

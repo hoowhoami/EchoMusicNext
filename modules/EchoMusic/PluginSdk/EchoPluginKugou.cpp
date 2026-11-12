@@ -233,6 +233,7 @@ QStringList EchoPluginKugou::methods()
             "userCloudDelete",
             "userDetail",
             "userGradeInfo",
+            "userHistory",
             "userInfo",
             "userPlaylists",
             "userVerify",

@@ -16,6 +16,17 @@ quint64 ApiClient::LibraryClient::userPlaylists(quint32 page, quint32 pageSize)
          {"query", QJsonObject{{"page", qint64(page)}, {"page_size", qint64(pageSize)}}}});
 }
 
+quint64 ApiClient::LibraryClient::userHistory(const QString &cursor)
+{
+    if (!api.m_userId || cursor.size() > 4096)
+        return 0;
+    QJsonObject query;
+    if (!cursor.isEmpty())
+        query.insert("bp", cursor);
+    // The upstream cursor is opaque; echo only what the previous response returned.
+    return api.submit({{"operation", "user_history"}, {"query", query}});
+}
+
 quint64 ApiClient::LibraryClient::importPlaylistLink(const QString &text)
 {
     if (!api.m_userId || text.isEmpty() || text.size() > 8192)

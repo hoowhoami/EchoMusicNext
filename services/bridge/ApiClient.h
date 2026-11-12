@@ -299,6 +299,9 @@ public:
     quint64 listeningPreferences();
     quint64 updateListeningPreferences(const PreferencePatch &patch);
     quint64 userPlaylists(quint32 page = 1, quint32 pageSize = 30);
+    /// Recent listening history for the current account. The empty cursor starts
+    /// from the newest row; pass a returned `bp` back to page further.
+    quint64 userHistory(const QString &cursor = {});
     /// Cloud drive listing/deletion. kv_id is the only deletion identity the
     /// upstream accepts (albumAudioId defaults to 0); a successful delete ack
     /// does not prove removal, so callers re-read the list.
