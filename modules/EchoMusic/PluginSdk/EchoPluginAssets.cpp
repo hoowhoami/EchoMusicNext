@@ -1,5 +1,6 @@
 #include "EchoPluginAssets.h"
 #include "EchoPluginContext.h"
+#include "ExecutablePath.h"
 #include "PlaybackService.h"
 #include "AccountService.h"
 #include "ApiClient.h"
@@ -83,7 +84,7 @@ QString workerExecutable()
 #else
     const QString name = "echo-plugin-asset-worker";
 #endif
-    const QDir app(QCoreApplication::applicationDirPath());
+    const QDir app(executableDirectory());
     const QStringList candidates{app.filePath("../Helpers/" + name), app.filePath(name),
                                  QString::fromUtf8(ECHO_PLUGIN_ASSET_WORKER_PATH)};
     for (const auto &candidate : candidates)

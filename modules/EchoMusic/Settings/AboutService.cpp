@@ -1,6 +1,6 @@
+#include "ExecutablePath.h"
 #include "SettingsKeys.h"
 #include "AboutService.h"
-#include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDateTime>
 #include <QRegularExpression>
@@ -24,7 +24,7 @@ QString installKind()
 #else
     if (!qEnvironmentVariableIsEmpty("APPIMAGE"))
         return "appimage";
-    QFile marker(QCoreApplication::applicationDirPath() + "/../share/echomusicnext/package-type");
+    QFile marker(executableDirectory() + "/../share/echomusicnext/package-type");
     if (marker.open(QIODevice::ReadOnly)) {
         const auto kind = QString::fromUtf8(marker.read(32)).trimmed();
         if (kind == "deb" || kind == "rpm" || kind == "pacman")

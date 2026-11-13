@@ -43,7 +43,7 @@ target_include_directories(echo_theme PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
     echo_theme
     PUBLIC Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Concurrent Qt6::Multimedia
-    PRIVATE echo_build_options
+    PRIVATE echo_build_options echo_platform
 )
 
 add_dependencies(echo_theme echo-theme-image-worker)
