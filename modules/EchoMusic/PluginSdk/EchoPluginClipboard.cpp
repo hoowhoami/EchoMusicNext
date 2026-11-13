@@ -15,9 +15,6 @@ namespace
 constexpr qint64 kMaxImageBytes = 8 * 1024 * 1024;
 constexpr qint64 kMaxImagePixels = 16 * 1024 * 1024;
 constexpr int kMaxImageEdge = 4096;
-// Decoded image budget in MiB handed to QImageReader; the pixel and edge checks
-// above are the primary bound, this is the last-resort allocator guard.
-constexpr int kImageAllocationLimitMiB = 64;
 
 struct DecodedImage
 {
@@ -36,7 +33,8 @@ DecodedImage decodeImage(const QByteArray &bytes)
                 QStringLiteral("Clipboard image buffer is unavailable")};
     QImageReader reader(&buffer);
     reader.setDecideFormatFromContent(true);
-    reader.setAllocationLimit(kImageAllocationLimitMiB);
+    // QImageReader's allocation limit is process-global, so this request relies on
+    // its own edge/pixel budget instead of changing state for concurrent decodes.
     // Read the declared size before decoding: a ~200 KiB PNG can still describe
     // an 8000x8000 image that expands to hundreds of MiB.
     const auto size = reader.size();
@@ -54,6 +52,12 @@ DecodedImage decodeImage(const QByteArray &bytes)
         return {{},
                 QStringLiteral("InvalidArgument"),
                 QStringLiteral("Clipboard image data is not a supported image")};
+    // A decoder that ignored the declared header size must not escape the budget.
+    if (image.width() > kMaxImageEdge || image.height() > kMaxImageEdge ||
+        qint64(image.width()) * image.height() > kMaxImagePixels)
+        return {{},
+                QStringLiteral("LimitExceeded"),
+                QStringLiteral("Clipboard image exceeds 4096 pixels per edge or 16M pixels")};
     return {image, {}, {}};
 }
 } // namespace
@@ -88,7 +92,11 @@ EchoPluginOperation *EchoPluginClipboard::writeImage(const QByteArray &bytes)
     auto *op = m_scope.operation();
     if (op->finished())
         return op;
-    if (bytes.isEmpty() || bytes.size() > kMaxImageBytes) {
+    if (bytes.isEmpty()) {
+        op->fail("InvalidArgument", "Clipboard image data is empty");
+        return op;
+    }
+    if (bytes.size() > kMaxImageBytes) {
         op->fail("LimitExceeded", "Clipboard image exceeds 8 MiB");
         return op;
     }
