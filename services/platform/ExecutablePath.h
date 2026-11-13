@@ -4,9 +4,10 @@
 #include <QString>
 namespace EchoMusic
 {
-/// Canonical path to the running executable. Qt derives applicationFilePath()
-/// from argv[0], so launchers and symlinks (for example AppRun.wrapped) would
-/// otherwise make sibling helpers appear in the launcher's directory.
+/// Resolve symlinks before locating sibling helpers. On Linux, Qt 6.12 prefers
+/// an absolute AT_EXECFN path, which can retain a symlink such as AppRun.wrapped;
+/// it falls back to /proc/self/exe, then argv[0] if the OS lookup fails.
+/// Preserve the absolute application path if canonicalization is unavailable.
 inline QString executableFilePath()
 {
     const QFileInfo executable(QCoreApplication::applicationFilePath());
