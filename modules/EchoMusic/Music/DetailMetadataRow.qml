@@ -11,6 +11,9 @@ Item {
     property var authors: []
     property url avatarSource: ""
     property string secondaryText: ""
+    // An optional suffix can elide while retaining the primary fact's width.
+    // Other metadata rows keep their full secondary text by default.
+    property real secondaryMinimumWidth: -1
     property var labels: []
     property var labelObjectNames: []
     property bool authorLinks: false
@@ -122,8 +125,8 @@ Item {
         EchoTextTagRow {
             objectName: metadata.secondaryObjectName
             visible: text.length > 0
-            Layout.fillWidth: metadata.authors.length === 0
-            Layout.minimumWidth: metadata.authors.length > 0 ? Math.ceil(implicitWidth) : 0
+            Layout.fillWidth: metadata.authors.length === 0 || metadata.secondaryMinimumWidth >= 0
+            Layout.minimumWidth: metadata.secondaryMinimumWidth >= 0 ? metadata.secondaryMinimumWidth : metadata.authors.length > 0 ? Math.ceil(implicitWidth) : 0
             Layout.preferredWidth: Math.ceil(implicitWidth)
             Layout.maximumWidth: Math.ceil(implicitWidth)
             text: metadata.secondaryText

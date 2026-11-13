@@ -29,6 +29,8 @@ struct Album {
     #[serde(default, deserialize_with = "crate::util::response::text")]
     publish_date: String,
     #[serde(default, deserialize_with = "crate::util::response::text")]
+    publish_company: String,
+    #[serde(default, deserialize_with = "crate::util::response::text")]
     intro: String,
     #[serde(default, deserialize_with = "crate::util::response::text")]
     language: String,
@@ -57,6 +59,7 @@ pub struct AlbumDetail {
     pub artists: Vec<ArtistRef>,
     pub cover_url: String,
     pub published_at: String,
+    pub publisher: String,
     pub description: String,
     pub language: String,
     pub category: String,
@@ -94,6 +97,7 @@ pub fn convert(bytes: &[u8]) -> Result<Option<AlbumDetail>, ApiError> {
             .collect::<Result<_, ApiError>>()?,
         cover_url: cover_url(album.sizable_cover),
         published_at: album.publish_date,
+        publisher: album.publish_company,
         description: album.intro,
         language: album.language,
         category: album.r#type,
@@ -123,7 +127,7 @@ pub async fn execute(
             album_id: id.to_string(),
         }],
         is_buy: 0,
-        fields: "album_id,album_name,publish_date,sizable_cover,intro,language,is_publish,heat,type,quality,authors,exclusive,author_name,trans_param",
+        fields: "album_id,album_name,publish_date,sizable_cover,intro,language,is_publish,heat,type,quality,authors,exclusive,author_name,trans_param,publish_company",
     })?;
     let bytes = client
         .request_endpoint(

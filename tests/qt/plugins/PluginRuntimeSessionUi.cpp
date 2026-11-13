@@ -3,6 +3,9 @@
 #include "EchoPluginDialog.h"
 #include "ApiInterceptors.h"
 #include "ShellActionModel.h"
+#include <QBuffer>
+#include <QFutureWatcher>
+#include <QImageReader>
 namespace
 {
 EchoPluginContext *sessionPlugin(Host &host)
@@ -129,11 +132,50 @@ void PluginRuntimeTest::pluginClipboardWritesAndScopeCancellation()
     QCOMPARE(clipboard->text(), QString::fromUtf8("会话分享\nhttps://example.test"));
     QCOMPARE(scope->clipboard()->write(QString(1024 * 1024 + 1, 'x'))->errorCode(),
              "LimitExceeded");
+    QList<QJSValue> imageRoots;
+    const auto imageOperation = [&](const QByteArray &bytes) {
+        auto *op = scope->clipboard()->writeImage(bytes);
+        imageRoots.append(host.engine.newQObject(op));
+        return op;
+    };
+    QCOMPARE(imageOperation({})->errorCode(), "InvalidArgument");
+    QCOMPARE(imageOperation(QByteArray(8 * 1024 * 1024 + 1, 'x'))->errorCode(), "LimitExceeded");
+    const int allocationLimit = QImageReader::allocationLimit();
+    auto *invalidImage = imageOperation("not an image");
+    QTRY_VERIFY(invalidImage->finished());
+    QCOMPARE(invalidImage->errorCode(), "InvalidArgument");
+    QCOMPARE(QImageReader::allocationLimit(), allocationLimit);
+    const auto png = [](int width, int height) {
+        QImage image(width, height, QImage::Format_ARGB32);
+        image.fill(QColor("#123456"));
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::WriteOnly);
+        return image.save(&buffer, "PNG") ? bytes : QByteArray();
+    };
+    const auto imageBytes = png(3, 2);
+    QVERIFY(!imageBytes.isEmpty());
+    auto *imageWrite = imageOperation(imageBytes);
+    QTRY_VERIFY(imageWrite->finished());
+    QCOMPARE(imageWrite->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(clipboard->image().size(), QSize(3, 2));
+    QCOMPARE(clipboard->image().pixelColor(1, 1), QColor("#123456"));
+    const auto largeBytes = png(4097, 1);
+    QVERIFY(!largeBytes.isEmpty());
+    auto *largeImage = imageOperation(largeBytes);
+    QTRY_VERIFY(largeImage->finished());
+    QCOMPARE(largeImage->errorCode(), "LimitExceeded");
+    QCOMPARE(clipboard->image().size(), QSize(3, 2));
+    clipboard->setText("keep clipboard on cancellation");
+    auto *cancelledImage = imageOperation(imageBytes);
+    QPointer<QFutureWatcherBase> decode = cancelledImage->findChild<QFutureWatcherBase *>();
+    QVERIFY(decode);
     auto *cancelled = scope->clipboard()->write("must not appear");
     scope->beginRetire();
     QCOMPARE(cancelled->state(), EchoPluginOperation::Canceled);
-    QCoreApplication::processEvents();
-    QVERIFY(clipboard->text() != "must not appear");
+    QCOMPARE(cancelledImage->state(), EchoPluginOperation::Canceled);
+    QTRY_VERIFY(!decode);
+    QCOMPARE(clipboard->text(), "keep clipboard on cancellation");
 }
 void PluginRuntimeTest::pluginMainWindowDialogsLifecycle()
 {

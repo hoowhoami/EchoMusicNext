@@ -812,6 +812,7 @@ void DesktopPagesTest::sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots
     QFETCH(bool, dark);
     QFETCH(bool, scaled);
     Session session;
+    QVERIFY(session.api.setNetworkTransport(1));
     session.shell.setMotionEnabled(false);
     session.theme.setMotionEnabled(false);
     session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
@@ -820,6 +821,7 @@ void DesktopPagesTest::sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots
             session.shell.zoomIn();
     PlaybackService playback(session.api, session.preferences);
     auto *layout = session.shell.sidebarLayout();
+    QVERIFY(AccountServiceTestAccess::adopt(session.accounts.account, account(900001)));
     QAbstractItemModelTester cards(layout->shortcutModel(),
                                    QAbstractItemModelTester::FailureReportingMode::Fatal);
     layout->attachResources(session.api, playback, session.accounts.playlists, false);
@@ -861,6 +863,35 @@ void DesktopPagesTest::sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots
     QVERIFY(!item("shortcutCandidateToggle-home")->isEnabled());
     QVERIFY(session.clickItem("shortcutCandidateToggle-explore"));
     QCOMPARE(layout->shortcuts().size(), 2);
+    PlaybackTrack track;
+    track.id = "701";
+    track.songId = 701;
+    track.hash = QString(32, QLatin1Char('a'));
+    track.title = "队列歌曲";
+    QImage trackCover(32, 32, QImage::Format_RGB32);
+    trackCover.fill(QColor("#0071e3"));
+    const auto coverPath = session.directory.filePath("shortcut-track-cover.png");
+    QVERIFY(trackCover.save(coverPath));
+    track.cover = QUrl::fromLocalFile(coverPath).toString();
+    playback.queueCatalog()->restore({{"queue:favorites", "我最喜爱", {track}, 0, {}, 13}},
+                                     "queue:favorites");
+    // The queue alone cannot invent a public playlist identity. A late catalog
+    // must populate the already open production picker without replaying music.
+    QCOMPARE(layout->recentPlaylists().size(), 0);
+    UserPlaylistModelTestAccess::present(session.accounts.playlists, session.api, 2);
+    QCOMPARE(layout->recentPlaylists().size(), 1);
+    const auto liked = layout->recentPlaylists().first().toMap();
+    QCOMPARE(liked.value("resourceId").toString(), QString("display-playlist-2"));
+    QCOMPARE(liked.value("title").toString(), QString("我喜欢"));
+    QCOMPARE(liked.value("cover").toString(), QString());
+    QTRY_VERIFY(item("shortcutCandidate-playlist-detail:display-playlist-2"));
+    QVERIFY(!item("shortcutPlaylistsEmpty")->isVisible());
+    QVERIFY(session.clickItem("shortcutCandidate-playlist-detail:display-playlist-2"));
+    QTRY_COMPARE(session.router.current()->resourceId(), QString("display-playlist-2"));
+    QTRY_VERIFY(popup.isNull());
+    QVERIFY(session.router.navigate("explore"));
+    popup = session.openOwnedPopup("sidebarShortcutPopupOwner");
+    QVERIFY(popup);
     QJsonArray history;
     for (int i = 1; i <= 9; ++i) {
         const auto artist =
@@ -876,11 +907,6 @@ void DesktopPagesTest::sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots
     playback.historyLoaded(history);
     QCOMPARE(layout->frequentArtists().size(), 6);
     QCOMPARE(layout->frequentArtists()[0].toMap()["resourceId"].toString(), QString("2"));
-    PlaybackTrack track;
-    track.id = "701";
-    track.songId = 701;
-    track.hash = QString(32, QLatin1Char('a'));
-    track.title = "队列歌曲";
     playback.queueCatalog()->restore({{"queue:playlist:901", "歌单 901", {track}, 0, {}, 9},
                                       {"queue:playlist:902", "歌单 902", {track}, 0, {}, 10},
                                       {"queue:album:903", "专辑", {track}, 0, {}, 11},
@@ -888,6 +914,21 @@ void DesktopPagesTest::sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots
                                      "queue:playlist:902");
     QCOMPARE(layout->recentPlaylists().size(), 2);
     QCOMPARE(layout->recentPlaylists()[0].toMap()["resourceId"].toString(), QString("902"));
+    // Both playback entrances represent one real playlist. Keep the newest
+    // usage position regardless of which entrance was used last.
+    for (const bool favoritesNewest : {false, true}) {
+        playback.queueCatalog()->restore({{"queue:playlist:902", "歌单 902", {track}, 0, {}, 10},
+                                          {"queue:playlist:display-playlist-2",
+                                           "详情旧标题",
+                                           {track},
+                                           0,
+                                           {},
+                                           favoritesNewest ? quint64(14) : quint64(16)},
+                                          {"queue:favorites", "我最喜爱", {track}, 0, {}, 15}},
+                                         "queue:favorites");
+        QCOMPARE(layout->recentPlaylists().size(), 2);
+        QCOMPARE(layout->recentPlaylists().first().toMap(), liked);
+    }
     QVERIFY(session.clickItem("shortcutCandidateToggle-artist-detail:1"));
     QCOMPARE(layout->shortcuts().size(), 3);
     QCOMPARE(session.router.current()->name(), QString("explore"));
@@ -917,6 +958,9 @@ void DesktopPagesTest::sidebarShortcutCandidatesNavigateAndKeepResourceSnapshots
     QTRY_VERIFY(popup.isNull());
     QVERIFY(AccountServiceTestAccess::adopt(session.accounts.account, account(900002)));
     QCOMPARE(layout->frequentArtists().size(), 0);
+    playback.queueCatalog()->restore({{"queue:favorites", "我最喜爱", {track}, 0, {}, 15}},
+                                     "queue:favorites");
+    QCOMPARE(layout->recentPlaylists().size(), 0);
     playback.historyLoaded({});
     playback.queueCatalog()->clear();
     QCOMPARE(layout->frequentArtists().size(), 0);

@@ -18,7 +18,7 @@ quint64 ApiClient::LibraryClient::userPlaylists(quint32 page, quint32 pageSize)
 
 quint64 ApiClient::LibraryClient::userHistory(const QString &cursor)
 {
-    if (!api.m_userId || cursor.size() > 4096)
+    if (!api.m_userId || cursor.toUtf8().size() > 4096)
         return 0;
     QJsonObject query;
     if (!cursor.isEmpty())

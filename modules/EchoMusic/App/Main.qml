@@ -327,7 +327,6 @@ ApplicationWindow {
         height: mainWindow.height / mainWindow.shellSettings.uiScale
         scale: mainWindow.shellSettings.uiScale
         transformOrigin: Item.TopLeft
-        readonly property bool narrow: width < 700
         onWidthChanged: mainWindow.shellSettings.updateViewport(width)
         Component.onCompleted: mainWindow.shellSettings.updateViewport(width)
         ThemeBackground {
@@ -416,10 +415,10 @@ ApplicationWindow {
                     partKey: "workspace"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.topMargin: frame.narrow ? 4 : 8
-                    Layout.bottomMargin: frame.narrow ? 4 : 8
-                    Layout.rightMargin: frame.narrow ? 4 : 8
-                    spacing: frame.narrow ? 6 : 10
+                    Layout.topMargin: 6
+                    Layout.bottomMargin: 6
+                    Layout.rightMargin: 6
+                    spacing: 8
                     Rectangle {
                         id: mainPanel
                         objectName: "mainPanelSurface"

@@ -136,17 +136,46 @@ void PluginRuntimeTest::ecosystemBusinessRequestsAndSharedVerification()
         R"({"user_id":"9007199254741005","cursor":"next-cursor","finished":false,"has_more":true,"items":[{"song_id":"9007199254740993","name":"示例歌曲","artist":"示例歌手","album":"示例专辑","album_id":"9007199254740995","audio_id":"9007199254740997","hash":"0123456789abcdef0123456789abcdef","cover":null,"duration_ms":272457,"bitrate":128,"play_count":7,"last_played_at":1760000000}]})");
     QCOMPARE(history->state(), EchoPluginOperation::Succeeded);
     QCOMPARE(history->result().toMap().value("cursor").toString(), QString("next-cursor"));
-    // Business IDs cross the Qt -> JS boundary as decimal strings; a numeric
-    // delivery would already be rounded to 9007199254740992 here.
-    QCOMPARE(
-        history->result().toMap().value("items").toList()[0].toMap().value("song_id").toString(),
-        QString("9007199254740993"));
+    // Read the actual scriptResult property in the owning JS engine, not a
+    // QVariant::toString() that could hide the public value's original type.
+    host.engine.globalObject().setProperty("historyProbe", historyRoot);
+    QCOMPARE(js(host, "typeof historyProbe.result.items[0].song_id").toString(), "string");
+    QCOMPARE(js(host, "historyProbe.result.items[0].song_id").toString(), "9007199254740993");
+    QVERIFY(js(host, "Array.isArray(historyProbe.result.items)").toBool());
     // The cursor limit is enforced in UTF-8 bytes at the plugin boundary, before
     // the backend; an overlong value is an argument error, not Unavailable.
-    auto *longCursor =
-        scope->kugou()->request("userHistory", {{"cursor", QString(5000, QLatin1Char('a'))}});
-    QCOMPARE(longCursor->state(), EchoPluginOperation::Failed);
-    QCOMPARE(longCursor->errorCode(), "InvalidArgument");
+    for (const auto &cursor : {QString(5000, QLatin1Char('a')), QString(1366, QChar(0x4e2d))}) {
+        auto *longCursor = scope->kugou()->request("userHistory", {{"cursor", cursor}});
+        catalogRoots.append(host.engine.newQObject(longCursor));
+        QCOMPARE(longCursor->state(), EchoPluginOperation::Failed);
+        QCOMPARE(longCursor->errorCode(), "InvalidArgument");
+        QCOMPARE(ApiClientTestAccess::pending(host.api, "user_history"), quint64(0));
+    }
+    for (const auto &cursor : {QString(), QString(4096, QLatin1Char('a')),
+                               QString(1365, QChar(0x4e2d)) + QLatin1Char('a')}) {
+        auto *accepted = scope->kugou()->request("userHistory", {{"cursor", cursor}});
+        catalogRoots.append(host.engine.newQObject(accepted));
+        QCOMPARE(accepted->state(), EchoPluginOperation::Running);
+        const auto acceptedId = ApiClientTestAccess::pending(host.api, "user_history");
+        QVERIFY(acceptedId);
+        const auto query =
+            ApiClientTestAccess::request(host.api, acceptedId).value("query").toObject();
+        QCOMPARE(query.contains("bp"), !cursor.isEmpty());
+        QCOMPARE(query.value("bp").toString(), cursor);
+        accepted->cancel();
+    }
+    auto *unknownHistory = scope->kugou()->request("userHistory");
+    auto unknownRoot = host.engine.newQObject(unknownHistory);
+    const auto unknownId = ApiClientTestAccess::pending(host.api, "user_history");
+    QVERIFY(unknownId);
+    ApiClientTestAccess::complete(
+        host.api, unknownId,
+        R"({"user_id":"42","cursor":"next","finished":null,"has_more":null,"items":[{"song_id":"123","play_count":null}]})");
+    host.engine.globalObject().setProperty("historyProbe", unknownRoot);
+    QVERIFY(js(host, "historyProbe.result.finished === null && historyProbe.result.has_more === "
+                     "null && historyProbe.result.items[0].play_count === null")
+                .toBool());
+    host.engine.globalObject().deleteProperty("historyProbe");
     auto *lyric =
         scope->kugou()->request("lyric", {{"id", "fixture-lyric"}, {"accessKey", "fixture-key"}});
     auto lyricRoot = host.engine.newQObject(lyric);

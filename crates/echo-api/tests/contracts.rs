@@ -939,6 +939,7 @@ fn album_detail_missing_is_distinct_from_malformed_detail() {
     assert!(album.cover_url.contains("/240/"));
     assert_eq!(album.published, Some(true));
     assert_eq!(album.exclusive, Some(false));
+    assert!(album.publisher.is_empty());
     assert!(
         album_detail::convert(&sample("album_detail/missing.json"))
             .unwrap()
@@ -956,6 +957,42 @@ fn album_detail_missing_is_distinct_from_malformed_detail() {
     assert_eq!(partial.id, None);
     assert_eq!(partial.title, album.title);
     assert_eq!(partial.artists.len(), album.artists.len());
+}
+#[test]
+fn album_detail_preserves_captured_publisher_and_optional_absence() {
+    for (path, expected) in [
+        (
+            "album_detail/publisher-960399-extended-20261113.json",
+            "杰威尔音乐有限公司",
+        ),
+        (
+            "album_detail/publisher-65482908-extended-20261113.json",
+            "索尼音乐",
+        ),
+    ] {
+        let album = album_detail::convert(&sample(path)).unwrap().unwrap();
+        assert_eq!(album.publisher, expected);
+        assert!(album.id.is_some());
+        assert!(!album.title.is_empty());
+    }
+    assert!(
+        album_detail::convert(&sample("album_detail/publisher-0-extended-20261113.json"))
+            .unwrap()
+            .is_none()
+    );
+    // Controlled optional-field variants; these are not upstream captures.
+    let mut value: Value = serde_json::from_slice(&sample(
+        "album_detail/publisher-960399-extended-20261113.json",
+    ))
+    .unwrap();
+    for publisher in [Value::Null, Value::String(String::new())] {
+        value["data"][0]["publish_company"] = publisher;
+        let album = album_detail::convert(&serde_json::to_vec(&value).unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(album.id, Some(960399));
+        assert!(album.publisher.is_empty());
+    }
 }
 #[test]
 fn artist_detail_preserves_optional_profile_counts_and_long_intro() {

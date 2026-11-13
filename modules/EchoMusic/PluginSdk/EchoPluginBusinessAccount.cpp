@@ -25,6 +25,8 @@ bool account(const QString &method, Arguments &a, ApiClient &api, std::function<
     if (method == "userHistory") {
         // The cursor is the `bp` value of a previous response; empty starts newest.
         auto cursor = a.text("cursor", {});
+        if (cursor.toUtf8().size() > 4096)
+            a.valid = false;
         command = [&api, cursor] { return api.userHistory(cursor); };
     }
     if (method == "loginDevices") {

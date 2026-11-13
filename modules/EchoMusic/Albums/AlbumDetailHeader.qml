@@ -15,7 +15,14 @@ SongDetailHeader {
     readonly property var artistList: info.artists !== undefined && info.artists !== null ? info.artists : []
     readonly property int songCount: detailContext.songs.totalCount
     readonly property string publishedDate: String(info.published_at || "").split(/[ T]/)[0]
+    readonly property string publisher: String(info.publisher || "").trim()
+    readonly property string publicationText: [publishedDate, publisher].filter(value => value.length > 0).join(" · ")
     readonly property var categoryTags: [String(info.category || "")].filter(value => value.length > 0)
+    EchoTextInkMetrics {
+        id: publicationDateMetrics
+        font: Theme.font(11, Theme.semiboldWeight)
+        text: header.publishedDate
+    }
     // Artist links require an ID and an available target route.
     // Track registry changes because plugins can register pages.
     property bool artistNavigation: false
@@ -94,7 +101,8 @@ SongDetailHeader {
         DetailMetadataRow {
             authors: header.artistList
             avatarSource: header.artistList.length > 0 ? header.artistList[0].avatar_url || "" : ""
-            secondaryText: header.publishedDate.length > 0 ? header.publishedDate + qsTr(" 发布") : ""
+            secondaryText: header.publicationText
+            secondaryMinimumWidth: Math.ceil(publicationDateMetrics.naturalWidth)
             labels: header.categoryTags.concat(String(header.info.language || "").length > 0 ? [String(header.info.language)] : [])
             authorLinks: header.artistNavigation
             compact: header.width < 680

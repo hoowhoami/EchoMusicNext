@@ -205,10 +205,23 @@ QVariantList SidebarLayoutModel::recentPlaylists() const
                      [](const auto &a, const auto &b) { return a.lastUsed > b.lastUsed; });
     QSet<QString> seen;
     for (const auto &queue : queues) {
-        if (!queue.key.startsWith("queue:playlist:") || queue.tracks.isEmpty() ||
-            queue.title.trimmed().isEmpty())
+        if (queue.tracks.isEmpty() || queue.title.trimmed().isEmpty())
             continue;
-        auto id = queue.key.sliced(QStringLiteral("queue:playlist:").size());
+        QString id;
+        if (queue.key == "queue:favorites") {
+            // Favorites playback keeps its own queue identity. Resolve its
+            // real playlist through the same account-owned catalog as the page.
+            const auto row = m_resourceLibrary ? m_resourceLibrary->likedRow() : -1;
+            if (row < 0)
+                continue;
+            const auto index = m_resourceLibrary->index(row);
+            id = index.data(UserPlaylistModel::CreatorGlobalIdRole).toString();
+            if (id.isEmpty())
+                id = index.data(UserPlaylistModel::GlobalIdRole).toString();
+        } else if (queue.key.startsWith("queue:playlist:"))
+            id = queue.key.sliced(QStringLiteral("queue:playlist:").size());
+        else
+            continue;
         if (id.isEmpty() || id == "0")
             continue;
         if (m_resourceLibrary) {

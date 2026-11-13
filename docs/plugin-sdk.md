@@ -110,6 +110,8 @@
 
 歌手写真通过 `ctx.kugou.request('audioImages', {resources: [{hash, audioId?, albumAudioId?, filename?}], count?})` 获取按歌曲分组的歌手与分类图片；完整类型、选图用法和加载生命周期见[业务接口](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/ecosystem.md)。
 
+`userHistory` 返回 `HistoryPage {user_id, cursor, finished, has_more, items}`；歌曲 ID 使用十进制字符串，`duration_ms` 为毫秒、`last_played_at` 为 Unix 秒。`finished` / `has_more` / `play_count` 在上游未提供有效值时为 `null`；仅 `finished === true` 表示已结束，不能把未知当作末页或播放 0 次。不要自动重试未知分页状态或重复游标。合法空页仍返回 `items: []`；成功响应的必要数据解码失败明确返回 `decode`，不伪造成功空页。游标超过 4096 UTF-8 字节时在插件参数层返回 `InvalidArgument`。
+
 `ui.registerSidebarItem/registerShortcutCard/registerSongMenuItem`接入原侧栏、添加卡片/布局设置和共享歌曲菜单。`shortcuts`复用本地/系统快捷键冲突、输入焦点和录制门控；`toast`使用原通知视口；`scroll`只提供活动原生页面的公开引用/快照/滚动动作。`tasks`接入原任务中心的完整状态、图标/优先级patch、动作/明细和保留策略，代际替换、账号切换与停用均回收。
 
 `lyricEffects`对页面和桌面歌词提供样式、包内QML装饰和自动滚动接管，公开视口/行/run快照及Qt实际字形簇几何。逐属性样式与自动滚动优先级确定，用户浏览让权，减少动态效果保持原语义。装饰挂载拥有独立呈现scope；隐藏/裁剪、切账号或停用时撤销组件内的请求、定时器和注册。

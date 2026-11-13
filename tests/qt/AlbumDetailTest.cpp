@@ -61,6 +61,11 @@ public:
         c.m_detail["description"] = description;
         emit c.changed();
     }
+    static void setPublisher(AlbumDetailContext &c, const QString &publisher)
+    {
+        c.m_detail["publisher"] = publisher;
+        emit c.changed();
+    }
     static void setSize(AlbumDetailContext &c, quint32 size)
     {
         c.m_pageSize = size;
@@ -467,7 +472,11 @@ Window {
         QVERIFY(title && publish && category && artist && typeTag);
         QCOMPARE(typeTag->property("text").toString(), QString("ALBUM"));
         QVERIFY(publish->property("text").toString().contains("2008-10-15"));
-        QCOMPARE(publish->property("text").toString(), QString("2008-10-15 发布"));
+        QCOMPARE(publish->property("text").toString(), QString("2008-10-15"));
+        QVERIFY(!albumVisual(header, "songDetailSecondaryDetails")->property("active").toBool());
+        AlbumDetailContextTestAccess::setPublisher(*context, "杰威尔音乐有限公司");
+        QTRY_COMPARE(publish->property("text").toString(),
+                     QString("2008-10-15 · 杰威尔音乐有限公司"));
         auto *count = albumVisual(header, "albumSongCount");
         auto *avatar = albumVisual(header, "albumArtistAvatar");
         auto *categoryTag = albumVisual(category, "albumCategoryTag");
@@ -550,6 +559,18 @@ Window {
                     QTest::qWait(200);
                     const auto frame = window->grabWindow();
                     QVERIFY(!frame.isNull());
+                    if (!artifacts.isEmpty())
+                        QVERIFY(frame.save(artifacts + QString("/album-%1-%2-w%3.png")
+                                                           .arg(dark ? "dark" : "light")
+                                                           .arg(scale)
+                                                           .arg(width)));
+                    QVERIFY(publish->isVisible());
+                    QVERIFY(!albumVisual(header, "songDetailSecondaryDetails")
+                                 ->property("active")
+                                 .toBool());
+                    auto *publicationText = publish->property("textItem").value<QObject *>();
+                    QVERIFY(publicationText);
+                    QVERIFY(publicationText->property("text").toString().startsWith("2008-10-15"));
                     const auto ratio = qreal(frame.width()) / window->width();
                     const auto rowCenter =
                         avatar->mapRectToScene(avatar->boundingRect()).center().y();
@@ -611,11 +632,6 @@ Window {
                         QVERIFY(qAbs(baseline - authorBaselines.first()) < .01);
                     QVERIFY(category->mapToItem(header, QPointF(category->width(), 0)).x() <=
                             header->width() - 24);
-                    if (!artifacts.isEmpty())
-                        QVERIFY(frame.save(artifacts + QString("/album-%1-%2-w%3.png")
-                                                           .arg(dark ? "dark" : "light")
-                                                           .arg(scale)
-                                                           .arg(width)));
                 }
         auto *coverSlot = albumVisual(header, "songDetailCoverSlot");
         auto *titleRow = albumVisual(header, "songDetailTitleRow");
@@ -636,6 +652,17 @@ Window {
         QTRY_VERIFY(count->isVisible());
         QTRY_VERIFY(!introAction->isVisible());
         QVERIFY(!introOwner->property("item").value<QObject *>());
+        AlbumDetailContextTestAccess::setPublisher(
+            *context, QStringLiteral("Long Label 唱片公司 ").repeated(20));
+        QTRY_VERIFY(publish->property("truncated").toBool());
+        QVERIFY(publish->property("textItem")
+                    .value<QObject *>()
+                    ->property("text")
+                    .toString()
+                    .startsWith("2008-10-15"));
+        QCOMPARE(header->property("expandedHeight").toReal(), 176.);
+        AlbumDetailContextTestAccess::setPublisher(*context, "  ");
+        QTRY_COMPARE(publish->property("text").toString(), QString("2008-10-15"));
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
         service.shutdown();
         router.shutdown();
