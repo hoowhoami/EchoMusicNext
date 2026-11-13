@@ -131,10 +131,15 @@ void PluginRuntimeTest::ecosystemBusinessRequestsAndSharedVerification()
                  .value("bp")
                  .toString(),
              QString("fixture-cursor"));
-    ApiClientTestAccess::complete(host.api, historyId,
-                                  R"({"bp":"next-cursor","list":[{"mixsongid":"1"}]})");
+    ApiClientTestAccess::complete(
+        host.api, historyId, R"({"bp":"next-cursor","list":[{"mixsongid":"9007199254740993"}]})");
     QCOMPARE(history->state(), EchoPluginOperation::Succeeded);
     QCOMPARE(history->result().toMap().value("bp").toString(), QString("next-cursor"));
+    // Business IDs cross the Qt -> JS boundary as decimal strings; a numeric
+    // delivery would already be rounded to 9007199254740992 here.
+    QCOMPARE(
+        history->result().toMap().value("list").toList()[0].toMap().value("mixsongid").toString(),
+        QString("9007199254740993"));
     auto *lyric =
         scope->kugou()->request("lyric", {{"id", "fixture-lyric"}, {"accessKey", "fixture-key"}});
     auto lyricRoot = host.engine.newQObject(lyric);

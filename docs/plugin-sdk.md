@@ -180,7 +180,7 @@ Qt组件纹理可通过EchoGpuSurface.importTextureSource借用到RHI采样：�
 
 `ctx.ui.showDialog({ component: 'Panel.qml', width: 400, modal: true, closeOnMask: true })` 返回 operation，正文准备完成后得到 `EchoPluginDialog` 句柄；`close()` 关闭，`active`/`closed` 通知生命周期。可选 `title` 默认插件名，width 为160..2048逻辑px并受主窗口约束。QML 根必须是 Item，声明 `required property EchoPluginContext plugin` 和 `required property EchoPluginDialog dialog`，通过 `dialog.close()` 关闭。默认模态、Escape关闭及点击遮罩关闭，使用共享主题、应用缩放和浮层；不离开路由、不创建OS窗口。取消打开operation、账号变化、调用者退休或宿主隐藏会清理，最小化保留实例。最多同时8个弹窗，正文自行提供自然高度及必要滚动。
 
-`ctx.clipboard.write(text)` / `ctx.clipboard.writeImage(bytes)` 返回可等待的operation，分别写系统文本剪贴板（上限1MiB UTF-8）与编码图片（PNG/JPEG 等，上限8MiB，由宿主解码）；不读取剪贴板、不需要焦点。账号变化/停用会取消尚未执行的写入。三项能力可分别通过 `kugou.authSnapshot`、`ui.dialogs`、`clipboard.write` feature 声明；`clipboard.write` 同时覆盖文本与图片写入。
+`ctx.clipboard.write(text)` / `ctx.clipboard.writeImage(bytes)` 返回可等待的operation，分别写系统文本剪贴板（上限1MiB UTF-8）与编码图片（PNG/JPEG 等，上限8MiB；工作线程解码，单边≤4096、总像素≤16M，GUI 只做剪贴板交付）；不读取剪贴板、不需要焦点。账号变化/停用会取消尚未执行的写入。三项能力可分别通过 `kugou.authSnapshot`、`ui.dialogs`、`clipboard.write` feature 声明；`clipboard.write` 同时覆盖文本与图片写入。
 
 ### 页面切换动画
 

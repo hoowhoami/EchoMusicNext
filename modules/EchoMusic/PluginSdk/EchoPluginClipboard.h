@@ -3,7 +3,8 @@
 namespace EchoMusic
 {
 class EchoPluginContext;
-/// GUI-thread system clipboard writing for text and encoded images. No clipboard reads.
+/// System clipboard writing for text and encoded images; image decoding runs on the
+/// worker pool, never in the GUI callback. No clipboard reads.
 class EchoPluginClipboard final : public QObject
 {
     Q_OBJECT
@@ -12,7 +13,8 @@ class EchoPluginClipboard final : public QObject
 public:
     explicit EchoPluginClipboard(EchoPluginContext &);
     Q_INVOKABLE EchoMusic::EchoPluginOperation *write(const QString &text);
-    /// PNG/JPEG/BMP/WebP bytes; the clipboard keeps the decoded image, not the encoding.
+    /// PNG/JPEG/BMP/WebP bytes; decoded off the GUI thread with a 4096-per-edge and
+    /// 16M-pixel budget. The clipboard keeps the decoded image, not the encoding.
     Q_INVOKABLE EchoMusic::EchoPluginOperation *writeImage(const QByteArray &bytes);
 
 private:

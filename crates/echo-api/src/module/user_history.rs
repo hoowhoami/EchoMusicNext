@@ -1,6 +1,6 @@
 //! Recent listening history. Rows carry source-specific optional members and a
-//! forward cursor (`bp`), so the converted value is the upstream `data` object
-//! unchanged; plugins treat absent members as unavailable data.
+//! forward cursor (`bp`); business identifiers are normalized to decimal strings
+//! before delivery so the Qt/QJson double path cannot round 64-bit IDs.
 use crate::{
     error::ApiError,
     util::{
@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// The cursor is an opaque upstream token; bound it before echoing it back.
@@ -22,13 +23,52 @@ pub struct Query {
     pub bp: Option<String>,
 }
 
+/// Business IDs follow the host's published convention (`id`, `*_id`, `*_ids`)
+/// plus the upstream history row names such as `mixsongid`. Numeric IDs become
+/// decimal strings; already-string IDs are untouched.
+fn is_identifier_key(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    lower == "id"
+        || lower.ends_with("_id")
+        || lower.ends_with("_ids")
+        || lower.ends_with("ids")
+        || (lower.ends_with("id") && !lower.ends_with("valid"))
+}
+
+fn normalize_identifiers(value: &mut Value) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                normalize_identifiers(item);
+            }
+        }
+        Value::Object(map) => {
+            for (key, entry) in map.iter_mut() {
+                if is_identifier_key(key) {
+                    if let Value::Number(number) = entry {
+                        // `serde_json` arbitrary precision keeps the exact upstream
+                        // digits, which is why this runs before the value is encoded.
+                        let text = number.to_string();
+                        *entry = Value::String(text);
+                        continue;
+                    }
+                }
+                normalize_identifiers(entry);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub fn convert(bytes: &[u8]) -> Result<serde_json::Value, ApiError> {
-    let wire: DefaultDataEnvelope<serde_json::Value> = request::decode(bytes)?;
+    let wire: DefaultDataEnvelope<Value> = request::decode(bytes)?;
     if wire.status != 1 && wire.error_code == 20017 {
         return Err(ApiError::authentication(20017));
     }
     request::success(wire.status, wire.error_code)?;
-    Ok(wire.data)
+    let mut data = wire.data;
+    normalize_identifiers(&mut data);
+    Ok(data)
 }
 
 pub async fn execute(
@@ -70,12 +110,23 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn passes_upstream_data_through_unchanged() {
-        let payload = br#"{"status":1,"error_code":0,"data":{"bp":"next-page","list":[{"mixsongid":9007199254740993,"filename":"\u591c\u66f2 - \u5468\u6770\u4f26","timelength":225845}]}}"#;
+    fn passes_upstream_data_through_with_string_identifiers() {
+        let payload = br#"{"status":1,"error_code":0,"data":{"bp":"next-page","list":[{"mixsongid":9007199254740993,"songid":9007199254740995,"filename":"\u591c\u66f2 - \u5468\u6770\u4f26","timelength":225845,"album_ids":[9007199254740997]}]}}"#;
         let value = convert(payload).expect("history response converts");
         assert_eq!(value["bp"], json!("next-page"));
-        assert_eq!(value["list"][0]["mixsongid"], json!(9007199254740993_u64));
+        assert_eq!(value["list"][0]["mixsongid"], json!("9007199254740993"));
+        assert_eq!(value["list"][0]["songid"], json!("9007199254740995"));
+        assert_eq!(value["list"][0]["album_ids"][0], json!("9007199254740997"));
+        // Non-identifier numbers keep their numeric type.
+        assert_eq!(value["list"][0]["timelength"], json!(225845));
         assert_eq!(value["list"][0]["filename"], json!("夜曲 - 周杰伦"));
+    }
+
+    #[test]
+    fn keeps_already_string_identifiers_unchanged() {
+        let payload = br#"{"status":1,"error_code":0,"data":{"list":[{"mixsongid":"9007199254740993"}]}}"#;
+        let value = convert(payload).expect("history response converts");
+        assert_eq!(value["list"][0]["mixsongid"], json!("9007199254740993"));
     }
 
     #[test]
