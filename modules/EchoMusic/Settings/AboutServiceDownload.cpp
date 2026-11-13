@@ -1,4 +1,5 @@
 #include "AboutService.h"
+#include "ExecutablePath.h"
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDir>
@@ -151,7 +152,7 @@ void AboutService::install()
 #endif
     const auto helper = m_installDirectory + '/' + helperName;
     if (!QDir().mkpath(m_installDirectory) ||
-        !QFile::copy(QCoreApplication::applicationDirPath() + '/' + helperName, helper) ||
+        !QFile::copy(executableDirectory() + '/' + helperName, helper) ||
         !QFile::setPermissions(helper, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner)) {
         m_downloadError = tr("无法准备更新安装器，请重新下载或手动安装");
         emit changed();

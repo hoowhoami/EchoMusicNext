@@ -1,6 +1,6 @@
+#include "ExecutablePath.h"
 #include "StorageFence.h"
 #include "ThemeImageStore.h"
-#include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -25,7 +25,7 @@ ThemeImageResult ThemeImageStore::importImage(const QString &source, const QStri
     const QFileInfo file(source);
     if (!file.isFile() || file.size() <= 0 || file.size() > 20 * 1024 * 1024)
         return {{}, QObject::tr("请选择不超过 20 MB 的图片"), {}, {}};
-    const auto appDirectory = QCoreApplication::applicationDirPath();
+    const auto appDirectory = executableDirectory();
 #ifdef Q_OS_WIN
     const QString name = "echo-theme-image-worker.exe";
 #else

@@ -1,5 +1,6 @@
 add_library(
     echo_platform STATIC
+    ExecutablePath.h
     StartupIntegration.h
     StartupIntegration.cpp
     SingleInstance.h
