@@ -244,7 +244,14 @@ if (platform === 'macOS') {
   for (const kind of ['deb', 'rpm', 'pacman', 'tar']) {
     const pkgroot = path.join(staging, kind),
       privateRoot = path.join(pkgroot, 'opt/echomusicnext');
-    fs.cpSync(appdir, privateRoot, { recursive: true, dereference: false });
+    // Keep AppDir symlinks verbatim. Without this, Node rewrites their
+    // relative targets into absolute paths on the build machine, breaking
+    // AppRun.wrapped in every installed copy.
+    fs.cpSync(appdir, privateRoot, {
+      recursive: true,
+      dereference: false,
+      verbatimSymlinks: true,
+    });
     fs.writeFileSync(path.join(privateRoot, 'usr/share/echomusicnext/package-type'), kind + '\n');
     const shared = path.join(pkgroot, 'usr/share');
     fs.mkdirSync(shared, { recursive: true });
@@ -254,7 +261,11 @@ if (platform === 'macOS') {
         fs.cpSync(source, path.join(shared, directory), { recursive: true });
     }
     fs.mkdirSync(path.join(pkgroot, 'usr/bin'), { recursive: true });
-    fs.symlinkSync('/opt/echomusicnext/AppRun', path.join(pkgroot, 'usr/bin/EchoMusicNext'));
+    // AppRun derives its directory from $0, so a symlink in /usr/bin would
+    // make it look for apprun-hooks and AppRun.wrapped under /usr/bin.
+    const launcher = path.join(pkgroot, 'usr/bin/EchoMusicNext');
+    fs.writeFileSync(launcher, '#!/bin/sh\nexec /opt/echomusicnext/AppRun "$@"\n');
+    fs.chmodSync(launcher, 0o755);
     if (kind === 'tar') {
       run('tar', ['-czf', name(kind), '-C', path.join(pkgroot, 'opt'), 'echomusicnext']);
       continue;
