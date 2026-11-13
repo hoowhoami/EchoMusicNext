@@ -28,8 +28,7 @@ Popup {
     }
     background: EchoFloatingSurface {
         radius: Theme.popoverRadius
-        border.width: 1
-        border.color: Theme.floating.surfaceOutline
+        border.width: 0
         dialogShadow: true
     }
     enter: Transition {

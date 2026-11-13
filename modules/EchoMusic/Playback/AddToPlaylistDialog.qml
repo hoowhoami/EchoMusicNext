@@ -44,6 +44,48 @@ EchoDialog {
     body: Component {
         ColumnLayout {
             spacing: 10
+            RowLayout {
+                visible: dialog.actions.queueActionsVisible
+                uniformCellSizes: true
+                Layout.fillWidth: true
+                Layout.rightMargin: 24
+                Layout.fillHeight: false
+                spacing: 10
+                EchoSoftButton {
+                    id: playNext
+                    objectName: "addToPlayNext"
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    Layout.preferredHeight: 40
+                    colors: Theme.floating
+                    glyph: "player-skip-forward"
+                    text: qsTr("下一首播放")
+                    enabled: dialog.actions.queueActionsAvailable
+                    onClicked: dialog.actions.enqueuePrepared(true)
+                    EchoToolTip {
+                        parent: playNext
+                        requestedVisible: playNext.hovered && playNext.enabled
+                        text: qsTr("插到候播最前面，不打断当前播放")
+                    }
+                }
+                EchoSoftButton {
+                    id: enqueue
+                    objectName: "addToEnqueue"
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    Layout.preferredHeight: 40
+                    colors: Theme.floating
+                    glyph: "playlist-add"
+                    text: qsTr("排队候播")
+                    enabled: dialog.actions.queueActionsAvailable
+                    onClicked: dialog.actions.enqueuePrepared(false)
+                    EchoToolTip {
+                        parent: enqueue
+                        requestedVisible: enqueue.hovered && enqueue.enabled
+                        text: qsTr("接在已有候播歌曲后面，不打断当前播放")
+                    }
+                }
+            }
             ListView {
                 id: targets
                 objectName: "playlistAddTargets"

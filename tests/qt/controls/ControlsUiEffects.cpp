@@ -109,10 +109,15 @@ void ControlsUiTest::scrollContentCannotPaintOverRoundedCornersOrBorder()
                         p = surface->mapToScene(p) * image.devicePixelRatio();
                         return image.pixelColor(qFloor(p.x()), qFloor(p.y()));
                     };
-                    for (const auto &p : {QPointF(1, 1), QPointF(surface->width() - 2, 1),
-                                          QPointF(1, surface->height() - 2),
-                                          QPointF(surface->width() - 2, surface->height() - 2),
-                                          QPointF(.1, surface->height() / 2)}) {
+                    QList<QPointF> protectedPoints{
+                        QPointF(1, 1), QPointF(surface->width() - 2, 1),
+                        QPointF(1, surface->height() - 2),
+                        QPointF(surface->width() - 2, surface->height() - 2)};
+                    // Borderless dialogs retain rounded clipping, while their
+                    // straight edge can now be painted by flush content.
+                    if (QQmlProperty(surface, "border.width").read().toReal() > 0)
+                        protectedPoints.append(QPointF(.1, surface->height() / 2));
+                    for (const auto &p : protectedPoints) {
                         const auto a = pixel(empty, p), b = pixel(filled, p);
                         QVERIFY2(qAbs(a.red() - b.red()) < 4 && qAbs(a.green() - b.green()) < 4 &&
                                      qAbs(a.blue() - b.blue()) < 4,
@@ -165,6 +170,7 @@ void ControlsUiTest::frostedCornersRetainAntialiasCoverage()
                 id: host
                 width: 720; height: 290
                 property real panelScale: 1
+                property bool dialogRecipe: false
                 Rectangle { anchors.fill: parent; color: "black" }
                 EchoBackdropRoot {
                     visible: false
@@ -176,6 +182,7 @@ void ControlsUiTest::frostedCornersRetainAntialiasCoverage()
                     x: 400; y: 80; width: 100; height: 100; radius: 20
                     scale: host.panelScale; transformOrigin: Item.TopLeft
                     color: "transparent"; border.width: 0
+                    dialogShadow: host.dialogRecipe
                     shadowEnabled: false; frostedEnabled: true
                 }
             }
@@ -189,24 +196,411 @@ void ControlsUiTest::frostedCornersRetainAntialiasCoverage()
     auto *surface = findVisual(host, "coverageProbe");
     QVERIFY(surface);
     QTRY_VERIFY(surface->property("hasBackdrop").toBool());
-    for (const qreal scale : {1., 1.25}) {
-        host->setProperty("panelScale", scale);
-        QTest::qWait(80);
-        const auto frame = session.window->grabWindow();
-        QVERIFY(!frame.isNull());
-        const auto origin = surface->mapToScene({0, 0});
-        const auto ratio = frame.devicePixelRatio();
-        const int extent = qCeil(20 * scale * ratio);
-        int partial = 0;
-        for (int y = 0; y < extent; ++y)
-            for (int x = 0; x < extent; ++x) {
-                const auto pixel = frame.pixelColor(qRound(origin.x() * ratio) + x,
-                                                    qRound(origin.y() * ratio) + y);
-                partial += pixel.red() > 20 && pixel.red() < 235;
-            }
-        qInfo() << "Partial corner coverage pixels:" << scale << partial;
-        QVERIFY2(partial > 12, "Frosted masks must retain a smooth, partially covered edge");
+    for (const bool dialogRecipe : {false, true}) {
+        host->setProperty("dialogRecipe", dialogRecipe);
+        for (const qreal scale : {1., 1.25}) {
+            host->setProperty("panelScale", scale);
+            QTest::qWait(80);
+            const auto frame = session.window->grabWindow();
+            QVERIFY(!frame.isNull());
+            const auto origin = surface->mapToScene({0, 0});
+            const auto ratio = frame.devicePixelRatio();
+            const int extent = qCeil(20 * scale * ratio);
+            int partial = 0;
+            for (int y = 0; y < extent; ++y)
+                for (int x = 0; x < extent; ++x) {
+                    const auto pixel = frame.pixelColor(qRound(origin.x() * ratio) + x,
+                                                        qRound(origin.y() * ratio) + y);
+                    partial += pixel.red() > 20 && pixel.red() < 235;
+                }
+            qInfo() << "Partial corner coverage pixels:" << dialogRecipe << scale << partial;
+            QVERIFY2(partial > 12, "Frosted masks must retain a smooth, partially covered edge");
+        }
     }
+}
+
+void ControlsUiTest::modalCornersTrackAnalyticCoverage()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    session.theme.setMotionEnabled(false);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+Window {
+ // Avoid viewport-size rounding at quarter-step DPRs; the surfaces below
+ // still exercise fractional positions and application scales.
+ id: host; visible: true; width: 400; height: 352; color: "black"
+ property real zoom: 1
+ property real phase: 0
+ property real cornerRadius: 12
+ EchoFloatingSurface {
+  objectName: "cornerProbe"; x: 32 + host.phase; y: 32 + host.phase
+  width: 140; height: 140; radius: host.cornerRadius
+  scale: host.zoom; transformOrigin: Item.TopLeft
+  color: "white"; border.width: 0
+  dialogShadow: true; shadowEnabled: false; frostedEnabled: false
+ }
+})",
+                      QUrl());
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    auto *surface = session.item("cornerProbe");
+    QVERIFY(surface);
+    if (QGuiApplication::platformName() == "offscreen" || !supportsFloatingEffects(session.window))
+        QSKIP("Actual curve coverage requires a native RHI framebuffer");
+    qreal worstMean = 0, worstPeak = 0;
+    const auto captures = qEnvironmentVariable("ECHO_CORNER_CAPTURES");
+    for (const qreal radius : {10., 12.}) {
+        session.root->setProperty("cornerRadius", radius);
+        for (const qreal zoom : {1., 1.25, 1.5}) {
+            session.root->setProperty("zoom", zoom);
+            for (const qreal phase : {0., .25, .5}) {
+                session.root->setProperty("phase", phase);
+                Test::FrameSpy frames(session.window);
+                session.window->update();
+                QTRY_VERIFY(!frames.isEmpty());
+                const auto frame = session.window->grabWindow();
+                QVERIFY(!frame.isNull());
+                const qreal dpr = frame.devicePixelRatio();
+                const auto box = surface->mapRectToScene(surface->boundingRect());
+                const QRectF pixels(box.topLeft() * dpr, box.size() * dpr);
+                const qreal r = radius * zoom * dpr;
+                qreal error = 0, peak = 0;
+                int samples = 0;
+                for (int corner = 0; corner < 4; ++corner) {
+                    const bool right = corner & 1, bottom = corner & 2;
+                    const int x0 = qFloor(right ? pixels.right() - r : pixels.left()) - 1;
+                    const int y0 = qFloor(bottom ? pixels.bottom() - r : pixels.top()) - 1;
+                    const int extent = qCeil(r) + 3;
+                    for (int y = y0; y < y0 + extent; ++y) {
+                        for (int x = x0; x < x0 + extent; ++x) {
+                            // Offline area reference: count subpixel samples
+                            // inside the mathematical rounded rectangle.
+                            int covered = 0;
+                            constexpr int grid = 16;
+                            for (int sy = 0; sy < grid; ++sy) {
+                                for (int sx = 0; sx < grid; ++sx) {
+                                    const qreal px = x + (sx + .5) / grid;
+                                    const qreal py = y + (sy + .5) / grid;
+                                    if (!pixels.contains(QPointF(px, py)))
+                                        continue;
+                                    const qreal dx = std::max(
+                                        {pixels.left() + r - px, 0., px - pixels.right() + r});
+                                    const qreal dy = std::max(
+                                        {pixels.top() + r - py, 0., py - pixels.bottom() + r});
+                                    covered += dx * dx + dy * dy <= r * r;
+                                }
+                            }
+                            const qreal expected = qreal(covered) / (grid * grid);
+                            if (expected <= 0 || expected >= 1)
+                                continue;
+                            const qreal difference = qAbs(frame.pixelColor(x, y).redF() - expected);
+                            error += difference;
+                            peak = std::max(peak, difference);
+                            ++samples;
+                        }
+                    }
+                }
+                QVERIFY(samples > 20);
+                const qreal mean = error / samples;
+                worstMean = std::max(worstMean, mean);
+                worstPeak = std::max(worstPeak, peak);
+                qInfo() << "corner coverage" << radius << zoom << phase << dpr << mean << peak;
+                if (!captures.isEmpty()) {
+                    QDir().mkpath(captures);
+                    QVERIFY(frame.save(captures + QString("/radius-%1-zoom-%2-phase-%3.png")
+                                                      .arg(radius)
+                                                      .arg(zoom)
+                                                      .arg(phase)));
+                }
+            }
+        }
+    }
+    qInfo() << "Worst corner mean / peak" << worstMean << worstPeak;
+    // Boundary coverage only: the original low-segment path exceeds both
+    // limits. Keep a little room for native backend rounding, not a full pixel.
+    QVERIFY(worstMean < .08);
+    QVERIFY(worstPeak < .17);
+    QPointer<QQuickItem> fill = findVisual(surface, "floatingSurfaceRoundedFill");
+    QVERIFY(fill);
+    surface->setVisible(false);
+    QTRY_VERIFY(fill.isNull());
+    surface->setVisible(true);
+    QTRY_VERIFY(findVisual(surface, "floatingSurfaceRoundedFill"));
+    fill = findVisual(surface, "floatingSurfaceRoundedFill");
+    session.window->hide();
+    QTRY_VERIFY(fill.isNull());
+}
+
+namespace
+{
+// Integrate the mathematical circle over the pixel, independently of Qt's
+// tessellation, masking and resampling. All four corners use the same reference.
+qreal cornerCoverage(const QRectF &box, qreal radius, int x, int y)
+{
+    int covered = 0;
+    constexpr int grid = 16;
+    for (int sy = 0; sy < grid; ++sy)
+        for (int sx = 0; sx < grid; ++sx) {
+            const QPointF p(x + (sx + .5) / grid, y + (sy + .5) / grid);
+            if (!box.contains(p))
+                continue;
+            const qreal dx =
+                std::max({box.left() + radius - p.x(), 0., p.x() - box.right() + radius});
+            const qreal dy =
+                std::max({box.top() + radius - p.y(), 0., p.y() - box.bottom() + radius});
+            covered += dx * dx + dy * dy <= radius * radius;
+        }
+    return qreal(covered) / (grid * grid);
+}
+QImage cornerFrame(QQuickWindow *window)
+{
+    Test::FrameSpy frames(window);
+    if (!QTest::qWaitFor([&] {
+            window->update();
+            return frames.size() >= 2;
+        }))
+        return {};
+    return window->grabWindow();
+}
+} // namespace
+
+void ControlsUiTest::modalShadowsPreserveCornerCoverage()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    session.theme.setMotionEnabled(false);
+    session.theme.setFloatingFrosted(false);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+Window {
+ id: host; visible: true; width: 640; height: 560; color: "#a0a0a0"
+ property real zoom: 1
+ property string kind: "dialog"
+ property alias popup: owner.item
+ Item { id: trigger; x: 96; y: 60; width: 140; height: 28 }
+ EchoPopupLoader {
+  id: owner; hostItem: trigger
+  sourceComponent: host.kind === "dialog" ? dialogRecipe : host.kind === "drawer" ? drawerRecipe : anchoredRecipe
+ }
+ function openProbe(): void { owner.open(); }
+ Component { id: dialogRecipe; EchoDialog { uiScale: host.zoom; width: 140; height: 140; x: 96; y: 96; dim: false; contentItem: Item {} } }
+ Component { id: drawerRecipe; EchoDrawer { uiScale: host.zoom; width: 140; height: 140; x: 96; y: 96; dim: false; contentItem: Item {} } }
+ Component { id: anchoredRecipe; EchoAnchoredPopup { anchorItem: trigger; uiScale: host.zoom; width: 140; height: 140; x: 96; y: 96; contentItem: Item {} } }
+})",
+                      QUrl());
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    if (QGuiApplication::platformName() == "offscreen" || !supportsFloatingEffects(session.window))
+        QSKIP("Composited corners require native RHI");
+    const auto captures = qEnvironmentVariable("ECHO_CORNER_CAPTURES");
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const qreal zoom : {1., 1.25, 1.5}) {
+            session.root->setProperty("zoom", zoom);
+            for (const auto *kind : {"dialog", "drawer", "anchored"}) {
+                session.root->setProperty("kind", kind);
+                QVERIFY(QMetaObject::invokeMethod(session.root.data(), "openProbe"));
+                QPointer<QObject> popup = session.root->property("popup").value<QObject *>();
+                QVERIFY(popup);
+                QTRY_VERIFY(popup->property("opened").toBool());
+                QPointer<QQuickItem> surface = popup->property("background").value<QQuickItem *>();
+                QVERIFY(surface);
+                surface->setProperty("shadowEnabled", false);
+                const auto plain = cornerFrame(session.window);
+                QVERIFY2(surface, "Surface retired during plain capture");
+                surface->setProperty("shadowEnabled", true);
+                const auto shaded = cornerFrame(session.window);
+                QVERIFY2(surface, "Surface retired during shadow capture");
+                const auto fill = surface->property("paintedColor").value<QColor>();
+                surface->setProperty("color", QColor(Qt::transparent));
+                const auto shadowOnly = cornerFrame(session.window);
+                QVERIFY2(surface, "Surface retired during shadow-only capture");
+                surface->setProperty("color", fill);
+                QVERIFY(!plain.isNull() && !shaded.isNull() && !shadowOnly.isNull());
+                const qreal dpr = shaded.devicePixelRatio();
+                const auto scene = surface->mapRectToScene(surface->boundingRect());
+                const QRectF box(scene.topLeft() * dpr, scene.size() * dpr);
+                const qreal r = surface->property("paintedRadius").toReal() * zoom * dpr;
+                for (int corner = 0; corner < 4; ++corner) {
+                    const int x0 = qFloor(corner & 1 ? box.right() - r : box.left()) - 1;
+                    const int y0 = qFloor(corner & 2 ? box.bottom() - r : box.top()) - 1;
+                    qreal peakDelta = 0, recoveredPeak = 0, recoveredError = 0;
+                    int count = 0;
+                    for (int y = y0; y < y0 + qCeil(r) + 3; ++y)
+                        for (int x = x0; x < x0 + qCeil(r) + 3; ++x) {
+                            const qreal expected = cornerCoverage(box, r, x, y);
+                            if (expected <= 0 || expected >= 1)
+                                continue;
+                            // A directional drop shadow may darken the lower
+                            // corners more, but left/right must remain uniform.
+                            const int mirrorX = qRound(box.left() + box.right()) - 1 - x;
+                            QVERIFY(qAbs(shaded.pixelColor(x, y).red() -
+                                         shaded.pixelColor(mirrorX, y).red()) <= 1);
+                            const qreal base = QColor("#a0a0a0").redF();
+                            const qreal noShadow =
+                                (plain.pixelColor(x, y).redF() - base) / (fill.redF() - base);
+                            const qreal localBase = shadowOnly.pixelColor(x, y).redF();
+                            const qreal withShadow = (shaded.pixelColor(x, y).redF() - localBase) /
+                                                     (fill.redF() - localBase);
+                            peakDelta =
+                                std::max<qreal>(peakDelta, qAbs(shaded.pixelColor(x, y).redF() -
+                                                                plain.pixelColor(x, y).redF()));
+                            recoveredPeak = std::max(recoveredPeak, qAbs(withShadow - noShadow));
+                            recoveredError += qAbs(withShadow - noShadow);
+                            ++count;
+                        }
+                    QVERIFY(count > 5);
+                    qInfo() << "shadow corner" << kind << mode << zoom << corner
+                            << "tone delta / coverage mean / peak" << peakDelta
+                            << recoveredError / count << recoveredPeak;
+                    QVERIFY(recoveredPeak < .025);
+                }
+                // Shadows must be present outside, and absent from the opaque interior.
+                const QPoint center = box.center().toPoint();
+                QCOMPARE(shaded.pixelColor(center), plain.pixelColor(center));
+                const QPoint outside(qRound(box.center().x()),
+                                     qRound(box.bottom() + 8 * zoom * dpr));
+                QVERIFY(shaded.pixelColor(outside).red() < plain.pixelColor(outside).red());
+                if (!captures.isEmpty()) {
+                    QDir().mkpath(captures);
+                    const auto stem =
+                        captures + QString("/shadow-%1-%2-%3").arg(kind).arg(mode).arg(zoom);
+                    QVERIFY(plain.save(stem + "-off.png"));
+                    QVERIFY(shaded.save(stem + "-on.png"));
+                    QVERIFY(shadowOnly.save(stem + "-only.png"));
+                }
+                QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+                QTRY_VERIFY(popup.isNull());
+            }
+        }
+    }
+}
+
+void ControlsUiTest::modalFrostedCornersKeepDeviceResolution()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    session.theme.setMotionEnabled(false);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+Window {
+ id: host; visible: true; width: 640; height: 560; color: "black"
+ property real zoom: 1
+ property real phase: 0
+ property real cornerRadius: 12
+ property bool direct: false
+ property bool backdrop: false
+ EchoBackdropRoot { visible: false; width: 640; height: 560; Rectangle { anchors.fill: parent; color: host.backdrop ? "white" : "black" } }
+ EchoFloatingSurface {
+  objectName: "resolutionProbe"; x: 96 + host.phase; y: 96 + host.phase
+  width: 140 * (host.direct ? host.zoom : 1); height: width
+  radius: host.cornerRadius * (host.direct ? host.zoom : 1)
+  scale: host.direct ? 1 : host.zoom; transformOrigin: Item.TopLeft
+  color: host.backdrop ? "transparent" : "white"; border.width: 0
+  dialogShadow: true; shadowEnabled: false; frostedEnabled: true
+ }
+})",
+                      QUrl());
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    if (QGuiApplication::platformName() == "offscreen" || !supportsFloatingEffects(session.window))
+        QSKIP("Layer resampling requires native RHI");
+    auto *surface = session.item("resolutionProbe");
+    QVERIFY(surface);
+    const auto captures = qEnvironmentVariable("ECHO_CORNER_CAPTURES");
+    qreal worstMean = 0, worstPeak = 0;
+    for (const qreal radius : {10., 12.}) {
+        session.root->setProperty("cornerRadius", radius);
+        for (const qreal zoom : {1., 1.25, 1.5}) {
+            session.root->setProperty("zoom", zoom);
+            for (const qreal phase : {0., .25, .5}) {
+                session.root->setProperty("phase", phase);
+                for (const bool backdrop : {false, true}) {
+                    session.root->setProperty("backdrop", backdrop);
+                    // Opaque fill and mask-only are isolated so their normal
+                    // source-over overlap cannot masquerade as blur.
+                    if (!backdrop)
+                        surface->setProperty("backdropFillOpacity", 1.);
+                    for (const bool direct : {false, true}) {
+                        session.root->setProperty("direct", direct);
+                        const auto frame = cornerFrame(session.window);
+                        QVERIFY(!frame.isNull());
+                        const qreal dpr = frame.devicePixelRatio();
+                        const auto scene = surface->mapRectToScene(surface->boundingRect());
+                        const QRectF box(scene.topLeft() * dpr, scene.size() * dpr);
+                        const qreal r = radius * zoom * dpr;
+                        qreal error = 0, peak = 0;
+                        int count = 0;
+                        for (int corner = 0; corner < 4; ++corner) {
+                            const int x0 = qFloor(corner & 1 ? box.right() - r : box.left()) - 2;
+                            const int y0 = qFloor(corner & 2 ? box.bottom() - r : box.top()) - 2;
+                            for (int y = y0; y < y0 + qCeil(r) + 5; ++y)
+                                for (int x = x0; x < x0 + qCeil(r) + 5; ++x) {
+                                    const qreal expected = cornerCoverage(box, r, x, y);
+                                    // Include both neighbours: blur can spill into
+                                    // pixels where the ideal circle is fully clear/filled.
+                                    const qreal difference =
+                                        qAbs(frame.pixelColor(x, y).redF() - expected);
+                                    if (expected > 0 && expected < 1) {
+                                        error += difference;
+                                        ++count;
+                                    }
+                                    peak = std::max(peak, difference);
+                                }
+                        }
+                        QVERIFY(count > 20);
+                        qInfo() << "frost resolution" << radius << zoom << phase << backdrop
+                                << direct << "mean / peak" << error / count << peak;
+                        worstMean = std::max(worstMean, error / count);
+                        worstPeak = std::max(worstPeak, peak);
+                        if (!captures.isEmpty()) {
+                            QDir().mkpath(captures);
+                            QVERIFY(frame.save(captures + QString("/frost-%1-%2-%3-%4-%5.png")
+                                                              .arg(radius)
+                                                              .arg(zoom)
+                                                              .arg(phase)
+                                                              .arg(backdrop)
+                                                              .arg(direct)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    qInfo() << "Worst frosted mean / peak" << worstMean << worstPeak;
+    QVERIFY(worstMean < .08);
+    QVERIFY(worstPeak < .17);
+    QPointer<QQuickItem> raster = findVisual(surface, "floatingSurfaceModalRaster");
+    QPointer<QQuickItem> capture = findVisual(surface, "floatingSurfaceModalCapture");
+    QVERIFY(raster && capture);
+    surface->setProperty("frostedEnabled", false);
+    QTRY_VERIFY(raster.isNull() && capture.isNull());
+    surface->setProperty("frostedEnabled", true);
+    QTRY_VERIFY(findVisual(surface, "floatingSurfaceModalCapture"));
+    raster = findVisual(surface, "floatingSurfaceModalRaster");
+    capture = findVisual(surface, "floatingSurfaceModalCapture");
+    surface->setVisible(false);
+    QTRY_VERIFY(raster.isNull() && capture.isNull());
+    surface->setVisible(true);
+    QTRY_VERIFY(findVisual(surface, "floatingSurfaceModalCapture"));
+    raster = findVisual(surface, "floatingSurfaceModalRaster");
+    capture = findVisual(surface, "floatingSurfaceModalCapture");
+    session.window->hide();
+    QTRY_VERIFY(raster.isNull() && capture.isNull());
 }
 
 void ControlsUiTest::colorPresetsKeepVisibleEdgesInBothThemes()

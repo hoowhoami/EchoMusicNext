@@ -508,7 +508,7 @@ ApplicationWindow {
             id: startupCrashRecordsOwner
             objectName: "startupCrashRecordsOwner"
             hostItem: mainWindow.contentItem
-            sourceComponent: CrashRecordsDialog {
+            sourceComponent: DiagnosticExportDialog {
                 service: mainWindow.logService.diagnostics
                 uiScale: mainWindow.shellSettings.uiScale
             }

@@ -1294,7 +1294,7 @@ void DesktopPagesTest::productionDiagnosticRecordsAndExport()
     QTRY_VERIFY((records = owner->property("item").value<QObject *>()));
     QTRY_VERIFY(records->property("opened").toBool());
     QTRY_COMPARE(logging.diagnostics()->count(), 121);
-    QVERIFY(logging.diagnostics()->record("echomusicnext-20261110T102030000-1120").isEmpty());
+    QCOMPARE(logging.diagnostics()->records()->rowCount(), 121);
     QTRY_VERIFY(!logging.diagnostics()->loading());
     auto *list = visual(session.window->contentItem(), "crashRecordsList");
     QVERIFY(list);
@@ -1344,14 +1344,59 @@ void DesktopPagesTest::productionDiagnosticRecordsAndExport()
     QVERIFY(currentOwner);
     QTRY_VERIFY((exportDialog = currentOwner->property("item").value<QObject *>()));
     QTRY_VERIFY(exportDialog->property("opened").toBool());
-    QVERIFY(exportDialog->property("currentSession").toBool());
+    QTRY_VERIFY(!logging.diagnostics()->loading());
+    QCOMPARE(exportDialog->property("heading").toString(), QStringLiteral("故障诊断"));
+    QVERIFY(!exportDialog->property("currentSession").toBool());
+    QCOMPARE(exportDialog->property("event").toMap().value("kind").toString(), "native_crash");
+    QVERIFY(exportDialog->property("includeDump").toBool());
+    QVERIFY(QMetaObject::invokeMethod(exportDialog, "close"));
+    QTRY_VERIFY(exportDialog.isNull());
+    // If a later exit has no native report, the same default action must select
+    // its original context automatically, without exposing another category.
+    const auto fallbackId = QString("echomusicnext-20261113T102030000-9999");
+    QFile fallback(logs + "/crashes/" + fallbackId + ".jsonl");
+    QVERIFY(fallback.open(QIODevice::WriteOnly));
+    QVERIFY(fallback.write(
+                QJsonDocument(
+                    QJsonObject{{"event", "session_started"},
+                                {"timestamp", QDateTime::currentDateTimeUtc().addSecs(1).toString(
+                                                  Qt::ISODateWithMs)},
+                                {"build", "version=0.1.6 build=fallback-ui arch=arm64"},
+                                {"os", "Fixture OS"},
+                                {"runLog", logs + '/' + fallbackId + ".log"}})
+                    .toJson(QJsonDocument::Compact) +
+                '\n') > 0);
+    fallback.close();
+    currentButton->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(session.window, Qt::Key_Space);
+    QTRY_VERIFY((exportDialog = currentOwner->property("item").value<QObject *>()));
+    QTRY_VERIFY(exportDialog->property("opened").toBool());
+    QTRY_VERIFY(!logging.diagnostics()->loading());
+    QCOMPARE(exportDialog->property("eventId").toString(), QString());
+    QCOMPARE(exportDialog->property("event").toMap().value("id").toString(), fallbackId);
+    QCOMPARE(exportDialog->property("heading").toString(), QStringLiteral("故障诊断"));
+    QVERIFY(!exportDialog->property("currentSession").toBool());
+    QVERIFY(!exportDialog->property("includeDump").toBool());
+    QCOMPARE(logging.diagnostics()->count(), 121);
+    QVERIFY(!visual(session.window->contentItem(), "diagnosticRecordTabs"));
+    QVERIFY(!exportDialog->property("showDetails").toBool());
+    auto *detailsButton = visual(session.window->contentItem(), "diagnosticTechnicalDetails");
+    auto *details = visual(session.window->contentItem(), "diagnosticEventDetails");
+    QVERIFY(detailsButton && details);
+    QVERIFY(!details->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(detailsButton, "clicked"));
+    QTRY_VERIFY(details->isVisible());
+    QVERIFY(details->property("text").toString().contains("fallback-ui"));
+    QVERIFY(QMetaObject::invokeMethod(detailsButton, "clicked"));
+    QTRY_VERIFY(!details->isVisible());
+    QVERIFY(saveFrame("automatic-export"));
     // The native picker calls these same typed commands on acceptance. Closing
     // the owning category must cancel the worker and release the whole viewer.
     QLockFile exportGate(logs + "/crashes/diagnostics.lock");
     QVERIFY(exportGate.tryLock(0));
     exportDialog->setProperty("exportStarted", true);
-    logging.diagnostics()->exportCurrent(
-        QUrl::fromLocalFile(session.directory.filePath("cancelled-ui.zip")));
+    logging.diagnostics()->exportCrash(
+        fallbackId, QUrl::fromLocalFile(session.directory.filePath("cancelled-ui.zip")), false);
     QVERIFY(logging.diagnostics()->busy());
     catalog->select("interface");
     QTRY_VERIFY(exportDialog.isNull());
@@ -1359,13 +1404,16 @@ void DesktopPagesTest::productionDiagnosticRecordsAndExport()
     QVERIFY(logging.diagnostics()->exportedFile().isEmpty());
     QVERIFY(!QFileInfo::exists(session.directory.filePath("cancelled-ui.zip")));
     exportGate.unlock();
-    // Startup action uses the same production list, independently of settings.
+    // Startup action opens the same default export directly, independently of settings.
     QVERIFY(QMetaObject::invokeMethod(settings, "close"));
     emit logging.diagnostics()->recordsRequested();
     auto *startupOwner = session.root->findChild<QObject *>("startupCrashRecordsOwner");
     QVERIFY(startupOwner);
     QTRY_VERIFY((records = startupOwner->property("item").value<QObject *>()));
     QTRY_VERIFY(records->property("opened").toBool());
+    QCOMPARE(records->property("heading").toString(), QStringLiteral("故障诊断"));
+    QTRY_VERIFY(!logging.diagnostics()->loading());
+    QCOMPARE(records->property("event").toMap().value("id").toString(), fallbackId);
     QVERIFY(QMetaObject::invokeMethod(records, "close"));
     QTRY_VERIFY(records.isNull());
     QCOMPARE(warnings.size(), 0);

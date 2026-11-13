@@ -355,7 +355,7 @@ add_test(
         selectProjectionKeepsTypedValuesAndTracksModelChanges selectPublishesPopupAfterConstruction
         selectSearchMultiKeyboardPlacementAndVirtualization
         numberInputCommitsAndClampsAcrossAllInputPaths textEditorsShareFocusCaretAndSurfaces
-        caretsStayOnTheWindowDevicePixelGrid
+        textEditingMenusShareStyleActionsAndLifetime caretsStayOnTheWindowDevicePixelGrid
 )
 add_test(
     NAME controls-ui-popups
@@ -385,11 +385,13 @@ add_test(
     NAME controls-ui-effects
     COMMAND
         echo-controls-ui-test scrollContentCannotPaintOverRoundedCornersOrBorder
-        frostedCornersRetainAntialiasCoverage colorPresetsKeepVisibleEdgesInBothThemes
-        backdropSourceIsWindowLocalAndReleasedWhenHidden backdropSamplerTracksBothItemTrees
-        floatingSurfaceMatchesRendererCapabilities floatingFrostSamplesTheSceneAndStopsOnHide
-        floatingEffectsAreOwnedByVisibleSurfaces floatingBorderCompositesOverItsOwnFill
-        themeCustomColorHoverAndRenderedPixels sourceActionSurfacesAndSelectStates
+        frostedCornersRetainAntialiasCoverage modalCornersTrackAnalyticCoverage
+        modalShadowsPreserveCornerCoverage modalFrostedCornersKeepDeviceResolution
+        colorPresetsKeepVisibleEdgesInBothThemes backdropSourceIsWindowLocalAndReleasedWhenHidden
+        backdropSamplerTracksBothItemTrees floatingSurfaceMatchesRendererCapabilities
+        floatingFrostSamplesTheSceneAndStopsOnHide floatingEffectsAreOwnedByVisibleSurfaces
+        floatingBorderCompositesOverItsOwnFill themeCustomColorHoverAndRenderedPixels
+        sourceActionSurfacesAndSelectStates
 )
 add_test(
     NAME controls-ui-behavior
@@ -885,7 +887,8 @@ add_test(
         sidebarPluginRegistrationKeepsHeaderVisible nativeOutputDeviceSelectHasOneDefaultChoice
         committedTrackClimaxFromLiveNativeApi productionEffectPanelAlignmentAndCompactContentTabs
         productionResolvedQualityMarksPickerAndToolbar productionAddToReopenStableHeight
-        productionAddToHeaderAlignment productionAddToFailureUsesOnlyToast
+        productionAddToHeaderAlignment productionAddToQueueActions
+        productionAddToFailureUsesOnlyToast
         preferencesPreserveUnknownTagsValidateAndKeepFailedDraft
         missingMembershipCodesKeepProductsWithoutInventingKnownRights
         missingPreferenceFactsDoNotBecomeExplicitClears liveSameAvatarThroughQtService

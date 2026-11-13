@@ -11,6 +11,7 @@
 #include "UiTypography.h"
 #include "WindowController.h"
 #include <QAbstractItemModelTester>
+#include <QContextMenuEvent>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFontDatabase>
@@ -1123,6 +1124,30 @@ Window {
         QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, inputPoint);
         QTRY_VERIFY((popup = session.root->findChild<QObject *>("searchSuggestionsPopup")));
         QTRY_VERIFY(popup->property("opened").toBool());
+        // The query's editing menu is part of search, so opening it must not
+        // dismiss suggestions or clear the active edit/selection.
+        input->setProperty("text", QStringLiteral("编辑查询"));
+        QVERIFY(QMetaObject::invokeMethod(input, "selectAll"));
+        QContextMenuEvent editRequest(QContextMenuEvent::Mouse, inputPoint,
+                                      session.window->mapToGlobal(inputPoint));
+        QCoreApplication::sendEvent(session.window, &editRequest);
+        QPointer<QObject> editMenu;
+        QTRY_VERIFY((editMenu = session.root->findChild<QObject *>("textEditingMenu")));
+        QTRY_VERIFY(editMenu->property("opened").toBool());
+        QVERIFY(popup && popup->property("opened").toBool());
+        QCOMPARE(input->property("selectedText").toString(), QStringLiteral("编辑查询"));
+        // Keep search alive when keyboard focus enters the in-window menu.
+        QCOMPARE(editMenu->property("popupType").toInt(), 0);
+        auto *editContent = editMenu->property("contentItem").value<QQuickItem *>();
+        QVERIFY(editContent);
+        QCOMPARE(editContent->window(), session.window);
+        editContent->forceActiveFocus(Qt::PopupFocusReason);
+        QTest::qWait(80);
+        QVERIFY(popup && popup->property("opened").toBool());
+        QVERIFY(QMetaObject::invokeMethod(editMenu, "close"));
+        QTRY_VERIFY(editMenu.isNull());
+        QVERIFY(popup && popup->property("opened").toBool());
+        input->setProperty("text", QString());
         // Foreign surfaces must dismiss search before taking focus. Restoring
         // focus is not a search command, and must not recreate its popup.
         QPointer<QObject> foreign = openBusinessPopup("sidebarShortcutPopup");

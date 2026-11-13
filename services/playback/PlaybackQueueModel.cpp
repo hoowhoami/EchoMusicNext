@@ -319,6 +319,7 @@ void PlaybackQueueModel::append(const PlaybackTracks &tracks, bool next,
     if (next) {
         auto ordered = m_tracks;
         auto priorities = m_next;
+        QSet<QString> inserted;
         const auto selected = at(m_current) ? at(m_current)->key() : QString();
         const auto current =
             currentTrackId.isEmpty()
@@ -340,10 +341,16 @@ void PlaybackQueueModel::append(const PlaybackTracks &tracks, bool next,
                     existing = i;
             }
             int insert = currentIndex + 1;
-            if (sequential || tracks.size() > 1)
-                while (insert < ordered.size() && priorities.contains(ordered[insert].key()))
+            // A batch keeps its input order, but "next" still precedes the
+            // existing priority group; sequential enqueue follows that group.
+            if (sequential || !inserted.isEmpty())
+                while (insert < ordered.size() &&
+                       (sequential ? priorities.contains(ordered[insert].key())
+                                   : inserted.contains(ordered[insert].key())))
                     ++insert;
             const auto track = existing >= 0 ? ordered[existing] : incoming;
+            if (inserted.contains(track.key()))
+                continue;
             if (existing >= 0) {
                 ordered.removeAt(existing);
                 if (existing < insert)
@@ -351,10 +358,11 @@ void PlaybackQueueModel::append(const PlaybackTracks &tracks, bool next,
             }
             ordered.insert(qBound(0, insert, int(ordered.size())), track);
             priorities.removeAll(track.key());
-            if (!sequential && tracks.size() == 1)
-                priorities.prepend(track.key());
+            if (!sequential)
+                priorities.insert(inserted.size(), track.key());
             else
                 priorities.append(track.key());
+            inserted.insert(track.key());
         }
         if (ordered == m_tracks && priorities == m_next)
             return;

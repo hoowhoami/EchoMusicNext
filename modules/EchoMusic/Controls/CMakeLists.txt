@@ -1,4 +1,5 @@
 set_source_files_properties(EchoLabelSurface.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
+set_source_files_properties(EchoRoundedRect.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
 set_source_files_properties(EchoContentLoader.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
 set_source_files_properties(EchoControlContent.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(EchoToolTipPopup.qml PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
@@ -141,6 +142,7 @@ qt_add_qml_module(
     EchoSendButton.qml
     EchoInputBackground.qml
     EchoTextCursor.qml
+    EchoTextEditingMenu.qml
     EchoTextField.qml
     EchoIcon.qml
     EchoIconButton.qml
@@ -198,6 +200,7 @@ qt_add_qml_module(
     EchoPopconfirm.qml
     EchoSurfaceShadow.qml
     EchoFloatingSurface.qml
+    EchoRoundedRect.qml
     EchoDialogCloseButton.qml
     EchoDetailTabs.qml
     EchoEnter.qml

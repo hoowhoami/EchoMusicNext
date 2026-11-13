@@ -90,10 +90,14 @@ private slots:
         DiagnosticService service(logs);
         QAbstractItemModelTester model(&service,
                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
+        QAbstractItemModelTester crashes(service.records(),
+                                         QAbstractItemModelTester::FailureReportingMode::QtTest);
         service.refresh();
         QTRY_VERIFY(!service.loading());
         QCOMPARE(service.count(), 1);
-        QVERIFY(service.record("echomusicnext-20261110T102030000-11").isEmpty());
+        QCOMPARE(service.records()->rowCount(), 1);
+        QCOMPARE(service.record("echomusicnext-20261110T102030000-11").value("kind").toString(),
+                 "unclean_exit");
         QCOMPARE(service.record("echomusicnext-20261110T102030001-12").value("kind").toString(),
                  "fatal");
         QVERIFY(service.record(live).isEmpty());
@@ -136,17 +140,34 @@ private slots:
     void noCrashNoticeForForcedExit()
     {
         QTemporaryDir temporary;
-        session(temporary.path(), "echomusicnext-20261110T102030000-11");
-        DiagnosticService service(temporary.path());
+        const auto logs = temporary.filePath("logs");
+        QProcess probe;
+        auto executable = QCoreApplication::applicationDirPath() + "/echo-crash-probe";
+#ifdef Q_OS_WIN
+        executable += ".exe";
+#endif
+        probe.start(executable, {"unclean", logs});
+        QVERIFY(probe.waitForFinished(25000));
+        QCOMPARE(probe.exitCode(), 77);
+        DiagnosticService service(logs);
         QSignalSpy notices(&service, &DiagnosticService::startupNotice);
         service.checkStartupNotice();
         QTRY_VERIFY(!service.loading());
         QCOMPARE(service.count(), 0);
         QCOMPARE(notices.size(), 0);
         const std::atomic_bool notCancelled{false};
-        QCOMPARE(DiagnosticRecords::scan(temporary.path(), notCancelled).records.size(), 1);
-        QVERIFY(QFileInfo::exists(
-            temporary.filePath("crashes/echomusicnext-20261110T102030000-11.jsonl")));
+        QCOMPARE(DiagnosticRecords::scan(logs, notCancelled).records.size(), 1);
+        const auto id = service.latestRecord().value("id").toString();
+        QVERIFY(!id.isEmpty());
+        QVERIFY(QFileInfo::exists(logs + "/crashes/" + id + ".jsonl"));
+        service.exportCrash(id, QUrl::fromLocalFile(temporary.filePath("forced.zip")), false);
+        QTRY_VERIFY_WITH_TIMEOUT(!service.busy(), 20000);
+        QVERIFY2(service.errorString().isEmpty(), qPrintable(service.errorString()));
+        QVERIFY(unpack(temporary.filePath("forced.zip"), temporary.filePath("exported")));
+        QVERIFY(validManifest(temporary.filePath("exported")));
+        QVERIFY(
+            read(temporary.filePath("exported/crash/session.jsonl")).contains("session_started"));
+        QVERIFY(service.status().contains(QStringLiteral("崩溃转储")));
     }
     void currentExportFlushesAndExcludesPrivateData()
     {
@@ -155,6 +176,9 @@ private slots:
         LogService logging(logs, 2, false);
         auto *service = logging.diagnostics();
         QVERIFY(service);
+        service->refresh();
+        QTRY_VERIFY(!service->loading());
+        QVERIFY(service->latestRecord().isEmpty());
         QVERIFY(write(temporary.filePath("account.sqlite"), "private-account-data"));
         QVERIFY(write(logs + "/unrelated.log", "unrelated-private-data"));
         qWarning("diagnostic-flush-boundary 中文");
@@ -172,6 +196,73 @@ private slots:
         const auto context = read(temporary.filePath("unpacked/context.json"));
         QVERIFY(!context.contains("do-not-export"));
         QVERIFY(!context.contains("private-account-data"));
+        const auto manifest =
+            QJsonDocument::fromJson(read(temporary.filePath("unpacked/manifest.json"))).object();
+        QCOMPARE(manifest.value("scope").toString(), "current_session");
+        QVERIFY(!manifest.value("limitations").toArray().isEmpty());
+        QVERIFY(manifest.value("scopeDescription").toString().contains(QStringLiteral("当前运行")));
+        QVERIFY(!manifest.value("includesDump").toBool());
+    }
+    void uncleanExitExportsOwnEvidenceAndExplainsMissingMaterials()
+    {
+        QTemporaryDir temporary;
+        const auto logs = temporary.filePath("logs");
+        const auto old = session(logs, "echomusicnext-20261110T102030000-11");
+        const auto earlier = session(logs, "echomusicnext-20261109T102030000-12", "fatal");
+        const auto earlierPath = logs + "/crashes/" + earlier + ".jsonl";
+        QVERIFY(write(earlierPath, read(earlierPath).replace("2026-11-10", "2026-11-09")));
+        QVERIFY(write(logs + '/' + old + ".log", "before-exit\npassword=do-not-export\n"));
+        QVERIFY(write(logs + '/' + old + ".1.log", "old-rotation\n"));
+        QVERIFY(write(logs + "/" + sessionLogFileName(), "restarted-session\n"));
+        DiagnosticService service(logs);
+        service.refresh();
+        QTRY_VERIFY(!service.loading());
+        QCOMPARE(service.count(), 1); // Unknown exits are fallback context, not history entries.
+        QCOMPARE(service.latestRecord().value("id").toString(), old);
+        const auto target = temporary.filePath("unclean");
+        service.exportCrash(service.latestRecord().value("id").toString(),
+                            QUrl::fromLocalFile(temporary.filePath("unclean.zip")), false);
+        QTRY_VERIFY_WITH_TIMEOUT(!service.busy(), 20000);
+        QVERIFY2(service.errorString().isEmpty(), qPrintable(service.errorString()));
+        QVERIFY(unpack(temporary.filePath("unclean.zip"), target));
+        QVERIFY(validManifest(target));
+        const auto manifest = QJsonDocument::fromJson(read(target + "/manifest.json")).object();
+        QCOMPARE(manifest.value("scope").toString(), "selected_event");
+        QCOMPARE(manifest.value("event").toObject().value("kind").toString(), "unclean_exit");
+        QVERIFY(!manifest.value("includesDump").toBool());
+        QCOMPARE(manifest.value("missing").toArray().size(), 1);
+        QVERIFY(manifest.value("missing").toArray().first().toString().contains(
+            QStringLiteral("崩溃转储")));
+        QVERIFY(manifest.value("limitations")
+                    .toArray()
+                    .first()
+                    .toString()
+                    .contains(QStringLiteral("原因未知")));
+        QVERIFY(service.status().contains(QStringLiteral("崩溃转储")));
+        QVERIFY(read(target + "/logs/" + old + ".log").contains("before-exit"));
+        QVERIFY(!read(target + "/logs/" + old + ".log").contains("do-not-export"));
+        QVERIFY(read(target + "/logs/" + old + ".1.log").contains("old-rotation"));
+        QVERIFY(read(target + "/crash/session.jsonl").contains("session_started"));
+        QVERIFY(!QFileInfo::exists(target + "/logs/" + sessionLogFileName()));
+        QVERIFY(!QFileInfo::exists(target + "/crash/report.dmp"));
+        // Materials may disappear after the on-demand scan. Do not silently
+        // substitute the restarted log or report a complete export.
+        QVERIFY(QFile::remove(logs + '/' + old + ".log"));
+        QVERIFY(QFile::remove(logs + "/crashes/" + old + ".jsonl"));
+        service.exportCrash(old, QUrl::fromLocalFile(temporary.filePath("missing.zip")), false);
+        QTRY_VERIFY_WITH_TIMEOUT(!service.busy(), 20000);
+        QVERIFY(service.errorString().isEmpty());
+        QVERIFY(unpack(temporary.filePath("missing.zip"), temporary.filePath("missing")));
+        const auto missingManifest =
+            QJsonDocument::fromJson(read(temporary.filePath("missing/manifest.json"))).object();
+        QCOMPARE(missingManifest.value("missing").toArray().size(), 3);
+        const auto report = QString::fromUtf8(read(temporary.filePath("missing/report.txt")));
+        for (const auto &item : missingManifest.value("missing").toArray()) {
+            QVERIFY(report.contains(item.toString()));
+            QVERIFY(service.status().contains(item.toString()));
+        }
+        QVERIFY(!QFileInfo::exists(temporary.filePath("missing/crash/session.jsonl")));
+        QVERIFY(!QFileInfo::exists(temporary.filePath("missing/logs/") + sessionLogFileName()));
     }
     void perEventIncludesRotationsAndReportsMissingEvidence()
     {
@@ -309,6 +400,11 @@ private slots:
         QVERIFY(service.errorString().isEmpty());
         QVERIFY(unpack(temporary.filePath("without.zip"), temporary.filePath("without")));
         QVERIFY(!QFileInfo::exists(temporary.filePath("without/crash/report.dmp")));
+        const auto without =
+            QJsonDocument::fromJson(read(temporary.filePath("without/manifest.json"))).object();
+        QVERIFY(without.value("event").toObject().value("hasDump").toBool());
+        QVERIFY(!without.value("includesDump").toBool());
+        QVERIFY(service.status().contains(QStringLiteral("用户选择不包含")));
         const auto databasePath = logs + "/crashes/database";
 #ifdef Q_OS_WIN
         auto database =

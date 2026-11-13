@@ -135,7 +135,9 @@ SongDetailHeader {
     secondaryDetailsComponent: null
     descriptionLeadingComponent: Component {
         RowLayout {
-            baselineOffset: countLabel.y + countLabel.baselineOffset
+            // The count's fixed line box starts at the group's origin; do not
+            // feed an arranged child position back into baseline alignment.
+            baselineOffset: countLabel.baselineOffset
             spacing: 4
             EchoTextTagRow {
                 id: countLabel

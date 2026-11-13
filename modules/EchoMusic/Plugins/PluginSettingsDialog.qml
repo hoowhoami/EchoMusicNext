@@ -19,13 +19,12 @@ EchoDialog {
     flushBody: true
     // Plugin settings provide their own dialog blur and opacity.
     background: EchoFloatingSurface {
-        radius: Theme.dialogRadius
+        radius: Theme.popoverRadius
         color: Theme.withAlpha(Theme.elevated, Theme.dark ? 0.98 : 0.96)
         frostedEnabled: true
         blurSigma: 18
         backdropFillOpacity: 1
-        border.width: 1
-        border.color: Theme.floating.surfaceOutline
+        border.width: 0
         dialogShadow: true
     }
     body: Component {

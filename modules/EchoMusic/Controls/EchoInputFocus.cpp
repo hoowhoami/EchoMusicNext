@@ -41,7 +41,7 @@ bool EchoInputFocusAttached::eventFilter(QObject *watched, QEvent *event)
     QPointF point;
     if (event->type() == QEvent::MouseButtonPress) {
         const auto *mouse = static_cast<QMouseEvent *>(event);
-        // Right-click keeps the native editing context menu and selection.
+        // Right-click keeps the editing context menu and selection.
         if (mouse->button() != Qt::LeftButton)
             return false;
         point = mouse->position();
@@ -57,7 +57,10 @@ bool EchoInputFocusAttached::eventFilter(QObject *watched, QEvent *event)
         return item && item->window() == m_window && item->isVisible() &&
                item->contains(item->mapFromScene(point));
     };
-    if (contains(m_boundary ? m_boundary.data() : m_editor.data()) || contains(m_extension))
+    // Popup.Item (including Wayland) delivers menu presses to this window.
+    // Keep numeric drafts and selection until the chosen Qt edit action runs.
+    if (contains(m_boundary ? m_boundary.data() : m_editor.data()) || contains(m_extension) ||
+        contains(m_menuContent))
         return false;
     // Focus loss can commit a draft and retire its editor. Keep no borrowed
     // pointer across that callback. Spin boxes park focus before steppers act.

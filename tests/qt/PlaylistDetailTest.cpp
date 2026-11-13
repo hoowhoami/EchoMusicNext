@@ -1675,6 +1675,7 @@ Window {
     }
     void descriptionGlyphCentersWithCountAndAction()
     {
+        QTest::failOnWarning(QRegularExpression(".*(?:recursive rearrange|[Bb]inding loop).*"));
         QTemporaryDir dir;
         SettingsStore prefs(dir.filePath("prefs.ini"));
         ThemeStore theme(prefs);
@@ -1695,6 +1696,7 @@ Window {
  property real sampleScale: 1
  property real samplePhase: 0
  property string introduction: ""
+ property bool uniformRows: true
  Item {
   y: window.samplePhase
   width: parent.width / window.sampleScale
@@ -1704,6 +1706,7 @@ Window {
   SongDetailHeader {
    anchors.left: parent.left; anchors.right: parent.right
    heading: "简介文字对齐"
+   uniformMetadataRows: window.uniformRows
    description: window.introduction
    showPlaybackActions: false
    descriptionLeadingComponent: Component {
@@ -1724,6 +1727,31 @@ Window {
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window);
+        auto *action = playlistVisual(window->contentItem(), "songDetailDescriptionAction");
+        auto *header = playlistVisual(window->contentItem(), "songDetailHeader");
+        QVERIFY(action && header);
+        QSignalSpy requested(header, SIGNAL(introRequested()));
+        QVERIFY(requested.isValid());
+        const auto shortIntro = QStringLiteral("简短简介");
+        const auto mediumIntro = QStringLiteral("简介").repeated(24);
+        const auto longIntro = QStringLiteral("较长的简介与 Latin description ").repeated(30);
+        // Repeated input changes exercise the overflow boundary and both
+        // intrinsic-height recipes while layouts are already mounted.
+        for (bool uniform : {true, false})
+            for (int width : {650, 1150, 650})
+                for (const auto &text : {QString(), shortIntro, mediumIntro, longIntro}) {
+                    window->setProperty("uniformRows", uniform);
+                    window->resize(width, window->height());
+                    window->setProperty("introduction", text);
+                    QTest::qWait(30);
+                    QCOMPARE(action->isVisible(),
+                             text == longIntro || (text == mediumIntro && width == 650));
+                    QVERIFY(header->height() > 0);
+                }
+        QVERIFY(QMetaObject::invokeMethod(action, "clicked"));
+        QCOMPARE(requested.size(), 1);
+        window->setProperty("uniformRows", true);
+        window->resize(1100, window->height());
         const auto reportedWidth = qEnvironmentVariableIntValue("ECHO_HEADER_ALIGNMENT_WIDTH");
         if (reportedWidth > 0)
             window->resize(reportedWidth, window->height());

@@ -3,6 +3,7 @@
 #include <QAbstractListModel>
 #include <QFutureWatcher>
 #include <QThreadPool>
+#include <QSortFilterProxyModel>
 #include <QUrl>
 #include <functional>
 #include <memory>
@@ -13,6 +14,7 @@ struct DiagnosticExportResult
 {
     QString error;
     bool cancelled = false;
+    QStringList missing{};
 };
 /// Application-owned local diagnostics. Workers receive value snapshots only;
 /// UI unload cancels its export, shutdown cancels and joins before the log sink.
@@ -20,6 +22,7 @@ class DiagnosticService final : public QAbstractListModel
 {
     Q_OBJECT
     Q_PROPERTY(QAbstractItemModel *records READ records CONSTANT)
+    Q_PROPERTY(QVariantMap latestRecord READ latestRecord NOTIFY changed)
     Q_PROPERTY(int count READ count NOTIFY changed)
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
@@ -33,11 +36,12 @@ public:
     ~DiagnosticService() override;
     QAbstractItemModel *records()
     {
-        return this;
+        return &m_crashRecords;
     }
+    QVariantMap latestRecord() const;
     int count() const
     {
-        return int(m_records.size());
+        return m_crashRecords.rowCount();
     }
     bool loading() const
     {
@@ -89,6 +93,9 @@ private:
     QString m_directory;
     Flush m_flush;
     QVector<DiagnosticRecord> m_records;
+    // Unknown exits remain internal fallback context for the default export,
+    // without becoming crash history entries or triggering crash notices.
+    QSortFilterProxyModel m_crashRecords;
     QThreadPool m_pool;
     QFutureWatcher<DiagnosticScan> m_scan;
     QFutureWatcher<DiagnosticExportResult> m_export;

@@ -10,7 +10,7 @@ EchoDialog {
     id: dialog
     required property DiagnosticService service
     objectName: "crashRecordsDialog"
-    heading: qsTr("崩溃记录")
+    heading: qsTr("故障记录")
     description: qsTr("记录保存在本机，不会自动上传。")
     descriptionPixelSize: 12
     preferredWidth: 640

@@ -412,6 +412,7 @@ void ControlsUiTest::floatingPanelEdgesAndMenuHeight()
                     id: menuOwner
                     hostItem: host
                     sourceComponent: EchoMenu {
+                        uiScale: host.panelScale
                         EchoMenuEntry { text: "立即播放" }
                         EchoMenuEntry { text: "下一首播放" }
                         EchoMenuEntry { text: "排队候播" }
@@ -436,17 +437,43 @@ void ControlsUiTest::floatingPanelEdgesAndMenuHeight()
     const auto captures = qEnvironmentVariable("ECHO_PANEL_CAPTURES");
     for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
         session.theme.setMode(mode);
-        for (const qreal scale : {1., 1.25}) {
+        for (const qreal scale : {1., 1.25, 1.5}) {
             host->setProperty("panelScale", scale);
             for (const bool frosted : {false, true}) {
                 session.theme.setFloatingFrosted(frosted);
-                for (const auto *name : {"dialog", "drawer"}) {
+                for (const auto *name : {"dialog", "drawer", "menu"}) {
                     QVERIFY(!host->property(name).value<QObject *>());
-                    QVERIFY(QMetaObject::invokeMethod(
-                        host, QByteArray(name) == "dialog" ? "showDialog" : "showDrawer"));
+                    QVERIFY(QMetaObject::invokeMethod(host,
+                                                      QByteArray(name) == "dialog"   ? "showDialog"
+                                                      : QByteArray(name) == "drawer" ? "showDrawer"
+                                                                                     : "showMenu"));
                     QPointer<QObject> popup = host->property(name).value<QObject *>();
                     QVERIFY(popup);
                     QTRY_VERIFY(popup->property("opened").toBool());
+                    auto *background = popup->property("background").value<QQuickItem *>();
+                    QVERIFY(background);
+                    QCOMPARE(QQmlProperty(background, "border.width").read().toReal(),
+                             QByteArray(name) == "menu" ? 0.5 * scale : 0.);
+                    QCOMPARE(background->property("radius").toReal(),
+                             QByteArray(name) == "menu" ? 10. * scale : 10.);
+                    if (frosted && supportsFloatingEffects(session.window)) {
+                        if (QByteArray(name) == "menu") {
+                            QVERIFY(!findVisual(background, "floatingSurfaceModalCapture"));
+                            auto *body = findVisual(background, "floatingSurfaceBody");
+                            QVERIFY(body);
+                            QVERIFY(QQmlProperty(body, "layer.enabled").read().toBool());
+                        } else {
+                            auto *capture = findVisual(background, "floatingSurfaceModalCapture");
+                            QVERIFY(capture);
+                            const auto box = background->mapRectToScene(background->boundingRect());
+                            const qreal dpr = session.window->devicePixelRatio();
+                            const QSize expected(qCeil(box.right() * dpr - .000001) -
+                                                     qFloor(box.left() * dpr + .000001),
+                                                 qCeil(box.bottom() * dpr - .000001) -
+                                                     qFloor(box.top() * dpr + .000001));
+                            QCOMPARE(renderedTextureSize(session.window, capture), expected);
+                        }
+                    }
                     QTest::qWait(60);
                     qInfo() << name << scale << frosted
                             << popup->property("background")
@@ -467,10 +494,15 @@ void ControlsUiTest::floatingPanelEdgesAndMenuHeight()
             }
         }
     }
+    host->setProperty("panelScale", 1.);
     QVERIFY(QMetaObject::invokeMethod(host, "showMenu"));
     QPointer<QObject> menu = host->property("menu").value<QObject *>();
     QVERIFY(menu);
     QTRY_VERIFY(menu->property("opened").toBool());
+    auto *menuBackground = menu->property("background").value<QQuickItem *>();
+    QVERIFY(menuBackground);
+    QCOMPARE(QQmlProperty(menuBackground, "border.width").read().toReal(),
+             0.5 * menu->property("uiScale").toReal());
     auto *list = menu->property("contentItem").value<QQuickItem *>();
     QVERIFY(list);
     QTest::qWait(100);

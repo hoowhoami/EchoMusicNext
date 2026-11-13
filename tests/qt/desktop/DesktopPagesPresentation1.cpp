@@ -715,6 +715,83 @@ void DesktopPagesTest::productionAddToReopenStableHeight()
     }
 }
 
+void DesktopPagesTest::productionAddToQueueActions()
+{
+    Session session;
+    PlaybackService playback(session.api, session.preferences);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&session] {
+        session.root.reset();
+        session.window = nullptr;
+    });
+    session.window->resize(1150, 800);
+    QVERIFY(Test::prepareNativeInput(session.window));
+    PlaybackTrack first, second, last;
+    first.id = "first";
+    first.title = "当前歌曲";
+    first.localPath = "/ui-test/first.wav";
+    second.id = "second";
+    second.localPath = "/ui-test/second.wav";
+    last.id = "last";
+    last.localPath = "/ui-test/last.wav";
+    QVERIFY(AccountServiceTestAccess::adopt(session.accounts.account, account(900001)));
+    UserPlaylistModelTestAccess::present(session.accounts.playlists, session.api, 12);
+    const auto capture = qEnvironmentVariable("ECHO_ADD_TO_QUEUE_CAPTURE_DIR");
+    if (!capture.isEmpty())
+        QVERIFY(QDir().mkpath(capture));
+    auto *actions = playback.libraryActions();
+    for (const auto theme : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(theme);
+        for (bool multiple : {false, true}) {
+            session.shell.resetZoom();
+            if (multiple)
+                for (int step = 0; step < 5; ++step)
+                    session.shell.zoomIn();
+            for (bool next : {true, false}) {
+                playback.queue()->replace({first, last}, 0);
+                actions->prepareTracks({second});
+                QPointer<QObject> dialog;
+                QTRY_VERIFY((dialog = session.root->findChild<QObject *>("addToPlaylistDialog")));
+                QTRY_VERIFY(dialog->property("opened").toBool());
+                actions->setMultiple(multiple);
+                auto *button =
+                    visual(session.window->contentItem(), next ? "addToPlayNext" : "addToEnqueue");
+                auto *other =
+                    visual(session.window->contentItem(), next ? "addToEnqueue" : "addToPlayNext");
+                auto *targets = visual(session.window->contentItem(), "playlistAddTargets");
+                QVERIFY(button && other && targets);
+                QVERIFY(button->isEnabled());
+                QTRY_VERIFY(qAbs(button->width() - other->width()) < .5);
+                QCOMPARE(button->height(), 40.);
+                QVERIFY(button->mapToScene({0, button->height()}).y() <
+                        targets->mapToScene({0, 0}).y());
+                const auto fixedPosition = button->mapToScene({0, 0});
+                QVERIFY(QMetaObject::invokeMethod(targets, "positionViewAtEnd"));
+                QTRY_VERIFY(targets->property("atYEnd").toBool());
+                QCOMPARE(button->mapToScene({0, 0}), fixedPosition);
+                QVERIFY(QMetaObject::invokeMethod(targets, "positionViewAtBeginning"));
+                if (!capture.isEmpty()) {
+                    QTest::qWait(120);
+                    QVERIFY(session.window->grabWindow().save(
+                        capture + QString("/queue-actions-%1-%2-%3.png")
+                                      .arg(theme == ThemeStore::Light ? "light" : "dark")
+                                      .arg(multiple ? "multi-125" : "single-100")
+                                      .arg(next ? "next" : "tail")));
+                }
+                const auto point = button->mapToScene({button->width() / 2, button->height() / 2});
+                QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier, point.toPoint());
+                QTRY_VERIFY(dialog.isNull());
+                QCOMPARE(playback.queue()->nextKeys(), QStringList{second.key()});
+                QVERIFY(playback.queue()->at(playback.queue()->currentIndex()));
+                QCOMPARE(playback.queue()->at(playback.queue()->currentIndex())->id, first.id);
+                QCOMPARE(playback.queue()->rowCount(), 3);
+            }
+        }
+    }
+    QCOMPARE(warnings.size(), 0);
+}
+
 void DesktopPagesTest::productionAddToFailureUsesOnlyToast()
 {
     Session session;
@@ -841,6 +918,10 @@ void DesktopPagesTest::productionAddToHeaderAlignment()
                 QVERIFY(bottom >= top);
                 QVERIFY(qAbs((top + bottom + 1) / (2 * ratio) - center(toggle).y()) <= 1.5);
             }
+            if (!capture.isEmpty())
+                QVERIFY(image.save(capture + QString("/add-to-single-%1-%2.png")
+                                                 .arg(theme == ThemeStore::Light ? "light" : "dark")
+                                                 .arg(scale)));
             QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier,
                               center(toggle).toPoint());
             QTRY_VERIFY(playback.libraryActions()->multiple());

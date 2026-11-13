@@ -1,4 +1,5 @@
 #include "PlaybackService.h"
+#include "PlaybackLibraryActions.h"
 #include "DiscoveryService.h"
 #include "AccountService.h"
 #include <QFile>
@@ -123,6 +124,68 @@ class QueueSemanticsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void preparedAddToQueue_data()
+    {
+        QTest::addColumn<bool>("cut");
+        QTest::addColumn<bool>("multiple");
+        QTest::addColumn<int>("size");
+        for (bool cut : {false, true})
+            for (bool multiple : {false, true})
+                for (int size : {1, 2})
+                    QTest::newRow(qPrintable(
+                        QString("cut-%1-multi-%2-size-%3").arg(cut).arg(multiple).arg(size)))
+                        << cut << multiple << size;
+    }
+    void preparedAddToQueue()
+    {
+        QFETCH(bool, cut);
+        QFETCH(bool, multiple);
+        QFETCH(int, size);
+        Fixture f;
+        UserPlaylistModel library(f.api);
+        PlaylistMutationService mutations(f.api);
+        f.playback->attachLibrary(library, mutations);
+        const auto list = tracks();
+        PlaybackServiceTestAccess::context(*f.playback, list, 0, "local");
+        auto *queue = f.playback->queue();
+        queue->restoreNext({list[1].key()});
+        auto *actions = f.playback->libraryActions();
+        actions->prepareTracks(list.mid(2, size));
+        actions->setMultiple(multiple);
+        if (multiple)
+            actions->selectAll(true);
+        QSignalSpy completed(actions, &PlaybackLibraryActions::completed);
+        QSignalSpy notice(f.playback.get(), &PlaybackService::notice);
+        const auto sequence = PlaybackServiceTestAccess::sequence(*f.playback);
+        QVERIFY(actions->queueActionsAvailable());
+        actions->enqueuePrepared(cut);
+        const QStringList priority =
+            size == 1 ? QStringList{list[2].key()} : QStringList{list[2].key(), list[3].key()};
+        QCOMPARE(queue->nextKeys(), cut ? priority + QStringList{list[1].key()}
+                                        : QStringList{list[1].key()} + priority);
+        const QStringList physical = cut ? (size == 1 ? QStringList{"a", "c", "b", "d", "e"}
+                                                      : QStringList{"a", "c", "d", "b", "e"})
+                                         : QStringList{"a", "b", "c", "d", "e"};
+        QCOMPARE(ids(*queue), physical);
+        QCOMPARE(queue->currentIndex(), 0);
+        QCOMPARE(f.playback->currentTrack().id, QString("a"));
+        QCOMPARE(PlaybackServiceTestAccess::sequence(*f.playback), sequence);
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(notice.size(), 1);
+        QVERIFY(!actions->queueActionsAvailable());
+        QCOMPARE(actions->selectedCount(), 0);
+        actions->enqueuePrepared(cut);
+        QCOMPARE(completed.size(), 1);
+        actions->prepareTracks({list[4]}, false);
+        QVERIFY(!actions->queueActionsVisible());
+        actions->enqueuePrepared(cut);
+        QCOMPARE(completed.size(), 1);
+        actions->prepareTracks({list[4]});
+        QVERIFY(f.api.setAccount(1, QStringLiteral("test-only-token")));
+        QVERIFY(!actions->queueActionsAvailable());
+        actions->enqueuePrepared(cut);
+        QCOMPARE(completed.size(), 1);
+    }
     void standaloneEntryUsesActiveQueue_data()
     {
         QTest::addColumn<QString>("queueMode");

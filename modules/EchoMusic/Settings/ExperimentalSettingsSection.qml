@@ -153,15 +153,8 @@ SettingsSection {
     SettingsDivider {}
     SettingsRow {
         heading: qsTr("运行日志")
-        description: qsTr("导出当前会话的诊断信息，或打开本地日志目录")
+        description: qsTr("打开本地运行日志目录")
         controlGap: 8
-        EchoSoftButton {
-            objectName: "settingsExportDiagnostics"
-            text: qsTr("导出诊断包")
-            enabled: section.logging !== null && section.logging.diagnostics !== null && !section.logging.diagnostics.busy
-            colors: Theme.floating
-            onClicked: diagnosticExportOwner.open()
-        }
         EchoSoftButton {
             objectName: "settingsOpenLogDirectory"
             text: qsTr("打开目录")
@@ -172,11 +165,20 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
-        heading: qsTr("崩溃记录")
-        description: section.logging && section.logging.diagnostics && section.logging.diagnostics.count > 0 ? qsTr("最近有 %1 条记录，可导出对应诊断包").arg(section.logging.diagnostics.count) : qsTr("查看本机崩溃与异常退出记录")
+        heading: qsTr("故障诊断")
+        description: qsTr("导出最近一次故障的日志和上下文")
+        controlGap: 8
+        EchoSoftButton {
+            objectName: "settingsExportDiagnostics"
+            text: qsTr("导出诊断包")
+            enabled: section.logging !== null && section.logging.diagnostics !== null && !section.logging.diagnostics.busy
+            colors: Theme.floating
+            onClicked: diagnosticExportOwner.open()
+        }
         EchoSoftButton {
             objectName: "settingsViewCrashRecords"
-            text: qsTr("查看记录")
+            text: qsTr("历史记录")
+            visible: section.logging !== null && section.logging.diagnostics !== null && section.logging.diagnostics.count > 0
             enabled: section.logging !== null && section.logging.diagnostics !== null
             colors: Theme.floating
             onClicked: crashRecordsOwner.open()

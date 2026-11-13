@@ -65,7 +65,7 @@ void AppContext::createShell()
         bind(diagnostics, &DiagnosticService::startupNotice, &shellController,
              [&, diagnostics](const QString &message) {
                  shellController.toasts()->showAction(
-                     *diagnostics, message, QObject::tr("查看记录"),
+                     *diagnostics, message, QObject::tr("导出诊断包"),
                      [diagnostics] { emit diagnostics->recordsRequested(); }, ToastService::Warning,
                      10000);
              });

@@ -99,7 +99,8 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
          "flask",
          tr("页面缓存 最大缓存页面数 日志级别 API 响应体日志 临时诊断日志 诊断并重启 开启启动诊断 "
             "用户信息 鉴权头 用户 ID token t1 guid mid dfid uuid dev mac 重置设备身份 GPU DPI "
-            "备份与恢复 创建备份 恢复备份 插件与插件数据 查看运行日志 清除应用数据 备份 恢复 缓存 "
+            "故障诊断 导出诊断包 历史记录 备份与恢复 创建备份 恢复备份 插件与插件数据 查看运行日志 "
+            "清除应用数据 备份 恢复 缓存 "
             "安全"),
          "ExperimentalSettingsSection",
          {}},

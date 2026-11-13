@@ -15,12 +15,14 @@ class EchoInputFocusAttached : public QObject
     Q_OBJECT
     Q_PROPERTY(QQuickItem *boundary MEMBER m_boundary NOTIFY boundaryChanged)
     Q_PROPERTY(QQuickItem *extension MEMBER m_extension NOTIFY extensionChanged)
+    Q_PROPERTY(QQuickItem *menuContent MEMBER m_menuContent NOTIFY menuContentChanged)
 public:
     explicit EchoInputFocusAttached(QObject *parent);
     ~EchoInputFocusAttached() override;
 signals:
     void boundaryChanged();
     void extensionChanged();
+    void menuContentChanged();
     void outsidePressed();
 
 protected:
@@ -28,7 +30,7 @@ protected:
 
 private:
     void syncWindow();
-    QPointer<QQuickItem> m_editor, m_boundary, m_extension;
+    QPointer<QQuickItem> m_editor, m_boundary, m_extension, m_menuContent;
     QPointer<QQuickWindow> m_window;
 };
 

@@ -50,8 +50,9 @@ EchoInputBackground {
         // clearing the editor here would cancel the ongoing keyboard entry.
         if (!window.activeFocusItem)
             return;
+        const menuContent = input.EchoInputFocus.menuContent;
         for (let item = window.activeFocusItem; item; item = item.parent) {
-            if (item === box || item === panelOwner.item.contentItem)
+            if (item === box || item === panelOwner.item.contentItem || (menuContent && (item === menuContent || item === menuContent.parent)))
                 return;
         }
         panelOwner.close();
@@ -105,6 +106,10 @@ EchoInputBackground {
     Connections {
         target: EchoPopupCoordinator
         function onPopupOpening(surface, overlay) {
+            // Editing this query is part of the search interaction. Keep its
+            // selection and suggestions while the editor's own menu is open.
+            if (surface.parent === input)
+                return;
             if (surface !== panelOwner.item && overlay === box.Overlay.overlay && !EchoPopupCoordinator.interactionSuspended(box.window)) {
                 box.dismissSearch();
             }

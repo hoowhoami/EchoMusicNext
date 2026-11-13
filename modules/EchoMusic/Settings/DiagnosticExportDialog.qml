@@ -10,21 +10,24 @@ EchoDialog {
     id: dialog
     required property DiagnosticService service
     property string eventId: ""
-    readonly property bool currentSession: eventId.length === 0
-    readonly property var event: currentSession ? ({}) : service.record(eventId)
+    readonly property var event: eventId.length > 0 ? service.record(eventId) : service.latestRecord
+    readonly property bool currentSession: !event.id
     property bool includeDump: !currentSession && !!event.hasDump
     property string notes: ""
     property bool exportStarted: false
     property bool showDetails: false
     objectName: "diagnosticExportDialog"
-    heading: currentSession ? qsTr("导出当前会话诊断包") : qsTr("导出崩溃诊断包")
-    description: qsTr("将已有日志、事件摘要和系统版本整理为 ZIP 文件，由你选择保存和发送。")
+    heading: qsTr("故障诊断")
+    description: !service.loading && currentSession ? qsTr("未找到历史故障，将导出本次运行日志。") : ""
     descriptionPixelSize: 12
     preferredWidth: 580
     windowHeightMargin: 70
     maximumHeight: 680
     flushBody: true
-    onAboutToShow: service.resetExport()
+    onAboutToShow: {
+        service.resetExport();
+        service.refresh();
+    }
     onClosed: {
         pickerOwner.close();
         if (exportStarted && service.busy)
@@ -46,7 +49,7 @@ EchoDialog {
             TextEdit {
                 visible: !dialog.currentSession
                 Layout.fillWidth: true
-                text: qsTr("%1 · %2\n版本：%3\n系统：%4\n报告编号：%5\n构建：%6").arg(dialog.event.kindText || "").arg(dialog.event.timeText || "").arg(dialog.event.version || qsTr("未知")).arg(dialog.event.platformText || qsTr("未知")).arg(dialog.eventId).arg(dialog.event.buildId || qsTr("未知"))
+                text: (dialog.event.kind === "unclean_exit" ? qsTr("运行开始：%1\n版本 %2 · %3") : qsTr("故障时间：%1\n版本 %2 · %3")).arg(dialog.event.timeText || "").arg(dialog.event.version || qsTr("未知")).arg(dialog.event.platformText || qsTr("未知"))
                 textFormat: TextEdit.PlainText
                 readOnly: true
                 selectByMouse: true
@@ -55,15 +58,17 @@ EchoDialog {
                 color: Theme.floatingSecondaryText
             }
             EchoSoftButton {
-                visible: !dialog.currentSession && dialog.event.detailText !== "{\n}\n"
+                objectName: "diagnosticTechnicalDetails"
+                visible: !dialog.currentSession
                 text: dialog.showDetails ? qsTr("收起技术详情") : qsTr("技术详情")
                 colors: Theme.floating
                 onClicked: dialog.showDetails = !dialog.showDetails
             }
             TextEdit {
+                objectName: "diagnosticEventDetails"
                 visible: !dialog.currentSession && dialog.showDetails
                 Layout.fillWidth: true
-                text: dialog.event.detailText || ""
+                text: qsTr("类型：%1\n报告编号：%2\n构建：%3").arg(dialog.event.kindText || "").arg(dialog.event.id || "").arg(dialog.event.buildId || qsTr("未知")) + (dialog.event.detailText && dialog.event.detailText !== "{\n}\n" ? "\n" + dialog.event.detailText : "")
                 textFormat: TextEdit.PlainText
                 readOnly: true
                 selectByMouse: true
@@ -91,7 +96,7 @@ EchoDialog {
             Label {
                 visible: !dialog.currentSession
                 Layout.fillWidth: true
-                text: dialog.event.hasDump ? qsTr("转储及附件约 %1 MiB，另附已有运行日志；最终大小以导出结果为准。").arg((Number(dialog.event.estimatedBytes || 0) / 1048576).toFixed(1)) : qsTr("未找到崩溃转储，将导出仍可用的材料，并说明缺失原因。")
+                text: dialog.event.hasDump ? qsTr("转储及附件约 %1 MiB").arg((Number(dialog.event.estimatedBytes || 0) / 1048576).toFixed(1)) : qsTr("未找到崩溃转储，将导出已有日志与记录。")
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
                 font: Theme.font(12, Theme.regularWeight)
@@ -103,7 +108,7 @@ EchoDialog {
             }
             Label {
                 Layout.fillWidth: true
-                text: qsTr("问题描述（可选，最多 2000 字）")
+                text: qsTr("问题描述（选填）")
                 color: Theme.floatingText
                 font: Theme.font(12, Theme.mediumWeight)
             }
@@ -114,7 +119,7 @@ EchoDialog {
                 enabled: !dialog.service.busy
                 text: dialog.notes
                 colors: Theme.floating
-                placeholderText: qsTr("出问题前做了什么？是否能够重复出现？请勿填写密码或凭证。")
+                placeholderText: qsTr("出问题前做了什么？请勿填写密码或凭证。")
                 Accessible.name: qsTr("问题描述")
                 onTextChanged: {
                     if (text.length > 2000)
@@ -181,13 +186,13 @@ EchoDialog {
             fileMode: EchoFileDialog.SaveFile
             nameFilters: [qsTr("ZIP 压缩文件 (*.zip)")]
             defaultSuffix: "zip"
-            currentFile: dialog.service.suggestedFileName(dialog.eventId)
+            currentFile: dialog.service.suggestedFileName(dialog.event.id || "")
             onAccepted: {
                 dialog.exportStarted = true;
                 if (dialog.currentSession)
                     dialog.service.exportCurrent(selectedFile, dialog.notes);
                 else
-                    dialog.service.exportCrash(dialog.eventId, selectedFile, dialog.includeDump, dialog.notes);
+                    dialog.service.exportCrash(dialog.event.id, selectedFile, dialog.includeDump, dialog.notes);
             }
         }
     }

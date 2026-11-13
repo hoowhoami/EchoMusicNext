@@ -30,6 +30,9 @@ private slots:
     void pixelSnapDisabledUsesLogicalGeometry();
     void coverCropAndRoundedPixels();
     void frostedCornersRetainAntialiasCoverage();
+    void modalCornersTrackAnalyticCoverage();
+    void modalShadowsPreserveCornerCoverage();
+    void modalFrostedCornersKeepDeviceResolution();
     void floatingPanelEdgesAndMenuHeight();
     void anchoredPopupsPassOutsideInputAndKeepNestedSurfaces();
     void clearActionIsOneUserEditButProgrammaticClearIsNot();
@@ -60,6 +63,7 @@ private slots:
     void tooltipPressPreservesClickAndRelease();
     void numberInputCommitsAndClampsAcrossAllInputPaths();
     void textEditorsShareFocusCaretAndSurfaces();
+    void textEditingMenusShareStyleActionsAndLifetime();
     void caretsStayOnTheWindowDevicePixelGrid();
     void dialogHeaderBodyAndFooterShareInsets();
     void drawerFixedActionsSurviveLongTitlesAndVisibilityChanges();

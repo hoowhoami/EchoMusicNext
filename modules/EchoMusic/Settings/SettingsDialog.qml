@@ -79,8 +79,8 @@ Popup {
         navigation.reset();
     }
     background: EchoFloatingSurface {
-        radius: Theme.dialogRadius
-        border.color: Theme.floating.surfaceOutline
+        radius: Theme.popoverRadius
+        border.width: 0
         dialogShadow: true
     }
     Overlay.modal: Rectangle {

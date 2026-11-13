@@ -73,7 +73,13 @@ T.DoubleSpinBox {
         id: input
         objectName: "numberInputField"
         EchoInputFocus.boundary: input
+        EchoInputFocus.menuContent: editingMenu.item ? editingMenu.item.contentItem : null
         EchoInputFocus.onOutsidePressed: control.commitDraft()
+        ContextMenu.onRequested: position => editingMenu.popupAt(position)
+        EchoTextEditingMenu {
+            id: editingMenu
+            editor: input
+        }
         cursorDelegate: EchoTextCursor {
             editor: input
         }

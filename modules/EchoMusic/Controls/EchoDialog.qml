@@ -78,9 +78,9 @@ Dialog {
     }
     background: EchoFloatingSurface {
         readonly property string echoUiSurface: dialog.echoUiSurface
-        radius: Theme.dialogRadius
-        border.width: 1
-        border.color: Theme.floating.surfaceOutline
+        radius: Theme.popoverRadius
+        // Match anchored effect popovers in both light and dark palettes.
+        border.width: 0
         dialogShadow: true
     }
     contentItem: ColumnLayout {

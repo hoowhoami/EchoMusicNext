@@ -1,5 +1,180 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
+#include <QClipboard>
+#include <QContextMenuEvent>
+
+void ControlsUiTest::textEditingMenusShareStyleActionsAndLifetime()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+import EchoMusic.Theme
+Window {
+ id: host; visible: true; width: 760; height: 680; color: Theme.main
+ property real zoom: 1
+ Item {
+  width: parent.width / scale; height: parent.height / scale
+  scale: host.zoom; transformOrigin: Item.TopLeft
+  EchoTextField { objectName: "field"; x: 24; y: 24; width: 260; text: "中文 input" }
+  EchoTextArea { objectName: "area"; x: 24; y: 80; width: 260; height: 100; text: "第一行\nsecond" }
+  EchoTextField { objectName: "password"; x: 24; y: 200; width: 260; text: "secret"; echoMode: TextInput.Password }
+  EchoTextField { objectName: "readonly"; x: 24; y: 250; width: 260; text: "只读"; readOnly: true }
+  EchoSpinBox { objectName: "spin"; x: 24; y: 300; value: 25; to: 100 }
+  EchoSelect { objectName: "select"; x: 24; y: 360; width: 260; filterable: true; model: ["one", "two"] }
+ }
+})",
+                      QUrl());
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    QVERIFY(!session.root->findChild<QObject *>("textEditingMenu"));
+    const auto clipboard = QGuiApplication::clipboard()->text();
+    const auto restoreClipboard =
+        qScopeGuard([&] { QGuiApplication::clipboard()->setText(clipboard); });
+    auto request = [&](QQuickItem *editor,
+                       QContextMenuEvent::Reason reason = QContextMenuEvent::Mouse) {
+        editor->forceActiveFocus();
+        const auto point = editor->mapToScene({16, 16}).toPoint();
+        QContextMenuEvent event(reason, point, session.window->mapToGlobal(point));
+        QCoreApplication::sendEvent(session.window, &event);
+    };
+    auto trigger = [&](QObject *menu, const char *name) {
+        auto *action = menu->findChild<QObject *>(QString::fromLatin1(name));
+        return action && action->property("enabled").toBool() &&
+               QMetaObject::invokeMethod(action, "trigger");
+    };
+    auto close = [&](QPointer<QObject> menu) {
+        if (menu)
+            QMetaObject::invokeMethod(menu, "close");
+        return QTest::qWaitFor([&] { return menu.isNull(); });
+    };
+    auto *field = session.item("field");
+    QVERIFY(field);
+    const auto captures = qEnvironmentVariable("ECHO_EDIT_MENU_CAPTURES");
+    for (const auto &mode : {QStringLiteral("light"), QStringLiteral("dark")}) {
+        session.theme.setMode(mode == "dark" ? ThemeStore::Dark : ThemeStore::Light);
+        for (const auto zoom : {1., 1.25}) {
+            session.root->setProperty("zoom", zoom);
+            request(field);
+            QPointer<QObject> menu;
+            QTRY_VERIFY((menu = session.root->findChild<QObject *>("textEditingMenu")));
+            QTRY_VERIFY(menu->property("opened").toBool());
+            QCOMPARE(menu->property("popupType").toInt(), 0);
+            auto *menuContent = menu->property("contentItem").value<QQuickItem *>();
+            QVERIFY(menuContent);
+            QCOMPARE(menuContent->window(), session.window);
+            QCOMPARE(menu->property("uiScale").toReal(), zoom);
+            QCOMPARE(menu->property("count").toInt(), 9);
+            auto *background = menu->property("background").value<QQuickItem *>();
+            QVERIFY(background);
+            QVERIFY(background->property("radius").toReal() > 0);
+            if (!captures.isEmpty()) {
+                QDir().mkpath(captures);
+                auto *content = menu->property("contentItem").value<QQuickItem *>();
+                QVERIFY(content && content->window() == session.window);
+                QTest::qWait(100);
+                QVERIFY(content->window()->grabWindow().save(captures + "/" + mode + "-" +
+                                                             QString::number(zoom) + ".png"));
+            }
+            QVERIFY(trigger(menu, "textMenuSelectAll"));
+            QCOMPARE(field->property("selectedText").toString(), QStringLiteral("中文 input"));
+            QVERIFY(trigger(menu, "textMenuCopy"));
+            QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("中文 input"));
+            QVERIFY(close(menu));
+        }
+    }
+    for (const auto &name :
+         {QStringLiteral("field"), QStringLiteral("area"), QStringLiteral("numberInputField"),
+          QStringLiteral("selectSearchInput")}) {
+        auto *editor = session.item(name);
+        QVERIFY(editor);
+        request(editor, QContextMenuEvent::Keyboard);
+        QPointer<QObject> menu;
+        QTRY_VERIFY((menu = session.root->findChild<QObject *>("textEditingMenu")));
+        const auto original = editor->property("text").toString();
+        QVERIFY(trigger(menu, "textMenuSelectAll"));
+        QGuiApplication::clipboard()->setText(name == "numberInputField" ? "42" : "替换 paste");
+        QVERIFY(trigger(menu, "textMenuPaste"));
+        QCOMPARE(editor->property("text").toString(), QGuiApplication::clipboard()->text());
+        QVERIFY(trigger(menu, "textMenuUndo"));
+        QCOMPARE(editor->property("text").toString(), original);
+        QVERIFY(trigger(menu, "textMenuRedo"));
+        QCOMPARE(editor->property("text").toString(), QGuiApplication::clipboard()->text());
+        QVERIFY(trigger(menu, "textMenuSelectAll"));
+        QVERIFY(trigger(menu, "textMenuDelete"));
+        QCOMPARE(editor->property("text").toString(), QString());
+        QVERIFY(close(menu));
+    }
+    if (auto *options = session.item("select")->property("popup").value<QObject *>())
+        QMetaObject::invokeMethod(options, "close");
+    for (const auto &name : {QStringLiteral("readonly"), QStringLiteral("password")}) {
+        auto *editor = session.item(name);
+        QVERIFY(editor);
+        request(editor);
+        QPointer<QObject> menu;
+        QTRY_VERIFY((menu = session.root->findChild<QObject *>("textEditingMenu")));
+        QVERIFY(trigger(menu, "textMenuSelectAll"));
+        if (name == "readonly") {
+            QVERIFY(!menu->findChild<QObject *>("textMenuCut")->property("enabled").toBool());
+            QVERIFY(!menu->findChild<QObject *>("textMenuPaste")->property("enabled").toBool());
+            QVERIFY(!menu->findChild<QObject *>("textMenuDelete")->property("enabled").toBool());
+        } else {
+            QGuiApplication::clipboard()->setText("sentinel");
+            auto *copy = menu->findChild<QObject *>("textMenuCopy");
+            QVERIFY(copy);
+            QMetaObject::invokeMethod(copy, "trigger");
+            QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("sentinel"));
+        }
+        QVERIFY(close(menu));
+    }
+    // Exercise a real menu-row press: a numeric draft must
+    // not be committed by the editor's outside-press observer before Paste.
+    auto *number = session.item("numberInputField");
+    QVERIFY(number);
+    number->forceActiveFocus();
+    number->setProperty("text", "35");
+    request(number);
+    QPointer<QObject> itemMenu;
+    QTRY_VERIFY((itemMenu = session.root->findChild<QObject *>("textEditingMenu")));
+    QTRY_VERIFY(itemMenu->property("opened").toBool());
+    QVERIFY(QMetaObject::invokeMethod(number, "selectAll"));
+    QGuiApplication::clipboard()->setText("42");
+    auto *paste = itemMenu->findChild<QObject *>("textMenuPaste");
+    auto *content = itemMenu->property("contentItem").value<QQuickItem *>();
+    QVERIFY(content && paste);
+    std::function<QQuickItem *(QQuickItem *)> findAction = [&](QQuickItem *item) -> QQuickItem * {
+        if (item->property("action").value<QObject *>() == paste)
+            return item;
+        for (auto *child : item->childItems())
+            if (auto *match = findAction(child))
+                return match;
+        return nullptr;
+    };
+    QPointer<QQuickItem> pasteRow;
+    QTRY_VERIFY(itemMenu && (pasteRow = findAction(content)) && pasteRow->window());
+    QTest::mouseClick(pasteRow->window(), Qt::LeftButton, Qt::NoModifier,
+                      pasteRow->mapToScene(pasteRow->boundingRect().center()).toPoint());
+    QTRY_COMPARE(number->property("text").toString(), QStringLiteral("42"));
+    QTRY_VERIFY(itemMenu.isNull());
+    QVERIFY(number->hasActiveFocus());
+    request(field);
+    QPointer<QObject> menu;
+    QTRY_VERIFY((menu = session.root->findChild<QObject *>("textEditingMenu")));
+    field->setVisible(false);
+    QTRY_VERIFY(menu.isNull());
+    field->setVisible(true);
+    request(field);
+    QTRY_VERIFY((menu = session.root->findChild<QObject *>("textEditingMenu")));
+    session.window->hide();
+    QTRY_VERIFY(menu.isNull());
+    QCOMPARE(warnings.count(), 0);
+}
 
 void ControlsUiTest::continuousAngleWheelPreservesDistanceAndPixelInput()
 {

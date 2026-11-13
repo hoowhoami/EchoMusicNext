@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
-import QtQuick.Controls.Basic.impl as BasicImpl
 import QtQuick.Templates as T
 import EchoMusic.Theme
 
@@ -12,6 +11,7 @@ T.TextArea {
     // font line box. Its owner supplies the native document baseline here.
     property real placeholderBaseline: NaN
     EchoInputFocus.boundary: control
+    EchoInputFocus.menuContent: editingMenu.item ? editingMenu.item.contentItem : null
     cursorDelegate: EchoTextCursor {
         editor: control
         emptyLineBaseline: placeholder.y + placeholder.baselineOffset
@@ -27,7 +27,10 @@ T.TextArea {
     placeholderTextColor: colors.secondaryText
     selectionColor: colors.accent
     selectedTextColor: "#000000"
-    ContextMenu.menu: BasicImpl.TextEditingContextMenu {
+    ContextMenu.menu: null
+    ContextMenu.onRequested: position => editingMenu.popupAt(position)
+    EchoTextEditingMenu {
+        id: editingMenu
         editor: control
     }
     Text {

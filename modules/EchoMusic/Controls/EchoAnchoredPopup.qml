@@ -62,7 +62,7 @@ Popup {
             forceActiveFocus(Qt.PopupFocusReason);
     }
     background: EchoFloatingSurface {
-        // Anchored popovers are borderless; dialogs and search panels can opt into a ring.
+        // Anchored popovers are borderless; search panels can opt into a ring.
         border.width: 0
         EchoPopupArrow {
             id: arrow

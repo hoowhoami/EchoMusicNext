@@ -17,7 +17,7 @@ QtObject {
     readonly property EchoFloatingSurface frame: surface.visible ? surface.background as EchoFloatingSurface : null
     readonly property real inset: frame ? frame.border.width : 0
     readonly property rect frameRect: frame && content ? Qt.rect(frame.x - content.x + inset, frame.y - content.y + inset, Math.max(0, frame.width - inset * 2), Math.max(0, frame.height - inset * 2)) : Qt.rect(0, 0, 0, 0)
-    readonly property real radius: frame ? Math.min(Math.max(0, frame.radius - inset), frameRect.width / 2, frameRect.height / 2) : 0
+    readonly property real radius: frame ? Math.min(Math.max(0, (frame.dialogShadow ? frame.paintedRadius : frame.radius) - inset), frameRect.width / 2, frameRect.height / 2) : 0
     readonly property rect paintedRect: Qt.rect(0, 0, content ? content.width : 0, content ? content.height : 0)
     function contains(x: real, y: real): bool {
         const r = frameRect;
@@ -88,8 +88,19 @@ QtObject {
                     width: clipping.frameRect.width
                     height: clipping.frameRect.height
                     radius: clipping.radius
+                    visible: !clipping.frame || !clipping.frame.smoothCorners
                     antialiasing: true
                     color: "white"
+                }
+                Loader {
+                    x: clipping.frameRect.x - clipping.captureRect.x
+                    y: clipping.frameRect.y - clipping.captureRect.y
+                    width: clipping.frameRect.width
+                    height: clipping.frameRect.height
+                    active: clipping.active && clipping.frame.smoothCorners
+                    sourceComponent: EchoRoundedRect {
+                        radius: clipping.radius
+                    }
                 }
             }
             MultiEffect {

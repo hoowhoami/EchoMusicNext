@@ -25,6 +25,8 @@ class PlaybackLibraryActions final : public QAbstractListModel
     Q_PROPERTY(int sectionCount READ sectionCount NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(bool hasFailures READ hasFailures NOTIFY changed)
+    Q_PROPERTY(bool queueActionsAvailable READ queueActionsAvailable NOTIFY changed)
+    Q_PROPERTY(bool queueActionsVisible READ queueActionsVisible NOTIFY changed)
 public:
     explicit PlaybackLibraryActions(PlaybackService &, ApiClient &, UserPlaylistModel &,
                                     PlaylistMutationService &, QObject *parent);
@@ -62,6 +64,14 @@ public:
         return m_error;
     }
     bool hasFailures() const;
+    bool queueActionsAvailable() const
+    {
+        return m_playbackQueues && !m_songs.isEmpty() && !m_busy && !hasFailures();
+    }
+    bool queueActionsVisible() const
+    {
+        return m_playbackQueues;
+    }
     bool favoriteTrack(const PlaybackTrack &track) const;
     void toggleFavoriteTrack(const PlaybackTrack &track, bool requireCurrent = false);
     Q_INVOKABLE void toggleFavorite();
@@ -69,6 +79,9 @@ public:
     void prepareTracks(const PlaybackTracks &tracks, bool playbackQueues = true);
     Q_INVOKABLE void prepareCurrent();
     Q_INVOKABLE void prepareViewedQueue();
+    /// Execute the prepared song snapshot in the shared local enqueue path.
+    /// These immediate commands are independent of destination multi-selection.
+    Q_INVOKABLE void enqueuePrepared(bool next);
     Q_INVOKABLE void choose(int row);
     Q_INVOKABLE void selectAll(bool checked);
     Q_INVOKABLE void setMultiple(bool value);

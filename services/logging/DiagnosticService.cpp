@@ -157,8 +157,14 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
     if (!current && record.kind == "native_crash")
         captured =
             DiagnosticRecords::captureNative(directory, record, staging, dump, cancel, missing);
-    if (!current && record.hasDump && !dump)
-        missing.append(QObject::tr("用户选择不包含崩溃转储"));
+    if (!current) {
+        if (!record.hasDump && !captured.contains("crash/report.dmp"))
+            missing.append(QObject::tr("未找到崩溃转储，原因未知"));
+        else if (!dump)
+            missing.append(QObject::tr("用户选择不包含崩溃转储"));
+        if (record.session.isEmpty())
+            missing.append(QObject::tr("未找到该次运行的会话记录关联信息"));
+    }
     progress(20);
     const auto root = QDir(current && flush ? snapshot : directory);
     if (record.runLog.isEmpty())
@@ -179,7 +185,7 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
             if (sanitizeFile(root.filePath(name), staging + '/' + target, cancel))
                 captured.append(target);
             else if (name == record.runLog)
-                missing.append(QObject::tr("原会话日志不可用，可能已被清理；如有附件则保留附件"));
+                missing.append(QObject::tr("原会话日志不可用（缺失或无法读取）"));
             else
                 missing.append(QObject::tr("轮转日志不可用：%1").arg(name));
         }
@@ -189,7 +195,7 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
                          staging + "/crash/session.jsonl", cancel))
             captured.append("crash/session.jsonl");
         else
-            missing.append(QObject::tr("会话记录不可用，可能已被清理"));
+            missing.append(QObject::tr("会话记录不可用（缺失或无法读取）"));
     }
     // Crashpad attachments are original text: sanitize them before packaging.
     for (const auto &name : std::as_const(captured)) {
@@ -207,6 +213,17 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
                         {"exporterArch", QSysInfo::currentCpuArchitecture()},
                         {"notes", sanitizedLine(notes.left(2000))}};
     auto event = DiagnosticRecords::summary(record);
+    const auto scope = current ? QObject::tr("仅包含当前运行的日志")
+                               : QObject::tr("仅包含所选运行的材料，不使用重启后的日志替代");
+    QStringList limitations;
+    if (current)
+        limitations.append(QObject::tr("当前会话导出不检查上次运行材料是否齐全"));
+    if (record.kind == "unclean_exit")
+        limitations.append(QObject::tr("仅检测到未正常退出，原因未知，不能据此认定为程序崩溃；"
+                                       "记录时间为该次运行的开始时间"));
+    if (!current && !record.hasDump && !captured.contains("crash/report.dmp"))
+        limitations.append(QObject::tr("无崩溃转储，无法提供崩溃线程堆栈；"
+                                       "无法确定转储是未生成、采集失败还是已被清理"));
     if (!writeFile(staging + "/context.json", QJsonDocument(context).toJson()) ||
         !writeFile(staging + "/crash/summary.json", QJsonDocument(event).toJson()))
         return {QObject::tr("无法写入诊断摘要"), false};
@@ -221,7 +238,10 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
             .arg(record.id, current ? QObject::tr("当前会话") : kindText(record.kind),
                  record.timestamp, record.version, record.buildId, record.os, record.arch,
                  sanitizedLine(notes.left(2000)),
-                 missing.isEmpty() ? QObject::tr("所选材料已收集") : missing.join('\n'));
+                 scope + '\n' + limitations.join('\n') + '\n' +
+                     (missing.isEmpty()
+                          ? QObject::tr("本次导出范围内的所选材料已收集")
+                          : QObject::tr("缺失或未包含的材料：\n") + missing.join('\n')));
     if (!writeFile(staging + "/report.txt", text.toUtf8()))
         return {QObject::tr("无法写入诊断说明"), false};
     captured.append("report.txt");
@@ -253,6 +273,9 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
                          {"formatVersion", 1},
                          {"createdAt", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
                          {"event", event},
+                         {"scope", current ? "current_session" : "selected_event"},
+                         {"scopeDescription", scope},
+                         {"limitations", QJsonArray::fromStringList(limitations)},
                          {"includesDump", captured.contains("crash/report.dmp")},
                          {"missing", QJsonArray::fromStringList(missing)},
                          {"files", files}};
@@ -285,23 +308,22 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
         return {{}, true};
     if (!output.commit())
         return {QObject::tr("保存诊断包失败，原目标文件已保留"), false};
+    result.missing = missing;
     return result;
 }
 } // namespace
 DiagnosticService::DiagnosticService(QString directory, Flush flush, QObject *parent)
     : QAbstractListModel(parent), m_directory(std::move(directory)), m_flush(std::move(flush))
 {
+    m_crashRecords.setSourceModel(this);
+    m_crashRecords.setFilterRole(Qt::UserRole + 2);
+    m_crashRecords.setFilterRegularExpression("^(native_crash|fatal)$");
     m_pool.setMaxThreadCount(1);
     m_pool.setExpiryTimeout(0);
     connect(&m_scan, &QFutureWatcher<DiagnosticScan>::finished, this, [this] {
         const auto result = m_scan.result();
         beginResetModel();
         m_records = result.records;
-        // An unfinished session alone is not actionable crash evidence. Keep
-        // those sessions in the collector for logs/retention, outside this UI.
-        m_records.removeIf([](const DiagnosticRecord &record) {
-            return record.kind != "native_crash" && record.kind != "fatal";
-        });
         endResetModel();
         m_error = result.error;
         m_loaded = true;
@@ -314,14 +336,22 @@ DiagnosticService::DiagnosticService(QString directory, Flush flush, QObject *pa
         m_busy = false;
         m_error = result.error;
         m_progress = result.error.isEmpty() && !result.cancelled ? 100 : 0;
-        m_status = result.cancelled          ? tr("已取消导出")
-                   : !result.error.isEmpty() ? result.error
-                                             : tr("诊断包已保存");
+        if (result.cancelled)
+            m_status = tr("已取消导出");
+        else if (!result.error.isEmpty())
+            m_status = result.error;
+        else if (!result.missing.isEmpty())
+            m_status = tr("诊断包已保存，缺失或未包含的材料：\n%1").arg(result.missing.join('\n'));
+        else
+            m_status = tr("诊断包已保存");
         if (result.cancelled || !result.error.isEmpty())
             m_exported = QUrl{};
         emit changed();
         if (!result.cancelled)
-            emit notice(m_status, !result.error.isEmpty());
+            emit notice(result.error.isEmpty() && !result.missing.isEmpty()
+                            ? tr("诊断包已保存，部分材料缺失，请查看导出详情")
+                            : m_status,
+                        !result.error.isEmpty());
     });
 }
 DiagnosticService::~DiagnosticService()
@@ -333,17 +363,21 @@ DiagnosticService::~DiagnosticService()
 }
 int DiagnosticService::rowCount(const QModelIndex &parent) const
 {
-    return parent.isValid() ? 0 : count();
+    return parent.isValid() ? 0 : int(m_records.size());
 }
 QHash<int, QByteArray> DiagnosticService::roleNames() const
 {
-    return {{Qt::UserRole + 1, "entry"}};
+    return {{Qt::UserRole + 1, "entry"}, {Qt::UserRole + 2, "kind"}};
 }
 QVariant DiagnosticService::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || index.row() < 0 || index.row() >= count() || role != Qt::UserRole + 1)
+    if (!index.isValid() || index.row() < 0 || index.row() >= m_records.size())
         return {};
-    return view(m_records[index.row()]);
+    if (role == Qt::UserRole + 1)
+        return view(m_records[index.row()]);
+    if (role == Qt::UserRole + 2)
+        return m_records[index.row()].kind;
+    return {};
 }
 QVariantMap DiagnosticService::record(const QString &id) const
 {
@@ -351,6 +385,12 @@ QVariantMap DiagnosticService::record(const QString &id) const
         if (record.id == id)
             return view(record);
     return {};
+}
+QVariantMap DiagnosticService::latestRecord() const
+{
+    // The scan excludes active/clean runs and orders evidence newest first.
+    // A missing native report must not make us export only the restarted log.
+    return m_records.isEmpty() ? QVariantMap{} : view(m_records.first());
 }
 void DiagnosticService::refresh()
 {

@@ -23,6 +23,13 @@ TextField {
     font: Theme.font(size === EchoControlSize.Large ? 15 : size === EchoControlSize.Standard ? 13 : 12, Theme.mediumWeight)
     color: colors.text
     EchoInputFocus.boundary: control
+    EchoInputFocus.menuContent: editingMenu.item ? editingMenu.item.contentItem : null
+    ContextMenu.menu: null
+    ContextMenu.onRequested: position => editingMenu.popupAt(position)
+    EchoTextEditingMenu {
+        id: editingMenu
+        editor: control
+    }
     cursorDelegate: EchoTextCursor {
         editor: control
     }

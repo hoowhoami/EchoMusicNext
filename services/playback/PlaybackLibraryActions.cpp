@@ -338,6 +338,18 @@ void PlaybackLibraryActions::setMultiple(bool value)
         notifyRows();
     }
 }
+void PlaybackLibraryActions::enqueuePrepared(bool next)
+{
+    if (!queueActionsAvailable())
+        return;
+    // Take the prepared selection once: closing the popup may be animated, and
+    // neither a later current-track change nor a second click may replace it.
+    const auto songs = std::exchange(m_songs, PlaybackTracks{});
+    m_selected.clear();
+    m_playback.enqueueTracks(songs, next);
+    notifyRows();
+    emit completed();
+}
 void PlaybackLibraryActions::selectAll(bool checked)
 {
     if (m_busy || !m_multiple || !m_results.isEmpty())

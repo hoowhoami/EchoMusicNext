@@ -85,6 +85,7 @@ private slots:
     void productionLyricSelectionFromLiveNativeApi();
     void productionAddToReopenStableHeight();
     void productionAddToHeaderAlignment();
+    void productionAddToQueueActions();
     void productionAddToFailureUsesOnlyToast();
     void playerMetadataLinksUseProductionRoutes();
     void realPlaybackSurfacesAndBoundedFiftyThousandQueue();

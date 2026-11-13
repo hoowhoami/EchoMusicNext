@@ -52,11 +52,13 @@ Item {
     // final page-sticky-item rule makes the sliver transparent; painting
     // bg-main here would erase that material directly below the titlebar.
     RowLayout {
+        id: headerRow
         anchors.fill: parent
         anchors.leftMargin: 24
         anchors.rightMargin: 24
         spacing: 20 - header.progress * 8
         Item {
+            id: coverSlot
             objectName: "songDetailCoverSlot"
             Layout.preferredWidth: header.coverSize * header.coverScale
             Layout.preferredHeight: header.coverSize * header.coverScale
@@ -182,18 +184,29 @@ Item {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.fillHeight: false
-                    Layout.minimumHeight: header.uniformMetadataRows ? 20 : implicitHeight
+                    Layout.minimumHeight: header.uniformMetadataRows ? 20 : 0
                     Layout.maximumHeight: header.uniformMetadataRows ? 20 : Number.POSITIVE_INFINITY
                     visible: header.uniformMetadataRows || descriptionLeading.active || preview.text.length > 0
                     spacing: 8
+                    // Overflow is a layout input. Derive its budget from the
+                    // anchored header and intrinsic content, never arranged
+                    // child width/visibility inside this row.
+                    readonly property real availableWidth: Math.max(0, headerRow.width - coverSlot.Layout.preferredWidth - headerRow.spacing - (descriptionLeading.active ? descriptionLeading.naturalWidth + spacing : 0))
                     Loader {
                         id: descriptionLeading
                         objectName: "songDetailDescriptionLeading"
                         Layout.fillHeight: false
                         Layout.alignment: Qt.AlignBaseline
+                        readonly property real naturalWidth: {
+                            const content = item as Item;
+                            return content ? content.implicitWidth : 0;
+                        }
                         baselineOffset: {
                             const content = item as Item;
-                            return content ? content.y + content.baselineOffset : 0;
+                            // Loader content starts at its origin. Feeding its
+                            // arranged y back into the parent's baseline can
+                            // recursively invalidate the layout during polish.
+                            return content ? content.baselineOffset : 0;
                         }
                         active: header.descriptionLeadingComponent !== null
                         visible: active
@@ -224,14 +237,14 @@ Item {
                         id: detailsAction
                         objectName: "songDetailDescriptionAction"
                         // Measure overflow against the full line before reserving button space.
-                        visible: preview.text.length > 0 && introductionMetrics.advanceWidth > introduction.width - (descriptionLeading.active ? descriptionLeading.width + introduction.spacing : 0)
+                        visible: preview.text.length > 0 && introductionMetrics.advanceWidth > introduction.availableWidth
                         text: qsTr("查看详情")
                         Accessible.name: qsTr("查看完整简介")
                         font: Theme.font(11, Theme.semiboldWeight)
                         padding: 0
                         Layout.fillHeight: false
                         Layout.alignment: header.uniformMetadataRows ? Qt.AlignBaseline : Qt.AlignVCenter
-                        baselineOffset: contentItem ? contentItem.y + contentItem.baselineOffset : 0
+                        baselineOffset: topPadding + (contentItem ? contentItem.baselineOffset : 0)
                         hoverEnabled: true
                         enabled: header.progress <= .4
                         onClicked: header.introRequested()

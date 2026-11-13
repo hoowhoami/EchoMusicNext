@@ -35,6 +35,9 @@ Item {
     // Software/OpenVG cannot render the QShader-based effect graph. Unknown
     // also uses the plain fill until GraphicsInfo knows this window's backend.
     readonly property bool shaderEffectsSupported: GraphicsInfo.shaderType === GraphicsInfo.RhiShader && GraphicsInfo.api !== GraphicsInfo.Null
+    // The dialog material is shared by Dialog and Drawer, including their
+    // dedicated settings/queue backgrounds. Other popovers retain their recipe.
+    readonly property bool smoothCorners: dialogShadow && shaderEffectsSupported
     readonly property bool frosted: frostedEnabled && resourceActive && shaderEffectsSupported
     readonly property bool hasBackdrop: frostLoader.body !== null && frostLoader.body.hasBackdrop
     antialiasing: true
@@ -44,13 +47,56 @@ Item {
     // surfaces and non-frosted hints must not retain samplers, shaders or textures.
     readonly property real blurPadding: blurSigma * 3
     // Isolate backdrop/fill/outline from the overlay's scene ordering. Keep
-    // the effect graph and its layer together for the visible lifetime (Metal).
-    // Shadows stay outside the body layer so their blur is not cropped into
-    // a rectangular frame; their shader already excludes the rounded interior.
+    // the effect graph and its capture together for the visible lifetime (Metal).
+    // Shadows stay outside this capture so their blur is not cropped.
+    Loader {
+        id: rasterLoader
+        anchors.fill: parent
+        active: floatingSurface.dialogShadow && floatingSurface.frosted
+        readonly property ModalRaster raster: item as ModalRaster
+        sourceComponent: ModalRaster {}
+    }
+    // Replace the modal frost layer with an explicit Qt capture at the final
+    // device grid. layer.textureSize alone cannot preserve the subpixel origin
+    // of Qt's layer display quad. Other floating recipes retain their layer.
+    component ModalRaster: Item {
+        id: modalRaster
+        objectName: "floatingSurfaceModalRaster"
+        property EchoPopupAnchor geometry: EchoPopupAnchor {
+            item: floatingSurface
+            coordinateItem: floatingSurface.Window.window ? floatingSurface.Window.window.contentItem : null
+        }
+        readonly property real dpr: floatingSurface.Screen.devicePixelRatio
+        readonly property real scaleX: geometry.available ? geometry.rect.width / floatingSurface.width : 1
+        readonly property real scaleY: geometry.available ? geometry.rect.height / floatingSurface.height : 1
+        readonly property real pixelLeft: Math.floor(geometry.rect.x * dpr + 0.000001)
+        readonly property real pixelTop: Math.floor(geometry.rect.y * dpr + 0.000001)
+        readonly property size pixels: Qt.size(Math.max(1, Math.ceil((geometry.rect.x + geometry.rect.width) * dpr - 0.000001) - pixelLeft), Math.max(1, Math.ceil((geometry.rect.y + geometry.rect.height) * dpr - 0.000001) - pixelTop))
+        readonly property rect capture: Qt.rect((pixelLeft / dpr - geometry.rect.x) / scaleX, (pixelTop / dpr - geometry.rect.y) / scaleY, pixels.width / (scaleX * dpr), pixels.height / (scaleY * dpr))
+        ShaderEffectSource {
+            id: bodyCapture
+            objectName: "floatingSurfaceModalCapture"
+            sourceItem: surfaceBody
+            sourceRect: modalRaster.capture
+            textureSize: modalRaster.pixels
+            hideSource: true
+            visible: false
+            smooth: false
+        }
+        MultiEffect {
+            x: modalRaster.capture.x
+            y: modalRaster.capture.y
+            width: modalRaster.capture.width
+            height: modalRaster.capture.height
+            source: bodyCapture
+            autoPaddingEnabled: false
+        }
+    }
     Item {
+        id: surfaceBody
         objectName: "floatingSurfaceBody"
         anchors.fill: parent
-        layer.enabled: floatingSurface.frosted
+        layer.enabled: floatingSurface.frosted && !floatingSurface.dialogShadow
         // Popups scale with the application zoom. Nearest sampling of this
         // isolated layer turns an otherwise antialiased corner into steps.
         layer.smooth: true
@@ -68,9 +114,21 @@ Item {
         Rectangle {
             anchors.fill: parent
             z: -0.5
+            visible: !floatingSurface.smoothCorners
             color: floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor
             radius: floatingSurface.paintedRadius
             antialiasing: floatingSurface.antialiasing
+        }
+        Loader {
+            anchors.fill: parent
+            z: -0.5
+            active: floatingSurface.smoothCorners && floatingSurface.resourceActive
+            sourceComponent: EchoRoundedRect {
+                objectName: "floatingSurfaceRoundedFill"
+                antialiasing: floatingSurface.antialiasing
+                color: floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor
+                radius: floatingSurface.paintedRadius
+            }
         }
         Rectangle {
             id: outline
@@ -116,8 +174,19 @@ Item {
                 width: floatingSurface.width
                 height: floatingSurface.height
                 radius: floatingSurface.paintedRadius
+                visible: !floatingSurface.smoothCorners
                 color: "white"
                 antialiasing: true
+            }
+            Loader {
+                x: floatingSurface.blurPadding
+                y: floatingSurface.blurPadding
+                width: floatingSurface.width
+                height: floatingSurface.height
+                active: floatingSurface.smoothCorners && floatingSurface.frosted
+                sourceComponent: EchoRoundedRect {
+                    radius: floatingSurface.paintedRadius
+                }
             }
         }
         ShaderEffectSource {
@@ -126,6 +195,8 @@ Item {
             width: clipMask.width
             height: clipMask.height
             sourceItem: floatingSurface.hasBackdrop ? clipMask : null
+            sourceRect: rasterLoader.raster ? Qt.rect(floatingSurface.blurPadding + rasterLoader.raster.capture.x, floatingSurface.blurPadding + rasterLoader.raster.capture.y, rasterLoader.raster.capture.width, rasterLoader.raster.capture.height) : Qt.rect(0, 0, 0, 0)
+            textureSize: rasterLoader.raster ? rasterLoader.raster.pixels : Qt.size(0, 0)
             smooth: true
         }
         MultiEffect {
@@ -146,15 +217,16 @@ Item {
             visible: false
             width: backdrop.width
             height: backdrop.height
-            textureSize: backdrop.textureSize
+            textureSize: rasterLoader.raster ? Qt.size(Math.ceil(rasterLoader.raster.capture.width / 4), Math.ceil(rasterLoader.raster.capture.height / 4)) : backdrop.textureSize
+            sourceRect: rasterLoader.raster ? Qt.rect((floatingSurface.blurPadding + rasterLoader.raster.capture.x) / 4, (floatingSurface.blurPadding + rasterLoader.raster.capture.y) / 4, rasterLoader.raster.capture.width / 4, rasterLoader.raster.capture.height / 4) : Qt.rect(0, 0, 0, 0)
             sourceItem: floatingSurface.hasBackdrop ? blurred : null
             smooth: true
         }
         MultiEffect {
-            x: -floatingSurface.blurPadding
-            y: -floatingSurface.blurPadding
-            width: floatingSurface.width + floatingSurface.blurPadding * 2
-            height: floatingSurface.height + floatingSurface.blurPadding * 2
+            x: rasterLoader.raster ? rasterLoader.raster.capture.x : -floatingSurface.blurPadding
+            y: rasterLoader.raster ? rasterLoader.raster.capture.y : -floatingSurface.blurPadding
+            width: rasterLoader.raster ? rasterLoader.raster.capture.width : floatingSurface.width + floatingSurface.blurPadding * 2
+            height: rasterLoader.raster ? rasterLoader.raster.capture.height : floatingSurface.height + floatingSurface.blurPadding * 2
             visible: floatingSurface.hasBackdrop
             source: floatingSurface.hasBackdrop ? blurredTexture : null
             blurEnabled: false
