@@ -35,6 +35,23 @@ fn is_identifier_key(key: &str) -> bool {
         || (lower.ends_with("id") && !lower.ends_with("valid"))
 }
 
+/// Identifier values are either one number or a list of numbers; both must cross
+/// the JS boundary as strings.
+fn stringify_identifier_value(value: &mut Value) {
+    match value {
+        Value::Number(number) => {
+            let text = number.to_string();
+            *value = Value::String(text);
+        }
+        Value::Array(items) => {
+            for item in items {
+                stringify_identifier_value(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn normalize_identifiers(value: &mut Value) {
     match value {
         Value::Array(items) => {
@@ -45,13 +62,10 @@ fn normalize_identifiers(value: &mut Value) {
         Value::Object(map) => {
             for (key, entry) in map.iter_mut() {
                 if is_identifier_key(key) {
-                    if let Value::Number(number) = entry {
-                        // `serde_json` arbitrary precision keeps the exact upstream
-                        // digits, which is why this runs before the value is encoded.
-                        let text = number.to_string();
-                        *entry = Value::String(text);
-                        continue;
-                    }
+                    // `serde_json` arbitrary precision keeps the exact upstream
+                    // digits, which is why this runs before the value is encoded.
+                    stringify_identifier_value(entry);
+                    continue;
                 }
                 normalize_identifiers(entry);
             }
