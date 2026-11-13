@@ -22,6 +22,11 @@ bool account(const QString &method, Arguments &a, ApiClient &api, std::function<
             return api.userGradeInfo(userId, automaticVerification);
         };
     }
+    if (method == "userHistory") {
+        // The cursor is the `bp` value of a previous response; empty starts newest.
+        auto cursor = a.text("cursor", {});
+        command = [&api, cursor] { return api.userHistory(cursor); };
+    }
     if (method == "loginDevices") {
         command = [&api] { return api.loginDevices(); };
     }

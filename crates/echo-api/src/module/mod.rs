@@ -40,6 +40,7 @@ pub mod user_cloud_del;
 pub mod user_cloud_url;
 pub mod user_detail;
 pub mod user_grade_info;
+pub mod user_history;
 pub mod user_info;
 pub mod user_playlist;
 pub mod user_purchased_albums;

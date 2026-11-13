@@ -106,7 +106,7 @@
 
 ## 业务、入口、任务与歌词动效
 
-`ctx.kugou`公开98个固定类型化业务命令与验证；调用宿主同一ApiClient/VerificationService，账号由宿主绑定，业务ID使用十进制字符串。插件取消只撤销本请求的验证等待，宿主验证界面的取消仍关闭当前共享验证；账号切换或停用取消请求，登录确认不跨账号续跑插件操作。登录仍由宿主账号入口管理。
+`ctx.kugou`公开99个固定类型化业务命令与验证（含 `userHistory` 听歌历史与 `bp` 分页游标；游标上限 4096 UTF-8 字节，空游标表示从最新记录开始）；调用宿主同一ApiClient/VerificationService，账号由宿主绑定，业务ID使用十进制字符串。插件取消只撤销本请求的验证等待，宿主验证界面的取消仍关闭当前共享验证；账号切换或停用取消请求，登录确认不跨账号续跑插件操作。登录仍由宿主账号入口管理。
 
 歌手写真通过 `ctx.kugou.request('audioImages', {resources: [{hash, audioId?, albumAudioId?, filename?}], count?})` 获取按歌曲分组的歌手与分类图片；完整类型、选图用法和加载生命周期见[业务接口](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/ecosystem.md)。
 
@@ -180,7 +180,7 @@ Qt组件纹理可通过EchoGpuSurface.importTextureSource借用到RHI采样：�
 
 `ctx.ui.showDialog({ component: 'Panel.qml', width: 400, modal: true, closeOnMask: true })` 返回 operation，正文准备完成后得到 `EchoPluginDialog` 句柄；`close()` 关闭，`active`/`closed` 通知生命周期。可选 `title` 默认插件名，width 为160..2048逻辑px并受主窗口约束。QML 根必须是 Item，声明 `required property EchoPluginContext plugin` 和 `required property EchoPluginDialog dialog`，通过 `dialog.close()` 关闭。默认模态、Escape关闭及点击遮罩关闭，使用共享主题、应用缩放和浮层；不离开路由、不创建OS窗口。取消打开operation、账号变化、调用者退休或宿主隐藏会清理，最小化保留实例。最多同时8个弹窗，正文自行提供自然高度及必要滚动。
 
-`ctx.clipboard.write(text)` 返回可等待的operation，写系统文本剪贴板，上限1MiB UTF-8，可传空文本；不读取剪贴板、不需要焦点。账号变化/停用会取消尚未执行的写入。三项能力可分别通过 `kugou.authSnapshot`、`ui.dialogs`、`clipboard.write` feature 声明。
+`ctx.clipboard.write(text)` / `ctx.clipboard.writeImage(bytes)` 返回可等待的operation，分别写系统文本剪贴板（上限1MiB UTF-8）与编码图片（PNG/JPEG 等，上限8MiB；工作线程解码，单边≤4096、总像素≤16M，GUI 只做剪贴板交付）；`writeImage` 的参数必须是编码字节的 ArrayBuffer（`Uint8Array` 会被按空字节处理，base64 字符串不会自动解码），空输入返回 `InvalidArgument`。不读取剪贴板、不需要焦点。账号变化/停用会取消尚未执行的写入。三项能力可分别通过 `kugou.authSnapshot`、`ui.dialogs`、`clipboard.write` feature 声明；`clipboard.write` 同时覆盖文本与图片写入。
 
 ### 页面切换动画
 

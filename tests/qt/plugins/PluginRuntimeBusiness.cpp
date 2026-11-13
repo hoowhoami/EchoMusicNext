@@ -121,6 +121,32 @@ void PluginRuntimeTest::ecosystemBusinessRequestsAndSharedVerification()
         catalogRoots.append(host.engine.newQObject(rejected));
         QCOMPARE(rejected->errorCode(), "InvalidArgument");
     }
+    auto *history = scope->kugou()->request("userHistory", {{"cursor", "fixture-cursor"}});
+    auto historyRoot = host.engine.newQObject(history);
+    const auto historyId = ApiClientTestAccess::pending(host.api, "user_history");
+    QVERIFY(historyId);
+    QCOMPARE(ApiClientTestAccess::request(host.api, historyId)
+                 .value("query")
+                 .toObject()
+                 .value("bp")
+                 .toString(),
+             QString("fixture-cursor"));
+    ApiClientTestAccess::complete(
+        host.api, historyId,
+        R"({"user_id":"9007199254741005","cursor":"next-cursor","finished":false,"has_more":true,"items":[{"song_id":"9007199254740993","name":"示例歌曲","artist":"示例歌手","album":"示例专辑","album_id":"9007199254740995","audio_id":"9007199254740997","hash":"0123456789abcdef0123456789abcdef","cover":null,"duration_ms":272457,"bitrate":128,"play_count":7,"last_played_at":1760000000}]})");
+    QCOMPARE(history->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(history->result().toMap().value("cursor").toString(), QString("next-cursor"));
+    // Business IDs cross the Qt -> JS boundary as decimal strings; a numeric
+    // delivery would already be rounded to 9007199254740992 here.
+    QCOMPARE(
+        history->result().toMap().value("items").toList()[0].toMap().value("song_id").toString(),
+        QString("9007199254740993"));
+    // The cursor limit is enforced in UTF-8 bytes at the plugin boundary, before
+    // the backend; an overlong value is an argument error, not Unavailable.
+    auto *longCursor =
+        scope->kugou()->request("userHistory", {{"cursor", QString(5000, QLatin1Char('a'))}});
+    QCOMPARE(longCursor->state(), EchoPluginOperation::Failed);
+    QCOMPARE(longCursor->errorCode(), "InvalidArgument");
     auto *lyric =
         scope->kugou()->request("lyric", {{"id", "fixture-lyric"}, {"accessKey", "fixture-key"}});
     auto lyricRoot = host.engine.newQObject(lyric);

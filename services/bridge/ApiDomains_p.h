@@ -116,6 +116,7 @@ struct ApiClient::LibraryClient
 {
     explicit LibraryClient(ApiClient &owner) : api(owner) {}
     quint64 userPlaylists(quint32 page, quint32 pageSize);
+    quint64 userHistory(const QString &cursor);
     quint64 importPlaylistLink(const QString &text);
     quint64 submitPlaylistImportImage(const QString &serial, const QByteArray &image);
     quint64 importPlaylistScreenshot(const QString &serial, CloudPlaylistId id,
