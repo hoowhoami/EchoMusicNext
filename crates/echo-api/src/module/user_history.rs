@@ -206,11 +206,11 @@ mod tests {
     // Redacted excerpt of a sampled gateway response: three rows were reduced to
     // one, private text was replaced, and 64-bit identifiers were made explicit so
     // the test fails if a decimal ID loses digits on the way to the plugin.
-    const SAMPLE: &[u8] = br#"{"status":1,"error_code":0,"data":{"userid":"9007199254741005","bp":"fixture-bp-1|0:fixture","bp_finished":"fixture-bp-1","has_more":1,"id":"","songs":[{"mxid":9007199254740993,"ot":1760000000,"op":1,"pc":7,"sr":0,"info":{"name":"示例歌曲","singername":"示例歌手","hash":"0123456789abcdef0123456789abcdef","size":4359930,"timelen":272457,"bitrate":128,"cover":"https://example.com/cover.png","mixsongid":9007199254740993,"album_id":9007199254740995,"audio_id":9007199254740997,"privilege":10,"level":1,"medistype":"flac","albuminfo":{"name":"示例专辑","id":9007199254740999}}}]}}"#;
+    const SAMPLE: &str = r#"{"status":1,"error_code":0,"data":{"userid":"9007199254741005","bp":"fixture-bp-1|0:fixture","bp_finished":"fixture-bp-1","has_more":1,"id":"","songs":[{"mxid":9007199254740993,"ot":1760000000,"op":1,"pc":7,"sr":0,"info":{"name":"示例歌曲","singername":"示例歌手","hash":"0123456789abcdef0123456789abcdef","size":4359930,"timelen":272457,"bitrate":128,"cover":"https://example.com/cover.png","mixsongid":9007199254740993,"album_id":9007199254740995,"audio_id":9007199254740997,"privilege":10,"level":1,"medistype":"flac","albuminfo":{"name":"示例专辑","id":9007199254740999}}}]}}"#;
 
     #[test]
     fn sampled_page_maps_to_domain_and_keeps_identifier_precision() {
-        let page = convert(SAMPLE).expect("history response converts");
+        let page = convert(SAMPLE.as_bytes()).expect("history response converts");
         assert_eq!(page.user_id, "9007199254741005");
         assert_eq!(page.cursor.as_deref(), Some("fixture-bp-1|0:fixture"));
         assert!(page.has_more);
