@@ -21,8 +21,12 @@ EchoDialog {
             background: EchoActionBackground {
                 colors: Theme.floating
                 color: "transparent"
-                border.width: 1
-                border.color: Theme.floatingBorder
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: Theme.floatingBorder
+                    radius: Theme.controlRadius
+                }
             }
             colors: Theme.floating
             onClicked: dialog.close()

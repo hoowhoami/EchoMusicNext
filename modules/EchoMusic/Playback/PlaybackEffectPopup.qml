@@ -96,8 +96,14 @@ EchoAnchoredPopup {
                         background: Rectangle {
                             radius: Theme.itemRadius
                             color: popup.tab === tabButton.index ? Theme.floating.accent : tabButton.hovered ? Theme.floating.hover : "transparent"
-                            border.width: tabButton.visualFocus ? 2 : 0
-                            border.color: Theme.floating.accent
+                            EchoDashedFrame {
+                                anchors.fill: parent
+                                solid: true
+                                strokeColor: Theme.floating.accent
+                                radius: Theme.itemRadius
+                                thickness: 2
+                                visible: tabButton.visualFocus
+                            }
                         }
                         onClicked: {
                             popup.tab = index;

@@ -70,8 +70,12 @@ Item {
             implicitHeight: banner.implicitHeight + 24
             radius: Theme.cardRadius
             color: "#1af59e0b"
-            border.width: 1
-            border.color: "#40f59e0b"
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: "#40f59e0b"
+                radius: Theme.cardRadius
+            }
             RowLayout {
                 anchors.fill: parent
                 anchors.margins: 12
@@ -329,8 +333,12 @@ Item {
                                 background: Rectangle {
                                     radius: Theme.cardRadius
                                     color: methodButton.selected ? Theme.withAlpha(Theme.accent, 0.11) : methodButton.hovered ? Theme.withAlpha(Theme.accent, 0.07) : "transparent"
-                                    border.width: 1
-                                    border.color: methodButton.selected ? Theme.withAlpha(Theme.accent, 0.28) : "transparent"
+                                    EchoDashedFrame {
+                                        anchors.fill: parent
+                                        solid: true
+                                        strokeColor: methodButton.selected ? Theme.withAlpha(Theme.accent, 0.28) : "transparent"
+                                        radius: Theme.cardRadius
+                                    }
                                 }
                                 contentItem: Item {
                                     // Button stretches its contentItem to 56px. Center

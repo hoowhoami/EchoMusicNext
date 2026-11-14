@@ -22,8 +22,13 @@ EchoActionButton {
     background: Rectangle {
         color: Theme.mutedSurface
         radius: Theme.cardRadius
-        border.width: card.visualFocus ? 2 : 1
-        border.color: card.visualFocus ? Theme.accent : Theme.subtleBorder
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: card.visualFocus ? Theme.accent : Theme.subtleBorder
+            radius: Theme.cardRadius
+            thickness: card.visualFocus ? 2 : 1
+        }
     }
     transform: Translate {
         y: card.resourceActive && card.hovered && Theme.store.motionEnabled ? -1 : 0

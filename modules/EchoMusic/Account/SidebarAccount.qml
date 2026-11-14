@@ -123,8 +123,14 @@ Item {
             background: Rectangle {
                 color: "transparent"
                 radius: Theme.controlRadius
-                border.width: accountTrigger.visualFocus ? 2 : 0
-                border.color: Theme.accent
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: Theme.accent
+                    radius: Theme.controlRadius
+                    thickness: 2
+                    visible: accountTrigger.visualFocus
+                }
             }
             contentItem: EchoIcon {
                 name: accountTrigger.glyph

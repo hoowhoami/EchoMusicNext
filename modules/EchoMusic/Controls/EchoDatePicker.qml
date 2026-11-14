@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 Control {
@@ -331,8 +332,13 @@ Control {
                                 background: Rectangle {
                                     radius: Theme.controlRadius
                                     color: cell.highlighted ? Theme.accent : cell.hovered ? Theme.floating.hover : cell.iso === Qt.formatDate(new Date(), "yyyy-MM-dd") ? Theme.withAlpha(Theme.accent, 0.16) : "transparent"
-                                    border.width: !cell.highlighted && (cell.iso === Qt.formatDate(picker.focusedDate, "yyyy-MM-dd") || cell.iso === Qt.formatDate(new Date(), "yyyy-MM-dd")) ? 1 : 0
-                                    border.color: Theme.withAlpha(Theme.accent, 0.72)
+                                    EchoDashedFrame {
+                                        anchors.fill: parent
+                                        solid: true
+                                        strokeColor: Theme.withAlpha(Theme.accent, 0.72)
+                                        radius: Theme.controlRadius
+                                        visible: !cell.highlighted && (cell.iso === Qt.formatDate(picker.focusedDate, "yyyy-MM-dd") || cell.iso === Qt.formatDate(new Date(), "yyyy-MM-dd"))
+                                    }
                                 }
                                 onClicked: {
                                     picker.picked(iso);

@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 ItemDelegate {
@@ -45,8 +46,13 @@ ItemDelegate {
     background: Rectangle {
         radius: Theme.controlRadius
         color: option.selected ? Theme.withAlpha(Theme.floating.accent, option.down ? 0.22 : option.hovered ? 0.18 : 0.12) : option.down ? Theme.floating.neutralPressed : option.hovered ? Theme.floating.hover : "transparent"
-        border.width: option.visualFocus || option.navigationFocus ? 1 : 0
-        border.color: Theme.floating.accentText
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: Theme.floating.accentText
+            radius: Theme.controlRadius
+            visible: option.visualFocus || option.navigationFocus
+        }
         Behavior on color {
             enabled: motion.allowed
             ColorAnimation {

@@ -60,13 +60,12 @@ EchoDialog {
             }
             // CSS paints the gradient beneath a translucent border. A centered
             // Shape stroke protrudes/clips and does not cover the same border box.
-            Rectangle {
+            EchoDashedFrame {
                 objectName: "profileGradeCardOutline"
                 anchors.fill: parent
-                color: "transparent"
+                solid: true
+                strokeColor: Theme.floating.subtleBorder
                 radius: Theme.cardRadius
-                border.width: 1
-                border.color: Theme.floating.subtleBorder
             }
             ColumnLayout {
                 id: card

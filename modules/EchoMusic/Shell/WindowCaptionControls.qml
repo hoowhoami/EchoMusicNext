@@ -46,8 +46,14 @@ WindowActionGroup {
         background: Rectangle {
             radius: Theme.controlRadius
             color: closeAction.hoverHighlighted ? "#c42b1c" : "transparent"
-            border.width: closeAction.visualFocus ? 2 : 0
-            border.color: Theme.accent
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: Theme.accent
+                radius: Theme.controlRadius
+                thickness: closeAction.visualFocus ? 2 : 0
+                visible: closeAction.visualFocus
+            }
         }
     }
 }

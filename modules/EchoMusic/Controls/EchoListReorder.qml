@@ -356,8 +356,12 @@ Item {
         sourceComponent: Rectangle {
             radius: Theme.controlRadius
             color: Theme.withAlpha(Theme.floating.accent, 0.045)
-            border.width: 1
-            border.color: Theme.withAlpha(Theme.floating.accent, 0.18)
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: Theme.withAlpha(Theme.floating.accent, 0.18)
+                radius: Theme.controlRadius
+            }
         }
         Behavior on y {
             enabled: control.busy && Theme.store.motionEnabled

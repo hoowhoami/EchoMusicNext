@@ -30,8 +30,12 @@ EchoActionButton {
     background: Rectangle {
         radius: Theme.cardRadius
         color: Theme.card
-        border.width: 1
-        border.color: card.hovered ? Theme.mix(Theme.border, Theme.accent, 0.32) : Theme.border
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: card.hovered ? Theme.mix(Theme.border, Theme.accent, 0.32) : Theme.border
+            radius: Theme.cardRadius
+        }
     }
     contentItem: Item {
         id: cardContent

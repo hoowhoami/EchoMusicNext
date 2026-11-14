@@ -15,8 +15,12 @@ EchoInputBackground {
     radius: Theme.cardRadius
     baseColor: Theme.elevated
     focused: editor.activeFocus
-    border.width: 1
-    border.color: Theme.border
+    EchoDashedFrame {
+        anchors.fill: parent
+        solid: true
+        strokeColor: Theme.border
+        radius: Theme.cardRadius
+    }
     RowLayout {
         id: row
         anchors.fill: parent

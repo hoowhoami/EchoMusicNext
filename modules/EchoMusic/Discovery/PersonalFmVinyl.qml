@@ -44,13 +44,13 @@ EchoActionButton {
             retainWhileLoading: true
             sourceSize: Qt.size(Math.ceil(vinyl.width * Screen.devicePixelRatio), Math.ceil(vinyl.height * Screen.devicePixelRatio))
         }
-        Rectangle {
+        EchoDashedFrame {
             anchors.fill: parent
-            visible: vinyl.visualFocus
+            solid: true
+            strokeColor: Theme.accent
             radius: width / 2
-            color: "transparent"
-            border.width: 2
-            border.color: Theme.accent
+            thickness: 2
+            visible: vinyl.visualFocus
         }
     }
     Loader {

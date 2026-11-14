@@ -258,8 +258,13 @@ Item {
                         background: Rectangle {
                             color: "transparent"
                             radius: Theme.detailRadius
-                            border.width: detailsAction.visualFocus ? 1 : 0
-                            border.color: Theme.accent
+                            EchoDashedFrame {
+                                anchors.fill: parent
+                                solid: true
+                                strokeColor: Theme.accent
+                                radius: Theme.detailRadius
+                                visible: detailsAction.visualFocus
+                            }
                         }
                     }
                 }

@@ -25,8 +25,13 @@ EchoActionButton {
     background: Rectangle {
         radius: Theme.cardRadius
         color: Theme.mutedSurface
-        border.width: card.visualFocus ? 2 : 1
-        border.color: card.visualFocus ? Theme.accent : "transparent"
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: card.visualFocus ? Theme.accent : "transparent"
+            radius: Theme.cardRadius
+            thickness: card.visualFocus ? 2 : 1
+        }
     }
     contentItem: ColumnLayout {
         spacing: 0

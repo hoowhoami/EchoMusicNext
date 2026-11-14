@@ -96,8 +96,12 @@ Column {
                 implicitHeight: rankContent.implicitHeight
                 radius: Theme.cardRadius
                 color: Theme.withAlpha(section.colors.tone, .06)
-                border.width: 1
-                border.color: Theme.withAlpha(section.colors.tone, .10)
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: Theme.withAlpha(section.colors.tone, .10)
+                    radius: Theme.cardRadius
+                }
                 ColumnLayout {
                     id: rankContent
                     width: parent.width

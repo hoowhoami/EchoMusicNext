@@ -260,8 +260,14 @@ GridView {
                 background: Rectangle {
                     color: "transparent"
                     radius: Theme.controlRadius
-                    border.width: presetButton.visualFocus ? 2 : 0
-                    border.color: Theme.floating.accent
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: Theme.floating.accent
+                        radius: Theme.controlRadius
+                        thickness: 2
+                        visible: presetButton.visualFocus
+                    }
                 }
             }
             EchoIconButton {
@@ -297,20 +303,13 @@ GridView {
             horizontalAlignment: Text.AlignHCenter
             color: Theme.floating.secondaryText
             font: Theme.font(10, Theme.semiboldWeight)
-            background: Shape {
-                ShapePath {
-                    strokeWidth: 1
-                    strokeStyle: ShapePath.DashLine
-                    strokeColor: Theme.floating.controlBorder
-                    fillColor: "transparent"
-                    PathRectangle {
-                        x: 0.5
-                        y: 0.5
-                        width: emptyPresets.width - 1
-                        height: emptyPresets.height - 1
-                        radius: Theme.controlRadius
-                    }
-                }
+            // The pixel-snapped frame keeps the dashed outline stable
+            // while the window resizes; a Shape path re-tessellates
+            // every frame and visibly jittered here.
+            background: EchoDashedFrame {
+                strokeColor: Theme.floating.controlBorder
+                radius: Theme.controlRadius
+                dashLength: 4
             }
         }
         Label {

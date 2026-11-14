@@ -4,7 +4,6 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import EchoMusic.Theme
 import EchoMusic.Controls
-import QtQuick.Shapes
 import EchoMusic.Plugins
 
 Popup {
@@ -68,22 +67,14 @@ Popup {
                     color: Theme.withAlpha(Theme.text, 0.14)
                 }
             }
-            Shape {
+            // The pixel-snapped frame keeps the dashed outline stable
+            // while the window resizes; a Shape path re-tessellates
+            // every frame and visibly jittered here.
+            EchoDashedFrame {
                 anchors.fill: parent
-                ShapePath {
-                    strokeWidth: 1
-                    strokeStyle: ShapePath.DashLine
-                    dashPattern: [4, 4]
-                    strokeColor: Theme.mix(Theme.subtleBorder, Theme.accent, 0.54)
-                    fillColor: "transparent"
-                    PathRectangle {
-                        x: 0.5
-                        y: 0.5
-                        width: installPanel.width - 1
-                        height: installPanel.height - 1
-                        radius: Theme.popoverRadius
-                    }
-                }
+                strokeColor: Theme.mix(Theme.subtleBorder, Theme.accent, 0.54)
+                radius: Theme.popoverRadius
+                dashLength: 4
             }
             ColumnLayout {
                 id: installContents

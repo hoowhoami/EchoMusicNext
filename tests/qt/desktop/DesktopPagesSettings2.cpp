@@ -1102,8 +1102,11 @@ void DesktopPagesTest::productionProfileSettingsAndSidebarOverlays()
                                .arg(bool(close))));
             QTRY_VERIFY(card->height() >= 176);
             QCOMPARE(outline->size(), card->size());
-            QCOMPARE(QQmlProperty(outline, "border.width").read().toReal(), 1.0);
-            const auto border = QQmlProperty(outline, "border.color").read().value<QColor>();
+            // The outline paints through the pixel-snapped frame now; assert
+            // its solid stroke and themed translucent color instead of the
+            // Rectangle border the frame replaced.
+            QCOMPARE(outline->property("solid").toBool(), true);
+            const auto border = outline->property("strokeColor").value<QColor>();
             QVERIFY(qAbs(border.alphaF() - 0.72) < 0.01);
             QTRY_COMPARE(track->height(), 5.0);
             const auto refreshBackground = refresh->property("background").value<QQuickItem *>();

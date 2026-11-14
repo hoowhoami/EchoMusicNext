@@ -30,6 +30,16 @@ Item {
     property bool frostedEnabled: Theme.store.floatingFrosted
     property real blurSigma: material.blurSigma === undefined ? 24 : material.blurSigma
     property real backdropFillOpacity: material.backdropFillOpacity === undefined ? 0.82 : material.backdropFillOpacity
+    // Skins and EchoPopupContentClip read width/color as the border contract,
+    // so the alias keeps Rectangle border semantics (grouped assignments in
+    // consuming documents resolve statically). The holder stays invisible;
+    // the painted stroke is the pixel-snapped ring inside surfaceBody.
+    Rectangle {
+        id: outline
+        visible: false
+        border.width: 1
+        border.color: Theme.floating.surfaceOutline
+    }
     property alias border: outline.border
     readonly property bool resourceActive: visible && width > 0 && height > 0 && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized
     // Software/OpenVG cannot render the QShader-based effect graph. Unknown
@@ -109,16 +119,8 @@ Item {
             sourceComponent: FrostedBody {}
         }
         // Qt Rectangle replaces its fill with the border, unlike a CSS background
-        // painted under the border box. Separate the layers so translucent strokes
-        // blend over the surface instead of exposing cards behind the popup.
-        Rectangle {
-            anchors.fill: parent
-            z: -0.5
-            visible: !floatingSurface.smoothCorners
-            color: floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor
-            radius: floatingSurface.paintedRadius
-            antialiasing: floatingSurface.antialiasing
-        }
+        // painted under the border box. The snapped surface below keeps fill and
+        // stroke as separate layers for the same reason.
         Loader {
             anchors.fill: parent
             z: -0.5
@@ -130,16 +132,28 @@ Item {
                 radius: floatingSurface.paintedRadius
             }
         }
-        Rectangle {
-            id: outline
+        // Fill and stroke share one pixel-snapped surface, so a translucent
+        // outline never exposes the window behind the popup edge. Two recipes
+        // keep an independent unsnapped edge instead, and their stroke tracks
+        // it (the outline's original pixelAligned: false behavior): the
+        // smooth-corner dialogs fill outside this surface, and frosted panels
+        // clip both fill and stroke to the logical rounded mask, so a snapped
+        // box would render past the mask edge while its overhang is cropped
+        // by the surface layer. A floating surface is always top level, so it
+        // also keeps the stroke on the snapped box edge: nothing clips it,
+        // and a hairline fill rim outside the outline would read as an
+        // artifact against the shadow.
+        EchoDashedFrame {
             anchors.fill: parent
             z: -0.4
-            color: "transparent"
             radius: floatingSurface.paintedRadius
-            antialiasing: floatingSurface.antialiasing
-            border.width: 1
-            border.color: Theme.floating.surfaceOutline
-            border.pixelAligned: false
+            solid: true
+            thickness: outline.border.width
+            strokeColor: outline.border.color
+            strokeInside: false
+            pixelAligned: !floatingSurface.smoothCorners && !floatingSurface.frosted
+            fillColor: floatingSurface.smoothCorners ? "transparent"
+                                                     : (floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor)
         }
     }
     component FrostedBody: Item {

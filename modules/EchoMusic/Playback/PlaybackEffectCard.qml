@@ -15,9 +15,13 @@ Rectangle {
     readonly property string unavailable: effect.needs_validation ? "" : effect.unavailable_reason || (effect.vpf_urls && effect.vpf_urls.length > 0 ? qsTr("此音效需要支持 VPF 的音效引擎") : "")
     implicitHeight: Math.max(64, copy.implicitHeight + 20)
     radius: Theme.cardRadius
-    border.width: 1
-    border.color: hovered.hovered || effect.active ? Theme.withAlpha(Theme.floating.accent, .5) : Theme.floating.controlBorder
     color: hovered.hovered || effect.active ? Theme.mix(Theme.floating.elevated, Theme.floating.accent, .06) : Theme.floating.mutedSurface
+    EchoDashedFrame {
+        anchors.fill: parent
+        solid: true
+        strokeColor: hovered.hovered || effect.active ? Theme.withAlpha(Theme.floating.accent, .5) : Theme.floating.controlBorder
+        radius: Theme.cardRadius
+    }
     HoverHandler {
         id: hovered
     }

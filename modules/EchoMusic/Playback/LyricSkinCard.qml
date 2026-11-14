@@ -22,8 +22,12 @@ EchoActionButton {
     background: Rectangle {
         radius: Theme.cardRadius
         color: card.hovered ? Theme.floating.hover : Theme.floatingCard
-        border.width: 1
-        border.color: card.selected ? Theme.accent : Theme.floatingBorder
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: card.selected ? Theme.accent : Theme.floatingBorder
+            radius: Theme.cardRadius
+        }
     }
     contentItem: ColumnLayout {
         spacing: 7

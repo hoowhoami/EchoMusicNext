@@ -142,8 +142,12 @@ EchoDialog {
                         background: EchoActionBackground {
                             colors: Theme.floating
                             color: "transparent"
-                            border.width: 1
-                            border.color: cancelRemoval.visualFocus ? Theme.accent : Theme.floatingBorder
+                            EchoDashedFrame {
+                                anchors.fill: parent
+                                solid: true
+                                strokeColor: cancelRemoval.visualFocus ? Theme.accent : Theme.floatingBorder
+                                radius: Theme.controlRadius
+                            }
                             highlighted: cancelRemoval.enabled && cancelRemoval.hovered
                             pressed: cancelRemoval.down
                         }

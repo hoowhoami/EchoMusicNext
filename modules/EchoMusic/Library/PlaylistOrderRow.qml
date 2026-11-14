@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 ItemDelegate {
@@ -28,8 +29,12 @@ ItemDelegate {
         anchors.margins: 2
         radius: Theme.controlRadius
         color: row.lifted ? "transparent" : row.selected ? Theme.withAlpha(Theme.floating.accent, 0.07) : row.hovered ? Theme.floating.hover : "transparent"
-        border.width: 1
-        border.color: row.selected && !row.lifted ? Theme.withAlpha(Theme.floating.accent, 0.18) : "transparent"
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: row.selected && !row.lifted ? Theme.withAlpha(Theme.floating.accent, 0.18) : "transparent"
+            radius: Theme.controlRadius
+        }
     }
     contentItem: RowLayout {
         spacing: 10

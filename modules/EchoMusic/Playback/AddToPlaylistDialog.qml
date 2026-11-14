@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Shapes
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Playback
@@ -138,24 +137,15 @@ EchoDialog {
                         id: targetBackground
                         radius: Theme.itemRadius
                         color: Theme.withAlpha(Theme.floating.tone, .07)
-                        border.width: target.targetSection === qsTr("播放队列") ? 0 : 1
-                        border.color: target.selected || target.hovered ? Theme.accent : Theme.floating.controlBorder
-                        Shape {
+                        // The pixel-snapped frame keeps row outlines stable
+                        // while the window resizes; a Shape path re-tessellates
+                        // every frame and visibly jittered here. Solid rows use
+                        // the even-odd ring so straight runs stay crisp too.
+                        EchoDashedFrame {
                             anchors.fill: parent
-                            visible: target.targetSection === qsTr("播放队列")
-                            ShapePath {
-                                strokeColor: targetBackground.border.color
-                                strokeWidth: 1
-                                strokeStyle: ShapePath.DashLine
-                                dashPattern: [3, 2]
-                                fillColor: "transparent"
-                                PathSvg {
-                                    readonly property real r: Theme.itemRadius
-                                    readonly property real w: target.width - .5
-                                    readonly property real h: target.height - .5
-                                    path: "M " + r + " .5 H " + (w - r) + " Q " + w + " .5 " + w + " " + r + " V " + (h - r) + " Q " + w + " " + h + " " + (w - r) + " " + h + " H " + r + " Q .5 " + h + " .5 " + (h - r) + " V " + r + " Q .5 .5 " + r + " .5 Z"
-                                }
-                            }
+                            solid: target.targetSection !== qsTr("播放队列")
+                            strokeColor: target.selected || target.hovered ? Theme.accent : Theme.floating.controlBorder
+                            radius: Theme.itemRadius
                         }
                     }
                     contentItem: RowLayout {

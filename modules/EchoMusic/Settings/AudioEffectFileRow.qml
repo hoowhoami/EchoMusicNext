@@ -18,8 +18,12 @@ Rectangle {
     height: 52
     radius: Theme.itemRadius
     color: "transparent"
-    border.width: 1
-    border.color: Theme.withAlpha(Theme.floating.text, .10)
+    EchoDashedFrame {
+        anchors.fill: parent
+        solid: true
+        strokeColor: Theme.withAlpha(Theme.floating.text, .10)
+        radius: Theme.itemRadius
+    }
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 11
@@ -58,8 +62,12 @@ Rectangle {
             background: Rectangle {
                 radius: Theme.controlRadius
                 color: "transparent"
-                border.width: 1
-                border.color: Theme.withAlpha(Theme.floating.accent, .5)
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: Theme.withAlpha(Theme.floating.accent, .5)
+                    radius: Theme.controlRadius
+                }
             }
             Keys.onReturnPressed: row.saveRequested()
             Keys.onEnterPressed: row.saveRequested()
