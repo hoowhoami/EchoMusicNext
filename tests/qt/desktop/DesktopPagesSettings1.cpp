@@ -2082,8 +2082,8 @@ void DesktopPagesTest::settingsDefaultsAndSourceEffectFileManager()
     catalog->select("spatialAudio");
     QQuickItem *row = nullptr, *divider = nullptr;
     QTRY_VERIFY((row = visual(session.window->contentItem(), "settingsEffectFilesRow")));
-    QVERIFY((divider = visual(session.window->contentItem(), "settingsEffectFilesDivider")));
-    QVERIFY(visualText(row, QStringLiteral("音效文件")));
+    QTRY_VERIFY((divider = visual(session.window->contentItem(), "settingsEffectFilesDivider")));
+    QTRY_VERIFY(visualText(row, QStringLiteral("音效文件")));
     QVERIFY(!visual(session.window->contentItem(), "settingsLocalEffectFiles"));
     const auto gap = [&] {
         return divider->mapToScene(QPointF()).y() - row->mapToScene(QPointF(0, row->height())).y();

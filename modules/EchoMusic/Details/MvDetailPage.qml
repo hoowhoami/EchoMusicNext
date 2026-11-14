@@ -157,8 +157,12 @@ RoutePage {
                     implicitHeight: hero.implicitHeight + 36
                     radius: Theme.cardRadius
                     color: Theme.card
-                    border.width: 1
-                    border.color: Theme.border
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: Theme.border
+                        radius: Theme.cardRadius
+                    }
                     ColumnLayout {
                         id: hero
                         anchors.left: parent.left
@@ -333,8 +337,12 @@ RoutePage {
                     implicitHeight: sourceContent.implicitHeight + 36
                     radius: Theme.cardRadius
                     color: Theme.card
-                    border.width: 1
-                    border.color: Theme.border
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: Theme.border
+                        radius: Theme.cardRadius
+                    }
                     ColumnLayout {
                         id: sourceContent
                         anchors.left: parent.left
@@ -398,8 +406,12 @@ RoutePage {
                                 background: Rectangle {
                                     radius: Theme.cardRadius
                                     color: source.modelData.hash === page.detail.sourceHash ? Theme.mix(Theme.card, Theme.accent, .07) : Theme.card
-                                    border.width: 1
-                                    border.color: source.modelData.hash === page.detail.sourceHash ? Theme.withAlpha(Theme.accent, .6) : Theme.border
+                                    EchoDashedFrame {
+                                        anchors.fill: parent
+                                        solid: true
+                                        strokeColor: source.modelData.hash === page.detail.sourceHash ? Theme.withAlpha(Theme.accent, .6) : Theme.border
+                                        radius: Theme.cardRadius
+                                    }
                                 }
                             }
                         }

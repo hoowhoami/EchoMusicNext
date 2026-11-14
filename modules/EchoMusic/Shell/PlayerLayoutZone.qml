@@ -275,8 +275,14 @@ Rectangle {
             background: Rectangle {
                 radius: Theme.itemRadius
                 color: pane.reorder.dragging && pane.reorder.key === slot.actionKey ? Theme.withAlpha(Theme.accent, 0.08) : chip.hovered || chip.visualFocus ? Theme.floating.hover : Theme.floating.mutedSurface
-                border.width: chip.visualFocus ? 2 : 0
-                border.color: Theme.accent
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: Theme.accent
+                    radius: Theme.itemRadius
+                    thickness: chip.visualFocus ? 2 : 0
+                    visible: chip.visualFocus
+                }
             }
             Keys.onPressed: event => {
                 if ((event.modifiers & Qt.AltModifier) && (event.key === Qt.Key_Up || event.key === Qt.Key_Down)) {
@@ -307,8 +313,12 @@ Rectangle {
                 contentItem: Rectangle {
                     radius: Theme.microRadius
                     color: slot.badgePreferred ? Theme.accent : Theme.floating.mutedSurface
-                    border.width: 1
-                    border.color: slot.badgePreferred ? Theme.accent : Theme.floatingBorder
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: slot.badgePreferred ? Theme.accent : Theme.floatingBorder
+                        radius: Theme.microRadius
+                    }
                     EchoIcon {
                         anchors.fill: parent
                         anchors.margins: 1

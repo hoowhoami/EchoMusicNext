@@ -43,16 +43,20 @@ EchoSoftButton {
         id: surface
         radius: Theme.itemRadius
         color: option.selected ? Theme.withAlpha(option.colors.accent, 0.12) : option.enabled && option.hovered ? option.colors.hover : option.colors.mutedSurface
-        border.width: 1
-        border.color: option.selected ? Theme.withAlpha(option.colors.accent, 0.5) : option.colors.controlBorder
-        Rectangle {
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: option.selected ? Theme.withAlpha(option.colors.accent, 0.5) : option.colors.controlBorder
+            radius: Theme.itemRadius
+        }
+        EchoDashedFrame {
             anchors.fill: parent
             anchors.margins: -5
             radius: surface.radius + 5
             visible: option.visualFocus
-            color: "transparent"
-            border.width: 2
-            border.color: option.colors.accent
+            solid: true
+            strokeColor: option.colors.accent
+            thickness: 2
         }
     }
 }

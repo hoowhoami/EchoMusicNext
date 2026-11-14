@@ -3,6 +3,7 @@ import QtQuick
 import QtQml
 import QtQuick.Controls.Basic
 import QtQuick.Templates as T
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 // Editable decimal field with optional suffix and stacked controls.
@@ -134,11 +135,15 @@ T.DoubleSpinBox {
         color: control.colors.secondaryText
     }
     background: EchoInputBackground {
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: control.colors.controlBorder
+            radius: Theme.controlRadius
+        }
         colors: control.colors
         focused: input.activeFocus
         radius: Theme.controlRadius
-        border.width: 1
-        border.color: control.colors.controlBorder
     }
     up.indicator: Rectangle {
         x: control.width - width - 1

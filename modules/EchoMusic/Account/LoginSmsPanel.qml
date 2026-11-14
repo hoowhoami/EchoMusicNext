@@ -145,8 +145,12 @@ ColumnLayout {
                 background: Rectangle {
                     radius: Theme.itemRadius
                     color: candidate.hovered ? Theme.hover : Theme.colors.mutedSurface
-                    border.width: 1
-                    border.color: candidate.hovered ? Theme.withAlpha(Theme.accent, 0.4) : Theme.subtleBorder
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: candidate.hovered ? Theme.withAlpha(Theme.accent, 0.4) : Theme.subtleBorder
+                        radius: Theme.itemRadius
+                    }
                 }
                 contentItem: RowLayout {
                     spacing: 12

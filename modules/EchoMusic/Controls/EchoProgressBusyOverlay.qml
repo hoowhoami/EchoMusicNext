@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Window
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 Rectangle {
@@ -16,8 +17,12 @@ Rectangle {
     radius: 2
     clip: true
     color: Theme.withAlpha(colors.text, 0.12)
-    border.width: 1
-    border.color: Theme.withAlpha(colors.accent, 0.18)
+    EchoDashedFrame {
+        anchors.fill: parent
+        solid: true
+        strokeColor: Theme.withAlpha(colors.accent, 0.18)
+        radius: 2
+    }
     // Keep the busy sweep inside the played range.
     Rectangle {
         id: wave

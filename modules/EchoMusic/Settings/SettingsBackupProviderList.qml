@@ -71,8 +71,12 @@ ColumnLayout {
             background: Rectangle {
                 radius: 10
                 color: entry.hovered || list.selectedId === String(entry.modelData.id) ? Theme.floating.selected : Theme.floating.mutedSurface
-                border.width: 1
-                border.color: list.selectedId === String(entry.modelData.id) ? Theme.accent : Theme.floating.controlBorder
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: list.selectedId === String(entry.modelData.id) ? Theme.accent : Theme.floating.controlBorder
+                    radius: 10
+                }
             }
             contentItem: RowLayout {
                 spacing: 12

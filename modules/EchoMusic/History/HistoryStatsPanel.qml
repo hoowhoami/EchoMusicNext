@@ -19,9 +19,14 @@ Rectangle {
     implicitHeight: column.implicitHeight + inset * 2
     radius: Theme.dialogRadius
     color: flat ? "transparent" : Theme.mutedSurface
-    border.width: flat ? 0 : 1
-    border.color: Theme.subtleBorder
     data: [
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: Theme.subtleBorder
+            radius: Theme.dialogRadius
+            visible: !panel.flat
+        },
         ColumnLayout {
             id: column
             x: panel.inset

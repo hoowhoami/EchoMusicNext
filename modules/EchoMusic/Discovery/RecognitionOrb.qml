@@ -154,6 +154,14 @@ Item {
             id: circle
             radius: 70
             color: "transparent"
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: Theme.text
+                radius: 70
+                thickness: button.visualFocus ? 2 : 0
+                visible: button.visualFocus
+            }
             Shape {
                 anchors.fill: parent
                 ShapePath {
@@ -177,8 +185,6 @@ Item {
                     }
                 }
             }
-            border.width: button.visualFocus ? 2 : 0
-            border.color: Theme.text
             Loader {
                 anchors.fill: parent
                 active: orb.resourceActive

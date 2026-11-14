@@ -214,8 +214,12 @@ EchoDialog {
                     anchors.fill: parent
                     radius: Theme.cardRadius
                     color: Theme.floating.mutedSurface
-                    border.width: 1
-                    border.color: Theme.floating.subtleBorder
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: Theme.floating.subtleBorder
+                        radius: Theme.cardRadius
+                    }
                 }
                 ColumnLayout {
                     id: taskBody

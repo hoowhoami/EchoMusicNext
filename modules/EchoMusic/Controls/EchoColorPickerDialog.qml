@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Shapes
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 EchoDialog {
@@ -69,8 +70,12 @@ EchoDialog {
                     background: Rectangle {
                         radius: Theme.cardRadius
                         color: picker.normalized
-                        border.width: 1
-                        border.color: Theme.floatingBorder
+                        EchoDashedFrame {
+                            anchors.fill: parent
+                            solid: true
+                            strokeColor: Theme.floatingBorder
+                            radius: Theme.cardRadius
+                        }
                     }
                 }
                 EchoTextField {
@@ -129,9 +134,14 @@ EchoDialog {
                         background: Rectangle {
                             radius: Theme.cardRadius
                             color: swatch.modelData
-                            border.width: swatch.visualFocus ? 2 : 1
-                            // A white-only outline disappears on light swatches/surfaces.
-                            border.color: swatch.visualFocus ? Theme.accent : Theme.floating.controlBorder
+                            EchoDashedFrame {
+                                anchors.fill: parent
+                                solid: true
+                                // A white-only outline disappears on light swatches/surfaces.
+                                strokeColor: swatch.visualFocus ? Theme.accent : Theme.floating.controlBorder
+                                radius: Theme.cardRadius
+                                thickness: swatch.visualFocus ? 2 : 1
+                            }
                         }
                         contentItem: Item {
                             EchoIcon {
@@ -175,14 +185,19 @@ EchoDialog {
                 background: Rectangle {
                     radius: Theme.cardRadius
                     color: picker.dynamicDraft ? Theme.withAlpha(Theme.accent, .1) : Theme.withAlpha(Theme.floating.tone, .05)
-                    border.width: dynamicAction.visualFocus ? 2 : 1
-                    border.color: picker.dynamicDraft ? Theme.withAlpha(Theme.accent, .6) : dynamicAction.hovered || dynamicAction.visualFocus ? Theme.withAlpha(Theme.accent, .4) : Theme.floating.controlBorder
-                    Behavior on color {
-                        ColorAnimation {
-                            duration: Theme.fastDuration
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: picker.dynamicDraft ? Theme.withAlpha(Theme.accent, .6) : dynamicAction.hovered || dynamicAction.visualFocus ? Theme.withAlpha(Theme.accent, .4) : Theme.floating.controlBorder
+                        radius: Theme.cardRadius
+                        thickness: dynamicAction.visualFocus ? 2 : 1
+                        Behavior on strokeColor {
+                            ColorAnimation {
+                                duration: Theme.fastDuration
+                            }
                         }
                     }
-                    Behavior on border.color {
+                    Behavior on color {
                         ColorAnimation {
                             duration: Theme.fastDuration
                         }

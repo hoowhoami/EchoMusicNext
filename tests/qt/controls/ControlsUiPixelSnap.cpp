@@ -332,6 +332,11 @@ Window {
             x: 4.1; y: 44.3; width: 101.6; height: 46.4
             radius: 8; strokeColor: Theme.text
         }
+        EchoDashedFrame {
+            objectName: "thinSolidFrame"
+            x: 4.1; y: 104.5; width: 101.6; height: 46.4
+            radius: 8; strokeColor: Theme.text; solid: true
+        }
     }
 })",
                       QUrl("qrc:/thin-surfaces.qml"));
@@ -343,13 +348,18 @@ Window {
     auto *horizontal = session.item("thinHorizontal");
     auto *vertical = session.item("thinVertical");
     auto *frame = session.item("thinFrame");
-    QVERIFY(host && horizontal && vertical && frame);
+    auto *solidFrame = session.item("thinSolidFrame");
+    QVERIFY(host && horizontal && vertical && frame && solidFrame);
     auto *line = findVisual(horizontal, "dividerAlignedSurface");
     auto *edge = findVisual(vertical, "dividerAlignedSurface");
     auto *outline = findVisual(frame, "dashedFrameAlignedSurface");
     QVERIFY(line && edge && outline);
     auto *raster = qobject_cast<EchoDashedFrameSurface *>(outline);
     QVERIFY(raster);
+    auto *solidOutline = findVisual(solidFrame, "dashedFrameAlignedSurface");
+    QVERIFY(solidOutline);
+    auto *solidRaster = qobject_cast<EchoDashedFrameSurface *>(solidOutline);
+    QVERIFY(solidRaster);
     const auto capture = qEnvironmentVariable("ECHO_THIN_SURFACE_CAPTURES");
     if (!capture.isEmpty())
         QVERIFY(QDir().mkpath(capture));
@@ -362,7 +372,7 @@ Window {
             for (const qreal phase : {0., .2, .6}) {
                 host->setPosition({20.3 + phase, 15.2 + phase});
                 const qreal density = dpr * scale;
-                for (auto *surface : {line, edge, outline}) {
+                for (auto *surface : {line, edge, outline, solidOutline}) {
                     QTRY_VERIFY(integer(surface->mapToScene({}).x() * dpr));
                     QTRY_VERIFY(integer(surface->mapToScene({}).y() * dpr));
                     QTRY_VERIFY(integer(surface->width() * density));
@@ -391,9 +401,15 @@ Window {
                     QCOMPARE(image.pixelColor(left + width / 2, y), session.theme.text());
                 QCOMPARE(image.pixelColor(left + width / 2, top - 1), session.theme.main());
                 QCOMPARE(image.pixelColor(left + width / 2, top + rows), session.theme.main());
+                // The dash band sits inside the logical rectangle by the
+                // frame's stroke insets (at most one device pixel per side),
+                // so derive its top row and left column from the surface's
+                // own insets instead of the snapped box edge.
                 const auto borderOrigin = outline->mapToScene({}) * dpr;
-                const int borderTop = qRound(borderOrigin.y());
-                const int borderLeft = qRound(borderOrigin.x());
+                const int borderTop = qRound(borderOrigin.y()
+                                             + raster->property("strokeInsetTop").value<qreal>());
+                const int borderLeft = qRound(borderOrigin.x()
+                                              + raster->property("strokeInsetLeft").value<qreal>());
                 const int strokeRows = qMax(1, qRound(density));
                 int solidColumns = 0;
                 for (int x = borderLeft + qCeil(12 * density);
@@ -422,15 +438,42 @@ Window {
                                         .arg(image.pixelColor(borderLeft + 20, borderTop).name())));
                 QCOMPARE(raster->lastUploadSize(), QSize(qRound(outline->width() * density),
                                                          qRound(outline->height() * density)));
+                // A solid ring has no dash gaps: every column along the top
+                // run, plus the left and right runs, must be pure stroke with
+                // clean neighbors above, below and across. The stroke sits
+                // inside the logical rectangle by the frame's stroke insets,
+                // so derive its rows from the surface's own insets.
+                const auto solidOrigin = solidOutline->mapToScene({}) * dpr;
+                const int ringTop = qRound(solidOrigin.y()
+                                           + solidRaster->property("strokeInsetTop")
+                                                 .value<qreal>());
+                const int ringLeft = qRound(solidOrigin.x()
+                                            + solidRaster->property("strokeInsetLeft")
+                                                  .value<qreal>());
+                const int ringRight =
+                    qRound(solidOrigin.x() + solidOutline->width() * density
+                           - solidRaster->property("strokeInsetRight").value<qreal>())
+                    - 1;
+                for (int x = ringLeft + qCeil(12 * density);
+                     x < ringLeft + qFloor(85 * density); ++x) {
+                    QCOMPARE(image.pixelColor(x, ringTop), session.theme.text());
+                    QCOMPARE(image.pixelColor(x, ringTop - 1), session.theme.main());
+                    QCOMPARE(image.pixelColor(x, ringTop + strokeRows), session.theme.main());
+                }
+                const int midRow = ringTop + qFloor(20 * density);
+                QCOMPARE(image.pixelColor(ringLeft, midRow), session.theme.text());
+                QCOMPARE(image.pixelColor(ringRight, midRow), session.theme.text());
             }
         }
     }
     const auto uploads = raster->textureUploadCount();
+    const auto solidUploads = solidRaster->textureUploadCount();
     const auto origin = outline->mapToScene({});
     host->setX(host->x() + 4 / dpr);
     QTRY_VERIFY(qAbs(outline->mapToScene({}).x() - origin.x() - 4 / dpr) < 1e-6);
     QVERIFY(!session.window->grabWindow().isNull());
     QCOMPARE(raster->textureUploadCount(), uploads);
+    QCOMPARE(solidRaster->textureUploadCount(), solidUploads);
     frame->setProperty("fillColor", QColor("#4285ab"));
     QTRY_COMPARE(session.window->grabWindow().pixelColor(
                      (frame->mapToScene(frame->boundingRect().center()) * dpr).toPoint()),

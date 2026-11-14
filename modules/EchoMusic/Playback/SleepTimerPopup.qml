@@ -164,8 +164,12 @@ EchoAnchoredPopup {
                                 background: Rectangle {
                                     radius: Theme.controlRadius
                                     color: durationButton.selected ? Theme.withAlpha(Theme.accent, .09) : durationButton.hovered ? Theme.floating.hover : "transparent"
-                                    border.width: 1
-                                    border.color: durationButton.selected ? Theme.mix(Theme.elevated, Theme.accent, .65) : popup.choiceBorder
+                                    EchoDashedFrame {
+                                        anchors.fill: parent
+                                        solid: true
+                                        strokeColor: durationButton.selected ? Theme.mix(Theme.elevated, Theme.accent, .65) : popup.choiceBorder
+                                        radius: Theme.controlRadius
+                                    }
                                 }
                             }
                         }
@@ -204,8 +208,12 @@ EchoAnchoredPopup {
                         background: Rectangle {
                             radius: Theme.controlRadius
                             color: popup.custom ? Theme.withAlpha(Theme.accent, .09) : customButton.hovered ? Theme.floating.hover : "transparent"
-                            border.width: 1
-                            border.color: popup.custom ? Theme.mix(Theme.elevated, Theme.accent, .65) : popup.choiceBorder
+                            EchoDashedFrame {
+                                anchors.fill: parent
+                                solid: true
+                                strokeColor: popup.custom ? Theme.mix(Theme.elevated, Theme.accent, .65) : popup.choiceBorder
+                                radius: Theme.controlRadius
+                            }
                         }
                     }
                     RowLayout {
@@ -333,8 +341,12 @@ EchoAnchoredPopup {
                                 background: Rectangle {
                                     radius: Theme.controlRadius
                                     color: actionButton.selected ? Theme.withAlpha(Theme.accent, .09) : actionButton.hovered ? Theme.floating.hover : "transparent"
-                                    border.width: 1
-                                    border.color: actionButton.selected ? Theme.mix(Theme.elevated, Theme.accent, .65) : popup.choiceBorder
+                                    EchoDashedFrame {
+                                        anchors.fill: parent
+                                        solid: true
+                                        strokeColor: actionButton.selected ? Theme.mix(Theme.elevated, Theme.accent, .65) : popup.choiceBorder
+                                        radius: Theme.controlRadius
+                                    }
                                 }
                             }
                         }

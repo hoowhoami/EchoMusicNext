@@ -74,8 +74,12 @@ Flickable {
             height: feedback.implicitHeight + 20
             radius: Theme.controlRadius
             color: Theme.floating.mutedSurface
-            border.width: 1
-            border.color: Theme.floating.subtleBorder
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: Theme.floating.subtleBorder
+                radius: Theme.controlRadius
+            }
             Column {
                 id: feedback
                 x: 12

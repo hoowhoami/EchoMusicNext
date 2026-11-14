@@ -266,8 +266,14 @@ RoutePage {
                                         background: Rectangle {
                                             radius: 26
                                             color: Theme.accent
-                                            border.width: fmPlayButton.visualFocus ? 2 : 0
-                                            border.color: "white"
+                                            EchoDashedFrame {
+                                                anchors.fill: parent
+                                                solid: true
+                                                strokeColor: "white"
+                                                radius: 26
+                                                thickness: fmPlayButton.visualFocus ? 2 : 0
+                                                visible: fmPlayButton.visualFocus
+                                            }
                                         }
                                         contentItem: Item {
                                             EchoIcon {

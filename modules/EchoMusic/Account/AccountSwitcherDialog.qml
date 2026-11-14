@@ -77,8 +77,12 @@ EchoDialog {
                 height: Math.max(68, accountInfo.implicitHeight + 24)
                 radius: Theme.itemRadius
                 color: isCurrent ? Theme.floating.selected : Theme.floating.mutedSurface
-                border.width: 1
-                border.color: Theme.floating.surfaceOutline
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: Theme.floating.surfaceOutline
+                    radius: Theme.itemRadius
+                }
                 RowLayout {
                     anchors.fill: parent
                     anchors.margins: 12

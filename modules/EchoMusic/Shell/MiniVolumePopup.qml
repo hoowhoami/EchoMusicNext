@@ -80,8 +80,13 @@ EchoAnchoredPopup {
                     height: 10
                     radius: 5
                     color: slider.colors.accent
-                    border.width: slider.visualFocus ? 1 : 0
-                    border.color: slider.colors.text
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: slider.colors.text
+                        radius: 5
+                        visible: slider.visualFocus
+                    }
                 }
             }
             EchoTextLine {
