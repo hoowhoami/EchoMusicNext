@@ -27,6 +27,10 @@ class EchoDashedFrameSurface : public QQuickItem
     Q_PROPERTY(qreal strokeInsetRight MEMBER m_strokeInsetRight NOTIFY appearanceChanged)
     Q_PROPERTY(qreal strokeInsetBottom MEMBER m_strokeInsetBottom NOTIFY appearanceChanged)
     Q_PROPERTY(QSize pixelSize MEMBER m_pixelSize NOTIFY appearanceChanged)
+    // True when the surface box sits on the device grid: its texture may use
+    // nearest sampling. An unaligned box composites at a fractional offset
+    // and needs linear filtering regardless of its texture resolution.
+    Q_PROPERTY(bool pixelAligned MEMBER m_pixelAligned NOTIFY appearanceChanged)
 public:
     explicit EchoDashedFrameSurface(QQuickItem *parent = nullptr);
     // Native diagnostics for verifying reuse, without per-frame GUI signals.
@@ -50,6 +54,7 @@ private:
     qreal m_strokeInsetLeft = 0, m_strokeInsetTop = 0, m_strokeInsetRight = 0,
           m_strokeInsetBottom = 0;
     QSize m_pixelSize;
+    bool m_pixelAligned = false;
     quint64 m_revision = 1;
     std::atomic<quint64> m_uploadCount{0}, m_lastSize{0};
 };

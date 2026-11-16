@@ -6,6 +6,7 @@
 #include <QSGSimpleTextureNode>
 #include <QSGTexture>
 #include <QtMath>
+#include <cmath>
 
 namespace EchoMusic
 {
@@ -45,21 +46,46 @@ QSGNode *EchoDashedFrameSurface::updatePaintNode(QSGNode *previous, UpdatePaintN
         delete previous;
         return nullptr;
     }
+    // An invisible frame (transparent fill, no stroke) must not own a
+    // texture: dialogs whose fill an independent painter draws and skins
+    // that disable the border would otherwise upload a fully transparent
+    // full-size image on every appearance change.
+    const bool strokeVisible = m_thickness > 0 && m_strokeColor.alpha() > 0
+                               && (m_solid || m_dashLength > 0);
+    if (!strokeVisible && m_backgroundColor.alpha() <= 0) {
+        delete previous;
+        return nullptr;
+    }
     // An explicit size avoids Canvas's intermediate integer-DIP rounding.
-    // The unsnapped fallback retains the window-DPR rasterization policy.
-    const QSize pixels = m_pixelSize.isEmpty()
-                             ? QSize(qCeil(width() * window()->effectiveDevicePixelRatio()),
-                                     qCeil(height() * window()->effectiveDevicePixelRatio()))
-                             : m_pixelSize;
+    // The unsnapped fallback still rasterizes at the surface's true screen
+    // density: window DPR times the ancestor scale chain, so zoomed popups
+    // and rotated surfaces keep device-resolution edges instead of an
+    // interpolated upscale.
+    const qreal dpr = window()->effectiveDevicePixelRatio();
+    QSize pixels = m_pixelSize;
+    if (pixels.isEmpty()) {
+        const QPointF origin = mapToScene(QPointF(0, 0));
+        const QPointF unitX = mapToScene(QPointF(1, 0)) - origin;
+        const QPointF unitY = mapToScene(QPointF(0, 1)) - origin;
+        const qreal lenX = std::hypot(unitX.x(), unitX.y());
+        const qreal lenY = std::hypot(unitY.x(), unitY.y());
+        const qreal densityX =
+            qIsFinite(lenX) && lenX > 0.001 ? dpr * lenX : dpr;
+        const qreal densityY =
+            qIsFinite(lenY) && lenY > 0.001 ? dpr * lenY : dpr;
+        pixels = QSize(qCeil(width() * densityX), qCeil(height() * densityY));
+    }
     auto *node = static_cast<FrameNode *>(previous);
     if (!node) {
         node = new FrameNode;
         node->setOwnsTexture(true);
     }
-    // The snapped image is already at the final device resolution. Nearest
-    // sampling prevents interpolation from reintroducing fractional coverage
-    // (including finite-precision UV offsets) along its one-pixel edges.
-    node->setFiltering(m_pixelSize.isEmpty() ? QSGTexture::Linear : QSGTexture::Nearest);
+    // A device-grid image samples nearest so interpolation cannot
+    // reintroduce fractional coverage (including finite-precision UV
+    // offsets) along its one-pixel edges. An unaligned box composites at a
+    // fractional device offset and keeps linear filtering regardless of its
+    // texture resolution.
+    node->setFiltering(m_pixelAligned ? QSGTexture::Nearest : QSGTexture::Linear);
     if (node->revision != m_revision || node->pixels != pixels) {
         QImage image(pixels, QImage::Format_ARGB32_Premultiplied);
         if (image.isNull()) {

@@ -337,6 +337,17 @@ Window {
             x: 4.1; y: 104.5; width: 101.6; height: 46.4
             radius: 8; strokeColor: Theme.text; solid: true
         }
+        EchoDashedFrame {
+            objectName: "thinLooseFrame"
+            x: 260.1; y: 44.3; width: 101.6; height: 46.4
+            radius: 8; strokeColor: Theme.text; solid: true
+            pixelAligned: false
+        }
+        EchoDashedFrame {
+            objectName: "thinGhostFrame"
+            x: 260.1; y: 104.5; width: 101.6; height: 46.4
+            radius: 8; thickness: 0
+        }
     }
 })",
                       QUrl("qrc:/thin-surfaces.qml"));
@@ -360,6 +371,14 @@ Window {
     QVERIFY(solidOutline);
     auto *solidRaster = qobject_cast<EchoDashedFrameSurface *>(solidOutline);
     QVERIFY(solidRaster);
+    auto *looseFrame = session.item("thinLooseFrame");
+    auto *ghostFrame = session.item("thinGhostFrame");
+    QVERIFY(looseFrame && ghostFrame);
+    auto *looseRaster = qobject_cast<EchoDashedFrameSurface *>(
+        findVisual(looseFrame, "dashedFrameAlignedSurface"));
+    auto *ghostRaster = qobject_cast<EchoDashedFrameSurface *>(
+        findVisual(ghostFrame, "dashedFrameAlignedSurface"));
+    QVERIFY(looseRaster && ghostRaster);
     const auto capture = qEnvironmentVariable("ECHO_THIN_SURFACE_CAPTURES");
     if (!capture.isEmpty())
         QVERIFY(QDir().mkpath(capture));
@@ -384,6 +403,15 @@ Window {
                 QTRY_COMPARE(qRound(edge->width() * density), qMax(1, qRound(density)));
                 const auto image = session.window->grabWindow();
                 QVERIFY(!image.isNull());
+                // Position alignment and raster density are independent: an
+                // unaligned frame still rasterizes at full device density,
+                // and a frame with neither stroke nor fill never uploads.
+                QCOMPARE(looseRaster->property("pixelAligned").toBool(), false);
+                QCOMPARE(looseRaster->lastUploadSize(),
+                         QSize(qRound(looseFrame->width() * density),
+                               qRound(looseFrame->height() * density)));
+                QCOMPARE(ghostRaster->textureUploadCount(), quint64(0));
+                QVERIFY(ghostRaster->lastUploadSize().isEmpty());
                 if (!capture.isEmpty())
                     QVERIFY(image.save(
                         capture + QString("/%1-%2-%3.png").arg(int(mode)).arg(scale).arg(phase)));

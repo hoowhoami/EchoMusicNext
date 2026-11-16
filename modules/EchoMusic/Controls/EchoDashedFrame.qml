@@ -56,7 +56,17 @@ Item {
             y: frame.snap ? (Math.floor(frame.scene.y * frame.dpr) - frame.scene.y * frame.dpr) / frame.densityY : 0
             width: frame.snap ? Math.max(0, Math.ceil(frame.scene.x * frame.dpr + frame.width * frame.densityX) - Math.floor(frame.scene.x * frame.dpr)) / frame.densityX : frame.width
             height: frame.snap ? Math.max(0, Math.ceil(frame.scene.y * frame.dpr + frame.height * frame.densityY) - Math.floor(frame.scene.y * frame.dpr)) / frame.densityY : frame.height
-            pixelSize: frame.snap ? Qt.size(Math.max(1, Math.round(width * frame.densityX)), Math.max(1, Math.round(height * frame.densityY))) : Qt.size(0, 0)
+            // Position alignment and raster density are independent: an
+            // unaligned surface still rasterizes at full device density
+            // (window DPR times the ancestor scale chain), so frosted and
+            // smooth-corner recipes under application zoom keep crisp
+            // strokes. Without the snap tracker the surface derives the
+            // density from the scene graph itself.
+            pixelSize: EchoPixelSnap.enabled
+                ? Qt.size(Math.max(1, Math.round(width * frame.densityX)),
+                          Math.max(1, Math.round(height * frame.densityY)))
+                : Qt.size(0, 0)
+            pixelAligned: frame.snap
             thickness: frame.thickness <= 0 ? 0 : frame.snap ? Math.max(1, Math.round(frame.thickness * frame.densityY)) / frame.densityY : frame.thickness
             radius: frame.radius
             dashLength: frame.dashLength
