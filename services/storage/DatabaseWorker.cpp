@@ -1,4 +1,5 @@
 #include "DatabaseWorker.h"
+#include "SqlDiagnostics.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QSqlError>
@@ -39,30 +40,35 @@ void DatabaseWorker::initialize(const QString &path)
     m_database.setDatabaseName(path);
     m_database.setConnectOptions(QStringLiteral("QSQLITE_BUSY_TIMEOUT=5000"));
     if (!m_database.open()) {
-        emit failed(m_database.lastError().text());
+        emit failed(SqlDiagnostics::failure(m_database, "open", m_database.lastError()));
         return;
     }
     QSqlQuery query(m_database);
     for (const auto &sql :
          {"PRAGMA foreign_keys=ON", "PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL"}) {
         if (!query.exec(QString::fromLatin1(sql))) {
-            emit failed(query.lastError().text());
+            emit failed(
+                SqlDiagnostics::failure(m_database, "initialize.configure_wal", query.lastError()));
             return;
         }
     }
     if (!query.exec(QStringLiteral("PRAGMA user_version")) || !query.next()) {
-        emit failed(query.lastError().text());
+        emit failed(
+            tr("无法读取数据库版本：%1")
+                .arg(SqlDiagnostics::failure(m_database, "read_user_version", query.lastError())));
         return;
     }
     const int version = query.value(0).toInt();
     query.finish();
     if (version > 6) {
-        emit failed(QStringLiteral("数据库版本比当前应用更新"));
+        SqlDiagnostics::unsupportedVersion(m_database, version, 6);
+        emit failed(tr("数据库版本比当前应用更新（实际版本 %1，当前支持至 6）").arg(version));
         return;
     }
     if (version < 6) {
         if (!m_database.transaction()) {
-            emit failed(QStringLiteral("无法初始化本地存储"));
+            emit failed(
+                SqlDiagnostics::failure(m_database, "initialize.begin", m_database.lastError()));
             return;
         }
         // Credential storage is intentionally replaced, never imported. Keep
@@ -91,14 +97,18 @@ void DatabaseWorker::initialize(const QString &path)
               "KEY(account_id,cloud_list_id))",
               "PRAGMA user_version=6"}) {
             if (!query.exec(QString::fromLatin1(sql))) {
+                const auto message = SqlDiagnostics::failure(
+                    m_database, "initialize.upgrade_schema", query.lastError());
                 m_database.rollback();
-                emit failed(QStringLiteral("无法初始化本地存储"));
+                emit failed(message);
                 return;
             }
         }
         if (!m_database.commit()) {
+            const auto message =
+                SqlDiagnostics::failure(m_database, "initialize.commit", m_database.lastError());
             m_database.rollback();
-            emit failed(QStringLiteral("无法初始化本地存储"));
+            emit failed(message);
             return;
         }
     }
@@ -115,12 +125,18 @@ void DatabaseWorker::loadPlaylistCovers(quint64 request, quint64 account)
         "SELECT cloud_list_id,revision,cover_url FROM playlist_auto_covers WHERE account_id=?");
     q.addBindValue(QVariant::fromValue(account));
     if (!q.exec()) {
+        SqlDiagnostics::failure(m_database, "load_playlist_covers", q.lastError());
         emit playlistCoversFailed(QStringLiteral("无法读取歌单封面缓存"));
         return;
     }
     StoredPlaylistCovers covers;
     while (q.next())
         covers.append({q.value(0).toULongLong(), q.value(1).toULongLong(), q.value(2).toString()});
+    if (q.lastError().isValid()) {
+        SqlDiagnostics::failure(m_database, "load_playlist_covers.fetch", q.lastError());
+        emit playlistCoversFailed(QStringLiteral("无法读取歌单封面缓存"));
+        return;
+    }
     emit playlistCoversReady(request, account, covers);
 }
 void DatabaseWorker::savePlaylistCover(quint64 account, const StoredPlaylistCover &cover)
@@ -135,8 +151,10 @@ void DatabaseWorker::savePlaylistCover(quint64 account, const StoredPlaylistCove
     q.addBindValue(QVariant::fromValue(cover.listId));
     q.addBindValue(QVariant::fromValue(cover.revision));
     q.addBindValue(cover.url);
-    if (!q.exec())
+    if (!q.exec()) {
+        SqlDiagnostics::failure(m_database, "save_playlist_cover", q.lastError());
         emit playlistCoversFailed(QStringLiteral("无法保存歌单封面缓存"));
+    }
 }
 void DatabaseWorker::publishHistory()
 {
@@ -144,12 +162,18 @@ void DatabaseWorker::publishHistory()
     QSqlQuery query(m_database);
     if (!query.exec(QStringLiteral(
             "SELECT query FROM recent_searches ORDER BY searched_at_ms DESC LIMIT 20"))) {
+        SqlDiagnostics::failure(m_database, "load_search_history", query.lastError());
         emit historyFailed(QStringLiteral("无法读取搜索历史"));
         return;
     }
     QStringList history;
     while (query.next())
         history.append(query.value(0).toString());
+    if (query.lastError().isValid()) {
+        SqlDiagnostics::failure(m_database, "load_search_history.fetch", query.lastError());
+        emit historyFailed(QStringLiteral("无法读取搜索历史"));
+        return;
+    }
     emit historyReady(history);
 }
 void DatabaseWorker::recordSearch(const QString &text)
@@ -158,6 +182,7 @@ void DatabaseWorker::recordSearch(const QString &text)
     if (!m_database.isOpen() || text.trimmed().isEmpty())
         return;
     if (!m_database.transaction()) {
+        SqlDiagnostics::failure(m_database, "record_search.begin", m_database.lastError());
         emit historyFailed(QStringLiteral("无法保存搜索历史"));
         return;
     }
@@ -167,21 +192,35 @@ void DatabaseWorker::recordSearch(const QString &text)
     bool ok =
         query.exec(QStringLiteral("SELECT COALESCE(MAX(searched_at_ms),0) FROM recent_searches")) &&
         query.next();
+    if (!ok)
+        SqlDiagnostics::failure(m_database, "record_search.read_recency", query.lastError());
     const qint64 timestamp =
         qMax(QDateTime::currentMSecsSinceEpoch(), query.value(0).toLongLong() + 1);
     query.finish();
-    ok = ok && query.prepare(QStringLiteral(
-                   "INSERT INTO recent_searches(query,searched_at_ms) VALUES(?,?) ON "
-                   "CONFLICT(query) DO UPDATE SET searched_at_ms=excluded.searched_at_ms"));
-    query.addBindValue(text.trimmed());
-    query.addBindValue(timestamp);
-    ok = ok && query.exec();
+    if (ok) {
+        ok = query.prepare(
+            QStringLiteral("INSERT INTO recent_searches(query,searched_at_ms) VALUES(?,?) ON "
+                           "CONFLICT(query) DO UPDATE SET searched_at_ms=excluded.searched_at_ms"));
+        query.addBindValue(text.trimmed());
+        query.addBindValue(timestamp);
+        ok = ok && query.exec();
+        if (!ok)
+            SqlDiagnostics::failure(m_database, "record_search.write", query.lastError());
+    }
     query.finish();
-    ok = ok &&
-         query.exec(QStringLiteral("DELETE FROM recent_searches WHERE query NOT IN (SELECT query "
-                                   "FROM recent_searches ORDER BY searched_at_ms DESC LIMIT 20)"));
+    if (ok) {
+        ok = query.exec(
+            QStringLiteral("DELETE FROM recent_searches WHERE query NOT IN (SELECT query "
+                           "FROM recent_searches ORDER BY searched_at_ms DESC LIMIT 20)"));
+        if (!ok)
+            SqlDiagnostics::failure(m_database, "record_search.trim", query.lastError());
+    }
     query.finish();
-    if (!ok || !m_database.commit()) {
+    if (ok && !m_database.commit()) {
+        SqlDiagnostics::failure(m_database, "record_search.commit", m_database.lastError());
+        ok = false;
+    }
+    if (!ok) {
         m_database.rollback();
         emit historyFailed(QStringLiteral("无法保存搜索历史"));
         return;
@@ -197,6 +236,7 @@ void DatabaseWorker::removeSearch(const QString &text)
     query.prepare(QStringLiteral("DELETE FROM recent_searches WHERE query=?"));
     query.addBindValue(text);
     if (!query.exec()) {
+        SqlDiagnostics::failure(m_database, "remove_search", query.lastError());
         emit historyFailed(QStringLiteral("无法删除搜索历史"));
         return;
     }
@@ -210,6 +250,7 @@ void DatabaseWorker::clearSearches()
         return;
     QSqlQuery query(m_database);
     if (!query.exec(QStringLiteral("DELETE FROM recent_searches"))) {
+        SqlDiagnostics::failure(m_database, "clear_searches", query.lastError());
         emit historyFailed(QStringLiteral("无法清空搜索历史"));
         return;
     }
@@ -222,17 +263,25 @@ bool DatabaseWorker::readAccounts(StoredAccounts &accounts, quint64 &active)
     if (!query.exec(QStringLiteral("SELECT "
                                    "user_id,nickname,avatar_url,token,last_used_at_ms,avatar_"
                                    "identity_kind,refresh_credential,expires_at_seconds "
-                                   "FROM accounts ORDER BY last_used_at_ms DESC,user_id")))
+                                   "FROM accounts ORDER BY last_used_at_ms DESC,user_id"))) {
+        SqlDiagnostics::failure(m_database, "read_accounts", query.lastError());
         return false;
+    }
     while (query.next())
         accounts.append({query.value(0).toULongLong(), query.value(1).toString(),
                          query.value(2).toString(), query.value(3).toString(),
                          query.value(4).toLongLong(), query.value(5).toString(),
                          query.value(6).toString(), query.value(7).toLongLong()});
+    if (query.lastError().isValid()) {
+        SqlDiagnostics::failure(m_database, "read_accounts.fetch", query.lastError());
+        return false;
+    }
     query.finish();
     if (!query.exec(QStringLiteral("SELECT account_id FROM account_selection WHERE singleton=1")) ||
-        !query.next())
+        !query.next()) {
+        SqlDiagnostics::failure(m_database, "read_account_selection", query.lastError());
         return false;
+    }
     active = query.value(0).toULongLong();
     return true;
 }
@@ -252,7 +301,12 @@ void DatabaseWorker::commitAccounts(quint64 operation, bool statementsSucceeded)
     // readback rolls back credentials and catalog together.
     StoredAccounts accounts;
     quint64 active = 0;
-    if (!statementsSucceeded || !readAccounts(accounts, active) || !m_database.commit()) {
+    bool ok = statementsSucceeded && readAccounts(accounts, active);
+    if (ok && !m_database.commit()) {
+        SqlDiagnostics::failure(m_database, "accounts.commit", m_database.lastError());
+        ok = false;
+    }
+    if (!ok) {
         m_database.rollback();
         emit accountsFailed(operation);
         return;
@@ -262,7 +316,12 @@ void DatabaseWorker::commitAccounts(quint64 operation, bool statementsSucceeded)
 void DatabaseWorker::saveAccount(quint64 operation, const StoredAccount &account, bool active)
 {
     Q_ASSERT(QThread::currentThread() == thread());
-    if (!account.userId || account.token.isEmpty() || !m_database.transaction()) {
+    if (!account.userId || account.token.isEmpty()) {
+        emit accountsFailed(operation);
+        return;
+    }
+    if (!m_database.transaction()) {
+        SqlDiagnostics::failure(m_database, "save_account.begin", m_database.lastError());
         emit accountsFailed(operation);
         return;
     }
@@ -285,12 +344,16 @@ void DatabaseWorker::saveAccount(quint64 operation, const StoredAccount &account
     query.addBindValue(account.expiresAtSeconds);
     query.addBindValue(account.lastUsedAt);
     ok = ok && query.exec();
+    if (!ok)
+        SqlDiagnostics::failure(m_database, "save_account.write", query.lastError());
     query.finish();
-    if (active) {
+    if (active && ok) {
         ok = ok && query.prepare(QStringLiteral(
                        "UPDATE account_selection SET account_id=? WHERE singleton=1"));
         query.addBindValue(QVariant::fromValue(account.userId));
         ok = ok && query.exec();
+        if (!ok)
+            SqlDiagnostics::failure(m_database, "save_account.select", query.lastError());
         query.finish();
     }
     commitAccounts(operation, ok);
@@ -299,6 +362,7 @@ void DatabaseWorker::selectAccount(quint64 operation, quint64 userId)
 {
     Q_ASSERT(QThread::currentThread() == thread());
     if (!m_database.transaction()) {
+        SqlDiagnostics::failure(m_database, "select_account.begin", m_database.lastError());
         emit accountsFailed(operation);
         return;
     }
@@ -307,6 +371,8 @@ void DatabaseWorker::selectAccount(quint64 operation, quint64 userId)
         QStringLiteral("UPDATE account_selection SET account_id=? WHERE singleton=1"));
     query.addBindValue(userId ? QVariant::fromValue(userId) : QVariant());
     ok = ok && query.exec();
+    if (!ok)
+        SqlDiagnostics::failure(m_database, "select_account.write", query.lastError());
     query.finish();
     commitAccounts(operation, ok);
 }
@@ -314,6 +380,7 @@ void DatabaseWorker::removeAccount(quint64 operation, quint64 userId)
 {
     Q_ASSERT(QThread::currentThread() == thread());
     if (!m_database.transaction()) {
+        SqlDiagnostics::failure(m_database, "remove_account.begin", m_database.lastError());
         emit accountsFailed(operation);
         return;
     }
@@ -321,6 +388,8 @@ void DatabaseWorker::removeAccount(quint64 operation, quint64 userId)
     bool ok = query.prepare(QStringLiteral("DELETE FROM accounts WHERE user_id=?"));
     query.addBindValue(QVariant::fromValue(userId));
     ok = ok && query.exec();
+    if (!ok)
+        SqlDiagnostics::failure(m_database, "remove_account.write", query.lastError());
     query.finish();
     commitAccounts(operation, ok);
 }
@@ -330,6 +399,8 @@ void DatabaseWorker::updateAccountIdentity(quint64 userId, const QString &kind)
     if (!userId || (kind != "" && kind != "talent" && kind != "singer"))
         return;
     if (!m_database.transaction()) {
+        SqlDiagnostics::failure(m_database, "update_account_identity.begin",
+                                m_database.lastError());
         emit accountsFailed(0);
         return;
     }
@@ -339,6 +410,8 @@ void DatabaseWorker::updateAccountIdentity(quint64 userId, const QString &kind)
     query.addBindValue(kind.isNull() ? QStringLiteral("") : kind);
     query.addBindValue(QVariant::fromValue(userId));
     ok = ok && query.exec();
+    if (!ok)
+        SqlDiagnostics::failure(m_database, "update_account_identity.write", query.lastError());
     query.finish();
     commitAccounts(0, ok);
 }

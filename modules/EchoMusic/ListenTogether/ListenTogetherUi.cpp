@@ -20,7 +20,7 @@ ListenSongPicker::ListenSongPicker(ApiClient &api, PlaybackService &player,
             return;
         m_request = 0;
         m_loading = false;
-        m_error = ApiClient::errorMessage(bytes);
+        m_error = ApiClient::errorMessage(bytes, tr("歌曲列表加载失败，请重试"));
         emit changed();
     });
     connect(&api, &ApiClient::sessionChanged, this, [this] {

@@ -26,8 +26,7 @@ PersonalFmController::PersonalFmController(PlaybackService &playback, ApiClient 
     m_pool = qBound(0, settings.value(EchoMusic::SettingsKeys::PersonalFm::SongPool, 0).toInt(), 2);
     connect(&api, &ApiClient::succeeded, this, &PersonalFmController::succeeded);
     connect(&api, &ApiClient::failed, this, [this](quint64 id, int, const QByteArray &bytes) {
-        failed(id, QJsonDocument::fromJson(bytes).object().value("message").toString(
-                       tr("私人 FM 加载失败")));
+        failed(id, ApiClient::errorMessage(bytes, tr("私人 FM 加载失败")));
     });
     connect(&api, &ApiClient::sessionChanged, this, &PersonalFmController::resetSession);
     connect(&playback, &PlaybackService::changed, this, &PersonalFmController::playbackChanged);

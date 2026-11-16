@@ -1390,6 +1390,25 @@ private slots:
         QTest::qWait(50);
         QCOMPARE(failure.size(), 3);
     }
+    void businessFailuresUseOperationTextInsteadOfAbstractRejection()
+    {
+        const QByteArray generic =
+            R"({"kind":"business","message":"音乐服务拒绝了请求","code":20017})";
+        QCOMPARE(ApiClient::errorMessage(generic, QStringLiteral("个人资料加载失败")),
+                 QStringLiteral("个人资料加载失败"));
+        QVERIFY(ApiClient::errorMessage(generic).isEmpty());
+        QCOMPARE(ApiClient::errorMessage(R"({"kind":"business","code":20017})",
+                                         QStringLiteral("收藏歌曲加载失败")),
+                 QStringLiteral("收藏歌曲加载失败"));
+        QCOMPARE(
+            ApiClient::errorMessage(R"({"kind":"business","message":"歌单已被删除","code":404})",
+                                    QStringLiteral("歌单加载失败")),
+            QStringLiteral("歌单已被删除（错误码 404）"));
+        QCOMPARE(
+            ApiClient::errorMessage(
+                R"({"kind":"authentication","message":"账号认证无效，请重新登录","code":35005})"),
+            QStringLiteral("账号认证无效，请重新登录（错误码 35005）"));
+    }
     void reportOnlyVerificationAndAnonymousAuthenticationNeverPromptForCurrentAccount()
     {
         ApiClient client;

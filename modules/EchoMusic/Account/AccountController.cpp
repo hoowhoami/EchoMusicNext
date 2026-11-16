@@ -13,6 +13,16 @@ AccountController::AccountController(ApiClient &api, AccountService &account,
     : QObject(parent), m_api(api), m_qq(api, this), m_wechat(api, this), m_verification(api, this),
       m_account(account), m_saved(saved), m_qr(qr), m_playlists(playlists), m_online(online)
 {
+    connect(&api, &ApiClient::authenticationExpired, this, [this] {
+        // ApiClient already checks the request's account/credential snapshot.
+        // Keep the account until the user chooses to log in, as in EchoMusic.
+        if (m_shuttingDown || m_open || !m_account.userId() || m_sessionExpiredOpen ||
+            (m_expiredNotification.isValid() && m_expiredNotification.elapsed() < 5000))
+            return;
+        m_expiredNotification.start();
+        m_sessionExpiredOpen = true;
+        emit changed();
+    });
     connect(&m_verification, &VerificationService::loginRequested, this, [this](quint64 request) {
         const auto candidate = m_saved.switchingUserId();
         if (candidate && m_saved.ownsSwitchRequest(request)) {
@@ -64,6 +74,8 @@ AccountController::AccountController(ApiClient &api, AccountService &account,
         closeLogin();
     });
     connect(&account, &AccountService::sessionAdopted, this, [this] {
+        m_expiredNotification.invalidate();
+        dismissSessionExpired();
         closeLogin();
         if (m_online) {
             m_account.loadProfileOnce();
@@ -133,13 +145,7 @@ AccountController::AccountController(ApiClient &api, AccountService &account,
         const auto error = QJsonDocument::fromJson(payload).object();
         m_error = error.value("kind") == QStringLiteral("cancelled")
                       ? tr("已取消安全验证")
-                      : error.value("message").toString();
-        if (m_error.isEmpty())
-            m_error = tr("登录请求失败，请稍后重试");
-        // Unknown service codes must remain explicit instead of being guessed
-        // to mean a password error. The same code is available in runtime logs.
-        if (error.value("code").isDouble())
-            m_error += tr("（错误码 %1）").arg(error.value("code").toInteger());
+                      : ApiClient::errorMessage(payload, tr("登录请求失败，请稍后重试"));
         emit changed();
     });
     connect(&api, &ApiClient::verificationRequired, this, [this](quint64 id, const QString &) {
@@ -149,6 +155,8 @@ AccountController::AccountController(ApiClient &api, AccountService &account,
         emit changed();
     });
     connect(&api, &ApiClient::sessionChanged, this, [this] {
+        m_expiredNotification.invalidate();
+        dismissSessionExpired();
         if (m_open && m_loginRevision != m_api.sessionRevision())
             closeLogin();
     });
@@ -192,6 +200,7 @@ void AccountController::openLogin()
 {
     if (m_shuttingDown)
         return;
+    dismissSessionExpired();
     closeLogin();
     m_saved.cancelSwitch();
     m_saved.suppressStartupRestoration();
@@ -201,6 +210,12 @@ void AccountController::openLogin()
     m_error.clear();
     if (m_online)
         m_qr.start();
+    emit changed();
+}
+void AccountController::dismissSessionExpired()
+{
+    if (!std::exchange(m_sessionExpiredOpen, false))
+        return;
     emit changed();
 }
 void AccountController::closeLogin()
@@ -337,6 +352,7 @@ void AccountController::openAccountPanel()
 void AccountController::shutdown()
 {
     m_shuttingDown = true;
+    dismissSessionExpired();
     closeLogin();
     m_verification.shutdown();
 }

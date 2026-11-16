@@ -863,6 +863,12 @@ impl ApiClient {
         }
         // Inspect challenge metadata before HTTP/business converters. Headers
         // are case-insensitive; never discard the event or fabricate sid/edt.
+        // Match EchoMusic's global expiration rules even on HTTP error bodies
+        // or endpoints whose success DTO cannot decode the failure envelope.
+        // Interceptor responses are not evidence about the real login session.
+        if !intercepted && let Some(error) = authentication_expiration(&bytes) {
+            return Err(error.with_diagnostics(diagnostics("response_status", bytes.len())));
+        }
         if let Some(challenge) = super::verification::challenge(event.as_deref(), &bytes) {
             let mut error = ApiError::challenge(challenge);
             // The header is an event identifier, not an implied business code.
@@ -886,6 +892,28 @@ impl ApiClient {
     }
 }
 
+fn authentication_expiration(bytes: &[u8]) -> Option<ApiError> {
+    #[derive(Deserialize)]
+    struct Expiration {
+        #[serde(default)]
+        error_code: serde_json::Value,
+        #[serde(default)]
+        msg: serde_json::Value,
+    }
+    let envelope: Expiration = serde_json::from_slice(bytes).ok()?;
+    let code = super::response::from_value::<i64>(envelope.error_code).ok();
+    let expired_message = envelope
+        .msg
+        .as_str()
+        .is_some_and(|msg| msg.contains("登录已过期"));
+    if code != Some(20018) && !expired_message {
+        return None;
+    }
+    let mut error = ApiError::new("authentication", "账号认证无效，请重新登录");
+    error.code = code;
+    Some(error)
+}
+
 pub fn unix_milliseconds() -> Result<u64, ApiError> {
     let time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -902,6 +930,12 @@ pub fn unix_seconds() -> Result<u64, ApiError> {
 }
 pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
     super::failure_diagnostics::decoded(bytes);
+    // Encrypted endpoint bodies only expose their business envelope here.
+    if super::interception::HOST_HOOK.try_with(|_| ()).is_err()
+        && let Some(error) = authentication_expiration(bytes)
+    {
+        return Err(error);
+    }
     serde_json::from_slice(bytes).map_err(|_| ApiError::decode())
 }
 /// Report only whitelisted protocol field names and array positions. Never
@@ -952,6 +986,126 @@ pub fn success(status: u32, code: i64) -> Result<(), ApiError> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn authentication_expiration_precedes_http_and_endpoint_decoding() {
+        use std::io::{Read, Write};
+        // Transport control envelopes, not new provider response samples.
+        for (status, body) in [
+            ("200 OK", r#"{"error_code":20018,"data":"expired"}"#),
+            ("502 Bad Gateway", r#"{"error_code":"20018"}"#),
+            ("200 OK", r#"{"msg":"用户登录已过期，请重新登录"}"#),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    let mut buffer = [0; 1024];
+                    let count = socket.read(&mut buffer).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                write!(
+                    socket,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            });
+            let mut client = ApiClient::new().unwrap();
+            client.base_url = format!("http://{address}");
+            let identity = serde_json::from_value(serde_json::json!({
+                "mid":"fixture-mid", "dfid":"fixture-dfid"
+            }))
+            .unwrap();
+            let error = client
+                .request(
+                    &identity,
+                    "/fixture",
+                    None,
+                    Method::GET,
+                    BTreeMap::new(),
+                    vec![],
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.kind, "authentication");
+            assert_eq!(
+                error.code,
+                if body.contains("20018") {
+                    Some(20018)
+                } else {
+                    None
+                }
+            );
+            assert_eq!(error.diagnostics.unwrap().phase, "response_status");
+            server.join().unwrap();
+        }
+        for body in [
+            br#"{"error_code":20010,"msg":"permission denied"}"#.as_slice(),
+            br#"{"error_code":20028,"ssaCode":"event"}"#.as_slice(),
+            br#"{"status":1,"data":{"error_code":20018}}"#.as_slice(),
+            br#"{"msg":"login failed"}"#.as_slice(),
+            b"not JSON".as_slice(),
+        ] {
+            assert!(super::authentication_expiration(body).is_none());
+        }
+        let decoded = super::decode::<serde_json::Value>(br#"{"error_code":20018}"#).unwrap_err();
+        assert_eq!(decoded.kind, "authentication");
+    }
+    #[tokio::test]
+    async fn authentication_expiration_ignores_interceptor_responses() {
+        use super::super::interception::{Exchange, HOST_HOOK, Hook};
+        use base64::Engine;
+        let body = br#"{"error_code":20018,"data":null}"#;
+        let hook = std::sync::Arc::new(Hook {
+            operation: "fixture".into(),
+            open: Box::new(move |_| {
+                Box::pin(async move {
+                    let (sender, replies) = tokio::sync::mpsc::unbounded_channel();
+                    sender
+                        .send(serde_json::json!({"action":"respond", "response":{
+                            "status":200,"headers":{},
+                            "bodyBase64":base64::engine::general_purpose::STANDARD.encode(body)
+                        }}))
+                        .unwrap();
+                    Ok(Exchange {
+                        replies,
+                        notify: Box::new(|_, _| {}),
+                        _guard: Box::new(()),
+                    })
+                })
+            }),
+        });
+        HOST_HOOK
+            .scope(hook, async {
+                let client = ApiClient::new().unwrap();
+                let identity = serde_json::from_value(serde_json::json!({
+                    "mid":"fixture-mid", "dfid":"fixture-dfid"
+                }))
+                .unwrap();
+                let bytes = client
+                    .request(
+                        &identity,
+                        "/fixture",
+                        None,
+                        Method::GET,
+                        BTreeMap::new(),
+                        vec![],
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    super::decode::<serde_json::Value>(&bytes).unwrap()["error_code"],
+                    20018
+                );
+            })
+            .await;
+    }
     #[tokio::test]
     async fn private_history_discovers_both_tag_orders_and_merges_message_ids() {
         // Controlled wire cases derived from the sampled text-history shape.

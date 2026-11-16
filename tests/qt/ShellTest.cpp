@@ -884,6 +884,136 @@ QtObject {
         routes.shutdown();
         windows.shutdown();
     }
+    void productionAuthenticationExpiredDialogAndSessionIsolation()
+    {
+        QTemporaryDir directory;
+        SettingsStore preferences(directory.filePath("settings.ini"));
+        ThemeStore theme(preferences);
+        theme.setMotionEnabled(false);
+        ShellSettings shell(preferences);
+        shell.setMotionEnabled(false);
+        WindowController windows(preferences, false);
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1)); // No real account/network requests.
+        Test::AccountUiFixture accounts(api);
+        QSignalSpy ready(&accounts.storage, &StorageService::accountsReady);
+        accounts.storage.initialize(directory.filePath("accounts.sqlite"));
+        QTRY_COMPARE(ready.size(), 1);
+        const auto adopt = [&](qint64 user, const QString &token) {
+            return accounts.account.adoptLoginAuthorization(
+                QJsonDocument(QJsonObject{{"user_id", user},
+                                          {"token", token},
+                                          {"nickname", "UI control account"}})
+                    .toJson());
+        };
+        QVERIFY(adopt(1, "initial-token"));
+        QTRY_VERIFY(!accounts.saved.busy());
+        SearchModel search(api);
+        RouteController routes;
+        ShellController shellController(preferences, routes);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"libraryController", QVariant::fromValue(&accounts.library)},
+             {"accountController", QVariant::fromValue(&accounts.controller)},
+             {"shellController", QVariant::fromValue(&shellController)},
+             {"searchService", QVariant::fromValue(&search)},
+             {"router", QVariant::fromValue(&routes)},
+             {"shellSettings", QVariant::fromValue(&shell)},
+             {"windowService", QVariant::fromValue(&windows)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        windows.attach(window);
+        window->resize(1400, 900);
+        QVERIFY(Test::prepareNativeInput(window));
+        auto *owner = root->findChild<QObject *>("authExpiredDialogOwner");
+        QVERIFY(owner);
+        const auto popup = [&] { return owner->property("item").value<QObject *>(); };
+        QVERIFY(!popup()); // No hidden dialog instance.
+        const QByteArray expired =
+            R"({"kind":"authentication","code":35005,"message":"账号认证无效，请重新登录"})";
+        const auto fail = [&](quint64 request) {
+            ApiClientTestAccess::reply(api, request, 5, expired);
+        };
+        fail(api.validateAccount(2, "candidate-token", {}));
+        fail(api.validateAccount(1, "different-current-account-token", {}));
+        fail(api.search(ApiClient::SearchKind::Song, QString(), 1, 30,
+                        {AuthenticationMode::DeviceOnly}));
+        ApiClientTestAccess::reply(api, api.validateAccount(1, "initial-token", {}), 5,
+                                   R"({"kind":"business","code":20010,"message":"服务拒绝"})");
+        QVERIFY(!accounts.controller.sessionExpiredOpen());
+        QVERIFY(!popup());
+        const auto artifacts = qEnvironmentVariable("ECHO_AUTH_EXPIRED_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QVERIFY(QDir().mkpath(artifacts));
+        int cycle = 0;
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (const auto scale : {1.0, 1.25}) {
+                shell.resetZoom();
+                while (shell.uiScale() < scale - 0.001)
+                    shell.zoomIn();
+                const auto token = QString("ui-token-%1").arg(++cycle);
+                QVERIFY(adopt(1, token));
+                QTRY_VERIFY(!accounts.saved.busy());
+                const auto route = routes.current();
+                fail(api.validateAccount(1, token, {}));
+                QTRY_VERIFY(popup() && popup()->property("opened").toBool());
+                QPointer<QObject> surface = popup();
+                QCOMPARE(surface->property("heading").toString(), QStringLiteral("登录已过期"));
+                QCOMPARE(surface->property("uiScale").toDouble(), shell.uiScale());
+                QCOMPARE(accounts.account.state(), AccountService::State::ReauthenticationRequired);
+                QCOMPARE(accounts.account.userId(), quint64(1));
+                QCOMPARE(routes.current(), route);
+                fail(api.validateAccount(1, token, {}));
+                QCOMPARE(popup(), surface.data()); // Concurrent failures share one surface.
+                if (!artifacts.isEmpty()) {
+                    window->update();
+                    QTest::qWait(80);
+                    QVERIFY(window->grabWindow().save(
+                        artifacts + QString("/expired-%1-%2.png")
+                                        .arg(mode == ThemeStore::Dark ? "dark" : "light")
+                                        .arg(scale)));
+                }
+                auto *button = findVisibleVisual(
+                    window->contentItem(), cycle % 2 ? "authExpiredLater" : "authExpiredLogin");
+                QVERIFY(button);
+                QTest::mouseClick(
+                    window, Qt::LeftButton, Qt::NoModifier,
+                    button->mapToScene({button->width() / 2, button->height() / 2}).toPoint());
+                QTRY_VERIFY(surface.isNull());
+                QVERIFY(!accounts.controller.sessionExpiredOpen());
+                QCOMPARE(accounts.account.userId(), quint64(1));
+                QCOMPARE(accounts.controller.loginOpen(), cycle % 2 == 0);
+                fail(api.validateAccount(1, token, {}));
+                QVERIFY(!accounts.controller.sessionExpiredOpen()); // Debounce / active form.
+                accounts.controller.closeLogin();
+            }
+        }
+        QVERIFY(adopt(1, "last-token"));
+        QTRY_VERIFY(!accounts.saved.busy());
+        fail(api.validateAccount(1, "last-token", {}));
+        QTRY_VERIFY(popup() && popup()->property("opened").toBool());
+        QPointer<QObject> retired = popup();
+        const auto stale = api.validateAccount(1, "last-token", {});
+        QVERIFY(adopt(2, "new-account-token"));
+        QTRY_VERIFY(retired.isNull());
+        fail(stale);
+        QVERIFY(!accounts.controller.sessionExpiredOpen());
+        QVERIFY(!popup());
+        QCOMPARE(accounts.account.userId(), quint64(2));
+        QTRY_VERIFY(!accounts.saved.busy());
+        fail(api.validateAccount(2, "new-account-token", {}));
+        QTRY_VERIFY(popup() && popup()->property("opened").toBool());
+        retired = popup();
+        window->hide();
+        QTRY_VERIFY(retired.isNull());
+        QVERIFY(!accounts.controller.sessionExpiredOpen());
+        QVERIFY(warnings.isEmpty());
+    }
     void productionAccountEntryOverlayAndDraftLifetime()
     {
         QTemporaryDir directory;

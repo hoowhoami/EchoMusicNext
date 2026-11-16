@@ -6,6 +6,8 @@ add_library(
     StorageService.h
     DatabaseWorker.cpp
     DatabaseWorker.h
+    SqlDiagnostics.h
+    SqlDiagnostics.cpp
     StoredPlaylistCover.h
 )
 target_include_directories(echo_storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

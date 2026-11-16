@@ -45,8 +45,8 @@ class ApiClient final : public QObject
 {
     Q_OBJECT
 public:
-    /// Display the actual domain error and numeric service code, with a caller
-    /// fallback only when the request supplies no message.
+    /// Display a concrete domain error and code. Missing/generic explanations
+    /// return the caller's action-specific fallback (empty when omitted).
     static QString errorMessage(const QByteArray &payload, const QString &fallback = {});
     explicit ApiClient(QObject *parent = nullptr);
     explicit ApiClient(DeviceIdentity device, QObject *parent = nullptr);

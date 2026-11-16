@@ -2220,6 +2220,14 @@ target_link_libraries(
 add_test(NAME settings-storage COMMAND echo-settings-storage-test)
 set_tests_properties(settings-storage PROPERTIES TIMEOUT 45)
 
+qt_add_executable(echo-database-diagnostics-test DatabaseDiagnosticsTest.cpp)
+target_link_libraries(
+    echo-database-diagnostics-test PRIVATE echo_storage echo_playback_service Qt6::Sql Qt6::Test
+)
+add_test(NAME database-diagnostics COMMAND echo-database-diagnostics-test)
+set_tests_properties(database-diagnostics PROPERTIES TIMEOUT 45)
+echo_copy_rust_runtime(echo-database-diagnostics-test)
+
 qt_add_shaders(
     echo-plugin-runtime-test
     plugin_gpu_test_shaders

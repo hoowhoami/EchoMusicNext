@@ -554,6 +554,15 @@ ApplicationWindow {
                 }
             }
         }
+        EchoPopupLoader {
+            objectName: "authExpiredDialogOwner"
+            hostItem: mainWindow.contentItem
+            requestedVisible: mainWindow.accountController.sessionExpiredOpen
+            sourceComponent: AuthExpiredDialog {
+                service: mainWindow.accountController
+                uiScale: mainWindow.shellSettings.uiScale
+            }
+        }
         Loader {
             anchors.fill: parent
             z: 100

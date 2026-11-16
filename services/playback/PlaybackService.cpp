@@ -220,6 +220,13 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
     m_personalFm = std::make_unique<PersonalFmController>(*this, api, settings);
     m_discoverQueue = std::make_unique<DiscoverQueueController>(*this, api);
     m_listenTogether = std::make_unique<ListenTogetherController>(*this, api);
+    connect(&api, &ApiClient::authenticationExpired, this, [this] {
+        // Credentials affect the whole playback chain, including preloading.
+        // Stop before the API failure reaches source fallback/auto-next owners.
+        // ApiClient only emits this for the current account's exact snapshot.
+        if (!m_closing && hasTrack())
+            stop();
+    });
     connect(this, &PlaybackService::changed, &m_sleepInhibitor, [this] {
         m_sleepInhibitor.setRequired(!m_closing && m_autoplay && m_playing &&
                                      m_preferences.preventSleep());

@@ -6,6 +6,7 @@
 #include "VerificationService.h"
 #include "LoginCandidateModel.h"
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
 {
@@ -27,6 +28,7 @@ class AccountController final : public QObject
     Q_PROPERTY(int smsCountdown READ smsCountdown NOTIFY changed)
     Q_PROPERTY(bool sendingSms READ sendingSms NOTIFY changed)
     Q_PROPERTY(bool loginOpen READ loginOpen NOTIFY changed)
+    Q_PROPERTY(bool sessionExpiredOpen READ sessionExpiredOpen NOTIFY changed)
     Q_PROPERTY(int method READ method WRITE setMethod NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
@@ -79,6 +81,10 @@ public:
     {
         return m_open;
     }
+    bool sessionExpiredOpen() const
+    {
+        return m_sessionExpiredOpen;
+    }
     int method() const
     {
         return m_method;
@@ -98,6 +104,7 @@ public:
     void setMethod(int method);
     Q_INVOKABLE void reauthenticateAccount(quint64 userId);
     Q_INVOKABLE void openLogin();
+    Q_INVOKABLE void dismissSessionExpired();
     Q_INVOKABLE void closeLogin();
     Q_INVOKABLE void submitPassword(const QString &username, const QString &password);
     Q_INVOKABLE void sendSms(const QString &mobile);
@@ -132,5 +139,7 @@ private:
     int m_method = 0;
     bool m_confirmingLogin = false;
     bool m_open = false, m_online = true, m_shuttingDown = false;
+    bool m_sessionExpiredOpen = false;
+    QElapsedTimer m_expiredNotification;
 };
 } // namespace EchoMusic

@@ -462,7 +462,7 @@ void CloudService::fail(quint64 id, const QByteArray &bytes)
 {
     const auto error = QJsonDocument::fromJson(bytes).object();
     const auto kind = error.value("kind").toString();
-    const auto message = error.value("message").toString();
+    const auto message = ApiClient::errorMessage(bytes);
     if (m_deleteRequest && id == m_deleteRequest && m_deleteSession == m_api.sessionRevision()) {
         m_deleteRequest = 0;
         m_deleteTargets.clear();

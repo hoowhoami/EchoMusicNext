@@ -351,7 +351,8 @@ void DesktopPagesTest::productionAccountSurfacesAndAnchors()
                 QVERIFY(trigger);
                 if (collapsed) {
                     // The collapsed rail exposes only the avatar profile link.
-                    QVERIFY(!trigger->isVisible());
+                    // The shared sidebar owns the width/collapse transition.
+                    QTRY_VERIFY(!trigger->isVisible());
                     auto *avatar = visual(session.window->contentItem(), "sidebarUserLink");
                     QVERIFY(avatar);
                     QTRY_COMPARE(avatar->width(), 42.0);

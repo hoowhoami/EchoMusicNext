@@ -122,7 +122,7 @@ target_link_libraries(
            echo_library
            echo_platform
            Qt6::Network
-    PRIVATE echo_build_options echo_ffi Qt6::Widgets Qt6::Sql Qt6::Concurrent
+    PRIVATE echo_build_options echo_ffi echo_storage Qt6::Widgets Qt6::Sql Qt6::Concurrent
 )
 qt_extract_metatypes(echo_playback_service)
 

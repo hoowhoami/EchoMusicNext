@@ -302,17 +302,6 @@ EchoUiPartHost {
                     font: Theme.decoratedFont(12, Theme.regularWeight, 0, true, false)
                     horizontalAlignment: Text.AlignHCenter
                 }
-                Label {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 16 + 5 * sidebar.collapseProgress
-                    Layout.rightMargin: 16 + 5 * sidebar.collapseProgress
-                    visible: text.length > 0 && sidebar.collapseProgress < 1
-                    opacity: sidebar.expandedOpacity
-                    text: sidebar.libraryController.errorMessage
-                    color: Theme.colors.dangerText
-                    font: Theme.font(12, Theme.regularWeight)
-                    wrapMode: Text.Wrap
-                }
             }
             header: ColumnLayout {
                 width: sidebarScroll.width

@@ -2,6 +2,7 @@
 #include "PlaybackSourcePlan.h"
 #include "PlaybackService.h"
 #include "TrackTransitionController.h"
+#include "PlaybackFailureController.h"
 #include <QTcpSocket>
 #include "NetworkPreferences.h"
 #include <QJsonDocument>
@@ -47,6 +48,22 @@ public:
         a.cancel(id);
         emit a.failed(id, 1, R"({"message":"source unavailable"})");
     }
+    static void expire(ApiClient &api, quint64 id, int code)
+    {
+        api.deliver(id, api.sessionRevision(), 5,
+                    QJsonDocument(QJsonObject{{"kind", "authentication"},
+                                              {"code", code},
+                                              {"message", "账号认证无效，请重新登录"}})
+                        .toJson());
+    }
+};
+class TrackTransitionControllerTestAccess
+{
+public:
+    static PlaybackSourceRequest &source(TrackTransitionController &transition)
+    {
+        return transition.m_source;
+    }
 };
 class MembershipServiceTestAccess
 {
@@ -84,6 +101,38 @@ public:
 class PlaybackServiceTestAccess
 {
 public:
+    static void prepareAuthenticationStop(PlaybackService &p, const PlaybackTracks &tracks,
+                                          const QString &stage, const QJsonObject &rights)
+    {
+        p.m_engine.blockSignals(true); // Controlled domain state, no media URL is opened.
+        p.queue()->replace(tracks, 0);
+        p.m_track = tracks.first();
+        p.m_autoplay = true;
+        p.m_loading = stage == "current";
+        p.m_loaded = p.m_playing = stage == "preload";
+        MembershipServiceTestAccess::ready(p.m_membership);
+        if (stage == "pending-skip") {
+            p.m_error = QStringLiteral("音源加载失败");
+            p.m_failure->failed();
+        } else {
+            auto &request = stage == "preload"
+                                ? TrackTransitionControllerTestAccess::source(*p.m_transition)
+                                : p.m_source;
+            request.resolve(stage == "preload" ? tracks.last() : tracks.first(),
+                            ApiClient::PlaybackQuality::HiRes, ApiClient::SoundEffect::None, rights,
+                            true);
+        }
+    }
+    static bool autoplay(const PlaybackService &p)
+    {
+        return p.m_autoplay;
+    }
+    static bool hasSourceContext(PlaybackService &p)
+    {
+        return p.m_source.hasContext(p.m_track) ||
+               TrackTransitionControllerTestAccess::source(*p.m_transition)
+                   .hasContext(*p.queue()->at(p.queue()->rowCount() - 1));
+    }
     static void seedCatalogSelection(PlaybackService &p, const PlaybackTrack &track,
                                      const QJsonObject &rights)
     {
@@ -221,6 +270,86 @@ class PlaybackSourceFallbackTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void authenticationExpiredStopsCurrentPreloadAndScheduledSkip_data()
+    {
+        QTest::addColumn<QString>("stage");
+        QTest::addColumn<int>("code");
+        for (const auto &stage : {"current", "preload", "pending-skip"})
+            for (const int code : {35005, 20018})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(stage).arg(code)))
+                    << QString(stage) << code;
+    }
+    void authenticationExpiredStopsCurrentPreloadAndScheduledSkip()
+    {
+        QFETCH(QString, stage);
+        QFETCH(int, code);
+        Fixture f;
+        QTemporaryDir dir;
+        SettingsStore settings(dir.filePath("settings.ini"));
+        PlaybackService playback(f.api, settings, nullptr, dir.filePath("playback.sqlite"));
+        QTRY_VERIFY(PlaybackServiceTestAccess::engineReady(playback));
+        playback.preferences()->setAutoNext(true);
+        playback.preferences()->setAutoNextDelaySeconds(1);
+        playback.preferences()->setAutoNextMaxAttempts(10);
+        PlaybackTracks tracks;
+        for (int index = 0; index < 3; ++index) {
+            PlaybackTrack track;
+            track.id = QString::number(index + 1);
+            track.songId = index + 1;
+            track.hash = hashA;
+            track.title = QString("Authentication stop %1").arg(index);
+            tracks.append(track);
+        }
+        const QJsonObject rights{
+            {"variants", QJsonArray{QJsonObject{{"quality", "128"}, {"hash", hashA}},
+                                    QJsonObject{{"quality", "320"}, {"hash", hashB}},
+                                    QJsonObject{{"quality", "flac"}, {"hash", hashC}}}}};
+        QSignalSpy notices(&playback, &PlaybackService::failureNotice);
+        QSignalSpy expired(&f.api, &ApiClient::authenticationExpired);
+        PlaybackServiceTestAccess::prepareAuthenticationStop(playback, tracks, stage, rights);
+        if (stage == "pending-skip") {
+            QTRY_COMPARE(notices.size(), 1);
+            QVERIFY(
+                notices.first().first().toString().contains(QStringLiteral("1 秒后尝试下一首")));
+        } else
+            // Production source extensions dispatch their continuation asynchronously.
+            QTRY_VERIFY(ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+        const auto previousNotices = notices.size();
+        // Anonymous and candidate-account failures cannot stop this session.
+        const auto anonymous = f.api.search(ApiClient::SearchKind::Song, QString(), 1, 30,
+                                            {AuthenticationMode::DeviceOnly});
+        ApiClientTestAccess::expire(f.api, anonymous, code);
+        const auto candidate = f.api.validateAccount(900002, "candidate-token", {});
+        ApiClientTestAccess::expire(f.api, candidate, code);
+        QCOMPARE(expired.size(), 0);
+        QVERIFY(PlaybackServiceTestAccess::autoplay(playback));
+        auto request = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        if (stage == "pending-skip")
+            request = f.api.userDetail();
+        QVERIFY(request);
+        ApiClientTestAccess::expire(f.api, request, code);
+        QCOMPARE(expired.size(), 1); // Drives the shared account-expired dialog.
+        QVERIFY(!playback.loading());
+        QVERIFY(!playback.playing());
+        QVERIFY(!PlaybackServiceTestAccess::autoplay(playback));
+        QVERIFY(!PlaybackServiceTestAccess::hasSourceContext(playback));
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "kmr_audio_mv"));
+        QVERIFY(playback.preferences()->autoNext()); // Keep the user's policy.
+        QCOMPARE(playback.queue()->currentIndex(), 0);
+        const auto late = QJsonDocument(source("https://example.invalid/late")).toJson();
+        emit f.api.succeeded(request, late);
+        QTest::qWait(1200); // Cross the previously configured auto-skip deadline.
+        QCOMPARE(playback.queue()->currentIndex(), 0);
+        QCOMPARE(notices.size(), previousNotices);
+        QVERIFY(!playback.loading());
+        QVERIFY(!playback.playing());
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        PlaybackServiceTestAccess::nativeNotifications(playback);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+    }
     void legacyFreeQualityUsesSameQualityOrigin_data()
     {
         QTest::addColumn<QString>("quality");

@@ -1004,8 +1004,10 @@ QString ApiClient::errorMessage(const QByteArray &payload, const QString &fallba
 {
     const auto error = QJsonDocument::fromJson(payload).object();
     auto message = error.value("message").toString().trimmed();
-    if (message.isEmpty())
-        message = fallback.isEmpty() ? tr("请求失败，请稍后重试") : fallback;
+    // The protocol's generic rejection is not a provider explanation. Let the
+    // operation supply its own useful failure text; keep the code in API logs.
+    if (message.isEmpty() || message == QStringLiteral("音乐服务拒绝了请求"))
+        return fallback;
     const auto code = error.value("code");
     if (code.isDouble() && !message.contains(tr("错误码")))
         message += tr("（错误码 %1）").arg(code.toInteger());

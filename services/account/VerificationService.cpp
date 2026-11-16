@@ -63,7 +63,7 @@ VerificationService::VerificationService(ApiClient &api, QObject *parent,
             m_submit = 0;
         const auto error = QJsonDocument::fromJson(payload).object();
         m_error = error.value("code").toInteger() == 30791 ? tr("验证未通过，请重新完成图形验证")
-                                                           : error.value("message").toString();
+                                                           : ApiClient::errorMessage(payload);
         if (m_error.isEmpty())
             m_error = tr("安全验证失败，请重新验证");
         m_state = State::Error;

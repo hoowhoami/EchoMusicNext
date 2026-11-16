@@ -1,6 +1,7 @@
 #include "PlaybackRepository_p.h"
 #include "EmbeddedCoverPresentation.h"
 #include "ArtistCoverPresentation.h"
+#include "SqlDiagnostics.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QSqlQuery>
@@ -33,18 +34,28 @@ void PlaybackStorageWorker::initialize(const QString &path)
     m_database.setDatabaseName(path);
     m_database.setConnectOptions("QSQLITE_BUSY_TIMEOUT=5000");
     if (!m_database.open()) {
-        emit failed(m_database.lastError().text());
+        emit failed(SqlDiagnostics::failure(m_database, "open", m_database.lastError()));
         return;
     }
     QSqlQuery q(m_database);
-    if (!q.exec("PRAGMA user_version") || !q.next() || q.value(0).toInt() > 5) {
-        emit failed(tr("播放数据库版本不受支持"));
+    // Reading can fail before a version is available (WAL/SHM, I/O, locks).
+    // Never classify those failures as an unsupported schema.
+    if (!q.exec("PRAGMA user_version") || !q.next()) {
+        emit failed(
+            tr("无法读取播放数据库版本：%1")
+                .arg(SqlDiagnostics::failure(m_database, "read_user_version", q.lastError())));
         return;
     }
     const auto schemaVersion = q.value(0).toInt();
     q.finish();
+    if (schemaVersion > 5) {
+        SqlDiagnostics::unsupportedVersion(m_database, schemaVersion, 5);
+        emit failed(tr("播放数据库版本不受支持（实际版本 %1，当前支持至 5）").arg(schemaVersion));
+        return;
+    }
     if (!m_database.transaction()) {
-        emit failed(m_database.lastError().text());
+        emit failed(
+            SqlDiagnostics::failure(m_database, "initialize.begin", m_database.lastError()));
         return;
     }
     for (const auto *sql :
@@ -70,8 +81,10 @@ void PlaybackStorageWorker::initialize(const QString &path)
           "NOT NULL,ordinal INTEGER NOT NULL,PRIMARY KEY(account_id,room_id))",
           "SELECT 1"})
         if (!q.exec(QString::fromLatin1(sql))) {
+            const auto message =
+                SqlDiagnostics::failure(m_database, "initialize.create_schema", q.lastError());
             m_database.rollback();
-            emit failed(q.lastError().text());
+            emit failed(message);
             return;
         }
     // Upgrade only this application's schemas. External stores and signed
@@ -83,8 +96,10 @@ void PlaybackStorageWorker::initialize(const QString &path)
               "ALTER TABLE playback_history ADD COLUMN track_snapshot TEXT NOT NULL DEFAULT '{}'",
               "PRAGMA user_version=2"}) {
             if (!q.exec(QString::fromLatin1(sql))) {
+                const auto message =
+                    SqlDiagnostics::failure(m_database, "initialize.upgrade_v2", q.lastError());
                 m_database.rollback();
-                emit failed(q.lastError().text());
+                emit failed(message);
                 return;
             }
         }
@@ -93,8 +108,10 @@ void PlaybackStorageWorker::initialize(const QString &path)
         if (!q.exec("ALTER TABLE playback_accounts ADD COLUMN last_local_queue TEXT NOT NULL "
                     "DEFAULT 'default'") ||
             !q.exec("PRAGMA user_version=3")) {
+            const auto message =
+                SqlDiagnostics::failure(m_database, "initialize.upgrade_v3", q.lastError());
             m_database.rollback();
-            emit failed(q.lastError().text());
+            emit failed(message);
             return;
         }
     }
@@ -102,24 +119,30 @@ void PlaybackStorageWorker::initialize(const QString &path)
         if (!q.exec(
                 "ALTER TABLE playback_queues ADD COLUMN last_used INTEGER NOT NULL DEFAULT 0") ||
             !q.exec("PRAGMA user_version=4")) {
+            const auto message =
+                SqlDiagnostics::failure(m_database, "initialize.upgrade_v4", q.lastError());
             m_database.rollback();
-            emit failed(q.lastError().text());
+            emit failed(message);
             return;
         }
     }
     if (schemaVersion < 5 && !q.exec("PRAGMA user_version=5")) {
+        const auto message =
+            SqlDiagnostics::failure(m_database, "initialize.upgrade_v5", q.lastError());
         m_database.rollback();
-        emit failed(q.lastError().text());
+        emit failed(message);
         return;
     }
     if (!m_database.commit()) {
-        emit failed(m_database.lastError().text());
+        emit failed(
+            SqlDiagnostics::failure(m_database, "initialize.commit", m_database.lastError()));
         return;
     }
     for (const auto *sql :
          {"PRAGMA foreign_keys=ON", "PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL"})
         if (!q.exec(QString::fromLatin1(sql))) {
-            emit failed(q.lastError().text());
+            emit failed(
+                SqlDiagnostics::failure(m_database, "initialize.configure_wal", q.lastError()));
             return;
         }
     m_valid = true;
@@ -135,12 +158,16 @@ void PlaybackStorageWorker::load(quint64 account, quint64 revision)
     q.prepare("SELECT active_queue,last_local_queue FROM playback_accounts WHERE account_id=?");
     q.addBindValue(user);
     if (!q.exec()) {
-        emit failed(q.lastError().text());
+        emit failed(SqlDiagnostics::failure(m_database, "load_queues", q.lastError()));
         return;
     }
     if (q.next()) {
         active = q.value(0).toString();
         lastLocal = q.value(1).toString();
+    }
+    if (q.lastError().isValid()) {
+        emit failed(SqlDiagnostics::failure(m_database, "load_queues.fetch_active", q.lastError()));
+        return;
     }
     q.finish();
     q.prepare("SELECT queue_key,title,current_row,last_used FROM playback_queues WHERE "
@@ -148,7 +175,7 @@ void PlaybackStorageWorker::load(quint64 account, quint64 revision)
               "ordinal LIMIT 4");
     q.addBindValue(user);
     if (!q.exec()) {
-        emit failed(q.lastError().text());
+        emit failed(SqlDiagnostics::failure(m_database, "load_queues", q.lastError()));
         return;
     }
     while (q.next()) {
@@ -164,7 +191,7 @@ void PlaybackStorageWorker::load(quint64 account, quint64 revision)
         tracks.addBindValue(user);
         tracks.addBindValue(state.key);
         if (!tracks.exec()) {
-            emit failed(tracks.lastError().text());
+            emit failed(SqlDiagnostics::failure(m_database, "load_queues", tracks.lastError()));
             return;
         }
         QMap<int, QString> next;
@@ -194,7 +221,16 @@ void PlaybackStorageWorker::load(quint64 account, quint64 revision)
             state.tracks.append(std::move(t));
         }
         state.next = next.values();
+        if (tracks.lastError().isValid()) {
+            emit failed(SqlDiagnostics::failure(m_database, "load_queues.fetch_tracks",
+                                                tracks.lastError()));
+            return;
+        }
         states.append(std::move(state));
+    }
+    if (q.lastError().isValid()) {
+        emit failed(SqlDiagnostics::failure(m_database, "load_queues.fetch", q.lastError()));
+        return;
     }
     emit loaded(account, revision, states, active, lastLocal);
 }
@@ -204,7 +240,8 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
     if (!m_valid || states.size() > 4)
         return;
     if (!m_database.transaction()) {
-        emit failed(m_database.lastError().text());
+        emit failed(
+            SqlDiagnostics::failure(m_database, "save_queues.begin", m_database.lastError()));
         return;
     }
     const QString user = QString::number(account);
@@ -213,6 +250,8 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
     q.prepare("DELETE FROM playback_queues WHERE account_id=?");
     q.addBindValue(user);
     ok = q.exec();
+    QSqlError writeError = q.lastError();
+    const char *operation = "save_queues.delete";
     QSqlQuery queues(m_database), tracks(m_database);
     queues.prepare("INSERT INTO playback_queues VALUES(?,?,?,?,?,?)");
     tracks.prepare("INSERT INTO playback_tracks VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
@@ -225,6 +264,10 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
         queues.bindValue(4, i);
         queues.bindValue(5, qint64(s.lastUsed));
         ok = queues.exec();
+        if (!ok) {
+            writeError = queues.lastError();
+            operation = "save_queues.insert_queue";
+        }
         for (int row = 0; ok && row < s.tracks.size(); ++row) {
             const auto &t = s.tracks[row];
             const auto clean = [](const QString &v) { return v.isNull() ? QStringLiteral("") : v; };
@@ -253,6 +296,10 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
             for (int v = 0; v < values.size(); ++v)
                 tracks.bindValue(v, values[v]);
             ok = tracks.exec();
+            if (!ok) {
+                writeError = tracks.lastError();
+                operation = "save_queues.insert_track";
+            }
         }
     }
     if (ok) {
@@ -265,12 +312,18 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
                            ? (active.startsWith("fm/") ? QString("default") : active)
                            : lastLocal);
         ok = q.exec();
+        if (!ok) {
+            writeError = q.lastError();
+            operation = "save_queues.select_active";
+        }
     }
     if (!ok) {
+        SqlDiagnostics::failure(m_database, operation, writeError);
         m_database.rollback();
         emit failed(tr("保存播放队列失败"));
     } else if (!m_database.commit())
-        emit failed(m_database.lastError().text());
+        emit failed(
+            SqlDiagnostics::failure(m_database, "save_queues.commit", m_database.lastError()));
 }
 void PlaybackStorageWorker::record(quint64 account, const PlaybackTrack &track, qint64 listenedMs)
 {
@@ -298,7 +351,7 @@ void PlaybackStorageWorker::record(quint64 account, const PlaybackTrack &track, 
              QJsonDocument(track.toDomain()).toJson(QJsonDocument::Compact)})
         q.addBindValue(v);
     if (!q.exec())
-        emit failed(q.lastError().text());
+        emit failed(SqlDiagnostics::failure(m_database, "record_history", q.lastError()));
     else
         emit historyChanged(account);
 }
@@ -314,7 +367,7 @@ void PlaybackStorageWorker::addHistoryTime(quint64 account, const PlaybackTrack 
     q.addBindValue(QString::number(account));
     q.addBindValue(historyKey(track));
     if (!q.exec())
-        emit failed(q.lastError().text());
+        emit failed(SqlDiagnostics::failure(m_database, "add_history_time", q.lastError()));
 }
 QString PlaybackStorageWorker::historyKey(const PlaybackTrack &track)
 {
@@ -335,7 +388,7 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
               "LIMIT 1000");
     q.addBindValue(QString::number(account));
     if (!q.exec()) {
-        emit historyFailed(q.lastError().text());
+        emit historyFailed(SqlDiagnostics::failure(m_database, "load_history", q.lastError()));
         return;
     }
     // Rows recorded under a superseded identity (view id changes) may share
@@ -380,12 +433,19 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
         mergedRows.insert(*known);
         dropRowids.append(row.rowid);
     }
+    if (q.lastError().isValid()) {
+        emit historyFailed(
+            SqlDiagnostics::failure(m_database, "load_history.fetch", q.lastError()));
+        return;
+    }
     if (!dropRowids.isEmpty()) {
         // The kept row must carry the merged totals before the duplicates are
         // removed; otherwise a restart would silently drop their plays. Both
         // writes stay in one transaction so a failed delete cannot leave the
         // totals counted twice.
         bool ok = m_database.transaction();
+        QSqlError mergeError = m_database.lastError();
+        const char *operation = "merge_history.begin";
         if (ok) {
             QSqlQuery update(m_database);
             update.prepare("UPDATE playback_history SET listened_ms=?,play_count=? "
@@ -395,7 +455,12 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
                 update.bindValue(1, rows[index].playCount);
                 update.bindValue(2, QString::number(account));
                 update.bindValue(3, rows[index].rowid);
-                ok = update.exec() && ok;
+                ok = update.exec();
+                if (!ok) {
+                    mergeError = update.lastError();
+                    operation = "merge_history.update";
+                    break;
+                }
                 update.finish();
             }
             QSqlQuery cleanup(m_database);
@@ -403,14 +468,22 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
                                            "rowid IN (%1)")
                                 .arg(dropRowids.join(u',')));
             cleanup.addBindValue(QString::number(account));
-            ok = cleanup.exec() && ok;
-            if (!ok || !m_database.commit()) {
-                m_database.rollback();
+            if (ok && !cleanup.exec()) {
                 ok = false;
+                mergeError = cleanup.lastError();
+                operation = "merge_history.delete";
+            }
+            if (ok && !m_database.commit()) {
+                ok = false;
+                mergeError = m_database.lastError();
+                operation = "merge_history.commit";
+            }
+            if (!ok) {
+                m_database.rollback();
             }
         }
         if (!ok)
-            emit failed(m_database.lastError().text());
+            emit failed(SqlDiagnostics::failure(m_database, operation, mergeError));
     }
     QJsonArray entries;
     for (int i = 0; i < rows.size(); ++i)
@@ -440,7 +513,7 @@ void PlaybackStorageWorker::removeHistory(quint64 account, const QStringList &ke
     for (const auto &key : keys)
         q.addBindValue(key);
     if (!q.exec()) {
-        emit historyFailed(q.lastError().text());
+        emit historyFailed(SqlDiagnostics::failure(m_database, "remove_history", q.lastError()));
         return;
     }
     emit historyChanged(account);
@@ -453,7 +526,7 @@ void PlaybackStorageWorker::clearHistory(quint64 account)
     q.prepare("DELETE FROM playback_history WHERE account_id=?");
     q.addBindValue(QString::number(account));
     if (!q.exec()) {
-        emit historyFailed(q.lastError().text());
+        emit historyFailed(SqlDiagnostics::failure(m_database, "clear_history", q.lastError()));
         return;
     }
     emit historyChanged(account);
@@ -472,7 +545,7 @@ void PlaybackStorageWorker::loadRooms(quint64 account, quint64 revision)
     query.prepare("SELECT snapshot FROM listen_room_index WHERE account_id=? ORDER BY ordinal");
     query.addBindValue(QString::number(account));
     if (!query.exec()) {
-        emit failed(query.lastError().text());
+        emit failed(SqlDiagnostics::failure(m_database, "load_rooms", query.lastError()));
         return;
     }
     QJsonArray rooms;
@@ -481,28 +554,44 @@ void PlaybackStorageWorker::loadRooms(quint64 account, quint64 revision)
         if (value.isObject())
             rooms.append(value.object());
     }
+    if (query.lastError().isValid()) {
+        emit failed(SqlDiagnostics::failure(m_database, "load_rooms.fetch", query.lastError()));
+        return;
+    }
     query.finish();
     query.prepare(
         "SELECT room_id FROM listen_room_dissolved WHERE account_id=? ORDER BY ordinal LIMIT 200");
     query.addBindValue(QString::number(account));
     if (!query.exec()) {
-        emit failed(query.lastError().text());
+        emit failed(SqlDiagnostics::failure(m_database, "load_rooms", query.lastError()));
         return;
     }
     QStringList dissolved;
     while (query.next())
         dissolved.append(query.value(0).toString());
+    if (query.lastError().isValid()) {
+        emit failed(
+            SqlDiagnostics::failure(m_database, "load_rooms.fetch_dissolved", query.lastError()));
+        return;
+    }
     emit roomsLoaded(account, revision, rooms, dissolved);
 }
 void PlaybackStorageWorker::saveRooms(quint64 account, const QJsonArray &rooms,
                                       const QStringList &dissolved)
 {
-    if (!m_valid || !account || !m_database.transaction())
+    if (!m_valid || !account)
         return;
+    if (!m_database.transaction()) {
+        emit failed(
+            SqlDiagnostics::failure(m_database, "save_rooms.begin", m_database.lastError()));
+        return;
+    }
     QSqlQuery query(m_database);
     const auto fail = [this, &query] {
+        const auto message =
+            SqlDiagnostics::failure(m_database, "save_rooms.write", query.lastError());
         m_database.rollback();
-        emit failed(query.lastError().text());
+        emit failed(message);
     };
     for (const auto &table :
          {QStringLiteral("listen_room_index"), QStringLiteral("listen_room_dissolved")}) {
@@ -541,7 +630,8 @@ void PlaybackStorageWorker::saveRooms(quint64 account, const QJsonArray &rooms,
         }
     }
     if (!m_database.commit())
-        emit failed(m_database.lastError().text());
+        emit failed(
+            SqlDiagnostics::failure(m_database, "save_rooms.commit", m_database.lastError()));
 }
 PlaybackRepository::PlaybackRepository(const QString &path, QObject *parent)
     : QObject(parent), m_worker(new PlaybackStorageWorker)

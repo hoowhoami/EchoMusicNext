@@ -142,26 +142,6 @@ RoutePage {
                     account: page.account
                     uiScale: page.settings.uiScale
                 }
-                RowLayout {
-                    Layout.fillHeight: false
-                    spacing: 5
-                    visible: page.account.profileError.length > 0
-                    Layout.fillWidth: true
-                    Label {
-                        Layout.fillWidth: true
-                        text: page.account.profileError
-                        color: Theme.secondaryText
-                        font: Theme.font(12, Theme.regularWeight)
-                    }
-                    EchoSoftButton {
-                        text: qsTr("重试")
-                        enabled: !page.account.profileLoading
-                        onClicked: {
-                            page.account.reloadProfile();
-                            page.account.loadGrade();
-                        }
-                    }
-                }
             }
         }
     }

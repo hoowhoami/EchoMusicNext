@@ -16,6 +16,7 @@ qt_add_qml_module(
     AccountPopover.qml
     AccountSwitcherDialog.qml
     LogoutConfirmDialog.qml
+    AuthExpiredDialog.qml
     LoginOverlay.qml
     LoginQrPanel.qml
     LoginSmsPanel.qml
