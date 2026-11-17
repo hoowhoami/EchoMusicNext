@@ -41,7 +41,7 @@ void PluginRuntimeTest::pluginCardStateChangesPreserveDelegateAndScroll()
     host.router.registerPage({"plugin-management",
                               "/main/settings/plugins",
                               QUrl("qrc:/qt/qml/EchoMusic/Plugins/PluginManagementPage.qml"),
-                              {"view"},
+                              {"view", "highlightPluginId"},
                               true,
                               false,
                               false,
@@ -147,6 +147,61 @@ Window { id:win; required property PluginManager manager; required property Rout
     QVERIFY(QMetaObject::invokeMethod(manage, "clicked"));
     QTRY_COMPARE(host.router.current()->query().value("view").toString(), "installed");
     QTRY_VERIFY(visual(window->contentItem(), "pluginCard-card-0"));
+    auto *page = visual(window->contentItem(), "pluginManagementPage");
+    QVERIFY(page);
+    QTRY_COMPARE(page->property("highlightedPluginId").toString(), "card-0");
+    auto *installed = visual(window->contentItem(), "pluginCard-card-0");
+    QVERIFY(installed->property("highlighted").toBool());
+    QVERIFY(visual(installed, "pluginCardLocateRing")->isVisible());
+    const auto installedHeight = installed->height();
+    QTRY_VERIFY_WITH_TIMEOUT(!installed->property("highlighted").toBool(), 5000);
+    QCOMPARE(installed->height(), installedHeight);
+    QVERIFY(!visual(installed, "pluginCardLocateRing")->isVisible());
+
+    // Share navigation uses the same route target and feedback, even when
+    // the target starts outside the virtualized viewport.
+    host.router.replaceQuery({{"view", "marketplace"}, {"highlightPluginId", "card-39"}});
+    QTRY_COMPARE(page->property("highlightedPluginId").toString(), "card-39");
+    QTRY_VERIFY(visual(list, "pluginCard-card-39"));
+    auto *last = visual(list, "pluginCard-card-39");
+    QVERIFY(last->property("highlighted").toBool());
+    QTRY_VERIFY(last->mapToItem(list, QPointF{}).y() < list->height());
+    QVERIFY(last->mapToItem(list, QPointF{0, last->height()}).y() > 0);
+    const auto locatedPosition = list->property("contentY");
+    manager.rebuild();
+    QTest::qWait(50);
+    QCOMPARE(list->property("contentY"), locatedPosition);
+    // Feedback is keyed by identity rather than a reused row or delegate.
+    host.router.replaceQuery({{"view", "marketplace"}, {"highlightPluginId", "card-0"}});
+    QTRY_COMPARE(page->property("highlightedPluginId").toString(), "card-0");
+    QTRY_VERIFY(visual(list, "pluginCard-card-0"));
+    QVERIFY(visual(list, "pluginCard-card-0")->property("highlighted").toBool());
+    if (auto *old = visual(list, "pluginCard-card-39"))
+        QVERIFY(!old->property("highlighted").toBool());
+    auto *timer = window->findChild<QObject *>("pluginLocateHighlightTimer");
+    QVERIFY(timer && timer->property("running").toBool());
+    window->hide();
+    QTRY_VERIFY(page->property("highlightedPluginId").toString().isEmpty());
+    QVERIFY(!timer->property("running").toBool());
+    window->show();
+    QTest::qWait(50);
+    QVERIFY(page->property("highlightedPluginId").toString().isEmpty());
+    // A catalog arriving after route creation must still consume the target
+    // exactly once, without a retry timer or repeated scroll on refresh.
+    host.router.replaceQuery({{"view", "marketplace"}, {"highlightPluginId", "arriving"}});
+    QTRY_COMPARE(page->property("revealPluginId").toString(), "arriving");
+    manager.m_entries.append(QVariantMap{{"id", "arriving"},
+                                         {"key", "arriving"},
+                                         {"name", "稍后到达"},
+                                         {"sourceId", sourceId},
+                                         {"compatible", true}});
+    manager.rebuild();
+    QTRY_COMPARE(page->property("highlightedPluginId").toString(), "arriving");
+    QTRY_VERIFY(visual(list, "pluginCard-arriving"));
+    QVERIFY(visual(list, "pluginCard-arriving")->property("highlighted").toBool());
+    host.router.replaceQuery({{"view", "installed"}});
+    QTRY_VERIFY(page->property("highlightedPluginId").toString().isEmpty());
+    QVERIFY(!timer->property("running").toBool());
     root.reset();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     QVERIFY(!reading);
@@ -273,6 +328,13 @@ Window { id:win; required property PluginManager manager; property var record:({
                     window->setProperty("market", state.market);
                     window->setProperty("record", record);
                     QTest::qWait(25);
+                    if (QGuiApplication::platformName() != "offscreen") {
+                        // Native resize/layout polish can outlive a fixed wait
+                        // under build load. Inspect a committed frame.
+                        QSignalSpy frame(window, &QQuickWindow::frameSwapped);
+                        window->update();
+                        QVERIFY(frame.wait(2000));
+                    }
                     auto *status = visual(card, "pluginCardStatus");
                     QCOMPARE(status->property("text").toString(), state.label);
                     QCOMPARE(status->isVisible(), !state.label.isEmpty());
@@ -292,6 +354,13 @@ Window { id:win; required property PluginManager manager; property var record:({
                     for (auto *child : actions->findChildren<QQuickItem *>())
                         if (child->isVisible() && child->inherits("QQuickAbstractButton")) {
                             const auto rect = child->mapRectToItem(card, child->boundingRect());
+                            if (rect.left() < 0 || rect.right() > card->width()) {
+                                qInfo()
+                                    << "card action overflow" << state.name << mode << scale
+                                    << fontScale << card->width() << child->objectName() << rect;
+                                if (!captures.isEmpty())
+                                    window->grabWindow().save(captures + "/overflow.png");
+                            }
                             QVERIFY2(rect.left() >= 0 && rect.right() <= card->width(),
                                      qPrintable(state.name));
                         }
@@ -300,6 +369,23 @@ Window { id:win; required property PluginManager manager; property var record:({
                                                           QString::number(int(mode)) + "-" +
                                                           QString::number(scale) + "-font" +
                                                           QString::number(fontScale) + ".png"));
+                    if (state.name == "platform" || state.name == "active") {
+                        const auto background = card->property("color");
+                        const auto opacity = card->opacity();
+                        const auto normalHeight = card->height();
+                        card->setProperty("highlighted", true);
+                        QTest::qWait(25);
+                        QVERIFY(visual(card, "pluginCardLocateRing")->isVisible());
+                        QCOMPARE(card->property("color"), background);
+                        QCOMPARE(card->opacity(), opacity);
+                        QCOMPARE(card->height(), normalHeight);
+                        if (!captures.isEmpty())
+                            QVERIFY(window->grabWindow().save(
+                                captures + "/located-" + state.name + "-" +
+                                QString::number(int(mode)) + "-" + QString::number(scale) +
+                                "-font" + QString::number(fontScale) + ".png"));
+                        card->setProperty("highlighted", false);
+                    }
                 }
             }
         }

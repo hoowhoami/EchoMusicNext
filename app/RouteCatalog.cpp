@@ -52,7 +52,7 @@ void AppContext::registerRoutes()
     router.registerPage({"plugin-management",
                          "/main/settings/plugins",
                          QUrl("qrc:/qt/qml/EchoMusic/Plugins/PluginManagementPage.qml"),
-                         {"view"},
+                         {"view", "highlightPluginId"},
                          true,
                          false,
                          false,

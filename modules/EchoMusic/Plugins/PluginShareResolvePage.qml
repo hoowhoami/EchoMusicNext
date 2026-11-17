@@ -20,7 +20,8 @@ RoutePage {
         manager.search = manager.shareTarget.id || "";
         manager.sourceFilter = manager.shareTarget.sourceId || "";
         router.replace("plugin-management", {
-            view: "marketplace"
+            view: "marketplace",
+            highlightPluginId: manager.shareTarget.id || ""
         });
     }
     function syncRedirect() {

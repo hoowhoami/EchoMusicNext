@@ -86,7 +86,7 @@ void PluginRuntimeTest::managementFirstOpenAfterRestart()
     QVERIFY(router.registerPage({"plugin-management",
                                  "/plugins",
                                  QUrl("qrc:/qt/qml/EchoMusic/Plugins/PluginManagementPage.qml"),
-                                 {"view"},
+                                 {"view", "highlightPluginId"},
                                  true,
                                  false,
                                  false,

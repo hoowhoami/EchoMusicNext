@@ -12,6 +12,7 @@ Rectangle {
     required property var record
     required property PluginManager manager
     property bool marketplace: false
+    property bool highlighted: false
     signal uninstallRequested(string installation)
     signal settingsRequested(string installation)
     signal dataRequested(string installation)
@@ -94,7 +95,17 @@ Rectangle {
     radius: Theme.cardRadius
     opacity: !marketplace && !record.enabled ? 0.72 : warning ? 0.9 : 1
     color: warning ? Theme.withAlpha("#f59e0b", 0.1) : currentFailure ? Theme.withAlpha(Theme.colors.danger, 0.1) : Theme.mutedSurface
-    border.color: warning ? Theme.mix(Theme.subtleBorder, "#f59e0b", 0.34) : currentFailure ? Theme.mix(Theme.subtleBorder, Theme.colors.danger, 0.3) : "transparent"
+    border.color: highlighted ? Theme.mix(Theme.subtleBorder, Theme.accent, 0.72) : warning ? Theme.mix(Theme.subtleBorder, "#f59e0b", 0.34) : currentFailure ? Theme.mix(Theme.subtleBorder, Theme.colors.danger, 0.3) : "transparent"
+    Rectangle {
+        objectName: "pluginCardLocateRing"
+        anchors.fill: parent
+        anchors.margins: -3
+        radius: card.radius + 3
+        color: "transparent"
+        border.width: 3
+        border.color: Theme.withAlpha(Theme.accent, 0.14)
+        visible: card.highlighted
+    }
     // Hover lifts the card without adding a border.
     transform: Translate {
         y: hover.hovered && Theme.store.motionEnabled ? -1 : 0

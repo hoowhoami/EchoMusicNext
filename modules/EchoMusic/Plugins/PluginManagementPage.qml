@@ -24,18 +24,56 @@ Item {
     property string settingsId: ""
     property EchoPluginContext settingsScope: null
     property string revealPluginId: ""
+    property string highlightedPluginId: ""
+    property string locateSourceId: ""
+    property string locateSearch: ""
+    readonly property bool presentationActive: context.active && context.name === "plugin-management" && visible && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized
     objectName: "pluginManagementPage"
     function openMarketplace() {
         if (marketplace && context.active)
             manager.refreshCatalog();
     }
-    function revealInstalled() {
-        if (!context.active || marketplace || !revealPluginId)
+    function requestLocate() {
+        clearLocateHighlight();
+        revealPluginId = context.query.highlightPluginId || "";
+        locateSourceId = marketplace ? manager.sourceFilter : "";
+        locateSearch = manager.search;
+        Qt.callLater(revealTarget);
+    }
+    function requestVisibleLocate() {
+        if (presentationActive)
+            requestLocate();
+    }
+    function revealTarget() {
+        if (!presentationActive || !revealPluginId)
             return;
-        const index = rows.rowForPlugin(revealPluginId);
+        const pluginId = revealPluginId;
+        const index = rows.rowForPlugin(pluginId);
+        if (index >= 0) {
+            // A query can replace the grid source before ListView applies its
+            // pending model changes. Position against the current native view.
+            list.forceLayout();
+            if (index >= list.count || list.height <= 0)
+                return;
+            EchoListPositioning.positionIfNeeded(list, index, ListView.Contain, viewport);
+            const target = list.itemAtIndex(index);
+            // Repeater content can acquire its natural height after the row
+            // is created. Its height notification completes this same request.
+            if (!target || target.height <= 0)
+                return;
+            const top = target.mapToItem(list, 0, 0).y;
+            if (top >= list.height || top + target.height <= 0)
+                return;
+            revealPluginId = "";
+            highlightedPluginId = pluginId;
+            locateHighlightTimer.restart();
+        }
+    }
+    function clearLocateHighlight() {
         revealPluginId = "";
-        if (index >= 0)
-            list.positionViewAtIndex(index, ListView.Contain);
+        highlightedPluginId = "";
+        if (locateHighlightTimer)
+            locateHighlightTimer.stop();
     }
     function closeDialogs() {
         inspectorOwner.close();
@@ -50,8 +88,26 @@ Item {
         settingsScope = null;
     }
     Component.onDestruction: closeDialogs()
-    onMarketplaceChanged: openMarketplace()
-    Component.onCompleted: openMarketplace()
+    onMarketplaceChanged: {
+        clearLocateHighlight();
+        openMarketplace();
+    }
+    onPresentationActiveChanged: {
+        if (!presentationActive) {
+            clearLocateHighlight();
+        } else
+            Qt.callLater(revealTarget);
+    }
+    Timer {
+        id: locateHighlightTimer
+        objectName: "pluginLocateHighlightTimer"
+        interval: 4200
+        onTriggered: page.clearLocateHighlight()
+    }
+    Component.onCompleted: {
+        openMarketplace();
+        requestLocate();
+    }
     Connections {
         target: page.context
         function onActiveChanged() {
@@ -60,10 +116,16 @@ Item {
             else
                 page.openMarketplace();
         }
+        function onQueryChanged() {
+            Qt.callLater(page.requestVisibleLocate);
+        }
     }
     Connections {
         target: page.manager
         function onChanged() {
+            if (page.marketplace && (page.manager.sourceFilter !== page.locateSourceId || page.manager.search !== page.locateSearch))
+                page.clearLocateHighlight();
+            Qt.callLater(page.revealTarget);
             // A startup check only follows installed plugins. If this page was
             // opened during that request, finish loading the full market here.
             if (!page.manager.catalogLoading)
@@ -73,6 +135,8 @@ Item {
     Connections {
         target: page.manager.runtime
         function onCatalogChanged() {
+            if (page.highlightedPluginId && rows.rowForPlugin(page.highlightedPluginId) < 0)
+                page.clearLocateHighlight();
             if (page.settingsScope && !page.settingsScope.active) {
                 pluginSettingsOwner.close();
                 page.settingsScope = null;
@@ -92,6 +156,7 @@ Item {
         id: rows
         source: page.marketplace ? page.manager.catalog : page.manager.runtime
         columns: Math.max(1, Math.floor((page.width - 48 + 14) / 314))
+        onChanged: Qt.callLater(page.revealTarget)
     }
     ColumnLayout {
         anchors.fill: parent
@@ -278,6 +343,10 @@ Item {
                 anchors.fill: parent
                 model: rows
                 reuseItems: true
+                onCountChanged: if (page.revealPluginId)
+                    Qt.callLater(page.revealTarget)
+                onHeightChanged: if (page.revealPluginId)
+                    Qt.callLater(page.revealTarget)
                 EchoViewPoolGuard {
                     targetView: list
                 }
@@ -443,6 +512,10 @@ Item {
                     // Native layout observes child insertion and implicit size changes,
                     // including Repeater delegates completed after async page creation.
                     height: cardLayout.implicitHeight
+                    onHeightChanged: {
+                        if (page.revealPluginId)
+                            Qt.callLater(page.revealTarget);
+                    }
                     PluginCardRowModel {
                         id: cardRecords
                         source: row.pooled ? null : rows.source
@@ -464,12 +537,12 @@ Item {
                                 record: pluginRecord
                                 marketplace: page.marketplace
                                 manager: page.manager
+                                highlighted: page.highlightedPluginId === pluginRecord.id && (!page.marketplace || !page.locateSourceId || page.locateSourceId === pluginRecord.sourceId)
                                 onManageRequested: pluginId => {
-                                    page.revealPluginId = pluginId;
                                     page.router.replaceQuery({
-                                        view: "installed"
+                                        view: "installed",
+                                        highlightPluginId: pluginId
                                     });
-                                    Qt.callLater(page.revealInstalled);
                                 }
                                 onDataRequested: installation => dataOwner.open({
                                         installationId: installation

@@ -93,7 +93,7 @@ void PluginRuntimeTest::marketplaceNetworkFailureDetailsUi()
     host.router.registerPage({"plugin-management",
                               "/main/settings/plugins",
                               QUrl("qrc:/qt/qml/EchoMusic/Plugins/PluginManagementPage.qml"),
-                              {"view"},
+                              {"view", "highlightPluginId"},
                               true,
                               false,
                               false,
@@ -237,6 +237,8 @@ void PluginRuntimeTest::sharedPluginPagePresentationAndRedirect()
     Host host;
     host.theme.setMotionEnabled(false);
     PluginManager manager(host.runtime, host.settings);
+    manager.m_loaded = true;
+    manager.m_catalogComplete = true;
     const auto source = manager.m_sources.first().toMap();
     QImage artwork(64, 64, QImage::Format_RGB32);
     artwork.fill(QColor("#cf4084"));
@@ -263,8 +265,12 @@ void PluginRuntimeTest::sharedPluginPagePresentationAndRedirect()
     manager.resolveShared();
     host.router.registerPage(
         {"plugin-share-resolve", "/plugins/share", QUrl("qrc:/share.qml"), {}, false, false});
-    host.router.registerPage(
-        {"plugin-management", "/plugins", QUrl("qrc:/plugins.qml"), {"view"}, true, false});
+    host.router.registerPage({"plugin-management",
+                              "/plugins",
+                              QUrl("qrc:/plugins.qml"),
+                              {"view", "highlightPluginId"},
+                              true,
+                              false});
     QVERIFY(host.router.navigate("plugin-share-resolve"));
     ShellSettings settings(host.settings);
     QStringList warnings;
@@ -291,9 +297,13 @@ ApplicationWindow {
   scale: win.uiScale; transformOrigin: Item.TopLeft
   Loader {
    anchors.fill: parent
-   active: win.router.current !== null && win.router.current.name === "plugin-share-resolve"
-   sourceComponent: Component {
+   active: win.router.current !== null && (win.router.current.name === "plugin-share-resolve" || win.router.current.name === "plugin-management")
+   sourceComponent: win.router.current && win.router.current.name === "plugin-management" ? management : share
+   Component { id: share
     PluginShareResolvePage { manager: win.manager; router: win.router; context: win.router.current; settings: win.settings }
+   }
+   Component { id: management
+    PluginManagementPage { manager: win.manager; router: win.router; context: win.router.current; settings: win.settings }
    }
   }
  }
@@ -425,6 +435,10 @@ ApplicationWindow {
     QCOMPARE(host.router.current()->query().value("view").toString(), "marketplace");
     QCOMPARE(manager.search(), "test.share");
     QCOMPARE(manager.sourceFilter(), source.value("id").toString());
+    QCOMPARE(host.router.current()->query().value("highlightPluginId").toString(), "test.share");
+    QTRY_VERIFY(visual(window->contentItem(), "pluginCard-test.share"));
+    QTRY_VERIFY(
+        visual(window->contentItem(), "pluginCard-test.share")->property("highlighted").toBool());
     host.router.back();
     QCOMPARE(host.router.current()->name(), "search"); // replace removes intermediate page
     QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
@@ -510,7 +524,7 @@ void PluginRuntimeTest::catalogInstallationSourceIsNotCompatibility()
     host.router.registerPage({"plugin-management",
                               "/main/settings/plugins",
                               QUrl("qrc:/qt/qml/EchoMusic/Plugins/PluginManagementPage.qml"),
-                              {"view"},
+                              {"view", "highlightPluginId"},
                               true,
                               false,
                               false,
@@ -1282,7 +1296,7 @@ void PluginRuntimeTest::managementPageUsesProductionModelsAndDialogs()
     host.router.registerPage({"plugin-management",
                               "/main/settings/plugins",
                               QUrl("qrc:/qt/qml/EchoMusic/Plugins/PluginManagementPage.qml"),
-                              {"view"},
+                              {"view", "highlightPluginId"},
                               true,
                               false,
                               false,
