@@ -26,10 +26,15 @@ inline const QString statisticsEndpoint =
 inline const QString official = "https://github.com/hoowhoami/EchoMusicNextPlugins";
 inline QString localPluginId(const QString &directory)
 {
-    QFile file(directory + "/manifest.json");
-    if (!file.open(QIODevice::ReadOnly) || file.size() > 256 * 1024)
-        return {};
-    return PluginPackage::inspectManifest(file.readAll()).id;
+    return PluginPackage::inspectDirectory(directory).id;
+}
+inline void applyPackageCompatibility(QVariantMap &record, const PluginPackage &package)
+{
+    record["compatible"] = package.error.isEmpty();
+    record["error"] = package.error;
+    record["platforms"] = package.platforms;
+    record["platformLabel"] = package.platformLabel();
+    record["platformIncompatible"] = package.platformIncompatible;
 }
 inline QString raw(const QVariantMap &source, const QString &path)
 {

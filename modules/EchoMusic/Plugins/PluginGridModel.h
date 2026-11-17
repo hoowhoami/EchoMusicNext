@@ -5,8 +5,8 @@
 #include <QtQml/qqmlregistration.h>
 namespace EchoMusic
 {
-/// Groups bounded card rows for a virtualized ListView. Cards share a row height
-/// from their actual implicit content; no fixed-height grid truncates warnings.
+/// Virtual grid membership; record changes are forwarded by each visible row's
+/// PluginCardRowModel without replacing its Repeater model or sibling cards.
 class PluginGridModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -26,17 +26,11 @@ public:
         if (!m_source || !index.isValid() || index.row() < 0 || index.row() >= rowCount() ||
             role != Qt::UserRole + 1)
             return {};
-        QVariantList cards;
-        const auto roles = m_source->roleNames();
-        const int sourceRole = roles.key("pluginRecord");
-        for (int i = index.row() * m_columns;
-             i < std::min((index.row() + 1) * m_columns, m_source->rowCount()); ++i)
-            cards.append(m_source->data(m_source->index(i, 0), sourceRole));
-        return cards;
+        return index.row();
     }
     QHash<int, QByteArray> roleNames() const override
     {
-        return {{Qt::UserRole + 1, "cards"}};
+        return {{Qt::UserRole + 1, "rowIndex"}};
     }
     QAbstractItemModel *source() const
     {
@@ -59,13 +53,18 @@ public:
             connect(source, &QAbstractItemModel::modelReset, this, &PluginGridModel::reset);
             connect(source, &QAbstractItemModel::rowsInserted, this, &PluginGridModel::reset);
             connect(source, &QAbstractItemModel::rowsRemoved, this, &PluginGridModel::reset);
-            connect(source, &QAbstractItemModel::dataChanged, this,
-                    [this](const QModelIndex &first, const QModelIndex &last) {
-                        emit dataChanged(index(first.row() / m_columns),
-                                         index(last.row() / m_columns));
-                    });
         }
         emit changed();
+    }
+    Q_INVOKABLE int rowForPlugin(const QString &id) const
+    {
+        if (!m_source)
+            return -1;
+        const auto role = m_source->roleNames().key("pluginRecord", -1);
+        for (int i = 0; role >= 0 && i < m_source->rowCount(); ++i)
+            if (m_source->data(m_source->index(i, 0), role).toMap().value("id").toString() == id)
+                return i / m_columns;
+        return -1;
     }
     void setColumns(int value)
     {

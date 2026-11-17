@@ -16,11 +16,64 @@ Rectangle {
     signal settingsRequested(string installation)
     signal dataRequested(string installation)
     signal failureRequested(string installation)
+    signal manageRequested(string pluginId)
     readonly property bool busy: !!record.busy || manager.busy
-    readonly property bool warning: !record.compatible || !!record.dependencyBlocked || !!record.stale
-    readonly property bool currentFailure: !marketplace && !!record.error && !record.dependencyBlocked
+    readonly property bool currentFailure: !marketplace && !!record.compatible && !!record.error && !record.dependencyBlocked
     readonly property bool hasFailure: !marketplace && !!record.failure?.message
     readonly property bool historicalFailure: hasFailure && !currentFailure && !record.dependencyBlocked
+    // One state decision feeds the badge, explanation and tone. Buttons name
+    // actions; platform metadata and an unavailable reason never repeat.
+    readonly property var presentation: {
+        if (!record.compatible)
+            return {
+                label: qsTr("不可用"),
+                severity: "warning",
+                detail: record.platformIncompatible && record.platformLabel ? qsTr("仅支持 %1").arg(record.platformLabel) : record.error || qsTr("当前主程序无法加载此插件。")
+            };
+        if (record.dependencyBlocked)
+            return {
+                label: qsTr("待依赖"),
+                severity: "warning",
+                detail: record.error || qsTr("请先安装并启用所需依赖。")
+            };
+        if (currentFailure)
+            return {
+                label: qsTr("运行异常"),
+                severity: "error",
+                detail: record.error
+            };
+        if (record.busy)
+            return {
+                label: marketplace ? record.installed ? qsTr("更新中") : qsTr("安装中") : qsTr("处理中"),
+                severity: "neutral",
+                detail: ""
+            };
+        if (!marketplace && manager.runtime.safeMode && record.enabled && !record.active)
+            return {
+                label: qsTr("未加载"),
+                severity: "warning",
+                detail: qsTr("安全模式已暂停插件加载。")
+            };
+        if (record.stale)
+            return {
+                label: qsTr("来源离线"),
+                severity: "warning",
+                detail: qsTr("暂时无法刷新，显示上次获取的版本。")
+            };
+        if (marketplace)
+            return {
+                label: record.updateAvailable ? qsTr("有更新") : record.installed ? qsTr("已安装") : "",
+                severity: record.updateAvailable ? "accent" : "neutral",
+                detail: ""
+            };
+        return {
+            label: !record.enabled ? qsTr("已停用") : record.active ? qsTr("运行中") : qsTr("待加载"),
+            severity: record.active ? "accent" : "neutral",
+            detail: ""
+        };
+    }
+    readonly property bool warning: presentation.severity === "warning"
+    readonly property bool managingInstalled: marketplace && !!record.installed && !record.updateAvailable
     readonly property string titleText: record.name || record.id || qsTr("无效插件")
     readonly property color pluginAccent: {
         const palette = ["#1a73e8", "#0f9d58", "#f29900", "#d93025", "#7b1fa2", "#00897b"];
@@ -39,7 +92,7 @@ Rectangle {
     readonly property var displayTags: Array.from(new Set(record.displayTags || record.tags || []))
     implicitHeight: content.implicitHeight + 34
     radius: Theme.cardRadius
-    opacity: warning || !marketplace && !record.enabled ? 0.72 : 1
+    opacity: !marketplace && !record.enabled ? 0.72 : warning ? 0.9 : 1
     color: warning ? Theme.withAlpha("#f59e0b", 0.1) : currentFailure ? Theme.withAlpha(Theme.colors.danger, 0.1) : Theme.mutedSurface
     border.color: warning ? Theme.mix(Theme.subtleBorder, "#f59e0b", 0.34) : currentFailure ? Theme.mix(Theme.subtleBorder, Theme.colors.danger, 0.3) : "transparent"
     // Hover lifts the card without adding a border.
@@ -196,10 +249,10 @@ Rectangle {
                     }
                     EchoTag {
                         objectName: "pluginCardStatus"
-                        visible: !!card.record.status && (!card.marketplace || card.warning || !!card.record.installed || !!card.record.updateAvailable)
-                        text: card.record.status || ""
+                        visible: !!card.presentation.label
+                        text: card.presentation.label
                         size: EchoTag.Small
-                        tone: card.warning || card.record.status === qsTr("安全模式") || card.record.updateAvailable ? EchoTag.Custom : card.currentFailure ? EchoTag.Custom : card.record.status === qsTr("运行中") ? EchoTag.Accent : EchoTag.Neutral
+                        tone: card.warning || card.currentFailure ? EchoTag.Custom : card.presentation.severity === "accent" ? EchoTag.Accent : EchoTag.Neutral
                         customTone: card.currentFailure && !card.warning ? Theme.colors.danger : "#f59e0b"
                     }
                 }
@@ -217,7 +270,7 @@ Rectangle {
                     }
                     Label {
                         Layout.maximumWidth: card.width - 88
-                        text: card.marketplace && card.record.installed ? card.record.updateAvailable ? "v" + card.record.installedVersion + " → v" + card.record.version : "v" + card.record.installedVersion : "v" + (card.record.version || "—")
+                        text: card.marketplace && card.record.updateAvailable ? "v" + card.record.installedVersion + " → v" + card.record.version : "v" + (card.record.version || "—")
                         font: Theme.font(11, Theme.regularWeight)
                         color: Theme.secondaryText
                         elide: Text.ElideRight
@@ -228,8 +281,8 @@ Rectangle {
         Label {
             id: descriptionLabel
             Layout.fillWidth: true
-            Layout.minimumHeight: 42
-            Layout.preferredHeight: 42
+            Layout.minimumHeight: lineHeight * 2
+            Layout.preferredHeight: lineHeight * 2
             text: card.record.description || qsTr("暂无描述")
             font: Theme.font(13, Theme.regularWeight)
             color: Theme.secondaryText
@@ -237,7 +290,7 @@ Rectangle {
             maximumLineCount: 2
             elide: Text.ElideRight
             lineHeightMode: Text.FixedHeight
-            lineHeight: 20.8
+            lineHeight: font.pixelSize * 1.6
             HoverHandler {
                 id: descriptionHover
             }
@@ -247,30 +300,49 @@ Rectangle {
                 text: descriptionLabel.text
             }
         }
-        Rectangle {
+        Item {
+            objectName: "pluginCardInformation"
             Layout.fillWidth: true
-            implicitHeight: warningRow.implicitHeight + 16
-            visible: card.warning && (!!card.record.error || !!card.record.refreshError)
-            objectName: "pluginCardWarning"
-            radius: Theme.cardRadius
-            color: Theme.withAlpha("#f59e0b", 0.08)
-            border.color: Theme.withAlpha("#f59e0b", 0.18)
-            EchoButtonContent {
-                id: warningRow
-                objectName: "pluginCardWarningContent"
-                x: 8
-                y: 8
-                width: parent.width - 16
-                height: implicitHeight
-                spacing: 8
-                horizontalAlignment: Qt.AlignLeft
-                glyph: "alert-triangle"
-                glyphSize: 14
-                wrap: true
-                glyphAtFirstLine: true
-                text: card.record.stale ? qsTr("来源暂时不可用，显示上次成功获取的版本。") : card.record.error || ""
+            // Every state uses the same one-line box. Full reasons remain
+            // available through the shared tooltip and accessibility text.
+            Layout.minimumHeight: Math.max(20, warningRow.lineHeight)
+            Layout.preferredHeight: Layout.minimumHeight
+            Layout.maximumHeight: Layout.minimumHeight
+            Label {
+                objectName: "pluginCardPlatforms"
+                anchors.fill: parent
+                visible: !card.presentation.detail
+                text: qsTr("平台：%1").arg(card.record.platformLabel || qsTr("全部"))
                 font: Theme.font(12, Theme.regularWeight)
-                color: Theme.dark ? "#fbbf24" : "#b45309"
+                color: Theme.secondaryText
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+            }
+            Item {
+                id: reason
+                objectName: "pluginCardWarning"
+                anchors.fill: parent
+                visible: !!card.presentation.detail
+                EchoButtonContent {
+                    id: warningRow
+                    objectName: "pluginCardWarningContent"
+                    anchors.fill: parent
+                    spacing: 8
+                    horizontalAlignment: Qt.AlignLeft
+                    glyph: card.currentFailure ? "alert-circle" : "alert-triangle"
+                    glyphSize: 14
+                    text: card.presentation.detail
+                    font: Theme.font(12, Theme.regularWeight)
+                    color: card.currentFailure ? Theme.colors.danger : Theme.dark ? "#fbbf24" : "#b45309"
+                }
+                HoverHandler {
+                    id: reasonHover
+                }
+                EchoToolTip {
+                    parent: reason
+                    requestedVisible: reasonHover.hovered && (warningRow.truncated || text !== card.presentation.detail)
+                    text: card.record.error || card.presentation.detail
+                }
             }
         }
         Flow {
@@ -427,14 +499,15 @@ Rectangle {
             RowLayout {
                 width: parent.width
                 y: 11
-                spacing: 8
+                spacing: card.width < 340 ? 6 : 8
                 PluginActionButton {
-                    tooltipText: card.marketplace ? "" : card.record.settingsAvailable ? qsTr("设置") : !card.record.compatible ? qsTr("插件与当前主程序版本不兼容，无法加载设置") : !card.record.enabled ? qsTr("启用插件后可读取设置项") : card.manager.runtime.safeMode ? qsTr("安全模式下不会加载插件设置") : card.record.status !== qsTr("运行中") ? qsTr("插件运行后可读取设置项") : qsTr("该插件没有提供设置项")
-                    iconOnly: !card.marketplace
+                    tooltipText: card.marketplace ? "" : card.record.settingsAvailable ? qsTr("设置") : !card.record.compatible ? card.record.error || qsTr("当前环境无法加载插件设置") : !card.record.enabled ? qsTr("启用插件后可读取设置项") : card.manager.runtime.safeMode ? qsTr("安全模式下不会加载插件设置") : !card.record.active ? qsTr("插件运行后可读取设置项") : qsTr("该插件没有提供设置项")
+                    iconOnly: !card.marketplace || card.width < 340
                     text: card.marketplace ? qsTr("分享") : qsTr("设置")
                     glyph: card.marketplace ? "share" : "settings"
                     foreground: !card.marketplace && !card.record.settingsAvailable ? Theme.withAlpha(Theme.secondaryText, 0.78) : colors.text
-                    enabled: !card.busy
+                    enabled: !card.busy && (card.marketplace || !!card.record.settingsAvailable)
+                    Accessible.description: tooltipText
                     onClicked: card.marketplace ? card.manager.share(card.record.key) : card.settingsRequested(card.record.installationId)
                 }
                 PluginActionButton {
@@ -471,7 +544,7 @@ Rectangle {
                     onClicked: card.failureRequested(card.record.installationId)
                 }
                 PluginActionButton {
-                    iconOnly: !card.marketplace
+                    iconOnly: !card.marketplace || card.width < 340
                     text: card.marketplace ? qsTr("仓库") : qsTr("移除")
                     glyph: card.marketplace ? "external-link" : "trash"
                     danger: !card.marketplace
@@ -487,16 +560,16 @@ Rectangle {
                     implicitWidth: Math.max(64, Math.ceil(contentItem.implicitWidth + leftPadding + rightPadding))
                     Layout.minimumWidth: implicitWidth
                     accent: true
-                    glyph: card.record.installed && !card.record.updateAvailable ? "circle-check" : "arrow-bar-to-down"
+                    glyph: card.managingInstalled ? "adjustments-horizontal" : card.record.updateAvailable ? "refresh" : "arrow-bar-to-down"
                     loading: !!card.record.busy
-                    text: card.record.installLabel || qsTr("安装")
-                    enabled: card.record.compatible && !card.busy && (!card.record.installed || card.record.updateAvailable)
-                    onClicked: card.manager.install(card.record.key)
+                    text: card.managingInstalled ? qsTr("管理") : card.record.updateAvailable ? qsTr("更新") : qsTr("安装")
+                    enabled: !card.busy && (card.managingInstalled || !!card.record.compatible)
+                    onClicked: card.managingInstalled ? card.manageRequested(card.record.id) : card.manager.install(card.record.key)
                 }
                 EchoSwitch {
                     visible: !card.marketplace
                     checked: !!card.record.enabled
-                    enabled: card.record.compatible && !card.busy && !card.manager.runtime.loading
+                    enabled: !!card.record.compatible && !card.busy && !card.manager.runtime.loading
                     Accessible.name: qsTr("启用 %1").arg(card.titleText)
                     onToggled: card.manager.runtime.setEnabled(card.record.installationId, checked)
                 }

@@ -88,7 +88,7 @@ PluginDependencyGraph PluginRuntime::dependencyPlan(const PluginPackage *replace
         bool exists = false;
         for (const auto &package : packages)
             exists |= package.id == queued.id;
-        if (queued.error.isEmpty() && !exists) {
+        if ((queued.error.isEmpty() || queued.incompatible) && !queued.id.isEmpty() && !exists) {
             packages.append(queued);
             if (m_importEnabled.value(QFileInfo(source).canonicalFilePath(), true))
                 enabled.insert(queued.id);

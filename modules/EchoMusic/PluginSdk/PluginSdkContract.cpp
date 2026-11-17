@@ -141,6 +141,7 @@ QJsonObject pluginSdkContract()
     return {{"schemaVersion", 1},
             {"hostVersion", PluginPackage::hostVersion().toString()},
             {"sdkVersion", PluginPackage::sdkVersion().toString()},
+            {"platform", PluginPackage::currentPlatform()},
             {"packageFormat", "echomod"},
             {"qtVersion", QT_VERSION_STR},
             {"module", "echo:plugin-sdk"},

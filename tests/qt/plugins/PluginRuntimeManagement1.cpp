@@ -570,8 +570,7 @@ ApplicationWindow {
                 auto *card = visual(window->contentItem(), "pluginCard-test.catalog-origin");
                 auto *button = visual(card, "pluginMarketplaceInstall");
                 QVERIFY(button);
-                QCOMPARE(button->property("text").toString(),
-                         scenario == 0 ? QString("已安装") : QString("不兼容"));
+                QCOMPARE(button->property("text").toString(), QString("管理"));
                 auto *buttonLabel = visual(button, "buttonLabel");
                 QVERIFY(buttonLabel);
                 QTRY_VERIFY(!buttonLabel->property("truncated").toBool());
@@ -588,9 +587,10 @@ ApplicationWindow {
                     auto *text =
                         qobject_cast<QQuickItem *>(label->property("textItem").value<QObject *>());
                     QVERIFY(text);
-                    QCOMPARE(text->property("text").toString(), messages[scenario]);
+                    QCOMPARE(content->property("text").toString(), messages[scenario]);
                     if (scenario == 2)
-                        QVERIFY(text->property("lineCount").toInt() > 1);
+                        QVERIFY(content->property("truncated").toBool());
+                    QCOMPARE(text->property("lineCount").toInt(), 1);
                     const auto image = window->grabWindow();
                     const qreal dpr = qreal(image.width()) / window->width();
                     const auto pixel =
@@ -1536,7 +1536,7 @@ ApplicationWindow {
     QVERIFY(blockedCard->property("warning").toBool());
     QVERIFY(!blockedCard->property("currentFailure").toBool());
     QCOMPARE(visual(blockedCard, "pluginCardStatus")->property("text").toString(),
-             QString("依赖未就绪"));
+             QString("待依赖"));
     if (!output.isEmpty()) {
         for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
             host.theme.setMode(mode);

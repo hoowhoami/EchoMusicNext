@@ -1,0 +1,310 @@
+#include "PluginRuntimeTest.h"
+#include "PluginRuntimeTestFixture.h"
+#include "PluginCardRowModel.h"
+#include <QImage>
+
+void PluginRuntimeTest::pluginCardStateChangesPreserveDelegateAndScroll()
+{
+    Host host;
+    QStringList warnings;
+    connect(&host.engine, &QQmlEngine::warnings, &host.engine, [&](const QList<QQmlError> &errors) {
+        for (const auto &error : errors)
+            warnings.append(error.toString());
+    });
+    PluginManager manager(host.runtime, host.settings);
+    manager.m_loaded = true;
+    manager.m_catalogComplete = true;
+    const auto sourceId = manager.m_sources.first().toMap().value("id");
+    QImage artwork(44, 44, QImage::Format_ARGB32_Premultiplied);
+    artwork.fill(QColor("#087f6b"));
+    const auto artworkPath = host.temporary.path() + "/card.png";
+    QVERIFY(artwork.save(artworkPath));
+    for (int i = 0; i < 40; ++i) {
+        const auto id = "card-" + QString::number(i);
+        manager.m_entries.append(QVariantMap{{"key", id},
+                                             {"id", id},
+                                             {"name", "插件 " + id},
+                                             {"version", "1.0.0"},
+                                             {"author", "作者"},
+                                             {"compatible", true},
+                                             {"sourceId", sourceId},
+                                             {"description", "真实卡片的状态更新不应重建界面。"},
+                                             {"iconUrl", QUrl::fromLocalFile(artworkPath)}});
+    }
+    manager.rebuild();
+    PluginCardRowModel projection;
+    projection.setSource(manager.catalog());
+    projection.setLimit(2);
+    QAbstractItemModelTester modelTest(&projection,
+                                       QAbstractItemModelTester::FailureReportingMode::QtTest);
+    QCOMPARE(projection.rowCount(), 2);
+    host.router.registerPage({"plugin-management",
+                              "/main/settings/plugins",
+                              QUrl("qrc:/qt/qml/EchoMusic/Plugins/PluginManagementPage.qml"),
+                              {"view"},
+                              true,
+                              false,
+                              false,
+                              {}});
+    QVERIFY(host.router.navigate("plugin-management", {{"view", "marketplace"}}));
+    QQmlComponent component(&host.engine);
+    component.setData(R"(import QtQuick
+import EchoMusic.Plugins
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window { id:win; required property PluginManager manager; required property RouteController router
+ required property ShellSettings settings; width:760; height:820; visible:true; color:Theme.main
+ PluginManagementPage { anchors.fill:parent; manager:win.manager; router:win.router; context:win.router.current; settings:win.settings }
+})",
+                      QUrl());
+    std::unique_ptr<QObject> root(component.createWithInitialProperties(
+        {{"manager", QVariant::fromValue(&manager)},
+         {"router", QVariant::fromValue(&host.router)},
+         {"settings", QVariant::fromValue(&host.shellSettings)}}));
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(window && QTest::qWaitForWindowExposed(window));
+    QTRY_VERIFY(visual(window->contentItem(), "pluginCard-card-0"));
+    QPointer<QQuickItem> card = visual(window->contentItem(), "pluginCard-card-0");
+    QPointer<QQuickItem> neighbor = visual(window->contentItem(), "pluginCard-card-1");
+    QPointer<QQuickItem> icon = visual(card, "pluginCardIcon");
+    QTRY_COMPARE(icon->property("status").toInt(), 1);
+    QSignalSpy imageState(icon, SIGNAL(statusChanged()));
+    QVERIFY(imageState.isValid());
+    const qreal height = card->height();
+    auto entry = manager.m_entries[0].toMap();
+    entry["compatible"] = false;
+    entry["error"] = "此插件仅支持 Windows，当前平台为 macOS";
+    manager.m_entries[0] = entry;
+    manager.rebuild();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QVERIFY2(card, "A record-only update destroyed the card delegate");
+    QCOMPARE(visual(window->contentItem(), "pluginCard-card-0"), card.data());
+    QVERIFY(neighbor && icon);
+    QCOMPARE(visual(card, "pluginCardIcon"), icon.data());
+    QCOMPARE(imageState.count(), 0);
+    // Quick delegates have visual parents which need not follow the Window's
+    // QObject ownership tree. Inspect each visual owner, including pooled rows.
+    QSet<PluginCardRowModel *> sceneModels;
+    std::function<void(QQuickItem *)> collectModels = [&](QQuickItem *item) {
+        for (auto *model : item->findChildren<PluginCardRowModel *>())
+            sceneModels.insert(model);
+        for (auto *child : item->childItems())
+            collectModels(child);
+    };
+    collectModels(window->contentItem());
+    QVERIFY(!sceneModels.isEmpty() && sceneModels.size() < 20);
+    QPointer<PluginCardRowModel> ownedProjection = *sceneModels.begin();
+    QVERIFY(ownedProjection);
+    QTRY_COMPARE(card->height(), height);
+    auto *list = visual(window->contentItem(), "pluginCardList");
+    QVERIFY(list);
+    QVERIFY(list->setProperty("contentY", 900.));
+    QTest::qWait(50);
+    QPointer<QQuickItem> reading;
+    int readingIndex = -1;
+    for (int i = 0; i < 40; ++i) {
+        auto *candidate = visual(list, "pluginCard-card-" + QString::number(i));
+        if (!candidate)
+            continue;
+        const auto position = candidate->mapToItem(list, QPointF{});
+        if (position.y() > 0 && position.y() < list->height() - 80) {
+            reading = candidate;
+            readingIndex = i;
+            break;
+        }
+    }
+    QVERIFY(reading);
+    const qreal position = list->property("contentY").toReal(), readingHeight = reading->height();
+    const auto scene = reading->mapToScene({});
+    for (int revision = 0; revision < 20; ++revision) {
+        auto changed = manager.m_entries[readingIndex].toMap();
+        changed["compatible"] = revision % 2 == 0;
+        changed["error"] = revision % 2 ? "缺少所需能力，请使用提供该能力的主程序后再启用。" : "";
+        changed["stats"] =
+            QVariantMap{{"installCount", revision}, {"updateCount", revision}, {"score", revision}};
+        manager.m_entries[readingIndex] = changed;
+        manager.rebuild();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QTest::qWait(5);
+        QVERIFY(reading);
+        QCOMPARE(reading->height(), readingHeight);
+        QCOMPARE(reading->mapToScene({}), scene);
+        QCOMPARE(list->property("contentY").toReal(), position);
+    }
+    // Installed cards offer a useful management action, including a local
+    // installation which cannot be replaced by this marketplace source.
+    QVERIFY(list->setProperty("contentY", 0.));
+    QVERIFY(host.runtime.installDirectory(
+        pluginPackage(host.temporary.path(), "card-0", "export function activate(){}")));
+    QTRY_COMPARE(host.runtime.state(host.runtime.installationForId("card-0")),
+                 PluginRuntime::Active);
+    QTRY_VERIFY(visual(window->contentItem(), "pluginCard-card-0"));
+    auto *manage =
+        visual(visual(window->contentItem(), "pluginCard-card-0"), "pluginMarketplaceInstall");
+    QVERIFY(manage && manage->isEnabled());
+    QCOMPARE(manage->property("text").toString(), "管理");
+    QVERIFY(QMetaObject::invokeMethod(manage, "clicked"));
+    QTRY_COMPARE(host.router.current()->query().value("view").toString(), "installed");
+    QTRY_VERIFY(visual(window->contentItem(), "pluginCard-card-0"));
+    root.reset();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QVERIFY(!reading);
+    QVERIFY(!ownedProjection);
+    QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    manager.shutdown();
+}
+
+void PluginRuntimeTest::pluginCardPresentationStates()
+{
+    Host host;
+    QStringList warnings;
+    connect(&host.engine, &QQmlEngine::warnings, &host.engine, [&](const QList<QQmlError> &errors) {
+        for (const auto &error : errors)
+            warnings.append(error.toString());
+    });
+    PluginManager manager(host.runtime, host.settings);
+    QQmlComponent component(&host.engine);
+    component.setData(R"(import QtQuick
+import EchoMusic.Plugins
+import EchoMusic.Theme
+Window { id:win; required property PluginManager manager; property var record:({}); property bool market:true
+ property real uiScale:1; width:620; height:620; visible:true; color:Theme.main
+ Item { width:win.width/win.uiScale; height:win.height/win.uiScale; scale:win.uiScale; transformOrigin:Item.TopLeft
+ PluginCard {objectName:'stateCard'; x:20;y:20;width:parent.width-40; manager:win.manager; record:win.record;marketplace:win.market} }
+})",
+                      QUrl());
+    std::unique_ptr<QObject> root(
+        component.createWithInitialProperties({{"manager", QVariant::fromValue(&manager)}}));
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(window && QTest::qWaitForWindowExposed(window));
+    auto *card = visual(window->contentItem(), "stateCard");
+    struct State
+    {
+        QString name;
+        bool market;
+        QVariantMap fields;
+        QString label, action;
+        bool enabled;
+    };
+    const QList<State> states{
+        {"available", true, {}, "", "安装", true},
+        {"platform",
+         true,
+         {{"compatible", false},
+          {"platformIncompatible", true},
+          {"error", "此插件仅支持 Windows，当前平台为 macOS"}},
+         "不可用",
+         "安装",
+         false},
+        {"version",
+         true,
+         {{"compatible", false},
+          {"error",
+           "缺少所需的绘图能力，请安装提供该能力的主程序后再使用。插件配置和已有数据不会受影响。"}},
+         "不可用",
+         "安装",
+         false},
+        {"installed", true, {{"installed", true}}, "已安装", "管理", true},
+        {"update",
+         true,
+         {{"installed", true}, {"updateAvailable", true}, {"installedVersion", "0.9.0"}},
+         "有更新",
+         "更新",
+         true},
+        {"installing", true, {{"busy", true}}, "安装中", "安装", false},
+        {"stale", true, {{"stale", true}, {"refreshError", "network"}}, "来源离线", "安装", true},
+        {"active", false, {{"active", true}}, "运行中", "", true},
+        {"disabled", false, {{"enabled", false}}, "已停用", "", true},
+        {"safe-mode", false, {{"safeMode", true}}, "未加载", "", true},
+        {"history",
+         false,
+         {{"active", true}, {"failure", QVariantMap{{"message", "上次回调失败"}}}},
+         "运行中",
+         "",
+         true},
+        {"blocked",
+         false,
+         {{"dependencyBlocked", true}, {"error", "需要启用依赖插件 audio-library"}},
+         "待依赖",
+         "",
+         true},
+        {"failed",
+         false,
+         {{"error", "插件初始化失败：无法解析频谱配置"},
+          {"failure", QVariantMap{{"message", "插件初始化失败：无法解析频谱配置"}}}},
+         "运行异常",
+         "",
+         true},
+        {"local-platform",
+         false,
+         {{"compatible", false},
+          {"platformIncompatible", true},
+          {"error", "此插件仅支持 Windows，当前平台为 macOS"}},
+         "不可用",
+         "",
+         true}};
+    const auto captures = qEnvironmentVariable("ECHO_PLUGIN_CARD_UX_CAPTURES");
+    if (!captures.isEmpty())
+        QDir().mkpath(captures);
+    for (const int fontScale : {100, 125}) {
+        host.theme.setGlobalFontSizeScale(fontScale);
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            host.theme.setMode(mode);
+            for (const auto scale : {1., 1.25}) {
+                window->setWidth(scale == 1. ? 620 : 420);
+                window->setProperty("uiScale", scale);
+                QMap<bool, qreal> heights;
+                for (const auto &state : states) {
+                    QVariantMap record{{"id", "state-preview"},
+                                       {"name", "频谱可视化"},
+                                       {"author", "hoowhoami"},
+                                       {"version", "1.0.0"},
+                                       {"enabled", true},
+                                       {"compatible", true},
+                                       {"sourceName", state.market ? "官方插件源" : "本地安装"},
+                                       {"description", "在播放栏、Mini 和歌词页中显示实时频谱。"},
+                                       {"tags", QStringList{"频谱", "可视化"}},
+                                       {"platformLabel", "Windows"}};
+                    for (auto it = state.fields.begin(); it != state.fields.end(); ++it)
+                        record[it.key()] = it.value();
+                    QVERIFY(host.runtime.setSafeMode(record.value("safeMode").toBool()));
+                    window->setProperty("market", state.market);
+                    window->setProperty("record", record);
+                    QTest::qWait(25);
+                    auto *status = visual(card, "pluginCardStatus");
+                    QCOMPARE(status->property("text").toString(), state.label);
+                    QCOMPARE(status->isVisible(), !state.label.isEmpty());
+                    auto *button = visual(card, "pluginMarketplaceInstall");
+                    QCOMPARE(button->isVisible(), state.market);
+                    if (state.market) {
+                        QCOMPARE(button->property("text").toString(), state.action);
+                        QCOMPARE(button->isEnabled(), state.enabled);
+                    }
+                    auto *reason = visual(card, "pluginCardWarning");
+                    auto *platform = visual(card, "pluginCardPlatforms");
+                    QCOMPARE(platform->isVisible(), !reason->isVisible());
+                    if (!heights.contains(state.market))
+                        heights[state.market] = card->height();
+                    QCOMPARE(card->height(), heights[state.market]);
+                    auto *actions = visual(card, "pluginCardActions");
+                    for (auto *child : actions->findChildren<QQuickItem *>())
+                        if (child->isVisible() && child->inherits("QQuickAbstractButton")) {
+                            const auto rect = child->mapRectToItem(card, child->boundingRect());
+                            QVERIFY2(rect.left() >= 0 && rect.right() <= card->width(),
+                                     qPrintable(state.name));
+                        }
+                    if (!captures.isEmpty())
+                        QVERIFY(window->grabWindow().save(captures + "/" + state.name + "-" +
+                                                          QString::number(int(mode)) + "-" +
+                                                          QString::number(scale) + "-font" +
+                                                          QString::number(fontScale) + ".png"));
+                }
+            }
+        }
+    }
+    host.theme.setGlobalFontSizeScale(100);
+    QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    manager.shutdown();
+}

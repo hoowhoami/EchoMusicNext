@@ -130,6 +130,9 @@ void PluginManager::extractLocal(const QString &archive, const QVariantMap &entr
         QString candidate = unpacked;
         if (!QFileInfo(candidate + "/manifest.json").isFile())
             return {{}, "Archive must contain one plugin manifest"};
+        const auto package = PluginPackage::inspectDirectory(candidate);
+        if (!package.error.isEmpty())
+            return {{}, package.error};
         return {candidate, {}};
     }));
 }
@@ -143,7 +146,12 @@ bool PluginManager::installLocal(const QUrl &url)
         m_busy = true;
         m_installingKey.clear();
         emit changed();
-        m_pendingPluginId = localPluginId(path);
+        const auto package = PluginPackage::inspectDirectory(path);
+        m_pendingPluginId = package.id;
+        if (!package.error.isEmpty()) {
+            finishInstall(false, package.error);
+            return true;
+        }
         if (!m_runtime.installDirectory(path, {{"kind", "local"}, {"name", tr("本地安装")}})) {
             finishInstall(false, tr("插件目录无效或不兼容"));
             return true;

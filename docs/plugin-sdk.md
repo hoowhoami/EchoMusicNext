@@ -236,3 +236,8 @@ lease.dispose();
 `settings.network` 提供 `ctx.settings.read/update/observe('network', ...)`，字段为 `githubProxyUrl`、`apiTimeoutSeconds`、`playerTimeoutSeconds`、`playerUserAgent`，沿现有 `hostSettings` 授权。由应用注入唯一 `NetworkPreferences`，调用原保存方法并返回真实错误；不暴露代理凭证或任意存储。GitHub 插件可在激活完成后后台检测并应用地址，通过现有 parts 贡献显示接管提示；撤权/停用恢复输入，已保存设置保留。参数范围、示例和生命周期见[网络设置指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/host-access.md#网络设置)。
 
 插件可用manifest的`requires.hostVersion`声明宿主版本范围。兼容检查与SDK导出的`hostVersion`共用由VERSION派生的构建数值版本；同时声明所需features。GitHub加速插件1.0.1要求宿主>=0.1.3及settings.network。
+
+
+## 平台要求
+
+`requires.platforms` 可声明 `windows`、`macos`、`linux` 的非空组合，省略时支持全部平台；同时要求 `manifest.platforms` feature。宿主统一接入在线列表、本地安装、更新、启动和依赖检查，详见[插件包与依赖](plugin-packages.md#支持平台)。

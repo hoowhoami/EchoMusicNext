@@ -12,7 +12,7 @@
 | 分发文件 | `.echomod` 插件包，manifest 的 `format` 为 `echomod` |
 | 作者接口 | `EchoMusic.PluginSdk` / `echo:plugin-sdk`，依赖协作使用 `ctx.plugins` 与 `pluginService` |
 | 编辑源码 | `plugins/<pluginId>/` |
-| 官方发布包 | `artifacts/<pluginId>-<version>.echomod`，由索引的 `artifact` 指向 |
+| 官方发布包 | `artifacts/<pluginId>-<version>.echomod`，由作者清单的 `distribution.artifact` 指向 |
 | 临时构建输出 | `dist/`，不作为第二类扩展或安装状态 |
 
 原生 DSP 使用独立音频 ABI 与生命周期，其音频处理职责与上述插件管理分开。
@@ -23,13 +23,32 @@
 
 管理页的“安装插件”、多文件选择、拖入、本地根目录发现和 `--plugin-dir /path/to/file.echomod` 共用有界提取/校验、内容寻址副本与既有代码/私有数据事务。打开本地插件文件由Qt文件事件/单实例URL转发/启动位置参数接入；macOS bundle声明扩展类型，Windows/Linux安装器文件关联仍需发布侧接入和实机验收。原文件和内部代码存储不属于可导入的业务数据迁移。
 
-官方源 `echo-plugins.json` 使用 schemaVersion=2，条目为 `id/repo/ref/path/artifact/sha256`。repo 省略时为当前源；空 path 表示作者仓库根，ref 默认为 HEAD。artifact 可为作者仓库内 .echomod 的相对路径或 HTTPS 下载地址。展示信息来自 manifest；安装必须同时通过预期 ID、包 SHA-256、包内清单与资源边界校验。哈希不代替发布者签名或安全沙盒。
+官方源 `echo-plugins.json` 使用 schemaVersion=2，只收录 `id/repo/ref/path`；作者 `manifest.json` 的 `distribution` 提供 `artifact/sha256`，构建时剔除该字段。repo 省略时为当前源；空 path 表示作者仓库根，ref 默认为 HEAD。artifact 可为作者仓库内 .echomod 的相对路径或 HTTPS 下载地址。展示信息来自 manifest；安装必须同时通过预期 ID、包 SHA-256、包内清单与资源边界校验。哈希不代替发布者签名或安全沙盒。
 
 在线索引、清单和安装包使用设置中的 GitHub 加速地址；加速请求失败、返回无效资料或下载文件与索引不一致时，自动回原站重试一次。两段请求均遵循全局代理规则，仍不一致时停止安装并保留已安装版本。
 
-手动刷新、新增源及安装下载会要求重新验证缓存；GitHub 原始文件通过仓库的 raw 入口解析 ref 到当前提交，避免固定 HEAD/分支地址的旧缓存。首次打开仍可立即展示本地目录缓存并后台更新。发布者应先上传清单和安装包，再更新索引，推荐使用固定提交或独立版本标签，避免覆盖相同版本的文件。
+手动刷新、新增源及安装下载会要求重新验证缓存；GitHub 原始文件通过仓库的 raw 入口解析 ref 到当前提交，避免固定 HEAD/分支地址的旧缓存。首次打开仍可立即展示本地目录缓存并后台更新。发布者先上传安装包，再更新作者清单。官方索引跟随作者维护的分支，无需每次发布时修改索引。
 
 安装后的代码直接位于 `plugins/<插件ID>/`，配置和私有文件位于 `plugins/.data/<插件ID>/`。管理页可打开代码/数据目录、清空数据、删除卸载后保留的数据；外部授权目录不随这些操作删除。更新失败同时恢复代码和私有数据。
+
+## 支持平台
+
+仅支持部分系统的插件在 `manifest.json` 中声明：
+
+```json
+"requires": {
+  "hostVersion": ">=0.1.0",
+  "sdkVersion": ">=1.0.0",
+  "features": ["lifecycle", "manifest.platforms"],
+  "platforms": ["windows"]
+}
+```
+
+`platforms` 为 `windows`、`macos`、`linux` 的非空、不重复组合；省略表示所有平台。声明时必须同时要求 `manifest.platforms`，旧宿主会因缺少该 feature 拒绝加载。
+
+在线与已安装卡片显示支持平台及不兼容原因；目录缓存按当前宿主重新判断。本地目录、`.echomod`、启动、分享安装及更新共用检查。不兼容更新保留现有版本；已安装插件在另一系统启动时不执行入口，保留数据与启用偏好。必需依赖和已启用的可选依赖传播提供者的不兼容原因，未启用的可选依赖不阻塞。
+
+发布工具允许跨平台构建和发布，例如在 macOS 上生成 Windows 专用的 `.echomod`。`test-host` 按指定真实宿主导出的 `platform` 判断，不用 Node 所在系统推断目标；不适用时报错，不跳过后宣称验收成功。
 
 ## 依赖声明
 

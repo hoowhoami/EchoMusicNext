@@ -37,8 +37,10 @@ bool PluginRuntime::installDirectory(const QString &directory, const QVariantMap
                     checkClosed();
                 });
         watcher->setFuture(QtConcurrent::run([directory, stage] {
-            return stage->isValid() ? PluginPackage::extractArchive(directory, stage->path())
-                                    : QStringLiteral("Cannot create plugin staging directory");
+            if (!stage->isValid())
+                return QStringLiteral("Cannot create plugin staging directory");
+            const auto error = PluginPackage::extractArchive(directory, stage->path());
+            return error.isEmpty() ? PluginPackage::inspectDirectory(stage->path()).error : error;
         }));
         return true;
     }
@@ -50,10 +52,7 @@ bool PluginRuntime::installDirectory(const QString &directory, const QVariantMap
     auto installationOrigin = origin;
     if (installationOrigin.isEmpty())
         installationOrigin = {{"kind", "local"}, {"name", tr("本地安装")}};
-    QFile manifestFile(directory + "/manifest.json");
-    if (!manifestFile.open(QIODevice::ReadOnly) || manifestFile.size() > 256 * 1024)
-        return false;
-    const auto descriptor = PluginPackage::inspectManifest(manifestFile.readAll());
+    const auto descriptor = PluginPackage::inspectDirectory(directory);
     if (!descriptor.error.isEmpty() || (!expected.isEmpty() && descriptor.manifest != expected))
         return false;
     const auto existing = installationForId(descriptor.id);

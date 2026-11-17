@@ -222,7 +222,10 @@ void PluginRuntime::advanceRefresh()
         if (installDirectory(
                 path, {{"kind", "local"}, {QFileInfo(path).isFile() ? "file" : "directory", path}}))
             return;
-        emit managementFinished({}, false, tr("无法导入插件目录：%1").arg(path));
+        const auto error =
+            QFileInfo(path).isDir() ? PluginPackage::inspectDirectory(path).error : QString();
+        emit managementFinished({}, false,
+                                error.isEmpty() ? tr("无法导入插件目录：%1").arg(path) : error);
     }
     while (!m_refreshInstallations.isEmpty()) {
         if (reload(m_refreshInstallations.takeFirst()))

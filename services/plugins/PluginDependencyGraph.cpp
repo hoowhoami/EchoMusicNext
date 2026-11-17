@@ -9,9 +9,12 @@ PluginDependencyGraph PluginDependencyGraph::resolve(const QList<PluginPackage> 
 {
     PluginDependencyGraph result;
     QMap<QString, PluginPackage> nodes;
+    QMap<QString, PluginPackage> known;
     QMap<QString, QSet<QString>> predecessors;
     QMap<QString, QSet<QString>> requirements;
     for (const auto &package : packages) {
+        if (!package.id.isEmpty())
+            known.insert(package.id, package);
         if (package.id.isEmpty() || !enabled.contains(package.id))
             continue;
         if (nodes.contains(package.id))
@@ -20,8 +23,10 @@ PluginDependencyGraph PluginDependencyGraph::resolve(const QList<PluginPackage> 
     }
     for (auto it = nodes.begin(); it != nodes.end(); ++it) {
         const auto &package = it.value();
-        if (!package.error.isEmpty())
+        if (!package.error.isEmpty()) {
             result.errors[it.key()] = package.error;
+            continue;
+        }
         auto dependencies = package.dependencies;
         for (auto optional = package.optionalDependencies.begin();
              optional != package.optionalDependencies.end(); ++optional)
@@ -29,11 +34,15 @@ PluginDependencyGraph PluginDependencyGraph::resolve(const QList<PluginPackage> 
                 dependencies.insert(optional.key(), optional.value());
         for (auto dependency = dependencies.begin(); dependency != dependencies.end();
              ++dependency) {
-            if (!nodes.contains(dependency.key()))
-                result.errors[it.key()] = QObject::tr("需要启用依赖插件 %1（%2）")
-                                              .arg(dependency.key(), dependency.value());
-            else if (!PluginPackage::versionMatches(dependency.value(),
-                                                    nodes[dependency.key()].version))
+            if (!nodes.contains(dependency.key())) {
+                const auto provider = known.constFind(dependency.key());
+                result.errors[it.key()] =
+                    provider != known.cend() && provider->incompatible
+                        ? QObject::tr("依赖 %1 不可用：%2").arg(dependency.key(), provider->error)
+                        : QObject::tr("需要启用依赖插件 %1（%2）")
+                              .arg(dependency.key(), dependency.value());
+            } else if (!PluginPackage::versionMatches(dependency.value(),
+                                                      nodes[dependency.key()].version))
                 result.errors[it.key()] =
                     QObject::tr("依赖 %1 要求 %2，已安装 %3")
                         .arg(dependency.key(), dependency.value(), nodes[dependency.key()].version);

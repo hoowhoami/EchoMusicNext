@@ -39,9 +39,41 @@ QVersionNumber PluginPackage::sdkVersion()
 {
     return {1, 0, 0};
 }
+QString PluginPackage::currentPlatform()
+{
+#if defined(Q_OS_WIN)
+    return QStringLiteral("windows");
+#elif defined(Q_OS_MACOS)
+    return QStringLiteral("macos");
+#elif defined(Q_OS_LINUX)
+    return QStringLiteral("linux");
+#else
+    return QStringLiteral("unknown");
+#endif
+}
+QString PluginPackage::platformLabel() const
+{
+    QStringList names;
+    for (const auto &platform : platforms)
+        names.append(platform == "windows" ? QStringLiteral("Windows")
+                     : platform == "macos" ? QStringLiteral("macOS")
+                                           : QStringLiteral("Linux"));
+    return names.join(QStringLiteral("、"));
+}
+PluginPackage PluginPackage::inspectDirectory(const QString &directory)
+{
+    QFile file(QDir(directory).filePath("manifest.json"));
+    if (!file.open(QIODevice::ReadOnly) || file.size() > 256 * 1024) {
+        PluginPackage result;
+        result.error = QObject::tr("缺少插件清单或清单过大");
+        return result;
+    }
+    return inspectManifest(file.readAll());
+}
 QStringList PluginPackage::supportedFeatures()
 {
-    QStringList features{"playback.clock",
+    QStringList features{"manifest.platforms",
+                         "playback.clock",
                          "appearance.overrides",
                          "app.icons",
                          "files.audioMetadata",
@@ -362,15 +394,41 @@ PluginPackage PluginPackage::inspectManifest(const QByteArray &bytes)
          object.value("icon").toString().contains('\\')))
         return fail("Invalid plugin icon path");
     const auto requirements = object.value("requires").toObject();
+    for (auto it = requirements.begin(); it != requirements.end(); ++it)
+        if (it.key() != "hostVersion" && it.key() != "sdkVersion" && it.key() != "features" &&
+            it.key() != "platforms")
+            return fail("Unknown required compatibility field: " + it.key());
     if (!strings(object.value("capabilities"), result.capabilities) ||
         !strings(requirements.value("features"), result.features))
         return fail("Capabilities and required features must be unique string arrays");
+    if (requirements.contains("platforms")) {
+        QStringList platforms;
+        if (!strings(requirements.value("platforms"), platforms) || platforms.isEmpty() ||
+            platforms.size() > 3)
+            return fail("Required platforms must be a non-empty unique string array");
+        for (const auto &platform : platforms)
+            if (platform != "windows" && platform != "macos" && platform != "linux")
+                return fail("Unknown required platform: " + platform);
+        result.platforms = platforms;
+        if (!result.features.contains("manifest.platforms"))
+            return fail("Platform declarations require the manifest.platforms feature");
+    }
     if (!object.value("windows").toArray().isEmpty() && !result.capabilities.contains("windows"))
         return fail("Window declarations require windows capability");
     const auto contexts = object.value("contexts").toArray();
     if (contexts != QJsonArray{"main"}) {
         result.incompatible = true;
         return fail("This runtime currently provides the main context only");
+    }
+    if (!result.platforms.isEmpty() && !result.platforms.contains(currentPlatform())) {
+        result.incompatible = true;
+        result.platformIncompatible = true;
+        return fail(QObject::tr("此插件仅支持 %1，当前平台为 %2")
+                        .arg(result.platformLabel(),
+                             currentPlatform() == "windows" ? QStringLiteral("Windows")
+                             : currentPlatform() == "macos" ? QStringLiteral("macOS")
+                             : currentPlatform() == "linux" ? QStringLiteral("Linux")
+                                                            : currentPlatform()));
     }
     if (!rangeContains(requirements.value("hostVersion").toString(), hostVersion()) ||
         !rangeContains(requirements.value("sdkVersion").toString(), sdkVersion())) {

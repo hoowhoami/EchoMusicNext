@@ -365,8 +365,7 @@ void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                             record["sourceId"] = source.value("id");
                             record["sourceName"] = source.value("name");
                             record["sourceUrl"] = source.value("url");
-                            record["compatible"] = package.error.isEmpty();
-                            record["error"] = package.error;
+                            applyPackageCompatibility(record, package);
                             const auto icon = package.manifest.value("icon").toString();
                             record["iconUrl"] =
                                 icon.isEmpty()

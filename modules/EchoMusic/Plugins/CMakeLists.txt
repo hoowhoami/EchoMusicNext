@@ -14,6 +14,7 @@ qt_add_qml_module(
     PluginManager.cpp
     PluginListModel.h
     PluginGridModel.h
+    PluginCardRowModel.h
     QML_FILES
     PluginManagementPage.qml
     PluginCard.qml

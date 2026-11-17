@@ -23,10 +23,19 @@ Item {
     property string failureId: ""
     property string settingsId: ""
     property EchoPluginContext settingsScope: null
+    property string revealPluginId: ""
     objectName: "pluginManagementPage"
     function openMarketplace() {
         if (marketplace && context.active)
             manager.refreshCatalog();
+    }
+    function revealInstalled() {
+        if (!context.active || marketplace || !revealPluginId)
+            return;
+        const index = rows.rowForPlugin(revealPluginId);
+        revealPluginId = "";
+        if (index >= 0)
+            list.positionViewAtIndex(index, ListView.Contain);
     }
     function closeDialogs() {
         inspectorOwner.close();
@@ -426,26 +435,42 @@ Item {
                 }
                 delegate: Item {
                     id: row
-                    required property var cards
+                    required property int rowIndex
+                    property bool pooled: false
+                    ListView.onPooled: row.pooled = true
+                    ListView.onReused: row.pooled = false
                     width: list.width
                     // Native layout observes child insertion and implicit size changes,
                     // including Repeater delegates completed after async page creation.
                     height: cardLayout.implicitHeight
+                    PluginCardRowModel {
+                        id: cardRecords
+                        source: row.pooled ? null : rows.source
+                        start: row.rowIndex * rows.columns
+                        limit: rows.columns
+                    }
                     RowLayout {
                         id: cardLayout
                         x: 24
                         spacing: 14
                         Repeater {
                             id: cardRepeater
-                            model: row.cards
+                            model: cardRecords
                             delegate: PluginCard {
-                                required property var modelData
-                                objectName: "pluginCard-" + (modelData.id || "invalid")
+                                required property var pluginRecord
+                                objectName: "pluginCard-" + (pluginRecord.id || "invalid")
                                 Layout.preferredWidth: Math.max(0, (list.width - 48 - (rows.columns - 1) * 14) / rows.columns)
                                 Layout.fillHeight: true
-                                record: modelData
+                                record: pluginRecord
                                 marketplace: page.marketplace
                                 manager: page.manager
+                                onManageRequested: pluginId => {
+                                    page.revealPluginId = pluginId;
+                                    page.router.replaceQuery({
+                                        view: "installed"
+                                    });
+                                    Qt.callLater(page.revealInstalled);
+                                }
                                 onDataRequested: installation => dataOwner.open({
                                         installationId: installation
                                     })

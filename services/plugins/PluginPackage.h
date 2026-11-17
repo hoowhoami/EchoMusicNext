@@ -10,13 +10,17 @@ namespace EchoMusic
 struct PluginPackage
 {
     QString id, name, version, root, entry, installationId, contentHash;
-    QStringList capabilities, features;
+    QStringList capabilities, features, platforms;
     QMap<QString, QString> dependencies, optionalDependencies, conflicts;
     QStringList loadAfter, loadBefore;
     QVariantMap manifest;
     QString error;
     bool incompatible = false;
+    bool platformIncompatible = false;
     static PluginPackage inspectManifest(const QByteArray &bytes);
+    static PluginPackage inspectDirectory(const QString &directory);
+    static QString currentPlatform();
+    QString platformLabel() const;
     static QVersionNumber hostVersion();
     static QVersionNumber sdkVersion();
     static QStringList supportedFeatures();

@@ -5,6 +5,11 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void pluginCardStateChangesPreserveDelegateAndScroll();
+    void pluginCardPresentationStates();
+    void platformManifestValidationAndDependencies();
+    void platformInstallationUpdateAndStartup();
+    void platformCatalogCacheAndProductionCard();
     void nativeUiActionsCommitBusinessIntent();
     void uiSemanticDiscoveryAndAncestryStayLazy();
     void uiAutomaticGeometryObservationIsDemandOwned();

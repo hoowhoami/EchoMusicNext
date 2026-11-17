@@ -1021,6 +1021,8 @@ target_sources(
             plugins/PluginRuntimeDistribution.cpp
             plugins/PluginRuntimeUpdateTasks.cpp
             plugins/PluginRuntimeRuntime.cpp
+            plugins/PluginRuntimePlatforms.cpp
+            plugins/PluginRuntimeCardUx.cpp
             plugins/PluginRuntimeShutdown.cpp
             plugins/PluginRuntimeDependencies.cpp
             plugins/PluginRuntimeInterop.cpp
@@ -1125,9 +1127,13 @@ add_test(
         ecosystemLyricsNativeContextsStylesAndReclamation
         ecosystemBusinessRequestsAndSharedVerification
 )
-add_test(NAME plugin-runtime-distribution
-         COMMAND echo-plugin-runtime-test crossRepositoryCatalogInstallAndFailureIsolation
-                 flatDirectoriesDataManagementAndReinstallIsolation
+add_test(
+    NAME plugin-runtime-distribution
+    COMMAND
+        echo-plugin-runtime-test crossRepositoryCatalogInstallAndFailureIsolation
+        flatDirectoriesDataManagementAndReinstallIsolation
+        platformManifestValidationAndDependencies platformInstallationUpdateAndStartup
+        platformCatalogCacheAndProductionCard
 )
 set_tests_properties(
     plugin-runtime-distribution PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
@@ -1149,6 +1155,7 @@ add_test(
         managementHeaderAndLoadingContentStayAligned marketplaceNetworkFailureClassification
         marketplaceNetworkFailureDetailsUi managementPageUsesProductionModelsAndDialogs
         marketplaceInstallsActualPackageAndRejectsTampering
+        pluginCardStateChangesPreserveDelegateAndScroll pluginCardPresentationStates
 )
 add_test(
     NAME plugin-update-tasks

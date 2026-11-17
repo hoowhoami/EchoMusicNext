@@ -374,10 +374,10 @@ Window {
     auto *looseFrame = session.item("thinLooseFrame");
     auto *ghostFrame = session.item("thinGhostFrame");
     QVERIFY(looseFrame && ghostFrame);
-    auto *looseRaster = qobject_cast<EchoDashedFrameSurface *>(
-        findVisual(looseFrame, "dashedFrameAlignedSurface"));
-    auto *ghostRaster = qobject_cast<EchoDashedFrameSurface *>(
-        findVisual(ghostFrame, "dashedFrameAlignedSurface"));
+    auto *looseRaster =
+        qobject_cast<EchoDashedFrameSurface *>(findVisual(looseFrame, "dashedFrameAlignedSurface"));
+    auto *ghostRaster =
+        qobject_cast<EchoDashedFrameSurface *>(findVisual(ghostFrame, "dashedFrameAlignedSurface"));
     QVERIFY(looseRaster && ghostRaster);
     const auto capture = qEnvironmentVariable("ECHO_THIN_SURFACE_CAPTURES");
     if (!capture.isEmpty())
@@ -434,10 +434,10 @@ Window {
                 // so derive its top row and left column from the surface's
                 // own insets instead of the snapped box edge.
                 const auto borderOrigin = outline->mapToScene({}) * dpr;
-                const int borderTop = qRound(borderOrigin.y()
-                                             + raster->property("strokeInsetTop").value<qreal>());
-                const int borderLeft = qRound(borderOrigin.x()
-                                              + raster->property("strokeInsetLeft").value<qreal>());
+                const int borderTop =
+                    qRound(borderOrigin.y() + raster->property("strokeInsetTop").value<qreal>());
+                const int borderLeft =
+                    qRound(borderOrigin.x() + raster->property("strokeInsetLeft").value<qreal>());
                 const int strokeRows = qMax(1, qRound(density));
                 int solidColumns = 0;
                 for (int x = borderLeft + qCeil(12 * density);
@@ -472,18 +472,16 @@ Window {
                 // inside the logical rectangle by the frame's stroke insets,
                 // so derive its rows from the surface's own insets.
                 const auto solidOrigin = solidOutline->mapToScene({}) * dpr;
-                const int ringTop = qRound(solidOrigin.y()
-                                           + solidRaster->property("strokeInsetTop")
-                                                 .value<qreal>());
-                const int ringLeft = qRound(solidOrigin.x()
-                                            + solidRaster->property("strokeInsetLeft")
-                                                  .value<qreal>());
+                const int ringTop = qRound(solidOrigin.y() +
+                                           solidRaster->property("strokeInsetTop").value<qreal>());
+                const int ringLeft = qRound(
+                    solidOrigin.x() + solidRaster->property("strokeInsetLeft").value<qreal>());
                 const int ringRight =
-                    qRound(solidOrigin.x() + solidOutline->width() * density
-                           - solidRaster->property("strokeInsetRight").value<qreal>())
-                    - 1;
-                for (int x = ringLeft + qCeil(12 * density);
-                     x < ringLeft + qFloor(85 * density); ++x) {
+                    qRound(solidOrigin.x() + solidOutline->width() * density -
+                           solidRaster->property("strokeInsetRight").value<qreal>()) -
+                    1;
+                for (int x = ringLeft + qCeil(12 * density); x < ringLeft + qFloor(85 * density);
+                     ++x) {
                     QCOMPARE(image.pixelColor(x, ringTop), session.theme.text());
                     QCOMPARE(image.pixelColor(x, ringTop - 1), session.theme.main());
                     QCOMPARE(image.pixelColor(x, ringTop + strokeRows), session.theme.main());

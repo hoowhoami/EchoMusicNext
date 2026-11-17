@@ -23,16 +23,10 @@ Item {
     // into QRectF::right()/bottom(), which are absolute edges (x + width).
     property bool strokeInside: true
     readonly property bool strokeInsetActive: frame.snap && frame.strokeInside
-    readonly property real strokeInsetLeft: frame.strokeInsetActive
-        ? Math.ceil(frame.scene.x * frame.dpr) - Math.floor(frame.scene.x * frame.dpr) : 0
-    readonly property real strokeInsetTop: frame.strokeInsetActive
-        ? Math.ceil(frame.scene.y * frame.dpr) - Math.floor(frame.scene.y * frame.dpr) : 0
-    readonly property real strokeInsetRight: frame.strokeInsetActive
-        ? Math.ceil(frame.scene.x * frame.dpr + frame.width * frame.densityX)
-            - Math.floor(frame.scene.x * frame.dpr + frame.width * frame.densityX) : 0
-    readonly property real strokeInsetBottom: frame.strokeInsetActive
-        ? Math.ceil(frame.scene.y * frame.dpr + frame.height * frame.densityY)
-            - Math.floor(frame.scene.y * frame.dpr + frame.height * frame.densityY) : 0
+    readonly property real strokeInsetLeft: frame.strokeInsetActive ? Math.ceil(frame.scene.x * frame.dpr) - Math.floor(frame.scene.x * frame.dpr) : 0
+    readonly property real strokeInsetTop: frame.strokeInsetActive ? Math.ceil(frame.scene.y * frame.dpr) - Math.floor(frame.scene.y * frame.dpr) : 0
+    readonly property real strokeInsetRight: frame.strokeInsetActive ? Math.ceil(frame.scene.x * frame.dpr + frame.width * frame.densityX) - Math.floor(frame.scene.x * frame.dpr + frame.width * frame.densityX) : 0
+    readonly property real strokeInsetBottom: frame.strokeInsetActive ? Math.ceil(frame.scene.y * frame.dpr + frame.height * frame.densityY) - Math.floor(frame.scene.y * frame.dpr + frame.height * frame.densityY) : 0
     // Floating surfaces whose fill is drawn by an independent unsnapped
     // painter (smooth-corner dialogs) keep this false so the stroke tracks
     // the fill instead of the device grid.
@@ -62,10 +56,7 @@ Item {
             // smooth-corner recipes under application zoom keep crisp
             // strokes. Without the snap tracker the surface derives the
             // density from the scene graph itself.
-            pixelSize: EchoPixelSnap.enabled
-                ? Qt.size(Math.max(1, Math.round(width * frame.densityX)),
-                          Math.max(1, Math.round(height * frame.densityY)))
-                : Qt.size(0, 0)
+            pixelSize: EchoPixelSnap.enabled ? Qt.size(Math.max(1, Math.round(width * frame.densityX)), Math.max(1, Math.round(height * frame.densityY))) : Qt.size(0, 0)
             pixelAligned: frame.snap
             thickness: frame.thickness <= 0 ? 0 : frame.snap ? Math.max(1, Math.round(frame.thickness * frame.densityY)) / frame.densityY : frame.thickness
             radius: frame.radius

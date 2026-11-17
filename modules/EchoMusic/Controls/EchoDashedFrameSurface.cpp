@@ -50,8 +50,8 @@ QSGNode *EchoDashedFrameSurface::updatePaintNode(QSGNode *previous, UpdatePaintN
     // texture: dialogs whose fill an independent painter draws and skins
     // that disable the border would otherwise upload a fully transparent
     // full-size image on every appearance change.
-    const bool strokeVisible = m_thickness > 0 && m_strokeColor.alpha() > 0
-                               && (m_solid || m_dashLength > 0);
+    const bool strokeVisible =
+        m_thickness > 0 && m_strokeColor.alpha() > 0 && (m_solid || m_dashLength > 0);
     if (!strokeVisible && m_backgroundColor.alpha() <= 0) {
         delete previous;
         return nullptr;
@@ -69,10 +69,8 @@ QSGNode *EchoDashedFrameSurface::updatePaintNode(QSGNode *previous, UpdatePaintN
         const QPointF unitY = mapToScene(QPointF(0, 1)) - origin;
         const qreal lenX = std::hypot(unitX.x(), unitX.y());
         const qreal lenY = std::hypot(unitY.x(), unitY.y());
-        const qreal densityX =
-            qIsFinite(lenX) && lenX > 0.001 ? dpr * lenX : dpr;
-        const qreal densityY =
-            qIsFinite(lenY) && lenY > 0.001 ? dpr * lenY : dpr;
+        const qreal densityX = qIsFinite(lenX) && lenX > 0.001 ? dpr * lenX : dpr;
+        const qreal densityY = qIsFinite(lenY) && lenY > 0.001 ? dpr * lenY : dpr;
         pixels = QSize(qCeil(width() * densityX), qCeil(height() * densityY));
     }
     auto *node = static_cast<FrameNode *>(previous);
@@ -114,12 +112,11 @@ QSGNode *EchoDashedFrameSurface::updatePaintNode(QSGNode *previous, UpdatePaintN
         // The dash centerline mirrors the solid ring: inset by stroke/2 for
         // the pen band, plus the stroke insets that keep the band inside the
         // logical rectangle under fractional container clips.
-        path.addRoundedRect(QRectF(m_strokeInsetLeft + inset, m_strokeInsetTop + inset,
-                                   qMax(0., pixels.width() - m_strokeInsetLeft
-                                            - m_strokeInsetRight - stroke),
-                                   qMax(0., pixels.height() - m_strokeInsetTop
-                                            - m_strokeInsetBottom - stroke)),
-                            qMax(0., m_radius * scaleX), qMax(0., m_radius * scaleY));
+        path.addRoundedRect(
+            QRectF(m_strokeInsetLeft + inset, m_strokeInsetTop + inset,
+                   qMax(0., pixels.width() - m_strokeInsetLeft - m_strokeInsetRight - stroke),
+                   qMax(0., pixels.height() - m_strokeInsetTop - m_strokeInsetBottom - stroke)),
+            qMax(0., m_radius * scaleX), qMax(0., m_radius * scaleY));
         if (stroke > 0 && m_solid) {
             // A solid stroke as an even-odd ring using Qt border semantics:
             // the outer edge IS the shape boundary (radius R at the box edge)
@@ -129,26 +126,23 @@ QSGNode *EchoDashedFrameSurface::updatePaintNode(QSGNode *previous, UpdatePaintN
             // band pulls inside the logical rectangle (stroke insets, at most
             // one device pixel per side) so container clipping can never cut
             // a column that straddles its rounded clip edge.
-            const qreal bandInset = qMax(m_strokeInsetLeft,
-                                         qMax(m_strokeInsetTop,
-                                              qMax(m_strokeInsetRight, m_strokeInsetBottom)));
+            const qreal bandInset =
+                qMax(m_strokeInsetLeft,
+                     qMax(m_strokeInsetTop, qMax(m_strokeInsetRight, m_strokeInsetBottom)));
             QPainterPath ring;
             ring.setFillRule(Qt::OddEvenFill);
-            ring.addRoundedRect(QRectF(m_strokeInsetLeft, m_strokeInsetTop,
-                                       qMax(0., pixels.width() - m_strokeInsetLeft
-                                                - m_strokeInsetRight),
-                                       qMax(0., pixels.height() - m_strokeInsetTop
-                                                - m_strokeInsetBottom)),
-                                qMax(0., m_radius * scaleX - bandInset),
-                                qMax(0., m_radius * scaleY - bandInset));
             ring.addRoundedRect(
-                QRectF(m_strokeInsetLeft + stroke, m_strokeInsetTop + stroke,
-                       qMax(0., pixels.width() - m_strokeInsetLeft - m_strokeInsetRight
-                                - 2 * stroke),
-                       qMax(0., pixels.height() - m_strokeInsetTop - m_strokeInsetBottom
-                                - 2 * stroke)),
-                qMax(0., m_radius * scaleX - bandInset - stroke),
-                qMax(0., m_radius * scaleY - bandInset - stroke));
+                QRectF(m_strokeInsetLeft, m_strokeInsetTop,
+                       qMax(0., pixels.width() - m_strokeInsetLeft - m_strokeInsetRight),
+                       qMax(0., pixels.height() - m_strokeInsetTop - m_strokeInsetBottom)),
+                qMax(0., m_radius * scaleX - bandInset), qMax(0., m_radius * scaleY - bandInset));
+            ring.addRoundedRect(QRectF(m_strokeInsetLeft + stroke, m_strokeInsetTop + stroke,
+                                       qMax(0., pixels.width() - m_strokeInsetLeft -
+                                                    m_strokeInsetRight - 2 * stroke),
+                                       qMax(0., pixels.height() - m_strokeInsetTop -
+                                                    m_strokeInsetBottom - 2 * stroke)),
+                                qMax(0., m_radius * scaleX - bandInset - stroke),
+                                qMax(0., m_radius * scaleY - bandInset - stroke));
             painter.fillPath(ring, m_strokeColor);
         } else if (stroke > 0 && m_dashLength > 0) {
             QPen pen(m_strokeColor, stroke, Qt::SolidLine, Qt::FlatCap);

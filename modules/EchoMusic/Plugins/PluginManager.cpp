@@ -40,6 +40,15 @@ PluginManager::PluginManager(PluginRuntime &runtime, EchoMusic::SettingsStore &p
         const auto doc = QJsonDocument::fromJson(cache.readAll()).object();
         if (doc.value("schemaVersion").toInt() == 2) {
             m_entries = doc.value("plugins").toArray().toVariantList();
+            // Compatibility belongs to this host, never to the machine which
+            // wrote a portable cache or to an older SDK feature catalog.
+            for (auto &value : m_entries) {
+                auto record = value.toMap();
+                const auto package = PluginPackage::inspectManifest(
+                    QJsonDocument::fromVariant(record.value("manifest")).toJson());
+                applyPackageCompatibility(record, package);
+                value = record;
+            }
             m_fetchedAt = doc.value("fetchedAt").toString();
             m_stats = doc.value("statistics").toObject().toVariantMap();
             m_statsAt = qint64(doc.value("statisticsAt").toDouble());

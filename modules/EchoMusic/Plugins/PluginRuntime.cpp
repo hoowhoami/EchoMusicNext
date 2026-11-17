@@ -268,12 +268,11 @@ void PluginRuntime::changed(Entry &entry)
     }
     queueReconcile();
     emit catalogChanged();
-    if (!entry.error.isEmpty() && entry.failure.value("message").toString() != entry.error) {
+    if (entry.state == Failed && !entry.error.isEmpty() &&
+        entry.failure.value("message").toString() != entry.error) {
         entry.failure = {{"message", entry.error},
                          {"time", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
-                         {"reason", entry.state == Incompatible ? "不兼容"
-                                    : entry.state == Blocked    ? "依赖未就绪"
-                                                                : "运行异常"}};
+                         {"reason", "运行异常"}};
         m_preferences.setValue(EchoMusic::SettingsKeys::Plugins::FailuresPrefix +
                                    entry.package.installationId,
                                entry.failure);
@@ -429,6 +428,9 @@ QVariantMap PluginRuntime::record(const QString &installation) const
                               entry->state == Discovered || entry->state == Activating ||
                               entry->state == Deactivating);
     result.insert("compatible", entry->state != Invalid && entry->state != Incompatible);
+    result.insert("platforms", entry->package.platforms);
+    result.insert("platformLabel", entry->package.platformLabel());
+    result.insert("platformIncompatible", entry->package.platformIncompatible);
     result.insert("dependencyBlocked", entry->state == Blocked);
     result.insert("error", entry->error);
     result.insert("failure", entry->failure);
