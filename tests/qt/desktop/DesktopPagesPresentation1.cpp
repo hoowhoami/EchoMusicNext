@@ -1754,6 +1754,117 @@ void DesktopPagesTest::toastKeepsPlacementAcrossPlaybackPageSwitches()
     }
 }
 
+void DesktopPagesTest::toastFrostedLayerKeepsBorderHuggingPanel()
+{
+    Session session;
+    QVERIFY(session.create());
+    QObject *store = nullptr;
+    bool restoreFrosted = false;
+    const auto cleanup = qScopeGuard([&] {
+        if (store)
+            store->setProperty("floatingFrosted", restoreFrosted);
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QVERIFY(Test::prepareNativeInput(session.window));
+    session.window->resize(1412, 856);
+    // The field repro runs with floatingFrosted enabled (user preferences),
+    // which routes the toast through the frosted layer recipe. The layer's
+    // display quad must sit on the device grid, or its smoothed resample
+    // smears the 1px stroke into neighboring rows and columns until the
+    // border reads as detached from the panel. Where shaders are unavailable
+    // the plain recipe renders instead, and the same assertions hold.
+    QQmlComponent themeLoader(QQmlEngine::contextForObject(session.window->contentItem())->engine());
+    themeLoader.setData("import QtQml\nimport EchoMusic.Theme\nQtObject { property var s: Theme.store }",
+                        QUrl(QStringLiteral("qrc:/diagnostic")));
+    const std::unique_ptr<QObject> themeHolder(themeLoader.create());
+    QVERIFY(themeHolder && !themeLoader.isError());
+    store = themeHolder->property("s").value<QObject *>();
+    QVERIFY(store);
+    restoreFrosted = store->property("floatingFrosted").toBool();
+    store->setProperty("floatingFrosted", true);
+    auto *toasts = session.commands.toasts();
+    const auto capture = qEnvironmentVariable("ECHO_TOAST_CAPTURE_DIR");
+    if (!capture.isEmpty())
+        QVERIFY(QDir().mkpath(capture));
+    const quint64 notice =
+        toasts->show(QStringLiteral("获取歌曲播放地址失败\n3 秒后尝试下一首"),
+                     ToastService::Danger, 0, ToastService::Standard,
+                     QStringLiteral("播放失败 · INTRO"));
+    QVERIFY(notice);
+    auto *card = visual(session.window->contentItem(), "toastCard");
+    QVERIFY(card);
+    QTRY_VERIFY(card->isVisible());
+    QTRY_COMPARE(card->scale(), 1.);
+    QTRY_COMPARE(card->parentItem()->property("rise").toReal(), 0.);
+    QTest::qWait(150);
+    const qreal ratio = session.window->grabWindow().width()
+                        / qreal(session.window->width());
+    // Scan the panel centerlines for the danger ring. A half-covered ring
+    // pixel blends toward the fill or the backdrop and never reaches full
+    // ring coverage, so "strong ring next to clean fill on all four edges"
+    // fails exactly when the layer quad drifts off the device grid. The ring
+    // is a desaturated red (green tracks blue); warm text anti-aliasing on
+    // the centerlines has green well above blue and must not match.
+    const auto isRing = [](const QColor &c) {
+        return c.red() > 200 && c.green() < 170 && qAbs(c.green() - c.blue()) < 12
+               && c.red() - c.green() > 60;
+    };
+    const auto isFill = [](const QColor &c) {
+        return c.green() > 240;
+    };
+    const auto cardScene = card->mapRectToScene(QRectF(0, 0, card->width(), card->height()));
+    const QPointF cardCenter =
+        card->mapToScene(QPointF(card->width() / 2, card->height() / 2));
+    const int centerX = qRound(cardCenter.x() * ratio);
+    const int centerY = qRound(cardCenter.y() * ratio);
+    QVector<int> ringRows, ringCols;
+    // Under load the last snap correction can land a frame after the geometry
+    // settles, so rescan until the painted edges hold steady.
+    const auto edgesHold = [&]() -> bool {
+        const auto image = session.window->grabWindow();
+        if (image.isNull() || centerX <= 0 || centerX >= image.width()
+            || centerY <= 0 || centerY >= image.height())
+            return false;
+        ringRows.clear();
+        ringCols.clear();
+        for (int y = qRound((cardScene.y() - 4) * ratio);
+             y <= qRound((cardScene.y() + cardScene.height() + 4) * ratio)
+             && y < image.height(); ++y) {
+            if (y >= 0 && isRing(image.pixelColor(centerX, y)))
+                ringRows.append(y);
+        }
+        for (int x = qRound((cardScene.x() - 4) * ratio);
+             x <= qRound((cardScene.x() + cardScene.width() + 4) * ratio)
+             && x < image.width(); ++x) {
+            if (x >= 0 && isRing(image.pixelColor(x, centerY)))
+                ringCols.append(x);
+        }
+        if (ringRows.size() != 2 || ringCols.size() != 2)
+            return false;
+        if (!isFill(image.pixelColor(centerX, ringRows.first() + 1))
+            || !isFill(image.pixelColor(centerX, ringRows.last() - 1))
+            || isRing(image.pixelColor(centerX, ringRows.first() - 1))
+            || isRing(image.pixelColor(centerX, ringRows.last() + 1)))
+            return false;
+        if (!isFill(image.pixelColor(ringCols.first() + 1, centerY))
+            || !isFill(image.pixelColor(ringCols.last() - 1, centerY))
+            || isRing(image.pixelColor(ringCols.first() - 1, centerY))
+            || isRing(image.pixelColor(ringCols.last() + 1, centerY)))
+            return false;
+        // The painted box tracks the card's device footprint (the snapped
+        // quad may round outward by at most a device pixel on right/bottom).
+        return qAbs(ringCols.last() - ringCols.first() + 1 - cardScene.width() * ratio) <= 3
+               && qAbs(ringRows.last() - ringRows.first() + 1 - cardScene.height() * ratio) <= 3;
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(edgesHold(), 4000);
+    const auto image = session.window->grabWindow();
+    QVERIFY(!image.isNull());
+    if (!capture.isEmpty())
+        QVERIFY(image.save(capture + QStringLiteral("/toast-frosted-border.png")));
+    toasts->dismiss(notice);
+}
+
 void DesktopPagesTest::sidebarPluginRegistrationKeepsHeaderVisible()
 {
     Session session;

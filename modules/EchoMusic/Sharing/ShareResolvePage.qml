@@ -32,8 +32,12 @@ RoutePage {
             y: page.narrow ? 24 : 40 + Math.max(0, (viewport.height - 112 - height) / 2)
             radius: Theme.cardRadius
             color: Theme.card
-            border.width: 1
-            border.color: Theme.border
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: Theme.border
+                radius: Theme.cardRadius
+            }
             EchoSurfaceShadow {
                 anchors.fill: parent
                 surface: panel
@@ -86,8 +90,12 @@ RoutePage {
                             visible: !page.service.loading
                             radius: Theme.cardRadius
                             color: Theme.withAlpha(Theme.colors.warning, 0.12)
-                            border.width: 1
-                            border.color: Theme.withAlpha(Theme.colors.warning, 0.24)
+                            EchoDashedFrame {
+                                anchors.fill: parent
+                                solid: true
+                                strokeColor: Theme.withAlpha(Theme.colors.warning, 0.24)
+                                radius: Theme.cardRadius
+                            }
                             EchoIcon {
                                 anchors.centerIn: parent
                                 width: 30

@@ -36,8 +36,12 @@ ColumnLayout {
                     implicitHeight: 15
                     radius: 7.5
                     color: Theme.store.seedColor
-                    border.width: 1
-                    border.color: Theme.subtleBorder
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: Theme.subtleBorder
+                        radius: 7.5
+                    }
                 }
                 Text {
                     text: customize.text
@@ -74,14 +78,14 @@ ColumnLayout {
                 background: Rectangle {
                     radius: Theme.controlRadius
                     color: swatch.modelData
-                    Rectangle {
+                    EchoDashedFrame {
                         anchors.fill: parent
                         anchors.margins: 4
-                        color: "transparent"
                         radius: 2
                         visible: swatch.visualFocus
-                        border.width: 2
-                        border.color: Theme.accent
+                        solid: true
+                        strokeColor: Theme.accent
+                        thickness: 2
                     }
                 }
                 contentItem: Item {

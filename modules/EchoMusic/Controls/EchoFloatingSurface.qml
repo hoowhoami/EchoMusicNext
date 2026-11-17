@@ -30,6 +30,16 @@ Item {
     property bool frostedEnabled: Theme.store.floatingFrosted
     property real blurSigma: material.blurSigma === undefined ? 24 : material.blurSigma
     property real backdropFillOpacity: material.backdropFillOpacity === undefined ? 0.82 : material.backdropFillOpacity
+    // Skins and EchoPopupContentClip read width/color as the border contract,
+    // so the alias keeps Rectangle border semantics (grouped assignments in
+    // consuming documents resolve statically). The holder stays invisible;
+    // the painted stroke is the pixel-snapped ring inside surfaceBody.
+    Rectangle {
+        id: outline
+        visible: false
+        border.width: 1
+        border.color: Theme.floating.surfaceOutline
+    }
     property alias border: outline.border
     readonly property bool resourceActive: visible && width > 0 && height > 0 && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized
     // Software/OpenVG cannot render the QShader-based effect graph. Unknown
@@ -92,10 +102,38 @@ Item {
             autoPaddingEnabled: false
         }
     }
+    // The frosted layer resamples its display quad (layer.smooth), so a
+    // fractional device origin smears the 1px stroke across neighboring rows
+    // and columns until the border reads as detached from the panel. Snap the
+    // layer's geometry to the device grid, mirroring the frame's snapped
+    // child: the attached tracker stays on the uncorrected root, the
+    // corrections land on surfaceBody, and the frost mask follows the same
+    // box. The layer rounds its display quad outward to whole texels, so the
+    // painted box may extend one device pixel past the snapped right/bottom
+    // edge; fill and stroke live in one texture and grow with it coherently,
+    // which keeps the border hugging the panel. Dialogs keep their logical
+    // geometry (ModalRaster re-captures them at the device grid) and plain
+    // surfaces keep the frame-internal snap.
+    readonly property bool layerSnapped: frosted && !dialogShadow && EchoPixelSnap.enabled
+    readonly property real layerSnapX: layerSnapped
+        ? (Math.floor(EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio)
+           - EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio) / EchoPixelSnap.densityX : 0
+    readonly property real layerSnapY: layerSnapped
+        ? (Math.floor(EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio)
+           - EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio) / EchoPixelSnap.densityY : 0
+    readonly property real layerSnapWidth: layerSnapped
+        ? Math.max(0, Math.ceil(EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio + width * EchoPixelSnap.densityX)
+                        - Math.floor(EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio)) / EchoPixelSnap.densityX : width
+    readonly property real layerSnapHeight: layerSnapped
+        ? Math.max(0, Math.ceil(EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio + height * EchoPixelSnap.densityY)
+                        - Math.floor(EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio)) / EchoPixelSnap.densityY : height
     Item {
         id: surfaceBody
         objectName: "floatingSurfaceBody"
-        anchors.fill: parent
+        x: floatingSurface.layerSnapX
+        y: floatingSurface.layerSnapY
+        width: floatingSurface.layerSnapWidth
+        height: floatingSurface.layerSnapHeight
         layer.enabled: floatingSurface.frosted && !floatingSurface.dialogShadow
         // Popups scale with the application zoom. Nearest sampling of this
         // isolated layer turns an otherwise antialiased corner into steps.
@@ -109,16 +147,8 @@ Item {
             sourceComponent: FrostedBody {}
         }
         // Qt Rectangle replaces its fill with the border, unlike a CSS background
-        // painted under the border box. Separate the layers so translucent strokes
-        // blend over the surface instead of exposing cards behind the popup.
-        Rectangle {
-            anchors.fill: parent
-            z: -0.5
-            visible: !floatingSurface.smoothCorners
-            color: floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor
-            radius: floatingSurface.paintedRadius
-            antialiasing: floatingSurface.antialiasing
-        }
+        // painted under the border box. The snapped surface below keeps fill and
+        // stroke as separate layers for the same reason.
         Loader {
             anchors.fill: parent
             z: -0.5
@@ -130,16 +160,28 @@ Item {
                 radius: floatingSurface.paintedRadius
             }
         }
-        Rectangle {
-            id: outline
+        // Fill and stroke share one pixel-snapped surface, so a translucent
+        // outline never exposes the window behind the popup edge. Two recipes
+        // keep an independent unsnapped edge instead, and their stroke tracks
+        // it (the outline's original pixelAligned: false behavior): the
+        // smooth-corner dialogs fill outside this surface, and frosted panels
+        // clip both fill and stroke to the frost mask, which tracks this
+        // surface's snapped geometry, so a frame-level snap would double
+        // correct. A floating surface is always top level, so it also keeps
+        // the stroke on the snapped box edge: nothing clips it, and a
+        // hairline fill rim outside the outline would read as an artifact
+        // against the shadow.
+        EchoDashedFrame {
             anchors.fill: parent
             z: -0.4
-            color: "transparent"
             radius: floatingSurface.paintedRadius
-            antialiasing: floatingSurface.antialiasing
-            border.width: 1
-            border.color: Theme.floating.surfaceOutline
-            border.pixelAligned: false
+            solid: true
+            thickness: outline.border.width
+            strokeColor: outline.border.color
+            strokeInside: false
+            pixelAligned: !floatingSurface.smoothCorners && !floatingSurface.frosted
+            fillColor: floatingSurface.smoothCorners ? "transparent"
+                                                     : (floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor)
         }
     }
     component FrostedBody: Item {
@@ -154,8 +196,8 @@ Item {
             id: backdrop
             objectName: "floatingBackdropCapture"
             visible: false
-            width: (floatingSurface.width + floatingSurface.blurPadding * 2) / 4
-            height: (floatingSurface.height + floatingSurface.blurPadding * 2) / 4
+            width: (surfaceBody.width + floatingSurface.blurPadding * 2) / 4
+            height: (surfaceBody.height + floatingSurface.blurPadding * 2) / 4
             sourceItem: floatingSurface.hasBackdrop ? sampler.source : null
             sourceRect: sampler.sourceRect
             textureSize: Qt.size(Math.ceil(width), Math.ceil(height))
@@ -166,13 +208,13 @@ Item {
         Item {
             id: clipMask
             visible: false
-            width: floatingSurface.width + floatingSurface.blurPadding * 2
-            height: floatingSurface.height + floatingSurface.blurPadding * 2
+            width: surfaceBody.width + floatingSurface.blurPadding * 2
+            height: surfaceBody.height + floatingSurface.blurPadding * 2
             Rectangle {
                 x: floatingSurface.blurPadding
                 y: floatingSurface.blurPadding
-                width: floatingSurface.width
-                height: floatingSurface.height
+                width: surfaceBody.width
+                height: surfaceBody.height
                 radius: floatingSurface.paintedRadius
                 visible: !floatingSurface.smoothCorners
                 color: "white"
@@ -225,8 +267,8 @@ Item {
         MultiEffect {
             x: rasterLoader.raster ? rasterLoader.raster.capture.x : -floatingSurface.blurPadding
             y: rasterLoader.raster ? rasterLoader.raster.capture.y : -floatingSurface.blurPadding
-            width: rasterLoader.raster ? rasterLoader.raster.capture.width : floatingSurface.width + floatingSurface.blurPadding * 2
-            height: rasterLoader.raster ? rasterLoader.raster.capture.height : floatingSurface.height + floatingSurface.blurPadding * 2
+            width: rasterLoader.raster ? rasterLoader.raster.capture.width : surfaceBody.width + floatingSurface.blurPadding * 2
+            height: rasterLoader.raster ? rasterLoader.raster.capture.height : surfaceBody.height + floatingSurface.blurPadding * 2
             visible: floatingSurface.hasBackdrop
             source: floatingSurface.hasBackdrop ? blurredTexture : null
             blurEnabled: false

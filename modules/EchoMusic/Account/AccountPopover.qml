@@ -86,8 +86,14 @@ EchoAnchoredPopup {
                     background: Rectangle {
                         radius: Theme.controlRadius
                         color: signedOutSwitch.hovered ? signedOutSwitch.colors.hover : "transparent"
-                        border.width: signedOutSwitch.visualFocus ? 2 : 0
-                        border.color: Theme.accent
+                        EchoDashedFrame {
+                            anchors.fill: parent
+                            solid: true
+                            strokeColor: Theme.accent
+                            radius: Theme.controlRadius
+                            thickness: 2
+                            visible: signedOutSwitch.visualFocus
+                        }
                     }
                     onClicked: {
                         panel.close();

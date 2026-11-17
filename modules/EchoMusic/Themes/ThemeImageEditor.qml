@@ -153,8 +153,12 @@ ColumnLayout {
                             height: 24
                             radius: Theme.detailRadius
                             color: Theme.store.backgroundText
-                            border.color: Theme.subtleBorder
-                            border.width: 1
+                            EchoDashedFrame {
+                                anchors.fill: parent
+                                solid: true
+                                strokeColor: Theme.subtleBorder
+                                radius: Theme.detailRadius
+                            }
                         }
                     }
                 }
@@ -182,8 +186,12 @@ ColumnLayout {
                             height: 24
                             radius: Theme.detailRadius
                             color: Theme.store.backgroundAccent
-                            border.color: Theme.subtleBorder
-                            border.width: 1
+                            EchoDashedFrame {
+                                anchors.fill: parent
+                                solid: true
+                                strokeColor: Theme.subtleBorder
+                                radius: Theme.detailRadius
+                            }
                         }
                     }
                     Label {

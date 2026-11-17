@@ -27,8 +27,12 @@ Rectangle {
     implicitHeight: 70
     radius: Theme.itemRadius
     color: Theme.withAlpha(Theme.text, hover.hovered ? 0.06 : 0.03)
-    border.width: 1
-    border.color: hover.hovered ? Theme.withAlpha(Theme.accent, 0.25) : "transparent"
+    EchoDashedFrame {
+        anchors.fill: parent
+        solid: true
+        strokeColor: hover.hovered ? Theme.withAlpha(Theme.accent, 0.25) : "transparent"
+        radius: Theme.itemRadius
+    }
     HoverHandler {
         id: hover
     }
@@ -75,8 +79,12 @@ Rectangle {
             implicitHeight: scoreContent.implicitHeight + 12
             radius: Theme.detailRadius
             color: Theme.withAlpha(Theme.accent, 0.04 + value * 0.04)
-            border.width: 1
-            border.color: Theme.withAlpha(Theme.accent, 0.1 + value * 0.08)
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: Theme.withAlpha(Theme.accent, 0.1 + value * 0.08)
+                radius: Theme.detailRadius
+            }
             RowLayout {
                 id: scoreContent
                 anchors.centerIn: parent

@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Shapes
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Playback
@@ -94,13 +93,13 @@ EchoDialog {
                                 height: 2
                                 color: manager.currentTab === tab.index ? Theme.floating.accent : "transparent"
                             }
-                            Rectangle {
+                            EchoDashedFrame {
                                 anchors.fill: parent
                                 visible: tab.visualFocus
                                 radius: Theme.itemRadius
-                                color: "transparent"
-                                border.width: 2
-                                border.color: Theme.floating.accent
+                                solid: true
+                                strokeColor: Theme.floating.accent
+                                thickness: 2
                             }
                         }
                     }
@@ -150,21 +149,13 @@ EchoDialog {
                 color: Theme.floating.secondaryText
                 font: Theme.font(12, Theme.regularWeight)
                 horizontalAlignment: Text.AlignHCenter
-                background: Shape {
-                    ShapePath {
-                        strokeWidth: 1
-                        strokeStyle: ShapePath.DashLine
-                        dashPattern: [4, 4]
-                        strokeColor: Theme.withAlpha(Theme.floating.text, .16)
-                        fillColor: "transparent"
-                        PathRectangle {
-                            x: .5
-                            y: .5
-                            width: Math.max(0, emptyState.width - 1)
-                            height: Math.max(0, emptyState.height - 1)
-                            radius: Theme.controlRadius
-                        }
-                    }
+                // The pixel-snapped frame keeps the dashed outline stable
+                // while the window resizes; a Shape path re-tessellates
+                // every frame and visibly jittered here.
+                background: EchoDashedFrame {
+                    strokeColor: Theme.withAlpha(Theme.floating.text, .16)
+                    radius: Theme.controlRadius
+                    dashLength: 4
                 }
             }
             ScrollBar.vertical: EchoPopupScrollBar {

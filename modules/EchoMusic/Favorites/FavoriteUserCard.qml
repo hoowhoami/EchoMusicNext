@@ -40,8 +40,14 @@ ItemDelegate {
     background: Rectangle {
         radius: Theme.cardRadius
         color: Theme.mutedSurface
-        border.width: card.visualFocus ? 2 : 0
-        border.color: Theme.accent
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: Theme.accent
+            radius: Theme.cardRadius
+            thickness: 2
+            visible: card.visualFocus
+        }
     }
     contentItem: ColumnLayout {
         spacing: 6

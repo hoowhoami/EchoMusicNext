@@ -202,15 +202,14 @@ ColumnLayout {
                         color: Theme.dark ? "#202126" : "#30313a"
                         Repeater {
                             model: 4
-                            delegate: Rectangle {
+                            delegate: EchoDashedFrame {
                                 required property int index
                                 anchors.centerIn: parent
                                 width: 98 - index * 16
                                 height: width
+                                solid: true
+                                strokeColor: "#45464c"
                                 radius: width / 2
-                                color: "transparent"
-                                border.width: 1
-                                border.color: "#45464c"
                             }
                         }
                         Rectangle {

@@ -115,8 +115,14 @@ EchoIconButton {
         scale: button.visualScale
         radius: button.player && button.builtinId === "play-toggle" ? 19 : Theme.controlRadius
         color: button.player && button.builtinId === "play-toggle" ? button.playbackLoading || button.lyricStyle && button.hoverHighlighted || !button.lyricStyle && Theme.dark ? button.colors.hover : button.colors.mutedSurface : !button.player && button.hoverHighlighted ? button.colors.hover : "transparent"
-        border.width: button.visualFocus ? 2 : 0
-        border.color: button.colors.accent
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: button.colors.accent
+            radius: button.player && button.builtinId === "play-toggle" ? 19 : Theme.controlRadius
+            thickness: button.visualFocus ? 2 : 0
+            visible: button.visualFocus
+        }
     }
     Keys.onShortcutOverride: event => {
         if ((event.modifiers & Qt.AltModifier) && (event.key === Qt.Key_Left || event.key === Qt.Key_Right))

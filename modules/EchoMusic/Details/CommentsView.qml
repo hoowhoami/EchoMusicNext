@@ -160,8 +160,13 @@ Item {
                     background: Rectangle {
                         radius: Theme.itemRadius
                         color: chip.selected ? Theme.accent : Theme.withAlpha(Theme.text, chip.hovered ? .10 : .06)
-                        border.width: chip.visualFocus ? 2 : 1
-                        border.color: chip.selected || chip.visualFocus ? Theme.accent : Theme.withAlpha(Theme.text, .12)
+                        EchoDashedFrame {
+                            anchors.fill: parent
+                            solid: true
+                            strokeColor: chip.selected || chip.visualFocus ? Theme.accent : Theme.withAlpha(Theme.text, .12)
+                            radius: Theme.itemRadius
+                            thickness: chip.visualFocus ? 2 : 1
+                        }
                     }
                     enabled: validData
                     onClicked: if (validData)

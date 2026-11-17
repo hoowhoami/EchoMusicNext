@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 ColumnLayout {
@@ -121,8 +122,12 @@ ColumnLayout {
                 width: cropper.selection.width * cropper.imageScale
                 height: cropper.selection.height * cropper.imageScale
                 color: "transparent"
-                border.width: 2
-                border.color: activeFocus ? Theme.text : Theme.accent
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: selectionBox.activeFocus ? Theme.text : Theme.accent
+                    thickness: 2
+                }
                 enabled: !Theme.store.imageImporting && artwork.status === Image.Ready
                 activeFocusOnTab: true
                 Accessible.name: qsTr("背景裁切框，方向键调整，Shift 加快移动")
@@ -162,8 +167,13 @@ ColumnLayout {
                             height: 10
                             radius: 2
                             color: "white"
-                            border.color: Theme.accent
-                            border.width: corner.activeFocus ? 2 : 1
+                            EchoDashedFrame {
+                                anchors.fill: parent
+                                solid: true
+                                strokeColor: Theme.accent
+                                radius: 2
+                                thickness: corner.activeFocus ? 2 : 1
+                            }
                         }
                         MouseArea {
                             anchors.fill: parent

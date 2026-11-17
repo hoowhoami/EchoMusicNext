@@ -44,8 +44,12 @@ SettingsRow {
                         background: Rectangle {
                             radius: Theme.cardRadius
                             color: (field.index === 0 ? row.followsCover : row.unplayedFollowsCover) ? row.resolvedCover : field.index === 0 ? row.playedColor : row.unplayedColor
-                            border.width: 1
-                            border.color: Theme.floatingBorder
+                            EchoDashedFrame {
+                                anchors.fill: parent
+                                solid: true
+                                strokeColor: Theme.floatingBorder
+                                radius: Theme.cardRadius
+                            }
                         }
                         onClicked: {
                             row.editingUnplayed = field.index === 1;

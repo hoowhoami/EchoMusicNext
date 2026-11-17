@@ -34,8 +34,12 @@ LyricSkinSettingRow {
                     height: 24
                     radius: Theme.controlRadius
                     color: colorRow.swatchColor
-                    border.width: 1
-                    border.color: Theme.floating.strongBorder
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: Theme.floating.strongBorder
+                        radius: Theme.controlRadius
+                    }
                 }
             }
         }

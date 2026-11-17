@@ -45,6 +45,7 @@ private slots:
     void audibleTransitionPublishesOneToastThroughShell();
     void nativePlaybackFailurePublishesVisibleToast();
     void toastKeepsPlacementAcrossPlaybackPageSwitches();
+    void toastFrostedLayerKeepsBorderHuggingPanel();
     void sidebarPluginRegistrationKeepsHeaderVisible();
     void sidebarResizeKeepsContinuousGeometryAndIdentity();
     void nativePlaybackSurvivesRepeatedAppearanceUpdates();

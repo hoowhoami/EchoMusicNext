@@ -15,7 +15,13 @@ EchoIconButton {
     background: Rectangle {
         radius: Theme.controlRadius
         color: control.unlock ? "#73000000" : control.hovered ? "#4dffffff" : "transparent"
-        border.width: control.visualFocus ? 2 : 0
-        border.color: "white"
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: "white"
+            radius: Theme.controlRadius
+            thickness: control.visualFocus ? 2 : 0
+            visible: control.visualFocus
+        }
     }
 }

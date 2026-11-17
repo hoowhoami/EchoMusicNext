@@ -58,9 +58,14 @@ GridLayout {
                     Layout.preferredHeight: 35 * Theme.store.globalFontSizeScale / 100
                     radius: 5
                     color: day.modelData.count > 0 ? Theme.mix(Theme.mutedSurface, Theme.accent, .18 + .72 * day.modelData.ratio) : Theme.withAlpha(Theme.text, .035)
-                    border.width: day.modelData.today ? 1 : 0
-                    border.color: Theme.accentText
                     opacity: day.modelData.future ? .25 : 1
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: Theme.accentText
+                        radius: 5
+                        visible: day.modelData.today
+                    }
                     EchoTextTagRow {
                         anchors.fill: parent
                         horizontalAlignment: Text.AlignHCenter

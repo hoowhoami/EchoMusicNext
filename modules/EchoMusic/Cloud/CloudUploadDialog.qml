@@ -101,8 +101,12 @@ EchoDialog {
                     background: Rectangle {
                         radius: Theme.cardRadius
                         color: option.hovered || option.visualFocus ? Theme.mix(Theme.floating.mutedSurface, Theme.accent, 0.05) : Theme.floating.mutedSurface
-                        border.width: 1
-                        border.color: option.visualFocus ? Theme.accent : option.hovered ? Theme.mix(Theme.floating.controlBorder, Theme.accent, 0.4) : Theme.floating.controlBorder
+                        EchoDashedFrame {
+                            anchors.fill: parent
+                            solid: true
+                            strokeColor: option.visualFocus ? Theme.accent : option.hovered ? Theme.mix(Theme.floating.controlBorder, Theme.accent, 0.4) : Theme.floating.controlBorder
+                            radius: Theme.cardRadius
+                        }
                     }
                     contentItem: RowLayout {
                         spacing: 12

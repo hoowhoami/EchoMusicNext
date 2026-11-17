@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Shapes
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Playback
@@ -66,8 +65,12 @@ EchoDialog {
                     anchors.rightMargin: 28
                     radius: Theme.cardRadius
                     color: row.details.id === manager.audio.providerId ? Theme.withAlpha(Theme.floating.accent, 0.07) : Theme.floating.mutedSurface
-                    border.width: 1
-                    border.color: row.details.id === manager.audio.providerId ? Theme.floating.accent : Theme.withAlpha(Theme.floating.text, 0.11)
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: row.details.id === manager.audio.providerId ? Theme.floating.accent : Theme.withAlpha(Theme.floating.text, 0.11)
+                        radius: Theme.cardRadius
+                    }
                 }
                 ColumnLayout {
                     id: card
@@ -118,8 +121,14 @@ EchoDialog {
                             background: Rectangle {
                                 radius: Theme.controlRadius
                                 color: deleteAction.hovered ? Theme.withAlpha(Theme.floating.dangerText, .10) : "transparent"
-                                border.width: deleteAction.visualFocus ? 2 : 0
-                                border.color: Theme.floating.accent
+                                EchoDashedFrame {
+                                    anchors.fill: parent
+                                    solid: true
+                                    strokeColor: Theme.floating.accent
+                                    radius: Theme.controlRadius
+                                    thickness: 2
+                                    visible: deleteAction.visualFocus
+                                }
                             }
                             enabled: !manager.audio.providers.busy && !manager.audio.effectPending
                             onClicked: manager.audio.removeProvider(row.details.id)
@@ -204,21 +213,13 @@ EchoDialog {
             horizontalAlignment: Text.AlignHCenter
             font: Theme.font(12, Theme.regularWeight)
             color: Theme.floating.secondaryText
-            background: Shape {
-                ShapePath {
-                    strokeWidth: 1
-                    strokeStyle: ShapePath.DashLine
-                    dashPattern: [4, 4]
-                    strokeColor: Theme.withAlpha(Theme.floating.text, 0.16)
-                    fillColor: "transparent"
-                    PathRectangle {
-                        x: 0.5
-                        y: 0.5
-                        width: Math.max(0, emptyState.width - 1)
-                        height: Math.max(0, emptyState.height - 1)
-                        radius: Theme.controlRadius
-                    }
-                }
+            // The pixel-snapped frame keeps the dashed outline stable
+            // while the window resizes; a Shape path re-tessellates
+            // every frame and visibly jittered here.
+            background: EchoDashedFrame {
+                strokeColor: Theme.withAlpha(Theme.floating.text, 0.16)
+                radius: Theme.controlRadius
+                dashLength: 4
             }
         }
         Label {

@@ -6,6 +6,7 @@
 #include <QSGSimpleTextureNode>
 #include <QSGTexture>
 #include <QtMath>
+#include <cmath>
 
 namespace EchoMusic
 {
@@ -45,21 +46,46 @@ QSGNode *EchoDashedFrameSurface::updatePaintNode(QSGNode *previous, UpdatePaintN
         delete previous;
         return nullptr;
     }
+    // An invisible frame (transparent fill, no stroke) must not own a
+    // texture: dialogs whose fill an independent painter draws and skins
+    // that disable the border would otherwise upload a fully transparent
+    // full-size image on every appearance change.
+    const bool strokeVisible = m_thickness > 0 && m_strokeColor.alpha() > 0
+                               && (m_solid || m_dashLength > 0);
+    if (!strokeVisible && m_backgroundColor.alpha() <= 0) {
+        delete previous;
+        return nullptr;
+    }
     // An explicit size avoids Canvas's intermediate integer-DIP rounding.
-    // The unsnapped fallback retains the window-DPR rasterization policy.
-    const QSize pixels = m_pixelSize.isEmpty()
-                             ? QSize(qCeil(width() * window()->effectiveDevicePixelRatio()),
-                                     qCeil(height() * window()->effectiveDevicePixelRatio()))
-                             : m_pixelSize;
+    // The unsnapped fallback still rasterizes at the surface's true screen
+    // density: window DPR times the ancestor scale chain, so zoomed popups
+    // and rotated surfaces keep device-resolution edges instead of an
+    // interpolated upscale.
+    const qreal dpr = window()->effectiveDevicePixelRatio();
+    QSize pixels = m_pixelSize;
+    if (pixels.isEmpty()) {
+        const QPointF origin = mapToScene(QPointF(0, 0));
+        const QPointF unitX = mapToScene(QPointF(1, 0)) - origin;
+        const QPointF unitY = mapToScene(QPointF(0, 1)) - origin;
+        const qreal lenX = std::hypot(unitX.x(), unitX.y());
+        const qreal lenY = std::hypot(unitY.x(), unitY.y());
+        const qreal densityX =
+            qIsFinite(lenX) && lenX > 0.001 ? dpr * lenX : dpr;
+        const qreal densityY =
+            qIsFinite(lenY) && lenY > 0.001 ? dpr * lenY : dpr;
+        pixels = QSize(qCeil(width() * densityX), qCeil(height() * densityY));
+    }
     auto *node = static_cast<FrameNode *>(previous);
     if (!node) {
         node = new FrameNode;
         node->setOwnsTexture(true);
     }
-    // The snapped image is already at the final device resolution. Nearest
-    // sampling prevents interpolation from reintroducing fractional coverage
-    // (including finite-precision UV offsets) along its one-pixel edges.
-    node->setFiltering(m_pixelSize.isEmpty() ? QSGTexture::Linear : QSGTexture::Nearest);
+    // A device-grid image samples nearest so interpolation cannot
+    // reintroduce fractional coverage (including finite-precision UV
+    // offsets) along its one-pixel edges. An unaligned box composites at a
+    // fractional device offset and keeps linear filtering regardless of its
+    // texture resolution.
+    node->setFiltering(m_pixelAligned ? QSGTexture::Nearest : QSGTexture::Linear);
     if (node->revision != m_revision || node->pixels != pixels) {
         QImage image(pixels, QImage::Format_ARGB32_Premultiplied);
         if (image.isNull()) {
@@ -77,12 +103,54 @@ QSGNode *EchoDashedFrameSurface::updatePaintNode(QSGNode *previous, UpdatePaintN
                                  ? qreal(qMax(1, qRound(nominalStroke)))
                                  : nominalStroke;
         const qreal inset = stroke / 2;
+        // The fill covers the whole snapped box (CSS border-box semantics) so
+        // a translucent stroke over it never exposes the surface behind the
+        // frame edge.
+        QPainterPath fillPath;
+        fillPath.addRoundedRect(QRectF(0, 0, pixels.width(), pixels.height()),
+                                qMax(0., m_radius * scaleX), qMax(0., m_radius * scaleY));
+        painter.fillPath(fillPath, m_backgroundColor);
         QPainterPath path;
-        path.addRoundedRect(QRectF(inset, inset, qMax(0., pixels.width() - stroke),
-                                   qMax(0., pixels.height() - stroke)),
+        // The dash centerline mirrors the solid ring: inset by stroke/2 for
+        // the pen band, plus the stroke insets that keep the band inside the
+        // logical rectangle under fractional container clips.
+        path.addRoundedRect(QRectF(m_strokeInsetLeft + inset, m_strokeInsetTop + inset,
+                                   qMax(0., pixels.width() - m_strokeInsetLeft
+                                            - m_strokeInsetRight - stroke),
+                                   qMax(0., pixels.height() - m_strokeInsetTop
+                                            - m_strokeInsetBottom - stroke)),
                             qMax(0., m_radius * scaleX), qMax(0., m_radius * scaleY));
-        painter.fillPath(path, m_backgroundColor);
-        if (stroke > 0 && m_dashLength > 0) {
+        if (stroke > 0 && m_solid) {
+            // A solid stroke as an even-odd ring using Qt border semantics:
+            // the outer edge IS the shape boundary (radius R at the box edge)
+            // and the inner edge is radius R - stroke, so the ring stays
+            // inside the fill while both edges keep their integer pixel
+            // bounds and straight runs stay crisp without stroker AA. The
+            // band pulls inside the logical rectangle (stroke insets, at most
+            // one device pixel per side) so container clipping can never cut
+            // a column that straddles its rounded clip edge.
+            const qreal bandInset = qMax(m_strokeInsetLeft,
+                                         qMax(m_strokeInsetTop,
+                                              qMax(m_strokeInsetRight, m_strokeInsetBottom)));
+            QPainterPath ring;
+            ring.setFillRule(Qt::OddEvenFill);
+            ring.addRoundedRect(QRectF(m_strokeInsetLeft, m_strokeInsetTop,
+                                       qMax(0., pixels.width() - m_strokeInsetLeft
+                                                - m_strokeInsetRight),
+                                       qMax(0., pixels.height() - m_strokeInsetTop
+                                                - m_strokeInsetBottom)),
+                                qMax(0., m_radius * scaleX - bandInset),
+                                qMax(0., m_radius * scaleY - bandInset));
+            ring.addRoundedRect(
+                QRectF(m_strokeInsetLeft + stroke, m_strokeInsetTop + stroke,
+                       qMax(0., pixels.width() - m_strokeInsetLeft - m_strokeInsetRight
+                                - 2 * stroke),
+                       qMax(0., pixels.height() - m_strokeInsetTop - m_strokeInsetBottom
+                                - 2 * stroke)),
+                qMax(0., m_radius * scaleX - bandInset - stroke),
+                qMax(0., m_radius * scaleY - bandInset - stroke));
+            painter.fillPath(ring, m_strokeColor);
+        } else if (stroke > 0 && m_dashLength > 0) {
             QPen pen(m_strokeColor, stroke, Qt::SolidLine, Qt::FlatCap);
             pen.setCosmetic(true);
             // Qt's dashed stroker can perturb an axis-aligned segment after

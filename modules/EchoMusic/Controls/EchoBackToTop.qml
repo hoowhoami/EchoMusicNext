@@ -136,11 +136,16 @@ Item {
                 }
             }
             background: EchoActionBackground {
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: button.visualFocus ? Theme.accent : Theme.withAlpha(button.colors.text, button.hovered ? 0.36 : 0.22)
+                    radius: Theme.controlRadius
+                    thickness: button.visualFocus ? 2 : 1
+                }
                 colors: button.colors
                 pressed: button.down
                 highlighted: button.hovered || button.visualFocus
-                border.width: button.visualFocus ? 2 : 1
-                border.color: button.visualFocus ? Theme.accent : Theme.withAlpha(button.colors.text, button.hovered ? 0.36 : 0.22)
             }
             onClicked: owner.returnToTop()
         }

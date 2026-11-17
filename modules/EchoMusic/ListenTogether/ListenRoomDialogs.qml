@@ -261,8 +261,12 @@ Item {
                                     background: Rectangle {
                                         radius: Theme.controlRadius
                                         color: create.privacy === privacyOption.index + 1 ? Theme.withAlpha(Theme.accent, 0.09) : Theme.floating.mutedSurface
-                                        border.width: 1
-                                        border.color: create.privacy === privacyOption.index + 1 ? Theme.withAlpha(Theme.accent, 0.44) : Theme.floatingBorder
+                                        EchoDashedFrame {
+                                            anchors.fill: parent
+                                            solid: true
+                                            strokeColor: create.privacy === privacyOption.index + 1 ? Theme.withAlpha(Theme.accent, 0.44) : Theme.floatingBorder
+                                            radius: Theme.controlRadius
+                                        }
                                     }
                                     contentItem: ColumnLayout {
                                         spacing: 6

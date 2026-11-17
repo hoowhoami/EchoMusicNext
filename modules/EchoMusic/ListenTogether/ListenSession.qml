@@ -114,8 +114,12 @@ Item {
                         implicitHeight: session.nowPlayingHeight
                         radius: Theme.dialogRadius
                         color: Theme.mix(Theme.card, Theme.accent, 0.08)
-                        border.width: 1
-                        border.color: Theme.mix(Theme.border, Theme.accent, 0.22)
+                        EchoDashedFrame {
+                            anchors.fill: parent
+                            solid: true
+                            strokeColor: Theme.mix(Theme.border, Theme.accent, 0.22)
+                            radius: Theme.dialogRadius
+                        }
                         RowLayout {
                             anchors.fill: parent
                             anchors.margins: 18
@@ -168,8 +172,12 @@ Item {
                         Layout.fillHeight: true
                         radius: Theme.popoverRadius
                         color: Theme.card
-                        border.width: 1
-                        border.color: Theme.border
+                        EchoDashedFrame {
+                            anchors.fill: parent
+                            solid: true
+                            strokeColor: Theme.border
+                            radius: Theme.popoverRadius
+                        }
                         ColumnLayout {
                             anchors.fill: parent
                             spacing: 0
@@ -324,8 +332,12 @@ Item {
                         implicitHeight: session.nowPlayingHeight
                         radius: Theme.popoverRadius
                         color: Theme.card
-                        border.width: 1
-                        border.color: Theme.border
+                        EchoDashedFrame {
+                            anchors.fill: parent
+                            solid: true
+                            strokeColor: Theme.border
+                            radius: Theme.popoverRadius
+                        }
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 14

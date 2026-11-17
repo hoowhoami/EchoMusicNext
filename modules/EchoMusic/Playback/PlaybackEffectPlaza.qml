@@ -367,8 +367,12 @@ Item {
                     }
                     background: Rectangle {
                         radius: Theme.cardRadius
-                        border.width: 1
-                        border.color: brand.hovered ? Theme.floating.accent : Theme.floating.controlBorder
+                        EchoDashedFrame {
+                            anchors.fill: parent
+                            solid: true
+                            strokeColor: brand.hovered ? Theme.floating.accent : Theme.floating.controlBorder
+                            radius: Theme.cardRadius
+                        }
                         color: brand.hovered ? Theme.withAlpha(Theme.floating.accent, .07) : Theme.floating.mutedSurface
                     }
                     onClicked: plaza.catalog.activateKey(brand.effect.key)

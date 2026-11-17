@@ -155,8 +155,12 @@ EchoDialog {
                                         background: Rectangle {
                                             radius: Theme.itemRadius
                                             color: candidate.selected ? Theme.mix(Theme.floating.elevated, Theme.accent, candidate.recommended ? .10 : .07) : candidateButton.hovered ? Theme.mix(Theme.floating.elevated, Theme.accent, .07) : candidate.recommended ? Theme.mix(Theme.floating.elevated, Theme.accent, .06) : Theme.withAlpha(Theme.floating.tone, .07)
-                                            border.width: 1
-                                            border.color: candidate.selected ? Theme.mix(Theme.floating.controlBorder, Theme.accent, candidate.recommended ? .36 : .22) : candidateButton.hovered ? Theme.mix(Theme.floating.controlBorder, Theme.accent, .22) : candidate.recommended ? Theme.mix(Theme.floating.controlBorder, Theme.accent, .16) : Theme.floating.controlBorder
+                                            EchoDashedFrame {
+                                                anchors.fill: parent
+                                                solid: true
+                                                strokeColor: candidate.selected ? Theme.mix(Theme.floating.controlBorder, Theme.accent, candidate.recommended ? .36 : .22) : candidateButton.hovered ? Theme.mix(Theme.floating.controlBorder, Theme.accent, .22) : candidate.recommended ? Theme.mix(Theme.floating.controlBorder, Theme.accent, .16) : Theme.floating.controlBorder
+                                                radius: Theme.itemRadius
+                                            }
                                         }
                                         contentItem: ColumnLayout {
                                             spacing: 8
@@ -295,8 +299,12 @@ EchoDialog {
                                 Layout.minimumHeight: 0
                                 radius: Theme.cardRadius
                                 color: Theme.floating.elevated
-                                border.width: 1
-                                border.color: Theme.floating.subtleBorder
+                                EchoDashedFrame {
+                                    anchors.fill: parent
+                                    solid: true
+                                    strokeColor: Theme.floating.subtleBorder
+                                    radius: Theme.cardRadius
+                                }
                                 ColumnLayout {
                                     anchors.fill: parent
                                     spacing: 0

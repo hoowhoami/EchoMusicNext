@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 Rectangle {
@@ -167,8 +168,14 @@ Rectangle {
             background: Rectangle {
                 radius: Theme.itemRadius
                 color: tab.hovered && tab.index !== tabs.shownIndex ? tabs.hoverColor : "transparent"
-                border.width: tab.visualFocus ? 2 : 0
-                border.color: Theme.accent
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: Theme.accent
+                    radius: Theme.itemRadius
+                    thickness: tab.visualFocus ? 2 : 0
+                    visible: tab.visualFocus
+                }
             }
             function select(next: int) {
                 if (next < 0 || !tabs.available(next))

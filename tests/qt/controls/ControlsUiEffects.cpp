@@ -661,10 +661,12 @@ void ControlsUiTest::colorPresetsKeepVisibleEdgesInBothThemes()
                 };
                 // The border is a 1px logical stroke; device rounding can place a
                 // single sample on its antialiased shoulder instead of the stroke
-                // itself. Report the strongest step inside the border band.
-                const auto outside = sample(-2);
+                // itself, and pixel snapping may lay the stroke up to one device
+                // pixel outside the logical bounds. Report the strongest step on
+                // either shoulder of the logical edge.
+                const auto outside = sample(-3.5);
                 int strongest = 0;
-                for (const qreal inset : {1.5, 1., .65, .35, .1})
+                for (const qreal inset : {1.5, 1., .65, .35, .1, -.1, -.35, -.65, -1., -1.5})
                     if (qAbs(sample(inset) - outside) > qAbs(strongest))
                         strongest = sample(inset) - outside;
                 return strongest;

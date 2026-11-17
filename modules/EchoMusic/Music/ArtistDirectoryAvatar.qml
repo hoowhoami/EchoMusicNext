@@ -32,12 +32,13 @@ ItemDelegate {
             source: entry.coverUrl
             circular: true
             resourceActive: entry.resourceActive
-            Rectangle {
+            EchoDashedFrame {
                 anchors.fill: parent
+                solid: true
+                strokeColor: Theme.accent
                 radius: width / 2
-                color: "transparent"
-                border.width: entry.visualFocus ? 2 : 0
-                border.color: Theme.accent
+                thickness: 2
+                visible: entry.visualFocus
             }
         }
         EchoTextTagRow {

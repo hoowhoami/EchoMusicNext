@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import EchoMusic.Controls
+import EchoMusic.Theme
 
 // Always-filled neutral locate action with shared pointer and keyboard states.
 EchoIconButton {
@@ -17,7 +18,13 @@ EchoIconButton {
         colors: button.colors
         pressed: button.down
         highlighted: button.enabled && (button.hovered || button.visualFocus)
-        border.width: button.visualFocus ? 2 : 0
-        border.color: button.colors.accent
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: button.colors.accent
+            radius: Theme.controlRadius
+            thickness: 2
+            visible: button.visualFocus
+        }
     }
 }

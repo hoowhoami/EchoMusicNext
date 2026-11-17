@@ -14,8 +14,12 @@ Rectangle {
     implicitHeight: content.implicitHeight + 28
     radius: Theme.cardRadius
     color: nested ? Theme.elevated : Theme.mutedSurface
-    border.width: 1
-    border.color: Theme.subtleBorder
+    EchoDashedFrame {
+        anchors.fill: parent
+        solid: true
+        strokeColor: Theme.subtleBorder
+        radius: Theme.cardRadius
+    }
     ColumnLayout {
         id: content
         anchors.left: parent.left
@@ -72,8 +76,12 @@ Rectangle {
                 background: Rectangle {
                     radius: Theme.controlRadius
                     color: Theme.elevated
-                    border.width: 1
-                    border.color: Theme.border
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: Theme.border
+                        radius: Theme.controlRadius
+                    }
                 }
                 CommentTextStyle {
                     id: paragraphStyle
@@ -97,14 +105,14 @@ Rectangle {
                     }
                 }
             }
-            Rectangle {
+            EchoDashedFrame {
                 anchors.fill: parent
                 anchors.margins: -3
-                visible: draft.activeFocus
+                solid: true
+                strokeColor: Theme.accent
                 radius: Theme.controlRadius + 3
-                color: "transparent"
-                border.width: 2
-                border.color: Theme.accent
+                thickness: 2
+                visible: draft.activeFocus
             }
         }
         RowLayout {

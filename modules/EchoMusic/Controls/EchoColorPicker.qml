@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 // In-app RGB picker. Only its editing draft lives here; callers decide when
@@ -64,8 +65,13 @@ Item {
             height: 12
             radius: 6
             color: "transparent"
-            border.color: "white"
-            border.width: 2
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: "white"
+                radius: 6
+                thickness: 2
+            }
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: -1
@@ -109,8 +115,14 @@ Item {
             anchors.fill: parent
             color: "transparent"
             radius: parent.radius
-            border.width: svInput.activeFocus ? 2 : 0
-            border.color: Theme.floating.accentText
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: Theme.floating.accentText
+                radius: parent.radius
+                thickness: svInput.activeFocus ? 2 : 0
+                visible: svInput.activeFocus
+            }
         }
     }
     Rectangle {
@@ -158,8 +170,13 @@ Item {
             height: parent.height + 4
             radius: 3
             color: "transparent"
-            border.width: 2
-            border.color: "white"
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: "white"
+                radius: 3
+                thickness: 2
+            }
         }
         MouseArea {
             id: hueInput
@@ -196,8 +213,14 @@ Item {
             anchors.fill: parent
             color: "transparent"
             radius: parent.radius
-            border.width: hueInput.activeFocus ? 2 : 0
-            border.color: Theme.floating.accentText
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: Theme.floating.accentText
+                radius: parent.radius
+                thickness: hueInput.activeFocus ? 2 : 0
+                visible: hueInput.activeFocus
+            }
         }
     }
 }

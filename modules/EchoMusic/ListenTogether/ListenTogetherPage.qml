@@ -71,8 +71,6 @@ RoutePage {
                     Layout.topMargin: medium ? 18 : 20
                     implicitHeight: Math.max(compact ? 204 : medium ? 164 : 174, heroContent.implicitHeight + insetY * 2)
                     radius: Theme.dialogRadius
-                    border.width: 1
-                    border.color: Theme.mix(Theme.border, Theme.accent, 0.18)
                     gradient: Gradient {
                         orientation: Gradient.Horizontal
                         GradientStop {
@@ -83,6 +81,12 @@ RoutePage {
                             position: 0.58
                             color: Theme.card
                         }
+                    }
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: Theme.mix(Theme.border, Theme.accent, 0.18)
+                        radius: Theme.dialogRadius
                     }
                     ListenSurface {
                         anchors.fill: parent
@@ -101,8 +105,16 @@ RoutePage {
                         rotation: hero.compact ? 0 : -8
                         opacity: hero.medium ? .62 : .78
                         color: Theme.withAlpha(Theme.accent, .11)
-                        border.width: 1
-                        border.color: Theme.withAlpha(Theme.accent, .18)
+                        EchoDashedFrame {
+                            anchors.fill: parent
+                            solid: true
+                            strokeColor: Theme.withAlpha(Theme.accent, .18)
+                            radius: width / 2
+                            // The disc rotates; pixel snapping only covers
+                            // axis-aligned geometry, so keep the unsnapped
+                            // antialiased fallback for the rotated border.
+                            pixelAligned: false
+                        }
                         EchoIcon {
                             anchors.centerIn: parent
                             width: hero.compact ? 36 : 84
@@ -250,8 +262,12 @@ RoutePage {
                                     implicitHeight: 137
                                     color: Theme.card
                                     radius: Theme.cardRadius
-                                    border.width: 1
-                                    border.color: Theme.border
+                                    EchoDashedFrame {
+                                        anchors.fill: parent
+                                        solid: true
+                                        strokeColor: Theme.border
+                                        radius: Theme.cardRadius
+                                    }
                                     ColumnLayout {
                                         anchors.fill: parent
                                         anchors.leftMargin: 12

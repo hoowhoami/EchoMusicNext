@@ -218,6 +218,13 @@ void DesktopPagesTest::realPlaybackSurfacesAndBoundedFiftyThousandQueue()
     QVERIFY(addDialog);
     QTRY_VERIFY(addDialog->property("opened").toBool());
     QVERIFY(visual(session.window->contentItem(), "playlistAddTargets"));
+    const auto addDialogCapture = qEnvironmentVariable("ECHO_ADD_DIALOG_CAPTURE");
+    if (!addDialogCapture.isEmpty()) {
+        QVERIFY(QDir().mkpath(addDialogCapture));
+        session.window->update();
+        QTest::qWait(120);
+        QVERIFY(session.window->grabWindow().save(addDialogCapture + "/add-dialog.png"));
+    }
     QVERIFY(QMetaObject::invokeMethod(addDialog, "close"));
     effect = session.openOwnedPopup("playbackEffectPopupOwner");
     QVERIFY(effect);

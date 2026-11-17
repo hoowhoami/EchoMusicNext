@@ -72,9 +72,14 @@ Rectangle {
                 Layout.preferredHeight: 44
                 radius: Theme.cardRadius
                 color: image.status === Image.Ready ? "transparent" : Theme.main
-                border.width: image.status === Image.Ready ? 0 : 1
-                border.color: Theme.mix(Theme.subtleBorder, card.pluginAccent, 0.18)
                 clip: true
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: Theme.mix(Theme.subtleBorder, card.pluginAccent, 0.18)
+                    radius: Theme.cardRadius
+                    visible: image.status !== Image.Ready
+                }
                 Shape {
                     id: mediaGradient
                     anchors.fill: parent

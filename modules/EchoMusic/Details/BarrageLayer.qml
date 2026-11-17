@@ -76,8 +76,14 @@ Item {
         height: barrageLayer.config.fontSize * 1.4 + 6
         radius: Theme.detailRadius
         color: entry.own ? "#33000000" : "transparent"
-        border.width: entry.own ? 1 : 0
-        border.color: "#e6ffffff"
+        EchoDashedFrame {
+            anchors.fill: parent
+            solid: true
+            strokeColor: "#e6ffffff"
+            radius: Theme.detailRadius
+            thickness: entry.own ? 1 : 0
+            visible: entry.own
+        }
         visible: occupied
         function clear(): void {
             ++generation;

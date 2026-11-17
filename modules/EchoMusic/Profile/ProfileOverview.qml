@@ -59,15 +59,16 @@ Rectangle {
                     hoverEnabled: true
                     Accessible.name: qsTr("修改头像")
                     onClicked: overview.avatarRequested()
-                    background: Rectangle {
+                    background: EchoDashedFrame {
                         x: -4
                         y: -4
                         width: avatarButton.width + 8
                         height: avatarButton.height + 8
-                        color: "transparent"
                         radius: width / 2
-                        border.width: avatarButton.visualFocus ? 2 : 0
-                        border.color: Theme.accent
+                        solid: true
+                        strokeColor: Theme.accent
+                        thickness: 2
+                        visible: avatarButton.visualFocus
                     }
                     contentItem: Item {
                         AccountAvatar {

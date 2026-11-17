@@ -203,8 +203,12 @@ EchoAnchoredPopup {
                     Layout.horizontalStretchFactor: 23
                     implicitHeight: composerColumn.implicitHeight + 20
                     radius: Theme.cardRadius
-                    border.width: 1
-                    border.color: Theme.border
+                    EchoDashedFrame {
+                        anchors.fill: parent
+                        solid: true
+                        strokeColor: Theme.border
+                        radius: Theme.cardRadius
+                    }
                     ColumnLayout {
                         id: composerColumn
                         anchors.fill: parent

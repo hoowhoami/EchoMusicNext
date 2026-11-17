@@ -14,14 +14,18 @@ Rectangle {
     readonly property int messageLimit: 200
     radius: Theme.popoverRadius
     color: Theme.card
-    border.width: 1
-    border.color: Theme.border
     property string sentDraft: ""
     function send(): void {
         if (!composer.text.trim() || room.sendingMessage || room.sendCooldownSeconds > 0)
             return;
         sentDraft = composer.text;
         room.sendMessage(composer.text);
+    }
+    EchoDashedFrame {
+        anchors.fill: parent
+        solid: true
+        strokeColor: Theme.border
+        radius: Theme.popoverRadius
     }
     Connections {
         target: panel.room
@@ -132,9 +136,13 @@ Rectangle {
             implicitHeight: composerRow.implicitHeight + 16
             radius: Theme.cardRadius
             focused: composer.activeFocus
-            border.width: 1
-            border.color: Theme.border
             opacity: panel.room.activeRoom.chat_code === 1 ? 1 : 0.55
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: Theme.border
+                radius: Theme.cardRadius
+            }
             TapHandler {
                 onTapped: composer.forceActiveFocus()
             }

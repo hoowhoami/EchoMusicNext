@@ -28,8 +28,14 @@ EchoDialog {
             background: Rectangle {
                 radius: Theme.controlRadius
                 color: activate.hovered && activate.enabled ? Theme.floating.hover : Theme.floating.mutedSurface
-                border.width: activate.visualFocus ? 2 : 0
-                border.color: Theme.floating.accent
+                EchoDashedFrame {
+                    anchors.fill: parent
+                    solid: true
+                    strokeColor: Theme.floating.accent
+                    radius: Theme.controlRadius
+                    thickness: activate.visualFocus ? 2 : 0
+                    visible: activate.visualFocus
+                }
             }
             contentItem: Item {}
         }

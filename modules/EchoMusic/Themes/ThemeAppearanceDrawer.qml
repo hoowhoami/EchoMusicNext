@@ -200,16 +200,20 @@ Popup {
                                 background: Rectangle {
                                     radius: 12
                                     color: preset.swatchColor
-                                    border.width: 1
-                                    border.color: Theme.floatingBorder
-                                    Rectangle {
+                                    EchoDashedFrame {
+                                        anchors.fill: parent
+                                        solid: true
+                                        strokeColor: Theme.floatingBorder
+                                        radius: 12
+                                    }
+                                    EchoDashedFrame {
                                         anchors.fill: parent
                                         anchors.margins: -5
                                         visible: Theme.store.customColor === preset.swatchColor || preset.visualFocus
-                                        color: "transparent"
                                         radius: 17
-                                        border.width: 2
-                                        border.color: Theme.accent
+                                        solid: true
+                                        strokeColor: Theme.accent
+                                        thickness: 2
                                     }
                                 }
                             }
@@ -226,8 +230,12 @@ Popup {
                             background: Rectangle {
                                 radius: 12
                                 color: Theme.store.customColor
-                                border.width: 1
-                                border.color: Theme.floatingBorder
+                                EchoDashedFrame {
+                                    anchors.fill: parent
+                                    solid: true
+                                    strokeColor: Theme.floatingBorder
+                                    radius: 12
+                                }
                             }
                         }
                     }

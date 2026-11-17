@@ -55,8 +55,14 @@ RoutePage {
         background: Rectangle {
             radius: Theme.controlRadius
             color: option.selected ? Theme.withAlpha(option.colors.accent, 0.1) : option.hovered ? Theme.withAlpha(option.colors.text, 0.06) : "transparent"
-            border.width: option.visualFocus ? 2 : 0
-            border.color: Theme.accent
+            EchoDashedFrame {
+                anchors.fill: parent
+                solid: true
+                strokeColor: Theme.accent
+                radius: Theme.controlRadius
+                thickness: option.visualFocus ? 2 : 0
+                visible: option.visualFocus
+            }
         }
     }
     readonly property bool resourceActive: pageActive && visible && (!Window.window || (Window.window.visible && Window.window.visibility !== Window.Minimized))
@@ -247,8 +253,12 @@ RoutePage {
                     background: Rectangle {
                         radius: Theme.controlRadius
                         color: "transparent"
-                        border.width: 1
-                        border.color: sourceToggle.hovered || sourceToggle.visualFocus ? Theme.accent : Theme.withAlpha(Theme.text, 0.1)
+                        EchoDashedFrame {
+                            anchors.fill: parent
+                            solid: true
+                            strokeColor: sourceToggle.hovered || sourceToggle.visualFocus ? Theme.accent : Theme.withAlpha(Theme.text, 0.1)
+                            radius: Theme.controlRadius
+                        }
                     }
                     foreground: hovered ? Theme.accentText : Theme.secondaryText
                     onClicked: {
