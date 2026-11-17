@@ -526,11 +526,96 @@ private slots:
                  QString("https://example.invalid/actual-hires"));
         QCOMPARE(resolved[0][4].toString(), QString("hi_res"));
     }
+    void removedCatalogWithVariantsDoesNotRefresh_data()
+    {
+        QTest::addColumn<bool>("known");
+        QTest::addColumn<bool>("preloading");
+        QTest::newRow("current-known") << true << false;
+        QTest::newRow("current-fetched") << false << false;
+        QTest::newRow("preloaded-known") << true << true;
+        QTest::newRow("preloaded-fetched") << false << true;
+    }
+    void removedCatalogWithVariantsDoesNotRefresh()
+    {
+        QFETCH(bool, known);
+        QFETCH(bool, preloading);
+        Fixture f;
+        PlaybackSourceRequest request(f.api, f.membership);
+        QSignalSpy resolved(&request, &PlaybackSourceRequest::resolved);
+        QSignalSpy failed(&request, &PlaybackSourceRequest::failed);
+        PlaybackTrack track;
+        track.id = "removed-with-variants";
+        track.hash = hashA;
+        const QJsonObject rights{
+            {"hash", hashA},
+            {"resource_error", 6},
+            {"variants", QJsonArray{QJsonObject{{"quality", "high"}, {"hash", hashB}}}}};
+        request.resolve(track, ApiClient::PlaybackQuality::HiRes, ApiClient::SoundEffect::None,
+                        known ? rights : QJsonObject{}, true, true, {}, {}, false, false,
+                        preloading);
+        if (!known) {
+            const auto id = ApiClientTestAccess::pending(f.api, "privilege_lite");
+            QVERIFY(id);
+            ApiClientTestAccess::finish(f.api, id, QJsonArray{rights});
+        }
+        const auto actual = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(actual);
+        const auto query = ApiClientTestAccess::query(f.api, actual);
+        QCOMPARE(query.value("hash").toString(), hashB);
+        QCOMPARE(query.value("quality").toString(), QString("hi_res"));
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "privilege_lite"));
+        ApiClientTestAccess::finish(f.api, actual,
+                                    source("https://example.invalid/existing-hires"));
+        QCOMPARE(resolved.size(), 1);
+        QVERIFY(failed.isEmpty());
+        QCOMPARE(qvariant_cast<PlaybackTrack>(resolved[0][0]).stableKey(), track.stableKey());
+        QCOMPARE(resolved[0][4].toString(), QString("hi_res"));
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+    }
+    void effectHashCaseDoesNotRepeatRequest_data()
+    {
+        QTest::addColumn<QString>("effectHash");
+        QTest::newRow("same-case") << hashA;
+        QTest::newRow("upper-case") << hashA.toUpper();
+    }
+    void effectHashCaseDoesNotRepeatRequest()
+    {
+        QFETCH(QString, effectHash);
+        Fixture f;
+        PlaybackSourceRequest request(f.api, f.membership);
+        QSignalSpy resolved(&request, &PlaybackSourceRequest::resolved);
+        QSignalSpy failed(&request, &PlaybackSourceRequest::failed);
+        PlaybackTrack track;
+        track.id = "effect-same-resource";
+        track.hash = hashA;
+        const QJsonObject rights{
+            {"variants", QJsonArray{QJsonObject{{"quality", "piano"}, {"hash", effectHash}},
+                                    QJsonObject{{"quality", "128"}, {"hash", hashB}}}}};
+        request.resolve(track, ApiClient::PlaybackQuality::Standard, ApiClient::SoundEffect::Piano,
+                        rights, false);
+        const auto effect = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(effect);
+        QCOMPARE(ApiClientTestAccess::query(f.api, effect).value("hash").toString(), hashA);
+        ApiClientTestAccess::fail(f.api, effect);
+        // One failed effect request must advance directly to the ordinary
+        // quality candidate, even when the same effect hash differs in case.
+        const auto ordinary = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(ordinary);
+        QCOMPARE(ApiClientTestAccess::query(f.api, ordinary).value("hash").toString(), hashB);
+        QCOMPARE(ApiClientTestAccess::query(f.api, ordinary).value("quality").toString(),
+                 QString("standard"));
+        ApiClientTestAccess::finish(f.api, ordinary, source("https://example.invalid/no-effect"));
+        QCOMPARE(resolved.size(), 1);
+        QVERIFY(resolved[0][3].toBool());
+        QVERIFY(failed.isEmpty());
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "privilege_lite"));
+    }
     void catalogRefreshIsBounded_data()
     {
         QTest::addColumn<QString>("failure");
-        for (const auto *name :
-             {"request-failed", "same-hash", "invalid-hash", "no-url", "replacement-also-missing"})
+        for (const auto *name : {"request-failed", "same-hash", "same-hash-uppercase",
+                                 "invalid-hash", "no-url", "replacement-also-missing"})
             QTest::newRow(name) << QString(name);
     }
     void catalogRefreshIsBounded()
@@ -553,9 +638,10 @@ private slots:
             ApiClientTestAccess::fail(f.api, id);
         } else {
             auto candidate = source("https://example.invalid/locator");
-            candidate["hash"] = failure == "same-hash"      ? hashA
-                                : failure == "invalid-hash" ? QString("not-a-hash")
-                                                            : hashB;
+            candidate["hash"] = failure == "same-hash"             ? hashA
+                                : failure == "same-hash-uppercase" ? hashA.toUpper()
+                                : failure == "invalid-hash"        ? QString("not-a-hash")
+                                                                   : hashB;
             if (failure == "no-url")
                 candidate["urls"] = QJsonArray{};
             ApiClientTestAccess::finish(f.api, id, candidate);

@@ -115,18 +115,10 @@ Item {
     // geometry (ModalRaster re-captures them at the device grid) and plain
     // surfaces keep the frame-internal snap.
     readonly property bool layerSnapped: frosted && !dialogShadow && EchoPixelSnap.enabled
-    readonly property real layerSnapX: layerSnapped
-        ? (Math.floor(EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio)
-           - EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio) / EchoPixelSnap.densityX : 0
-    readonly property real layerSnapY: layerSnapped
-        ? (Math.floor(EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio)
-           - EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio) / EchoPixelSnap.densityY : 0
-    readonly property real layerSnapWidth: layerSnapped
-        ? Math.max(0, Math.ceil(EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio + width * EchoPixelSnap.densityX)
-                        - Math.floor(EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio)) / EchoPixelSnap.densityX : width
-    readonly property real layerSnapHeight: layerSnapped
-        ? Math.max(0, Math.ceil(EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio + height * EchoPixelSnap.densityY)
-                        - Math.floor(EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio)) / EchoPixelSnap.densityY : height
+    readonly property real layerSnapX: layerSnapped ? (Math.floor(EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio) - EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio) / EchoPixelSnap.densityX : 0
+    readonly property real layerSnapY: layerSnapped ? (Math.floor(EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio) - EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio) / EchoPixelSnap.densityY : 0
+    readonly property real layerSnapWidth: layerSnapped ? Math.max(0, Math.ceil(EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio + width * EchoPixelSnap.densityX) - Math.floor(EchoPixelSnap.scenePosition.x * EchoPixelSnap.devicePixelRatio)) / EchoPixelSnap.densityX : width
+    readonly property real layerSnapHeight: layerSnapped ? Math.max(0, Math.ceil(EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio + height * EchoPixelSnap.densityY) - Math.floor(EchoPixelSnap.scenePosition.y * EchoPixelSnap.devicePixelRatio)) / EchoPixelSnap.densityY : height
     Item {
         id: surfaceBody
         objectName: "floatingSurfaceBody"
@@ -138,6 +130,10 @@ Item {
         // Popups scale with the application zoom. Nearest sampling of this
         // isolated layer turns an otherwise antialiased corner into steps.
         layer.smooth: true
+        // Geometry snapping alone still leaves Qt's default layer texture at
+        // logical size times window DPR. Match the final device box so the
+        // full-density frame is not downsampled here and enlarged by UI zoom.
+        layer.textureSize: floatingSurface.layerSnapped ? Qt.size(Math.max(1, Math.round(surfaceBody.width * floatingSurface.EchoPixelSnap.densityX)), Math.max(1, Math.round(surfaceBody.height * floatingSurface.EchoPixelSnap.densityY))) : Qt.size(0, 0)
         Loader {
             id: frostLoader
             anchors.fill: parent
@@ -180,8 +176,7 @@ Item {
             strokeColor: outline.border.color
             strokeInside: false
             pixelAligned: !floatingSurface.smoothCorners && !floatingSurface.frosted
-            fillColor: floatingSurface.smoothCorners ? "transparent"
-                                                     : (floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor)
+            fillColor: floatingSurface.smoothCorners ? "transparent" : (floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor)
         }
     }
     component FrostedBody: Item {

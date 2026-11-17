@@ -67,6 +67,8 @@ private:
     void tryStart();
     bool refreshMissingCatalogResource();
     void failCatalogRefresh(const QString &message);
+    void logCatalogRefresh(const char *stage, quint64 request, const QJsonObject &facts = {},
+                           bool warning = false) const;
     void succeed(quint64 id, const QByteArray &bytes);
     void fail(quint64 id, const QByteArray &bytes);
     PlaybackSourceExtensions *m_extensions = nullptr;

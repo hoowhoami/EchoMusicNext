@@ -387,11 +387,11 @@ add_test(
         echo-controls-ui-test scrollContentCannotPaintOverRoundedCornersOrBorder
         frostedCornersRetainAntialiasCoverage modalCornersTrackAnalyticCoverage
         modalShadowsPreserveCornerCoverage modalFrostedCornersKeepDeviceResolution
-        colorPresetsKeepVisibleEdgesInBothThemes backdropSourceIsWindowLocalAndReleasedWhenHidden
-        backdropSamplerTracksBothItemTrees floatingSurfaceMatchesRendererCapabilities
-        floatingFrostSamplesTheSceneAndStopsOnHide floatingEffectsAreOwnedByVisibleSurfaces
-        floatingBorderCompositesOverItsOwnFill themeCustomColorHoverAndRenderedPixels
-        sourceActionSurfacesAndSelectStates
+        floatingFrostedLayerKeepsDeviceResolution colorPresetsKeepVisibleEdgesInBothThemes
+        backdropSourceIsWindowLocalAndReleasedWhenHidden backdropSamplerTracksBothItemTrees
+        floatingSurfaceMatchesRendererCapabilities floatingFrostSamplesTheSceneAndStopsOnHide
+        floatingEffectsAreOwnedByVisibleSurfaces floatingBorderCompositesOverItsOwnFill
+        themeCustomColorHoverAndRenderedPixels sourceActionSurfacesAndSelectStates
 )
 add_test(
     NAME controls-ui-behavior

@@ -1,6 +1,7 @@
 #include "PlaybackSourceRequest.h"
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLoggingCategory>
 #include <QUrl>
 #include <QRegularExpression>
 #include <algorithm>
@@ -11,6 +12,8 @@
 
 namespace EchoMusic
 {
+Q_LOGGING_CATEGORY(playbackSourceLog, "echo.playback.source")
+
 PlaybackSourceRequest::PlaybackSourceRequest(ApiClient &api, MembershipService &membership,
                                              QObject *parent, CloudAudioIndex *cloud,
                                              PlaybackSourceExtensions *extensions)
@@ -174,8 +177,11 @@ bool PlaybackSourceRequest::refreshMissingCatalogResource()
     m_catalogRefreshTried = true;
     m_catalogRefreshRequest = m_api.playbackSource(m_catalogHash, m_track.albumId, m_track.songId,
                                                    ApiClient::PlaybackQuality::Automatic);
-    if (!m_catalogRefreshRequest)
+    logCatalogRefresh("locator-start", m_catalogRefreshRequest, {{"resource_error", 6}});
+    if (!m_catalogRefreshRequest) {
+        logCatalogRefresh("locator-not-started", 0, {}, true);
         failCatalogRefresh(tr("无法发起播放地址请求"));
+    }
     return true;
 }
 void PlaybackSourceRequest::failCatalogRefresh(const QString &message)
@@ -184,6 +190,24 @@ void PlaybackSourceRequest::failCatalogRefresh(const QString &message)
     m_hasPlan = true;
     m_lastError = message;
     afterCatalog();
+}
+void PlaybackSourceRequest::logCatalogRefresh(const char *stage, quint64 request,
+                                              const QJsonObject &facts, bool warning) const
+{
+    if (!(warning ? playbackSourceLog().isWarningEnabled() : playbackSourceLog().isDebugEnabled()))
+        return;
+    // Fixed stages and numeric/boolean facts only. Never include track identity,
+    // signed URLs, provider messages or raw response bodies in this side channel.
+    auto entry = facts;
+    entry.insert("stage", QString::fromLatin1(stage));
+    entry.insert("request", qint64(request));
+    entry.insert("generation", qint64(m_generation));
+    entry.insert("preloading", m_preloading);
+    const auto message = QJsonDocument(entry).toJson(QJsonDocument::Compact);
+    if (warning)
+        qCWarning(playbackSourceLog).noquote() << message;
+    else
+        qCDebug(playbackSourceLog).noquote() << message;
 }
 void PlaybackSourceRequest::preparePlan()
 {
@@ -218,16 +242,24 @@ void PlaybackSourceRequest::succeed(quint64 id, const QByteArray &bytes)
         static const QRegularExpression validHash(QStringLiteral("^[0-9a-fA-F]{32}$"));
         if (usableUrls(source).isEmpty() || !validHash.match(hash).hasMatch() ||
             hash.compare(m_catalogHash, Qt::CaseInsensitive) == 0) {
+            logCatalogRefresh(
+                "locator-no-replacement", id,
+                {{"url_count", usableUrls(source).size()},
+                 {"valid_hash", validHash.match(hash).hasMatch()},
+                 {"same_hash", hash.compare(m_catalogHash, Qt::CaseInsensitive) == 0}});
             failCatalogRefresh(tr("播放地址响应不完整"));
             return;
         }
         // Preserve the playlist/queue identity. Only this resolver's catalog
         // resource changes, and no signed locator URL is retained or published.
         m_catalogHash = hash;
+        logCatalogRefresh("locator-replaced", id);
         m_privileges = {};
         m_waitingPrivileges = true;
         m_privilegeRequest = m_api.songPrivileges({{m_catalogHash, m_track.albumId}});
+        logCatalogRefresh("rights-start", m_privilegeRequest);
         if (!m_privilegeRequest) {
+            logCatalogRefresh("rights-not-started", 0, {}, true);
             m_waitingPrivileges = false;
             tryStart();
         }
@@ -325,6 +357,13 @@ void PlaybackSourceRequest::succeed(quint64 id, const QByteArray &bytes)
             }
         }
         m_waitingPrivileges = false;
+        if (m_catalogRefreshTried) {
+            QJsonObject facts{{"matched", !m_privileges.isEmpty()},
+                              {"variant_count", m_privileges.value("variants").toArray().size()}};
+            if (const auto code = m_privileges.value("resource_error"); code.isDouble())
+                facts.insert("resource_error", code);
+            logCatalogRefresh("rights-ready", id, facts);
+        }
         const auto generation = m_generation;
         emit privilegesReady(m_track, m_privileges);
         if (generation == m_generation)
@@ -349,6 +388,15 @@ void PlaybackSourceRequest::fail(quint64 id, const QByteArray &bytes)
 {
     if (m_revision != m_api.sessionRevision())
         return;
+    if (id &&
+        (id == m_catalogRefreshRequest || (m_catalogRefreshTried && id == m_privilegeRequest))) {
+        QJsonObject facts;
+        if (const auto code = QJsonDocument::fromJson(bytes).object().value("code");
+            code.isDouble())
+            facts.insert("code", code);
+        logCatalogRefresh(id == m_catalogRefreshRequest ? "locator-failed" : "rights-failed", id,
+                          facts, true);
+    }
     if (id && id == m_catalogRefreshRequest) {
         m_catalogRefreshRequest = 0;
         const auto message = ApiClient::errorMessage(bytes);

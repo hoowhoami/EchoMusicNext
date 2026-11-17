@@ -33,6 +33,7 @@ private slots:
     void modalCornersTrackAnalyticCoverage();
     void modalShadowsPreserveCornerCoverage();
     void modalFrostedCornersKeepDeviceResolution();
+    void floatingFrostedLayerKeepsDeviceResolution();
     void floatingPanelEdgesAndMenuHeight();
     void anchoredPopupsPassOutsideInputAndKeepNestedSurfaces();
     void clearActionIsOneUserEditButProgrammaticClearIsNot();

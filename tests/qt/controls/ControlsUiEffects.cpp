@@ -1,5 +1,6 @@
 #include "ControlsUiTest.h"
 #include "ControlsUiTestFixture.h"
+#include <cmath>
 
 void ControlsUiTest::scrollContentCannotPaintOverRoundedCornersOrBorder()
 {
@@ -601,6 +602,92 @@ Window {
     capture = findVisual(surface, "floatingSurfaceModalCapture");
     session.window->hide();
     QTRY_VERIFY(raster.isNull() && capture.isNull());
+}
+
+void ControlsUiTest::floatingFrostedLayerKeepsDeviceResolution()
+{
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+Window {
+    id: host
+    visible: true; width: 560; height: 380; color: "white"
+    property real zoom: 1
+    property real phase: 0
+    EchoBackdropRoot {
+        anchors.fill: parent
+        Rectangle { anchors.fill: parent; color: "white" }
+    }
+    Item {
+        x: 20.3 + host.phase; y: 20.2 + host.phase
+        scale: host.zoom; transformOrigin: Item.TopLeft
+        EchoFloatingSurface {
+            objectName: "floatingResolutionProbe"
+            width: 200; height: 100; radius: 20
+            color: "white"; border.width: 1; border.color: "black"
+            shadowEnabled: false; frostedEnabled: true
+        }
+    }
+})",
+                      QUrl("qrc:/floating-layer-resolution.qml"));
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window && Test::prepareNativeInput(session.window));
+    if (!supportsFloatingEffects(session.window))
+        QSKIP("Layer texture resolution requires RHI");
+    auto *surface = session.item("floatingResolutionProbe");
+    QVERIFY(surface);
+    auto *body = findVisual(surface, "floatingSurfaceBody");
+    QVERIFY(body);
+    QTRY_VERIFY(surface->property("hasBackdrop").toBool());
+    // Read the actual render-thread layer texture, rather than asserting the
+    // QML textureSize binding: a full-density frame can still be downsampled
+    // into an intermediate layer before it reaches the screen.
+    const auto deviceSize = [&] {
+        const auto origin = body->mapToScene(QPointF());
+        const auto unitX = body->mapToScene(QPointF(1, 0)) - origin;
+        const auto unitY = body->mapToScene(QPointF(0, 1)) - origin;
+        const auto dpr = session.window->effectiveDevicePixelRatio();
+        return QSize(qRound(body->width() * std::hypot(unitX.x(), unitX.y()) * dpr),
+                     qRound(body->height() * std::hypot(unitY.x(), unitY.y()) * dpr));
+    };
+    const auto captures = qEnvironmentVariable("ECHO_FLOATING_LAYER_CAPTURES");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (const qreal zoom : {.75, 1., 1.25, 1.5}) {
+            session.root->setProperty("zoom", zoom);
+            for (const qreal phase : {0., .2, .6}) {
+                session.root->setProperty("phase", phase);
+                QTRY_COMPARE(renderedTextureSize(session.window, body), deviceSize());
+                const auto image = session.window->grabWindow();
+                QVERIFY(!image.isNull());
+                if (!captures.isEmpty())
+                    QVERIFY(image.save(
+                        captures + QString("/%1-%2-%3.png").arg(int(mode)).arg(zoom).arg(phase)));
+            }
+        }
+    }
+    surface->setProperty("frostedEnabled", false);
+    QTRY_VERIFY(!QQmlProperty(body, "layer.enabled").read().toBool());
+    QVERIFY(renderedTextureSize(session.window, body).isEmpty());
+    surface->setProperty("frostedEnabled", true);
+    QTRY_COMPARE(renderedTextureSize(session.window, body), deviceSize());
+    surface->setVisible(false);
+    QTRY_VERIFY(!QQmlProperty(body, "layer.enabled").read().toBool());
+    QVERIFY(renderedTextureSize(session.window, body).isEmpty());
+    surface->setVisible(true);
+    QTRY_COMPARE(renderedTextureSize(session.window, body), deviceSize());
+    session.window->hide();
+    QTRY_VERIFY(!QQmlProperty(body, "layer.enabled").read().toBool());
+    session.window->show();
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QTRY_COMPARE(renderedTextureSize(session.window, body), deviceSize());
 }
 
 void ControlsUiTest::colorPresetsKeepVisibleEdgesInBothThemes()
