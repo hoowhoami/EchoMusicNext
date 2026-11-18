@@ -66,5 +66,25 @@ std::optional<Region> resolveFixed(const TaskbarLayout &layout, Side side, int m
 /// screen.
 std::optional<Region> resolveDragged(const TaskbarLayout &layout, Side side, int maxWidth,
                                      int offsetX);
+
+/// The smallest lyric area (DIP) that still shows both lines; below it the
+/// pair renders the primary line alone (TaskbarLyricWindow's group gate).
+inline constexpr qreal kTwoLineMinArea = 26;
+
+/// The largest lyric font size (px) a strip of this height (DIP) can carry.
+/// The two-line layout splits the strip between the lines (the / 2.3 branch
+/// is the original binding, kept verbatim), but a lyric area below
+/// kTwoLineMinArea drops the second line and the lone line then owns the
+/// whole area (/ 1.4 leaves headroom over its ~1.3 line box): keeping the
+/// two-line split there clamped every user size to the 11px floor, which
+/// made the font size setting go dead on Windows small taskbars. The cap
+/// drops at the boundary itself on purpose: past 26 DIP the second line
+/// reappears and takes its share of the area back.
+inline qreal lyricFontSizeCap(qreal stripHeight)
+{
+    return stripHeight - 8 < kTwoLineMinArea
+        ? qMax(11., (stripHeight - 8) / 1.4)
+        : qMax(11., (stripHeight - 10) / 2.3);
+}
 } // namespace TaskbarLyricGeometry
 } // namespace EchoMusic
