@@ -41,6 +41,8 @@ private slots:
     void lyricSettingsShareCoverPickerAndExcludeTaskbar();
     void floatingPreferencesAndFilteredTimelineKeepIdentity();
     void desktopLyricsMatchSourceChromeAndHoverUnlock();
+    void desktopLyricWindowShowsWhileMainHidden();
+    void floatingWindowsIgnoreMainWindowMinimize();
     void nativeFloatingWindowsShareStateAndReleaseAcrossCycles();
     void audibleTransitionPublishesOneToastThroughShell();
     void nativePlaybackFailurePublishesVisibleToast();

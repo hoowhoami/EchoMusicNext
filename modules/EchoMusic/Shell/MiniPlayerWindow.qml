@@ -36,6 +36,10 @@ Window {
     height: 64
     visible: true
     flags: Qt.Tool | Qt.FramelessWindowHint
+    // See DesktopLyricWindow: keep the mini player independent of the main
+    // window's minimize/restore by opting out of the automatic transient
+    // parent assignment.
+    transientParent: null
     Component.onCompleted: service.attachMini(window)
     Component.onDestruction: service.attachMini(null)
     Shortcut {

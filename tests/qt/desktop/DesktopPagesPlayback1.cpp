@@ -6,6 +6,10 @@
 #include <QStyleHints>
 #include "ShortcutActions.h"
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 #ifdef Q_OS_MACOS
 QVariantMap nativeMacApplicationPresentation();
 QVariantMap nativeFloatingAppearance(QWindow *);
@@ -1917,6 +1921,144 @@ void DesktopPagesTest::desktopLyricsMatchSourceChromeAndHoverUnlock()
     QTRY_VERIFY(!findWindow("desktopLyricWindow"));
     QVERIFY(!floating->unlockAvailable());
     QVERIFY(!floating->unlockVisible());
+}
+
+void DesktopPagesTest::desktopLyricWindowShowsWhileMainHidden()
+{
+    Session session;
+    session.theme.setMotionEnabled(false);
+    PlaybackService playback(session.api, session.preferences);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&session] {
+        session.router.shutdown();
+        session.commands.shutdown();
+        session.windows.shutdown();
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    // Desktop lyrics are an independent desktop surface: the main window may
+    // sit hidden (tray/background) while they are enabled. Enabling them must
+    // therefore show the lyric window immediately, without waiting for the
+    // main window to become visible; the explicit transientParent: null keeps
+    // Qt Quick from installing an automatic transient parent that could tie
+    // the show to the main window.
+    session.window->hide();
+    auto *floating = session.windows.floating();
+    floating->setDesktopEnabled(true);
+    const auto findWindow = [](const QString &name) -> QQuickWindow * {
+        for (auto *candidate : QGuiApplication::topLevelWindows())
+            if (candidate->objectName() == name)
+                return qobject_cast<QQuickWindow *>(candidate);
+        return nullptr;
+    };
+    QTRY_VERIFY(findWindow("desktopLyricWindow"));
+    QTRY_VERIFY(findWindow("desktopLyricWindow")->isVisible());
+    QVERIFY(!findWindow("desktopLyricWindow")->transientParent());
+    floating->setDesktopEnabled(false);
+    QTRY_VERIFY(!findWindow("desktopLyricWindow"));
+    session.window->show();
+    QVERIFY(warnings.isEmpty());
+}
+
+void DesktopPagesTest::floatingWindowsIgnoreMainWindowMinimize()
+{
+    if (QGuiApplication::platformName() != "windows")
+        QSKIP("Requires the windows platform to reproduce native owner propagation");
+    const auto originalCursor = QCursor::pos();
+    const auto restoreCursor = qScopeGuard([&] { QCursor::setPos(originalCursor); });
+    Session session;
+    session.theme.setMotionEnabled(false);
+    PlaybackService playback(session.api, session.preferences);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&session] {
+        session.router.shutdown();
+        session.commands.shutdown();
+        session.windows.shutdown();
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    const auto findWindow = [](const QString &name) -> QQuickWindow * {
+        for (auto *candidate : QGuiApplication::topLevelWindows())
+            if (candidate->objectName() == name)
+                return qobject_cast<QQuickWindow *>(candidate);
+        return nullptr;
+    };
+    // A window declared inside the main window receives an automatic
+    // transient parent when its component completes, and the first show turns
+    // that parent into the Win32 owner: Windows then hides and restores the
+    // owned tool window together with the main window. attachDesktop clears
+    // the transient parent afterwards in Component.onCompleted, but that only
+    // ever reaches the Qt-level property - the native owner persists until
+    // the next show - so the QML windows must opt out before their first show
+    // with an explicit transientParent: null.
+    auto *floating = session.windows.floating();
+    floating->setLocked(false);
+    floating->setDesktopEnabled(true);
+    QTRY_VERIFY(findWindow("desktopLyricWindow"));
+    QPointer<QQuickWindow> desktop = findWindow("desktopLyricWindow");
+    QTRY_VERIFY(QTest::qWaitForWindowExposed(desktop));
+    floating->setLocked(true);
+    QTRY_VERIFY(findWindow("desktopLyricUnlockWindow"));
+    Test::moveNativePointer(desktop.data(), {360, 100});
+    QTRY_VERIFY(floating->unlockVisible());
+    QPointer<QQuickWindow> unlock = findWindow("desktopLyricUnlockWindow");
+    QVERIFY(unlock && unlock->isVisible());
+    const QList<QPair<QString, QQuickWindow *>> floatingWindows{
+        {"desktopLyricWindow", desktop.data()},
+        {"desktopLyricUnlockWindow", unlock.data()}};
+    const QList<QRect> floatingGeometry = [&] {
+        QList<QRect> result;
+        for (const auto &entry : floatingWindows)
+            result.append(entry.second->geometry());
+        return result;
+    }();
+    for (const auto &entry : floatingWindows) {
+        QVERIFY2(!entry.second->transientParent(), qPrintable(entry.first));
+#ifdef Q_OS_WIN
+        QVERIFY2(GetWindowLongPtrW(reinterpret_cast<HWND>(entry.second->winId()),
+                                   GWLP_HWNDPARENT) == 0,
+                 qPrintable(entry.first));
+#endif
+    }
+    session.window->setWindowStates(session.window->windowStates() | Qt::WindowMinimized);
+    QTRY_VERIFY(session.window->windowStates().testFlag(Qt::WindowMinimized));
+    // An owned window hides within the first event-loop turns of the owner's
+    // minimize; keep watching long enough for that propagation to land.
+    for (int turn = 0; turn < 8; ++turn) {
+        QTest::qWait(80);
+        for (const auto &entry : floatingWindows)
+            QVERIFY2(entry.second->isVisible(), qPrintable(entry.first));
+    }
+    session.window->showNormal();
+    QTest::qWait(120);
+    for (int index = 0; index < floatingWindows.size(); ++index) {
+        QVERIFY2(floatingWindows[index].second->isVisible(),
+                 qPrintable(floatingWindows[index].first));
+        QVERIFY(!floatingWindows[index].second->windowStates().testFlag(Qt::WindowMinimized));
+        QCOMPARE(floatingWindows[index].second->geometry(), floatingGeometry[index]);
+    }
+    // The mini player replaces a hidden main window, so it cannot observe the
+    // minimize propagation; still verify it is not owned either.
+    Test::moveNativePointer(desktop.data(), {-40, -40});
+    floating->setLocked(false);
+    QTRY_VERIFY(!unlock->isVisible());
+    floating->showMini();
+    QTRY_VERIFY(floating->miniWindow());
+    QTRY_VERIFY(floating->miniWindow()->isVisible());
+    QVERIFY(!floating->miniWindow()->transientParent());
+#ifdef Q_OS_WIN
+    QVERIFY(GetWindowLongPtrW(reinterpret_cast<HWND>(floating->miniWindow()->winId()),
+                              GWLP_HWNDPARENT) == 0);
+#endif
+    QPointer<QQuickWindow> mini = floating->miniWindow();
+    floating->showMain();
+    QTRY_VERIFY(mini.isNull());
+    floating->setDesktopEnabled(false);
+    QTRY_VERIFY(desktop.isNull());
+    QVERIFY(warnings.isEmpty());
 }
 
 void DesktopPagesTest::nativeFloatingWindowsShareStateAndReleaseAcrossCycles()
