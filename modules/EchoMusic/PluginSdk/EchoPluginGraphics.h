@@ -43,9 +43,18 @@ struct GpuByteBudget
 };
 struct GpuMemoryBudget
 {
-    GpuByteBudget native{128ll * 1024 * 1024}, targets{256ll * 1024 * 1024},
-        readbacks{32ll * 1024 * 1024}, submissions{64ll * 1024 * 1024};
-    std::atomic<int> objects = 0, surfaces = 0, pendingSubmissions = 0;
+    explicit GpuMemoryBudget(const QVariantMap &limits = {})
+        : logicalLimit(limits.value("logicalBytes", 64ll * 1024 * 1024).toLongLong()),
+          maxCommands(limits.value("maxCommands", 32).toInt()),
+          native(limits.value("nativeBytes", 128ll * 1024 * 1024).toLongLong()),
+          targets(limits.value("renderTargetBytes", 256ll * 1024 * 1024).toLongLong()),
+          readbacks(32ll * 1024 * 1024), submissions(64ll * 1024 * 1024)
+    {
+    }
+    const qint64 logicalLimit;
+    const int maxCommands;
+    GpuByteBudget native, targets, readbacks, submissions;
+    std::atomic<int> objects = 0, surfaces = 0, pendingSubmissions = 0, floatTextures = 0;
 };
 struct NativeGpuResource;
 struct GpuSharedResourceState
@@ -159,6 +168,7 @@ class EchoPluginGraphics final : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Created by the plugin runtime")
+    Q_PROPERTY(bool active READ active NOTIFY activeChanged)
     Q_PROPERTY(QVariantMap capabilities READ capabilities NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
 public:
@@ -204,6 +214,7 @@ public:
     void report(const QVariantMap &capabilities);
     bool fail(const QString &message);
 signals:
+    void activeChanged();
     void changed();
     void drainedChanged();
     void resourcesChanged();
@@ -218,6 +229,7 @@ private:
            std::shared_ptr<GpuResourceDescription::TextureSource> textureSource = {});
     QByteArray shader(const QString &path, int stage);
     QByteArray bytes(const QJSValue &data, const QString &format, int maximum);
+    void publishActive();
     void retire(EchoGpuResource &resource);
     QString m_atlasDomain;
     EchoPluginContext &m_scope;
@@ -230,6 +242,7 @@ private:
     QString m_error;
     quint64 m_sequence = 0;
     bool m_closed = false;
+    bool m_reportedActive = false;
     qint64 m_bytes = 0;
 };
 } // namespace EchoMusic

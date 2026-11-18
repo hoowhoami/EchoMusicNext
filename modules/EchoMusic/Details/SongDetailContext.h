@@ -97,6 +97,7 @@ private:
         Metadata,
         Ranking,
         RankingDetails,
+        AlbumPublisher,
         FavoriteCount,
         CommentCount
     };
@@ -110,6 +111,7 @@ private:
     void hydrate();
     void requestMetadata();
     void rankingsAndComments();
+    void requestAlbumPublisher();
     bool commentsPage() const;
     void requestHeaderStats();
     void startComments();

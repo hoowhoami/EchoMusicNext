@@ -132,10 +132,11 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
         const auto pass = p.toMap();
         const auto views = gpuColorTargets(pass);
         const auto pipeline = descriptions.value(pass.value("pipeline").toString()).definition;
-        if (!views.isEmpty() &&
+        if (!pass.contains("depthTarget") && !views.isEmpty() &&
             (pipeline.value("depthTest").toBool() || pipeline.value("depthWrite").toBool())) {
             const auto view = views.first().toMap();
-            depthTargets[view.value("texture").toString()].insert(gpuDepthKey(view));
+            depthTargets[view.value("texture").toString()].insert(gpuDepthKey(view) * 16 +
+                                                                  pass.value("samples", 1).toInt());
         }
     }
     // Depth belongs to the first color texture/layer/mip, charged until disposal.
@@ -149,9 +150,10 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
             continue;
         const auto d = descriptions.value(it.key()).definition;
         for (const int key : it.value()) {
-            const int level = key % 16;
+            const int level = (key / 16) % 16;
+            const int samples = key % 16;
             wanted += qint64(qMax(1, d.value("width").toInt() >> level)) *
-                      qMax(1, d.value("height").toInt() >> level) * 4;
+                      qMax(1, d.value("height").toInt() >> level) * 4 * samples;
         }
     }
     if (!budget || (wanted > reservedBytes && !budget->native.reserve(wanted - reservedBytes))) {
@@ -247,10 +249,11 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
                 }
             } else if (d.kind == "texture") {
                 const auto format = d.definition.value("format").toString();
-                QRhiTexture::Format f = format == "rgba16f"   ? QRhiTexture::RGBA16F
-                                        : format == "rgba32f" ? QRhiTexture::RGBA32F
-                                        : format == "r32f"    ? QRhiTexture::R32F
-                                                              : QRhiTexture::RGBA8;
+                QRhiTexture::Format f = format == "rgba16f"    ? QRhiTexture::RGBA16F
+                                        : format == "rgba32f"  ? QRhiTexture::RGBA32F
+                                        : format == "depth32f" ? QRhiTexture::D32F
+                                        : format == "r32f"     ? QRhiTexture::R32F
+                                                               : QRhiTexture::RGBA8;
                 const bool array = d.definition.value("dimension") == "2d-array";
                 const bool cube = d.definition.value("dimension") == "cube";
                 const bool volume = d.definition.value("dimension") == "3d";
@@ -266,7 +269,9 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
                     error = "Texture array size is unsupported by this device";
                     return false;
                 }
-                QRhiTexture::Flags flags = QRhiTexture::UsedAsTransferSource;
+                QRhiTexture::Flags flags = f == QRhiTexture::D32F
+                                               ? QRhiTexture::Flags{}
+                                               : QRhiTexture::UsedAsTransferSource;
                 if (array)
                     flags |= QRhiTexture::TextureArray;
                 if (cube)
@@ -295,6 +300,9 @@ bool GpuRenderState::updateResources(QRhiResourceUpdateBatch *updates,
                         f, d.definition.value("layers").toInt(), extent, 1, flags));
                 else
                     native.texture.reset(rhi->newTexture(f, extent, 1, flags));
+                native.needsColorInitialization =
+                    !array && !cube && !volume && f != QRhiTexture::D32F &&
+                    usage.contains("render-target") && d.data.isEmpty();
                 if (!native.texture->create()) {
                     error = "Cannot allocate GPU texture";
                     return false;

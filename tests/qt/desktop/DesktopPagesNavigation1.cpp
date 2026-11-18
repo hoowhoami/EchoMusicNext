@@ -11,6 +11,12 @@ public:
     {
         return context.m_presented;
     }
+    static void acceptAlbumPublisher(SongDetailContext &context)
+    {
+        constexpr quint64 requestId = 991004;
+        context.request(requestId, SongDetailContext::AlbumPublisher);
+        context.accept(requestId, R"({"publisher":"滚石唱片"})");
+    }
 };
 } // namespace EchoMusic
 
@@ -371,7 +377,11 @@ void DesktopPagesTest::playerMetadataLinksUseProductionRoutes()
             auto *drawerContent = drawer->property("contentItem").value<QQuickItem *>();
             auto *artistField = visual(drawerContent, "songInformation-artist");
             auto *albumField = visual(drawerContent, "songInformation-album");
-            QVERIFY(artistField && albumField);
+            auto *publisher = visual(drawerContent, "songInformationValue-album_publisher");
+            QVERIFY(artistField && albumField && publisher);
+            QCOMPARE(publisher->property("text").toString(), QString("—"));
+            DetailsTestAccess::acceptAlbumPublisher(*drawerDetail);
+            QTRY_COMPARE(publisher->property("text").toString(), QString("滚石唱片"));
             QTRY_VERIFY(qAbs(artistField->mapToScene({}).y() - albumField->mapToScene({}).y()) < 1);
             QVERIFY(albumField->mapToScene({}).x() >=
                     artistField->mapToScene({artistField->width(), 0}).x());

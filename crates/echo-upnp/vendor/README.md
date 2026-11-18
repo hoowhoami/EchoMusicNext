@@ -4,13 +4,6 @@
 
 规则：只允许在仓库内修改这些拷贝；任何改动以追加补丁文件方式记录并说明原因；构建必须走本目录，不引用外部路径。
 
-## fdk-aac-sys 0.5.0
-
-- 来源：crates.io 同版本，归档哈希、Rust上游修订与补丁见 `fdk-aac-sys/SOURCE.json`。
-- 保留绑定的 MIT `LICENSE`、编解码库的 `aac/NOTICE` 及原有源码版权头。
-- `patches/0001-recognize-msvc-arm64.patch` 按 FDK 上游补充 `_M_ARM64` 的 ARM/ARMv8 识别，避免 Windows ARM64 错入未知架构 `#warning` 并触发 MSVC C1188；不更改全局 C++ 标准、关闭诊断或删除 AAC 能力。
-- `patches/0002-guard-gnu-arm-inline-attributes.patch` 为 `hbe.cpp` 三处 ARM 内联声明补充 GNU/Clang 编译器条件；MSVC 使用相同函数体的原有普通声明。
-
 ## rupnp 3.0.0 — `native/echo-upnp/vendor/rupnp`
 
 - 来源：crates.io `rupnp`，版本 3.0.0（research 转载源码 commit `00ec066e75f95a0874aaef238baebb643b354f83`）。
@@ -29,3 +22,4 @@
   2. `airplay-audio/src/live_decoder.rs`：新增有界背压的阻塞发送（含超时与取消），不再用 `try_send` 丢帧；新增 seek/epoch 机制 —— 解码侧发现 epoch 变化时清空待发帧、复位 `position_samples` 与残留缓冲，使快速切歌/seek 后远端无旧音频残留。
   3. `airplay-client/src/client.rs`：高层 `seek()` 实现真实路径 —— 触发 `connection.send_flush` 清远端缓冲 + 同步 decoder 位置复位，不再只发 `PositionUpdated` 假成功。
   4. `airplay2-rs/patches/0004-control-framing-and-workspace-tests.patch`：加密通道复用现有ControlCipher的LE长度/AAD/分块实现，移除重复帧头并正确计算tag长度；raw记录只剥离单块帧头，拒绝把多块拼作一块。补充跨封装解密、篡改拒绝及nonce边界回归。修复encoder测试漏导入SampleRate；实时捕获模拟使用绝对采样时钟及既有精确等待，避免累加系统sleep误差。主应用当前连接直接使用ControlCipher，未切换投送路径。
+  5. `airplay2-rs/patches/0005-remove-fdk-aac.patch`：移除 `airplay-audio` 的 FDK AAC 依赖、AAC 编码器及其测试，`create_encoder` 对 AAC 返回不支持。FDK AAC 许可与 GPL 不兼容，宿主只用 ALAC 实时推流；原 `fdk-aac-sys` vendor 副本及其 MSVC ARM64 补丁一并移除。将来需要 AAC 时须另选与 GPL 兼容的编码实现，不能恢复 FDK。

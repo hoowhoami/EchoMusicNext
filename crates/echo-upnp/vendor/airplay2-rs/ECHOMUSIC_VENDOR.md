@@ -15,6 +15,7 @@ Verified by diffing `crates/airplay-discovery/src/lib.rs` against `097727d` — 
 - `crates/airplay-discovery/src/browser.rs` — browse and scan `_airplay-p2p._tcp` in addition to `_airplay._tcp` and `_raop._tcp`. Upstream defines `AIRPLAY_P2P_SERVICE_TYPE` in `src/lib.rs` but never subscribes to it.
 - `crates/airplay-client/src/client.rs` — device-field adjustments.
 - `crates/airplay-audio/src/rtp.rs`, `crates/airplay-audio/src/live_decoder.rs` — audio pipeline adjustments.
+- `crates/airplay-audio` — FDK AAC removed (`patches/0005-remove-fdk-aac.patch`): no `fdk-aac` dependency, no `AacEncoder`, and `create_encoder` rejects AAC. The FDK AAC license is not GPL-compatible and the host streams ALAC only. Do not restore it during upstream refreshes. The upstream `Cargo.lock` in this directory still lists `fdk-aac`, but the host workspace never reads it.
 
 ## EchoMusic Upstream-Derived Patch
 

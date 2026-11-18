@@ -17,7 +17,6 @@ namespace EchoMusic
 {
 namespace
 {
-constexpr qint64 budget = 64ll * 1024 * 1024;
 int elementSize(const QString &format)
 {
     if (format == "uint8" || format == "int8")
@@ -79,9 +78,12 @@ void EchoGpuResource::dispose()
 }
 EchoPluginGraphics::EchoPluginGraphics(EchoPluginContext &scope) : QObject(&scope), m_scope(scope)
 {
+    m_reportedActive = active();
+    connect(&scope, &EchoPluginContext::activeChanged, this, &EchoPluginGraphics::publishActive);
     m_atlasDomain = QUuid::createUuid().toString(QUuid::WithoutBraces);
     auto *activation = scope.activationContext();
-    m_memory = activation == &scope ? std::make_shared<GpuMemoryBudget>()
+    m_memory = activation == &scope ? std::make_shared<GpuMemoryBudget>(
+                                          scope.package().manifest.value("graphicsLimits").toMap())
                                     : activation->graphics()->memoryBudget();
     if (activation != &scope)
         connect(activation->graphics(), &EchoPluginGraphics::changed, this,
@@ -95,6 +97,7 @@ EchoPluginGraphics::EchoPluginGraphics(EchoPluginContext &scope) : QObject(&scop
             m_closed = false;
             m_capabilities.clear();
             m_error.clear();
+            publishActive();
             emit changed();
         }
     });
@@ -102,6 +105,14 @@ EchoPluginGraphics::EchoPluginGraphics(EchoPluginContext &scope) : QObject(&scop
 bool EchoPluginGraphics::active() const
 {
     return !m_closed && m_scope.active() && m_scope.package().capabilities.contains("graphics");
+}
+void EchoPluginGraphics::publishActive()
+{
+    const bool current = active();
+    if (current == m_reportedActive)
+        return;
+    m_reportedActive = current;
+    emit activeChanged();
 }
 bool EchoPluginGraphics::fail(const QString &message)
 {
@@ -138,7 +149,8 @@ QVariantMap EchoPluginGraphics::capabilities() const
         values["state"] = "suspended";
         values["reason"] = "Plugin graphics scope is inactive";
     }
-    values["limits"] = QVariantMap{{"logicalBytes", budget},
+    values["limits"] = QVariantMap{{"logicalBytes", m_memory->logicalLimit},
+                                   {"maxCommands", m_memory->maxCommands},
                                    {"nativeBytes", m_memory->native.limit},
                                    {"renderTargetBytes", m_memory->targets.limit},
                                    {"readbackBytes", m_memory->readbacks.limit},
@@ -148,7 +160,7 @@ QVariantMap EchoPluginGraphics::capabilities() const
                                    {"textureArrayLayers", 256},
                                    {"textureVolumeExtent", 2048},
                                    {"surfacePixels", 8 * 1024 * 1024},
-                                   {"passes", 32},
+                                   {"passes", m_memory->maxCommands},
                                    {"drawVertices", 1000000},
                                    {"vertexStreams", 16},
                                    {"vertexAttributes", 16},
@@ -306,8 +318,9 @@ EchoPluginGraphics::create(QString kind, QVariantMap definition, QByteArray data
         d.shared = std::make_shared<GpuSharedResourceState>();
     auto *root = m_scope.activationContext()->graphics();
     const auto used = root == this ? m_bytes : root->m_bytes;
-    if (m_memory->objects >= 256 || cost(d) > budget - used) {
-        fail("Plugin GPU resource budget exceeded (64 MiB)");
+    if (m_memory->objects >= 256 || cost(d) > m_memory->logicalLimit - used) {
+        fail(QString("Plugin GPU resource budget exceeded (%1 MiB)")
+                 .arg(m_memory->logicalLimit / (1024 * 1024)));
         return nullptr;
     }
     d.allocationBytes = source ? source->m_description.allocationBytes : cost(d);
@@ -421,7 +434,8 @@ EchoGpuResource *EchoPluginGraphics::createTexture(const QVariantMap &input, con
     const auto f = d.value("format", "rgba8").toString();
     const auto usage = d.value("usage", QStringList{"sampled"}).toStringList();
     if (!integer(d.value("width"), 1, 4096) || !integer(d.value("height"), 1, 4096) ||
-        !QStringList{"rgba8", "rgba16f", "rgba32f", "r32f"}.contains(f) || usage.isEmpty()) {
+        !QStringList{"rgba8", "rgba16f", "rgba32f", "r32f", "depth32f"}.contains(f) ||
+        usage.isEmpty()) {
         fail("Invalid texture size, format or usage");
         return nullptr;
     }
@@ -435,6 +449,14 @@ EchoGpuResource *EchoPluginGraphics::createTexture(const QVariantMap &input, con
              "or 3d");
         return nullptr;
     }
+    if (f == "depth32f" &&
+        (dimension != "2d" || d.value("mipmaps").toBool() || !usage.contains("render-target") ||
+         usage.contains("storage") || usage.contains("readback") ||
+         (!data.isUndefined() && !data.isNull()))) {
+        fail("Depth textures require a base 2D render target, without CPU data, mipmaps, storage "
+             "or readback");
+        return nullptr;
+    }
     d["format"] = f;
     d["usage"] = usage;
     const auto size = qint64(d.value("width").toInt()) * d.value("height").toInt() *
@@ -442,7 +464,7 @@ EchoGpuResource *EchoPluginGraphics::createTexture(const QVariantMap &input, con
                       (f == "rgba32f"   ? 16
                        : f == "rgba16f" ? 8
                                         : 4);
-    if (size > budget) {
+    if (size > m_memory->logicalLimit) {
         fail("Texture exceeds GPU budget");
         return nullptr;
     }
@@ -458,7 +480,10 @@ EchoGpuResource *EchoPluginGraphics::createTexture(const QVariantMap &input, con
         fail("Texture upload size does not match its extent");
         return nullptr;
     }
-    if (initial.isEmpty())
+    // Empty base-2D render targets are initialized on the GPU. Retaining a
+    // full CPU zero image would duplicate their allocation in every snapshot.
+    const bool gpuClear = usage.contains("render-target") && d.value("dimension", "2d") == "2d";
+    if (initial.isEmpty() && f != "depth32f" && !gpuClear)
         initial.resize(size, 0);
     return create("texture", d, std::move(initial));
 }
@@ -497,8 +522,12 @@ EchoGpuResource *EchoPluginGraphics::createRenderPipeline(const QVariantMap &inp
     }
     auto d = input;
     if (!keys(d, {"vertexShader", "fragmentShader", "topology", "blend", "cull", "depthTest",
-                  "depthWrite", "vertexLayout", "blends"}) ||
-        !QStringList{"none", "back", "front"}.contains(d.value("cull", "none").toString())) {
+                  "depthWrite", "depthCompare", "frontFace", "vertexLayout", "blends"}) ||
+        !QStringList{"none", "back", "front"}.contains(d.value("cull", "none").toString()) ||
+        !QStringList{"ccw", "cw"}.contains(d.value("frontFace", "ccw").toString()) ||
+        !QStringList{"less", "less-equal", "greater", "greater-equal", "equal", "not-equal",
+                     "always", "never"}
+             .contains(d.value("depthCompare", "less").toString())) {
         fail("Invalid render pipeline fields");
         return nullptr;
     }
@@ -510,7 +539,8 @@ EchoGpuResource *EchoPluginGraphics::createRenderPipeline(const QVariantMap &inp
         return nullptr;
     if (!QStringList{"triangles", "triangle-strip", "lines", "line-strip", "points"}.contains(
             d.value("topology", "triangles").toString()) ||
-        !QStringList{"none", "alpha", "add"}.contains(d.value("blend", "alpha").toString())) {
+        !QStringList{"none", "alpha", "add", "max", "exclusion"}.contains(
+            d.value("blend", "alpha").toString())) {
         fail("Invalid pipeline topology or blending");
         return nullptr;
     }
@@ -521,7 +551,8 @@ EchoGpuResource *EchoPluginGraphics::createRenderPipeline(const QVariantMap &inp
             return nullptr;
         }
         for (const auto &blend : blends)
-            if (!QStringList{"none", "alpha", "add"}.contains(blend.toString())) {
+            if (!QStringList{"none", "alpha", "add", "max", "exclusion"}.contains(
+                    blend.toString())) {
                 fail("Invalid attachment blend mode");
                 return nullptr;
             }
@@ -582,25 +613,28 @@ bool EchoPluginGraphics::writeTexture(EchoGpuResource *resource, const QJSValue 
     if (!active() || !resource || &resource->m_owner != this || !resource->active() ||
         resource->kind() != "texture")
         return fail("Invalid or retired GPU texture");
+    if (resource->readOnly())
+        return fail("GPU texture lease is read-only");
     if (resource->m_imported) {
-        if (resource->readOnly())
-            return fail("Shared resource lease is read-only");
         return resource->m_source->m_owner.writeTexture(resource->m_source, data);
     }
     auto &d = resource->m_description;
     const auto f = d.definition.value("format").toString();
+    if (f == "depth32f")
+        return fail("Depth textures cannot be CPU uploaded");
     m_error.clear();
-    const auto value =
-        bytes(data,
-              f == "rgba8"     ? "uint8"
-              : f == "rgba16f" ? "float16"
-                               : "float32",
-              d.definition.value("width").toInt() * d.definition.value("height").toInt() *
-                  gpuTextureSlices(d.definition) *
-                  (f == "rgba32f"   ? 16
-                   : f == "rgba16f" ? 8
-                                    : 4));
-    if (!m_error.isEmpty() || value.size() != d.data.size())
+    const auto size = qint64(d.definition.value("width").toInt()) *
+                      d.definition.value("height").toInt() * gpuTextureSlices(d.definition) *
+                      (f == "rgba32f"   ? 16
+                       : f == "rgba16f" ? 8
+                                        : 4);
+    const auto value = bytes(data,
+                             f == "rgba8"     ? "uint8"
+                             : f == "rgba16f" ? "float16"
+                                              : "float32",
+                             size);
+    // GPU-initialized targets have no retained CPU payload until their first upload.
+    if (!m_error.isEmpty() || value.size() != size)
         return fail("Texture upload must cover the complete extent");
     d.data = value;
     ++d.revision;
@@ -666,17 +700,18 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
         return false;
     }
     const auto passes = frame.value("passes").toList();
-    if (passes.isEmpty() || passes.size() > 32) {
-        error = "A GPU frame requires 1..32 passes";
+    if (passes.isEmpty() || passes.size() > m_memory->maxCommands) {
+        error = QString("A GPU frame requires 1..%1 passes").arg(m_memory->maxCommands);
         return false;
     }
     for (const auto &entry : passes) {
         const auto pass = entry.toMap();
         const auto kind = pass.value("type", "render").toString();
-        if (!keys(pass, kind == "compute" ? QStringList{"type", "pipeline", "bindings", "groups"}
-                                          : QStringList{"type", "pipeline", "bindings", "target",
-                                                        "clear", "draws", "loadOp", "viewport",
-                                                        "scissor", "colorTargets"})) {
+        if (!keys(pass, kind == "compute"
+                            ? QStringList{"type", "pipeline", "bindings", "groups"}
+                            : QStringList{"type", "pipeline", "bindings", "target", "clear",
+                                          "draws", "loadOp", "viewport", "scissor", "colorTargets",
+                                          "depthTarget", "samples"})) {
             error = "Unknown pass field";
             return false;
         }
@@ -712,8 +747,19 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
                 error = "Use target or colorTargets, not both";
                 return false;
             }
+            const bool explicitDepth = pass.contains("depthTarget");
+            const int samples = pass.value("samples", 1).toInt();
+            if (!integer(pass.value("samples", 1), 1, 8) ||
+                !QList<int>{1, 2, 4, 8}.contains(samples) ||
+                ((!pass.contains("colorTargets") && pass.value("target", "surface") == "surface") &&
+                 (explicitDepth || samples != 1))) {
+                error =
+                    "Explicit depth and MSAA require offscreen targets and samples 1, 2, 4 or 8";
+                return false;
+            }
             auto targets = pass.value("colorTargets").toList();
-            if (pass.contains("colorTargets") && (targets.isEmpty() || targets.size() > 8)) {
+            if (pass.contains("colorTargets") &&
+                ((targets.isEmpty() && !explicitDepth) || targets.size() > 8)) {
                 error = "Render pass requires 1..8 color targets";
                 return false;
             }
@@ -727,7 +773,7 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
                 const auto id = view.value("texture").toString();
                 const auto *r = m_resources.value(id);
                 if (!keys(view, {"texture", "level", "layer"}) || !r || r->kind() != "texture" ||
-                    r->readOnly() ||
+                    r->readOnly() || r->m_description.definition.value("format") == "depth32f" ||
                     !r->m_description.definition.value("usage").toStringList().contains(
                         "render-target") ||
                     textures.contains(id) ||
@@ -760,8 +806,28 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
                     allocations.insert(r->m_description.shared.get());
                 extent = size;
             }
+            if (explicitDepth) {
+                const auto view = pass.value("depthTarget").toMap();
+                const auto *depth = m_resources.value(view.value("texture").toString());
+                if (!keys(view, {"texture"}) || !depth || depth->kind() != "texture" ||
+                    depth->readOnly() ||
+                    depth->m_description.definition.value("format") != "depth32f" ||
+                    !depth->m_description.definition.value("usage").toStringList().contains(
+                        "render-target")) {
+                    error = "Depth target requires a live writable base 2D depth32f texture";
+                    return false;
+                }
+                const auto d = depth->m_description.definition;
+                if (!extent.isEmpty() &&
+                    extent != QSize(d.value("width").toInt(), d.value("height").toInt())) {
+                    error = "Depth and color extents must match";
+                    return false;
+                }
+            }
             const auto blends = pipeline->m_description.definition.value("blends").toList();
-            if (!blends.isEmpty() && blends.size() != qMax(1, int(targets.size()))) {
+            if (!blends.isEmpty() &&
+                blends.size() != (pass.contains("colorTargets") ? int(targets.size())
+                                                                : qMax(1, int(targets.size())))) {
                 error = "Pipeline attachment blends must match color target count";
                 return false;
             }
@@ -784,6 +850,15 @@ bool EchoPluginGraphics::validateFrame(const QVariantMap &frame, QString &error)
                 return false;
             }
             const auto *boundResource = m_resources.value(b.value("resource").toString());
+            const auto *depthResource =
+                m_resources.value(pass.value("depthTarget").toMap().value("texture").toString());
+            if (kind == "render" && boundResource && depthResource &&
+                (boundResource == depthResource ||
+                 (boundResource->m_description.shared &&
+                  boundResource->m_description.shared == depthResource->m_description.shared))) {
+                error = "Depth target cannot alias a shader binding in the same pass";
+                return false;
+            }
             if (boundResource && boundResource->readOnly() &&
                 b.value("kind").toString().startsWith("storage-") &&
                 b.value("access", "read") != "read") {
@@ -1007,6 +1082,7 @@ void EchoPluginGraphics::shutdown()
     if (m_closed)
         return;
     m_closed = true;
+    publishActive();
     const auto surfaces = m_surfaces;
     for (auto s : surfaces)
         if (s)

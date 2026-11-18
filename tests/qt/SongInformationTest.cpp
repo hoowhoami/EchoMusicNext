@@ -46,6 +46,10 @@ public:
         pending(c, 991001);
         deliver(c, 991001, value);
     }
+    static void pendingPublisher(SongDetailContext &c, quint64 id)
+    {
+        c.request(id, SongDetailContext::AlbumPublisher);
+    }
 };
 class SongMetadataServiceTestAccess
 {
@@ -117,6 +121,10 @@ private slots:
         QVERIFY(detail);
         QCOMPARE(router.current(), route);
         DetailsTestAccess::ready(*detail, presentation());
+        DetailsTestAccess::pendingPublisher(*detail, 991004);
+        emit api.succeeded(991004, R"({"publisher":"杰威尔音乐有限公司"})");
+        QCOMPARE(detail->information().value("album_publisher").toString(),
+                 QString("杰威尔音乐有限公司"));
         const auto original = detail->detail();
         PlaybackTrack next = first;
         next.id = "20";
@@ -126,12 +134,15 @@ private slots:
         QCOMPARE(detail->detail(), original);
         QCOMPARE(detail->songId(), QString("32042818"));
         DetailsTestAccess::pending(*detail, 991003);
+        DetailsTestAccess::pendingPublisher(*detail, 991004);
         detail->setPresented(false);
         DetailsTestAccess::deliver(*detail, 991003, {{"title", "Late response"}});
+        emit api.succeeded(991004, R"({"publisher":"Late publisher"})");
         QCOMPARE(detail->detail(), original);
         api.advanceSession();
         QCOMPARE(detail->detail().value("title").toString(), QString("Opening song"));
         QVERIFY(!detail->information().contains("composer"));
+        QVERIFY(!detail->information().contains("album_publisher"));
         PlaybackServiceTestAccess::current(playback, next);
         QPointer<SongDetailContext> replacement = service.openPlaybackDetails();
         QVERIFY(replacement && replacement != detail);
@@ -155,7 +166,16 @@ private slots:
     {
         QTemporaryDir dir;
         SettingsStore prefs(dir.filePath("settings.ini"));
+        QList<qint64> albumRequests;
         ApiClient api(DeviceIdentity::temporary());
+        api.addInterceptor(
+            100, [&](const QJsonObject &request, ApiInterceptNext, ApiInterceptDone done) {
+                if (request.value("operation") == "album_detail") {
+                    albumRequests.append(request.value("query").toObject().value("id").toInteger());
+                    done({0, R"({"id":960399,"publisher":" 杰威尔音乐有限公司 "})"});
+                }
+                return std::function<void()>{};
+            });
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         SongMetadataService metadata(api);
         playback.attachMetadata(metadata);
@@ -163,6 +183,7 @@ private slots:
         QVERIFY(metadata.request({"32042818"}));
         SongMetadataServiceTestAccess::accept(metadata, presentation());
         QTRY_COMPARE(completed.size(), 1);
+        QVERIFY(albumRequests.isEmpty());
         RouteController router;
         DetailsService service(api, playback, router, true);
         service.registerRoutes(router);
@@ -173,6 +194,9 @@ private slots:
         QCOMPARE(context->information().value("bpm").toDouble(), 115.);
         QCOMPARE(context->information().value("published_at").toString(), QString("2008-10-15"));
         QCOMPARE(context->albumNavigationId(), QString("960399"));
+        QTRY_COMPARE(context->information().value("album_publisher").toString(),
+                     QString("杰威尔音乐有限公司"));
+        QCOMPARE(albumRequests, QList<qint64>{960399});
         QCOMPARE(playback.queue()->rowCount(), 0);
         service.shutdown();
         router.shutdown();
@@ -275,7 +299,16 @@ Window {
         auto *tempo = visual(section, "songInformationValue-tempo");
         auto *composer = visual(section, "songInformation-composer");
         auto *next = visual(section, "songInformation-tempo");
-        QVERIFY(lyrics && tempo && composer && next);
+        auto *publisher = visual(section, "songInformationValue-album_publisher");
+        QVERIFY(lyrics && tempo && composer && next && publisher);
+        QCOMPARE(publisher->property("text").toString(), QString("—"));
+        DetailsTestAccess::pendingPublisher(*context, 991004);
+        emit api.failed(991004, 1, R"({"message":"Publisher unavailable"})");
+        QVERIFY(context->errorMessage().isEmpty());
+        QCOMPARE(publisher->property("text").toString(), QString("—"));
+        DetailsTestAccess::pendingPublisher(*context, 991005);
+        emit api.succeeded(991005, R"({"publisher":"杰威尔音乐有限公司"})");
+        QTRY_COMPARE(publisher->property("text").toString(), QString("杰威尔音乐有限公司"));
         QCOMPARE(lyrics->property("text").toString(), QString("方文山"));
         QCOMPARE(tempo->property("text").toString(), QString("快(BPM 115)"));
         auto *language = visual(section, "songInformationValue-language");

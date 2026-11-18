@@ -12,6 +12,26 @@ namespace EchoMusic
 {
 namespace
 {
+// Conservative retained command metadata; binary payloads are charged separately.
+qint64 snapshotMetadataBytes(const QVariant &value)
+{
+    if (value.metaType().id() == QMetaType::QVariantMap) {
+        qint64 bytes = 128;
+        const auto map = value.toMap();
+        for (auto it = map.begin(); it != map.end(); ++it)
+            bytes += 128 + it.key().size() * 2 + snapshotMetadataBytes(it.value());
+        return bytes;
+    }
+    if (value.metaType().id() == QMetaType::QVariantList) {
+        qint64 bytes = 64;
+        for (const auto &item : value.toList())
+            bytes += 32 + snapshotMetadataBytes(item);
+        return bytes;
+    }
+    if (value.metaType().id() == QMetaType::QString)
+        return 64 + value.toString().size() * 2;
+    return value.metaType().id() == QMetaType::QByteArray ? 0 : 32;
+}
 void filterGlyphSources(QHash<QString, GpuResourceDescription> &resources,
                         const EchoGpuSurface *surface)
 {
@@ -409,17 +429,17 @@ EchoPluginOperation *EchoGpuSurface::enqueue(const QVariantMap &commands)
     }
     submission->resources = m_graphics->descriptions();
     filterGlyphSources(submission->resources, this);
-    qint64 bytes = 0;
-    QSet<GpuSharedResourceState *> sharedSnapshots;
+    auto budget = m_graphics->memoryBudget();
+    qint64 bytes = snapshotMetadataBytes(submission->frame);
     for (const auto &resource : submission->resources) {
-        if (!resource.shared || !sharedSnapshots.contains(resource.shared.get()))
-            bytes += resource.allocationBytes;
-        if (resource.shared)
-            sharedSnapshots.insert(resource.shared.get());
+        // GPU-only targets retain no CPU image. Native reservations cover the
+        // allocation; snapshots charge actual retained uploads and metadata.
+        bytes += 4096 + resource.data.size();
+        for (const auto &key : {"vertexBytes", "fragmentBytes", "computeBytes"})
+            bytes += resource.definition.value(key).toByteArray().size();
     }
     for (const auto &value : submission->frame.value("passes").toList())
         bytes += value.toMap().value("data").toByteArray().size();
-    auto budget = m_graphics->memoryBudget();
     if (m_submissions.size() >= 8 || budget->pendingSubmissions >= 32 ||
         !budget->submissions.reserve(bytes)) {
         op->fail("Busy", "GPU submission queue or snapshot budget exceeded");
@@ -481,7 +501,8 @@ EchoPluginOperation *EchoGpuSurface::readback(EchoGpuResource *resource, const Q
         return op;
     op->start();
     if (!live() || m_activeReadbacks.size() >= 8 ||
-        (resource && resource->m_description.textureSource) ||
+        (resource && (resource->m_description.textureSource ||
+                      resource->m_description.definition.value("format") == "depth32f")) ||
         (resource && (!resource->active() || !m_graphics->descriptions().contains(resource->id()) ||
                       (resource->kind() != "buffer" && resource->kind() != "texture")))) {
         op->fail("InvalidResource", "Surface is inactive or resource is unavailable");

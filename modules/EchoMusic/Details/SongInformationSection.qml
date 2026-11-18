@@ -86,6 +86,10 @@ ColumnLayout {
                         label: qsTr("发行日期")
                     },
                     {
+                        key: "album_publisher",
+                        label: qsTr("发行方")
+                    },
+                    {
                         key: "tempo",
                         label: qsTr("节奏")
                     },

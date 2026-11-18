@@ -2,9 +2,9 @@
 #include "PlaybackService.h"
 #include "AudioEngine.h"
 #include <QJsonObject>
-#include <QJsonArray>
 #include <QDateTime>
 #include <cmath>
+#include <tuple>
 namespace EchoMusic
 {
 QVariantMap PlayerSpectrum::normalize(const QVariantMap &options)
@@ -32,6 +32,24 @@ QVariantMap PlayerSpectrum::normalize(const QVariantMap &options)
     const auto scale = options.value("scale", "log").toString();
     out["scale"] = QStringList{"log", "linear", "mel"}.contains(scale) ? scale : "log";
     out["includeWaveform"] = options.value("includeWaveform", false).toBool();
+    const auto requestedRanges = options.value("rangesHz");
+    if (options.contains("rangesHz") && !requestedRanges.canConvert<QVariantList>())
+        return {};
+    const auto ranges = requestedRanges.toList();
+    if (!ranges.isEmpty()) {
+        if (ranges.size() > 32 || out["scale"] != "linear")
+            return {};
+        for (const auto &range : ranges) {
+            const auto pair = range.toList();
+            if (pair.size() != 2)
+                return {};
+            bool a = false, b = false;
+            const auto low = pair[0].toDouble(&a), high = pair[1].toDouble(&b);
+            if (!a || !b || !std::isfinite(low) || !std::isfinite(high) || low < 0 || high <= low)
+                return {};
+        }
+        out["rangesHz"] = ranges;
+    }
     return out;
 }
 PlayerSpectrum::PlayerSpectrum(PlaybackService &playback, AudioEngine &engine)
@@ -42,10 +60,10 @@ PlayerSpectrum::PlayerSpectrum(PlaybackService &playback, AudioEngine &engine)
     connect(&m_timer, &QTimer::timeout, this, [this] {
         if (!m_pending && m_running) {
             m_pending = true;
-            m_engine.spectrumSnapshot(m_revision);
+            m_engine.spectrumSnapshot(m_revision, ++m_request);
         }
     });
-    connect(&m_engine, &AudioEngine::eventReceived, this, &PlayerSpectrum::accept);
+    connect(&m_engine, &AudioEngine::spectrumReceived, this, &PlayerSpectrum::accept);
     connect(&playback, &PlaybackService::changed, this, &PlayerSpectrum::reconcile);
     connect(&playback, &PlaybackService::engineInitializationChanged, this,
             &PlayerSpectrum::reconcile);
@@ -58,8 +76,13 @@ quint64 PlayerSpectrum::subscribe(QObject *owner, const QVariantMap &options)
 {
     if (m_stopped || !owner || m_entries.size() >= 128)
         return 0;
+    Entry entry{};
+    entry.owner = owner;
+    entry.options = normalize(options);
+    if (entry.options.isEmpty())
+        return 0;
     auto id = ++m_next;
-    m_entries.insert(id, {owner, normalize(options), false, -10000});
+    m_entries.insert(id, std::move(entry));
     connect(owner, &QObject::destroyed, this, [this, id] { remove(id); });
     reconcile();
     return id;
@@ -145,83 +168,124 @@ void PlayerSpectrum::reconcile()
     emit statusChanged();
     if (changed && !running)
         for (const auto id : m_entries.keys())
-            if (m_entries.contains(id) && !m_entries.value(id).paused)
-                emit frameReady(id, {{"source", "silence"},
-                                     {"state", m_playback.hasTrack() ? "paused" : "idle"},
-                                     {"bins", QVariantList()},
-                                     {"waveform", QVariantList()},
-                                     {"timestamp", QDateTime::currentMSecsSinceEpoch()},
-                                     {"peak", 0.},
-                                     {"rms", 0.}});
+            if (m_entries.contains(id) && !m_entries.value(id).paused) {
+                SpectrumFrameData idle;
+                idle.source = QStringLiteral("silence");
+                idle.state =
+                    m_playback.hasTrack() ? QStringLiteral("paused") : QStringLiteral("idle");
+                idle.timestamp = QDateTime::currentMSecsSinceEpoch();
+                idle.includeWaveform = true;
+                emit frameReady(id, idle);
+            }
 }
-void PlayerSpectrum::accept(const QJsonObject &event)
+
+void PlayerSpectrum::accept(quint64 track, quint64 revision, quint64 request,
+                            QSharedPointer<const RawSpectrumFrame> raw)
 {
-    if (event.value("event") != "spectrum")
+    if (!m_pending || request != m_request)
         return;
     m_pending = false;
-    // Uncapped sampling yields to the event loop after each async completion,
-    // rather than spinning a zero-interval timer while the FFT is in flight.
     if (!m_stopped && m_running && m_options["fps"].toInt() == 0)
         m_timer.start();
-    if (m_stopped || !m_running ||
-        quint64(event.value("track_seq").toDouble()) != m_playback.audioSequence() ||
-        quint64(event.value("spectrum_revision").toDouble()) != m_revision ||
+    if (m_stopped || !m_running || track != m_playback.audioSequence() || revision != m_revision ||
         m_source != m_playback.sourceRevision())
         return;
-    const auto raw = event.value("frame").toObject();
-    const auto bins = raw.value("bins").toArray();
+    const QSpan<const double> bins = raw ? raw->bins : QSpan<const double>{};
     const auto now = m_clock.elapsed();
+    using Projection = std::tuple<int, QString, double, double>;
+    QMap<Projection, QList<double>> projections;
     for (const auto id : m_entries.keys()) {
+        if (revision != m_revision || m_stopped)
+            break;
         auto it = m_entries.find(id);
         if (it == m_entries.end())
             continue;
         auto &e = it.value();
-        const auto fps = e.options["fps"].toInt();
+        const int fps = e.options["fps"].toInt();
         if (!e.owner || e.paused || (fps > 0 && now - e.last < std::ceil(1000. / fps)))
             continue;
         e.last = now;
-        QVariantMap frame{{"source", raw.isEmpty()                        ? "unavailable"
-                                     : raw.value("rms").toDouble() > 1e-8 ? "player"
-                                                                          : "silence"},
-                          {"state", "playing"},
-                          {"timestamp", raw.value("timestamp").toDouble() * 1000},
-                          {"timePos", m_playback.positionMs() / 1000.},
-                          {"sampleRate", raw.value("sample_rate").toInt()},
-                          {"fftSize", raw.value("fft_size").toInt()},
-                          {"peak", raw.value("peak").toDouble()},
-                          {"rms", raw.value("rms").toDouble()},
-                          {"minFrequency", e.options["minFrequency"]},
-                          {"maxFrequency", e.options["maxFrequency"]}};
-        QVariantList values;
-        const int count = e.options["binCount"].toInt();
-        values.reserve(count);
+        const auto count = e.options["binCount"].toInt();
         const double low = e.options["minFrequency"].toDouble(),
-                     high = e.options["maxFrequency"].toDouble(),
-                     srcLow = m_options["min_frequency"].toDouble(),
-                     srcHigh = m_options["max_frequency"].toDouble();
-        for (int i = 0; i < count; ++i) {
-            double t = (i + .5) / count;
-            const auto scale = e.options["scale"].toString();
-            double f =
-                scale == "linear" ? low + (high - low) * t
-                : scale == "mel"
-                    ? 700 * (std::pow(1 + low / 700, 1 - t) * std::pow(1 + high / 700, t) - 1)
-                    : low * std::pow(high / low, t);
-            double at =
-                bins.isEmpty()
-                    ? 0
-                    : qBound(0.,
-                             std::log(f / srcLow) / std::log(srcHigh / srcLow) * bins.size() - .5,
-                             double(bins.size() - 1));
-            int j = int(at);
-            values.append(bins.isEmpty()
-                              ? 0.
-                              : bins[j].toDouble() * (1 - (at - j)) +
-                                    bins[qMin(j + 1, int(bins.size()) - 1)].toDouble() * (at - j));
+                     high = e.options["maxFrequency"].toDouble();
+        const auto scale = e.options["scale"].toString();
+        if (e.projectionRevision != revision || e.sourceCount != bins.size()) {
+            e.projectionRevision = revision;
+            e.sourceCount = bins.size();
+            e.interpolation.clear();
+            e.ranges.clear();
+            const double srcLow = m_options["min_frequency"].toDouble(),
+                         srcHigh = m_options["max_frequency"].toDouble();
+            for (int i = 0; i < count; ++i) {
+                const double t = (i + .5) / count;
+                const double f =
+                    scale == "linear" ? low + (high - low) * t
+                    : scale == "mel"
+                        ? 700 * (std::pow(1 + low / 700, 1 - t) * std::pow(1 + high / 700, t) - 1)
+                        : low * std::pow(high / low, t);
+                const double at =
+                    bins.empty()
+                        ? 0
+                        : qBound(0.,
+                                 std::log(f / srcLow) / std::log(srcHigh / srcLow) * bins.size() -
+                                     .5,
+                                 double(bins.size() - 1));
+                e.interpolation.append({int(at), at - int(at)});
+            }
+            const double width = (high - low) / count;
+            const auto ranges = e.options.value("rangesHz").toList();
+            for (const auto &range : ranges) {
+                const auto pair = range.toList();
+                QList<QPair<int, double>> weights;
+                for (int i = 0; i < count; ++i) {
+                    const double overlap = qMin(pair[1].toDouble(), low + (i + 1) * width) -
+                                           qMax(pair[0].toDouble(), low + i * width);
+                    if (overlap > 0)
+                        weights.append({i, overlap});
+                }
+                e.ranges.append(weights);
+            }
         }
-        frame["bins"] = values;
-        if (e.options["includeWaveform"].toBool())
-            frame["waveform"] = raw.value("waveform").toArray().toVariantList();
+        const Projection key{count, scale, low, high};
+        auto values = projections.find(key);
+        if (values == projections.end()) {
+            QList<double> projected(count, 0.);
+            if (!bins.empty())
+                for (int i = 0; i < count; ++i) {
+                    const auto [j, alpha] = e.interpolation[i];
+                    projected[i] = bins[j] * (1 - alpha) +
+                                   bins[qMin(qsizetype(j + 1), bins.size() - 1)] * alpha;
+                }
+            values = projections.insert(key, std::move(projected));
+        }
+        SpectrumFrameData frame;
+        frame.state = QStringLiteral("playing");
+        frame.source = !raw              ? QStringLiteral("unavailable")
+                       : raw->rms > 1e-8 ? QStringLiteral("player")
+                                         : QStringLiteral("silence");
+        frame.sequence = request;
+        frame.timePos = m_playback.positionMs() / 1000.;
+        frame.minFrequency = low;
+        frame.maxFrequency = high;
+        frame.bins = values.value();
+        frame.includeWaveform = e.options["includeWaveform"].toBool();
+        if (raw) {
+            frame.timestamp = raw->timestamp;
+            frame.peak = raw->peak;
+            frame.rms = raw->rms;
+            frame.sampleRate = raw->sampleRate;
+            frame.fftSize = raw->fftSize;
+            if (frame.includeWaveform)
+                frame.waveformOwner = raw;
+        }
+        for (const auto &weights : std::as_const(e.ranges)) {
+            double sum = 0, weight = 0;
+            for (auto [i, w] : weights) {
+                sum += frame.bins.at(i) * w;
+                weight += w;
+            }
+            frame.bandMeans.append(weight ? sum / weight : 0.);
+        }
         emit frameReady(id, frame);
     }
 }

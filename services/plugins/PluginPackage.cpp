@@ -1,3 +1,4 @@
+#include <cmath>
 #include "PluginPackage.h"
 #include "echo_ffi.h"
 #include <QCryptographicHash>
@@ -72,7 +73,13 @@ PluginPackage PluginPackage::inspectDirectory(const QString &directory)
 }
 QStringList PluginPackage::supportedFeatures()
 {
-    QStringList features{"manifest.platforms",
+    QStringList features{"graphics.floatTexture",
+                         "graphics.shaderComposition",
+                         "graphics.blendEquations",
+                         "graphics.depthMsaa",
+                         "graphics.pipelineState",
+                         "graphics.limits",
+                         "manifest.platforms",
                          "playback.clock",
                          "appearance.overrides",
                          "app.icons",
@@ -149,6 +156,7 @@ QStringList PluginPackage::supportedFeatures()
                          "plugins.catalog",
                          "plugins.commands",
                          "audio.spectrum",
+                         "audio.spectrum.frames",
                          "ui.surfaces",
                          "ui.state",
                          "ui.parts",
@@ -168,6 +176,7 @@ QStringList PluginPackage::supportedFeatures()
                          "playback.context",
                          "playback.lyrics.metadata",
                          "assets.images",
+                         "assets.imageDrop",
                          "assets.imageBatches",
                          "assets.fonts",
                          "assets.sampleImage",
@@ -401,6 +410,27 @@ PluginPackage PluginPackage::inspectManifest(const QByteArray &bytes)
     if (!strings(object.value("capabilities"), result.capabilities) ||
         !strings(requirements.value("features"), result.features))
         return fail("Capabilities and required features must be unique string arrays");
+    if (object.contains("graphicsLimits")) {
+        const auto raw = object.value("graphicsLimits");
+        const QMap<QString, qint64> maximum{{"logicalBytes", 256ll * 1024 * 1024},
+                                            {"nativeBytes", 512ll * 1024 * 1024},
+                                            {"renderTargetBytes", 768ll * 1024 * 1024},
+                                            {"maxCommands", 128}};
+        if (!raw.isObject() || raw.toObject().size() != maximum.size())
+            return fail("Graphics limits require four explicit numeric limits");
+        const auto limits = raw.toObject();
+        for (auto it = maximum.begin(); it != maximum.end(); ++it) {
+            const auto value = limits.value(it.key());
+            const double n = value.toDouble();
+            if (!value.isDouble() || !std::isfinite(n) || n != std::floor(n) || n < 1 ||
+                n > it.value())
+                return fail("Invalid graphics limit: " + it.key());
+        }
+        if (!result.features.contains("graphics.limits"))
+            return fail("Graphics limits require graphics.limits feature");
+        if (!result.capabilities.contains("graphics"))
+            return fail("Graphics limits require graphics capability");
+    }
     if (requirements.contains("platforms")) {
         QStringList platforms;
         if (!strings(requirements.value("platforms"), platforms) || platforms.isEmpty() ||

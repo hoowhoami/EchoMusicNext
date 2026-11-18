@@ -99,6 +99,7 @@ private:
     QSet<EchoPluginAssetArchive *> m_archiveLeases;
     QList<std::function<void()>> m_storageBarriers;
     int m_cleanupCount = 0, m_storagePending = 0;
+    QList<QPointer<EchoPluginImageDropArea>> m_dropAreas;
     bool m_closed = false;
 };
 } // namespace EchoMusic

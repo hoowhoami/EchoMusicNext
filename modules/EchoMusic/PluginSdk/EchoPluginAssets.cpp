@@ -1,4 +1,5 @@
 #include "EchoPluginAssets.h"
+#include "EchoPluginImageDropArea.h"
 #include "EchoPluginContext.h"
 #include "ExecutablePath.h"
 #include "PlaybackService.h"
@@ -2231,6 +2232,14 @@ void EchoPluginAssets::shutdown()
     if (m_closed)
         return;
     m_closed = true;
+    const QPointer<EchoPluginAssets> self(this);
+    const auto dropAreas = m_dropAreas;
+    for (const auto &area : dropAreas) {
+        if (area)
+            area->refresh();
+        if (!self)
+            return;
+    }
     const auto animations = m_animationLeases;
     for (auto *lease : animations)
         lease->dispose();

@@ -40,8 +40,8 @@ bool EchoPluginGraphics::prepareSubmission(const QVariantMap &input, QVariantMap
     if (!active() || input.size() != 1 || !input.contains("passes"))
         return reject("Invalid GPU command list or retired owner");
     const auto passes = input.value("passes").toList();
-    if (passes.isEmpty() || passes.size() > 32)
-        return reject("A submission requires 1..32 commands");
+    if (passes.isEmpty() || passes.size() > m_memory->maxCommands)
+        return reject(QString("A submission requires 1..%1 commands").arg(m_memory->maxCommands));
     QVariantList normalized;
     qint64 uploads = 0;
     QSet<QString> consumedUniforms;
@@ -91,6 +91,9 @@ bool EchoPluginGraphics::prepareSubmission(const QVariantMap &input, QVariantMap
                src->m_description.shared == dst->m_description.shared))))
             return reject("Transfer requires distinct live resources from this scope");
         const auto &dd = dst->m_description.definition;
+        if (dd.value("format") == "depth32f" ||
+            (src && src->m_description.definition.value("format") == "depth32f"))
+            return reject("Depth textures do not support transfer commands");
         if (kind == "generate-mips") {
             if (dst->kind() != "texture" || !dd.value("mipmaps").toBool())
                 return reject("Mipmap generation requires a mipmapped texture");

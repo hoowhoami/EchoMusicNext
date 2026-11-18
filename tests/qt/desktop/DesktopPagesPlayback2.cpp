@@ -62,7 +62,8 @@ void DesktopPagesTest::playbackQueueLocationSkipsVisibleCurrentSong()
 void DesktopPagesTest::playbackQueueEmptyIndicatorAndCloseIcon()
 {
     const auto cursorPosition = QCursor::pos();
-    const auto restoreCursor = qScopeGuard([cursorPosition] { QCursor::setPos(cursorPosition); });
+    const auto restoreCursor =
+        qScopeGuard([cursorPosition] { Test::setNativePointerPosition(cursorPosition); });
     Session session;
     PlaybackService playback(session.api, session.preferences);
     QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
@@ -264,7 +265,7 @@ void DesktopPagesTest::playbackQueueEmptyIndicatorAndCloseIcon()
 void DesktopPagesTest::playbackChromeMatchesSource()
 {
     const auto cursor = QCursor::pos();
-    const auto restore = qScopeGuard([cursor] { QCursor::setPos(cursor); });
+    const auto restore = qScopeGuard([cursor] { Test::setNativePointerPosition(cursor); });
     Session session;
     session.theme.setMotionEnabled(false);
     PlaybackService playback(session.api, session.preferences);
@@ -516,7 +517,8 @@ void DesktopPagesTest::playbackLoadingRevealsFinalPlayPauseIcon()
 void DesktopPagesTest::playbackToolbarsMatchSourceAcrossWidths()
 {
     const auto cursorPosition = QCursor::pos();
-    const auto restoreCursor = qScopeGuard([cursorPosition] { QCursor::setPos(cursorPosition); });
+    const auto restoreCursor =
+        qScopeGuard([cursorPosition] { Test::setNativePointerPosition(cursorPosition); });
     auto clipboard = std::make_unique<QMimeData>();
     const auto *original = QGuiApplication::clipboard()->mimeData();
     if (original) {

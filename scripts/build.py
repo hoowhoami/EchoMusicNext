@@ -17,6 +17,7 @@ def build_app(
     distribution=False,
     no_tests=False,
     no_ffi_check=False,
+    icu_root=None,
 ):
     require_python()
     prefix = Path(qt_prefix) if qt_prefix else preferred_prefix()
@@ -27,6 +28,9 @@ def build_app(
     build = ROOT / "build" / preset
     previous = cached_prefix(build)
     command = ["cmake", "--preset", preset, f"-DCMAKE_PREFIX_PATH={prefix}"]
+    if icu_root is not None:
+        # Retire cached system headers and NOTFOUND libraries as one ICU identity.
+        command.extend(["-U", "ICU_*", f"-DICU_ROOT={Path(icu_root).resolve()}"])
     command.append(f"-DECHO_DISTRIBUTION_BUILD={'ON' if distribution else 'OFF'}")
     command.append(f"-DECHO_CHECK_FFI_HEADER={'OFF' if no_ffi_check else 'ON'}")
     if no_tests:
@@ -56,6 +60,7 @@ def main():
     parser.add_argument("--preset", choices=("debug", "release"), default="release")
     parser.add_argument("--qt-prefix", type=Path, help="Existing Qt Online Installer/custom SDK")
     parser.add_argument("--jobs", type=int)
+    parser.add_argument("--icu-root", type=Path, help="Existing ICU word-break prefix")
     parser.add_argument("--configure-only", action="store_true")
     parser.add_argument(
         "--no-tests", action="store_true", help="Do not configure test targets for this build"
@@ -79,6 +84,7 @@ def main():
         args.distribution,
         args.no_tests,
         args.no_ffi_check,
+        args.icu_root,
     )
 
 

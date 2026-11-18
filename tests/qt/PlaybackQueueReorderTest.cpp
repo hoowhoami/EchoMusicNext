@@ -976,7 +976,8 @@ int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
     const auto cursorPosition = QCursor::pos();
-    const auto restoreCursor = qScopeGuard([cursorPosition] { QCursor::setPos(cursorPosition); });
+    const auto restoreCursor =
+        qScopeGuard([cursorPosition] { Test::setNativePointerPosition(cursorPosition); });
     QQuickStyle::setStyle("Basic");
     PlaybackQueueReorderTest test;
     return QTest::qExec(&test, argc, argv);

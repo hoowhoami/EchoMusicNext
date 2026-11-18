@@ -24,7 +24,7 @@ spin_sleep = "1.2"
 
 # Audio codecs
 alac-encoder = "0.3"
-fdk-aac = "0.6"
+# fdk-aac removed by EchoMusic: the FDK AAC license is not GPL-compatible.
 
 # Audio processing
 biquad = "0.4"

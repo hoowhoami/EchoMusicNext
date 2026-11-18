@@ -1,0 +1,358 @@
+Remove FDK AAC from airplay-audio (EchoMusicNext, 2026-11-18).
+
+The Fraunhofer FDK AAC license is not GPL-compatible. The host streams ALAC
+only, so the AAC encoder, its tests and the fdk-aac dependency are removed;
+create_encoder now rejects AAC as an unsupported codec.
+
+--- a/crates/airplay-audio/Cargo.toml
++++ b/crates/airplay-audio/Cargo.toml
+@@ -24,7 +24,7 @@
+ 
+ # Audio codecs
+ alac-encoder = "0.3"
+-fdk-aac = "0.6"
++# fdk-aac removed by EchoMusic: the FDK AAC license is not GPL-compatible.
+ 
+ # Audio processing
+ biquad = "0.4"
+--- a/crates/airplay-audio/src/lib.rs
++++ b/crates/airplay-audio/src/lib.rs
+@@ -6,7 +6,7 @@
+ //! - Audio decoding from various formats (via symphonia)
+ //! - Live audio streaming from external sources (e.g., Bluetooth)
+ //! - ALAC encoding for realtime streaming
+-//! - AAC encoding for buffered streaming
++//! - (AAC encoding removed in the EchoMusic vendor copy; see ECHOMUSIC_VENDOR.md)
+ //! - RTP packet formatting and transmission
+ //! - Audio buffer management
+ //! - Retransmission handling
+@@ -24,7 +24,7 @@
+ 
+ pub use buffer::{AudioBuffer, AudioFrame};
+ pub use decoder::{AudioDecoder, DecodedFrame};
+-pub use encoder::{create_encoder, AacEncoder, AlacEncoder, AudioEncoder, EncodedPacket};
++pub use encoder::{create_encoder, AlacEncoder, AudioEncoder, EncodedPacket};
+ pub use eq::{EqConfig, EqParams, Equalizer};
+ pub use live_decoder::{LiveAudioDecoder, LiveFrameSender, LivePcmFrame};
+ pub use rtp::{
+--- a/crates/airplay-audio/src/encoder.rs
++++ b/crates/airplay-audio/src/encoder.rs
+@@ -144,133 +144,10 @@
+     }
+ }
+ 
+-/// AAC encoder for buffered streaming.
+-pub struct AacEncoder {
+-    encoder: fdk_aac::enc::Encoder,
+-    format: AudioFormat,
+-    timestamp: u64,
+-    buffer: Vec<i16>,
+-    output_buffer: Vec<u8>,
+-    asc: Vec<u8>,
+-}
+-
+-impl AacEncoder {
+-    /// Create new AAC encoder.
+-    pub fn new(format: AudioFormat) -> Result<Self> {
+-        let encoder = fdk_aac::enc::Encoder::new(fdk_aac::enc::EncoderParams {
+-            bit_rate: fdk_aac::enc::BitRate::Cbr(128_000), // 128 kbps
+-            sample_rate: format.sample_rate.as_hz(),
+-            transport: fdk_aac::enc::Transport::Raw,
+-            channels: fdk_aac::enc::ChannelMode::Stereo,
+-        })
+-        .map_err(|e| {
+-            airplay_core::error::StreamingError::InvalidFormat(format!(
+-                "Failed to create AAC encoder: {:?}",
+-                e
+-            ))
+-        })?;
+-
+-        // Get the AudioSpecificConfig from encoder info
+-        let info = encoder.info().map_err(|e| {
+-            airplay_core::error::StreamingError::InvalidFormat(format!(
+-                "Failed to get encoder info: {:?}",
+-                e
+-            ))
+-        })?;
+-        // ASC is in confBuf, valid bytes indicated by confSize
+-        let asc = info.confBuf[..info.confSize as usize].to_vec();
+-
+-        // Calculate max output buffer size (bit_rate / 8 * frame_duration + overhead)
+-        // AAC frame is typically 1024 samples
+-        let max_output_size = (128_000 / 8 / (format.sample_rate.as_hz() / 1024)) as usize + 256;
+-
+-        Ok(Self {
+-            encoder,
+-            format,
+-            timestamp: 0,
+-            buffer: Vec::new(),
+-            output_buffer: vec![0u8; max_output_size.max(2048)],
+-            asc,
+-        })
+-    }
+-
+-    /// Get the AAC-specific config data (AudioSpecificConfig).
+-    ///
+-    /// This returns a 2-byte AudioSpecificConfig for AAC-LC.
+-    pub fn audio_specific_config(&self) -> Vec<u8> {
+-        self.asc.clone()
+-    }
+-
+-    /// Encode a single frame of samples.
+-    fn encode_frame(&mut self, samples: &[i16]) -> Result<EncodedPacket> {
+-        let num_samples = samples.len() / self.format.channels as usize;
+-
+-        let encode_info = self
+-            .encoder
+-            .encode(samples, &mut self.output_buffer)
+-            .map_err(|e| {
+-                airplay_core::error::StreamingError::Encoding(format!("AAC encode failed: {:?}", e))
+-            })?;
+-
+-        let timestamp = self.timestamp;
+-        self.timestamp += num_samples as u64;
+-
+-        Ok(EncodedPacket {
+-            data: self.output_buffer[..encode_info.output_size].to_vec(),
+-            samples: num_samples as u32,
+-            timestamp,
+-        })
+-    }
+-}
+-
+-impl AudioEncoder for AacEncoder {
+-    fn encode(&mut self, samples: &[i16]) -> Result<EncodedPacket> {
+-        let samples_per_frame =
+-            self.format.frames_per_packet as usize * self.format.channels as usize;
+-
+-        // Add to buffer
+-        self.buffer.extend_from_slice(samples);
+-
+-        // If we have enough for a full frame, encode it
+-        if self.buffer.len() >= samples_per_frame {
+-            let frame_samples: Vec<i16> = self.buffer.drain(..samples_per_frame).collect();
+-            self.encode_frame(&frame_samples)
+-        } else {
+-            // Return partial packet (shouldn't happen in normal use)
+-            let partial: Vec<i16> = self.buffer.drain(..).collect();
+-            self.encode_frame(&partial)
+-        }
+-    }
+-
+-    fn codec(&self) -> AudioCodec {
+-        AudioCodec::Aac
+-    }
+-
+-    fn frames_per_packet(&self) -> u32 {
+-        self.format.frames_per_packet
+-    }
+-
+-    fn flush(&mut self) -> Result<Option<EncodedPacket>> {
+-        if self.buffer.is_empty() {
+-            Ok(None)
+-        } else {
+-            // Pad with zeros to fill a complete frame
+-            let samples_per_frame =
+-                self.format.frames_per_packet as usize * self.format.channels as usize;
+-            while self.buffer.len() < samples_per_frame {
+-                self.buffer.push(0);
+-            }
+-            let remaining: Vec<i16> = self.buffer.drain(..).collect();
+-            Ok(Some(self.encode_frame(&remaining)?))
+-        }
+-    }
+-}
+-
+ /// Create appropriate encoder for format.
+ pub fn create_encoder(format: AudioFormat) -> Result<Box<dyn AudioEncoder>> {
+     match format.codec {
+         AudioCodec::Alac => Ok(Box::new(AlacEncoder::new(format)?)),
+-        AudioCodec::Aac => Ok(Box::new(AacEncoder::new(format)?)),
+         _ => Err(airplay_core::error::StreamingError::InvalidFormat(format!(
+             "Unsupported codec: {:?}",
+             format.codec
+@@ -304,26 +181,6 @@
+         }
+     }
+ 
+-    fn aac_format_44100() -> AudioFormat {
+-        AudioFormat {
+-            codec: AudioCodec::Aac,
+-            sample_rate: SampleRate::Hz44100,
+-            bit_depth: 16,
+-            channels: 2,
+-            frames_per_packet: 1024,
+-        }
+-    }
+-
+-    fn aac_format_48000() -> AudioFormat {
+-        AudioFormat {
+-            codec: AudioCodec::Aac,
+-            sample_rate: SampleRate::Hz48000,
+-            bit_depth: 16,
+-            channels: 2,
+-            frames_per_packet: 1024,
+-        }
+-    }
+-
+     mod alac_encoder {
+         use super::*;
+ 
+@@ -404,71 +261,6 @@
+             let mut encoder = AlacEncoder::new(alac_format_44100()).unwrap();
+             let flushed = encoder.flush().unwrap();
+             assert!(flushed.is_none());
+-        }
+-    }
+-
+-    mod aac_encoder {
+-        use super::*;
+-
+-        #[test]
+-        fn new_creates_encoder_for_44100() {
+-            let encoder = AacEncoder::new(aac_format_44100());
+-            assert!(encoder.is_ok());
+-        }
+-
+-        #[test]
+-        fn new_creates_encoder_for_48000() {
+-            let encoder = AacEncoder::new(aac_format_48000());
+-            assert!(encoder.is_ok());
+-        }
+-
+-        #[test]
+-        fn encode_1024_samples() {
+-            let mut encoder = AacEncoder::new(aac_format_44100()).unwrap();
+-            // 1024 samples * 2 channels = 2048 i16 values
+-            let samples = vec![0i16; 2048];
+-            let packet = encoder.encode(&samples).unwrap();
+-
+-            assert_eq!(packet.samples, 1024);
+-            assert!(!packet.data.is_empty());
+-        }
+-
+-        #[test]
+-        fn encode_increments_timestamp() {
+-            let mut encoder = AacEncoder::new(aac_format_44100()).unwrap();
+-            let samples = vec![0i16; 2048]; // 1024 samples * 2 channels
+-
+-            let packet1 = encoder.encode(&samples).unwrap();
+-            assert_eq!(packet1.timestamp, 0);
+-
+-            let packet2 = encoder.encode(&samples).unwrap();
+-            assert_eq!(packet2.timestamp, 1024);
+-
+-            let packet3 = encoder.encode(&samples).unwrap();
+-            assert_eq!(packet3.timestamp, 2048);
+-        }
+-
+-        #[test]
+-        fn encoded_data_is_valid_aac() {
+-            let mut encoder = AacEncoder::new(aac_format_44100()).unwrap();
+-            let samples = vec![0i16; 2048];
+-            let packet = encoder.encode(&samples).unwrap();
+-
+-            // Check that we have output data
+-            assert!(packet.data.len() > 0);
+-        }
+-
+-        #[test]
+-        fn audio_specific_config_is_valid() {
+-            let encoder = AacEncoder::new(aac_format_44100()).unwrap();
+-            let asc = encoder.audio_specific_config();
+-
+-            // ASC should be at least 2 bytes
+-            assert!(asc.len() >= 2);
+-
+-            // Decode and verify (first 5 bits = object type, should be 2 for AAC-LC)
+-            let object_type = (asc[0] >> 3) & 0x1F;
+-            assert!(object_type == 2 || object_type == 5); // AAC-LC or SBR
+         }
+     }
+ 
+@@ -482,9 +274,16 @@
+         }
+ 
+         #[test]
+-        fn creates_aac_for_aac_format() {
+-            let encoder = create_encoder(aac_format_44100()).unwrap();
+-            assert_eq!(encoder.codec(), AudioCodec::Aac);
++        fn aac_is_unsupported() {
++            // FDK AAC was removed from this vendor copy; AAC must fail cleanly.
++            let format = AudioFormat {
++                codec: AudioCodec::Aac,
++                sample_rate: SampleRate::Hz44100,
++                bit_depth: 16,
++                channels: 2,
++                frames_per_packet: 1024,
++            };
++            assert!(create_encoder(format).is_err());
+         }
+ 
+         #[test]
+@@ -511,18 +310,9 @@
+         }
+ 
+         #[test]
+-        fn aac_reports_correct_codec() {
+-            let encoder = AacEncoder::new(aac_format_44100()).unwrap();
+-            assert_eq!(encoder.codec(), AudioCodec::Aac);
+-        }
+-
+-        #[test]
+         fn frames_per_packet_matches_format() {
+             let alac = AlacEncoder::new(alac_format_44100()).unwrap();
+             assert_eq!(alac.frames_per_packet(), 352);
+-
+-            let aac = AacEncoder::new(aac_format_44100()).unwrap();
+-            assert_eq!(aac.frames_per_packet(), 1024);
+         }
+     }
+ 
+@@ -703,46 +493,7 @@
+                 raw_size,
+                 encoded_size,
+                 100.0 * encoded_size as f64 / raw_size as f64
+-            );
+-        }
+-
+-        #[test]
+-        fn aac_encodes_sine_wave_440hz() {
+-            let mut encoder = AacEncoder::new(aac_format_44100()).unwrap();
+-
+-            // Generate 1 second of 440Hz sine wave
+-            let sample_rate = 44100u32;
+-            let duration_samples = sample_rate as usize;
+-            let sine_wave = generate_sine_wave(440.0, sample_rate, duration_samples, 16000);
+-
+-            // Encode in 1024-sample chunks
+-            let samples_per_frame = 1024 * 2; // stereo
+-            let mut encoded_packets = Vec::new();
+-            let mut total_encoded_bytes = 0;
+-
+-            for chunk in sine_wave.chunks(samples_per_frame) {
+-                if chunk.len() == samples_per_frame {
+-                    let packet = encoder.encode(chunk).unwrap();
+-                    total_encoded_bytes += packet.data.len();
+-                    encoded_packets.push(packet);
+-                }
+-            }
+-
+-            // Verify encoding produced data
+-            assert!(!encoded_packets.is_empty(), "No packets encoded");
+-            assert!(total_encoded_bytes > 0, "No encoded data produced");
+-
+-            // AAC is lossy but efficient
+-            let raw_size = sine_wave.len() * 2;
+-
+-            println!("AAC 440Hz sine wave test:");
+-            println!("  Raw size: {} bytes", raw_size);
+-            println!(
+-                "  Encoded size: {} bytes ({:.1}% of raw)",
+-                total_encoded_bytes,
+-                100.0 * total_encoded_bytes as f64 / raw_size as f64
+             );
+-            println!("  Packets: {}", encoded_packets.len());
+         }
+ 
+         #[test]

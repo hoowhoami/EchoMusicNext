@@ -6,6 +6,62 @@
 #include <utility>
 namespace EchoMusic
 {
+static QVariantList boxed(QSpan<const double> values)
+{
+    QVariantList result;
+    result.reserve(values.size());
+    for (double sample : values)
+        result.append(sample);
+    return result;
+}
+EchoPluginSpectrumFrame::EchoPluginSpectrumFrame(EchoPluginContext &scope, QObject *parent)
+    : QObject(parent), m_scope(scope)
+{
+}
+void EchoPluginSpectrumFrame::replace(const SpectrumFrameData &frame)
+{
+    m_data = frame;
+    m_legacy.clear();
+    emit changed();
+}
+QVariantList EchoPluginSpectrumFrame::bandMeans() const
+{
+    return boxed(m_data.bandMeans);
+}
+QJSValue EchoPluginSpectrumFrame::copy(QSpan<const double> values) const
+{
+    auto &engine = m_scope.engine();
+    const QByteArray bytes(reinterpret_cast<const char *>(values.data()), values.size_bytes());
+    return engine.globalObject()
+        .property(QStringLiteral("Float64Array"))
+        .callAsConstructor({engine.toScriptValue(bytes)});
+}
+QJSValue EchoPluginSpectrumFrame::copyBins() const
+{
+    return copy(m_data.bins);
+}
+QJSValue EchoPluginSpectrumFrame::copyWaveform() const
+{
+    return copy(m_data.waveform());
+}
+QVariant EchoPluginSpectrumFrame::legacy() const
+{
+    if (m_data.state.isEmpty() || m_legacy.isValid())
+        return m_legacy;
+    QVariantMap frame{{"state", state()}, {"source", source()}, {"timestamp", timestamp()},
+                      {"peak", peak()},   {"rms", rms()},       {"bins", boxed(m_data.bins)}};
+    if (state() == QStringLiteral("playing")) {
+        frame.insert("timePos", timePos());
+        frame.insert("sampleRate", sampleRate());
+        frame.insert("fftSize", fftSize());
+        frame.insert("minFrequency", minFrequency());
+        frame.insert("maxFrequency", maxFrequency());
+    }
+    if (m_data.includeWaveform)
+        frame.insert("waveform", boxed(m_data.waveform()));
+    m_legacy = frame;
+    return m_legacy;
+}
 EchoPluginAudio::EchoPluginAudio(EchoPluginContext &scope) : QObject(&scope), m_spectrum(scope)
 {
     m_spectrum.setParent(this);
@@ -13,12 +69,13 @@ EchoPluginAudio::EchoPluginAudio(EchoPluginContext &scope) : QObject(&scope), m_
 EchoPluginSpectrumSubscription::EchoPluginSpectrumSubscription(EchoPluginContext &scope,
                                                                EchoPluginRegistration &lease,
                                                                const QVariantMap &options)
-    : QObject(&scope), m_broker(*scope.host().playback.spectrum()), m_lease(lease)
+    : QObject(&scope), m_broker(*scope.host().playback.spectrum()), m_lease(lease),
+      m_frame(scope, this)
 {
     connect(&m_broker, &PlayerSpectrum::frameReady, this,
-            [this](quint64 id, const QVariantMap &frame) {
+            [this](quint64 id, const SpectrumFrameData &frame) {
                 if (id == m_id && m_lease.active() && !m_paused) {
-                    m_frame = frame;
+                    m_frame.replace(frame);
                     emit frameChanged();
                 }
             });
@@ -35,7 +92,7 @@ EchoPluginSpectrumSubscription::EchoPluginSpectrumSubscription(EchoPluginContext
         },
         [this] {
             m_broker.remove(std::exchange(m_id, 0));
-            m_frame.clear();
+            m_frame.replace({});
             emit frameChanged();
         });
 }
@@ -54,6 +111,10 @@ void EchoPluginSpectrumSubscription::setPaused(bool paused)
     m_paused = paused;
     if (m_id)
         m_broker.setPaused(m_id, paused);
+    if (paused) {
+        m_frame.replace({});
+        emit frameChanged();
+    }
     emit pausedChanged();
 }
 void EchoPluginSpectrumSubscription::dispose()

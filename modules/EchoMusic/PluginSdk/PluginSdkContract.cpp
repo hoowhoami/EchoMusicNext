@@ -1,3 +1,6 @@
+#include "FloatTexture.h"
+#include "NativeShaderEffect.h"
+#include "EchoPluginImageDropArea.h"
 #include "EchoPluginDialog.h"
 #include "PluginSdkContract.h"
 #include "EchoPluginContext.h"
@@ -58,7 +61,10 @@ QJsonObject describe(const QMetaObject &meta)
 QJsonObject pluginSdkContract()
 {
     QJsonObject types;
-    const QMetaObject *publicTypes[] = {&EchoGpuSurface::staticMetaObject,
+    const QMetaObject *publicTypes[] = {&EchoPluginImageDropArea::staticMetaObject,
+                                        &FloatTexture::staticMetaObject,
+                                        &NativeShaderEffect::staticMetaObject,
+                                        &EchoGpuSurface::staticMetaObject,
                                         &GlyphRun::staticMetaObject,
                                         &EchoGpuGlyphAtlas::staticMetaObject,
                                         &EchoPluginGraphics::staticMetaObject,
@@ -135,6 +141,7 @@ QJsonObject pluginSdkContract()
                                         &EchoPluginRegistry::staticMetaObject,
                                         &EchoPluginAudio::staticMetaObject,
                                         &EchoPluginSpectrum::staticMetaObject,
+                                        &EchoPluginSpectrumFrame::staticMetaObject,
                                         &EchoPluginSpectrumSubscription::staticMetaObject};
     for (const auto *meta : publicTypes)
         types.insert(QString::fromUtf8(meta->className()).section("::", -1), describe(*meta));

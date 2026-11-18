@@ -34,6 +34,7 @@ qt_add_qml_module(
     graphics/GpuSubmissions.cpp
     graphics/GpuRhiTransfers.cpp
     graphics/GpuRhiPasses.cpp
+    graphics/GpuRhiTargets.cpp
     graphics/GpuRhiRenderer.cpp
     graphics/GpuRhiOutput.cpp
     EchoUiBatch.h
@@ -57,6 +58,10 @@ qt_add_qml_module(
     EchoPluginViewContext.cpp
     PresentationScope.h
     PresentationScope.cpp
+    FloatTexture.h
+    FloatTexture.cpp
+    NativeShaderEffect.h
+    NativeShaderEffect.cpp
     PointMesh.h
     PointMesh.cpp
     ImageCapture.h
@@ -65,6 +70,8 @@ qt_add_qml_module(
     EchoPluginText.cpp
     EchoPluginAssets.h
     EchoPluginAssets.cpp
+    EchoPluginImageDropArea.h
+    EchoPluginImageDropArea.cpp
     EchoPluginAssetAnimation.h
     EchoPluginAssetArchive.h
     EchoPluginAssetArchive.cpp

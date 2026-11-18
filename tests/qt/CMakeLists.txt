@@ -849,7 +849,7 @@ add_test(
         miniScaleAndMenuUseProductionSurfaces miniVolumeDismissesAcrossHost
         nativeInputPreparationSurvivesWindowRetirement
         floatingPreferencesAndFilteredTimelineKeepIdentity
-        desktopLyricsMatchSourceChromeAndHoverUnlock
+        desktopLyricsMatchSourceChromeAndHoverUnlock desktopLyricWindowShowsWhileMainHidden
         nativeFloatingWindowsShareStateAndReleaseAcrossCycles
         nativePlaybackSurvivesRepeatedAppearanceUpdates
         productionHeaderWindowActionsStayAtRightEdge playbackQueueEmptyIndicatorAndCloseIcon
@@ -1008,7 +1008,8 @@ target_compile_definitions(
 target_include_directories(echo-plugin-runtime-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(
     echo-plugin-runtime-test
-    PRIVATE plugins/PluginRuntimeGlyphAtlases.cpp
+    PRIVATE plugins/PluginRuntimeShaderSources.cpp
+            plugins/PluginRuntimeGlyphAtlases.cpp
             plugins/PluginRuntimeTextureSources.cpp
             plugins/PluginRuntimeGraphics.cpp
             plugins/PluginRuntimeGraphicsResources.cpp
@@ -1098,13 +1099,25 @@ add_test(
     NAME plugin-runtime-window-network
     COMMAND
         echo-plugin-runtime-test customWindowsRealEntryScopesAndRetirement
-        resourceAuthorizationDenialCancelAndIsolation resourceAuthorizationBatchesAndSerializes
-        resourceAuthorizationCancelBatchAndAccount
+        pluginWindowIgnoresMainWindowMinimize resourceAuthorizationDenialCancelAndIsolation
+        resourceAuthorizationBatchesAndSerializes resourceAuthorizationCancelBatchAndAccount
         resourceAuthorizationDoesNotConsumeActivationDeadline
         tcpRealBinaryCancellationAndRevocation tcpHalfCloseReceivesResponseAfterFin
         localHttpRealRequestsChunkingAndErrors localWebSocketUpgradeBinaryPingAndLimits
         resourceAccountAndDisableDrainRealTransports
 )
+if(WIN32)
+    add_test(NAME windows-floating-windows COMMAND echo-desktop-pages-test
+                                                   floatingWindowsIgnoreMainWindowMinimize
+    )
+    add_test(NAME windows-plugin-floating-window COMMAND echo-plugin-runtime-test
+                                                         pluginWindowIgnoresMainWindowMinimize
+    )
+    set_tests_properties(
+        windows-floating-windows windows-plugin-floating-window
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows" RUN_SERIAL TRUE TIMEOUT 45
+    )
+endif()
 add_test(
     NAME plugin-runtime-backups
     COMMAND
@@ -1214,7 +1227,7 @@ add_test(
     COMMAND
         echo-plugin-runtime-test settingsContributionRetiresWithScope
         statisticsUseSampledWireAndRejectInvalidNumbers spectrumCapabilityAndOwnerLifetime
-        builtAuthorPackageCommands builtAuthorPackageSpectrumEntry
+        spectrumTypedFrames builtAuthorPackageCommands builtAuthorPackageSpectrumEntry
 )
 
 add_test(
@@ -2249,6 +2262,10 @@ qt_add_shaders(
     shaders/gpu/mrt.frag
     shaders/gpu/indirect.comp
     shaders/gpu/solid.frag
+    shaders/gpu/blend.frag
+    shaders/gpu/depth.vert
+    shaders/gpu/depth-only.frag
+    shaders/gpu/depth-view.frag
     shaders/gpu/array.frag
     shaders/gpu/array.comp
     shaders/gpu/cube.frag
@@ -2256,6 +2273,9 @@ qt_add_shaders(
     shaders/gpu/volume.comp
     shaders/gpu/glyph.frag
     shaders/gpu/source.frag
+    shaders/gpu/quick-color.frag
+    shaders/gpu/quick-float.frag
+    shaders/gpu/quick-data.vert
     shaders/gpu/shared.comp
     shaders/gpu/instanced.vert
     shaders/gpu/instanced.frag
@@ -2266,10 +2286,15 @@ add_test(
     NAME plugin-runtime-graphics
     COMMAND
         echo-plugin-runtime-test graphicsValidationOwnershipAndAccount
-        graphicsNativeInitialOutputIsTransparent graphicsNativeGlyphAtlasLifecycle
-        graphicsMultipleTargetsMipRenderingAndLifetime graphicsIndirectGpuArgumentsAndRetirement
-        graphicsTextureArraysTransfersAndLifetime appearancePreviewCatalogAndFloatingIsolation
-        appearanceMaterialsAndRouteLifecycle floatingWindowsNativeStateAuthorizationAndObservation
+        graphicsFloatTextureValidationAndRetirement graphicsNativeShaderPixelsAndRecovery
+        graphicsActiveQmlLifecycleAndAccount graphicsVertexFloatTexturePixels
+        graphicsNativePipelineBlendModes graphicsDepthTargetsMsaaAndRecovery
+        graphicsDeclaredLimitsAndRetirement graphicsNativeInitialOutputIsTransparent
+        graphicsQtTextureSourcesLifecycle graphicsSharedResourcesScopesDevicesAndRecovery
+        graphicsNativeGlyphAtlasLifecycle graphicsMultipleTargetsMipRenderingAndLifetime
+        graphicsIndirectGpuArgumentsAndRetirement graphicsTextureArraysTransfersAndLifetime
+        appearancePreviewCatalogAndFloatingIsolation appearanceMaterialsAndRouteLifecycle
+        floatingWindowsNativeStateAuthorizationAndObservation
 )
 set_tests_properties(
     plugin-runtime-graphics PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
@@ -2305,6 +2330,17 @@ set_tests_properties(
     glyph-run-canvas-preparation PROPERTIES TIMEOUT 90 ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
 echo_copy_rust_runtime(echo-glyph-run-canvas-preparation-test)
+
+qt_add_executable(echo-glyph-run-canvas-pixels-test GlyphRunCanvasPixelsTest.cpp)
+target_link_libraries(
+    echo-glyph-run-canvas-pixels-test PRIVATE echo_plugin_sdk Qt6::Test Qt6::QuickPrivate
+                                              Qt6::GuiPrivate
+)
+add_test(NAME glyph-run-canvas-pixels COMMAND echo-glyph-run-canvas-pixels-test)
+set_tests_properties(
+    glyph-run-canvas-pixels PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+echo_copy_rust_runtime(echo-glyph-run-canvas-pixels-test)
 
 if(APPLE)
     set_tests_properties(

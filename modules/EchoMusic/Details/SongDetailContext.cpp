@@ -355,6 +355,7 @@ void SongDetailContext::rankingsAndComments()
     if (m_rankingsStarted)
         return;
     m_rankingsStarted = true;
+    requestAlbumPublisher();
     if (m_mix) {
         request(m_api.songRanking(m_mix), Ranking);
         request(m_api.songRanking(m_mix, true), RankingDetails);
@@ -365,6 +366,23 @@ void SongDetailContext::rankingsAndComments()
     if (!loading())
         startComments();
     emit changed();
+}
+void SongDetailContext::requestAlbumPublisher()
+{
+    if (!m_network || !active() || commentsPage())
+        return;
+    auto albumId = albumNavigationId().toULongLong();
+    if (!albumId) {
+        // A hash-only entry can learn its album from the privilege response
+        // even if the catalog song has no presentation.
+        albumId =
+            m_detail.value("privileges").toObject().value("album_id").toVariant().toULongLong();
+    }
+    if (albumId) {
+        const auto id = m_api.albumDetail(albumId);
+        if (id)
+            request(id, AlbumPublisher);
+    }
 }
 void SongDetailContext::requestMetadata()
 {
@@ -489,6 +507,13 @@ void SongDetailContext::accept(quint64 id, const QByteArray &bytes)
     case RankingDetails:
         m_rankingDetails = doc.object();
         break;
+    case AlbumPublisher: {
+        auto information = m_detail.value("information").toObject();
+        information["album_publisher"] = doc.object().value("publisher").toString().trimmed();
+        m_detail["information"] = information;
+        emit changed();
+        return;
+    }
     case FavoriteCount: {
         auto a = doc.array();
         if (!a.isEmpty())
@@ -552,6 +577,9 @@ void SongDetailContext::fail(quint64 id, const QByteArray &bytes)
         return;
     auto p = m_pending.take(id);
     if (p.epoch != m_epoch || p.session != m_api.sessionRevision() || m_closed)
+        return;
+    // A publisher lookup is independent of the song's own detail state.
+    if (p.kind == AlbumPublisher)
         return;
     // Statistics are supplementary; an independent read failure preserves
     // the known count or leaves it unknown.

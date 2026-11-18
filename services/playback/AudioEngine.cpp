@@ -11,6 +11,7 @@ namespace EchoMusic
 {
 struct AudioSink
 {
+    AudioEngine *receiver = nullptr; // Destroy joins the Rust worker before QObject destruction.
     QMutex mutex;
     std::deque<QJsonObject> events;
     EchoAudio *handle = nullptr; // worker thread only
@@ -20,8 +21,7 @@ struct AudioSink
     {
         QMutexLocker lock(&mutex);
         const auto kind = event.value("event").toString();
-        const bool observation =
-            kind == "time-update" || kind.endsWith("stats") || kind == "spectrum";
+        const bool observation = kind == "time-update" || kind.endsWith("stats");
         if (observation) {
             for (auto it = events.rbegin(); it != events.rend(); ++it)
                 if (it->value("event") == event.value("event") &&
@@ -40,6 +40,36 @@ struct AudioSink
         events.push_back(std::move(event));
     }
 };
+static void spectrumDone(void *context, uint64_t track, uint64_t revision, uint64_t request,
+                         EchoSpectrumStatus status, EchoSpectrumFrame *owned)
+{
+    auto *sink = static_cast<AudioSink *>(context);
+    std::shared_ptr<const void> owner(owned, [](const void *p) {
+        echo_spectrum_frame_release(static_cast<EchoSpectrumFrame *>(const_cast<void *>(p)));
+    });
+    QSharedPointer<RawSpectrumFrame> frame;
+    EchoSpectrumView view{};
+    view.struct_size = sizeof(view);
+    if (status == SpectrumReady && echo_spectrum_frame_view(owned, &view)) {
+        frame = QSharedPointer<RawSpectrumFrame>::create();
+        frame->owner = std::move(owner);
+        frame->bins = {view.bins, qsizetype(view.bin_count)};
+        frame->waveform = {view.waveform, qsizetype(view.waveform_count)};
+        frame->timestamp = view.timestamp_seconds * 1000;
+        frame->peak = view.peak;
+        frame->rms = view.rms;
+        frame->sampleRate = int(view.sample_rate);
+        frame->fftSize = int(view.fft_size);
+    }
+    // PlayerSpectrum permits one accepted request until this GUI delivery completes.
+    auto *receiver = sink->receiver;
+    QMetaObject::invokeMethod(
+        receiver,
+        [receiver, track, revision, request, frame] {
+            emit receiver->spectrumReceived(track, revision, request, frame);
+        },
+        Qt::QueuedConnection);
+}
 static void audioCallback(void *context, const EchoResult *result)
 {
     auto &sink = *static_cast<AudioSink *>(context);
@@ -55,6 +85,7 @@ AudioEngine::AudioEngine(QObject *parent, const QJsonObject &options)
     m_worker->moveToThread(&m_thread);
     m_thread.setObjectName("echo-audio-bridge");
     connect(&m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
+    m_sink->receiver = this;
     m_thread.start();
     QMetaObject::invokeMethod(
         m_worker, [sink = m_sink, options = QJsonDocument(options).toJson(QJsonDocument::Compact)] {
@@ -326,6 +357,7 @@ void AudioEngine::retryInitialization(const QJsonObject &options)
         return;
     m_restartPending = true;
     const auto retired = std::exchange(m_sink, std::make_shared<AudioSink>());
+    m_sink->receiver = this;
     QMetaObject::invokeMethod(
         m_worker, [this, retired, sink = m_sink,
                    bytes = QJsonDocument(options).toJson(QJsonDocument::Compact)] {
@@ -349,16 +381,13 @@ void AudioEngine::configureSpectrum(const QJsonObject &options)
                                           size_t(bytes.size()));
         });
 }
-void AudioEngine::spectrumSnapshot(quint64 revision)
+void AudioEngine::spectrumSnapshot(quint64 revision, quint64 request)
 {
     if (m_closing)
         return;
-    QMetaObject::invokeMethod(m_worker, [sink = m_sink, revision] {
-        if (!echo_audio_spectrum_snapshot(sink->handle, revision))
-            sink->push({{"event", "spectrum"},
-                        {"track_seq", qint64(sink->sequence)},
-                        {"spectrum_revision", qint64(revision)},
-                        {"error", "Spectrum request rejected"}});
+    QMetaObject::invokeMethod(m_worker, [sink = m_sink, revision, request] {
+        if (!echo_audio_request_spectrum(sink->handle, revision, request, spectrumDone))
+            spectrumDone(sink.get(), sink->sequence, revision, request, SpectrumFailed, nullptr);
     });
 }
 void AudioEngine::shutdown()

@@ -1,4 +1,5 @@
 #pragma once
+#include "SpectrumFrame.h"
 #include <QObject>
 #include <QThread>
 #include <QTimer>
@@ -47,7 +48,7 @@ public:
     void output(const QString &name, bool exclusive, quint64 revision = 0);
     void refreshDevices();
     void configureSpectrum(const QJsonObject &options);
-    void spectrumSnapshot(quint64 revision);
+    void spectrumSnapshot(quint64 revision, quint64 request);
     void disconnectPolicy(bool pause);
     void effect(const QJsonObject &configuration, quint64 revision = 0);
     void normalization(double gainDb);
@@ -58,6 +59,8 @@ public:
     void shutdown();
 signals:
     void eventReceived(const QJsonObject &event);
+    void spectrumReceived(quint64 track, quint64 revision, quint64 request,
+                          QSharedPointer<const RawSpectrumFrame> frame);
     void closed();
 
 private:

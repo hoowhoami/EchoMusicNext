@@ -235,3 +235,92 @@ fn manual_source_change_keeps_the_device_while_cancelling_queued_audio() {
             .is_none()
     );
 }
+
+#[test]
+fn spectrum_view_borrows_original_vectors_until_release() {
+    let bins = vec![0.25, 0.5];
+    let waveform = vec![-1.0, 0.0, 1.0];
+    let addresses = (bins.as_ptr(), waveform.as_ptr());
+    let frame = Box::into_raw(Box::new(EchoSpectrumFrame(
+        echo_audio::events::SpectrumFrame {
+            sample_rate: 48000,
+            fft_size: 2048,
+            bins,
+            waveform: Some(waveform),
+            peak: 1.0,
+            rms: 0.5,
+            timestamp: 1.25,
+        },
+    )));
+    unsafe {
+        let mut view: EchoSpectrumView = std::mem::zeroed();
+        assert!(!echo_spectrum_frame_view(frame, &mut view));
+        view.struct_size = size_of::<EchoSpectrumView>();
+        assert!(echo_spectrum_frame_view(frame, &mut view));
+        assert_eq!((view.bins, view.waveform), addresses);
+        assert_eq!(
+            slice::from_raw_parts(view.bins, view.bin_count),
+            &[0.25, 0.5]
+        );
+        assert_eq!(
+            slice::from_raw_parts(view.waveform, view.waveform_count),
+            &[-1., 0., 1.]
+        );
+        echo_spectrum_frame_release(frame);
+    }
+}
+
+#[test]
+#[ignore = "requires a native audio output; run explicitly with --ignored"]
+fn accepted_spectrum_requests_are_retired_once_on_shutdown() {
+    unsafe extern "C" fn ignore_event(_: *mut c_void, _: *const EchoResult) {}
+    type Completion = (u64, u64, bool, bool);
+    unsafe extern "C" fn completed(
+        context: *mut c_void,
+        _: u64,
+        revision: u64,
+        request: u64,
+        status: EchoSpectrumStatus,
+        frame: *mut EchoSpectrumFrame,
+    ) {
+        let results = unsafe { &*context.cast::<mpsc::Sender<Completion>>() };
+        let _ = results.send((
+            revision,
+            request,
+            matches!(status, EchoSpectrumStatus::SpectrumCancelled),
+            frame.is_null(),
+        ));
+        unsafe { echo_spectrum_frame_release(frame) };
+    }
+    let (sender, results) = mpsc::channel::<Completion>();
+    let config = b"{}";
+    let audio = Audio(unsafe {
+        echo_audio_create(
+            ignore_event,
+            (&sender as *const mpsc::Sender<Completion>)
+                .cast_mut()
+                .cast(),
+            config.as_ptr(),
+            config.len(),
+        )
+    });
+    assert!(!audio.0.is_null());
+    let release = hold_host(&audio);
+    for request in 1..=3 {
+        assert!(unsafe { echo_audio_request_spectrum(audio.0, 4, request, completed) });
+    }
+    let closing = unsafe { &*audio.0 }.closing.clone();
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            while !closing.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            release.send(()).unwrap();
+        });
+        drop(audio);
+    });
+    assert_eq!(
+        results.try_iter().collect::<Vec<_>>(),
+        vec![(4, 1, true, true), (4, 2, true, true), (4, 3, true, true)]
+    );
+}

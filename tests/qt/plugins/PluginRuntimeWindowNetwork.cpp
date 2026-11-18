@@ -3,6 +3,8 @@
 #include "EchoPluginTcp.h"
 #include "EchoPluginWebServer.h"
 #include "EchoPluginWindow.h"
+#include "FloatingWindowTest.h"
+#include "WindowController.h"
 #include <QNetworkAccessManager>
 #include <QWebSocket>
 #include <QWebSocketHandshakeOptions>
@@ -203,6 +205,32 @@ ApplicationWindow {
     QTRY_VERIFY(retired.isNull());
     QVERIFY(!pluginWindow());
 }
+void PluginRuntimeTest::pluginWindowIgnoresMainWindowMinimize()
+{
+    Host host;
+    QQuickWindow main;
+    WindowController windows(host.settings, false);
+    host.mainWindow = &main;
+    windows.attach(&main);
+    main.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&main));
+
+    QPointer<QQuickWindow> attached;
+    host.attachPluginWindow = [&](QQuickWindow *window) {
+        windows.attachPluginWindow(window);
+        attached = window;
+    };
+    const auto detach = qScopeGuard([&] { host.attachPluginWindow = {}; });
+    auto *scope = resources(host, "c.windows.show('tools', {focus: false});");
+    QVERIFY(scope);
+    QTRY_VERIFY(attached);
+    QCOMPARE(attached.data(), pluginWindow());
+    QVERIFY(QTest::qWaitForWindowExposed(attached));
+    Test::verifyFloatingWindowsAcrossMinimize(main, {attached.data()});
+    scope->windows()->get("tools")->hide();
+    QTRY_VERIFY(attached.isNull());
+}
+
 void PluginRuntimeTest::resourceAuthorizationDenialCancelAndIsolation()
 {
     Host host;

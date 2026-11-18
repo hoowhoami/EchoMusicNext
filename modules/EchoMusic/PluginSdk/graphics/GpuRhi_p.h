@@ -49,6 +49,13 @@ struct NativeGpuResource
     std::shared_ptr<QRhiTexture> texture;
     std::shared_ptr<GpuResourceDescription::TextureSource> textureSource;
     std::map<int, std::unique_ptr<QRhiTexture>> depths;
+    std::map<int, std::unique_ptr<QRhiTexture>> multisamples;
+    QSet<int> initializedSamples;
+    bool depthInitialized = false, needsColorInitialization = false;
+    std::unique_ptr<QRhiRenderPassDescriptor> initialColorDescriptor;
+    std::unique_ptr<QRhiTextureRenderTarget> initialColorTarget;
+    std::unique_ptr<QRhiRenderPassDescriptor> initialDepthDescriptor;
+    std::unique_ptr<QRhiTextureRenderTarget> initialDepthTarget;
     std::unique_ptr<QRhiSampler> sampler;
     quint64 revision = 0;
     bool ready = false;
@@ -57,6 +64,7 @@ struct NativeGpuResource
 };
 struct NativeGpuPass
 {
+    QList<QPair<std::shared_ptr<NativeGpuResource>, int>> initializedSamples, discardedSamples;
     std::unique_ptr<QRhiShaderResourceBindings> bindings;
     std::unique_ptr<QRhiGraphicsPipeline> graphics;
     std::unique_ptr<QRhiComputePipeline> compute;
@@ -103,6 +111,10 @@ struct GpuRenderState
     bool vertexInputs(const QVariantMap &draw, const QVariantMap &layout,
                       QVector<QRhiCommandBuffer::VertexInput> &inputs);
     bool buildPasses(const QVariantMap &frame, QRhiRenderTarget *output);
+    QRhiRenderTarget *buildRenderTarget(NativeGpuPass &, const QVariantMap &, QRhiRenderTarget *,
+                                        const QSet<QString> &, const QSet<QString> &,
+                                        QSet<QString> &, bool resolve);
+    bool initializeTextures(QRhiCommandBuffer *);
     bool buildTransfer(NativeGpuPass &pass);
     bool buildBufferCopy(NativeGpuPass &pass, QRhiBuffer *source, QRhiBuffer *destination);
     void copyBuffer(QRhiCommandBuffer *cb, NativeGpuPass &pass, QRhiResourceUpdateBatch *updates);

@@ -186,6 +186,8 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
         cb->endPass();
         s.workingNeedsClear = false;
     }
+    if (resourcesReady && s.error.isEmpty())
+        s.initializeTextures(cb);
     const bool oneShot = bool(m_snapshot.submission);
     if (resourcesReady && s.error.isEmpty())
         for (auto &pass : s.passes) {
@@ -354,6 +356,10 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
                     }
                 }
                 cb->endPass();
+                for (const auto &use : pass.initializedSamples)
+                    use.first->initializedSamples.insert(use.second);
+                for (const auto &use : pass.discardedSamples)
+                    use.first->initializedSamples.remove(use.second);
             }
         }
     if (resourcesReady && s.error.isEmpty())
@@ -413,6 +419,10 @@ void GpuRenderer::render(QRhiCommandBuffer *cb)
              {"copyPipelineBuilds", QVariant::fromValue(s.copyPipelineBuilds)},
              {"multipleRenderTargets", rhi()->resourceLimit(QRhi::MaxColorAttachments) > 1},
              {"independentBlend", rhi()->isFeatureSupported(QRhi::PerRenderTargetBlending)},
+             {"depthTextures",
+              rhi()->isTextureFormatSupported(QRhiTexture::D32F, QRhiTexture::RenderTarget)},
+             {"depthResolve", rhi()->isFeatureSupported(QRhi::ResolveDepthStencil)},
+             {"sampleCounts", QVariant::fromValue(rhi()->supportedSampleCounts())},
              {"renderMipmaps", rhi()->isFeatureSupported(QRhi::RenderToNonBaseMipLevel)},
              {"textureArrays", rhi()->isFeatureSupported(QRhi::TextureArrays)},
              {"cubeTextures",

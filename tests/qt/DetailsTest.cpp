@@ -1881,7 +1881,16 @@ Window {
         DetailsTestAccess::artists(*song, artistRows);
         auto *ranking = visual(window->contentItem(), "songRankingToggle");
         QVERIFY2(ranking, qPrintable(errors.join('\n')));
+        auto *detailList = visual(window->contentItem(), "commentsList");
+        QVERIFY(detailList);
+        auto *detailViewport =
+            detailList->parentItem()->property("pageContainer").value<QObject *>();
+        QVERIFY(detailViewport);
+        // The wrapped information grid can put the ranking below the fold.
+        QVERIFY(QMetaObject::invokeMethod(
+            detailViewport, "scrollTo", Q_ARG(double, detailList->property("topMargin").toReal())));
         click(window, ranking);
+        QVERIFY(QMetaObject::invokeMethod(detailViewport, "scrollTo", Q_ARG(double, 0.)));
         const auto artifacts = qEnvironmentVariable("ECHO_DETAILS_ARTIFACTS");
         if (!artifacts.isEmpty())
             QVERIFY(QDir().mkpath(artifacts));

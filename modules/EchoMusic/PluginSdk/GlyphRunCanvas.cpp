@@ -51,6 +51,7 @@ qint64 Memory::highWater()
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <optional>
 #include <limits>
 #include <vector>
 namespace EchoMusic::GlyphCanvas
@@ -281,6 +282,90 @@ struct Field
     QRect pixels;
     int channel = 0;
 };
+// The sampled mask is independent of pose tint, alpha and clip. Each prepare()
+// owns its jobs until this node has recorded this render pass.
+struct HaloJob
+{
+    Plan plan;
+    QRect needed;
+    Field field;
+    bool scheduled = false;
+};
+using HaloKey = std::pair<int, std::array<qreal, 10>>;
+HaloKey haloKey(int fragment, const QTransform &m, qreal sigma)
+{
+    return {
+        fragment,
+        {m.m11(), m.m12(), m.m13(), m.m21(), m.m22(), m.m23(), m.m31(), m.m32(), m.m33(), sigma}};
+}
+struct PassCoverage
+{
+    QTransform ndcToDevice, deviceToNdc;
+    QSize target;
+    bool affine = false, yUp = true;
+    std::optional<QRectF> visibleDevice(const Draw &draw, const QTransform &device) const
+    {
+        if (draw.clipped && draw.clip.isEmpty())
+            return QRectF{};
+        if (!affine || !device.isAffine() || !device.isInvertible() || target.isEmpty())
+            return std::nullopt;
+        auto visible = ndcToDevice.mapRect(QRectF(-1, -1, 2, 2));
+        if (draw.clipped) {
+            // compose.frag antialiases both clip edges using fwidth(local).
+            const auto t = ndcToDevice * device.inverted();
+            const auto dx =
+                2 * (std::abs(t.m11()) / target.width() + std::abs(t.m21()) / target.height());
+            const auto dy =
+                2 * (std::abs(t.m12()) / target.width() + std::abs(t.m22()) / target.height());
+            visible &= device.mapRect(draw.clip.adjusted(-dx, -dy, dx, dy));
+        }
+        return visible;
+    }
+    QRect composeScissor(const std::optional<QRectF> &visible) const
+    {
+        const QRect full(QPoint(), target);
+        if (!visible)
+            return full;
+        if (visible->isEmpty())
+            return {};
+        const auto ndc = deviceToNdc.mapRect(*visible).intersected(QRectF(-1, -1, 2, 2));
+        // QRhi scissor rectangles use bottom-left coordinates on all backends.
+        const qreal sx = target.width() * .5, sy = target.height() * .5;
+        return QRectF((ndc.left() + 1) * sx, (yUp ? ndc.top() + 1 : 1 - ndc.bottom()) * sy,
+                      ndc.width() * sx, ndc.height() * sy)
+                   .toAlignedRect()
+                   .adjusted(-1, -1, 1, 1) &
+               full;
+    }
+    static QRect storedPixels(const Plan &p, const std::optional<QRectF> &range)
+    {
+        const QRect field = QRect(QPoint(), p.stored).adjusted(-1, -1, 1, 1);
+        if (!range)
+            return field;
+        const auto visible = p.back.intersected(*range);
+        if (visible.isEmpty())
+            return {};
+        const auto sx = p.stored.width() / p.back.width(), sy = p.stored.height() / p.back.height();
+        // Keep the full bilinear footprint, including the transparent atlas gutter.
+        return QRectF((visible.x() - p.back.x()) * sx, (visible.y() - p.back.y()) * sy,
+                      visible.width() * sx, visible.height() * sy)
+                   .toAlignedRect()
+                   .adjusted(-2, -2, 2, 2) &
+               field;
+    }
+};
+// The vertical pass can resample between four adjacent padded texels. Retain
+// those neighbors and every horizontal-pass row touched by the original kernel.
+QRect horizontalPixels(const Plan &p, QRect stored)
+{
+    const auto sx = qreal(p.padded.width()) / p.stored.width();
+    const auto sy = qreal(p.padded.height()) / p.stored.height();
+    const int radius = (p.path ? qCeil(3 * p.lowSigma) : p.border) + 2;
+    return QRectF(stored.x() * sx, stored.y() * sy, stored.width() * sx, stored.height() * sy)
+               .toAlignedRect()
+               .adjusted(-2, -radius, 2, radius) &
+           QRect(QPoint(), p.padded);
+}
 struct Curve
 {
     std::unique_ptr<QSGCurveFillNode> node;
@@ -629,6 +714,7 @@ public:
         int kind = 0, src = 0, dst = 0, slot = 0;
         QSize extent;
         Field field;
+        QRect scissor;
     };
     struct Effect
     {
@@ -642,6 +728,7 @@ public:
     {
         int slot = 0;
         quint64 binding = 0;
+        QRect scissor;
     };
     QList<Main> main;
     ParamStore params;
@@ -784,8 +871,8 @@ public:
         QRhiGraphicsPipeline::TargetBlend b;
         if (channel >= 0)
             b.colorWrite = QRhiGraphicsPipeline::ColorMask(1 << channel);
+        ps->setFlags(QRhiGraphicsPipeline::UsesScissor);
         if (blend) {
-            ps->setFlags(QRhiGraphicsPipeline::UsesScissor);
             b.enable = true;
             b.srcColor = QRhiGraphicsPipeline::One;
             b.dstColor = screen ? QRhiGraphicsPipeline::OneMinusSrcColor
@@ -810,8 +897,15 @@ public:
         cb->setViewport({0, 0, float(size.width()), float(size.height())});
         const auto scissor = state->scissorEnabled() ? state->scissorRect()
                                                      : QRect(0, 0, size.width(), size.height());
-        cb->setScissor({scissor.x(), scissor.y(), scissor.width(), scissor.height()});
+        QRect previous;
         for (const auto &draw : main) {
+            const auto area = scissor.intersected(draw.scissor);
+            if (area.isEmpty())
+                continue;
+            if (area != previous) {
+                cb->setScissor({area.x(), area.y(), area.width(), area.height()});
+                previous = area;
+            }
             const QRhiCommandBuffer::DynamicOffset offset{0, params.offsets[draw.slot]};
             cb->setShaderResources(uniformSlot->bindings.value(draw.binding).get(), 1, &offset);
             cb->draw(4);
@@ -870,11 +964,20 @@ void CanvasNode::prepare()
     const auto parent = matrix()->toTransform();
     const auto deviceToClip =
         *projectionMatrix() * QMatrix4x4(QTransform::fromScale(1 / dpr, 1 / dpr));
+    bool invertible = false;
+    const auto projection = deviceToClip.toTransform();
+    PassCoverage coverage{projection.inverted(&invertible), projection, renderTarget()->pixelSize(),
+                          false, pool->rhi->isYUpInNDC()};
+    coverage.affine = invertible && projectionMatrix()->isAffine() && projection.isAffine() &&
+                      matrix()->isAffine() && (*matrix())(2, 0) == 0 && (*matrix())(2, 1) == 0;
+    Memory jobScratch;
+    std::map<HaloKey, HaloJob> jobs;
     qint64 forecast = 0, operationCount = 0, effectCount = 0, mainCount = 0;
     for (const auto &draw : draws) {
         if (transparent(draw) || !draw.transform.isInvertible())
             continue;
         const auto device = draw.transform * parent * QTransform::fromScale(dpr, dpr);
+        const auto range = coverage.visibleDevice(draw, device);
         const qreal a = device.m11() * device.m11() + device.m12() * device.m12(),
                     b = device.m21() * device.m21() + device.m22() * device.m22(),
                     c = device.m11() * device.m21() + device.m12() * device.m22();
@@ -889,9 +992,27 @@ void CanvasNode::prepare()
         ++mainCount;
         for (const auto &halo : draw.halos)
             if (halo.radius > 0 && halo.opacity > 0 && halo.color.alphaF() > 0) {
-                const auto plan =
-                    makePlan(input->fragments[draw.fragment], device, halo.radius * density);
+                const auto key = haloKey(draw.fragment, device, halo.radius * density);
+                auto job = jobs.find(key);
+                if (job == jobs.end()) {
+                    auto plan =
+                        makePlan(input->fragments[draw.fragment], device, halo.radius * density);
+                    if (!jobScratch.resize(jobScratch.size() + sizeof(HaloJob) + sizeof(HaloKey) +
+                                           8 * sizeof(void *) +
+                                           plan.steps.capacity() * sizeof(Step))) {
+                        report("Canvas pass halo planning exceeds the native budget");
+                        return;
+                    }
+                    job = jobs.emplace(key, HaloJob{std::move(plan), {}, {}, false}).first;
+                }
+                auto &shared = job->second;
+                const auto &plan = shared.plan;
                 if (isHaloOutsideTarget(plan.back, deviceToClip))
+                    continue;
+                const auto needed = coverage.storedPixels(plan, range);
+                const bool first = shared.needed.isEmpty();
+                shared.needed |= needed;
+                if (needed.isEmpty() || !first)
                     continue;
                 const auto filters = plan.steps.size() + 2;
                 forecast += filters * pool->rhi->ubufAligned(sizeof(FilterParams));
@@ -952,7 +1073,7 @@ void CanvasNode::prepare()
     }
     const qint64 required = prospectiveGpu + forecast + std::max(descriptorBytes, descriptors);
     if (pool->effectsBytes() - pool->nodeEffectsBytes.value(this) + required +
-                bindingScratch.size() >
+                bindingScratch.size() + jobScratch.size() >
             EffectsBudget ||
         forecast > 8LL * 1024 * 1024 || !memory->resize(required)) {
         report("Canvas frame metadata exceeds the shared effects/native budget");
@@ -971,6 +1092,7 @@ void CanvasNode::prepare()
             continue;
         const auto &fragment = input->fragments[draw.fragment];
         const auto device = draw.transform * parent * QTransform::fromScale(dpr, dpr);
+        const auto range = coverage.visibleDevice(draw, device);
         const qreal a = device.m11() * device.m11() + device.m12() * device.m12(),
                     b = device.m21() * device.m21() + device.m22() * device.m22(),
                     c = device.m11() * device.m21() + device.m12() * device.m22();
@@ -983,8 +1105,8 @@ void CanvasNode::prepare()
         QRectF quad = fragment.rect[0];
         struct Shadow
         {
-            Plan plan;
-            Field field;
+            HaloJob *job;
+            bool produce;
             QColor color;
             qreal opacity;
         };
@@ -992,7 +1114,8 @@ void CanvasNode::prepare()
         for (const auto &halo : draw.halos) {
             if (halo.radius <= 0 || halo.opacity <= 0 || halo.color.alphaF() <= 0)
                 continue;
-            auto p = makePlan(fragment, device, halo.radius * density);
+            auto &job = jobs.at(haloKey(draw.fragment, device, halo.radius * density));
+            const auto &p = job.plan;
             if (p.source.width() > 1024 || p.source.height() > 1024 || p.padded.width() > 1024 ||
                 p.padded.height() > 1024) {
                 report("Canvas source exceeds the four-target sampling capacity");
@@ -1001,18 +1124,21 @@ void CanvasNode::prepare()
             // Keep conservative item bounds even when this pass cannot see the
             // halo. A later capture in the same frame can use another projection.
             quad |= device.inverted().mapRect(p.back);
-            if (isHaloOutsideTarget(p.back, deviceToClip))
+            if (job.needed.isEmpty() || coverage.storedPixels(p, range).isEmpty())
                 continue;
-            Field field;
-            if (!pool->field(p.stored, field)) {
+            const bool produce = !job.scheduled;
+            if (produce && !pool->field(p.stored, job.field)) {
                 report("Canvas halos exceed the four-target 32 MiB effects texture budget");
                 return;
             }
-            shadows.append({p, field, halo.color, halo.opacity});
+            job.scheduled = true;
+            shadows.append({&job, produce, halo.color, halo.opacity});
         }
         bounds |= draw.transform.mapRect(quad);
         for (const auto &shadow : shadows) {
-            const auto &p = shadow.plan;
+            if (!shadow.produce)
+                continue;
+            const auto &p = shadow.job->plan;
             Effect effect;
             effect.fragment = draw.fragment;
             effect.device = device;
@@ -1020,7 +1146,7 @@ void CanvasNode::prepare()
             auto v = base(p.source.size(), fragment, ink[draw.fragment], device, scale);
             v.font = {float(density), float(p.source.x()), float(p.source.y()), 0};
             if (!p.outline) {
-                effect.ops.append({2, 3, 0, int(params.size()), p.source.size(), {}});
+                effect.ops.append({2, 3, 0, int(params.size()), p.source.size(), {}, {}});
                 params.append(v);
             }
             int previous = 0;
@@ -1030,7 +1156,7 @@ void CanvasNode::prepare()
                 v.mapping = {step.scale, float(step.delta.x()), float(step.delta.y()), 0};
                 v.prior = {float(step.prior.x()), float(step.prior.y()), 0, 0};
                 const int output = previous == 1 ? 2 : 1;
-                effect.ops.append({0, previous, output, int(params.size()), step.out, {}});
+                effect.ops.append({0, previous, output, int(params.size()), step.out, {}, {}});
                 params.appendFilter(v);
                 previous = output;
             }
@@ -1040,7 +1166,13 @@ void CanvasNode::prepare()
             v.prior = {0, 0, 0, float(p.lowSigma)};
             v.options.setX(p.path ? 0 : p.window);
             const int xOutput = previous == 1 ? 2 : 1;
-            effect.ops.append({1, previous, xOutput, int(params.size()), p.padded, {}});
+            effect.ops.append({1,
+                               previous,
+                               xOutput,
+                               int(params.size()),
+                               p.padded,
+                               {},
+                               horizontalPixels(p, shadow.job->needed)});
             params.appendFilter(v);
             auto y = v;
             y.input = {float(p.padded.width()), float(p.padded.height()), 1024, 1024};
@@ -1053,7 +1185,8 @@ void CanvasNode::prepare()
             ortho.ortho(0, p.stored.width(), p.stored.height(), 0, -1, 1);
             const auto ym = pool->rhi->clipSpaceCorrMatrix() * ortho;
             memcpy(y.mvp.data(), ym.constData(), 64);
-            effect.ops.append({3, xOutput, 3, int(params.size()), p.stored, shadow.field});
+            effect.ops.append({3, xOutput, 3, int(params.size()), p.stored, shadow.job->field,
+                               shadow.job->needed.translated(1, 1)});
             params.appendFilter(y);
             effects.append(std::move(effect));
         }
@@ -1074,17 +1207,19 @@ void CanvasNode::prepare()
                   float(draw.clip.bottom())};
         for (int i = 0; i < shadows.size(); ++i) {
             const auto &shadow = shadows[i];
-            const auto &p = shadow.plan;
-            const auto r = shadow.field.pixels;
+            const auto &p = shadow.job->plan;
+            const auto r = shadow.job->field.pixels;
             v.path[i] = {float(p.back.x()), float(p.back.y()), float(p.back.width()),
                          float(p.back.height())};
             v.field[i] = {float(r.x()), float(r.y()), float(r.width()), float(r.height())};
             v.shadow[i] = {float(shadow.color.redF()), float(shadow.color.greenF()),
                            float(shadow.color.blueF()),
                            float(shadow.color.alphaF() * shadow.opacity)};
-            v.channels[i] = shadow.field.channel;
+            v.channels[i] = shadow.job->field.channel;
         }
-        main.append({int(params.size()), bindingKey(draw.fragment, 3)});
+        main.append(
+            {int(params.size()), bindingKey(draw.fragment, 3),
+             draw.clipped ? coverage.composeScissor(range) : QRect(QPoint(), coverage.target)});
         params.append(v);
     }
     const qint64 bufferBytes =
@@ -1159,6 +1294,10 @@ void CanvasNode::prepare()
             const auto extent = op.extent + (op.kind == 3 ? QSize(2, 2) : QSize(0, 0));
             cb->setViewport({float(x), float(1024 - y - extent.height()), float(extent.width()),
                              float(extent.height())});
+            const auto area = (op.kind == 1 || op.kind == 3 ? op.scissor : QRect(QPoint(), extent))
+                                  .translated(x, y);
+            cb->setScissor(
+                {area.x(), 1024 - area.y() - area.height(), area.width(), area.height()});
             const QRhiCommandBuffer::DynamicOffset offset{0, params.offsets[op.slot]};
             cb->setShaderResources(binding(effect.fragment, op.src, op.kind == 2), 1, &offset);
             cb->draw(4);

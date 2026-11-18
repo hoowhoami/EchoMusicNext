@@ -135,26 +135,17 @@ struct Host
     VerificationService verification{api};
     QQmlEngine engine;
     QPointer<QQuickWindow> mainWindow;
+    std::function<void(QQuickWindow *)> attachPluginWindow;
     std::unique_ptr<NetworkPreferences> network;
     PluginRuntime runtime{engine,
                           settings,
-                          {playback,
-                           theme,
-                           shell,
-                           router,
-                           account,
-                           api,
-                           &floating,
-                           nullptr,
-                           &sidebar,
-                           &shortcuts,
-                           &verification,
-                           nullptr,
-                           nullptr,
-                           {},
-                           &shellSettings,
-                           nullptr,
-                           [this] { return mainWindow.data(); },
+                          {playback, theme, shell, router, account, api, &floating, nullptr,
+                           &sidebar, &shortcuts, &verification, nullptr, nullptr,
+                           [this](QQuickWindow *window) {
+                               if (attachPluginWindow)
+                                   attachPluginWindow(window);
+                           },
+                           &shellSettings, nullptr, [this] { return mainWindow.data(); },
                            network.get()},
                           temporary.path() + "/plugins"};
     explicit Host(const std::function<void(const QString &)> &prepareRoot = {},

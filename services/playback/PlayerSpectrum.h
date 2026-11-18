@@ -1,4 +1,5 @@
 #pragma once
+#include "SpectrumFrame.h"
 #include <QObject>
 #include <QJsonObject>
 #include <QPointer>
@@ -29,7 +30,7 @@ public:
         return m_entries.size();
     }
 signals:
-    void frameReady(quint64 id, const QVariantMap &frame);
+    void frameReady(quint64 id, const SpectrumFrameData &frame);
     void statusChanged();
 
 private:
@@ -37,11 +38,17 @@ private:
     {
         QPointer<QObject> owner;
         QVariantMap options;
+        QList<QPair<int, double>> interpolation;
+        QList<QList<QPair<int, double>>> ranges;
+        quint64 projectionRevision = 0;
+        qsizetype sourceCount = -1;
         bool paused = false;
         qint64 last = -10000;
     };
     void reconcile();
-    void accept(const QJsonObject &);
+    void accept(quint64 track, quint64 revision, quint64 request,
+                QSharedPointer<const RawSpectrumFrame>);
+    quint64 m_request = 0;
     PlaybackService &m_playback;
     AudioEngine &m_engine;
     QMap<quint64, Entry> m_entries;

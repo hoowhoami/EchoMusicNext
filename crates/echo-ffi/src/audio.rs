@@ -25,6 +25,7 @@ enum JobKind {
     Output(u64),
     Media,
     Control,
+    Spectrum,
     Effect(u64),
 }
 struct Job {
@@ -70,7 +71,7 @@ impl Sink {
         unsafe { (self.callback)(self.context as *mut c_void, &result) };
     }
     fn error(self, message: &str, sequence: Option<u64>, kind: JobKind) {
-        let bytes = serde_json::to_vec(&serde_json::json!({"event":match kind { JobKind::Transport | JobKind::SourceSwitch(_) => "error", JobKind::Media => "media-error", JobKind::Control | JobKind::Output(_) | JobKind::Effect(_) => "control-error" }, "source_revision":match kind {JobKind::SourceSwitch(revision)=>Some(revision),_=>None}, "output_revision":match kind {JobKind::Output(revision)=>Some(revision),_=>None}, "effect_revision":match kind {JobKind::Effect(revision)=>Some(revision),_=>None}, "track_seq":sequence, "message":echo_audio::log::redact_sources(message)}))
+        let bytes = serde_json::to_vec(&serde_json::json!({"event":match kind { JobKind::Transport | JobKind::SourceSwitch(_) => "error", JobKind::Media => "media-error", JobKind::Spectrum | JobKind::Control | JobKind::Output(_) | JobKind::Effect(_) => "control-error" }, "source_revision":match kind {JobKind::SourceSwitch(revision)=>Some(revision),_=>None}, "output_revision":match kind {JobKind::Output(revision)=>Some(revision),_=>None}, "effect_revision":match kind {JobKind::Effect(revision)=>Some(revision),_=>None}, "track_seq":sequence, "message":echo_audio::log::redact_sources(message)}))
             .unwrap_or_default();
         self.emit(EchoStatus::Internal, &bytes);
     }
@@ -125,7 +126,7 @@ pub unsafe extern "C" fn echo_audio_create(
             while let Ok(job) = receiver.recv() {
                 // Destruction closes this channel only after preparation joins.
                 // Keep the core alive while skipping cancelled queued work.
-                if stopped.load(Ordering::Acquire) { continue; }
+                if stopped.load(Ordering::Acquire) && !matches!(job.kind, JobKind::Spectrum) { continue; }
                 match catch_unwind(AssertUnwindSafe(job.action)) {
                     Ok(Ok(())) => {}, Ok(Err(error)) => sink.error(&error.reason, job.sequence, job.kind),
                     Err(_) => sink.error("audio command panicked", job.sequence, job.kind),
@@ -895,22 +896,122 @@ pub unsafe extern "C" fn echo_audio_spectrum_configure(
     }))
     .unwrap_or(false)
 }
-/// At most one snapshot is requested by the GUI spectrum broker at a time.
+/// Opaque owner of both original sample vectors.
+pub struct EchoSpectrumFrame(echo_audio::events::SpectrumFrame);
+
+#[repr(C)]
+pub struct EchoSpectrumView {
+    pub struct_size: usize,
+    pub bins: *const f64,
+    pub bin_count: usize,
+    pub waveform: *const f64,
+    pub waveform_count: usize,
+    pub sample_rate: u32,
+    pub fft_size: u32,
+    pub timestamp_seconds: f64,
+    pub peak: f64,
+    pub rms: f64,
+}
+
+#[repr(C)]
+pub enum EchoSpectrumStatus {
+    SpectrumReady,
+    SpectrumUnavailable,
+    SpectrumFailed,
+    SpectrumCancelled,
+}
+
+pub type EchoSpectrumDone =
+    unsafe extern "C" fn(*mut c_void, u64, u64, u64, EchoSpectrumStatus, *mut EchoSpectrumFrame);
+
+/// Borrows the vectors until the owning frame is released.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn echo_audio_spectrum_snapshot(
+pub unsafe extern "C" fn echo_spectrum_frame_view(
+    frame: *const EchoSpectrumFrame,
+    out: *mut EchoSpectrumView,
+) -> bool {
+    if frame.is_null()
+        || out.is_null()
+        || unsafe { (*out).struct_size } < size_of::<EchoSpectrumView>()
+    {
+        return false;
+    }
+    let frame = unsafe { &(*frame).0 };
+    let wave = frame.waveform.as_deref().unwrap_or_default();
+    unsafe {
+        out.write(EchoSpectrumView {
+            struct_size: size_of::<EchoSpectrumView>(),
+            bins: frame.bins.as_ptr(),
+            bin_count: frame.bins.len(),
+            waveform: wave.as_ptr(),
+            waveform_count: wave.len(),
+            sample_rate: frame.sample_rate,
+            fft_size: frame.fft_size,
+            timestamp_seconds: frame.timestamp,
+            peak: frame.peak,
+            rms: frame.rms,
+        })
+    };
+    true
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn echo_spectrum_frame_release(frame: *mut EchoSpectrumFrame) {
+    if !frame.is_null() {
+        drop(unsafe { Box::from_raw(frame) });
+    }
+}
+
+/// Accepted requests finish exactly once on the native worker, including during drain.
+/// The callback takes ownership of a non-null frame through echo_spectrum_frame_release.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn echo_audio_request_spectrum(
     audio: *mut EchoAudio,
     revision: u64,
+    request: u64,
+    callback: EchoSpectrumDone,
 ) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
-        if audio.is_null() { return false; }
-        let audio=unsafe { &*audio };
-        let sequence=audio.sequence.load(Ordering::Acquire);
-        let sink=audio.sink;
-        enqueue(audio, Job { sequence: None, kind: JobKind::Control, action: Box::new(move || {
-            let result=echo_audio::get_spectrum_snapshot().execute();
-            let (frame,error)=match result { Ok(frame)=>(frame,None),Err(error)=>(None,Some(error.reason)) };
-            if let Ok(bytes)=serde_json::to_vec(&serde_json::json!({"event":"spectrum","track_seq":sequence,"spectrum_revision":revision,"frame":frame,"error":error})) { sink.emit(EchoStatus::Success,&bytes); }
-            Ok(())
-        }) })
-    })).unwrap_or(false)
+        let Some(audio) = (unsafe { audio.as_ref() }) else {
+            return false;
+        };
+        let sequence = audio.sequence.load(Ordering::Acquire);
+        let context = audio.sink.context;
+        let closing = audio.closing.clone();
+        enqueue(
+            audio,
+            Job {
+                sequence: None,
+                kind: JobKind::Spectrum,
+                action: Box::new(move || {
+                    let (status, frame) = if closing.load(Ordering::Acquire) {
+                        (EchoSpectrumStatus::SpectrumCancelled, None)
+                    } else {
+                        match catch_unwind(AssertUnwindSafe(|| {
+                            echo_audio::get_spectrum_snapshot().execute()
+                        })) {
+                            Ok(Ok(Some(frame))) => (EchoSpectrumStatus::SpectrumReady, Some(frame)),
+                            Ok(Ok(None)) => (EchoSpectrumStatus::SpectrumUnavailable, None),
+                            _ => (EchoSpectrumStatus::SpectrumFailed, None),
+                        }
+                    };
+                    let frame = frame.map_or(std::ptr::null_mut(), |f| {
+                        Box::into_raw(Box::new(EchoSpectrumFrame(f)))
+                    });
+                    unsafe {
+                        callback(
+                            context as *mut c_void,
+                            sequence,
+                            revision,
+                            request,
+                            status,
+                            frame,
+                        )
+                    };
+                    Ok(())
+                }),
+            },
+        )
+    }))
+    .unwrap_or(false)
 }

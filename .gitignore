@@ -40,6 +40,7 @@ __pycache__/
 !/scripts/format.py
 !/scripts/install-qt.py
 !/scripts/install-icu.py
+!/scripts/icu_word_data.py
 !/scripts/qt_download.py
 !/scripts/qt_sdk.py
 !/scripts/qt_qv4_patch.py

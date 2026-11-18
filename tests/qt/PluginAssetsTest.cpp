@@ -1,6 +1,9 @@
 #include <QtQml/qqmlextensionplugin.h>
 Q_IMPORT_QML_PLUGIN(EchoMusic_ThemesPlugin)
 #include "EchoPluginAssets.h"
+#include "EchoPluginImageDropArea.h"
+#include <QDragEnterEvent>
+#include <QMimeData>
 #include "plugins/PluginRuntimeTestFixture.h"
 #include <QApplication>
 #include <QFileDialog>
@@ -146,6 +149,7 @@ private slots:
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     }
     void invalidArgumentsAndForeignSources();
+    void nativeImageDropRoutesAndRetirement();
     void frozenStorageRejectsAssetMutation_data();
     void frozenStorageRejectsAssetMutation();
     void snapshotBarrierWaitsForAcceptedAssetJob();
@@ -928,6 +932,104 @@ void PluginAssetsTest::publicationNotifiesAllActiveScopesAfterCleanup()
     QTRY_COMPARE(activationChanged.count(), 2);
     QCOMPARE(presentationChanged.count(), 1); // Retired before the queued broadcast.
     QVERIFY(cleanupPrecededSignal);
+}
+
+void PluginAssetsTest::nativeImageDropRoutesAndRetirement()
+{
+    AssetsFixture fixture;
+    QVERIFY(fixture.activate());
+    QQmlComponent component(&fixture.host.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.PluginSdk
+ImageDropArea {
+    width: 160; height: 80
+    collection: "drop.images"
+    maxCount: 1
+    archiveJsonPaths: ["meta.json", "pool.json"]
+})",
+                      QUrl("qrc:/native-image-drop.qml"));
+    std::unique_ptr<QObject> root(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *area = qobject_cast<EchoPluginImageDropArea *>(root.get());
+    QVERIFY(area);
+    area->setAssets(fixture.scope->assets());
+    QQuickWindow window;
+    window.resize(160, 80);
+    area->setParentItem(window.contentItem());
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QTRY_VERIFY(area->flags().testFlag(QQuickItem::ItemAcceptsDrops));
+    QMimeData mime;
+    const auto enter = [&](const QList<QUrl> &urls) {
+        mime.setUrls(urls);
+        QDragEnterEvent event(QPointF(20, 20), Qt::CopyAction, &mime, Qt::LeftButton,
+                              Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &event);
+        return event.isAccepted();
+    };
+    const auto leave = [&] {
+        QDragLeaveEvent event;
+        QCoreApplication::sendEvent(&window, &event);
+    };
+    QVERIFY(!enter({QUrl("https://example.invalid/image.png")}));
+    QVERIFY(!area->containsDrag());
+    leave();
+    const auto imagePath = fixture.host.temporary.filePath("drop.png");
+    QImage image(2, 2, QImage::Format_RGBA8888);
+    image.fill(Qt::red);
+    QVERIFY(image.save(imagePath));
+    const auto corruptPath = fixture.host.temporary.filePath("corrupt.png");
+    write(corruptPath, "invalid image");
+    const auto local = QUrl::fromLocalFile(imagePath);
+    EchoPluginOperation *imported = nullptr;
+    connect(area, &EchoPluginImageDropArea::importStarted, this,
+            [&](EchoPluginOperation *op) { imported = fixture.retain(op); });
+    QVERIFY(enter({local, QUrl::fromLocalFile(corruptPath)}));
+    QVERIFY(area->containsDrag());
+    QDropEvent drop(QPointF(20, 20), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(&window, &drop);
+    QVERIFY(drop.isAccepted());
+    QVERIFY(!area->containsDrag());
+    QVERIFY(imported);
+    QTRY_COMPARE(imported->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(imported->result().toMap()["assets"].toList().size(), 1);
+    QCOMPARE(imported->result().toMap()["rejected"].toList().size(), 1);
+    QVERIFY(enter({local}));
+    area->setActive(false);
+    QVERIFY(!area->containsDrag());
+    QVERIFY(!area->flags().testFlag(QQuickItem::ItemAcceptsDrops));
+    area->setActive(true);
+    leave();
+    QVERIFY(enter({local}));
+    window.hide();
+    QTRY_VERIFY(!area->containsDrag());
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    leave();
+    area->setMaxCount(0);
+    QVERIFY(!enter({local}));
+    QVERIFY(!enter({local, QUrl::fromLocalFile("/tmp/test.zip")}));
+    area->setMaxCount(16);
+    auto owner = std::make_unique<QObject>();
+    QPointer<EchoPluginContext> presentation =
+        fixture.scope->createPresentation(owner.get(), "drop-owner");
+    QVERIFY(presentation);
+    area->setAssets(presentation->assets());
+    leave();
+    QVERIFY(enter({local}));
+    owner.reset();
+    QTRY_VERIFY(!area->containsDrag());
+    QTRY_VERIFY(presentation.isNull());
+    QVERIFY(!enter({local}));
+    area->setAssets(fixture.scope->assets());
+    leave();
+    QVERIFY(enter({local}));
+    auto *assets = fixture.scope->assets();
+    assets->shutdown();
+    QTRY_VERIFY(!area->containsDrag());
+    QVERIFY(!enter({local}));
+    area->setParentItem(nullptr);
 }
 
 QTEST_MAIN(PluginAssetsTest)

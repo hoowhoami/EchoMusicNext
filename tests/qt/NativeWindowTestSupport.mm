@@ -1,6 +1,10 @@
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
+#include <QCursor>
 #include <QEvent>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QtGui/qscreen_platform.h>
 #include <QPoint>
 #include <QWindow>
 #include <QVariantMap>
@@ -21,6 +25,8 @@ QVariantMap nativeWindowInputPolicy(QWindow *window)
             {"appForeground", NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier ==
                                   NSProcessInfo.processInfo.processIdentifier},
             {"nativeVisible", bool(view.window.visible)},
+            {"nativeMiniaturized", bool(view.window.miniaturized)},
+            {"nativeMiniaturizable", bool(view.window.styleMask & NSWindowStyleMaskMiniaturizable)},
             {"nativeOccluded", !(view.window.occlusionState & NSWindowOcclusionStateVisible)},
             {"nativeKey", bool(view.window.keyWindow)},
             {"thermalState", int(NSProcessInfo.processInfo.thermalState)},
@@ -34,6 +40,24 @@ QVariantMap nativeWindowInputPolicy(QWindow *window)
 bool systemMousePostingAvailable()
 {
     return CGPreflightPostEventAccess();
+}
+void setNativePointerPosition(QPoint globalPosition)
+{
+    // Cocoa's QCursor::setPos posts a mouse event. When event posting is
+    // unavailable, position the real cursor directly; moveNativePointer
+    // delivers the corresponding enter/leave and move events to Qt Quick.
+    if (QGuiApplication::platformName() == "cocoa" && !systemMousePostingAvailable()) {
+        if (auto *screen = QGuiApplication::screenAt(globalPosition)) {
+            auto *native =
+                screen->nativeInterface<QNativeInterface::QCocoaScreen>()->nativeScreen();
+            const auto origin = screen->geometry().topLeft();
+            const auto scale = screen->devicePixelRatio() / native.backingScaleFactor;
+            const auto point = origin + QPointF(globalPosition - origin) * scale;
+            if (CGWarpMouseCursorPosition(point.toCGPoint()) == kCGErrorSuccess)
+                return;
+        }
+    }
+    QCursor::setPos(globalPosition);
 }
 void postSystemLeftMouse(QPoint globalPosition, QEvent::Type type)
 {

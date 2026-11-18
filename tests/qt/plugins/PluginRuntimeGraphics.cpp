@@ -729,6 +729,28 @@ void PluginRuntimeTest::graphicsMultipleTargetsMipRenderingAndLifetime()
         return true;
     };
     QVERIFY(check());
+    if (independent) {
+        for (const auto &modes :
+             {QVariantList{"max", "exclusion"}, QVariantList{"exclusion", "max"}}) {
+            definition["blends"] = modes;
+            auto *mixed = gpu->createRenderPipeline(definition);
+            QVERIFY(mixed);
+            auto overlay = load;
+            overlay["pipeline"] = mixed->id();
+            QVERIFY(success(keep(surface.enqueue({{"passes", QVariantList{pass, overlay}}}))));
+            for (int channel = 0; channel < 2; ++channel) {
+                auto *read = keep(surface.readback(channel ? b : a, {{"level", 1}}));
+                QVERIFY(success(read));
+                const auto bytes = read->result().toMap().value("data").toByteArray();
+                QCOMPARE(bytes.size(), 16);
+                const int expected = modes[channel] == "max" ? 64 : 96;
+                for (int offset = 0; offset < bytes.size(); offset += 4) {
+                    QVERIFY(qAbs(int(quint8(bytes[offset + channel])) - expected) <= 1);
+                    QCOMPARE(quint8(bytes[offset + 3]), quint8(255));
+                }
+            }
+        }
+    }
     if (surface.status().value("compute").toBool()) {
         auto *image = gpu->createTexture({{"width", 4},
                                           {"height", 4},

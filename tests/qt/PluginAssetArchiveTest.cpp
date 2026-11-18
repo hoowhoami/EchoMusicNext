@@ -2,6 +2,7 @@
 Q_IMPORT_QML_PLUGIN(EchoMusic_ThemesPlugin)
 #include "EchoPluginAssetArchive.h"
 #include "EchoPluginAssets.h"
+#include "EchoPluginImageDropArea.h"
 #include "plugins/PluginRuntimeTestFixture.h"
 #include <QApplication>
 #include <QBuffer>
@@ -128,6 +129,43 @@ private slots:
         // Success publishes the output; capacity is released after physical
         // cleanup and the storage barrier, not after a guessed time delay.
         QTRY_VERIFY(assets->isDrained());
+        {
+            QQuickWindow dropWindow;
+            dropWindow.resize(160, 80);
+            EchoPluginImageDropArea area;
+            area.setSize(dropWindow.size());
+            area.setParentItem(dropWindow.contentItem());
+            area.setAssets(assets);
+            area.setCollection("example.images");
+            area.setMaxCount(0); // A full image pool can still inspect a ZIP.
+            area.setArchiveJsonPaths({"meta.json", "pool.json"});
+            QPointer<EchoPluginAssetArchive> dropped;
+            connect(&area, &EchoPluginImageDropArea::archiveDropped, this,
+                    [&](EchoPluginAssetArchive *value) { dropped = value; });
+            dropWindow.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&dropWindow));
+            QTRY_VERIFY(area.flags().testFlag(QQuickItem::ItemAcceptsDrops));
+            QMimeData mime;
+            mime.setUrls({QUrl::fromLocalFile(zipPath)});
+            QDragEnterEvent enter(QPointF(20, 20), Qt::CopyAction, &mime, Qt::LeftButton,
+                                  Qt::NoModifier);
+            QCoreApplication::sendEvent(&dropWindow, &enter);
+            QVERIFY(enter.isAccepted() && area.containsDrag());
+            QDropEvent event(QPointF(20, 20), Qt::CopyAction, &mime, Qt::LeftButton,
+                             Qt::NoModifier);
+            QCoreApplication::sendEvent(&dropWindow, &event);
+            QVERIFY(event.isAccepted() && !area.containsDrag());
+            QVERIFY(dropped);
+            QTRY_VERIFY_WITH_TIMEOUT(dropped->ready() || !dropped->errorString().isEmpty(), 15000);
+            QVERIFY2(dropped->ready(), qPrintable(dropped->errorString()));
+            QCOMPARE(dropped->jsonFiles().value("meta.json").toMap().value("example").toBool(),
+                     true);
+            QVERIFY(!dropped->entries().isEmpty());
+            dropped->dispose();
+            QTRY_VERIFY(assets->isDrained());
+            QCOMPARE(EchoPluginAssets::archiveSlotCount(), 0);
+            QCOMPARE(EchoPluginAssets::archiveReservedBytes(), 0);
+        }
         auto *lease = assets->openImageArchive({"meta.json", "pool.json"});
         QVERIFY(lease);
         QVERIFY2(lease->errorString().isEmpty(), qPrintable(lease->errorString()));

@@ -6,7 +6,7 @@
 //! - Audio decoding from various formats (via symphonia)
 //! - Live audio streaming from external sources (e.g., Bluetooth)
 //! - ALAC encoding for realtime streaming
-//! - AAC encoding for buffered streaming
+//! - (AAC encoding removed in the EchoMusic vendor copy; see ECHOMUSIC_VENDOR.md)
 //! - RTP packet formatting and transmission
 //! - Audio buffer management
 //! - Retransmission handling
@@ -24,7 +24,7 @@ mod traits;
 
 pub use buffer::{AudioBuffer, AudioFrame};
 pub use decoder::{AudioDecoder, DecodedFrame};
-pub use encoder::{create_encoder, AacEncoder, AlacEncoder, AudioEncoder, EncodedPacket};
+pub use encoder::{create_encoder, AlacEncoder, AudioEncoder, EncodedPacket};
 pub use eq::{EqConfig, EqParams, Equalizer};
 pub use live_decoder::{LiveAudioDecoder, LiveFrameSender, LivePcmFrame};
 pub use rtp::{

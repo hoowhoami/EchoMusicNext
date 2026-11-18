@@ -27,6 +27,11 @@ NativeGpuResource::~NativeGpuResource()
         textureSource->ready = false;
         textureSource->handle = 0;
     }
+    initialColorTarget.reset();
+    initialColorDescriptor.reset();
+    initialDepthTarget.reset();
+    initialDepthDescriptor.reset();
+    multisamples.clear();
     depths.clear();
     texture.reset();
     buffer.reset();

@@ -10,7 +10,7 @@ struct GraphicsFixture
     EchoPluginContext *scope = nullptr;
     EchoPluginGraphics *gpu = nullptr;
     QList<QJSValue> roots;
-    GraphicsFixture()
+    explicit GraphicsFixture(const QVariantMap &limits = {})
     {
         const auto source = package(host.temporary.path(), "export function activate(c) {}",
                                     {"lifecycle", "operations", "graphics.rhi", "graphics.indirect",
@@ -19,10 +19,27 @@ struct GraphicsFixture
                                      "graphics.textureSources", "graphics.glyphAtlases",
                                      "text.glyphs", "graphics.glyphRun.canvas"},
                                     {"graphics"});
-        for (const auto &name : {"fixture.vert", "fixture.frag", "solid.frag", "indirect.comp",
-                                 "array.frag", "array.comp", "cube.frag", "volume.frag",
-                                 "volume.comp", "shared.comp", "instanced.vert", "instanced.frag",
-                                 "matrix.vert", "integer.vert", "source.frag", "glyph.frag"}) {
+        if (!limits.isEmpty()) {
+            const auto manifestFile = source + "/manifest.json";
+            QFile file(manifestFile);
+            if (!file.open(QIODevice::ReadOnly))
+                return;
+            auto manifest = QJsonDocument::fromJson(file.readAll()).object();
+            file.close();
+            manifest["graphicsLimits"] = QJsonObject::fromVariantMap(limits);
+            auto requirements = manifest["requires"].toObject();
+            auto features = requirements["features"].toArray();
+            features.append("graphics.limits");
+            requirements["features"] = features;
+            manifest["requires"] = requirements;
+            write(manifestFile, QJsonDocument(manifest).toJson());
+        }
+        for (const auto &name :
+             {"fixture.vert",  "fixture.frag", "solid.frag",      "blend.frag",
+              "indirect.comp", "depth.vert",   "depth-only.frag", "depth-view.frag",
+              "array.frag",    "array.comp",   "cube.frag",       "volume.frag",
+              "volume.comp",   "shared.comp",  "instanced.vert",  "instanced.frag",
+              "matrix.vert",   "integer.vert", "source.frag",     "glyph.frag"}) {
             QFile shader(":/test-gpu/shaders/gpu/" + QString(name) + ".qsb");
             if (!shader.open(QIODevice::ReadOnly))
                 return;

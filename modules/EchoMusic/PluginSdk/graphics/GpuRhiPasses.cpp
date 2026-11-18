@@ -120,7 +120,9 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
     }
     ++pipelineBuilds;
     passes.clear();
-    for (const auto &passValue : frame.value("passes").toList()) {
+    QSet<QString> plannedClears;
+    for (int passIndex = 0; passIndex < incoming.size(); ++passIndex) {
+        const auto passValue = incoming[passIndex];
         NativeGpuPass pass;
         pass.definition = passValue.toMap();
         const auto &p = pass.definition;
@@ -283,9 +285,9 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                 return false;
             }
         } else {
-            auto *target = output;
             const auto views = gpuColorTargets(p);
-            const int attachmentCount = qMax(1, int(views.size()));
+            const int attachmentCount =
+                p.contains("colorTargets") ? int(views.size()) : qMax(1, int(views.size()));
             if (attachmentCount > rhi->resourceLimit(QRhi::MaxColorAttachments)) {
                 error = "Color attachment count exceeds device limits";
                 return false;
@@ -296,99 +298,22 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                     error = "Fragment output location is outside the color target layout";
                     return false;
                 }
-            const bool load = p.value("loadOp", "clear") == "load";
-            if (!views.isEmpty() || load) {
-                QVector<QRhiColorAttachment> colors;
-                QRhiTexture *depth = workingDepth.get();
-                bool newDepth = false;
-                if (views.isEmpty()) {
-                    QRhiColorAttachment color(workingMultisample ? workingMultisample.get()
-                                                                 : workingTexture.get());
-                    if (workingMultisample)
-                        color.setResolveTexture(workingTexture.get());
-                    colors.append(color);
-                } else {
-                    depth = nullptr;
-                    QSize extent;
-                    QSet<NativeGpuResource *> attachments;
-                    for (const auto &value : views) {
-                        const auto view = value.toMap();
-                        const auto id = view.value("texture").toString();
-                        const auto found = resources.find(id);
-                        if (found == resources.end() || !found->second->texture ||
-                            readable.contains(found->second->identity) ||
-                            writable.contains(found->second->identity)) {
-                            error =
-                                "Color target is missing or aliases a shader input in this pass";
-                            return false;
-                        }
-                        if (attachments.contains(found->second.get())) {
-                            error = "Color targets alias the same shared allocation";
-                            return false;
-                        }
-                        attachments.insert(found->second.get());
-                        auto *texture = found->second->texture.get();
-                        const int level = view.value("level", 0).toInt();
-                        if (texture->flags().testFlag(QRhiTexture::ThreeDimensional) &&
-                            !rhi->isFeatureSupported(QRhi::RenderTo3DTextureSlice)) {
-                            error = "Rendering to 3D texture slices is unsupported by this device";
-                            return false;
-                        }
-                        if (level && !rhi->isFeatureSupported(QRhi::RenderToNonBaseMipLevel)) {
-                            error = "Rendering to a non-base mip is unsupported by this device";
-                            return false;
-                        }
-                        const QSize size(qMax(1, texture->pixelSize().width() >> level),
-                                         qMax(1, texture->pixelSize().height() >> level));
-                        if (!extent.isEmpty() && size != extent) {
-                            error = "Color target sizes differ";
-                            return false;
-                        }
-                        extent = size;
-                        QRhiColorAttachment color(texture);
-                        color.setLevel(level);
-                        color.setLayer(view.value("layer", 0).toInt());
-                        colors.append(color);
-                    }
-                    if (d.value("depthTest").toBool() || d.value("depthWrite").toBool()) {
-                        const auto first = views.first().toMap();
-                        auto &attachment = resources.at(first.value("texture").toString())
-                                               ->depths[gpuDepthKey(first)];
-                        if (!attachment) {
-                            if (!resources.at(first.value("texture").toString())
-                                     ->reserve(qint64(extent.width()) * extent.height() * 4)) {
-                                error = "Shared depth allocation exceeds GPU budget";
-                                return false;
-                            }
-                            attachment.reset(rhi->newTexture(QRhiTexture::D32F, extent, 1,
-                                                             QRhiTexture::RenderTarget));
-                            if (!attachment->create()) {
-                                error = "Cannot create offscreen depth attachment";
-                                return false;
-                            }
-                            newDepth = true;
-                        }
-                        depth = attachment.get();
-                    }
-                }
-                QRhiTextureRenderTargetDescription description;
-                description.setColorAttachments(colors.cbegin(), colors.cend());
-                description.setDepthTexture(depth);
-                QRhiTextureRenderTarget::Flags flags;
-                if (load) {
-                    flags |= QRhiTextureRenderTarget::PreserveColorContents;
-                    if (depth && !newDepth)
-                        flags |= QRhiTextureRenderTarget::PreserveDepthStencilContents;
-                }
-                pass.target.reset(rhi->newTextureRenderTarget(description, flags));
-                pass.descriptor.reset(pass.target->newCompatibleRenderPassDescriptor());
-                pass.target->setRenderPassDescriptor(pass.descriptor.get());
-                if (!pass.target->create()) {
-                    error = "Cannot create render target";
-                    return false;
-                }
-                target = pass.target.get();
+            // Resolve only at the end of a consecutive MSAA load sequence. Metal's depth
+            // resolve discards the multisample depth contents even when later passes load it.
+            bool resolve = true;
+            if (p.value("samples", 1).toInt() > 1 && passIndex + 1 < incoming.size()) {
+                const auto next = incoming[passIndex + 1].toMap();
+                if (next.value("type", "render") == "render" &&
+                    next.value("loadOp", "clear") == "load" &&
+                    next.value("samples", 1) == p.value("samples", 1) &&
+                    gpuColorTargets(next) == views &&
+                    next.value("depthTarget") == p.value("depthTarget"))
+                    resolve = false;
             }
+            auto *target =
+                buildRenderTarget(pass, d, output, readable, writable, plannedClears, resolve);
+            if (!target)
+                return false;
             bool indirect = false;
             for (const auto &value : p.value("draws").toList()) {
                 const auto draw = value.toMap();
@@ -436,8 +361,14 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                 QRhiGraphicsPipeline::TargetBlend blend;
                 const auto mode = value.toString();
                 blend.enable = mode != "none";
-                if (mode == "add")
+                if (mode == "add" || mode == "max")
                     blend.dstColor = blend.dstAlpha = QRhiGraphicsPipeline::One;
+                if (mode == "max")
+                    blend.opColor = blend.opAlpha = QRhiGraphicsPipeline::Max;
+                if (mode == "exclusion") {
+                    blend.srcColor = QRhiGraphicsPipeline::OneMinusDstColor;
+                    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcColor;
+                }
                 blends.append(blend);
             }
             ps->setTargetBlends(blends.cbegin(), blends.cend());
@@ -454,8 +385,20 @@ bool GpuRenderState::buildPasses(const QVariantMap &frame, QRhiRenderTarget *out
                             : d.value("cull") == "front" ? QRhiGraphicsPipeline::Front
                                                          : QRhiGraphicsPipeline::None);
             ps->setDepthTest(d.value("depthTest").toBool() || d.value("depthWrite").toBool());
-            ps->setDepthOp(d.value("depthTest").toBool() ? QRhiGraphicsPipeline::Less
-                                                         : QRhiGraphicsPipeline::Always);
+            ps->setFrontFace(d.value("frontFace", "ccw") == "cw" ? QRhiGraphicsPipeline::CW
+                                                                 : QRhiGraphicsPipeline::CCW);
+            static const QHash<QString, QRhiGraphicsPipeline::CompareOp> depthOps{
+                {"less", QRhiGraphicsPipeline::Less},
+                {"less-equal", QRhiGraphicsPipeline::LessOrEqual},
+                {"greater", QRhiGraphicsPipeline::Greater},
+                {"greater-equal", QRhiGraphicsPipeline::GreaterOrEqual},
+                {"equal", QRhiGraphicsPipeline::Equal},
+                {"not-equal", QRhiGraphicsPipeline::NotEqual},
+                {"always", QRhiGraphicsPipeline::Always},
+                {"never", QRhiGraphicsPipeline::Never}};
+            ps->setDepthOp(d.value("depthTest").toBool()
+                               ? depthOps.value(d.value("depthCompare", "less").toString())
+                               : QRhiGraphicsPipeline::Always);
             ps->setDepthWrite(d.value("depthWrite", d.value("depthTest", false)).toBool());
             ps->setShaderResourceBindings(pass.bindings.get());
             ps->setRenderPassDescriptor(target->renderPassDescriptor());

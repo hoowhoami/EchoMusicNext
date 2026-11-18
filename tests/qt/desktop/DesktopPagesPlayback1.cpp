@@ -1,14 +1,11 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
+#include "FloatingWindowTest.h"
 #include "LyricLine.h"
 #include <QFontInfo>
 #include <QQmlIncubationController>
 #include <QStyleHints>
 #include "ShortcutActions.h"
-
-#ifdef Q_OS_WIN
-#include <windows.h>
-#endif
 
 #ifdef Q_OS_MACOS
 QVariantMap nativeMacApplicationPresentation();
@@ -1671,7 +1668,7 @@ void DesktopPagesTest::desktopLyricsMatchSourceChromeAndHoverUnlock()
     if (QGuiApplication::platformName() == "offscreen")
         QSKIP("Requires native global cursor and transparent window pixels");
     const auto originalCursor = QCursor::pos();
-    const auto restoreCursor = qScopeGuard([&] { QCursor::setPos(originalCursor); });
+    const auto restoreCursor = qScopeGuard([&] { Test::setNativePointerPosition(originalCursor); });
     Session session;
     session.theme.setMotionEnabled(false);
     PlaybackService playback(session.api, session.preferences);
@@ -1819,6 +1816,7 @@ void DesktopPagesTest::desktopLyricsMatchSourceChromeAndHoverUnlock()
         QVERIFY(!nativeFloatingAppearance(desktop).value("opaque").toBool());
 #endif
         Test::moveNativePointer(desktop, {-40, -40});
+        QTRY_VERIFY(!desktop->geometry().contains(QCursor::pos()));
         floating->setLocked(true);
         QTRY_VERIFY(findWindow("desktopLyricUnlockWindow"));
         QPointer<QQuickWindow> unlock = findWindow("desktopLyricUnlockWindow");
@@ -1826,6 +1824,7 @@ void DesktopPagesTest::desktopLyricsMatchSourceChromeAndHoverUnlock()
         QVERIFY(!floating->unlockVisible());
         QVERIFY(desktop->flags().testFlag(Qt::WindowTransparentForInput));
         Test::moveNativePointer(desktop, {360, 100});
+        QTRY_VERIFY(desktop->geometry().contains(QCursor::pos()));
         QTRY_VERIFY(unlock->isVisible());
         QTRY_VERIFY(floating->unlockVisible());
         QCOMPARE(toolbar->opacity(), 0.);
@@ -1852,10 +1851,12 @@ void DesktopPagesTest::desktopLyricsMatchSourceChromeAndHoverUnlock()
         QVERIFY(save(unlock, QString("unlock-%1").arg(suffix)));
         QVERIFY(save(desktop, QString("desktop-locked-%1").arg(suffix)));
         Test::moveNativePointer(desktop, {-40, -40});
+        QTRY_VERIFY(!desktop->geometry().contains(QCursor::pos()));
         QTRY_VERIFY(!unlock->isVisible());
         // Revealing/hiding must reuse the tiny window, not remount the lyric viewport.
         QCOMPARE(unlock.data(), findWindow("desktopLyricUnlockWindow"));
         Test::moveNativePointer(desktop, {360, 100});
+        QTRY_VERIFY(desktop->geometry().contains(QCursor::pos()));
         QTRY_VERIFY(unlock->isVisible());
         floating->desktop()->setShowUnlockButton(false);
         QTRY_VERIFY(unlock.isNull());
@@ -1872,6 +1873,7 @@ void DesktopPagesTest::desktopLyricsMatchSourceChromeAndHoverUnlock()
         floating->desktop()->setLayout("vertical");
         desktop->resize(240, 600);
         Test::moveNativePointer(desktop, {80, 100});
+        QTRY_VERIFY(desktop->geometry().contains(QCursor::pos()));
         QTRY_VERIFY(unlock->isVisible());
         QTRY_COMPARE(unlock->geometry().topLeft(),
                      desktop->mapToGlobal(lock->mapToScene({0, 0}).toPoint()));
@@ -1966,7 +1968,7 @@ void DesktopPagesTest::floatingWindowsIgnoreMainWindowMinimize()
     if (QGuiApplication::platformName() != "windows")
         QSKIP("Requires the windows platform to reproduce native owner propagation");
     const auto originalCursor = QCursor::pos();
-    const auto restoreCursor = qScopeGuard([&] { QCursor::setPos(originalCursor); });
+    const auto restoreCursor = qScopeGuard([&] { Test::setNativePointerPosition(originalCursor); });
     Session session;
     session.theme.setMotionEnabled(false);
     PlaybackService playback(session.api, session.preferences);
@@ -1999,52 +2001,21 @@ void DesktopPagesTest::floatingWindowsIgnoreMainWindowMinimize()
     floating->setDesktopEnabled(true);
     QTRY_VERIFY(findWindow("desktopLyricWindow"));
     QPointer<QQuickWindow> desktop = findWindow("desktopLyricWindow");
-    QTRY_VERIFY(QTest::qWaitForWindowExposed(desktop));
+    QVERIFY(QTest::qWaitForWindowExposed(desktop));
     floating->setLocked(true);
     QTRY_VERIFY(findWindow("desktopLyricUnlockWindow"));
     Test::moveNativePointer(desktop.data(), {360, 100});
     QTRY_VERIFY(floating->unlockVisible());
     QPointer<QQuickWindow> unlock = findWindow("desktopLyricUnlockWindow");
     QVERIFY(unlock && unlock->isVisible());
-    const QList<QPair<QString, QQuickWindow *>> floatingWindows{
-        {"desktopLyricWindow", desktop.data()},
-        {"desktopLyricUnlockWindow", unlock.data()}};
-    const QList<QRect> floatingGeometry = [&] {
-        QList<QRect> result;
-        for (const auto &entry : floatingWindows)
-            result.append(entry.second->geometry());
-        return result;
-    }();
-    for (const auto &entry : floatingWindows) {
-        QVERIFY2(!entry.second->transientParent(), qPrintable(entry.first));
-#ifdef Q_OS_WIN
-        QVERIFY2(GetWindowLongPtrW(reinterpret_cast<HWND>(entry.second->winId()),
-                                   GWLP_HWNDPARENT) == 0,
-                 qPrintable(entry.first));
-#endif
-    }
-    session.window->setWindowStates(session.window->windowStates() | Qt::WindowMinimized);
-    QTRY_VERIFY(session.window->windowStates().testFlag(Qt::WindowMinimized));
-    // An owned window hides within the first event-loop turns of the owner's
-    // minimize; keep watching long enough for that propagation to land.
-    for (int turn = 0; turn < 8; ++turn) {
-        QTest::qWait(80);
-        for (const auto &entry : floatingWindows)
-            QVERIFY2(entry.second->isVisible(), qPrintable(entry.first));
-    }
-    session.window->showNormal();
-    QTest::qWait(120);
-    for (int index = 0; index < floatingWindows.size(); ++index) {
-        QVERIFY2(floatingWindows[index].second->isVisible(),
-                 qPrintable(floatingWindows[index].first));
-        QVERIFY(!floatingWindows[index].second->windowStates().testFlag(Qt::WindowMinimized));
-        QCOMPARE(floatingWindows[index].second->geometry(), floatingGeometry[index]);
-    }
+    Test::verifyFloatingWindowsAcrossMinimize(*session.window, {desktop.data(), unlock.data()});
+    if (QTest::currentTestFailed())
+        return;
     // The mini player replaces a hidden main window, so it cannot observe the
     // minimize propagation; still verify it is not owned either.
     Test::moveNativePointer(desktop.data(), {-40, -40});
     floating->setLocked(false);
-    QTRY_VERIFY(!unlock->isVisible());
+    QTRY_VERIFY(unlock.isNull());
     floating->showMini();
     QTRY_VERIFY(floating->miniWindow());
     QTRY_VERIFY(floating->miniWindow()->isVisible());

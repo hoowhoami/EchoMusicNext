@@ -29,9 +29,8 @@ float axisCoverage(vec2 p)
     int radius = options.x > 0. ? (int(mod(options.x, 2.)) == 1 ? 3 * (int(options.x) - 1) / 2
                                                                 : 3 * int(options.x) / 2 - 1)
                                 : int(ceil(3. * prior.w));
-    for (int i = -127; i <= 127; ++i) {
-        if (abs(i) > radius)
-            continue;
+    int extent = min(radius, 127);
+    for (int i = -extent; i <= extent; ++i) {
         float w =
             options.x > 0. ? boxWeight(float(i)) : exp(-.5 * float(i * i) / (prior.w * prior.w));
         weight += w;

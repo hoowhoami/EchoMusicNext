@@ -22,11 +22,23 @@ typedef enum EchoStatus {
   ApiFailure = 5,
 } EchoStatus;
 
+typedef enum EchoSpectrumStatus {
+  SpectrumReady,
+  SpectrumUnavailable,
+  SpectrumFailed,
+  SpectrumCancelled,
+} EchoSpectrumStatus;
+
 typedef struct EchoAudio EchoAudio;
 
 typedef struct EchoCapabilities EchoCapabilities;
 
 typedef struct EchoRuntime EchoRuntime;
+
+/**
+ * Opaque owner of both original sample vectors.
+ */
+typedef struct EchoSpectrumFrame EchoSpectrumFrame;
 
 typedef struct EchoResult {
   uint64_t request_id;
@@ -37,6 +49,26 @@ typedef struct EchoResult {
 } EchoResult;
 
 typedef void (*EchoCallback)(void*, const struct EchoResult*);
+
+typedef struct EchoSpectrumView {
+  size_t struct_size;
+  const double *bins;
+  size_t bin_count;
+  const double *waveform;
+  size_t waveform_count;
+  uint32_t sample_rate;
+  uint32_t fft_size;
+  double timestamp_seconds;
+  double peak;
+  double rms;
+} EchoSpectrumView;
+
+typedef void (*EchoSpectrumDone)(void*,
+                                 uint64_t,
+                                 uint64_t,
+                                 uint64_t,
+                                 enum EchoSpectrumStatus,
+                                 struct EchoSpectrumFrame*);
 
 typedef struct EchoLogEntry {
   uint64_t timestamp_ms;
@@ -290,9 +322,20 @@ bool echo_audio_read_file_metadata(const uint8_t *path,
 bool echo_audio_spectrum_configure(struct EchoAudio *audio, const uint8_t *bytes, size_t length);
 
 /**
- * At most one snapshot is requested by the GUI spectrum broker at a time.
+ * Borrows the vectors until the owning frame is released.
  */
-bool echo_audio_spectrum_snapshot(struct EchoAudio *audio, uint64_t revision);
+bool echo_spectrum_frame_view(const struct EchoSpectrumFrame *frame, struct EchoSpectrumView *out);
+
+void echo_spectrum_frame_release(struct EchoSpectrumFrame *frame);
+
+/**
+ * Accepted requests finish exactly once on the native worker, including during drain.
+ * The callback takes ownership of a non-null frame through echo_spectrum_frame_release.
+ */
+bool echo_audio_request_spectrum(struct EchoAudio *audio,
+                                 uint64_t revision,
+                                 uint64_t request,
+                                 EchoSpectrumDone callback);
 
 struct EchoCapabilities *echo_capabilities_create(EchoCallback callback, void *context);
 

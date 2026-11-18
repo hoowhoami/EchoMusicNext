@@ -85,6 +85,13 @@ private slots:
     void publicPluginCatalogCommandsAndRetirement();
     void publicPluginCatalogScopeAccountAndReplacement();
     void graphicsValidationOwnershipAndAccount();
+    void graphicsFloatTextureValidationAndRetirement();
+    void graphicsActiveQmlLifecycleAndAccount();
+    void graphicsVertexFloatTexturePixels();
+    void graphicsNativeShaderPixelsAndRecovery();
+    void graphicsNativePipelineBlendModes();
+    void graphicsDepthTargetsMsaaAndRecovery();
+    void graphicsDeclaredLimitsAndRetirement();
     void graphicsNativePixelsComputeAndRecovery();
     void graphicsNativeInitialOutputIsTransparent();
     void graphicsOrderedTransfersMipmapsAndCompletion();
@@ -114,6 +121,7 @@ private slots:
     void hostCoverFallbackPriorityErrorsThemeAndRetirement();
     void hostAccessAuthorizationCancellationAndDisable();
     void customWindowsRealEntryScopesAndRetirement();
+    void pluginWindowIgnoresMainWindowMinimize();
     void resourceAuthorizationDenialCancelAndIsolation();
     void resourceAuthorizationBatchesAndSerializes();
     void resourceAuthorizationCancelBatchAndAccount();
@@ -210,6 +218,7 @@ private slots:
     void statisticsUseSampledWireAndRejectInvalidNumbers();
     void marketplaceInstallsActualPackageAndRejectsTampering();
     void spectrumCapabilityAndOwnerLifetime();
+    void spectrumTypedFrames();
     void builtAuthorPackageCommands();
     void builtAuthorPackageSpectrumEntry();
     void packageIntegrityAndCompatibility();

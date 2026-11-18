@@ -44,6 +44,90 @@ void PluginRuntimeTest::statisticsUseSampledWireAndRejectInvalidNumbers()
     QVERIFY(stats.isEmpty());
 }
 
+static PlaybackTrack spectrumTone(Host &host)
+{
+    // Quiet, real local PCM passes through the production decoder, mixer,
+    // output callback, FFT, FFI and typed subscriber; no injected frames.
+    QByteArray pcm;
+    QDataStream data(&pcm, QIODevice::WriteOnly);
+    data.setByteOrder(QDataStream::LittleEndian);
+    constexpr int rate = 48000, seconds = 60;
+    for (int i = 0; i < rate * seconds; ++i)
+        data << qint16(std::sin(i * 2.0 * 3.141592653589793 * 1000 / rate) * 12000);
+    QByteArray wave;
+    QDataStream header(&wave, QIODevice::WriteOnly);
+    header.setByteOrder(QDataStream::LittleEndian);
+    header.writeRawData("RIFF", 4);
+    header << quint32(36 + pcm.size());
+    header.writeRawData("WAVEfmt ", 8);
+    header << quint32(16) << quint16(1) << quint16(1) << quint32(rate) << quint32(rate * 2)
+           << quint16(2) << quint16(16);
+    header.writeRawData("data", 4);
+    header << quint32(pcm.size());
+    wave.append(pcm);
+    const auto path = host.temporary.path() + "/1000hz.wav";
+    write(path, wave);
+    PlaybackTrack track;
+    track.id = "spectrum-tone";
+    track.title = "1000 Hz";
+    track.localPath = path;
+    track.durationMs = seconds * 1000;
+    return track;
+}
+
+void PluginRuntimeTest::spectrumTypedFrames()
+{
+    Host host;
+    const auto source = package(host.temporary.path(), "export function activate(ctx) {}",
+                                {"audio.spectrum.frames"}, {"audioSpectrum"});
+    host.runtime.importDirectory(source);
+    QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Active);
+    auto *scope = host.runtime.context(host.installation());
+    auto *service = scope->audio()->spectrum();
+    const auto pair = QVariant::fromValue(QVariantList{20., 12000.});
+    QVariantMap options{{"fps", 30},
+                        {"scale", "linear"},
+                        {"binCount", 128},
+                        {"maxFrequency", 12000.},
+                        {"rangesHz", QVariantList{pair}},
+                        {"includeWaveform", true}};
+    QVERIFY(PlayerSpectrum::normalize({{"rangesHz", 42}}).isEmpty());
+    QVERIFY(
+        PlayerSpectrum::normalize({{"rangesHz", QVariantList{pair}}, {"scale", "log"}}).isEmpty());
+    auto *sub = service->subscribe(options);
+    QVERIFY(sub && sub->active());
+    auto *frame = sub->currentFrame();
+    const auto track = spectrumTone(host);
+    host.playback.playTracks({track}, 0, "Typed spectrum", "spectrum-test");
+    QTRY_VERIFY_WITH_TIMEOUT(frame->source() == "player" && frame->rms() > 0., 15000);
+    const auto seq = frame->sequence();
+    auto bins = frame->copyBins();
+    auto wave = frame->copyWaveform();
+    QCOMPARE(bins.property("length").toInt(), frame->binCount());
+    const int capturedWaveCount = frame->waveformCount();
+    QCOMPARE(wave.property("length").toInt(), capturedWaveCount);
+    QCOMPARE(bins.property("BYTES_PER_ELEMENT").toInt(), 8);
+    QCOMPARE(frame->binCount(), 128);
+    QVERIFY(frame->waveformCount() > 0);
+    const auto legacy = sub->frame().toMap()["bins"].toList();
+    double sum = 0;
+    for (int i = 0; i < legacy.size(); ++i) {
+        QCOMPARE(bins.property(i).toNumber(), legacy[i].toDouble());
+        sum += legacy[i].toDouble();
+    }
+    QCOMPARE(frame->bandMeans().size(), 1);
+    QVERIFY(std::abs(frame->bandMeans()[0].toDouble() - sum / legacy.size()) < 1e-12);
+    bins.setProperty(0, 42);
+    QVERIFY(frame->copyBins().property(0).toNumber() != 42);
+    QTRY_VERIFY(frame->sequence() > seq);
+    QCOMPARE(sub->currentFrame(), frame);
+    sub->setPaused(true);
+    QCOMPARE(frame->waveformCount(), 0);
+    sub->dispose();
+    QCOMPARE(bins.property(0).toNumber(), 42.);
+    QCOMPARE(wave.property("length").toInt(), capturedWaveCount);
+}
+
 void PluginRuntimeTest::spectrumCapabilityAndOwnerLifetime()
 {
     Host host;
@@ -214,32 +298,7 @@ ApplicationWindow {
             << "automatic parts 0; structure watches" << registry->structureWatchCount();
     QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
     QTRY_VERIFY_WITH_TIMEOUT(host.playback.engineReady(), 15000);
-    // Quiet, real local PCM passes through the production decoder, mixer,
-    // output callback, FFT, FFI and typed subscriber; no injected frames.
-    QByteArray pcm;
-    QDataStream data(&pcm, QIODevice::WriteOnly);
-    data.setByteOrder(QDataStream::LittleEndian);
-    constexpr int rate = 48000, seconds = 60;
-    for (int i = 0; i < rate * seconds; ++i)
-        data << qint16(std::sin(i * 2.0 * 3.141592653589793 * 1000 / rate) * 12000);
-    QByteArray wave;
-    QDataStream header(&wave, QIODevice::WriteOnly);
-    header.setByteOrder(QDataStream::LittleEndian);
-    header.writeRawData("RIFF", 4);
-    header << quint32(36 + pcm.size());
-    header.writeRawData("WAVEfmt ", 8);
-    header << quint32(16) << quint16(1) << quint16(1) << quint32(rate) << quint32(rate * 2)
-           << quint16(2) << quint16(16);
-    header.writeRawData("data", 4);
-    header << quint32(pcm.size());
-    wave.append(pcm);
-    const auto path = host.temporary.path() + "/1000hz.wav";
-    write(path, wave);
-    PlaybackTrack track;
-    track.id = "spectrum-tone";
-    track.title = "1000 Hz";
-    track.localPath = path;
-    track.durationMs = seconds * 1000;
+    const auto track = spectrumTone(host);
     host.playback.setVolume(8);
     auto restore = qScopeGuard([&] { host.playback.setVolume(originalVolume); });
     QPointer<EchoPluginSpectrumSubscription> sub =

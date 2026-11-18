@@ -65,11 +65,17 @@ private:
 };
 #ifdef Q_OS_MACOS
 void activateTestApplication();
+void setNativePointerPosition(QPoint globalPosition);
 QVariantMap nativeWindowInputPolicy(QWindow *window);
 bool systemMousePostingAvailable();
 void postSystemLeftMouse(QPoint globalPosition, QEvent::Type type);
 // Post through AppKit/QPA, including the native expanded-caption delivery path.
 void postNativeLeftMouse(QWindow *window, QPoint position, QEvent::Type type);
+#else
+inline void setNativePointerPosition(QPoint globalPosition)
+{
+    QCursor::setPos(globalPosition);
+}
 #endif
 /// A CLI test can be a background process. On Cocoa requestActivate() makes a
 /// window key but does not foreground the process; raise() supplies that Qt
@@ -140,7 +146,7 @@ inline void moveNativePointer(QWindow *window, QPoint position)
     const auto global = window->mapToGlobal(position);
     // Offscreen has a virtual cursor too. Quick reconciles hover against it
     // on later frames; leaving it behind can undo an injected hover event.
-    QCursor::setPos(global);
+    setNativePointerPosition(global);
     // QTest sends a QPA mouse event directly, bypassing the platform plugin.
     // Complete its window enter/leave sequence too: a cursor warp alone does
     // not deliver Cocoa tracking events when a short-lived tool disappears.

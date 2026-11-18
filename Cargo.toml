@@ -34,4 +34,3 @@ debug = true
 [patch.crates-io]
 libspa = { path = "crates/echo-audio/vendor/libspa" }
 pipewire = { path = "crates/echo-audio/vendor/pipewire" }
-fdk-aac-sys = { path = "crates/echo-upnp/vendor/fdk-aac-sys" }
