@@ -6,6 +6,8 @@ class PluginRuntimeTest : public QObject
     Q_OBJECT
 private slots:
     void pluginCardStateChangesPreserveDelegateAndScroll();
+    void pluginCatalogRecyclingRetainsScrollGeometry_data();
+    void pluginCatalogRecyclingRetainsScrollGeometry();
     void pluginCardPresentationStates();
     void platformManifestValidationAndDependencies();
     void platformInstallationUpdateAndStartup();

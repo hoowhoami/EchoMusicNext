@@ -3,6 +3,198 @@
 #include "PluginCardRowModel.h"
 #include <QImage>
 
+void PluginRuntimeTest::pluginCatalogRecyclingRetainsScrollGeometry_data()
+{
+    QTest::addColumn<int>("width");
+    QTest::addColumn<double>("scale");
+    QTest::addColumn<bool>("dark");
+    QTest::newRow("light-three-columns") << 1000 << 1. << false;
+    QTest::newRow("dark-two-columns-scaled") << 1000 << 1.25 << true;
+    QTest::newRow("light-one-column") << 620 << 1. << false;
+    QTest::newRow("dark-one-column-scaled") << 760 << 1.25 << true;
+}
+
+void PluginRuntimeTest::pluginCatalogRecyclingRetainsScrollGeometry()
+{
+    QFETCH(int, width);
+    QFETCH(double, scale);
+    QFETCH(bool, dark);
+    int requests = 0;
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+        while (auto *socket = server.nextPendingConnection()) {
+            connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+                socket->setProperty("request",
+                                    socket->property("request").toByteArray() + socket->readAll());
+                if (socket->property("answered").toBool() ||
+                    !socket->property("request").toByteArray().contains("\r\n\r\n"))
+                    return;
+                socket->setProperty("answered", true);
+                ++requests;
+                socket->write("HTTP/1.1 429 Too Many Requests\r\nContent-Length: 7\r\n"
+                              "Connection: close\r\n\r\nlimited");
+                socket->disconnectFromHost();
+            });
+        }
+    });
+    Host host;
+    host.theme.setMotionEnabled(false);
+    host.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+    PluginManager manager(host.runtime, host.settings);
+    manager.m_loaded = manager.m_catalogComplete = true;
+    const auto sourceId = manager.m_sources.first().toMap().value("id");
+    for (int i = 0; i < 40; ++i) {
+        const auto id = "scroll-" + QString::number(i);
+        manager.m_entries.append(QVariantMap{
+            {"key", id},
+            {"id", id},
+            {"name", "插件 " + id},
+            {"version", "1.0.0"},
+            {"author", "作者"},
+            {"compatible", true},
+            {"sourceId", sourceId},
+            {"description", "图标失败后继续滚动，异步创建和复用仍须保持滚动范围稳定。"},
+            {"tags", i % 3 ? QStringList{"播放页", "歌词", "皮肤", "Folia"} : QStringList{}},
+            {"iconUrl",
+             QUrl(QString("http://127.0.0.1:%1/%2.svg").arg(server.serverPort()).arg(i))}});
+    }
+    manager.rebuild();
+    host.router.registerPage({"plugin-management",
+                              "/plugins",
+                              QUrl("qrc:/plugins.qml"),
+                              {"view"},
+                              true,
+                              false,
+                              false,
+                              {}});
+    QVERIFY(host.router.navigate("plugin-management", {{"view", "marketplace"}}));
+    QQmlComponent component(&host.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Plugins
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window {
+ id: win
+ required property PluginManager manager
+ required property RouteController router
+ required property ShellSettings settings
+ property real uiScale: 1
+ width: 1000; height: 620; visible: true; color: Theme.main
+ Item {
+  width: win.width / win.uiScale; height: win.height / win.uiScale
+  scale: win.uiScale; transformOrigin: Item.TopLeft
+  Loader {
+   anchors.fill: parent; asynchronous: true
+   sourceComponent: PluginManagementPage {
+    manager: win.manager; router: win.router; context: win.router.current; settings: win.settings
+   }
+  }
+ }
+})",
+                      QUrl("qrc:/plugin-scroll-failure-test.qml"));
+    std::unique_ptr<QObject> root(component.createWithInitialProperties(
+        {{"manager", QVariant::fromValue(&manager)},
+         {"router", QVariant::fromValue(&host.router)},
+         {"settings", QVariant::fromValue(&host.shellSettings)},
+         {"width", width},
+         {"uiScale", scale}}));
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(window && Test::prepareNativeInput(window));
+    QQuickItem *list = nullptr;
+    QTRY_VERIFY((list = visual(window->contentItem(), "pluginCardList")));
+    QTRY_VERIFY(visual(list, "pluginCard-scroll-0"));
+    QTRY_VERIFY(list->height() > 0 && list->property("contentHeight").toDouble() > list->height());
+    QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtEnd"));
+    QTRY_VERIFY(visual(list, "pluginCard-scroll-39"));
+    auto *viewport = list->parentItem();
+    while (viewport && !viewport->property("scrollView").isValid())
+        viewport = viewport->parentItem();
+    QVERIFY(viewport);
+    auto *contentItem = list->property("contentItem").value<QQuickItem *>();
+    QVERIFY(contentItem);
+    const auto captures = qEnvironmentVariable("ECHO_PLUGIN_SCROLL_CAPTURES");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    Test::FrameSpy frames(window);
+    int pooledSamples = 0, peakCards = 0;
+    ulong stamp = 10000;
+    const auto wheel = [&](QPoint delta, Qt::ScrollPhase phase) {
+        const auto pos = list->mapToScene({list->width() * .2, list->height() * .5});
+        QWheelEvent event(pos, window->mapToGlobal(pos.toPoint()), delta, delta * 2, Qt::NoButton,
+                          Qt::NoModifier, phase, false);
+        event.setTimestamp(stamp += 16);
+        QCoreApplication::sendEvent(window, &event);
+    };
+    for (int step = 0; step < 60; ++step) {
+        // Explicit jumps exercise row reuse; wheel input uses the production
+        // scroll controller, including its originY-aware bounds and saved offset.
+        if (step < 20) {
+            const auto maximum =
+                qMax(0., list->property("contentHeight").toDouble() - list->height());
+            QVERIFY(QMetaObject::invokeMethod(viewport, "scrollTo",
+                                              Q_ARG(double, maximum *((step * 7) % 17) / 16.)));
+        } else {
+            if (step == 20)
+                wheel({}, Qt::ScrollBegin);
+            wheel({0, step < 40 ? -250 : 250}, Qt::ScrollUpdate);
+        }
+        const auto key =
+            manager.m_entries[step % manager.m_entries.size()].toMap().value("key").toString();
+        manager.m_stats[key] =
+            QVariantMap{{"installCount", step}, {"updateCount", 0}, {"score", 0}};
+        manager.rebuild();
+        window->update();
+        QVERIFY(frames.wait());
+        QList<QPair<qreal, qreal>> spans;
+        int cards = 0;
+        for (auto *row : contentItem->childItems()) {
+            if (row->property("pooled").toBool()) {
+                ++pooledSamples;
+                // Unloading offscreen cards must not collapse the extent which
+                // ListView will use when it reuses this row.
+                QVERIFY2(row->height() > 0, "A pooled row collapsed to zero height");
+                for (auto *projection : row->findChildren<PluginCardRowModel *>())
+                    QCOMPARE(projection->rowCount(), 0);
+                continue;
+            }
+            for (auto *projection : row->findChildren<PluginCardRowModel *>())
+                cards += projection->rowCount();
+            const auto top = row->mapToItem(list, QPointF{}).y();
+            const auto begin = qMax(0., top), end = qMin(list->height(), top + row->height());
+            if (begin < end)
+                spans.append({begin, end});
+        }
+        peakCards = qMax(peakCards, cards);
+        QVERIFY2(cards < 20, "The viewport instantiated most of the 40-card catalog");
+        std::sort(spans.begin(), spans.end());
+        qreal covered = 0, end = 0;
+        for (const auto &span : spans) {
+            covered += qMax(0., span.second - qMax(end, span.first));
+            end = qMax(end, span.second);
+        }
+        if (covered < list->height() * .25 && !captures.isEmpty())
+            window->grabWindow().save(captures + "/blank-" + QTest::currentDataTag() + ".png");
+        QVERIFY2(covered >= list->height() * .25, "The presented plugin viewport is mostly blank");
+        if (step % 23 == 0)
+            host.engine.collectGarbage();
+    }
+    wheel({}, Qt::ScrollEnd);
+    QVERIFY(pooledSamples > 0);
+    QTRY_VERIFY(requests > 3);
+    if (!captures.isEmpty())
+        QVERIFY(
+            window->grabWindow().save(captures + "/scrolled-" + QTest::currentDataTag() + ".png"));
+    QVERIFY(QMetaObject::invokeMethod(viewport, "scrollTo", Q_ARG(double, 0.)));
+    QTRY_VERIFY(visual(list, "pluginCard-scroll-0"));
+    qInfo() << "Recycled rows checked:" << pooledSamples << "peak live cards:" << peakCards;
+    root.reset();
+    manager.shutdown();
+}
+
 void PluginRuntimeTest::pluginCardStateChangesPreserveDelegateAndScroll()
 {
     Host host;

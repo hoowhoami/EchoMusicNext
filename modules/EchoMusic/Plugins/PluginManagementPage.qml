@@ -506,13 +506,16 @@ Item {
                     id: row
                     required property int rowIndex
                     property bool pooled: false
+                    property real measuredHeight: 0
                     ListView.onPooled: row.pooled = true
                     ListView.onReused: row.pooled = false
                     width: list.width
-                    // Native layout observes child insertion and implicit size changes,
-                    // including Repeater delegates completed after async page creation.
-                    height: cardLayout.implicitHeight
+                    // Pooling releases cards; preserve their last measured extent
+                    // until the reused row's native layout has measured its new cards.
+                    height: cardLayout.implicitHeight > 0 ? cardLayout.implicitHeight : measuredHeight
                     onHeightChanged: {
+                        if (height > 0)
+                            measuredHeight = height;
                         if (page.revealPluginId)
                             Qt.callLater(page.revealTarget);
                     }

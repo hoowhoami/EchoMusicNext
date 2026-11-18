@@ -1169,6 +1169,7 @@ add_test(
         marketplaceNetworkFailureDetailsUi managementPageUsesProductionModelsAndDialogs
         marketplaceInstallsActualPackageAndRejectsTampering
         pluginCardStateChangesPreserveDelegateAndScroll pluginCardPresentationStates
+        pluginCatalogRecyclingRetainsScrollGeometry
 )
 add_test(
     NAME plugin-update-tasks
