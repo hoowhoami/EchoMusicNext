@@ -23,6 +23,12 @@ Window {
     width: 720
     height: 200
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus
+    // Declared inside the main window, so Qt Quick would otherwise assign the
+    // main window as transient parent when the component completes. The show
+    // turns a transient parent into the Win32 owner, which then minimizes and
+    // restores this window along with the main window; an explicit null opts
+    // out of the automatic assignment.
+    transientParent: null
     Component.onCompleted: service.attachDesktop(window)
     Component.onDestruction: service.attachDesktop(null)
     Rectangle {
