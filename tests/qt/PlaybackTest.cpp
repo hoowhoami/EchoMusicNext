@@ -398,23 +398,21 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.positionMs() > 50, 15000);
 
         auto &engine = PlaybackServiceTestAccess::engine(playback);
-        QSignalSpy events(&engine, &AudioEngine::eventReceived);
-        const auto snapshot = [&events](quint64 revision) {
-            for (const auto &entry : events) {
-                const auto event = entry[0].toJsonObject();
-                if (event.value("event") == "spectrum" &&
-                    quint64(event.value("spectrum_revision").toInteger()) == revision)
-                    return event;
-            }
-            return QJsonObject();
+        QSignalSpy snapshots(&engine, &AudioEngine::spectrumReceived);
+        constexpr quint64 revision = 10000;
+        const auto snapshot = [&snapshots](quint64 request) {
+            for (const auto &entry : snapshots)
+                if (entry[1].toULongLong() == revision && entry[2].toULongLong() == request)
+                    return entry;
+            return QList<QVariant>();
         };
         playback.next(); // Hold the next URL request; do not inject native ACKs.
         QVERIFY(playback.loading());
         // This real native request runs after the transport commands. A frame
         // exists only while a session exists, so the old full Stop fails here.
-        engine.spectrumSnapshot(10001);
+        engine.spectrumSnapshot(revision, 10001);
         QTRY_VERIFY_WITH_TIMEOUT(!snapshot(10001).isEmpty(), 5000);
-        QVERIFY(snapshot(10001).value("frame").isObject());
+        QVERIFY(snapshot(10001)[3].value<QSharedPointer<const RawSpectrumFrame>>());
         QCOMPARE(PlaybackServiceTestAccess::publishedMediaPlaying(playback), 1);
         playback.playIndex(0);
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.positionMs() > 50, 15000);
@@ -423,15 +421,15 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.positionMs() > 50, 15000);
         playback.next();
         PlaybackServiceTestAccess::failSource(playback);
-        engine.spectrumSnapshot(10003);
+        engine.spectrumSnapshot(revision, 10003);
         QTRY_VERIFY_WITH_TIMEOUT(!snapshot(10003).isEmpty(), 5000);
-        QVERIFY(snapshot(10003).value("frame").isNull());
+        QVERIFY(!snapshot(10003)[3].value<QSharedPointer<const RawSpectrumFrame>>());
         playback.playIndex(0);
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.positionMs() > 50, 15000);
         playback.stop();
-        engine.spectrumSnapshot(10002);
+        engine.spectrumSnapshot(revision, 10002);
         QTRY_VERIFY_WITH_TIMEOUT(!snapshot(10002).isEmpty(), 5000);
-        QVERIFY(snapshot(10002).value("frame").isNull());
+        QVERIFY(!snapshot(10002)[3].value<QSharedPointer<const RawSpectrumFrame>>());
         QSignalSpy closed(&playback, &PlaybackService::closed);
         playback.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);

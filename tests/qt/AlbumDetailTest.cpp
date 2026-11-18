@@ -231,6 +231,29 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
         api.shutdown();
     }
+    void nullDetailKeepsItsMissingResourceMeaning()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        AlbumDetailService service(api, playback, router, false);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("album-detail", {}, "999999999"));
+        auto *context = service.contextFor(router.current());
+        AlbumDetailContextTestAccess::pending(*context, 8101, 0);
+        AlbumDetailContextTestAccess::pending(*context, 8102, 1);
+        emit api.succeeded(8101, "null");
+        QCOMPARE(context->errorMessage(), QString("未找到此专辑"));
+        QVERIFY(!context->detailLoading() && !context->songsLoading());
+        AlbumDetailContextTestAccess::accept(*context, 8102, domainPage(1, {1}));
+        QCOMPARE(context->songs()->count(), 0);
+        service.shutdown();
+        router.shutdown();
+        playback.shutdown();
+        api.shutdown();
+    }
     void refreshFailurePreservesCachedCatalog()
     {
         QTemporaryDir dir;

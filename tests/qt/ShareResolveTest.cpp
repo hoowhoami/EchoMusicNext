@@ -4,8 +4,16 @@
 #include "NetworkPreferences.h"
 #include "PlaybackService.h"
 #include "ShellController.h"
+#include "ShellSettings.h"
+#include "ThemeStore.h"
 #include "WindowController.h"
+#include <QDir>
 #include <QJsonArray>
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickStyle>
+#include <QQuickWindow>
 #include <QNetworkProxy>
 #include <QScopeGuard>
 #include <QSignalSpy>
@@ -69,6 +77,25 @@ public:
 } // namespace EchoMusic
 namespace
 {
+QQuickItem *visualItem(QQuickItem *root, const QString &name)
+{
+    if (root->objectName() == name)
+        return root;
+    for (auto *child : root->childItems())
+        if (auto *item = visualItem(child, name))
+            return item;
+    return nullptr;
+}
+bool visibleIconsReady(QQuickItem *root)
+{
+    if (root->objectName() == "iconImage" && root->isVisible() &&
+        root->property("status").toInt() != 1)
+        return false;
+    for (auto *child : root->childItems())
+        if (!visibleIconsReady(child))
+            return false;
+    return true;
+}
 struct Fixture
 {
     QTemporaryDir dir;
@@ -123,6 +150,10 @@ class ShareResolveTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase()
+    {
+        QQuickStyle::setStyle("Basic");
+    }
     void liveLegacySharePlayback_data()
     {
         QTest::addColumn<QString>("quality");
@@ -379,6 +410,120 @@ private slots:
         QVERIFY(!f.playback.listenTogether()->joined());
         QCOMPARE(f.playback.queue()->rowCount(), 0);
     }
+    void missingResourcesUseTheShareLandingPage_data()
+    {
+        QTest::addColumn<int>("type");
+        QTest::newRow("song") << int(ShareResource::Song);
+        QTest::newRow("playlist") << int(ShareResource::Playlist);
+        QTest::newRow("album") << int(ShareResource::Album);
+        QTest::newRow("artist") << int(ShareResource::Artist);
+    }
+    void missingResourcesUseTheShareLandingPage()
+    {
+        QFETCH(int, type);
+        const auto resource = ShareResource(type);
+        Fixture f;
+        QSignalSpy handoff(&f.shell, &ShellController::songDetailOpening);
+        if (resource == ShareResource::Song) {
+            QVERIFY(f.shares.openText(
+                "https://hoowhoami.github.io/EchoMusicNext/share/?target="
+                "echomusic%3A%2F%2Fsong%2F7898F6BEEB0C7FF6EA33B9F96C0977D3%3FalbumId%3D528463"));
+            // Normalized facts from the captured resource-level rejection.
+            ShareResolveServiceTestAccess::acceptList(
+                f.shares, ShareResolveServiceTestAccess::request(f.shares),
+                {QJsonObject{{"hash", "7898F6BEEB0C7FF6EA33B9F96C0977D3"},
+                             {"album_id", "528463"},
+                             {"song_id", 0},
+                             {"display_name", ""},
+                             {"resource_error", 6},
+                             {"resource_message", "Allow: the audio is not found."}}});
+        } else {
+            QVERIFY(f.open(resource, "999999999"));
+            const auto request = ShareResolveServiceTestAccess::request(f.shares);
+            if (resource == ShareResource::Playlist)
+                ShareResolveServiceTestAccess::acceptList(f.shares, request, {});
+            else
+                ShareResolveServiceTestAccess::absent(f.shares, request);
+        }
+        QCOMPARE(f.router.current()->name(), QString("share-resolve"));
+        QCOMPARE(f.shares.explanation(),
+                 QString("分享的%1可能已被删除、权限不可见，或当前数据源没有返回。")
+                     .arg(f.shares.resourceLabel()));
+        QVERIFY(!f.shares.loading());
+        QCOMPARE(handoff.size(), 0);
+        QCOMPARE(f.playback.queue()->rowCount(), 0);
+        ThemeStore theme(f.settings);
+        theme.setMotionEnabled(false);
+        const auto captureTheme = qEnvironmentVariable("ECHO_SHARE_CAPTURE_THEME");
+        if (!captureTheme.isEmpty())
+            theme.setMode(captureTheme == "dark" ? ThemeStore::Dark : ThemeStore::Light);
+        ShellSettings settings(f.settings);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window {
+ id: window
+ required property RouteController router
+ required property ShellSettings settings
+ property real captureScale: 1
+ visible: true; width: 1000; height: 760; color: Theme.main
+ RouteHost {
+  width: window.width / window.captureScale; height: window.height / window.captureScale
+  scale: window.captureScale; transformOrigin: Item.TopLeft
+  router: window.router; settings: window.settings
+ }
+})",
+                          QUrl("qrc:/share-failure-test.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"router", QVariant::fromValue(&f.router)},
+             {"settings", QVariant::fromValue(&settings)},
+             {"captureScale", qEnvironmentVariable("ECHO_SHARE_CAPTURE_SCALE", "1").toDouble()}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        QObject *retry = nullptr;
+        QTRY_VERIFY((retry = visualItem(window->contentItem(), "shareRetry")));
+        QVERIFY(retry->property("visible").toBool());
+        QVERIFY(visualItem(window->contentItem(), "shareHome")->isVisible());
+        QVERIFY(visualItem(window->contentItem(), "shareBack")->isVisible());
+        const auto captures = qEnvironmentVariable("ECHO_SHARE_FAILURE_CAPTURES");
+        if (!captures.isEmpty()) {
+            QTRY_VERIFY(visibleIconsReady(window->contentItem()));
+            QVERIFY(QDir().mkpath(captures));
+            QVERIFY(window->grabWindow().save(captures + "/" + shareResourceName(resource) +
+                                              "-missing.png"));
+        }
+        QVERIFY(f.open(ShareResource::Album, "42"));
+        ShareResolveServiceTestAccess::reject(f.shares,
+                                              ShareResolveServiceTestAccess::request(f.shares),
+                                              {{"message", "网络读取失败"}});
+        QTRY_VERIFY((retry = visualItem(window->contentItem(), "shareRetry")) &&
+                    retry->property("visible").toBool());
+        QCOMPARE(warnings.size(), 0);
+        root.reset();
+    }
+    void hashOnlySongDoesNotRequireOptionalCatalogFacts()
+    {
+        Fixture f;
+        const QString hash(32, 'a');
+        QVERIFY(f.open(ShareResource::Song, hash));
+        ShareResolveServiceTestAccess::acceptList(
+            f.shares, ShareResolveServiceTestAccess::request(f.shares),
+            {QJsonObject{{"hash", hash}, {"song_id", QJsonValue::Null}, {"display_name", ""}}});
+        QCOMPARE(f.router.current()->name(), QString("song-detail"));
+        QCOMPARE(f.router.current()->resourceId(), hash);
+        auto *detail = f.details.songFor(f.router.current());
+        QVERIFY(detail);
+        QCOMPARE(detail->songs()->count(), 1);
+        QVERIFY(detail->songs()->track(hash));
+        QVERIFY(detail->errorMessage().isEmpty());
+        QCOMPARE(f.playback.queue()->rowCount(), 0);
+    }
     void closedRoomsCancelTheirOtherResponseAndDoNotOpenThePage()
     {
         Fixture f;
@@ -390,7 +535,7 @@ private slots:
         QCOMPARE(ShareResolveServiceTestAccess::pending(f.shares), 0);
         ShareResolveServiceTestAccess::accept(f.shares, detail, {{"name", "旧响应"}});
         QCOMPARE(f.router.current()->name(), QString("share-resolve"));
-        QVERIFY(f.shares.explanation().contains(QStringLiteral("删除")));
+        QVERIFY(f.shares.explanation().contains(QStringLiteral("可能已被删除")));
         QVERIFY(f.open(ShareResource::ListenTogether, "12345", {{"roomType", "1"}}));
         QCOMPARE(ShareResolveServiceTestAccess::pending(f.shares), 0);
         QVERIFY(f.shares.explanation().contains(QStringLiteral("格式")));
@@ -432,20 +577,32 @@ private slots:
         QVERIFY(second && second != first);
         ShareResolveServiceTestAccess::absent(f.shares, second);
         QVERIFY(!f.shares.loading());
-        QVERIFY(f.shares.explanation().contains(QStringLiteral("删除")));
+        QVERIFY(f.shares.explanation().contains(QStringLiteral("可能已被删除")));
         QCOMPARE(f.router.current()->name(), QString("share-resolve"));
+        f.shares.retry();
+        const auto third = ShareResolveServiceTestAccess::request(f.shares);
+        QVERIFY(third && third != second);
+        QVERIFY(f.shares.loading());
+        ShareResolveServiceTestAccess::accept(f.shares, third, {{"id", 12345}});
+        QCOMPARE(f.router.current()->name(), QString("album-detail"));
         f.shares.goBack();
         QCOMPARE(f.router.current()->name(), QString("home"));
     }
     void optionalFactsRemainUnknownRatherThanBecomingAResponseShapeGate()
     {
-        Fixture f;
-        QVERIFY(f.open(ShareResource::Artist, "12345"));
-        ShareResolveServiceTestAccess::accept(f.shares,
-                                              ShareResolveServiceTestAccess::request(f.shares),
-                                              {{"id", QJsonValue::Null}, {"name", ""}});
-        QCOMPARE(f.router.current()->name(), QString("artist-detail"));
-        QCOMPARE(f.router.current()->resourceId(), QString("12345"));
+        for (const auto resource :
+             {ShareResource::Artist, ShareResource::Album, ShareResource::Playlist}) {
+            Fixture f;
+            QVERIFY(f.open(resource, "12345"));
+            const auto request = ShareResolveServiceTestAccess::request(f.shares);
+            const QJsonObject partial{{"id", QJsonValue::Null}, {"name", ""}};
+            if (resource == ShareResource::Playlist)
+                ShareResolveServiceTestAccess::acceptList(f.shares, request, {partial});
+            else
+                ShareResolveServiceTestAccess::accept(f.shares, request, partial);
+            QCOMPARE(f.router.current()->name(), shareResourceName(resource) + "-detail");
+            QCOMPARE(f.router.current()->resourceId(), QString("12345"));
+        }
     }
     void pluginSourceAcceptanceRemainsWithItsExistingOwner()
     {

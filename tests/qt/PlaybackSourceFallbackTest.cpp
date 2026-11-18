@@ -270,6 +270,39 @@ class PlaybackSourceFallbackTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void anonymousAuthorizationFailureKeepsItsActionAndCode()
+    {
+        Fixture f;
+        QVERIFY(f.api.setAccount(0, {}));
+        MembershipServiceTestAccess::nonVip(f.membership);
+        PlaybackSourceRequest request(f.api, f.membership);
+        QSignalSpy failed(&request, &PlaybackSourceRequest::failed);
+        QSignalSpy expired(&f.api, &ApiClient::authenticationExpired);
+        PlaybackTrack track;
+        track.id = "anonymous-song";
+        track.hash = hashA;
+        track.songId = 123;
+        track.albumId = 456;
+        request.resolve(
+            track, ApiClient::PlaybackQuality::Standard, ApiClient::SoundEffect::None,
+            {{"hash", hashA},
+             {"variants",
+              QJsonArray{QJsonObject{
+                  {"quality", "128"}, {"hash", hashA}, {"privilege", 8}, {"service_status", 1}}}}});
+        int attempts = 0;
+        while (const auto id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge")) {
+            QVERIFY(++attempts <= 4);
+            f.api.cancel(id);
+            // Native error projection of the sampled anonymous user_verify failure.
+            emit f.api.failed(
+                id, 1, R"({"kind":"business","message":"获取歌曲播放授权失败","code":35002})");
+        }
+        QVERIFY(attempts > 0); // Anonymous playback still reaches authorization.
+        QCOMPARE(failed.size(), 1);
+        QCOMPARE(failed.first().first().toString(),
+                 QStringLiteral("获取歌曲播放授权失败（错误码 35002）"));
+        QVERIFY(expired.isEmpty());
+    }
     void authenticationExpiredStopsCurrentPreloadAndScheduledSkip_data()
     {
         QTest::addColumn<QString>("stage");

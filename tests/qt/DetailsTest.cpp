@@ -795,6 +795,51 @@ Window {
         playback.shutdown();
         api.shutdown();
     }
+    void hashOnlyDetailSkipsUnavailableCatalogRequests()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        const QString hash(32, 'a');
+        QStringList calls;
+        api.addInterceptor(100, [&](const QJsonObject &request, ApiInterceptNext,
+                                    ApiInterceptDone done) {
+            const auto operation = request.value("operation").toString();
+            calls.append(operation);
+            if (operation == "privilege_lite") {
+                const QJsonObject variant{{"quality", "128"}, {"hash", hash}, {"privilege", 0}};
+                done({0, QJsonDocument(QJsonArray{QJsonObject{{"hash", hash},
+                                                              {"song_id", QJsonValue::Null},
+                                                              {"display_name", "Hash-only song"},
+                                                              {"primary", variant},
+                                                              {"variants", QJsonArray{variant}}}})
+                             .toJson()});
+            } else
+                done({0, "0"});
+            return std::function<void()>{};
+        });
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        DetailsService service(api, playback, router, true);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("song-detail", {}, hash));
+        auto *detail = service.songFor(router.current());
+        QVERIFY(detail);
+        QTRY_COMPARE(detail->qualities(), QStringList{"SD"});
+        QTRY_VERIFY(!detail->loading());
+        QCOMPARE(detail->detail().value("title").toString(), QString("Hash-only song"));
+        QVERIFY(detail->errorMessage().isEmpty());
+        QCOMPARE(detail->songs()->count(), 1);
+        QVERIFY(detail->songs()->track(hash));
+        QVERIFY(!calls.contains("krm_audio"));
+        QVERIFY(std::none_of(calls.cbegin(), calls.cend(),
+                             [](const QString &call) { return call.contains("ranking"); }));
+        QCOMPARE(playback.queue()->rowCount(), 0);
+        service.shutdown();
+        router.shutdown();
+        playback.shutdown();
+        api.shutdown();
+    }
     void commentThreadsMatchSourceLayout()
     {
         QTemporaryDir dir;

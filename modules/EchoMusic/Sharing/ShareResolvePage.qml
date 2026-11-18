@@ -31,19 +31,7 @@ RoutePage {
             x: (viewport.width - width) / 2
             y: page.narrow ? 24 : 40 + Math.max(0, (viewport.height - 112 - height) / 2)
             radius: Theme.cardRadius
-            color: Theme.card
-            EchoDashedFrame {
-                anchors.fill: parent
-                solid: true
-                strokeColor: Theme.border
-                radius: Theme.cardRadius
-            }
-            EchoSurfaceShadow {
-                anchors.fill: parent
-                surface: panel
-                z: -1
-                radius: panel.radius
-            }
+            color: Theme.mutedSurface
             ColumnLayout {
                 id: contents
                 x: panel.padding

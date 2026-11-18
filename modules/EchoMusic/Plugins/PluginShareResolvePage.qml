@@ -73,11 +73,10 @@ RoutePage {
             height: content.implicitHeight + 56
             x: (viewport.width - width) / 2
             y: 40 + Math.max(0, (viewport.height - 112 - height) / 2)
-            EchoFloatingSurface {
+            Rectangle {
                 anchors.fill: parent
                 radius: Theme.controlRadius
-                color: Theme.card
-                border.color: Theme.border
+                color: Theme.mutedSurface
             }
             ColumnLayout {
                 id: content
@@ -161,7 +160,6 @@ RoutePage {
                     implicitHeight: pluginDetails.implicitHeight + 28
                     radius: Theme.controlRadius
                     color: Theme.mutedSurface
-                    border.color: Theme.border
                     GridLayout {
                         id: pluginDetails
                         x: 14

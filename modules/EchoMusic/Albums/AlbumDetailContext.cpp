@@ -212,6 +212,19 @@ void AlbumDetailContext::accept(quint64 id, const QByteArray &bytes)
     // instead of appending data beyond the discovered end.
     if (pending.page && m_complete)
         return;
+    // Optional details serialize as a scalar null, outside QJsonDocument's
+    // object/array root types. Preserve its resource-absence meaning.
+    if (!pending.page && bytes.trimmed() == "null") {
+        cancelSongRequests();
+        m_detail = {};
+        m_songs.clear();
+        m_detailError = tr("未找到此专辑");
+        m_complete = true;
+        m_refreshing = false;
+        m_refreshSongs = {};
+        emit changed();
+        return;
+    }
     QJsonParseError parse;
     const auto doc = QJsonDocument::fromJson(bytes, &parse);
     if (parse.error != QJsonParseError::NoError || (!doc.isObject() && !doc.isNull())) {

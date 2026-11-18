@@ -185,12 +185,12 @@ void SongDetailContext::adoptEntryTrack(const PlaybackTrack &track)
 void SongDetailContext::updateSong()
 {
     m_track["hash"] = m_hash;
-    m_track["id"] = QString::number(m_mix);
+    m_track["id"] = m_mix ? QString::number(m_mix) : m_hash;
     m_track["title"] = m_detail.value("title");
     m_track["cover_url"] = m_detail.value("cover_url");
     m_actions.setQueueContext(m_detail.value("title").toString(),
                               "queue:song-detail:" + resourceId());
-    if (m_mix && !m_hash.isEmpty())
+    if (!m_hash.isEmpty())
         m_songs.replaceSongs({m_track});
     emit changed();
 }
@@ -359,9 +359,6 @@ void SongDetailContext::rankingsAndComments()
     if (m_mix) {
         request(m_api.songRanking(m_mix), Ranking);
         request(m_api.songRanking(m_mix, true), RankingDetails);
-    } else {
-        m_error = tr("歌曲详情缺少有效歌曲标识");
-        startComments();
     }
     if (!loading())
         startComments();

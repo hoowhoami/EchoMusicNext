@@ -353,6 +353,20 @@ void ArtistDetailContext::accept(quint64 id, const QByteArray &bytes)
     // flight instead of appending pages beyond the discovered end.
     if (pending.page && m_complete)
         return;
+    // A scalar null is the domain's absent author, not a JSON decode failure.
+    if (!pending.page && bytes.trimmed() == "null") {
+        cancelSongRequests();
+        cancelAlbumRequests();
+        m_detail = {};
+        m_songs.clear();
+        m_albums.replaceCards({});
+        m_albumCards = {};
+        m_detailError = tr("未找到此歌手");
+        m_complete = true;
+        m_albumComplete = false;
+        emit changed();
+        return;
+    }
     QJsonParseError parse;
     const auto doc = QJsonDocument::fromJson(bytes, &parse);
     if (parse.error != QJsonParseError::NoError || (!doc.isObject() && !doc.isNull())) {

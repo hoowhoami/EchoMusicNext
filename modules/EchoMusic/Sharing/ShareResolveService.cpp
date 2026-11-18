@@ -234,6 +234,12 @@ void ShareResolveService::accept(quint64 id, const QByteArray &bytes)
             return;
         }
         const auto resource = list.first().toObject();
+        // Mediastore can return a row with status=1 for a missing audio.
+        // Its resource error carries the business result independently.
+        if (resource.value("resource_error").toInt() == 6) {
+            fail("not-found");
+            return;
+        }
         const auto primary = resource.value("primary").toObject();
         PlaybackTrack track;
         track.hash = resource.value("hash").toString();

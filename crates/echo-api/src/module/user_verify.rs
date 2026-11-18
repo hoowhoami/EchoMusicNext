@@ -30,7 +30,8 @@ pub fn convert(bytes: &[u8]) -> Result<UserAuthorization, ApiError> {
             ),
         );
     }
-    request::success(wire.status, wire.error_code).map_err(|error| {
+    request::success(wire.status, wire.error_code).map_err(|mut error| {
+        error.message = "获取歌曲播放授权失败".into();
         error.at_service_response("user_authorization_response", wire.status, bytes.len())
     })?;
     let data: Data =

@@ -255,6 +255,33 @@ private slots:
         // Normal EchoMusic::SettingsStore destruction flushes the write. The next assertion
         // runs in another process, with no shared EchoMusic::SettingsStore in-memory cache.
     }
+    void nullDetailKeepsItsMissingResourceMeaning()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        ShellSettings shell(prefs);
+        ArtistDetailService service(api, playback, router, shell, false);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("artist-detail", {}, "999999999"));
+        auto *context = service.contextFor(router.current());
+        ArtistDetailContextTestAccess::pending(*context, 8101, 0);
+        ArtistDetailContextTestAccess::pending(*context, 8102, 1);
+        ArtistDetailContextTestAccess::albumPending(*context, 8103, 1);
+        emit api.succeeded(8101, "null");
+        QCOMPARE(context->errorMessage(), QString("未找到此歌手"));
+        QVERIFY(!context->detailLoading() && !context->songsLoading() && !context->albumsLoading());
+        ArtistDetailContextTestAccess::accept(*context, 8102, {});
+        ArtistDetailContextTestAccess::acceptAlbum(*context, 8103, {});
+        QCOMPARE(context->songs()->count(), 0);
+        QCOMPARE(context->albums()->count(), 0);
+        service.shutdown();
+        router.shutdown();
+        playback.shutdown();
+        api.shutdown();
+    }
     void pagedSongsAndProviderSort()
     {
         QTemporaryDir dir;

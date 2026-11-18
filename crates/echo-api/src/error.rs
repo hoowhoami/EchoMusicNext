@@ -81,7 +81,8 @@ impl ApiError {
     pub fn business(code: i64) -> Self {
         Self {
             code: Some(code),
-            ..Self::new("business", "音乐服务拒绝了请求")
+            // Keep the generic failure neutral; callers can supply the action.
+            ..Self::new("business", "请求失败")
         }
     }
     pub fn decode() -> Self {

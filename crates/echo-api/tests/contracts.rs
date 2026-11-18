@@ -832,6 +832,19 @@ fn sampled_automatic_and_explicit_origin_sources_keep_tracker_contract() {
     }
 }
 #[test]
+fn sampled_anonymous_play_authorization_reports_the_action_and_service_code() {
+    let error = user_verify::convert(&sample("user_verify/anonymous-20261118.json"))
+        .err()
+        .expect("anonymous authorization must retain the actual upstream failure");
+    assert_eq!(error.kind, "business");
+    assert_eq!(error.code, Some(35002));
+    assert_eq!(error.message, "获取歌曲播放授权失败");
+    assert_eq!(
+        error.diagnostics.unwrap().phase,
+        "user_authorization_response"
+    );
+}
+#[test]
 fn real_authentication_failures_are_not_success_shape_errors() {
     let error =
         user_detail::convert(&sample("user_detail/invalid-token.json"), 900000).unwrap_err();

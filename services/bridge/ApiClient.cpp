@@ -1004,10 +1004,13 @@ QString ApiClient::errorMessage(const QByteArray &payload, const QString &fallba
 {
     const auto error = QJsonDocument::fromJson(payload).object();
     auto message = error.value("message").toString().trimmed();
-    // The protocol's generic rejection is not a provider explanation. Let the
-    // operation supply its own useful failure text; keep the code in API logs.
-    if (message.isEmpty() || message == QStringLiteral("音乐服务拒绝了请求"))
-        return fallback;
+    // Without a provider explanation, use the operation's failure text and
+    // retain the service code without inferring an authorization reason.
+    if (message.isEmpty() || (error.value("kind").toString() == QStringLiteral("business") &&
+                              message == QStringLiteral("请求失败")))
+        message = fallback.trimmed();
+    if (message.isEmpty())
+        return {};
     const auto code = error.value("code");
     if (code.isDouble() && !message.contains(tr("错误码")))
         message += tr("（错误码 %1）").arg(code.toInteger());

@@ -399,8 +399,7 @@ void PlaybackSourceRequest::fail(quint64 id, const QByteArray &bytes)
     }
     if (id && id == m_catalogRefreshRequest) {
         m_catalogRefreshRequest = 0;
-        const auto message = ApiClient::errorMessage(bytes);
-        failCatalogRefresh(message.isEmpty() ? tr("获取歌曲播放地址失败") : message);
+        failCatalogRefresh(ApiClient::errorMessage(bytes, tr("获取歌曲播放地址失败")));
         return;
     }
     if (id && id == m_loudnessRequest) {
@@ -443,8 +442,7 @@ void PlaybackSourceRequest::fail(quint64 id, const QByteArray &bytes)
             tryStart();
     } else if (id && id == m_sourceRequest) {
         m_sourceRequest = 0;
-        const auto message = ApiClient::errorMessage(bytes);
-        m_lastError = message.isEmpty() ? tr("获取歌曲播放地址失败") : message;
+        m_lastError = ApiClient::errorMessage(bytes, tr("获取歌曲播放地址失败"));
         requestSource();
     }
 }
