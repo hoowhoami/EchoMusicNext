@@ -74,6 +74,7 @@ PluginPackage PluginPackage::inspectDirectory(const QString &directory)
 QStringList PluginPackage::supportedFeatures()
 {
     QStringList features{"graphics.floatTexture",
+                         "graphics.floatTexture.base64",
                          "graphics.shaderComposition",
                          "graphics.blendEquations",
                          "graphics.depthMsaa",

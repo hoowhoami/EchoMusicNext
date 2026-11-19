@@ -294,6 +294,27 @@ bool FloatTexture::uploadPacked(int width, int height, const QString &words)
         qToLittleEndian<quint16>(words[i].unicode(), bytes.data() + i * 2);
     return acceptBytes(width, height, bytes);
 }
+bool FloatTexture::uploadBase64(int width, int height, const QString &base64)
+{
+    if (!validateExtent(width, height))
+        return false;
+    const qint64 expected = qint64(width) * height * 16;
+    if (base64.size() != (expected + 2) / 3 * 4) {
+        setError("Base64 length must match width * height * 16 bytes");
+        return false;
+    }
+    // Latin-1 conversion cannot turn a non-ASCII character into a Base64
+    // character. The strict decoder and canonical re-encoding also reject
+    // whitespace and unused nonzero padding bits before accepting any data.
+    const auto encoded = base64.toLatin1();
+    const auto decoded =
+        QByteArray::fromBase64Encoding(encoded, QByteArray::AbortOnBase64DecodingErrors);
+    if (!decoded || decoded.decoded.size() != expected || decoded.decoded.toBase64() != encoded) {
+        setError("FloatTexture requires canonical ASCII Base64");
+        return false;
+    }
+    return acceptBytes(width, height, decoded.decoded);
+}
 bool FloatTexture::acceptBytes(int width, int height, const QByteArray &bytes)
 {
     const auto expected = qint64(width) * height * 16;

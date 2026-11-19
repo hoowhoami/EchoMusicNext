@@ -94,15 +94,65 @@ struct alignas(16) FilterParams
     QVector4D output, input, mapping, prior, options;
 };
 static_assert(sizeof(FilterParams) == 144);
+constexpr int KernelBufferBytes = 128 * sizeof(QVector4D);
+struct KernelData
+{
+    std::vector<QVector4D> taps;
+    float total = 0;
+    quint32 offset = 0;
+};
+quint64 kernelKey(float window, float sigma)
+{
+    quint32 bits;
+    memcpy(&bits, &sigma, sizeof(bits));
+    return window > 0 ? quint64(quint32(window)) << 32 : bits;
+}
+int kernelExtent(float window, float sigma)
+{
+    return std::min(window > 0
+                        ? (int(window) % 2 ? 3 * (int(window) - 1) / 2 : 3 * int(window) / 2 - 1)
+                        : int(std::ceil(3 * sigma)),
+                    127);
+}
+KernelData prepareKernel(float window, float sigma)
+{
+    const int extent = kernelExtent(window, sigma);
+    KernelData kernel;
+    kernel.taps.reserve(extent + 1);
+    const auto choose2 = [](float n) { return n < 0 ? 0.f : (n + 1) * (n + 2) * .5f; };
+    const auto weightAt = [&](int offset) {
+        if (window <= 0)
+            return std::exp(-.5f * float(offset * offset) / (sigma * sigma));
+        const float w3 = window + (int(window) % 2 ? 0 : 1);
+        const float border = int(window) % 2 ? 3 * (window - 1) * .5f : 3 * window * .5f - 1;
+        const float k = offset + border;
+        return (choose2(k) - 2 * choose2(k - window) - choose2(k - w3) + choose2(k - 2 * window) +
+                2 * choose2(k - window - w3) - choose2(k - 2 * window - w3)) /
+               (window * window * w3);
+    };
+    // The kernel depends only on the pass, not the fragment. Keep its original
+    // float coefficients and accumulation order; upload adjacent taps once.
+    float total = 0;
+    for (int i = -extent; i <= extent; i += 2) {
+        const float a = weightAt(i), b = i < extent ? weightAt(i + 1) : 0;
+        total += a;
+        if (i < extent)
+            total += b;
+        kernel.taps.push_back({float(i), 0, a, b});
+    }
+    kernel.total = total;
+    return kernel;
+}
 struct ParamStore
 {
     QRhi *rhi = nullptr;
     QByteArray bytes;
-    QList<quint32> offsets;
+    QList<quint32> offsets, kernelOffsets;
     void clear()
     {
         bytes.clear();
         offsets.clear();
+        kernelOffsets.clear();
     }
     qsizetype size() const
     {
@@ -112,17 +162,32 @@ struct ParamStore
     {
         appendBytes(&p, sizeof(p));
     }
-    void appendFilter(const Params &p)
+    void appendFilter(const Params &p, const KernelData *kernel = nullptr)
     {
-        const FilterParams f{p.mvp, p.output, p.input, p.mapping, p.prior, p.options};
-        appendBytes(&f, sizeof(f));
+        FilterParams f{p.mvp, p.output, p.input, p.mapping, p.prior, p.options};
+        if (kernel) {
+            f.options.setZ(kernel->total);
+            f.options.setW(kernel->taps.size());
+        }
+        appendBytes(&f, sizeof(f), kernel ? kernel->offset : 0);
     }
-    void appendBytes(const void *data, int size)
+    quint32 appendRaw(const void *data, int size)
     {
         const int offset = rhi->ubufAligned(bytes.size());
         bytes.resize(offset + rhi->ubufAligned(size));
         memcpy(bytes.data() + offset, data, size);
-        offsets.append(offset);
+        return offset;
+    }
+    void appendBytes(const void *data, int size, quint32 kernelOffset = 0)
+    {
+        offsets.append(appendRaw(data, size));
+        kernelOffsets.append(kernelOffset);
+    }
+    void padKernelRange()
+    {
+        // Unused taps may share storage with later records, but every bound
+        // uniform range remains inside the allocation, even for an ink-only node.
+        bytes.append(QByteArray(KernelBufferBytes, '\0'));
     }
 };
 bool transparent(const Draw &draw)
@@ -383,6 +448,14 @@ public:
     std::array<std::unique_ptr<QRhiTextureRenderTarget>, 4> targets;
     std::array<std::unique_ptr<QRhiRenderPassDescriptor>, 4> passes;
     std::unique_ptr<QRhiSampler> sampler;
+    // Compatible compute pipelines belong to the window pool, not every glyph
+    // item. Layout objects remain alive with the pipelines but are never bound
+    // for dispatch; each recording node uses its own frame's dynamic uniforms.
+    std::unique_ptr<QRhiBuffer> computeLayoutUniform;
+    std::unique_ptr<QRhiShaderResourceBindings> verticalLayout, horizontalLayout;
+    std::unique_ptr<QRhiComputePipeline> verticalPipeline, verticalSmallPipeline,
+        horizontalPipeline;
+    qint64 computeMetadataBytes = 0;
     std::unique_ptr<QSGRenderer> renderer;
     std::unique_ptr<QSGRootNode> root;
     QSGTransformNode *transform = nullptr;
@@ -400,6 +473,8 @@ public:
     qint64 colorBytes = 0;
     bool inkInitialized = false;
     bool initialized = false;
+    bool computeEnabled = false;
+    bool horizontalComputeEnabled = false;
     ~Pool()
     {
         QObject::disconnect(frameConnection);
@@ -409,6 +484,10 @@ public:
             renderer->setRootNode(nullptr);
         renderer.reset();
         root.reset();
+        disableCompute();
+        clearTargets();
+        sampler.reset();
+        zero = {};
     }
     void select(QSGCurveFillNode *node)
     {
@@ -441,7 +520,8 @@ public:
         // Include retained hash capacities, not only live entry counts. The
         // prospective growth allowance is reserved before any insertion.
         const qint64 metadata =
-            sizeof(Pool) + 4096 + (locations.capacity() + 4LL * additionalLocations) * 512 +
+            sizeof(Pool) + 4096 + computeMetadataBytes +
+            (locations.capacity() + 4LL * additionalLocations) * 512 +
             (curveCache.capacity() + 4LL * additionalCurves) * 256 +
             (nodeCpuBytes.capacity() + nodeEffectsBytes.capacity() + 8LL * additionalNodes) * 128;
         return memory->resize(colorBytes + 4LL * 1024 * 1024 + metadata);
@@ -502,10 +582,125 @@ public:
         inkInitialized = true;
         return true;
     }
+    void clearTargets()
+    {
+        for (auto &target : targets)
+            target.reset();
+        for (auto &pass : passes)
+            pass.reset();
+        for (auto &texture : textures)
+            texture.reset();
+    }
+    bool createTargets()
+    {
+        for (int i = 0; i < 4; ++i) {
+            textures[i].reset(rhi->newTexture(
+                i == 3 ? QRhiTexture::RGBA16F : QRhiTexture::RGBA8, {1024, 1024}, 1,
+                QRhiTexture::RenderTarget |
+                    ((i == 3 && computeEnabled) || ((i == 1 || i == 2) && horizontalComputeEnabled)
+                         ? QRhiTexture::UsedWithLoadStore
+                         : QRhiTexture::Flags{})));
+            if (!textures[i]->create())
+                return false;
+            targets[i].reset(
+                rhi->newTextureRenderTarget(QRhiTextureRenderTargetDescription(textures[i].get()),
+                                            i == 3 ? QRhiTextureRenderTarget::PreserveColorContents
+                                                   : QRhiTextureRenderTarget::Flags{}));
+            passes[i].reset(targets[i]->newCompatibleRenderPassDescriptor());
+            targets[i]->setRenderPassDescriptor(passes[i].get());
+            if (!targets[i]->create())
+                return false;
+        }
+        return true;
+    }
+    void disableCompute()
+    {
+        verticalPipeline.reset();
+        verticalSmallPipeline.reset();
+        horizontalPipeline.reset();
+        verticalLayout.reset();
+        horizontalLayout.reset();
+        computeLayoutUniform.reset();
+        computeMetadataBytes = 0;
+        computeEnabled = horizontalComputeEnabled = false;
+        reserveMetadata();
+    }
+    bool initializeCompute()
+    {
+        // Charge the retained UBO/layouts and all shader/pipeline metadata before
+        // allocation. The same group serves every item in this window's pool.
+        computeMetadataBytes = 256 * 1024;
+        if (!reserveMetadata())
+            return false;
+        const auto vertical = loadShader("vertical.comp"),
+                   small = loadShader("vertical-small.comp");
+        const auto horizontal =
+            horizontalComputeEnabled ? loadShader("horizontal.comp") : QShader{};
+        if (!vertical.isValid() || !small.isValid() ||
+            (horizontalComputeEnabled && !horizontal.isValid()))
+            return false;
+        computeLayoutUniform.reset(
+            rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, KernelBufferBytes));
+        if (!computeLayoutUniform->create())
+            return false;
+        const auto layout = [&](int source, int target, bool readWrite) {
+            auto binding =
+                std::unique_ptr<QRhiShaderResourceBindings>(rhi->newShaderResourceBindings());
+            binding->setBindings(
+                {QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                     0, QRhiShaderResourceBinding::ComputeStage, computeLayoutUniform.get(),
+                     sizeof(FilterParams)),
+                 QRhiShaderResourceBinding::sampledTexture(1,
+                                                           QRhiShaderResourceBinding::ComputeStage,
+                                                           textures[source].get(), sampler.get()),
+                 QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                     6, QRhiShaderResourceBinding::ComputeStage, computeLayoutUniform.get(),
+                     KernelBufferBytes),
+                 readWrite
+                     ? QRhiShaderResourceBinding::imageLoadStore(
+                           7, QRhiShaderResourceBinding::ComputeStage, textures[target].get(), 0)
+                     : QRhiShaderResourceBinding::imageStore(
+                           7, QRhiShaderResourceBinding::ComputeStage, textures[target].get(), 0)});
+            if (!binding->create())
+                binding.reset();
+            return binding;
+        };
+        verticalLayout = layout(1, 3, true);
+        if (horizontalComputeEnabled)
+            horizontalLayout = layout(0, 1, false);
+        if (!verticalLayout || (horizontalComputeEnabled && !horizontalLayout))
+            return false;
+        const auto pipeline = [&](const QShader &shader, QRhiShaderResourceBindings *bindings) {
+            auto result = std::unique_ptr<QRhiComputePipeline>(rhi->newComputePipeline());
+            result->setShaderStage({QRhiShaderStage::Compute, shader});
+            result->setShaderResourceBindings(bindings);
+            if (!result->create())
+                result.reset();
+            return result;
+        };
+        verticalPipeline = pipeline(vertical, verticalLayout.get());
+        verticalSmallPipeline = pipeline(small, verticalLayout.get());
+        if (horizontalComputeEnabled)
+            horizontalPipeline = pipeline(horizontal, horizontalLayout.get());
+        return verticalPipeline && verticalSmallPipeline &&
+               (!horizontalComputeEnabled || horizontalPipeline);
+    }
     bool init(QQuickWindow *w)
     {
         if (!initInk(w))
             return false;
+        // Compute uses top-left storage coordinates. Other backends retain
+        // the equivalent fragment pass and do not require storage access.
+        computeEnabled =
+            rhi && rhi->isFeatureSupported(QRhi::Compute) && !rhi->isYUpInFramebuffer() &&
+            rhi->resourceLimit(QRhi::MaxThreadsPerThreadGroup) >= 32 &&
+            rhi->resourceLimit(QRhi::MaxThreadGroupY) >= 32 &&
+            rhi->isTextureFormatSupported(QRhiTexture::RGBA16F, QRhiTexture::RenderTarget |
+                                                                    QRhiTexture::UsedWithLoadStore);
+        horizontalComputeEnabled =
+            computeEnabled && rhi->resourceLimit(QRhi::MaxThreadGroupX) >= 32 &&
+            rhi->isTextureFormatSupported(QRhiTexture::RGBA8, QRhiTexture::RenderTarget |
+                                                                  QRhiTexture::UsedWithLoadStore);
         colorBytes = 20LL * 1024 * 1024;
         if (!rhi || !rhi->isTextureFormatSupported(QRhiTexture::RGBA16F, QRhiTexture::RenderTarget))
             return false;
@@ -517,18 +712,14 @@ public:
                                       QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
         if (!sampler->create())
             return false;
-        for (int i = 0; i < 4; ++i) {
-            textures[i].reset(rhi->newTexture(i == 3 ? QRhiTexture::RGBA16F : QRhiTexture::RGBA8,
-                                              {1024, 1024}, 1, QRhiTexture::RenderTarget));
-            if (!textures[i]->create())
+        if (!createTargets() || (computeEnabled && !initializeCompute())) {
+            if (!computeEnabled)
                 return false;
-            targets[i].reset(
-                rhi->newTextureRenderTarget(QRhiTextureRenderTargetDescription(textures[i].get()),
-                                            i == 3 ? QRhiTextureRenderTarget::PreserveColorContents
-                                                   : QRhiTextureRenderTarget::Flags{}));
-            passes[i].reset(targets[i]->newCompatibleRenderPassDescriptor());
-            targets[i]->setRenderPassDescriptor(passes[i].get());
-            if (!targets[i]->create())
+            // Probe support before recording any GPU command. Unsupported
+            // storage/pipeline combinations retain the original fragment path.
+            disableCompute();
+            clearTargets();
+            if (!createTargets())
                 return false;
         }
         auto *context = QQuickWindowPrivate::get(w)->context;
@@ -690,6 +881,8 @@ public:
     {
         std::unique_ptr<QRhiBuffer> uniforms;
         QHash<quint64, std::shared_ptr<QRhiShaderResourceBindings>> bindings;
+        std::array<std::unique_ptr<QRhiShaderResourceBindings>, 3> computeBindings;
+        std::array<std::unique_ptr<QRhiShaderResourceBindings>, 6> horizontalBindings;
         int bytes = 0;
     };
     std::vector<std::unique_ptr<UniformSlot>> uniformSlots;
@@ -721,6 +914,7 @@ public:
         int fragment = 0;
         QTransform device;
         Plan plan;
+        bool smallKernel = false;
         QList<Operation> ops;
     };
     QList<Effect> effects;
@@ -828,30 +1022,79 @@ public:
             return existing.get();
         auto s =
             std::shared_ptr<QRhiShaderResourceBindings>(pool->rhi->newShaderResourceBindings());
-        s->setBindings(
-            {QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
-                 0,
-                 QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                 uniformSlot->uniforms.get(), full ? sizeof(Params) : sizeof(FilterParams)),
-             QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
-                                                       pool->textures[source].get(),
-                                                       pool->sampler.get()),
-             QRhiShaderResourceBinding::sampledTexture(
-                 2, QRhiShaderResourceBinding::FragmentStage,
-                 pool->inkPages[ink[fragment][0].page]->texture.get(), pool->sampler.get()),
-             QRhiShaderResourceBinding::sampledTexture(
-                 3, QRhiShaderResourceBinding::FragmentStage,
-                 pool->inkPages[ink[fragment][1].page]->texture.get(), pool->sampler.get()),
-             QRhiShaderResourceBinding::sampledTexture(
-                 4, QRhiShaderResourceBinding::FragmentStage,
-                 pool->inkPages[ink[fragment][2].page]->texture.get(), pool->sampler.get()),
-             QRhiShaderResourceBinding::sampledTexture(
-                 5, QRhiShaderResourceBinding::FragmentStage,
-                 pool->inkPages[ink[fragment][3].page]->texture.get(), pool->sampler.get())});
+        std::vector<QRhiShaderResourceBinding> bindings{
+            QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                0,
+                QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                uniformSlot->uniforms.get(), full ? sizeof(Params) : sizeof(FilterParams)),
+            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
+                                                      pool->textures[source].get(),
+                                                      pool->sampler.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                2, QRhiShaderResourceBinding::FragmentStage,
+                pool->inkPages[ink[fragment][0].page]->texture.get(), pool->sampler.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                3, QRhiShaderResourceBinding::FragmentStage,
+                pool->inkPages[ink[fragment][1].page]->texture.get(), pool->sampler.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                4, QRhiShaderResourceBinding::FragmentStage,
+                pool->inkPages[ink[fragment][2].page]->texture.get(), pool->sampler.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                5, QRhiShaderResourceBinding::FragmentStage,
+                pool->inkPages[ink[fragment][3].page]->texture.get(), pool->sampler.get())};
+        if (!full)
+            bindings.push_back(QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                6, QRhiShaderResourceBinding::FragmentStage, uniformSlot->uniforms.get(),
+                KernelBufferBytes));
+        s->setBindings(bindings.cbegin(), bindings.cend());
         if (!s->create())
             return nullptr;
         uniformSlot->bindings.insert(key, s);
         return s.get();
+    }
+    QRhiShaderResourceBindings *computeBinding(int source)
+    {
+        auto &binding = uniformSlot->computeBindings[source];
+        if (binding)
+            return binding.get();
+        binding.reset(pool->rhi->newShaderResourceBindings());
+        binding->setBindings(
+            {QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                 0, QRhiShaderResourceBinding::ComputeStage, uniformSlot->uniforms.get(),
+                 sizeof(FilterParams)),
+             QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::ComputeStage,
+                                                       pool->textures[source].get(),
+                                                       pool->sampler.get()),
+             QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                 6, QRhiShaderResourceBinding::ComputeStage, uniformSlot->uniforms.get(),
+                 KernelBufferBytes),
+             QRhiShaderResourceBinding::imageLoadStore(7, QRhiShaderResourceBinding::ComputeStage,
+                                                       pool->textures[3].get(), 0)});
+        if (!binding->create())
+            binding.reset();
+        return binding.get();
+    }
+    QRhiShaderResourceBindings *horizontalBinding(int source, int target)
+    {
+        auto &binding = uniformSlot->horizontalBindings[source * 2 + target - 1];
+        if (binding)
+            return binding.get();
+        binding.reset(pool->rhi->newShaderResourceBindings());
+        binding->setBindings(
+            {QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                 0, QRhiShaderResourceBinding::ComputeStage, uniformSlot->uniforms.get(),
+                 sizeof(FilterParams)),
+             QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::ComputeStage,
+                                                       pool->textures[source].get(),
+                                                       pool->sampler.get()),
+             QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                 6, QRhiShaderResourceBinding::ComputeStage, uniformSlot->uniforms.get(),
+                 KernelBufferBytes),
+             QRhiShaderResourceBinding::imageStore(7, QRhiShaderResourceBinding::ComputeStage,
+                                                   pool->textures[target].get(), 0)});
+        if (!binding->create())
+            binding.reset();
+        return binding.get();
     }
     std::unique_ptr<QRhiGraphicsPipeline> pipeline(QString fragment, QRhiRenderPassDescriptor *rp,
                                                    int samples, bool blend, int channel = -1)
@@ -972,6 +1215,9 @@ void CanvasNode::prepare()
                       matrix()->isAffine() && (*matrix())(2, 0) == 0 && (*matrix())(2, 1) == 0;
     Memory jobScratch;
     std::map<HaloKey, HaloJob> jobs;
+    QHash<quint64, KernelData> kernels;
+    Memory kernelScratch;
+    qint64 kernelBytes = 0;
     qint64 forecast = 0, operationCount = 0, effectCount = 0, mainCount = 0;
     for (const auto &draw : draws) {
         if (transparent(draw) || !draw.transform.isInvertible())
@@ -1014,6 +1260,20 @@ void CanvasNode::prepare()
                 shared.needed |= needed;
                 if (needed.isEmpty() || !first)
                     continue;
+                const float window = plan.path ? 0 : plan.window, sigma = plan.lowSigma;
+                const auto kernelHash = kernelKey(window, sigma);
+                if (!kernels.contains(kernelHash)) {
+                    const auto bytes = qint64(kernelExtent(window, sigma) + 1) * sizeof(QVector4D);
+                    if (!kernelScratch.resize((kernels.capacity() * 2LL + 128) *
+                                                  (sizeof(KernelData) + 64) +
+                                              kernelBytes + bytes)) {
+                        report("Canvas kernel planning exceeds the native budget");
+                        return;
+                    }
+                    kernels.insert(kernelHash, prepareKernel(window, sigma));
+                    kernelBytes += bytes;
+                    forecast += pool->rhi->ubufAligned(bytes);
+                }
                 const auto filters = plan.steps.size() + 2;
                 forecast += filters * pool->rhi->ubufAligned(sizeof(FilterParams));
                 if (!plan.outline)
@@ -1022,7 +1282,8 @@ void CanvasNode::prepare()
                 ++effectCount;
             }
     }
-    forecast = std::max(forecast, qint64(pool->rhi->ubufAligned(sizeof(Params))));
+    forecast =
+        std::max(forecast, qint64(pool->rhi->ubufAligned(sizeof(Params)))) + KernelBufferBytes;
     Memory bindingScratch;
     if (!bindingScratch.resize(input->fragments.size() * 8LL * 128 + sizeof(QSet<quint64>))) {
         report("Canvas binding forecast exceeds the native budget");
@@ -1065,15 +1326,17 @@ void CanvasNode::prepare()
         pipelineCount * 1024 + draws.capacity() * sizeof(Draw) +
         operationCount * sizeof(Operation) + effectCount * sizeof(Effect) +
         mainCount * sizeof(Main) +
-        slotCount * (prospectiveBindings.size() * 1024 + sizeof(UniformSlot) + sizeof(void *) * 2) +
-        (operationCount + mainCount) * sizeof(quint32);
+        slotCount * (prospectiveBindings.size() * 1024 + sizeof(UniformSlot) + sizeof(void *) * 2 +
+                     (pool->computeEnabled ? 3 * 1024 : 0) +
+                     (pool->horizontalComputeEnabled ? 6 * 1024 : 0)) +
+        (operationCount + mainCount) * sizeof(quint32) * 2;
     if (!pool->reserveMetadata(0, 0, pool->nodeCpuBytes.contains(this) ? 0 : 1)) {
         report("Canvas shared metadata exceeds the native budget");
         return;
     }
     const qint64 required = prospectiveGpu + forecast + std::max(descriptorBytes, descriptors);
     if (pool->effectsBytes() - pool->nodeEffectsBytes.value(this) + required +
-                bindingScratch.size() + jobScratch.size() >
+                bindingScratch.size() + jobScratch.size() + kernelScratch.size() >
             EffectsBudget ||
         forecast > 8LL * 1024 * 1024 || !memory->resize(required)) {
         report("Canvas frame metadata exceeds the shared effects/native budget");
@@ -1086,6 +1349,9 @@ void CanvasNode::prepare()
     params.clear();
     params.rhi = pool->rhi;
     params.bytes.reserve(forecast);
+    for (auto &kernel : kernels)
+        kernel.offset =
+            params.appendRaw(kernel.taps.data(), kernel.taps.size() * sizeof(QVector4D));
     bounds = {};
     for (const auto &draw : draws) {
         if (transparent(draw) || !draw.transform.isInvertible())
@@ -1139,10 +1405,14 @@ void CanvasNode::prepare()
             if (!shadow.produce)
                 continue;
             const auto &p = shadow.job->plan;
+            const auto &kernel = kernels[kernelKey(p.path ? 0 : p.window, p.lowSigma)];
             Effect effect;
             effect.fragment = draw.fragment;
             effect.device = device;
             effect.plan = p;
+            effect.smallKernel = std::ceil(31. * p.padded.height() / p.stored.height()) +
+                                     2 * kernelExtent(p.path ? 0 : p.window, p.lowSigma) + 3 <=
+                                 64;
             auto v = base(p.source.size(), fragment, ink[draw.fragment], device, scale);
             v.font = {float(density), float(p.source.x()), float(p.source.y()), 0};
             if (!p.outline) {
@@ -1173,7 +1443,14 @@ void CanvasNode::prepare()
                                p.padded,
                                {},
                                horizontalPixels(p, shadow.job->needed)});
-            params.appendFilter(v);
+            if (pool->horizontalComputeEnabled) {
+                const auto region = horizontalPixels(p, shadow.job->needed);
+                v.mvp[0] = region.x();
+                v.mvp[1] = region.y();
+                v.mvp[2] = region.width();
+                v.mvp[3] = region.height();
+            }
+            params.appendFilter(v, &kernel);
             auto y = v;
             y.input = {float(p.padded.width()), float(p.padded.height()), 1024, 1024};
             y.mapping.setW(0);
@@ -1187,7 +1464,17 @@ void CanvasNode::prepare()
             memcpy(y.mvp.data(), ym.constData(), 64);
             effect.ops.append({3, xOutput, 3, int(params.size()), p.stored, shadow.job->field,
                                shadow.job->needed.translated(1, 1)});
-            params.appendFilter(y);
+            if (pool->computeEnabled) {
+                // Only the compute stage consumes these records. The unused
+                // matrix column carries the atlas field origin and channel.
+                y.mvp[0] = shadow.job->field.pixels.x();
+                y.mvp[1] = shadow.job->field.pixels.y();
+                y.mvp[2] = shadow.job->field.channel;
+                const auto region = shadow.job->needed;
+                y.mapping = {float(region.x()), float(region.y()), float(region.width()),
+                             float(region.height())};
+            }
+            params.appendFilter(y, &kernel);
             effects.append(std::move(effect));
         }
         auto v = base({1, 1}, fragment, ink[draw.fragment], device, scale);
@@ -1222,6 +1509,7 @@ void CanvasNode::prepare()
              draw.clipped ? coverage.composeScissor(range) : QRect(QPoint(), coverage.target)});
         params.append(v);
     }
+    params.padKernelRange();
     const qint64 bufferBytes =
         std::max(pool->rhi->ubufAligned(sizeof(Params)), int(params.bytes.size()));
     if (slotIndex == int(uniformSlots.size()))
@@ -1229,6 +1517,10 @@ void CanvasNode::prepare()
     uniformSlot = uniformSlots[slotIndex].get();
     if (!uniformSlot->uniforms || uniformSlot->bytes < bufferBytes) {
         uniformSlot->bindings.clear();
+        for (auto &binding : uniformSlot->computeBindings)
+            binding.reset();
+        for (auto &binding : uniformSlot->horizontalBindings)
+            binding.reset();
         uniformSlot->uniforms.reset(
             pool->rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, bufferBytes));
         if (!uniformSlot->uniforms->create()) {
@@ -1246,13 +1538,15 @@ void CanvasNode::prepare()
             }
     if (!pipelines[0]) {
         pipelines[0] = pipeline("rescale", pool->passes[0].get(), 1, false);
-        pipelines[1] = pipeline("blur", pool->passes[0].get(), 1, false);
+        if (!pool->horizontalComputeEnabled)
+            pipelines[1] = pipeline("blur", pool->passes[0].get(), 1, false);
         pipelines[2] = pipeline("ink", pool->passes[0].get(), 1, false);
-        for (int c = 0; c < 4; ++c)
-            finalPipelines[c] = pipeline("blur", pool->passes[3].get(), 1, false, c);
-        if (!pipelines[0] || !pipelines[1] || !pipelines[2] ||
-            std::any_of(finalPipelines.cbegin(), finalPipelines.cend(),
-                        [](const auto &p) { return !p; })) {
+        if (!pool->computeEnabled)
+            for (int c = 0; c < 4; ++c)
+                finalPipelines[c] = pipeline("blur", pool->passes[3].get(), 1, false, c);
+        if (!pipelines[0] || !pipelines[2] || (!pool->horizontalComputeEnabled && !pipelines[1]) ||
+            (!pool->computeEnabled && std::any_of(finalPipelines.cbegin(), finalPipelines.cend(),
+                                                  [](const auto &p) { return !p; }))) {
             report("Canvas shader pipeline creation failed");
             return;
         }
@@ -1270,6 +1564,18 @@ void CanvasNode::prepare()
         pipelineIndex = static_cast<int>(mainPipelines.size());
         mainPipelines.push_back(std::move(entry));
     }
+    if (pool->computeEnabled && (!computeBinding(1) || !computeBinding(2))) {
+        report("Canvas compute frame binding creation failed");
+        return;
+    }
+    if (pool->horizontalComputeEnabled) {
+        for (const auto &effect : effects)
+            for (const auto &op : effect.ops)
+                if (op.kind == 1 && !horizontalBinding(op.src, op.dst)) {
+                    report("Canvas horizontal frame binding creation failed");
+                    return;
+                }
+    }
     mainPipeline = mainPipelines[pipelineIndex]->pipeline.get();
     updates = pool->rhi->nextResourceUpdateBatch();
     if (!params.bytes.isEmpty())
@@ -1286,6 +1592,26 @@ void CanvasNode::prepare()
                 effect.plan, commandBuffer());
         for (const auto &op : effect.ops) {
             auto *cb = commandBuffer();
+            const std::array<QRhiCommandBuffer::DynamicOffset, 2> offsets{
+                QRhiCommandBuffer::DynamicOffset{0, params.offsets[op.slot]},
+                QRhiCommandBuffer::DynamicOffset{6, params.kernelOffsets[op.slot]}};
+            if (op.kind == 1 && pool->horizontalComputeEnabled) {
+                cb->beginComputePass();
+                cb->setComputePipeline(pool->horizontalPipeline.get());
+                cb->setShaderResources(horizontalBinding(op.src, op.dst), 2, offsets.data());
+                cb->dispatch((op.scissor.width() + 31) / 32, op.scissor.height(), 1);
+                cb->endComputePass();
+                continue;
+            }
+            if (op.kind == 3 && pool->computeEnabled) {
+                cb->beginComputePass();
+                cb->setComputePipeline(effect.smallKernel ? pool->verticalSmallPipeline.get()
+                                                          : pool->verticalPipeline.get());
+                cb->setShaderResources(computeBinding(op.src), 2, offsets.data());
+                cb->dispatch(op.scissor.width(), (op.scissor.height() + 31) / 32, 1);
+                cb->endComputePass();
+                continue;
+            }
             cb->beginPass(pool->targets[op.dst].get(), Qt::transparent, {1, 0});
             cb->setGraphicsPipeline(op.kind == 3 ? finalPipelines[op.field.channel].get()
                                                  : pipelines[op.kind].get());
@@ -1298,8 +1624,8 @@ void CanvasNode::prepare()
                                   .translated(x, y);
             cb->setScissor(
                 {area.x(), 1024 - area.y() - area.height(), area.width(), area.height()});
-            const QRhiCommandBuffer::DynamicOffset offset{0, params.offsets[op.slot]};
-            cb->setShaderResources(binding(effect.fragment, op.src, op.kind == 2), 1, &offset);
+            cb->setShaderResources(binding(effect.fragment, op.src, op.kind == 2),
+                                   op.kind == 2 ? 1 : 2, offsets.data());
             cb->draw(4);
             cb->endPass();
         }

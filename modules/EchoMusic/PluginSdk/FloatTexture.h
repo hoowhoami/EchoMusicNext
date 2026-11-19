@@ -69,6 +69,8 @@ public:
     }
     Q_INVOKABLE bool upload(int width, int height, const QJSValue &arrayBuffer);
     Q_INVOKABLE bool uploadPacked(int width, int height, const QString &utf16Words);
+    /// Canonical ASCII Base64 for exactly width * height RGBA32F pixels.
+    Q_INVOKABLE bool uploadBase64(int width, int height, const QString &base64);
     Q_INVOKABLE void clear();
     bool isTextureProvider() const override
     {

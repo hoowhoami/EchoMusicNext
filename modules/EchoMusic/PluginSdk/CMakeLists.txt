@@ -259,6 +259,22 @@ qt_add_shaders(
     shaders/glyph-canvas/ink.frag
     shaders/glyph-canvas/compose.frag
 )
+qt_add_shaders(
+    echo_plugin_sdk
+    echo_plugin_glyph_canvas_compute_shaders
+    PREFIX
+    "/qt/qml/EchoMusic/PluginSdk"
+    BASE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    GLSL
+    "310 es,430"
+    MSL
+    "20"
+    FILES
+    shaders/glyph-canvas/vertical.comp
+    shaders/glyph-canvas/vertical-small.comp
+    shaders/glyph-canvas/horizontal.comp
+)
 
 qt_add_executable(echo-plugin-asset-worker AssetImageWorker.cpp AssetSvgValidation.cpp)
 set_target_properties(echo-plugin-asset-worker PROPERTIES MACOSX_BUNDLE FALSE)

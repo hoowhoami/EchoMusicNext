@@ -1,0 +1,50 @@
+#version 440
+#extension GL_GOOGLE_include_directive : require
+#include "filter-params.glsl"
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+layout(binding = 1) uniform sampler2D source;
+layout(std140, binding = 6) uniform kernelBuf
+{
+    vec4 taps[128];
+};
+layout(rgba8, binding = 7) writeonly uniform image2D result;
+shared float columns[288];
+float fetchPixel(int x, int y)
+{
+    return x < 0 || y < 0 || x >= int(inputInfo.x) || y >= int(inputInfo.y)
+               ? 0.
+               : texelFetch(source, ivec2(x, y), 0).r;
+}
+void main()
+{
+    ivec4 region = ivec4(mvp[0]);
+    int lane = int(gl_LocalInvocationID.x);
+    int x0 = region.x + int(gl_WorkGroupID.x) * 32;
+    int x = x0 + lane, y = region.y + int(gl_WorkGroupID.y);
+    int covered = min(32, region.z - int(gl_WorkGroupID.x) * 32);
+    int pad = int(mapping.w), sy = y - pad;
+    if (sy < 0 || sy >= int(inputInfo.y)) {
+        if (lane < covered)
+            imageStore(result, ivec2(x, y), vec4(0.));
+        return;
+    }
+    int radius = -int(taps[0].x);
+    int first = x0 - pad - radius;
+    int count = covered + radius * 2 + 2;
+    for (int i = lane; i < count; i += 32)
+        columns[i] = fetchPixel(first + i, sy);
+    barrier();
+    if (lane >= covered)
+        return;
+    float total = 0.;
+    int px = x - pad;
+    for (int i = 0; i < int(options.w); ++i) {
+        vec4 tap = taps[i];
+        int sx = px + int(tap.x), row = sx - first;
+        total += tap.z * columns[row];
+        if (tap.w != 0.)
+            total += tap.w * columns[row + 1];
+    }
+    float v = floor(total / options.z * 255. + .5) / 255.;
+    imageStore(result, ivec2(x, y), vec4(v));
+}

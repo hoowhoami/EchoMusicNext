@@ -1,0 +1,4 @@
+#version 440
+#extension GL_GOOGLE_include_directive : require
+#define ROW_CAPACITY 512
+#include "vertical-kernel.glsl"

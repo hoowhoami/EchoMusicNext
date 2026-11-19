@@ -3,6 +3,8 @@
 #include <QQmlComponent>
 #include <QQuickWindow>
 #include <QtEndian>
+#include <array>
+#include <cstring>
 
 namespace
 {
@@ -16,6 +18,17 @@ QString packed(QJSEngine &engine, float red = -.5f)
     })())")
                       .arg(red))
         .toString();
+}
+QString encoded(float red)
+{
+    const std::array<float, 4> values{red, 2, .25, 1};
+    QByteArray bytes(16, Qt::Uninitialized);
+    for (int i = 0; i < 4; ++i) {
+        quint32 bits;
+        memcpy(&bits, &values[i], 4);
+        qToLittleEndian(bits, bytes.data() + i * 4);
+    }
+    return QString::fromLatin1(bytes.toBase64());
 }
 bool near(const QColor &actual, float r, float g, float b)
 {
@@ -53,10 +66,14 @@ void PluginRuntimeTest::graphicsFloatTextureValidationAndRetirement()
     parent.setSize({16, 16});
     FloatTexture source(&parent);
     source.setSize({1, 1});
+    const auto encoded =
+        QString::fromLatin1(QByteArray::fromHex("000000bf000000400000803e0000803f").toBase64());
     QCOMPARE(source.textureWidth(), 0);
     QCOMPARE(source.textureHeight(), 0);
     QVERIFY(!source.uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(!source.uploadBase64(1, 1, encoded));
     source.setGraphics(f.gpu);
+    QVERIFY2(source.uploadBase64(1, 1, encoded), qPrintable(source.errorString()));
     QVERIFY(source.upload(1, 1, f.host.engine.evaluate("new Float32Array([-.5,2,.25,1]).buffer")));
     QVERIFY2(source.uploadPacked(1, 1, packed(f.host.engine)), qPrintable(source.errorString()));
     QCOMPARE(source.sourceBytes(), 16);
@@ -65,6 +82,23 @@ void PluginRuntimeTest::graphicsFloatTextureValidationAndRetirement()
     QVERIFY(!source.uploadPacked(INT_MAX, INT_MAX, packed(f.host.engine)));
     QVERIFY(!source.uploadPacked(1, 0, packed(f.host.engine)));
     QVERIFY(!source.uploadPacked(1, 1, QString("short")));
+    QVERIFY(!source.uploadBase64(8193, 1, encoded));
+    QVERIFY(!source.uploadBase64(INT_MAX, INT_MAX, encoded));
+    QVERIFY(!source.uploadBase64(1, 0, encoded));
+    QVERIFY(!source.uploadBase64(1, 1, encoded.chopped(1)));
+    QVERIFY(!source.uploadBase64(1, 1, encoded + "="));
+    auto malformed = encoded;
+    malformed[0] = QChar(0x141);
+    QVERIFY(!source.uploadBase64(1, 1, malformed));
+    malformed = encoded;
+    malformed[0] = ' ';
+    QVERIFY(!source.uploadBase64(1, 1, malformed));
+    malformed = encoded;
+    malformed[malformed.size() - 3] = 'x'; // Same decoded last byte, nonzero unused bits.
+    QVERIFY(!source.uploadBase64(1, 1, malformed));
+    const auto nonfinite =
+        QString::fromLatin1(QByteArray::fromHex("0000c07f00000000000000000000803f").toBase64());
+    QVERIFY(!source.uploadBase64(1, 1, nonfinite));
     QVERIFY(!source.upload(1, 1, f.host.engine.evaluate("new Float32Array(4)")));
     QVERIFY(!source.upload(1, 1, f.host.engine.evaluate("new ArrayBuffer(15)")));
     QVERIFY(
@@ -73,16 +107,32 @@ void PluginRuntimeTest::graphicsFloatTextureValidationAndRetirement()
     QVERIFY2(source.uploadPacked(1, 1, packed(f.host.engine)), qPrintable(source.errorString()));
     QCOMPARE(memory->native.used.load(), 16); // Identical upload consumes no second slot.
     QCOMPARE(memory->floatTextures.load(), 1);
+    for (int pixels : {2, 3}) {
+        const auto data = QByteArray(pixels * 16, '\0').toBase64();
+        QVERIFY(source.uploadBase64(pixels, 1, QString::fromLatin1(data)));
+        QCOMPARE(source.sourceBytes(), pixels * 16);
+    }
+    const auto maximum = QString::fromLatin1(QByteArray(16 * 1024 * 1024, '\0').toBase64());
+    QVERIFY(source.uploadBase64(8192, 128, maximum));
+    QCOMPARE(source.sourceBytes(), 16 * 1024 * 1024);
+    QCOMPARE(source.textureWidth(), 8192);
+    QCOMPARE(source.textureHeight(), 128);
+    QVERIFY(!source.uploadBase64(8192, 129, maximum));
+    QCOMPARE(memory->native.used.load(), 16 * 1024 * 1024);
+    QVERIFY(source.uploadBase64(1, 1, encoded));
+    QCOMPARE(memory->native.used.load(), 16);
     source.setVisible(false);
     QTRY_COMPARE(source.sourceBytes(), 0);
     QCOMPARE(source.textureWidth(), 0);
     QCOMPARE(source.textureHeight(), 0);
     QCOMPARE(memory->native.used.load(), 0);
     QVERIFY(!source.uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(!source.uploadBase64(1, 1, encoded));
     source.setVisible(true);
     QVERIFY2(source.uploadPacked(1, 1, packed(f.host.engine)), qPrintable(source.errorString()));
     source.setActive(false);
     QCOMPARE(source.sourceBytes(), 0);
+    QVERIFY(!source.uploadBase64(1, 1, encoded));
     std::vector<std::unique_ptr<FloatTexture>> textures;
     for (int i = 0; i < 256; ++i) {
         auto texture = std::make_unique<FloatTexture>(&parent);
@@ -105,6 +155,7 @@ void PluginRuntimeTest::graphicsFloatTextureValidationAndRetirement()
     QVERIFY(f.host.runtime.setEnabled(f.scope->installationId(), false));
     QTRY_COMPARE(source.sourceBytes(), 0);
     QVERIFY(!source.uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(!source.uploadBase64(1, 1, encoded));
     QCOMPARE(memory->floatTextures.load(), 0);
 }
 
@@ -209,10 +260,10 @@ Rectangle {
         QVERIFY(qAbs(actual.blue() - qRound(blend(.3, background.blueF()) * 255)) <= 3);
     }
     root->setProperty("color", background);
-    QVERIFY(source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(source->uploadBase64(1, 1, encoded(-.5f)));
     pixel(96);
     QCOMPARE(source->textureUploads(), 1);
-    QVERIFY(source->uploadPacked(1, 1, packed(f.host.engine, .5f)));
+    QVERIFY(source->uploadBase64(1, 1, encoded(.5f)));
     QTRY_VERIFY(near(pixel(96), .75, .5, .25));
     QTRY_COMPARE(source->textureUploads(), 2);
     QTRY_COMPARE(memory->native.used.load(), 16);
@@ -226,7 +277,7 @@ Rectangle {
         if (source->ready() && firstReady < 0)
             firstReady = frames;
         const bool alreadyReady = source->ready();
-        source->uploadPacked(1, 1, packed(f.host.engine, frames % 2 ? .5f : -.5f));
+        source->uploadBase64(1, 1, encoded(frames % 2 ? .5f : -.5f));
         if (alreadyReady && !source->ready())
             keptAllocationReady = false;
         ++frames;
@@ -242,38 +293,38 @@ Rectangle {
     root->setOpacity(0);
     QTRY_COMPARE(source->sourceBytes(), 0);
     QTRY_COMPARE(memory->native.used.load(), 0);
-    QVERIFY(!source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(!source->uploadBase64(1, 1, encoded(-.5f)));
     root->setOpacity(1);
-    QVERIFY(source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(source->uploadBase64(1, 1, encoded(-.5f)));
     QTRY_VERIFY(near(pixel(96), .25, .5, .25));
     source->setX(500);
     // A data-only source cell need not intersect the viewport; its sampler's
     // enclosing renderer still does. Moving the renderer away retires it.
     QCOMPARE(source->sourceBytes(), 16);
-    QVERIFY(source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(source->uploadBase64(1, 1, encoded(-.5f)));
     QTRY_VERIFY(near(pixel(96), .25, .5, .25));
     root->setX(500);
     QTRY_COMPARE(source->sourceBytes(), 0);
     QTRY_COMPARE(memory->native.used.load(), 0);
-    QVERIFY(!source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(!source->uploadBase64(1, 1, encoded(-.5f)));
     root->setX(0);
     source->setX(0);
-    QVERIFY(source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(source->uploadBase64(1, 1, encoded(-.5f)));
     QTRY_VERIFY(near(pixel(96), .25, .5, .25));
     window.setOpacity(0);
     QTRY_COMPARE(source->sourceBytes(), 0);
     QTRY_COMPARE(memory->native.used.load(), 0);
-    QVERIFY(!source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(!source->uploadBase64(1, 1, encoded(-.5f)));
     window.setOpacity(1);
-    QVERIFY(source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(source->uploadBase64(1, 1, encoded(-.5f)));
     QTRY_VERIFY(near(pixel(96), .25, .5, .25));
     window.showMinimized();
     QTRY_COMPARE(source->sourceBytes(), 0);
     QTRY_COMPARE(memory->native.used.load(), 0);
-    QVERIFY(!source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(!source->uploadBase64(1, 1, encoded(-.5f)));
     window.showNormal();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
-    QVERIFY(source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(source->uploadBase64(1, 1, encoded(-.5f)));
     QTRY_VERIFY(near(pixel(96), .25, .5, .25));
     window.hide();
     window.releaseResources();
@@ -282,13 +333,13 @@ Rectangle {
     QTRY_COMPARE(memory->native.used.load(), 0);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
-    QVERIFY(source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(source->uploadBase64(1, 1, encoded(-.5f)));
     QTRY_VERIFY(near(pixel(96), .25, .5, .25));
     QVERIFY(verifyBlend("screen", QVector4D(.1, .2, .3, .5)));
     QVERIFY(QMetaObject::invokeMethod(&f.host.api, "sessionChanged", Q_ARG(quint64, 1)));
     QTRY_COMPARE(source->sourceBytes(), 0);
     QTRY_COMPARE(memory->native.used.load(), 0);
-    QVERIFY(source->uploadPacked(1, 1, packed(f.host.engine)));
+    QVERIFY(source->uploadBase64(1, 1, encoded(-.5f)));
     QTRY_VERIFY(near(pixel(96), .25, .5, .25));
     // Retire while a sampler still references the provider, then destroy the window.
     QVERIFY(f.host.runtime.setEnabled(f.scope->installationId(), false));
