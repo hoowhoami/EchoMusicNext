@@ -208,6 +208,7 @@ Item {
                 glyph: "x"
                 colors: Theme.floating
                 text: qsTr("关闭提示")
+                tooltipText: ""
                 onClicked: viewport.service.dismiss(viewport.service.noticeId)
             }
         }
